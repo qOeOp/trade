@@ -6,43 +6,41 @@
 
 ## W.1　供给交易所数据 [#W-1]
 
-交易所数据 exchange data 只从交易所公开来源进入市场库，并只以一个市场提交 market commit 的身份流出。导入命令 <Ref id="cli.market_import" /> 触发 <Ref id="market.import_month" />：读合约条款，经 <Ref id="market.stitch_series" /> 把月归档、日归档与当月公开接口拼成每合约每价格类型一条 1 分钟序列，资金费按实际结算时刻同法拼接，连同重算的共同可交易范围 universe 在一个事务里追加并一次提交。回放时 <Ref id="market.export_catalogs" /> 在登记钉住的提交上 AS OF 导出窗口内数据为引擎 Catalog，高周期由 <Ref id="market.derive_bars" /> 按固定规则派生。缺口沿途只记为缺失区间进入导入报告与覆盖回执，不补造。整条链由代码与数据库强制，Agent 只决定引用哪一个提交。
-
 <Steps>
 
 <Step>
 
-<Ref id="cli.market_import" /> 指定一个 UTC 月份；<Ref id="market.import_month" /> 核对范围规则版本、工作集干净与该月是否已完整
+<Ref id="cli.market_import" /> 指定一个 UTC 月份；<Ref id="market.import_month" /> 核对范围规则版本、工作集干净与该月是否已完整。
 
 </Step>
 
 <Step>
 
-读交易所公开条款原文，<Ref id="market.classify_contract" /> 定出合格合约；条款有变化者按观测时刻向 <Ref id="table:instrument" /> 追加一行
+读交易所公开条款原文，<Ref id="market.classify_contract" /> 定出合格合约；条款有变化者按观测时刻向 <Ref id="table:instrument" /> 追加一行。
 
 </Step>
 
 <Step>
 
-对每个合格合约、每个价格类型调用 <Ref id="market.stitch_series" /> 拼成 1 分钟序列，资金费同法拼接；校验和不符或同一时刻两来源不等即拒绝整次导入
+<Ref id="market.stitch_series" /> 把月归档、日归档与当月公开接口拼成每合约每价格类型一条 1 分钟序列，资金费按实际结算时刻同法拼接；校验和不符或同一时刻两来源不等即拒绝整次导入。
 
 </Step>
 
 <Step>
 
-按库内加本次数据重算首月到本月的共同可交易范围并与已存月份比对，只追加本月成员行
+按库内加本次数据重算首月到本月的共同可交易范围 universe，与已存月份比对，只追加本月成员行。
 
 </Step>
 
 <Step>
 
-一个事务只做 INSERT，运行 <Ref id="table:market.dolt_tests" />，通过后恰一次 DOLT_COMMIT，返回市场提交哈希与缺口区间
+一个事务只做 INSERT，运行 <Ref id="table:market.dolt_tests" />，通过后恰一次 DOLT_COMMIT，返回市场提交 market commit 哈希与缺口区间（缺口只记为缺失区间，不补造）。
 
 </Step>
 
 <Step>
 
-登记钉住该提交；回放时 <Ref id="market.export_catalogs" /> AS OF 导出并派生高周期，缺口写入覆盖回执
+Agent 只决定登记钉住哪个提交；回放时 <Ref id="market.export_catalogs" /> AS OF 该提交导出窗口内数据为引擎 Catalog，<Ref id="market.derive_bars" /> 派生高周期，缺口写入覆盖回执。
 
 </Step>
 
@@ -50,123 +48,167 @@
 
 ### W.1.1　来源与拼接 [#W-1-1]
 
-两条能力都由代码强制：来源顺序与拼接在 <Ref id="market.stitch_series" />，校验和核对在 <Ref id="market.fetch_archive" />，同一时刻冲突的拒绝与整次回滚在 <Ref id="market.import_month" />。输入是合约、价格类型与区间，输出是一张整分钟表与缺失区间；来源种类只出现在导入报告，不进表。
+把合约、价格类型与区间变成一张整分钟表与缺失区间，来源种类只出现在导入报告，不进表。
 
-<Cap id="W.1.1.1" kind="code" tier="verified" tierLabel="已验证" title="只用交易所公开数据，三来源拼成一条，拼接对策略不可见">
+<Cap id="W.1.1.1" kind="code" tier="verified" tierLabel="已验证" title="只用交易所公开数据，按月归档、日归档、公开接口依次拼成一条，拼接对策略不可见">
 
-交易所数据只取交易所公开发布、无需账号的来源，不使用交易凭证或任何需登录的接口（代码强制）。1 分钟成交价 K 线（LAST）、1 分钟标记价 K 线（MARK）与资金费 funding 以月归档为主（<Ref id="market.monthly_archives" />）；月归档未发布或缺失的月份按天取日归档；归档都未覆盖的尾段（通常是当月）由公开接口补，K 线经 <Ref id="market.rest_klines" />，资金费没有日归档，经 <Ref id="market.rest_funding" />；合约条款原文经 <Ref id="market.rest_exchange_info" /> 读取。<Ref id="market.stitch_series" /> 按此顺序把三者拼成每合约每价格类型一条按开盘时刻排序、无重复、整分钟对齐的 1 分钟序列写入 <Ref id="table:bar" />，资金费写入 <Ref id="table:funding" />。表中没有来源列，运行器与策略看不到拼接边界；各来源行数只出现在导入报告。拒绝：参数或返回行形状不合法 SOURCE_SHAPE；合约仍在交易而公开接口不识别 SOURCE_UNKNOWN_SYMBOL（已下架合约不被识别视为无补充，不是错误）；交易所不可达在有限重试后 SOURCE_UNREACHABLE，从不以空结果冒充完整。
+1. 1 分钟成交价 K 线（LAST）、1 分钟标记价 K 线（MARK）与资金费 funding 以月归档为主（<Ref id="market.monthly_archives" />）。
+2. 月归档未发布或缺失的月份按天取日归档。
+3. 归档都未覆盖的尾段（通常是当月）由公开接口补：K 线经 <Ref id="market.rest_klines" />；资金费没有日归档，经 <Ref id="market.rest_funding" />。
+4. <Ref id="market.stitch_series" /> 输出按开盘时刻排序、无重复、整分钟对齐的序列，K 线写入 <Ref id="table:bar" />，资金费写入 <Ref id="table:funding" />。
 
-<div className="rd-meta">
+- 只取交易所公开发布、无需账号的来源，不使用交易凭证或任何需登录的接口。
+- 合约条款原文经 <Ref id="market.rest_exchange_info" /> 读取。
+- 表中没有来源列，运行器与策略看不到拼接边界；各来源行数只出现在导入报告。
+- 已下架合约不被公开接口识别视为无补充，不是错误。
+- 交易所不可达时只做有限重试，从不以空结果冒充完整。
 
-**定义**　<Ref id="market.monthly_archives" />、<Ref id="market.rest_funding" />、<Ref id="market.rest_klines" />、<Ref id="market.stitch_series" />、<Ref id="market.rest_exchange_info" />
+**输入**　合约、价格类型与区间。
 
-**使用**　<Ref id="market.fetch_archive" />、<Ref id="market.missing_intervals" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+**输出**　一张按开盘时刻排序的整分钟表（<Ref id="table:bar" /> / <Ref id="table:funding" />）与缺失区间；各来源行数写入导入报告。
 
-**依据**　[\[95\]](/zh/docs/appendix-references/#ref-95 "binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）") [\[96\]](/zh/docs/appendix-references/#ref-96 "Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）")
+**强制**　代码强制：来源顺序与拼接由 <Ref id="market.stitch_series" /> 执行，表结构不含来源列。
 
-</div>
-
-<p className="rd-resolves">归档发布滞后与缺月导致的数据不全，且避免策略感知拼接边界</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SHAPE` | 参数或返回行形状不合法。 |
+| `SOURCE_UNKNOWN_SYMBOL` | 合约仍在交易而公开接口不识别。 |
+| `SOURCE_UNREACHABLE` | 交易所不可达，有限重试后仍失败。 |
 
 </Cap>
 
-<Cap id="W.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="归档按交易所校验和核对；同一时刻两来源不一致才拒绝导入">
+<Cap id="W.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="归档按交易所 SHA-256 校验和核对；同一时刻两来源不等即拒绝整次导入">
 
-每个归档文件先由 <Ref id="market.fetch_archive" /> 按交易所随文件发布的 SHA-256 校验和核对再解析：不符即 CHECKSUM_MISMATCH 且不写任何字节到缓存；归档尚未发布即 ARCHIVE_NOT_PUBLISHED，由调用方改用下一级来源；校验和不符从不降级为缺月。同一分钟（资金费为同一结算时刻）被两个来源同时持有时必须逐字段相等，相等只留一行，不等即 SOURCE_CONFLICT，指明合约、价格类型与时刻并拒绝整次导入，不以任一来源覆盖另一来源；只有一个来源持有的时刻直接采用；非整分钟或无法解析的行即 SOURCE_SHAPE。导入只经 <Ref id="cli.market_import" /> 调用 <Ref id="market.import_month" />，以导入账号经 <Ref id="market.connect" /> 写入；全部核对在提交前完成，任何拒绝回滚全部追加，市场库停在导入前的提交（代码强制）。
+1. <Ref id="market.fetch_archive" /> 先按交易所随文件发布的 SHA-256 校验和核对每个归档文件，再解析。
+2. 同一分钟（资金费为同一结算时刻）被两个来源同时持有时逐字段比较，相等只留一行。
+3. 只有一个来源持有的时刻直接采用。
+4. 全部核对在提交前完成；任何拒绝回滚全部追加，市场库停在导入前的提交。
 
-<div className="rd-meta">
+- 校验和不符时不写任何字节到缓存，且从不降级为缺月。
+- 归档尚未发布时由调用方改用下一级来源。
+- 两来源不等时不以任一来源覆盖另一来源。
+- 导入只经 <Ref id="cli.market_import" /> 调用 <Ref id="market.import_month" />，以导入账号经 <Ref id="market.connect" /> 写入。
 
-**定义**　<Ref id="cli.market_import" />、<Ref id="market.fetch_archive" />、<Ref id="market.import_month" />、<Ref id="market.connect" />
+**输入**　归档文件及交易所随文件发布的校验和，以及各来源的分钟行与资金费行。
 
-**使用**　<Ref id="market.stitch_series" />、<Ref id="market.monthly_universe" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:instrument" />
+**输出**　核对通过、已去重的行；或拒绝并回滚整次导入。
 
-**依据**　[\[97\]](/zh/docs/appendix-references/#ref-97 "binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验")
+**强制**　代码强制：校验和核对在 <Ref id="market.fetch_archive" />，同一时刻冲突的拒绝与整次回滚在 <Ref id="market.import_month" />。
 
-</div>
-
-<p className="rd-resolves">损坏归档或来源分歧被静默写入市场库</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `CHECKSUM_MISMATCH` | 归档文件与交易所发布的 SHA-256 校验和不符。 |
+| `ARCHIVE_NOT_PUBLISHED` | 归档尚未发布（调用方改用下一级来源）。 |
+| `SOURCE_CONFLICT` | 同一时刻两来源字段不等；指明合约、价格类型与时刻并拒绝整次导入。 |
+| `SOURCE_SHAPE` | 行非整分钟或无法解析。 |
 
 </Cap>
 
 ### W.1.2　数据内容 [#W-1-2]
 
-基础数据的形态由市场库 <Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:instrument" /> 三张表与自述表 <Ref id="table:market_schema" /> 定义，写入只由 <Ref id="market.import_month" /> 执行，约束由数据库强制；高周期 K 线不入库，由 <Ref id="market.derive_bars" /> 在导出时派生，并用 <Ref id="market.check_derived" /> 与交易所原生 K 线对照。输入是 1 分钟 K 线、资金费与条款，输出是引擎 Catalog。
+市场库存 1 分钟 K 线、资金费与条款三样基础数据，导出时派生高周期并写为引擎 Catalog。
 
-<Cap id="W.1.2.1" kind="database" tier="verified" tierLabel="已验证" title="基础数据只有三样；每个永续是独立合约">
+<Cap id="W.1.2.1" kind="database" tier="verified" tierLabel="已验证" title="市场库只存 1 分钟成交价、1 分钟标记价与资金费；每个永续独立成序列">
 
-市场库只存三样基础数据（数据库强制）：<Ref id="table:bar" /> 中的 1 分钟成交价 K 线（price_type=LAST）与 1 分钟标记价 mark price K 线（MARK，成交量恒为 0，由 CHECK 强制）；<Ref id="table:funding" /> 中按交易所实际结算时刻记录的资金费，保留毫秒抖动，不按固定周期对齐。每个永续合约是独立序列：不跨合约拼接、不复权、不以标记价代替成交价。价格与成交量按 <Ref id="table:market_schema" /> 记录的整数比例存为整数，避免浮点误差。合约条款在 <Ref id="table:instrument" /> 按观测时刻追加一行：取自交易所公开条款原文（terms_source=exchange_info），已从交易所移除、无原文的合约按其成交用到的最多小数位推断步长（inferred，其余条款为空）。三类事实各有权威来源、互不推导。导出时成交价 K 线以收盘时刻为事件时间（<Ref id="W.2.1.3" />，<Ref id="market.write_bars" />），标记价写为引擎标记价更新（<Ref id="market.write_marks" />），资金费写为引擎资金费更新（<Ref id="market.write_funding" />）。
+- <Ref id="table:bar" /> 存 1 分钟成交价 K 线（price_type=LAST）与 1 分钟标记价 mark price K 线（MARK）；MARK 成交量恒为 0，由 CHECK 强制。
+- <Ref id="table:funding" /> 按交易所实际结算时刻记录资金费，保留毫秒抖动，不按固定周期对齐。
+- 每个永续合约是独立序列：不跨合约拼接、不复权、不以标记价代替成交价。
+- 价格与成交量按 <Ref id="table:market_schema" /> 记录的整数比例存为整数，避免浮点误差。
+- 合约条款在 <Ref id="table:instrument" /> 按观测时刻追加一行，取自交易所公开条款原文（terms_source=exchange_info）。
+- 已从交易所移除、无原文的合约按其成交用到的最多小数位推断步长（inferred），其余条款为空。
+- 三类事实各有权威来源、互不推导。
+- 导出时成交价 K 线以收盘时刻为事件时间（<Ref id="W.2.1.3" />，<Ref id="market.write_bars" />）。
+- 标记价导出为引擎标记价更新（<Ref id="market.write_marks" />）。
+- 资金费导出为引擎资金费更新（<Ref id="market.write_funding" />）。
 
-<div className="rd-meta">
+**输入**　交易所的 1 分钟 K 线、资金费与合约条款，只由 <Ref id="market.import_month" /> 写入。
 
-**定义**　<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+**输出**　三张基础数据表与自述表 <Ref id="table:market_schema" />；导出时成为引擎 Catalog 中的 K 线、标记价更新与资金费更新。
 
-**使用**　<Ref id="market.import_month" />、<Ref id="market.stitch_series" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_universe" />
-
-**依据**　[\[98\]](/zh/docs/appendix-references/#ref-98 "Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）") [\[99\]](/zh/docs/appendix-references/#ref-99 "Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）") [\[100\]](/zh/docs/appendix-references/#ref-100 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）")
-
-</div>
-
-<p className="rd-resolves">回放所需的价格、估值与资金费三类事实各有权威来源，不互相推导</p>
+**强制**　数据库强制：表结构、CHECK 约束与整数比例；写入只由 <Ref id="market.import_month" /> 执行。
 
 </Cap>
 
-<Cap id="W.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺一次覆盖全池、与交易所原生同周期 K 线的系统比对结果。" title="高周期 K 线按固定规则从 1 分钟派生，与原生 K 线对照">
+<Cap id="W.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺一次覆盖全池、与交易所原生同周期 K 线的系统比对结果。" title="高于 1 分钟的 K 线不入库，导出时按固定规则从 1 分钟派生并与原生 K 线对照">
 
-高于 1 分钟的 K 线不入库，一律由 <Ref id="market.derive_bars" /> 在导出时从 <Ref id="table:bar" /> 的 1 分钟 K 线按一条固定规则派生（代码强制）：周期只取固定白名单；桶自 UTC 零点对齐，周从周一 00:00 UTC 起；开＝首个有成交分钟的开，高低取有成交分钟（整桶无成交时取全部分钟，标记价序列恒走此支），收＝末分钟收，量＝求和；没有分钟的桶不存在，不以邻桶填充。拒绝：周期不在白名单 TIMEFRAME_UNKNOWN；输入无序、重复或非整分钟 INPUT_UNSORTED；某桶成交量溢出 VOLUME_OVERFLOW，整次派生拒绝而不截断。<Ref id="market.check_derived" /> 把派生结果与交易所原生同周期 K 线按合约价格与数量精度对照，差异作为数据缺陷写入导入日志与导出回执，不修补任一方，也不算作策略问题；网格不对齐拒绝 GRID_MISALIGNED。
+- 高于 1 分钟的 K 线一律由 <Ref id="market.derive_bars" /> 在导出时从 <Ref id="table:bar" /> 的 1 分钟 K 线派生。
+- 周期只取固定白名单。
+- 桶自 UTC 零点对齐，周从周一 00:00 UTC 起。
+- 开＝首个有成交分钟的开。
+- 高低取有成交分钟；整桶无成交时取全部分钟（标记价序列恒走此支）。
+- 收＝末分钟收；量＝求和。
+- 没有分钟的桶不存在，不以邻桶填充。
+- <Ref id="market.check_derived" /> 把派生结果与交易所原生同周期 K 线（<Ref id="market.rest_klines" />）按合约价格与数量精度对照。
+- 对照差异作为数据缺陷写入导入日志与导出回执，不修补任一方，也不算作策略问题。
 
-<div className="rd-meta">
+**输入**　1 分钟 K 线与所需周期；对照时另取交易所原生同周期 K 线。
 
-**定义**　<Ref id="market.check_derived" />、<Ref id="market.derive_bars" />
+**输出**　派生的高周期 K 线（供 <Ref id="market.export_catalogs" /> 导出），及写入导入日志与导出回执的对照差异。
 
-**使用**　<Ref id="table:bar" />、<Ref id="market.rest_klines" />、<Ref id="market.export_catalogs" />
+**强制**　代码强制：<Ref id="market.derive_bars" /> 执行固定派生规则，<Ref id="market.check_derived" /> 执行对照。
 
-</div>
-
-<p className="rd-resolves">多周期策略的输入口径唯一，且可对照交易所校核</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `TIMEFRAME_UNKNOWN` | 周期不在白名单。 |
+| `INPUT_UNSORTED` | 输入无序、重复或非整分钟。 |
+| `VOLUME_OVERFLOW` | 某桶成交量溢出；整次派生拒绝而不截断。 |
+| `GRID_MISALIGNED` | 对照时派生与原生 K 线网格不对齐。 |
 
 </Cap>
 
 ### W.1.3　缺口与版本 [#W-1-3]
 
-缺口由 <Ref id="market.missing_intervals" /> 从分钟网格算出，进入导入报告与 <Ref id="market.coverage_facts" /> 的覆盖回执；版本由一次导入恰一个提交保证，回放只引用提交哈希。两者由代码与数据库强制，<Ref id="table:market.dolt_tests" /> 在每次导入提交前做跨表校验。
+缺口由 <Ref id="market.missing_intervals" /> 从分钟网格算出并进入 <Ref id="market.coverage_facts" /> 的覆盖回执；版本由代码与数据库共同强制，<Ref id="table:market.dolt_tests" /> 在提交前做跨表校验。
 
-<Cap id="W.1.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="缺口如实记录为缺失区间，不补造">
+<Cap id="W.1.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="无来源的分钟如实记为左闭右开缺失区间，不补造、不缩窗、不删币">
 
-任何来源都没有的分钟由 <Ref id="market.missing_intervals" /> 如实记为左闭右开的缺失区间，零成交量分钟另列计数（零成交是持有分钟的事实，不是缺口），随导入报告与导出覆盖回执报告（代码强制）。缺口即表中缺行：不插值、不前值填充、不以标记价代替成交价，也不因缺口缩窗、删币或拒绝导入。输入时刻非严格递增或不在网格上即 GRID_MISALIGNED。缺口对某次回放的解读由覆盖回执与报告呈现（<Ref id="W.3.3.2" />），不由数据层决定。
+- 任何来源都没有的分钟由 <Ref id="market.missing_intervals" /> 从分钟网格算出，记为左闭右开的缺失区间。
+- 零成交量分钟另列计数：零成交是持有分钟的事实，不是缺口。
+- 缺口即表中缺行：不插值、不前值填充、不以标记价代替成交价。
+- 不因缺口缩窗、删币或拒绝导入。
+- 缺口对某次回放的解读由覆盖回执与报告呈现（<Ref id="W.3.3.2" />），不由数据层决定。
 
-<div className="rd-meta">
+**输入**　一条序列的分钟时刻与分钟网格。
 
-**定义**　<Ref id="market.missing_intervals" />
+**输出**　缺失区间与零成交分钟计数，随导入报告与导出覆盖回执（<Ref id="market.coverage_facts" />）报告。
 
-**使用**　<Ref id="market.stitch_series" />、<Ref id="market.coverage_facts" />
+**强制**　代码强制：由 <Ref id="market.missing_intervals" /> 计算，数据层不提供任何填充路径。
 
-</div>
-
-<p className="rd-resolves">缺口被静默填补后污染成交与估值</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `GRID_MISALIGNED` | 输入时刻非严格递增或不在网格上。 |
 
 </Cap>
 
-<Cap id="W.1.3.2" kind="database" tier="verified" tierLabel="已验证" title="市场库按月只追加、一次导入一个提交；回放引用一个提交">
+<Cap id="W.1.3.2" kind="database" tier="verified" tierLabel="已验证" title="市场库只追加，一次导入恰一个提交；回放钉住一个提交 AS OF 读取">
 
-市场库只追加（数据库与代码共同强制）：<Ref id="market.import_month" /> 在一个事务里对 <Ref id="table:universe_month" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" /> 只做 INSERT，并把 <Ref id="table:market_schema" /> 的 import_seq 加 1 作为并发导入的碰撞点（两次导入并发时后到者回滚）；随后运行 <Ref id="table:market.dolt_tests" />，任一失败即 DATA_TESTS_FAILED 回滚；全部通过后恰一次 DOLT_COMMIT，提交哈希即数据版本 market commit。已完整的月份再导入即 MONTH_EXISTS；未完整的当月只允许追加已存最后一分钟之后的尾段；同月同内容重跑返回原提交。导入前按库内与本次数据对首月到本月的每个月重算共同可交易范围（<Ref id="market.monthly_universe" />），与已存月份逐月逐合约比对，不一致即 UNIVERSE_CHANGED，保证旧提交上的名单不被改写。回放引用一个提交哈希作为输入身份的一部分，随登记 registration 锁定（<Ref id="registration.market_inputs" />），导出一律 AS OF 该提交，之后的导入不改变早先运行读到的内容；dolt_diff 读出任何 modified 或 removed 行即为改写（<Ref id="D.1.1.1" />）。
+1. 导入前按库内与本次数据对首月到本月的每个月重算共同可交易范围（<Ref id="market.monthly_universe" />），与已存月份逐月逐合约比对，保证旧提交上的名单不被改写。
+2. <Ref id="market.import_month" /> 在一个事务里对 <Ref id="table:universe_month" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" /> 只做 INSERT。
+3. 同一事务把 <Ref id="table:market_schema" /> 的 import_seq 加 1 作为并发导入的碰撞点，两次导入并发时后到者回滚。
+4. 运行 <Ref id="table:market.dolt_tests" /> 做跨表校验，任一失败即回滚。
+5. 全部通过后恰一次 DOLT_COMMIT，提交哈希即数据版本 market commit。
 
-<div className="rd-meta">
+- 未完整的当月只允许追加已存最后一分钟之后的尾段。
+- 同月同内容重跑返回原提交。
+- 回放引用一个提交哈希作为输入身份的一部分，随登记 registration 锁定（<Ref id="registration.market_inputs" />）。
+- 导出一律 AS OF 该提交，之后的导入不改变早先运行读到的内容。
+- dolt_diff 读出任何 modified 或 removed 行即为改写（<Ref id="D.1.1.1" />）。
 
-**定义**　<Ref id="table:market.dolt_tests" />
+**输入**　一个月份的本次导入数据与库内已存数据。
 
-**使用**　<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:instrument" />、<Ref id="table:universe_month" />、<Ref id="table:market_schema" />、<Ref id="market.monthly_universe" />、<Ref id="registration.market_inputs" />、<Ref id="market.resolve_commit" />
+**输出**　一个市场提交哈希，供登记钉住并作为回放导出的 AS OF 版本。
 
-**依据**　[\[101\]](/zh/docs/appendix-references/#ref-101 "Dolt — Querying history（AS OF 接提交哈希、分支或其他引用、时间戳，只返回已提交版本）") [\[102\]](/zh/docs/appendix-references/#ref-102 "Dolt — SQL procedures（DOLT_COMMIT 返回提交哈希；DOLT_TAG 为提交打只读标签）")
+**强制**　数据库与代码共同强制：事务只做 INSERT、import_seq 碰撞点、<Ref id="table:market.dolt_tests" /> 与每次导入恰一次 DOLT_COMMIT。
 
-</div>
-
-<p className="rd-resolves">数据版本可引用、可复现，后续导入不改变旧结论的输入</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `MONTH_EXISTS` | 已完整的月份再导入。 |
+| `DATA_TESTS_FAILED` | <Ref id="table:market.dolt_tests" /> 任一失败，事务回滚。 |
+| `UNIVERSE_CHANGED` | 重算的共同可交易范围与已存月份逐月逐合约比对不一致。 |
 
 </Cap>
 
 ## W.2　划定窗口 [#W-2]
-
-窗口先由用户在选定研究路线 research line 时记入账本：开发窗口 development window 与钉住的市场提交一起成为一份不可变证据包（W.2.1.2）。登记 registration 时由代码读这条路线记录，核对试验 trial 的交易段与它相等；回放时运行器解析三个窗口边界的形态（W.2.1.1），装载器核对导出回执的窗口与紧贴交易起点的日线预热（W.2.2.1）。K 线可见时刻由运行器交给引擎 engine 的配置统一为收盘时刻（W.2.1.3），成绩、配对与可比核对只取交易段（W.2.1.4）。指标实际何时就绪不是数据事实，由 skill 指导在登记时声明、由独立源码审查记录（W.2.2.2）。
 
 <Steps>
 
@@ -190,7 +232,7 @@
 
 <Step>
 
-运行器以 engine.parse_window 解析预热起点、交易起点与终点；engine.read_market 核对回执窗口，engine.warmup_daily_bars 取紧贴交易起点的日线。
+运行器以 engine.parse_window 解析三个边界；engine.read_market 核对回执窗口，engine.warmup_daily_bars 取紧贴交易起点的日线。
 
 </Step>
 
@@ -202,7 +244,7 @@
 
 <Step>
 
-比较读数 reading 的解读写明两边首次就绪时点，未就绪期间的差异不归为机制效果。
+比较读数的解读按 W.2.2.2 写明两边首次就绪时点。
 
 </Step>
 
@@ -210,147 +252,179 @@
 
 ### W.2.1　窗口结构与边界 [#W-2-1]
 
-全部由代码强制。engine.parse_window 定三个边界的形态；ledger.select_line 把开发窗口写进账本，registration.validate 在登记时核对交易段等于它；engine.account_contract 定 K 线可见时刻；engine.summary_statistics、ledger.daily_returns 与 registration.check_comparable 定统计段与可比范围。
+全部由代码强制：边界形态、开发窗口登记核对、K 线可见时刻与统计段各由一处代码固定。
 
-<Cap id="W.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="预热段与交易段；显式 UTC、左闭右开、整分钟对齐">
+<Cap id="W.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="窗口分预热段与交易段，边界须显式 UTC、整分钟对齐">
 
-回放窗口由预热段 [start, trade_start) 与交易段 [trade_start, end) 组成，要求 start ≤ trade_start \< end；trade_start 省略时等于 start（无预热段）。运行器以 <Ref id="engine.parse_window" /> 解析三个边界：每个边界是带 Z 或 ±HH:MM 偏移的 ISO-8601 时刻，换算到 UTC 后秒与微秒为 0、分钟落在撮合周期的网格上；输出纳秒边界与规范化的 Z 结尾字符串，供有效配置与报告原样引用。缺时区拒绝 WINDOW_TIMEZONE_MISSING，无法解析拒绝 WINDOW_TIMESTAMP_INVALID，不对齐拒绝 WINDOW_NOT_ALIGNED，顺序不对拒绝 WINDOW_ORDER_INVALID；任何一项拒绝都在启动引擎之前，任何时候不读宿主时区。由代码（运行器）强制，<Ref id="engine.parse_configuration" /> 解析命令行时调用它。
+- 回放窗口由预热段 [start, trade_start) 与交易段 [trade_start, end) 组成，左闭右开，要求 start ≤ trade_start \< end。
+- trade_start 省略时等于 start，即无预热段。
+- 每个边界是带 Z 或 ±HH:MM 偏移的 ISO-8601 时刻，换算到 UTC 后秒与微秒为 0，分钟落在撮合周期的网格上。
+- 任何一项拒绝都发生在启动引擎之前；任何时候不读宿主时区。
 
-<div className="rd-meta">
+**输入**　命令行给出的 start、trade_start（可省略）与 end 三个时刻字符串。
 
-**定义**　<Ref id="engine.parse_window" />
+**输出**　纳秒边界与规范化的 Z 结尾字符串，供有效配置与报告原样引用。
 
-**使用**　<Ref id="engine.parse_configuration" />、<Ref id="engine.effective_configuration" />、<Ref id="table:trial" />
+**强制**　代码：运行器的 <Ref id="engine.parse_window" />，由 <Ref id="engine.parse_configuration" /> 解析命令行时调用。
 
-</div>
-
-<p className="rd-resolves">宿主时区与半截 K 线造成的窗口歧义</p>
-
-</Cap>
-
-<Cap id="W.2.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="开发窗口由用户选定、随研究路线固定；登记必须覆盖它">
-
-开发窗口是用户选定研究路线时记入账本的连续 UTC 日区间 [window_start, window_end)，整条路线共用。输入：起点候选 strategy_id@revision、开发窗口、市场提交引用与用户备注；<Ref id="cli.line_select" /> 调 <Ref id="ledger.select_line" /> 核对起点存在、提交可解析、窗口有效且不晚于该提交的最新完整日，再以研究路线证据包 research-line-\<n> 只追加一条新记录（不改旧记录）。拒绝码：START_NOT_FOUND、MARKET_COMMIT_UNRESOLVED、WINDOW_INVALID、WINDOW_OUT_OF_COVERAGE、LINE_CONFLICT。此后每次登记由 <Ref id="registration.validate" /> 经 <Ref id="ledger.current_line" /> 读最新路线，试验交易段 [trade_start, end) 不等于开发窗口即拒绝 WINDOW_MISMATCH；导出器只导出开发窗口及其预热所需的数据，运行器不读窗口外数据。核对只拒绝，不缩窗、不扩窗、不换提交。扩展或改变窗口是用户的选择：新月份到达时 Agent 只报告可扩展范围（<Ref id="research-start/SKILL.md#window-extension" />），用户选定后写一条新路线记录。由代码（账本写函数与登记核对）强制，选路的交互由 skill 指导。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="cli.line_select" />、<Ref id="ledger.select_line" />
-
-**使用**　<Ref id="registration.validate" />、<Ref id="ledger.current_line" />、<Ref id="market.export_catalogs" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="research-start/SKILL.md#record-selected-line" />、<Ref id="research-start/SKILL.md#window-extension" />、<Ref id="eval:research-start/window-extension-user-decides" />
-
-</div>
-
-<p className="rd-resolves">窗口漂移造成同一路线内候选不可比</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `WINDOW_TIMEZONE_MISSING` | 边界缺时区。 |
+| `WINDOW_TIMESTAMP_INVALID` | 边界无法解析。 |
+| `WINDOW_NOT_ALIGNED` | 边界秒或微秒不为 0，或分钟不在撮合周期网格上。 |
+| `WINDOW_ORDER_INVALID` | 不满足 start ≤ trade_start \< end。 |
 
 </Cap>
 
-<Cap id="W.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="K 线可用时刻只有一个定义：收盘时刻">
+<Cap id="W.2.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="开发窗口由用户选定并随研究路线固定，登记交易段必须等于它">
 
-一根 K 线对策略可用的时刻只有一个定义：收盘时刻。运行器经 <Ref id="engine.account_contract" /> 把引擎配置为以收盘时刻作为 K 线事件时间（time_bars_timestamp_on_close=True），不跳过首根非完整 K 线、开启数据序列校验；导出器 <Ref id="market.write_bars" /> 写出的每根 1 分钟 K 线 ts_event = ts_init = 收盘时刻，无序即拒绝导出。预热段与交易段按同一定义判定可见性；预热日线同样以收盘时刻排列，末根收盘于 start 前 1 毫秒（<Ref id="engine.warmup_daily_bars" />）。由代码（导出器与运行器的引擎配置）强制，策略源码不能改这项配置。
+1. 用户选定研究路线，给出起点候选 strategy_id@revision、开发窗口、市场提交引用与备注。
+2. <Ref id="cli.line_select" /> 调 <Ref id="ledger.select_line" />，核对起点存在、提交可解析、窗口有效且不晚于该提交的最新完整日。
+3. 核对通过后以研究路线证据包 research-line-\<n> 只追加一条新记录，旧记录保持不变。
+4. 每次登记由 <Ref id="registration.validate" /> 经 <Ref id="ledger.current_line" /> 读最新路线，核对试验交易段 [trade_start, end) 等于开发窗口。
 
-<div className="rd-meta">
+- 开发窗口是连续 UTC 日区间 [window_start, window_end)，整条路线共用。
+- 导出器只导出开发窗口及其预热所需的数据，运行器不读窗口外数据。
+- 核对只拒绝，不缩窗、不扩窗、不换提交。
+- 扩展或改变窗口由用户决定；新月份到达时 Agent 只报告可扩展范围（<Ref id="research-start/SKILL.md#window-extension" />）。
+- 用户选定后写一条新路线记录。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="market.write_bars" />、<Ref id="engine.warmup_daily_bars" />
+**输入**　起点候选 strategy_id@revision、开发窗口、市场提交引用与用户备注。
 
-**依据**　[\[103\]](/zh/docs/appendix-references/#ref-103 "NautilusTrader — Data（time_bars_timestamp_on_close 缺省 True：ts_event 为 K 线收盘时刻）") [\[104\]](/zh/docs/appendix-references/#ref-104 "NautilusTrader — Bar execution（ts_init 须为区间收盘，完整 K 线在形成前不可见）")
+**输出**　账本中一条研究路线证据包 research-line-\<n>；登记时的通过或拒绝。
 
-</div>
+**强制**　代码：账本写函数与登记核对；选路的交互由 skill 指导。
 
-<p className="rd-resolves">以开盘时刻标记 K 线导致的前视偏差 look-ahead bias</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `START_NOT_FOUND` | 起点候选不存在。 |
+| `MARKET_COMMIT_UNRESOLVED` | 市场提交引用无法解析。 |
+| `WINDOW_INVALID` | 开发窗口无效。 |
+| `WINDOW_OUT_OF_COVERAGE` | 窗口晚于该提交的最新完整日。 |
+| `LINE_CONFLICT` | ledger.select_line 追加研究路线记录被拒（原稿未细述条件）。 |
+| `WINDOW_MISMATCH` | 登记的试验交易段不等于最新路线的开发窗口。 |
 
 </Cap>
 
-<Cap id="W.2.1.4" kind="code" tier="verified" tierLabel="已验证" title="统计只算交易段；配对比较限定共同交易段">
+<Cap id="W.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="K 线对策略可用的时刻只有一个定义：收盘时刻">
 
-成绩与读数只算交易段：报告的期间起点等于 trade_start，年化、夏普、回撤、计划 plan 胜率与配对所用的账户日收益都只取 [trade_start, end) 内的数据，预热段不计（<Ref id="engine.summary_statistics" />）。配对所用的日收益由 <Ref id="ledger.daily_returns" /> 取交易段内按 UTC 日历日排列的序列，核无缺无重、相邻恰隔一天、复利到期末权益，任一不满足即该序列不可用（返回 None 并写局限），配对比较据此拒绝。两边的有效配置身份含窗口三边界，<Ref id="registration.check_comparable" /> 发现窗口不同即拒绝 COMPARABILITY_MISMATCH 并指明冲突项，因此配对只发生在逐日一致的共同交易段上。由代码（报告与比较）强制。
+- 运行器经 <Ref id="engine.account_contract" /> 把引擎配置为以收盘时刻作为 K 线事件时间（time_bars_timestamp_on_close=True）。
+- 同一配置不跳过首根非完整 K 线，并开启数据序列校验。
+- 导出器 <Ref id="market.write_bars" /> 写出的每根 1 分钟 K 线 ts_event = ts_init = 收盘时刻，无序即拒绝导出。
+- 预热段与交易段按同一定义判定可见性。
+- 预热日线同样以收盘时刻排列，末根收盘于 start 前 1 毫秒（<Ref id="engine.warmup_daily_bars" />）。
+- 策略源码不能改这项配置。
 
-<div className="rd-meta">
+**强制**　代码：导出器写出规则与运行器的引擎配置。
 
-**使用**　<Ref id="engine.summary_statistics" />、<Ref id="ledger.daily_returns" />、<Ref id="registration.check_comparable" />、<Ref id="registration.config_key" />
+</Cap>
 
-**依据**　[\[105\]](/zh/docs/appendix-references/#ref-105 "QuantConnect Lean — Warm Up Periods（SetWarmUp 把开始日期提前；预热期内不能下单）") [\[106\]](/zh/docs/appendix-references/#ref-106 "freqtrade — Strategy startup period（startup_candle_count：回测多加载历史并在模拟交易前移除不稳定预热期）")
+<Cap id="W.2.1.4" kind="code" tier="verified" tierLabel="已验证" title="成绩只算交易段，配对比较只在逐日一致的共同交易段上">
 
-</div>
+- 报告的期间起点等于 trade_start。
+- 年化、夏普、回撤、计划 plan 胜率与配对所用账户日收益只取 [trade_start, end) 内数据，预热段不计（<Ref id="engine.summary_statistics" />）。
+- <Ref id="ledger.daily_returns" /> 取交易段内按 UTC 日历日排列的日收益序列，核无缺无重、相邻恰隔一天、复利到期末权益。
+- 任一核对不满足即该序列不可用（返回 None 并写局限），配对比较据此拒绝。
+- 两边的有效配置身份含窗口三边界；<Ref id="registration.check_comparable" /> 发现窗口不同即拒绝并指明冲突项。
 
-<p className="rd-resolves">预热段的持仓或缺指标期混入成绩与配对</p>
+**输入**　两边运行的有效配置与交易段内的账户日收益。
+
+**输出**　只覆盖交易段的成绩读数；可用的日收益序列或 None 加局限说明。
+
+**强制**　代码：报告统计与比较核对。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `COMPARABILITY_MISMATCH` | 配对两边的窗口（三边界之一）不同。 |
 
 </Cap>
 
 ### W.2.2　预热与就绪 [#W-2-2]
 
-预热数据的连续性由代码强制：engine.read_market 在装载时核对导出回执的提交、窗口与周期，engine.warmup_daily_bars 取紧贴交易起点的连续日线。指标实际就绪时点及其对比较的影响由 skill 指导：登记时声明初始化条件，独立源码审查记录实际就绪时点；产品不以数据条数推断就绪。
+预热数据的连续性由代码在装载时强制；指标实际就绪时点由 skill 指导声明与审查记录，产品不以数据条数推断就绪。
 
-<Cap id="W.2.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="预热数据连续并紧贴交易起点；日线历史不足即拒绝回放">
+<Cap id="W.2.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="预热数据须连续并紧贴交易起点，日线历史不足即拒绝回放">
 
-预热数据必须连续并紧贴交易起点。装载时 <Ref id="engine.read_market" /> 逐合约核对导出回执的提交、起点（预热起点）、终点与 1 分钟周期等于本次回放输入，并核条款近似标记、片段映射与合约唯一性，不符即拒绝回放（MARKET_RECEIPT_MISMATCH、TERMS_APPROXIMATION_MISSING、EPISODE_MAPPING_MISMATCH、INSTRUMENT_NOT_UNIQUE、CONTRACT_NAME_COLLISION）。声明需要日线历史的源码（类属性 DAILY_WARMUP）在构造时由 <Ref id="engine.warmup_daily_bars" /> 收到一段由 1 分钟 K 线派生、相邻恰隔一日、末根收盘于交易起点前 1 毫秒、不少于 200 根（未校准示例值）的日 K 线；引擎不重放这些日线。不足拒绝 WARMUP_INSUFFICIENT，不紧贴拒绝 WARMUP_NOT_ADJACENT，不以更短历史代替，也不补造缺口。由代码（导出器与装载器）强制。
+- 装载时 <Ref id="engine.read_market" /> 逐合约核对导出回执的提交、起点（预热起点）、终点与 1 分钟周期等于本次回放输入。
+- 装载时同时核对条款近似标记、片段映射与合约唯一性。
+- 声明 DAILY_WARMUP 的源码在构造时由 <Ref id="engine.warmup_daily_bars" /> 收到一段日 K 线，由 1 分钟 K 线派生。
+- 日线相邻恰隔一日，末根收盘于交易起点前 1 毫秒。
+- 不少于 200 根（未校准示例值）。
+- 引擎不重放这些预热日线。
+- 不以更短历史代替，也不补造缺口。
 
-<div className="rd-meta">
+**输入**　导出回执、本次回放的提交与窗口，以及源码的 DAILY_WARMUP 声明。
 
-**定义**　<Ref id="engine.read_market" />、<Ref id="engine.warmup_daily_bars" />
+**输出**　装载通过的市场数据；需要时注入策略构造的预热日线序列。
 
-**使用**　<Ref id="market.export_episode" />、<Ref id="market.derive_bars" />、<Ref id="market.export_catalogs" />、<Ref id="market.native_symbol" />、<Ref id="engine.configure_strategy" />
+**强制**　代码：导出器与装载器。
 
-</div>
-
-<p className="rd-resolves">预热不足或断裂导致指标在交易起点未就绪却开始决策</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_RECEIPT_MISMATCH` | 回执的提交、起点、终点或周期与回放输入不符。 |
+| `TERMS_APPROXIMATION_MISSING` | 缺少条款近似标记。 |
+| `EPISODE_MAPPING_MISMATCH` | 片段映射不符。 |
+| `INSTRUMENT_NOT_UNIQUE` | 合约不唯一。 |
+| `CONTRACT_NAME_COLLISION` | 合约名称冲突。 |
+| `WARMUP_INSUFFICIENT` | 预热日线不足要求的根数。 |
+| `WARMUP_NOT_ADJACENT` | 预热日线不紧贴交易起点。 |
 
 </Cap>
 
-<Cap id="W.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="改变信号周期或指标长度时登记初始化条件；报告实际就绪时点">
+<Cap id="W.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="改信号周期或指标长度须登记初始化条件并报告实际就绪时点">
 
-改变信号周期或指标长度的假设 hypothesis，在登记的适用条件里写明所需初始化条件：需要多长历史、首次可决策的条件（<Ref id="research-round/references/strategy-authoring.md#readiness-declaration" />）。原生预检与独立源码审查的就绪项 readiness 记录实际首次就绪时点；审查结论经 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份只追加入账，状态原样保留，unresolved 不改写为通过，原始输入条数不当作就绪证据。比较读数的解读写明两边首次就绪时点及其对差异的影响，未就绪期间的差异不归为机制效果。由 skill 指导，<Ref id="eval:research-round/readiness-shift-not-mechanism" /> 校验；产品代码只记录审查，不推断就绪。
+- 改变信号周期或指标长度的假设 hypothesis，在登记的适用条件里写明所需初始化条件：需要多长历史、首次可决策的条件（<Ref id="research-round/references/strategy-authoring.md#readiness-declaration" />）。
+- 原生预检与独立源码审查的就绪项 readiness 记录实际首次就绪时点。
+- 审查结论经 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份，只追加入账。
+- 审查状态原样保留，unresolved 不改写为通过。
+- 原始输入条数不当作就绪证据。
+- 比较读数的解读写明两边首次就绪时点及其对差异的影响，未就绪期间的差异不归为机制效果。
 
-<div className="rd-meta">
+**输入**　登记时的初始化条件声明与独立源码审查结论。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#readiness-declaration" />、<Ref id="eval:research-round/readiness-shift-not-mechanism" />
+**输出**　账本中绑定源码哈希与运行环境身份的审查记录；读数解读中的就绪时点说明。
 
-**使用**　<Ref id="registration.record_review" />、<Ref id="research-round/references/hypothesis.md#conditions" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="replay.precheck" />
-
-</div>
-
-<p className="rd-resolves">把指标预热差异误读为规则改动的效果</p>
+**强制**　skill 指导，<Ref id="eval:research-round/readiness-shift-not-mechanism" /> 校验；产品代码只记录审查，不推断就绪。
 
 </Cap>
 
 ## W.3　产出共同可交易范围 [#W-3]
 
-vx
-
 <Steps>
 
 <Step>
 
-导入一个月时 <Ref id="market.monthly_universe" /> 按规则版本重算全部月份的成员行，<Ref id="market.import_month" /> 把它们与该月数据追加进同一市场提交；与已存月份不一致即拒绝整次导入。
+导入一个月：<Ref id="market.monthly_universe" /> 按规则版本重算全部月份成员行，<Ref id="market.import_month" /> 把它们与该月数据追加进同一市场提交，与已存月份不一致即拒绝整次导入。
 
 </Step>
 
 <Step>
 
-登记时 <Ref id="market.membership_path" /> 以 AS OF 精确市场提交派生规则版本、合约清单与每合约成员时间路径，<Ref id="registration.market_inputs" /> 写入输入身份与成员文件并随登记锁定。
+登记：<Ref id="market.membership_path" /> 以 AS OF 精确市场提交派生规则版本、合约清单与成员时间路径，<Ref id="registration.market_inputs" /> 写入输入身份与成员文件并随登记锁定。
 
 </Step>
 
 <Step>
 
-回放前 <Ref id="registration.load_lifecycle" /> 读生命周期证据包，<Ref id="market.validate_lifecycle" /> 核对它绑定同一市场提交且事件为引擎原生形态。
+回放前：<Ref id="registration.load_lifecycle" /> 读生命周期证据包，<Ref id="market.validate_lifecycle" /> 核对它绑定同一市场提交且事件为引擎原生形态。
 
 </Step>
 
 <Step>
 
-<Ref id="market.export_catalogs" /> 逐合约调用 <Ref id="market.export_episode" />：<Ref id="market.split_episodes" /> 按生命周期拆片段，每片段写 Catalog 与窗口内生命周期事件，<Ref id="market.coverage_facts" /> 写覆盖回执。
+导出：<Ref id="market.export_catalogs" /> 逐合约调用 <Ref id="market.export_episode" />，<Ref id="market.split_episodes" /> 按生命周期拆片段，每片段写 Catalog 与窗口内生命周期事件，<Ref id="market.coverage_facts" /> 写覆盖回执。
 
 </Step>
 
 <Step>
 
-运行器用 <Ref id="engine.read_universe" />、<Ref id="engine.episode_active" /> 与 <Ref id="engine.episode_membership" /> 为每个活跃片段建一个策略实例，并传入相交后的成员区间。
+运行：运行器用 <Ref id="engine.read_universe" />、<Ref id="engine.episode_active" /> 与 <Ref id="engine.episode_membership" /> 为每个活跃片段建一个策略实例，并传入相交后的成员区间。
 
 </Step>
 
 <Step>
 
-<Ref id="replay.input_coverage" /> 把全部回执写成 input-coverage.json 随试验封存；Agent 按 skill 读回执，报告事实与阻断，由用户选择可运行范围。
+封存与解读：<Ref id="replay.input_coverage" /> 把全部回执写成 input-coverage.json 随试验封存；Agent 按 skill 报告事实与阻断，用户选择可运行范围。
 
 </Step>
 
@@ -358,133 +432,198 @@ vx
 
 ### W.3.1　范围规则 [#W-3-1]
 
-规则写在 market/universe.py 代码中：输入交易所公开合约元数据与每日成交日线，输出按规则版本区分的每月成员行，存于市场库 universe_month 表，规则版本记入 market_schema。成员时间路径不另存，由市场提交 AS OF 派生并进入输入身份。
+market/universe.py 把交易所公开合约元数据与每日成交日线算成按规则版本区分的每月成员行。
 
-<Cap id="W.3.1.1" kind="code" tier="verified" tierLabel="已验证" title="环境按事前条件每月初产出范围；不排名不取前 N；下架照收">
+<Cap id="W.3.1.1" kind="code" tier="verified" tierLabel="已验证" title="环境每个 UTC 月初按带版本的事前规则产出范围，不排名、不取前 N，下架照收">
 
-共同可交易范围（universe）由环境在每个 UTC 月初按带版本号的范围规则（universe_rule）产出，策略不参与。<Ref id="market.classify_contract" /> 只留 USDT 永续，排除指数类、非永续、非币类标的（含股票类 TRADIFI 永续）与稳定币基础资产，每个排除记原因；交易所不再列出的已下架合约按规则版本内置的别名与稳定币清单判定。<Ref id="market.monthly_universe" /> 要求月初前一日仍有已收盘日线，且未中断的上市连续段满 30 天（未校准示例值，随规则版本固定），只用当时可知的交易所公开日线判断。不做成交额排名、不取前 N；后来下架的合约照样留在当时的名单里。每次导入由 <Ref id="market.import_month" /> 重算全部月份，结果与已存月份不同即拒绝整次导入，旧提交上的名单因此不被改写；改规则即出新规则版本，新旧名单在 <Ref id="table:universe_month" /> 共存，规则版本记入 <Ref id="table:market_schema" />。拒绝码：规则版本未内置 UNIVERSE_RULE_UNKNOWN；合约元数据条目残缺或与代码不符 EXCHANGE_INFO_MALFORMED；月份边界不是 UTC 月初或顺序颠倒 MONTH_NOT_FIRST_DAY；日线覆盖不足以判定上市天数 TRADING_DAYS_INSUFFICIENT。由代码强制。
+- 共同可交易范围（universe）由环境在每个 UTC 月初按带版本号的范围规则（universe_rule）产出，策略不参与。
+- <Ref id="market.classify_contract" /> 只留 USDT 永续。
+- 排除指数类、非永续、非币类（含股票类 TRADIFI 永续）与稳定币基础资产。
+- 每个排除记原因。
+- 交易所已不列出的下架合约按规则版本内置的别名与稳定币清单判定。
+- <Ref id="market.monthly_universe" /> 要求月初前一日仍有已收盘日线，且未中断的上市连续段满 30 天（未校准示例值，随规则版本固定）。
+- 只用当时可知的交易所公开日线判断；不做成交额排名、不取前 N；后来下架的合约照样留在当时的名单里。
+- 每次导入由 <Ref id="market.import_month" /> 重算全部月份，结果与已存月份不同即拒绝整次导入，已有提交上的名单不被改写。
+- 改规则即出新规则版本，不同规则版本的名单在 <Ref id="table:universe_month" /> 共存，规则版本记入 <Ref id="table:market_schema" />。
 
-<div className="rd-meta">
+**输入**　交易所公开合约元数据与每日成交日线、规则版本。
 
-**定义**　<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />
+**输出**　按规则版本区分的每月成员行与每个排除合约的原因。
 
-**使用**　<Ref id="market.import_month" />、<Ref id="market.connect" />、<Ref id="table:universe_month" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />
+**强制**　代码强制：market/universe.py 的分类与成员判定，导入时全量重算并与已存月份比对。
 
-**依据**　[\[107\]](/zh/docs/appendix-references/#ref-107 "Brown, Goetzmann, Ibbotson &amp; Ross 1992, Review of Financial Studies 5(4), doi:10.1093/rfs/5.4.553（Survivorship Bias in Performance Studies）") [\[108\]](/zh/docs/appendix-references/#ref-108 "Binance USDⓈ-M Futures — Exchange Information（contractType、underlyingType、status、onboardDate、filters）")
-
-</div>
-
-<p className="rd-resolves">选币从环境搬回策略后仍保住可比性，并消除幸存者偏差</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `UNIVERSE_RULE_UNKNOWN` | 规则版本未内置 |
+| `EXCHANGE_INFO_MALFORMED` | 合约元数据条目残缺或与代码不符 |
+| `MONTH_NOT_FIRST_DAY` | 月份边界不是 UTC 月初或顺序颠倒 |
+| `TRADING_DAYS_INSUFFICIENT` | 日线覆盖不足以判定上市天数 |
 
 </Cap>
 
-<Cap id="W.3.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="范围规则、合约清单与成员时间路径随市场提交进入输入身份">
+<Cap id="W.3.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="一个精确市场提交定义同一范围：规则版本、合约清单与成员路径进入输入身份">
 
-「同一共同可交易范围」由一个精确市场提交定义。<Ref id="market.membership_path" /> 以 AS OF 该提交读 <Ref id="table:universe_month" /> 与 <Ref id="table:market_schema" />，得到范围规则版本、合约清单与每个合约的成员时间路径：每个成员月份对应 [月初, 下月初) 的左闭右开纳秒区间，相邻月份合并为一段，中断后另起一段。<Ref id="registration.market_inputs" /> 把规则版本、合约清单与成员路径写入输入身份并写成员文件，随登记锁定 <Ref id="J.6.1.3" />。拒绝码：提交不能解析为精确哈希 MARKET_COMMIT_UNRESOLVED；该提交下没有任何成员月份 UNIVERSE_EMPTY_AT_COMMIT；已产出的最后月份未覆盖回放窗口终点 UNIVERSE_NOT_COVERING_WINDOW（不以窗口终点代替尚未产出月份的边界）。两次回放输入身份相同即共享同一范围与成员路径；策略实际交易的子集可以不同，按账户收益比较 <Ref id="V.2.1.3" />。由代码强制。
+- 「同一共同可交易范围」由一个精确市场提交定义。
+- 成员时间路径不另存：<Ref id="market.membership_path" /> 以 AS OF 该提交读 <Ref id="table:universe_month" /> 与 <Ref id="table:market_schema" />，派生范围规则版本、合约清单与每个合约的成员时间路径。
+- 每个成员月份对应 [月初, 下月初) 的左闭右开纳秒区间，相邻月份合并为一段，中断后另起一段。
+- <Ref id="registration.market_inputs" /> 把规则版本、合约清单与成员路径写入输入身份并写成员文件，随登记锁定 <Ref id="J.6.1.3" />。
+- 不以窗口终点代替尚未产出月份的边界。
+- 两次回放输入身份相同即共享同一范围与成员路径；策略实际交易的子集可以不同，按账户收益比较 <Ref id="V.2.1.3" />。
 
-<div className="rd-meta">
+**输入**　市场提交引用。
 
-**定义**　<Ref id="market.membership_path" />、<Ref id="table:universe_month" />
+**输出**　输入身份中的规则版本、合约清单、成员时间路径，以及成员文件。
 
-**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="registration.market_inputs" />
+**强制**　代码强制：AS OF 精确提交派生，输入身份随登记锁定。
 
-</div>
-
-<p className="rd-resolves">「同一币池」有可核对的身份定义</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_COMMIT_UNRESOLVED` | 提交不能解析为精确哈希 |
+| `UNIVERSE_EMPTY_AT_COMMIT` | 该提交下没有任何成员月份 |
+| `UNIVERSE_NOT_COVERING_WINDOW` | 已产出的最后月份未覆盖回放窗口终点 |
 
 </Cap>
 
 ### W.3.2　成员变化与生命周期 [#W-3-2]
 
-代码强制三件事：成员区间与生命周期相交后传入每个实例（W.3.2.1）、权威生命周期事件的校验与原生供给（W.3.2.2）、ticker 重用拆分与非 ASCII 确定别名（W.3.2.3）。输入是成员文件与账本证据包里的生命周期清单及原件，输出是每合约每片段一个 Catalog、引擎原生事件文件与一个策略实例。
+以成员文件与账本生命周期证据包为输入，给出片段、原生事件与实例。
 
-<Cap id="W.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行器把每个合约的成员区间交给其策略实例">
+<Cap id="W.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行器为每个活跃片段建实例，并传入与生命周期相交后的成员区间">
 
-运行器（runner）为范围内每个合约的每个生命周期片段判定是否建实例：<Ref id="engine.episode_active" /> 只看权威生命周期事件，片段起点早于窗口终点且终止时刻（最早的 CLOSE 或下架结算）晚于窗口起点即建一个策略实例；禁新仓不算终止，禁新仓后的持仓仍由实例平仓；缺 K 线不使片段失效。<Ref id="engine.read_universe" /> 从成员文件读每个合约的成员区间，文件不可读、非 JSON、缺 membership 对象或区间不是整数对即拒绝 UNIVERSE_FILE_INVALID；不带成员文件时每个合约为空区间。<Ref id="engine.episode_membership" /> 把区间与片段起点及最早的禁新仓 PRE_CLOSE、终止 CLOSE 或下架结算时刻相交，结果作为 universe_membership 经 <Ref id="engine.configure_strategy" /> 传给实例，不传任何规则参数。成员区间是输入不是审计：退出范围后不开新仓、旧仓旧单如何处置由源码按契约写明 <Ref id="C.1.4.3" />。由代码强制。
+1. <Ref id="engine.episode_active" /> 只看权威生命周期事件判定片段是否活跃。
+2. 片段起点早于窗口终点且终止时刻（最早 CLOSE 或下架结算）晚于窗口起点即建一个策略实例。
+3. <Ref id="engine.read_universe" /> 从成员文件读每个合约的成员区间；不带成员文件时每个合约为空区间。
+4. <Ref id="engine.episode_membership" /> 把区间与片段起点及最早的禁新仓 PRE_CLOSE、终止 CLOSE 或下架结算时刻相交。
+5. 相交结果作为 universe_membership 经 <Ref id="engine.configure_strategy" /> 传给实例，不传任何规则参数。
 
-<div className="rd-meta">
+- 禁新仓不算终止，禁新仓后的持仓仍由实例平仓；缺 K 线不使片段失效。
+- 成员区间是输入不是审计：退出范围后不开新仓、旧仓旧单如何处置由源码按契约写明 <Ref id="C.1.4.3" />。
 
-**定义**　<Ref id="engine.episode_active" />、<Ref id="engine.episode_membership" />、<Ref id="engine.read_universe" />
+**输入**　成员文件与已校验的生命周期片段。
 
-**使用**　<Ref id="engine.replay" />、<Ref id="engine.configure_strategy" />、<Ref id="market.membership_path" />
+**输出**　每个活跃片段一个策略实例及其 universe_membership。
 
-</div>
+**强制**　代码强制：运行器的片段判定与成员区间相交。
 
-<p className="rd-resolves">成员退出后的处置规则可被研究而不由环境硬编码</p>
-
-</Cap>
-
-<Cap id="W.3.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="上市、禁新仓、下架结算以引擎原生事件供给并随市场提交封存">
-
-上市、禁新仓与下架结算是不能从 K 线推导的权威事实，以引擎原生 InstrumentStatus / InstrumentClose 事件字典连同来源原件存为账本里的生命周期证据包（<Ref id="table:evidence_bundle" />），清单绑定一个市场提交。<Ref id="registration.load_lifecycle" /> 读包，<Ref id="market.validate_lifecycle" /> 核对：清单格式与市场提交一致；片段字段齐全且每份来源原件都在包内；事件可构造为引擎原生对象，instrument_id 与片段一致，时钟自片段起点单调不减；InstrumentClose 为 CONTRACT_EXPIRED 且价格为精确正数；已到期的 instrument_id 不重用，同一代码重新上市须用新 instrument_id 且生命周期互不重叠。任一不符拒绝 LIFECYCLE_INPUT。<Ref id="market.require_native_price" /> 要求窗口内每个结算价能在合约初始精度网格上精确表示，否则拒绝 LIFECYCLE_INPUT，不舍入、不改步长。<Ref id="market.write_lifecycle_events" /> 只写出窗口内事件，按引擎原生 Arrow 结构供回放节点装载；语义由引擎执行：禁新仓（PRE_CLOSE）即开仓范围结束，下架结算（CONTRACT_EXPIRED）按精确结算价执行。无结算价时只供给终止时钟（CLOSE），不以 K 线代替结算价，终止前所有仓位归零且无活动订单由审计核验 <Ref id="G.3.3.3" />；回放后的事件计数与时钟核对见 <Ref id="G.2.2.2" />。由代码强制，证据包由账本保存。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="market.require_native_price" />、<Ref id="market.validate_lifecycle" />、<Ref id="market.write_lifecycle_events" />
-
-**使用**　<Ref id="registration.load_lifecycle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />
-
-</div>
-
-<p className="rd-resolves">下架与禁新仓不再从 K 线猜测，也不由策略自造结算</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `UNIVERSE_FILE_INVALID` | 成员文件不可读、非 JSON、缺 membership 对象或区间不是整数对 |
 
 </Cap>
 
-<Cap id="W.3.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="ticker 重用按生命周期拆为不同原生合约与实例；非 ASCII 用确定别名">
+<Cap id="W.3.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="上市、禁新仓、下架结算以引擎原生事件供给，证据包绑定市场提交">
 
-同一代码被不同合约重用（ticker reuse）时，<Ref id="market.split_episodes" /> 按已校验的权威生命周期把它拆成按时间顺序编号的独立片段，每个片段一个原生合约 SYMBOL-E\<n>-PERP.BINANCE、一个 Catalog、一个策略实例。每个片段只收到开盘不早于片段起点且收盘早于片段终止的完整分钟，预热日线与资金费同样按片段边界截取，跨边界的半截分钟不进任何片段，旧片段的状态不进入新片段；片段起点非严格递增或与前一片段重叠拒绝 EPISODE_ORDER，片段形状不符拒绝 EPISODE_SHAPE。<Ref id="market.native_symbol" /> 给出确定的原生身份：非 ASCII 币名按 UTF-8 十六进制大写加 X 前缀作 ASCII 别名，同时给出策略标识与报告短名；代码形状不符拒绝 SYMBOL_SHAPE，片段编号不是正整数拒绝 EPISODE_INDEX。公开名、条款与覆盖仍按原名记录。<Ref id="market.export_episode" /> 为每个片段写合约、成交价 K 线、标记价、资金费、预热日线与窗口内生命周期事件，最后写合约回执 export.json，半截导出不被当作完整。由代码强制。
+1. 上市、禁新仓与下架结算以引擎原生 InstrumentStatus / InstrumentClose 事件字典连同来源原件存为账本里的生命周期证据包（<Ref id="table:evidence_bundle" />），清单绑定一个市场提交。
+2. <Ref id="registration.load_lifecycle" /> 读包。
+3. <Ref id="market.validate_lifecycle" /> 核对清单、片段与事件。
+4. <Ref id="market.require_native_price" /> 核对窗口内结算价可在合约初始精度网格上精确表示。
+5. <Ref id="market.write_lifecycle_events" /> 只写出窗口内事件，按引擎原生 Arrow 结构供回放节点装载。
 
-<div className="rd-meta">
+- 这些是不能从 K 线推导的权威事实。
+- 校验项：清单格式与市场提交一致。
+- 校验项：片段字段齐全且来源原件都在包内。
+- 校验项：事件可构造为原生对象且 instrument_id 与片段一致。
+- 校验项：时钟自片段起点单调不减。
+- 校验项：InstrumentClose 为 CONTRACT_EXPIRED 且价格为精确正数。
+- 校验项：已到期 instrument_id 不重用，重新上市用新 instrument_id 且生命周期不重叠。
+- 结算价不舍入、不改步长。
+- 语义由引擎执行：禁新仓（PRE_CLOSE）即开仓范围结束，下架结算（CONTRACT_EXPIRED）按精确结算价执行。
+- 无结算价时只供给终止时钟（CLOSE），不以 K 线代替结算价；终止前所有仓位归零且无活动订单由审计核验 <Ref id="G.3.3.3" />。
+- 回放后的事件计数与时钟核对见 <Ref id="G.2.2.2" />。
 
-**定义**　<Ref id="market.export_episode" />、<Ref id="market.native_symbol" />、<Ref id="market.split_episodes" />
+**输入**　账本中绑定市场提交的生命周期证据包（事件字典与来源原件）。
 
-**使用**　<Ref id="market.validate_lifecycle" />、<Ref id="market.terms" />、<Ref id="market.derive_bars" />、<Ref id="market.build_instrument" />、<Ref id="market.write_bars" />、<Ref id="market.write_marks" />、<Ref id="market.write_funding" />、<Ref id="market.write_lifecycle_events" />
+**输出**　窗口内引擎原生 Arrow 生命周期事件文件。
 
-</div>
+**强制**　代码强制校验与原生写出；证据包由账本保存。
 
-<p className="rd-resolves">ticker 重用与非 ASCII 身份造成的状态串扰与引擎拒绝</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `LIFECYCLE_INPUT` | 任一校验项不符，或窗口内结算价不能在合约初始精度网格上精确表示 |
+
+</Cap>
+
+<Cap id="W.3.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="重用的 ticker 按生命周期拆成独立原生合约与实例，非 ASCII 用确定别名">
+
+- 同一代码被不同合约重用（ticker reuse）时，<Ref id="market.split_episodes" /> 按已校验生命周期把重用代码拆成按时间编号的独立片段。
+- 每片段一个原生合约 SYMBOL-E\<n>-PERP.BINANCE、一个 Catalog、一个策略实例。
+- 每个片段只收到开盘不早于片段起点且收盘早于片段终止的完整分钟；预热日线与资金费同样按片段边界截取。
+- 跨边界的半截分钟不进任何片段，旧片段的状态不进入新片段。
+- <Ref id="market.native_symbol" /> 给出确定的原生身份：非 ASCII 币名按 UTF-8 十六进制大写加 X 前缀作 ASCII 别名，同时给出策略标识与报告短名。
+- 公开名、条款与覆盖仍按原名记录。
+- <Ref id="market.export_episode" /> 为每片段写合约、成交价 K 线、标记价、资金费、预热日线与窗口内生命周期事件。
+- 最后写合约回执 export.json，半截导出不算完整。
+
+**输入**　已校验的生命周期片段与市场提交上的合约数据。
+
+**输出**　每片段一个原生合约、Catalog 与合约回执 export.json。
+
+**强制**　代码强制：片段拆分、原生命名与回执最后写出。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EPISODE_ORDER` | 片段起点非严格递增或与前一片段重叠 |
+| `EPISODE_SHAPE` | 片段形状不符 |
+| `SYMBOL_SHAPE` | 代码形状不符 |
+| `EPISODE_INDEX` | 片段编号不是正整数 |
 
 </Cap>
 
 ### W.3.3　覆盖核验 [#W-3-3]
 
-覆盖事实由代码在固定市场提交上逐合约计算，写入导出回执并随试验封存（W.3.3.1）；事实的解读、阻断的报告由 skill 指导，可运行范围由用户选择（W.3.3.2）。
+固定市场提交上的覆盖事实及其解读。
 
-<Cap id="W.3.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="固定市场提交后逐合约核验并写入导出回执随试验封存">
+<Cap id="W.3.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="固定市场提交后逐合约计算覆盖事实，写入导出回执随试验封存">
 
-回放前，<Ref id="market.export_catalogs" /> 把提交引用解析为精确市场提交，对成员路径给出的合约清单逐合约调用 <Ref id="market.export_episode" /> 导出，并由 <Ref id="market.coverage_facts" /> 按公开原名计算覆盖事实：成员月份；整个输入区间（含预热与可能延续的持仓）内成交价与标记价的缺口区间、缺失分钟与零成交量分钟；两者时刻不匹配数；资金费结算时刻与条数（不推断应有排期）。首末数据只是上市下架的代理，标 unproven，不冒充权威事实；指标就绪标需 Agent 审查。覆盖只计事实，不评级、不删币、不缩窗、不补数。拒绝码：窗口为空或端点不在整分钟网格 EXPORT_WINDOW / INTERVAL_INVALID；合约清单为空或重复 EXPORT_SCOPE；提交引用无法解析 MARKET_COMMIT，或传给覆盖计算的不是精确哈希 MARKET_COMMIT_INVALID；该提交下没有此合约 UNKNOWN_SYMBOL（有合约无 K 线不拒绝，照实记零行）；K 线时刻无序或重复 SOURCE_SHAPE；下层任一拒绝使整次导出失败，不写部分回执。回执进入输入身份，并由 <Ref id="replay.input_coverage" /> 写成 input-coverage.json 随试验封存 <Ref id="J.6.1.4" />；回执与原生摘要的一致性由审计核对 <Ref id="G.2.2.1" />。由代码强制。
+1. <Ref id="market.export_catalogs" /> 把提交引用解析为精确市场提交。
+2. 对成员路径给出的合约清单逐合约调用 <Ref id="market.export_episode" /> 导出。
+3. <Ref id="market.coverage_facts" /> 按公开原名计算覆盖事实写入回执。
+4. 回执进入输入身份，<Ref id="replay.input_coverage" /> 写成 input-coverage.json 随试验封存 <Ref id="J.6.1.4" />。
 
-<div className="rd-meta">
+- 覆盖事实：成员月份。
+- 覆盖事实：成交价与标记价在整个输入区间（含预热与延续持仓）内的缺口区间、缺失分钟、零成交量分钟。
+- 覆盖事实：成交价与标记价两者时刻不匹配数。
+- 覆盖事实：资金费结算时刻与条数（不推断应有排期）。
+- 首末数据只是上市下架的代理，标 unproven，不冒充权威事实；指标就绪标需 Agent 审查。
+- 覆盖只计事实，不评级、不删币、不缩窗、不补数。
+- 有合约无 K 线不拒绝，照实记零行。
+- 下层任一拒绝使整次导出失败，不写部分回执。
+- 回执与原生摘要的一致性由审计核对 <Ref id="G.2.2.1" />。
 
-**定义**　<Ref id="market.coverage_facts" />、<Ref id="market.export_catalogs" />
+**输入**　市场提交引用、回放窗口与成员路径给出的合约清单。
 
-**使用**　<Ref id="market.missing_intervals" />、<Ref id="market.resolve_commit" />、<Ref id="market.membership_path" />、<Ref id="registration.market_inputs" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.verify_coverage" />、<Ref id="market.diagnose_coverage" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:instrument" />、<Ref id="table:universe_month" />
+**输出**　每合约的覆盖回执与随试验封存的 input-coverage.json。
 
-</div>
+**强制**　代码强制：导出与覆盖计算，回执随试验封存。
 
-<p className="rd-resolves">覆盖事实可审计，不靠事后回忆</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `EXPORT_WINDOW` | 窗口为空或端点不在整分钟网格 |
+| `INTERVAL_INVALID` | 窗口为空或端点不在整分钟网格 |
+| `EXPORT_SCOPE` | 合约清单为空或重复 |
+| `MARKET_COMMIT` | 提交引用无法解析 |
+| `MARKET_COMMIT_INVALID` | 传给覆盖计算的不是精确哈希 |
+| `UNKNOWN_SYMBOL` | 该提交下没有此合约 |
+| `SOURCE_SHAPE` | K 线时刻无序或重复 |
 
 </Cap>
 
-<Cap id="W.3.3.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="缺口、零量、资金费缺失各保留事实与未证原因；不删币、缩窗、补数">
+<Cap id="W.3.3.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="缺口、零量、资金费缺失各自保留为事实并写未证原因，不删币、缩窗、补数">
 
-Agent 读覆盖与生命周期回执（<Ref id="market.diagnose_coverage" />）时，把缺口、零成交量与资金费缺失各自保留为事实，分别写明尚未证实的原因，不默认视为经济失败，不静默删币、缩窗或补造数据。可继续运行的范围与阻断原因报告给用户，改变数据范围由用户选择；候选身份与研究路线有效性不因此改变 <Ref id="E.1.2.3" />。由 skill <Ref id="research-start/SKILL.md#readiness-and-blockers">research-start 的就绪与阻断节</Ref> 指导，eval <Ref id="eval:research-start/coverage-gap-not-economic-failure" /> 与 <Ref id="eval:research-start/blocked-run-reports-range" /> 校验。
+- Agent 读覆盖与生命周期回执（<Ref id="market.diagnose_coverage" />）时，把缺口、零成交量与资金费缺失各自保留为事实，分别写明尚未证实的原因。
+- 不默认视为经济失败，不静默删币、缩窗或补造数据。
+- 可继续运行的范围与阻断原因报告给用户，改变数据范围由用户选择。
+- 候选身份与研究路线有效性不因此改变 <Ref id="E.1.2.3" />。
 
-<div className="rd-meta">
+**输入**　覆盖回执与生命周期回执。
 
-**定义**　<Ref id="eval:research-start/coverage-gap-not-economic-failure" />
+**输出**　给用户的可运行范围与阻断原因报告。
 
-**使用**　<Ref id="market.diagnose_coverage" />、<Ref id="research-start/SKILL.md#readiness-and-blockers" />、<Ref id="eval:research-start/blocked-run-reports-range" />
-
-</div>
-
-<p className="rd-resolves">把数据缺陷误读为策略失败或静默改变实验范围</p>
+**强制**　skill 指导：<Ref id="research-start/SKILL.md#readiness-and-blockers">research-start 的就绪与阻断节</Ref>，eval <Ref id="eval:research-start/coverage-gap-not-economic-failure" /> 与 <Ref id="eval:research-start/blocked-run-reports-range" /> 校验。
 
 </Cap>
 
 ## W.4　固定账户、条款与已知近似 [#W-4]
-
-运行器在回放前把账户结构与撮合方式固定为常量 <Ref id="engine.account_contract" />，把合约条款与假设费率、保证金率写进导出的引擎合约（<Ref id="market.build_instrument" />），两者都进入有效配置哈希（<Ref id="engine.effective_configuration" />），所有候选 candidate 共用、策略源码不可改（W.4.1）。<Ref id="engine.replay" /> 按这份配置建一个账户，每合约一个策略实例，撮合、结算与账户事实全部由引擎 engine 产生。强平不建模、费率与保证金率是假设值、条款是观测快照，这三项作为已知近似写进每份导出回执与原生摘要，报告列为局限，不做修正（W.4.2）。账户读数的口径不在本节定义：年化见 <Ref id="R.2.1.1" />，标记价回撤见 <Ref id="R.2.2.1" />，资金使用率见 <Ref id="R.3.1.1" />，利润来源拆分见 <Ref id="R.2.3.3" />。
 
 <Steps>
 
@@ -502,19 +641,25 @@ Agent 读覆盖与生命周期回执（<Ref id="market.diagnose_coverage" />）�
 
 <Step>
 
-<Ref id="engine.effective_configuration" /> 把 <Ref id="engine.account_contract" /> 与导出条款纳入有效配置并算哈希；哈希不同的运行不可比较。
+<Ref id="engine.effective_configuration" /> 把 <Ref id="engine.account_contract" /> 的账户与撮合常量和导出条款纳入有效配置并算哈希；所有候选共用，策略源码不可改，哈希不同的运行不可比较。
 
 </Step>
 
 <Step>
 
-<Ref id="engine.replay" /> 以账户常量建唯一场所与净额保证金账户，为每个活跃合约加一个策略实例和一个资金观察器，运行后核对引擎消费条数与观察器数。
+<Ref id="engine.replay" /> 按这份配置建唯一场所与一个净额保证金账户，每个活跃合约一个策略实例、另加一个资金观察器；撮合、结算与账户事实全部由引擎产生，运行后核对引擎消费条数与观察器数。
 
 </Step>
 
 <Step>
 
-<Ref id="engine.write_native_reports" /> 原样写出引擎报告，并把运行器声明的撮合与条款近似写入摘要；<Ref id="report.run_report" /> 把它们并入局限清单。
+<Ref id="engine.write_native_reports" /> 原样写出引擎报告，并把运行器声明的三项已知近似（强平不建模、费率与保证金率是假设值、条款是观测快照）写入原生摘要。
+
+</Step>
+
+<Step>
+
+<Ref id="report.run_report" /> 把这些近似并入局限清单，不做修正；账户读数口径见年化 <Ref id="R.2.1.1" />、标记价回撤 <Ref id="R.2.2.1" />、资金使用率 <Ref id="R.3.1.1" />、利润来源拆分 <Ref id="R.2.3.3" />。
 
 </Step>
 
@@ -522,117 +667,131 @@ Agent 读覆盖与生命周期回执（<Ref id="market.diagnose_coverage" />）�
 
 ### W.4.1　账户结构与条款 [#W-4-1]
 
-全部由代码强制：<Ref id="engine.account_contract" /> 给出账户与撮合常量，<Ref id="market.build_instrument" /> 给出合约条款与假设值，<Ref id="engine.replay" /> 按两者建账户与实例；输入是导出回执、窗口、已载入的策略与成员区间，输出是完成的回放与实例表。策略源码只能决定仓位与资金预算，不能改动任何账户条款。
+账户与撮合常量、合约条款与假设值全部由代码固定。
 
-<Cap id="W.4.1.1" kind="code" tier="verified" tierLabel="已验证" title="一个候选作为一个账户评估：每合约一实例，共用固定本金的净额保证金账户">
+<Cap id="W.4.1.1" kind="code" tier="verified" tierLabel="已验证" title="一个候选是一个净额保证金账户：每合约一实例，共用 10 万 USDT 本金">
 
-做什么：一个候选在整个共同可交易范围 universe 上作为一个账户评估。<Ref id="engine.replay" /> 建唯一场所与一个净额（NETTING）保证金 margin 账户，固定本金 10 万 USDT（用户定的设计常量）；对生命周期与输入窗口相交的每个合约加一个策略实例，所有实例共用这份资金，所有合约的机会竞争同一份资金；另加恰好一个资金观察器，按标记价 mark price 逐 K 线估值并写敞口表。输入：每合约导出回执与目录（经 <Ref id="engine.read_market" /> 核对）、回放窗口、已载入的策略、每合约成员区间（<Ref id="engine.read_universe" />）、输出目录；输出：完成的回放与按币种的实例表（不活跃合约为空）。账户、持仓与保证金事实由引擎独占，运行器不另记账，只读引擎原生结果核对：引擎实际消费条数不等于全部导出回执条数之和拒绝 DATA_COUNT_MISMATCH（对应完整性要求 <Ref id="G.2.1.2" />），资金观察器实例数不等于一拒绝 OBSERVER_COUNT_MISMATCH，没有任何合约可建实例拒绝 NO_ACTIVE_INSTRUMENT。强制层：代码（运行器），任一拒绝使运行器非零退出。
+1. <Ref id="engine.replay" /> 建唯一场所与一个净额（NETTING）保证金 margin 账户，固定本金 10 万 USDT（用户定的设计常量）。
+2. 对生命周期与输入窗口相交的每个合约加一个策略实例，所有实例共用这份资金。
+3. 另加恰好一个资金观察器 <Ref id="engine.capital_observer" />，按标记价 mark price 逐 K 线估值并写敞口表。
+4. 运行后只读引擎原生结果，核对实际消费条数与资金观察器实例数。
 
-<div className="rd-meta">
+- 一个候选在整个共同可交易范围 universe 上作为一个账户评估，所有合约的机会竞争同一份资金。
+- 账户、持仓与保证金事实由引擎独占，运行器不另记账。
+- 引擎消费条数核对对应完整性要求 <Ref id="G.2.1.2" />。
 
-**定义**　<Ref id="engine.replay" />
+**输入**　每合约导出回执与目录（经 <Ref id="engine.read_market" /> 核对）、回放窗口、已载入的策略、每合约成员区间（<Ref id="engine.read_universe" />）、输出目录。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.configure_strategy" />、<Ref id="engine.episode_active" />、<Ref id="engine.episode_membership" />、<Ref id="engine.capital_observer" />、<Ref id="engine.read_market" />、<Ref id="engine.read_universe" />、<Ref id="G.2.1.2" />
+**输出**　完成的回放与按币种的实例表（不活跃合约为空）。
 
-**依据**　[\[109\]](/zh/docs/appendix-references/#ref-109 "NautilusTrader — Backtest Accounts and Margin（账户类型 CASH/MARGIN/BETTING；MARGIN 缺省 LeveragedMarginModel；配置示例 oms_type=NETTING；starting_balances）")
+**强制**　代码（运行器）强制：任一拒绝使运行器非零退出。
 
-</div>
-
-<p className="rd-resolves">多合约策略的成绩在同一份资金上可比，资本分配规则可被研究</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `DATA_COUNT_MISMATCH` | 引擎实际消费条数不等于全部导出回执条数之和。 |
+| `OBSERVER_COUNT_MISMATCH` | 资金观察器实例数不等于一。 |
+| `NO_ACTIVE_INSTRUMENT` | 没有任何合约可建实例。 |
 
 </Cap>
 
-<Cap id="W.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="账户与市场事实由运行器固定为引擎配置，所有候选共用；仓位与名义上限归源码">
+<Cap id="W.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="账户与市场条款由运行器固定进有效配置哈希，所有候选共用，源码不可改">
 
-做什么：本金、杠杆、撮合方式与订单能力由运行器常量 <Ref id="engine.account_contract" /> 固定；手续费率、保证金率与合约步长由导出的引擎合约给出（<Ref id="market.build_instrument" />）；资金费按交易所数据逐条结算。两者都写进有效配置并进入其哈希（<Ref id="engine.effective_configuration" />），所有候选共用。输入：无（常量）与市场提交上的条款快照；输出：只读的账户常量映射与带假设条款的引擎合约。何时拒绝：运行器命令行不接受任何账户或策略参数（由 <Ref id="engine.parse_configuration" /> 拒绝）；有效配置哈希不同的两次运行不进入比较。策略源码不能改动其中任何一项。仓位、单笔风险与名义上限不是环境条款，是 Agent 在源码里设定的设计变量（契约见 <Ref id="C.1.4.2" />），由报告读出资金使用率（<Ref id="R.3.1.1" />）。强制层：代码（运行器与有效配置哈希）。
+- 本金、杠杆、撮合方式与订单能力由运行器常量 <Ref id="engine.account_contract" /> 固定。
+- 手续费率、保证金率与合约步长由导出的引擎合约给出（<Ref id="market.build_instrument" />）。
+- 资金费按交易所数据逐条结算。
+- 账户常量与引擎合约都写进有效配置并进入其哈希（<Ref id="engine.effective_configuration" />），所有候选共用；策略源码不能改动其中任何一项。
+- 运行器命令行不接受任何账户或策略参数，由 <Ref id="engine.parse_configuration" /> 拒绝。
+- 有效配置哈希不同的两次运行不进入比较。
+- 仓位、单笔风险与名义上限是 Agent 在源码里设定的设计变量，不是环境条款（契约见 <Ref id="C.1.4.2" />）。
+- 报告读出资金使用率（<Ref id="R.3.1.1" />）。
 
-<div className="rd-meta">
+**输入**　无运行参数（账户为常量）；市场提交上的条款快照。
 
-**定义**　<Ref id="engine.account_contract" />
+**输出**　只读的账户常量映射与带假设条款的引擎合约。
 
-**使用**　<Ref id="market.terms" />、<Ref id="market.build_instrument" />、<Ref id="engine.effective_configuration" />、<Ref id="engine.parse_configuration" />
-
-</div>
-
-<p className="rd-resolves">环境条款与设计变量分界清楚，环境不可被策略改写</p>
+**强制**　代码强制：运行器常量、命令行解析拒绝参数，以及有效配置哈希。
 
 </Cap>
 
 ### W.4.2　不建模与近似 [#W-4-2]
 
-近似由代码记录、由报告呈现：强平沿用引擎缺省（关闭），费率与条款近似由 <Ref id="market.build_instrument" /> 写进每份导出回执；<Ref id="engine.write_native_reports" /> 把运行器声明的撮合与条款近似写入摘要，<Ref id="report.run_report" /> 合并进局限清单。两项都不另设审计，也不做修正。
+近似由代码写进导出回执与原生摘要，由报告列为局限，不做修正。
 
-<Cap id="W.4.2.1" kind="code" tier="verified" tierLabel="已验证" title="强平、分档维持保证金与下架前强平处置不建模">
+<Cap id="W.4.2.1" kind="code" tier="verified" tierLabel="已验证" title="强平、分档维持保证金与下架前强平处置不建模，只声明为近似">
 
-做什么：强平、分档维持保证金与下架前的强平处置不建模。<Ref id="engine.account_contract" /> 不设任何 liquidation_* 键，引擎强平开关取钉死版本的缺省（liquidation_enabled 为 False），维持保证金率为单一假设值（见 <Ref id="W.4.2.2" />）；保证金不足时引擎只拒单，被拒订单由 <Ref id="engine.write_native_reports" /> 写入完整性发现。输出：运行器在原生摘要中声明这项近似，报告局限清单列出（<Ref id="R.1.3.4" />）。何时拒绝：这项近似本身不触发拒绝，不另设审计。强制层：代码（运行器配置与摘要写出）。
+- <Ref id="engine.account_contract" /> 不设任何 liquidation_* 键，引擎强平开关取钉死版本的缺省（liquidation_enabled 为 False）。
+- 维持保证金率为单一假设值（见 <Ref id="W.4.2.2" />）。
+- 保证金不足时引擎只拒单，被拒订单由 <Ref id="engine.write_native_reports" /> 写入完整性发现。
+- 这项近似本身不触发拒绝，不另设审计。
 
-<div className="rd-meta">
+**输出**　运行器在原生摘要中声明这项近似，<Ref id="report.run_report" /> 在局限清单列出（<Ref id="R.1.3.4" />）。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.write_native_reports" />、<Ref id="report.run_report" />
-
-**依据**　[\[110\]](/zh/docs/appendix-references/#ref-110 "nautilus_trader 2.0.0rc3（uv.lock 钉死）— BacktestVenueConfig 的 liquidation_enabled 未设时解析为 False、liquidation_trigger_ratio 1.0、liquidation_cancel_open_orders True")
-
-</div>
-
-<p className="rd-resolves">把未建模的风险写成显式近似而非隐含假设</p>
+**强制**　代码强制：运行器配置与原生摘要写出。
 
 </Cap>
 
-<Cap id="W.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="手续费与保证金率是假设值；条款用观测快照，每份回执记为近似">
+<Cap id="W.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="手续费与保证金率是假设值，条款取最新观测快照，每份回执标记为近似">
 
-做什么：手续费率（maker 0.0002、taker 0.0005）与初始、维持保证金率（各 0.1）是假设值，不是交易所公开条款，由 <Ref id="market.build_instrument" /> 写进导出的引擎合约。价格与数量步长、数量与价格边界取市场提交上最新一次观测的条款快照（<Ref id="market.terms" />；来源 exchange_info 为交易所公开快照，已下架合约为从成交推断的 inferred），窗口内不回溯条款的历史变化。输入：市场提交、合约名、由数据算出的价格精度；输出：引擎合约与条款记录（terms_source、observed_at、精度是否放宽、假设值、historical_terms=CURRENT_SNAPSHOT_APPROXIMATION），由 <Ref id="market.export_catalogs" /> 写进每份导出回执。何时拒绝：提交上无条款 NO_TERMS；步长或边界非法 TERMS_INVALID；价格精度窄于条款步长 PRECISION_NARROWED；非 USDT 计价 UNSUPPORTED_QUOTE；装载时回执缺条款近似标记由 <Ref id="engine.read_market" /> 拒绝。报告按成交行对账实际费率（<Ref id="R.2.3.3" />）并把近似列为局限。强制层：代码（导出器与装载器）。
+- 手续费率（maker 0.0002、taker 0.0005）与初始、维持保证金率（各 0.1）是假设值，不是交易所公开条款。
+- 假设值由 <Ref id="market.build_instrument" /> 写进导出的引擎合约。
+- 价格与数量步长、数量与价格边界取市场提交上最新一次观测的条款快照（<Ref id="market.terms" />）。
+- 条款来源 exchange_info 为交易所公开快照；已下架合约为从成交推断的 inferred。
+- 窗口内不回溯条款的历史变化。
+- 装载时回执缺条款近似标记由 <Ref id="engine.read_market" /> 拒绝。
+- 报告按成交行对账实际费率（<Ref id="R.2.3.3" />）并把近似列为局限。
 
-<div className="rd-meta">
+**输入**　市场提交、合约名、由数据算出的价格精度。
 
-**定义**　<Ref id="market.build_instrument" />、<Ref id="market.terms" />
+**输出**　引擎合约与条款记录（terms_source、observed_at、精度是否放宽、假设值、historical_terms=CURRENT_SNAPSHOT_APPROXIMATION），由 <Ref id="market.export_catalogs" /> 写进每份导出回执。
 
-**使用**　<Ref id="market.export_catalogs" />、<Ref id="market.export_episode" />、<Ref id="table:instrument" />、<Ref id="engine.read_market" />、<Ref id="R.2.3.3" />
+**强制**　代码强制：导出器写条款记录，装载器 <Ref id="engine.read_market" /> 校验近似标记。
 
-</div>
-
-<p className="rd-resolves">条款近似可见、可对账，不被误当交易所事实</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `NO_TERMS` | 市场提交上无该合约条款。 |
+| `TERMS_INVALID` | 步长或边界非法。 |
+| `PRECISION_NARROWED` | 由数据算出的价格精度窄于条款步长。 |
+| `UNSUPPORTED_QUOTE` | 合约非 USDT 计价。 |
 
 </Cap>
 
 ## W.5　模拟撮合与结算 [#W-5]
 
-撮合与结算全部由引擎 engine 执行，本功能只规定引擎看到什么、按什么配置撮合。导出器把每个合约片段的三种数据流（1 分钟成交价 K 线、标记价更新、资金费更新）写成引擎原生数据并记入导出回执；运行器按 <Ref id="engine.account_contract" /> 配置引擎（K 线撮合、固定开高低收顺序、不配置 FillModel 与 LatencyModel、不拒止损单），再由 <Ref id="engine.replay" /> 把数据流与生命周期事件交给回放节点。运行器只配置与读取，不重算成交；撮合模型的乐观方向与不建模的交易所规则作为局限写入原生摘要。审计只对账引擎产出（<Ref id="G.3.2.2" />）。
-
 <Steps>
 
 <Step>
 
-导出器在固定市场提交上为每个合约片段写出成交价 K 线、标记价与资金费三种原生数据流，时刻无序或数值不精确即拒绝导出
+导出器在固定市场提交上为每个合约片段写出成交价 K 线、标记价、资金费三种引擎原生数据流，时刻无序或数值不精确即拒绝导出。
 
 </Step>
 
 <Step>
 
-各写出函数的条数记入导出回执，随运行封存
+各写出函数的条数记入导出回执，随运行封存。
 
 </Step>
 
 <Step>
 
-运行器按账户契约配置引擎撮合：1 分钟 K 线撮合、收盘为事件时间、固定开高低收顺序、缺省撮合模型、不拒止损单
+运行器按 <Ref id="engine.account_contract" /> 配置引擎：1 分钟 K 线撮合、收盘为事件时间、固定开高低收顺序、不配置 FillModel 与 LatencyModel、不拒止损单。
 
 </Step>
 
 <Step>
 
-回放节点装载三种数据流与生命周期事件，引擎撮合订单并在各合约实际结算时刻结算资金费
+<Ref id="engine.replay" /> 把三种数据流与生命周期事件交给回放节点，引擎撮合订单并在各合约实际结算时刻结算资金费。
 
 </Step>
 
 <Step>
 
-运行器核对引擎消费条数等于回执总数，写出原生报告并在摘要中声明撮合与触发口径局限
+运行器核对引擎消费条数等于回执总数，写出原生报告，并在摘要中声明撮合乐观方向与不建模的触发规则。
 
 </Step>
 
 <Step>
 
-审计对账引擎产出的成交、资金费与账户，不重算
+审计只对账引擎产出的成交、资金费与账户，不重算（<Ref id="G.3.2.2" />）。
 
 </Step>
 
@@ -640,93 +799,103 @@ Agent 读覆盖与生命周期回执（<Ref id="market.diagnose_coverage" />）�
 
 ### W.5.1　撮合输入与模型 [#W-5-1]
 
-market.write_bars 与 market.write_marks 产出撮合所见的两种数据流，导出器强制时刻有序与数值精确；账户契约决定 K 线撮合与引擎缺省撮合模型；撮合结果属上限的性质由运行器写入摘要局限，报告读出。
+导出器产出撮合所见的数据流并强制有序与精确，账户契约选定 K 线撮合与引擎缺省撮合模型。
 
-<Cap id="W.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="撮合只看 1 分钟成交价 K 线、标记价与资金费；按 1 分钟 K 线撮合">
+<Cap id="W.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="撮合只读三种原生数据流，按 1 分钟成交价 K 线撮合">
 
-撮合输入只有三种引擎原生数据流，由 <Ref id="market.export_episode" /> 写进每个合约片段的引擎 Catalog：1 分钟成交价 K 线（<Ref id="market.write_bars" />，外部聚合 Bar）、每分钟一条标记价更新 mark price（<Ref id="market.write_marks" />，MarkPriceUpdate）与按结算时刻的资金费更新（<Ref id="market.write_funding" />）；没有盘口与逐笔。运行器经 <Ref id="engine.account_contract" /> 开启 K 线撮合（bar_execution=True、book_type=L1_MBP、K 线聚合来源 EXTERNAL），引擎取最细周期即 1 分钟驱动撮合；起点前日线只作预热输入（<Ref id="engine.warmup_daily_bars" />），不参与撮合。K 线的事件时间等于收盘时刻（<Ref id="W.2.1.3" />）：决策所在 K 线在收盘时进入策略，由它产生的订单只在之后的引擎事件中成交；同一 K 线收盘既决策又成交是因果缺陷（<Ref id="C.3.1.2" />）。导出时 K 线或标记价时刻不严格递增拒绝 BARS_UNSORTED / MARK_UNSORTED，数值不能按合约精度精确表示拒绝 BAR_RAW_INEXACT / MARK_INEXACT；引擎实际消费条数不等于导出回执总数即运行失败（<Ref id="G.2.1.2" />）。全部由代码（导出器与运行器配置）强制。
+- 撮合输入只有三种引擎原生数据流，由 <Ref id="market.export_episode" /> 写进每个合约片段的引擎 Catalog。
+- 1 分钟成交价 K 线由 <Ref id="market.write_bars" /> 写成外部聚合 Bar。
+- 标记价 mark price 每分钟一条，由 <Ref id="market.write_marks" /> 写成 MarkPriceUpdate。
+- 资金费更新按结算时刻由 <Ref id="market.write_funding" /> 写出。
+- 没有盘口与逐笔数据。
+- 运行器经 <Ref id="engine.account_contract" /> 开启 K 线撮合：bar_execution=True、book_type=L1_MBP、K 线聚合来源 EXTERNAL。
+- 引擎取最细周期即 1 分钟驱动撮合。
+- 起点前日线只作预热输入（<Ref id="engine.warmup_daily_bars" />），不参与撮合。
+- K 线事件时间等于收盘时刻（<Ref id="W.2.1.3" />）：决策所在 K 线在收盘时进入策略，由它产生的订单只在之后的引擎事件中成交。
+- 同一 K 线收盘既决策又成交是因果缺陷（<Ref id="C.3.1.2" />）。
+- 引擎实际消费条数不等于导出回执总数即运行失败（<Ref id="G.2.1.2" />）。
 
-<div className="rd-meta">
+**输入**　固定市场提交上每个合约片段的 1 分钟成交价 K 线、标记价与资金费记录。
 
-**定义**　<Ref id="market.write_bars" />、<Ref id="market.write_marks" />
+**输出**　写入引擎 Catalog 的三种原生数据流及其导出回执条数。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.replay" />、<Ref id="market.export_episode" />、<Ref id="C.3.1.2" />
+**强制**　代码：导出器的有序与精度检查、运行器的引擎配置与消费条数核对。
 
-**依据**　[\[111\]](/zh/docs/appendix-references/#ref-111 "NautilusTrader — Bar execution（bar_execution=True 且 L1_MBP 且外部聚合 K 线才撮合；取最细周期；ts_init 为收盘）")
-
-</div>
-
-<p className="rd-resolves">撮合输入与可见时刻在公开数据上唯一确定</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `BARS_UNSORTED` | 导出时 K 线时刻不严格递增 |
+| `MARK_UNSORTED` | 导出时标记价时刻不严格递增 |
+| `BAR_RAW_INEXACT` | K 线数值不能按合约精度精确表示 |
+| `MARK_INEXACT` | 标记价数值不能按合约精度精确表示 |
 
 </Cap>
 
-<Cap id="W.5.1.2" kind="code" tier="verified" tierLabel="已验证" title="滑点与排队只能由引擎撮合模型给出；缺省触价即成交，结果是实盘上限">
+<Cap id="W.5.1.2" kind="code" tier="verified" tierLabel="已验证" title="滑点与排队只由引擎缺省撮合模型给出，回放成绩视为实盘上限">
 
-滑点 slippage 与排队只能由引擎撮合模型给出，运行器与策略都不自建成交逻辑。<Ref id="engine.account_contract" /> 不配置 FillModel 与 LatencyModel，引擎取缺省：限价单触价即成交（prob_fill_on_limit=1.0）、不加随机滑点（prob_slippage=0.0）、无撮合延迟，市价类订单耗尽 L1 显示量后余量按差一档成交。因此回放成绩是实盘的上限：运行器把这一撮合局限写入原生摘要（<Ref id="engine.write_native_reports" />），报告把它并入局限清单（<Ref id="R.1.3.4" />），不当作实盘预期。改为保守化撮合是账户契约变更，只能经新的运行环境 runtime image（<Ref id="J.5.1.1" />）生效，之后所有候选在新身份下重新登记并重放（<Ref id="D.2.1.1" />）。由代码强制。
+- 滑点 slippage 与排队只能由引擎撮合模型给出，运行器与策略都不自建成交逻辑。
+- <Ref id="engine.account_contract" /> 不配置 FillModel 与 LatencyModel，引擎取缺省。
+- 缺省下限价单触价即成交（prob_fill_on_limit=1.0）、不加随机滑点（prob_slippage=0.0）、无撮合延迟。
+- 市价类订单耗尽 L1 显示量后，余量按差一档成交。
+- 回放成绩是实盘的上限，不当作实盘预期。
+- 运行器把这一撮合局限写入原生摘要（<Ref id="engine.write_native_reports" />）。
+- 报告把它并入局限清单（<Ref id="R.1.3.4" />）。
+- 保守化撮合属账户契约变更，只能经新的运行环境 runtime image（<Ref id="J.5.1.1" />）生效。
+- 生效后所有候选在新身份下重新登记并重放（<Ref id="D.2.1.1" />）。
 
-<div className="rd-meta">
+**输出**　原生摘要中的撮合局限声明。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.write_native_reports" />、<Ref id="R.1.3.4" />、<Ref id="J.5.1.1" />、<Ref id="D.2.1.1" />
-
-**依据**　[\[112\]](/zh/docs/appendix-references/#ref-112 "NautilusTrader — Fill models（prob_fill_on_limit 缺省 1.0、prob_slippage 缺省 0.0；缺省 DefaultFillModel；MakerTakerFeeModel 可配）") [\[113\]](/zh/docs/appendix-references/#ref-113 "NautilusTrader — Fill prices and matching（假设价格连续穿越触发价；市价类订单耗尽 L1 量后余量差一档）")
-
-</div>
-
-<p className="rd-resolves">回放成绩的乐观方向有明确说明，不被当作实盘预期</p>
+**强制**　代码：账户契约固定撮合模型配置，变更只能经新运行环境镜像生效。
 
 </Cap>
 
 ### W.5.2　成交与结算规则 [#W-5-2]
 
-K 线内顺序与止损触发是引擎原生行为，运行器以账户契约的配置键固定；资金费由 market.write_funding 按各合约实际结算时刻供给，结算由引擎完成，读数与审计只读取其产出。
+K 线内顺序与止损触发由账户契约的配置键固定，资金费由引擎按实际结算时刻结算，读数与审计只读其产出。
 
-<Cap id="W.5.2.1" kind="code" tier="verified" tierLabel="已验证" title="K 线内按固定开高低收顺序处理；成交量按引擎规则分到四个价格点">
+<Cap id="W.5.2.1" kind="code" tier="verified" tierLabel="已验证" title="K 线内按固定开高低收顺序处理挂单，成交量按引擎规则分到四点">
 
-引擎在每根 1 分钟成交价 K 线内按固定的开、高、低、收顺序处理挂单，运行器经 <Ref id="engine.account_contract" /> 固定 bar_adaptive_high_low_ordering=False，不启用自适应启发式，也不由策略或运行器猜测价格路径。同一 K 线内括号单（<Ref id="C.4.2.1" />）的止损与止盈同时可触发时，先后只由这一顺序决定。K 线成交量由引擎均分到四个价格点，余量归收盘，低于最小步长时每点取最小量。由代码（运行器配置）强制。
+- 引擎在每根 1 分钟成交价 K 线内按开、高、低、收的固定顺序处理挂单。
+- 运行器经 <Ref id="engine.account_contract" /> 固定 bar_adaptive_high_low_ordering=False：不启用自适应启发式，策略与运行器也不猜测价格路径。
+- 同一 K 线内括号单（<Ref id="C.4.2.1" />）的止损与止盈同时可触发时，先后只由这一顺序决定。
+- K 线成交量由引擎均分到四个价格点，余量归收盘；低于最小步长时每点取最小量。
 
-<div className="rd-meta">
-
-**使用**　<Ref id="engine.account_contract" />、<Ref id="C.4.2.1" />
-
-**依据**　[\[114\]](/zh/docs/appendix-references/#ref-114 "NautilusTrader — Bar execution（缺省顺序 Open→High→Low→Close；成交量均分到四点、余量归收盘；adaptive 顺序只是启发式）")
-
-</div>
-
-<p className="rd-resolves">K 线内次序不由策略或运行器猜测</p>
+**强制**　代码：运行器的引擎配置。
 
 </Cap>
 
-<Cap id="W.5.2.2" kind="code" tier="verified" tierLabel="已验证" title="止损按成交价 K 线触发；交易所的标记价触发不建模">
+<Cap id="W.5.2.2" kind="code" tier="verified" tierLabel="已验证" title="止损按成交价 K 线触发，交易所标记价触发不建模">
 
-止损类订单按成交价 K 线触发：K 线开盘已越过触发价时按开盘价成交，否则高、低、收依序穿过触发价时按触发价成交。运行器经 <Ref id="engine.account_contract" /> 设 reject_stop_orders=False，引擎不拒止损单。交易所可选的标记价触发（workingType=MARK_PRICE）不建模：标记价数据流只用于估值与保证金，不触发订单；这一差异由运行器写入原生摘要的局限（<Ref id="engine.write_native_reports" />），报告并入局限清单（<Ref id="R.1.3.4" />）。由代码强制。
+- K 线开盘已越过触发价时按开盘价成交；否则高、低、收依序穿过触发价时按触发价成交。
+- 运行器经 <Ref id="engine.account_contract" /> 设 reject_stop_orders=False，引擎不拒止损单。
+- 交易所可选的标记价触发（workingType=MARK_PRICE）不建模：标记价数据流只用于估值与保证金，不触发订单。
+- 这一差异由运行器写入原生摘要的局限（<Ref id="engine.write_native_reports" />），报告并入局限清单（<Ref id="R.1.3.4" />）。
 
-<div className="rd-meta">
+**输出**　原生摘要中的触发口径局限声明。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.write_native_reports" />、<Ref id="R.1.3.4" />
-
-**依据**　[\[115\]](/zh/docs/appendix-references/#ref-115 "NautilusTrader — Fill prices and matching（K 线开盘越过触发价按模拟市价成交；之后高低收穿过触发价按触发价成交）") [\[116\]](/zh/docs/appendix-references/#ref-116 "Binance USDⓈ-M Futures — New Order（同页 New Algo Order 条件单的 workingType 取 MARK_PRICE 或 CONTRACT_PRICE，缺省 CONTRACT_PRICE）")
-
-</div>
-
-<p className="rd-resolves">保护单触发口径唯一且差异可见</p>
+**强制**　代码：运行器的引擎配置与摘要局限写出。
 
 </Cap>
 
-<Cap id="W.5.2.3" kind="code" tier="verified" tierLabel="已验证" title="资金费按各合约实际结算时刻计入持仓；正费率多头付、空头收">
+<Cap id="W.5.2.3" kind="code" tier="verified" tierLabel="已验证" title="资金费在各合约实际结算时刻结算：正费率多头付、空头收">
 
-资金费 funding 按每个合约在市场库 <Ref id="table:funding" /> 中记录的实际结算时刻，由 <Ref id="market.write_funding" /> 逐条写成引擎 FundingRateUpdate（ts_event、ts_init 与 next_funding_ns 都等于结算时刻，不填周期），引擎在该时刻结算一次并调整持仓与账户余额：正费率多头付、空头收；只有结算时刻持仓者收付。不假设统一的 8 小时周期，各合约、各时期的间隔可以不同。结算时刻不严格递增拒绝 FUNDING_UNSORTED，费率不是有限十进制数拒绝 FUNDING_RATE_SHAPE；某段没有资金费记录时保留为覆盖事实（<Ref id="W.3.3.2" />），不补造。资金费结算由引擎完成，审计只对账不重算（<Ref id="G.3.2.2" />）；读数把资金费作为独立的利润来源计入闭仓拆分（<Ref id="R.2.3.1" />）并与账户整体手续费并列（<Ref id="R.2.3.3" />）。由代码强制。
+- <Ref id="market.write_funding" /> 按市场库 <Ref id="table:funding" /> 记录的每个合约实际结算时刻，逐条写成引擎 FundingRateUpdate。
+- ts_event、ts_init 与 next_funding_ns 都等于结算时刻，不填周期。
+- 引擎在该时刻结算一次并调整持仓与账户余额。
+- 正费率多头付、空头收；只有结算时刻持仓者收付。
+- 不假设统一的 8 小时周期，各合约、各时期的间隔可以不同。
+- 某段没有资金费记录时保留为覆盖事实（<Ref id="W.3.3.2" />），不补造。
+- 读数把资金费作为独立利润来源计入闭仓拆分（<Ref id="R.2.3.1" />），并与账户整体手续费并列（<Ref id="R.2.3.3" />）。
 
-<div className="rd-meta">
+**输入**　市场库 <Ref id="table:funding" /> 中各合约的结算时刻与费率。
 
-**定义**　<Ref id="market.write_funding" />
+**输出**　引擎 FundingRateUpdate 数据流，以及引擎结算后的持仓与账户余额。
 
-**使用**　<Ref id="table:funding" />、<Ref id="market.export_episode" />、<Ref id="engine.replay" />、<Ref id="G.3.2.2" />、<Ref id="R.2.3.3" />
+**强制**　代码：导出器的写出检查与引擎原生资金费结算。
 
-**依据**　[\[117\]](/zh/docs/appendix-references/#ref-117 "Binance — Introduction to Binance Futures Funding Rates（缺省每 8 小时；可调为 4 小时或 1 小时；正费率多头付空头；只有结算时刻持仓者收付）") [\[118\]](/zh/docs/appendix-references/#ref-118 "NautilusTrader — Backtest Accounts and Margin（回测在资金费边界按 FundingRateUpdate 结算；有 next_funding_ns 时在该时刻发出一次 FundingSettlement；结算调整持仓与对应账户余额；正费率多头付、空头收）") [\[119\]](/zh/docs/appendix-references/#ref-119 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888")
-
-</div>
-
-<p className="rd-resolves">资金费作为独立利润来源被准确计入，而非近似为固定周期</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `FUNDING_UNSORTED` | 结算时刻不严格递增 |
+| `FUNDING_RATE_SHAPE` | 费率不是有限十进制数 |
 
 </Cap>
 

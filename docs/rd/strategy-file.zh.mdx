@@ -6,8 +6,6 @@
 
 ## C.1　写成一份可登记的单文件 [#C-1]
 
-发布入口只解析源码、记内容哈希并写入账本，得到候选 strategy_id@revision；运行器装载时按同一哈希读字节，核对唯一入口类、依赖边界、两个必带钩子与两项声明，任一不符即拒绝运行。运行器只接受策略引用、输入、窗口与输出，全部规则与参数只能在源码，参数变体就是新候选。文件头用九组立场与三条硬契约写明设计选择，由 skill 指导、供登记前的独立源码审查查漏。四个组件按身份、归属、加载检查、文件头排列，前三者由代码强制，第四个由 skill 指导。
-
 <Steps>
 
 <Step>
@@ -50,221 +48,255 @@ Agent 按 skill 写单文件源码：唯一入口类、两个钩子、九组文�
 
 ### C.1.1　单文件、入口与身份一致 [#C-1-1]
 
-两条能力都由代码强制：发布侧只解析不执行，确认单文件与唯一入口并以内容哈希写入账本；装载侧按同一哈希读字节、执行并核对入口类。输入是源码字节、入口类名与内容哈希，输出是账本里的候选或拒绝码。
+发布侧只解析并以内容哈希入账，装载侧按同一哈希执行并核对入口类，两侧都由代码强制。
 
-<Cap id="C.1.1.1" kind="code" tier="verified" tierLabel="已验证" title="一个完整的单文件，唯一顶层入口是引擎认的策略类">
+<Cap id="C.1.1.1" kind="code" tier="verified" tierLabel="已验证" title="策略是含全部规则的 UTF-8 单文件，唯一顶层入口是引擎策略子类">
 
-一个独立策略是一份完整的 UTF-8 单文件源码，含全部交易规则与参数。它恰有一个与声明的入口类名同名的顶层类，该类在本文件内声明且是引擎策略基类的真子类；运行器只实例化这个类。形态分两处核对：发布时 <Ref id="ledger.check_source" /> 只解析不执行，确认源码非空、在长度上限内、可解析、顶层同名类恰为一个（拒绝码 SOURCE_SIZE、SOURCE_SYNTAX、ENTRY_CLASS_INVALID、ENTRY_CLASS_NOT_UNIQUE）；装载时 <Ref id="engine.load_strategy" /> 执行源码后确认入口类在本模块声明并继承引擎策略基类（ENTRY_CLASS_INVALID）。策略库模板、用户自建的根节点 root 与派生候选走同一检查，没有第二种入口形态。由代码强制。
+1. 发布时 <Ref id="ledger.check_source" /> 只解析不执行，确认源码非空、在长度上限内、可解析、与入口类名同名的顶层类恰为一个。
+2. 装载时 <Ref id="engine.load_strategy" /> 执行源码，确认入口类在本模块声明并继承引擎策略基类。
 
-<div className="rd-meta">
+- 一个独立策略是一份完整的 UTF-8 单文件源码，含全部交易规则与参数。
+- 源码恰有一个与声明的入口类名同名的顶层类，该类在本文件内声明，且是引擎策略基类的真子类。
+- 运行器只实例化这个类。
+- 策略库模板、用户自建的根节点 root 与派生候选走同一检查，没有第二种入口形态。
 
-**定义**　<Ref id="engine.load_strategy" />、<Ref id="ledger.check_source" />
+**输入**　源码字节与声明的入口类名。
 
-**使用**　<Ref id="engine.configure_strategy" />、<Ref id="table:candidate" />
+**输出**　通过形态检查的源码，或拒绝码。
 
-**依据**　[\[86\]](/zh/docs/appendix-references/#ref-86 "NautilusTrader — Strategies")
+**强制**　代码强制：发布时由 <Ref id="ledger.check_source" /> 解析检查，装载时由 <Ref id="engine.load_strategy" /> 执行后核对。
 
-</div>
-
-<p className="rd-resolves">入口形态唯一，运行器与审查面对的始终是同一种对象</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SIZE` | 发布时源码为空或超过长度上限。 |
+| `SOURCE_SYNTAX` | 发布时源码无法解析。 |
+| `ENTRY_CLASS_INVALID` | 发布时缺少同名顶层类；装载时入口类不在本模块声明或不是引擎策略基类的子类。 |
+| `ENTRY_CLASS_NOT_UNIQUE` | 发布时与入口类名同名的顶层类不止一个。 |
 
 </Cap>
 
-<Cap id="C.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记时只解析不执行；执行字节等于登记哈希；源码一改就是新候选">
+<Cap id="C.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="发布只解析不执行，执行字节须等于发布哈希，改动即新候选">
 
-发布 <Ref id="cli.candidate_publish" /> 只解析源码、不执行，证明的是形态而非规则正确。<Ref id="ledger.publish_candidate" /> 以源码字节的 SHA-256 为内容哈希 content hash，在一笔事务里写一行 <Ref id="table:candidate" /> 并提交，返回引用名 strategy_id@revision；相同字节不能再次发布（SOURCE_EXISTS，附该字节对应的引用），任何改动都产生新候选；研发父版本 parent 与改动说明同有同无（LINEAGE_INCOMPLETE），父须存在（UNKNOWN_CANDIDATE）。执行时 <Ref id="engine.load_strategy" /> 读到的字节哈希必须等于发布哈希（CONTENT_HASH_MISMATCH）；封存回放还须与上层写出的源码绑定一致（BINDING_MISMATCH）。任何读取经 <Ref id="ledger.read_candidate" /> 重算存储字节哈希，不符即 LEDGER_CORRUPT。由代码与账本的内容哈希唯一约束共同强制。
+1. <Ref id="cli.candidate_publish" /> 只解析源码、不执行，证明的是形态而非规则正确。
+2. <Ref id="ledger.publish_candidate" /> 以源码字节的 SHA-256 为内容哈希 content hash，在一笔事务里写一行 <Ref id="table:candidate" /> 并提交，返回引用名 strategy_id@revision。
+3. 任何读取经 <Ref id="ledger.read_candidate" /> 重算存储字节的哈希并与记录比对。
+4. 执行时 <Ref id="engine.load_strategy" /> 核对读到的字节哈希等于发布哈希；封存回放还核对与上层写出的源码绑定一致。
 
-<div className="rd-meta">
+- 相同字节不能再次发布，任何改动都产生新候选。
+- 研发父版本 parent 与改动说明同有同无，父须存在。
 
-**定义**　<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="ledger.publish_candidate" />、<Ref id="ledger.read_candidate" />
+**输入**　源码字节，以及可选的父版本 parent 与改动说明。
 
-**使用**　<Ref id="engine.load_strategy" />、<Ref id="ledger.check_source" />、<Ref id="ledger.write" />、<Ref id="replay.seal" />、<Ref id="table:candidate" />
+**输出**　账本里的一行候选与引用名 strategy_id@revision，或拒绝码。
 
-</div>
+**强制**　代码与账本共同强制：发布与装载的哈希比对，加上账本对内容哈希的唯一约束。
 
-<p className="rd-resolves">被执行的代码与账本里的候选身份一一对应</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_EXISTS` | 相同字节已发布过；附该字节对应的引用。 |
+| `LINEAGE_INCOMPLETE` | 父版本 parent 与改动说明只给了其中一个。 |
+| `UNKNOWN_CANDIDATE` | 指定的父版本不存在。 |
+| `CONTENT_HASH_MISMATCH` | 执行时读到的字节哈希不等于发布哈希。 |
+| `BINDING_MISMATCH` | 封存回放的源码与上层写出的源码绑定不一致。 |
+| `LEDGER_CORRUPT` | 读取时重算的存储字节哈希与记录不符。 |
 
 </Cap>
 
 ### C.1.2　规则与参数的归属 [#C-1-2]
 
-C.1.2.1 由代码强制：运行器的参数面固定为引用、输入、窗口与输出，规则与参数因此只能在源码。C.1.2.2 由 skill 指导：选币规则同样归源码，以环境产出的成员区间为输入。
+运行器参数面由代码固定，规则与参数只能在源码；选币规则同样归源码，由 skill 指导。
 
-<Cap id="C.1.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="全部规则与参数只在源码；运行器不接受策略参数；参数变体就是新候选">
+<Cap id="C.1.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="全部规则与参数只在源码，运行器不收策略参数，参数变体即新候选">
 
-运行器的命令行由 <Ref id="engine.build_parser" /> 固定为策略引用、输入、窗口、输出目录与探针开关；<Ref id="engine.parse_configuration" /> 对任何未定义选项拒绝（UNKNOWN_OPTION），所以没有策略参数入口，也没有通用键值透传。信号周期与预热声明、仓位、单笔风险、名义上限、杠杆用法等全部规则与参数写在源码，随内容哈希固定。<Ref id="engine.configure_strategy" /> 构造入口类时只传运行器输入（合约、交易起点、策略标识、成员区间、按声明取的预热日线），账户与撮合条款取所有候选共用的 <Ref id="engine.account_contract" />，并进入有效配置与执行身份。参数变体就是新源码、新候选。这些是 Agent 的设计变量，改动不需用户授权，也不记为用户约束（<Ref id="A.2.2.1" />）。由代码强制。
+- <Ref id="engine.build_parser" /> 把运行器命令行固定为策略引用、输入、窗口、输出目录与探针开关，没有策略参数入口，也没有通用键值透传。
+- 信号周期与预热声明、仓位、单笔风险、名义上限、杠杆用法等全部规则与参数写在源码，随内容哈希固定。
+- <Ref id="engine.configure_strategy" /> 构造入口类时只传运行器输入：合约、交易起点、策略标识、成员区间、按声明取的预热日线。
+- 账户与撮合条款取所有候选共用的 <Ref id="engine.account_contract" />，并进入有效配置与执行身份。
+- 参数变体就是新源码、新候选。
+- 这些参数是 Agent 的设计变量，改动不需用户授权，也不记为用户约束（<Ref id="A.2.2.1" />）。
 
-<div className="rd-meta">
+**输入**　策略引用、输入、窗口、输出目录与探针开关。
 
-**定义**　<Ref id="engine.build_parser" />、<Ref id="engine.configure_strategy" />、<Ref id="engine.parse_configuration" />
+**输出**　只以运行器输入与共用账户条款构造的策略实例。
 
-**使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.parse_window" />、<Ref id="engine.account_contract" />、<Ref id="engine.effective_configuration" />、<Ref id="eval:research-round/own-sizing-not-user-constraint" />
+**强制**　代码强制：<Ref id="engine.build_parser" /> 固定参数面，<Ref id="engine.parse_configuration" /> 拒绝未定义选项。
 
-</div>
-
-<p className="rd-resolves">一个候选的全部行为由其源码字节决定，可比性不被外部参数破坏</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_OPTION` | 命令行出现任何未定义选项，包括任何策略参数。 |
 
 </Cap>
 
-<Cap id="C.1.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺的证据：尚无一条选币规则改动作为假设登记并回放的试验。" title="选币归策略：排名、前 N、信号筛选与调整频率写在源码；共同可交易范围由环境产出">
+<Cap id="C.1.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺的证据：尚无一条选币规则改动作为假设登记并回放的试验。" title="选币规则写在源码，共同可交易范围与成员路径由环境产出">
 
-成交额排名、前 N、信号筛选、选币数量与调整频率是策略规则，写在源码，只用引擎当时已提供的数据决定实际交易子集。共同可交易范围 universe 及其成员时间路径由环境按月产出，运行器把每合约的成员区间交给对应实例（<Ref id="W.3.2.1" />），策略改不了。两个候选共享范围与成员时间路径就算同一币池，实际交易子集可以不同（<Ref id="V.2.1.3" />）。选币规则的改动是一条假设 hypothesis，照常登记并回放，不要求环境改范围。由 skill 指导，eval 校验。
+- 成交额排名、前 N、信号筛选、选币数量与调整频率是策略规则，写在源码。
+- 策略只用引擎当时已提供的数据决定实际交易子集。
+- 共同可交易范围 universe 及其成员时间路径由环境按月产出，运行器把每合约的成员区间交给对应实例（<Ref id="W.3.2.1" />），策略改不了。
+- 两个候选共享范围与成员时间路径就算同一币池，实际交易子集可以不同（<Ref id="V.2.1.3" />）。
+- 选币规则的改动是一条假设 hypothesis，照常登记并回放，不要求环境改范围。
 
-<div className="rd-meta">
+**输入**　运行器交给实例的每合约成员区间，以及引擎当时已提供的数据。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#universe-selection-in-source" />、<Ref id="eval:research-round/universe-selection-is-a-hypothesis" />
+**输出**　策略自选的实际交易子集。
 
-**使用**　<Ref id="market.membership_path" />、<Ref id="engine.read_universe" />、<Ref id="research-round/SKILL.md#one-change" />
-
-</div>
-
-<p className="rd-resolves">币池规则成为可研究对象，同时保住可比资格</p>
+**强制**　skill 指导，eval 校验。
 
 </Cap>
 
 ### C.1.3　加载时检查：依赖边界与自带钩子 [#C-1-3]
 
-两条能力由代码强制：装载器把源码作为独立模块执行并核对两个钩子与两项声明，容器与运行环境给出无网络、只读与锁定依赖的边界。钩子输出在回放结束时进入摘要与完整性发现，构造与回调异常由运行器包裹后非零退出。
+装载器以独立模块执行源码并核对钩子与声明，容器与运行环境给出无网络、只读、锁定依赖的执行边界，均由代码强制。
 
-<Cap id="C.1.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="只导入标准库、引擎与锁定依赖，作为独立模块加载；除引擎喂给的数据外无输入，不能联网">
+<Cap id="C.1.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="源码只导入标准库、引擎与锁定依赖，在无网络只读容器中独立加载">
 
-源码只能导入标准库、引擎与运行环境 runtime image 锁定的依赖。<Ref id="engine.load_strategy" /> 以内容哈希命名的独立模块执行源码，无包名、不能相对导入，执行抛错即 SOURCE_EXECUTION_FAILED。运行环境只由 CI 构建（<Ref id="runtime.build_image" />），镜像里只有引擎、运行器与锁定依赖，没有研究或策略模块；回放容器由 <Ref id="runtime.container_command" /> 启动：无网络、根文件系统只读、只读挂载声明的输入、唯一可写的是报告目录。因此除引擎喂给的数据外源码没有其他输入，缺依赖在原生预检的构造阶段暴露。装载只证明身份与形态，不担保任意 Python 安全，执行边界由容器提供。由代码与运行环境强制。
+- 源码只能导入标准库、引擎与运行环境 runtime image 锁定的依赖。
+- <Ref id="engine.load_strategy" /> 以内容哈希命名的独立模块执行源码，无包名，不能相对导入。
+- 运行环境只由 CI 构建（<Ref id="runtime.build_image" />），镜像里只有引擎、运行器与锁定依赖，没有研究或策略模块。
+- 回放容器由 <Ref id="runtime.container_command" /> 启动：无网络、根文件系统只读、只读挂载声明的输入，唯一可写的是报告目录。
+- 除引擎喂给的数据外源码没有其他输入；缺依赖在原生预检的构造阶段暴露。
+- 装载只证明身份与形态，不担保任意 Python 安全，执行边界由容器提供。
 
-<div className="rd-meta">
+**输入**　按内容哈希读出的源码字节与只读挂载的声明输入。
 
-**使用**　<Ref id="engine.load_strategy" />、<Ref id="runtime.container_command" />、<Ref id="runtime.build_image" />
+**输出**　已加载的策略模块；可写产物只落在报告目录。
 
-</div>
+**强制**　代码与运行环境强制：装载器的独立模块执行、CI 构建的锁定镜像与容器的网络和文件系统隔离。
 
-<p className="rd-resolves">回放只读且可复现，源码没有引擎之外的信息来源</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_EXECUTION_FAILED` | 以独立模块执行源码时抛错。 |
 
 </Cap>
 
-<Cap id="C.1.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="必带诊断计数与完整性自检两个钩子；自报诊断不占原生事实的名字">
+<Cap id="C.1.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="入口类必带诊断与自检两个钩子，自报诊断不占原生事实键名">
 
-入口类必须实现诊断计数 replay_diagnostics 与完整性自检 replay_integrity_findings 两个钩子，并把 DAILY_WARMUP、USES_STOP_LOSS 声明为 bool；<Ref id="engine.load_strategy" /> 缺钩子即 HOOK_MISSING，声明非布尔即 DECLARATION_NOT_BOOL。回放结束 <Ref id="engine.diagnostics" /> 取诊断：须是可序列化为 JSON 的字典，不得占用原生报告事实（合约、数量、计数、持仓等）的键名，只作自报诊断写入摘要，不进审计与读数。<Ref id="engine.write_native_reports" /> 调用自检钩子，任何自检发现、被拒或被否的订单写入完整性发现，计为审计失败（<Ref id="G.3.2.4" />）；构造或回调异常先写结构化回执再抛出，运行非零退出并无效（<Ref id="G.1.1.3" />）。干净退出不掩盖故障。由代码强制。
+1. 装载时 <Ref id="engine.load_strategy" /> 核对两个钩子存在、两项声明为 bool。
+2. 回放结束 <Ref id="engine.diagnostics" /> 取诊断计数，只作自报诊断写入摘要。
+3. <Ref id="engine.write_native_reports" /> 调用自检钩子，把自检发现与被拒或被否的订单写入完整性发现。
 
-<div className="rd-meta">
+- 入口类必须实现诊断计数 replay_diagnostics 与完整性自检 replay_integrity_findings 两个钩子。
+- 入口类把 DAILY_WARMUP、USES_STOP_LOSS 声明为 bool。
+- 诊断须是可序列化为 JSON 的字典，不得占用原生报告事实（合约、数量、计数、持仓等）的键名。
+- 诊断只作自报写入摘要，不进审计与读数。
+- 任何自检发现、被拒或被否的订单计为审计失败（<Ref id="G.3.2.4" />）。
+- 构造或回调异常先写结构化回执再抛出，运行非零退出并无效（<Ref id="G.1.1.3" />）。
+- 干净退出不掩盖故障。
 
-**定义**　<Ref id="engine.diagnostics" />
+**输入**　已加载的入口类及其回放期间的钩子输出。
 
-**使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.guard_callback" />、<Ref id="engine.execution_failure" />、<Ref id="engine.write_native_reports" />
+**输出**　摘要中的自报诊断与完整性发现。
 
-</div>
+**强制**　代码强制：装载器核对钩子与声明，报告写出时调用自检并记入完整性发现，运行器包裹构造与回调异常。
 
-<p className="rd-resolves">源码自报的诊断与自检成为可读证据，却不能冒充引擎事实</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `HOOK_MISSING` | 入口类缺少 replay_diagnostics 或 replay_integrity_findings 钩子。 |
+| `DECLARATION_NOT_BOOL` | DAILY_WARMUP 或 USES_STOP_LOSS 不是 bool。 |
 
 </Cap>
 
 ### C.1.4　文件头的立场与硬契约 [#C-1-4]
 
-四条能力都由 skill 指导，代码不裁决：文件头先用九组立场各一行写明采用、缺省或不适用，再写三条硬契约（仓位与资金预算、成员变化处置、共享资本分配）。输出是独立源码审查可逐项核对的声明；资金使用率与生命周期审计由代码产出读数，反馈声明是否兑现。
+文件头先写九组立场、再写三条硬契约，由 skill 指导、代码不裁决，供独立源码审查逐项核对；资金使用率与生命周期审计由代码产出读数。
 
-<Cap id="C.1.4.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺的证据：尚无按九组文件头写出并经独立源码审查查漏的实际候选。" title="文件头按九组各写一行立场：采用／缺省／不适用加一句理由">
+<Cap id="C.1.4.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺的证据：尚无按九组文件头写出并经独立源码审查查漏的实际候选。" title="文件头九组各写一行立场：采用、缺省或不适用，附理由与出处">
 
-文件头按九组（对象与适用性、预测与学习、首次行动与记忆、经济构型、风险与分配、持仓路径、实施、资本、生命周期与可行性）各写一行立场，取值为采用、缺省或不适用，附一句理由，并标明出自出处原话、实现者缺省还是研究者推广（<Ref id="L.1.3.3" />）。27 项职责目录只作 skill 参考文件，供登记前的独立源码审查（<Ref id="C.6.2.1" />）查漏，不进正文。发布不核对文件头，形态检查只看单文件与唯一入口。由 skill 指导，eval 校验，独立源码审查结论作为具名证据。
+- 九组为：对象与适用性、预测与学习、首次行动与记忆、经济构型、风险与分配、持仓路径、实施、资本、生命周期与可行性。
+- 每组一行，取值为采用、缺省或不适用，附一句理由。
+- 每行标明出自出处原话、实现者缺省还是研究者推广（<Ref id="L.1.3.3" />）。
+- 27 项职责目录只作 skill 参考文件，供登记前的独立源码审查（<Ref id="C.6.2.1" />）查漏，不进正文。
+- 发布不核对文件头，形态检查只看单文件与唯一入口。
 
-<div className="rd-meta">
+**输出**　独立源码审查可逐项核对的九行立场声明。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#header-nine-groups" />、<Ref id="eval:research-round/header-nine-groups" />
-
-**使用**　<Ref id="research-round/references/duty-directory.md#nine-groups" />、<Ref id="research-round/references/template-transcription.md#header-attribution" />
-
-</div>
-
-<p className="rd-resolves">审查者能逐组核对哪些职责被实现、哪些被明示放弃</p>
+**强制**　skill 指导，eval 校验；独立源码审查结论作为具名证据。
 
 </Cap>
 
-<Cap id="C.1.4.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="硬契约一：仓位与资金预算规则写明并从引擎账户状态取数">
+<Cap id="C.1.4.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="硬契约一：仓位与资金预算写在源码，下单量从引擎账户状态算出">
 
-仓位、单笔风险与资金预算规则写在源码，下单数量由引擎账户状态（权益、合约乘数、最小量与最小名义）算出；不另设名义上限去模仿保证金 margin，保证金与杠杆由引擎账户按固定账户条款处理，保证金不足由引擎拒单（<Ref id="C.2.1.3" />）。资金使用率 capital utilisation（时间加权名义敞口、峰值、锁定保证金、在市时间）由运行器逐 K 线按标记价估值写出敞口表；Agent 从首个有效根起每个有效运行主动读出，任何仓位或预算改动后必读，并写进反馈与推荐理由。由 skill 指导，读数由代码产出。
+- 仓位、单笔风险与资金预算规则写在源码。
+- 下单数量由引擎账户状态（权益、合约乘数、最小量与最小名义）算出。
+- 不另设名义上限去模仿保证金 margin；保证金与杠杆由引擎账户按固定账户条款处理，保证金不足由引擎拒单（<Ref id="C.2.1.3" />）。
+- 资金使用率 capital utilisation（时间加权名义敞口、峰值、锁定保证金、在市时间）由运行器逐 K 线按标记价估值写出敞口表。
+- Agent 从首个有效根起，每个有效运行都主动读出资金使用率，任何仓位或预算改动后必读。
+- 资金使用率读数写进反馈与推荐理由。
 
-<div className="rd-meta">
+**输入**　引擎账户状态：权益、合约乘数、最小量与最小名义。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#hard-contract-capital" />、<Ref id="eval:research-round/hard-contracts-declared" />
+**输出**　下单数量；运行器写出的敞口表与资金使用率读数。
 
-**使用**　<Ref id="engine.capital_observer" />、<Ref id="nautilus-report-analysis/SKILL.md#capital-utilisation" />、<Ref id="research-round/references/feedback.md#capital-and-profit-source" />
-
-</div>
-
-<p className="rd-resolves">低回撤不再被误读为低风险，仓位规则的效果可被读出</p>
-
-</Cap>
-
-<Cap id="C.1.4.3" kind="skill" tier="verified" tierLabel="已验证" title="硬契约二：成员变化时旧仓旧单的处置写明">
-
-源码写明成员变化时对既有持仓与挂单的处置：合约退出共同可交易范围时只减仓 reduce-only、不开新仓；禁新仓与下架结算按引擎供给的生命周期事件（InstrumentStatus、InstrumentClose）响应；合约退出策略自选子集时按源码规则处理。成员区间由运行器交给实例，开仓范围在禁新仓时结束；生命周期事件由环境随市场提交写出；运行器与审计都不替策略平仓或撤单，也不得靠删币或缩窗绕过。审计只核结果：未定价终止前每个原生仓位须归零、全部订单已结束，否则运行无效（<Ref id="G.3.3.3" />）。由 skill 指导，结果由代码审计。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/strategy-authoring.md#hard-contract-membership" />
-
-**使用**　<Ref id="market.membership_path" />、<Ref id="engine.episode_membership" />、<Ref id="market.write_lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="eval:research-round/hard-contracts-declared" />
-
-**依据**　[\[87\]](/zh/docs/appendix-references/#ref-87 "Binance — Delisting of futures contracts")
-
-</div>
-
-<p className="rd-resolves">下架、禁新仓与出池不再静默留仓或靠删币缩窗绕过</p>
+**强制**　skill 指导；资金使用率读数由代码（<Ref id="engine.capital_observer" />）产出。
 
 </Cap>
 
-<Cap id="C.1.4.4" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺的证据：尚无把联合分配规则写入源码并在同账户多合约回放中读出分配结果的候选。" title="硬契约三：同账户多机会共享资本的分配写明">
+<Cap id="C.1.4.3" kind="skill" tier="verified" tierLabel="已验证" title="硬契约二：成员变化时既有持仓与挂单的处置写在源码">
 
-同一账户下多个合约实例共享固定本金时，源码写明同批信号如何联合分配资金、未获资金的机会如何处置（缩量、延后或放弃）。不靠回调循环顺序或引擎拒单代替分配规则：拒单是保证金事实（<Ref id="C.2.1.3" />），不是分配规则。合并另一版本的规则后分配仍在同一账户内进行，按一处改动登记（<Ref id="T.2.2.2" />）。由 skill 指导，eval 校验。
+- 合约退出共同可交易范围时只减仓 reduce-only、不开新仓。
+- 禁新仓与下架结算按引擎供给的生命周期事件（InstrumentStatus、InstrumentClose）响应。
+- 合约退出策略自选子集时按源码规则处理。
+- 成员区间由运行器交给实例，开仓范围在禁新仓时结束；生命周期事件由环境随市场提交写出。
+- 运行器与审计都不替策略平仓或撤单，也不得靠删币或缩窗绕过。
+- 审计只核结果：未定价终止前每个原生仓位须归零、全部订单已结束，否则运行无效（<Ref id="G.3.3.3" />）。
 
-<div className="rd-meta">
+**输入**　运行器交给实例的成员区间与引擎供给的生命周期事件。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#hard-contract-allocation" />
+**输出**　未定价终止前归零的原生仓位与全部结束的订单。
 
-**使用**　<Ref id="research-round/SKILL.md#merge-rule" />、<Ref id="eval:research-round/hard-contracts-declared" />
+**强制**　skill 指导；结果由代码的生命周期审计核对。
 
-</div>
+</Cap>
 
-<p className="rd-resolves">多机会竞争同一资本时的行为由规则而非实现偶然决定</p>
+<Cap id="C.1.4.4" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺的证据：尚无把联合分配规则写入源码并在同账户多合约回放中读出分配结果的候选。" title="硬契约三：同账户共享资本时，联合分配与落选处置写在源码">
+
+- 同一账户下多个合约实例共享固定本金时，源码写明同批信号如何联合分配资金。
+- 源码写明未获资金的机会如何处置：缩量、延后或放弃。
+- 不靠回调循环顺序或引擎拒单代替分配规则；拒单是保证金事实（<Ref id="C.2.1.3" />），不是分配规则。
+- 合并另一版本的规则后分配仍在同一账户内进行，按一处改动登记（<Ref id="T.2.2.2" />）。
+
+**输入**　同批信号与共享的固定本金。
+
+**强制**　skill 指导，eval 校验。
 
 </Cap>
 
 ## C.2　把交易事实交给引擎 [#C-2]
 
-撮合、成交、手续费、资金费（funding）、持仓、账户与风控全部由引擎（engine）产生，以引擎事件与报告为准。数据流只有一个方向：运行器把固定账户与撮合常量配置给引擎并回放，策略从引擎缓存与组合读状态、响应事件、提交订单，引擎审单并撮合，运行器把引擎报告原样写出，审计按报告对账，读数与 Agent 统计只从产品报告读。代码强制配置、原样写出与后果核对；策略与 Agent 不自算交易事实这一条由 skill 指导并经独立源码审查核对。保证金不足由引擎拒单，产品不另设保证金审计。
-
 <Steps>
 
 <Step>
 
-运行器按 engine.account_contract 把净额保证金账户与 K 线撮合常量配置给引擎，经 engine.replay 回放
+运行器配置引擎并回放，见 <Ref id="C.2.1.1" />。
 
 </Step>
 
 <Step>
 
-策略从引擎缓存（cache）与组合（portfolio）读订单、持仓与账户，响应订单与持仓事件并提交订单
+策略从引擎缓存（cache）与组合（portfolio）读订单、持仓与账户，响应订单与持仓事件并提交订单。
 
 </Step>
 
 <Step>
 
-引擎风控在提交前审单，保证金或余额不足即产生 OrderDenied；通过的订单由引擎撮合，产生成交、费用、资金费、持仓与账户变化
+引擎风控审单并撮合，产生成交、费用、资金费、持仓与账户变化。
 
 </Step>
 
 <Step>
 
-engine.write_native_reports 把引擎报告、订单事件史与敞口表原样写出，被否被拒订单与自检发现记为完整性发现
+运行器原样写出引擎报告，见 <Ref id="C.2.1.1" />。
 
 </Step>
 
 <Step>
 
-engine.generic_audit 按报告逐项对账不重算，有发现即由 replay.audit_problems 写成无效原因
+审计按报告对账不重算，见 <Ref id="C.2.1.3" />。
 
 </Step>
 
 <Step>
 
-读数经 ledger.readings 封存，Agent 自算统计只经 report.tables 读解析好的报告表
+读数与 Agent 自算统计只从产品报告读，见 <Ref id="C.2.1.2" />。
 
 </Step>
 
@@ -272,93 +304,106 @@ engine.generic_audit 按报告逐项对账不重算，有发现即由 replay.aud
 
 ### C.2.1　引擎独占的事实 [#C-2-1]
 
-两条由代码强制：运行器对引擎的配置与原样写出（C.2.1.1）、保证金拒单的后果核对（C.2.1.3）；一条由 skill 指导：策略与 Agent 都不自算交易事实（C.2.1.2）。输入是固定账户配置与引擎回放，输出是未经加工的原生报告与完整性发现。
+输入为固定账户配置与引擎回放，输出为原生报告与完整性发现；两条由代码强制，一条由 skill 指导。
 
-<Cap id="C.2.1.1" kind="code" tier="verified" tierLabel="已验证" title="成交、费用、资金费、持仓、账户与订单状态全由引擎给出">
+<Cap id="C.2.1.1" kind="code" tier="verified" tierLabel="已验证" title="交易事实只由引擎产生，运行器只配置引擎并原样写出报告">
 
-成交、手续费、资金费（funding）、持仓、账户余额与订单状态只由引擎产生，以引擎回报的订单事件为准（总则见 <Ref id="A.4.2.2" />）。运行器只做两件事：回放前按 <Ref id="engine.account_contract" /> 把所有候选共用的固定账户与撮合常量配置给引擎，经 <Ref id="engine.replay" /> 回放；回放后由 <Ref id="engine.write_native_reports" /> 把引擎的订单、成交、持仓、账户报告、日收益序列、订单事件史与敞口表原样写出，并在摘要里写身份、窗口、账户条款、撮合与条款局限和完整性发现。运行器不计算、不修改、不补造任何交易事实，零行表只补表头。账户缺失（NATIVE_ACCOUNT_MISSING）、期末权益快照不可用（EQUITY_SNAPSHOT_UNAVAILABLE）、GTD 订单无到期（GTD_DEADLINE_MISSING）、自检钩子返回非法（SELF_CHECK_FINDINGS_INVALID）或自报诊断占用原生事实名（DIAGNOSTICS_INVALID）时拒绝，运行器以非零退出结束，回放无效（invalid）。由代码强制；下游审计只对账这些报告，不重算。
+1. 回放前按 <Ref id="engine.account_contract" /> 把所有候选共用的固定账户与撮合常量配置给引擎，经 <Ref id="engine.replay" /> 回放。
+2. 回放后由 <Ref id="engine.write_native_reports" /> 把引擎的订单、成交、持仓、账户报告、日收益序列、订单事件史与敞口表原样写出。
+3. 在摘要里写身份、窗口、账户条款、撮合与条款局限和完整性发现。
 
-<div className="rd-meta">
+- 成交、手续费、资金费（funding）、持仓、账户余额与订单状态只由引擎产生，以引擎回报的订单事件为准（总则见 <Ref id="A.4.2.2" />）。
+- 运行器只做配置回放与原样写出两件事，不计算、不修改、不补造任何交易事实；零行表只补表头。
+- 任一拒绝发生时运行器以非零退出结束，回放无效（invalid）。
+- 下游审计只对账这些报告，不重算。
 
-**定义**　<Ref id="engine.write_native_reports" />
+**输入**　所有候选共用的固定账户与撮合常量，以及引擎回放。
 
-**使用**　<Ref id="engine.replay" />、<Ref id="engine.account_contract" />、<Ref id="engine.main" />、<Ref id="engine.generic_audit" />、<Ref id="A.4.2.2" />
+**输出**　未经加工的原生报告、订单事件史、敞口表，以及含身份、窗口、账户条款、局限与完整性发现的摘要。
 
-**依据**　[\[86\]](/zh/docs/appendix-references/#ref-86 "NautilusTrader — Strategies")
+**强制**　由代码强制：运行器经 engine.account_contract 配置引擎、engine.write_native_reports 原样写出，并在拒绝时非零退出。
 
-</div>
-
-<p className="rd-resolves">不存在与引擎平行的成交或账本</p>
-
-</Cap>
-
-<Cap id="C.2.1.2" kind="skill" tier="verified" tierLabel="已验证" title="策略不自算成交、不从 K 线推断成交、不建私有账本">
-
-策略只从引擎缓存（cache）与组合（portfolio）读订单、持仓与账户状态，以订单与持仓事件回调响应；不从 K 线高低区间推断成交，不自算手续费或资金费，不维护私有持仓或资金账本；源码内的诊断计数只作诊断，不当作成交事实。Agent 的读数（reading）同样只从产品报告读：封存运行的读数来自 <Ref id="ledger.readings" />，自算统计只经 <Ref id="report.tables" />；不从价格触及或代理计数推算成交与盈亏，置空的读数按置空解读。持仓周期每次运行独立，不跨运行配对。由 skill 指导：规则写在 <Ref id="research-round/references/strategy-authoring.md#engine-owns-trade-facts" />，登记前的 <Ref id="C.6.1.2">独立源码审查</Ref> 核对源码写法，eval <Ref id="eval:research-round/l3-touch-not-pnl" /> 校验 Agent 不从触及推断盈亏；代码不检查源码写法。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/strategy-authoring.md#engine-owns-trade-facts" />
-
-**使用**　<Ref id="research-round/SKILL.md#feedback" />、<Ref id="nautilus-report-analysis/SKILL.md#native-semantics" />、<Ref id="eval:research-round/l3-touch-not-pnl" />、<Ref id="report.tables" />、<Ref id="ledger.readings" />、<Ref id="C.6.1.2" />
-
-**依据**　[\[86\]](/zh/docs/appendix-references/#ref-86 "NautilusTrader — Strategies")
-
-</div>
-
-<p className="rd-resolves">策略与 Agent 都不能用自算数字替代引擎事实</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `NATIVE_ACCOUNT_MISSING` | 账户缺失 |
+| `EQUITY_SNAPSHOT_UNAVAILABLE` | 期末权益快照不可用 |
+| `GTD_DEADLINE_MISSING` | GTD 订单无到期 |
+| `SELF_CHECK_FINDINGS_INVALID` | 自检钩子返回非法 |
+| `DIAGNOSTICS_INVALID` | 自报诊断占用原生事实名 |
 
 </Cap>
 
-<Cap id="C.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="保证金不足由引擎账户拒单，不另设审计">
+<Cap id="C.2.1.2" kind="skill" tier="verified" tierLabel="已验证" title="策略与 Agent 只读引擎状态与产品报告，不自算成交、费用或盈亏">
 
-账户是引擎的净额（NETTING）保证金（margin）账户，条款由 <Ref id="engine.account_contract" /> 固定。保证金或可用余额不足时，引擎风控在订单提交前以标准原因产生 OrderDenied（如 INITIAL_MARGIN_EXCEEDS_FREE_BALANCE、NOTIONAL_EXCEEDS_FREE_BALANCE）；场所拒单记为 REJECTED。后果由代码核对：<Ref id="engine.write_native_reports" /> 把订单表中的 DENIED 或 REJECTED 记为完整性发现，<Ref id="engine.generic_audit" /> 核对被否被拒计数与摘要一致并判审计失败，<Ref id="replay.audit_problems" /> 把它写成无效原因；回放无效，只留原因与原生原件，读数置空（见 <Ref id="G.3.2.4" />）。产品不另建保证金、名义上限或杠杆审计；仓位与名义上限是策略源码的设计变量（<Ref id="C.1.4.2" />），源码也不以名义上限模仿保证金。
+- 策略只从引擎缓存（cache）与组合（portfolio）读订单、持仓与账户状态，以订单与持仓事件回调响应。
+- 策略不从 K 线高低区间推断成交，不自算手续费或资金费，不维护私有持仓或资金账本。
+- 源码内的诊断计数只作诊断，不当作成交事实。
+- Agent 的读数（reading）只从产品报告读：封存运行的读数来自 <Ref id="ledger.readings" />，自算统计只经 <Ref id="report.tables" />。
+- Agent 不从价格触及或代理计数推算成交与盈亏；置空的读数按置空解读。
+- 持仓周期每次运行独立，不跨运行配对。
 
-<div className="rd-meta">
+**输入**　引擎缓存、组合与事件回调；产品报告（ledger.readings 与 report.tables）。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.write_native_reports" />、<Ref id="engine.generic_audit" />、<Ref id="replay.audit_problems" />、<Ref id="C.1.4.2" />、<Ref id="G.3.2.4" />
+**强制**　由 skill 指导：规则写在 <Ref id="research-round/references/strategy-authoring.md#engine-owns-trade-facts" />，登记前的 <Ref id="C.6.1.2">独立源码审查</Ref> 核对源码写法，eval <Ref id="eval:research-round/l3-touch-not-pnl" /> 校验 Agent 不从触及推断盈亏；代码不检查源码写法。
 
-**依据**　[\[88\]](/zh/docs/appendix-references/#ref-88 "NautilusTrader — Execution")
+</Cap>
 
-</div>
+<Cap id="C.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="保证金不足由引擎拒单，回放判无效，产品不另设保证金审计">
 
-<p className="rd-resolves">风控事实归引擎，审计只核对后果</p>
+1. 保证金或可用余额不足时，引擎风控在订单提交前以标准原因产生 OrderDenied，订单表记 DENIED；场所拒单记为 REJECTED 状态。
+2. <Ref id="engine.write_native_reports" /> 把订单表中的 DENIED 或 REJECTED 记为完整性发现。
+3. <Ref id="engine.generic_audit" /> 核对被否被拒计数与摘要一致并判审计失败。
+4. <Ref id="replay.audit_problems" /> 把它写成无效原因。
+5. 回放无效，只留原因与原生原件，读数置空（见 <Ref id="G.3.2.4" />）。
+
+- 账户是引擎的净额（NETTING）保证金（margin）账户，条款由 <Ref id="engine.account_contract" /> 固定。
+- 产品不另建保证金、名义上限或杠杆审计。
+- 仓位与名义上限是策略源码的设计变量（<Ref id="C.1.4.2" />），源码也不以名义上限模仿保证金。
+
+**输入**　引擎风控对提交订单的审单结果与场所回报。
+
+**输出**　完整性发现、审计失败与无效原因；读数置空。
+
+**强制**　由代码强制后果核对：engine.write_native_reports 记完整性发现，engine.generic_audit 判审计失败，replay.audit_problems 写无效原因；拒单本身由引擎风控产生。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INITIAL_MARGIN_EXCEEDS_FREE_BALANCE` | OrderDenied 标准原因举例：初始保证金超过可用余额（另有其他标准原因） |
+| `NOTIONAL_EXCEEDS_FREE_BALANCE` | OrderDenied 标准原因举例：名义价值超过可用余额（另有其他标准原因） |
 
 </Cap>
 
 ## C.3　只用已发生的信息决策 [#C-3]
 
-策略源码在每次决策时只能读到引擎时钟上已经收盘的 K 线和已经到达的事件，下的单成交时刻必须严格晚于决策 K 线的收盘。前视偏差（look-ahead bias）和同钟成交都算实现缺陷，不是经济结果。这两条规则由 skill 写给 Agent，Agent 按它们写源码。原生预检（native precheck）留下决策、下单、成交三类时间戳，独立源码审查的因果一项按这些时间戳核对。审查失败时，代码拒绝登记（registration），也不让对应的运行作经济证据。账户审计不查信号时钟，所以因果结论和审计结论分开呈现。
-
 <Steps>
 
 <Step>
 
-Agent 按 <Ref id="research-round/references/strategy-authoring.md#causal-clock">只用已收盘信息</Ref> 与 <Ref id="research-round/references/strategy-authoring.md#fill-after-decision">成交晚于决策</Ref> 写候选源码，并发布为 strategy_id@revision
+Agent 按 <Ref id="C.3.1.1" /> 与 <Ref id="C.3.1.2" /> 写候选源码，发布为 strategy_id@revision。
 
 </Step>
 
 <Step>
 
-发布后用锁定的引擎和实际运行环境跑原生预检 <Ref id="replay.precheck" />（trial purpose=precheck），留存每个计划的决策、下单、成交时间戳
+用锁定的引擎和实际运行环境跑原生预检 <Ref id="replay.precheck" />（trial purpose=precheck）。
 
 </Step>
 
 <Step>
 
-独立 Agent 按因果一项审查源码与预检原件，结论经 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份，只追加写入账本
+独立 Agent 按因果一项审查源码与预检原件，经 <Ref id="registration.record_review" /> 记录结论。
 
 </Step>
 
 <Step>
 
-登记时 <Ref id="registration.require_precheck" /> 要求同源码、同运行环境且已通过的预检与审查，缺一项即拒绝登记
+经 <Ref id="registration.require_precheck" /> 登记。
 
 </Step>
 
 <Step>
 
-回放后再核对三类时间戳；发现同钟成交即判为实现缺陷，<Ref id="qualification.source_reviews" /> 使这次运行不作经济证据，Agent 修复源码后重新发布、预检、审查，再另行登记
+回放后按 <Ref id="C.3.1.2" /> 逐计划核对三类时间戳。
 
 </Step>
 
@@ -366,97 +411,77 @@ Agent 按 <Ref id="research-round/references/strategy-authoring.md#causal-clock"
 
 ### C.3.1　决策能用的信息与成交时钟 [#C-3-1]
 
-两条能力都由 skill 指导。C.3.1.1 限定决策能读什么信息，C.3.1.2 限定成交的时钟。输入是候选源码，输出是预检与回放留存的三类时间戳。两条能力在独立源码审查的因果项上核对，由登记门禁和经济证据资格两处代码执行后果。
+两条能力分别限定决策可读的信息与成交时钟。
 
-<Cap id="C.3.1.1" kind="skill" tier="verified" tierLabel="已验证" title="只按引擎时钟上已收盘的 K 线决策">
+<Cap id="C.3.1.1" kind="skill" tier="verified" tierLabel="已验证" title="每个决策点只读引擎时钟上已收盘的 K 线和已到达的事件">
 
-做什么：候选源码在每个决策点只读引擎时钟上已经收盘的 K 线和已经到达的事件（成交回报、标记价、资金费、合约生命周期事件）。
-
-源码不得做的事：
-- 不用全样本统计。均值、分位、标准化参数都只能按已发生数据滚动计算。
+- 可读的已到达事件包括成交回报、标记价、资金费、合约生命周期事件。
+- 不用全样本统计；均值、分位、标准化参数只按已发生数据滚动计算。
 - 不把未来值移到当前行。
-- 不在源码里假设 K 线内的价格路径。引擎按 1 分钟 K 线撮合，K 线内顺序未知，见 <Ref id="W.5.1.1" />。
+- 不在源码里假设 K 线内的价格路径；引擎按 1 分钟 K 线撮合，K 线内顺序未知，见 <Ref id="W.5.1.1" />。
 - 交易起点之前只预热指标，不提交订单。
+- 结构事件（摆动点、突破确认等）按它成立的时刻打戳，不在形成它的那根 K 线上行动。
+- K 线的可用时刻只有收盘时刻一个定义（<Ref id="W.2.1.3" />），导出时事件时间等于收盘时刻（<Ref id="market.write_bars" />）。
+- 高周期 K 线按固定规则从 1 分钟派生（<Ref id="market.derive_bars" />），也在收盘时刻才可用。
+- 前视偏差（look-ahead bias）属于实现缺陷，不是经济结果。
 
-结构事件（摆动点、突破确认等）按它成立的时刻打戳，不在形成它的那根 K 线上行动。
+**输入**　Agent 写的候选源码。
 
-时刻约定：K 线的可用时刻只有收盘时刻一个定义（<Ref id="W.2.1.3" />），导出时事件时间就等于收盘时刻（<Ref id="market.write_bars" />）。高周期 K 线按固定规则从 1 分钟派生（<Ref id="market.derive_bars" />），也在收盘时刻才可用。
+**输出**　满足上述约束的决策逻辑。
 
-输入与输出：输入是 Agent 写的候选源码，输出是满足上述约束的决策逻辑。
-
-谁强制：skill 写成源码规则，没有代码拒绝码。违反时由独立源码审查的因果一项判失败；审查失败的源码由 <Ref id="registration.require_precheck" /> 拒绝登记，对应运行由 <Ref id="qualification.source_reviews" /> 排除出经济证据。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/strategy-authoring.md#causal-clock" />
-
-**使用**　<Ref id="W.2.1.3" />、<Ref id="market.write_bars" />、<Ref id="market.derive_bars" />、<Ref id="W.5.1.1" />、<Ref id="research-round/references/strategy-authoring.md#fill-after-decision" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.source_reviews" />、<Ref id="eval:research-round/same-clock-fill-is-defect" />
-
-**依据**　[\[89\]](/zh/docs/appendix-references/#ref-89 "freqtrade — lookahead-analysis") [\[90\]](/zh/docs/appendix-references/#ref-90 "NautilusTrader — Bar execution")
-
-</div>
-
-<p className="rd-resolves">回放结果不含未来信息</p>
+**强制**　skill 锚点 <Ref id="research-round/references/strategy-authoring.md#causal-clock" /> 写成源码规则，无代码拒绝码。违反时独立源码审查的因果一项判失败。失败的后果（拒绝登记、不作经济证据）由 <Ref id="C.3.1.2" /> 的强制环节执行。
 
 </Cap>
 
-<Cap id="C.3.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="成交须严格晚于决策 K 线的收盘">
+<Cap id="C.3.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="成交时刻必须严格晚于决策 K 线的收盘时刻">
 
-做什么：在决策 K 线的收盘事件里，源码只确定交易意图，订单放到其后的引擎事件再提交。成交时刻必须严格晚于决策 K 线的收盘时刻。
+1. 在决策 K 线的收盘事件里，源码只确定交易意图。
+2. 订单放到其后的引擎事件再提交。
+3. 每个计划（plan）留存决策、下单、成交三类时间戳。
+4. 原生预检 <Ref id="replay.precheck" />（见 <Ref id="C.6.2.1" />）和完整回放之后都逐计划核对这三类时间戳。
 
-留存与核对：每个计划（plan）留存三类时间戳，即决策、下单、成交。原生预检 <Ref id="replay.precheck" /> 和完整回放之后都逐计划核对这三类时间戳。
+- 成交与决策落在同一时钟即为实现缺陷，账户审计通过也不例外，因为审计不查信号时钟（<Ref id="G.4.1.1" />）。
+- 发现同钟成交时，Agent 撤回基于这次运行的经济解释，修复源码后重新发布、预检、审查，再另行登记。
 
-同钟即缺陷：成交与决策落在同一时钟，就是实现缺陷。即使账户审计通过也是如此，因为审计不查信号时钟（<Ref id="G.4.1.1" />）。Agent 要撤回基于这次运行的经济解释，修复源码后重新发布、预检、审查，再另行登记。
+**输入**　候选源码及其原生预检、回放留存的三类时间戳。
 
-谁强制：skill 指导 Agent 写源码；代码在两处执行后果。
-- 登记前：独立 Agent 按因果一项审查这条时间戳链，结论由 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份，只追加写入账本。<Ref id="registration.require_precheck" /> 对没有同源码、同运行环境且已通过的预检与审查的源码拒绝登记。
-- 经济证据：<Ref id="qualification.source_reviews" /> 只认身份匹配的审查记录。因果审查失败的运行不作经济证据，审查结论与账户审计分别呈现（<Ref id="G.4.2.2" />）。
+**输出**　逐计划的因果核对结论与绑定身份的审查记录。
 
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/strategy-authoring.md#fill-after-decision" />、<Ref id="eval:research-round/same-clock-fill-is-defect" />
-
-**使用**　<Ref id="replay.precheck" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="C.6.2.1" />、<Ref id="registration.record_review" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.source_reviews" />、<Ref id="G.4.1.1" />、<Ref id="G.4.2.2" />、<Ref id="eval:research-round/precheck-before-register" />
-
-</div>
-
-<p className="rd-resolves">账户审计查不到的时钟缺陷由审查补位，且结果不进经济证据</p>
+**强制**　skill 锚点 <Ref id="research-round/references/strategy-authoring.md#fill-after-decision" /> 指导写源码，<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" /> 指导预检与审查。登记前独立 Agent 按因果一项审查这条时间戳链。<Ref id="registration.record_review" /> 把结论绑定源码哈希与运行环境身份，只追加写入账本。<Ref id="registration.require_precheck" /> 在缺少同源码、同运行环境且已通过的预检或审查时拒绝登记。<Ref id="qualification.source_reviews" /> 只认身份匹配的审查记录。因果审查失败的运行不作经济证据。审查结论与账户审计分别呈现（<Ref id="G.4.2.2" />）。
 
 </Cap>
 
 ## C.4　给每个持仓挂保护单 [#C-4]
 
-保护单分两层落实。第一层是声明与覆盖：源码用类属性声明是否设止损，加载器检查后把声明写入运行身份，随运行封存；完整性审计沿引擎订单事件史重建每个时刻的只减仓（reduce-only）止损覆盖，按这份声明决定裸仓使运行无效，还是只报告。第二层是挂法与收束：入场连同止损止盈以引擎括号单（bracket order）一次提交，母单终止时由引擎撤其子单；母单终止后留下的已成交数量由源码在回调里按缺口补挂，持仓归零时撤剩余单。两层在审计的覆盖重建里汇合：代码负责声明、引擎配置和审计，skill 指导源码怎么挂、怎么补、怎么收束。
-
 <Steps>
 
 <Step>
 
-源码以类属性 USES_STOP_LOSS 声明是否设止损（缺省 True）；加载器检查为布尔值，并把声明写入运行身份与原生摘要
+源码用类属性 USES_STOP_LOSS 声明是否设止损（缺省 True）；加载器检查它是布尔值，并把声明写入运行身份与原生摘要。
 
 </Step>
 
 <Step>
 
-入场以引擎括号单提交：OTO 母单入场，只减仓、互为 OUO 的止损与止盈子单在母单成交后激活
+入场连同止损与止盈用引擎括号单一次提交。
 
 </Step>
 
 <Step>
 
-母单到期、撤单或改量终止时，引擎撤其子单；源码在到期与撤单回调里按缺口补挂独立的只减仓止损与止盈
+母单到期、撤单或改量而终止时，引擎撤其子单。
 
 </Step>
 
 <Step>
 
-持仓归零时，源码撤该计划的全部剩余单，计划结束时订单组无残留
+补挂缺口保护与持仓归零后的收束由源码负责。
 
 </Step>
 
 <Step>
 
-完整性审计沿订单事件史重建持仓与止损覆盖；声明设止损的运行出现裸仓即无效，声明不设的只报告裸仓区间
+完整性审计沿订单事件史重建持仓与止损覆盖：声明设止损的运行出现裸仓即无效，声明不设的只报告裸仓区间。
 
 </Step>
 
@@ -464,117 +489,129 @@ Agent 按 <Ref id="research-round/references/strategy-authoring.md#causal-clock"
 
 ### C.4.1　止损声明与覆盖 [#C-4-1]
 
-加载器检查声明并把它写入运行身份，属代码强制。覆盖要求（任一持仓时刻止损量不少于持仓量）由 skill 写给源码作者；裸仓的判定和一根执行 K 线的容忍长度由审计定义。输入是源码声明和引擎订单事件史，输出是运行身份里的声明字段和审计给出的裸仓区间。
+源码声明和引擎订单事件史进来，运行身份里的声明字段和审计给出的裸仓区间出去：声明由加载器检查，覆盖要求由 skill 写给作者，裸仓由审计判定。
 
-<Cap id="C.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="是否设止损在源码声明，缺省为设；声明不设的裸仓只报告不拒绝">
+<Cap id="C.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="源码声明是否设止损，缺省为设；声明不设时裸仓只报告">
 
-源码在入口类上用类属性 USES_STOP_LOSS 声明是否设止损，不写即为 True。加载时，<Ref id="engine.load_strategy" /> 检查它的类型必须恰为 bool，否则拒绝加载，运行器非零退出，不产生运行。通过后，<Ref id="engine.strategy_metadata" /> 把声明写成运行身份字段 strategy_uses_stop_loss，并入原生摘要与执行身份，随研究封存（seal）进入账本；回放之后声明不能再改，要改只能发布新候选。审计读摘要里的这个字段，不读源码：值为 True 时，任何裸仓都使运行无效（invalid）；值为 False 时，裸仓区间只写进审计结果，运行仍可有效（判定见 <Ref id="G.3.3.2" />）。由代码强制：加载器负责类型检查，元数据函数负责写入身份，审计负责按声明分流。声明不设止损的理由由文件头立场写明，不靠运行器推断。
+1. 源码在入口类上用类属性 USES_STOP_LOSS 声明是否设止损，不写即为 True。
+2. 加载时，<Ref id="engine.load_strategy" /> 检查它的类型恰为 bool。
+3. 检查通过后，<Ref id="engine.strategy_metadata" /> 把声明写成运行身份字段 strategy_uses_stop_loss，并入原生摘要与执行身份。
+4. 该字段随研究封存进入账本，回放之后不能再改。
+5. 审计读摘要里的这个字段（不读源码）：True 时任何裸仓都使运行无效（invalid）；False 时裸仓区间只写进审计结果，运行仍可有效（判定见 <Ref id="G.3.3.2" />）。
 
-<div className="rd-meta">
+- 类型不是 bool 时拒绝加载，运行器非零退出，不产生运行。
+- 要改声明只能发布新候选。
+- 声明不设止损的理由由文件头立场写明，不靠运行器推断。
 
-**定义**　<Ref id="engine.strategy_metadata" />
+**输入**　入口类上的类属性 USES_STOP_LOSS。
 
-**使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.protection" />、<Ref id="G.3.3.2" />、<Ref id="replay.seal" />、<Ref id="research-round/references/strategy-authoring.md#header-nine-groups" />
+**输出**　运行身份、原生摘要与执行身份里的 strategy_uses_stop_loss 字段。
 
-</div>
-
-<p className="rd-resolves">无止损设计可被明示，但不能默默出现</p>
+**强制**　代码强制：加载器做类型检查，元数据函数写入运行身份，审计按声明分流裸仓的后果。
 
 </Cap>
 
-<Cap id="C.4.1.2" kind="skill" tier="verified" tierLabel="已验证" title="每个持仓时刻都有等量的只减仓止损覆盖">
+<Cap id="C.4.1.2" kind="skill" tier="verified" tierLabel="已验证" title="持仓期间每一刻，只减仓止损量都不少于持仓量">
 
-声明设止损的源码必须满足一条覆盖要求：持仓期间任一时刻，平仓方向上已被引擎接受、尚未成交的只减仓止损单，合计数量不少于引擎持仓量。部分成交后，保护数量按引擎实际持仓对齐，不按计划下单量。引擎负责两件事：只减仓单不会开仓或加仓，仓位缩小时只减仓单随之缩量、仓位归零时撤销；运行器以账户契约设定 reject_stop_orders=False，保证止损单被接受。源码负责一件事：保护不足时在当前回调里补足。是否覆盖由审计判定，不由源码自报：<Ref id="engine.uncovered_intervals" /> 把同一纳秒的事件一起应用后读状态，持仓超出止损覆盖量并持续超过一根执行 K 线的区间才算裸仓；容忍长度就是这一根执行 K 线。审计只看数量，不看止损价格与几何，这些属经济设计。覆盖要求由 skill 节 <Ref id="research-round/references/strategy-authoring.md#stop-coverage" /> 写给源码作者；裸仓的后果由 <Ref id="C.4.1.1" /> 的声明决定。
+- 适用于声明设止损的源码：持仓期间任一时刻，平仓方向上已被引擎接受、尚未成交的只减仓止损单，合计数量不少于引擎持仓量。
+- 部分成交后，保护数量按引擎实际持仓对齐，不按计划下单量。
+- 只减仓单不会开仓或加仓（由引擎保证）。
+- 仓位缩小时，引擎让只减仓单随之缩量；仓位归零时撤销它。
+- 运行器以账户契约设定 reject_stop_orders=False，保证止损单被接受。
+- 源码负责：保护不足时在当前回调里补足。
+- 是否覆盖由审计判定，不由源码自报。
+- <Ref id="engine.uncovered_intervals" /> 把同一纳秒的事件一起应用后再读状态。
+- 持仓超出止损覆盖量、且持续超过一根执行 K 线的区间才算裸仓；容忍长度就是这一根执行 K 线。
+- 审计只看数量，不看止损价格与几何，这些属经济设计。
+- 裸仓的后果由 <Ref id="C.4.1.1" /> 的声明决定。
 
-<div className="rd-meta">
+**输入**　引擎订单事件史与持仓。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#stop-coverage" />
+**输出**　审计给出的裸仓区间。
 
-**使用**　<Ref id="engine.uncovered_intervals" />、<Ref id="table:run_order_event" />、<Ref id="engine.account_contract" />、<Ref id="research-round/references/strategy-authoring.md#orphaned-fills-reprotect" />
-
-**依据**　[\[91\]](/zh/docs/appendix-references/#ref-91 "NautilusTrader — Orders") [\[92\]](/zh/docs/appendix-references/#ref-92 "NautilusTrader 2.0.0rc3 — crates/execution/src/matching_engine/mod.rs")
-
-</div>
-
-<p className="rd-resolves">回撤读数所依赖的保护假设在每个时刻成立</p>
+**强制**　skill 节 <Ref id="research-round/references/strategy-authoring.md#stop-coverage" /> 把覆盖要求写给源码作者；是否做到由审计的覆盖重建判定。
 
 </Cap>
 
 ### C.4.2　保护单的挂法与收束 [#C-4-2]
 
-括号单和“母单终止即撤子单”是引擎的原生行为，由运行器通过账户契约开启，属代码。部分成交后的补挂和归零时的收束是源码规则，由 skill 指导。两者都由审计的覆盖重建检查；引擎版本变更后，用运行环境配对重放复核激活与撤单顺序。
+引擎原生的括号单与撤子单由运行器经账户契约开启，补挂与收束是 skill 指导的源码规则，两者都受审计的覆盖重建检查。
 
-<Cap id="C.4.2.1" kind="code" tier="verified" tierLabel="已验证" title="入场连同止损止盈用引擎括号单一次提交；母单终止时引擎撤其子单">
+<Cap id="C.4.2.1" kind="code" tier="verified" tierLabel="已验证" title="入场连同止损止盈用括号单一次提交，母单终止时引擎撤子单">
 
-入场与保护用引擎的括号单一次提交，构成一个订单组：入场为 OTO 母单；止损与止盈为子单，均为只减仓、互为 OUO，母单成交后才激活。入场单的有效期用 GTD 加到期时刻 expire_time 表达，不由源码自行计时撤单。母单到期、撤单或改量终止时，由引擎撤销或调整其子单。运行器在 <Ref id="engine.account_contract" /> 里设定 support_contingent_orders=True 与 support_gtd_orders=True，交给场所配置，以开启这两项原生行为；没有另建的订单组管理，也没有自写的撤单逻辑。括号单的每张订单都带同一个计划标签（见 <Ref id="C.5.1.1" />）。由代码强制的只有引擎配置；源码选不选括号单不由加载器检查，没有保护的持仓由 <Ref id="C.4.1.2" /> 的覆盖审计发现。引擎版本变更后，括号单激活与撤子单的顺序须经 <Ref id="research-round/references/changes.md#runtime-parity-replay">运行环境配对重放</Ref> 复核，才算行为未变。
+- 入场与保护用引擎括号单一次提交，构成一个订单组，入场为 OTO 母单。
+- 止损与止盈是子单，都只减仓、互为 OUO，母单成交后才激活。
+- 入场单的有效期用 GTD 加到期时刻 expire_time 表达，源码不自行计时撤单。
+- 母单到期、撤单或改量而终止时，由引擎撤销或调整其子单；没有另建的订单组管理，也没有自写的撤单逻辑。
+- 括号单的每张订单都带同一个计划标签（见 <Ref id="C.5.1.1" />）。
+- 源码选不选括号单不由加载器检查；没有保护的持仓由 <Ref id="C.4.1.2" /> 的覆盖审计发现。
+- 引擎版本变更后，括号单激活与撤子单的顺序须经运行环境配对重放（<Ref id="research-round/references/changes.md#runtime-parity-replay" />）复核，才算行为未变。
 
-<div className="rd-meta">
+**输入**　源码提交的括号单（入场母单加止损、止盈子单）。
 
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.replay" />、<Ref id="C.5.1.1" />、<Ref id="research-round/references/strategy-authoring.md#stop-coverage" />、<Ref id="research-round/references/changes.md#runtime-parity-replay" />
+**输出**　引擎内一个订单组，子单随母单成交激活、随母单终止撤销或调整。
 
-**依据**　[\[93\]](/zh/docs/appendix-references/#ref-93 "NautilusTrader — Advanced orders") [\[94\]](/zh/docs/appendix-references/#ref-94 "NautilusTrader 2.0.0rc3（uv.lock 钉死版本）— crates/common/src/factories/order.rs") [\[92\]](/zh/docs/appendix-references/#ref-92 "NautilusTrader 2.0.0rc3 — crates/execution/src/matching_engine/mod.rs")
-
-</div>
-
-<p className="rd-resolves">保护单与入场在引擎内成为一个订单组</p>
+**强制**　代码只强制引擎配置：运行器在 <Ref id="engine.account_contract" /> 里设 support_contingent_orders=True 与 support_gtd_orders=True，交给场所配置。
 
 </Cap>
 
-<Cap id="C.4.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="母单终止却留下已成交数量时，策略按缺口补挂独立只减仓止损与止盈">
+<Cap id="C.4.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="母单终止留下已成交量时，源码按缺口补挂只减仓止损止盈">
 
-入场母单部分成交后又到期或被撤时，引擎会撤掉它的子单，已成交的部分随即失去保护。源码在到期与撤单回调里先算缺口：缺口等于引擎持仓减去仍存活、未成交的只减仓止损量。缺口为正时，补挂独立的只减仓止损与止盈，数量等于缺口，沿用原子单的触发价、限价与计划标签，补挂须在同一回调内完成，以免超出 <Ref id="engine.uncovered_intervals" /> 容忍的一根执行 K 线。补挂单不与母单关联，引擎不会替源码撤它，所以持仓归零时源码撤该计划的全部剩余单，计划结束时订单组无残留（一个计划只对应一个持仓周期，见 <Ref id="C.5.1.2" />）。这条规则由 skill 节 <Ref id="research-round/references/strategy-authoring.md#orphaned-fills-reprotect" /> 指导；补挂做没做到，由审计的覆盖重建判定。登记前的原生预检要覆盖“部分成交后到期或撤单”这个场景。演练中，补挂规则正是由一次被审计拒绝的裸仓促成的。
+1. 入场母单部分成交后又到期或被撤，引擎撤掉其子单，已成交部分失去保护。
+2. 源码在到期与撤单回调里算缺口：引擎持仓减去仍存活、未成交的只减仓止损量。
+3. 缺口为正时，在同一回调内补挂独立的只减仓止损与止盈，数量等于缺口，沿用原子单的触发价、限价与计划标签。
+4. 持仓归零时，源码撤该计划的全部剩余单，计划结束时订单组无残留。
 
-<div className="rd-meta">
+- 补挂须在同一回调内完成，以免超出 <Ref id="engine.uncovered_intervals" /> 容忍的一根执行 K 线。
+- 补挂单不与母单关联，引擎不会替源码撤它，所以收束由源码负责。
+- 一个计划只对应一个持仓周期（见 <Ref id="C.5.1.2" />）。
+- 登记前的原生预检要覆盖“部分成交后到期或撤单”这个场景。
 
-**定义**　<Ref id="research-round/references/strategy-authoring.md#orphaned-fills-reprotect" />
+**输入**　母单到期或撤单回调，引擎持仓与存活的只减仓止损量。
 
-**使用**　<Ref id="engine.uncovered_intervals" />、<Ref id="C.5.1.2" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="research-round/references/changes.md#runtime-parity-replay" />
+**输出**　数量等于缺口的独立只减仓止损与止盈单；持仓归零后该计划无残留订单。
 
-</div>
-
-<p className="rd-resolves">引擎撤子单造成的保护缺口不会进入有效运行</p>
+**强制**　skill 节 <Ref id="research-round/references/strategy-authoring.md#orphaned-fills-reprotect" /> 指导写法；做没做到由审计的覆盖重建判定。
 
 </Cap>
 
 ## C.5　把交易切成可计数的计划 [#C-5]
 
-一个信号下的全部订单带同一个计划标签，构成一个计划（plan）；计划与持仓周期一一对应，同一合约同时至多一个活跃计划。计划读数由代码在封存入账时从订单、成交、持仓报告与订单事件史读出，是计划数与计划胜率的唯一来源：先重建持仓周期，再归属下架结算平仓单，最后按标签对应计划与周期。不合规只使计划读数为空并写原因，回放有效性与账户读数不受影响；契约的遵守由策略源码负责，独立源码审查核对。
-
 <Steps>
 
 <Step>
 
-ledger.cycles 从持仓报告重建周期并核成交恰被覆盖一次
+<Ref id="ledger.cycles" /> 从持仓报告重建持仓周期，并核对每笔成交恰被覆盖一次。
 
 </Step>
 
 <Step>
 
-ledger.plan_reading 读出带标签订单的计划标签
+<Ref id="ledger.plan_reading" /> 读出带标签订单上的计划标签。
 
 </Step>
 
 <Step>
 
-ledger.expiry_plan_owners 对引擎下架结算生成的无标签平仓单做只读归属
+<Ref id="ledger.expiry_plan_owners" /> 把引擎下架结算生成的无标签平仓单只读归属到计划。
 
 </Step>
 
 <Step>
 
-ledger.plan_reading 核计划与周期一一对应、同合约不重叠，算计划胜率
+<Ref id="ledger.plan_reading" /> 核对计划与周期一一对应、同一合约上计划不重叠，并算出计划胜率。
 
 </Step>
 
 <Step>
 
-任一违例抛 ledger.unreconciled，ledger.readings 只置空计划读数并写入读数局限
+任一违例抛出 <Ref id="ledger.unreconciled" />，<Ref id="ledger.readings" /> 只置空计划读数并写入读数局限。
 
 </Step>
 
 <Step>
 
-ledger.ingest_run 把计划读数列（可空）与局限随运行行入账
+<Ref id="ledger.ingest_run" /> 把计划读数列（可空）和局限随运行行一起入账。
 
 </Step>
 
@@ -582,117 +619,151 @@ ledger.ingest_run 把计划读数列（可空）与局限随运行行入账
 
 ### C.5.1　计划的定义与标签 [#C-5-1]
 
-两条能力均由代码强制：输入是订单、成交与持仓报告原生行，先由持仓报告重建周期，再按标签把订单归为计划并与周期一一对应，输出计划数、赢数与计划胜率。标签由策略源码在提交订单时写入。
+策略源码在提交订单时写入计划标签，代码据此读出计划。
 
-<Cap id="C.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="一个计划＝一个信号在一个计划标签下提交的全部订单；每张订单恰带一个全回放唯一的计划标签">
+<Cap id="C.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="每张订单恰带一个全回放唯一的计划标签，一个计划只涉及一个合约">
 
-计划（plan）是一个信号提交的全部订单：分批进场、共用的止损止盈、之后的改仓与平仓。策略源码给每张订单（含括号单 bracket order 的入场单与两张子单、母单终止后补挂的只减仓 reduce-only 单）恰好一个计划标签，标签值在整次回放内唯一；一个计划只涉及一个合约。代码强制：读数函数 <Ref id="ledger.plan_reading" /> 从订单报告的标签读出计划，输入为订单、成交、持仓报告原生行与 <Ref id="ledger.cycles" /> 的周期，输出已平计划数、赢数、期末未平计划数与计划胜率；赢＝周期已平且实现盈亏（含手续费与资金费 funding）大于零，持平与期末未平都不算赢，分母为已平加未平计划数。缺标签、多标签、计划跨合约或标签不可解析时抛出具名原因（PLAN_TAG_MISSING、PLAN_TAG_MULTIPLE、PLAN_MULTI_INSTRUMENT、NATIVE_VALUE_UNREADABLE），按 <Ref id="C.5.2.1" /> 处理。计划读数是描述统计，不改任何原生行。
+- 计划（plan）指一个信号提交的全部订单：分批进场单、共用的止损止盈单，以及之后的改仓单和平仓单。
+- 每张订单恰好带一个计划标签，包括括号单（bracket order）的入场单和两张子单，以及母单终止后补挂的只减仓（reduce-only）单。
+- 标签值在整次回放内唯一；一个计划只涉及一个合约。
+- 计划数和计划胜率只从计划读数得出，计划读数是唯一来源。
+- 赢的定义：周期已平，且实现盈亏（含手续费和资金费 funding）大于零；持平和期末未平都不算赢。
+- 计划胜率的分母是已平计划数加期末未平计划数。
+- 计划读数是描述统计，不改任何原生行。
+- 读数抛出具名原因后，按 <Ref id="C.5.2.1" /> 处理。
 
-<div className="rd-meta">
+**输入**　订单、成交和持仓报告的原生行，以及 <Ref id="ledger.cycles" /> 重建出的周期。
 
-**定义**　<Ref id="ledger.plan_reading" />
+**输出**　已平计划数、赢数、期末未平计划数和计划胜率。
 
-**使用**　<Ref id="ledger.readings" />、<Ref id="ledger.cycles" />、<Ref id="table:run_order" />、<Ref id="C.4.2.1" />、<Ref id="C.4.2.2" />
+**强制**　读数由代码强制：<Ref id="ledger.plan_reading" /> 在封存入账时读订单报告上的标签；标签由策略源码负责写入，由独立源码审查核对。
 
-**依据**　[\[94\]](/zh/docs/appendix-references/#ref-94 "NautilusTrader 2.0.0rc3（uv.lock 钉死版本）— crates/common/src/factories/order.rs")
-
-</div>
-
-<p className="rd-resolves">订单可按信号归组计数，胜率有确定的分母</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `PLAN_TAG_MISSING` | 订单没有计划标签 |
+| `PLAN_TAG_MULTIPLE` | 订单带了多个计划标签 |
+| `PLAN_MULTI_INSTRUMENT` | 一个计划跨了多个合约 |
+| `NATIVE_VALUE_UNREADABLE` | 标签无法解析 |
 
 </Cap>
 
-<Cap id="C.5.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="一个计划至多一个持仓周期，一个周期只装一个计划；同一合约同时至多一个活跃计划">
+<Cap id="C.5.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="计划与持仓周期一一对应，同一合约同时至多一个活跃计划">
 
-持仓周期（position cycle）由代码函数 <Ref id="ledger.cycles" /> 从持仓报告逐行重建：只支持以 USDT 计价、记有乘数的线性合约；每个周期给出是否已平、实现盈亏、价格盈亏（成交现金流乘合约乘数）、手续费与资金费（只接受不改数量的 FUNDING 调整）；所有周期的成交 event_id 须恰好覆盖成交报告的每笔成交一次，否则抛 FILL_COVERAGE_MISMATCH，币种、合约类型或调整项超出支持即抛 NON_USDT_MONEY、UNSUPPORTED_INSTRUMENT、UNSUPPORTED_ADJUSTMENT。在周期之上，<Ref id="ledger.plan_reading" /> 强制计划与周期一一对应：一个计划的成交至多落在一个周期（否则 PLAN_MULTI_CYCLE），一个周期只含一个计划的成交且不为空（否则 CYCLE_MULTI_PLAN），每笔周期成交都能在订单报告中找到订单（否则 PLAN_FILL_UNMATCHED）。同一合约上，前一计划从首单创建到持仓归零且全部订单终止之前不得开始新计划（否则 PLAN_OVERLAP）；策略在持仓归零时撤剩余单，以免残留档位重开仓。分批加仓是同一计划的多档，不是新计划。任何违例只使计划读数为空并写原因，见 <Ref id="C.5.2.1" />。
+- 持仓周期（position cycle）从持仓报告逐行重建，只支持以 USDT 计价并记有乘数的线性合约。
+- 每个周期给出：是否已平、实现盈亏、价格盈亏（成交现金流乘以合约乘数）、手续费和资金费。
+- 资金费只接受不改数量的 FUNDING 调整。
+- 全部周期的成交 event_id 必须恰好覆盖成交报告里的每笔成交，且每笔只覆盖一次。
+- 一个计划的成交至多落在一个周期里；一个周期只装一个计划的成交，且不能为空。
+- 周期里的每笔成交都必须在订单报告里找到对应订单。
+- 在同一合约上，前一计划从首单创建起，到持仓归零且全部订单终止为止，期间不得开始新计划。
+- 持仓归零时，策略撤掉剩余订单，以免残留档位重新开仓。
+- 分批加仓算同一计划的多档，不算新计划。
+- 任何违例只使计划读数为空并写原因，见 <Ref id="C.5.2.1" />。
 
-<div className="rd-meta">
+**输入**　持仓报告和成交报告的原生行，以及订单报告。
 
-**定义**　<Ref id="ledger.cycles" />
+**输出**　逐个周期的平仓状态和经济拆分，以及计划与周期的一一对应关系。
 
-**使用**　<Ref id="ledger.plan_reading" />、<Ref id="table:run_position" />、<Ref id="table:run_fill" />、<Ref id="C.4.2.2" />、<Ref id="ledger.economics" />
+**强制**　由代码强制：<Ref id="ledger.cycles" /> 负责重建周期并核对成交覆盖，<Ref id="ledger.plan_reading" /> 负责核对一一对应和不重叠；撤剩余单由策略源码负责，由独立源码审查核对。
 
-</div>
-
-<p className="rd-resolves">计划与持仓周期一一对应，胜率不被重叠计划稀释</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `FILL_COVERAGE_MISMATCH` | 全部周期的成交没有恰好覆盖每笔成交一次 |
+| `NON_USDT_MONEY` | 计价币种不是 USDT |
+| `UNSUPPORTED_INSTRUMENT` | 合约类型超出支持范围（不是记有乘数的线性合约） |
+| `UNSUPPORTED_ADJUSTMENT` | 出现除不改数量的 FUNDING 之外的调整项 |
+| `PLAN_MULTI_CYCLE` | 一个计划的成交落在多个周期里 |
+| `CYCLE_MULTI_PLAN` | 一个周期含多个计划的成交，或者为空 |
+| `PLAN_FILL_UNMATCHED` | 周期里的某笔成交在订单报告中找不到订单 |
+| `PLAN_OVERLAP` | 同一合约上，前一计划尚未持仓归零且全部订单终止，就开始了新计划 |
 
 </Cap>
 
 ### C.5.2　不合规与原生平仓单 [#C-5-2]
 
-两条能力均由代码强制：违例以具名原因只使计划读数为空并写入局限，不影响有效性；下架结算产生的无标签平仓单经逐项核对后只读归属，其余无标签订单仍按违例处理。
+<Cap id="C.5.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="计划契约违例只置空计划读数并写原因，不判回放无效">
 
-<Cap id="C.5.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="缺标签、多标签、重叠或不一一对应时计划读数留空并写原因，回放本身不判无效">
+- 计划契约是读数的前提，不是账户事实。
+- 原生事实超出支持范围或对账失败时，读数函数抛出具名原因 <Ref id="ledger.unreconciled" />，内容是原因码加可定位的细节。
+- <Ref id="ledger.readings" /> 捕获原因后，只把该原因所属的读数置空（计划读数、利润来源拆分或回撤之一），其余读数照常读出。
+- 「code: detail」写入运行的读数局限列。
+- 完整性审计和资格判定不会因为计划不合规而判运行无效或不可用。
+- 账户年化、标记价回撤和利润来源拆分照常可用。
+- 空值不得当作零，也不得手工填补。
 
-计划契约是读数前提而非账户事实。读数函数遇到原生事实超出支持范围或对账失败时抛出具名原因 <Ref id="ledger.unreconciled" />（原因码＋可定位细节）；<Ref id="ledger.readings" /> 捕获后只把该原因所属的读数置空（计划读数、利润来源拆分或回撤），并把「code: detail」写入运行的读数局限列，其余读数照常读出。由代码强制：完整性审计与资格判定不因计划不合规判运行无效或不可用，账户年化、标记价回撤与利润来源拆分照常可用；空值不得被当作零或被手工填补。
+**输入**　读数函数抛出的 <Ref id="ledger.unreconciled" /> 原因（原因码和细节）。
 
-<div className="rd-meta">
+**输出**　对应读数列为空，原因写入运行的读数局限列，经 <Ref id="ledger.ingest_run" /> 随运行行入账。
 
-**定义**　<Ref id="ledger.unreconciled" />
-
-**使用**　<Ref id="ledger.readings" />、<Ref id="ledger.ingest_run" />、<Ref id="table:run" />、<Ref id="R.1.3.4" />
-
-</div>
-
-<p className="rd-resolves">读数的缺失有明确原因，不被伪装成零</p>
+**强制**　由代码强制：<Ref id="ledger.readings" /> 捕获具名原因，只置空所属读数并写入局限列。
 
 </Cap>
 
-<Cap id="C.5.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="引擎因下架结算产生的无标签平仓单，只在唯一对应时只读归属">
+<Cap id="C.5.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="下架结算的无标签平仓单只在唯一对应时只读归属到计划">
 
-合约下架结算时，引擎（engine）按原生 InstrumentClose 事件自行生成只减仓市价平仓单，这张单没有计划标签。代码函数 <Ref id="ledger.expiry_plan_owners" /> 在计划读数前判定是否把它只读归属到一个计划，条件全部满足才归属：订单带引擎下架结算标识、只减仓、市价、已成交；恰一笔成交，事件序列恰为初始化→接受→成交，账户与合约身份一致；事件时刻等于该合约唯一 InstrumentClose 的时刻，成交价等于结算价；成交恰属一个已关闭周期且该周期的平仓订单就是它，此前持仓净量非零、方向与平仓相反、事件均早于结算时刻；周期此前全部成交属同一计划，且每个此前事件在订单事件流与成交报告中各恰出现一次并逐字段相等。输出 client_order_id → 计划标签的映射，任何歧义不归属、不抛错，该订单回到 <Ref id="ledger.plan_reading" /> 按 PLAN_TAG_MISSING 处理。归属不改任何原生行，也不认证订单生成者，排除策略仿造此类订单由独立源码审查承担。
+- 合约下架结算时，引擎（engine）按原生 InstrumentClose 事件自行生成一张只减仓市价平仓单，这张单没有计划标签。
+- 计划读数之前先做归属判定，下列条件必须全部满足才归属。
+- 条件一：订单带引擎下架结算标识，是只减仓单、市价单，且已成交。
+- 条件二：恰有一笔成交，事件序列恰为初始化→接受→成交，账户和合约身份一致。
+- 条件三：事件时刻等于该合约唯一一个 InstrumentClose 的时刻，成交价等于结算价。
+- 条件四：这笔成交恰属一个已关闭周期，且该周期的平仓订单就是这张单。
+- 条件五：此前持仓净量非零、方向与平仓相反，此前事件都早于结算时刻。
+- 条件六：周期此前的全部成交属于同一计划。
+- 条件七：每个此前事件在订单事件流和成交报告中各恰好出现一次，且逐字段相等。
+- 有任何歧义时不归属也不抛错，这张订单回到 <Ref id="ledger.plan_reading" />，按 PLAN_TAG_MISSING 处理。
+- 归属不改任何原生行。
+- 归属不认证订单由谁生成；排除策略仿造此类订单，由独立源码审查负责。
+- 除下架结算平仓单以外，其余无标签订单仍按违例处理。
 
-<div className="rd-meta">
+**输入**　订单报告、订单事件流（table:run_order_event）、成交报告、合约的 InstrumentClose 事件及结算价，以及 <Ref id="ledger.cycles" /> 的周期。
 
-**定义**　<Ref id="ledger.expiry_plan_owners" />
+**输出**　client_order_id → 计划标签的映射。
 
-**使用**　<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="W.3.2.2" />、<Ref id="table:run_order_event" />、<Ref id="ledger.plan_reading" />、<Ref id="C.6.2.1" />
+**强制**　由代码强制：<Ref id="ledger.expiry_plan_owners" /> 逐项核对后输出只读映射；策略不得仿造此类订单，这一点由独立源码审查核对。
 
-</div>
-
-<p className="rd-resolves">下架结算不再使整段计划读数失效，也不伪造标签</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `PLAN_TAG_MISSING` | 无标签平仓单不满足全部归属条件或有歧义；该码由 <Ref id="ledger.plan_reading" /> 给出，归属函数本身不抛错 |
 
 </Cap>
 
 ## C.6　登记前的原生预检与独立审查 [#C-6]
 
-候选 candidate 的精确源码发布后、登记 registration 前，先用随后登记要用的同一运行环境 runtime image 与同一市场提交做一次事前声明用途的原生预检 native precheck。预检只覆盖改动及其必要依赖，用途在原生执行前写入试验 trial，原件随试验封存。随后由另一个独立 Agent 读封存原件，按接口、因果、活动、就绪四项写结论，作为绑定源码与运行环境身份的只追加证据入账本 ledger。登记与回放绑定时，代码核对预检原件退出为零、审查四项全部通过，并判定该预检不构成源码暴露，任一不符即拒绝。预检与审查只给工程证据：通过不授予经济证据资格，失败也不进经济反馈。
-
 <Steps>
 
 <Step>
 
-候选发布后，Agent 以随后登记用的运行环境引用、市场提交与最短窗口调用 <Ref id="cli.replay_precheck" />。代码先核对候选、运行环境与运行契约，再在同一事务里写 purpose=precheck 的试验行与开始回执，然后才启动容器。
+候选发布后，Agent 用随后登记要用的运行环境引用、市场提交与最短窗口调用 <Ref id="cli.replay_precheck" />。
 
 </Step>
 
 <Step>
 
-引擎 engine 在钉死运行环境内回放，审计器随后运行。原生 stdout/stderr、各阶段退出码、审计与报告原样封存为该试验的执行证据包。
+代码登记预检试验后回放，并把原件封存为执行证据包，见 <Ref id="C.6.1.1" />。
 
 </Step>
 
 <Step>
 
-Agent 按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review">预检与独立审查</Ref> 核对构造、订单接口、时钟、就绪与触发后活动，并把无交易机会与实现故障分开说明。有故障就修复源码，作为新候选回到第 1 步。
+Agent 按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review">预检与独立审查</Ref> 核对封存原件，把无交易机会与实现故障分开；有故障就修复源码，作为新候选回到第 1 步。
 
 </Step>
 
 <Step>
 
-未参与编写的独立 Agent 读封存原件，按 api、causal、activity、readiness 四项给出结论，经 <Ref id="cli.source_review" /> 只追加为 source-review 证据包。
+未参与编写的独立 Agent 读封存原件，按 api、causal、activity、readiness 四项写结论，经 <Ref id="cli.source_review" /> 只追加为 source-review 证据包。
 
 </Step>
 
 <Step>
 
-登记时，<Ref id="registration.exposure_exempt" /> 判定该预检不构成源码暴露，<Ref id="registration.require_precheck" /> 核对审查与原件；回放绑定时 <Ref id="registration.bind" /> 再核一次。
+登记时 <Ref id="registration.exposure_exempt" /> 判定该预检不构成源码暴露、<Ref id="registration.require_precheck" /> 核对审查与原件，回放绑定时 <Ref id="registration.bind" /> 再核一次；任一不符即拒绝。
 
 </Step>
 
 <Step>
 
-核对不过即拒绝登记或绑定。核对通过只说明工程就绪；能否作经济证据仍由完整性审计与 <Ref id="G.4.1.1">实质活动资格</Ref> 判定。
+核对通过只说明工程就绪，能否作经济证据仍由完整性审计与 <Ref id="G.4.1.1">实质活动资格</Ref> 判定；预检失败不进经济反馈。
 
 </Step>
 
@@ -700,82 +771,103 @@ Agent 按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-
 
 ### C.6.1　原生预检 [#C-6-1]
 
-代码强制四件事：预检用途事前声明、运行环境按摘要钉死且与候选运行契约一致、原件完整封存、源码暴露豁免判定。预检要核对什么、结论怎样解读由 skill 指导。输入是已发布候选、CI 构建的运行环境引用、市场提交、最小窗口的运行器参数；输出是 purpose=precheck 的试验行、开始回执、执行封存包与工程问题清单。
+代码强制用途事前声明、运行环境按摘要钉死且与候选运行契约一致、原件完整封存和源码暴露豁免判定；预检核对什么、结论怎样解读由 skill 指导。
 
-<Cap id="C.6.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="发布后、登记前，用锁定引擎与实际 CI 运行环境做针对改动的最小预检并封存">
+<Cap id="C.6.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记前须用同一 CI 运行环境做事前声明用途的最小预检并完整封存">
 
-<Ref id="cli.replay_precheck" /> 调用 <Ref id="replay.precheck" />，对一个已发布候选 strategy_id@revision 做事前声明用途的原生预检。
-输入：候选引用、运行环境引用、市场提交、运行器参数与输出目录。运行环境引用须是 CI 构建的镜像，并与随后登记用同一摘要；运行器参数只给覆盖改动及其必要依赖的最短窗口与最少合约；输出目录须是尚不存在的临时目录。
-启动任何进程前依次核对，任一不符即拒绝，账本与容器都不动：
-- 候选存在（UNKNOWN_STRATEGY）；
-- 输出目录在临时根之下且尚不存在（NOT_TEMPORARY_PATH、PATH_EXISTS）；
-- 运行器参数不含入口保留选项（RUNNER_OPTION_RESERVED）；
-- 运行环境能解析为唯一摘要，且带构建源码版本标签（RUNTIME_NOT_CI_BUILT）；
-- 候选运行契约等于镜像运行契约（RUNTIME_CONTRACT_MISMATCH）。
-核对通过后，用与登记相同的导出器和市场提交新鲜导出输入，并算出输入身份与有效配置身份。随后在一个写事务里写 purpose=precheck 的试验行与开始回执，回执记源码哈希、运行环境、输入身份与配置身份；事务成功后才启动容器。结束时，包括中断与宿主失败，原生 stdout/stderr、各阶段退出码、审计与报告原样封存。
-输出：试验编号、执行封存包名、status（passed 表示原生与审计退出为零且无审计问题，否则 failed）、问题清单与只供工程诊断的读数。
-预检不绑定登记，不消耗网格点。
-暴露豁免：登记时，对曾执行过该源码的每个试验调用 <Ref id="registration.exposure_exempt" />。豁免只给同时满足以下条件的试验：用途在执行前声明为 precheck；源码、运行环境、市场提交、范围规则版本与经济配置都与登记一致；原件完整；未绑定任何登记。其余试验一律按 <Ref id="H.4.2.2" /> 拒绝 SOURCE_ALREADY_EXPOSED。用途写在只追加的试验行上，探索回放不能事后改名为预检。
-强制层：代码与账本。
+1. 依次核对候选、输出目录、运行器参数、运行环境与运行契约；任一不符即拒绝，账本与容器都不动。
+2. 用与登记相同的导出器和市场提交新鲜导出输入，算出输入身份与有效配置身份。
+3. 在一个写事务里写 purpose=precheck 的试验行与开始回执，回执记源码哈希、运行环境、输入身份与配置身份。
+4. 事务成功后才启动容器，引擎在钉死运行环境内回放，审计器随后运行。
+5. 结束时（包括中断与宿主失败）把原生 stdout/stderr、各阶段退出码、审计与报告原样封存。
 
-<div className="rd-meta">
+- <Ref id="cli.replay_precheck" /> 调用 <Ref id="replay.precheck" />，对一个已发布候选 strategy_id@revision 做原生预检。
+- 运行环境引用须是 CI 构建的镜像，并与随后登记用同一摘要。
+- 运行器参数只给覆盖改动及其必要依赖的最短窗口与最少合约。
+- 输出目录须在临时根之下且尚不存在。
+- status 为 passed 表示原生与审计退出为零且无审计问题，否则为 failed。
+- 预检不绑定登记，不消耗网格点。
+- 登记时对曾执行过该源码的每个试验调用 <Ref id="registration.exposure_exempt" />。
+- 豁免只给同时满足以下条件的试验：
+- 用途在执行前声明为 precheck。
+- 源码、运行环境、市场提交、范围规则版本与经济配置都与登记一致。
+- 原件完整。
+- 未绑定任何登记。
+- 其余执行过该源码的试验一律按 <Ref id="H.4.2.2" /> 拒绝登记。
+- 用途写在只追加的试验行上，探索回放不能事后改名为预检。
 
-**定义**　<Ref id="cli.replay_precheck" />、<Ref id="registration.exposure_exempt" />、<Ref id="replay.precheck" />
+**输入**　候选引用、运行环境引用、市场提交、运行器参数与输出目录。
 
-**使用**　<Ref id="runtime.resolve" />、<Ref id="ledger.temporary_path" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="table:trial" />、<Ref id="replay.execute" />、<Ref id="ledger.seal_capture" />、<Ref id="H.4.2.2" />
+**输出**　试验编号、执行封存包名、status、问题清单与只供工程诊断的读数。
 
-</div>
+**强制**　代码（启动前核对、事务先于容器、封存原件、豁免判定）与账本（只追加的试验行与开始回执）。
 
-<p className="rd-resolves">工程缺陷在登记前暴露，且预检本身不消耗研究证据</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_STRATEGY` | 候选不存在 |
+| `NOT_TEMPORARY_PATH` | 输出目录不在临时根之下 |
+| `PATH_EXISTS` | 输出目录已存在 |
+| `RUNNER_OPTION_RESERVED` | 运行器参数含入口保留选项 |
+| `RUNTIME_NOT_CI_BUILT` | 运行环境不能解析为唯一摘要，或不带构建源码版本标签 |
+| `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约不等于镜像运行契约 |
+| `SOURCE_ALREADY_EXPOSED` | 登记时该源码曾在不满足豁免条件的试验中执行过 |
 
 </Cap>
 
-<Cap id="C.6.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="预检只给工程证据：核对构造、订单接口、时钟、就绪与触发后活动">
+<Cap id="C.6.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="预检须读封存原件逐项核对五项">
 
-由 research-round skill 指导，并以 eval 验证，代码不解读预检内容。预检的结论是工程证据，不是经济反馈。静态编译或干净退出不算通过，Agent 须读封存原件逐项核对五项：
-- 构造参数被引擎接受；
-- 订单接口与参数类型正确，包括到期时间、只减仓 reduce-only 与括号单 bracket order；
-- 信号只用引擎时钟上已收盘的 K 线，成交晚于决策；
-- 指标就绪时点；
-- 规则触发后确有下单、成交或撤单回调。
-确无交易机会与实现故障要分别说明，查不明的保持待诊断。
-零成交且无机会的预检只支持诊断性尝试，不给经济改善，与 <Ref id="G.4.1.2" /> 一致。预检失败要修复源码，作为新候选重新预检、审查，再以 retry_of 登记。失败的预检不记亏损，也不改研究优先级。预检是主要工程成本，所以只覆盖改动及其必要依赖。
+- 预检结论是工程证据，不是经济反馈；静态编译或干净退出不算通过。
+- Agent 读封存原件核对：构造参数被引擎接受。
+- Agent 读封存原件核对：订单接口与参数类型正确，包括到期时间、只减仓 reduce-only 与括号单 bracket order。
+- Agent 读封存原件核对：信号只用引擎时钟上已收盘的 K 线，成交晚于决策。
+- Agent 读封存原件核对：指标就绪时点。
+- Agent 读封存原件核对：规则触发后确有下单、成交或撤单回调。
+- 确无交易机会与实现故障分别说明，查不明的保持待诊断。
+- 零成交且无机会的预检只支持诊断性尝试，不给经济改善，与 <Ref id="G.4.1.2" /> 一致。
+- 预检失败时修复源码，作为新候选重新预检、审查，再以 retry_of 登记。
+- 失败的预检不记亏损，也不改研究优先级。
+- 预检是主要工程成本，只覆盖改动及其必要依赖。
 
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="eval:research-round/precheck-before-register" />
-
-**使用**　<Ref id="replay.precheck" />、<Ref id="registration.record_review" />、<Ref id="research-round/references/feedback.md#repair-and-retry" />、<Ref id="G.4.1.1" />、<Ref id="G.4.1.2" />、<Ref id="A.4.1.3" />、<Ref id="eval:research-round/failure-is-repair-not-feedback" />、<Ref id="eval:research-round/zero-fill-is-diagnostic" />
-
-</div>
-
-<p className="rd-resolves">工程修复与经济研究分开计数，也分开解读</p>
+**强制**　skill：research-round 指导并以 eval 验证；代码不解读预检内容。
 
 </Cap>
 
 ### C.6.2　独立源码审查 [#C-6-2]
 
-审查是具名 Agent 证据，与账户审计分开。账本以只追加证据包保存结论，内容哈希由库内生成；代码只核对结构、绑定身份与登记前的通过条件，不解读说明文字。输入是预检执行封存包，输出是 source-review.json，以及登记或绑定时的通过或拒绝。
+审查是与账户审计分开的具名 Agent 证据：账本只追加保存结论，代码只核对结构、绑定身份与登记前的通过条件，不解读说明文字。
 
-<Cap id="C.6.2.1" kind="database" tier="verified" tierLabel="已验证" title="独立 Agent 对预检原件按四项给出结论并绑定源码与运行环境身份，只追加为证据">
+<Cap id="C.6.2.1" kind="database" tier="verified" tierLabel="已验证" title="独立 Agent 按四项审查预检原件，结论绑定源码与运行环境只追加入账">
 
-审查者须是未参与编写的独立 Agent。它读一个 purpose=precheck 的试验的封存原件，对接口 api、因果 causal、活动 activity、就绪 readiness 四项各给 status（passed、failed、unresolved 或 no_opportunity）与非空观察说明。
-审查经 <Ref id="cli.source_review" /> 与 <Ref id="registration.record_review" /> 写成一个 Agent 命名的 source-review-* 证据包，记在 <Ref id="table:evidence_bundle" />；包内文件 source-review.json 存在 <Ref id="table:evidence" />，格式为 source-review-v1，字段为 trial_id、source_sha256、image_ref、execution_bundle、四项结论与具名审查者 authority。身份字段由账本从试验行和执行封存中取，不接受调用方填写。只能绑定真实存在的预检原件，否则拒绝 PRECHECK_CAPTURE_MISSING；占用产品保留命名空间拒绝 RESERVED_BUNDLE。
-证据只追加：同名同内容重试幂等，同名不同内容拒绝 BUNDLE_EXISTS。内容哈希是库内生成列，读回重算不符即 LEDGER_CORRUPT；dolt_diff_evidence 出现任何 modified 或 removed 即为篡改发现。
-登记与回放绑定时，<Ref id="registration.require_precheck" /> 核对以下各项：审查存在且完好；源码哈希与运行环境摘要和本次一致；预检原件的原生与审计退出为零；四项均为 passed 或 no_opportunity。缺审查或身份不符拒绝 SOURCE_PRECHECK_REQUIRED，原件失败或任一项为 failed 或 unresolved 拒绝 SOURCE_PRECHECK_FAILED。
-已入账的失败审查由 <Ref id="qualification.source_reviews" /> 读取，使同源码同运行环境的运行不作经济证据，见 <Ref id="G.4.2.2" />。
-边界：这是源码审查，不是账户审计，也不升级为代码裁决；报告中两者分别呈现，见 <Ref id="A.5.1.2" />。
-强制层：账本（只追加、生成哈希、提交历史）与代码（结构与身份核对）。
+- 审查者须是未参与编写的独立 Agent，读一个 purpose=precheck 试验的封存原件。
+- 接口 api、因果 causal、活动 activity、就绪 readiness 四项各给 status（passed、failed、unresolved 或 no_opportunity）与非空观察说明。
+- 审查经 <Ref id="cli.source_review" /> 与 <Ref id="registration.record_review" /> 写成 Agent 命名的 source-review-* 证据包，记在 <Ref id="table:evidence_bundle" />。
+- 包内 source-review.json 存在 <Ref id="table:evidence" />，格式 source-review-v1。
+- 字段为 trial_id、source_sha256、image_ref、execution_bundle、四项结论与具名审查者 authority。
+- 身份字段由账本从试验行和执行封存中取，不接受调用方填写。
+- 同名同内容重试幂等。
+- 内容哈希是库内生成列；dolt_diff_evidence 出现任何 modified 或 removed 即为篡改发现。
+- 登记与回放绑定时 <Ref id="registration.require_precheck" /> 核对审查：
+- 审查存在且完好。
+- 源码哈希与运行环境摘要和本次一致。
+- 预检原件原生与审计退出为零。
+- 四项均为 passed 或 no_opportunity。
+- 已入账的失败审查由 <Ref id="qualification.source_reviews" /> 读取，使同源码同运行环境的运行不作经济证据，见 <Ref id="G.4.2.2" />。
+- 这是源码审查，不是账户审计，也不升级为代码裁决；报告中两者分别呈现，见 <Ref id="A.5.1.2" />。
 
-<div className="rd-meta">
+**输入**　一个 purpose=precheck 试验的执行封存包与独立 Agent 的四项结论。
 
-**使用**　<Ref id="cli.source_review" />、<Ref id="registration.record_review" />、<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:trial" />、<Ref id="table:candidate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.bind" />、<Ref id="qualification.source_reviews" />、<Ref id="G.4.2.2" />、<Ref id="A.5.1.2" />
+**输出**　source-review.json 证据，以及登记或绑定时的通过或拒绝。
 
-**依据**　[\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables")
+**强制**　账本（只追加、库内生成哈希、提交历史）与代码（结构与身份核对）。
 
-</div>
-
-<p className="rd-resolves">审查者的结论可追溯、不可篡改，且不替代审计或裁决</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `PRECHECK_CAPTURE_MISSING` | 绑定的预检原件不存在 |
+| `RESERVED_BUNDLE` | 证据包名占用产品保留命名空间 |
+| `BUNDLE_EXISTS` | 同名证据包内容不同 |
+| `LEDGER_CORRUPT` | 读回重算内容哈希不符 |
+| `SOURCE_PRECHECK_REQUIRED` | 登记或绑定时缺审查，或审查的源码哈希、运行环境摘要与本次不符 |
+| `SOURCE_PRECHECK_FAILED` | 预检原件原生或审计退出非零，或任一项为 failed 或 unresolved |
 
 </Cap>
 

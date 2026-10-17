@@ -9,19 +9,17 @@
 
 ## D.1　认定变化与受影响范围：什么算变了，旧记录怎么留 [#D-1]
 
-变化分三类：交易所数据与环境事实、运行环境与读数代码、开发窗口。前两类在导入、回放与读取时由市场库只追加与执行身份自动区分，代码强制，不靠人工申报；第三类由用户在入口选择新的数据合同，skill 指导。认定变化后不改写任何旧记录：受影响范围按身份从账本只读查出，旧运行与比较证据保留为历史条件下的证据，资格由当前检查器读时重算，更正与新证据一律追加。重放顺序与推荐更新交给 <Ref id="D.2.1.1" /> 起的重建流程。
-
 <Steps>
 
 <Step>
 
-导入新月份或回放时，代码自动记录新身份：市场提交、导出内容哈希、导出器哈希与生命周期证据包哈希；镜像摘要、运行契约、读数版本与检查身份。
+导入新月份或回放时，代码自动记下新的输入身份与执行身份。
 
 </Step>
 
 <Step>
 
-新月份到达时，入口只报告可扩展范围与阻断；用户选定新数据合同后写成新研究路线记录。
+新月份到达时，入口只报告可扩展范围与阻断；用户选定新数据合同后，写成新研究路线记录。
 
 </Step>
 
@@ -33,13 +31,13 @@
 
 <Step>
 
-旧记录原样保留，按账本提交或标签可读回；评价变化只追加新证据包。
+旧记录原样保留，可按账本提交或标签读回；评价变了只追加新证据包。
 
 </Step>
 
 <Step>
 
-读取旧运行时由当前检查器重算资格并附检查身份；更正追加为指向原记录的新记录。
+读旧运行时由当前检查器重算资格并附检查身份；更正追加为指向原记录的新记录。
 
 </Step>
 
@@ -53,141 +51,141 @@
 
 ### D.1.1　变化的种类 [#D-1-1]
 
-三条能力对应三类变化。交易所数据与环境事实由市场库只追加并经导出组装成输入身份，代码与存储强制；运行环境与读数代码由镜像摘要、运行契约、读数版本与检查身份自动区分，代码强制；开发窗口扩展由入口 skill 指导，输入是新月份的新鲜度，输出是用户选定的新研究路线记录。
+前两类变化由代码与存储自动区分，不靠人工申报；开发窗口扩展由用户选择，skill 指导。
 
-<Cap id="D.1.1.1" kind="database" tier="verified" tierLabel="已验证" title="交易所数据与环境事实只追加，新事实即新的输入身份">
+<Cap id="D.1.1.1" kind="database" tier="verified" tierLabel="已验证" title="交易所数据与环境事实只追加，新事实只产生新的输入身份">
 
-交易所数据（exchange data）与环境事实只追加，新事实即新的输入身份。已被试验（trial）引用的市场提交（market commit）永不改变；新的月份、新的生命周期事实（上市、禁新仓、下架结算、ticker 重用）与导出器源码的改动，都只产生新的输入身份——市场提交、导出内容哈希、导出器源码哈希与生命周期证据包哈希的组合——而不修改旧身份。强制分两层：代码层，<Ref id="market.import_month" /> 一次导入一个月并成一个市场提交，目标月份已存或来源互相冲突即拒绝整次导入，不写任何行（拒绝码由该函数定义）；存储层，市场库按提交保存行级全史，<Ref id="table:dolt_system_tables">dolt_diff_\<t></Ref> 上任何 diff_type 不是 added 的行都是篡改发现。输入：一次导入的月份数据；输出：新的市场提交。复现：按钉住的市场提交 AS OF 导出可逐字节重现旧输入，<Ref id="registration.market_inputs" /> 据此组装输入身份，登记、回放与比较时逐项核对。上游交易所公布的历史修正如何入库待用户定。
+- 已被试验（trial）引用的市场提交（market commit）永不改变。
+- 新事实包括：新月份、生命周期事实（上市、禁新仓、下架结算、ticker 重用）和导出器源码改动。
+- 输入身份由四项组成：市场提交、导出内容哈希、导出器源码哈希、生命周期证据包哈希。
+- <Ref id="market.import_month" /> 一次导入一个月，成为一个市场提交。
+- 目标月份已存在，或来源互相冲突，就拒绝整次导入，不写任何行；拒绝码由 <Ref id="market.import_month" /> 定义。
+- 按钉住的市场提交 AS OF 导出，可逐字节重现旧输入。
+- <Ref id="registration.market_inputs" /> 据此组装输入身份，登记、回放与比较时逐项核对。
+- 上游交易所公布的历史修正怎样入库，待用户决定。
 
-<div className="rd-meta">
+**输入**　一次导入的月份数据。
 
-**使用**　<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:instrument" />、<Ref id="table:universe_month" />、<Ref id="market.import_month" />、<Ref id="registration.market_inputs" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:dolt_system_tables" />
+**输出**　新的市场提交。
 
-**依据**　[\[152\]](/zh/docs/appendix-references/#ref-152 "Dolt — System tables（dolt_diff_&lt;table>、dolt_history_&lt;table>）") [\[153\]](/zh/docs/appendix-references/#ref-153 "Dolt — Querying history（AS OF）") [\[123\]](/zh/docs/appendix-references/#ref-123 "MLflow — Dataset Tracking（Dataset digest / log_input）")
-
-</div>
-
-<p className="rd-resolves">取代前稿「用过被修正那版数据的结论即受影响」：市场库只追加，不存在被修正的版本，只有新的输入身份；上游公布的历史修正如何入库待用户定。</p>
-
-</Cap>
-
-<Cap id="D.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="运行环境与读数代码的变更由执行身份自动区分">
-
-运行环境（runtime image）与读数代码的变更由执行身份自动区分，不靠人工申报。引擎、运行器、审计器或依赖的变更只能以新的镜像摘要或新的运行契约出现；读数与检查代码的变更以新的读数版本与检查身份出现。代码层强制：<Ref id="runtime.resolve" /> 把标签或摘要引用解析为唯一清单摘要，并从镜像清单与标签读出引用、摘要、平台、运行契约与构建源码版本，身份不能手写；<Ref id="runtime.inspect_runtime" /> 在隔离容器内运行身份探针，读出引擎版本、依赖锁哈希、运行器与审计器源码哈希和有效配置哈希，字段缺失或与登记时的身份不符即拒绝回放（拒绝码由该函数定义）。输出：运行环境检视写入试验行与运行行；<Ref id="ledger.reader_revision" /> 与 <Ref id="qualification.check_identity" /> 随每个读数与资格结论输出。读回端保留各历史运行契约的身份布局，旧运行行在新环境下仍可读回。
-
-<div className="rd-meta">
-
-**使用**　<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.reader_revision" />、<Ref id="qualification.check_identity" />、<Ref id="table:run" />、<Ref id="table:trial" />
-
-**依据**　[\[154\]](/zh/docs/appendix-references/#ref-154 "OCI image-spec — Descriptor（digest）") [\[155\]](/zh/docs/appendix-references/#ref-155 "OCI image-spec — Annotations（org.opencontainers.image.revision）") [\[156\]](/zh/docs/appendix-references/#ref-156 "Sandve, Nekrutenko, Taylor &amp; Hovig 2013, doi:10.1371/journal.pcbi.1003285")
-
-</div>
-
-<p className="rd-resolves">合并前稿按引擎、运行器、数据适配、依赖与审计代码分列的触发清单：不再列举，由执行身份自动区分。</p>
+**强制**　由代码与存储共同强制：代码层是 <Ref id="market.import_month" /> 的整次拒绝；存储层是市场库按提交保存行级全史，dolt_diff_\<t>（<Ref id="table:dolt_system_tables" />）里任何 diff_type 不是 added 的行都算篡改发现。
 
 </Cap>
 
-<Cap id="D.1.1.3" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次新月份到达后用户选定新数据合同并据此重放的演练。" title="开发窗口扩展由用户发起">
+<Cap id="D.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="运行环境与读数代码的变更由执行身份自动区分，不靠人工申报">
 
-开发窗口（development window）扩展是用户的选择，由 skill 指导：新月份数据到达时，Agent 在入口用 <Ref id="market.freshness" /> 读出最新完整月，与 <Ref id="ledger.current_line" /> 给出的当前开发窗口和钉住的市场提交对比，只报告可扩展范围与精确阻断（缺镜像、缺市场提交、缺覆盖回执各报哪段，格式见 <Ref id="research-start/SKILL.md#readiness-and-blockers" />），以提问结束；由用户选择新的数据合同（市场提交与开发窗口）。Agent 不自行改窗口、不自动重放。用户选定后经 <Ref id="cli.line_select" /> 写成新版本的研究路线（research line）记录；旧路线记录与其证据保留。规则写在 <Ref id="research-start/SKILL.md#window-extension" />，由 <Ref id="eval:research-start/window-extension-user-decides" /> 检验。
+- 引擎、运行器、审计器或依赖有变更，只能以新的镜像摘要或新的运行契约出现。
+- 读数与检查代码有变更，以新的读数版本和检查身份出现。
+- <Ref id="runtime.resolve" /> 把标签或摘要引用解析为唯一清单摘要。
+- 它从镜像清单与标签读出引用、摘要、平台、运行契约和构建源码版本。
+- 身份不能手写。
+- <Ref id="runtime.inspect_runtime" /> 在隔离容器内运行身份探针，读出引擎版本、依赖锁哈希、运行器与审计器源码哈希、有效配置哈希。
+- 字段缺失，或与登记时的身份不符，就拒绝回放；拒绝码由 <Ref id="runtime.inspect_runtime" /> 定义。
+- 读回端保留各个历史运行契约的身份布局，旧运行行在新环境下仍可读回。
 
-<div className="rd-meta">
+**输入**　镜像的标签引用或摘要引用。
 
-**定义**　<Ref id="research-start/SKILL.md#window-extension" />、<Ref id="eval:research-start/window-extension-user-decides" />
+**输出**　运行环境检视结果写入试验行与运行行；<Ref id="ledger.reader_revision" /> 与 <Ref id="qualification.check_identity" /> 随每个读数和资格结论一起输出。
 
-**使用**　<Ref id="market.freshness" />、<Ref id="ledger.current_line" />、<Ref id="research-start/SKILL.md#readiness-and-blockers" />、<Ref id="cli.line_select" />、<Ref id="ledger.select_line" />
+**强制**　由代码强制：身份由 <Ref id="runtime.resolve" /> 从镜像清单读出，由 <Ref id="runtime.inspect_runtime" /> 从容器探针读出，不能手写，身份不符就拒绝回放。
 
-</div>
+</Cap>
 
-<p className="rd-resolves">取代前稿「新窗口另开一份研究状态清单」与「旧窗口结论全部作废」：窗口扩展只是新的数据合同与新路线记录，旧证据按适用条件保留。</p>
+<Cap id="D.1.1.3" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次新月份到达后用户选定新数据合同并据此重放的演练。" title="开发窗口扩展只由用户选择，Agent 只报告范围与阻断">
+
+1. 新月份数据到达时，Agent 在入口用 <Ref id="market.freshness" /> 读出最新完整月。
+2. 与 <Ref id="ledger.current_line" /> 给出的当前开发窗口及钉住的市场提交对比。
+3. 只报告可扩展范围与精确阻断（缺镜像、缺市场提交、缺覆盖回执，各报缺哪段；格式见 <Ref id="research-start/SKILL.md#readiness-and-blockers" />），最后提问。
+4. 用户选择新的数据合同，即市场提交与开发窗口（development window）。
+5. 经 <Ref id="cli.line_select" /> 写成新版本的研究路线（research line）记录。
+
+- Agent 不自行改窗口，不自动重放。
+- 旧路线记录及其证据保留。
+
+**输入**　新月份的新鲜度（最新完整月）和当前研究路线。
+
+**输出**　用户选定的新版本研究路线记录。
+
+**强制**　由 skill 指导：规则写在 <Ref id="research-start/SKILL.md#window-extension" />，由 <Ref id="eval:research-start/window-extension-user-decides" /> 检验。
 
 </Cap>
 
 ### D.1.2　旧记录的处置 [#D-1-2]
 
-受影响范围由只读查询按身份给出，不写标记；旧记录的保留由账本只追加保证；读数与经济证据资格由当前检查器读时重算并附检查身份，更正只追加。三条能力都只读或只追加，不改写任何存储行。
+三条能力都只读或只追加，不改写任何存储行。
 
-<Cap id="D.1.2.1" kind="database" tier="unverified" tierLabel="待验证" tierNote="缺演练中按身份实际查出受影响运行、登记与推荐理由的执行。" title="受影响范围按身份从账本查出">
+<Cap id="D.1.2.1" kind="database" tier="unverified" tierLabel="待验证" tierNote="缺演练中按身份实际查出受影响运行、登记与推荐理由的执行。" title="受影响范围按身份从账本只读查出，不写标记">
 
-受影响范围从账本（ledger）按身份只读查出。输入：当前身份（运行环境摘要、有效配置身份、输入身份）与一个账本提交或标签；输出：运行环境、有效配置或输入身份与当前身份不同的运行（run），引用这些运行的登记（registration）尝试与候选 candidate（strategy_id@revision），以及引用这些运行的比较证据与推荐理由证据包。代码层由 <Ref id="report.affected_runs" /> 执行，身份比对用与可比资格相同的三项 <Ref id="registration.config_key" />、<Ref id="registration.input_key" /> 与运行环境摘要，判定逻辑与 <Ref id="registration.check_comparable" /> 一致；连接经 <Ref id="ledger.read_as_of" /> 只读，不写标记、不建表、不加字段，不依赖会话记忆或交接文件。没有可比较的当前身份时不给结果并说明缺哪项。
+- 身份比对用三项：<Ref id="registration.config_key" />、<Ref id="registration.input_key" /> 和运行环境摘要，与可比资格相同。
+- 判定逻辑与 <Ref id="registration.check_comparable" /> 一致。
+- 经 <Ref id="ledger.read_as_of" /> 只读连接；不写标记，不建表，不加字段。
+- 不依赖会话记忆或交接文件。
+- 没有可比较的当前身份时不给结果，并说明缺哪一项。
 
-<div className="rd-meta">
+**输入**　当前身份（运行环境摘要、有效配置身份、输入身份），加一个账本提交或标签。
 
-**使用**　<Ref id="report.affected_runs" />、<Ref id="table:run" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:candidate" />、<Ref id="table:evidence_bundle" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="registration.check_comparable" />、<Ref id="ledger.read_as_of" />
+**输出**　运行环境、有效配置或输入身份与当前身份不同的运行（run）；引用这些运行的登记（registration）尝试和候选 candidate（strategy_id@revision）；引用这些运行的比较证据和推荐理由证据包。
 
-</div>
-
-<p className="rd-resolves">并入前稿「受影响结论列清单交 Agent 复核」：清单由只读查询产出，Agent 只读不写。</p>
-
-</Cap>
-
-<Cap id="D.1.2.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="旧运行、读数、比较证据与推荐理由一律保留">
-
-变化后旧运行、读数（reading）、比较证据与推荐（recommendation）理由一律保留：不改写、不加存疑标记、不自动撤销。它们成为历史条件下的证据，按适用条件（源码、改动、参数、输入、窗口、运行环境）参与后续研究优先级（research priority）。保证来自存储而非纪律：账本写入账号只能插入（<Ref id="J.3.1.1" />），评价变化只能以新证据包追加；任何绕过写入口的改动都会在 <Ref id="table:dolt_system_tables">dolt_diff_\<t></Ref> 留下非 added 行，作为篡改发现（保证是留痕，见 <Ref id="J.3.1.4" />）；旧版本经 <Ref id="ledger.read_as_of" /> 按账本提交或标签原样读回。
-
-<div className="rd-meta">
-
-**使用**　<Ref id="table:run" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:dolt_system_tables" />、<Ref id="ledger.read_as_of" />
-
-</div>
-
-<p className="rd-resolves">合并前稿「不再显著时加存疑标记」与「存疑不是撤销」：没有门槛裁决，标记无所附；保留即规则。</p>
+**强制**　由代码强制：<Ref id="report.affected_runs" /> 经只读连接按身份查询账本（ledger）。
 
 </Cap>
 
-<Cap id="D.1.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="读数与资格由当前检查器读时重算，更正只作新记录">
+<Cap id="D.1.2.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="变化后旧运行、读数、比较证据与推荐理由一律原样保留">
 
-变化后旧运行的读数与经济证据资格由当前检查器在读取时重算，存储不变。代码层：<Ref id="qualification.assess" /> 综合存储的审计状态、原始执行捕获、绑定的独立源码审查与原生对账得出当前资格与原因；<Ref id="qualification.mask" /> 把不可用运行的经济读数整体置空并附原因；每份结果附 <Ref id="qualification.check_identity" /> 与读数版本（视图机制见 <Ref id="G.4.2.3" />）。报告 <Ref id="report.run_report" /> 与分析读口 <Ref id="report.tables" /> 只经这一视图输出，不可用运行的经济读数不从任何读口流出。存储的审计结论、读数列与原生行不改写；更正（correction）只作指向原记录的新证据包（<Ref id="J.3.1.2" />）。同一运行在不同时刻读到的资格可以不同，差别由检查身份解释，不由改写解释。
+- 不加存疑标记，不自动撤销。
+- 它们是历史条件下的证据，按适用条件（源码、改动、参数、输入、窗口、运行环境）参与后续研究优先级（research priority）。
+- 评价有变化，只能以新证据包追加。
+- 旧版本经 <Ref id="ledger.read_as_of" /> 按账本提交或标签原样读回。
+- 任何绕过写入口的改动都会在 dolt_diff_\<t>（<Ref id="table:dolt_system_tables" />）留下非 added 行，算作篡改发现；这一保证是留痕，见 <Ref id="J.3.1.4" />。
 
-<div className="rd-meta">
+**强制**　由账本存储强制，不靠纪律：账本写入账号只能插入（<Ref id="J.3.1.1" />），篡改会在 Dolt 行级历史中留痕。
 
-**使用**　<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="qualification.check_identity" />、<Ref id="report.run_report" />、<Ref id="report.tables" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+</Cap>
 
-</div>
+<Cap id="D.1.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="旧运行的读数与经济证据资格读时重算，更正只追加新记录">
 
-<p className="rd-resolves">取代前稿「审计修复后在新运行环境复查并写回结果」：写回与只追加矛盾，改为当前检查器读时重算、附检查身份、不改写。</p>
+- 变化后，旧运行的读数与经济证据资格由当前检查器在读取时重算，存储不变。
+- <Ref id="qualification.assess" /> 读入存储的审计状态、原始执行捕获、绑定的独立源码审查和原生对账。
+- 它输出当前资格与原因。
+- <Ref id="qualification.mask" /> 把不可用运行的经济读数整体置空，并附原因。
+- 每份结果都附 <Ref id="qualification.check_identity" /> 和读数版本；视图机制见 <Ref id="G.4.2.3" />。
+- 报告 <Ref id="report.run_report" /> 与分析读口 <Ref id="report.tables" /> 只经这一视图输出；不可用运行的经济读数不会从任何读口流出。
+- 存储的审计结论、读数列与原生行都不改写；更正（correction）只作为指向原记录的新证据包（<Ref id="J.3.1.2" />）。
+- 同一运行在不同时刻读到的资格可以不同；差别由检查身份解释，而不是由改写解释。
+
+**输入**　旧运行的存储审计状态、原始执行捕获、绑定的独立源码审查和原生对账。
+
+**输出**　当前资格视图：带原因、检查身份与读数版本，不可用运行的经济读数已置空。
+
+**强制**　由代码强制：所有读口只经 qualification 视图输出；存储行只追加，不改写。
 
 </Cap>
 
 ## D.2　恢复可比性：在新环境下重放对照与候选 [#D-2]
 
-变化后的比较证据只能在新的执行身份下重新产生，旧比较不跨身份延续。数据流：<Ref id="report.affected_runs" /> 查出受影响运行 → skill 按研究价值排出重放范围并写入研究状态清单 → 每次重放是带 retry_of 的新登记（registration），先对照后候选 → <Ref id="report.compare" /> 在新身份下给出效应、区间、p → skill 更新综合推荐并告知用户。代码与账本强制登记先于回放、网格点一次性消耗、可比资格拒绝；skill 决定重放顺序、范围与推荐更新。研究默认持续，不设立即重放义务，不要求重放全部历史。
-
 <Steps>
 
 <Step>
 
-Agent 用 <Ref id="report.affected_runs" /> 按变化的运行环境、有效配置或输入身份查出受影响运行，读研究状态清单最新版
+Agent 用 <Ref id="report.affected_runs" /> 按变化的运行环境、有效配置或输入身份查出受影响运行，并读研究状态清单最新版。
 
 </Step>
 
 <Step>
 
-按 <Ref id="research-round/references/changes.md#replay-priority" /> 排重放范围：当前推荐候选及其比较对照优先，其余低优先级保留重评，排序追加写入研究状态清单
+按 <Ref id="D.2.2.1" /> 排出重放范围，排序追加写入研究状态清单。
 
 </Step>
 
 <Step>
 
-以 retry_of 指向原登记，在新身份下登记并回放比较对照（control），直到得到封存且通过的对照运行
+按 <Ref id="D.2.1.2" /> 在新身份下先重放对照、再重放候选，由 <Ref id="report.compare" /> 读数。
 
 </Step>
 
 <Step>
 
-以新身份下的对照运行为登记声明的对照，带 retry_of 登记并回放候选（candidate）；可比资格检查在登记与比较时拒绝身份不一致
-
-</Step>
-
-<Step>
-
-<Ref id="report.compare" /> 在新身份下读出效应、区间、p
-
-</Step>
-
-<Step>
-
-按 <Ref id="research-round/references/changes.md#update-recommendation" /> 更新综合推荐，新旧身份并列呈现并告知用户
+按 <Ref id="D.2.2.2" /> 更新推荐并告知用户。
 
 </Step>
 
@@ -195,113 +193,138 @@ Agent 用 <Ref id="report.affected_runs" /> 按变化的运行环境、有效配
 
 ### D.2.1　重放的登记与计数 [#D-2-1]
 
-由代码与账本强制：新身份下的重放是新登记（retry_of）、新试验与新运行只追加、网格点一次性消耗、可比资格检查在登记与比较时拒绝不一致身份。重放顺序（先对照后候选）由 skill 指导，eval 校验。
+代码与账本强制重放的登记、网格点计数与可比资格拒绝。
 
-<Cap id="D.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="相同源码在新身份下重放是新的登记">
+<Cap id="D.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="相同源码在新身份下重放，须作为带 retry_of 的新登记提交">
 
-运行环境（runtime image）摘要、有效配置身份、输入身份三者任一与原运行不同即为新身份。相同源码在新身份下重放必须作为一次新的登记提交，并以 retry_of 指向原登记：<Ref id="registration.register" /> 重新探测钉死的运行环境、用研究路线的市场提交导出不可变输入、在运行环境内读出有效配置，组成新的执行身份，在一个写事务里经 <Ref id="registration.validate" /> 核对后写成不可变登记证据包。源码已暴露而未带 retry_of 时以 SOURCE_ALREADY_EXPOSED 拒绝。回放开始前 <Ref id="registration.bind" /> 在写 <Ref id="table:trial" /> 行的同一事务里把试验绑定到网格点，登记不早于试验时以 REGISTRATION_TOO_LATE 拒绝；每个网格点在 <Ref id="table:registration_attempt" /> 只消耗一次，再次绑定以 GRID_ALREADY_ATTEMPTED 拒绝，无效与中断的尝试同样消耗。新试验与新运行只追加；原登记、试验、运行与失败原件原样保留，修复后的成功不回填为旧尝试的结果。相同身份下重复同一源码不算新的独立证据，只记为又一次尝试并计入搜索暴露。以上由代码与账本强制；何时、按什么顺序重放由 skill 决定（<Ref id="D.2.1.2" />、<Ref id="D.2.2.1" />），不设立即重放义务。演练中真实阻断修复后均以新登记重试并指向原登记。
+1. <Ref id="registration.register" /> 重新探测钉死的运行环境。
+2. 用研究路线的市场提交导出不可变输入。
+3. 在运行环境内读出有效配置，组成新的执行身份。
+4. 在一个写事务里经 <Ref id="registration.validate" /> 核对后写成不可变登记证据包。
+5. 回放开始前，<Ref id="registration.bind" /> 在写 <Ref id="table:trial" /> 行的同一事务里把试验绑定到网格点。
 
-<div className="rd-meta">
+- 运行环境（runtime image）摘要、有效配置身份、输入身份三者任一与原运行不同即为新身份。
+- 每个网格点在 <Ref id="table:registration_attempt" /> 只消耗一次，无效与中断的尝试同样消耗。
+- 新试验与新运行只追加；原登记、试验、运行与失败原件原样保留。
+- 修复后的成功不回填为旧尝试的结果；真实阻断修复后以新登记重试并指向原登记。
+- 相同身份下重复同一源码不算新的独立证据，只记为又一次尝试并计入搜索暴露。
+- 何时、按什么顺序重放由 skill 决定（<Ref id="D.2.1.2" />、<Ref id="D.2.2.1" />），不设立即重放义务。
 
-**使用**　<Ref id="registration.register" />、<Ref id="registration.validate" />、<Ref id="registration.bind" />、<Ref id="table:registration_attempt" />、<Ref id="table:trial" />、<Ref id="table:evidence_bundle" />
+**输入**　已暴露的源码及其原登记、研究路线的市场提交与钉死的运行环境。
 
-</div>
+**输出**　新身份下的不可变登记证据包（<Ref id="table:evidence_bundle" />），以及绑定到网格点、只追加的新试验行。
 
-<p className="rd-resolves">取代前稿「修正后立即重放」：不设立即重放义务，重放是按优先级安排的新登记。</p>
+**强制**　代码与账本强制：registration.register/validate/bind 在写事务内核对身份与绑定，registration_attempt 让网格点一次性消耗，表只追加。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_ALREADY_EXPOSED` | 源码已暴露而登记未带 retry_of。 |
+| `REGISTRATION_TOO_LATE` | 登记不早于试验。 |
+| `GRID_ALREADY_ATTEMPTED` | 同一网格点再次绑定。 |
 
 </Cap>
 
-<Cap id="D.2.1.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="演练中未在环境或数据变化后重做比较，缺一次先对照后候选的完整重放。" title="先重放比较对照，再重放候选">
+<Cap id="D.2.1.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="演练中未在环境或数据变化后重做比较，缺一次先对照后候选的完整重放。" title="先在新身份下重放比较对照，再以它为对照重放候选">
 
-变化后比较证据只能在新身份下重新产生。顺序：先在新身份下登记并重放比较对照（control；对照源码已暴露，同样带 retry_of 指向其原登记），得到封存且通过的对照运行；再登记候选（candidate），以这条新身份下的对照运行作为登记声明的对照并带 retry_of 回放；两侧都在新身份下封存后才由 <Ref id="report.compare" /> 读效应、区间、p。<Ref id="registration.check_comparable" /> 在登记时与比较时逐项比较运行环境摘要、有效配置身份与输入身份，任一不同即以 COMPARABILITY_MISMATCH 拒绝并列出全部冲突项；对照运行缺失即 NO_CONTROL。旧身份下的比较与 p 不延续到新身份，不以旧身份对照比新身份候选。拒绝由代码强制；顺序由 <Ref id="research-round/references/changes.md#replay-control-then-candidate" /> 指导，<Ref id="eval:research-round/replay-control-before-candidate" /> 校验。
+1. 在新身份下登记并重放比较对照（control），带 retry_of 指向其原登记。
+2. 得到封存且通过的对照运行。
+3. 登记候选（candidate），以这条新身份对照运行为登记声明的对照，带 retry_of 回放。
+4. 两侧都在新身份下封存后，由 <Ref id="report.compare" /> 读效应、区间、p。
 
-<div className="rd-meta">
+- 对照源码已暴露，同样须带 retry_of。
+- <Ref id="registration.check_comparable" /> 在登记时与比较时逐项比较运行环境摘要、有效配置身份与输入身份。
+- 旧身份下的比较与 p 不延续到新身份；不以旧身份对照比新身份候选。
 
-**定义**　<Ref id="research-round/references/changes.md#replay-control-then-candidate" />、<Ref id="eval:research-round/replay-control-before-candidate" />
+**输入**　新身份下要重放的对照与候选源码及其原登记。
 
-**使用**　<Ref id="registration.register" />、<Ref id="registration.check_comparable" />、<Ref id="report.compare" />
+**输出**　新身份下两侧封存运行的比较读数（效应、区间、p）。
 
-</div>
+**强制**　拒绝由代码（registration.check_comparable）强制；顺序由 skill 节 <Ref id="research-round/references/changes.md#replay-control-then-candidate" /> 指导，<Ref id="eval:research-round/replay-control-before-candidate" /> 校验。
 
-<p className="rd-resolves">取代前稿「比较在新数据上重做显著性检验」：先在新身份下产生对照运行，再出效应、区间、p。</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `COMPARABILITY_MISMATCH` | 登记或比较时运行环境摘要、有效配置身份、输入身份任一不同；列出全部冲突项。 |
+| `NO_CONTROL` | 对照运行缺失。 |
 
 </Cap>
 
 ### D.2.2　重放范围与结果呈现 [#D-2-2]
 
-两条都由 skill 指导：输入是 <Ref id="report.affected_runs" /> 的受影响运行集合与研究状态清单最新版，输出是追加到研究状态清单的研究优先级与新的综合推荐。代码不给优先级、不设重放门槛。
+由 skill 指导，从受影响运行与研究状态清单出发，产出研究优先级与新综合推荐。
 
-<Cap id="D.2.2.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次变化后按优先级安排重放并留下优先级记录的演练。" title="重放范围按研究价值排序">
+<Cap id="D.2.2.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次变化后按优先级安排重放并留下优先级记录的演练。" title="重放范围按研究价值排序，当前推荐候选及其对照最先">
 
-输入：<Ref id="report.affected_runs" /> 按变化的身份查出的受影响运行集合，以及研究状态清单最新版。Agent 按 <Ref id="research-round/references/feedback.md#priority-ranking" /> 的维度给重放动作排研究优先级（research priority）：当前推荐候选及其比较对照最先；其余受影响候选保留为低优先级并写明重评条件；策略库模板在当前开发窗口的报告按需重跑（规则见 <Ref id="L.2.2.1" />）。不要求立即重放全部历史，研究默认持续；未重放的旧运行保留为历史条件下的证据。排序与理由追加写入研究状态清单的下一动作优先级（<Ref id="research-round/references/state-list.md#current-decisions" />）。由 skill 节 <Ref id="research-round/references/changes.md#replay-priority" /> 指导，代码不给优先级。
+- 按 <Ref id="research-round/references/feedback.md#priority-ranking" /> 的维度给重放动作排研究优先级（research priority）。
+- 当前推荐候选及其比较对照最先。
+- 其余受影响候选保留为低优先级，并写明重评条件。
+- 策略库模板在当前开发窗口的报告按需重跑（规则见 <Ref id="L.2.2.1" />）。
+- 不要求立即重放全部历史，研究默认持续。
+- 未重放的旧运行保留为历史条件下的证据。
 
-<div className="rd-meta">
+**输入**　<Ref id="report.affected_runs" /> 按变化的身份查出的受影响运行集合，以及研究状态清单最新版。
 
-**定义**　<Ref id="research-round/references/changes.md#replay-priority" />
+**输出**　排序与理由，追加写入研究状态清单的下一动作优先级（<Ref id="research-round/references/state-list.md#current-decisions" />）。
 
-**使用**　<Ref id="report.affected_runs" />、<Ref id="research-round/references/feedback.md#priority-ranking" />、<Ref id="research-round/references/state-list.md#current-decisions" />、<Ref id="L.2.2.1" />
-
-</div>
-
-<p className="rd-resolves">并入前稿要求逐一重放候选报告与比较、代表策略、模板报告与受影响试验记录的四条：无门槛裁决，全部按研究价值排序而非逐一重放。</p>
+**强制**　skill 节 <Ref id="research-round/references/changes.md#replay-priority" /> 指导；代码不给优先级、不设重放门槛。
 
 </Cap>
 
-<Cap id="D.2.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次变化后重放并更新推荐的演练。" title="重放后更新综合推荐并告知用户">
+<Cap id="D.2.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次变化后重放并更新推荐的演练。" title="重放后只按新身份可比证据更新推荐，新旧身份并列告知用户">
 
-重放后按 <Ref id="research-round/SKILL.md#review-and-recommendation" /> 重新做综合推荐（recommendation）：推荐范围只含新身份下可比且经济证据可用的候选；旧推荐理由保留为历史，不回写（<Ref id="D.1.2.2" />）。呈现给用户时，效应、区间、p 与新旧执行身份（运行环境摘要、有效配置、输入身份）并列；尚未重放的候选只标出其旧身份读数，不以旧身份读数填补新身份的空缺，不把旧身份下的显著性说成仍然成立。新推荐与取舍按 <Ref id="research-round/references/state-list.md#update-rules" /> 追加到研究状态清单并告知用户。由 skill 节 <Ref id="research-round/references/changes.md#update-recommendation" /> 指导。
+1. 按 <Ref id="research-round/SKILL.md#review-and-recommendation" /> 重新做综合推荐（recommendation）。
+2. 向用户呈现效应、区间、p，与新旧执行身份（运行环境摘要、有效配置、输入身份）并列。
+3. 按 <Ref id="research-round/references/state-list.md#update-rules" /> 把新推荐与取舍追加到研究状态清单并告知用户。
 
-<div className="rd-meta">
+- 推荐范围只含新身份下可比且经济证据可用的候选。
+- 旧推荐理由保留为历史，不回写（<Ref id="D.1.2.2" />）。
+- 尚未重放的候选只标出其旧身份读数，不以旧身份读数填补新身份的空缺。
+- 不把旧身份下的显著性说成仍然成立。
 
-**定义**　<Ref id="research-round/references/changes.md#update-recommendation" />
+**输入**　新身份下的比较读数与研究状态清单最新版。
 
-**使用**　<Ref id="research-round/SKILL.md#review-and-recommendation" />、<Ref id="research-round/references/state-list.md#update-rules" />、<Ref id="D.1.2.2" />
+**输出**　新的综合推荐及取舍，追加到研究状态清单并告知用户。
 
-</div>
-
-<p className="rd-resolves">取代前稿「把存疑结果告诉用户」：无存疑标记，告知的是新身份下的推荐与新旧身份并列的读数。</p>
+**强制**　skill 节 <Ref id="research-round/references/changes.md#update-recommendation" /> 指导。
 
 </Cap>
 
 ## D.3　运行环境变更：先证明引擎行为没变 [#D-3]
 
-运行环境（runtime image）变更后，先做配对重放（paired replay）：skill 组织 Agent 用同一源码、输入、窗口与账户在旧新运行环境各跑一次探索回放，代码逐条比较两份引擎原生报告并给出 passed；全部一致只证明这一配对下引擎（engine）行为未变，不是对策略的认可，新的比较证据仍按 D.2 在新身份下登记重放产生。有意改变引擎行为或配对不一致时，代码保证旧运行原样保留、旧运行环境身份永久可读回，并按身份查出受影响运行；运行契约变更时 skill 指导先发布适配候选，经原生预检与独立源码审查后再登记，按 D.2 重放。代码强制：身份解析与核对、探索回放不入研究证据、逐条比较、只读的影响查询；skill 指导：配对选择、结论边界、适配发布顺序。
-
 <Steps>
 
 <Step>
 
-用 runtime.resolve 把旧新运行环境各解析为清单摘要与身份；选定配对用的源码、输入（市场提交、universe_rule、合约集）、窗口与账户条款。
+用 <Ref id="runtime.resolve" /> 把旧新运行环境（runtime image）各解析为清单摘要与身份，选定配对的源码、输入（市场提交、universe_rule、合约集）、窗口与账户条款。
 
 </Step>
 
 <Step>
 
-以 purpose=explore 在旧新运行环境各回放一次，两份原生报告各留在新建的临时目录。
+在旧新运行环境各做一次探索回放（<Ref id="D.3.1.1" />）。
 
 </Step>
 
 <Step>
 
-engine.compare_reports 逐条比较两个报告目录；比较两次已封存运行时用 report.compare_runs 从账本导出后比较。
+逐条比较两份报告，得出 passed（<Ref id="D.3.1.2" />）。
 
 </Step>
 
 <Step>
 
-passed=true：只记为该配对下引擎行为未变；新的比较证据仍按 D.2 在新身份下先登记重放比较对照、再以 retry_of 重放候选。
+passed=true：按 <Ref id="D.3.1.3" /> 限定结论，新比较证据按 D.2 产生。
 
 </Step>
 
 <Step>
 
-passed=false 或有意改变引擎行为：旧运行保留为历史条件证据，report.affected_runs 按运行环境身份查出受影响运行，交 D.2 排序重放。
+passed=false 或有意改变引擎行为：旧运行保留为历史条件证据，<Ref id="report.affected_runs" /> 按运行环境身份查出受影响运行，交 D.2 排序重放。
 
 </Step>
 
 <Step>
 
-运行契约变更：旧候选以旧版本为研发父版本发布适配候选，原生预检与独立源码审查通过后登记，按 D.2 重放。
+运行契约变更：以旧候选为研发父版本发布适配候选，原生预检与独立源码审查通过后登记，按 D.2 重放。
 
 </Step>
 
@@ -309,93 +332,120 @@ passed=false 或有意改变引擎行为：旧运行保留为历史条件证据�
 
 ### D.3.1　旧新运行环境配对重放 [#D-3-1]
 
-配对的执行由 skill 组织，走统一回放入口的探索用途（不登记、不计入研究证据）；比较由代码完成：非随机列逐字段、资金费逐条、账户读数在容差内；一致的含义与边界由 skill 约束。输入是两个运行环境摘要和一组固定的源码、输入、窗口、账户，输出是比较器的结果字典。
+skill 组织 Agent 用固定的源码、输入、窗口与账户在两个运行环境各做一次探索回放，代码比较两份原生报告并输出结果字典。
 
-<Cap id="D.3.1.1" kind="skill" tier="verified" tierLabel="已验证" title="同一源码、输入、窗口与账户在旧新运行环境各跑一次">
+<Cap id="D.3.1.1" kind="skill" tier="verified" tierLabel="已验证" title="新运行环境做研究回放前，先用同一源码、输入、窗口与账户在旧新环境各跑一次">
 
-运行环境变更后、在新运行环境做任何研究回放之前，Agent 先做配对重放。配对固定四样：同一源码（同一候选 strategy_id@revision 的原字节）、同一输入（同一市场提交、universe_rule 与合约集）、同一窗口、同一账户条款；合约集与窗口选能触发本次变更所涉机制的最小组合（有成交、有保护单、跨资金费结算），由 Agent 决定。旧新两个运行环境的身份都经 <Ref id="runtime.resolve" /> 从镜像清单与标签读出，不手写；旧运行环境按摘要拉不到时，配对无法进行，按 <Ref id="D.3.2.1" /> 处理。两次回放都走 <Ref id="replay.explore" />（试验 purpose=explore），不登记、不消耗网格点、不计入研究证据，报告留在各自新建的临时目录，账本只有试验记录与执行封存。引擎按固定次序逐时间戳先处理市场状态再调用策略回调，相同输入下成交编号确定，因此两份原生报告可交给 <Ref id="engine.compare_reports" /> 逐条比较。由 skill 指导（<Ref id="research-round/references/changes.md#runtime-parity-replay" />），探索回放不入研究证据由代码保证。
+1. 运行环境变更后、在新运行环境做任何研究回放之前，Agent 先做配对重放。
+2. 固定配对四样：同一源码（同一候选 strategy_id@revision 的原字节）、同一输入（同一市场提交、universe_rule 与合约集）、同一窗口、同一账户条款。
+3. 经 <Ref id="runtime.resolve" /> 从镜像清单与标签读出旧新两个运行环境身份，不手写。
+4. 两次回放都走 <Ref id="replay.explore" />（试验 purpose=explore），报告留在各自新建的临时目录。
+5. 把两份原生报告交给 <Ref id="engine.compare_reports" /> 逐条比较。
 
-<div className="rd-meta">
+- 合约集与窗口选能触发本次变更所涉机制的最小组合（有成交、有保护单、跨资金费结算），由 Agent 决定。
+- 旧运行环境按摘要拉不到时配对无法进行，按 <Ref id="D.3.2.1" /> 处理。
+- 探索回放不登记、不消耗网格点、不计入研究证据，账本只有试验记录与执行封存。
+- 引擎按固定次序逐时间戳先处理市场状态再调用策略回调，相同输入下成交编号确定，所以两份报告可逐条比较。
 
-**定义**　<Ref id="research-round/references/changes.md#runtime-parity-replay" />
+**输入**　旧新两个运行环境摘要，加一组固定的源码、输入、窗口与账户条款。
 
-**使用**　<Ref id="replay.explore" />、<Ref id="runtime.resolve" />、<Ref id="engine.compare_reports" />、<Ref id="research-round/references/changes.md#replay-control-then-candidate" />
+**输出**　旧新运行环境各一份原生报告，分别在新建的临时目录中。
 
-**依据**　[\[157\]](/zh/docs/appendix-references/#ref-157 "NautilusTrader — Backtest execution flow")
-
-</div>
-
-<p className="rd-resolves">保留同名能力；探索用途、身份解析与比较入口吸收进规则与引用角色。</p>
-
-</Cap>
-
-<Cap id="D.3.1.2" kind="code" tier="verified" tierLabel="已验证" title="逐条比较两份原生报告，全部一致才算行为未变">
-
-<Ref id="engine.compare_reports" /> 接收两个报告目录（参照、待比较）与账户读数容差，逐条比较五张原生报告：订单、成交、持仓（含快照行）、账户、日收益序列的全部非随机列逐字段字面相等；资金费调整逐条相等，不用容差；账户汇总读数在 account_tolerance 内相等（容差为未校准示例值）。随机编号列（venue order id、trade id、position id、event id 及其派生列）按固定集合剔除，其余列都比。只有全部表、资金费与读数都一致时 passed=true；程序正常退出、报告可读或单元测试通过都不算一致。目录缺失或缺表拒绝 REPORT_DIR_MISSING，表不可解析拒绝 REPORT_TABLE_UNREADABLE，两侧同一目录拒绝 SAME_REPORT_DIRECTORY，容差非法拒绝 INVALID_TOLERANCE。两次已封存运行（<Ref id="table:run" /> 及其原生行表）由 <Ref id="report.compare_runs" /> 按账本版本导出为同布局目录后调用同一比较器；导出前核对两运行的源码内容哈希、输入身份与有效配置相同，否则拒绝 PAIR_INPUT_MISMATCH。两函数都只读、不写账本，结果只表示行为是否一致，不产生任何研究读数。由代码强制。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="engine.compare_reports" />、<Ref id="report.compare_runs" />
-
-**使用**　<Ref id="engine.write_native_reports" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run" />、<Ref id="table:trial" />、<Ref id="ledger.load_run" />
-
-**依据**　[\[158\]](/zh/docs/appendix-references/#ref-158 "NautilusTrader — Backtest execution flow（use_random_ids、TradeId）") [\[125\]](/zh/docs/appendix-references/#ref-125 "NautilusTrader — Reports")
-
-</div>
-
-<p className="rd-resolves">合并「逐条比较」与「全部一致才算」两条，补账户读数容差与从账本封存运行比较的入口。</p>
+**强制**　配对顺序与选择由 skill 指导（<Ref id="research-round/references/changes.md#runtime-parity-replay" />）；探索回放不入研究证据由代码保证。
 
 </Cap>
 
-<Cap id="D.3.1.3" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次演练检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。" title="一致的用途与边界">
+<Cap id="D.3.1.2" kind="code" tier="verified" tierLabel="已验证" title="逐条比较两份原生报告，全部表、资金费与读数一致才判 passed">
 
-passed=true 只对被配对的源码、输入、窗口与账户成立：Agent 写成「这一配对下引擎行为未变」，不推广到其他候选、全部合约或其他窗口；它不是对策略的认可，也不是经济证据，不进入推荐理由的经济部分。旧运行与旧比较证据仍是旧身份下的历史条件证据；新身份下的比较证据须先登记并重放比较对照（control），再以 retry_of 重放候选（<Ref id="research-round/references/changes.md#replay-control-then-candidate" />），旧比较不跨运行环境身份延续。由 skill 指导（<Ref id="research-round/references/changes.md#parity-scope" />），用 <Ref id="eval:research-round/parity-not-endorsement" /> 检验。
+- 订单、成交、持仓（含快照行）、账户、日收益序列五张原生报告的全部非随机列逐字段字面相等。
+- 资金费调整逐条相等，不用容差。
+- 账户汇总读数在 account_tolerance 内相等（容差为未校准示例值）。
+- 随机编号列（venue order id、trade id、position id、event id 及其派生列）按固定集合剔除，其余列都比。
+- 只有全部表、资金费与读数都一致时 passed=true；程序正常退出、报告可读或单元测试通过都不算一致。
+- <Ref id="report.compare_runs" /> 按账本版本把两次封存运行（<Ref id="table:run" /> 及原生行表）导出为同布局目录，再调用同一比较器。
+- 导出前核对两运行的源码内容哈希、输入身份与有效配置相同。
+- 两函数都只读、不写账本，结果只表示行为是否一致，不产生任何研究读数。
 
-<div className="rd-meta">
+**输入**　<Ref id="engine.compare_reports" /> 接收参照与待比较两个报告目录及账户读数容差；<Ref id="report.compare_runs" /> 接收两次封存运行与账本版本。
 
-**定义**　<Ref id="research-round/references/changes.md#parity-scope" />、<Ref id="eval:research-round/parity-not-endorsement" />
+**输出**　比较器的结果字典，含 passed。
 
-**使用**　<Ref id="research-round/references/changes.md#replay-control-then-candidate" />、<Ref id="D.2.1.1" />
+**强制**　由代码强制：比较器逐条比较并只读账本。
 
-</div>
+| 拒绝码 | 条件 |
+|---|---|
+| `REPORT_DIR_MISSING` | 报告目录缺失或缺表 |
+| `REPORT_TABLE_UNREADABLE` | 报告表不可解析 |
+| `SAME_REPORT_DIRECTORY` | 两侧是同一目录 |
+| `INVALID_TOLERANCE` | 容差非法 |
+| `PAIR_INPUT_MISMATCH` | 两次封存运行的源码内容哈希、输入身份或有效配置不同 |
 
-<p className="rd-resolves">保留同名能力，补「不是经济证据」与新身份下的重放顺序。</p>
+</Cap>
+
+<Cap id="D.3.1.3" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次演练检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。" title="passed=true 只说明这一配对下引擎行为未变，不认可策略">
+
+- passed=true 只对被配对的源码、输入、窗口与账户成立，Agent 写成「这一配对下引擎行为未变」，不推广到其他候选、全部合约或其他窗口。
+- 它不是对策略的认可，也不是经济证据，不进入推荐理由的经济部分。
+- 旧运行与旧比较证据仍是旧身份下的历史条件证据，旧比较不跨运行环境身份延续。
+- 新身份下的比较证据须先登记并重放比较对照（control），再以 retry_of 重放候选（<Ref id="research-round/references/changes.md#replay-control-then-candidate" />）。
+
+**输入**　配对比较结果 passed=true。
+
+**输出**　限定在该配对范围内的结论陈述。
+
+**强制**　由 skill 指导（<Ref id="research-round/references/changes.md#parity-scope" />），用 <Ref id="eval:research-round/parity-not-endorsement" /> 检验。
 
 </Cap>
 
 ### D.3.2　有意变更或证明不了时 [#D-3-2]
 
-旧身份读回与影响查询由代码保证：运行行的运行环境列不改写、旧运行契约名始终在受支持集合内、旧镜像按摘要保留，report.affected_runs 只读地按身份查出受影响运行。契约适配发布与重登记由 skill 指导，经原生预检与独立源码审查后进入 D.2 的重放。
+代码保证旧身份可读回并只读地查出受影响运行，skill 指导契约适配候选的发布与重登记，然后进入 D.2 的重放。
 
-<Cap id="D.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="旧运行保留为历史条件证据，旧身份保持可读回">
+<Cap id="D.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="有意变更或配对不成立时，旧运行原样保留且旧身份永久可读回">
 
-有意改变引擎行为（撮合周期、运行契约、引擎版本）或配对重放 passed=false、无法进行时，旧运行、读数与比较证据一律原样保留，作为旧身份下的历史条件证据。旧运行环境身份永久可读回：<Ref id="table:run" /> 的 runtime_inspection 及其生成列 runtime_contract、engine_version、dependency_lock_sha256，以及 <Ref id="table:trial" /> 的 image_ref 与 image_digest 从不改写；<Ref id="runtime.validate_identity" /> 的受支持运行契约集合只增不删，旧身份读回时仍能通过核对；旧镜像按摘要保留并可经 <Ref id="runtime.resolve" /> 解析拉取，删除保留的运行环境镜像属于须用户授权的破坏性写。受影响范围由 <Ref id="report.affected_runs" /> 查出：以新运行环境身份为 current，按指定账本版本只读列出身份不同的封存运行及引用它们的登记、retry_of 链、样本外绑定与证据包；不排序、不写标记。查询非法拒绝 INVALID_QUERY，账本版本不存在拒绝 LEDGER_VERSION_NOT_FOUND，账本不可达拒绝 LEDGER_UNAVAILABLE，运行缺身份拒绝 RUN_IDENTITY_MISSING。重放顺序与范围交 <Ref id="D.2.2.1" />，重放本身按 <Ref id="D.2.1.1" /> 与 <Ref id="D.2.1.2" />。保留与读回由代码与账本只追加强制，影响查询由代码执行。
+- 适用于有意改变引擎行为（撮合周期、运行契约、引擎版本）、配对重放 passed=false 或无法进行。
+- 旧运行、读数与比较证据一律原样保留，作为旧身份下的历史条件证据。
+- <Ref id="table:run" /> 的 runtime_inspection 及其生成列 runtime_contract、engine_version、dependency_lock_sha256 从不改写。
+- <Ref id="table:trial" /> 的 image_ref 与 image_digest 从不改写。
+- <Ref id="runtime.validate_identity" /> 的受支持运行契约集合只增不删，旧身份读回时仍能通过核对。
+- 旧镜像按摘要保留，可经 <Ref id="runtime.resolve" /> 解析拉取。
+- 删除保留的运行环境镜像属于须用户授权的破坏性写。
+- <Ref id="report.affected_runs" /> 以新身份为 current，按指定账本版本只读列出身份不同的封存运行及引用它们的登记、retry_of 链、样本外绑定与证据包。
+- 该查询不排序、不写标记。
+- 重放顺序与范围交 <Ref id="D.2.2.1" />，重放本身按 <Ref id="D.2.1.1" /> 与 <Ref id="D.2.1.2" />。
 
-<div className="rd-meta">
+**输入**　新运行环境身份（current）与指定账本版本。
 
-**定义**　<Ref id="report.affected_runs" />
+**输出**　身份不同的封存运行及引用它们的登记、retry_of 链、样本外绑定与证据包列表。
 
-**使用**　<Ref id="runtime.resolve" />、<Ref id="runtime.validate_identity" />、<Ref id="table:run" />、<Ref id="table:trial" />、<Ref id="D.1.2.1" />、<Ref id="D.2.2.1" />
+**强制**　保留与读回由代码与账本只追加强制；影响查询由代码只读执行。
 
-</div>
-
-<p className="rd-resolves">取代「证明不了按数据被修正处理」：不存在被修正的数据版本，统一为历史条件证据加按身份重放。</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_QUERY` | 影响查询非法 |
+| `LEDGER_VERSION_NOT_FOUND` | 指定账本版本不存在 |
+| `LEDGER_UNAVAILABLE` | 账本不可达 |
+| `RUN_IDENTITY_MISSING` | 运行缺运行环境身份 |
 
 </Cap>
 
-<Cap id="D.3.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="演练中契约升级一次，同一源码同时满足新旧两份契约，未出现需要适配发布的情形。" title="运行契约变更时先发布适配版本再登记重放">
+<Cap id="D.3.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="演练中契约升级一次，同一源码同时满足新旧两份契约，未出现需要适配发布的情形。" title="运行契约变更时，先发布适配候选并通过预检与审查，再登记重放">
 
-运行契约（策略文件与运行器之间的接口约定）变更、旧候选源码不满足新契约时，Agent 先经 <Ref id="ledger.publish_candidate" /> 发布适配候选：研发父版本为旧候选，改动说明写明契约适配，只改契约要求的部分；适配候选是新的候选，有自己的 strategy_id@revision。发布后、登记前，按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review" /> 做 <Ref id="replay.precheck" />（试验 purpose=precheck）与独立源码审查（<Ref id="registration.record_review" />），失败即修复、重新发布与预检；两项通过后才经 <Ref id="registration.register" /> 登记，按 <Ref id="D.2.1.2" /> 先重放比较对照再重放候选。适配候选与旧候选的比较不跨契约延续，适配差异不得写成经济改善。顺序由 skill 指导（<Ref id="research-round/references/changes.md#contract-change-republish" />），预检先于登记由代码强制（<Ref id="C.6.1.1" />、<Ref id="H.4.2.2" />），用 <Ref id="eval:research-round/contract-change-republish" /> 检验。
+1. 经 <Ref id="ledger.publish_candidate" /> 发布适配候选：研发父版本为旧候选，改动说明写明契约适配，只改契约要求的部分。
+2. 按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review" /> 做 <Ref id="replay.precheck" />（试验 purpose=precheck）与独立源码审查（<Ref id="registration.record_review" />）。
+3. 任一项失败即修复、重新发布与预检。
+4. 两项通过后经 <Ref id="registration.register" /> 登记。
+5. 按 <Ref id="D.2.1.2" /> 先重放比较对照，再重放候选。
 
-<div className="rd-meta">
+- 适用于运行契约（策略文件与运行器之间的接口约定）变更且旧候选源码不满足新契约。
+- 适配候选是新的候选，有自己的 strategy_id@revision。
+- 适配候选与旧候选的比较不跨契约延续，适配差异不得写成经济改善。
 
-**定义**　<Ref id="research-round/references/changes.md#contract-change-republish" />、<Ref id="eval:research-round/contract-change-republish" />
+**输入**　不满足新运行契约的旧候选源码。
 
-**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="replay.precheck" />、<Ref id="registration.record_review" />、<Ref id="registration.register" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="C.6.1.1" />
+**输出**　已发布、预检与审查通过并登记的适配候选，及其重放结果。
 
-</div>
-
-<p className="rd-resolves">契约变更下的候选处置，接策略文件契约与登记前预检。</p>
+**强制**　顺序由 skill 指导（<Ref id="research-round/references/changes.md#contract-change-republish" />），用 <Ref id="eval:research-round/contract-change-republish" /> 检验；预检先于登记由代码强制（<Ref id="C.6.1.1" />、<Ref id="H.4.2.2" />）。
 
 </Cap>
 
