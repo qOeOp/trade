@@ -1,0 +1,1666 @@
+# 代码设计：账本
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+`ledger/`　研究账本：连接与单事务写入、候选发布、证据包、试验与运行入账、执行封存、原生读数、研究计数、时间戳凭证、导出与整体复核。所有写入经 CLI 到达这里。
+
+每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
+
+<Files>
+<Folder name="ledger" defaultOpen>
+  <File name="admin.py" />
+  <File name="coverage.py" />
+  <File name="db.py" />
+  <File name="errors.py" />
+  <File name="evidence.py" />
+  <File name="execution.py" />
+  <File name="lines.py" />
+  <File name="paths.py" />
+  <File name="readings.py" />
+  <File name="strategies.py" />
+  <File name="trials.py" />
+  <File name="witness.py" />
+</Folder>
+</Files>
+
+## `ledger/admin.py` [#def-mod-ledger-admin-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.export_history">export_history</Ref> | 以读账号按精确版本导出账本全史备份与自描述复现清单，使无产品工作树的主机只凭账本、镜像注册表与市场提交即可重放 |
+
+### `export_history` [#def-ledger-export_history]
+
+以读账号按精确版本导出账本全史备份与自描述复现清单，使无产品工作树的主机只凭账本、镜像注册表与市场提交即可重放
+
+```python
+def export_history(
+    profile: str,
+    destination: Path,
+    at: str | None,
+    run_ids: list[str] | None,
+    with_backup: bool,
+) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "str", description: "账本档案名；只用读账号连接" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "run_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
+
+**返回**　dict：\{at, commit, ledger_name, backup_path, candidates, runs, images, market_commits, manifest_path, content_hash, unavailable\}；images 为按摘要列出的运行环境引用，market_commits 为需重新导出的市场提交，content_hash 为清单文件内容哈希
+
+**期望行为**
+
+1. ledger.connect 以读账号连接，ledger.read_as_of 把 at 解析为提交；账号有写权限、版本不存在或 destination 位置不合即拒绝
+2. with_backup 时用 Dolt dolt_backup 把全部提交与标签增量同步到 destination/backup（即 <Ref id="J.3.5.1">dolt_backup 全史备份</Ref>）；同步失败或同步后备份头不等于账本头即整笔拒绝，不写部分清单
+3. 按该版本经 ledger.read_candidate 读每个入选候选的源码字节并重算哈希，每个候选写成一个 UTF-8 源码文件
+4. 对每个入选运行经 ledger.load_run 与 ledger.read_capture 读 trial/run 行、原生报告行与执行封存并核验哈希；写出有效配置、runtime.resolve 解析的运行环境摘要、输入身份（市场提交、范围规则、成员路径、导出内容哈希）与 ledger.load_bundle 读回的登记证据包
+5. 写 reproduce/manifest.json：每个运行一条，列镜像摘要、源码哈希、有效配置、输入身份、市场提交与窗口，以及镜像内比较入口 engine.compare_reports；不含产品工作树路径、Git 提交号或镜像文件
+6. 任一封存读回不符时该运行标 unavailable，照常写其引用与哈希，不中断导出；返回清单摘要与内容哈希
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_PERMISSION` | 连接账号持有 INSERT/UPDATE 权限，不是读账号 |
+| `VERSION_NOT_FOUND` | at 不能解析为账本里的标签或提交 |
+| `EXPORT_PATH_INVALID` | destination 位于账本服务目录或 Git 工作树内，或已存在且不是本账本的导出 |
+| `DOLT_BACKUP` | 全史同步失败，或同步后备份头与账本头不一致 |
+| `RUN_NOT_FOUND` | run_ids 中有运行在该版本不存在或尚未封存 |
+
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="runtime.resolve" />、<Ref id="market.resolve_commit" />、<Ref id="engine.compare_reports" />、<Ref id="table:ledger_head" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run_order_event" />、<Ref id="table:run_cost_basis" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:witness" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.6.2.1" />
+
+**使用于**　<Ref id="J.3.5.1" />、<Ref id="J.6.2.2" />
+
+</div>
+
+## `ledger/coverage.py` [#def-mod-ledger-coverage-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.original_coverage">original_coverage</Ref> | 入账时只采信本试验原始执行捕获里的覆盖回执与原生摘要：要求捕获完整封存、各阶段退出成功、回执输入身份等于存储的输入身份，再用 ledger.verify_coverage 重算生命周期事件；任一不符即拒绝，不降级为无事件。 |
+| <Ref id="ledger.verify_coverage">verify_coverage</Ref> | 核对覆盖回执与原生摘要一致（版本形态、输入起止、市场提交、合约集合），再交给 engine.lifecycle_events 构造并核对生命周期事件；覆盖事实只透传，不构成无效。审计和入账共用这一个函数。 |
+
+### `original_coverage` [#def-ledger-original_coverage]
+
+入账时只采信本试验原始执行捕获里的覆盖回执与原生摘要：要求捕获完整封存、各阶段退出成功、回执输入身份等于存储的输入身份，再用 ledger.verify_coverage 重算生命周期事件；任一不符即拒绝，不降级为无事件。
+
+```python
+def original_coverage(
+    conn: LedgerConnection,
+    trial_id: str,
+    input_identity: dict,
+) -> tuple[dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect 打开的账本连接，只读使用。" }, "trial_id": { type: "str", description: "试验 ID，用于定位 trial 行及其原始执行捕获。" }, "input_identity": { type: "dict", description: "拟入账运行行的输入身份（登记时存储的内容身份，不含宿主路径）。" } }} />
+
+**返回**　tuple[dict, ...]：由原始捕获里的回执与原生摘要重算、核对一致的生命周期事件元组；没有事件时为空元组。
+
+**期望行为**
+
+1. 读 table:trial 取该试验的候选内容哈希与运行环境身份，以此调用 ledger.read_capture；它的核验拒绝原样传出。返回缺失、未最终封存，或缺执行前回执、执行阶段、原生报告任一项，拒绝 CAPTURE_INCOMPLETE。
+2. 各阶段退出码须全为零，否则拒绝 PHASE_FAILED，并带上首个非零阶段名与退出码。
+3. 取捕获中封存的覆盖回执，其 input_identity 与参数 input_identity 做字典深比较，须完全相等，否则拒绝 INPUT_IDENTITY_MISMATCH。工作目录或调用方另传的回执一律不采信。
+4. 从捕获的原生报告取原生摘要，调用 ledger.verify_coverage(coverage, summary)；它的拒绝原样传出，不捕获、不降级。
+5. 返回事件元组，交 ledger.ingest_run 写入运行行；本函数不写任何东西。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `CAPTURE_INCOMPLETE` | 原始执行捕获不存在或未最终封存，或缺执行前回执、执行阶段、原生报告任一项。 |
+| `PHASE_FAILED` | 捕获中任一阶段退出码非零。 |
+| `INPUT_IDENTITY_MISMATCH` | 捕获中覆盖回执的输入身份不等于存储的输入身份。 |
+| `COVERAGE_RECEIPT_INVALID / COVERAGE_MISMATCH / LIFECYCLE_*` | 由 ledger.verify_coverage 原样传出。 |
+
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.refusal" />、<Ref id="table:trial" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.2.2.2" />
+
+**使用于**　<Ref id="G.1.1.1" />、<Ref id="J.2.2.2" />、<Ref id="J.6.1.4" />
+
+</div>
+
+### `verify_coverage` [#def-ledger-verify_coverage]
+
+核对覆盖回执与原生摘要一致（版本形态、输入起止、市场提交、合约集合），再交给 engine.lifecycle_events 构造并核对生命周期事件；覆盖事实只透传，不构成无效。审计和入账共用这一个函数。
+
+```python
+def verify_coverage(
+    coverage: dict,
+    summary: dict,
+    window: tuple[str, str] | None,
+) -> tuple[dict
+```
+
+<TypeTable type={{ "coverage": { type: "dict", description: "随执行封存的覆盖回执：format（execution-input-coverage-v1）、effective_config{start, end}、input_identity{market_commit, instruments, lifecycle_bundle}、export_receipts{symbol: 回执，含计数与生命周期片段 episodes}、facts（market.coverage_facts 的输出）。" }, "summary": { type: "dict", description: "引擎原生摘要：input_start_utc、period_end_utc、market_commit、per_coin[{instrument, counts}]。" }, "window": { type: "tuple[str, str] | None", description: "可选的开发窗口（UTC 起止）。给出时，回执与摘要的起止都须等于它；不给时只要求两者彼此相等。" } }} />
+
+**返回**　tuple[dict, ...]：按时钟排序的引擎原生生命周期事件字典（InstrumentStatus / InstrumentClose），没有事件时为空元组。覆盖事实不在返回值里，留在 coverage['facts'] 由调用方呈现。
+
+**期望行为**
+
+1. 校验回执形态：format 为 execution-input-coverage-v1，input_identity 中市场提交与合约集齐全，每个合约都有导出回执。缺项或版本不符拒绝 COVERAGE_RECEIPT_INVALID。
+2. 回执合约集须等于摘要 per_coin 的实例集；给定 window 时，回执与摘要的起止还须等于它。不符拒绝 COVERAGE_MISMATCH。
+3. 调用 engine.lifecycle_events(coverage, summary)，由它核对格式、起止、市场提交与逐实例生命周期；它的 LIFECYCLE_* 拒绝原样传出，不捕获、不降级。
+4. facts 只透传，不参与判定，也不写任何表。
+5. 本函数不读写账本，可以直接在工作目录上运行；replay.audit_problems 与 ledger.original_coverage 调用的是同一份实现。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `COVERAGE_RECEIPT_INVALID` | 回执版本不是 execution-input-coverage-v1，输入身份缺市场提交或合约集，或有合约缺导出回执。 |
+| `COVERAGE_MISMATCH` | 回执合约集不等于原生摘要的实例集，或给定开发窗口时回执或摘要的起止与它不等。 |
+| `LIFECYCLE_*` | engine.lifecycle_events 原样传出的生命周期拒绝。 |
+
+**使用**　<Ref id="engine.lifecycle_events" />、<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.2.2.1" />
+
+**使用于**　<Ref id="W.3.3.1" />、<Ref id="G.1.1.1" />
+
+</div>
+
+## `ledger/db.py` [#def-mod-ledger-db-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.connect">connect</Ref> | 按角色取凭据建立账本连接；writer 只能插入且只对固定研究 branch 有写权，reader 只读 |
+| <Ref id="ledger.init">init</Ref> | 建库与全部表，写模式与并发守卫单行，装提交校验组，建 writer/reader 最小权限账号与 branch 写权 |
+| <Ref id="ledger.read_as_of">read_as_of</Ref> | 按账本提交、标签或 branch 给出钉在精确提交上的只读连接 |
+| <Ref id="ledger.write">write</Ref> | 单事务写入并提交；同载荷重试返回原记录；并发写冲突拒绝 |
+
+### `connect` [#def-ledger-connect]
+
+按角色取凭据建立账本连接；writer 只能插入且只对固定研究 branch 有写权，reader 只读
+
+```python
+def connect(
+    profile: LedgerProfile,
+    role: Literal['writer','reader'],
+    branch: str | None,
+) -> LedgerConnection
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、研究 branch 名、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" }, "branch": { type: "str | None", description: "要连接的 branch，缺省为档案记录的固定研究 branch；writer 只接受该 branch" } }} />
+
+**返回**　LedgerConnection：已选中 database/branch 的连接，带只读属性 role、database、branch、schema_version；支持上下文管理器，调用方用完关闭
+
+**期望行为**
+
+1. 核对 role 合法；档案不是研究账本、或服务目录下没有该数据库的账号记录即拒绝。
+2. writer 时核对 branch 等于档案的固定研究 branch，不等即拒绝，不尝试连接。
+3. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝。
+4. 读 ledger_schema 单行，version 不等于本代码期望的模式版本即关闭连接并拒绝。
+5. 返回带角色属性的连接；ledger.write 据此拒绝只读连接。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_ROLE` | role 不是 writer 或 reader |
+| `LEDGER_UNKNOWN` | 服务目录下没有该数据库的账号记录 |
+| `LEDGER_KIND` | 档案不是研究账本（如市场库档案） |
+| `BRANCH_FORBIDDEN` | writer 请求的 branch 不是档案记录的固定研究 branch |
+| `LEDGER_UNAVAILABLE` | 服务未启动或不接受连接 |
+| `LEDGER_PERMISSION` | 账号或口令被服务拒绝 |
+| `SCHEMA_MISMATCH` | ledger_schema.version 与本代码期望的模式版本不等 |
+
+**使用**　<Ref id="ledger.refusal" />、<Ref id="table:ledger_schema" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="A.4.1.2" />
+
+**使用于**　<Ref id="A.4.2.3" />、<Ref id="A.5.2.2" />、<Ref id="J.3.1.3" />、<Ref id="J.3.2.1" />、<Ref id="J.3.5.1" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[6\]](/zh/docs/appendix-references/#ref-6 "Dolt — Access management") [\[7\]](/zh/docs/appendix-references/#ref-7 "Dolt — Branch permissions")
+
+</div>
+
+### `init` [#def-ledger-init]
+
+建库与全部表，写模式与并发守卫单行，装提交校验组，建 writer/reader 最小权限账号与 branch 写权
+
+```python
+def init(
+    name: str,
+    database: str,
+    service_root: Path,
+    kind: Literal['active','isolated','temporary'],
+    research_branch: str,
+    backup_root: Path | None,
+    dolt_binary: Path | None,
+) -> InitResult
+```
+
+<TypeTable type={{ "name": { type: "str", description: "账本档案名；字母、数字、连字符与下划线" }, "database": { type: "str", description: "Dolt 数据库名；字母、数字与下划线；isolated 与 temporary 不得使用活跃账本的数据库名" }, "service_root": { type: "Path", description: "Dolt 服务目录；不存在则创建并启动服务，存在则沿用；活跃账本的服务目录不得位于源码检出目录或临时根之下" }, "kind": { type: "Literal['active','isolated','temporary']", description: "active 是唯一研究账本；isolated 供测试与演练；temporary 随命令生命周期销毁" }, "research_branch": { type: "str", description: "固定研究 branch 名（缺省 main），writer 的写权只授予它" }, "backup_root": { type: "Path | None", description: "dolt_backup 备份目录；active 必填，位置约束同服务目录" }, "dolt_binary": { type: "Path | None", description: "Dolt 可执行文件；缺省从环境变量或 PATH 取，版本须等于代码钉死的版本" } }} />
+
+**返回**　InitResult：\{profile, accounts_created: ['writer','reader'], branch_grant: research_branch, schema_version, commit\}；口令只写入服务目录私有文件（权限 0600），不出现在返回值、日志或标准输出
+
+**期望行为**
+
+1. 核对名称字符、档案不存在、种类合法、隔离与临时账本不用活跃数据库名、活跃账本的服务目录与备份目录不在源码检出目录或 ledger.temporary_path 判定的临时根下；不符即拒绝，不触碰文件系统。
+2. 核对 Dolt 版本等于钉死版本；按需创建服务目录并以仅本机监听启动服务，限时内不接受连接即拒绝；服务已持有同名数据库即拒绝。
+3. 以初始化专用的管理会话建库，按模式文件建全部表，写 ledger_schema 单行（version）与 ledger_head 单行（seq=0, op_id='schema'），装入提交校验组 dolt_tests(commit)，做首个提交。
+4. 删除 dolt_branch_control 中的通配写权行，只留管理账号；创建 writer 与 reader 两账号，口令随机。
+5. 授权 writer：SELECT、INSERT、对 ledger_head 的 UPDATE、dolt_commit 过程的 EXECUTE，并在 dolt_branch_control 只对 research_branch 授 write；reader 只 SELECT；不授 UPDATE/DELETE（ledger_head 除外）、库级 EXECUTE、打标签或改 branch 的权限。
+6. 把账号写入服务目录私有文件，把档案写入账本档案目录，返回不含口令的结果。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_NAME` | name 或 database 含不允许的字符，或 kind 不是三种之一 |
+| `LEDGER_EXISTS` | 同名档案已存在；或 kind=active 时活跃研究账本已存在；或服务已持有同名数据库 |
+| `ISOLATION_BREACH` | isolated/temporary 使用活跃账本的数据库名，或 active 的服务目录、备份目录位于源码检出目录或临时根之下 |
+| `DOLT_BINARY` | 找不到 Dolt 可执行文件或其版本不等于钉死版本 |
+| `LEDGER_START` | 服务创建后未在时限内接受连接，或启动进程已退出（日志位置打印在标准错误） |
+
+**使用**　<Ref id="ledger.refusal" />、<Ref id="ledger.temporary_path" />、<Ref id="table:ledger_schema" />、<Ref id="table:ledger_head" />、<Ref id="table:dolt_tests" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="A.4.1.2" />
+
+**使用于**　<Ref id="A.5.2.2" />、<Ref id="J.1.2.1" />、<Ref id="J.3.1.1" />、<Ref id="J.3.3.1" />、<Ref id="J.3.5.1" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[6\]](/zh/docs/appendix-references/#ref-6 "Dolt — Access management") [\[7\]](/zh/docs/appendix-references/#ref-7 "Dolt — Branch permissions")
+
+</div>
+
+### `read_as_of` [#def-ledger-read_as_of]
+
+按账本提交、标签或 branch 给出钉在精确提交上的只读连接
+
+```python
+def read_as_of(
+    profile: LedgerProfile,
+    at: str | None,
+    readonly_sql: bool,
+) -> ReadConnection
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案，同 ledger.connect" }, "at": { type: "str | None", description: "提交哈希、标签名或 branch 名；缺省为固定研究 branch 当前头；只允许 Dolt 引用字符集，不接受 SQL 片段" }, "readonly_sql": { type: "bool", description: "缺省 True；False 只关闭结果缓冲，供 report.review_all 等大批量流式只读调用方使用，不改变账号" } }} />
+
+**返回**　ReadConnection：reader 角色连接，已选中 database/\<resolved_commit> 修订库，带 resolved_commit、ref 与 schema_version；二进制大对象只返回长度
+
+**期望行为**
+
+1. 核对 at 的字符集，空串或含不允许字符即拒绝。
+2. 经 ledger.connect(profile, 'reader') 建立连接。
+3. 把 at 解析为提交哈希（branch 与标签取其指向的提交，哈希核对存在），解析不到即关闭连接并拒绝。
+4. 切到 database/\<resolved_commit> 修订库，核对该版本的 ledger_schema.version 在本代码可读范围内，否则拒绝。
+5. 返回连接；其上任何写语句被服务端权限拒绝，结论引用 resolved_commit 而非 branch 名。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_REF` | at 为空串或含不允许的字符 |
+| `UNKNOWN_REF` | at 不是本数据库中存在的提交、标签或 branch |
+| `SCHEMA_MISMATCH` | 该版本的 ledger_schema.version 不在本代码可读范围内 |
+
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="table:ledger_schema" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="A.4.1.2" />
+
+**使用于**　<Ref id="E.2.2.1" />、<Ref id="T.1.1.1" />、<Ref id="T.2.2.3" />、<Ref id="V.4.1.2" />、<Ref id="X.2.1.1" />、<Ref id="G.4.2.2" />、<Ref id="G.4.2.3" />、<Ref id="R.1.3.2" />、<Ref id="R.4.2.1" />、<Ref id="J.3.1.3" />、<Ref id="J.3.5.2" />、<Ref id="D.1.2.1" />、<Ref id="D.1.2.2" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[6\]](/zh/docs/appendix-references/#ref-6 "Dolt — Access management") [\[7\]](/zh/docs/appendix-references/#ref-7 "Dolt — Branch permissions")
+
+</div>
+
+### `write` [#def-ledger-write]
+
+单事务写入并提交；同载荷重试返回原记录；并发写冲突拒绝
+
+```python
+def write(
+    conn: LedgerConnection,
+    kind: str,
+    payload: Mapping,
+    table: str,
+    insert: Callable[[LedgerConnection, str], Mapping],
+    replay: Callable[[LedgerConnection, Mapping], Mapping] | None,
+) -> WriteResult
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect(role='writer') 得到的连接；一条命令一条连接，读写共用" }, "kind": { type: "str", description: "操作种类（如 publish_candidate、add_bundle、open_trial、ingest_run），进入操作 ID 与提交信息" }, "payload": { type: "Mapping", description: "规范化载荷（键排序、可 JSON 序列化，大对象以内容哈希代入）；op_id = sha256(kind ‖ canonical_json(payload))" }, "table": { type: "str", description: "持有本操作 op_id 列的记录表名，用于幂等查找" }, "insert": { type: "Callable[[LedgerConnection, str], Mapping]", description: "在同一事务内执行全部 INSERT 的回调，收到连接与 op_id，返回给调用方的记录；只允许插入" }, "replay": { type: "Callable[[LedgerConnection, Mapping], Mapping] | None", description: "命中同 op_id 的记录时把它整理成与首次相同形状的返回值；缺省原样返回该行" } }} />
+
+**返回**　WriteResult：\{record, op_id, commit, replayed, write_status\}；首次写入 write_status='written'；命中同 op_id 时 replayed=True、commit 为原记录所在提交、write_status='replayed'；任何拒绝 write_status='not_written'
+
+**期望行为**
+
+1. 核对 conn.role 为 writer 且 branch 为固定研究 branch，否则拒绝；由 kind 与规范化载荷派生 op_id。
+2. 开启单一事务，在 table 中按 op_id 查找；命中即回滚并经 replay 返回原记录，不写任何东西。
+3. 查 dolt_status，存在未提交的 SQL 改动即拒绝，避免把他人的半截改动一起提交。
+4. 执行 insert；随后 UPDATE ledger_head 单行 seq = seq + 1、op_id = 本操作 ID，使并发写在同一格上必然冲突。
+5. 同一事务内 CALL dolt_commit('-a', '-m', '\<kind>:\<op_id>')，提交校验组 dolt_tests(commit) 在此运行，失败整笔回滚并拒绝。
+6. 返回提交哈希；提交时合并冲突即回滚并拒绝 CONCURRENT_WRITE，调用方重试会按 op_id 命中胜者或重新写入；其他 SQL 错误回滚后按权限或通用错误拒绝。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `READ_ONLY_CONNECTION` | conn 不是 writer 角色，或连接的 branch 不是固定研究 branch |
+| `DIRTY_WORKING_SET` | 写前 dolt_status 报告有未提交的 SQL 改动 |
+| `COMMIT_CHECK_FAILED` | dolt_commit 时提交校验组 dolt_tests(commit) 任一项不通过 |
+| `CONCURRENT_WRITE` | 提交时与另一并发写入在 ledger_head 单行或同一记录格上冲突，本事务已回滚 |
+| `LEDGER_PERMISSION` | insert 执行了 writer 账号没有的语句（UPDATE/DELETE、其他表或过程） |
+| `DOLT_SQL_ERROR` | 其他 SQL 错误；事务已回滚，不留半截记录 |
+
+**使用**　<Ref id="ledger.refusal" />、<Ref id="table:ledger_head" />、<Ref id="table:dolt_tests" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="A.4.1.2" />
+
+**使用于**　<Ref id="A.4.1.1" />、<Ref id="A.5.1.1" />、<Ref id="E.2.2.1" />、<Ref id="L.2.1.1" />、<Ref id="T.1.1.1" />、<Ref id="T.2.1.2" />、<Ref id="H.4.1.1" />、<Ref id="X.1.2.1" />、<Ref id="X.1.2.2" />、<Ref id="C.1.1.2" />、<Ref id="G.1.1.1" />、<Ref id="G.4.2.1" />、<Ref id="J.2.1.1" />、<Ref id="J.2.1.2" />、<Ref id="J.2.2.1" />、<Ref id="J.2.2.2" />、<Ref id="J.2.4.1" />、<Ref id="J.3.1.4" />、<Ref id="J.3.2.1" />、<Ref id="J.3.2.2" />、<Ref id="J.3.3.1" />、<Ref id="J.3.3.2" />、<Ref id="J.4.1.2" />、<Ref id="J.4.2.2" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[6\]](/zh/docs/appendix-references/#ref-6 "Dolt — Access management") [\[7\]](/zh/docs/appendix-references/#ref-7 "Dolt — Branch permissions")
+
+</div>
+
+## `ledger/errors.py` [#def-mod-ledger-errors-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.refusal">refusal</Ref> | 带拒绝码、缺什么与写入状态的异常；只说明缺什么，不提供绕过途径。拒绝码的取值由抛出它的各信任边界函数定义，本类型只规定形态与序列化。 |
+
+### `refusal` [#def-ledger-refusal]
+
+带拒绝码、缺什么与写入状态的异常；只说明缺什么，不提供绕过途径。拒绝码的取值由抛出它的各信任边界函数定义，本类型只规定形态与序列化。
+
+```python
+def refusal(
+    code: str,
+    message: str,
+    missing: tuple[str, ...],
+    expected: str | None,
+    write_status: Literal['not_written', 'unknown'],
+    operation_id: str | None,
+) -> 异常实例
+```
+
+<TypeTable type={{ "code": { type: "str", description: "大写蛇形拒绝码，由抛出方的能力定义；构造时校验形态（^[A-Z][A-Z0-9_]*$），不合规视为编程错误而非拒绝" }, "message": { type: "str", description: "一句话说明缺什么或哪项核对不成立；不含 SQL、服务目录、凭证路径或任何绕过办法" }, "missing": { type: "tuple[str, ...]", description: "缺失或不成立的具体项（字段名、表名、输入键、资格项），供调用方逐项补齐；可为空" }, "expected": { type: "str | None", description: "期望的形态或取值范围，只描述契约，不给示例命令" }, "write_status": { type: "Literal['not_written', 'unknown']", description: "本次调用对账本的写入状态：not_written 表示确定未写；unknown 表示写可能已落地，调用方用同一 operation_id 重试即幂等；默认 unknown（保守）" }, "operation_id": { type: "str | None", description: "幂等写入的操作标识；write_status 为 unknown 时必须给出，重试据此判重" } }} />
+
+**返回**　异常实例（继承 Exception）；属性 code、missing、expected、write_status、operation_id 只读；方法 as_dict() 返回稳定键集 \{code, message, missing, expected, write_status, operation_id\} 的 JSON 可序列化字典，命令行据此打印并以非零退出码结束。
+
+**期望行为**
+
+1. 构造时校验 code 形态与 write_status 取值；不合规直接抛 ValueError（编程错误），不伪装成拒绝。
+2. write_status 为 unknown 而 operation_id 为空时同样抛 ValueError：声称「可能已写」却不给重试句柄，等于把幂等性交给猜测。
+3. message、missing、expected 只记录缺什么与期望契约；类型不接受「如何绕过」类字段，也不展开底层数据库错误文本，防止泄露服务目录或凭证位置。
+4. as_dict() 输出固定键集与顺序，missing 序列化为列表；所有抛出方共用同一形态，命令行层只需一处处理。
+5. 本类型不读写账本、不记录日志、不依赖任何别的模块；拒绝不是记录，不进入任何表。
+6. 拒绝码的集合与触发条件由各抛出方能力定义并在其函数的 refusals 中列出；本模块不维护码表。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="A.5.1.1" />
+
+**使用于**　<Ref id="A.2.1.1" />、<Ref id="A.2.1.2" />、<Ref id="A.4.1.1" />、<Ref id="A.4.1.2" />、<Ref id="T.2.2.3" />、<Ref id="V.2.3.2" />、<Ref id="J.1.2.1" />、<Ref id="J.3.2.1" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[12\]](/zh/docs/appendix-references/#ref-12 "OCI image-spec — Descriptor") [\[8\]](/zh/docs/appendix-references/#ref-8 "NautilusTrader — Architecture")
+
+</div>
+
+## `ledger/evidence.py` [#def-mod-ledger-evidence-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.add_bundle">add_bundle</Ref> | 追加一个证据包及其文件，内容哈希由库内派生；占用产品保留命名空间拒绝；同内容重试幂等 |
+| <Ref id="ledger.load_bundle">load_bundle</Ref> | 按精确账本版本读回一个证据包的全部文件，逐文件重算内容哈希，不符即拒绝；只验字节身份，不做语义校验 |
+
+### `add_bundle` [#def-ledger-add_bundle]
+
+追加一个证据包及其文件，内容哈希由库内派生；占用产品保留命名空间拒绝；同内容重试幂等
+
+```python
+def add_bundle(
+    conn: LedgerConnection,
+    bundle: str,
+    sources: list[Path],
+    op_id: str | None,
+) -> {bundle
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号连接，由调用方经 ledger.connect 打开" }, "bundle": { type: "str", description: "证据包名，形态 [A-Za-z0-9][A-Za-z0-9_.-]{0,159}；由调用方按各自约定命名（登记、生命周期、源码审查、更正）" }, "sources": { type: "list[Path]", description: "文件或目录；目录递归读入，包内路径为相对目录根的 POSIX 路径，单文件取文件名" }, "op_id": { type: "str | None", description: "操作 ID；缺省为 evidence:{bundle, 逐文件哈希表} 的摘要，同内容重试得到同一 op_id" } }} />
+
+**返回**　\{bundle, files: \{path: sha256\}, write_status: written | replayed, ledger_commit\}
+
+**期望行为**
+
+1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品封存命名空间 trial-\<id>-execution(-start) 与 trial-\<id>-recovery-*（RESERVED_BUNDLE）；该命名空间只由 replay.seal、ledger.seal_capture 与 ledger.recover_capture 经 ledger.write 写。
+2. 逐源读字节：源或其后代是符号链接、包内路径为绝对路径或含 .. 或重复即 INVALID_EVIDENCE_PATH；空文件或没有任何文件即 EMPTY_EVIDENCE；音视频媒体即 MEDIA_NOT_KEPT；单文件超上限即 EVIDENCE_TOO_LARGE；拒绝时不写任何行。
+3. 对每份文件算 sha256，op_id 缺省时由包名与逐文件哈希派生。
+4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、content；sha256 与 byte_length 由数据库从内容派生）。
+5. op_id 已存在则不写，读回已存逐文件哈希并返回 replayed；包名已存在而 op_id 不同即 BUNDLE_EXISTS，提示换包名，旧包永不覆盖。
+6. 返回包名、逐文件哈希、写入状态与提交；调用方（cli.evidence_add、registration.register、registration.record_review、market.write_lifecycle_events）把包名与哈希记入各自记录。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_BUNDLE_NAME` | 包名不符合允许的字符与长度形态 |
+| `RESERVED_BUNDLE` | 包名落入产品封存命名空间 trial-\<id>-execution(-start) 或 trial-\<id>-recovery-* |
+| `INVALID_EVIDENCE_PATH` | 源或其后代是符号链接，或包内路径为绝对路径、含 .. 或与另一文件重复 |
+| `EMPTY_EVIDENCE` | 任一文件为零字节，或读完全部源后没有任何文件 |
+| `MEDIA_NOT_KEPT` | 文件后缀属于音视频媒体；账本只存派生证据 |
+| `EVIDENCE_TOO_LARGE` | 单文件字节数超过上限（未校准示例值） |
+| `BUNDLE_EXISTS` | 同名证据包已在账本且 op_id 与本次不同（内容不同） |
+
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.3.3.2" />
+
+**使用于**　<Ref id="E.2.2.1" />、<Ref id="E.2.2.2" />、<Ref id="L.1.3.2" />、<Ref id="H.2.2.3" />、<Ref id="H.2.3.1" />、<Ref id="H.4.1.1" />、<Ref id="V.4.2.2" />、<Ref id="F.2.3.1" />、<Ref id="F.3.2.1" />、<Ref id="C.6.2.1" />、<Ref id="W.2.1.2" />、<Ref id="G.4.2.2" />、<Ref id="R.5.2.2" />、<Ref id="J.1.1.1" />、<Ref id="J.1.1.2" />、<Ref id="J.2.1.2" />、<Ref id="J.2.3.2" />、<Ref id="J.2.4.1" />、<Ref id="J.3.1.2" />
+
+</div>
+
+### `load_bundle` [#def-ledger-load_bundle]
+
+按精确账本版本读回一个证据包的全部文件，逐文件重算内容哈希，不符即拒绝；只验字节身份，不做语义校验
+
+```python
+def load_bundle(
+    conn: connection,
+    bundle: str,
+    at: str | None,
+) -> {bundle
+```
+
+<TypeTable type={{ "conn": { type: "connection", description: "账本连接（读账号即可），由 ledger.connect 打开；调用方在同一事务内读时传入自己的连接" }, "bundle": { type: "str", description: "证据包名" }, "at": { type: "str | None", description: "账本提交哈希或标签；缺省读当前头。登记绑定与整体复核按精确版本读" } }} />
+
+**返回**　\{bundle, commit, created_at, files: \{path: bytes\}, digests: \{path: sha256\}\}
+
+**期望行为**
+
+1. 核对包名形态，不符即 INVALID_BUNDLE_NAME。
+2. 按 at 经 ledger.read_as_of 读 evidence_bundle 行，不存在即 UNKNOWN_BUNDLE，并记下实际解析到的提交。
+3. 同一版本下读 evidence 全部行（path, content, sha256），按 path 排序；分块原件按包内清单重组为逻辑文件。
+4. 逐文件对 content 重算 sha256 与存储列比对；任一不符即 LEDGER_CORRUPT，不返回部分内容，不改任何记录，更正只能是新包。
+5. 返回包名、提交、创建时间与逐文件字节和哈希；research-plan.json 的五样与引用等语义校验由调用方（如 registration.validate）在读回后进行。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_BUNDLE_NAME` | 包名不符合允许的字符与长度形态 |
+| `UNKNOWN_BUNDLE` | 指定版本下 evidence_bundle 没有该包名 |
+| `LEDGER_CORRUPT` | 任一文件内容重算的哈希与存储哈希不同 |
+
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.4.1.1" />
+
+**使用于**　<Ref id="H.1.1.2" />、<Ref id="H.4.1.3" />、<Ref id="V.2.2.1" />、<Ref id="G.4.2.1" />、<Ref id="J.2.1.2" />、<Ref id="J.2.3.3" />、<Ref id="J.2.4.1" />、<Ref id="J.3.4.1" />、<Ref id="J.3.5.2" />、<Ref id="J.4.2.1" />、<Ref id="J.6.1.3" />、<Ref id="J.6.2.3" />
+
+**依据**　[\[38\]](/zh/docs/appendix-references/#ref-38 "Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114") [\[45\]](/zh/docs/appendix-references/#ref-45 "Dolt — System tables (https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)")
+
+</div>
+
+## `ledger/execution.py` [#def-mod-ledger-execution-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.read_capture">read_capture</Ref> | 按试验、源码哈希、运行环境身份与逐文件哈希核验后读出原始执行捕获；任一不符拒绝；没有最终封存时返回 missing，不用恢复材料替代 |
+| <Ref id="ledger.recover_capture">recover_capture</Ref> | 原始最终捕获因容量被拒而缺失时，把事后从工作目录恢复的字节连同宿主错误回执另标追加为 trial-\<trial_id>-recovery 证据包；原捕获保持 missing，恢复材料不补证、不使该试验成为通过的预检 |
+| <Ref id="ledger.seal_capture">seal_capture</Ref> | 回放结束（含中断与宿主失败）后，把工作目录里实际存在的字节原样封存为证据包 trial-\<trial_id>-execution：命令、各阶段状态与退出码、运行器与审计器的 stdout/stderr、被执行源码字节、覆盖回执、异常回执、原生摘要；预检另封存全部报告文件。中断与宿主失败分别标记，不改写为其他结论 |
+| <Ref id="ledger.start_receipt">start_receipt</Ref> | 在调用方的同一写事务里写执行开始回执证据包 trial-\<trial_id>-execution-start，使每次尝试先有身份后有输出 |
+
+### `read_capture` [#def-ledger-read_capture]
+
+按试验、源码哈希、运行环境身份与逐文件哈希核验后读出原始执行捕获；任一不符拒绝；没有最终封存时返回 missing，不用恢复材料替代
+
+```python
+def read_capture(conn: LedgerConnection, trial_id: int) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，可带 AS OF 版本" }, "trial_id": { type: "int", description: "要读的试验" } }} />
+
+**返回**　dict：有封存时 \{status: captured, purpose, stages（各阶段名与退出码）, outcome, argv, files, runtime_failures（结构化异常回执逐行解析）, start（开始回执）\}；无最终封存时 \{status: missing, start, reason\}
+
+**期望行为**
+
+1. 读试验行、开始回执包与执行封存包（ledger.load_bundle）；试验不存在拒绝 TRIAL_NOT_FOUND。
+2. 核开始回执：format、trial_id、source_sha256、运行环境身份（runtime.validate_identity）与试验行一致且 purpose 与试验行相同，否则拒绝 EXECUTION_IDENTITY。
+3. 执行封存包无清单时返回 status = missing 与 reason「原始最终捕获缺失，后来的探针不能替代」；不读、不合并任何 recovery 包。
+4. 核封存清单：format、trial_id、source_sha256、运行环境身份与试验行一致，purpose 与开始回执相同，包内无清单外文件，否则拒绝 EXECUTION_IDENTITY。
+5. 逐文件核验：状态只允许 captured、captured_empty、missing、not_started；captured 的存储字节长度与 sha256 须等于清单，captured_empty 须无内容，否则拒绝 LEDGER_CORRUPT；封存的 strategy.py 哈希须等于 trial.source_sha256，否则拒绝 EXECUTION_IDENTITY。
+6. 把 runtime_errors.jsonl 解析为 runtime_failures 后原样返回；是否构成不可用由 qualification.assess 判定，本函数不裁决。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TRIAL_NOT_FOUND` | trial_id 不存在 |
+| `EXECUTION_IDENTITY` | 开始回执或封存清单的试验、源码哈希、运行环境身份或用途与试验行不符；包内有清单外文件；封存源码哈希与试验不符；文件状态未知 |
+| `LEDGER_CORRUPT` | captured 文件的存储字节长度或 sha256 与清单不符，或 captured_empty 带有内容 |
+
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="runtime.validate_identity" />、<Ref id="table:trial" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.2.1" />
+
+**使用于**　<Ref id="G.2.2.2" />、<Ref id="G.4.1.1" />、<Ref id="J.2.3.3" />、<Ref id="J.3.4.1" />、<Ref id="J.3.5.2" />、<Ref id="J.6.2.3" />
+
+</div>
+
+### `recover_capture` [#def-ledger-recover_capture]
+
+原始最终捕获因容量被拒而缺失时，把事后从工作目录恢复的字节连同宿主错误回执另标追加为 trial-\<trial_id>-recovery 证据包；原捕获保持 missing，恢复材料不补证、不使该试验成为通过的预检
+
+```python
+def recover_capture(
+    ledger: LedgerProfile,
+    trial_id: int,
+    workdir: Path,
+    failure_receipt: Path,
+) -> dict {bundle
+```
+
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本连接档案" }, "trial_id": { type: "int", description: "原始捕获缺失的试验" }, "workdir": { type: "Path", description: "保留下来的原回放工作目录，须与开始回执记录的 workdir 相同" }, "failure_receipt": { type: "Path", description: "封存被拒时写出的宿主错误回执（拒绝码须为 EXECUTION_CAPTURE_LIMIT）" } }} />
+
+**返回**　dict \{bundle, trial_id, status: recovered, original_capture: missing, limitation\}
+
+**期望行为**
+
+1. read_capture 须返回 status = missing 且带开始回执，且试验 purpose = precheck，否则拒绝 RECOVERY_NOT_APPLICABLE。
+2. 核 workdir 与开始回执相同，该试验无 run 行、未被任何登记尝试绑定（table:run、table:registration_attempt），否则拒绝 RECOVERY_NOT_APPLICABLE。
+3. 读工作目录的阶段事实文件确定必需原件：引擎阶段退出码为 0 需全部原生报告，审计已运行需其 stdout、stderr 与审计结果；failure_receipt 拒绝码须为 EXECUTION_CAPTURE_LIMIT；任一不满足拒绝 RECOVERY_INCOMPLETE。
+4. 按封存同一规则逐文件生成清单；恢复的 strategy.py 哈希须等于 trial.source_sha256，否则拒绝 EXECUTION_IDENTITY。
+5. 经 ledger.write 以 trial_id 与文件清单派生的 op_id 写 evidence_bundle 与 evidence，清单 \{format: execution_recovery_v1, trial_id, purpose, source_sha256, runtime_identity, workdir, files, host_error, limitation\}；同名不同载荷拒绝 BUNDLE_EXISTS。
+6. 永不写 trial-\<trial_id>-execution 包；read_capture 对该试验继续返回 missing。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RECOVERY_NOT_APPLICABLE` | 原始最终捕获存在；无开始回执；试验 purpose 不是 precheck；workdir 与开始回执不符；该试验有 run 行或已被登记尝试消耗 |
+| `RECOVERY_INCOMPLETE` | 阶段事实文件缺失或不合法；按阶段事实必需的原件缺失；failure_receipt 不是容量拒绝回执 |
+| `EXECUTION_IDENTITY` | 恢复的源码字节哈希与试验行不符 |
+| `BUNDLE_EXISTS` | 该试验的恢复证据包存在且载荷不同 |
+
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.write" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.refusal" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:registration_attempt" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.2.1" />
+
+**使用于**　<Ref id="J.2.3.3" />、<Ref id="J.3.3.2" />、<Ref id="J.3.4.2" />
+
+</div>
+
+### `seal_capture` [#def-ledger-seal_capture]
+
+回放结束（含中断与宿主失败）后，把工作目录里实际存在的字节原样封存为证据包 trial-\<trial_id>-execution：命令、各阶段状态与退出码、运行器与审计器的 stdout/stderr、被执行源码字节、覆盖回执、异常回执、原生摘要；预检另封存全部报告文件。中断与宿主失败分别标记，不改写为其他结论
+
+```python
+def seal_capture(
+    ledger: LedgerProfile,
+    trial_id: int,
+    workdir: Path,
+    stages: dict,
+    outcome: dict,
+    conn: Connection | None,
+) -> dict {bundle
+```
+
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本连接档案；写入经 ledger.write 单事务提交" }, "trial_id": { type: "int", description: "要封存的试验，须有开始回执" }, "workdir": { type: "Path", description: "回放工作目录：native.stdout.txt、native.stderr.txt、audit.stdout.txt、audit.stderr.txt、source/strategy.py、input_coverage.json、reports/runtime_errors.jsonl、reports/summary.json 等" }, "stages": { type: "dict", description: "各阶段事实 {native: {state ∈ {started, exited}, exit_code: int | None}, audit: 同形或 None（未运行）}，由回放入口在 finally 中给出" }, "outcome": { type: "dict", description: "结局 {kind ∈ {completed, interrupted, host_failure}, detail}：interrupted 为信号或超时中断，host_failure 为运行环境不可用、进程被杀等宿主侧失败并附原样错误" }, "conn": { type: "Connection | None", description: "可选，沿用调用方事务；为空时由 ledger.write 自开事务" } }} />
+
+**返回**　dict \{bundle, status: captured, files: \{path: sha256\}, manifest_sha256\}；同一试验同载荷重复调用返回原记录（幂等）
+
+**期望行为**
+
+1. 读试验行与开始回执（ledger.load_bundle 读 trial-\<trial_id>-execution-start）；缺任一项拒绝 EXECUTION_START_MISSING，不封存任何字节。
+2. 核对 stages 中 state 与 exit_code 互相一致、outcome.kind 合法，否则拒绝 EXECUTION_IDENTITY。容量上限按试验用途取：purpose=precheck 用工程容量上限并封存 reports/ 下全部文件，其余用常规上限（两者均为未校准示例值）。
+3. 逐文件生成清单：存在且非空记 captured（sha256 与长度），存在但为空记 captured_empty（显式空字节证明），不存在记 missing；audit 为 None 时 audit.* 与 reports/audit.json 记 not_started。缺失文件不由后来的探针补哈希。
+4. 总字节超过上限时不写任何行、保留工作目录，拒绝 EXECUTION_CAPTURE_LIMIT，并把拒绝作为宿主错误交回调用方，供 ledger.recover_capture 另标追加。
+5. 组装清单 \{format: execution_capture_v1, trial_id, purpose, source_sha256, runtime_identity, argv, stages, outcome, files\}，经 ledger.write 以 op_id = execution:trial-\<trial_id> 单事务写 evidence_bundle 与 evidence；同 op 同载荷重试返回原记录，载荷不同拒绝 BUNDLE_EXISTS。
+6. 不判成败、不解释日志：是否无效由 replay.audit_problems 与 replay.summary_problems 得出，经济证据资格由 ledger.read_capture 读出。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EXECUTION_START_MISSING` | 试验行不存在，或该试验没有开始回执 |
+| `EXECUTION_IDENTITY` | stages 或 outcome 形态不合法 |
+| `EXECUTION_CAPTURE_LIMIT` | 待封存总字节超过该用途试验的容量上限；工作目录保留，不写任何行 |
+| `BUNDLE_EXISTS` | 该试验已存在执行封存且本次载荷不同（同载荷重试为幂等返回） |
+
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.refusal" />、<Ref id="ledger.recover_capture" />、<Ref id="ledger.read_capture" />、<Ref id="table:trial" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.5.2.3" />
+
+**使用于**　<Ref id="A.4.1.1" />、<Ref id="C.6.1.1" />、<Ref id="G.1.1.2" />、<Ref id="G.3.1.1" />、<Ref id="G.4.2.1" />、<Ref id="J.2.1.2" />、<Ref id="J.2.3.2" />、<Ref id="J.3.3.2" />、<Ref id="J.3.4.2" />、<Ref id="J.4.1.2" />、<Ref id="J.6.1.4" />
+
+</div>
+
+### `start_receipt` [#def-ledger-start_receipt]
+
+在调用方的同一写事务里写执行开始回执证据包 trial-\<trial_id>-execution-start，使每次尝试先有身份后有输出
+
+```python
+def start_receipt(
+    conn: LedgerConnection,
+    trial_id: int,
+    context: StartContext,
+    op_id: str,
+) -> {bundle
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "调用方持有的写事务，与试验行、绑定行同提交；本函数不提交" }, "trial_id": { type: "int", description: "同事务刚插入的试验行主键" }, "context": { type: "StartContext", description: "source_sha256、runtime_identity {image_ref, image_digest, platform, runtime_contract}、workdir、argv、挂载清单、input_identity、source_bytes、input_coverage（replay.input_coverage 生成的字节）；不含用途，用途从试验行读" }, "op_id": { type: "str", description: "试验行的幂等操作 ID；回执 op_id 为 execution_start:<op_id>，一试验一份回执" } }} />
+
+**返回**　\{bundle: str, path: str, sha256: str\}：回执包名、清单文件路径 execution.json 与清单内容哈希
+
+**期望行为**
+
+1. 按 trial_id 读试验行；不存在拒绝 TRIAL_NOT_FOUND
+2. 核 context.source_sha256 与 SHA-256(source_bytes) 都等于 trial.source_sha256，runtime_identity.image_ref 等于 trial.image_ref 且经 runtime.validate_identity 通过；任一不符拒绝 EXECUTION_IDENTITY
+3. 组装清单 \{format: execution_start_v1, trial_id, purpose（取自试验行）, source_sha256, runtime_identity, workdir, argv, mounts, input_identity\}，规范 JSON 编码
+4. 经 ledger.add_bundle 在同一 conn 写清单、源码字节与 input-coverage.json；该试验的回执包已存在即拒绝 BUNDLE_EXISTS
+5. 任何拒绝抛出而不写，调用方整笔回滚；成功返回包名与清单哈希，供封存与读取核对
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TRIAL_NOT_FOUND` | trial_id 在当前事务里没有试验行 |
+| `EXECUTION_IDENTITY` | 源码哈希、源码字节或运行环境身份与试验行不符，或运行环境身份形态不合法 |
+| `BUNDLE_EXISTS` | 该试验的开始回执证据包已存在 |
+
+**使用**　<Ref id="ledger.add_bundle" />、<Ref id="runtime.validate_identity" />、<Ref id="replay.input_coverage" />、<Ref id="table:trial" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.1.2" />
+
+**使用于**　<Ref id="C.6.1.1" />、<Ref id="J.2.2.1" />、<Ref id="J.2.3.3" />、<Ref id="J.5.2.3" />
+
+</div>
+
+## `ledger/lines.py` [#def-mod-ledger-lines-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
+| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成新编号的研究路线证据包；只追加，不改旧路线记录。 |
+
+### `current_line` [#def-ledger-current_line]
+
+读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交
+
+```python
+def current_line(conn: LedgerConnection, at: str | None) -> dict | None
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "at": { type: "str | None", description: "账本提交或标签；给出时经 ledger.read_as_of 按 AS OF 读当时的最新路线，缺省读当前头" } }} />
+
+**返回**　dict | None：\{bundle, line_no, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希；账本中没有任何路线记录时返回 None
+
+**期望行为**
+
+1. 在 evidence_bundle 中列出名为 research-line-\<n> 的包，取 n 最大者；没有即返回 None，入口据此进入路线选择而不是自行开始。
+2. 经 ledger.load_bundle 读该包的 research-line.json，核对读回字节的 sha256 与存储哈希一致、format 为 research-line-v1；不一致拒绝 LINE_CORRUPT，format 不识别拒绝 LINE_FORMAT_UNSUPPORTED。
+3. 原样返回记录字段并附包的 created_at 与所读账本提交；登记的窗口核对与可比核对读同一来源。
+4. 只读：不连接市场库、不判断新鲜度、不建议换提交；新月份可扩展范围由入口另行报告，改窗口或提交是用户经 ledger.select_line 写新记录。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LINE_CORRUPT` | research-line.json 读回哈希与存储哈希不符，或包内缺该文件 |
+| `LINE_FORMAT_UNSUPPORTED` | 记录的 format 不是本代码识别的研究路线格式 |
+
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_as_of" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="E.1.2.1" />
+
+**使用于**　<Ref id="E.1.1.1" />、<Ref id="E.2.2.1" />、<Ref id="E.4.2.1" />、<Ref id="H.1.1.2" />、<Ref id="H.4.1.2" />、<Ref id="W.2.1.2" />、<Ref id="D.1.1.3" />
+
+**依据**　[\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history")
+
+</div>
+
+### `select_line` [#def-ledger-select_line]
+
+把用户选定的起点候选、开发窗口与钉住的市场提交写成新编号的研究路线证据包；只追加，不改旧路线记录。
+
+```python
+def select_line(
+    conn: LedgerConnection,
+    market_database: str,
+    market_at: str,
+    window_start: date,
+    window_end: date,
+    start: str,
+    note: str | None,
+) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_database": { type: "str", description: "交易所数据库名；与账本同一服务上的第二个数据库，跨库只传提交哈希" }, "market_at": { type: "str", description: "用户给的市场提交引用（Dolt 引用名或提交哈希，缺省 main）；函数内解析成唯一提交哈希后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" } }} />
+
+**返回**　dict：\{bundle: 'research-line-\<n>', line_no: n, market_commit, universe_rule, content_sha256, op_id, created: bool\}；同载荷重试返回原记录且 created=False
+
+**期望行为**
+
+1. 核对起点：经 ledger.read_candidate 按 strategy_id@revision 读 candidate 表，取其源码内容哈希作为起点身份；不存在即拒绝 START_NOT_FOUND。
+2. 核对市场与窗口：market.resolve_commit 把引用解析为唯一哈希，market.freshness 按该提交 AS OF 读 universe_rule 与最新完整日；解析失败拒绝 MARKET_COMMIT_UNRESOLVED；window_start ≥ window_end 拒绝 WINDOW_INVALID；window_end 晚于最新完整日的次日拒绝 WINDOW_OUT_OF_COVERAGE。只核对，不删币、不缩窗、不换提交。
+3. 编号：经 ledger.current_line 取最新编号 n（无则 0），新包名 research-line-\<n+1>。
+4. 组装 research-line.json（format research-line-v1：line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
+5. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包内容哈希不同拒绝 LINE_CONFLICT，不覆盖。
+6. 返回包名与写入身份；此后每次登记的窗口核对与可比核对都读这条记录。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `START_NOT_FOUND` | candidate 表中没有 start 所指的候选版本 |
+| `MARKET_COMMIT_UNRESOLVED` | 市场提交引用解析不到唯一哈希，或该提交上读不到 universe_rule |
+| `WINDOW_INVALID` | window_start ≥ window_end |
+| `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |
+| `LINE_CONFLICT` | 研究路线包名已存在且内容哈希不同（并发选路或重复编号） |
+
+**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.add_bundle" />、<Ref id="ledger.write" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:candidate" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.2.1.2" />
+
+**使用于**　<Ref id="A.1.1.1" />、<Ref id="A.3.1.1" />、<Ref id="A.3.1.2" />、<Ref id="E.1.2.1" />、<Ref id="E.4.2.1" />、<Ref id="E.4.2.2" />、<Ref id="F.3.3.2" />、<Ref id="D.1.1.3" />
+
+</div>
+
+## `ledger/paths.py` [#def-mod-ledger-paths-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.temporary_path">temporary_path</Ref> | 解析后须位于平台临时根之下且尚不存在；探索、预检输出目录、封存回放工作目录与临时账本服务目录都用它核对，活动账本反向用它拒绝临时位置 |
+
+### `temporary_path` [#def-ledger-temporary_path]
+
+解析后须位于平台临时根之下且尚不存在；探索、预检输出目录、封存回放工作目录与临时账本服务目录都用它核对，活动账本反向用它拒绝临时位置
+
+```python
+def temporary_path(
+    path: str | Path,
+    require_new: bool = True,
+    temp_roots: tuple[Path, ...] | None = None,
+) -> Path
+```
+
+<TypeTable type={{ "path": { type: "str | Path", description: "调用方给出的目录路径；可含 ~ 与相对片段，函数负责展开与解析" }, "require_new": { type: "bool = True", description: "True 时目录必须尚不存在（探索、预检、封存回放工作目录、临时账本服务目录）；False 时只判定是否在临时根之下，供 ledger.init 反向使用" }, "temp_roots": { type: "tuple[Path, ...] | None = None", description: "临时根集合；缺省取平台报告的临时目录与约定的 /tmp，两者都按符号链接解析；只在测试里显式传入" } }} />
+
+**返回**　Path：展开并解析符号链接后的绝对路径，供调用方直接创建与挂载；不通过时抛出 ledger.refusal
+
+**期望行为**
+
+1. 展开 ~，按符号链接解析为绝对路径（允许末端不存在，只解析已存在的祖先）；临时根集合同样解析并去重。
+2. 核对解析后的路径严格位于某个临时根之下；等于临时根本身或不在任何临时根之下即拒绝 NOT_TEMPORARY_PATH，拒绝信息列出接受的临时根。
+3. require_new 为 True 时核对该路径不存在（文件、目录或悬空链接都算存在），存在即拒绝 PATH_EXISTS；函数不创建目录，创建归调用方。
+4. 通过时返回解析后的绝对路径；replay.explore、replay.precheck、replay.execute 与 cli.ledger_temp 在起容器或起服务之前调用，确保工作副本不落到产品源码目录或持久目录。
+5. ledger.init 以 require_new=False 调用：返回成功说明目录在临时根之下，活动账本据此拒绝；抛出 NOT_TEMPORARY_PATH 即视为位置合格。
+6. 纯函数、无副作用、不读账本；同一输入在同一机器上结果确定。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NOT_TEMPORARY_PATH` | 解析后的路径不在任何临时根之下，或恰等于临时根本身 |
+| `PATH_EXISTS` | require_new 为 True 且解析后的路径已存在（含文件与悬空符号链接） |
+
+**使用**　<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.1.2.1" />
+
+**使用于**　<Ref id="A.4.1.2" />、<Ref id="C.6.1.1" />、<Ref id="J.5.2.3" />
+
+</div>
+
+## `ledger/readings.py` [#def-mod-ledger-readings-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.closed_by_year">closed_by_year</Ref> | 按平仓年拆分闭仓经济：整个周期（含其资金费）归最后事件所在 UTC 年，未平不计，各年合计等于闭仓合计；交易窗口首尾年标不完整 |
+| <Ref id="ledger.cycles">cycles</Ref> | 由持仓报告逐行重建持仓周期并算每周期的价格盈亏、手续费与资金费；每笔成交恰属一个周期，否则抛具名原因；周期与计划的一一对应、同合约不重叠由 plan_reading 核 |
+| <Ref id="ledger.daily_returns">daily_returns</Ref> | 只取交易窗口内按 UTC 日历日排列的账户日收益，核无缺无重、相邻恰隔一天、复利到期末权益；任一不满足即该序列不可用（返回 None 并写局限），配对比较据此拒绝 |
+| <Ref id="ledger.economics">economics</Ref> | 逐持仓周期核「价格盈亏−手续费＋资金费＝已实现」，合计与审计账户经济数对账，不符即整体不给；输出闭仓拆分、按平仓年拆分、账户整体资金费与手续费（另一总体，并列不相加）、未实现残差 |
+| <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref> | 引擎因下架结算自行生成的无标签只减仓市价平仓单，在订单事件、成交、持仓事件、InstrumentClose 结算时刻与结算价互相一致且唯一对应一个已关闭周期时只读归属到该周期的计划；任何歧义不归属，留给 plan_reading 按不合规处理 |
+| <Ref id="ledger.load_run">load_run</Ref> | 读一次运行的原生行组成类型化报表；封存运行先核原始执行捕获的执行身份与逐文件哈希，不符即拒绝不读，由资格视图标不可用 |
+| <Ref id="ledger.mark_drawdown">mark_drawdown</Ref> | 逐 K 线标记价权益（账户 total＋敞口按标记价的未实现盈亏）相对运行峰值的最大跌幅比例，峰值从初始权益起；附价源与采样周期，K 线内路径列为局限 |
+| <Ref id="ledger.plan_reading">plan_reading</Ref> | 从订单报告的标签读出计划并与持仓周期一一对应后算计划胜率：每张订单恰一个全回放唯一的计划标签，计划限一个合约；赢＝周期已平且实现盈亏（含手续费与资金费）大于零，期末未平算非赢；任何不合规抛出具名原因 |
+| <Ref id="ledger.reader_revision">reader_revision</Ref> | 读数代码的版本（所在 Git 检出的 HEAD 提交），随运行行与资格检查身份存出，使每个读数与资格判定都能定位到产生它的代码；重算用该版本的同一函数重跑比对 |
+| <Ref id="ledger.readings">readings</Ref> | 产品读数的唯一入口：账户年化、标记价最大回撤、计划胜率、对账后的利润来源拆分；每个读数注明总体与样本量；对账失败只置空对应读数并记入局限，不改写原生值、不判运行无效 |
+| <Ref id="ledger.unreconciled">unreconciled</Ref> | 原生事实超出支持范围或对账失败的具名原因（码＋细节）；readings 捕获后把对应读数置空并把原因写入读数局限，运行本身不判无效 |
+
+### `closed_by_year` [#def-ledger-closed_by_year]
+
+按平仓年拆分闭仓经济：整个周期（含其资金费）归最后事件所在 UTC 年，未平不计，各年合计等于闭仓合计；交易窗口首尾年标不完整
+
+```python
+def closed_by_year(
+    cycles: list[dict],
+    window: tuple[str, str],
+    limitations: list[str],
+) -> dict | None
+```
+
+<TypeTable type={{ "cycles": { type: "list[dict]", description: "ledger.cycles 的结果（closed、ts_last、price、commissions、funding）" }, "window": { type: "tuple[str, str]", description: "交易窗口起止（period_start_utc, period_end_utc），用于标首尾年不完整" }, "limitations": { type: "list[str]", description: "累积局限列表，本函数只追加" } }} />
+
+**返回**　dict | None：\{year: \{closed_trades, price_pnl_usdt, fill_commissions_usdt, reported_funding_usdt, complete\}\}，按年排序；无已平周期为 \{\}；某已平周期无整数 ts_last 时为 None 并写局限
+
+**期望行为**
+
+1. 只取 closed 为真的周期，按 ts_last 的 UTC 年归属；ts_last 缺失或非整数即写局限并返回 None
+2. 逐年累加笔数、价格盈亏、手续费与资金费；各年之和恰等于 ledger.economics 的闭仓合计
+3. 窗口起点与终点所在年标 complete=false，其余为 true
+4. 跨年持仓整笔归平仓年，并把「长持仓跨年归属」追加为局限
+5. 本函数不拒绝：输入不合格时返回 None 并写局限，由 ledger.readings 置空本读数
+6. 纯计算，不读写账本；复算用同一读数代码版本重跑比对，不改原值
+
+**使用**　<Ref id="ledger.cycles" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.2.3.2" />
+
+**使用于**　<Ref id="R.1.1.2" />
+
+</div>
+
+### `cycles` [#def-ledger-cycles]
+
+由持仓报告逐行重建持仓周期并算每周期的价格盈亏、手续费与资金费；每笔成交恰属一个周期，否则抛具名原因；周期与计划的一一对应、同合约不重叠由 plan_reading 核
+
+```python
+def cycles(positions: list[dict], fills: list[dict]) -> list[dict]
+```
+
+<TypeTable type={{ "positions": { type: "list[dict]", description: "持仓报告原生行（含快照行）：is_inverse、multiplier、events、adjustments、commissions、realized_pnl、ts_closed、ts_last、position_id" }, "fills": { type: "list[dict]", description: "成交报告原生行（event_id）" } }} />
+
+**返回**　list[dict]，与 positions 逐行对应：closed、realized（已实现盈亏）、price（成交现金流：SELL 为正、BUY 为负，乘合约乘数）、commissions、funding、event_ids、ts_last；金额为 Decimal 的 USDT
+
+**期望行为**
+
+1. 逐持仓行核线性合约且记有乘数，否则 UNSUPPORTED_INSTRUMENT；金额非 USDT 即 NON_USDT_MONEY
+2. 调整项只接受不改数量的 FUNDING，累加为周期资金费；其他调整即 UNSUPPORTED_ADJUSTMENT
+3. 逐成交事件累加价格盈亏并记录 event_id；手续费为持仓行手续费列表之和；closed 取 ts_closed 是否存在
+4. 核所有周期的 event_id 多重集恰等于成交报告的 event_id 集且每个恰出现一次，否则 FILL_COVERAGE_MISMATCH
+5. 不读订单标签、不改原生行；返回的周期供 plan_reading、economics、closed_by_year、mark_drawdown 共用
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNSUPPORTED_INSTRUMENT` | 持仓行是反向合约或无记录乘数 |
+| `NON_USDT_MONEY` | 金额币种不是 USDT |
+| `UNSUPPORTED_ADJUSTMENT` | 持仓调整项不是纯资金费（类型非 FUNDING 或带数量变化） |
+| `FILL_COVERAGE_MISMATCH` | 持仓事件未恰好覆盖成交报告中的每笔成交一次 |
+
+**使用**　<Ref id="ledger.unreconciled" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.5.1.2" />
+
+**使用于**　<Ref id="C.5.1.1" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.1" />、<Ref id="R.1.1.2" />、<Ref id="R.2.1.3" />、<Ref id="R.2.3.1" />、<Ref id="R.2.3.2" />
+
+</div>
+
+### `daily_returns` [#def-ledger-daily_returns]
+
+只取交易窗口内按 UTC 日历日排列的账户日收益，核无缺无重、相邻恰隔一天、复利到期末权益；任一不满足即该序列不可用（返回 None 并写局限），配对比较据此拒绝
+
+```python
+def daily_returns(
+    returns: list[tuple[int, float]],
+    summary: dict,
+    limitations: list[str],
+) -> list[tuple[int
+```
+
+<TypeTable type={{ "returns": { type: "list[tuple[int, float]]", description: "原生日收益 [(ts_event_ns, value)]，来自报表目录或 run_return 表" }, "summary": { type: "dict", description: "原生摘要：period_start_utc、period_end_utc、starting_balance_usdt、final_equity_usdt" }, "limitations": { type: "list[str]", description: "累积局限列表" } }} />
+
+**返回**　list[tuple[int, float]] | None：交易窗口内的日收益序列；不完整时 None 并追加具名局限
+
+**期望行为**
+
+1. 丢弃早于窗口起点的预热段收益；序列为空或任一值 ≤ −1 即 RETURN_SERIES_INVALID 写局限返回 None
+2. 核时间戳为 UTC 日历日边界且严格递增、相邻恰差一天、覆盖窗口内每一天，否则 RETURN_CLOCK_GAP 写局限返回 None
+3. 核初始权益 × ∏(1+r) 在容差内等于期末权益，否则 RETURN_COMPOUNDING_MISMATCH 写局限返回 None
+4. 通过则原样返回；不改值、不插补、不重采样
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RETURN_SERIES_INVALID` | 交易窗口内无日收益或存在 ≤ −1 的值 |
+| `RETURN_CLOCK_GAP` | 日钟有缺日、重日或非日边界时间戳 |
+| `RETURN_COMPOUNDING_MISMATCH` | 日收益复利不等于原生摘要的期末权益 |
+
+**使用**　<Ref id="table:run_return" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="V.2.2.2" />
+
+**使用于**　<Ref id="V.2.2.1" />、<Ref id="V.3.2.1" />、<Ref id="X.2.1.2" />、<Ref id="W.2.1.4" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.1" />
+
+**依据**　[\[49\]](/zh/docs/appendix-references/#ref-49 "NautilusTrader — Portfolio：组合收益为逐日 MTM 权益百分比变化，快照覆盖至少两个 UTC 日期时每个日期取最后一份快照")
+
+</div>
+
+### `economics` [#def-ledger-economics]
+
+逐持仓周期核「价格盈亏−手续费＋资金费＝已实现」，合计与审计账户经济数对账，不符即整体不给；输出闭仓拆分、按平仓年拆分、账户整体资金费与手续费（另一总体，并列不相加）、未实现残差
+
+```python
+def economics(
+    cycles: list[dict],
+    fills: list[dict],
+    summary: dict,
+    audited_economics: dict | None,
+    limitations: list[str],
+) -> dict
+```
+
+<TypeTable type={{ "cycles": { type: "list[dict]", description: "ledger.cycles 的结果：每周期价格盈亏、手续费、资金费、已实现盈亏、是否已平" }, "fills": { type: "list[dict]", description: "成交报告原生行（commission）" }, "summary": { type: "dict", description: "原生摘要：closed_trades、final_equity_usdt、period_start_utc、period_end_utc" }, "audited_economics": { type: "dict | None", description: "完整性审计写出的账户经济数（已实现、手续费、资金费、期末余额）；None 时只对运行自身报表对账并写局限" }, "limitations": { type: "list[str]", description: "累积局限列表，函数向其追加非致命说明" } }} />
+
+**返回**　dict：closed\{reported_realized_pnl_usdt, fill_commissions_usdt, reported_funding_usdt, price_pnl_usdt\}、closed_trades、open_positions、closed_by_year、account\{fill_commissions_usdt, reported_funding_usdt\}（账户整体总体）、unrealized_residual_usdt（期末权益−审计期末余额）
+
+**期望行为**
+
+1. 核全部周期手续费之和等于成交报告手续费之和，否则抛 COMMISSION_MISMATCH
+2. 逐已平周期核 price − commissions + funding = realized（容差为最小货币单位），否则 CYCLE_IDENTITY_FAILED；已平周期数不等于摘要 closed_trades 即 CLOSED_COUNT_MISMATCH
+3. 有审计经济数时核全部周期的已实现、手续费、资金费合计各等于审计值，否则 AUDIT_ECONOMICS_MISMATCH；残差＝期末权益−审计期末余额，无未平仓位而残差非零写局限
+4. 未平周期的已实现若不只是进场手续费与资金费（含部分平仓价格盈亏）写局限；无已平周期时闭仓拆分置 None 写局限
+5. 经 ledger.closed_by_year 得按平仓年拆分；账户整体资金费与手续费取审计值并列输出，不与闭仓总体相加
+6. 所有失败经 ledger.unreconciled 抛具名原因，由 readings 整体置空；不改任何原生值
+
+| 拒绝码 | 条件 |
+|---|---|
+| `COMMISSION_MISMATCH` | 持仓周期手续费合计与成交报告手续费合计不等 |
+| `CYCLE_IDENTITY_FAILED` | 某已平周期的价格盈亏−手续费＋资金费不等于其已实现盈亏 |
+| `CLOSED_COUNT_MISMATCH` | 已平周期数与原生摘要 closed_trades 不等 |
+| `AUDIT_ECONOMICS_MISMATCH` | 周期合计与完整性审计的账户经济数（已实现、手续费、资金费）不等 |
+
+**使用**　<Ref id="ledger.closed_by_year" />、<Ref id="ledger.unreconciled" />、<Ref id="engine.generic_audit" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.1.1.2" />
+
+**使用于**　<Ref id="C.5.1.2" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.1" />、<Ref id="R.2.3.1" />、<Ref id="R.2.3.2" />、<Ref id="R.2.3.3" />
+
+**依据**　[\[125\]](/zh/docs/appendix-references/#ref-125 "NautilusTrader — Reports")
+
+</div>
+
+### `expiry_plan_owners` [#def-ledger-expiry_plan_owners]
+
+引擎因下架结算自行生成的无标签只减仓市价平仓单，在订单事件、成交、持仓事件、InstrumentClose 结算时刻与结算价互相一致且唯一对应一个已关闭周期时只读归属到该周期的计划；任何歧义不归属，留给 plan_reading 按不合规处理
+
+```python
+def expiry_plan_owners(
+    orders: list[dict],
+    fills: list[dict],
+    positions: list[dict],
+    cycles: list[dict],
+    plan_of: dict[str, str],
+    order_events: list[dict] | None,
+    lifecycle_events: tuple[dict, ...],
+) -> dict[str
+```
+
+<TypeTable type={{ "orders": { type: "list[dict]", description: "订单报告原生行" }, "fills": { type: "list[dict]", description: "成交报告原生行" }, "positions": { type: "list[dict]", description: "持仓报告原生行（closing_order_id、events、position_id）" }, "cycles": { type: "list[dict]", description: "ledger.cycles 的结果" }, "plan_of": { type: "dict[str, str]", description: "已读出的 client_order_id → 计划标签，只覆盖带标签的订单" }, "order_events": { type: "list[dict] | None", description: "原生订单事件流；为空即不归属" }, "lifecycle_events": { type: "tuple[dict, ...]", description: "窗口内生命周期事件；无 InstrumentClose 即不归属" } }} />
+
+**返回**　dict[str, str]：client_order_id → 计划标签，只含满足全部条件的订单；无法归属时为空映射，不抛错
+
+**期望行为**
+
+1. 只看未在 plan_of 中、带引擎下架结算标识、只减仓、市价且状态已成交的订单；其他无标签订单一律跳过
+2. 核该订单恰一笔成交、事件序列恰为初始化→接受→成交、三者的账户与合约身份一致、事件时刻等于该合约唯一 InstrumentClose 的时刻、成交价等于结算价
+3. 核成交恰属一个已关闭周期、周期的 closing_order_id 为该订单、此前持仓事件净量非零且方向与平仓方向相反、此前事件均早于结算时刻
+4. 核周期此前全部成交的订单都在 plan_of 且属同一计划，且每个此前事件在订单事件流与成交报告中各恰出现一次并逐字段相等
+5. 全部通过才写入映射；不改任何原生行，不认证订单生成者（排除仿造由独立源码审查承担）；本函数无拒绝码：任何条件不满足只跳过该订单，不抛具名原因
+
+**使用**　<Ref id="table:run_order_event" />、<Ref id="ledger.verify_coverage" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.5.2.2" />
+
+**使用于**　<Ref id="R.2.1.3" />
+
+</div>
+
+### `load_run` [#def-ledger-load_run]
+
+读一次运行的原生行组成类型化报表；封存运行先核原始执行捕获的执行身份与逐文件哈希，不符即拒绝不读，由资格视图标不可用
+
+```python
+def load_run(
+    conn: Connection | None,
+    run_id: int | None,
+    directory: Path | None,
+    account: bool,
+    exposures: bool,
+) -> Reports
+```
+
+<TypeTable type={{ "conn": { type: "Connection | None", description: "账本连接；给出时按 run_id 读封存运行，省略时按 directory 读未封存的探索目录" }, "run_id": { type: "int | None", description: "封存运行编号，与 conn 同给" }, "directory": { type: "Path | None", description: "回放报告目录（summary.json、audit.json、orders/fills/positions/account/returns 的 csv、敞口与订单事件压缩文件、上级目录的覆盖回执）" }, "account": { type: "bool", description: "是否装入账户状态行（回撤需要）" }, "exposures": { type: "bool", description: "是否装入敞口报告字节（回撤需要）" } }} />
+
+**返回**　Reports：summary、audit、orders、fills、positions、account、returns[(ts_event_ns, value)]、exposures 字节或 None、order_events 或 None、lifecycle_events 元组；所有行保持原生字符串值，不转换、不补齐
+
+**期望行为**
+
+1. 目录路径：逐文件读原生报表，缺失的表给空列表、摘要缺失给 None；覆盖回执存在时经 engine.lifecycle_events 生成生命周期事件，否则为空元组；文件存在但不可解析即拒绝
+2. 账本路径：按 run_id 读 table:run 行（状态、summary、audit、trial_id、input_identity、exposures），不存在即拒绝
+3. 按 seq 从 run_order、run_fill、run_position、run_account、run_order_event、run_return 原样重建行，逐行等于封存时的原生行
+4. 状态为通过的运行：ledger.read_capture 核试验、源码哈希、运行环境身份与逐文件哈希，再经 ledger.original_coverage 取覆盖回执生成生命周期事件；捕获缺失保持 missing 并给空事件，不用恢复材料替代
+5. 身份或哈希不符即拒绝且不返回任何行；调用方 qualification.assess 把拒绝转为该运行不可用，不改写存储的审计结论
+6. 读取成功只说明字节可恢复，不说明策略好；不对值做任何改写
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_RUN` | run_id 在 run 表中不存在 |
+| `EXECUTION_IDENTITY` | 原始执行捕获的试验、源码哈希、运行环境身份或开始回执与运行行不一致，或覆盖回执的输入身份不等于存储身份 |
+| `LEDGER_CORRUPT` | 封存文件的内容哈希与清单不符 |
+| `REPORT_UNREADABLE` | 目录中的原生报表或压缩文件存在但无法解析（非 UTF-8、非合法 CSV/JSON/gzip） |
+
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="table:run" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run_order_event" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.6.2.3" />
+
+**使用于**　<Ref id="T.2.2.3" />、<Ref id="V.2.2.1" />、<Ref id="X.2.1.1" />、<Ref id="G.4.1.1" />、<Ref id="G.4.2.3" />、<Ref id="R.1.1.4" />、<Ref id="R.2.3.2" />、<Ref id="J.3.5.2" />、<Ref id="D.3.1.2" />
+
+</div>
+
+### `mark_drawdown` [#def-ledger-mark_drawdown]
+
+逐 K 线标记价权益（账户 total＋敞口按标记价的未实现盈亏）相对运行峰值的最大跌幅比例，峰值从初始权益起；附价源与采样周期，K 线内路径列为局限
+
+```python
+def mark_drawdown(
+    summary: dict,
+    account: list[dict],
+    exposures: list[dict] | None,
+) -> dict
+```
+
+<TypeTable type={{ "summary": { type: "dict", description: "原生摘要：data_interval_minutes、period_start_utc、period_end_utc、starting_balance_usdt" }, "account": { type: "list[dict]", description: "账户状态报告原生行（ts_event、total），来自 table:run_account 或报告目录" }, "exposures": { type: "list[dict] | None", description: "engine.capital_observer 产出的敞口行（ts_event_ns、unrealized_pnl），已类型化；None 表示敞口表缺失" } }} />
+
+**返回**　dict：max_drawdown（峰谷比例，float）、price_source="mark"、sampling="bar_close"、bars（采样根数）、limitations（含 K 线内路径不可见）
+
+**期望行为**
+
+1. 核输入：exposures 为 None 拒绝 EXPOSURE_REPORT_MISSING；account 无任何行拒绝 ACCOUNT_STATE_MISSING
+2. 以 K 线周期为步长在交易窗口内生成标签网格，偏移取自敞口行时间戳；任一敞口行标签不在网格上拒绝 EXPOSURE_GRID_MISMATCH
+3. 每个标签 T 的权益＝时间早于下一标签的最近一条账户 total（无则初始权益）＋标签为 T 的全部敞口行未实现盈亏之和（无行即空仓）
+4. 峰值自初始权益起逐标签更新，最大跌幅＝max((峰值−权益)÷峰值)，以 Decimal 计算后输出比例
+5. 附价源、采样周期与采样根数，把「K 线内权益路径不可见」写入 limitations；拒绝以 ledger.unreconciled 抛出，由 ledger.readings 置空本读数，不判运行无效、不补算无法估值的 K 线
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EXPOSURE_REPORT_MISSING` | 运行没有敞口表或敞口表不可读 |
+| `ACCOUNT_STATE_MISSING` | 账户状态报告没有任何行 |
+| `EXPOSURE_GRID_MISMATCH` | 敞口行的时间标签不落在交易窗口的 K 线网格上 |
+
+**使用**　<Ref id="engine.capital_observer" />、<Ref id="ledger.unreconciled" />、<Ref id="table:run_account" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.2.2.1" />
+
+**使用于**　<Ref id="R.1.1.1" />、<Ref id="R.2.2.2" />、<Ref id="R.3.1.2" />
+
+**依据**　[\[128\]](/zh/docs/appendix-references/#ref-128 "NautilusTrader — MarkPriceUpdate") [\[126\]](/zh/docs/appendix-references/#ref-126 "NautilusTrader — Portfolio")
+
+</div>
+
+### `plan_reading` [#def-ledger-plan_reading]
+
+从订单报告的标签读出计划并与持仓周期一一对应后算计划胜率：每张订单恰一个全回放唯一的计划标签，计划限一个合约；赢＝周期已平且实现盈亏（含手续费与资金费）大于零，期末未平算非赢；任何不合规抛出具名原因
+
+```python
+def plan_reading(
+    orders: list[dict],
+    fills: list[dict],
+    positions: list[dict],
+    cycles: list[dict],
+    order_events: list[dict] | None,
+    lifecycle_events: tuple[dict, ...],
+) -> dict
+```
+
+<TypeTable type={{ "orders": { type: "list[dict]", description: "订单报告原生行（client_order_id、instrument_id、tags、status、ts_init、ts_last）" }, "fills": { type: "list[dict]", description: "成交报告原生行（event_id、client_order_id）" }, "positions": { type: "list[dict]", description: "持仓报告原生行（position_id、ts_last）" }, "cycles": { type: "list[dict]", description: "ledger.cycles 的结果，与 positions 逐行对应" }, "order_events": { type: "list[dict] | None", description: "原生订单事件流，供下架结算平仓单归属" }, "lifecycle_events": { type: "tuple[dict, ...]", description: "窗口内 InstrumentStatus / InstrumentClose 事件" } }} />
+
+**返回**　dict：closed（已平计划数）、wins（赢的计划数）、open（期末未平计划数）、win_rate（wins ÷ (closed+open)，分母为零时 None）
+
+**期望行为**
+
+1. 逐张带标签订单读计划标签组成 plan_of：多于一个即 PLAN_TAG_MULTIPLE，不可解析或缺字段即 NATIVE_VALUE_UNREADABLE；同一标签跨合约即 PLAN_MULTI_INSTRUMENT
+2. 以 plan_of 调 ledger.expiry_plan_owners 取下架结算平仓单的只读归属并并入；其余无标签订单即 PLAN_TAG_MISSING
+3. 定计划区间：自首单创建到末单终态（终态订单的 ts_last）或周期关闭；有在途订单或未平周期的计划延续到运行末
+4. 经成交 event_id 把每个周期的成交映射到订单与计划：成交无订单即 PLAN_FILL_UNMATCHED，周期无成交或含多个计划即 CYCLE_MULTI_PLAN，计划落在多个周期即 PLAN_MULTI_CYCLE
+5. 同一合约按起点排序：后一计划起点早于前一计划终点即 PLAN_OVERLAP；分批加仓是同一计划的多档
+6. 赢＝周期已平且 realized > 0（已含手续费与资金费）；持平与未平不算赢；win_rate = wins ÷ (closed+open)，分母为零时 None；不改任何原生行
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PLAN_TAG_MISSING` | 订单无计划标签且不是可唯一归属的下架结算平仓单 |
+| `PLAN_TAG_MULTIPLE` | 订单带多于一个计划标签 |
+| `PLAN_MULTI_INSTRUMENT` | 同一计划标签出现在多个合约的订单上 |
+| `PLAN_FILL_UNMATCHED` | 持仓周期内某笔成交在订单报告中没有订单 |
+| `CYCLE_MULTI_PLAN` | 一个持仓周期不含成交或含多个计划的成交 |
+| `PLAN_MULTI_CYCLE` | 一个计划的成交落在多个持仓周期 |
+| `PLAN_OVERLAP` | 同一合约上新计划起点早于前一计划终点 |
+| `NATIVE_VALUE_UNREADABLE` | 原生行缺读数所需字段或标签值不可解析 |
+
+**使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.expiry_plan_owners" />、<Ref id="ledger.unreconciled" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.5.1.1" />
+
+**使用于**　<Ref id="C.5.1.2" />、<Ref id="C.5.2.2" />、<Ref id="R.1.1.1" />、<Ref id="R.1.3.1" />、<Ref id="R.2.1.3" />
+
+**依据**　[\[94\]](/zh/docs/appendix-references/#ref-94 "NautilusTrader 2.0.0rc3（uv.lock 钉死版本）— crates/common/src/factories/order.rs")
+
+</div>
+
+### `reader_revision` [#def-ledger-reader_revision]
+
+读数代码的版本（所在 Git 检出的 HEAD 提交），随运行行与资格检查身份存出，使每个读数与资格判定都能定位到产生它的代码；重算用该版本的同一函数重跑比对
+
+```python
+def reader_revision() -> str
+```
+
+**返回**　str：读数代码所在 Git 检出的 HEAD 提交哈希
+
+**期望行为**
+
+1. 在读数代码所在检出运行 git rev-parse HEAD 取提交哈希
+2. 不在 Git 检出中即拒绝 NOT_A_CHECKOUT，不给占位值
+3. 由 ledger.ingest_run 在封存时写入 run.reader_revision，由 qualification.check_identity 写入检查身份；写入后只读
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NOT_A_CHECKOUT` | 读数代码不在 Git 检出中，无法解析 HEAD |
+
+**使用**　<Ref id="ledger.ingest_run" />、<Ref id="qualification.check_identity" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.1.1.3" />
+
+**使用于**　<Ref id="V.2.2.1" />、<Ref id="V.4.1.2" />、<Ref id="X.2.1.1" />、<Ref id="G.4.2.3" />、<Ref id="R.1.1.4" />、<Ref id="R.1.3.3" />、<Ref id="R.2.3.2" />、<Ref id="D.1.1.2" />
+
+</div>
+
+### `readings` [#def-ledger-readings]
+
+产品读数的唯一入口：账户年化、标记价最大回撤、计划胜率、对账后的利润来源拆分；每个读数注明总体与样本量；对账失败只置空对应读数并记入局限，不改写原生值、不判运行无效
+
+```python
+def readings(reports: Reports) -> dict
+```
+
+<TypeTable type={{ "reports": { type: "Reports", description: "ledger.load_run 返回的类型化原生报表：订单、成交、持仓（含快照行）、账户、日收益、敞口表、原生摘要与完整性审计写出的账户经济数" } }} />
+
+**返回**　dict：annual_return（原生摘要年化，复核后）、max_drawdown（标记价峰谷比例及价源、采样周期）、plans（已平、赢、未平、胜率）、economics（闭仓拆分、closed_by_year、账户整体资金费与手续费、未实现残差）、populations（闭仓／持仓／账户整体各自样本量：闭仓数、已平与未平计划数、交易窗口天数）、limitations（去重：运行器声明＋审计覆盖局限＋读数自身原因）、reader_revision。不可得的读数为 None。
+
+**期望行为**
+
+1. 以原生摘要声明的撮合与条款局限和审计覆盖局限为起始局限清单；无原生摘要时全部读数置 None、写「无原生摘要」并返回
+2. 经 engine.lifecycle_findings 核生命周期事件与订单、成交、持仓互相覆盖；有发现则经济类读数全部置 None 并逐条写入局限
+3. 年化取原生摘要值，按 (期末权益÷初始权益)^(365÷交易窗口天数)−1 复核（分母为初始权益，不含预热段），不符置 None 写原因；经 ledger.daily_returns 核日收益序列完整并记局限
+4. 经 ledger.cycles 重建持仓周期，经 ledger.economics 得拆分与按年拆分；捕获 ledger.unreconciled 即 economics 置 None 并写原因
+5. 经 ledger.plan_reading 得计划读数，捕获具名原因即 plans 置 None，账户读数照常；无敞口表则回撤置 None 写原因，否则经 ledger.mark_drawdown 计算
+6. 附每个读数的总体与样本量、价源与采样周期、ledger.reader_revision；不算夏普（由原生摘要提供），不写账本；不拒绝任何运行：读数算不出只置 None 并写原因，refusals 为空
+
+**使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.plan_reading" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.mark_drawdown" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.reader_revision" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.summary_statistics" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.1.1.1" />
+
+**使用于**　<Ref id="F.2.2.2" />、<Ref id="C.2.1.2" />、<Ref id="C.5.1.1" />、<Ref id="C.5.2.1" />、<Ref id="G.1.1.1" />、<Ref id="R.1.1.4" />、<Ref id="R.1.3.1" />、<Ref id="R.1.3.4" />、<Ref id="R.2.3.1" />、<Ref id="J.2.2.2" />、<Ref id="J.2.4.2" />、<Ref id="J.3.5.2" />
+
+</div>
+
+### `unreconciled` [#def-ledger-unreconciled]
+
+原生事实超出支持范围或对账失败的具名原因（码＋细节）；readings 捕获后把对应读数置空并把原因写入读数局限，运行本身不判无效
+
+```python
+def unreconciled(code: str, detail: str) -> 具名原因
+```
+
+<TypeTable type={{ "code": { type: "str", description: "大写蛇形原因码（见 cycles、plan_reading、economics、mark_drawdown 的拒绝码）" }, "detail": { type: "str", description: "一句可定位的细节：涉及的订单、计划、周期或字段，最多列前五项并注明余数" } }} />
+
+**返回**　具名原因（异常类型），字符串形式为「code: detail」，供写入 run.reading_limitations
+
+**期望行为**
+
+1. 只由 ledger 包内的读数函数抛出；不写账本、不改原生行
+2. readings 捕获后把该原因所属读数置空（计划读数、经济拆分或回撤），其余读数照常
+3. 原因进入读数局限清单并随运行行存出；完整性审计与资格视图不因此判运行无效或不可用
+4. 本身是原因类型，无拒绝码；拒绝码由抛出它的读数函数给出
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.5.2.1" />
+
+**使用于**　<Ref id="G.4.1.1" />、<Ref id="R.1.1.1" />、<Ref id="R.1.1.2" />、<Ref id="R.2.1.3" />、<Ref id="R.2.2.1" />、<Ref id="R.2.3.1" />
+
+</div>
+
+## `ledger/strategies.py` [#def-mod-ledger-strategies-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.check_source">check_source</Ref> | 只解析不执行：源码非空且在上限内、可解析为 UTF-8 Python、恰有一个与声明同名的顶层类。证明的是单文件形态，不是规则正确。 |
+| <Ref id="ledger.publish_candidate">publish_candidate</Ref> | 校验后把一份源码作为一个候选写入账本，一行一个提交；相同字节拒绝并返回该字节对应的候选；研发父版本与改动说明同有同无，父须存在。模板、人造根与派生候选走同一入口，无父即根。 |
+| <Ref id="ledger.read_candidate">read_candidate</Ref> | 按 strategy_id@revision 读一个候选的完整记录；存储字节的哈希与记录的内容哈希不符即以账本损坏拒绝。登记、预检、封存回放与谱系读取都经它取候选。 |
+
+### `check_source` [#def-ledger-check_source]
+
+只解析不执行：源码非空且在上限内、可解析为 UTF-8 Python、恰有一个与声明同名的顶层类。证明的是单文件形态，不是规则正确。
+
+```python
+def check_source(source: bytes, entry_class: str) -> None
+```
+
+<TypeTable type={{ "source": { type: "bytes", description: "完整单文件策略源码的原字节" }, "entry_class": { type: "str", description: "声明的唯一顶层入口类名；须是合法 Python 标识符" } }} />
+
+**返回**　None；不符即抛出带拒绝码的拒绝
+
+**期望行为**
+
+1. 核对 source 是 bytes、非空、长度不超过源码上限（未校准示例值 8 MiB）。
+2. 核对 entry_class 是合法 Python 标识符。
+3. 按 UTF-8 解码，用 ast 解析并编译为代码对象；全程不执行任何语句、不导入任何模块。
+4. 统计模块顶层 ClassDef 中名为 entry_class 的个数，必须恰为 1，零个或多个都拒绝。
+5. 不核对基类、钩子、依赖边界与文件头：前三项由 engine.load_strategy 在装载时核对，文件头归 skill 与独立源码审查。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SIZE` | source 不是字节、为空或超过源码上限 |
+| `ENTRY_CLASS_INVALID` | entry_class 不是合法 Python 标识符 |
+| `SOURCE_SYNTAX` | 不是合法 UTF-8 或 Python 语法错误 |
+| `ENTRY_CLASS_NOT_UNIQUE` | 顶层与 entry_class 同名的类定义不恰好一个 |
+
+**使用**　<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.1.1" />
+
+**使用于**　<Ref id="L.2.1.1" />、<Ref id="C.1.1.2" />、<Ref id="J.2.1.1" />
+
+**依据**　[\[86\]](/zh/docs/appendix-references/#ref-86 "NautilusTrader — Strategies")
+
+</div>
+
+### `publish_candidate` [#def-ledger-publish_candidate]
+
+校验后把一份源码作为一个候选写入账本，一行一个提交；相同字节拒绝并返回该字节对应的候选；研发父版本与改动说明同有同无，父须存在。模板、人造根与派生候选走同一入口，无父即根。
+
+```python
+def publish_candidate(
+    profile: dict,
+    source: bytes,
+    strategy_id: str,
+    entry_class: str,
+    description: str,
+    parent: str | None,
+    difference: str | None,
+    op_id: str | None,
+) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "dict", description: "写账号的账本连接档案（ledger.connect 所需）" }, "source": { type: "bytes", description: "完整单文件源码原字节，原样入库" }, "strategy_id": { type: "str", description: "引用名中的 ID；只是引用名，身份是内容哈希" }, "entry_class": { type: "str", description: "唯一顶层入口类名" }, "description": { type: "str", description: "发布说明：规则、来源声明与非声明；非空且在备注长度上限内" }, "parent": { type: "str | None", description: "研发父版本 strategy_id@revision；根为 None" }, "difference": { type: "str | None", description: "改动说明；与 parent 同有同无" }, "op_id": { type: "str | None", description: "操作 ID；缺省由载荷（strategy_id、内容哈希、入口类、父）派生，同载荷重试返回原记录" } }} />
+
+**返回**　dict：candidate（strategy_id@revision）、source_sha256（内容哈希）、runtime_contract（发布时生效的运行契约）、replayed（是否为幂等重放返回的原记录）
+
+**期望行为**
+
+1. 核对 strategy_id 符合引用名格式；调用 ledger.check_source 核对源码形态；description 与 difference 按备注规则核对（非空、长度上限）。
+2. 核对 parent 与 difference 同有同无；parent 经 ledger.read_candidate 读到才继续（账本外键同样守卫）。
+3. 计算源码 SHA-256 为内容哈希；op_id 缺省由载荷派生；运行契约名取自 engine.account_contract，不由调用方填写。
+4. 在 ledger.write 的一笔事务里按内容哈希查 candidate，存在即以 SOURCE_EXISTS 拒绝并附该候选的引用；修订号取该 strategy_id 下最大修订号加一；插入一行（源码原字节、内容哈希、入口类、运行契约、说明、父、改动说明、op_id），created_at 由服务器触发器写入，提交一次。
+5. 相同 op_id 重放由 ledger.write 返回原记录，不写第二行；并发写入同格不同值以 CONCURRENT_WRITE 拒绝；写前有未提交改动以 DIRTY_WORKSET 拒绝。
+6. 全程不读父版本或任何运行的收益、显著性与推荐：亏损或不显著的有效候选照样可作父版本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_ID` | strategy_id 不符合引用名格式 |
+| `SOURCE_SIZE / ENTRY_CLASS_INVALID / SOURCE_SYNTAX / ENTRY_CLASS_NOT_UNIQUE` | 由 ledger.check_source 抛出，原样透传 |
+| `NOTE_INVALID` | description 或 difference 为空或超过备注长度上限 |
+| `LINEAGE_INCOMPLETE` | parent 与 difference 只给了一个 |
+| `BAD_REF / UNKNOWN_CANDIDATE` | parent 不是 strategy_id@revision 格式，或账本里没有该父版本 |
+| `SOURCE_EXISTS` | 相同字节已是某个候选；附加信息带该候选的引用 |
+| `DIRTY_WORKSET / CONCURRENT_WRITE` | 由 ledger.write 抛出：写前有未提交改动，或提交时与并发写入同格不同值 |
+
+**使用**　<Ref id="ledger.check_source" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.write" />、<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="engine.account_contract" />、<Ref id="table:candidate" />、<Ref id="table:ledger_head" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.1.2" />
+
+**使用于**　<Ref id="A.1.1.2" />、<Ref id="A.1.2.2" />、<Ref id="E.4.1.2" />、<Ref id="E.4.2.2" />、<Ref id="L.1.4.2" />、<Ref id="L.2.1.1" />、<Ref id="L.2.1.2" />、<Ref id="T.1.1.1" />、<Ref id="T.1.1.2" />、<Ref id="T.1.1.3" />、<Ref id="T.2.1.1" />、<Ref id="H.3.3.1" />、<Ref id="J.1.2.2" />、<Ref id="J.2.1.1" />、<Ref id="D.3.2.2" />
+
+</div>
+
+### `read_candidate` [#def-ledger-read_candidate]
+
+按 strategy_id@revision 读一个候选的完整记录；存储字节的哈希与记录的内容哈希不符即以账本损坏拒绝。登记、预检、封存回放与谱系读取都经它取候选。
+
+```python
+def read_candidate(conn: Connection, ref: str) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "Connection", description: "读或写连接；可为 ledger.read_as_of 打开的精确版本连接，按该版本读谱系" }, "ref": { type: "str", description: "候选引用 strategy_id@revision，revision 为正整数" } }} />
+
+**返回**　dict：candidate 表一行（strategy_id、revision、source 原字节、source_sha256、entry_class、runtime_contract、description、parent_strategy_id、parent_revision、difference、op_id、created_at）
+
+**期望行为**
+
+1. 把 ref 解析为 (strategy_id, revision)，格式不对即拒绝。
+2. 按主键 (strategy_id, revision) 在 candidate 查一行，没有即拒绝。
+3. 对读出的 source 字节重算 SHA-256，与存储的 source_sha256 逐字符比对，不符即 LEDGER_CORRUPT；这是账本完整性故障，不是调用方错误。
+4. 原样返回整行，不附加任何读数、推荐或资格判断。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `BAD_REF` | ref 不是 strategy_id@revision 或 revision 不是正整数 |
+| `UNKNOWN_CANDIDATE` | 连接所指版本的账本里没有该候选 |
+| `LEDGER_CORRUPT` | 存储字节重算的哈希与记录的内容哈希不符 |
+
+**使用**　<Ref id="ledger.refusal" />、<Ref id="ledger.read_as_of" />、<Ref id="table:candidate" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.1.2" />
+
+**使用于**　<Ref id="T.1.1.1" />、<Ref id="T.2.1.1" />、<Ref id="H.1.1.2" />、<Ref id="X.1.2.2" />、<Ref id="G.4.2.2" />、<Ref id="J.6.1.1" />、<Ref id="J.6.2.1" />、<Ref id="J.6.2.3" />
+
+</div>
+
+## `ledger/trials.py` [#def-mod-ledger-trials-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.ingest_run">ingest_run</Ref> | 把一次封存回放的判定落成运行行：有效运行写原生报表行与读数；无效运行写状态、逐条原因、原生摘要与审计结果，读数列为空。只回答这次回放是否有效及原因，不评价策略好坏。 |
+| <Ref id="ledger.open_trial">open_trial</Ref> | 在调用方的写事务里依次写试验行、绑定行（经注入的绑定器）与执行开始回执；任一失败整笔回滚，调用方不启动容器。 |
+
+### `ingest_run` [#def-ledger-ingest_run]
+
+把一次封存回放的判定落成运行行：有效运行写原生报表行与读数；无效运行写状态、逐条原因、原生摘要与审计结果，读数列为空。只回答这次回放是否有效及原因，不评价策略好坏。
+
+```python
+def ingest_run(
+    conn: LedgerConnection,
+    trial_id: int,
+    workdir: Path,
+    failure_reasons: list[dict],
+    runtime_inspection: dict,
+    effective_config: dict,
+    input_identity: dict,
+) -> {run_id
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "由 ledger.write 打开的写事务连接" }, "trial_id": { type: "int", description: "试验编号；试验须 purpose ∈ research | validation 且尚无运行行" }, "workdir": { type: "Path", description: "回放工作目录：原生摘要、审计结果、订单／成交／持仓／账户／日收益／订单事件史报表、逐分钟敞口、覆盖回执" }, "failure_reasons": { type: "list[dict]", description: "回放入口汇总的无效原因 {code, message, locator}（来自 G.2.1.1、replay.audit_problems、replay.summary_problems）；空列表表示通过" }, "runtime_inspection": { type: "dict", description: "运行环境内身份探针报告原样；运行契约、引擎版本、依赖锁哈希与构建源码版本由它派生" }, "effective_config": { type: "dict", description: "运行器在运行环境内读出的有效配置原样" }, "input_identity": { type: "dict", description: "本次回放的输入身份，须与试验行一致，含覆盖回执哈希" } }} />
+
+**返回**　\{run_id: int, status: 'passed' | 'invalid'\}；拒绝时抛带码拒绝、事务回滚、工作目录保留
+
+**期望行为**
+
+1. 核对试验存在（TRIAL_NOT_FOUND）、purpose ∈ research | validation（TRIAL_PURPOSE_INVALID）、尚无运行行（RUN_ALREADY_INGESTED）；从 workdir 原样读入原生摘要与审计结果，缺失即为空，不造占位。
+2. failure_reasons 非空即 invalid；为空时须审计结果存在且自报通过、原生摘要存在，否则拒 AUDIT_RESULT_INCONSISTENT。
+3. invalid：写 run 行 status、failure_reasons、原生摘要与审计结果原样、runtime_inspection、effective_config、input_identity、读数代码版本与镜像构建版本（取不到写空并记入读数局限）；读数列全部为空，不写报表行；试验行与网格点消耗不变。
+4. passed：经 ledger.verify_coverage 核覆盖回执与原生摘要一致（EXECUTION_IDENTITY）；摘要含生命周期事件时用 engine.lifecycle_events 重算，并与 ledger.original_coverage 从原始执行捕获读出的回执比较，须完全相等（LIFECYCLE_MISMATCH），不降级为无事件。
+5. passed：任一报表缺失或不可解析拒 REPORT_MISSING；否则六张报表逐行写入 run_order / run_fill / run_position / run_account / run_return / run_order_event，每行存原始行并派生类型化列，不聚合不改写；逐分钟敞口压缩后随 run 行存。
+6. passed：经 ledger.readings 从刚写入的行算一次读数与读数局限，ledger.unreconciled 捕获的问题只置空对应读数；连同 ledger.reader_revision 写成 run 行的列，此后只读；返回 run_id 与 status。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TRIAL_NOT_FOUND` | trial_id 在账本中不存在 |
+| `TRIAL_PURPOSE_INVALID` | 试验 purpose 为 explore 或 precheck：其报告只留工作副本，不入账 |
+| `RUN_ALREADY_INGESTED` | 同一试验的运行行已存在 |
+| `AUDIT_RESULT_INCONSISTENT` | failure_reasons 为空，但审计结果缺失、不可读或自报未通过，或原生摘要缺失 |
+| `REPORT_MISSING` | 状态为 passed 而订单、成交、持仓、账户、日收益、订单事件史或敞口原件任一缺失或不可解析 |
+| `EXECUTION_IDENTITY` | 覆盖回执与原生摘要不一致；或原始执行捕获不完整、任一阶段退出码非零、试验／源码／运行环境身份或回执输入身份与存储身份不符（由 ledger.original_coverage 上抛） |
+| `LIFECYCLE_MISMATCH` | 本地重算的生命周期事件与原始执行捕获中的回执不完全相等，或逐实例状态与关闭事件计数与原生摘要不符 |
+| `CONCURRENT_WRITE` | 由 ledger.write 在提交时上抛：并发写入同格不同值，后到者回滚 |
+
+**使用**　<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run_order_event" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="ledger.readings" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.reader_revision" />、<Ref id="ledger.write" />、<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.1.1.1" />
+
+**使用于**　<Ref id="A.2.1.1" />、<Ref id="C.5.2.1" />、<Ref id="G.2.2.2" />、<Ref id="R.1.1.3" />、<Ref id="J.2.2.2" />、<Ref id="J.2.2.3" />、<Ref id="J.2.3.1" />、<Ref id="J.2.4.2" />、<Ref id="J.5.2.3" />、<Ref id="J.6.1.1" />
+
+</div>
+
+### `open_trial` [#def-ledger-open_trial]
+
+在调用方的写事务里依次写试验行、绑定行（经注入的绑定器）与执行开始回执；任一失败整笔回滚，调用方不启动容器。
+
+```python
+def open_trial(
+    conn: LedgerConnection,
+    purpose: Literal['explore','precheck','research','validation'],
+    source_sha256: str (CHAR(64)),
+    runtime_identity: RuntimeIdentity,
+    inputs: MarketInputs,
+    window: TradingWindow,
+    start_context: StartContext,
+    binder: Binder | None,
+) -> {trial_id
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.write 打开的写事务连接；本函数不开启也不提交事务" }, "purpose": { type: "Literal['explore','precheck','research','validation']", description: "试验用途；explore 与 precheck 不得带 binder，research 须带 registration.bind 闭包，validation 须带 registration.validation_bind 闭包" }, "source_sha256": { type: "str (CHAR(64))", description: "被执行源码的内容哈希；除 explore 外须是已发布候选" }, "runtime_identity": { type: "RuntimeIdentity", description: "runtime.resolve 读出的身份（image_ref 含 @sha256 摘要、image_digest、platform、runtime_contract）及 runtime.inspect_runtime 的探针检视" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 导出的输入身份：市场提交、universe_rule、合约集、成员路径、导出内容哈希、覆盖回执" }, "window": { type: "TradingWindow", description: "预热起点与交易窗口起止（UTC，左闭右开）；不含试验时间" }, "start_context": { type: "StartContext", description: "容器命令 argv、挂载清单、工作目录、源码字节；不含用途与时间。工作目录每次尝试新建，故不同尝试载荷必不同" }, "binder": { type: "Binder | None", description: "回放入口注入的绑定器，Binder 是以 (conn, trial_id) 调用、无返回值的可调用对象；账本层只调用它，不引用登记层" } }} />
+
+**返回**　\{trial_id: int, execution_bundle: str\}：新试验行编号与开始回执证据包名；拒绝时抛带码拒绝，事务回滚
+
+**期望行为**
+
+1. 核对用途与绑定器：explore/precheck 带 binder 拒 BINDING_NOT_ALLOWED；research/validation 无 binder 拒 BINDING_REQUIRED；非 explore 时经 ledger.read_candidate 核 source_sha256 是已发布候选，否则 SOURCE_NOT_PUBLISHED
+2. 经 runtime.validate_identity 核运行环境身份含不可变摘要且带探针检视，否则 RUNTIME_NOT_PINNED；输入身份与窗口字段齐全，否则 TRIAL_INPUT_INCOMPLETE
+3. 在 conn 内插 trial 行（purpose、source_sha256、image_ref、合约集、预热起点、交易窗口、输入身份、op_id=trial:\<载荷哈希>）；不写 created_at，由触发器写服务器 UTC
+4. 有 binder 时以 (conn, trial_id) 调用；它核对登记早于本试验、身份一致并写 registration_attempt 或 validation_binding 行，其拒绝原样上抛
+5. 经 ledger.start_receipt 在同一 conn 写执行开始回执，其拒绝原样上抛
+6. 返回 trial_id 与回执包名；调用方只在 ledger.write 提交成功后启动容器
+
+| 拒绝码 | 条件 |
+|---|---|
+| `BINDING_NOT_ALLOWED` | purpose 为 explore 或 precheck 却传入 binder |
+| `BINDING_REQUIRED` | purpose 为 research 或 validation 却无 binder |
+| `SOURCE_NOT_PUBLISHED` | purpose 不是 explore 而 source_sha256 在账本中无已发布候选 |
+| `RUNTIME_NOT_PINNED` | image_ref 不含内容摘要、与 image_digest 不一致，或缺探针检视 |
+| `TRIAL_INPUT_INCOMPLETE` | 输入身份缺市场提交、universe_rule、合约集或导出内容哈希，或窗口缺预热起点、起止之一 |
+| `REGISTRATION_TOO_LATE` | 由 binder 上抛：登记 created_at 不早于本试验 created_at，或样本外凭证缺失或其 genTime 不早于窗口起点 |
+| `SOURCE_MISMATCH` | 由 binder 上抛：被执行源码不在登记锁定的网格内或不是样本外登记的被验候选 |
+| `LINEAGE_MISMATCH` | 由 binder 上抛：网格源码的研发父版本或改动说明与登记不符 |
+| `EXECUTION_MISMATCH` | 由 binder 上抛：运行环境、有效配置或输入身份与登记不逐字相同 |
+| `SOURCE_PRECHECK_REQUIRED` | 由 binder 上抛：网格源码缺匹配的原生预检或独立审查 |
+| `SOURCE_PRECHECK_FAILED` | 由 binder 上抛：预检或独立审查未通过 |
+| `GRID_ALREADY_ATTEMPTED` | 由 binder 上抛：该网格点已被消耗（含无效与中断的尝试），或样本外登记已绑定过一次回放 |
+| `CONCURRENT_WRITE` | 由 ledger.write 在提交时上抛：并发写同格不同值，后到者回滚 |
+
+**使用**　<Ref id="table:trial" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.start_receipt" />、<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="runtime.validate_identity" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.1.2" />
+
+**使用于**　<Ref id="H.4.1.3" />、<Ref id="H.4.2.1" />、<Ref id="V.1.1.1" />、<Ref id="X.1.3.1" />、<Ref id="X.1.3.2" />、<Ref id="C.6.1.1" />、<Ref id="J.2.2.1" />、<Ref id="J.2.4.2" />、<Ref id="J.5.2.3" />
+
+</div>
+
+## `ledger/witness.py` [#def-mod-ledger-witness-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.stamped_at">stamped_at</Ref> | 读某提交的凭证并离线复验，返回 genTime；无凭证返回 None。供样本外绑定与整体复核核对凭证存在且早于窗口起点 |
+| <Ref id="ledger.sync_witness">sync_witness</Ref> | 列出全部样本外登记所在提交，对尚无凭证者逐一调用 ledger.witness；供首次取凭证失败后、窗口开始前补取 |
+| <Ref id="ledger.token_time">token_time</Ref> | 离线验证一份 RFC 3161 凭证并返回其 genTime(UTC)；不联网、不查吊销 |
+| <Ref id="ledger.witness">witness</Ref> | 把一次样本外登记诞生提交的哈希摘要送公共时间戳机构取 RFC 3161 凭证，验证后存入；只发送摘要；按提交幂等；取凭证失败返回 status=failed 而不抛出 |
+
+### `stamped_at` [#def-ledger-stamped_at]
+
+读某提交的凭证并离线复验，返回 genTime；无凭证返回 None。供样本外绑定与整体复核核对凭证存在且早于窗口起点
+
+```python
+def stamped_at(
+    conn: LedgerConnection,
+    commit: str,
+    tsa_roots: Path | None,
+) -> datetime
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect 返回的连接；只读账号即可" }, "commit": { type: "str", description: "样本外登记行诞生的账本提交哈希" }, "tsa_roots": { type: "Path | None", description: "钉死的根证书 PEM 包；缺省用随产品代码发布的那份" } }} />
+
+**返回**　datetime(UTC) | None：凭证的 genTime；该提交无凭证时为 None
+
+**期望行为**
+
+1. 按 commit_hash=commit 读 witness 表；无行返回 None，由调用方拒绝（样本外绑定据此拒 REGISTRATION_TOO_LATE）
+2. 调 ledger.token_time(token, commit, tsa_roots, expected_nonce=None) 离线复验，全程不联网
+3. 复验不通过拒绝 WITNESS_INVALID，不返回时间、不写任何行
+4. 返回 genTime；它是凭证唯一有效的时间，不用 witness 行所在提交的时间替代
+
+| 拒绝码 | 条件 |
+|---|---|
+| `WITNESS_INVALID` | 存入的凭证离线复验不通过 |
+
+**使用**　<Ref id="ledger.token_time" />、<Ref id="ledger.refusal" />、<Ref id="table:witness" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.2.2" />
+
+**使用于**　<Ref id="X.1.2.2" />、<Ref id="X.1.3.2" />、<Ref id="X.2.1.1" />、<Ref id="J.3.5.2" />
+
+**依据**　[\[147\]](/zh/docs/appendix-references/#ref-147 "IETF — RFC 3161 Time-Stamp Protocol") [\[148\]](/zh/docs/appendix-references/#ref-148 "Haber &amp; Stornetta 1991, https://doi.org/10.1007/BF00196791")
+
+</div>
+
+### `sync_witness` [#def-ledger-sync_witness]
+
+列出全部样本外登记所在提交，对尚无凭证者逐一调用 ledger.witness；供首次取凭证失败后、窗口开始前补取
+
+```python
+def sync_witness(
+    conn: LedgerConnection,
+    tsa_url: str | None,
+    tsa_roots: Path | None,
+) -> {witnessed
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect 返回的写连接" }, "tsa_url": { type: "str | None", description: "公共时间戳机构端点；缺省读账本配置" }, "tsa_roots": { type: "Path | None", description: "钉死的根证书 PEM 包；缺省用随产品代码发布的那份" } }} />
+
+**返回**　\{witnessed: [commit], already: int, failed: [\{commit, reason\}]\}
+
+**期望行为**
+
+1. 从 dolt_diff_validation_registration 取 diff_type='added' 的全部 to_commit，去重，按登记行 created_at 升序；这是应有凭证的提交全集
+2. 左连 witness 表；凭证已存在者计入 already，不联网、不复验
+3. 对每个缺凭证的提交调 ledger.witness；每个提交单独一笔写入，前一个失败不影响后一个
+4. status=stamped 计入 witnessed；status=failed 计入 failed 并带 reason=WITNESS_UNAVAILABLE
+5. WITNESS_INVALID 作为拒绝上抛并中止后续补取
+6. 返回汇总，由 cli.ledger_witness 决定退出码
+
+| 拒绝码 | 条件 |
+|---|---|
+| `WITNESS_INVALID` | 某次响应离线验证不通过，中止补取，不写该凭证 |
+| `LEDGER_DIRTY` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
+
+**使用**　<Ref id="ledger.witness" />、<Ref id="ledger.refusal" />、<Ref id="table:witness" />、<Ref id="table:validation_registration" />、<Ref id="table:dolt_system_tables" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.2.2" />
+
+**依据**　[\[147\]](/zh/docs/appendix-references/#ref-147 "IETF — RFC 3161 Time-Stamp Protocol") [\[148\]](/zh/docs/appendix-references/#ref-148 "Haber &amp; Stornetta 1991, https://doi.org/10.1007/BF00196791")
+
+</div>
+
+### `token_time` [#def-ledger-token_time]
+
+离线验证一份 RFC 3161 凭证并返回其 genTime(UTC)；不联网、不查吊销
+
+```python
+def token_time(
+    token: bytes,
+    commit: str (CHAR(32)),
+    tsa_roots: Path | None,
+    expected_nonce: int | None,
+) -> datetime
+```
+
+<TypeTable type={{ "token": { type: "bytes", description: "TimeStampToken 的 DER 字节" }, "commit": { type: "str (CHAR(32))", description: "被盖戳的账本提交哈希" }, "tsa_roots": { type: "Path | None", description: "钉死的根证书 PEM 包；缺省用随产品代码发布的那份" }, "expected_nonce": { type: "int | None", description: "取凭证当时请求里的随机数；复验存档凭证时为 None，跳过 nonce 比对" } }} />
+
+**返回**　datetime(UTC)：凭证的 genTime
+
+**期望行为**
+
+1. 把 token 解析为 CMS SignedData，内容类型须为 TSTInfo；解析失败拒绝 WITNESS_INVALID
+2. messageImprint 算法须为 SHA-256，值须等于 SHA-256(commit)；不等拒绝
+3. expected_nonce 非 None 时须等于 TSTInfo.nonce
+4. 签名可验证、签名证书带 timeStamping 扩展用途、证书链到 tsa_roots、链上证书在 genTime 均有效；任一不符拒绝
+5. 返回 genTime（UTC）
+
+| 拒绝码 | 条件 |
+|---|---|
+| `WITNESS_INVALID` | 解析失败、摘要或 nonce 不符、签名或证书链不到钉死根证书、证书在 genTime 无效 |
+
+**使用**　<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.2.2" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="J.2.4.3" />
+
+**依据**　[\[147\]](/zh/docs/appendix-references/#ref-147 "IETF — RFC 3161 Time-Stamp Protocol") [\[148\]](/zh/docs/appendix-references/#ref-148 "Haber &amp; Stornetta 1991, https://doi.org/10.1007/BF00196791")
+
+</div>
+
+### `witness` [#def-ledger-witness]
+
+把一次样本外登记诞生提交的哈希摘要送公共时间戳机构取 RFC 3161 凭证，验证后存入；只发送摘要；按提交幂等；取凭证失败返回 status=failed 而不抛出
+
+```python
+def witness(
+    conn: LedgerConnection,
+    commit: str (CHAR(32)),
+    tsa_url: str | None,
+    tsa_roots: Path | None,
+) -> {status
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect 返回的写连接；一条命令一条连接" }, "commit": { type: "str (CHAR(32))", description: "样本外登记行诞生的账本提交哈希，即 dolt_diff_validation_registration 中 diff_type='added' 的 to_commit" }, "tsa_url": { type: "str | None", description: "公共时间戳机构端点，只能是 https；缺省读账本配置" }, "tsa_roots": { type: "Path | None", description: "钉死的根证书 PEM 包；缺省用随产品代码发布、按内容哈希钉死的那份，不从网络取" } }} />
+
+**返回**　\{status: 'stamped' | 'already_stamped' | 'failed', commit, tsa, stamped_at: datetime(UTC) | None, witness_commit: str | None, reason: str | None\}
+
+**期望行为**
+
+1. 核 commit 是样本外登记的诞生提交：dolt_diff_validation_registration 中有 diff_type='added' 且 to_commit=commit 的行，否则拒绝 NOT_REGISTRATION_COMMIT
+2. witness 表中该提交的行已存在时不联网，经 ledger.token_time 复验后返回 already_stamped
+3. 以 SHA-256(commit) 为摘要构造 TimeStampReq（随机 nonce、certReq=true）POST 到 tsa_url；网络失败、超时或状态非 granted 返回 status=failed、reason=WITNESS_UNAVAILABLE，不写行
+4. 经 ledger.token_time(token, commit, tsa_roots, nonce) 验证；另核 genTime 不早于该登记行 created_at、不晚于本机时间加容差（未校准示例值 300 秒）；不符拒绝 WITNESS_INVALID
+5. 经 ledger.write 一个事务写 witness 行 \{commit_hash, token=TimeStampToken DER, op_id='witness:\<commit>'\} 并提交；op_id 冲突（并发补取）读回原行按幂等成功
+6. 返回 status=stamped、stamped_at=genTime 与本次写入的账本提交
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NOT_REGISTRATION_COMMIT` | commit 不是任何 validation_registration 行诞生的账本提交 |
+| `WITNESS_INVALID` | 响应验证不通过，或 genTime 早于登记 created_at、晚于本机时间加容差 |
+| `WITNESS_UNAVAILABLE` | 时间戳机构不可达、超时或未授予；作为 status=failed 的原因返回，登记保留 |
+| `LEDGER_DIRTY` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
+
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="ledger.token_time" />、<Ref id="table:witness" />、<Ref id="table:validation_registration" />、<Ref id="table:dolt_system_tables" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.2.2" />
+
+**使用于**　<Ref id="X.1.2.1" />、<Ref id="X.1.2.2" />、<Ref id="J.2.4.3" />
+
+**依据**　[\[147\]](/zh/docs/appendix-references/#ref-147 "IETF — RFC 3161 Time-Stamp Protocol") [\[148\]](/zh/docs/appendix-references/#ref-148 "Haber &amp; Stornetta 1991, https://doi.org/10.1007/BF00196791")
+
+</div>

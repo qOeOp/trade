@@ -1,0 +1,537 @@
+# F　反馈与研究优先级：一个运行封存之后，Agent 怎样读反馈、决定下一步改什么，何时复盘并给出推荐。
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+本章定义比较证据之后、下一次登记之前的一段：读一个运行（run）的反馈并拆到部件（F.1），据此排研究优先级（research priority）、写下一假设（F.2），按研究计数触发复盘（review）并给出推荐（recommendation）（F.3）。代码只给只读读口（资格、产品读数、配对检验读数、研究计数），口径归 G、R、V 章；判断、排序、推荐由 skill 指导，结果只追加到研究状态清单。代码不设通过门槛、次数停止、方向排除、优化器或推荐分数；换研究路线回入口由用户选。
+
+<Mermaid chart={"flowchart LR\n  subgraph F-1[\"F.1 读取反馈：先定资格，再拆部件\"]\n    direction TB\n    F-1-1[\"F.1.1 反馈资格\"]\n    F-1-2[\"F.1.2 读数的读法\"]\n    F-1-3[\"F.1.3 诊断顺序、判据与边界\"]\n  end\n  subgraph F-2[\"F.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"F.2.1 优先级的依据与边界\"]\n    F-2-2[\"F.2.2 按部件定改动方向\"]\n    F-2-3[\"F.2.3 下一假设的来源与推导记录\"]\n  end\n  subgraph F-3[\"F.3 复盘与推荐：次数触发，研究默认持续\"]\n    direction TB\n    F-3-1[\"F.3.1 复盘的触发与计数\"]\n    F-3-2[\"F.3.2 复盘的内容\"]\n    F-3-3[\"F.3.3 复盘后的去向\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
+
+## F.1　读取反馈：先定资格，再拆部件 [#F-1]
+
+一个运行（run）封存后，Agent 按固定顺序读它的反馈。第一步读资格视图，定这个运行能不能给经济反馈（F.1.1）。可用的运行接着读资金使用率、利润来源与出场拆分（F.1.2）。最后按诊断顺序与五部件判据把事实归类（F.1.3），交给 F.2 排研究优先级。代码只提供四样东西：读时算出的经济证据资格（<Ref id="qualification.assess" />）、产品读数（<Ref id="report.run_report" />）、经资格遮蔽的报告表（<Ref id="report.tables" />）、配对检验读数（<Ref id="report.compare" />），口径由 G、R、V 章定义。何时读、怎么读、怎样归类，由 research-round 与 nautilus-report-analysis 两个 skill 指导。诊断全程只读，不产生成交事实，不写裁决；结论作为自由文本追加到研究状态清单（<Ref id="E.2.1.2" />）。
+
+<Steps>
+
+<Step>
+
+取运行的经济证据资格与原因（<Ref id="qualification.assess" />）；不可用的运行，经济读数已被整体置空。
+
+</Step>
+
+<Step>
+
+不可用的运行分两路：零成交或缺匹配记录只做原因诊断；无效、未完成或预检未过只留修复轨迹，修复后的源码作为新候选重新预检、审查，再另行登记。
+
+</Step>
+
+<Step>
+
+可用的运行读产品读数与报告表：资金使用率、利润来源拆分、入场计划标签 × 出场原因拆分。
+
+</Step>
+
+<Step>
+
+登记声明了比较对照（control）时，读配对检验读数（效应、区间、p 与检验条件）。
+
+</Step>
+
+<Step>
+
+按资格→钱从哪来→过程→稳定性→机制预测五步诊断，用五部件判据归类，事实、未证解释与拟改动部件分开写。
+
+</Step>
+
+<Step>
+
+把反馈记录追加到研究状态清单，进入 F.2。
+
+</Step>
+
+</Steps>
+
+### F.1.1　反馈资格 [#F-1-1]
+
+资格由代码强制：<Ref id="qualification.assess" /> 在读取时按明确的检查身份算出四项结论：实质活动、可比资格、执行捕获、源码审查。任一项不过，<Ref id="qualification.mask" /> 把经济读数整体置空并附原因；报告、报告表、比较与计数共用这一视图。读法由 skill 指导：先读资格，再读任何读数。不可用的运行按成因分两路：零成交或缺匹配记录只做原因诊断（F.1.1.1）；无效、未完成与预检未过只留修复轨迹（F.1.1.2）。输入是一个运行，输出是能否给经济反馈及其原因。
+
+<Cap id="F.1.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="读反馈先读资格视图：零成交只做诊断">
+
+类型 skill：由 <Ref id="research-round/references/feedback.md#availability-first" /> 指导，<Ref id="eval:research-round/zero-fill-is-diagnostic" /> 检验；资格本身由代码强制（<Ref id="G.4.1.1" />、<Ref id="G.4.1.2" />、<Ref id="G.4.2.3" />）。
+做什么：Agent 读任何运行的反馈之前，先读该运行的经济证据资格（economic evidence availability）视图。输入是运行；输出是可用或不可用、全部原因与检查身份。运行要给经济反馈，四个条件须同时成立：实质活动（substantive activity：有真实原生成交，并有与之匹配的订单、仓位周期与账户记录）成立；可比资格（comparability）成立；原始执行捕获完整；绑定的独立源码审查未失败。
+不可用时：经济读数已被代码置空并附原因，Agent 不从原生文件或别的读口补算。零成交或缺匹配记录的运行只做诊断，按原生订单事件、指标就绪时刻与异常回执把原因归为六类：无信号、指标未就绪、无规则机会、下单未成交、被拒单、异常。这类运行不排在亏损的比较对照之上（账户未变不算优于亏损），不给改善、区间或 p，也不给方向记失败；它作为仅诊断的尝试写进研究状态清单。
+拒绝：对无资格运行，报告表拒绝给经济表（NO_ECONOMIC_EVIDENCE）；任一侧无资格时，比较入口拒绝并只留诊断（<Ref id="V.2.3.3" />）。skill 层由 eval 判定：把零成交读成零收益，或与亏损对照比出正效应，即不通过。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#availability-first" />、<Ref id="eval:research-round/zero-fill-is-diagnostic" />
+
+**使用**　<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="report.run_report" />、<Ref id="report.tables" />
+
+</div>
+
+<p className="rd-resolves">首次定义；吸收 10-12 F.3.2.3 中「零活动不给经济反馈」的部分；资格定义引用 G.4，本条只写读法</p>
+
+</Cap>
+
+<Cap id="F.1.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="无效、未完成与预检失败只留修复轨迹">
+
+类型 skill：由 <Ref id="research-round/references/feedback.md#repair-and-retry" /> 指导，<Ref id="eval:research-round/failure-is-repair-not-feedback" /> 检验；拒绝由代码在登记与绑定时强制。
+适用三种情形：完整性审计判为无效的运行；原始执行捕获记有失败或未完成阶段的运行（<Ref id="G.4.2.1" />）；原生预检（native precheck，<Ref id="C.6.1.1" />）未通过的源码。
+做什么：Agent 只记原因、原件引用与修复轨迹，作为历史反馈追加到研究状态清单。不读经济读数（已被遮蔽），不给所选方向记亏损，不给未测方向记失败，不改研究优先级，也不作任何复盘判据的依据；试验次数照计（<Ref id="G.1.2.1" />）。
+怎么修复：改过的源码就是新候选（candidate，<Ref id="C.1.1.2" />），按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review" /> 重新预检，经独立 Agent 审查后才能登记。代码在登记与绑定时拒绝以下情形：
+- 网格源码没有通过的预检审查件：拒绝（SOURCE_PRECHECK_REQUIRED）；
+- 审查件结论为失败或未定：拒绝（SOURCE_PRECHECK_FAILED）；
+- 已消耗的网格点不在原登记下重跑，再次绑定即拒绝（GRID_ALREADY_ATTEMPTED，<Ref id="H.4.2.1" />）；须另行登记，并以 retry_of 指向实际消耗它的先前登记；
+- 重用已执行过的源码而不写 retry_of：拒绝（SOURCE_ALREADY_EXPOSED，<Ref id="H.4.2.2" />）。
+源码未改的基础设施失败，同样另行登记并写 retry_of。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#repair-and-retry" />、<Ref id="eval:research-round/failure-is-repair-not-feedback" />
+
+**使用**　<Ref id="registration.validate" />、<Ref id="registration.bind" />、<Ref id="registration.register" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="eval:research-round/precheck-before-register" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 F1 完整性行与 F.3.2.3／F.3.2.4：无效只留原因，不给方向记失败，不进任何计数判据</p>
+
+</Cap>
+
+### F.1.2　读数的读法 [#F-1-2]
+
+代码提供两类数据：产品读数（闭仓利润来源拆分、按平仓年拆分、未平残差，<Ref id="report.run_report" />），以及经资格遮蔽的报告表（订单、成交、持仓、账户、日收益、敞口，<Ref id="report.tables" />）。skill 指导 Agent 何时读，怎样从报告表自算资金使用率与入场标签 × 出场原因拆分，并写进推荐理由。输入是经济证据可用运行的报告表，输出是注明总体与样本量、引用账本提交的描述统计。读数口径由 R 章定义（<Ref id="R.2.3.1" />、<Ref id="R.3.1.1" />），本组件只定时机与用法。
+
+<Cap id="F.1.2.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺从首个有效根起未经追问即报告这两项并写进推荐理由的演练记录。" title="从首个有效根起主动读资金使用率与利润来源">
+
+类型 skill：由 <Ref id="research-round/references/feedback.md#capital-and-profit-source" /> 指导，<Ref id="eval:research-round/capital-use-read-from-first-root" /> 检验；读数与遮蔽由代码强制，读的时机与用法只由 skill 指导。
+何时读：从研究路线（research line）里第一个经济证据可用的根节点（root）运行起，每个经济证据可用的运行都主动读，不等用户追问。源码中的仓位或资金预算规则（<Ref id="C.1.4.2" />）一有改动，该改动的运行必读。
+读什么：
+- 资金使用率（capital utilisation）：时间加权名义敞口、采样峰值、锁定保证金（margin）与在市时间，由 Agent 按 <Ref id="nautilus-report-analysis/SKILL.md#capital-utilisation" /> 从封存敞口表自算；
+- 利润来源拆分（profit attribution）：价格盈亏、手续费、资金费（funding）与未平残差，直接读产品读数，不另行自算。
+怎么用：两项写进推荐理由，并在反馈记录里引用运行与账本提交。账户收益差要连同两项一起解读（<Ref id="V.4.2.4" />）：资金使用率上升带来的收益差不算规则改善，不以放大仓位代替改善。
+拒绝：没有敞口表的运行不回答资金使用率，写明缺失；无资格运行的读数已被遮蔽，不读。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#capital-and-profit-source" />、<Ref id="eval:research-round/capital-use-read-from-first-root" />
+
+**使用**　<Ref id="nautilus-report-analysis/SKILL.md#capital-utilisation" />、<Ref id="report.tables" />、<Ref id="report.run_report" />、<Ref id="eval:research-round/account-difference-not-rescued-by-size" />
+
+</div>
+
+<p className="rd-resolves">首次定义；10-12 F.1.2.1「部件读数由代码派生」的口径归 R，本条只定何时读、怎么用</p>
+
+</Cap>
+
+<Cap id="F.1.2.2" kind="skill" tier="verified" tierLabel="已验证" title="按入场计划标签 × 出场原因拆贡献">
+
+类型 skill：由 <Ref id="nautilus-report-analysis/SKILL.md#exit-reason-split" /> 指导，<Ref id="eval:nautilus-report-analysis/exit-reason-split" /> 检验。
+输入：经济证据可用的运行，经 <Ref id="report.tables" /> 取得的订单表与持仓表。
+输出：一张交叉表，行是入场计划（plan）标签，列是出场原因；每格给闭仓数与闭仓净盈亏，价格盈亏、手续费、资金费分列。仍未平的仓位单列一行，不并入任何出场原因。
+出场原因只读自引擎原生记录，即持仓行平仓订单（closing_order_id）所带的标签或订单类型。引擎下架结算会生成无标签平仓单，这类单按 <Ref id="C.5.2.2" /> 的唯一对应规则只读归属，对应不上就记为未归属。不以盈亏符号、价格水平或距止损止盈的远近推断出场原因。
+拒绝：计划读数因缺标签、多标签或不一一对应而被置空时（<Ref id="C.5.2.1" />），该运行不出交叉表，只报原因。交叉表合计须等于产品闭仓拆分，不等就不引用（<Ref id="nautilus-report-analysis/SKILL.md#self-checks" />）。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="nautilus-report-analysis/SKILL.md#exit-reason-split" />、<Ref id="eval:nautilus-report-analysis/exit-reason-split" />
+
+**使用**　<Ref id="report.tables" />、<Ref id="nautilus-report-analysis/SKILL.md#before-computing" />
+
+**依据**　[\[63\]](/zh/docs/appendix-references/#ref-63 "freqtrade — Backtesting：Exit reason stats table 与 Mixed tag stats table") [\[64\]](/zh/docs/appendix-references/#ref-64 "NautilusTrader — Reports：Positions report")
+
+</div>
+
+<p className="rd-resolves">合并 10-12 F.1.2.2 未平仓位单列与 F.1.2.3 按原生平仓原因拆贡献</p>
+
+</Cap>
+
+### F.1.3　诊断顺序、判据与边界 [#F-1-3]
+
+全部由 skill 指导，代码不参与归类，账本不存部件字段。输入是 F.1.1 的资格结论与 F.1.2 的读数。Agent 按固定五步诊断（F.1.3.1），用五部件判据把事实归类（F.1.3.2），全程遵守只读边界（F.1.3.3）。输出是一份反馈记录，事实、未证解释与拟改动部件分开写，追加到研究状态清单后交给 F.2。
+
+<Cap id="F.1.3.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="诊断顺序">
+
+类型 skill：由 <Ref id="research-round/references/feedback.md#diagnosis-order" /> 指导，<Ref id="eval:research-round/diagnosis-order-before-hypothesis" /> 检验。
+一个登记网格跑完后，Agent 按固定五步诊断，前一步写完才进入下一步：
+1. 资格：实质活动与可比资格是否成立（<Ref id="research-round/references/feedback.md#availability-first" />）；不成立就止于诊断或修复，不进第 2 步。
+2. 钱从哪来：读利润来源拆分与资金使用率（<Ref id="research-round/references/feedback.md#capital-and-profit-source" />）；登记声明了比较对照时，同时读配对检验读数（效应、区间、p 与检验条件，<Ref id="report.compare" />）。
+3. 过程：订单漏斗、入场标签 × 出场原因的贡献（<Ref id="nautilus-report-analysis/SKILL.md#exit-reason-split" />）、持仓时长。
+4. 稳定性：收益是否只靠某一个平仓年、少数几天或少数合约（<Ref id="R.2.3.2" />、<Ref id="nautilus-report-analysis/SKILL.md#position-structure" />）。
+5. 机制：登记时写下的可反驳预测（<Ref id="H.3.1.1" />）是否相符。
+五步走完才提下一假设。每步写明引用的登记、运行与账本提交，事实与解释分开写。缺步或未走完就提假设，eval 判不通过。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#diagnosis-order" />、<Ref id="eval:research-round/diagnosis-order-before-hypothesis" />
+
+**使用**　<Ref id="research-round/references/feedback.md#availability-first" />、<Ref id="research-round/references/feedback.md#capital-and-profit-source" />、<Ref id="nautilus-report-analysis/SKILL.md#exit-reason-split" />、<Ref id="nautilus-report-analysis/SKILL.md#position-structure" />、<Ref id="report.compare" />
+
+</div>
+
+<p className="rd-resolves">合并 10-12 F.1.3.1–F.1.3.5 诊断顺序五条，加入「机制预测是否相符」，并把利润来源与资金使用率并入「钱从哪来」</p>
+
+</Cap>
+
+<Cap id="F.1.3.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺按五部件判据归类的演练诊断记录，以及部件判据可解析的外部依据。" title="五个部件判据">
+
+类型 skill：由 <Ref id="research-round/references/feedback.md#five-components" /> 指导。归类只写进研究状态清单的自由文本，账本不存部件字段，代码不校验归类。
+依据恒等式：闭仓净盈亏 ＝ 频次 × 规模 × 单位名义净优势，其中单位名义净优势 ＝ 毛优势 − 手续费 ＋ 资金费（资金费按方向可正可负）。三个因子相乘，所以胜率上升与收益下降可以同时出现，不能单看一个因子。
+Agent 用以下判据把诊断事实归入五个部件：
+- 毛边际：扣费前不赚，或只靠一个平仓年、少数几天；
+- 成本：扣费前为正，被手续费或资金费吃掉；
+- 尾部：少数亏损吃掉大部分利润，或回撤相对敞口过大；
+- 频率：单笔净优势为正，但计划太少；
+- 完整性：审计通过，但独立源码审查或自查发现写法、时钟或保护单问题。
+一个事实指向多个部件时，都写出并说明主次。部件是下一项研究动作的类别，供 F.2 定倾向（<Ref id="F.2.2.1" />）；它不是互相独立的利润来源，不按部件分摊盈亏。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#five-components" />
+
+**使用**　<Ref id="nautilus-report-analysis/SKILL.md#before-computing" />、<Ref id="report.tables" />、<Ref id="R.2.3.1" />
+
+</div>
+
+<p className="rd-resolves">合并 10-12 F.1.1.1／F.1.1.2 部件恒等式与 F.1.4.1–F.1.4.5 五个部件判据</p>
+
+</Cap>
+
+<Cap id="F.1.3.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="诊断只读">
+
+类型 skill：由 <Ref id="research-round/references/feedback.md#read-only-diagnosis" /> 指导，<Ref id="eval:research-round/l3-touch-not-pnl" /> 检验。不产生成交事实这一点由账本写入面强制：Agent 只能写自由文本与证据原件（<Ref id="J.2.4.1" />），成交只来自封存回放。
+诊断只读封存报告表（<Ref id="report.tables" />）与资格视图。Agent 自算的未成交计划价格触及、代理信号计数、反事实机会计数都不是试验（trial）：不写成交，不转成胜率、期望或盈亏，也不进比较。要知道一处改动的真实效果，只能发布新候选、登记并回放。
+结果异常好时，先查写法与审计，再谈经济解释。查三项：成交是否严格晚于决策 K 线收盘（<Ref id="C.3.1.2" />）、因果时钟、只减仓止损覆盖（<Ref id="G.3.3.1" />）。发现问题就撤回经济解释，经 <Ref id="registration.record_review" /> 把结论作为绑定源码与运行环境身份的审查结论追加，修复后的源码作为新候选登记（<Ref id="F.1.1.2" />）。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#read-only-diagnosis" />
+
+**使用**　<Ref id="eval:research-round/l3-touch-not-pnl" />、<Ref id="report.tables" />、<Ref id="registration.record_review" />、<Ref id="research-round/references/strategy-authoring.md#fill-after-decision" />、<Ref id="eval:research-round/same-clock-fill-is-defect" />
+
+</div>
+
+<p className="rd-resolves">合并 10-12 F.1.5.1–F.1.5.3 诊断边界</p>
+
+</Cap>
+
+## F.2　更新研究优先级：决定下一步改什么 [#F-2]
+
+研究优先级（research priority）是 Agent 写在研究状态清单里的研究状态，不是产品字段。输入是 F.1 的部件诊断、<Ref id="report.compare" /> 给出的配对比较读数和 <Ref id="report.research_status" /> 的事实计数。F.2.1 给下一项研究动作排序，并写明哪些结果不构成排除；F.2.2 把部件诊断转成改动方向的倾向；F.2.3 把选中的动作写成带推导链的下一假设（hypothesis）。结果追加到研究状态清单的「当前决定」一节，然后回 H 登记（registration）。代码只给读数与计数，不返回优先级、推荐分数或调度建议；判断由 research-round skill 指导。
+
+<Steps>
+
+<Step>
+
+读 F.1 的诊断、<Ref id="report.compare" /> 的配对读数、<Ref id="report.research_status" /> 的计数和 <Ref id="report.candidates" /> 的候选谱系。
+
+</Step>
+
+<Step>
+
+按 <Ref id="F.2.1.1" /> 给具体研究动作排序；按 <Ref id="F.2.1.2" /> 保留低优先级动作并写重评条件，不排除任何方向。
+
+</Step>
+
+<Step>
+
+按 <Ref id="F.2.2.1" /> 把部件诊断转成方向倾向；同时改变入场与出场的改动按 <Ref id="F.2.2.2" /> 合成一个动作。
+
+</Step>
+
+<Step>
+
+把三路来源（<Ref id="F.2.3.2" />）汇成候选假设，按 <Ref id="F.2.3.1" /> 写推导记录，选定研发父版本与比较对照（control）。
+
+</Step>
+
+<Step>
+
+经 <Ref id="ledger.add_bundle" /> 把排序、父与对照及理由追加为研究状态清单的新一版。
+
+</Step>
+
+<Step>
+
+回 H 提假设，经 <Ref id="registration.register" /> 登记后才回放。
+
+</Step>
+
+</Steps>
+
+### F.2.1　优先级的依据与边界 [#F-2-1]
+
+由 skill 指导，代码不强制。输入是配对比较读数、部件诊断和研究计数，输出是带依据的研究动作排序以及低优先级动作的重评条件，追加到研究状态清单。代码侧只读，不提供排序或排除视图。
+
+<Cap id="F.2.1.1" kind="skill" tier="verified" tierLabel="已验证" title="综合排序下一项研究动作">
+
+Agent 排序的对象是下一项具体研究动作，即一处登记的规则改动及其网格，不是候选的收益名次。排序依据六项：预期效应；不确定性，即 <Ref id="report.paired">配对检验</Ref> 给出的区间、p、块长敏感性与功效近似；机制佐证，即来源证据与诊断是否支持该机制；已探索覆盖，即谱系和研究状态清单里已试过的方向与条件；该动作的信息价值；执行成本，包括预检与回放耗时、网格点数。每条排序写明依据，并引用所读的运行（run）、登记和账本提交。输入只来自产品读数和计数。代码不返回优先级、推荐分数或调度建议，也不运行优化器：排序只借用「预测均值、方差与耗时共同决定下一试验」的思路，判断由 Agent 做。比较入口因无对照、不可比或任一侧无经济证据资格而拒绝的动作，不进入经济排序，只按 <Ref id="F.1.1.2" /> 修复。排序结果写进 <Ref id="research-round/references/state-list.md#current-decisions">当前决定</Ref> 的「下一动作优先级、所选父与对照及理由」，与推荐、复盘节奏分开写，三者互不推出。由 skill 强制，评测用例 <Ref id="eval:research-round/gross-negative-updates-priority" /> 检查毛边际为负时只更新优先级。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#priority-ranking" />、<Ref id="eval:research-round/gross-negative-updates-priority" />
+
+**使用**　<Ref id="report.compare" />、<Ref id="report.paired" />、<Ref id="report.research_status" />、<Ref id="report.candidates" />、<Ref id="research-round/references/state-list.md#current-decisions" />
+
+**依据**　[\[65\]](/zh/docs/appendix-references/#ref-65 "Snoek, Larochelle &amp; Adams 2012, arXiv:1206.2944")
+
+</div>
+
+<p className="rd-resolves">取代按大类排除的方向处置：经济结果只更新研究优先级</p>
+
+</Cap>
+
+<Cap id="F.2.1.2" kind="skill" tier="verified" tierLabel="已验证" title="不显著、亏损、零成交、低频都不是排除">
+
+以下结果都不构成经济排除，也不能据此宣称机制无效：配对比较不显著、参数亏损或毛边际为负、零成交、低频。p 是原假设成立时出现同等或更极端差值的尾部概率，不是机制有效的概率；没有达到登记时声明的显著性水平与最小改进（未校准示例值），只说明在本次检验条件下没有分辨出效应。零成交和缺匹配记录本身没有经济读数，只按 <Ref id="F.1.1.1" /> 做诊断。没测过的方向视为未知，不当作更好或更差。低优先级动作留在研究状态清单里，并写明何时重评（例如哪类新数据、新诊断或新来源到达）、凭什么重评。结果只在登记的适用条件（applicability conditions：源码、改动、参数、输入、窗口、运行环境）内成立，事后不收窄，也不扩大成对机制或方向大类的排除；执行与出场方向始终可研究。由 skill 强制；代码不提供排除视图、方向关闭标志或固定次数停止。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#no-exclusion" />
+
+**使用**　<Ref id="eval:research-round/gross-negative-updates-priority" />、<Ref id="eval:research-round/conditions-not-exclusion" />、<Ref id="research-round/references/feedback.md#p-and-threshold" />、<Ref id="research-round/references/hypothesis.md#conditions" />、<Ref id="research-round/references/state-list.md#history-feedback" />
+
+**依据**　[\[66\]](/zh/docs/appendix-references/#ref-66 "Wasserstein &amp; Lazar 2016, https://doi.org/10.1080/00031305.2016.1154108") [\[67\]](/zh/docs/appendix-references/#ref-67 "Amrhein, Greenland &amp; McShane 2019, https://doi.org/10.1038/d41586-019-00857-9") [\[68\]](/zh/docs/appendix-references/#ref-68 "Greenland et al. 2016, https://doi.org/10.1007/s10654-016-0149-3")
+
+</div>
+
+<p className="rd-resolves">取代「毛边际坏了不准调执行和出场」与固定次数判据</p>
+
+</Cap>
+
+### F.2.2　按部件定改动方向 [#F-2-2]
+
+由 skill 指导。输入是 <Ref id="F.1.3.2" /> 的部件归类，输出是候选改动方向及其倾向强弱，作为 F.2.1.1 排序依据之一，不是指令。一处同时改变入场与出场的改动按一个动作处理。
+
+<Cap id="F.2.2.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺部件倾向提出后经后续登记试验检验的演练记录。" title="部件到方向的倾向">
+
+按 <Ref id="research-round/references/feedback.md#five-components">五个部件</Ref> 的诊断给方向倾向。倾向只调整 <Ref id="F.2.1.1" /> 排序里的预期效应与机制佐证两项，不是指令。毛边际弱，偏向换信号或改进场条件。成本坏，偏向降频、改用挂单、延长持有，或避开资金费（funding）不利的方向。尾部坏，偏向改出场止损或按波动调整仓位。频率低，偏向扩选币规则、扩信号周期或放宽进场；选币规则（排名、前 N、筛选、数量）写在策略源码里，只在环境按月产出的共同可交易范围（universe）内取子集，改选币是一条假设。完整性坏，先修写法：修好的源码作为新候选，重新预检、审查后以 retry_of 登记，不计入经济反馈。执行与出场始终可研究，任何部件诊断都不关闭方向。由 skill 指导。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#component-tendencies" />
+
+**使用**　<Ref id="research-round/references/feedback.md#five-components" />、<Ref id="research-round/references/strategy-authoring.md#universe-selection-in-source" />、<Ref id="research-round/references/feedback.md#repair-and-retry" />、<Ref id="eval:research-round/gross-negative-updates-priority" />
+
+</div>
+
+<p className="rd-resolves">合并按部件定方向的五条，去掉记入方向大类的处置，扩币改为策略源码的选币规则</p>
+
+</Cap>
+
+<Cap id="F.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="联动改动按一个动作描述">
+
+一处实际规则改动如果同时改变入场与出场（例如同一阈值既决定进场又决定离场），就按一个联动动作登记和描述：一条假设、一个比较维度，不拆成两条假设，也不给某个部件记独立贡献。由既有规则推导出的量和未启用方法的参数，不算新的改动维度。部件归类描述的是研究动作的类别，不是利润来源归因；利润来源只读报告里价格盈亏、手续费、资金费的拆分。代码侧由 <Ref id="registration.validate" /> 核对每个网格点的父与改动等于登记，不符即拒绝登记；改动粒度的判断由 skill 指导，评测用例 <Ref id="eval:research-round/coupled-change-one-action" />。演练中，联动的阈值改动按一个动作登记和说明。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#coupled-action" />、<Ref id="eval:research-round/coupled-change-one-action" />
+
+**使用**　<Ref id="research-round/SKILL.md#one-change" />、<Ref id="registration.validate" />、<Ref id="registration.register" />、<Ref id="ledger.readings" />
+
+</div>
+
+<p className="rd-resolves">与 H.1.1.3 的改动粒度一致，本条写反馈侧的归类</p>
+
+</Cap>
+
+### F.2.3　下一假设的来源与推导记录 [#F-2-3]
+
+由 skill 指导。三路来源统一写成候选假设并附推导链，再回 H 登记；推导记录和更正经 <Ref id="ledger.add_bundle" /> 只追加，原始登记由账本只追加保证不被改写。输入是 F.2.1 的排序和 F.2.2 的方向，输出是可登记的假设草稿和研究状态清单条目。
+
+<Cap id="F.2.3.1" kind="skill" tier="verified" tierLabel="已验证" title="下一假设的推导记录">
+
+每条下一假设的推导记录写五项：观察事实，引用运行、登记和账本提交；待验证的机制解释，标明未证；拟改动的部件和那一处规则改动；与历史候选及其适用条件的关系，即哪些候选在什么条件下试过相近方向、本次条件有何不同；选定的研发父版本（parent）、比较对照和理由。记录作为研究状态清单的新一版，经 <Ref id="ledger.add_bundle" /> 只追加，同内容重试幂等。回放后的诊断和更正只追加到后续条目的备注；已登记的原始计划、理由和来源三分类保持原样，不事后补背书、不改标。登记不可变由账本只追加强制，记录格式由 skill 指导。每个考虑过的视角和尝试都记为搜索暴露。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#next-hypothesis-record" />
+
+**使用**　<Ref id="research-round/references/state-list.md#update-rules" />、<Ref id="research-round/references/hypothesis.md#five-items" />、<Ref id="ledger.add_bundle" />、<Ref id="eval:research-round/later-source-appended-not-backfilled" />
+
+**依据**　[\[38\]](/zh/docs/appendix-references/#ref-38 "Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114") [\[39\]](/zh/docs/appendix-references/#ref-39 "Arnott, Harvey &amp; Markowitz 2019, https://doi.org/10.3905/jfds.2019.1.064")
+
+</div>
+
+<p className="rd-resolves">吸收假设来源中「写明与历史的关系」部分</p>
+
+</Cap>
+
+<Cap id="F.2.3.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="假设的三路来源">
+
+下一假设有三路来源：报告诊断与反馈（F.1 的诊断和 V 的比较读数）；用户补充的信息或想法；提假设前的来源研究，即按 research-sources 检索的论文与可信实践。三路都写成路线内的候选假设，标明理由属于外部依据、本地诊断还是自身推测，然后走登记五样、原生预检与独立审查、登记后回放、比较证据这一整条路径。不因为来源是用户或论文就免登记，也不直接改源码回放。来源只影响优先级，不证明在本市场有效；没有论文支持的方向仍可低优先级探索。由 skill 指导；登记先于回放由 <Ref id="registration.register" /> 和 <Ref id="registration.bind" /> 在代码中强制，评测用例 <Ref id="eval:research-round/user-idea-registered-as-hypothesis" />。演练中，三路来源的假设都经登记后才回放。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/feedback.md#three-sources-of-hypotheses" />、<Ref id="eval:research-round/user-idea-registered-as-hypothesis" />
+
+**使用**　<Ref id="research-round/SKILL.md#sources-first" />、<Ref id="research-start/SKILL.md#user-input-at-selection" />、<Ref id="research-sources/SKILL.md#support-and-practice" />、<Ref id="eval:research-round/source-three-classes" />、<Ref id="registration.bind" />
+
+</div>
+
+<p className="rd-resolves">合并假设来源三条，加入来源研究一路</p>
+
+</Cap>
+
+## F.3　复盘与推荐：次数触发，研究默认持续 [#F-3]
+
+复盘（review）由计数触发，不终止研究。F.3.1 判断是否到了复盘：代码从账本给出研究计数，Agent 按自己在研究状态清单（knowledge list）里声明的节奏触发。F.3.2 规定复盘的内容：在全部经济证据可用的候选上综合给出推荐（recommendation），并与下一实验的研发父版本（parent）和比较对照（control）分开决定。F.3.3 决定复盘后的去向：路线内继续或调整由 Agent 定，换研究路线（research line）或选新根节点则回入口由用户选。代码只提供计数、候选清单与产品读数这三个只读读口，判断、推荐与去向全部由 skill 指导，结果作为状态清单的新版本经 <Ref id="ledger.add_bundle" /> 只追加入账。
+
+<Steps>
+
+<Step>
+
+每次读完比较证据并更新研究优先级后，Agent 读 <Ref id="report.research_status" /> 的计数，对照状态清单里声明的复盘节奏判断是否到达；未到达则继续登记下一实验。
+
+</Step>
+
+<Step>
+
+到达即复盘：读 <Ref id="report.candidates" /> 的全部候选与各运行的 <Ref id="report.run_report" /> 读数，在全部经济证据可用的候选上多维综合，推荐一版或一批。
+
+</Step>
+
+<Step>
+
+分别写下推荐与取舍、下一实验的父版本与对照及理由、更新后的复盘节奏，作为研究状态清单的新版本经 <Ref id="ledger.add_bundle" /> 追加入账。
+
+</Step>
+
+<Step>
+
+在当前研究路线内继续或调整方向由 Agent 定，然后回到提假设与登记。
+
+</Step>
+
+<Step>
+
+需要换研究路线或选新根时，Agent 给出诊断与选项并以提问结束；用户选定后经 <Ref id="ledger.select_line" /> 写新的路线记录，再登记和回放。
+
+</Step>
+
+</Steps>
+
+### F.3.1　复盘的触发与计数 [#F-3-1]
+
+计数由代码从账本给出（只读，没有停止标志）；复盘节奏由 Agent 按 skill 在状态清单里声明，Agent 只负责解释计数。输入是研究计数与状态清单里的节奏，输出是本次是否复盘及其理由。
+
+<Cap id="F.3.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="复盘读代码给出的研究计数">
+
+复盘时用到的次数一律读自 <Ref id="report.research_status" />，它从账本按 <Ref id="R.4.2.1" /> 的口径分列给出：尝试、审计通过、经济可用、仅诊断、无效、未完成，以及样本外登记状态，并附账本提交。Agent 引用这些分项、解释它们的含义；不自评进度，不自己数尝试次数，也不按会话记忆计数。可比候选数取经济可用数，经济可用由资格视图 <Ref id="qualification.assess" /> 判定，审计通过数不能当作可比候选数。读口只读，不返回停止标志、目标或分数，所以本条没有拒绝码：代码保证计数是事实，解释上的偏差由 <Ref id="eval:research-round/counts-read-not-self-assessed" /> 检出。演练中出现过把审计通过当成有效的情况，之后改为按资格视图计数。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/SKILL.md#counts-from-code" />、<Ref id="eval:research-round/counts-read-not-self-assessed" />
+
+**使用**　<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="R.4.2.1" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 F.3.2.1／F.3.2.2：计数由代码分列给出，Agent 只解释；不存在通过或否决事件</p>
+
+</Cap>
+
+<Cap id="F.3.1.2" kind="skill" tier="verified" tierLabel="已验证" title="次数只触发复盘">
+
+Agent 在研究状态清单的「复盘节奏」一节（<Ref id="research-round/references/state-list.md#current-decisions" />）声明节奏及理由：按尝试次数（例如每 5 次尝试，未校准示例值），或按进展事件（例如一批网格跑完、出现实质故障）。节奏可以在每次复盘时修改，修改要写理由。节奏到达只触发复盘，复盘完继续研究；不预设总次数或总预算，没有任何固定次数的停止规则。用户设的运行限制（时长、次数、花费）只暂停执行（<Ref id="research-start/SKILL.md#pause-and-resume" />）：账本里的登记与未消耗的网格点都保留，恢复后接着做，不能据此判定方向无效。代码不设停滞计数器，也没有停止字段（<Ref id="report.research_status" /> 不返回这类信息），因此本条由 skill 指导，<Ref id="eval:research-round/review-is-not-stop" /> 检验。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/SKILL.md#review-cadence" />、<Ref id="eval:research-round/review-is-not-stop" />
+
+**使用**　<Ref id="research-round/references/state-list.md#current-decisions" />、<Ref id="research-start/SKILL.md#pause-and-resume" />、<Ref id="report.research_status" />
+
+**依据**　[\[69\]](/zh/docs/appendix-references/#ref-69 "Microsoft RD-Agent — rdagent/utils/workflow/loop.py（固定提交 484776c）")
+
+</div>
+
+<p className="rd-resolves">删除 10-12 F.3.1.1／F.3.1.2 的固定次数停止判据；10-12 待定项「连续次数门槛参数值」「次数门槛由产品报还是 skill 对」随之消失</p>
+
+</Cap>
+
+### F.3.2　复盘的内容 [#F-3-2]
+
+由 skill 指导：读代码给出的候选清单与经资格视图遮蔽的读数，在全部经济证据可用的候选上综合推荐并写明取舍；推荐与下一实验的父版本、比较对照分开决定。父与对照能否登记由登记入口在代码里核对。输入是候选清单与产品读数，输出是写进状态清单的推荐及理由。
+
+<Cap id="F.3.2.1" kind="skill" tier="verified" tierLabel="已验证" title="在全部可比候选上综合推荐">
+
+复盘的比较范围是截至当时全部经济证据可用的候选（candidate，引用名 strategy_id@revision），包括历史候选、非最新版本和其他研究路线上的候选。范围从 <Ref id="report.candidates" /> 取：它列出全部候选的源码身份、父与改动、每个登记尝试的运行状态与当前经济证据可用性，不带分数和排序。每个候选的读数从 <Ref id="report.run_report" /> 取：已经过资格视图遮蔽，附总体与样本量和局限清单。Agent 按 <Ref id="research-start/SKILL.md#option-readings" /> 的各维综合比较：年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释与不确定性。读数缺失时写原因，不自行补数。可以按 <Ref id="nautilus-report-analysis/SKILL.md#pareto-range" /> 自算非劣集来描述推荐范围，但非劣集不是资格，也不是排序。输出是推荐一版或一批，写明各维之间的取舍和保留的参考版；不只比最近几版，也不等后续候选研究完。仅诊断与无效的运行另列，不参加推荐。推荐理由作为研究状态清单的新版本经 <Ref id="ledger.add_bundle" /> 追加入账。推荐不等于样本外验证（validation，只由用户发起，见 <Ref id="X.1.1.1" />），也不等于上线。入口呈现推荐（<Ref id="E.3.1.1" />）时引用本条的判据。本条由 skill 指导，代码只给出不带排序的读口，由 <Ref id="eval:research-round/all-comparable-candidates" /> 检验。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/SKILL.md#review-and-recommendation" />、<Ref id="eval:research-round/all-comparable-candidates" />
+
+**使用**　<Ref id="report.candidates" />、<Ref id="report.run_report" />、<Ref id="research-start/SKILL.md#option-readings" />、<Ref id="nautilus-report-analysis/SKILL.md#pareto-range" />、<Ref id="nautilus-report-analysis/SKILL.md#selection-reminders" />、<Ref id="ledger.add_bundle" />
+
+**依据**　[\[70\]](/zh/docs/appendix-references/#ref-70 "Wiecki, Campbell, Lent &amp; Stauth 2016, https://doi.org/10.3905/joi.2016.25.3.069")
+
+</div>
+
+<p className="rd-resolves">10-12 版无对应条目；E.3.1.1 入口呈现引用本条判据，不另定义</p>
+
+</Cap>
+
+<Cap id="F.3.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="推荐与下一实验分开">
+
+推荐候选、下一实验的研发父版本和比较对照是三项独立决定，各写各的理由。推荐候选不必是下一实验的父版本：父可以是候选谱系（lineage，见 <Ref id="table:candidate" />）中任一完整候选（<Ref id="research-round/SKILL.md#parent-and-control" />）。对照必须是经济证据可用的可比运行，但不必是父的运行。父与对照及其理由写进登记，由 <Ref id="registration.register" /> 入账，登记内的理由与谱系边由此可查。代码在登记时强制两点：<Ref id="registration.validate" /> 分别核对父与对照，根节点不得带对照；对照经 <Ref id="qualification.require" /> 核资格，不可用即拒绝登记并返回原因。推荐与父是否分开由 skill 指导，由 <Ref id="eval:research-round/recommendation-not-next-parent" /> 检验。演练中，登记时选的父与当时的推荐候选不同，对照与父也分别声明。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />、<Ref id="eval:research-round/recommendation-not-next-parent" />
+
+**使用**　<Ref id="registration.register" />、<Ref id="registration.validate" />、<Ref id="qualification.require" />、<Ref id="research-round/SKILL.md#parent-and-control" />、<Ref id="table:candidate" />
+
+</div>
+
+<p className="rd-resolves">10-12 版无对应条目；10-12 E.3.3.2、T.3.3.2 的重复条目改引用本条</p>
+
+</Cap>
+
+### F.3.3　复盘后的去向 [#F-3-3]
+
+由 skill 指导：在用户选定的路线内，继续还是调整由 Agent 自主决定；换路线或选新根时交回用户选。代码在这里强制一点：登记只能绑定当前的路线记录，而新的路线记录只能经 <Ref id="ledger.select_line" /> 写入。输入是复盘结论，输出是继续、调整方向、回入口三者之一及其依据。
+
+<Cap id="F.3.3.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="路线内继续或调整由 Agent 定">
+
+复盘后，在用户选定的研究路线内继续当前方向还是调整方向，由 Agent 自主决定，依据写进研究状态清单。转向看相对研究价值（按 <Ref id="F.2.1.1" /> 综合排序下一项研究动作），不要求证明旧方向价值归零。旧方向按 <Ref id="F.2.1.2" /> 保留：不显著、亏损、零成交、低频都不构成排除（<Ref id="research-round/references/feedback.md#no-exclusion" />）；它的适用条件和重评条件记在状态清单的历史反馈里（<Ref id="research-round/references/state-list.md#history-feedback" />）。路线内的调整不需要用户批准，也不回入口。演练中，路线内的方向由 Agent 自主从规模转到过滤，再回到规模；旧参数在新条件下重评结果不利，但仍保留重评。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/SKILL.md#continue-within-route" />
+
+**使用**　<Ref id="F.2.1.1" />、<Ref id="F.2.1.2" />、<Ref id="research-round/references/feedback.md#no-exclusion" />、<Ref id="research-round/references/state-list.md#history-feedback" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 F.3.3.1「次数到达后不续提假设、回入口重选」：路线内自主继续</p>
+
+</Cap>
+
+<Cap id="F.3.3.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次演练记录：演练中出现换路线或选新根的需求，Agent 给出选项并等用户选。" title="换路线或选新根回入口由用户选">
+
+需要换研究路线或选新根节点时，Agent 回到入口，给出诊断和选项（每个选项附读数与资格），以提问结束，等用户选择（<Ref id="research-start/SKILL.md#user-selects-route" />），不能用推荐代替用户的选择。只有在没有候选，或用户明确离开全部路线时，才从模板提根选项（<Ref id="research-start/SKILL.md#root-options" />）。亏损、低优先级、复盘计数、运行限制或运行故障都不会自动触发换路线或选新根。用户选定后，经 <Ref id="ledger.select_line" /> 把起点候选、开发窗口和钉住的市场提交写成新版本的路线记录；在此之前不登记、不回放。代码的约束是：<Ref id="registration.validate" /> 要求登记的窗口等于当前路线记录，所以未经新路线记录无法在新路线上登记。是否等用户选择由 skill 指导，由 <Ref id="eval:research-start/route-change-waits-for-user" /> 检验。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/SKILL.md#route-change" />
+
+**使用**　<Ref id="research-start/SKILL.md#user-selects-route" />、<Ref id="research-start/SKILL.md#root-options" />、<Ref id="ledger.select_line" />、<Ref id="registration.validate" />、<Ref id="eval:research-start/route-change-waits-for-user" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 F.3.3.1 的「回入口重选」部分：由用户选，计数不自动触发</p>
+
+</Cap>
+
+## 待定事项 [#F-pending]
+
+**待用户定**
+
+- **诊断判据看绝对读数还是配对差**　建议默认：部件判据读候选自身绝对读数（R 口径，注明总体）；相对比较对照的改善只读配对读数（V 口径）；两者并列不混用
+- **三篇 Agent 自评预印本是否够格作依据**　F.3.1.1 的依据按演练证据写，不引这些预印本；用户认可后再补
+
+- **不进文档**　具体排序算法（Thompson sampling、贝叶斯优化、BOCS／COMBO）：用户已定不设优化器或推荐分数；F.2.1.1 只写排序依据，Snoek 2012 只作排序原则依据
+- **不进文档**　复盘触发次数的具体值：复盘节奏是 Agent 在研究状态清单声明的方法示例值，不是产品常数，正文不写数
+- **不进文档**　诊断看网格哪个点：归 V：比较对每个运行各给读数，F 可读全部点；是否选代表点由 V 定
+- **不进文档**　部件判据的文献依据（AFML 第 14 章、Kaminski & Lo 2014）：Kaminski & Lo 2014 只覆盖尾部→止损出场一项，AFML DOI 未解析；F.1.3.2 与 F.2.2.1 保持待验证
+- **不进文档**　交互实验（缺失组合与单规则改进共同比较信息价值与完整成本）：只在 H 章留一句并标待验证，F 不收

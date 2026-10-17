@@ -1,0 +1,1388 @@
+# 代码设计：引擎运行器与审计器
+
+`engine/`　运行环境内的运行器、原生报告写出与独立审计器。运行器只装载源码、固定账户与撮合配置、接入导出数据；交易事实全由引擎产生；审计器只读报表对账。不知道账本。
+
+每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
+
+<Files>
+<Folder name="engine" defaultOpen>
+  <File name="audit.py" />
+  <File name="compare_reports.py" />
+  <File name="config.py" />
+  <File name="load.py" />
+  <File name="report.py" />
+  <File name="run.py" />
+</Folder>
+</Files>
+
+## `engine/audit.py` [#def-mod-engine-audit-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.audit">audit</Ref> | 读摘要后执行通用审计，不导入策略源码 |
+| <Ref id="engine.audit_main">audit_main</Ref> | 审计器进程入口；报表不全不运行；以退出码报告通过与否 |
+| <Ref id="engine.event_report_findings">event_report_findings</Ref> | 事件史与订单、成交报表完全一致、有序、不换范围 |
+| <Ref id="engine.generic_audit">generic_audit</Ref> | 字段齐全→身份→被否被拒→保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限 |
+| <Ref id="engine.generic_result">generic_result</Ref> | 每次结果写明审计查什么、不查什么，附报表哈希与计数 |
+| <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> | 未定价终止前每个原生仓位归零且全部订单已结束；终止时刻及之后的订单事件视为迟到 |
+| <Ref id="engine.protection">protection</Ref> | 沿事件史重建保护覆盖；事件史缺失即发现；按源码声明决定裸仓是拒绝还是只报告 |
+| <Ref id="engine.uncovered_intervals">uncovered_intervals</Ref> | 同一纳秒事件一起应用后读状态；持仓超出只减仓止损覆盖量并持续超过一根执行 K 线才成裸仓区间 |
+
+### `audit` [#def-engine-audit]
+
+读摘要后执行通用审计，不导入策略源码
+
+```python
+def audit(run_dir: Path) -> dict
+```
+
+<TypeTable type={{ "run_dir": { type: "Path", description: "报表目录；summary.json 必须在其中" } }} />
+
+**返回**　dict：generic_result 形态的审计结果 \{run, scope, file_sha256, native_orders, native_fills, native_positions, native_economics, strategy_uses_stop_loss, native_order_events, uncovered_intervals, coverage_limits, findings, passed\}
+
+**期望行为**
+
+1. 读取并解析 run_dir/summary.json 为原生摘要字典；缺失、不可读或不是 JSON 对象即 SUMMARY_UNREADABLE。
+2. 把报表目录与摘要交给 generic_audit，对所有策略执行同一套检查。
+3. 原样返回结果；不按策略区别处理，不读策略源码，不读账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SUMMARY_UNREADABLE` | summary.json 缺失、不可读或不是 JSON 对象 |
+
+**使用**　<Ref id="engine.generic_audit" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.1.1" />
+
+**使用于**　<Ref id="A.2.1.1" />、<Ref id="A.4.1.1" />、<Ref id="A.4.2.2" />、<Ref id="G.1.1.1" />
+
+</div>
+
+### `audit_main` [#def-engine-audit_main]
+
+审计器进程入口；报表不全不运行；以退出码报告通过与否
+
+```python
+def audit_main(run_dir: Path, output_path: Path) -> None
+```
+
+<TypeTable type={{ "run_dir": { type: "Path", description: "运行器写出的报表目录（只读）：summary.json、orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、order_events.jsonl.gz；覆盖回执 input-coverage.json 位于其上一级目录" }, "output_path": { type: "Path", description: "审计结果文件路径（JSON），位于唯一可写的审计输出目录；父目录不存在则创建" } }} />
+
+**返回**　None；退出码 0 = 通过，1 = 有发现（结果已写），2 = 报表不全或摘要不可读、审计未运行（不写结果文件）
+
+**期望行为**
+
+1. 核对报表集合齐全：摘要、五张报表与订单事件史均存在且非空；任一缺失即 REPORTS_INCOMPLETE，退出码 2，不写结果文件。
+2. 调用 audit 读摘要并执行通用审计；摘要不可读即 SUMMARY_UNREADABLE，退出码 2。
+3. 把结果原样写入 output_path（含 scope、coverage_limits、报表哈希、计数、findings、passed）。
+4. passed 为假即 AUDIT_FINDINGS，退出码 1；为真退出码 0。进程全程不导入策略源码，不读账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REPORTS_INCOMPLETE` | 报表目录缺任一必需报表或订单事件史：审计不运行，退出码 2，无结果文件 |
+| `SUMMARY_UNREADABLE` | summary.json 不存在或不是合法 JSON 对象：退出码 2 |
+| `AUDIT_FINDINGS` | 审计结果 passed 为假：结果文件已写出，退出码 1 |
+
+**使用**　<Ref id="engine.audit" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.1.1" />
+
+</div>
+
+### `event_report_findings` [#def-engine-event_report_findings]
+
+事件史与订单、成交报表完全一致、有序、不换范围
+
+```python
+def event_report_findings(
+    events: list[dict],
+    orders: list[dict],
+    fills: list[dict],
+) -> list[str]
+```
+
+<TypeTable type={{ "events": { type: "list[dict]", description: "订单事件史：按订单分组、组内按引擎原生顺序，每条含 client_order_id、事件类型、ts_event、范围字段、数量、方向、类型与成交字段（event_id、trade_id、last_qty）" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" } }} />
+
+**返回**　list[str]：不一致发现，每条带 client_order_id（成交项另带 event_id、trade_id）
+
+**期望行为**
+
+1. 订单集合：事件史涉及的 client_order_id 集合必须等于订单报表集合，多出或缺少均记 EVENT_ORDER_SET_MISMATCH。
+2. 每个订单的事件以唯一一个初始化事件开头（EVENT_NOT_INITIALIZED），后续时间不倒序（EVENT_OUT_OF_ORDER），strategy_id、instrument_id、account_id 在全部事件中不变（EVENT_SCOPE_CHANGED）。
+3. 事件史推出的终态、数量、已成交量、方向、类型与订单报表逐项相等（EVENT_ORDER_STATE_MISMATCH）。
+4. 事件史成交与成交报表按 event_id、trade_id、数量、时间逐一匹配，多出或缺少均记 EVENT_FILL_MISMATCH。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EVENT_ORDER_SET_MISMATCH` | 事件史与订单报表的订单集合不相等 |
+| `EVENT_NOT_INITIALIZED` | 订单无初始化事件、初始化事件多于一个或不在首位 |
+| `EVENT_OUT_OF_ORDER` | 同一订单内事件时间倒序 |
+| `EVENT_SCOPE_CHANGED` | 同一订单事件间范围字段变化 |
+| `EVENT_ORDER_STATE_MISMATCH` | 终态、数量、已成交量、方向或类型与订单报表不符 |
+| `EVENT_FILL_MISMATCH` | 事件史成交与成交报表在 event_id、trade_id、数量或时间上不一致 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.2.1" />
+
+**使用于**　<Ref id="G.3.2.2" />、<Ref id="G.3.3.1" />
+
+**依据**　[\[125\]](/zh/docs/appendix-references/#ref-125 "NautilusTrader — Reports") [\[91\]](/zh/docs/appendix-references/#ref-91 "NautilusTrader — Orders")
+
+</div>
+
+### `generic_audit` [#def-engine-generic_audit]
+
+字段齐全→身份→被否被拒→保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限
+
+```python
+def generic_audit(run_dir: Path, summary: dict) -> dict
+```
+
+<TypeTable type={{ "run_dir": { type: "Path", description: "报表目录；读 orders.csv、fills.csv、positions.csv、account.csv 与订单事件史，覆盖回执 input-coverage.json 从上一级目录读" }, "summary": { type: "dict", description: "原生摘要：integrity_passed、denied_orders、rejected_orders、starting_balance_usdt、final_equity_usdt、period_end_utc、strategy_uses_stop_loss、per_coin 逐合约事件计数" } }} />
+
+**返回**　dict：generic_result 形态；findings 为空即 passed；native_economics 含期初与期末余额、已实现盈亏、成交佣金合计、资金费调整条数与金额、并发成交时刻数
+
+**期望行为**
+
+1. 字段与身份：四张报表每行必含 strategy_id、instrument_id、account_id 与各自必需列（REPORT_FIELDS_MISSING）；订单状态只允许已知终态或在途态（ORDER_STATUS_UNKNOWN）；client_order_id 与 position_id 非空且唯一（IDENTITY_MISSING_OR_DUPLICATED）。
+2. 被否被拒：摘要 integrity_passed 为假或报表中存在 DENIED/REJECTED 订单即 INTEGRITY_REPORTED_FAILED；两类计数与摘要自报不符另记 DENIED_REJECTED_COUNT_MISMATCH；不区分原因。
+3. 保护与终止：调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
+4. 逐项对账（只比引擎产出，不重算）：成交对应唯一同范围订单、filled_qty 等于成交量和、FILLED 满额（ORDER_FILL_MISMATCH）；持仓事件恰好覆盖全部成交一次且买卖量、净量、开平仓订单、佣金一致（POSITION_FILL_COVERAGE_MISMATCH）；资金费只认 FUNDING 类型并在无并发成交的时刻等于账户总额变动（FUNDING_BALANCE_MISMATCH）；账户每行 total = locked + free、币种一致、时间有序、同一账户（ACCOUNT_REPORT_INCONSISTENT）。
+5. 汇总核对：期初余额等于摘要；期末余额减期初等于已实现盈亏；期末无持仓时期末余额等于摘要期末权益；闭仓与盈利计数等于持仓报表统计（SUMMARY_TOTALS_MISMATCH）。
+6. 任何解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID 而不中止；最后交 generic_result 组装结果，并发成交时刻数写入 native_economics。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REPORT_FIELDS_MISSING` | 任一报表缺必需列或范围字段 |
+| `ORDER_STATUS_UNKNOWN` | 订单状态不在已知终态或在途态集合 |
+| `IDENTITY_MISSING_OR_DUPLICATED` | client_order_id 或 position_id 为空或重复 |
+| `INTEGRITY_REPORTED_FAILED` | 摘要 integrity_passed 为假，或存在 DENIED/REJECTED 订单 |
+| `DENIED_REJECTED_COUNT_MISMATCH` | 报表统计的被否或被拒数与摘要自报不符 |
+| `LIFECYCLE_COVERAGE_MISSING` | 摘要含状态或关闭事件计数但覆盖回执缺失 |
+| `ORDER_FILL_MISMATCH` | 成交找不到唯一同范围订单、filled_qty 不等于成交量和、FILLED 未满额、数量或方向非法 |
+| `POSITION_FILL_COVERAGE_MISMATCH` | 持仓事件未恰好覆盖全部成交一次，或买卖量、净量、开平仓订单、佣金与成交不一致 |
+| `FUNDING_BALANCE_MISMATCH` | 出现非 FUNDING 类型调整，或某无并发成交时刻的资金费与账户总额变动不等 |
+| `ACCOUNT_REPORT_INCONSISTENT` | total ≠ locked + free、币种不一致、时间倒序或跨账户 |
+| `SUMMARY_TOTALS_MISMATCH` | 期初余额、已实现盈亏、无持仓时的期末权益或闭仓与盈利计数与摘要不一致 |
+| `REPORT_PAYLOAD_INVALID` | 任一报表字段类型错误、算术或读取异常 |
+
+**使用**　<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.2.2" />
+
+**使用于**　<Ref id="C.2.1.1" />、<Ref id="C.2.1.3" />、<Ref id="G.1.2.2" />、<Ref id="G.3.1.1" />、<Ref id="G.3.1.2" />、<Ref id="G.3.2.3" />、<Ref id="G.3.2.4" />、<Ref id="R.1.1.2" />、<Ref id="R.2.3.1" />
+
+**依据**　[\[125\]](/zh/docs/appendix-references/#ref-125 "NautilusTrader — Reports") [\[10\]](/zh/docs/appendix-references/#ref-10 "NautilusTrader — Accounts and margin")
+
+</div>
+
+### `generic_result` [#def-engine-generic_result]
+
+每次结果写明审计查什么、不查什么，附报表哈希与计数
+
+```python
+def generic_result(
+    run_dir: Path,
+    orders: list[dict],
+    fills: list[dict],
+    positions: list[dict],
+    findings: list[str],
+    economics: dict,
+    protection: dict | None,
+) -> dict
+```
+
+<TypeTable type={{ "run_dir": { type: "Path", description: "报表目录，用于逐文件计算 SHA-256" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "positions": { type: "list[dict]", description: "持仓报表行" }, "findings": { type: "list[str]", description: "全部发现；每条带定位（订单号、持仓号、品种、时刻）" }, "economics": { type: "dict", description: "对账后的 native_economics；对账未完成时为空字典" }, "protection": { type: "dict | None", description: "protection 返回的 info：strategy_uses_stop_loss、native_order_events、uncovered_intervals" } }} />
+
+**返回**　dict：\{run, scope, file_sha256（摘要、五张报表、事件史逐文件）, native_orders, native_fills, native_positions, native_economics, strategy_uses_stop_loss, native_order_events, uncovered_intervals, coverage_limits, findings, passed\}
+
+**期望行为**
+
+1. 对存在的报表文件逐个计算 SHA-256 写入 file_sha256，供入账与资格视图核对原件未变。
+2. 写入订单、成交、持仓三类报表行数作为原生计数。
+3. scope 固定写：原生报表身份、链接、保护历史与自报经济数。
+4. coverage_limits 固定写不查项：不重建信号与目标几何；保护只比只减仓止损未成交量不比价格；同一纳秒事件一起应用且容忍至多一根执行 K 线的未覆盖；资金费只认原生调整不按费率重算；并发成交时刻不对账资金费；有持仓时不对账期末权益。
+5. 合入 protection 信息与 economics，passed = findings 为空；本函数不产生新发现。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.1.2" />
+
+**使用于**　<Ref id="G.3.2.2" />、<Ref id="G.3.2.3" />、<Ref id="R.1.3.4" />
+
+</div>
+
+### `lifecycle_findings` [#def-engine-lifecycle_findings]
+
+未定价终止前每个原生仓位归零且全部订单已结束；终止时刻及之后的订单事件视为迟到
+
+```python
+def lifecycle_findings(
+    lifecycle: list[dict],
+    orders: list[dict],
+    fills: list[dict],
+    positions: list[dict],
+    events: list[dict],
+) -> list[str]
+```
+
+<TypeTable type={{ "lifecycle": { type: "list[dict]", description: "lifecycle_events 从覆盖回执与摘要构造并核对过的事件：{type ∈ InstrumentStatus | InstrumentClose, instrument_id, ts_event, action, close_price}" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "positions": { type: "list[dict]", description: "持仓报表行（events 列为该仓位的成交 event_id 列表）" }, "events": { type: "list[dict]", description: "订单事件史" } }} />
+
+**返回**　list[str]：发现列表，每条带品种与终止时刻，订单项带 client_order_id，持仓项带 position_id
+
+**期望行为**
+
+1. 找出未定价终止：状态事件 action = CLOSE 且同一品种同一时刻无 InstrumentClose；有价终止由引擎自行结算，照常走 generic_audit 对账，本函数不处理，也不造结算价。
+2. 先核证据一致：持仓 events 恰好覆盖该品种全部成交一次、事件史成交与成交报表相符；否则 LIFECYCLE_EVIDENCE_INCONSISTENT，不继续重放。
+3. 对每个未定价终止品种，沿事件史按时间重放到终止时刻之前：登记每个订单的接受与结束状态，按成交方向更新每个（strategy_id, account_id, position_id）的净量。
+4. 终止时刻前任一原生仓位净量不为零记 POSITION_OPEN_AT_TERMINATION；任一订单（含休眠与条件单）未成交完、未结束或有在途修改记 ORDER_OPEN_AT_TERMINATION。
+5. 终止时刻及之后该品种的任何订单事件（成交、撤单、修改、过期）逐条记 LATE_ORDER_EVENT。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LIFECYCLE_EVIDENCE_INCONSISTENT` | 持仓事件未恰好覆盖成交、事件史成交与报表不符、未知事件类型或非正数量 |
+| `POSITION_OPEN_AT_TERMINATION` | 未定价终止时刻前某原生仓位净量不为零 |
+| `ORDER_OPEN_AT_TERMINATION` | 未定价终止时刻前某订单未成交完或未结束，或有在途修改 |
+| `LATE_ORDER_EVENT` | 终止时刻及之后出现该品种的订单事件 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.3.3" />
+
+**使用于**　<Ref id="C.1.4.3" />、<Ref id="C.5.2.2" />、<Ref id="W.3.2.2" />、<Ref id="G.1.2.2" />、<Ref id="G.3.2.2" />、<Ref id="G.4.1.1" />
+
+**依据**　[\[87\]](/zh/docs/appendix-references/#ref-87 "Binance — Delisting of futures contracts")
+
+</div>
+
+### `protection` [#def-engine-protection]
+
+沿事件史重建保护覆盖；事件史缺失即发现；按源码声明决定裸仓是拒绝还是只报告
+
+```python
+def protection(
+    run_dir: Path,
+    orders: list[dict],
+    fills: list[dict],
+    summary: dict,
+) -> tuple[list[str]
+```
+
+<TypeTable type={{ "run_dir": { type: "Path", description: "报表目录；读 order_events.jsonl.gz" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "summary": { type: "dict", description: "原生摘要；读 period_end_utc 与 strategy_uses_stop_loss（缺失按 True）" } }} />
+
+**返回**　tuple[list[str], dict]：发现列表与 info = \{strategy_uses_stop_loss, native_order_events, uncovered_intervals\}；事件史缺失时 info 为空字典
+
+**期望行为**
+
+1. 事件史文件不存在即返回单条 ORDER_EVENT_HISTORY_MISSING 与空 info，不再继续。
+2. 读入事件史并调用 event_report_findings 与订单、成交报表对账，发现并入结果。
+3. 读 strategy_uses_stop_loss：缺失按 True；存在但非布尔记 STOP_LOSS_DECLARATION_INVALID 并按 True 处理。
+4. 以摘要 period_end_utc 为回放结束纳秒，调用 uncovered_intervals 得到裸仓区间。
+5. 声明为 True 时每个区间记一条 UNPROTECTED_POSITION，带品种、策略、持仓量、止损覆盖量、起止时刻、持仓订单号、已结束止损号；为 False 时区间只进入 info，不计发现。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ORDER_EVENT_HISTORY_MISSING` | 报表目录无订单事件史文件 |
+| `STOP_LOSS_DECLARATION_INVALID` | 摘要 strategy_uses_stop_loss 存在但不是布尔 |
+| `UNPROTECTED_POSITION` | 声明设止损且存在裸仓区间；每个区间一条，带定位 |
+
+**使用**　<Ref id="engine.event_report_findings" />、<Ref id="engine.uncovered_intervals" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.3.1" />
+
+**使用于**　<Ref id="C.4.1.1" />、<Ref id="G.1.2.2" />、<Ref id="G.3.2.2" />、<Ref id="G.3.3.2" />
+
+**依据**　[\[91\]](/zh/docs/appendix-references/#ref-91 "NautilusTrader — Orders")
+
+</div>
+
+### `uncovered_intervals` [#def-engine-uncovered_intervals]
+
+同一纳秒事件一起应用后读状态；持仓超出只减仓止损覆盖量并持续超过一根执行 K 线才成裸仓区间
+
+```python
+def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]
+```
+
+<TypeTable type={{ "events": { type: "list[dict]", description: "全部订单的事件史，含 ts_event、client_order_id、事件类型、order_side、order_type、reduce_only、quantity、last_qty、position_id" }, "end_ns": { type: "int", description: "回放结束纳秒；期末仍裸露的区间以此为终点" } }} />
+
+**返回**　list[dict]：每条 \{strategy_id, instrument_id, position_id, start_ns, end_ns, position_quantity（区间内最大绝对持仓）, stop_quantity, position_order_ids, ended_stop_order_ids, open_at_end\}
+
+**期望行为**
+
+1. 按 ts_event 分批，同一纳秒的全部事件先一起应用再读状态：初始化登记订单范围、方向、类型与只减仓标志；接受置 accepted；成交累加 filled 并按方向更新该（strategy_id, instrument_id）范围的净持仓；终态事件置 ended。
+2. 每批应用后，对本批触及的范围计算覆盖量：平仓方向上已接受、未结束、只减仓的止损单（STOP_MARKET、STOP_LIMIT、TRAILING_STOP_MARKET、TRAILING_STOP_LIMIT）未成交量之和。
+3. |净持仓| > 覆盖量即裸露：无开区间则开新区间（记起点、当时持仓订单号、本批刚结束的止损号），否则更新区间内最大持仓量；|净持仓| ≤ 覆盖量时关闭开区间。
+4. 关闭的区间时长不超过一根执行 K 线（设计常量：一分钟）则丢弃；回放结束仍开着的区间以 end_ns 关闭并标 open_at_end。
+5. 只比数量，不读止损价格，不重算成交；未知事件类型、非正数量、缺初始化事件或方向非法即 EVENT_PAYLOAD_INVALID 抛出。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EVENT_PAYLOAD_INVALID` | 未知事件类型、非正数量、缺初始化事件或方向非法：抛出异常，由 generic_audit 记为 REPORT_PAYLOAD_INVALID |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.3.1" />
+
+**使用于**　<Ref id="C.4.1.2" />、<Ref id="C.4.2.2" />
+
+**依据**　[\[91\]](/zh/docs/appendix-references/#ref-91 "NautilusTrader — Orders")
+
+</div>
+
+## `engine/compare_reports.py` [#def-mod-engine-compare_reports-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.compare_reports">compare_reports</Ref> | 规范化排序后逐行逐字段比较两份报告目录中订单、成交、持仓、账户、日收益序列的非随机列，资金费调整逐条比较，账户读数在容差内比较；目录可来自引擎直接写出，也可来自 report.compare_runs 从账本导出；只读。 |
+
+### `compare_reports` [#def-engine-compare_reports]
+
+规范化排序后逐行逐字段比较两份报告目录中订单、成交、持仓、账户、日收益序列的非随机列，资金费调整逐条比较，账户读数在容差内比较；目录可来自引擎直接写出，也可来自 report.compare_runs 从账本导出；只读。
+
+```python
+def compare_reports(
+    reference: Path,
+    candidate: Path,
+    account_tolerance: Decimal,
+) -> dict
+```
+
+<TypeTable type={{ "reference": { type: "Path", description: "参照报告目录（如旧运行环境的回放），须含 engine.write_native_reports 布局下的五张表文件与 summary" }, "candidate": { type: "Path", description: "待比较报告目录（如新运行环境的回放），布局同 reference" }, "account_tolerance": { type: "Decimal", description: "账户汇总读数（余额、权益、未实现盈亏）的绝对容差，缺省取固定常量，未校准示例值；表行逐字段比较与资金费比较不用容差" } }} />
+
+**返回**　dict：passed（bool）；tables\{orders, fills, positions, account, returns_series\} 各含 counts（两侧行数）、column_match、compared_columns、excluded_columns、mismatch_count、first_mismatches（前若干条：业务键、列、两侧值）；funding_adjustments\{counts, mismatch_count, first_mismatches\}；metrics\{读数名: \{reference, candidate, within_tolerance\}\}；summary_sha256\{reference, candidate\}；engine_version\{reference, candidate\}。不写任何文件。
+
+**期望行为**
+
+1. 核两目录存在、不是同一目录、各含五张表文件与 summary，容差为非负有限 Decimal；按 engine.write_native_reports 的布局读入，读失败或缺业务键列即拒绝，不做修补。
+2. 每表按固定的随机编号列集合（venue order id、trade id、position id、event id 及派生列）剔除后取两侧共有列为 compared_columns；两侧非随机列集合不同记 column_match=false，仍比较交集。
+3. 每表按非随机业务键（时间戳、合约、方向、数量、价格）规范化排序，逐行逐字段按字面值比较；行数不等或任一字段不等计入 mismatch_count，并保留前若干条 first_mismatches。
+4. 从账户报告取全部资金费调整条目，按时间戳与合约排序，逐条比较金额与方向，不用容差。
+5. 从 summary 读账户读数逐项按 account_tolerance 判定；一侧缺某读数记为不可比；同时记两份 summary 的内容哈希与两侧引擎版本。
+6. 任一表不一致、资金费不一致、任一读数超容差或不可比时 passed=false，否则为 true；只返回字典，不写账本、不产生研究读数。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REPORT_DIR_MISSING` | reference 或 candidate 目录不存在，或缺五张表文件或 summary 中任一项 |
+| `REPORT_TABLE_UNREADABLE` | 任一表文件解析失败、缺该表的业务键列，或 summary 缺引擎版本与账户读数区 |
+| `SAME_REPORT_DIRECTORY` | reference 与 candidate 解析为同一目录 |
+| `INVALID_TOLERANCE` | account_tolerance 为负、非有限数或不可解析为 Decimal |
+
+**使用**　<Ref id="engine.write_native_reports" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="D.3.1.2" />
+
+**使用于**　<Ref id="D.3.1.1" />
+
+**依据**　[\[158\]](/zh/docs/appendix-references/#ref-158 "NautilusTrader — Backtest execution flow（use_random_ids、TradeId）") [\[125\]](/zh/docs/appendix-references/#ref-125 "NautilusTrader — Reports")
+
+</div>
+
+## `engine/config.py` [#def-mod-engine-config-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.account_contract">account_contract</Ref> | 所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、固定开高低收顺序、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项 |
+| <Ref id="engine.build_parser">build_parser</Ref> | 构造运行器唯一的命令行定义：策略引用、输入、窗口、输出目录与探针开关；没有任何策略参数选项，仓位、单笔风险、名义上限、周期等全部归源码。 |
+| <Ref id="engine.describe">describe</Ref> | 镜像内身份探针：从正在执行的镜像自身读出运行环境身份，供宿主与清单身份、源码布局和执行绑定逐字核对 |
+| <Ref id="engine.effective_configuration">effective_configuration</Ref> | 由运行器配置生成有效配置及其去宿主路径的哈希，使宿主写出的执行绑定与容器内运行器解析的结果可逐字比对 |
+| <Ref id="engine.parse_configuration">parse_configuration</Ref> | 把命令行解析成运行器配置：核对必要参数、窗口与合约集，不执行源码、不打开市场目录或账本；任何策略参数都在这里被拒绝。 |
+| <Ref id="engine.parse_window">parse_window</Ref> | 把三个 ISO-8601 边界解析成回放窗口：预热段 [start, trade_start) 与交易段 [trade_start, end)，显式 UTC、左闭右开、整分钟对齐，换算为引擎纳秒时钟；不读宿主时区。 |
+
+### `account_contract` [#def-engine-account_contract]
+
+所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、固定开高低收顺序、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项
+
+```python
+def account_contract() -> 只读映射
+```
+
+**返回**　只读映射（MappingProxyType），键固定、值为字串、整数或布尔，可直接进入规范 JSON 与有效配置哈希
+
+**期望行为**
+
+1. 账户：场所标识、oms_type=NETTING、account_type=MARGIN、book_type=L1_MBP、基础货币 USDT、固定本金 10 万 USDT（用户定的设计常量）、default_leverage=1、固定 trader_id。
+2. 撮合：bar_execution=True、bar_adaptive_high_low_ordering=False（固定开高低收顺序）、time_bars_timestamp_on_close=True、不跳过首根非完整 K 线、validate_data_sequence=True、固定下单速率上限。
+3. 订单能力：support_gtd_orders=True、support_contingent_orders=True（括号单 bracket order / OCO）、reject_stop_orders=False。
+4. 不设 fill_model、latency_model、fee_model 与任何 liquidation_* 键，留引擎缺省（强平关闭）；手续费与保证金率来自导出合约上的假设条款（market.build_instrument），不在此处。
+5. 返回不可变映射，不接受任何外部输入。无输入、无拒绝：常量映射总能返回，参数非法由 engine.parse_configuration 在命令行层拒绝。
+
+**使用**　<Ref id="market.build_instrument" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.4.1.2" />
+
+**使用于**　<Ref id="A.4.2.2" />、<Ref id="A.4.2.3" />、<Ref id="V.2.1.2" />、<Ref id="C.1.2.1" />、<Ref id="C.2.1.1" />、<Ref id="C.2.1.3" />、<Ref id="C.4.1.2" />、<Ref id="C.4.2.1" />、<Ref id="W.2.1.3" />、<Ref id="W.4.1.1" />、<Ref id="W.4.2.1" />、<Ref id="W.5.1.1" />、<Ref id="W.5.1.2" />、<Ref id="W.5.2.1" />、<Ref id="W.5.2.2" />
+
+</div>
+
+### `build_parser` [#def-engine-build_parser]
+
+构造运行器唯一的命令行定义：策略引用、输入、窗口、输出目录与探针开关；没有任何策略参数选项，仓位、单笔风险、名义上限、周期等全部归源码。
+
+```python
+def build_parser() -> argparse.ArgumentParser
+```
+
+**返回**　argparse.ArgumentParser：禁止缩写匹配
+
+**期望行为**
+
+1. 策略引用组：--strategy-file、--strategy-class、--strategy-sha256，以及由登记侧产出的可选 --strategy-binding、--execution-binding。
+2. 输入组：--market-root（每合约一个 Catalog 的目录）、--market-commit（导出所用的市场提交）、可选 --universe（共同可交易范围成员文件）、--symbols（一个或多个合约标识）。
+3. 窗口组：--start、可选 --trade-start、--end，均为带显式 UTC 的 ISO-8601 字符串；另有 --output 与 --describe 探针开关。
+4. 不定义任何策略相关选项，也不留通用键值透传；构造解析器时不读文件、不碰市场数据。
+5. 返回解析器，供 engine.parse_configuration 与 engine.describe 共用同一份定义。
+6. 本函数不拒绝任何输入；未定义选项的拒绝（UNKNOWN_OPTION）由 engine.parse_configuration 在解析时发出。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.2.1" />
+
+</div>
+
+### `describe` [#def-engine-describe]
+
+镜像内身份探针：从正在执行的镜像自身读出运行环境身份，供宿主与清单身份、源码布局和执行绑定逐字核对
+
+```python
+def describe(config: RunnerConfiguration) -> 身份字典
+```
+
+<TypeTable type={{ "config": { type: "RunnerConfiguration", description: "运行器配置解析结果；探针模式下允许缺策略引用与输出目录" } }} />
+
+**返回**　身份字典（可 JSON 序列化）：runtime_contract、engine_version、python_version、dependency_lock_sha256、source_files_sha256（engine 包各源码文件按角色：配置、装载、回放、报告）、source_file_paths（相对镜像源码根）、audit_source_sha256、effective_config、effective_config_sha256
+
+**期望行为**
+
+1. 读运行契约常量；由包元数据取引擎发行版版本，取解释器版本；元数据缺失即拒绝
+2. 读镜像源码根下依赖锁文件字节取 SHA-256；缺文件即拒绝
+3. 逐个读 engine 包应被哈希的源码文件与审计器源码取 SHA-256，记其相对镜像源码根的路径；缺文件即拒绝
+4. 调用 engine.effective_configuration(config)，把 values 与 digest 写入 effective_config 与 effective_config_sha256
+5. 不执行策略源码、不打开市场目录；输出只由镜像内容与命令行参数决定
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ENGINE_VERSION_UNAVAILABLE` | 镜像内找不到引擎发行版元数据 |
+| `DEPENDENCY_LOCK_MISSING` | 镜像源码根下没有依赖锁文件 |
+| `SOURCE_FILE_MISSING` | 应被哈希的某个源码文件不存在 |
+| `UNIVERSE_FILE_UNREADABLE` | 由 engine.effective_configuration 上抛 |
+
+**使用**　<Ref id="engine.effective_configuration" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.6.1.2" />
+
+</div>
+
+### `effective_configuration` [#def-engine-effective_configuration]
+
+由运行器配置生成有效配置及其去宿主路径的哈希，使宿主写出的执行绑定与容器内运行器解析的结果可逐字比对
+
+```python
+def effective_configuration(
+    config: RunnerConfiguration,
+) -> EffectiveConfiguration
+```
+
+<TypeTable type={{ "config": { type: "RunnerConfiguration", description: "运行器配置解析结果" } }} />
+
+**返回**　EffectiveConfiguration（不可变数据类）：values（runtime_contract、execution_bar_minutes、market_root、market_commit、universe_path、universe_sha256、symbols、start / trade_start / end、account）与 digest（去宿主路径后规范 JSON 的 SHA-256 十六进制）
+
+**期望行为**
+
+1. 组装 values：运行契约常量、execution_bar_minutes=1（设计常量）、market_root 与 market_commit、universe_path、按给定顺序的 symbols、规范化为 Z 结尾的窗口边界、engine.account_contract() 的全部条款
+2. 给了成员文件时只按字节读取并记 universe_sha256，不解析内容；不是可读常规文件即拒绝
+3. 哈希输入 = values 去掉 market_root 与 universe_path 后按键排序、紧凑分隔、不转义非 ASCII、禁止 NaN 的 JSON 字节，取 SHA-256
+4. 不读市场目录、不执行源码；相同输入在宿主与容器内得到相同 digest
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNIVERSE_FILE_UNREADABLE` | 给出 universe_path 但它不是可读取的常规文件 |
+
+**使用**　<Ref id="engine.account_contract" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.6.1.2" />
+
+**使用于**　<Ref id="V.2.1.2" />、<Ref id="C.1.2.1" />、<Ref id="W.2.1.1" />、<Ref id="W.4.1.2" />
+
+</div>
+
+### `parse_configuration` [#def-engine-parse_configuration]
+
+把命令行解析成运行器配置：核对必要参数、窗口与合约集，不执行源码、不打开市场目录或账本；任何策略参数都在这里被拒绝。
+
+```python
+def parse_configuration(argv: list[str] | None) -> RunnerConfiguration
+```
+
+<TypeTable type={{ "argv": { type: "list[str] | None", description: "命令行参数；None 表示取进程参数" } }} />
+
+**返回**　RunnerConfiguration（冻结数据类）：describe 标志、strategy_file / strategy_class / strategy_sha256 / strategy_binding / execution_binding、market_root / market_commit / universe_path / symbols（保持给定顺序的元组）、window（Window）、output
+
+**期望行为**
+
+1. 用 engine.build_parser 解析；出现解析器未定义的选项（即任何策略参数）直接拒绝。
+2. 非 --describe 调用时核对 strategy_file、strategy_class、strategy_sha256、output 齐全，缺一即拒绝。
+3. 调用 engine.parse_window 解析 --start、--trade-start、--end，其拒绝原样上抛。
+4. 核对 symbols 非空且无重复；只比较字符串，不查市场库。
+5. 只保留路径字串，不读源码、不核源码哈希、不打开市场目录或成员文件；返回 RunnerConfiguration。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_OPTION` | 命令行含解析器未定义的选项，包括任何策略参数 |
+| `REPLAY_ARGUMENT_MISSING` | 非 --describe 调用缺 strategy_file、strategy_class、strategy_sha256 或 output 之一 |
+| `SYMBOL_DUPLICATE` | --symbols 中有重复合约 |
+| `WINDOW_*` | 由 engine.parse_window 抛出的窗口拒绝原样上抛 |
+
+**使用**　<Ref id="engine.build_parser" />、<Ref id="engine.parse_window" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.2.1" />
+
+**使用于**　<Ref id="W.2.1.1" />、<Ref id="W.4.1.2" />
+
+</div>
+
+### `parse_window` [#def-engine-parse_window]
+
+把三个 ISO-8601 边界解析成回放窗口：预热段 [start, trade_start) 与交易段 [trade_start, end)，显式 UTC、左闭右开、整分钟对齐，换算为引擎纳秒时钟；不读宿主时区。
+
+```python
+def parse_window(
+    start: str,
+    trade_start: str | None,
+    end: str,
+    execution_bar_minutes: int,
+) -> Window
+```
+
+<TypeTable type={{ "start": { type: "str", description: "预热段起点，ISO-8601，须带 Z 或 ±HH:MM 偏移" }, "trade_start": { type: "str | None", description: "交易段起点；省略即等于 start（无预热段）" }, "end": { type: "str", description: "窗口终点（不含），同样格式" }, "execution_bar_minutes": { type: "int", description: "撮合周期分钟数，缺省 1；三个边界须落在它的网格上" } }} />
+
+**返回**　Window（不可变数据类）：start_ns、trade_start_ns、end_ns 三个纳秒整数，以及规范化为 UTC、以 Z 结尾的 start、trade_start、end 字符串，供有效配置与报告原样引用
+
+**期望行为**
+
+1. 逐个边界按 ISO-8601 解析；缺时区即拒绝，不默认任何时区；无法解析、偏移含秒或小数秒超过六位即拒绝。
+2. 换算到 UTC；秒与微秒须为 0，自纪元起的分钟数须被 execution_bar_minutes 整除，否则拒绝。
+3. trade_start 为空时取 start；核对 start ≤ trade_start \< end，否则拒绝。
+4. 换算为自 Unix 纪元起的纳秒整数，生成 Z 结尾的规范字符串。
+5. 不访问文件、网络、市场数据或账本；返回 Window。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `WINDOW_TIMEZONE_MISSING` | 某个边界没有 Z 或 UTC 偏移 |
+| `WINDOW_TIMESTAMP_INVALID` | 不是合法 ISO-8601、偏移含秒，或小数秒超过六位 |
+| `WINDOW_NOT_ALIGNED` | 某个边界含非零秒或微秒，或分钟不在撮合周期网格上 |
+| `WINDOW_ORDER_INVALID` | 不满足 start ≤ trade_start \< end |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.2.1.1" />
+
+**使用于**　<Ref id="C.1.2.1" />、<Ref id="R.2.1.1" />
+
+</div>
+
+## `engine/load.py` [#def-mod-engine-load-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.diagnostics">diagnostics</Ref> | 回放结束后调用诊断钩子；返回值非字典、不可序列化为 JSON 或占用原生事实键名即拒绝；通过的字典作自报诊断写入摘要 |
+| <Ref id="engine.lifecycle_events">lifecycle_events</Ref> | 回放后逐实例核对生命周期事件：计数与原生摘要相等、落在窗口内、能构造为原生事件、关闭价为正；任一不符即拒绝，不降级为无事件。 |
+| <Ref id="engine.load_strategy">load_strategy</Ref> | 读源码字节核对内容哈希，以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝 |
+| <Ref id="engine.read_market">read_market</Ref> | 装载前核对每合约导出回执的市场提交、窗口、1 分钟周期与条款近似标记，打开每个片段的 Catalog 并取唯一合约定义。 |
+| <Ref id="engine.read_universe">read_universe</Ref> | 读每合约成员区间；无成员文件时为空 |
+| <Ref id="engine.strategy_metadata">strategy_metadata</Ref> | 把源码内容哈希、入口类、运行契约与两个布尔声明（是否设止损、是否需日线预热）写成运行身份，并入原生摘要与执行身份 |
+| <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> | 为声明 DAILY_WARMUP 的源码取紧贴输入起点的连续日线段；不足 200 根（未校准示例值）或末根不在起点前 1 毫秒即拒绝。 |
+
+### `diagnostics` [#def-engine-diagnostics]
+
+回放结束后调用诊断钩子；返回值非字典、不可序列化为 JSON 或占用原生事实键名即拒绝；通过的字典作自报诊断写入摘要
+
+```python
+def diagnostics(strategy: Strategy) -> dict
+```
+
+<TypeTable type={{ "strategy": { type: "Strategy", description: "回放结束后的策略实例（入口类实例）" } }} />
+
+**返回**　dict：策略自报的诊断计数，原样写入摘要的 self_reported_diagnostics
+
+**期望行为**
+
+1. 调用实例的 replay_diagnostics 钩子，取返回值。
+2. 返回值须是 dict，且键集与原生报告事实保留键（coin、instrument、quantity、counts、positions 等）无交集。
+3. 返回值须能无损序列化为 JSON（只含 str、int、float、bool、None、list、dict），否则拒绝。
+4. 钩子本身抛出异常按回调异常处理，经 engine.execution_failure 记为执行失败并非零退出。
+5. 通过的字典只作自报诊断写入摘要的 self_reported_diagnostics，不参与任何审计或读数。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `DIAGNOSTICS_NOT_DICT` | 钩子返回值不是 dict |
+| `DIAGNOSTICS_RESERVED_KEY` | 返回字典使用了原生报告事实的保留键名 |
+| `DIAGNOSTICS_NOT_JSON` | 返回字典含不可序列化为 JSON 的值 |
+
+**使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.execution_failure" />、<Ref id="engine.write_native_reports" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.3.2" />
+
+</div>
+
+### `lifecycle_events` [#def-engine-lifecycle_events]
+
+回放后逐实例核对生命周期事件：计数与原生摘要相等、落在窗口内、能构造为原生事件、关闭价为正；任一不符即拒绝，不降级为无事件。
+
+```python
+def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict
+```
+
+<TypeTable type={{ "coverage": { type: "dict", description: "覆盖回执：format、effective_config{start, end}、input_identity{market_commit, lifecycle_bundle}、export_receipts{symbol: 回执，含 episodes}。" }, "summary": { type: "dict", description: "原生摘要：input_start_utc、period_end_utc、market_commit、per_coin[{instrument, counts}]。" } }} />
+
+**返回**　tuple[dict, ...]：窗口内的终止事件（InstrumentClose 与 InstrumentStatus CLOSE），按引擎原生结构，供审计与读数使用。
+
+**期望行为**
+
+1. 从摘要逐实例取 instrument_close 与 instrument_status 计数：须为非负整数，实例不得重复。
+2. 输入身份没有生命周期证据包时，任一实例计数非零即拒绝，否则返回空元组。有证据包时，回执格式、用 engine.parse_window 解析的窗口起止和市场提交须与摘要相等。
+3. 逐合约逐片段核对：片段的符号与 instrument_id 对应原生实例；回执计数等于摘要计数；每个实例只由一个片段表示，摘要计数非零的实例都有片段。
+4. 过滤出窗口内事件，按类型计数须等于回执计数；每个事件须能由引擎原生类型构造，且 ts_event 等于 ts_init；InstrumentClose 须为 CONTRACT_EXPIRED 且关闭价为正；类型未知即拒绝。
+5. 收集 InstrumentClose 与 CLOSE 状态事件，(type, instrument_id, ts_event) 重复即拒绝；按时钟排序返回。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LIFECYCLE_NATIVE_COUNT_INVALID` | 摘要里的生命周期计数不是非负整数，或实例重复。 |
+| `LIFECYCLE_BUNDLE_MISSING` | 摘要有非零生命周期计数，但输入身份没有生命周期证据包。 |
+| `LIFECYCLE_COVERAGE_MISMATCH` | 覆盖回执的格式、窗口起止或市场提交与原生摘要不一致。 |
+| `LIFECYCLE_COUNT_MISMATCH` | 片段回执计数与原生实例计数不等；实例没有片段或由多个片段表示；窗口内事件数与回执计数不等。 |
+| `LIFECYCLE_EVENT_INVALID` | 事件不能构造为原生事件、时钟不一致、关闭类型不是 CONTRACT_EXPIRED、关闭价非正，或类型未知。 |
+| `LIFECYCLE_DUPLICATE_EVENT` | 同类型、同实例、同时刻的事件出现多次。 |
+
+**使用**　<Ref id="engine.parse_window" />、<Ref id="market.write_lifecycle_events" />、<Ref id="market.validate_lifecycle" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.2.2.2" />
+
+**使用于**　<Ref id="C.5.2.2" />、<Ref id="W.3.2.2" />、<Ref id="G.2.2.1" />、<Ref id="G.3.2.2" />、<Ref id="G.3.3.3" />
+
+</div>
+
+### `load_strategy` [#def-engine-load_strategy]
+
+读源码字节核对内容哈希，以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝
+
+```python
+def load_strategy(
+    source_path: Path,
+    entry_class: str,
+    expected_content_hash: str,
+    binding_path: Path | None,
+) -> LoadedStrategy
+```
+
+<TypeTable type={{ "source_path": { type: "Path", description: "策略源码文件；须是普通文件，不跟随符号链接" }, "entry_class": { type: "str", description: "声明的唯一入口类名，须是合法 Python 标识符" }, "expected_content_hash": { type: "str", description: "发布记录的内容哈希（64 位小写十六进制 SHA-256）" }, "binding_path": { type: "Path | None", description: "研究封存回放时由上层挂入的绑定文件；为空表示探索回放，不核对账本身份" } }} />
+
+**返回**　LoadedStrategy：source_path、content_hash、entry_class、strategy_class、binding（或 None）、daily_warmup、uses_stop_loss
+
+**期望行为**
+
+1. 核对 expected_content_hash 为 64 位小写十六进制、entry_class 为合法标识符；以单个只读描述符读取普通文件的全部字节，不跟随符号链接。
+2. 计算字节 SHA-256，与 expected_content_hash 不等即拒绝；给了 binding_path 时读绑定 JSON，其 content_hash、entry_class、runtime_contract 须与核对结果一致。
+3. 以 `_strategy_<content_hash>` 为模块名建立无包名、不能相对导入的独立模块并执行源码；执行抛错即移除该模块并拒绝。同一进程内相同哈希已装载时直接返回已装载的模块，不再执行。
+4. 取模块中名为 entry_class 的属性：须是类、在本模块声明、是引擎策略基类的真子类（不是基类本身），否则拒绝。
+5. 核对 replay_diagnostics、replay_integrity_findings 两个钩子均可调用；类属性 DAILY_WARMUP（缺省 False）与 USES_STOP_LOSS（缺省 True）均须为 bool。
+6. 返回 LoadedStrategy；只证明身份与形态，不担保任意 Python 的安全，执行边界由运行环境容器提供。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_UNREADABLE` | 路径不是普通文件、是符号链接或读取失败 |
+| `CONTENT_HASH_INVALID` | expected_content_hash 不是 64 位小写十六进制 |
+| `CONTENT_HASH_MISMATCH` | 源码字节的 SHA-256 不等于 expected_content_hash |
+| `BINDING_MISMATCH` | 绑定文件不是合法 JSON、字段集不完整，或其哈希、入口类、运行契约与核对结果不一致 |
+| `SOURCE_EXECUTION_FAILED` | 独立模块执行源码时抛出异常 |
+| `ENTRY_CLASS_INVALID` | 入口类不存在、不在本模块声明、不是引擎策略基类的真子类 |
+| `HOOK_MISSING` | replay_diagnostics 或 replay_integrity_findings 任一不可调用 |
+| `DECLARATION_NOT_BOOL` | DAILY_WARMUP 或 USES_STOP_LOSS 不是 bool |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.1.1" />
+
+**使用于**　<Ref id="C.1.1.2" />、<Ref id="C.1.2.1" />、<Ref id="C.1.3.1" />、<Ref id="C.1.3.2" />、<Ref id="C.4.1.1" />、<Ref id="G.1.1.3" />、<Ref id="G.3.2.4" />、<Ref id="G.3.3.2" />、<Ref id="J.6.1.1" />
+
+**依据**　[\[86\]](/zh/docs/appendix-references/#ref-86 "NautilusTrader — Strategies")
+
+</div>
+
+### `read_market` [#def-engine-read_market]
+
+装载前核对每合约导出回执的市场提交、窗口、1 分钟周期与条款近似标记，打开每个片段的 Catalog 并取唯一合约定义。
+
+```python
+def read_market(
+    market_root: Path,
+    symbols: list[str],
+    market_commit: str,
+    start_ns: int,
+    end_ns: int,
+) -> list[dict]
+```
+
+<TypeTable type={{ "market_root": { type: "Path", description: "导出目录，每个合约一个子目录，内含回执文件与一个或多个片段 Catalog" }, "symbols": { type: "list[str]", description: "本次回放的合约清单，已去重" }, "market_commit": { type: "str", description: "登记锁定的市场提交" }, "start_ns": { type: "int", description: "输入起点（预热段起点），纳秒" }, "end_ns": { type: "int", description: "窗口终点，纳秒，不含" } }} />
+
+**返回**　list[dict]：每个合约片段一行 \{symbol, source_symbol, catalog_path, instrument, instrument_id, receipt, counts\}
+
+**期望行为**
+
+1. 逐合约读导出回执；回执的 commit、start_ns、end_ns、timeframe 须等于 (market_commit, start_ns, end_ns, "1m")，否则拒绝。
+2. 回执须带条款近似标记（历史合约条款以观测快照近似），缺失即拒绝；多片段时每个片段回执须与顶层一致，片段 Catalog 目录名须与映射序号一致。
+3. 打开每个片段的 Catalog，按 instrument_id 取合约定义，须恰有一个且计价货币为 USDT。
+4. 收集 last、mark、funding 以及存在时的 instrument_close、instrument_status 条数，供回放消费核对与生命周期核对。
+5. 经 market.native_symbol 取片段原生符号；所有行的短名与策略标识须两两不同。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_RECEIPT_MISMATCH` | 回执的提交、窗口起止或周期与运行器输入不一致 |
+| `TERMS_APPROXIMATION_MISSING` | 回执没有条款近似标记 |
+| `EPISODE_MAPPING_MISMATCH` | 片段回执与顶层回执不一致，或片段 Catalog 目录名与映射不符 |
+| `INSTRUMENT_NOT_UNIQUE` | Catalog 内该 instrument_id 不恰有一个合约定义，或计价货币不是 USDT |
+| `CONTRACT_NAME_COLLISION` | 两个合约的短名或策略标识相同 |
+
+**使用**　<Ref id="market.export_catalogs" />、<Ref id="market.export_episode" />、<Ref id="market.native_symbol" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.2.2.1" />
+
+**使用于**　<Ref id="W.4.1.1" />、<Ref id="W.4.2.2" />
+
+</div>
+
+### `read_universe` [#def-engine-read_universe]
+
+读每合约成员区间；无成员文件时为空
+
+```python
+def read_universe(
+    universe_path: Path | None,
+    symbols: list[str],
+) -> dict[str
+```
+
+<TypeTable type={{ "universe_path": { type: "Path | None", description: "成员文件；为空表示本次回放不带共同可交易范围" }, "symbols": { type: "list[str]", description: "本次回放的合约清单" } }} />
+
+**返回**　dict[str, tuple[tuple[int, int], ...]]：每个合约的 [start_ns, end_ns) 成员区间元组；无文件时每个合约为空元组
+
+**期望行为**
+
+1. universe_path 为空时直接返回每个合约对应空元组。
+2. 读普通文件并解析 JSON；顶层须是带 membership 对象的字典，否则拒绝。
+3. 对每个合约取 membership 中的区间列表并转为整数纳秒对；不是整数对即拒绝；文件中没有的合约为空元组。
+4. 区间只是输入不是审计：与片段生命周期相交后交给策略实例（engine.episode_membership），退出范围后的处置由源码按契约写明。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNIVERSE_FILE_INVALID` | 成员文件不可读、不是 JSON、顶层缺 membership 对象，或区间不是整数对 |
+
+**使用**　<Ref id="market.membership_path" />、<Ref id="engine.episode_membership" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.1" />
+
+**使用于**　<Ref id="C.1.2.2" />、<Ref id="W.4.1.1" />
+
+</div>
+
+### `strategy_metadata` [#def-engine-strategy_metadata]
+
+把源码内容哈希、入口类、运行契约与两个布尔声明（是否设止损、是否需日线预热）写成运行身份，并入原生摘要与执行身份
+
+```python
+def strategy_metadata(loaded: LoadedStrategy) -> dict
+```
+
+<TypeTable type={{ "loaded": { type: "LoadedStrategy", description: "[[engine.load_strategy]] 的返回值：已核对的内容哈希、源码路径、入口类、可选的账本绑定、已检查为布尔值的 uses_stop_loss 与 daily_warmup" } }} />
+
+**返回**　dict，包含 strategy_content_hash、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}；有账本绑定时另含 strategy_binding\{database, commit, strategy_id, revision, content_hash, entry_class, runtime_contract\}
+
+**期望行为**
+
+1. 从 LoadedStrategy 取已核对的内容哈希、入口类、两个布尔声明，以及运行器的运行契约常量，按固定键名组成运行身份字典。
+2. 有账本绑定时，把绑定原样复制进 strategy_binding，使封存时可以和账本里的候选发布版本 strategy_id@revision 比对。
+3. 字典由运行器并入原生摘要与执行身份，随研究封存入账；审计读 strategy_uses_stop_loss 决定裸仓是使运行无效还是只报告。
+4. 纯函数，不读文件、不执行源码、不做校验；所有加载期拒绝都已在 engine.load_strategy 中发生。
+
+**使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.protection" />、<Ref id="replay.seal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.4.1.1" />
+
+**使用于**　<Ref id="G.3.3.1" />、<Ref id="G.3.3.2" />
+
+</div>
+
+### `warmup_daily_bars` [#def-engine-warmup_daily_bars]
+
+为声明 DAILY_WARMUP 的源码取紧贴输入起点的连续日线段；不足 200 根（未校准示例值）或末根不在起点前 1 毫秒即拒绝。
+
+```python
+def warmup_daily_bars(
+    catalog_path: Path,
+    instrument_id: InstrumentId,
+    start_ns: int,
+) -> list[Bar]
+```
+
+<TypeTable type={{ "catalog_path": { type: "Path", description: "该合约片段的 Catalog" }, "instrument_id": { type: "InstrumentId", description: "合约标识" }, "start_ns": { type: "int", description: "输入起点，纳秒；预热日线全部在它之前收盘" } }} />
+
+**返回**　list[Bar]：按收盘时刻升序、相邻恰隔一日、末根收盘于 start_ns 前 1 毫秒的日线段
+
+**期望行为**
+
+1. 从 Catalog 查询该合约由 1 分钟派生的外部聚合日线（1-DAY-LAST-EXTERNAL），只取收盘时刻早于 start_ns 的根，按收盘时刻排序。
+2. 从末根向前取相邻间隔恰为一日的最长连续段，遇断裂即停，不补造。
+3. 末根收盘时刻须等于 start_ns 减 1 毫秒，否则拒绝。
+4. 连续段长度须不少于 200 根（未校准示例值），否则拒绝，不以更短历史代替。
+5. 返回的日线只交给策略构造使用，引擎不重放它们。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `WARMUP_NOT_ADJACENT` | 末根收盘时刻不等于 start_ns 前 1 毫秒（起点前有缺口或无日线） |
+| `WARMUP_INSUFFICIENT` | 紧贴起点的连续日线段少于 200 根（未校准示例值） |
+
+**使用**　<Ref id="market.derive_bars" />、<Ref id="market.export_episode" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.2.2.1" />
+
+**使用于**　<Ref id="W.2.1.3" />
+
+</div>
+
+## `engine/report.py` [#def-mod-engine-report-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.summary_statistics">summary_statistics</Ref> | 运行器在回放结束后只用交易段日收益算年化（期末÷初始，365÷交易窗口天数）与夏普（引擎统计类、365 天年化）并写入原生摘要 |
+| <Ref id="engine.write_native_reports">write_native_reports</Ref> | 把引擎订单、成交、持仓、账户报告与敞口表原样写出；自检发现与被否被拒订单写入完整性发现；运行器声明的撮合与条款局限写入摘要 |
+| <Ref id="engine.write_order_events">write_order_events</Ref> | 原样导出每个缓存订单的引擎事件序列，不加工 |
+
+### `summary_statistics` [#def-engine-summary_statistics]
+
+运行器在回放结束后只用交易段日收益算年化（期末÷初始，365÷交易窗口天数）与夏普（引擎统计类、365 天年化）并写入原生摘要
+
+```python
+def summary_statistics(
+    returns_series: dict[int, float],
+    trade_start_ns: int,
+    end_ns: int,
+    starting_balance: Decimal,
+    final_equity: Decimal,
+) -> dict
+```
+
+<TypeTable type={{ "returns_series": { type: "dict[int, float]", description: "引擎组合分析器的原生日收益序列：ts_event_ns → 当日收益；含预热段" }, "trade_start_ns": { type: "int", description: "交易段起点（纳秒，UTC）；只有 ts ≥ 该值的日收益进入统计" }, "end_ns": { type: "int", description: "交易段终点（纳秒，UTC，右开）；用于交易窗口天数与过滤" }, "starting_balance": { type: "Decimal", description: "账户初始权益（USDT），年化的固定分母" }, "final_equity": { type: "Decimal", description: "期末权益（USDT），取引擎组合快照，含未实现盈亏" } }} />
+
+**返回**　dict：period_start_utc、period_end_utc、trading_window_days、trading_day_count、starting_balance_usdt、final_equity_usdt、net_change_usdt、period_return、annual_return、sharpe_365、statistics_notes（算不出的项及原因）；金额与比率为字符串或有限浮点
+
+**期望行为**
+
+1. 核窗口：end_ns ≤ trade_start_ns 拒绝；交易窗口天数＝(end_ns−trade_start_ns)÷一天，以 Decimal 计算，不取整
+2. 核初始权益大于零，否则拒绝；期末权益≤0 时 period_return 与 annual_return 留空并在 statistics_notes 写原因，不拒绝（亏穿是经济事实，不是运行缺陷）
+3. 过滤日收益：只留 ts_event_ns ∈ [trade_start_ns, end_ns)，预热段不计；记录进入统计的日数
+4. 年化＝(final_equity÷starting_balance)^(365÷trading_window_days)−1，Decimal 运算后写出
+5. 夏普用引擎统计类按 365 天年化对过滤后的日收益调用 calculate_from_returns；非有限值写 null 并在 statistics_notes 说明，不自行替代计算
+6. 不算回撤、胜率或拆分：它们由账本读数从原生报表行算，摘要不占这些名字
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TRADING_WINDOW_EMPTY` | end_ns ≤ trade_start_ns，交易窗口天数不为正 |
+| `STARTING_BALANCE_NOT_POSITIVE` | 初始权益 ≤ 0，年化分母无意义 |
+
+**使用**　<Ref id="engine.parse_window" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.2.1.1" />
+
+**使用于**　<Ref id="V.2.2.2" />、<Ref id="W.2.1.4" />、<Ref id="R.1.1.1" />、<Ref id="R.1.2.2" />、<Ref id="R.2.1.2" />
+
+</div>
+
+### `write_native_reports` [#def-engine-write_native_reports]
+
+把引擎订单、成交、持仓、账户报告与敞口表原样写出；自检发现与被否被拒订单写入完整性发现；运行器声明的撮合与条款局限写入摘要
+
+```python
+def write_native_reports(
+    output: Path,
+    replay: Replay,
+    strategies: dict[str, Strategy],
+    instruments: list[dict],
+    identity: dict,
+    window: dict,
+    account: dict,
+    limitations: list[str],
+    expected_timestamps: int,
+) -> tuple[dict
+```
+
+<TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、触价即成交、固定开高低收顺序、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
+
+**返回**　tuple[dict, list[str]]：原生摘要 summary 与完整性发现列表 integrity_findings；摘要同时以 JSON 写入 output/summary.json 并打印到标准输出，供执行捕获封存
+
+**期望行为**
+
+1. 从 portfolio 取 venue 账户与期末权益快照：账户缺失、快照过期或含未定价合约、基础货币非 USDT 即拒绝；期末权益含未实现盈亏，原样记录
+2. 把引擎报告提供者的订单、成交、持仓（含快照行）、账户四张表原样写成 CSV；零行表只补消费者依赖的表头；订单表附引擎订单对象上的 GTD 到期纳秒，GTD 订单无到期即拒绝；日收益序列按 ts_event_ns 排序原样写出
+3. 调 engine.write_order_events 写订单事件史；把资金观察器累积的估值行写成敞口表（ts_event_ns、position_id、notional_value、unrealized_pnl），不重估
+4. 汇总完整性发现：订单表存在 DENIED 或 REJECTED 状态即记一条；逐策略调完整性自检钩子（传入是否有被否被拒订单），返回值不是非空字符串列表即拒绝，发现去重并入；并入 engine.capital_findings 的估值缺口发现
+5. 调 engine.summary_statistics 得年化、夏普与交易段计数；每合约一节：导出计数、生命周期逐实例计数、engine.diagnostics 的自报诊断、原生持仓行数（诊断键不得占用合约、数量、计数、持仓等原生事实名）
+6. 写摘要：身份、窗口三界、账户条款、统计、每合约节、integrity_findings、integrity_passed（无发现为真）、limitations（去重）；非有限浮点写为 null；任何拒绝以异常抛出，由运行器非零退出，回放无效
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NATIVE_ACCOUNT_MISSING` | portfolio 中没有配置 venue 的账户 |
+| `EQUITY_SNAPSHOT_UNAVAILABLE` | 期末权益快照缺失、过期、含未定价合约，或基础货币权益不是 USDT |
+| `GTD_DEADLINE_MISSING` | 订单报表中 time_in_force 为 GTD 的订单在引擎缓存里没有到期时间，或缓存里找不到该订单 |
+| `SELF_CHECK_FINDINGS_INVALID` | 策略完整性自检钩子返回的不是字符串列表，或含空字符串 |
+| `DIAGNOSTICS_INVALID` | engine.diagnostics 判定自报诊断非字典或占用原生事实键名（由该函数抛出，此处不吞） |
+
+**使用**　<Ref id="engine.write_order_events" />、<Ref id="engine.summary_statistics" />、<Ref id="engine.capital_findings" />、<Ref id="engine.diagnostics" />、<Ref id="engine.capital_observer" />、<Ref id="engine.account_contract" />、<Ref id="engine.parse_window" />、<Ref id="engine.mark_timestamps" />、<Ref id="engine.main" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.2.1.1" />
+
+**使用于**　<Ref id="C.1.3.2" />、<Ref id="C.2.1.3" />、<Ref id="W.4.2.1" />、<Ref id="W.5.1.2" />、<Ref id="W.5.2.2" />、<Ref id="G.1.1.3" />、<Ref id="G.1.1.4" />、<Ref id="G.3.2.4" />、<Ref id="R.1.1.1" />、<Ref id="R.1.3.4" />、<Ref id="R.2.1.1" />、<Ref id="R.2.2.1" />、<Ref id="R.2.2.2" />、<Ref id="R.3.1.1" />、<Ref id="D.3.1.2" />
+
+**依据**　[\[86\]](/zh/docs/appendix-references/#ref-86 "NautilusTrader — Strategies")
+
+</div>
+
+### `write_order_events` [#def-engine-write_order_events]
+
+原样导出每个缓存订单的引擎事件序列，不加工
+
+```python
+def write_order_events(orders: Iterable[Order], path: Path) -> None
+```
+
+<TypeTable type={{ "orders": { type: "Iterable[Order]", description: "引擎缓存中的全部订单对象，每个带其原生事件列表" }, "path": { type: "Path", description: "输出文件 order_events.jsonl.gz；gzip 头时间固定为 0，相同输入产生相同字节" } }} />
+
+**返回**　None；写出 gzip JSON Lines，每行一个引擎事件的原生字典（键排序、紧凑分隔、禁止 NaN）
+
+**期望行为**
+
+1. 订单按 client_order_id 字符串排序分组：组间顺序只为确定性，不代表引擎处理顺序；组内保持引擎返回的事件顺序，这是审计依据的因果顺序。
+2. 每个事件用引擎自身的字典序列化原样写出，不增删字段、不改类型、不换单位。
+3. 某订单没有任何事件即 ORDER_WITHOUT_EVENTS：空序列无法对账。
+4. 事件字段含 NaN 或无穷大即 NON_FINITE_EVENT_FIELD，不写成 null 掩盖。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ORDER_WITHOUT_EVENTS` | 某个缓存订单的事件列表为空 |
+| `NON_FINITE_EVENT_FIELD` | 事件字典含 NaN 或无穷大，无法原样写成 JSON |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.2.1" />
+
+**依据**　[\[125\]](/zh/docs/appendix-references/#ref-125 "NautilusTrader — Reports") [\[91\]](/zh/docs/appendix-references/#ref-91 "NautilusTrader — Orders")
+
+</div>
+
+## `engine/run.py` [#def-mod-engine-run-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.capital_findings">capital_findings</Ref> | 持仓估值未覆盖的时段或时间戳数不符计为完整性发现 |
+| <Ref id="engine.capital_observer">capital_observer</Ref> | 运行器挂在回放节点上的数据参与者：每根输入 K 线后按引擎标记价估值全部未平持仓写敞口表；无法估值记为发现 |
+| <Ref id="engine.configure_strategy">configure_strategy</Ref> | 以运行器输入构造入口类：合约、交易起点、按声明取的预热日线、策略标识、成员区间；不传任何策略参数 |
+| <Ref id="engine.episode_active">episode_active</Ref> | 合法生命周期与输入窗口相交才建实例；缺 K 线不使片段失效 |
+| <Ref id="engine.episode_membership">episode_membership</Ref> | 成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束 |
+| <Ref id="engine.execution_failure">execution_failure</Ref> | 把策略构造或回调异常的阶段、异常类型、消息与回溯写成结构化回执，不依赖日志文本 |
+| <Ref id="engine.guard_callback">guard_callback</Ref> | 包装策略回调：异常先写结构化回执再原样抛出 |
+| <Ref id="engine.main">main</Ref> | 运行器入口：在运行环境内回放候选并写出原生原件；异常与完整性失败一律非零退出 |
+| <Ref id="engine.mark_timestamps">mark_timestamps</Ref> | 直接从导出的标记价文件算出资金观察器应有的估值次数，不依赖回执或观察器自己报的计数。 |
+| <Ref id="engine.replay">replay</Ref> | 按账户常量建唯一场所与回放节点，加入每合约三类数据流与生命周期事件，每个活跃合约一个策略实例，外加恰好一个资金观察器；运行后以引擎原生结果核对消费条数与观察器数 |
+
+### `capital_findings` [#def-engine-capital_findings]
+
+持仓估值未覆盖的时段或时间戳数不符计为完整性发现
+
+```python
+def capital_findings(
+    observer: CapitalObserver,
+    expected_timestamps: int,
+) -> list[str]
+```
+
+<TypeTable type={{ "observer": { type: "CapitalObserver", description: "运行结束并完成收尾的资金观察器" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的期望估值数" } }} />
+
+**返回**　list[str]：去重且保序的完整性发现；空列表表示每个输入时间戳与其中每个未平持仓都已估值
+
+**期望行为**
+
+1. 取观察器发现列表（未能估值的持仓时段、乱序标记价），去重并保持首次出现顺序，作为 CAPITAL_VALUATION_GAP 发现。
+2. 观察器估值时间戳数不等于期望数时追加一条 CAPITAL_TIMESTAMP_COUNT_MISMATCH。
+3. 不重算估值、不读敞口表，只汇报观察器留下的事实。
+4. 结果由 engine.write_native_reports 写入摘要 integrity_findings；非空时 integrity_passed 为假，engine.main 非零退出。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `CAPITAL_VALUATION_GAP` | 存在未能估值的持仓时段或乱序标记价（作为发现返回） |
+| `CAPITAL_TIMESTAMP_COUNT_MISMATCH` | 观察器估值时间戳数不等于导出标记价时间戳并集数（作为发现返回） |
+
+**使用**　<Ref id="engine.capital_observer" />、<Ref id="engine.mark_timestamps" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.3.2.4" />
+
+**使用于**　<Ref id="G.2.1.2" />、<Ref id="R.2.2.1" />、<Ref id="R.3.1.1" />
+
+**依据**　[\[88\]](/zh/docs/appendix-references/#ref-88 "NautilusTrader — Execution")
+
+</div>
+
+### `capital_observer` [#def-engine-capital_observer]
+
+运行器挂在回放节点上的数据参与者：每根输入 K 线后按引擎标记价估值全部未平持仓写敞口表；无法估值记为发现
+
+```python
+def capital_observer(
+    instrument_ids: tuple[str, ...],
+    exposure_path: Path,
+) -> 引擎数据参与者实例
+```
+
+<TypeTable type={{ "instrument_ids": { type: "tuple[str, ...]", description: "要订阅标记价的全部合约" }, "exposure_path": { type: "Path", description: "敞口表输出路径（压缩 CSV），位于报告目录内" } }} />
+
+**返回**　引擎数据参与者实例；回放后产出敞口表（ts_event_ns、position_id、notional、unrealized_pnl）、估值时间戳计数 timestamps 与发现列表 findings
+
+**期望行为**
+
+1. 启动时订阅全部合约的引擎 MarkPriceUpdate；不设定时器，采样点只在输入 K 线时间戳
+2. 收到更早时间戳的标记价记为发现并忽略；收到更晚时间戳时先对上一时间戳估值，再切换当前时间戳并清空标记价表；同一时间戳按合约保留最新标记价
+3. 估值一个时间戳：对引擎缓存中每个未平持仓取该合约标记价，算名义价值与未实现盈亏写一行；缺标记价或持仓已在下一时间戳变动记为无法估值的发现；每估值一次计数加一
+4. 敞口写入异常先记为发现再原样抛出，不让后续成功写入掩盖缺口
+5. finish 在全部组件停止后对最后时间戳估值（含收盘成交）并关闭敞口流
+6. 估值价源固定为标记价，采样周期为每根输入 K 线收盘后；engine.capital_findings 读取这些发现并计为完整性发现
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EXPOSURE_WRITE_FAILED` | 敞口表写入抛出异常：记为发现后原样抛出，运行器非零退出 |
+
+**使用**　<Ref id="engine.capital_findings" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.2.2.1" />
+
+**使用于**　<Ref id="C.1.4.2" />、<Ref id="W.4.1.1" />、<Ref id="G.2.1.2" />、<Ref id="G.3.2.4" />
+
+**依据**　[\[128\]](/zh/docs/appendix-references/#ref-128 "NautilusTrader — MarkPriceUpdate") [\[126\]](/zh/docs/appendix-references/#ref-126 "NautilusTrader — Portfolio")
+
+</div>
+
+### `configure_strategy` [#def-engine-configure_strategy]
+
+以运行器输入构造入口类：合约、交易起点、按声明取的预热日线、策略标识、成员区间；不传任何策略参数
+
+```python
+def configure_strategy(
+    strategy: LoadedStrategy,
+    inputs: StrategyInputs,
+) -> 策略实例
+```
+
+<TypeTable type={{ "strategy": { type: "LoadedStrategy", description: "源码入口类与内容哈希；入口类的全部规则与参数都在源码内" }, "inputs": { type: "StrategyInputs", description: "运行器输入：instrument_id、trade_start_ns、input_start_ns、strategy_id、catalog_path、universe_membership（区间列表）" } }} />
+
+**返回**　策略实例，已按合约登记到进程内实例表供报表读取；类名由内容哈希与入口类名合成，确保节点在本进程解析
+
+**期望行为**
+
+1. 由运行器包装类与源码入口类合成进程内可导入的类，名字含内容哈希与入口类名，同一进程只合成一次。
+2. 沿方法解析顺序把源码定义的全部 on_ 回调经 engine.guard_callback 包装，不改变引擎事件流。
+3. 构造时只传运行器输入：合约、按合约的日线类型、交易起点、策略标识、成员区间元组、1 分钟撮合周期；源码声明 DAILY_WARMUP 时才调 engine.warmup_daily_bars 取输入起点前的连续日线，否则传空。
+4. 不读取、不接受、不透传任何策略专有参数；参数变体只能是新源码与新内容哈希。
+5. 构造抛出异常时先经 engine.execution_failure 记为构造阶段的结构化回执再原样抛出，回放无效。
+6. 构造成功后按合约标识登记到进程内实例表，供报表读取。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `STRATEGY_CONSTRUCTION_FAILED` | 入口类构造抛出任何异常（含预热日线不足由 engine.warmup_daily_bars 抛出的异常） |
+
+**使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.guard_callback" />、<Ref id="engine.warmup_daily_bars" />、<Ref id="engine.execution_failure" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="C.1.2.1" />
+
+**使用于**　<Ref id="C.1.1.1" />、<Ref id="W.2.2.1" />、<Ref id="W.3.2.1" />、<Ref id="W.4.1.1" />
+
+</div>
+
+### `episode_active` [#def-engine-episode_active]
+
+合法生命周期与输入窗口相交才建实例；缺 K 线不使片段失效
+
+```python
+def episode_active(
+    episode: dict | None,
+    start_ns: int,
+    end_ns: int,
+) -> bool
+```
+
+<TypeTable type={{ "episode": { type: "dict | None", description: "生命周期片段：start_ns 与事件列表；None 表示无生命周期约束" }, "start_ns": { type: "int", description: "输入窗口起点（含预热段）" }, "end_ns": { type: "int", description: "输入窗口终点，开区间" } }} />
+
+**返回**　bool：为真时该片段在本次回放中建一个策略实例
+
+**期望行为**
+
+1. 片段为 None 时返回真。
+2. 终止时刻取最早的 CLOSE 或下架结算事件；禁新仓不算终止，禁新仓后的持仓仍需实例平仓。
+3. 片段起点早于窗口终点，且（无终止时刻或终止时刻晚于窗口起点）即为活跃。
+4. 只看权威生命周期事件，K 线是否缺失不参与判断。
+5. 纯函数，不拒绝。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.1" />
+
+**使用于**　<Ref id="W.4.1.1" />
+
+</div>
+
+### `episode_membership` [#def-engine-episode_membership]
+
+成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束
+
+```python
+def episode_membership(
+    intervals: tuple[tuple[int, int], ...],
+    episode: dict | None,
+) -> 相交后的成员区间元组
+```
+
+<TypeTable type={{ "intervals": { type: "tuple[tuple[int, int], ...]", description: "该合约按月合并的原成员区间，[start_ns, end_ns) 左闭右开" }, "episode": { type: "dict | None", description: "生命周期片段：start_ns（合法开仓起点）与事件列表（类型、动作、ts_event）；None 表示无生命周期约束" } }} />
+
+**返回**　相交后的成员区间元组，左闭右开，空区间丢弃，顺序不变
+
+**期望行为**
+
+1. 片段为 None 时原样返回原成员区间。
+2. 下界取片段起点（缺失视为零）。
+3. 上界取最早的禁新仓 PRE_CLOSE、终止 CLOSE 或下架结算事件时刻；没有任一事件则不设上界。
+4. 每个区间取 [max(start, 下界), min(end, 上界))，只保留非空区间。
+5. 纯函数：不读文件、不改输入、不拒绝；结果作为 universe_membership 传给实例，退出范围后如何处置旧仓旧单由源码按契约写明。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.1" />
+
+**使用于**　<Ref id="C.1.4.3" />、<Ref id="W.4.1.1" />
+
+</div>
+
+### `execution_failure` [#def-engine-execution_failure]
+
+把策略构造或回调异常的阶段、异常类型、消息与回溯写成结构化回执，不依赖日志文本
+
+```python
+def execution_failure(
+    stage: str,
+    exc: Exception,
+    instance: Strategy | None,
+) -> None
+```
+
+<TypeTable type={{ "stage": { type: "str", description: "阶段名：constructor 或回调名" }, "exc": { type: "Exception", description: "抛出的异常" }, "instance": { type: "Strategy | None", description: "抛出异常的策略实例；构造未完成时为空" } }} />
+
+**返回**　None；进程内失败记录追加一条，输出目录 reports/runtime_failures.jsonl 追加一行
+
+**期望行为**
+
+1. 组装回执：格式版本、阶段、异常类型名、消息、完整回溯，以及实例的合约标识（未构造时写 unconstructed）。
+2. 追加到进程内失败记录，供 engine.main 判 NATIVE_EXECUTION_FAILED。
+3. 输出目录已设时按 JSON Lines 追加一行并 flush、fsync，进程随后被杀也留下回执。
+4. 只记录 Python 异常事实，不读 stderr、不按文本严重度判错；自身不抛出、每次调用独立追加。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.1.1.3" />
+
+**使用于**　<Ref id="C.1.3.2" />、<Ref id="J.2.3.2" />
+
+</div>
+
+### `guard_callback` [#def-engine-guard_callback]
+
+包装策略回调：异常先写结构化回执再原样抛出
+
+```python
+def guard_callback(name: str, method: callable) -> 包装后的方法
+```
+
+<TypeTable type={{ "name": { type: "str", description: "回调名（on_ 开头）" }, "method": { type: "callable", description: "源码定义的原回调方法" } }} />
+
+**返回**　包装后的方法，保留原方法元数据与签名
+
+**期望行为**
+
+1. 调用原方法并返回其结果。
+2. 捕获任何异常后调 engine.execution_failure(name, exc, 实例) 写结构化回执。
+3. 回执写完后原样重新抛出，不换异常类型、不改消息；引擎吞掉异常也已留下证据。
+4. 不读日志、不匹配 stderr 文本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `CALLBACK_EXCEPTION` | 回调抛出任何异常：先写结构化回执再原样抛出，运行最终以 NATIVE_EXECUTION_FAILED 结束 |
+
+**使用**　<Ref id="engine.execution_failure" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.1.1.3" />
+
+**使用于**　<Ref id="C.1.3.2" />
+
+</div>
+
+### `main` [#def-engine-main]
+
+运行器入口：在运行环境内回放候选并写出原生原件；异常与完整性失败一律非零退出
+
+```python
+def main(argv: list[str] | None) -> None。成功时输出目录含原生报表、摘要、订单事件史、敞口表
+```
+
+<TypeTable type={{ "argv": { type: "list[str] | None", description: "命令行参数，空时取进程参数；只含策略引用、输入、窗口、输出目录与执行绑定，不含策略参数" } }} />
+
+**返回**　None。成功时输出目录含原生报表、摘要、订单事件史、敞口表；任何失败以异常结束进程（非零退出），不返回部分成功
+
+**期望行为**
+
+1. 用 engine.parse_configuration 解析参数；只描述时返回 engine.describe 的结果，不加载源码、不读市场数据。
+2. 清空进程内失败记录并把回执目标定到输出目录；核对执行绑定与 engine.effective_configuration 解析出的有效配置逐字段一致，不一致拒 EXECUTION_BINDING_MISMATCH。
+3. 用 engine.load_strategy 加载源码（engine.strategy_metadata 读声明），用 engine.read_market 读每合约导出与回执，用 engine.read_universe 读成员区间；任一步异常原样抛出。
+4. 调 engine.replay 运行节点，得到完成的回放与每合约实例表。
+5. 用 engine.write_native_reports 写原生报表与摘要（期望估值数来自 engine.mark_timestamps，估值发现来自 engine.capital_findings），用 engine.write_order_events 写订单事件史；写出先于判定。
+6. 失败记录非空即 NATIVE_EXECUTION_FAILED；摘要完整性发现非空即 INTEGRITY_FINDINGS；均以异常结束，不吞掉、不改写、不按日志文本判错。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EXECUTION_BINDING_MISMATCH` | 执行绑定缺失、不是合法 JSON、运行契约不受支持，或与运行器自身解析出的有效配置不一致 |
+| `NATIVE_EXECUTION_FAILED` | 回放结束后进程内存在至少一条策略构造或回调异常的结构化回执（即使引擎已捕获异常并干净收尾） |
+| `INTEGRITY_FINDINGS` | 摘要的完整性发现非空：自检钩子发现、被否或被拒订单、估值覆盖缺口或估值时间戳数不符 |
+
+**使用**　<Ref id="engine.parse_configuration" />、<Ref id="engine.describe" />、<Ref id="engine.effective_configuration" />、<Ref id="engine.load_strategy" />、<Ref id="engine.strategy_metadata" />、<Ref id="engine.read_market" />、<Ref id="engine.read_universe" />、<Ref id="engine.replay" />、<Ref id="engine.mark_timestamps" />、<Ref id="engine.capital_findings" />、<Ref id="engine.write_native_reports" />、<Ref id="engine.write_order_events" />、<Ref id="engine.guard_callback" />、<Ref id="engine.execution_failure" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.1.1.3" />
+
+**使用于**　<Ref id="C.2.1.1" />
+
+</div>
+
+### `mark_timestamps` [#def-engine-mark_timestamps]
+
+直接从导出的标记价文件算出资金观察器应有的估值次数，不依赖回执或观察器自己报的计数。
+
+```python
+def mark_timestamps(rows: list[dict]) -> int
+```
+
+<TypeTable type={{ "rows": { type: "list[dict]", description: "每个活跃合约一行，含该合约导出目录路径与导出回执；回执列出该合约的标记价 Parquet 文件。" } }} />
+
+**返回**　int：全部合约标记价更新 ts_event 去重并集的元素数。
+
+**期望行为**
+
+1. 按每合约回执列出的文件，逐个打开导出目录下的标记价 Parquet，只读 ts_event 列，按批流式读取。
+2. 各批逐个并入同一个集合，去重后计数。
+3. 回执中声明的标记价文件不存在、损坏或缺 ts_event 列时，抛出 EXPORT_MARKS_UNREADABLE。
+4. 全部合约都没有标记价文件时返回 0；比对由 engine.capital_findings 完成，本函数不写任何文件。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EXPORT_MARKS_UNREADABLE` | 回执声明的任一标记价 Parquet 文件不存在、损坏或缺 ts_event 列。 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.2.1.2" />
+
+**使用于**　<Ref id="G.3.2.4" />
+
+**依据**　[\[124\]](/zh/docs/appendix-references/#ref-124 "NautilusTrader — Python API backtest（BacktestResult）")
+
+</div>
+
+### `replay` [#def-engine-replay]
+
+按账户常量建唯一场所与回放节点，加入每合约三类数据流与生命周期事件，每个活跃合约一个策略实例，外加恰好一个资金观察器；运行后以引擎原生结果核对消费条数与观察器数
+
+```python
+def replay(
+    rows: list[dict],
+    window: dict,
+    strategy: LoadedStrategy,
+    pool: dict[str, tuple[tuple[int, int], ...]],
+    output_dir: Path,
+) -> None
+```
+
+<TypeTable type={{ "rows": { type: "list[dict]", description: "每合约一行：合约标识、币种、导出目录路径、导出回执（含各数据类型条数与生命周期片段），来自 engine.read_market" }, "window": { type: "dict", description: "engine.parse_window 的结果：start_ns、trade_start_ns、end_ns，UTC、左闭右开、整分钟对齐" }, "strategy": { type: "LoadedStrategy", description: "engine.load_strategy 的结果：入口类、内容哈希、绑定" }, "pool": { type: "dict[str, tuple[tuple[int, int], ...]]", description: "engine.read_universe 的结果：每合约原成员区间，没有成员文件时为空" }, "output_dir": { type: "Path", description: "敞口表与结构化回执的写入目录" } }} />
+
+**返回**　(Replay, dict[str, Strategy | None])：Replay 持有节点、原生运行结果、缓存与组合、资金观察器；字典按币种给出实例，窗口内不活跃的合约为 None
+
+**期望行为**
+
+1. 以 engine.account_contract 的常量建唯一场所与引擎配置（净额保证金账户、固定本金、杠杆、K 线撮合与订单能力、数据序列校验、下单速率上限）；账户、持仓、保证金事实全部归引擎。
+2. 每合约加三类数据流（1 分钟 K 线、标记价更新、资金费更新）；回执里生命周期事件条数非零时再加状态与终止事件流。
+3. 对 engine.episode_active 为真的合约各加一个策略实例：入口类经 engine.configure_strategy 包装，配置只含合约、交易起点、输入起点（窗口起点与片段起点取大）、策略标识、目录路径与 engine.episode_membership 相交后的成员区间；不传任何策略参数。没有任何合约可建实例拒绝 NO_ACTIVE_INSTRUMENT。
+4. 加恰好一个 engine.capital_observer，订阅全部合约标记价，敞口表写到 output_dir。
+5. 运行节点后读引擎原生 iterations，不等于全部回执各数据类型条数之和拒绝 DATA_COUNT_MISMATCH；观察器实例数不等于一拒绝 OBSERVER_COUNT_MISMATCH；两处都读引擎原生结果，不信任回执自报。
+6. 所有组件停止后调观察器 finish 估值最后一个时间戳并关闭敞口流，返回回放与实例表。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `DATA_COUNT_MISMATCH` | 引擎实际消费的事件数不等于全部合约导出回执条数之和 |
+| `OBSERVER_COUNT_MISMATCH` | 进程内登记的资金观察器实例数不等于一 |
+| `NO_ACTIVE_INSTRUMENT` | 范围内没有任何合约的合法生命周期与输入窗口相交，节点无实例可运行 |
+
+**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.episode_active" />、<Ref id="engine.episode_membership" />、<Ref id="engine.configure_strategy" />、<Ref id="engine.capital_observer" />、<Ref id="engine.read_market" />、<Ref id="engine.read_universe" />、<Ref id="engine.parse_window" />、<Ref id="engine.load_strategy" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.4.1.1" />
+
+**使用于**　<Ref id="A.4.2.1" />、<Ref id="A.4.2.2" />、<Ref id="A.5.1.1" />、<Ref id="C.2.1.1" />、<Ref id="C.4.2.1" />、<Ref id="W.3.2.1" />、<Ref id="W.5.1.1" />、<Ref id="W.5.2.3" />、<Ref id="G.2.1.2" />
+
+**依据**　[\[109\]](/zh/docs/appendix-references/#ref-109 "NautilusTrader — Backtest Accounts and Margin（账户类型 CASH/MARGIN/BETTING；MARGIN 缺省 LeveragedMarginModel；配置示例 oms_type=NETTING；starting_balances）")
+
+</div>

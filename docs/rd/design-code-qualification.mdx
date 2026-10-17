@@ -1,0 +1,219 @@
+# 代码设计：经济证据资格
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+`qualification/`　经济证据资格：读时按明确检查身份算出的视图，不改写存储结论；报告、候选清单、比较与计数共用。
+
+每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
+
+<Files>
+<Folder name="qualification" defaultOpen>
+  <File name="availability.py" />
+</Folder>
+</Files>
+
+## `qualification/availability.py` [#def-mod-qualification-availability-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="qualification.assess">assess</Ref> | 综合存储审计结论、原始执行捕获、绑定的独立源码审查与原生对账，得出一次运行的当前经济证据资格与全部原因，附检查身份 |
+| <Ref id="qualification.check_identity">check_identity</Ref> | 资格检查身份：检查名、读数代码版本与检查器源码哈希，随每份资格结论输出 |
+| <Ref id="qualification.mask">mask</Ref> | 经济读数流出前的唯一遮蔽点：不可用运行的经济读数整体置空并附资格原因 |
+| <Ref id="qualification.native_reasons">native_reasons</Ref> | 核实质活动：真实原生成交、每笔成交对应唯一订单、周期恰好覆盖成交、生命周期终止无发现、经济拆分对账、日收益复合到期末、账户首末与审计余额一致；不设费用、频率、样本或收益门槛 |
+| <Ref id="qualification.require">require</Ref> | 比较、对照登记与描述统计读口之前的硬门：资格不可用即拒绝并返回原因 |
+| <Ref id="qualification.source_reviews">source_reviews</Ref> | 只认源码哈希与镜像摘要都匹配本运行的独立审查记录；内容哈希不符拒绝；记录身份按其写入时的账本提交核对 |
+
+### `assess` [#def-qualification-assess]
+
+综合存储审计结论、原始执行捕获、绑定的独立源码审查与原生对账，得出一次运行的当前经济证据资格与全部原因，附检查身份
+
+```python
+def assess(conn: LedgerConnection, run: Mapping) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接（ledger.connect），可指向 AS OF 某一提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：run_id、trial_id、status（存储审计结论）、source_sha256（候选源码内容哈希）、image_digest（运行环境身份）" } }} />
+
+**返回**　dict：\{economic_evidence_available: bool, reasons: list[str], activity: \{orders, fills, positions, account_rows\}, stored_audit_status, source_check（source_reviews 结果）, execution_capture: \{status, purpose, failed_stages, failures, original_missing\}, checker（check_identity 结果）, applicability, limitations: list[str]\}。纯视图，不改写 run.status 与审计结果
+
+**期望行为**
+
+1. 统计 run_order、run_fill、run_position、run_account 中该 run_id 的行数作 activity。
+2. 存储的 run.status 不是 passed（审计未通过、无效、未完成）即记原因「存储审计未通过或运行无效」。
+3. 经 ledger.read_capture 读本试验原始执行捕获：captured 且记有结构化异常、outcome 非 completed 或任一阶段退出码非零即记原因；missing 写入 limitations 并保持缺失，不读恢复包补证。
+4. 经 qualification.source_reviews 取绑定的独立审查：status 为 failed 即记原因「绑定身份的独立源码审查记为失败」；结果整体放入 source_check，与账户审计分列。
+5. 经 ledger.load_run 载入封存原生报表（含账户行），追加 qualification.native_reasons 的原因。
+6. 组装结果：economic_evidence_available = reasons 为空；checker = check_identity()；applicability 写「真实成交与匹配原生记录；无费用、频率、样本或收益门槛」；limitations 固定含「源码因果正确性由独立审查负责」「缺失的原始日志保持缺失，缺失不证明无回调异常」。不写账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUN_NOT_FOUND` | run_id 在账本中没有封存的运行行（ledger.load_run 透传） |
+| `LEDGER_CORRUPT` | 源码审查证据或执行捕获文件的存储内容哈希与重算不符（source_reviews、read_capture 透传） |
+| `EXECUTION_IDENTITY` | 执行捕获的试验、源码哈希、运行环境身份或用途与本运行不符（read_capture 透传） |
+
+**使用**　<Ref id="table:run" />、<Ref id="table:trial" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="ledger.read_capture" />、<Ref id="ledger.load_run" />、<Ref id="qualification.source_reviews" />、<Ref id="qualification.native_reasons" />、<Ref id="qualification.check_identity" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.1.1" />
+
+**使用于**　<Ref id="A.2.1.1" />、<Ref id="A.4.1.1" />、<Ref id="A.5.1.2" />、<Ref id="E.1.1.2" />、<Ref id="E.3.1.1" />、<Ref id="L.2.2.2" />、<Ref id="T.2.2.3" />、<Ref id="V.2.3.3" />、<Ref id="F.1.1.1" />、<Ref id="F.3.1.1" />、<Ref id="X.1.3.1" />、<Ref id="X.2.1.1" />、<Ref id="G.4.1.2" />、<Ref id="G.4.2.1" />、<Ref id="G.4.2.3" />、<Ref id="R.1.1.4" />、<Ref id="R.4.2.1" />、<Ref id="R.5.1.1" />、<Ref id="J.2.4.2" />、<Ref id="J.6.2.3" />、<Ref id="D.1.2.3" />
+
+</div>
+
+### `check_identity` [#def-qualification-check_identity]
+
+资格检查身份：检查名、读数代码版本与检查器源码哈希，随每份资格结论输出
+
+```python
+def check_identity() -> dict
+```
+
+**返回**　dict：\{check: 检查名（判据版本常量，如 economic_evidence_v1）, reader_revision: 读数代码版本, checker_source_sha256: 本模块字节的 sha256\}
+
+**期望行为**
+
+1. 检查名取模块常量，判据变更时递增版本名；不读账本。
+2. 经 ledger.reader_revision 取读数代码版本。
+3. 对本模块字节算 sha256 作检查器源码哈希。
+4. 三者组成检查身份，assess、require 的拒绝体与探索目录视图都附带它；同一运行在不同时刻的不同资格由检查身份解释，不由改写解释。
+
+**使用**　<Ref id="ledger.reader_revision" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.2.3" />
+
+**使用于**　<Ref id="T.2.2.3" />、<Ref id="V.2.2.1" />、<Ref id="V.4.1.2" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.4" />、<Ref id="R.1.3.3" />、<Ref id="J.2.4.2" />、<Ref id="D.1.1.2" />、<Ref id="D.1.2.3" />
+
+</div>
+
+### `mask` [#def-qualification-mask]
+
+经济读数流出前的唯一遮蔽点：不可用运行的经济读数整体置空并附资格原因
+
+```python
+def mask(output: dict, value: dict) -> dict
+```
+
+<TypeTable type={{ "output": { type: "dict", description: "任一读口组装的运行报告字典（运行报告、候选清单条目、分析表、探索目录报告），含经济读数键、cost_basis 与活动计数" }, "value": { type: "dict", description: "assess（或探索目录按同一判据算出）的资格字典" } }} />
+
+**返回**　dict：同一报告字典，附 availability = value；不可用时全部经济读数键与 cost_basis 为 None，活动计数、诊断、审计边界与检查身份保留
+
+**期望行为**
+
+1. 把资格字典整体挂到 output.availability，使每份报告都带原因与检查身份。
+2. economic_evidence_available 为假时把全部经济读数键置 None：期末权益、年化、最大回撤、收益回撤比、计划已平/赢/未平与胜率、闭仓与持仓计数、已实现盈亏、手续费、资金费、价格盈亏、未实现盈亏、按年拆分、资金使用率；cost_basis 置 None。
+3. 活动计数、原生行数、审计 scope 与 coverage_limits、执行捕获状态、源码审查结论保留为诊断，供 Agent 归因。
+4. 可用时不改任何读数；所有读口都经本函数，不另设遮蔽。
+
+**使用**　<Ref id="qualification.assess" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.1.2" />
+
+**使用于**　<Ref id="V.1.2.2" />、<Ref id="F.1.1.1" />、<Ref id="X.2.1.1" />、<Ref id="G.4.2.3" />、<Ref id="R.1.1.4" />、<Ref id="D.1.2.3" />
+
+</div>
+
+### `native_reasons` [#def-qualification-native_reasons]
+
+核实质活动：真实原生成交、每笔成交对应唯一订单、周期恰好覆盖成交、生命周期终止无发现、经济拆分对账、日收益复合到期末、账户首末与审计余额一致；不设费用、频率、样本或收益门槛
+
+```python
+def native_reasons(reports: NativeReports) -> list[str]
+```
+
+<TypeTable type={{ "reports": { type: "NativeReports", description: "一次运行的类型化原生报表：orders、fills、positions、account、returns、order_events、lifecycle_events、summary（原生摘要）、audit（审计结果，含 passed、native_economics 与留存计数）；来自 ledger.load_run 或 report.load_directory" } }} />
+
+**返回**　list[str]：不可用原因；空列表表示实质活动成立且匹配记录全部对账。只描述事实，不归因
+
+**期望行为**
+
+1. 核对成交：fills 为空记「无真实原生成交，仅诊断活动」；有成交但 orders、positions 或 account 任一为空记「原生活动缺订单、持仓或账户记录」；任一成立即返回，不再对账。
+2. 核对审计留存：summary 或 audit 缺失、audit.passed 为假、audit 无 native_economics，或审计留存的订单、成交、持仓计数与报表行数不符，记对应原因。
+3. 核对订单与周期：每笔成交的 client_order_id 对应唯一一张订单；经 ledger.cycles 由持仓报表重建周期，每笔成交恰属一个周期；engine.lifecycle_findings 非空即记原因。
+4. 核对经济：ledger.economics 把闭仓拆分（价格盈亏、手续费、资金费）与审计经济数对账；ledger.daily_returns 把交易窗口日收益复合到期末权益；账户首行总额等于起始余额、末行等于审计期末余额（容差为未校准示例值）；任一不符记「原生活动记录不对账：\<原因>」。
+5. 不设费用金额、频率、样本量或收益门槛：零手续费零资金费的真实成交不记原因。
+6. 只返回原因列表，不抛出、不写入；ledger.unreconciled 转为原因文字。
+
+**使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.unreconciled" />、<Ref id="engine.lifecycle_findings" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.1.1" />
+
+**使用于**　<Ref id="G.4.2.3" />
+
+</div>
+
+### `require` [#def-qualification-require]
+
+比较、对照登记与描述统计读口之前的硬门：资格不可用即拒绝并返回原因
+
+```python
+def require(conn: LedgerConnection, run: Mapping) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接" }, "run": { type: "Mapping", description: "run ⨝ trial 行，同 assess" } }} />
+
+**返回**　dict：资格可用时返回 assess 的完整资格字典，供调用方随比较读数或登记绑定一并写出；不可用时抛拒绝
+
+**期望行为**
+
+1. 调用 assess 得到当前资格视图。
+2. economic_evidence_available 为假即以 ECONOMIC_EVIDENCE_UNAVAILABLE 拒绝，拒绝体携带 run_id、全部 reasons 与整份资格字典，write_status 为 not_written；调用方不得给出改善、区间与 p。
+3. 零成交且账户未变的运行同样拒绝，不因未亏损而优于亏损对照。
+4. 可用时原样返回资格字典，不做任何写入。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ECONOMIC_EVIDENCE_UNAVAILABLE` | assess 判定不可用：零成交、缺匹配记录、原生不对账、存储审计未通过、执行捕获记失败或未完成、绑定源码审查记失败之一 |
+| `RUN_NOT_FOUND` | 透传 assess |
+| `LEDGER_CORRUPT` | 透传 assess |
+| `EXECUTION_IDENTITY` | 透传 assess |
+
+**使用**　<Ref id="qualification.assess" />、<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.1.2" />
+
+**使用于**　<Ref id="A.2.1.1" />、<Ref id="A.2.1.2" />、<Ref id="T.2.1.3" />、<Ref id="H.1.1.2" />、<Ref id="V.2.2.1" />、<Ref id="V.2.3.1" />、<Ref id="V.2.3.3" />、<Ref id="F.3.2.2" />、<Ref id="X.2.1.1" />
+
+</div>
+
+### `source_reviews` [#def-qualification-source_reviews]
+
+只认源码哈希与镜像摘要都匹配本运行的独立审查记录；内容哈希不符拒绝；记录身份按其写入时的账本提交核对
+
+```python
+def source_reviews(conn: LedgerConnection, run: Mapping) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接；核历史记录时经 ledger.read_as_of 读其写入提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：run_id、source_sha256、image_digest" } }} />
+
+**返回**　dict：\{status: passed | failed | unreviewed, reviews: [\{bundle_id, sha256, verdict, reviewer, ledger_commit\}], ignored: [\{bundle_id, reason\}], scope: 「Agent 因果职责；审计通过不等于源码有效」\}
+
+**期望行为**
+
+1. 从 evidence 读全部路径为 source-review.json 的行及其 evidence_bundle 归属；重算内容 sha256，与存储哈希不符拒绝 LEDGER_CORRUPT。
+2. 解析 source-review-v1 记录：source_sha256 等于本运行候选源码哈希且 image_digest 等于本运行镜像摘要才计入；不符的记录属于别的候选或运行环境，跳过。
+3. 对计入的记录经 ledger.read_as_of 在其写入提交处读当时的试验行，核记录身份与当时试验一致；不一致或无法解析、缺字段的记录列入 ignored 并写原因，不按文件名或后来的探针推断。
+4. 汇总：任一 failed 即 failed；否则任一 passed 即 passed；否则 unreviewed。
+5. 不写账本；结论作为具名 Agent 证据返回，不替代也不被账户审计替代。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_CORRUPT` | 证据行存储的 sha256 与重算的内容哈希不符 |
+
+**使用**　<Ref id="table:evidence" />、<Ref id="table:evidence_bundle" />、<Ref id="table:trial" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="G.4.2.2" />
+
+**使用于**　<Ref id="A.5.1.2" />、<Ref id="C.3.1.1" />、<Ref id="C.3.1.2" />、<Ref id="C.6.2.1" />、<Ref id="G.3.1.2" />、<Ref id="G.4.1.1" />、<Ref id="J.4.2.1" />
+
+</div>

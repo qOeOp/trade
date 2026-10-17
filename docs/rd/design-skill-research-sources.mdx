@@ -1,0 +1,142 @@
+# skill 设计：research-sources
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+仓库外来源：检索与阅读论文、经济序列与监管持仓数据，记检索与阅读事实，界定来源能支持什么。
+
+**触发**　提经济假设前、陈述先前研究发现或不存在前、从文献取机制或参数前、在研究中使用外部数据前。
+
+<Files>
+<Folder name="research-sources" defaultOpen>
+  <File name="research-sources/SKILL.md" />
+  <File name="research-sources/references/endpoints.md" />
+</Folder>
+</Files>
+
+每个 skill 节与 eval 一条：内容或判据、关联章节与参考资料。
+
+## 节
+
+### 怎么检索 [#def-research-sources-SKILL-md-search]
+
+`research-sources/SKILL.md`
+
+同一问题至少三种表述、至少两个索引；只引能解析的 DOI 或 arXiv 标识；同一工作跨索引命中按工作合并；留存位置、日期与实际检视的内容。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.1.1" />
+
+**使用于**　<Ref id="H.2.1.2" />
+
+</div>
+
+### 来源能支持什么 [#def-research-sources-SKILL-md-support-and-practice]
+
+`research-sources/SKILL.md`
+
+来源证明作者在其市场与窗口研究了什么，不证明本市场有效。来源只影响研究优先级；无论文的方向仍可低优先级探索；不按引用数排名、不设引用门槛、不以缺来源关闭方向。只有登记前首次可见的版本算事前依据；之后找到的另开带日期证据包追加。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.2.3" />
+
+**使用于**　<Ref id="H.2.1.1" />、<Ref id="F.2.3.2" />
+
+**依据**　[\[36\]](/zh/docs/appendix-references/#ref-36 "McLean &amp; Pontiff 2016, https://doi.org/10.1111/jofi.12365") [\[37\]](/zh/docs/appendix-references/#ref-37 "Chen, Lopez-Lira &amp; Zimmermann 2022, arXiv:2212.10317")
+
+</div>
+
+### 检索记录 [#def-research-sources-SKILL-md-search-log]
+
+`research-sources/SKILL.md`
+
+每次检索一行：索引、查询原文、过滤条件、命中数、查询日期、读取程度（题录／摘要／全文）、访问限制（无密钥、401/403、配额）。否定断言只写「按这些查询没找到」并附查询与日期；访问失败是限制，不是无先前研究。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.1.2" />
+
+**使用于**　<Ref id="H.2.1.1" />、<Ref id="H.2.3.2" />
+
+**依据**　[\[34\]](/zh/docs/appendix-references/#ref-34 "Rethlefsen et al. 2021, https://doi.org/10.1186/s13643-020-01542-z") [\[35\]](/zh/docs/appendix-references/#ref-35 "OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)")
+
+</div>
+
+### 用哪个来源 [#def-research-sources-SKILL-md-which-source]
+
+`research-sources/SKILL.md`
+
+论文索引回答先前研究与机制；经济序列回答宏观条件；监管持仓数据回答持仓结构。可信实践优先可识别的原作者、官方研究材料或可检视的代码，记位置、日期与实际检视的内容；匿名转述不作外部依据。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.1.1" />
+
+**使用于**　<Ref id="A.4.3.1" />、<Ref id="L.1.1.1" />
+
+</div>
+
+### 读每份来源 [#def-research-sources-SKILL-md-read]
+
+`research-sources/SKILL.md`
+
+每份来源记状态（期刊、工作论文、预印本、学位论文）、市场、窗口、频率、是否样本外、是否扣成本、出处位置；只读到摘要标「仅摘要」。撤稿不算；同一工作多版本合并并引发表版；复述不算独立来源。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.3.2" />
+
+**使用于**　<Ref id="H.2.2.1" />
+
+**依据**　[\[35\]](/zh/docs/appendix-references/#ref-35 "OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)")
+
+</div>
+
+### 查询端点 [#def-research-sources-references-endpoints-md-queries]
+
+`research-sources/references/endpoints.md`
+
+每个索引一节：curl 查询形式、可用过滤字段（年份、类型、撤稿标记）、返回中要记下的字段（标识、版本、状态）与访问限制的表现（无密钥、401/403、配额）。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.1.1" />
+
+</div>
+
+## eval
+
+| eval | 验什么 |
+|---|---|
+| <Ref id="eval:research-sources/negative-claim-scoped-to-queries">negative-claim-scoped-to-queries</Ref> | 否定断言限于查询 |
+| <Ref id="eval:research-sources/source-status-and-conditions">source-status-and-conditions</Ref> | 每份来源记状态与条件 |
+
+### `negative-claim-scoped-to-queries` [#def-eval-research-sources-negative-claim-scoped-to-queries]
+
+**验什么**　否定断言限于查询
+
+**通过判据**　否定断言写成「按这些查询没找到」并附查询与日期；访问失败或全文不可读记为检索限制，不写成不存在先前研究。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.1.2" />
+
+**依据**　[\[34\]](/zh/docs/appendix-references/#ref-34 "Rethlefsen et al. 2021, https://doi.org/10.1186/s13643-020-01542-z") [\[35\]](/zh/docs/appendix-references/#ref-35 "OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)")
+
+</div>
+
+### `source-status-and-conditions` [#def-eval-research-sources-source-status-and-conditions]
+
+**验什么**　每份来源记状态与条件
+
+**通过判据**　每份来源都有状态、市场、窗口、频率、样本外、扣成本与出处位置；仅摘要已标注；撤稿被剔除；多版本合并为一条并引发表版。
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.2.3.2" />
+
+**依据**　[\[35\]](/zh/docs/appendix-references/#ref-35 "OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)")
+
+</div>

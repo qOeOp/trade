@@ -5,6 +5,7 @@ import { source } from '@/lib/source';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
+import { Ref } from '@/components/mdx/ref';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 
 export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>) {
@@ -20,7 +21,7 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
-        <MDX components={getMDXComponents({ a: createRelativeLink(source, page) })} />
+        <MDX components={getMDXComponents({ a: createRelativeLink(source, page), Ref: (props) => <Ref {...props} lang={params.lang} /> })} />
       </DocsBody>
     </DocsPage>
   );

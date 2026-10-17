@@ -1,0 +1,1309 @@
+# 代码设计：市场数据
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
+
+每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
+
+<Files>
+<Folder name="market" defaultOpen>
+  <File name="coverage.py" />
+  <File name="export.py" />
+  <File name="instrument.py" />
+  <File name="lifecycle.py" />
+  <File name="series.py" />
+  <File name="sources.py" />
+  <File name="store.py" />
+  <File name="universe.py" />
+</Folder>
+</Files>
+
+## `market/coverage.py` [#def-mod-market-coverage-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.coverage_facts">coverage_facts</Ref> | 在固定市场提交上为一个合约产出 market-coverage-v1 事实字典：成员月份、输入区间内成交价与标记价的缺口区间与零成交量分钟、两者时刻对齐、资金费结算时刻与条数；首末数据只作上市下架的代理并标 unproven，指标就绪标需 Agent 审查。导出器据此写回执进入输入身份并随试验封存为 input-coverage.json。 |
+| <Ref id="market.diagnose_coverage">diagnose_coverage</Ref> | 入口与命令行的只读覆盖读口：按钉住的市场提交对显式给出的合约清单逐个产出覆盖事实，并在给了生命周期证据包时附上校验后的生命周期回执（上市、禁新仓、下架结算、ticker 重用）。只返回输入事实，不做资格评级，不删币、不缩窗、不补数、不判经济失败。 |
+
+### `coverage_facts` [#def-market-coverage_facts]
+
+在固定市场提交上为一个合约产出 market-coverage-v1 事实字典：成员月份、输入区间内成交价与标记价的缺口区间与零成交量分钟、两者时刻对齐、资金费结算时刻与条数；首末数据只作上市下架的代理并标 unproven，指标就绪标需 Agent 审查。导出器据此写回执进入输入身份并随试验封存为 input-coverage.json。
+
+```python
+def coverage_facts(
+    conn: MarketConnection,
+    commit: str,
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+    last_bars: MinuteTable,
+    mark_bars: MinuteTable,
+    funding_rows: list[tuple[int, Decimal]],
+) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "MarketConnection", description: "市场库只读连接；全部查询按 commit AS OF" }, "commit": { type: "str", description: "已解析的 40 位市场提交哈希，不接受可移动的引用名或标签" }, "symbol": { type: "str", description: "合约公开名（非 ASCII 用原名，不用别名）" }, "start_ms": { type: "int", description: "输入区间起点（含预热与可能延续持仓所需的最早分钟），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "输入区间终点，左闭右开，UTC 毫秒，整分钟" }, "last_bars": { type: "MinuteTable", description: "该合约 LAST 1 分钟 K 线（ts_open 升序，含 volume），调用方已按 commit 与区间读出" }, "mark_bars": { type: "MinuteTable", description: "该合约 MARK 1 分钟 K 线（ts_open 升序，无 volume）" }, "funding_rows": { type: "list[tuple[int, Decimal]]", description: "该合约区间内 (funding_time_ms, rate)，按实际结算时刻升序" } }} />
+
+**返回**　dict，格式 market-coverage-v1：\{format, commit, symbol, input_interval_ms:[start,end], last:\{rows, first_open_ms, last_open_ms, gap_intervals_ms, missing_minutes, zero_volume_minutes\}, mark:\{同结构，无 zero_volume_minutes\}, last_mark_unmatched_minutes, funding:\{rows, first_ms, last_ms, event_times_ms, expected_schedule:'not_established'\}, member_months:[YYYY-MM-01…], listing_delisting:\{status:'unproven', data_bounds_proxy:\{last:\{first_open_ms,last_open_ms\}, mark:\{…\}\}, reason\}, indicator_readiness:\{status:'agent_review_required', reason\}, interpretation\}
+
+**期望行为**
+
+1. 核对区间：start_ms \< end_ms 且两者落在整分钟网格；核对 commit 为 40 位提交哈希；不满足即拒绝，不做任何读。
+2. 核对合约在该提交上存在于 instrument 表（AS OF commit）；不存在即拒绝；存在但无 K 线不拒绝，照实记零行。
+3. 核对 last_bars、mark_bars 的 ts_open 均为整分钟且升序去重；不满足即拒绝（输入形状，不是市场事实）。
+4. 对 LAST 与 MARK 各算 missing_intervals(ts_open, start_ms, end_ms, 60000) 得缺口区间与缺失分钟数；LAST 另计 volume == 0 的分钟数；两者 ts_open 对称差的条数记为 last_mark_unmatched_minutes。
+5. 按 commit AS OF 读 universe_month 得该合约的成员月份；读 bar 表每价格类型 MIN/MAX(ts_open) 作上市下架的数据边界代理，status 固定为 unproven 并写明原因。
+6. 组装字典返回：资金费只记时刻与条数，不推断应有排期；不评级、不删币、不缩窗、不补数；interpretation 写明零活动与缺口不等于经济失败。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INTERVAL_INVALID` | start_ms >= end_ms，或任一端点不在整分钟网格上 |
+| `MARKET_COMMIT_INVALID` | commit 不是已解析的 40 位提交哈希（传入了可移动引用名、标签或空值） |
+| `UNKNOWN_SYMBOL` | 该提交 AS OF 下 instrument 表无此合约（合约从不存在于市场库，区别于有合约无 K 线） |
+| `SOURCE_SHAPE` | last_bars 或 mark_bars 的 ts_open 不是整分钟、无序或重复 |
+
+**使用**　<Ref id="market.missing_intervals" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:universe_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.3.1" />
+
+**使用于**　<Ref id="A.4.1.1" />、<Ref id="E.1.2.2" />、<Ref id="W.1.3.1" />、<Ref id="G.2.2.1" />、<Ref id="J.6.1.4" />
+
+</div>
+
+### `diagnose_coverage` [#def-market-diagnose_coverage]
+
+入口与命令行的只读覆盖读口：按钉住的市场提交对显式给出的合约清单逐个产出覆盖事实，并在给了生命周期证据包时附上校验后的生命周期回执（上市、禁新仓、下架结算、ticker 重用）。只返回输入事实，不做资格评级，不删币、不缩窗、不补数、不判经济失败。
+
+```python
+def diagnose_coverage(
+    profile: MarketProfile,
+    at: str,
+    symbols: list[str],
+    start: str,
+    end: str,
+    lifecycle: LifecycleBundle | None,
+) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场库档案（连接方式与库名），只读打开" }, "at": { type: "str", description: "用户或研究路线记录给出的提交引用（Dolt 引用名、标签或哈希，缺省 main），由 market.resolve_commit 解析为唯一提交" }, "symbols": { type: "list[str]", description: "显式合约清单；本读口不做全范围隐式展开，范围由调用方自 universe_month 读出后显式传入" }, "start": { type: "str", description: "输入区间起点，ISO-8601 显式 UTC，整分钟（含预热）" }, "end": { type: "str", description: "输入区间终点，ISO-8601 显式 UTC，整分钟，左闭右开" }, "lifecycle": { type: "LifecycleBundle | None", description: "调用方已从账本证据包读出的 native-lifecycle-v1 清单与来源原件（body, files）；None 表示不附生命周期回执。本层不读账本" } }} />
+
+**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 …，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
+
+**期望行为**
+
+1. 解析区间：start、end 转 UTC 毫秒并核对整分钟与 start \< end；核对 symbols 非空且无重复；不满足即拒绝。
+2. 经 market.connect 只读打开市场库，market.resolve_commit(conn, at) 得唯一提交哈希；解析失败按其拒绝码原样向上。
+3. 若给了 lifecycle：先 market.validate_lifecycle(body, commit, files) 核对清单绑定同一提交、事件为引擎原生字典、时钟单调、来源原件在包内；不符即 LIFECYCLE_INPUT 拒绝整次读，不部分返回。
+4. 逐合约按提交 AS OF 读 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。
+5. 把每合约的校验后生命周期片段并入返回；清单里没有该合约的记入 lifecycle_missing，只作事实不作判定。
+6. 组装返回，不排序、不筛除、不改窗口；interpretation 固定说明缺口、零量、资金费缺失、首末数据均为输入事实，入口不据此删币、缩窗、补数或判经济失败，也不替策略判定指标就绪。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INTERVAL_INVALID` | start、end 缺时区、不在整分钟网格或 start >= end |
+| `EMPTY_SYMBOLS` | symbols 为空或含重复项（读口只接受显式清单，不做全范围展开） |
+| `UNKNOWN_REF` | at 不是 Dolt 引用名、标签或已知提交（由 market.resolve_commit 传出） |
+| `AMBIGUOUS_REF` | at 的哈希前缀匹配多个提交（由 market.resolve_commit 传出） |
+| `NOT_A_COMMIT` | at 指向工作集（由 market.resolve_commit 传出） |
+| `UNKNOWN_SYMBOL` | 任一合约在该提交下不存在于 instrument 表（由 market.coverage_facts 传出） |
+| `LIFECYCLE_INPUT` | 给出的生命周期证据包绑定的不是该提交、事件非引擎原生字典、时钟不单调或来源原件缺失（由 market.validate_lifecycle 传出） |
+
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.coverage_facts" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="E.1.2.2" />
+
+**使用于**　<Ref id="A.3.1.2" />、<Ref id="E.1.2.3" />、<Ref id="W.3.3.1" />、<Ref id="W.3.3.2" />
+
+</div>
+
+## `market/export.py` [#def-mod-market-export-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.export_catalogs">export_catalogs</Ref> | 按提交 AS OF 导出范围内每合约的 Catalog 与覆盖回执，缓存按提交与窗口键，生命周期原件一并写入导出根 |
+| <Ref id="market.export_episode">export_episode</Ref> | 每个片段一个 Catalog：条款、成交价 K 线、标记价、资金费、起点前完整日线、生命周期事件；记覆盖与近似标记 |
+| <Ref id="market.native_symbol">native_symbol</Ref> | 片段编号与非 ASCII 币名的确定 ASCII 别名；报告用的合约短名 |
+| <Ref id="market.split_episodes">split_episodes</Ref> | ticker 重用按权威生命周期拆成按时间编号的独立原生合约片段；跨越边界的半截分钟不供给 |
+| <Ref id="market.write_bars">write_bars</Ref> | 把 1 分钟成交价 K 线（或预热用日线）写为引擎外部聚合 Bar，事件时间等于收盘时刻；无序或不精确即拒绝 |
+| <Ref id="market.write_funding">write_funding</Ref> | 按实际结算时刻逐条写引擎 FundingRateUpdate，使引擎恰在该时刻结算一次 |
+| <Ref id="market.write_marks">write_marks</Ref> | 每根标记价 1 分钟 K 线的收盘写为一条引擎 MarkPriceUpdate，与同分钟成交价 K 线对齐 |
+
+### `export_catalogs` [#def-market-export_catalogs]
+
+按提交 AS OF 导出范围内每合约的 Catalog 与覆盖回执，缓存按提交与窗口键，生命周期原件一并写入导出根
+
+```python
+def export_catalogs(
+    profile: dict,
+    at: str | None,
+    symbols: list[str],
+    start_ns: int,
+    end_ns: int,
+    episodes: dict[str, list[dict]] | None,
+    lifecycle_files: dict[str, bytes] | None,
+    fresh: bool,
+    root: Path | None,
+    workers: int,
+) -> dict {commit
+```
+
+<TypeTable type={{ "profile": { type: "dict", description: "市场库连接档案（只读账号）" }, "at": { type: "str | None", description: "市场提交引用（哈希、标签或 None 取 HEAD），经 resolve_commit 解析为固定提交" }, "symbols": { type: "list[str]", description: "公开合约名清单，来自成员时间路径；顺序即回执顺序" }, "start_ns": { type: "int", description: "输入区间起点（含预热），UTC 纳秒，整分钟" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒，整分钟" }, "episodes": { type: "dict[str, list[dict]] | None", description: "每个公开名的权威生命周期片段（已经 validate_lifecycle 校验、绑定同一提交）；None 表示无生命周期证据" }, "lifecycle_files": { type: "dict[str, bytes] | None", description: "生命周期证据包原件（相对路径 → 内容），原样写入导出根 lifecycle-evidence/" }, "fresh": { type: "bool", description: "True 时导出到新的临时目录，不读不写缓存" }, "root": { type: "Path | None", description: "缓存根目录；None 用默认临时缓存" }, "workers": { type: "int", description: "并行导出的进程数" } }} />
+
+**返回**　dict \{commit, root, exported, cached, receipts: \{symbol: receipt\}\}；exported 为本次导出的合约数，cached 为取自完整缓存的合约数，receipt 即 export_episode 写出的 export.json 内容
+
+**期望行为**
+
+1. 核对窗口：start_ns \< end_ns，且两端都落在 1 分钟网格上，否则拒绝 EXPORT_WINDOW；symbols 为空或重复拒绝 EXPORT_SCOPE。
+2. 连接市场库，用 resolve_commit 解析 at 为固定提交，并读 market_schema AS OF 该提交取 price_scale、volume_scale。
+3. 缓存键 = 提交 / start_ns-end_ns / 生命周期原件摘要（有则加）；fresh 为 False 时逐合约检查 \<root>/\<symbol>/export.json 是否完整（format 为 market-coverage-v1 且含 pieces），完整的直接沿用，缺失或半截的重新导出。
+4. 为每个待导出合约构造作业（profile、commit、symbol、窗口、缩放位、该合约的 episodes），交进程池并行调用 export_episode（片段拆分在其内部完成）；收集回执。
+5. 有 lifecycle_files 时把每份原件按相对路径写入 \<root>/lifecycle-evidence/，使导出目录自含生命周期证据。
+6. 返回提交、导出根、导出与缓存计数和全部回执；回执由上层写入输入身份并随试验封存，本函数不写账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EXPORT_WINDOW` | start_ns ≥ end_ns，或任一端不在 1 分钟网格上 |
+| `EXPORT_SCOPE` | symbols 为空或含重复公开名 |
+| `MARKET_COMMIT` | 由 resolve_commit 抛出：提交引用无法解析为市场库中的提交 |
+| `NO_TERMS / LIFECYCLE_INPUT / BARS_UNSORTED` | 由 export_episode 及其下层抛出，整次导出失败，不写部分回执 |
+
+**使用**　<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="market.export_episode" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.3.1" />
+
+**使用于**　<Ref id="W.1.2.2" />、<Ref id="W.2.1.2" />、<Ref id="W.2.2.1" />、<Ref id="W.4.2.2" />、<Ref id="J.6.1.3" />、<Ref id="J.6.2.1" />
+
+</div>
+
+### `export_episode` [#def-market-export_episode]
+
+每个片段一个 Catalog：条款、成交价 K 线、标记价、资金费、起点前完整日线、生命周期事件；记覆盖与近似标记
+
+```python
+def export_episode(job: dict) -> dict 合约回执
+```
+
+<TypeTable type={{ "job": { type: "dict", description: "{profile, commit, symbol, start_ns, end_ns, path, scales: (price_scale, volume_scale), episodes: list[dict] | None}；一个公开合约一个作业" } }} />
+
+**返回**　dict 合约回执（写为 \<path>/export.json）：\{format: market-coverage-v1, symbol, commit, start_ns, end_ns, coverage, terms_source, terms_observed_at, historical_terms: CURRENT_SNAPSHOT_APPROXIMATION, assumed, pieces: [\{index, instrument_id, catalog_dir, counts: \{last, mark, funding, daily, instrument_close, instrument_status\}, first_bar_ns, last_bar_ns, missing_minutes, last_mark_unmatched, price_precision, price_precision_widened, episode\}]\}
+
+**期望行为**
+
+1. 清空并重建 path；以只读账号连接市场库，terms 取提交上该合约最新观测的条款行（无则拒绝 NO_TERMS），AS OF 提交读 [start_ns, end_ns) 的 LAST 与 MARK 1 分钟 K 线、start 前全部 LAST 分钟（预热日线来源）与窗口内资金费。
+2. 按公开名在原始序列上调用 coverage_facts（缺口、零量、成交价与标记价对齐、资金费时刻与条数、成员月份、上市下架标 unproven），覆盖按原名记录，不按片段拆分。
+3. split_episodes 得到片段；每个片段：derive_bars 把预热来源聚合为日线并只留收盘早于片段起点的完整日；价格精度取条款精度与数据所需精度的较大者（放宽即记 price_precision_widened）；build_instrument 用片段原生身份与假设条款生成合约；有生命周期时 require_native_price 核对窗口内结算价落在合约精度网格上。
+4. 每个片段在 \<path>/\<catalog_dir>/ 建一个 Catalog：写合约，write_bars 写 1 分钟成交价 K 线（外部聚合，事件时间为收盘）与预热日线，write_marks 写标记价更新，write_funding 写资金费，write_lifecycle_events 写窗口内 InstrumentStatus / InstrumentClose；记各类条数。
+5. 每片段记首末 K 线时刻、缺失分钟数、成交价与标记价时刻不匹配数；合约级记条款来源与观测时刻、historical_terms 近似标记与假设手续费率、保证金率。
+6. 最后写 export.json（写在最后即表示完整，半截导出不被缓存当作完整）并返回回执。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NO_TERMS` | 由 terms 抛出：提交上没有该合约的条款行 |
+| `LIFECYCLE_INPUT` | 由 require_native_price 抛出：窗口内结算价不能在导出合约的精度网格上精确表示（不舍入、不改步长绕过） |
+| `DERIVE_OVERFLOW` | 由 derive_bars 抛出：日线聚合成交量超出 BIGINT |
+| `BARS_UNSORTED` | 由 write_bars 抛出：成交价 K 线或预热日线的时刻无序或重复 |
+| `MARK_INEXACT` | 由 write_marks 抛出：标记价不能在合约价格精度上精确表示 |
+| `FUNDING_UNSORTED` | 由 write_funding 抛出：资金费结算时刻无序 |
+
+**使用**　<Ref id="market.connect" />、<Ref id="market.terms" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="market.coverage_facts" />、<Ref id="market.split_episodes" />、<Ref id="market.derive_bars" />、<Ref id="market.build_instrument" />、<Ref id="market.require_native_price" />、<Ref id="market.write_bars" />、<Ref id="market.write_marks" />、<Ref id="market.write_funding" />、<Ref id="market.write_lifecycle_events" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.3" />
+
+**使用于**　<Ref id="W.2.2.1" />、<Ref id="W.4.2.2" />、<Ref id="W.5.1.1" />、<Ref id="W.5.2.3" />
+
+</div>
+
+### `native_symbol` [#def-market-native_symbol]
+
+片段编号与非 ASCII 币名的确定 ASCII 别名；报告用的合约短名
+
+```python
+def native_symbol(
+    symbol: str,
+    episode: int | None,
+) -> NativeName {instrument_id
+```
+
+<TypeTable type={{ "symbol": { type: "str", description: "公开合约名（USDT 永续，如 BTCUSDT）" }, "episode": { type: "int | None", description: "片段编号（从 1 起）；None 表示无 ticker 重用" } }} />
+
+**返回**　NativeName \{instrument_id, strategy_tag, short_name\}：引擎合约标识 SYMBOL[-E\<n>]-PERP.BINANCE、ASCII 策略标识、报告短名
+
+**期望行为**
+
+1. 核对 symbol 以 USDT 结尾且不含 '-' 或 '.'（它们是引擎标识的分隔符），否则拒绝 SYMBOL_SHAPE；episode 非 None 时须为正整数，否则拒绝 EPISODE_INDEX。
+2. instrument_id：公开名为 ASCII 时直接用，非 ASCII 时币名部分按 UTF-8 十六进制大写拼写并加 X 前缀作确定别名；有片段编号时在合约名后接 -E\<n>；再接 -PERP.BINANCE。
+3. strategy_tag：币名（去 USDT，有片段时为 币名_E\<n>）置于最后一个连字符段，使引擎从该段派生订单标签；非 ASCII 同样用十六进制别名。
+4. short_name：去 USDT，去掉字母前的 1000 倍数前缀，保留原名字符，仅供报告展示。
+5. 同一输入恒返回同一结果；公开名、条款与覆盖仍按 symbol 原名记录，别名只作原生身份。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SYMBOL_SHAPE` | symbol 不以 USDT 结尾、为空，或含 '-' / '.' |
+| `EPISODE_INDEX` | episode 不是正整数 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.3" />
+
+**使用于**　<Ref id="W.2.2.1" />
+
+</div>
+
+### `split_episodes` [#def-market-split_episodes]
+
+ticker 重用按权威生命周期拆成按时间编号的独立原生合约片段；跨越边界的半截分钟不供给
+
+```python
+def split_episodes(
+    symbol: str,
+    episodes: list[dict] | None,
+    series: dict,
+    start_ns: int,
+    end_ns: int,
+) -> list[piece]
+```
+
+<TypeTable type={{ "symbol": { type: "str", description: "公开合约名" }, "episodes": { type: "list[dict] | None", description: "该合约已校验的权威生命周期片段，按 start_ns 时间顺序；None 或空表示整段作为单一片段" }, "series": { type: "dict", description: "原始序列 {last, mark: 1 分钟整数 K 线列阵; daily_source: start 前的 1 分钟成交价 K 线; funding: [(funding_time_ms, rate)]}" }, "start_ns": { type: "int", description: "输入区间起点，UTC 纳秒" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒" } }} />
+
+**返回**　list[piece]；piece = \{index, instrument_id, strategy_tag, episode, low_ns, high_ns, last, mark, daily_source, funding, catalog_dir\}；无生命周期时恰一个 piece，index 为 None，catalog_dir 为空（Catalog 直接落在合约目录）
+
+**期望行为**
+
+1. 无 episodes 时返回单片段：原生身份由 native_symbol(symbol) 给出，序列不裁剪，low/high 取窗口两端。
+2. 有 episodes 时核对片段形状与原生事件字典（否则拒绝 EPISODE_SHAPE），并核对 start_ns 严格递增且每个片段起点不早于前一片段的终止时钟，否则拒绝 EPISODE_ORDER。
+3. 每个片段按时间顺序编号 n = 1, 2, …，原生身份 native_symbol(symbol, n) 得 SYMBOL-E\<n>-PERP.BINANCE；片段边界 low = 片段 start_ns，high = 片段终止时钟（无终止则 None）。
+4. 只保留开盘时刻 ≥ low 且收盘时刻 \< high 的完整分钟进入该片段的 last 与 mark；跨越上市或终止边界的半截分钟不供给任何片段；原始市场行不改。
+5. daily_source 只留落在 [low, high) 内的分钟，funding 只留结算时刻在 [low, high) 内的行；与窗口相交后无数据的片段仍返回空序列，使完全不活跃的合约在回执中可见。
+6. 每个片段 catalog_dir = episode-\<n>，彼此独立，旧片段的任何状态不进入新片段。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `EPISODE_ORDER` | 片段 start_ns 非严格递增，或某片段起点早于前一片段的终止时钟（重叠） |
+| `EPISODE_SHAPE` | 片段缺 start_ns 或 events，或 events 非引擎原生事件字典 |
+
+**使用**　<Ref id="market.native_symbol" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.3" />
+
+</div>
+
+### `write_bars` [#def-market-write_bars]
+
+把 1 分钟成交价 K 线（或预热用日线）写为引擎外部聚合 Bar，事件时间等于收盘时刻；无序或不精确即拒绝
+
+```python
+def write_bars(
+    catalog: ParquetDataCatalog,
+    bar_type: str,
+    bars: dict[str, ndarray],
+    step_ms: int,
+    price_precision: int,
+    size_precision: int,
+    price_scale: int,
+    volume_scale: int,
+) -> int
+```
+
+<TypeTable type={{ "catalog": { type: "ParquetDataCatalog", description: "合约片段的引擎 Catalog" }, "bar_type": { type: "str", description: "引擎 BarType 字符串，如 <instrument_id>-1-MINUTE-LAST-EXTERNAL 或 <instrument_id>-1-DAY-LAST-EXTERNAL" }, "bars": { type: "dict[str, ndarray]", description: "整数 K 线列阵 {ts_open(ms), open, high, low, close, volume}，按 ts_open 升序" }, "step_ms": { type: "int", description: "K 线周期毫秒（1 分钟或 1 日），用于算收盘时刻" }, "price_precision": { type: "int", description: "合约价格精度（小数位）" }, "size_precision": { type: "int", description: "合约数量精度（小数位）" }, "price_scale": { type: "int", description: "市场库价格整数缩放位数" }, "volume_scale": { type: "int", description: "市场库成交量整数缩放位数" } }} />
+
+**返回**　int：写入的 Bar 条数
+
+**期望行为**
+
+1. 收盘时刻 = ts_open + step_ms − 1 毫秒，换算为纳秒；ts_event = ts_init = 收盘时刻，与 <Ref id="engine.account_contract" /> 的收盘为事件时间一致。
+2. 核对收盘时刻严格递增，否则拒绝 BARS_UNSORTED；不去重、不重排。
+3. 把整数价格按 price_scale、成交量按 volume_scale 精确转换为引擎定点原始值；任一值在给定精度下不能精确表示即拒绝 BAR_RAW_INEXACT，不舍入。
+4. 分块经引擎 Bar 数据整理器构造原生 Bar 写入 Catalog，聚合来源标为 EXTERNAL；元数据记 bar_type、instrument_id 与两种精度。
+5. 返回写入条数，进入导出回执，供运行器核对引擎实际消费条数。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `BARS_UNSORTED` | 相邻 K 线收盘时刻不严格递增 |
+| `BAR_RAW_INEXACT` | 价格或成交量在合约精度下不能精确表示为引擎定点值 |
+
+**使用**　<Ref id="engine.account_contract" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.5.1.1" />
+
+**使用于**　<Ref id="C.3.1.1" />、<Ref id="W.2.1.3" />、<Ref id="W.3.2.3" />
+
+**依据**　[\[111\]](/zh/docs/appendix-references/#ref-111 "NautilusTrader — Bar execution（bar_execution=True 且 L1_MBP 且外部聚合 K 线才撮合；取最细周期；ts_init 为收盘）")
+
+</div>
+
+### `write_funding` [#def-market-write_funding]
+
+按实际结算时刻逐条写引擎 FundingRateUpdate，使引擎恰在该时刻结算一次
+
+```python
+def write_funding(
+    root: Path,
+    instrument_id: str,
+    rows: list[tuple[int, Decimal]],
+) -> int
+```
+
+<TypeTable type={{ "root": { type: "Path", description: "合约片段 Catalog 根目录" }, "instrument_id": { type: "str", description: "片段的原生合约身份字符串" }, "rows": { type: "list[tuple[int, Decimal]]", description: "[(funding_time_ms, rate)]，取自 table:funding，按实际结算时刻升序；正费率多头付、空头收" } }} />
+
+**返回**　int：写入条数；rows 为空返回 0 且不建文件
+
+**期望行为**
+
+1. rows 为空直接返回 0；否则核对结算时刻严格递增（含重复即拒绝 FUNDING_UNSORTED），费率为有限十进制数（否则 FUNDING_RATE_SHAPE）。
+2. 每条写一行引擎原生 FundingRateUpdate：ts_event = ts_init = next_funding_ns = 结算时刻纳秒，interval 留空，使引擎在该时刻结算一次且不推断周期；不假设 8 小时间隔。
+3. 费率以规范化十进制字符串写出，不改精度。
+4. 按引擎 Catalog 布局写入 data/funding_rate_update/\<instrument_id>/\<首时刻>_\<末时刻>.parquet，元数据记 instrument_id 与数据类型，供回放节点装载。
+5. 返回条数进入导出回执，供运行器核对引擎消费条数。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `FUNDING_UNSORTED` | 相邻结算时刻不严格递增（含重复时刻） |
+| `FUNDING_RATE_SHAPE` | 费率不是有限十进制数 |
+
+**使用**　<Ref id="table:funding" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.5.2.3" />
+
+**使用于**　<Ref id="W.3.2.3" />
+
+**依据**　[\[117\]](/zh/docs/appendix-references/#ref-117 "Binance — Introduction to Binance Futures Funding Rates（缺省每 8 小时；可调为 4 小时或 1 小时；正费率多头付空头；只有结算时刻持仓者收付）") [\[118\]](/zh/docs/appendix-references/#ref-118 "NautilusTrader — Backtest Accounts and Margin（回测在资金费边界按 FundingRateUpdate 结算；有 next_funding_ns 时在该时刻发出一次 FundingSettlement；结算调整持仓与对应账户余额；正费率多头付、空头收）") [\[119\]](/zh/docs/appendix-references/#ref-119 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888")
+
+</div>
+
+### `write_marks` [#def-market-write_marks]
+
+每根标记价 1 分钟 K 线的收盘写为一条引擎 MarkPriceUpdate，与同分钟成交价 K 线对齐
+
+```python
+def write_marks(
+    catalog: ParquetDataCatalog,
+    instrument_id: InstrumentId,
+    bars: dict[str, ndarray],
+    step_ms: int,
+    price_precision: int,
+    price_scale: int,
+) -> int
+```
+
+<TypeTable type={{ "catalog": { type: "ParquetDataCatalog", description: "合约片段的引擎 Catalog" }, "instrument_id": { type: "InstrumentId", description: "片段的原生合约身份" }, "bars": { type: "dict[str, ndarray]", description: "标记价 1 分钟整数 K 线列阵，按 ts_open 升序" }, "step_ms": { type: "int", description: "K 线周期毫秒（1 分钟）" }, "price_precision": { type: "int", description: "合约价格精度，标记价按同一精度写出" }, "price_scale": { type: "int", description: "市场库价格整数缩放位数" } }} />
+
+**返回**　int：写入的 MarkPriceUpdate 条数
+
+**期望行为**
+
+1. 每根标记价 K 线只取收盘价，时刻 = 收盘时刻纳秒；ts_event = ts_init = 该时刻，与同分钟成交价 K 线对齐。
+2. 核对时刻严格递增，否则拒绝 MARK_UNSORTED。
+3. 收盘价从 price_scale 转到 price_precision 必须精确，否则拒绝 MARK_INEXACT；不截断、不舍入。
+4. 分块构造引擎原生 MarkPriceUpdate 写入 Catalog；返回条数进入导出回执，供运行器核对消费条数与资金观察器的期望估值数。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARK_UNSORTED` | 相邻标记价时刻不严格递增 |
+| `MARK_INEXACT` | 标记价收盘在合约价格精度下不能精确表示 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.5.1.1" />
+
+**使用于**　<Ref id="W.3.2.3" />
+
+**依据**　[\[111\]](/zh/docs/appendix-references/#ref-111 "NautilusTrader — Bar execution（bar_execution=True 且 L1_MBP 且外部聚合 K 线才撮合；取最细周期；ts_init 为收盘）")
+
+</div>
+
+## `market/instrument.py` [#def-mod-market-instrument-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.build_instrument">build_instrument</Ref> | 把条款快照与假设手续费率、保证金率写进引擎合约；价格精度只按数据需要放宽并记录，产出随导出回执记录的条款近似 |
+| <Ref id="market.terms">terms</Ref> | 按市场提交 AS OF 取某合约最新一次观测的条款快照；无条款拒绝，不回退 |
+
+### `build_instrument` [#def-market-build_instrument]
+
+把条款快照与假设手续费率、保证金率写进引擎合约；价格精度只按数据需要放宽并记录，产出随导出回执记录的条款近似
+
+```python
+def build_instrument(
+    symbol: str,
+    terms: TermsSnapshot,
+    price_precision: int,
+    native_id: str,
+) -> None
+```
+
+<TypeTable type={{ "symbol": { type: "str", description: "交易所公开合约名，写入合约 raw_symbol" }, "terms": { type: "TermsSnapshot", description: "market.terms 的返回值" }, "price_precision": { type: "int", description: "调用方（market.export_episode）从待导出的成交价与日线序列算出的最少小数位，须不小于条款步长的小数位" }, "native_id": { type: "str", description: "引擎原生合约身份，由 market.native_symbol 给出（含生命周期片段编号或 ASCII 别名）" } }} />
+
+**返回**　(instrument, terms_record)：instrument 为引擎 CryptoPerpetual；terms_record 为 \{terms_source, terms_observed_at, price_precision, price_precision_widened, assumed, historical_terms='CURRENT_SNAPSHOT_APPROXIMATION'\}，由导出回执原样记录
+
+**期望行为**
+
+1. 核对 price_increment、size_increment 为正十进制字符串，且有值的 min_quantity≤max_quantity、min_price≤max_price，否则拒绝 TERMS_INVALID。
+2. 取 price_increment 的小数位为交易所精度：price_precision 小于它拒绝 PRECISION_NARROWED（只放宽不收窄）；相等沿用原步长；更宽则步长改为 10^-price_precision 并记 price_precision_widened=true。
+3. size_precision 取 size_increment 的小数位，lot_size 等于 size_increment；可选边界有值才写入，inferred 条款下全部为空。
+4. 计价与结算货币固定为 USDT，基础货币由 symbol 去掉后缀得到；symbol 不以 USDT 结尾拒绝 UNSUPPORTED_QUOTE。
+5. 把常量 ASSUMED（maker_fee 0.0002、taker_fee 0.0005、margin_init 0.1、margin_maint 0.1，假设值）写入合约费率与保证金率字段；instrument_id 取 native_id，is_inverse=false，multiplier=1，ts_event=ts_init=0。
+6. 返回引擎合约与条款记录；不写库、不写 Catalog，写入与结算价网格核对分别由 market.export_episode 与 market.require_native_price 完成。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TERMS_INVALID` | 步长不是正十进制字符串，或有值的边界下限大于上限 |
+| `PRECISION_NARROWED` | price_precision 小于条款 price_increment 的小数位 |
+| `UNSUPPORTED_QUOTE` | symbol 不以结算货币 USDT 结尾，假设费率与保证金率无法按 USDT 计 |
+
+**使用**　<Ref id="market.terms" />、<Ref id="market.native_symbol" />、<Ref id="market.export_episode" />、<Ref id="market.require_native_price" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.4.2.2" />
+
+**使用于**　<Ref id="W.3.2.3" />、<Ref id="W.4.1.2" />
+
+</div>
+
+### `terms` [#def-market-terms]
+
+按市场提交 AS OF 取某合约最新一次观测的条款快照；无条款拒绝，不回退
+
+```python
+def terms(
+    conn: MarketConnection,
+    commit: str,
+    symbol: str,
+) -> TermsSnapshot
+```
+
+<TypeTable type={{ "conn": { type: "MarketConnection", description: "market.connect 以 reader 角色打开的只读市场库连接" }, "commit": { type: "str", description: "精确的市场提交哈希，由 market.resolve_commit 解析得到；不接受可移动的引用名或标签" }, "symbol": { type: "str", description: "交易所公开合约名（非 ASCII 也按原名查）" } }} />
+
+**返回**　TermsSnapshot：\{symbol, observed_at, terms_source, price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price, max_price\}；步长与边界保留原精度字符串，小数位即精度
+
+**期望行为**
+
+1. 以 commit 作 AS OF 读 table:instrument 中该 symbol 的条款行，按 observed_at 降序取第一行；只读该提交，之后的导入不影响结果。
+2. 原样返回 terms_source：exchange_info 为交易所公开快照原文，inferred 为已下架合约从成交推断的步长（其可选边界由表约束保证为空），不补算。
+3. 窗口内只用这一行，不回溯条款的历史变化；这是 CURRENT_SNAPSHOT_APPROXIMATION 近似的来源。
+4. 该提交上没有该 symbol 的任何条款行则拒绝 NO_TERMS，不回退到其他提交、其他合约或默认步长。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NO_TERMS` | 该提交 AS OF 下 table:instrument 没有该 symbol 的任何条款行 |
+
+**使用**　<Ref id="table:instrument" />、<Ref id="market.connect" />、<Ref id="market.resolve_commit" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.4.2.2" />
+
+**使用于**　<Ref id="W.3.2.3" />、<Ref id="W.4.1.2" />
+
+</div>
+
+## `market/lifecycle.py` [#def-mod-market-lifecycle-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.require_native_price">require_native_price</Ref> | 窗口内结算价须能在合约初始精度网格精确表示，否则拒绝 |
+| <Ref id="market.validate_lifecycle">validate_lifecycle</Ref> | 清单绑定市场提交；事件为引擎原生字典、时钟单调、来源在包内、已到期身份不重用；从 InstrumentClose 或 CLOSE 推导终点 |
+| <Ref id="market.write_lifecycle_events">write_lifecycle_events</Ref> | 按引擎原生 Arrow 结构写出窗口内的状态与关闭事件供回放节点装载 |
+
+### `require_native_price` [#def-market-require_native_price]
+
+窗口内结算价须能在合约初始精度网格精确表示，否则拒绝
+
+```python
+def require_native_price(
+    episode: dict,
+    instrument: Instrument,
+    start: int,
+    end: int | None,
+) -> None
+```
+
+<TypeTable type={{ "episode": { type: "dict", description: "validate_lifecycle 返回的单个片段" }, "instrument": { type: "Instrument", description: "该合约的引擎原生合约定义，取其初始 price_increment 与 price_precision" }, "start": { type: "int", description: "输入窗口起点（纳秒，含）；缺省 0" }, "end": { type: "int | None", description: "输入窗口终点（纳秒，含）；None 表示不设上界" } }} />
+
+**返回**　None；通过即静默返回。导出器在写合约前调用，审计在终止检查前再次调用
+
+**期望行为**
+
+1. 选出 episode.events 中时钟落在窗口内的 InstrumentClose（CONTRACT_EXPIRED）事件；没有则直接通过（无结算价的终止只供给 CLOSE 时钟，由终止检查核对仓位归零）。
+2. 对每个结算价，用合约初始 price_increment 作网格：价格以精确十进制除以步长须为整数，且小数位数不超过 price_precision。
+3. 任一结算价不在网格上即拒绝；拒绝文本明示不得舍入价格、不得改合约步长来绕过。
+4. 不造结算价、不改事件、不在此处结算；结算本身由引擎按原生 InstrumentClose 执行。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LIFECYCLE_INPUT` | 窗口内任一 CONTRACT_EXPIRED 结算价不能在合约初始精度网格上精确表示 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.2" />
+
+**使用于**　<Ref id="G.3.3.3" />
+
+</div>
+
+### `validate_lifecycle` [#def-market-validate_lifecycle]
+
+清单绑定市场提交；事件为引擎原生字典、时钟单调、来源在包内、已到期身份不重用；从 InstrumentClose 或 CLOSE 推导终点
+
+```python
+def validate_lifecycle(
+    body: dict,
+    commit: str,
+    files: Mapping[str, bytes],
+) -> {symbol
+```
+
+<TypeTable type={{ "body": { type: "dict", description: "生命周期清单 lifecycle.json 解析后的内容：format、market_commit、episodes" }, "commit": { type: "str", description: "钉住的市场提交哈希" }, "files": { type: "Mapping[str, bytes]", description: "证据包内全部文件，键为相对路径；sources 必须在其中" } }} />
+
+**返回**　\{symbol: [episode]\}；每个 episode 的终点不另存字段，由 events 中的 InstrumentClose 或 InstrumentStatus(action=CLOSE) 的时钟推导，无此类事件则终点为 None（仍在交易）
+
+**期望行为**
+
+1. 核清单：format 为本模块声明的原生生命周期格式，market_commit 等于 commit；否则拒绝。
+2. 逐片段核字段齐全（symbol、instrument_id、start_ns、events、sources），sources 为相对路径且每个都在 files 内，至少一份原件；否则拒绝。
+3. 逐事件核类型只允许 InstrumentStatus / InstrumentClose，字段能按引擎原生字典规范构造成原生对象，instrument_id 与片段一致，时钟自 start_ns 起单调不减；InstrumentClose 须 close_type 为 CONTRACT_EXPIRED 且价格为精确正数；否则拒绝。
+4. 推导终点：取首个 InstrumentClose 或 InstrumentStatus(CLOSE) 的时钟；同一 instrument_id 出现终点后不得再有后续片段或事件；同一 symbol 重新上市须用新的 instrument_id 且生命周期按时间顺序互不重叠；否则拒绝。
+5. 返回按 symbol 分组、按 start_ns 排序的片段；禁新仓（PRE_CLOSE）与终点只作为事实保留，不在此处裁剪任何窗口。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LIFECYCLE_INPUT` | 清单格式不符或 market_commit 与钉住的市场提交不等 |
+| `LIFECYCLE_INPUT` | 片段缺必填字段，或 sources 为空、含绝对路径、或引用了包内不存在的文件 |
+| `LIFECYCLE_INPUT` | 事件不是 InstrumentStatus / InstrumentClose 的原生字典，或不能构造为引擎原生对象，或 instrument_id 与片段不符 |
+| `LIFECYCLE_INPUT` | 事件时钟早于 start_ns 或非单调；InstrumentClose 的 close_type 非 CONTRACT_EXPIRED 或价格非精确正数 |
+| `LIFECYCLE_INPUT` | 已到期的 instrument_id 被后续片段或事件重用；同一 symbol 的重新上市片段生命周期重叠或顺序与身份映射不符 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.2" />
+
+**使用于**　<Ref id="E.1.2.2" />、<Ref id="X.1.3.2" />、<Ref id="W.3.2.3" />、<Ref id="G.2.2.2" />
+
+</div>
+
+### `write_lifecycle_events` [#def-market-write_lifecycle_events]
+
+按引擎原生 Arrow 结构写出窗口内的状态与关闭事件供回放节点装载
+
+```python
+def write_lifecycle_events(
+    root: Path,
+    episode: dict,
+    start: int,
+    end: int,
+) -> {"instrument_close"
+```
+
+<TypeTable type={{ "root": { type: "Path", description: "该片段 Catalog 的根目录；事件写到引擎装载器识别的原生数据子目录" }, "episode": { type: "dict", description: "validate_lifecycle 返回的单个片段" }, "start": { type: "int", description: "输入窗口起点（纳秒，含）" }, "end": { type: "int", description: "输入窗口终点（纳秒，含）" } }} />
+
+**返回**　\{"instrument_close": n, "instrument_status": m\}：实际写出的事件条数；窗口内无事件时两者为 0 且不创建文件
+
+**期望行为**
+
+1. 从 episode.events 选出时钟落在 [start, end] 内的事件，窗口外的一律不写（上市前、下架后的事实不进回放）。
+2. 把每条事件按引擎原生字典规范构造为原生对象，再按引擎原生 Arrow 架构（字段名、类型与可空性与引擎一致）分别写出 InstrumentClose 与 InstrumentStatus 两类文件。
+3. 文件路径与命名遵循引擎 Catalog 的原生约定，使回放节点无需适配即可装载；不写入任何私有字段。
+4. 写出前不改时钟、不改价格、不改步长；禁新仓与终止的语义由引擎执行，本函数只供给事件。
+5. 返回两类计数，供导出回执记录并由回放后的事件计数与时钟核对引用。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LIFECYCLE_INPUT` | 事件无法构造为引擎原生对象（应已在 validate_lifecycle 拒绝；此处为防御性重复核验） |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.2.2" />
+
+**使用于**　<Ref id="C.1.4.3" />、<Ref id="W.3.2.3" />
+
+</div>
+
+## `market/series.py` [#def-mod-market-series-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.check_derived">check_derived</Ref> | 派生 K 线与交易所原生同周期 K 线按合约精度对照，不一致记为数据缺陷而不是策略问题；只产出发现，不修改任一方 |
+| <Ref id="market.derive_bars">derive_bars</Ref> | 按唯一固定规则从 1 分钟派生高周期 K 线；没有分钟的桶不存在；溢出拒绝 |
+| <Ref id="market.missing_intervals">missing_intervals</Ref> | 分钟网格上缺失的左闭右开区间与零成交量分钟，只作事实计数，不补造 |
+| <Ref id="market.stitch_series">stitch_series</Ref> | 月归档→日归档→公开接口依次补缺，拼成每合约每价格类型一条分钟序列；同一时刻多来源逐字段不等或非整分钟即拒绝；返回任何来源都没有的分钟区间 |
+
+### `check_derived` [#def-market-check_derived]
+
+派生 K 线与交易所原生同周期 K 线按合约精度对照，不一致记为数据缺陷而不是策略问题；只产出发现，不修改任一方
+
+```python
+def check_derived(
+    derived: IntegerBars,
+    native: IntegerBars,
+    timeframe: str,
+    price_precision: int,
+    size_precision: int,
+) -> [DerivedFinding]
+```
+
+<TypeTable type={{ "derived": { type: "IntegerBars", description: "market.derive_bars 的输出，某一周期" }, "native": { type: "IntegerBars", description: "同合约、同价格类型、同周期、同窗口的交易所原生 K 线（调用方经 market.rest_klines 取得并按同一缩放位数转为整数）" }, "timeframe": { type: "str", description: "两侧共同的周期，用于核对桶网格" }, "price_precision": { type: "int", description: "合约价格小数位；价格字段四舍五入到此位后比较" }, "size_precision": { type: "int", description: "合约数量小数位；成交量四舍五入到此位后比较" } }} />
+
+**返回**　[DerivedFinding]：每项 \{ts_open, kind, field, derived_value, native_value\}，kind ∈ \{value_mismatch, bucket_only_derived, bucket_only_native\}；空列表表示在合约精度内一致
+
+**期望行为**
+
+1. 核对两侧 ts_open 严格递增且都落在 timeframe 的桶网格上（1w 以周一 00:00 UTC 为相位），否则 GRID_MISALIGNED；precision 为负即 PRECISION_INVALID
+2. 按 ts_open 对齐：只在派生侧出现的桶记 bucket_only_derived，只在原生侧出现的记 bucket_only_native，均为发现而非拒绝
+3. 共同桶上逐字段比较：open/high/low/close 先四舍五入到 price_precision，volume 到 size_precision，不等者各记一条 value_mismatch
+4. 不一致不触发拒绝，也不以原生值修补派生值或反向修补；发现由调用方写入导入日志与导出回执，归类为数据缺陷
+5. 纯函数，不读写库表
+
+| 拒绝码 | 条件 |
+|---|---|
+| `GRID_MISALIGNED` | 任一侧 ts_open 非严格递增，或不在该 timeframe 的桶网格上 |
+| `PRECISION_INVALID` | price_precision 或 size_precision 为负 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.2.2" />
+
+</div>
+
+### `derive_bars` [#def-market-derive_bars]
+
+按唯一固定规则从 1 分钟派生高周期 K 线；没有分钟的桶不存在；溢出拒绝
+
+```python
+def derive_bars(minute_bars: IntegerBars, timeframe: str) -> IntegerBars
+```
+
+<TypeTable type={{ "minute_bars": { type: "IntegerBars", description: "一条序列的 1 分钟 K 线整数数组 {ts_open, open, high, low, close, volume}，价格与数量已按 market_schema 的缩放位数存为 int64，按 ts_open 严格递增且无重复" }, "timeframe": { type: "str", description: "目标周期，只接受固定白名单：1m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 1w" } }} />
+
+**返回**　IntegerBars：同六列的桶级数组，ts_open 为桶起点；只含至少有一个分钟的桶；缩放位数与输入相同
+
+**期望行为**
+
+1. timeframe 不在白名单即 TIMEFRAME_UNKNOWN；为 1m 或输入为空时原样返回
+2. 核对 ts_open 严格递增且为整分钟，否则 INPUT_UNSORTED
+3. 分桶：桶起点 = floor((ts_open − offset) / step) × step + offset，offset 仅 1w 非零，使周从周一 00:00 UTC 起；其余周期自 UTC 零点对齐
+4. 每桶聚合：open = 首个有成交分钟的 open；high / low 只取有成交分钟（整桶无成交时取全部分钟，标记价序列因无成交量恒走此支）；close = 末分钟 close；volume = 求和
+5. 任一桶的 volume 之和超出 BIGINT 即 VOLUME_OVERFLOW，整次派生拒绝，不截断
+6. 纯函数，不读写库表；没有分钟的桶不产生行，也不以邻桶填充
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TIMEFRAME_UNKNOWN` | timeframe 不在固定周期白名单内 |
+| `INPUT_UNSORTED` | ts_open 非严格递增、有重复或不是整分钟 |
+| `VOLUME_OVERFLOW` | 某桶成交量之和超出 BIGINT 可表示范围 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.2.2" />
+
+**使用于**　<Ref id="C.3.1.1" />、<Ref id="W.2.2.1" />、<Ref id="W.3.2.3" />
+
+</div>
+
+### `missing_intervals` [#def-market-missing_intervals]
+
+分钟网格上缺失的左闭右开区间与零成交量分钟，只作事实计数，不补造
+
+```python
+def missing_intervals(
+    times: ndarray[int64],
+    start_ms: int,
+    end_ms: int,
+    step_ms: int,
+    volume: ndarray[int64] | None,
+) -> CoverageFacts
+```
+
+<TypeTable type={{ "times": { type: "ndarray[int64]", description: "已持有分钟的 open_time（UTC 毫秒），严格递增、落在网格上" }, "start_ms": { type: "int", description: "期望覆盖起点（含）" }, "end_ms": { type: "int", description: "期望覆盖终点（不含）" }, "step_ms": { type: "int", description: "网格步长，默认 60_000（1 分钟）；导出高周期回执时传该周期步长" }, "volume": { type: "ndarray[int64] | None", description: "与 times 对齐的成交量；给出时统计零成交量分钟，None（标记价）则不统计" } }} />
+
+**返回**　CoverageFacts：\{intervals: [(from_ms, to_ms)] 左闭右开缺失区间，missing_count: 缺失网格点数，present_count: 窗口内持有数，first_ms / last_ms: 窗口内首末持有时刻或 None，zero_volume_count: 零成交量分钟数（volume 为 None 时为 None）\}
+
+**期望行为**
+
+1. 核对 times 严格递增且每个值与 start_ms 同余于 step_ms，否则 GRID_MISALIGNED；volume 给出时长度须与 times 相等
+2. start_ms ≥ end_ms 返回全空事实（无区间、计数为 0），不拒绝
+3. 在 [start_ms, end_ms) 内，相邻持有时刻之差大于 step_ms 处即为一个缺失区间，首尾与窗口边界同样处理；区间按左闭右开表示
+4. 零成交量只在窗口内持有行上计数，与缺失区间分列：零成交是持有分钟的事实，不是缺口
+5. 只返回事实：不插值、不前值填充、不缩窗、不删币；调用方（导入报告、覆盖回执）原样记录
+
+| 拒绝码 | 条件 |
+|---|---|
+| `GRID_MISALIGNED` | times 非严格递增，或某时刻不在以 start_ms 为相位的 step_ms 网格上，或 volume 长度与 times 不等 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.3.1" />
+
+**使用于**　<Ref id="W.1.1.1" />、<Ref id="W.3.3.1" />
+
+</div>
+
+### `stitch_series` [#def-market-stitch_series]
+
+月归档→日归档→公开接口依次补缺，拼成每合约每价格类型一条分钟序列；同一时刻多来源逐字段不等或非整分钟即拒绝；返回任何来源都没有的分钟区间
+
+```python
+def stitch_series(
+    archive_cache: ArchiveCache,
+    symbol: str,
+    price_type: Literal['LAST','MARK'],
+    start_ms: int,
+    end_ms: int,
+    resumed: bool,
+    trading: bool,
+) -> None
+```
+
+<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接库内已存分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" } }} />
+
+**返回**　(minute_table, gap_intervals, source_rows)：minute_table 为按 open_time 排序、无重复、落在 [start_ms, end_ms) 内的 1 分钟 K 线表（列 open_time, open, high, low, close, volume, close_time，字段为交易所原始十进制字符串，无来源列）；gap_intervals 为三来源都没有的左闭右开区间 [(from_ms, to_ms)]；source_rows 为 \{monthly, daily, rest\} 各来源采用行数，只进导入报告
+
+**期望行为**
+
+1. 列出窗口覆盖的月份，经 market.monthly_archives 取已发布月归档作主来源；没有月归档的月份（当月或缺失月）改为按天经 market.fetch_archive 取日归档
+2. 合并各来源：裁到窗口、按 open_time 排序；同一 open_time 出现多行时逐字段比较，任一字段不等即 SOURCE_CONFLICT 并指明时刻，相等则只留一行；close_time ≠ open_time + 1 分钟 − 1 毫秒的行即 SOURCE_SHAPE
+3. 用 market.missing_intervals 在 [low, high) 上求缺口：low 取 start_ms（resumed）或首个持有分钟，high 取 end_ms（trading）或末个持有分钟 + 1 分钟
+4. 对缺口覆盖的日期补取日归档并重新合并；仍缺的区间逐段经 market.rest_klines 从公开接口补取；完全没有归档且 trading 或 resumed 时整窗口经公开接口取；market.rest_klines 的 SOURCE_UNKNOWN_SYMBOL 在 trading 为 false（已下架）时视为无补充、返回空，trading 为 true 时原样上抛
+5. 最终再合并一次并重算缺口，原样返回：不插值、不前值填充、不以标记价代替成交价；表中不记录来源，拼接对运行器与策略不可见
+6. start_ms ≥ end_ms 返回空表与空缺口，不拒绝
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_CONFLICT` | 同一 open_time 被两个来源持有且任一字段不等；不以任一来源覆盖另一来源 |
+| `SOURCE_SHAPE` | 某行不是已收盘的整分钟 K 线（close_time 不等于 open_time + 1 分钟 − 1 毫秒），或 symbol 含非法字符 |
+| `PRICE_TYPE_UNKNOWN` | price_type 不是 LAST 或 MARK |
+| `SOURCE_UNKNOWN_SYMBOL` | trading 为 true 而公开接口不识别该合约（来自 market.rest_klines，原样上抛） |
+| `CHECKSUM_MISMATCH` | 某归档校验和不符（来自 market.fetch_archive，原样上抛） |
+| `SOURCE_UNREACHABLE` | 归档或公开接口重试耗尽仍不可达（来自来源函数，原样上抛） |
+
+**使用**　<Ref id="market.monthly_archives" />、<Ref id="market.fetch_archive" />、<Ref id="market.rest_klines" />、<Ref id="market.missing_intervals" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.1" />
+
+**使用于**　<Ref id="W.1.1.2" />、<Ref id="W.1.2.1" />、<Ref id="W.1.3.1" />
+
+**依据**　[\[95\]](/zh/docs/appendix-references/#ref-95 "binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）") [\[96\]](/zh/docs/appendix-references/#ref-96 "Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）")
+
+</div>
+
+## `market/sources.py` [#def-mod-market-sources-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.fetch_archive">fetch_archive</Ref> | 下载一个月或日归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是月归档与日归档共用的取数原语 |
+| <Ref id="market.monthly_archives">monthly_archives</Ref> | 取已发布的月归档，作为 1 分钟 K 线与资金费的主来源；未发布的月份不在结果里，由 market.stitch_series 改用日归档或公开接口补 |
+| <Ref id="market.rest_exchange_info">rest_exchange_info</Ref> | 读交易所公开合约条款原文（合约类型、标的类型、基础与计价资产、状态、步长与限额），供 market.classify_contract 判合格与 instrument 追加行 |
+| <Ref id="market.rest_funding">rest_funding</Ref> | 用当月公开接口补资金费归档尚未发布的尾段；资金费无日归档，尾段只能由此补，按交易所实际结算时刻返回 |
+| <Ref id="market.rest_klines">rest_klines</Ref> | 用公开行情接口补归档尚未发布的 1 分钟 K 线尾段与归档之间的缺口；只返回已收盘 K 线，行形状与归档行一致；也为派生对照取原生同周期 K 线 |
+
+### `fetch_archive` [#def-market-fetch_archive]
+
+下载一个月或日归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是月归档与日归档共用的取数原语
+
+```python
+def fetch_archive(cache_root: Path, key: str) -> Path
+```
+
+<TypeTable type={{ "cache_root": { type: "Path", description: "本地归档缓存根目录（工作副本目录），归档按交易所原始键名存放" }, "key": { type: "str", description: "交易所归档键，形如 <market>/monthly|daily/<kind>/<symbol>/[<interval>/]<symbol>-<interval|kind>-<period>.zip；kind ∈ klines | markPriceKlines | fundingRate" } }} />
+
+**返回**　Path：已通过校验和核对的本地归档文件路径（旁有同名 .CHECKSUM）
+
+**期望行为**
+
+1. 本地缓存中存在归档与 .CHECKSUM 且重算 SHA-256 相符时直接返回，不再联网（幂等）；不符则视为损坏，重新下载
+2. 先取交易所发布的 \<key>.CHECKSUM，再取归档本体；两者任一返回 404 即拒绝 ARCHIVE_NOT_PUBLISHED（归档尚未发布或该序列不存在，由调用方改用日归档或公开接口）
+3. 对归档本体重算 SHA-256，与 .CHECKSUM 首个字段比较；不等即拒绝 CHECKSUM_MISMATCH，不写任何字节到缓存
+4. 相符后先写 .part 临时文件再原子改名为正式文件，.CHECKSUM 与归档一起落盘，不留半成品
+5. 网络错误、5xx 或限频在有限重试（指数退避）后仍失败即拒绝 SOURCE_UNREACHABLE；不静默返回空
+
+| 拒绝码 | 条件 |
+|---|---|
+| `CHECKSUM_MISMATCH` | 下载内容的 SHA-256 与交易所随文件发布的 .CHECKSUM 不等 |
+| `ARCHIVE_NOT_PUBLISHED` | 归档或其 .CHECKSUM 在交易所公开地址上不存在（HTTP 404） |
+| `SOURCE_UNREACHABLE` | 重试耗尽后仍无法从交易所取到归档或校验和 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.2" />
+
+**使用于**　<Ref id="W.1.1.1" />、<Ref id="W.1.2.1" />
+
+**依据**　[\[97\]](/zh/docs/appendix-references/#ref-97 "binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验")
+
+</div>
+
+### `monthly_archives` [#def-market-monthly_archives]
+
+取已发布的月归档，作为 1 分钟 K 线与资金费的主来源；未发布的月份不在结果里，由 market.stitch_series 改用日归档或公开接口补
+
+```python
+def monthly_archives(
+    cache_root: Path,
+    kind: str,
+    symbol: str,
+    interval: str | None,
+    months: list[str],
+) -> dict[str
+```
+
+<TypeTable type={{ "cache_root": { type: "Path", description: "本地归档缓存根目录，传给 market.fetch_archive" }, "kind": { type: "str", description: "归档种类：klines（成交价 LAST）、markPriceKlines（标记价 MARK）、fundingRate（资金费）" }, "symbol": { type: "str", description: "交易所原生合约代码，一个永续合约一条序列" }, "interval": { type: "str | None", description: "K 线周期，固定为 1m；资金费归档无周期传 None" }, "months": { type: "list[str]", description: "要取的月份，YYYY-MM，UTC" } }} />
+
+**返回**　dict[str, Path]：\{月份: 已核对的本地月归档路径\}，只含交易所已发布的月份；空字典表示请求的月份均未发布
+
+**期望行为**
+
+1. 校验 kind 与 interval 的组合、months 的 YYYY-MM 格式与 symbol 字符集；不合法即拒绝 SOURCE_SHAPE
+2. 按交易所命名规则为每个月份构造月归档键，逐个调用 market.fetch_archive；月份多时先用一次公开目录列举得到已发布键，避免逐月探测
+3. fetch_archive 的 ARCHIVE_NOT_PUBLISHED 视为该月尚未发布，从结果省略；CHECKSUM_MISMATCH 与 SOURCE_UNREACHABLE 原样向上抛，不降级为缺月
+4. 返回的路径只是文件，不读行、不判冲突；来源种类不进入任何表
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SHAPE` | kind 不在三种之内、K 线缺 interval 或资金费带 interval、months 不是 YYYY-MM、symbol 含非法字符 |
+| `CHECKSUM_MISMATCH` | 任一月归档校验和不符（来自 market.fetch_archive，不以缺月掩盖） |
+| `SOURCE_UNREACHABLE` | 交易所公开目录或归档不可达（来自 market.fetch_archive） |
+
+**使用**　<Ref id="market.fetch_archive" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.1" />
+
+**依据**　[\[95\]](/zh/docs/appendix-references/#ref-95 "binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）") [\[96\]](/zh/docs/appendix-references/#ref-96 "Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）")
+
+</div>
+
+### `rest_exchange_info` [#def-market-rest_exchange_info]
+
+读交易所公开合约条款原文（合约类型、标的类型、基础与计价资产、状态、步长与限额），供 market.classify_contract 判合格与 instrument 追加行
+
+```python
+def rest_exchange_info() -> None
+```
+
+**返回**　(observed_at_ms, list[ContractTerms])：observed_at_ms 取交易所响应里的服务器时刻；每个 ContractTerms 为 \{symbol, status, contract_type, quote_asset, base_asset, underlying_type, underlying_sub_types, price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price, max_price\}，数值为交易所原始十进制字符串
+
+**期望行为**
+
+1. 对交易所公开合约条款接口发一次请求，不带任何凭证
+2. 逐合约从价格过滤器、数量过滤器与最小名义过滤器原样取出步长与限额字符串，不做浮点转换、不改写小数位
+3. 缺 symbol、状态或价格与数量步长任一字段即拒绝 SOURCE_SHAPE，不以缺省值填充
+4. 只返回接口当时列出的合约；已从交易所移除的合约不在结果里，由 market.import_month 按成交推断步长
+5. 网络错误、5xx 或限频在有限重试后仍失败即拒绝 SOURCE_UNREACHABLE
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SHAPE` | 响应缺服务器时刻，或某合约缺必需字段、过滤器无法解析 |
+| `SOURCE_UNREACHABLE` | 重试耗尽后公开接口仍不可达或持续限频 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.1" />
+
+**依据**　[\[95\]](/zh/docs/appendix-references/#ref-95 "binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）") [\[96\]](/zh/docs/appendix-references/#ref-96 "Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）")
+
+</div>
+
+### `rest_funding` [#def-market-rest_funding]
+
+用当月公开接口补资金费归档尚未发布的尾段；资金费无日归档，尾段只能由此补，按交易所实际结算时刻返回
+
+```python
+def rest_funding(
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+) -> list[tuple[int
+```
+
+<TypeTable type={{ "symbol": { type: "str", description: "交易所原生合约代码" }, "start_ms": { type: "int", description: "结算时刻下界（含），UTC 毫秒" }, "end_ms": { type: "int", description: "结算时刻上界（不含），UTC 毫秒" } }} />
+
+**返回**　list[tuple[int, str]]：按结算时刻升序的 (funding_time_ms, rate)，rate 为交易所原始十进制字符串，不做浮点转换
+
+**期望行为**
+
+1. 校验 start_ms \< end_ms；不满足即拒绝 SOURCE_SHAPE
+2. 按交易所单页上限分页：游标从 start_ms 起，推进到上页末条结算时刻加 1，直到页空或越过 end_ms；请求间按公开接口限速
+3. 只保留 start_ms ≤ funding_time \< end_ms 的条目，结算时刻以交易所返回的实际时刻为准，不按固定周期推算或对齐
+4. 接口对该合约返回 HTTP 400 即拒绝 SOURCE_UNKNOWN_SYMBOL；网络错误或限频重试耗尽即拒绝 SOURCE_UNREACHABLE
+5. 不与月归档比较、不去重；同一结算时刻两来源不一致的判定归 market.import_month
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SHAPE` | 时间区间不合法，或返回条目缺结算时刻或费率字段 |
+| `SOURCE_UNKNOWN_SYMBOL` | 公开接口不识别该合约代码（HTTP 400） |
+| `SOURCE_UNREACHABLE` | 重试耗尽后公开接口仍不可达或持续限频 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.1" />
+
+**依据**　[\[95\]](/zh/docs/appendix-references/#ref-95 "binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）") [\[96\]](/zh/docs/appendix-references/#ref-96 "Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）")
+
+</div>
+
+### `rest_klines` [#def-market-rest_klines]
+
+用公开行情接口补归档尚未发布的 1 分钟 K 线尾段与归档之间的缺口；只返回已收盘 K 线，行形状与归档行一致；也为派生对照取原生同周期 K 线
+
+```python
+def rest_klines(
+    price_type: str,
+    symbol: str,
+    interval: str,
+    start_ms: int,
+    end_ms: int,
+) -> list[tuple]
+```
+
+<TypeTable type={{ "price_type": { type: "str", description: "LAST 走成交价 K 线接口，MARK 走标记价 K 线接口" }, "symbol": { type: "str", description: "交易所原生合约代码" }, "interval": { type: "str", description: "K 线周期；补缺时固定为 1m，派生对照时为目标周期" }, "start_ms": { type: "int", description: "开盘时刻下界（含），UTC 毫秒，落在 interval 网格上" }, "end_ms": { type: "int", description: "开盘时刻上界（不含），UTC 毫秒，落在 interval 网格上" } }} />
+
+**返回**　list[tuple]：按 open_time 升序的已收盘 K 线行 (open_time_ms, open, high, low, close, volume, close_time_ms, quote_volume)，价格与量为交易所原始十进制字符串；MARK 行的量字段为交易所填的零值，由下游忽略
+
+**期望行为**
+
+1. 校验 price_type ∈ \{LAST, MARK\}、interval 在固定周期白名单内、start_ms \< end_ms 且均在网格上；不满足即拒绝 SOURCE_SHAPE
+2. 按交易所单页上限分页：从 start_ms 起请求，游标推进到上页末行开盘时刻加 1，直到页空或越过 end_ms；请求间按公开接口权重限速
+3. 丢弃 open_time ≥ end_ms 的行与 close_time 仍在未来的未收盘行；校验每行字段数与开盘时刻在网格上，否则拒绝 SOURCE_SHAPE
+4. 接口对该合约返回 HTTP 400 即拒绝 SOURCE_UNKNOWN_SYMBOL（合约已从交易所移除，公开接口不再识别）；是否视为无补充由 market.stitch_series 决定
+5. 网络错误、5xx 或限频重试耗尽即拒绝 SOURCE_UNREACHABLE；不返回部分页冒充完整
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_SHAPE` | 参数不合法，或返回行字段数不对、开盘时刻不在网格上 |
+| `SOURCE_UNKNOWN_SYMBOL` | 公开接口不识别该合约代码（HTTP 400） |
+| `SOURCE_UNREACHABLE` | 重试耗尽后公开接口仍不可达或持续限频 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.1" />
+
+**使用于**　<Ref id="W.1.2.2" />
+
+**依据**　[\[95\]](/zh/docs/appendix-references/#ref-95 "binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）") [\[96\]](/zh/docs/appendix-references/#ref-96 "Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）")
+
+</div>
+
+## `market/store.py` [#def-mod-market-store-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.connect">connect</Ref> | 按市场档案与角色打开市场库连接并核对模式代数；导入、新鲜度、导出与覆盖读口共用 |
+| <Ref id="market.freshness">freshness</Ref> | 按市场提交 AS OF 读成员月份、合约数、最新完整日与最新完整月；只读事实 |
+| <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场提交：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化 |
+| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的市场提交哈希 |
+
+### `connect` [#def-market-connect]
+
+按市场档案与角色打开市场库连接并核对模式代数；导入、新鲜度、导出与覆盖读口共用
+
+```python
+def connect(
+    profile: MarketProfile,
+    role: Literal['import','reader'],
+) -> MarketConnection
+```
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：服务地址、市场库名、各角色账号" }, "role": { type: "Literal['import','reader']", description: "import 用导入账号（对 market_schema 可 UPDATE、其余表只 INSERT）；reader 用只读账号" } }} />
+
+**返回**　MarketConnection：已绑定市场库与角色的连接，附 market_schema 的 version、price_scale、volume_scale、universe_rule；import 角色遇空库时附空库标记、自述字段为空
+
+**期望行为**
+
+1. role 不在两种之内即拒绝 ROLE_UNKNOWN
+2. 以该角色的账号连接服务并选中市场库；不可达或认证失败即 MARKET_UNREACHABLE
+3. 读 market_schema 单行：version 与代码的模式代数不等即 SCHEMA_VERSION_MISMATCH；缺行时 reader 角色即 SCHEMA_VERSION_MISMATCH，import 角色返回空库标记，由 market.import_month 完成模式初始化
+4. 返回连接与自述字段；不写任何表
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ROLE_UNKNOWN` | role 不是 import 或 reader |
+| `MARKET_UNREACHABLE` | 服务不可达、库不存在或账号认证失败 |
+| `SCHEMA_VERSION_MISMATCH` | market_schema 的 version 与代码的模式代数不同；或 reader 角色读到 market_schema 缺行 |
+
+**使用**　<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.2" />
+
+**使用于**　<Ref id="W.3.1.1" />
+
+**依据**　[\[97\]](/zh/docs/appendix-references/#ref-97 "binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验")
+
+</div>
+
+### `freshness` [#def-market-freshness]
+
+按市场提交 AS OF 读成员月份、合约数、最新完整日与最新完整月；只读事实
+
+```python
+def freshness(profile: MarketProfile, ref: str) -> dict {commit
+```
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：sql-server 地址、市场库名、只读账号" }, "ref": { type: "str", description: "Dolt 引用名、标签或提交哈希；缺省 main，先经 market.resolve_commit 钉成提交" } }} />
+
+**返回**　dict \{commit, universe_rule, universe_months:[month], symbols:int, covered_through:ms, latest_complete_day:date, latest_complete_month:month, current_month_through:ms|null\}；入口据此报告可扩展范围，commit 由用户选路线时写入研究路线记录，不自动换提交
+
+**期望行为**
+
+1. 经 market.connect 以只读角色打开市场库，用 market.resolve_commit 把 ref 解析成提交哈希；之后所有查询都带 AS OF 该提交，同一提交任何时候读到相同结果。
+2. 读 market_schema.universe_rule 与 universe_month 的全部不同月份及合约数。
+3. 读 bar 中 LAST 的最大 ts_open，加一分钟为 covered_through；latest_complete_day 是 covered_through 之前最后一个整 UTC 日；latest_complete_month 是最后一个末分钟不晚于 covered_through 的整月。
+4. 若 covered_through 落在某个未完整的月份内，current_month_through 为 covered_through，否则为空。
+5. 只读事实，不判数据够不够用、不删币不缩窗；universe_month 无任何行即 MARKET_EMPTY。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_EMPTY` | 该提交下 universe_month 没有任何月份 |
+| `UNKNOWN_REF` | ref 不是任何 Dolt 引用名、标签或已知提交（由 market.resolve_commit 传出） |
+| `AMBIGUOUS_REF` | 由 market.resolve_commit 传出 |
+| `NOT_A_COMMIT` | 由 market.resolve_commit 传出 |
+
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="table:bar" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="E.1.2.1" />
+
+**使用于**　<Ref id="E.1.2.3" />、<Ref id="W.2.1.2" />、<Ref id="D.1.1.3" />
+
+**依据**　[\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history")
+
+</div>
+
+### `import_month` [#def-market-import_month]
+
+一次导入一个月成一个市场提交：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化
+
+```python
+def import_month(
+    profile: MarketProfile,
+    month: date,
+    cache_root: Path,
+    workers: int,
+) -> ImportResult
+```
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：服务地址、市场库名、导入账号；与研究账本是同一服务上的两个库，各自账号" }, "month": { type: "date", description: "UTC 月初；可以是尚未结束的当月，此时只能追加已存最后一分钟之后的尾段" }, "cache_root": { type: "Path", description: "归档文件与校验和的本地缓存目录" }, "workers": { type: "int", description: "并行下载数；只影响速度，不影响结果" } }} />
+
+**返回**　ImportResult：\{month, market_commit, universe_rule, instruments_appended, bar_rows, funding_rows, universe_members, gaps: \{symbol: \{LAST: [(from_ms, to_ms)], MARK: [...]\}\}, source_rows: \{monthly, daily, rest\}\}；同月同内容重跑返回原提交且追加计数为 0
+
+**期望行为**
+
+1. 经 market.connect 以导入账号打开市场库；连接标记为空库时，在本次事务内先写 market_schema 单行与 market.dolt_tests 用例（模式初始化，此后导入只运行不改）；核对 market_schema.universe_rule 等于代码的范围规则版本（否则 RULE_VERSION_MISMATCH）、工作集干净（否则 DIRTY_WORKING_SET）；该月已完整则 MONTH_EXISTS，未完整只允许追加已存最后一分钟之后的尾段
+2. 取条款：market.rest_exchange_info 的原文连同该月归档里出现的合约交给 market.classify_contract 得到合格合约与逐合约排除原因；条款与 instrument 最新一行不同者按观测时刻追加（exchange_info），已移除、无原文的合约按成交推断步长追加（inferred）；条款状态为交易中的合约以 trading=true 拼接
+3. 拼数据：对每个合格合约、每个价格类型调用 market.stitch_series；资金费由 market.monthly_archives 与 market.rest_funding 按实际结算时刻同法拼接，同一结算时刻两来源不等即 SOURCE_CONFLICT；来源函数与拼接的任何拒绝指明合约、价格类型与时刻并拒绝整次导入；缺失区间记入返回值
+4. 重算范围：按库内加本次的 1 分钟成交 K 线判每合约每日有无成交，对首月到本月的每个月调用 market.monthly_universe；已存月份结果与 universe_month 已存行逐月逐合约比对，任一不等即 UNIVERSE_CHANGED（指明月份与差异合约）；只追加本月成员行
+5. 写入：一个事务里向 universe_month、instrument、bar、funding 只做 INSERT（与已存行主键重叠而字段相等的行跳过），market_schema.import_seq 加 1；运行 market.dolt_tests，任一失败即回滚并 DATA_TESTS_FAILED；全部通过后一次 DOLT_COMMIT，提交信息记月份与范围规则版本
+6. 任何拒绝都在提交前发生并回滚全部追加，市场库停在导入前的提交；并发导入在 import_seq 上冲突时后到者回滚
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RULE_VERSION_MISMATCH` | market_schema.universe_rule 与代码的范围规则版本不同；改规则必须先出新版本并记入市场库自述 |
+| `DIRTY_WORKING_SET` | 导入前市场库工作集有未提交改动 |
+| `MONTH_EXISTS` | 该月已存且已是完整月；或该月未完整但本次数据在已存最后一分钟之前有不同的行 |
+| `CHECKSUM_MISMATCH` | 某归档文件与交易所随文件发布的 SHA-256 不符（由 market.fetch_archive 触发） |
+| `SOURCE_CONFLICT` | 同一分钟或同一资金费结算时刻被两个来源同时持有且字段不等 |
+| `SOURCE_SHAPE` | 来源给出非整分钟对齐的 K 线或无法解析的行（由 market.stitch_series 或来源函数触发） |
+| `SOURCE_UNREACHABLE` | 交易所归档或公开接口重试耗尽仍不可达（来自来源函数或 market.stitch_series） |
+| `SOURCE_UNKNOWN_SYMBOL` | 合约仍在交易而公开接口不识别（来自来源函数或 market.stitch_series） |
+| `PRICE_TYPE_UNKNOWN` | 传给拼接的价格类型不是 LAST 或 MARK（来自 market.stitch_series） |
+| `UNIVERSE_CHANGED` | 重算后任一已存月份的范围与 universe_month 已存行不一致 |
+| `DATA_TESTS_FAILED` | 提交前 market.dolt_tests 任一用例失败 |
+
+**使用**　<Ref id="market.connect" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />、<Ref id="table:market.dolt_tests" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.1.2" />
+
+**使用于**　<Ref id="W.1.2.1" />、<Ref id="W.3.1.1" />、<Ref id="D.1.1.1" />
+
+**依据**　[\[97\]](/zh/docs/appendix-references/#ref-97 "binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验")
+
+</div>
+
+### `resolve_commit` [#def-market-resolve_commit]
+
+把用户给的引用解析成唯一的市场提交哈希
+
+```python
+def resolve_commit(conn: Connection, ref: str) -> str
+```
+
+<TypeTable type={{ "conn": { type: "Connection", description: "已打开的市场库连接" }, "ref": { type: "str", description: "Dolt 引用名（如 main）、标签名、完整提交哈希或唯一哈希前缀；缺省 main" } }} />
+
+**返回**　str：完整市场提交哈希 market commit；回放、登记与研究路线记录只钉这个值
+
+**期望行为**
+
+1. ref 为空取 main。
+2. ref 若是完整哈希或哈希前缀，在 dolt_log 里按前缀匹配：恰一个命中返回完整哈希；多个命中 AMBIGUOUS_REF；零命中转下一步。
+3. ref 按引用名再按标签名查 dolt_branches、dolt_tags，命中者取其指向的提交哈希；都没有即 UNKNOWN_REF。
+4. ref 为 WORKING、STAGED 一类工作集引用一律 NOT_A_COMMIT：工作集内容会变，不能作输入身份。
+5. 只读，不改变连接当前检出的引用或工作集。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_REF` | ref 不是任何 Dolt 引用名、标签或已知提交 |
+| `AMBIGUOUS_REF` | 哈希前缀匹配到多于一个提交 |
+| `NOT_A_COMMIT` | ref 指向工作集或暂存区而非提交 |
+
+**使用**　<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="E.1.2.1" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="X.1.2.1" />、<Ref id="W.1.3.2" />、<Ref id="W.2.1.2" />、<Ref id="W.3.1.2" />、<Ref id="W.3.3.1" />、<Ref id="J.6.1.3" />
+
+**依据**　[\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history")
+
+</div>
+
+## `market/universe.py` [#def-mod-market-universe-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.classify_contract">classify_contract</Ref> | 只留 USDT 永续，按指数类、非永续、非币类标的、稳定币基础资产排除并记原因 |
+| <Ref id="market.membership_path">membership_path</Ref> | 把相邻成员月份合并成连续纳秒区间，作为成员时间路径 |
+| <Ref id="market.monthly_universe">monthly_universe</Ref> | 每个 UTC 月初按版本化规则产出全部合格合约；不排名、不取前 N；下架照收 |
+
+### `classify_contract` [#def-market-classify_contract]
+
+只留 USDT 永续，按指数类、非永续、非币类标的、稳定币基础资产排除并记原因
+
+```python
+def classify_contract(
+    symbol: str,
+    exchange_info_item: dict | None,
+    rule_version: str,
+) -> classification
+```
+
+<TypeTable type={{ "symbol": { type: "str", description: "交易所合约代码（如 BTCUSDT）" }, "exchange_info_item": { type: "dict | None", description: "交易所合约元数据条目（contractType、underlyingType、baseAsset 等）；已下架且交易所不再列出时为 None" }, "rule_version": { type: "str", description: "范围规则版本号；决定稳定币基础资产清单与已下架指数合约别名清单，须与 market_schema.universe_rule 一致" } }} />
+
+**返回**　classification：\{symbol, eligible: bool, reason: str | None\}；reason 取 not_usdt_perpetual / index / contract_type:\<值> / underlying:\<值> / stablecoin 之一，eligible 时为 None
+
+**期望行为**
+
+1. 核对 rule_version 是代码内置的某个规则版本，否则拒绝 UNIVERSE_RULE_UNKNOWN。
+2. 按代码形态先筛：不以 USDT 结尾或含下划线（交割合约）记 not_usdt_perpetual。
+3. 有元数据条目时核对字段完整且与 symbol 一致，依次判定 underlyingType=INDEX → index、contractType≠PERPETUAL → contract_type、underlyingType≠COIN（含股票类 TRADIFI）→ underlying、baseAsset 在规则版本的稳定币清单 → stablecoin。
+4. 无元数据条目时按规则版本的已下架指数别名清单判 index，按代码去掉 USDT 后缀判稳定币；其余按当时可知信息视为合格。
+5. 返回带原因的分类；不读库、不写库，同一输入在同一规则版本下结果确定。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNIVERSE_RULE_UNKNOWN` | rule_version 不是代码内置的任何规则版本 |
+| `EXCHANGE_INFO_MALFORMED` | exchange_info_item 不为 None 但缺 contractType、underlyingType 或 baseAsset，或 symbol 与条目不一致 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.1.1" />
+
+**依据**　[\[107\]](/zh/docs/appendix-references/#ref-107 "Brown, Goetzmann, Ibbotson &amp; Ross 1992, Review of Financial Studies 5(4), doi:10.1093/rfs/5.4.553（Survivorship Bias in Performance Studies）") [\[108\]](/zh/docs/appendix-references/#ref-108 "Binance USDⓈ-M Futures — Exchange Information（contractType、underlyingType、status、onboardDate、filters）")
+
+</div>
+
+### `membership_path` [#def-market-membership_path]
+
+把相邻成员月份合并成连续纳秒区间，作为成员时间路径
+
+```python
+def membership_path(
+    conn: market_connection,
+    market_commit: str,
+    window_end: int,
+) -> {universe_rule
+```
+
+<TypeTable type={{ "conn": { type: "market_connection", description: "市场库只读连接（与研究账本不同库、不同账号）" }, "market_commit": { type: "str", description: "精确市场提交哈希；成员路径按 AS OF 该提交派生并随之固定，非精确引用先经 market.resolve_commit 解析" }, "window_end": { type: "int", description: "回放窗口终点（纳秒，右开）；只用于核对范围已覆盖窗口，不参与区间计算" } }} />
+
+**返回**　\{universe_rule, membership: \{symbol: [[start_ns, end_ns], ...]\}\}：每个合约按时间排序的左闭右开纳秒区间；每个成员月份对应 [月初, 下月初)，相邻月份合并为一段，中断后另起一段；universe_rule 供输入身份写入
+
+**期望行为**
+
+1. 核对 market_commit 是精确提交哈希（market.resolve_commit），否则拒绝。
+2. 以 AS OF market_commit 读 universe_month 中该规则版本的全部 (month, symbol) 行与 market_schema.universe_rule；该提交下无任何月份即拒绝。
+3. 核对已产出的最后月份的下月初 ≥ window_end，否则范围未覆盖窗口即拒绝（不以窗口终点替代未产出月份的边界）。
+4. 对每个合约把成员月份映射为 [月初纳秒, 下月初纳秒)，末段终点与下一段起点相等即合并，否则另起区间。
+5. 返回成员路径与规则版本；路径由提交决定、与窗口无关，与窗口和生命周期的相交由输入身份与运行器完成；不写库。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_COMMIT_UNRESOLVED` | market_commit 不能解析为市场库中存在的精确提交哈希 |
+| `UNIVERSE_EMPTY_AT_COMMIT` | AS OF 该提交的 universe_month 没有任何月份 |
+| `UNIVERSE_NOT_COVERING_WINDOW` | 该提交下最后一个已产出月份的下月初早于 window_end，窗口尾部的成员资格当时未知 |
+
+**使用**　<Ref id="market.resolve_commit" />、<Ref id="table:universe_month" />、<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.1.2" />
+
+**使用于**　<Ref id="V.2.1.3" />、<Ref id="C.1.2.2" />、<Ref id="C.1.4.3" />、<Ref id="W.3.2.1" />、<Ref id="W.3.3.1" />、<Ref id="J.6.1.3" />
+
+</div>
+
+### `monthly_universe` [#def-market-monthly_universe]
+
+每个 UTC 月初按版本化规则产出全部合格合约；不排名、不取前 N；下架照收
+
+```python
+def monthly_universe(
+    classifications: list[classification],
+    trading_days: dict[str, set[date]],
+    first_month: date,
+    last_month: date,
+    rule_version: str,
+) -> universe_rows
+```
+
+<TypeTable type={{ "classifications": { type: "list[classification]", description: "market.classify_contract 的结果，每个候选合约一条" }, "trading_days": { type: "dict[str, set[date]]", description: "每个合约有已收盘 UTC 日线（有成交数据）的日期集合，须覆盖 [first_month − listed_days, last_month) 内当时可知的全部日期；来源是交易所公开日线，不含补造" }, "first_month": { type: "date", description: "首个要产出的 UTC 月初（必须是 1 日）" }, "last_month": { type: "date", description: "最后一个要产出的 UTC 月初（必须是 1 日，≥ first_month）" }, "rule_version": { type: "str", description: "范围规则版本号；决定上市天数阈值 listed_days（30 天，未校准示例值，随规则版本固定）" } }} />
+
+**返回**　universe_rows：按 (month, symbol) 排序的 list[(month: date, symbol: str)]，每行一个成员月份；无排名、无成交额字段
+
+**期望行为**
+
+1. 核对 rule_version 内置、first_month 与 last_month 均为月初且顺序正确，否则拒绝。
+2. 核对 trading_days 的日期范围至少从 first_month − listed_days 起、至 last_month 前一日止，不足即拒绝（避免因数据缺失误判上市天数）。
+3. 对每个月初 month 取前一日 eve；对每个 eligible 合约，要求 eve 在其 trading_days 中，并自 eve 向前回溯取未中断的日线连续段起点 start，(month − start) ≥ listed_days 即为当月成员。
+4. 不按成交额排序、不截取前 N；后来下架的合约只要当月满足条件照样写入当月行。
+5. 返回全部月份的成员行；不写库。写入 universe_month 与「重算结果与已存月份不一致即拒绝」由 market.import_month 执行。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNIVERSE_RULE_UNKNOWN` | rule_version 不是代码内置的任何规则版本 |
+| `MONTH_NOT_FIRST_DAY` | first_month 或 last_month 不是 UTC 月初，或 last_month \< first_month |
+| `TRADING_DAYS_INSUFFICIENT` | trading_days 覆盖的日期范围短于 [first_month − listed_days, last_month)，上市天数无法按当时可知数据判定 |
+
+**使用**　<Ref id="market.classify_contract" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.1.1" />
+
+**使用于**　<Ref id="W.1.1.2" />、<Ref id="W.1.2.1" />、<Ref id="W.1.3.2" />、<Ref id="W.3.1.2" />
+
+**依据**　[\[107\]](/zh/docs/appendix-references/#ref-107 "Brown, Goetzmann, Ibbotson &amp; Ross 1992, Review of Financial Studies 5(4), doi:10.1093/rfs/5.4.553（Survivorship Bias in Performance Studies）") [\[108\]](/zh/docs/appendix-references/#ref-108 "Binance USDⓈ-M Futures — Exchange Information（contractType、underlyingType、status、onboardDate、filters）")
+
+</div>
