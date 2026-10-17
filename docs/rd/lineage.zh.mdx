@@ -6,37 +6,41 @@
 
 ## T.1　认定候选：什么算一个候选 [#T-1]
 
-认定候选（candidate）把「什么算一个候选」收口为三件事：身份（精确源码字节与内容哈希 content hash）、产生方式（登记 registration 后的一处实际改动加一次发布）、起点（无父无对照的根 root）。数据流只有一条：Agent 把完整单文件源码经发布入口交给账本（ledger）→ 账本从字节派生内容哈希，重复字节拒绝并返回已存在的版本，父不存在或父与改动说明不配套拒绝 → 登记核对只看谱系（父与改动说明等于登记锁定的内容，根不得带比较对照 control），不读任何运行读数 → 候选进入谱系，可被任何后续登记声明为研发父版本（parent）。身份与根的约束由账本表结构强制（生成列哈希加唯一约束、父与改动说明同空同非空的检查约束）；派生不设门槛由登记核对的输入集合保证——代码里没有收益、显著性、资格或推荐状态这类输入。试验（trial）、运行（run）、推荐（recommendation）与检验读数（reading）都在候选之外产生，对候选身份没有写权。
-
 <Steps>
 
 <Step>
 
-Agent 在工作副本写完一份完整单文件源码，决定它是根（不带父）还是派生候选（带研发父版本 strategy_id@revision 与一句改动说明）。
+Agent 在工作副本写完一份完整单文件源码，决定它是根（不带父），还是派生候选（带研发父版本 strategy_id@revision 与一句改动说明）。
 
 </Step>
 
 <Step>
 
-经 <Ref id="ledger.publish_candidate" /> 发布：账本从字节派生 SHA-256 内容哈希；相同字节以 SOURCE_EXISTS 拒绝并返回已存在的 strategy_id@revision；父不存在以 PARENT_NOT_FOUND 拒绝，父与改动说明不配套以 LINEAGE_INCOMPLETE 拒绝；成功则写入 <Ref id="table:candidate" /> 一行并做一个账本提交，返回 strategy_id@revision 与内容哈希。
+经 <Ref id="ledger.publish_candidate" /> 发布，账本派生内容哈希并核对谱系。
 
 </Step>
 
 <Step>
 
-登记时 <Ref id="registration.validate" /> 只核谱系：网格每点的父与改动说明等于登记锁定的内容，父为空（根）而声明了比较对照以 ROOT_WITH_CONTROL 拒绝；不读父版本或自身运行的任何读数。
+核对通过后写入 <Ref id="table:candidate" /> 一行，做一个账本提交，返回 strategy_id@revision 与内容哈希。
 
 </Step>
 
 <Step>
 
-候选进入谱系；<Ref id="report.candidates" /> 并列读出全部候选的源码身份、父与改动说明，不带分数、资格标记或排序。
+登记时 <Ref id="registration.validate" /> 只核谱系（父、改动说明、根不带对照），不读父版本或自身任何运行的读数。
 
 </Step>
 
 <Step>
 
-任何后续读取（登记、封存回放、谱系读取）经 <Ref id="ledger.read_candidate" /> 取候选，读回时重算存储字节的哈希，与记录的内容哈希不符以 LEDGER_CORRUPT 拒绝。
+候选进入谱系，可在 <Ref id="report.candidates" /> 读出。
+
+</Step>
+
+<Step>
+
+后续读取经 <Ref id="ledger.read_candidate" />。
 
 </Step>
 
@@ -44,95 +48,118 @@ Agent 在工作副本写完一份完整单文件源码，决定它是根（不�
 
 ### T.1.1　候选的身份与根 [#T-1-1]
 
-身份与根由 <Ref id="table:candidate" /> 的约束（内容哈希生成列加唯一约束；父版本与改动说明同空同非空）与两道代码核对（发布 <Ref id="ledger.publish_candidate" />、登记 <Ref id="registration.validate" />）共同强制；skill 节 <Ref id="research-round/SKILL.md#parent-and-control" /> 只负责提醒 Agent：亏损或不显著的有效候选照样可作研发父版本。输入是源码字节、可选的父版本引用与改动说明；输出是 strategy_id@revision 与内容哈希。
+候选的身份、产生方式与根。
 
-<Cap id="T.1.1.1" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。" title="候选保存精确源码字节，以内容哈希唯一标识；相同源码不能成为两个候选">
+<Cap id="T.1.1.1" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。" title="候选是精确源码字节，以账本派生的内容哈希唯一标识，相同字节不能再发布">
 
-一个候选（candidate）是账本（ledger）里一份完整单文件策略源码的精确字节。身份是账本从该字节派生的 SHA-256 内容哈希（content hash）：由 <Ref id="table:candidate" /> 的生成列 source_sha256 计算并设唯一约束，Agent 不填写也不能改写。输入：源码字节、入口类名、运行契约、发布说明，可选研发父版本引用（strategy_id@revision）与改动说明；输出：引用名 strategy_id@revision 与内容哈希。相同字节再次经 <Ref id="ledger.publish_candidate" /> 发布，以 SOURCE_EXISTS 拒绝并返回已存在的 strategy_id@revision；改名、复制到另一个 strategy_id 或只改注释——字节变了就是另一个候选，字节不变就被拒绝。「是否同一候选」只看内容哈希，strategy_id@revision 只是引用名。读回时 <Ref id="ledger.read_candidate" /> 重算存储字节的哈希，与记录的内容哈希不符以 LEDGER_CORRUPT 拒绝。登记、试验与报告绑定的都是这份内容哈希，不是名字或版本号；候选行只增不改，每次发布恰一个账本提交，行级全史由 Dolt 系统表 <Ref id="table:dolt_system_tables" /> 读出，任一历史时刻的谱系经 <Ref id="ledger.read_as_of" /> 读取。强制层：账本（生成列、唯一约束、只增提交）加代码（发布与读取函数）。
+- 一个候选（candidate）是账本（ledger）里一份完整单文件策略源码的精确字节。
+- 身份是 SHA-256 内容哈希（content hash），由 <Ref id="table:candidate" /> 的生成列 source_sha256 从字节计算并设唯一约束，Agent 不填写也不能改写。
+- 是否同一候选只看内容哈希，strategy_id@revision 只是引用名。
+- 改名、复制到另一个 strategy_id 或只改注释时，字节变了就是另一个候选，字节不变就被拒绝。
+- 登记、试验与报告绑定的都是内容哈希，不是名字或版本号。
+- 候选行只增不改，每次发布恰好对应一个账本提交。
+- 行级全史从 Dolt 系统表 dolt_diff_\<table> / dolt_history_\<table>（<Ref id="table:dolt_system_tables" />）读出。
+- 任一历史时刻的谱系经 <Ref id="ledger.read_as_of" /> 读取。
+- 读回时 <Ref id="ledger.read_candidate" /> 重算存储字节的哈希，并与记录的内容哈希比对。
 
-<div className="rd-meta">
+**输入**　源码字节、入口类名、运行契约、发布说明，可选的研发父版本引用（strategy_id@revision）与改动说明。
 
-**定义**　<Ref id="table:candidate" />
+**输出**　引用名 strategy_id@revision 与内容哈希。
 
-**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.write" />、<Ref id="table:dolt_system_tables" />、<Ref id="ledger.read_as_of" />、<Ref id="J.3.4.1" />
+**强制**　账本强制（生成列、唯一约束、只增提交），代码强制（<Ref id="ledger.publish_candidate" /> 与 <Ref id="ledger.read_candidate" />）。
 
-**依据**　[\[30\]](/zh/docs/appendix-references/#ref-30 "Pro Git — Git Internals: Git Objects") [\[31\]](/zh/docs/appendix-references/#ref-31 "OCI image-spec — descriptor") [\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables")
-
-</div>
-
-<p className="rd-resolves">候选身份不可伸缩：报告、比较与登记绑定的是被执行的精确源码而非名字或版本号，重复发布与事后改源码都被账本拒绝。</p>
-
-</Cap>
-
-<Cap id="T.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" tierNote="演练中，亏损或区间跨零的有效候选被继续选为研发父版本并派生出后续候选，无一被拒绝。" title="候选由登记后的实际改动产生；亏损、不显著或未达期望的有效候选照样是候选并可继续派生，推荐与检验读数都不改变候选身份">
-
-候选只由两步产生：在登记（registration）中锁定的一处实际规则改动，加一次发布。发布 <Ref id="ledger.publish_candidate" /> 核对三件事——源码字节不重复（否则 SOURCE_EXISTS）、声明的父在 <Ref id="table:candidate" /> 里存在（否则 PARENT_NOT_FOUND）、父与改动说明同有同无（否则 LINEAGE_INCOMPLETE）。登记核对 <Ref id="registration.validate" /> 核对网格每点的父与改动说明等于登记锁定的内容（不一致拒绝登记，见 <Ref id="T.2.1.1" />）。两道核对的输入只有源码身份、父引用与改动说明，不含父版本或自身任何运行的收益、显著性、可比资格或推荐状态——代码里没有这些输入，因此无法以它们拒绝。结果：审计有效但亏损、不显著或未达用户期望的候选保持候选身份，可被任何后续登记声明为研发父版本（parent）继续派生，不需额外授权；推荐（recommendation）与检验读数（reading）在候选之外产生，既不授予也不剥夺派生资格。候选清单 <Ref id="report.candidates" /> 并列读出全部候选，不带分数、资格标记或排序。输入：源码字节、父引用、改动说明；输出：新候选的 strategy_id@revision。强制层：代码（发布与登记核对）；skill 节 <Ref id="research-round/SKILL.md#parent-and-control" /> 提醒 Agent 选父时不看成绩，eval <Ref id="eval:research-round/losing-candidate-still-derives" /> 检查该提醒被遵守。
-
-<div className="rd-meta">
-
-**使用**　<Ref id="registration.validate" />、<Ref id="report.candidates" />、<Ref id="ledger.publish_candidate" />、<Ref id="table:candidate" />、<Ref id="research-round/SKILL.md#parent-and-control" />、<Ref id="eval:research-round/losing-candidate-still-derives" />
-
-</div>
-
-<p className="rd-resolves">取消「显著胜过才产生新节点」后谱系不再因统计噪声断裂；负面结果留在树上，既是后续改动的基础也是历史条件证据。</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_EXISTS` | 相同字节再次经 <Ref id="ledger.publish_candidate" /> 发布；拒绝时返回已存在的 strategy_id@revision。 |
+| `LEDGER_CORRUPT` | 读回时重算的存储字节哈希与记录的内容哈希不符。 |
 
 </Cap>
 
-<Cap id="T.1.1.3" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每条谱系从一个无父、无对照登记的模板根开始，根回放一次后才有派生。" title="根节点没有父版本也没有比较对照，只能是策略库模板或人造根">
+<Cap id="T.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" tierNote="演练中，亏损或区间跨零的有效候选被继续选为研发父版本并派生出后续候选，无一被拒绝。" title="候选只由登记锁定的改动加一次发布产生，成绩和推荐都不影响身份与派生">
 
-根节点（root）是没有研发父版本（parent）也没有改动说明的候选。<Ref id="table:candidate" /> 的检查约束保证 parent_strategy_id、parent_revision、difference 同空同非空：三者皆空即根，任一非空则三者必须齐全，否则以 LINEAGE_INCOMPLETE 拒绝写入。账本不设「系统」「人造」之类的标记字段，根的来源（策略库模板，或用户发起并提供信息源的人造根，规则见 <Ref id="L.2.1.1" /> 与 <Ref id="L.1.4.1" />）只写在源码文件头与发布说明里。根与派生候选经同一入口 <Ref id="ledger.publish_candidate" /> 发布：不带父即根，没有第二条路径。根的登记不得声明比较对照（control）：<Ref id="registration.validate" /> 发现父为空而对照非空即以 ROOT_WITH_CONTROL 拒绝；根只做一次无父、无对照的登记与回放，不产生比较读数，该次回放计入试验（见 <Ref id="L.2.2.1" />，eval <Ref id="eval:research-round/root-registered-without-control" />）。输入：源码字节与发布说明，不带父；输出：一个 strategy_id@revision 的根候选。强制层：账本（检查约束）加代码（登记核对）。
+1. 在登记（registration）中锁定一处实际规则改动。
+2. 经 <Ref id="ledger.publish_candidate" /> 发布，核对三件事：源码字节不重复，声明的父在 <Ref id="table:candidate" /> 里存在，父与改动说明同有同无。
+3. <Ref id="registration.validate" /> 核对网格每个点的父与改动说明等于登记锁定的内容，不一致就拒绝登记（见 <Ref id="T.2.1.1" />）。
 
-<div className="rd-meta">
+- 两道核对的输入只有源码身份、父引用与改动说明。
+- 父版本或自身任何运行的收益、显著性、可比资格与推荐状态都不是核对输入，代码不能据此拒绝。
+- 审计有效、但亏损、不显著或未达用户期望的候选保持候选身份，可被任何后续登记声明为研发父版本（parent）继续派生，不需额外授权。
+- 试验（trial）、运行（run）、推荐（recommendation）与检验读数（reading）都在候选之外产生，对候选身份没有写权，既不授予也不剥夺派生资格。
+- 候选清单 <Ref id="report.candidates" /> 并列读出全部候选，不带分数、资格标记或排序。
 
-**使用**　<Ref id="table:candidate" />、<Ref id="ledger.publish_candidate" />、<Ref id="registration.validate" />、<Ref id="L.2.1.1" />、<Ref id="L.1.4.1" />、<Ref id="eval:research-round/root-registered-without-control" />
+**输入**　源码字节、父引用、改动说明。
 
-**依据**　[\[32\]](/zh/docs/appendix-references/#ref-32 "Pro Git — Git Branching: Branches in a Nutshell")
+**输出**　新候选的 strategy_id@revision。
 
-</div>
+**强制**　代码强制（发布与登记核对的输入集合里没有成绩类输入）；skill 节 <Ref id="research-round/SKILL.md#parent-and-control" /> 提醒 Agent 选父时不看成绩，eval <Ref id="eval:research-round/losing-candidate-still-derives" /> 检查该提醒被遵守。
 
-<p className="rd-resolves">每棵树有唯一、可查的起点，读谱系不需推断「最早版本」；根的来源规则归 L 章，T 只定身份。</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `SOURCE_EXISTS` | 发布的源码字节与已有候选重复。 |
+| `PARENT_NOT_FOUND` | 声明的父在 <Ref id="table:candidate" /> 里不存在。 |
+| `LINEAGE_INCOMPLETE` | 父与改动说明不是同有同无。 |
+
+</Cap>
+
+<Cap id="T.1.1.3" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每条谱系从一个无父、无对照登记的模板根开始，根回放一次后才有派生。" title="根无父版本、无改动说明，登记不带对照，来源是策略库模板或用户自建">
+
+- 根节点（root）是没有研发父版本（parent）、也没有改动说明的候选。
+- <Ref id="table:candidate" /> 的检查约束保证 parent_strategy_id、parent_revision、difference 同空同非空：三者皆空即为根，任一非空则三者必须齐全。
+- 账本不设「系统」「人造」之类的来源标记字段。
+- 根的来源（策略库模板或用户发起并提供信息源的人造根，见 <Ref id="L.2.1.1" />、<Ref id="L.1.4.1" />）只写在源码文件头与发布说明里。
+- 根与派生候选经同一入口 <Ref id="ledger.publish_candidate" /> 发布，不带父即为根，没有第二条路径。
+- 根只做一次无父、无对照的登记与回放，不产生比较读数；这次回放计入试验（见 <Ref id="L.2.2.1" />）。
+
+**输入**　源码字节与发布说明，不带父。
+
+**输出**　一个 strategy_id@revision 的根候选。
+
+**强制**　账本强制（<Ref id="table:candidate" /> 的检查约束），代码强制（<Ref id="registration.validate" /> 的登记核对）；eval <Ref id="eval:research-round/root-registered-without-control" /> 检查根的登记不带对照。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LINEAGE_INCOMPLETE` | 写入 <Ref id="table:candidate" /> 时，parent_strategy_id、parent_revision、difference 中部分为空、部分非空。 |
+| `ROOT_WITH_CONTROL` | <Ref id="registration.validate" /> 发现父为空、却声明了比较对照（control）。 |
 
 </Cap>
 
 ## T.2　连成谱系：父、对照与分枝 [#T-2]
 
-unused
-
 <Steps>
 
 <Step>
 
-Agent 以一个研发父版本与一句改动说明调用 <Ref id="ledger.publish_candidate" /> 发布候选；只给其一以 LINEAGE_INCOMPLETE 拒绝，父不存在以 UNKNOWN_STRATEGY 拒绝；无父即根（root），根不得带对照。
+Agent 带一个研发父版本和一句改动说明，调用 <Ref id="ledger.publish_candidate" /> 发布候选；不带父就是根（root），根不得带对照。
 
 </Step>
 
 <Step>
 
-Agent 登记时分别声明 parent 与 control；<Ref id="registration.validate" /> 核对每个网格点的父与改动说明等于登记锁定值（不等 LINEAGE_MISMATCH），对照须通过、封存、可比且经济证据可用，否则 RUN_NOT_PASSED、COMPARABILITY_MISMATCH 或 ECONOMIC_EVIDENCE_UNAVAILABLE。
+Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对照（见 T.2.1.1、T.2.1.3）。
 
 </Step>
 
 <Step>
 
-回放绑定网格点前，在同一写事务里再核一次对照的可比性与可用性（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />）；对照为空时允许回放，比较读数置空。
+回放绑定网格点前，在同一写事务里再核一次对照（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />）；对照为空时照常回放，比较读数置空。
 
 </Step>
 
 <Step>
 
-试验（trial）与运行（run）落账；谱系边不因结果改变，候选身份不变。
+试验（trial）与运行（run）落账；谱系边和候选身份不随结果改变。
 
 </Step>
 
 <Step>
 
-入口、复盘与审计调用 <Ref id="cli.candidate_list" />（可带 at 读历史版本）读全部候选、父与改动、登记尝试与可用性，不读分数或资格标记。
+入口、复盘与审计用 <Ref id="cli.candidate_list" /> 读出全部候选、父与改动、登记尝试与可用性（可带 at 读历史版本），不读分数或资格标记。
 
 </Step>
 
 <Step>
 
-从森林中任一候选（含历史、亏损、未被推荐者）另开一枝：回到第 1 步，以它为 parent 发布。
+要从森林中任一候选另开一枝（含历史的、亏损的、未被推荐的），就以它为 parent 回到第 1 步。
 
 </Step>
 
@@ -140,103 +167,153 @@ Agent 登记时分别声明 parent 与 control；<Ref id="registration.validate"
 
 ### T.2.1　父关系与比较对照怎么记 [#T-2-1]
 
-父边由 <Ref id="table:candidate" /> 的自引用外键与 <Ref id="ledger.publish_candidate" /> 强制存在与方向；边的语义（改动说明）由 <Ref id="registration.validate" /> 与登记锁定的「一处改动」逐字核对；比较对照由登记检查、<Ref id="registration.check_comparable" /> 的可比性核对与 <Ref id="qualification.require" /> 的经济证据资格三重核对。输入是登记里的 parent、control、change 与网格点，输出是接受的登记或具名拒绝码；三条能力都由代码或账本强制，没有 skill 裁量。
+记录父边与比较对照，全部由代码或账本强制，不靠 skill 裁量。
 
-<Cap id="T.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="非根候选必带一个研发父版本和改动说明；改动说明必须与登记锁定的那一处规则改动一致，不一致拒绝登记">
+<Cap id="T.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="非根候选必带父版本和改动说明，改动说明须逐字等于登记锁定的那一处改动">
 
-输入：发布时的源码字节、可选的 parent（strategy_id@revision）与 difference（一句改动说明）；登记时的 parent、change 与一到五个网格点（每点是已发布候选的引用名）。规则一（发布层，代码）：<Ref id="ledger.publish_candidate" /> 要求 parent 与 difference 同有同无——只给了其中一个以 LINEAGE_INCOMPLETE 拒绝，不写任何行；parent 不是 strategy_id@revision 格式以 BAD_REF 拒绝；账本里没有该父候选以 UNKNOWN_STRATEGY 拒绝（账本外键同样守卫）。这三个码由该函数的 refusals 定义。无父无改动说明即发布为根。规则二（登记层，代码）：<Ref id="registration.validate" /> 对登记里每个网格点经 <Ref id="ledger.read_candidate" /> 读出该候选的 parent 与 difference，要求 parent 等于登记锁定的 parent、difference 逐字等于登记锁定的 change；任一点不等以 LINEAGE_MISMATCH 拒绝整份登记，账本不留半截记录。规则三（账本层）：<Ref id="table:candidate" /> 对父列与改动说明列施加同有同无的检查约束，父列是指向本表主键的外键。效果：改动说明是谱系边上唯一的语义，与登记的「一处改动」互为约束，边不能事后补写，任何比较结论都能回到「改了哪一处」。演练中，全部研究候选以父加改动说明发布，父或改动说明与锁定改动不一致的网格点被登记检查拒绝。
+- 发布层（代码）：<Ref id="ledger.publish_candidate" /> 要求 parent 和 difference 同有同无，不带父也不带改动说明就发布为根。
+- 登记层（代码）：<Ref id="registration.validate" /> 对每个网格点经 <Ref id="ledger.read_candidate" /> 读出 parent 和 difference，要求 parent 等于登记锁定的 parent，difference 逐字等于登记锁定的 change。
+- 任一网格点不等就拒绝整份登记，账本里不留半截记录。
+- 账本层：<Ref id="table:candidate" /> 对父列和改动说明列加同有同无的检查约束，父列是指向本表主键的外键。
+- 改动说明是谱系边上唯一的语义，和登记的「一处改动」互相约束；边不能事后补写，任何比较结论都能追溯到改了哪一处。
+- 演练中，所有研究候选都带父和改动说明发布；父或改动说明与锁定改动不一致的网格点被登记检查拒绝。
 
-<div className="rd-meta">
+**输入**　发布时：源码字节、可选的 parent（strategy_id@revision）和 difference（一句改动说明）；登记时：parent、change 和一到五个网格点（每点是一个已发布候选的引用名）。
 
-**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="ledger.read_candidate" />、<Ref id="registration.validate" />、<Ref id="table:candidate" />
+**输出**　发布成功的候选行或被接受的登记，否则返回具名拒绝码且不写任何行。
 
-</div>
+**强制**　代码与账本：前三个拒绝码定义在 ledger.publish_candidate 的 refusals 里，LINEAGE_MISMATCH 由 registration.validate 给出，同有同无由候选表的检查约束和外键守住。
 
-<p className="rd-resolves">谱系边不能事后补写或与实际改动脱节；任何比较结论都能回到「改了哪一处」。</p>
-
-</Cap>
-
-<Cap id="T.2.1.2" kind="database" tier="verified" tierLabel="已验证" title="父关系由发布时显式声明、指向账本里已存在的固定版本，父早于子且不可改；不靠文件名、提交历史或代码相似度推断">
-
-父关系只有一种来源：发布时由 Agent 显式给出的 parent，写入 <Ref id="table:candidate" /> 的 (parent_strategy_id, parent_revision) 列，该列是指向同表主键 (strategy_id, revision) 的外键，因此只能指向写入当时已存在的候选。写入经 <Ref id="ledger.write" /> 在一个事务里完成并形成一个账本提交；账本对候选表只允许 INSERT，没有改父列的路径，created_at 由服务器触发器打。父早于子由两件事证明：外键要求父行先存在；父行所在提交早于子行所在提交，可从 <Ref id="table:dolt_system_tables" /> 读出父行的提交早于子行、且父列在全史里只出现过一个值。由「父指向已存在版本且只追加」推出谱系无环、是一片森林。产品不从文件名、revision 序号、代码相似度、提交历史或试验记录推断父子，也不自动合并、重排或修补谱系；<Ref id="table:trial" /> 只引用被执行候选的身份，不另记父子关系。审计据此按提交顺序逐边复核，不依赖 Agent 的叙述。
-
-<div className="rd-meta">
-
-**使用**　<Ref id="table:candidate" />、<Ref id="table:dolt_system_tables" />、<Ref id="ledger.write" />、<Ref id="table:trial" />
-
-**依据**　[\[32\]](/zh/docs/appendix-references/#ref-32 "Pro Git — Git Branching: Branches in a Nutshell") [\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables")
-
-</div>
-
-<p className="rd-resolves">谱系的真实性不依赖 Agent 的叙述，审计可按提交顺序逐边复核。</p>
+| 拒绝码 | 条件 |
+|---|---|
+| `LINEAGE_INCOMPLETE` | 发布时 parent 和 difference 只给了一个 |
+| `BAD_REF` | parent 不是 strategy_id@revision 格式 |
+| `UNKNOWN_STRATEGY` | 账本里没有该父候选（账本外键同样拦截） |
+| `LINEAGE_MISMATCH` | 登记中某个网格点的 parent 或 difference 不等于登记锁定值 |
 
 </Cap>
 
-<Cap id="T.2.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记时分别声明研发父版本与比较对照；对照不必是父的运行；故障或零活动的父可修复派生，暂无可用对照时不给比较读数">
+<Cap id="T.2.1.2" kind="database" tier="verified" tierLabel="已验证" title="父关系只来自发布时显式声明，指向已存在的版本，先于子且不可改">
 
-登记体里 parent 与 control 是两个独立字段：parent 是改动所基于的候选（strategy_id@revision），control 是一次已封存运行（run）的身份，二者不必对应同一候选——以上一版为父、以更早的有效运行为对照是合法登记。<Ref id="registration.validate" /> 分别核对：parent 须经 <Ref id="ledger.read_candidate" /> 读到；根候选不得带 control，带了拒绝；control 若给出，须满足三条，任一不满足以具名码拒绝整份登记：运行通过完整性审计且已封存（否则 <Ref id="registration.check_comparable" /> 以 RUN_NOT_PASSED 拒绝）；运行环境摘要、有效配置身份与输入身份同本次执行身份逐项一致（否则 COMPARABILITY_MISMATCH 并指明冲突项）；运行有经济证据资格（否则 <Ref id="qualification.require" /> 以 ECONOMIC_EVIDENCE_UNAVAILABLE 拒绝并给原因）。control 可为空：故障、无效或零活动的父可被修复派生并以无对照登记，回放照常进行并计入试验，只是不产生改善、区间与 p。对照的可比性与可用性核两次——登记时与回放绑定前（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />），两次之间对照的资格若因读时视图变化而丢失，绑定拒绝。强制层：代码（登记检查、可比性核对、资格硬门）。演练中，父与对照不同的登记实际发生，故障父的修复以无对照登记后回放，比较读数置空。
+- 父关系唯一的来源是发布时 Agent 显式给出的 parent，写入 <Ref id="table:candidate" /> 的 (parent_strategy_id, parent_revision) 列。
+- 该列是指向同表主键 (strategy_id, revision) 的外键，只能指向写入时已经存在的候选。
+- 写入经 <Ref id="ledger.write" /> 在一个事务里完成，形成一个账本提交；created_at 由服务器触发器写入。
+- 候选表在账本里只允许 INSERT，没有修改父列的途径。
+- 父先于子证明一：外键要求父行先存在。
+- 证明二：从 <Ref id="table:dolt_system_tables" /> 读出父行提交早于子行，且父列全史只出现一个值。
+- 父只指向已存在的版本，账本又只追加，所以谱系无环，是一片森林。
+- 产品不从文件名、revision 序号、代码相似度、提交历史或试验记录推断父子，也不自动合并、重排或修补谱系。
+- <Ref id="table:trial" /> 只引用被执行候选的身份，不另记父子关系。
+- 审计按提交顺序逐条复核谱系边，不依赖 Agent 的叙述。
 
-<div className="rd-meta">
+**输入**　发布时显式给出的 parent。
 
-**使用**　<Ref id="registration.validate" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />
+**输出**　候选表中一条不可改的父边，由一次账本提交记录。
 
-</div>
+**强制**　账本：自引用外键、候选表只允许 INSERT、服务器触发器打的 created_at，以及 Dolt 提交历史。
 
-<p className="rd-resolves">父与对照分离让故障或零活动的版本不打断谱系，也不让无经济证据的运行成为比较基准。</p>
+</Cap>
+
+<Cap id="T.2.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记时 parent 与 control 分开声明；对照可为空，为空时不给比较读数">
+
+- parent 是改动所基于的候选（strategy_id@revision）。
+- control 是一次已封存运行（run）的身份。
+- 二者不必属于同一候选：以上一版为父、以更早的有效运行为对照是合法登记。
+- <Ref id="registration.validate" /> 要求 parent 能经 <Ref id="ledger.read_candidate" /> 读到。
+- 根候选带了 control 就拒绝。
+- 给出 control 时须同时满足以下三条，任一不满足拒绝整份登记：
+- 运行已通过完整性审计并封存。
+- 环境摘要、有效配置身份、输入身份与本次执行身份逐项一致。
+- 运行具备经济证据资格。
+- control 可以为空：故障、无效或零活动的父可以修复派生后无对照登记，照常回放并计入试验，只是不产生改善、区间和 p。
+- 对照的可比性与可用性核两次：登记时一次，回放绑定前再一次（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />）；中间若因读时视图变化丢了资格，绑定被拒绝。
+- 演练中实际出现过父与对照不同的登记；故障父的修复以无对照登记后回放，比较读数为空。
+
+**输入**　登记体中的 parent、可选的 control 和网格点。
+
+**输出**　被接受的登记（无对照时比较读数为空），或具名拒绝码。
+
+**强制**　代码：registration.validate 的登记检查、registration.check_comparable 的可比性核对和 qualification.require 的资格硬门。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUN_NOT_PASSED` | control 指向的运行未通过完整性审计或未封存（由 <Ref id="registration.check_comparable" /> 给出） |
+| `COMPARABILITY_MISMATCH` | control 运行的环境摘要、有效配置身份或输入身份与本次执行身份不一致，指明冲突项 |
+| `ECONOMIC_EVIDENCE_UNAVAILABLE` | control 运行没有经济证据资格，附原因（由 <Ref id="qualification.require" /> 给出） |
 
 </Cap>
 
 ### T.2.2　树、森林与候选清单 [#T-2-2]
 
-森林由 <Ref id="table:candidate" /> 的可空自引用外键自然给出，不另建树表；候选清单由 <Ref id="report.candidates" /> 读出并经 <Ref id="cli.candidate_list" /> 暴露；跨枝借用不扩表，由 skill 指导登记为一个父加来源证据。输入是账本版本（当前提交或 AS OF 的提交、标签），输出是全部候选及其登记尝试、运行状态与经济证据可用性的 JSON；清单里没有推荐分数、资格标记或排序。前两条由账本与代码强制，第三条由 skill 指导并以 eval 校验。
+森林由候选表的可空自引用外键直接给出，不另建树表；清单由 report.candidates 读出、经 cli.candidate_list 提供；跨枝借用由 skill 指导记为一个父加来源证据。
 
-<Cap id="T.2.2.1" kind="database" tier="verified" tierLabel="已验证" title="每棵树从一个根节点开始，所有树合起来是一片森林；可从任何历史候选另开一枝，不以它是否被推荐为前提">
+<Cap id="T.2.2.1" kind="database" tier="verified" tierLabel="已验证" title="每棵树始于一个根，全部树组成森林；任一历史候选都可另开一枝">
 
-候选谱系（lineage）是一片森林：<Ref id="table:candidate" /> 的父列可空，父为空的行是根（根只能是策略库模板或人造根，见 <Ref id="T.1.1.3" />），每个根连同所有经父列可达的后代是一棵树，全部树共存于同一账本。候选表没有「活跃」「推荐」「有效」之类状态列，因此任一已存在的行都能被新发布的候选引用为 parent：被推荐与否、是否最新、运行是否有效都不是前提（<Ref id="E.4.2.1" /> 由用户选起点，<Ref id="F.3.2.2" /> 推荐与下一父分开）。换路线或回到历史候选只是以它为父再发布，谱系不改写、不重排、不删枝。谱系按版本读取：<Ref id="report.candidates" /> 以 AS OF 读某一提交或标签时的全部树，用于复读入口当时看到的森林。强制层：账本结构（可空自引用外键、只追加）。演练中，从非最新候选另开一枝、推荐候选与下一实验父版本不同，谱系未被改写。
+- <Ref id="table:candidate" /> 的父列可空；父为空的行是根，根只能是策略库模板或用户自建源码（<Ref id="T.1.1.3" />）。
+- 每个根连同经父列可达的全部后代是一棵树，所有树共存于同一账本。
+- 候选表没有「活跃」「推荐」「有效」之类的状态列，所以任一已存在的行都能被新候选引用为 parent。
+- 是否被推荐、是否最新、运行是否有效都不是另开一枝的前提（<Ref id="E.4.2.1" /> 由用户选起点，<Ref id="F.3.2.2" /> 推荐与下一父分开）。
+- 换路线或回到历史候选，只需以它为父再发布；谱系不改写、不重排、不删枝。
+- <Ref id="report.candidates" /> 用 AS OF 读某一提交或标签时的全部树，可复读入口当时看到的森林。
+- 演练中出现过从非最新候选另开一枝、推荐候选与下一实验父版本不同的情况，谱系都没被改写。
 
-<div className="rd-meta">
+**输入**　任一已存在的候选，作为新发布的 parent。
 
-**使用**　<Ref id="table:candidate" />、<Ref id="report.candidates" />
+**输出**　森林中新增的一枝；原有谱系不变。
 
-**依据**　[\[33\]](/zh/docs/appendix-references/#ref-33 "Git — git-branch 手册") [\[2\]](/zh/docs/appendix-references/#ref-2 "Yamada et al. 2025, arXiv:2504.08066") [\[1\]](/zh/docs/appendix-references/#ref-1 "Microsoft RD-Agent") [\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history")
-
-</div>
-
-<p className="rd-resolves">换研究路线或回到历史候选都不改写谱系；入口从森林选路线，而不是从「最好的一批」里选。</p>
-
-</Cap>
-
-<Cap id="T.2.2.2" kind="skill" tier="unverified" tierLabel="待验证" title="合并另一版本的规则算一处改动：一个研发父版本，另一版本记为来源证据；不继承任一方成绩，完整回放并计入试验">
-
-把另一候选的某条规则并入当前候选时，Agent 按 <Ref id="research-round/SKILL.md#merge-rule" /> 操作：选定唯一的 parent（通常是接收规则的一方），把合并写成对它的一处改动（<Ref id="research-round/SKILL.md#one-change" />：联动的几行算一个改动）；被借用的候选以其 strategy_id@revision 与内容哈希写进一个来源证据包（<Ref id="table:evidence_bundle" />，登记前经 <Ref id="H.2.3.1" /> 入账），在登记体的 sources 里引用，作为「本地诊断」类依据而非第二个父。<Ref id="registration.register" /> 内的 <Ref id="registration.validate" /> 核对 sources 引用的证据包在账本里存在，不存在拒绝；登记体只有一个 parent 字段，双父在结构上不可写。合并后的候选不继承任一方的读数：必须完整回放，计入试验，比较只对登记声明的 control 做；源码仍守单文件契约与三条硬契约（<Ref id="C.1.4.2" />、<Ref id="C.1.4.3" />、<Ref id="research-round/references/strategy-authoring.md#hard-contract-allocation" />），合并带来的资本分配变化须在源码里写明。强制层：skill 指导 Agent 的记法，代码只强制「来源证据包存在」与「单父」。待验证：缺演练中实际发生的合并登记，也缺「一父加来源证据」与双父记法在审计可读性上的比较。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/SKILL.md#merge-rule" />、<Ref id="eval:research-round/merge-one-parent-source-evidence" />
-
-**使用**　<Ref id="table:evidence_bundle" />、<Ref id="table:candidate" />、<Ref id="registration.register" />、<Ref id="research-round/SKILL.md#one-change" />、<Ref id="research-round/references/strategy-authoring.md#hard-contract-allocation" />
-
-</div>
-
-<p className="rd-resolves">不扩表、不建组合服务就能记录跨枝借用，借用的出处可追溯到精确版本。</p>
+**强制**　账本结构：可空自引用外键、只追加写入、候选表不设状态列。
 
 </Cap>
 
-<Cap id="T.2.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="候选清单读出全部候选的源码身份、父与改动、登记尝试及其运行状态与经济可用性，不带推荐分数或资格标记">
+<Cap id="T.2.2.2" kind="skill" tier="unverified" tierLabel="待验证" title="合并别的版本的规则算一处改动：单一父版本，被借用版本记为来源证据">
 
-候选清单是 Agent 读谱系的唯一命令行入口 <Ref id="cli.candidate_list" />，内部调用 <Ref id="report.candidates" />。输入：账本档案，可选 at（提交哈希或标签；缺省读当前）。输出：\{ledger_commit, checker, candidates[]\}，每个候选带 strategy_id、revision、source_sha256、父（parent_strategy_id, parent_revision）、difference、description、created_at，以及 attempts[]——每个登记尝试（<Ref id="table:registration_attempt" />：一个被试验消耗的网格点）带登记证据包、消耗它的 trial_id、run_id、run_status（passed | invalid | unfinished）与 availability（按 <Ref id="qualification.check_identity" /> 给出的检查身份、经 <Ref id="qualification.assess" /> 当下算出的经济证据可用性与原因）；valid_evidence 为任一尝试经济证据可用。无 run 的尝试（中断、未完成）仍列出并标 unfinished，因为网格点已被消耗；零成交或无效的尝试只显示为不可用，不附读数。可用性是读时视图，不改写存储的 run.status 与审计结论（<Ref id="G.4.2.3" />）。清单不含任何分数、资格标记、排序或占位推荐，候选只按 (strategy_id, revision) 自然顺序稳定输出；推荐与理由由 Agent 另写证据包（<Ref id="F.3.2.1" />）。按版本读历史：只读连接由 report.candidates 经 <Ref id="ledger.read_as_of" /> 按 at 以 AS OF 打开并钉住提交，命令层不自开连接；输出附实际读到的 ledger_commit 供复读。拒绝：at 解析不到提交或标签 LEDGER_REF_NOT_FOUND；所读版本的模式版本与代码不一致 LEDGER_SCHEMA_MISMATCH；尝试引用的源码哈希在同版本候选表中缺失或 run 指向不存在的 trial，LEDGER_CORRUPT 并指明首个不一致行，不静默丢行。强制层：代码（只读，不写账本）。演练中，入口恢复与复盘推荐从候选清单读出谱系、尝试与可用性，零成交与无效尝试在清单里只显示为不可用。
+1. 选定唯一的 parent，通常是接收规则的一方。
+2. 把合并写成对它的一处改动（<Ref id="research-round/SKILL.md#one-change" />：联动的几行算一处改动）。
+3. 把被借用候选的 strategy_id@revision 和内容哈希写进一个来源证据包（<Ref id="table:evidence_bundle" />），登记前经 <Ref id="H.2.3.1" /> 入账。
+4. 在登记体的 sources 里引用该证据包，归为「本地诊断」类依据，不当作第二个父。
+5. 完整回放合并后的候选，计入试验，只与登记声明的 control 做比较。
 
-<div className="rd-meta">
+- Agent 按 <Ref id="research-round/SKILL.md#merge-rule" /> 操作。
+- <Ref id="registration.register" /> 内的 <Ref id="registration.validate" /> 核对 sources 引用的证据包在账本里存在，不存在就拒绝。
+- 登记体只有一个 parent 字段，结构上写不出双父。
+- 合并后的候选不继承任一方的读数。
+- 源码仍遵守单文件契约和三条硬契约（<Ref id="C.1.4.2" />、<Ref id="C.1.4.3" />、<Ref id="research-round/references/strategy-authoring.md#hard-contract-allocation" />），合并带来的资本分配变化须写在源码里。
+- 待验证：演练中还没有实际发生过合并登记，也没有比较过「一父加来源证据」与双父记法哪个在审计中更易读。
 
-**定义**　<Ref id="cli.candidate_list" />、<Ref id="report.candidates" />
+**输入**　接收规则的候选、被借用的候选及其内容哈希。
 
-**使用**　<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.refusal" />、<Ref id="table:candidate" />、<Ref id="table:registration_attempt" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:evidence_bundle" />
+**输出**　一份单父登记，sources 中引用来源证据包；合并后的候选有自己的完整回放与试验记录。
 
-**依据**　[\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history")
+**强制**　skill 指导记法（research-round 的 merge-rule，eval:research-round/merge-one-parent-source-evidence 校验）；代码只强制两件事：来源证据包存在、只有一个父。
 
-</div>
+</Cap>
 
-<p className="rd-resolves">入口、复盘与审计读同一份谱系事实，Agent 不再维护平行的候选状态清单。</p>
+<Cap id="T.2.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="候选清单读出全部候选的身份、谱系、登记尝试与可用性，不带分数或资格标记">
+
+- <Ref id="cli.candidate_list" /> 是 Agent 读谱系唯一的命令行入口，内部调用 <Ref id="report.candidates" />。
+- 每个候选带 strategy_id、revision、source_sha256、父（parent_strategy_id, parent_revision）、difference、description、created_at 和 attempts[]。
+- 每个登记尝试（<Ref id="table:registration_attempt" />：一个被试验消耗的网格点）带登记证据包、消耗它的 trial_id、run_id、run_status（passed | invalid | unfinished）和 availability。
+- availability 含 <Ref id="qualification.check_identity" /> 给出的检查身份，及 <Ref id="qualification.assess" /> 当下算出的经济证据可用性和原因。
+- 任一尝试经济证据可用，valid_evidence 即为真。
+- 没有 run 的尝试（中断、未完成）也列出，标为 unfinished，因为网格点已被消耗；零成交或无效的尝试只显示为不可用，不附读数。
+- 可用性是读时视图，不改写存储的 run.status 和审计结论（<Ref id="G.4.2.3" />）。
+- 清单不含分数、资格标记、排序或占位推荐，只按 (strategy_id, revision) 自然顺序稳定输出；推荐及理由由 Agent 另写证据包（<Ref id="F.3.2.1" />）。
+- report.candidates 经 <Ref id="ledger.read_as_of" /> 按 at 以 AS OF 打开只读连接并钉住提交。
+- 命令层不自开连接。
+- 输出附实际读到的 ledger_commit 供复读。
+- 演练中，入口恢复和复盘推荐都从候选清单读谱系、尝试与可用性；零成交和无效尝试在清单里只显示为不可用。
+
+**输入**　账本档案，可选 at（提交哈希或标签，缺省读当前版本）。
+
+**输出**　JSON \{ledger_commit, checker, candidates[]\}。
+
+**强制**　代码：report.candidates 只读执行，不写账本，通过 ledger.read_as_of 钉住提交。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_REF_NOT_FOUND` | at 解析不到提交或标签 |
+| `LEDGER_SCHEMA_MISMATCH` | 所读版本的模式版本与代码不一致 |
+| `LEDGER_CORRUPT` | 尝试引用的源码哈希在同版本候选表中缺失，或 run 指向不存在的 trial；指明第一处不一致的行，不静默丢行 |
 
 </Cap>
 

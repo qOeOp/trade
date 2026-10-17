@@ -9,43 +9,41 @@
 
 ## L.1　从出处或用户信息源转写成根文件 [#L-1]
 
-本节把一个有出处的策略形态变成一份守策略文件契约（<Ref id="C.1.1.1" />）的根文件（root file），交给 <Ref id="L.2.1.1" /> 发布。顺序是收录→核实→重写与文件头→（用户信息源时）发起与转写。收录只认有公认一手出处（primary source）的原版形态并定首批名单；核实把每个默认参数钉到出处原件的具体位置，核实不了的模板换候补；重写按出处从头写成单文件，出处未定而运行所需的部分作为实现者选择（implementer choice）补上，并在文件头九组立场行里标出每行是出处原话、实现者缺省还是研究者推广。人造根（artificial root）由用户发起并提供信息源，之后走与模板完全相同的核实、重写与文件头规则。全部四个组件由 skill 指导、eval 核验；代码与账本只在两处介入：出处原件先以证据包入账本（<Ref id="H.2.3.1" />），原生执行正确只由原生预检 <Ref id="replay.precheck" /> 与独立源码审查 <Ref id="registration.record_review" /> 给出。数据流：出处原件→证据包（<Ref id="table:evidence_bundle" />）→参数—出处定位表→根文件（含文件头）→<Ref id="L.2.1.1" /> 发布→<Ref id="L.2.2.1" /> 登记并回放一次。
-
 <Steps>
 
 <Step>
 
-收录：按一手出处标准判定形态是否可收，列入首批名单或候补（<Ref id="L.1.1.1" />、<Ref id="L.1.1.2" />）；人造根改由用户发起并提供信息源（<Ref id="L.1.4.1" />）
+收录：按一手出处标准判定形态是否可收，列入首批名单或候补；人造根由用户发起并提供信息源（skill）。
 
 </Step>
 
 <Step>
 
-留存：出处原件、摘录与检索记录以证据包入账本，记内容哈希与首次可见版本（<Ref id="ledger.add_bundle" />）
+留存：出处原件、摘录与检索记录以证据包（<Ref id="table:evidence_bundle" />）经 <Ref id="ledger.add_bundle" /> 入账本，记内容哈希与首次可见版本（账本）。
 
 </Step>
 
 <Step>
 
-核实：每个默认参数定位到出处原件位置，任一定位不了即弃该模板换候补并记原因（<Ref id="L.1.2.1" />）
+核实：每个默认参数定位到出处原件位置，任一定位不了即弃该模板换候补并记原因（skill）。
 
 </Step>
 
 <Step>
 
-重写：照出处从头写成单文件，不加无出处内容；运行所需未定项作实现者选择逐项列明（<Ref id="L.1.3.1" />）；记作者条件（<Ref id="L.1.3.2" />）
+重写：照出处从头写成守 <Ref id="C.1.1.1" /> 的单文件，不加无出处内容，运行所需未定项作实现者选择列明，并记作者条件（skill）。
 
 </Step>
 
 <Step>
 
-文件头：写可定位出处与九组立场行的来源标注（<Ref id="L.1.3.3" />），交 <Ref id="L.2.1.1" /> 发布为无父根
+文件头：写可定位出处与九组立场行的来源标注，交 <Ref id="L.2.1.1" /> 发布为无父根（skill）。
 
 </Step>
 
 <Step>
 
-执行正确：发布后由原生预检与独立源码审查给出，不由转写者自证（<Ref id="L.1.2.2" />），通过后进入 <Ref id="L.2.2.1" /> 登记并回放一次
+执行正确：由 <Ref id="replay.precheck" /> 与 <Ref id="registration.record_review" /> 给出，不由转写者自证，通过后进入 <Ref id="L.2.2.1" /> 登记并回放一次（代码与账本）。
 
 </Step>
 
@@ -53,207 +51,208 @@
 
 ### L.1.1　收录 [#L-1-1]
 
-两条能力都是 skill 规则：收录标准（一手出处、原版形态、不要求有效）与首批名单。输入是候选形态及其出处链接，输出是待核实的模板清单（每项带出处定位）；无代码或账本检查。eval 核 Agent 不把出处写成本市场实证。
+把候选形态及其出处链接判成带出处定位的待核实模板，或一条不收原因。
 
-<Cap id="L.1.1.1" kind="skill" tier="verified" tierLabel="已验证" title="只收有公认一手出处的原版形态">
+<Cap id="L.1.1.1" kind="skill" tier="verified" tierLabel="已验证" title="策略库只收有公认一手出处的原版形态，出处只作外部依据">
 
-策略库（template library）只收录有公认一手出处的原版形态，出处限三类：原始论文（DOI 或 arXiv 可解析）、作者公开发表的规则文本、交易平台的官方说明页。输入是一个候选形态与其出处链接；输出是待核实清单中的一项（形态名、出处类型、出处定位）或一条不收原因。没有公认原版的形态不收，例如单腿资金费策略、加密市场的开盘区间突破：这类形态只能作为研究路线内的假设由 <Ref id="H.2.1.1" /> 查来源后提出，不进策略库。判断是否存在公认原版前先按 <Ref id="research-round/SKILL.md#sources-first" /> 与 <Ref id="research-sources/SKILL.md#which-source" /> 检索论文与可信实践，否定结论只写按这些查询没找到。模板不要求在本市场有效：出处在理由三分类 <Ref id="research-round/references/source-evidence.md#three-classes" /> 中记为外部依据（external basis），只证明作者研究了什么，不证明规则或默认参数在本市场有效，也不为任何参数值背书；有效与否只由 <Ref id="L.2.2.1" /> 的首份封存回放和后续派生候选的比较证据给出。由 skill 强制；eval <Ref id="eval:research-round/template-attribution-not-backing" /> 核收录说明与文件头是否把出处写成了实证或参数依据。
+- 出处限三类：原始论文（DOI 或 arXiv 可解析）、作者公开发表的规则文本、交易平台的官方说明页。
+- 没有公认原版的形态不收，例如单腿资金费策略、加密市场的开盘区间突破。
+- 这类形态只能作为研究路线内的假设，由 <Ref id="H.2.1.1" /> 查来源后提出，不进策略库。
+- 判断是否存在公认原版前，先按 <Ref id="research-round/SKILL.md#sources-first" /> 与 <Ref id="research-sources/SKILL.md#which-source" /> 检索论文与可信实践；否定结论只写按这些查询没找到。
+- 模板不要求在本市场有效：出处在理由三分类（<Ref id="research-round/references/source-evidence.md#three-classes" />）中记为外部依据（external basis），只证明作者研究了什么。
+- 出处不证明规则或默认参数在本市场有效，也不为任何参数值背书；有效与否只由 <Ref id="L.2.2.1" /> 的首份封存回放和后续派生候选的比较证据给出。
 
-<div className="rd-meta">
+**输入**　一个候选形态与其出处链接。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#intake" />、<Ref id="eval:research-round/template-attribution-not-backing" />
+**输出**　待核实清单中的一项（形态名、出处类型、出处定位），或一条不收原因。
 
-**使用**　<Ref id="research-round/SKILL.md#sources-first" />、<Ref id="research-sources/SKILL.md#which-source" />、<Ref id="research-round/references/source-evidence.md#three-classes" />、<Ref id="L.2.2.1" />
-
-**依据**　[\[22\]](/zh/docs/appendix-references/#ref-22 "Harvey, Liu &amp; Zhu 2016, Review of Financial Studies, DOI 10.1093/rfs/hhv059") [\[23\]](/zh/docs/appendix-references/#ref-23 "McLean &amp; Pontiff 2016, Journal of Finance, DOI 10.1111/jofi.12365") [\[24\]](/zh/docs/appendix-references/#ref-24 "Brock, Lakonishok &amp; LeBaron 1992, Journal of Finance, DOI 10.1111/j.1540-6261.1992.tb04681.x") [\[25\]](/zh/docs/appendix-references/#ref-25 "Moskowitz, Ooi &amp; Pedersen 2012, Journal of Financial Economics, DOI 10.1016/j.jfineco.2011.11.003") [\[26\]](/zh/docs/appendix-references/#ref-26 "TradingView — Built-in strategies（内置策略索引，含 Supertrend、Keltner Channels、Bollinger Bands、RSI、Channel BreakOut、Pivot Reversal 各自的说明页）") [\[27\]](/zh/docs/appendix-references/#ref-27 "QuantConnect — Dual Thrust Trading Algorithm 教程")
-
-</div>
-
-<p className="rd-resolves">S1.1、S1 导言；原 L.1.1.2「模板不要求有效，只要求是原版」并入并以来源三分类定位</p>
+**强制**　skill 强制；eval <Ref id="eval:research-round/template-attribution-not-backing" /> 核收录说明与文件头是否把出处写成了实证或参数依据。
 
 </Cap>
 
-<Cap id="L.1.1.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：这批模板逐个完成转写、发布与首份封存回放的执行证据。" title="首批 12 个单品种形态">
+<Cap id="L.1.1.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：这批模板逐个完成转写、发布与首份封存回放的执行证据。" title="首批收 12 个单品种形态，每个仍须逐个过收录、核实与重写">
 
-首批收 12 个单品种（single-instrument）形态：EMA 交叉、Supertrend、Donchian/Turtle 系统 1、Turtle 系统 2、Channel BreakOut、Dual Thrust、Keltner 突破、布林带、RSI、Connors RSI(2)、单品种时序动量、Pivot Reversal。名单是用户定的设计常量，不是代码或账本检查项；每个形态仍须逐个通过 <Ref id="research-round/references/template-transcription.md#intake" /> 的收录标准、<Ref id="L.1.2.1" /> 的参数核实与 <Ref id="L.1.3.1" /> 的重写，核实不了的从名单移到候补并记原因，不为凑数放宽标准。需要同时持有多个品种或两条腿的形态（横截面动量、配对交易、资金费 carry）放第二批，待首批有首份封存回放且策略文件契约对多腿持仓的三条硬契约（<Ref id="C.1.4.2" />、<Ref id="C.1.4.3" />、<Ref id="C.1.4.4" />）有模板实例后再收。入口何时从名单中选模板为根由用户决定（<Ref id="E.4.2.2" />）。由 skill 指导。
+- 首批 12 个单品种（single-instrument）形态：EMA 交叉、Supertrend、Donchian/Turtle 系统 1、Turtle 系统 2、Channel BreakOut、Dual Thrust、Keltner 突破、布林带、RSI、Connors RSI(2)、单品种时序动量、Pivot Reversal。
+- 名单是用户定的设计常量，不是代码或账本检查项。
+- 每个形态须逐个通过 <Ref id="L.1.1.1" /> 的收录标准、<Ref id="L.1.2.1" /> 的参数核实与 <Ref id="L.1.3.1" /> 的重写；核实不了的从名单移到候补并记原因，不为凑数放宽标准。
+- 需要同时持有多个品种或两条腿的形态（横截面动量、配对交易、资金费 carry）放第二批。
+- 第二批在首批有首份封存回放、且 <Ref id="C.1.4.2" />、<Ref id="C.1.4.3" />、<Ref id="C.1.4.4" /> 三条多腿硬契约有模板实例后再收。
+- 入口何时从名单中选模板为根由用户决定（<Ref id="E.4.2.2" />）。
 
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/template-transcription.md#first-batch" />
-
-**使用**　<Ref id="research-round/references/template-transcription.md#intake" />、<Ref id="E.4.2.2" />
-
-</div>
-
-<p className="rd-resolves">S1.6；原 L.1.2.2「多品种或两条腿的形态放第二批」并入</p>
+**强制**　skill 指导；无代码或账本检查。
 
 </Cap>
 
 ### L.1.2　核实 [#L-1-2]
 
-核实分三件事且不互相代证：源码与规则说明一致、规则忠实出处，由转写者对照一手出处原件给出并由 skill 指导、eval 核验；原生执行正确只由原生预检与独立源码审查给出，由代码封存预检原件、由账本只追加审查结论。输入是待核实模板（或根文件）与已入账本的出处原件，输出是参数—出处定位表、可发布的根文件与预检审查证据包。
+把待核实模板与已入账本的出处原件变成参数—出处定位表、可发布的根文件与预检审查证据包，三件事分开核。
 
-<Cap id="L.1.2.1" kind="skill" tier="verified" tierLabel="已验证" title="默认参数逐项对照一手出处核实">
+<Cap id="L.1.2.1" kind="skill" tier="verified" tierLabel="已验证" title="每个默认参数须定位到一手出处，任一定位不了即弃该模板">
 
-每个默认参数（回看周期、倍数、阈值、入场条件、出场条件）逐项对照一手出处核实，记下出处内的位置（页码、节号、公式号或页面锚点），形成参数—出处定位表；输入是待核实模板与已入账本的出处原件（<Ref id="H.2.3.1" />），输出是定位表，随根文件进入文件头（<Ref id="L.1.3.3" />）与发布说明（<Ref id="L.2.1.2" />）。任一参数无法在出处定位则该模板不收，换下一个候补并记不收原因；不得凭记忆、二手转述或估计取值，也不得用社区常见默认值补。出处以文字未给默认值而页面控件给出的（平台说明页常见），定位写到控件所在页面与字段名。由 skill 强制；eval <Ref id="eval:research-round/template-params-verified-or-dropped" /> 核每个参数有定位、无定位即弃。
+- 逐项核实的默认参数包括回看周期、倍数、阈值、入场条件、出场条件。
+- 每项记下出处内的位置（页码、节号、公式号或页面锚点），形成参数—出处定位表。
+- 任一参数无法在出处定位，该模板不收，换下一个候补并记不收原因。
+- 不得凭记忆、二手转述或估计取值，也不得用社区常见默认值补。
+- 出处文字未给默认值而页面控件给出的（平台说明页常见），定位写到控件所在页面与字段名。
 
-<div className="rd-meta">
+**输入**　待核实模板与已入账本的出处原件（<Ref id="H.2.3.1" />）。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#verify-parameters" />、<Ref id="eval:research-round/template-params-verified-or-dropped" />
+**输出**　参数—出处定位表，随根文件进入文件头（<Ref id="L.1.3.3" />）与发布说明（<Ref id="L.2.1.2" />）。
 
-**使用**　<Ref id="research-round/references/template-transcription.md#intake" />、<Ref id="H.2.3.1" />
-
-**依据**　[\[28\]](/zh/docs/appendix-references/#ref-28 "Hou, Xue &amp; Zhang 2020, Review of Financial Studies, DOI 10.1093/rfs/hhy131") [\[29\]](/zh/docs/appendix-references/#ref-29 "Menkveld et al. 2024, Journal of Finance, DOI 10.1111/jofi.13337")
-
-</div>
-
-<p className="rd-resolves">S1.2；原 L.2.1.2「核实不了的模板不收，换候补」并入</p>
+**强制**　skill 强制；eval <Ref id="eval:research-round/template-params-verified-or-dropped" /> 核每个参数有定位、无定位即弃。
 
 </Cap>
 
-<Cap id="L.1.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：模板根文件经原生预检与独立源码审查并以结论入账本的执行证据。" title="三件事分开核，执行正确由预检与审查给出">
+<Cap id="L.1.2.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：模板根文件经原生预检与独立源码审查并以结论入账本的执行证据。" title="三件事分开核，原生执行正确只由预检与独立审查给出">
 
-根文件要核三件事，分开核、不互相代证：(1) 源码与规则说明一致；(2) 规则忠实出处；(3) 原生执行正确。(1) 与 (2) 由转写者对照出处原件与根文件给出，结论写入发布说明（<Ref id="L.2.1.2" />）。(3) 只由两项给出：原生预检 <Ref id="replay.precheck" />——对已发布的根候选，以 purpose=precheck 写一条试验并在锁定引擎与实际运行环境里跑最小预检，封存原生输出、退出码、审计与报告——和独立源码审查 <Ref id="registration.record_review" />——另一个 Agent 对预检原件按接口、因果、活动、就绪四项给结论并绑定源码哈希与运行环境身份只追加入账本。静态编译通过、干净退出或转写者自述都不算执行正确。预检内容与审查四项对模板和派生候选相同（<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />），且都是登记（<Ref id="L.2.2.1" />）的前置：缺预检或任一审查项不通过，登记拒绝。预检失败或审查不通过时修复源码并按 <Ref id="L.2.2.2" /> 以新源码发布为新根，不记经济负面。(1)(2) 由 skill 强制；(3) 由代码（预检封存）与账本（审查结论只追加、登记前置）强制。
+- 根文件核三件事，分开核、不互相代证：(1) 源码与规则说明一致；(2) 规则忠实出处；(3) 原生执行正确。
+- (1)(2) 由转写者对照出处原件与根文件给出，结论写入发布说明（<Ref id="L.2.1.2" />）。
+- (3) 之一是原生预检 <Ref id="replay.precheck" />：对已发布的根候选以 purpose=precheck 写一条试验，在锁定引擎与实际运行环境里跑最小预检，封存原生输出、退出码、审计与报告。
+- (3) 之二是独立源码审查 <Ref id="registration.record_review" />：另一个 Agent 对预检原件按接口、因果、活动、就绪四项给结论，绑定源码哈希与运行环境身份，只追加入账本。
+- 静态编译通过、干净退出或转写者自述都不算执行正确。
+- 预检内容与审查四项对模板和派生候选相同（<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />）。
+- 预检与审查都是登记（<Ref id="L.2.2.1" />）的前置：缺预检或任一审查项不通过，登记拒绝。
+- 预检失败或审查不通过时修复源码，按 <Ref id="L.2.2.2" /> 以新源码发布为新根，不记经济负面。
 
-<div className="rd-meta">
+**输入**　已发布的根候选、出处原件与根文件。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#three-checks-separate" />
+**输出**　发布说明中的 (1)(2) 结论、封存的预检原件与只追加的审查结论。
 
-**使用**　<Ref id="replay.precheck" />、<Ref id="registration.record_review" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="L.2.2.2" />
-
-</div>
-
-<p className="rd-resolves">M20；原 L.2.1.3「三件事分开核」改写，执行正确这一件由原生预检与独立源码审查承担</p>
+**强制**　(1)(2) 由 skill 强制；(3) 由代码封存预检原件、由账本只追加审查结论并作为登记前置强制。
 
 </Cap>
 
 ### L.1.3　重写与文件头 [#L-1-3]
 
-三条都是 skill 规则，输出一份守策略文件契约的根文件：规则与默认参数照出处从头重写并补上运行所需的实现者选择；记录作者决策依赖的条件与所用出处版本；文件头写可定位出处，并在九组立场行里标出出处原话、实现者缺省与研究者推广。输入是参数—出处定位表、出处原件与实现者选择清单，输出是根文件源码与文件头。eval 由策略文件契约的 header-nine-groups、hard-contracts-declared 与本节的 template-no-unsourced-additions 覆盖。
+把参数—出处定位表、出处原件与实现者选择清单写成守策略文件契约的根文件源码与文件头。
 
-<Cap id="L.1.3.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：模板按出处重写的实例与对照出处的独立复核记录。" title="照出处从头重写，实现者选择列明">
+<Cap id="L.1.3.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：模板按出处重写的实例与对照出处的独立复核记录。" title="照出处从头重写单文件，不加无出处内容，实现者选择逐项列明">
 
-规则与默认参数照出处原样从头重写为一份守策略文件契约的单文件（<Ref id="C.1.1.1" />），输入是核实过的参数—出处定位表与出处原件，输出是根文件源码。三不：不复制出处附带的或任何第三方代码；不补出处没有的止损、止盈；不加没有出处的过滤、确认条件或参数。原版不设止损的，在源码里声明不设止损（<Ref id="C.4.1.1" />），裸仓只报告不拒绝；原版设止损的，每个持仓时刻的只减仓止损覆盖按 <Ref id="research-round/references/strategy-authoring.md#stop-coverage" />。运行所需而出处未定的部分作为实现者选择补上，每项写一句理由并在文件头标为实现者缺省：仓位与资金预算规则（<Ref id="C.1.4.2" />）、成员变化时旧仓旧单处置（<Ref id="C.1.4.3" />）、同账户多机会共享资本分配（<Ref id="C.1.4.4" />）。实现者选择不得改变出处给出的入场、出场或参数。由 skill 强制；eval <Ref id="eval:research-round/template-no-unsourced-additions" /> 核规则与参数相对出处无增删改、三项实现者选择各有理由；eval <Ref id="eval:research-round/hard-contracts-declared" /> 核三条硬契约写明。
+- 规则与默认参数照出处原样从头重写为一份守策略文件契约的单文件（<Ref id="C.1.1.1" />）。
+- 不复制出处附带的或任何第三方代码。
+- 不补出处没有的止损、止盈；不加没有出处的过滤、确认条件或参数。
+- 原版不设止损的，在源码里声明不设止损（<Ref id="C.4.1.1" />），裸仓只报告不拒绝；原版设止损的，每个持仓时刻的只减仓止损覆盖按 <Ref id="research-round/references/strategy-authoring.md#stop-coverage" />。
+- 运行所需而出处未定的部分作为实现者选择补上，每项写一句理由，并在文件头标为实现者缺省。
+- 实现者选择共三项：仓位与资金预算规则（<Ref id="C.1.4.2" />）、成员变化时旧仓旧单处置（<Ref id="C.1.4.3" />）、同账户多机会共享资本分配（<Ref id="C.1.4.4" />）。
+- 实现者选择不得改变出处给出的入场、出场或参数。
 
-<div className="rd-meta">
+**输入**　核实过的参数—出处定位表与出处原件。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#rewrite-from-source" />、<Ref id="eval:research-round/template-no-unsourced-additions" />
+**输出**　根文件源码。
 
-**使用**　<Ref id="C.1.1.1" />、<Ref id="eval:research-round/hard-contracts-declared" />、<Ref id="C.4.1.1" />、<Ref id="research-round/references/strategy-authoring.md#stop-coverage" />
-
-</div>
-
-<p className="rd-resolves">S1.1、S1.3、M20；原 L.2.2.2「按出处从头重写，不复制代码」与 L.2.3.2「列出实现者补的每个选择」并入</p>
-
-</Cap>
-
-<Cap id="L.1.3.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：出处版本随证据包留存、登记后材料只追加的执行记录。" title="记作者条件，只用登记前首次可见的出处版本">
-
-转写时记下作者决策所依赖的条件——仓位假定、周期、有效区域（市场、年代、品种）、等待条件、互斥路径——写入根文件文件头，供登记时作为该试验的适用条件（<Ref id="research-round/references/hypothesis.md#conditions" />），不写成排除范围。只用登记时点前首次可见的出处版本：论文记期刊版或预印本版本号，页面记抓取日期；原件、摘录与检索记录以证据包经 <Ref id="ledger.add_bundle" /> 入账本（头在 <Ref id="table:evidence_bundle" />），记内容哈希，根文件文件头引用该证据包。不倒填：登记后找到的材料（新版本、勘误、他人复现）只追加为后续证据包，不改根文件、文件头或发布说明；若据此要改规则，走派生候选而不是修根。由 skill 强制；账本只追加保证版本不可倒填；eval <Ref id="eval:research-round/later-source-appended-not-backfilled" /> 核后找到的来源只追加。
-
-<div className="rd-meta">
-
-**定义**　<Ref id="research-round/references/template-transcription.md#author-conditions" />
-
-**使用**　<Ref id="research-round/references/source-evidence.md#three-classes" />、<Ref id="research-round/references/hypothesis.md#conditions" />、<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="eval:research-round/later-source-appended-not-backfilled" />
-
-</div>
-
-<p className="rd-resolves">M20；原 L.2.2.4「只用首次可见的出处版本」并入</p>
+**强制**　skill 强制；eval <Ref id="eval:research-round/template-no-unsourced-additions" /> 核规则与参数相对出处无增删改、三项实现者选择各有理由，eval <Ref id="eval:research-round/hard-contracts-declared" /> 核三条硬契约写明。
 
 </Cap>
 
-<Cap id="L.1.3.3" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：按九组立场写文件头并标来源的模板实例。" title="文件头写可定位出处与九组立场的来源标注">
+<Cap id="L.1.3.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：出处版本随证据包留存、登记后材料只追加的执行记录。" title="文件头记作者条件，只用登记前首次可见的出处版本且不倒填">
 
-根文件文件头先写可定位的出处行：DOI、arXiv 编号或页面 URL，加版本号或日期，并引用出处证据包名（<Ref id="L.1.3.2" />）。随后按九组立场（对象与适用性、预测与学习、首次行动与记忆、经济构型、风险与分配、持仓路径、实施、资本、生命周期与可行性）各写一行，格式为「采用／缺省／不适用 ＋ 一句理由 ＋ 来源标注」（<Ref id="research-round/references/strategy-authoring.md#header-nine-groups" />）；来源标注三选一：出处原话（出处明确给出）、实现者缺省（出处未定由转写者补，<Ref id="L.1.3.1" />）、研究者推广（把出处结论跨市场、跨周期或跨品种搬用）。研究者推广的行在登记时成为试验适用条件的一部分。输入是参数—出处定位表、实现者选择清单与作者条件，输出是文件头。由 skill 强制；eval <Ref id="eval:research-round/header-nine-groups" /> 核九组各一行、每行有来源标注。
+- 转写时记下作者决策所依赖的条件：仓位假定、周期、有效区域（市场、年代、品种）、等待条件、互斥路径。
+- 这些条件写入根文件文件头，登记时作为该试验的适用条件（<Ref id="research-round/references/hypothesis.md#conditions" />），不写成排除范围。
+- 只用登记时点前首次可见的出处版本：论文记期刊版或预印本版本号，页面记抓取日期。
+- 原件、摘录与检索记录以证据包经 <Ref id="ledger.add_bundle" /> 入账本（头在 <Ref id="table:evidence_bundle" />），记内容哈希，根文件文件头引用该证据包。
+- 登记后找到的材料（新版本、勘误、他人复现）只追加为后续证据包，不改根文件、文件头或发布说明。
+- 若据后找到的材料要改规则，走派生候选而不是修根。
 
-<div className="rd-meta">
+**输入**　出处原件、摘录、检索记录及其版本信息。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#header-attribution" />
+**输出**　文件头中的作者条件与出处版本，以及入账本的出处证据包。
 
-**使用**　<Ref id="research-round/references/strategy-authoring.md#header-nine-groups" />、<Ref id="eval:research-round/header-nine-groups" />
+**强制**　skill 强制；账本只追加保证版本不可倒填；eval <Ref id="eval:research-round/later-source-appended-not-backfilled" /> 核后找到的来源只追加。
 
-</div>
+</Cap>
 
-<p className="rd-resolves">S1.3、M20；原 L.2.3.2「列出实现者补的每个选择」、L.2.3.3「区分出处原话与研究者推广」并入，由九组立场行承载</p>
+<Cap id="L.1.3.3" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：按九组立场写文件头并标来源的模板实例。" title="文件头先写可定位出处行，九组立场各一行并标来源">
+
+- 出处行在先：DOI、arXiv 编号或页面 URL，加版本号或日期，并引用出处证据包名（<Ref id="L.1.3.2" />）。
+- 随后九组立场各写一行：对象与适用性、预测与学习、首次行动与记忆、经济构型、风险与分配、持仓路径、实施、资本、生命周期与可行性。
+- 每行格式为「采用／缺省／不适用 ＋ 一句理由 ＋ 来源标注」（<Ref id="research-round/references/strategy-authoring.md#header-nine-groups" />）。
+- 来源标注三选一：出处原话（出处明确给出）、实现者缺省（出处未定由转写者补，<Ref id="L.1.3.1" />）、研究者推广（把出处结论跨市场、跨周期或跨品种搬用）。
+- 研究者推广的行在登记时成为试验适用条件的一部分。
+
+**输入**　参数—出处定位表、实现者选择清单与作者条件。
+
+**输出**　根文件文件头。
+
+**强制**　skill 强制；eval <Ref id="eval:research-round/header-nine-groups" /> 核九组各一行、每行有来源标注。
 
 </Cap>
 
 ### L.1.4　发起与转写（人造根） [#L-1-4]
 
-人造根由用户发起并提供信息源，Agent 不主动提议；随后按模板同一套核实、重写与文件头规则转写成一个策略文件，用户来源记为外部依据。两条都是 skill 规则：发起在入口 skill，转写在研究 skill；输出进入 <Ref id="L.2.1.1" /> 发布。
+发起规则在入口 skill、转写规则在研究 skill，产出交 <Ref id="L.2.1.1" /> 发布。
 
-<Cap id="L.1.4.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：用户发起人造根并完成转写、发布与首次回放的执行证据。" title="人造根由用户发起并提供信息源">
+<Cap id="L.1.4.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：用户发起人造根并完成转写、发布与首次回放的执行证据。" title="人造根只由用户发起并提供信息源，Agent 不主动提议">
 
-人造根（artificial root）由用户发起并提供信息源（文档、文章、视频笔记或用户自述的规则）；Agent 不主动提议建人造根，也不要求信息源是公认原版——用户的信息源就是它的出处。入口的分工按 <Ref id="research-start/SKILL.md#user-selects-route" />：选项由 Agent 提、选由用户，用户选定前不登记不回放；用户明确授权一次即够，之后的转写、发布、登记与首次回放不再请求（<Ref id="E.4.1.2" />）。输入是用户信息源与一次授权；输出是交给 <Ref id="L.1.4.2" /> 的转写任务（信息源原件以证据包入账本，<Ref id="H.2.3.1" />）。由 skill 强制；eval <Ref id="eval:research-start/artificial-root-user-initiated" /> 核无用户信息源时不提议、有授权后不重复请求。
+- 人造根（artificial root）的信息源可为文档、文章、视频笔记或用户自述的规则。
+- 不要求信息源是公认原版：用户的信息源就是它的出处。
+- 入口分工按 <Ref id="research-start/SKILL.md#user-selects-route" />：选项由 Agent 提、选由用户，用户选定前不登记不回放。
+- 用户明确授权一次即够，之后的转写、发布、登记与首次回放无需另行请求（<Ref id="E.4.1.2" />）。
 
-<div className="rd-meta">
+**输入**　用户信息源与一次授权。
 
-**定义**　<Ref id="research-start/SKILL.md#artificial-root" />、<Ref id="eval:research-start/artificial-root-user-initiated" />
+**输出**　交给 <Ref id="L.1.4.2" /> 的转写任务，信息源原件以证据包入账本（<Ref id="H.2.3.1" />）。
 
-**使用**　<Ref id="research-start/SKILL.md#user-selects-route" />、<Ref id="E.4.1.2" />、<Ref id="research-round/references/template-transcription.md#user-source-transcription" />、<Ref id="H.2.3.1" />
-
-</div>
-
-<p className="rd-resolves">S1.7；Agent 提选项、用户选的分工依 A 章</p>
+**强制**　skill 强制；eval <Ref id="eval:research-start/artificial-root-user-initiated" /> 核无用户信息源时不提议、有授权后不重复请求。
 
 </Cap>
 
-<Cap id="L.1.4.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：人造根按模板规则转写与首份封存回放的执行记录。" title="按模板同一套规则转写并发布为根">
+<Cap id="L.1.4.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺：人造根按模板规则转写与首份封存回放的执行记录。" title="用户信息源按模板同一套规则转写，经同一入口发布为根">
 
-用户信息源按与模板相同的三步转写成一个策略文件：核实（<Ref id="research-round/references/template-transcription.md#verify-parameters" />）——每个参数定位到用户信息源内的位置，信息源未给的参数不能弃模板换候补，只能作为实现者选择补上并列明，不得标为出处原话；重写（<Ref id="research-round/references/template-transcription.md#rewrite-from-source" />）——不复制代码、不补无来源的止损止盈或过滤；文件头（<Ref id="research-round/references/template-transcription.md#header-attribution" />）——出处行写用户信息源及其提供日期与证据包名，九组每行标来源。文件头与发布说明（<Ref id="L.2.1.2" />）把该来源记为外部依据（用户提供），不是本市场实证，不为参数背书（<Ref id="eval:research-round/template-attribution-not-backing" />）；来源类型只写在文件头与说明里，不设标记、字段或表。转写后经同一发布入口 <Ref id="ledger.publish_candidate" /> 发布为无父、无改动说明的根（<Ref id="L.2.1.1" />），再按 <Ref id="L.2.2.1" /> 在当前开发窗口登记并回放一次。转写与来源标注由 skill 强制；发布与登记由代码和账本强制。
+1. 核实（<Ref id="L.1.2.1" />）：每个参数定位到用户信息源内的位置。
+2. 重写（<Ref id="L.1.3.1" />）：不复制代码，不补无来源的止损止盈或过滤。
+3. 文件头（<Ref id="L.1.3.3" />）：出处行写用户信息源及其提供日期与证据包名，九组每行标来源。
+4. 经同一发布入口 <Ref id="ledger.publish_candidate" /> 发布为无父、无改动说明的根（<Ref id="L.2.1.1" />）。
+5. 按 <Ref id="L.2.2.1" /> 在当前开发窗口登记并回放一次。
 
-<div className="rd-meta">
+- 信息源未给的参数不弃模板，只作为实现者选择补上并列明，不得标为出处原话。
+- 文件头与发布说明（<Ref id="L.2.1.2" />）把该来源记为外部依据（用户提供），不是本市场实证，不为参数背书。
+- 来源类型只写在文件头与说明里，不设标记、字段或表。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#user-source-transcription" />
+**输入**　<Ref id="L.1.4.1" /> 交来的转写任务与已入账本的用户信息源。
 
-**使用**　<Ref id="research-round/references/template-transcription.md#verify-parameters" />、<Ref id="research-round/references/template-transcription.md#rewrite-from-source" />、<Ref id="research-round/references/template-transcription.md#header-attribution" />、<Ref id="eval:research-round/template-attribution-not-backing" />、<Ref id="ledger.publish_candidate" />、<Ref id="L.2.2.1" />
+**输出**　已发布的无父根候选及其首次登记回放。
 
-</div>
-
-<p className="rd-resolves">S1.7、M20；原 L.4.2.2「守和模板同一套规则」并入</p>
+**强制**　转写与来源标注由 skill 强制，eval <Ref id="eval:research-round/template-attribution-not-backing" /> 核来源不写成实证或参数依据；发布与登记由代码和账本强制。
 
 </Cap>
 
 ## L.2　发布为根并出首份报告 [#L-2]
 
-根节点（root）从 L.1 的转写产物开始，走与所有候选（candidate）相同的两步：发布与首次回放。发布由代码与账本（ledger）强制：源码字节经唯一的发布入口只解析不执行地核对后原样入账，以源码内容哈希（content hash）唯一，不带研发父版本（parent）与改动说明即根；发布说明的内容由 skill 规定（规则、来源声明、非声明）。首次回放由代码强制顺序：原生预检（native precheck）与独立源码审查先于登记（registration），登记在当前开发窗口（development window）以无父、无比较对照（control）锁定一个点，回放入口绑定该点、在钉死的运行环境（runtime image）内回放、完整性审计后封存（seal）运行（run）与原生报告，资格在读取时判定。skill 只规定根怎样用这条路径：不编造对照，不以探索回放当首份报告，故障修复后以新源码重新发布为新根。输出是候选引用 strategy_id@revision 与一份封存的首份报告，供入口推荐与后续候选作比较对照。
-
 <Steps>
 
 <Step>
 
-1. 把守策略文件契约的根文件与发布说明交给发布入口；解析核对通过后原样入账，得到 strategy_id@revision 与源码内容哈希；相同字节返回先前候选的引用。
+把守策略文件契约的根文件与发布说明交给发布入口；只解析不执行地核对通过后原样入账，得到 strategy_id@revision 与源码内容哈希；相同字节返回先前候选的引用。
 
 </Step>
 
 <Step>
 
-2. 对该候选做原生预检（purpose=precheck）并封存原生输出；独立 Agent 按四项审查，结论绑定源码哈希与运行环境身份写入账本。
+对该候选做原生预检（purpose=precheck）并封存原生输出；独立 Agent 按四项审查，结论绑定源码哈希与运行环境身份写入账本。
 
 </Step>
 
 <Step>
 
-3. 在当前开发窗口登记：父版本为空、对照为空、网格只含该根一点，带预检与审查引用，锁进不可变登记证据。
+在当前开发窗口登记：父版本为空、对照为空、网格只含该根一点，带预检与审查引用，锁进不可变登记证据。
 
 </Step>
 
 <Step>
 
-4. 回放入口写试验行（purpose=research）并绑定该登记点，在钉死的运行环境内回放，完整性审计，封存运行与原生报告（含原生 stdout/stderr/退出码）。
+回放入口写试验行（purpose=research）并绑定该登记点，在钉死的运行环境（runtime image）内回放，完整性审计后封存运行与原生报告（含原生 stdout/stderr/退出码）。
 
 </Step>
 
 <Step>
 
-5. 读取时按检查身份判实质活动与可比资格；根的报告无比较读数，供入口推荐并作后续候选的比较对照，回放计入试验计数。
+读取时按检查身份判实质活动与可比资格；根的报告无比较读数，供入口推荐并作后续候选的比较对照，回放计入试验计数。
 
 </Step>
 
 <Step>
 
-6. 预检、审计或资格暴露的故障只修复：新源码重新发布为新根并重走 1–5，原根的运行保留为历史。
+预检、审计或资格暴露的故障只修复：新源码重新发布为新根并重走 1–5，原根的运行保留为历史。
 
 </Step>
 
@@ -261,71 +260,104 @@
 
 ### L.2.1　发布为根 [#L-2-1]
 
-发布由代码与账本强制：发布入口对源码只解析不执行地核对后写候选表一行并提交，唯一约束与 CHECK 保证相同字节不成两个候选、父版本与改动说明同空即根。发布说明的内容由 skill 指导。输入是根文件与发布说明，输出是候选引用 strategy_id@revision 与源码内容哈希。
+根文件与发布说明经唯一发布入口核对后原样入账，得到候选引用与源码内容哈希；入账由代码与账本强制，说明内容由 skill 规定。
 
-<Cap id="L.2.1.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="经同一发布入口入账，无父即根">
+<Cap id="L.2.1.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="根与派生候选经同一发布入口入账，父版本与改动说明同空即根">
 
-策略库模板根与人造根（artificial root）经 <Ref id="ledger.publish_candidate" /> 入账，与派生候选同一入口。输入：根文件的源码字节、发布说明；不带研发父版本与改动说明。处理：先由 <Ref id="ledger.check_source" /> 只解析不执行地核对（源码非空且在上限内、可解析为 UTF-8 Python、恰有一个与声明同名的顶层类），通过后把字节原样写入 <Ref id="table:candidate" /> 一行，由 <Ref id="ledger.write" /> 在一个事务里提交为账本的一个提交。输出：候选引用 strategy_id@revision 与源码内容哈希。拒绝：解析核对不过（码由 <Ref id="ledger.check_source" /> 定）；相同字节已是某个候选时拒绝并返回那个候选的引用（SOURCE_EXISTS）；父版本与改动说明只给其一（候选表的 CHECK 要求二者同空或同非空，码由 <Ref id="ledger.publish_candidate" /> 定）；并发写冲突。根没有专门的模板表、初始化批量写入或系统／人造节点标记：父版本与改动说明同空就是根的全部定义，来源类型只在文件头与发布说明里（<Ref id="L.2.1.2" />）。账本的单元格级历史（dolt_history_candidate）证明根的字节与父字段自发布起从未被改；修复后的根是重新发布的新候选，不改旧行（<Ref id="L.2.2.2" />）。强制层：代码（发布入口与解析核对）与账本（唯一约束、CHECK、只追加提交）。策略源码只存账本，不进代码仓库（<Ref id="J.1.2.2" />）。
+1. <Ref id="ledger.check_source" /> 对源码字节只解析不执行地核对：源码非空且在上限内、可解析为 UTF-8 Python、恰有一个与声明同名的顶层类。
+2. 核对通过后把字节原样写入 <Ref id="table:candidate" /> 一行。
+3. <Ref id="ledger.write" /> 在一个事务里把该行提交为账本的一个提交。
 
-<div className="rd-meta">
+- 策略库模板根与人造根（artificial root）都经 <Ref id="ledger.publish_candidate" /> 入账，与派生候选同一入口；发布时不带研发父版本（parent）与改动说明。
+- 父版本与改动说明同空就是根的全部定义；账本不设专门的模板表或初始化批量写入（根的来源怎样区分见 <Ref id="L.2.1.2" />）。
+- 候选以源码内容哈希（content hash）唯一，相同字节不成两个候选。
+- 账本的单元格级历史（dolt_history_candidate）证明根的字节与父字段自发布起从未被改。
+- 修复后的根是重新发布的新候选，不改旧行（<Ref id="L.2.2.2" />）。
+- 策略源码只存账本，不进代码仓库（<Ref id="J.1.2.2" />）。
 
-**使用**　<Ref id="table:candidate" />、<Ref id="ledger.publish_candidate" />、<Ref id="ledger.check_source" />、<Ref id="ledger.write" />、<Ref id="J.1.2.2" />
+**输入**　根文件的源码字节与发布说明，不带研发父版本与改动说明。
 
-</div>
+**输出**　候选引用 strategy_id@revision 与源码内容哈希。
 
-<p className="rd-resolves">S1.5、S1.7、M21、M22；原 L.3.1.1「初始化时写入全部模板为系统根节点」、L.4.3.1「新树的根无父节点」、L.4.3.2「记为人造节点」并入或删除</p>
+**强制**　代码（发布入口与只解析不执行的核对）与账本（源码内容哈希唯一约束、父版本与改动说明的 CHECK、只追加提交）。
+
+| 拒绝码 | 条件 |
+|---|---|
+| （码由 <Ref id="ledger.check_source" /> 定） | 解析核对不通过。 |
+| `SOURCE_EXISTS` | 相同字节已是某个候选；拒绝并返回那个候选的引用。 |
+| （码由 <Ref id="ledger.publish_candidate" /> 定） | 父版本与改动说明只给其一（候选表 CHECK 要求二者同空或同非空）。 |
+| （原稿未指定） | 并发写冲突。 |
 
 </Cap>
 
-<Cap id="L.2.1.2" kind="skill" tier="unverified" tierLabel="待验证" title="发布说明写规则、来源声明与非声明">
+<Cap id="L.2.1.2" kind="skill" tier="unverified" tierLabel="待验证" title="发布说明分规则、来源声明、非声明三段，来源只写在文件头与说明里">
 
-发布说明（description）随发布一起作为 <Ref id="ledger.publish_candidate" /> 的输入写入候选行，由 skill 规定内容，分三段：规则（该形态做什么：信号、入场出场与仓位规则的一句话概述）；来源声明（来源类型是策略库模板的一手出处还是用户提供的信息源，与文件头来源标注 <Ref id="research-round/references/template-transcription.md#header-attribution" /> 一致）；非声明（源码不含什么：出处没有而未补的止损止盈、未加的过滤、按实现者选择定下的未定项）。来源类型只写在文件头与发布说明里：账本不设系统／人造标记、字段或表，入口与报告按文件头与说明文字区分根的来源。强制层：skill；eval <Ref id="eval:research-round/root-origin-in-header-only" /> 检查说明含三段且不提议标记、字段或表。待验证：缺模板发布说明的实例与对其的独立检查记录。
+- 发布说明（description）随发布一起作为 <Ref id="ledger.publish_candidate" /> 的输入写入候选行，内容由 skill 规定。
+- 规则段：该形态做什么，用一句话概述信号、入场出场与仓位规则。
+- 来源声明段：来源类型是策略库模板的一手出处（primary source）还是用户提供的信息源，与文件头来源标注 <Ref id="research-round/references/template-transcription.md#header-attribution" /> 一致。
+- 非声明段：源码不含什么，即出处没有而未补的止损止盈、未加的过滤、按实现者选择定下的未定项。
+- 入口与报告按文件头与说明文字区分根的来源（系统模板或人造）；账本不设对应标记、字段或表。
+- 待验证：缺模板发布说明的实例与对其的独立检查记录。
 
-<div className="rd-meta">
+**输入**　转写完成的根文件及其文件头来源标注。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#publish-description" />、<Ref id="eval:research-round/root-origin-in-header-only" />
+**输出**　写入候选行的三段式发布说明。
 
-**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="research-round/references/template-transcription.md#header-attribution" />
-
-</div>
-
-<p className="rd-resolves">S1.7、M22；原 L.4.3.2「记为人造节点，与系统模板区分」删除，来源写在文件头与说明</p>
+**强制**　skill 规定；eval <Ref id="eval:research-round/root-origin-in-header-only" /> 检查说明含三段且不提议标记、字段或表。
 
 </Cap>
 
 ### L.2.2　首次回放 [#L-2-2]
 
-首次回放由代码强制顺序：预检与独立审查 → 登记（无父、无对照）→ 回放入口绑定登记点 → 完整性审计 → 封存 → 读时资格。skill 只规定根用这条路径：不编造对照，不以探索回放当首份报告，故障修复后以新源码重新发布为新根。输入是候选引用与当前开发窗口，输出是封存的运行与原生报告。
+代码强制顺序为预检与独立审查、无父无对照登记、绑定登记点回放、完整性审计、封存、读时资格；skill 只规定根怎样用这条路径。
 
-<Cap id="L.2.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="在当前开发窗口以无父、无对照登记并回放一次">
+<Cap id="L.2.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="每个根在当前开发窗口以无父、无对照登记并回放一次">
 
-每个根在当前开发窗口登记一次并回放一次。登记经 <Ref id="registration.register" />：研发父版本为空、比较对照为空、网格只含该根一个点、窗口等于当前研究路线（research line）的开发窗口，带预检与审查引用；<Ref id="registration.validate" /> 对根的核对是「根不得带对照」，带了拒绝。回放经 <Ref id="registration" /> 入口：写试验（trial）行（purpose=research）的同一事务里由 <Ref id="registration.bind" /> 绑定该登记点，在钉死的运行环境内回放，<Ref id="replay.audit_problems" /> 汇总无效原因，完整封存运行与原生报告（含原生 stdout/stderr/退出码）。输出：一条消耗了该登记点的 <Ref id="table:registration_attempt" /> 行与一个封存的运行；无效与中断同样消耗该点，再试另登记。根的运行没有比较读数（无效应、区间、p）；它的报告供入口推荐（<Ref id="E.3.1.2" />）并作后续候选的比较对照。根的回放计入全部试验计数，计数由 <Ref id="report.research_status" /> 从账本按用途统计（口径在 R 章）。强制层：登记与绑定由代码强制；skill 规定不为根编造对照，不以 purpose=explore 的回放当首份报告；eval <Ref id="eval:research-round/root-registered-without-control" />。
+1. 经 <Ref id="registration.register" /> 登记：研发父版本为空、比较对照（control）为空、网格只含该根一个点、窗口等于当前研究路线（research line）的开发窗口（development window），带预检与审查引用。
+2. <Ref id="registration.validate" /> 核对根不带对照。
+3. 经 <Ref id="registration" /> 入口写试验（trial）行（purpose=research），同一事务里由 <Ref id="registration.bind" /> 绑定该登记点。
+4. 在钉死的运行环境内回放，<Ref id="replay.audit_problems" /> 汇总无效原因。
+5. 完整封存运行与原生报告（含原生 stdout/stderr/退出码）。
 
-<div className="rd-meta">
+- 无效与中断同样消耗该登记点，再试须另行登记。
+- 根的运行没有比较读数（无效应、区间、p）；它的报告供入口推荐（<Ref id="E.3.1.2" />）并作后续候选的比较对照。
+- 根的回放计入全部试验计数，由 <Ref id="report.research_status" /> 从账本按用途统计（口径在 R 章）。
+- 不为根编造对照；不以 purpose=explore 的回放当首份报告。
 
-**定义**　<Ref id="research-round/references/hypothesis.md#root-registration" />、<Ref id="eval:research-round/root-registered-without-control" />
+**输入**　候选引用 strategy_id@revision、预检与审查引用、当前开发窗口。
 
-**使用**　<Ref id="registration.register" />、<Ref id="registration.validate" />、<Ref id="registration" />、<Ref id="registration.bind" />、<Ref id="replay.audit_problems" />、<Ref id="table:registration_attempt" />、<Ref id="report.research_status" />、<Ref id="E.3.1.2" />
+**输出**　一条消耗了该登记点的 <Ref id="table:registration_attempt" /> 行与一个封存的运行及其原生报告。
 
-</div>
+**强制**　登记与绑定由代码强制；不编造对照、不以探索回放当首份报告由 skill 规定，eval <Ref id="eval:research-round/root-registered-without-control" /> 核验。
 
-<p className="rd-resolves">S1.5、M30；原 L.3.2.2「模板的试验计入试验次数」删除，计数口径归 R 章</p>
+| 拒绝码 | 条件 |
+|---|---|
+| （码由 <Ref id="registration.validate" /> 定） | 根的登记带了比较对照。 |
 
 </Cap>
 
-<Cap id="L.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="根走与派生候选同一路径，故障修复后重新发布为新根">
+<Cap id="L.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="根走派生候选同一路径，故障修复后以新源码重新发布为新根">
 
-根走与派生候选同一路径，顺序由代码的拒绝强制。发布后先做原生预检 <Ref id="replay.precheck" />（purpose=precheck，用锁定引擎与实际运行环境核对构造、订单接口、因果时钟、就绪、触发后活动，原生输出随试验封存），再由独立 Agent 按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review" /> 的四项审查，结论经 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份只追加写入；登记与绑定时 <Ref id="registration.require_precheck" /> 核对同源码、同运行环境、同生命周期输入的通过预检与审查存在，否则拒绝。回放后 <Ref id="qualification.assess" /> 在读取时综合审计状态、执行捕获、审查结论与原生对账给出当前经济证据资格（实质活动与可比资格，<Ref id="G.4.1.1" />、<Ref id="G.4.2.3" />）。根的故障（构造、订单接口、因果时钟、就绪、零活动）是工程缺陷：修复后把新源码作为新根重新发布（无父、无改动说明，<Ref id="L.2.1.1" />）并重新预检、审查、登记；不在原候选上改字节（账本只追加，拒绝改写），不把故障记为该形态的经济负面、不进研究优先级（<Ref id="eval:research-round/failure-is-repair-not-feedback" />）。原根的试验与运行保留为历史，在当前资格视图里不作经济证据。强制层：预检、审查绑定、登记核对与资格由代码强制；「修复即重发为新根、不记负面」由 skill 规定。
+1. 发布后做原生预检 <Ref id="replay.precheck" />（purpose=precheck）：用锁定引擎与实际运行环境核对构造、订单接口、因果时钟、就绪、触发后活动，原生输出随试验封存。
+2. 独立 Agent 按 <Ref id="research-round/references/strategy-authoring.md#precheck-and-review" /> 的四项审查，结论经 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份只追加写入。
+3. 登记与绑定时 <Ref id="registration.require_precheck" /> 核对同源码、同运行环境、同生命周期输入的通过预检与审查存在。
+4. 回放后 <Ref id="qualification.assess" /> 在读取时综合审计状态、执行捕获、审查结论与原生对账，给出当前经济证据资格（实质活动与可比资格，<Ref id="G.4.1.1" />、<Ref id="G.4.2.3" />）。
 
-<div className="rd-meta">
+- 根的故障（构造、订单接口、因果时钟、就绪、零活动）是工程缺陷：修复后把新源码作为新根重新发布（无父、无改动说明，<Ref id="L.2.1.1" />），并重新预检、审查、登记。
+- 不在原候选上改字节。
+- 故障不记为该形态的经济负面，不进研究优先级（<Ref id="eval:research-round/failure-is-repair-not-feedback" />）。
+- 原根的试验与运行保留为历史，在当前资格视图里不作经济证据。
 
-**定义**　<Ref id="research-round/references/template-transcription.md#root-path" />
+**输入**　已发布的根候选引用与钉死的运行环境。
 
-**使用**　<Ref id="replay.precheck" />、<Ref id="registration.record_review" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.assess" />、<Ref id="research-round/references/strategy-authoring.md#precheck-and-review" />、<Ref id="eval:research-round/failure-is-repair-not-feedback" />、<Ref id="G.4.1.1" />、<Ref id="G.4.2.3" />
+**输出**　封存的预检输出、绑定源码哈希的审查结论，以及读取时给出的经济证据资格。
 
-</div>
+**强制**　预检、审查绑定、登记核对与资格由代码强制，改写由账本只追加拒绝；修复即重发为新根、不记负面由 skill 规定。
 
-<p className="rd-resolves">根与派生候选同路径；预检、审计、资格引用 C.6、G.4</p>
+| 拒绝码 | 条件 |
+|---|---|
+| （码由 <Ref id="registration.require_precheck" /> 定） | 登记或绑定时缺同源码、同运行环境、同生命周期输入的通过预检与审查。 |
+| （账本只追加，原稿未指定码） | 试图改写已发布候选的字节。 |
 
 </Cap>
 
