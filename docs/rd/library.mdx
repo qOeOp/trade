@@ -1,9 +1,9 @@
-# L　策略库：候选谱系的根节点从哪来，怎样作为候选入账，又怎样得到第一份可供比较的报告。
+# L　策略库：候选谱系的根从哪来，怎样入账并得到第一份可比较的报告。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义候选谱系（lineage）的根节点（root）从哪来、怎样得到首份报告。根只有两类：有公认一手出处（primary source）的原版模板，与用户发起并提供信息源的人造根（artificial root）。转写由 skill 指导、eval 核验，出处原件以证据包入账本（ledger）；发布与首次回放由代码与账本强制：经唯一发布入口入账、无研发父版本（parent）即根，预检与审查后登记并回放一次，封存首份报告。出处只是外部依据，不为参数背书；何时选模板作根由用户在入口决定。
+本章回答谱系的根从哪来、怎样得到第一份报告。根有两种：有公认一手出处的策略库模板，和用户提供信息源的人造根。转写守策略文件规则，出处只说明来源、不为参数背书；回放走同样的登记，只是不带父版本和对照。
 
 <Mermaid chart={"flowchart LR\n  subgraph L-1[\"L.1 从出处或用户信息源转写成根文件\"]\n    direction TB\n    L-1-1[\"L.1.1 收录\"]\n    L-1-2[\"L.1.2 核实\"]\n    L-1-3[\"L.1.3 重写与文件头\"]\n    L-1-4[\"L.1.4 发起与转写（人造根）\"]\n  end\n  subgraph L-2[\"L.2 发布为根并出首份报告\"]\n    direction TB\n    L-2-2[\"L.2.2 首次回放\"]\n  end\n  L-1 --> L-2"} />
 
@@ -13,37 +13,31 @@
 
 <Step>
 
-收录：按一手出处标准判定形态是否可收，列入首批名单或候补；人造根由用户发起并提供信息源（skill）。
+收录：只取有公认一手出处的原版策略，或用户提供信息源的人造根。
 
 </Step>
 
 <Step>
 
-留存：出处原件、摘录与检索记录以证据包（<Ref id="table:evidence_bundle" />）经 <Ref id="ledger.add_bundle" /> 入账本，记内容哈希与首次可见版本（账本）。
+留存：出处原件与检索记录作为证据包入账。
 
 </Step>
 
 <Step>
 
-核实：每个默认参数定位到出处原件位置，任一定位不了即弃该模板换候补并记原因（skill）。
+核实：每个默认参数都在出处原件里找到位置，找不到就换候补。
 
 </Step>
 
 <Step>
 
-重写：照出处从头写成守 <Ref id="C.1.1.1" /> 的单文件，不加无出处内容，运行所需未定项作实现者选择列明，并记作者条件（skill）。
+重写：照出处写成单个策略文件，文件头写明出处和 27 项职责立场。
 
 </Step>
 
 <Step>
 
-文件头：按模板写可定位出处与 27 项职责立场及来源，交 L.2.1.1 发布为无父根（skill）。
-
-</Step>
-
-<Step>
-
-执行正确：由 <Ref id="replay.precheck" /> 与 <Ref id="registration.record_review" /> 给出，不由转写者自证，通过后进入 <Ref id="L.2.2.1" /> 登记并回放一次（代码与账本）。
+发布：作为没有父版本的根入账，能否跑通由原生预检和独立源码审查判定。
 
 </Step>
 
@@ -51,35 +45,35 @@
 
 ### L.1.1　收录 [#L-1-1]
 
-把候选形态及其出处链接判成带出处定位的待核实模板，或一条不收原因。
+判定一个原版策略能不能收进策略库。
 
 <ul className="rd-rules">
-<li id="L-1-1-2"><span className="rd-rule-id">L.1.1.2</span> 首批只转写名单内 12 个单品种形态，核实不了移候补不放宽 <Ref id="rule:L.1.1.2">research-round · references/template.md</Ref></li>
+<li id="L-1-1-2"><span className="rd-rule-id">L.1.1.2</span> 只转写首批名单内 12 个单品种策略，核实不了换候补不放宽 <Ref id="rule:L.1.1.2">research-round · references/template.md</Ref></li>
 </ul>
 
 ### L.1.2　核实 [#L-1-2]
 
-把待核实模板与已入账本的出处原件变成参数—出处定位表、可发布的根文件与预检审查证据包，三件事分开核。
+确认每个默认参数都出自出处原件。
 
 <ul className="rd-rules">
-<li id="L-1-2-1"><span className="rd-rule-id">L.1.2.1</span> 每个默认参数定位到出处页码或锚点，任一定位不了即弃模板 <Ref id="rule:L.1.2.1">research-round · references/template.md</Ref></li>
+<li id="L-1-2-1"><span className="rd-rule-id">L.1.2.1</span> 每个默认参数都要在出处原件里找到位置，找不到就弃用该模板 <Ref id="rule:L.1.2.1">research-round · references/template.md</Ref></li>
 </ul>
 
 ### L.1.3　重写与文件头 [#L-1-3]
 
-把参数—出处定位表、出处原件与实现者选择清单写成守策略文件契约的根文件源码与文件头。
+照出处写成策略文件，并在文件头写明出处与职责立场。
 
 <ul className="rd-rules">
-<li id="L-1-3-1"><span className="rd-rule-id">L.1.3.1</span> 照出处从头重写，不补无出处的止损、过滤或参数，实现者选择列明 <Ref id="rule:L.1.3.1">research-round · references/template.md</Ref></li>
-<li id="L-1-3-3"><span className="rd-rule-id">L.1.3.3</span> 文件头按模板写出处与 27 项职责立场，搬到别处的规则标研究者推广 <Ref id="rule:L.1.3.3">research-round · references/template.md</Ref></li>
+<li id="L-1-3-1"><span className="rd-rule-id">L.1.3.1</span> 照出处从头重写，不加无出处的规则或参数，必需的补选须列明 <Ref id="rule:L.1.3.1">research-round · references/template.md</Ref></li>
+<li id="L-1-3-3"><span className="rd-rule-id">L.1.3.3</span> 文件头写明出处和 27 项职责立场，用到原版以外的品种或周期须注明 <Ref id="rule:L.1.3.3">research-round · references/template.md</Ref></li>
 </ul>
 
 ### L.1.4　发起与转写（人造根） [#L-1-4]
 
-发起规则在入口 skill、转写规则在研究 skill，产出交 L.2.1.1 发布。
+用户提供信息源时，按同样的规则转写人造根。
 
 <ul className="rd-rules">
-<li id="L-1-4-2"><span className="rd-rule-id">L.1.4.2</span> 人造根缺的参数列为实现者缺省，不弃模板也不标为出处原话 <Ref id="rule:L.1.4.2">research-round · references/template.md</Ref></li>
+<li id="L-1-4-2"><span className="rd-rule-id">L.1.4.2</span> 人造根信息源缺的参数可补默认值并注明，不弃用也不冒充出处 <Ref id="rule:L.1.4.2">research-round · references/template.md</Ref></li>
 </ul>
 
 ## L.2　发布为根并出首份报告 [#L-2]
@@ -88,37 +82,31 @@
 
 <Step>
 
-把守策略文件契约的根文件与发布说明交给发布入口；只解析不执行地核对通过后原样入账，得到 strategy_id@revision 与源码内容哈希；相同字节返回先前候选的引用。
+发布：根文件原样入账成为候选；相同字节返回已有的候选。
 
 </Step>
 
 <Step>
 
-对该候选做原生预检（purpose=precheck）并封存原生输出；独立 Agent 按四项审查，结论绑定源码哈希与运行环境身份写入账本。
+预检与审查：先做原生预检，再由独立源码审查写结论入账。
 
 </Step>
 
 <Step>
 
-在当前开发窗口登记：父版本为空、对照为空、网格只含该根一点，带预检与审查引用，锁进不可变登记证据。
+登记：不带父版本和对照，网格只含这个根，锁进账本。
 
 </Step>
 
 <Step>
 
-回放入口写试验行（purpose=research）并绑定该登记点，在钉死的运行环境（runtime image）内回放，完整性审计后封存运行与原生报告（含原生 stdout/stderr/退出码）。
+回放与读取：回放一次并计入试验，审计封存后判经济证据资格。
 
 </Step>
 
 <Step>
 
-读取时按检查身份判实质活动与可比资格；根的报告无检验结果，供入口推荐并作后续候选的比较对照，回放计入试验计数。
-
-</Step>
-
-<Step>
-
-预检、审计或资格暴露的故障只修复：新源码重新发布为新根并重走 1–5，原根的运行保留为历史。
+修复：任一步暴露故障就改源码另发新根重走，原根的运行留作历史。
 
 </Step>
 
@@ -126,10 +114,10 @@
 
 ### L.2.2　首次回放 [#L-2-2]
 
-代码强制顺序为预检与独立审查、无父无对照登记、绑定登记点回放、完整性审计、封存、读时资格；skill 只规定根怎样用这条路径。
+根的首份报告计入试验次数、没有检验结果，之后可作派生候选的比较对照。
 
 <ul className="rd-rules">
-<li id="L-2-2-1"><span className="rd-rule-id">L.2.2.1</span> 新根无父无对照登记回放一次作首份报告，不以探索回放代替 <Ref id="rule:L.2.2.1">research-round · references/template.md</Ref></li>
+<li id="L-2-2-1"><span className="rd-rule-id">L.2.2.1</span> 新根不带对照登记并回放一次，未登记的回放不能当首份报告 <Ref id="rule:L.2.2.1">research-round · references/template.md</Ref></li>
 </ul>
 
 ## 待定事项 [#L-pending]

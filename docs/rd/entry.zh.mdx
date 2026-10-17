@@ -1,6 +1,6 @@
 # E　入口：每次开始或中断后，Agent 如何从账本恢复研究状态、给出综合推荐，并由用户选定研究路线。
 
-入口是研究循环的起点和中断后的回归点。本章定义：从账本 ledger 恢复研究状态 research state 并核对环境就绪；逐条只追加的判断记录与读时的研究状态视图；在全部经济证据可用的候选 candidate 上给出综合推荐 recommendation 与路线选项；把用户的选择写成研究路线 research line 记录。读出、核哈希与路线窗口由代码强制，读的顺序、推荐写法与选定前等待由 skill 强制；不设达标门槛、不排除方向。候选谱系、检验结果、生命周期回执产出与账本机制见 T、V、W、J 章。
+本章回答研究从哪里开始、中断后从哪里接着做：从账本读回研究状态并核对环境就绪，把判断逐条记进账本，给出综合推荐与路线选项，再由用户选定研究路线。它承接 F 章的复盘与推荐。
 
 <Mermaid chart={"flowchart LR\n  subgraph E-1[\"E.1 恢复研究状态\"]\n    direction TB\n    E-1-1[\"E.1.1 时机与从账本读的材料\"]\n    E-1-2[\"E.1.2 核对环境就绪\"]\n  end\n  subgraph E-2[\"E.2 记录研究判断\"]\n    direction TB\n    E-2-1[\"E.2.1 内容\"]\n    E-2-2[\"E.2.2 存法与读回\"]\n  end\n  subgraph E-3[\"E.3 给出综合推荐与路线选项\"]\n    direction TB\n    E-3-1[\"E.3.1 候选范围\"]\n    E-3-2[\"E.3.2 选项材料与呈现\"]\n  end\n  subgraph E-4[\"E.4 用户选定研究路线\"]\n    direction TB\n    E-4-1[\"E.4.1 选择权\"]\n  end\n  E-1 --> E-2\n  E-2 --> E-3\n  E-3 --> E-4"} />
 
@@ -10,37 +10,31 @@
 
 <Step>
 
-经 <Ref id="cli.ledger_service" /> 读账本服务状态与当前提交；服务未起先启动，不可用即按 <Ref id="E.1.2.3" /> 报阻断。
+读账本里的候选清单和研究计数，确认账本可用。
 
 </Step>
 
 <Step>
 
-经 <Ref id="report.candidates" /> 读候选清单，经 <Ref id="report.research_status" /> 读研究计数；两者只含账本事实，由代码按精确版本读出。
+读当前研究路线；没有路线就转去用户选路线。
 
 </Step>
 
 <Step>
 
-经 <Ref id="ledger.current_line" /> 读当前研究路线记录；无记录进入路线选择 <Ref id="E.4.1.1" />。
+有路线就读研究状态，决定先复盘还是续做。
 
 </Step>
 
 <Step>
 
-有记录即经 <Ref id="cli.research_state" /> 读该路线的研究状态视图 <Ref id="report.research_state" />：当前判断、主体的读时事实与尚未复盘的试验；按 `research-start/SKILL.md#read-research-state` 决定先复盘还是续做该路线。
+按路线钉住的市场提交核对环境就绪。
 
 </Step>
 
 <Step>
 
-按路线记录钉住的市场提交核对环境就绪（<Ref id="E.1.2.3" />）。
-
-</Step>
-
-<Step>
-
-按 `research-start/SKILL.md#readiness-and-blockers` 报告就绪，或报告精确阻断与可运行范围；就绪则进入综合推荐或路线内下一假设。
+就绪就继续；不就绪报告阻断和可运行范围。
 
 </Step>
 
@@ -48,114 +42,61 @@
 
 ### E.1.1　时机与从账本读的材料 [#E-1-1]
 
-skill 规定何时恢复与读的顺序，代码保证候选清单与计数只来自账本精确版本，研究状态是代码读时拼合判断与事实的视图。
+研究状态只从账本读出，不靠会话记忆。
 
 <ul className="rd-rules">
-<li id="E-1-1-1"><span className="rd-rule-id">E.1.1.1</span> 开始或恢复先读账本研究状态；有路线记录就续做，不重问，不用会话记忆 <Ref id="rule:E.1.1.1">research-start · SKILL.md</Ref></li>
+<li id="E-1-1-1"><span className="rd-rule-id">E.1.1.1</span> 开始或恢复先读账本；有路线就续做，不重问用户 <Ref id="rule:E.1.1.1">research-start · SKILL.md</Ref></li>
 </ul>
 
-<Cap id="E.1.1.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研究状态由代码读时拼合当前判断与事实，未复盘的试验按提交差异给出">
+<Cap id="E.1.1.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研究状态在读取时拼出，本身不另存">
 
-1. 经 <Ref id="cli.research_state" /> 调用 <Ref id="report.research_state" />，按研究路线（缺省取 <Ref id="ledger.current_line" />）与账本提交或标签（缺省当前头）AS OF 读取。
-2. 每种判断取未被取代的最新一条 recommendation、priority 与 review_cadence；interpretation 与 search_exposure 取全部未被取代的。
-3. 为每个判断主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、<Ref id="qualification.assess" /> 的当前资格（附检查身份）与绩效指标；facts 附 <Ref id="report.candidates" /> 子集与 <Ref id="report.research_status" /> 的研究计数。
-4. unreviewed_trials 由 <Ref id="table:trial" /> 的提交间差异算出：最新 recommendation 的 based_on_commit 与读取提交之间新增、属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
-5. 按 `research-start/SKILL.md#read-research-state`：unreviewed_trials 非空且到达声明的复盘节奏时先复盘（<Ref id="E.3.1.1" />），否则按 priority 续做。
+- 只取当前有效的判断。
+- 判断涉及的候选和试验，附上读取时的经济证据资格和绩效指标。
+- 未复盘的试验是上次推荐之后新增、属于本路线的试验。
+- 任何一个账本版本都能读出当时的研究状态。
 
-- 判断是 Agent 逐条追加的记录，分五种：recommendation（推荐一版或一批候选及取舍）；priority（后续动作排序与理由，主体挂研发父版本 parent 与对照 control）；review_cadence（复盘节奏与理由）；interpretation（历史反馈的机制解释、适用条件与重评条件）；search_exposure（算过的视角与读过的报告）。
-- 各种判断的记法与主体挂法见 `research-round/references/judgments.md#what-to-record` 与 <Ref id="E.2.1.1" />；写入经 <Ref id="ledger.add_judgment" />（命令 <Ref id="cli.judgment_add" />），本能力只读。
-- 判断正文只引用候选、试验、登记包与账本提交（`research-round/references/judgments.md#body-references-only`）；结果类别、绩效指标、计数与资格都在读时取。
-- 视图不存储：任一账本提交都能读出当时的研究状态；上次复盘以来的试验与尝试计数按 based_on_commit 读时算。
-
-**输入**　研究路线证据包（缺省当前路线），账本提交或标签（缺省当前头）。
-
-**输出**　研究状态视图（JSON）：at、line、当前 recommendation、priority、review_cadence、interpretations、search_exposures 及各主体的读时事实，unreviewed_trials，facts\{candidates, counts\}。
-
-**强制**　代码：<Ref id="report.research_state" /> 按精确版本读时拼合判断与事实，并按提交差异给出未复盘的试验；skill 强制据此决定是否先复盘（`research-start/SKILL.md#read-research-state`），由用例 `eval:research-start/unreviewed-trials-from-commit-diff` 检验。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LINE_UNKNOWN` | 研究路线不存在。 |
-| `VERSION_UNKNOWN` | 所给账本提交、分支或标签解析不到。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.research_state">research_state</Ref> <Ref id="cli.research_state">research_state</Ref> unreviewed-trials-from-commit-diff</span></div>
 
 </Cap>
 
-<Cap id="E.1.1.4" kind="code" tier="unverified" tierLabel="待验证" title="多重比较的 N 取路线内全部研究试验数，由账本派生">
+<Cap id="E.1.1.4" kind="code" tier="unverified" tierLabel="待验证" title="路线内全部研究试验都计入试验次数">
 
-- <Ref id="ledger.line_trials" /> 给出路线内 purpose=research 的全部试验（含无效与中断）；<Ref id="report.research_state" /> 展示这个数，作为 DSR 与样本外多重比较的 N。
-- 把路线内全部试验都当作看过，是不依赖 Agent 记忆的保守上界；Agent 自写脚本算的视角仍记 search_exposure 判断。
+- 路线内用途为研究的试验都计入，含无效和中断的。
+- 这个数由账本派生，不靠 Agent 记录。
+- 把全部试验都当作看过，是一个保守的上界。
 
-**强制**　代码：账本派生，不由 Agent 记录。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.line_trials">line_trials</Ref> <Ref id="report.research_state">research_state</Ref></span></div>
 
 </Cap>
 
 ### E.1.2　核对环境就绪 [#E-1-2]
 
-代码按精确市场提交原样读出新鲜度与逐合约覆盖事实，skill 据此只报告就绪或阻断而不裁决。
+入口只读出数据事实并报告就绪或阻断，不裁决数据够不够用。
 
-<Cap id="E.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="路线钉住一个市场提交，同一路线内登记与回放共用它">
+<Cap id="E.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="一条路线钉住一个市场提交，路线内回放共用它">
 
-1. 经 <Ref id="ledger.current_line" /> 读当前研究路线记录，取出钉住的市场提交 market commit、开发窗口 development window 与范围规则 universe_rule。
-2. 经 <Ref id="market.freshness" /> 按该提交 AS OF 读交易所数据 exchange data 库的新鲜度。
+- 用户选定路线时，市场提交和开发窗口一起写进路线记录。
+- 同一市场提交上的回放才可比。
+- 市场数据出现新月份时只报告可扩展的范围，不自动换提交。
+- 换市场提交就是换路线，由用户选择。
 
-- 新鲜度包括：成员月份、合约数、最新完整日、最新完整月与当前月覆盖到的时刻。
-- 用户给出的引用（具名引用如 main、标签或哈希前缀）一律先经 <Ref id="market.resolve_commit" /> 解析为唯一提交哈希。
-- 市场提交在用户选定路线时经 <Ref id="ledger.select_line" /> 写入研究路线记录。
-- 同一路线内每次登记与回放都按同一提交导出输入并写入输入身份（<Ref id="J.6.1.3" />）；相同提交上的回放才可比。
-- 市场库出现新月份时入口只报告可扩展范围（新月份、覆盖到的时刻），不自动换提交。
-- 换提交即开发窗口或数据合同的变化，由用户经 <Ref id="E.4.1.1" /> 选择后写成新一条路线记录。
-- 新鲜度来自 <Ref id="table:market_schema" /> 与 <Ref id="table:universe_month" />，只是事实，不判数据够不够用。
-- 没有路线记录时返回空并进入路线选择。
-
-**输入**　当前研究路线记录（或用户给出的市场引用）。
-
-**输出**　钉住的市场提交、开发窗口、范围规则与该提交下的新鲜度事实。
-
-**强制**　代码：<Ref id="ledger.current_line" />、<Ref id="market.freshness" /> 与 <Ref id="market.resolve_commit" /> 按唯一提交哈希 AS OF 读市场库与账本。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NOT_A_COMMIT` | 给出的引用是工作集引用。 |
-| `MARKET_EMPTY` | 该提交下没有任何月份。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.current_line">current_line</Ref> <Ref id="market.freshness">freshness</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span></div>
 
 </Cap>
 
-<Cap id="E.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="逐合约读覆盖与生命周期回执只返回事实，不删币缩窗补数">
+<Cap id="E.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="逐合约覆盖只列事实，入口不删币、不缩窗、不补数">
 
-- 经 <Ref id="cli.market_coverage" /> 按钉住的市场提交逐合约读覆盖事实与生命周期回执。
-- 合约范围缺省为开发窗口（含预热）涉及月份在 <Ref id="table:universe_month" /> 中的全部成员；显式给出时按给出的清单。
-- 命令把范围展开后交 <Ref id="market.diagnose_coverage" />，后者只接受显式清单。
-- 每个合约的覆盖事实由 <Ref id="market.coverage_facts" /> 产出。
-- 事实包括成员月份、输入区间内成交价与标记价 mark price 的缺口区间和零成交量分钟。
-- 还包括两者时刻对齐，以及资金费 funding 结算时刻与条数。
+- 按钉住的市场提交，逐合约列出缺口、零成交分钟和资金费记录。
+- 上市、下架等成员变化按账本里留存的原件核对后列出。
 - 首末数据只是数据起止，不等于上市或下架。
-- 生命周期回执来自账本中的生命周期证据包：经 <Ref id="registration.load_lifecycle" /> 读出清单与来源原件。
-- <Ref id="market.validate_lifecycle" /> 核对清单绑定同一市场提交、事件为引擎原生事件字典、时钟单调、来源原件在包内。
-- 上市、禁新仓、下架结算与 ticker 重用以原生事件随证据包留存。
-- 缺口、零量、资金费缺失、生命周期缺失都原样列出。
-- 入口不据此删币、缩窗、补数或判经济失败。
-- 入口不替策略判定指标是否就绪（<Ref id="W.3.3.2" />）。
+- 缺口原样报告，不据此判经济失败，也不替策略判就绪。
 
-**输入**　钉住的市场提交、输入区间，以及缺省范围或显式合约清单。
-
-**输出**　逐合约的覆盖事实与已核对的生命周期回执。
-
-**强制**　代码：命令只读事实，任一拒绝整次不返回部分结果；生命周期由 <Ref id="market.validate_lifecycle" /> 核对。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `INTERVAL_INVALID` | 区间非整分钟，或起点不早于终点。 |
-| `EMPTY_SYMBOLS` | 展开后合约清单为空，或显式清单有重复。 |
-| `UNKNOWN_REF` | 市场提交引用解析不到。 |
-| `AMBIGUOUS_REF` | 市场提交引用解析不唯一。 |
-| `NOT_A_COMMIT` | 市场提交引用不是提交。 |
-| `UNKNOWN_SYMBOL` | 合约不在该提交。 |
-| `LIFECYCLE_INPUT` | 生命周期证据包缺失、提交不符或事件非原生。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.market_coverage">market_coverage</Ref> <Ref id="market.diagnose_coverage">diagnose_coverage</Ref> <Ref id="registration.load_lifecycle">load_lifecycle</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="E-1-2-3"><span className="rd-rule-id">E.1.2.3</span> 回放前核镜像、月份与逐合约覆盖；缺则报精确阻断、可运行范围与恢复状态后提问 <Ref id="rule:E.1.2.3">research-start · references/readiness.md</Ref></li>
+<li id="E-1-2-3"><span className="rd-rule-id">E.1.2.3</span> 回放前核对运行环境、数据月份和逐合约覆盖，缺则报阻断再提问 <Ref id="rule:E.1.2.3">research-start · references/readiness.md</Ref></li>
 </ul>
 
 ## E.2　记录研究判断 [#E-2]
@@ -164,37 +105,31 @@ skill 规定何时恢复与读的顺序，代码保证候选清单与计数只�
 
 <Step>
 
-Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.research_state" /> 读当前研究路线的研究状态视图（当前判断、读时事实与 unreviewed_trials），同时读本次试验的检验结果。
+读研究状态和本次试验的检验结果。
 
 </Step>
 
 <Step>
 
-写当前决定：recommendation（推荐与取舍）、priority（后续研究动作及所选父版本与对照）、review_cadence（复盘节奏）。
+写当前决定：综合推荐、研究优先级和复盘节奏。
 
 </Step>
 
 <Step>
 
-对本次产生的负面、不显著与仅诊断发现逐条写 interpretation，各带适用条件与重评条件。
+对负面、不显著和只有诊断的发现逐条写解释。
 
 </Step>
 
 <Step>
 
-每条把涉及的候选、试验或登记包挂为主体并填 based_on_commit，正文只引用不抄写；算过的视角与读过的报告记为 search_exposure。
+每条判断挂上涉及的候选、试验或登记，正文只引用不抄数字。
 
 </Step>
 
 <Step>
 
-经 <Ref id="cli.judgment_add" /> 调 <Ref id="ledger.add_judgment" /> 逐条追加，代码核对路线、提交、主体与取代关系并拒绝不合规写入。
-
-</Step>
-
-<Step>
-
-`eval:research-round/search-exposure-recorded` 检验本次搜索暴露是否完整记为判断。
+逐条追加进账本，不合规的写入被拒绝。
 
 </Step>
 
@@ -202,53 +137,30 @@ Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.researc
 
 ### E.2.1　内容 [#E-2-1]
 
-规定推荐、后续动作、复盘节奏与机制解释各记成哪种判断、写什么；资格、检验结果、计数等代码判定都不读判断正文，也不从中产生优先级或推荐分数。
+规定每类决定记成哪种判断、写什么；代码的判定都不读判断正文。
 
 <ul className="rd-rules">
-<li id="E-2-1-1"><span className="rd-rule-id">E.2.1.1</span> 复盘写 recommendation 与 priority；复盘节奏写成 cadence_trials，只能调低 <Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></li>
-<li id="E-2-1-2"><span className="rd-rule-id">E.2.1.2</span> 每个登记至少写一条 interpretation：适用与重评条件，结论限登记条件 <Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></li>
+<li id="E-2-1-1"><span className="rd-rule-id">E.2.1.1</span> 复盘写推荐与优先级；复盘节奏按试验次数记，只能调小 <Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></li>
+<li id="E-2-1-2"><span className="rd-rule-id">E.2.1.2</span> 每次登记至少写一条解释：带适用与重评条件，结论限于登记条件 <Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></li>
 </ul>
 
 ### E.2.2　存法与读回 [#E-2-2]
 
-判断逐条只追加存入账本，代码核对路线、提交、主体与取代关系，skill 规定每条的引用与搜索暴露，研究状态由读时视图拼出。
+判断只追加存进账本，任一账本版本都能读回。
 
-<Cap id="E.2.2.1" kind="database" tier="verified" tierLabel="已验证" title="判断逐条只追加存入账本，取代关系与按提交读回由代码保证">
+<Cap id="E.2.2.1" kind="database" tier="verified" tierLabel="已验证" title="判断只追加入账；改判断就追加一条，取代旧的">
 
-- 每条判断存为 <Ref id="table:judgment" /> 一行：kind（recommendation、priority、review_cadence、interpretation、search_exposure）、line_bundle、based_on_commit、body、supersedes、op_id，created_at 由触发器写服务器时间。
-- line_bundle 是所属研究路线的 research-line-* 证据包（<Ref id="table:evidence_bundle" />），当前路线取自 <Ref id="ledger.current_line" />。
-- 涉及的候选、试验或登记包逐个存为 <Ref id="table:judgment_subject" /> 一行，带 role（recommended、parent、control、about）。
-- 主体三类目标恰有一类非空；recommended、parent、control 只能指向候选（<Ref id="table:candidate" />）；trial_id 指向 <Ref id="table:trial" />，覆盖没有运行行的尝试；登记包须在 <Ref id="table:registration_attempt" /> 中出现过。
-- 写入经 <Ref id="ledger.add_judgment" /> 在一个写事务（<Ref id="ledger.write" />）内完成；同 op_id 同载荷幂等返回原行。
-- based_on_commit 入库前解析为提交哈希，须是当前头的祖先且不早于路线包所在提交。
-- 改判断写新一条并以 supersedes 指向旧的；须同 kind、同路线，每条至多被取代一次。
-- 写账号对两表只有 INSERT；dolt_tests 在提交时核对 dolt_diff_judgment 与 dolt_diff_judgment_subject 只出现 added（<Ref id="table:dolt_system_tables" />）。
-- 经 <Ref id="ledger.read_as_of" /> 按账本提交哈希或标签读当时的判断；里程碑标签先解析到提交再读回。
-- 研究状态不存：<Ref id="report.research_state" /> 按 at 取每种未被取代的最新判断并拼读时事实，未复盘的试验按最新 recommendation 的 based_on_commit 到 at 之间 dolt_diff_trial 的 added 行给出。
-- 换市场提交或开发窗口即换研究路线，新判断挂新的 line_bundle；旧路线的判断保留，仍计为历史搜索暴露。
-- 演练中按账本提交读回当时的研究状态。
+- 每条判断属于一条研究路线，挂上涉及的候选、试验或登记。
+- 推荐、父版本、对照这几种角色只能指向候选。
+- 改判断写新一条取代旧的，旧的保留，每条只能被取代一次。
+- 任一账本版本都能读回当时的判断。
 
-**输入**　一条判断：kind、line_bundle、based_on_commit、body、主体列表、supersedes 与 op_id。
-
-**输出**　judgment_id、账本提交哈希与是否幂等返回原行。
-
-**强制**　由代码与账本强制：add_judgment 在写事务内核对路线、提交、主体与取代关系，表约束与只有 INSERT 的写账号保证只追加，dolt_tests 核对两表差异只有 added。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LINE_UNKNOWN` | line_bundle 不存在或不是 research-line-* 包。 |
-| `COMMIT_NOT_ANCESTOR` | based_on_commit 不是当前头的祖先。 |
-| `COMMIT_BEFORE_LINE` | based_on_commit 早于路线包所在提交。 |
-| `SUBJECT_UNKNOWN` | 主体指向的候选、试验或登记包不存在。 |
-| `SUBJECT_ROLE_MISMATCH` | role 为 recommended、parent 或 control 而目标不是候选。 |
-| `SUPERSEDES_INVALID` | 被取代的判断不同 kind、不同路线或已被取代。 |
-| `OP_ID_CONFLICT` | 同 op_id 载荷不同。 |
-| write_conflict | 并发写冲突；Agent 重读研究状态后再写。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:judgment">judgment</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="cli.judgment_add">judgment_add</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="E-2-2-2"><span className="rd-rule-id">E.2.2.2</span> 自写脚本算出的视角记 search_exposure；产品命令看到的试验已由账本计入 N <Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></li>
+<li id="E-2-2-2"><span className="rd-rule-id">E.2.2.2</span> 自写脚本算过的视角要记成判断；产品读出的试验已自动计数 <Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></li>
 </ul>
 
 ## E.3　给出综合推荐与路线选项 [#E-3]
@@ -257,31 +169,31 @@ Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.researc
 
 <Step>
 
-呈现最新推荐（<Ref id="E.3.1.1" />）。
+先呈现最新的综合推荐。
 
 </Step>
 
 <Step>
 
-用候选清单与资格读取划定范围：全部经济证据可用候选为可选项，仅诊断、无效与未完成候选分列。
+有经济证据资格的候选都是选项，诊断、无效和未完成的分列。
 
 </Step>
 
 <Step>
 
-账本里没有任何候选或用户明确离开全部研究路线时，从策略库模板提根选项，并附各模板在当前开发窗口的首份报告。
+没有候选或用户离开全部路线时，加上策略库模板作根的选项。
 
 </Step>
 
 <Step>
 
-为每个选项附绩效指标（<Ref id="E.3.2.1" />）与历史反馈（<Ref id="E.2.1.2" />）。
+每个选项附绩效指标和历史反馈。
 
 </Step>
 
 <Step>
 
-写推荐说明，然后交用户选路线（<Ref id="E.4.1.1" />）。
+写推荐说明，交用户选路线。
 
 </Step>
 
@@ -292,17 +204,17 @@ Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.researc
 划定推荐选项从哪来。
 
 <ul className="rd-rules">
-<li id="E-3-1-1"><span className="rd-rule-id">E.3.1.1</span> 入口先读研究状态的最新推荐；无推荐或有未复盘有效运行时现算并追加 <Ref id="rule:E.3.1.1">research-start · references/recommendation.md</Ref></li>
-<li id="E-3-1-2"><span className="rd-rule-id">E.3.1.2</span> 只在无候选或用户离开全部路线时提模板根，附首报或标未回放；人造根只等用户给来源 <Ref id="rule:E.3.1.2">research-start · SKILL.md</Ref></li>
+<li id="E-3-1-1"><span className="rd-rule-id">E.3.1.1</span> 入口先读最新推荐；没有推荐或有未复盘的有效运行就重做推荐 <Ref id="rule:E.3.1.1">research-start · references/recommendation.md</Ref></li>
+<li id="E-3-1-2"><span className="rd-rule-id">E.3.1.2</span> 只在没有候选或用户离开全部路线时提出模板根 <Ref id="rule:E.3.1.2">research-start · SKILL.md</Ref></li>
 </ul>
 
 ### E.3.2　选项材料与呈现 [#E-3-2]
 
-规定每个选项附哪些绩效指标、历史反馈与推荐措辞，只定呈现清单，不定判据。
+规定每个选项附哪些材料，只定呈现，不定判据。
 
 <ul className="rd-rules">
-<li id="E-3-2-1"><span className="rd-rule-id">E.3.2.1</span> 选项列年化、回撤、夏普、胜率、成本、资金使用率、利润来源、不确定性，缺项留空写因 <Ref id="rule:E.3.2.1">research-start · references/recommendation.md</Ref></li>
-<li id="E-3-2-3"><span className="rd-rule-id">E.3.2.3</span> 推荐写明版本、依据与取舍；下一实验的父与对照另给理由，不默认取推荐 <Ref id="rule:E.3.2.3">research-start · references/recommendation.md</Ref></li>
+<li id="E-3-2-1"><span className="rd-rule-id">E.3.2.1</span> 每个选项列同一组绩效指标，缺项留空并写原因 <Ref id="rule:E.3.2.1">research-start · references/recommendation.md</Ref></li>
+<li id="E-3-2-3"><span className="rd-rule-id">E.3.2.3</span> 推荐写明版本、依据与取舍；下一实验的父版本和对照另给理由 <Ref id="rule:E.3.2.3">research-start · references/recommendation.md</Ref></li>
 </ul>
 
 ## E.4　用户选定研究路线 [#E-4]
@@ -311,37 +223,31 @@ Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.researc
 
 <Step>
 
-Agent 呈现推荐与路线选项（经济证据可用的候选起点，或符合条件时的策略库模板），以提问结束并等待；选定前不登记、不回放、不发布，由 skill 强制。
+Agent 呈现推荐与路线选项，以提问结束并等待。
 
 </Step>
 
 <Step>
 
-用户选定一条路线；可附信息源或想法，可一次性明确授权选某个模板。
+用户选定路线，可附信息源、想法，或一次性授权选某个模板。
 
 </Step>
 
 <Step>
 
-选中模板时，Agent 经 <Ref id="ledger.publish_candidate" /> 不带父版本、不带改动说明发布它，得到根候选 root。
+选中模板时，把它发布成根，登记一次并回放出首份报告。
 
 </Step>
 
 <Step>
 
-Agent 经 <Ref id="cli.line_select" /> 调 <Ref id="ledger.select_line" /> 写研究路线记录（市场提交、universe_rule、开发窗口、起点候选、备注），账本以新版本证据包只追加入账，当前路线即最新版本。
+把市场提交、开发窗口、可交易范围和起点候选写成路线记录。
 
 </Step>
 
 <Step>
 
-用户附带的想法作为路线内的一条假设照常登记；模板根在当前窗口无父、无对照登记一次并回放出首份报告。
-
-</Step>
-
-<Step>
-
-Agent 在路线内自主推进，每次登记以路线的窗口与市场提交为准（由登记校验强制）；需要换路线时回到第 1 步，给诊断与选项并等待用户。
+路线内由 Agent 自主推进；要换路线时回到第 1 步。
 
 </Step>
 
@@ -349,11 +255,11 @@ Agent 在路线内自主推进，每次登记以路线的窗口与市场提交�
 
 ### E.4.1　选择权 [#E-4-1]
 
-规定谁提选项、谁选、选定前怎么等，以及用户附带的想法、信息源与一次性授权如何进入路线，均由 skill 指导。
+Agent 提选项，用户选路线，选定前 Agent 只等待。
 
 <ul className="rd-rules">
-<li id="E-4-1-1"><span className="rd-rule-id">E.4.1.1</span> 给出路线选项后以提问结束；用户选定前不登记、不回放、不写路线记录 <Ref id="rule:E.4.1.1">research-start · SKILL.md</Ref></li>
-<li id="E-4-1-2"><span className="rd-rule-id">E.4.1.2</span> 用户想法按普通假设查来源、登记、带对照；授权选根一次即够，不重复请求 <Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></li>
+<li id="E-4-1-1"><span className="rd-rule-id">E.4.1.1</span> 给出路线选项后以提问结束；选定前不登记、不回放、不写路线 <Ref id="rule:E.4.1.1">research-start · SKILL.md</Ref></li>
+<li id="E-4-1-2"><span className="rd-rule-id">E.4.1.2</span> 用户的想法当普通假设登记；选根的授权给一次就够 <Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></li>
 </ul>
 
 ## 待定事项 [#E-pending]

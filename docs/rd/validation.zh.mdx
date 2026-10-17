@@ -1,6 +1,6 @@
 # X　样本外验证：用户发起的一次性检验：样本外验证由谁发起，怎样登记与准入，怎样一次性回放并照实报告。
 
-本章定义样本外验证（out-of-sample validation）：用户在报告里认可一个候选（candidate）后，用一个在登记（registration）凭证之后才开始的市场窗口回放一次，照实报告与开发报告同口径的绩效指标（performance metrics）和一次性区间，不出裁决。代码与账本强制四件事：回放前登记并取 RFC 3161 凭证、窗口起点晚于凭证、一次登记只绑定一次回放、回放与登记一致，绩效指标和区间也由代码算。发起、窗口长度建议、结果用语由 skill 指导。样本外验证不是研发循环的步骤；绩效指标口径以 R 章为准，凭证与运行环境以 J 章为准。
+本章讲用户认可一个候选之后，怎样在登记之后才开始的新窗口上只回放一次，并照实报告。它沿用 H 章的登记和 R 章的绩效指标，但不属于研究循环。登记、窗口先后、一次性和一致性由代码与账本锁住，用语由 skill 指导。
 
 <Mermaid chart={"flowchart LR\n  subgraph X-1[\"X.1 发起、登记与准入\"]\n    direction TB\n    X-1-1[\"X.1.1 发起与选择\"]\n    X-1-2[\"X.1.2 登记与窗口准入\"]\n    X-1-3[\"X.1.3 一次性与一致性\"]\n  end\n  subgraph X-2[\"X.2 报告结果\"]\n    direction TB\n    X-2-1[\"X.2.1 绩效指标\"]\n    X-2-2[\"X.2.2 读结果的边界与用语\"]\n  end\n  X-1 --> X-2"} />
 
@@ -10,31 +10,31 @@
 
 <Step>
 
-用户在报告里认可候选并指定 strategy_id@revision、窗口与范围（skill，见 <Ref id="X.1.1" />）。
+用户认可一个候选，指定被验版本、窗口和共同可交易范围。
 
 </Step>
 
 <Step>
 
-cli.validation_registration 写一行 validation_registration，成一个账本提交；非重试登记的窗口起点须晚于服务器登记时间，否则 REGISTRATION_TOO_LATE（代码）。
+登记写进账本，并取一份公共时间戳凭证：外部机构签发，证明登记在那一刻已存在。
 
 </Step>
 
 <Step>
 
-对登记提交取 RFC 3161 凭证存入 witness；取凭证失败时登记仍在，须在窗口起点前补取（代码）。
+窗口结束、新数据进入新的市场提交后，用户发起一次样本外回放。
 
 </Step>
 
 <Step>
 
-窗口结束、交易所数据导入新的市场提交后，用户经 cli.replay_run 发起一次 purpose=validation 的回放（用户、代码）。
+回放启动前，代码逐项核对它与登记一致，并把登记绑定到这次试验。
 
 </Step>
 
 <Step>
 
-子进程启动前，在同一事务里写试验行，经 registration.validation_bind 核对源码、范围、窗口、凭证、账户条款与运行环境后写 validation_binding；任一项不符即整笔回滚，不启动回放（代码、账本）。
+任一项不符就整笔撤回，回放不启动。
 
 </Step>
 
@@ -42,134 +42,62 @@ cli.validation_registration 写一行 validation_registration，成一个账本�
 
 ### X.1.1　发起与选择 [#X-1-1]
 
-由 skill 指导，不经代码强制。
+由谁发起、建议什么窗口，由 skill 指导。
 
 <ul className="rd-rules">
-<li id="X-1-1-1"><span className="rd-rule-id">X.1.1.1</span> 样本外验证只在用户指定后登记，不自行发起 <Ref id="rule:X.1.1.1">research-round · SKILL.md</Ref></li>
-<li id="X-1-1-2"><span className="rd-rule-id">X.1.1.2</span> 建议样本外窗口前，先披露盈亏集中度与资金使用率 <Ref id="rule:X.1.1.2">research-round · references/validation.md</Ref></li>
+<li id="X-1-1-1"><span className="rd-rule-id">X.1.1.1</span> 样本外验证只在用户指定后登记，Agent 不自行发起 <Ref id="rule:X.1.1.1">research-round · SKILL.md</Ref></li>
+<li id="X-1-1-2"><span className="rd-rule-id">X.1.1.2</span> 建议样本外窗口前，先告诉用户盈亏是否集中在少数交易、资金用了多少 <Ref id="rule:X.1.1.2">research-round · references/validation.md</Ref></li>
 </ul>
 
 ### X.1.2　登记与窗口准入 [#X-1-2]
 
-<Cap id="X.1.2.1" kind="database" tier="verified" tierLabel="已验证" title="回放前须在账本登记，并对登记提交取 RFC 3161 公共时间戳凭证">
+登记锁住被验对象，窗口必须在登记之后才开始。
 
-1. 样本外回放之前，经 <Ref id="registration.validation_register" /> 在账本（ledger）写一行 <Ref id="table:validation_registration" />；一次登记恰好是一个账本提交（<Ref id="ledger.write" />）。
-2. created_at 由服务器触发器写入（<Ref id="J.4.1.1" />）。
-3. 提交后，经 <Ref id="ledger.witness" /> 把登记所在提交的哈希送公共时间戳机构，取得的 RFC 3161 凭证存入 <Ref id="table:witness" />。
+<Cap id="X.1.2.1" kind="database" tier="verified" tierLabel="已验证" title="样本外回放前先登记入账，并取公共时间戳凭证">
 
-- 登记内容之一是被验候选的 strategy_id 和 revision；精确源码身份由 <Ref id="table:candidate" /> 的内容哈希确定。
-- 登记内容之二是共同可交易范围的身份：登记时的 market_commit 加 universe_rule。
-- 登记前各月的成员时间路径由 <Ref id="table:universe_month" /> 按该提交 AS OF 派生，不另存快照。
-- 登记内容之三是窗口 [window_start, window_end)。
-- 登记内容之四是声明的检验条件（declared test conditions）：形态由 <Ref id="registration.validate_design" /> 校验，数值是未校准示例值。
-- 登记还可带一个可选的 retry_of。
-- 送时间戳机构的只有提交哈希，不含登记内容。
-- 取凭证失败时登记仍在，可在窗口起点前补取。
-- 这是预登记（preregistration）：凭证证明计划在 genTime 时已存在，但不证明它是唯一的计划。
-- 登记行只追加；dolt_diff 中出现非 added 的行，即视为发现篡改。
-- <Ref id="table:dolt_tests" /> 的提交校验核对非重试登记的 window_start 晚于 created_at，作为留痕保证。
+- 登记锁定四样：被验候选、共同可交易范围、窗口和检验条件。
+- 登记入账后，把它所在账本版本的哈希交给公共时间戳机构，换回凭证。
+- 凭证证明这份计划在某一时刻已经存在，但不证明它是唯一的计划。
+- 登记只追加不改；取凭证失败时登记仍在，须在窗口开始前补取。
 
-**输入**　用户指定的候选、窗口、范围、声明的检验条件，以及可选的 retry_of。
-
-**输出**　一行带服务器时间 created_at 的 validation_registration，以及它所在提交的 RFC 3161 凭证。
-
-**强制**　由代码与账本强制：唯一写入口 registration.validation_register、服务器触发器、只追加的登记表，以及 dolt_tests 提交校验。
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_registration">validation_registration</Ref> <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.witness">witness</Ref></span></div>
 
 </Cap>
 
-<Cap id="X.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺这类拒绝的实际执行记录。" title="样本外窗口起点须晚于登记凭证的 genTime，否则拒绝">
+<Cap id="X.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺这类拒绝的实际执行记录。" title="样本外窗口必须在登记凭证时间之后才开始">
 
-1. 登记时，<Ref id="registration.validation_register" /> 在写事务内读回服务器写入的 created_at；非重试登记的 window_start 若不晚于它，就回滚并拒绝。
-2. 绑定时，<Ref id="registration.validation_bind" /> 经 <Ref id="ledger.stamped_at" /> 离线验证登记提交的凭证；没有凭证，或 genTime 不早于 window_start，就拒绝。
+- 登记时，窗口起点不晚于登记时间就拒绝。
+- 回放前再核一次：没有凭证，或凭证时间不早于窗口起点，就拒绝。
+- 窗口在登记之后才开始，所以登记时窗口内的数据还不存在。
+- 这一条同时排除了窗口与开发数据重叠、旧运行冒充和窗口重复使用。
 
-- 用户入口是命令 <Ref id="cli.validation_registration" />。
-- 重试登记（retry_of）不核本次写入时间，准入沿用原登记的凭证时间。
-- 窗口在凭证之后才开始，所以登记时窗口内的数据还不存在。
-- 这一条规则同时排除三种情况：窗口与候选谱系（lineage）开发时暴露的数据重叠；开发时跑过的运行事后充作验证；已用于验证的窗口再次登记。
-- 因此不需要暴露表，也不需要「已用于验证」标记。
-
-**输入**　登记请求（候选、窗口、检验条件、可选 retry_of），以及绑定时的登记凭证。
-
-**输出**　已落账的登记，或带拒绝码的回滚。
-
-**强制**　由代码强制：登记时 registration.validation_register 在写事务内核对，绑定时 registration.validation_bind 经 ledger.stamped_at 离线验证凭证。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_TOO_LATE` | 非重试登记的 window_start 不晚于服务器 created_at；或绑定时登记提交没有凭证，或凭证 genTime 不早于 window_start。 |
-| `CANDIDATE_UNKNOWN` | 被验候选不存在。 |
-| `WINDOW_INVALID` | 窗口起点不早于终点。 |
-| `DESIGN_INVALID` | 声明的检验条件形态不合。 |
-| `RETRY_NOT_ALLOWED` | 重试登记不满足重试条件。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.stamped_at">stamped_at</Ref> <Ref id="cli.validation_registration">validation_registration</Ref></span></div>
 
 </Cap>
 
 ### X.1.3　一次性与一致性 [#X-1-3]
 
-<Cap id="X.1.3.1" kind="database" tier="unverified" tierLabel="待验证" tierNote="缺一登记一回放与重试条件在账本上的实际拒绝记录。" title="一次登记只能绑定一次回放，绑定后登记即消耗">
+一次登记只换一次回放，回放必须与登记逐项相同。
 
-- <Ref id="table:validation_binding" /> 以 registration_id 为主键，trial_id 唯一。
-- 绑定行由 <Ref id="ledger.open_trial" /> 与试验行在同一事务写入。
-- 第二次绑定会主键冲突，因而被拒绝。
-- 登记一经绑定即消耗。
-- 回放被中断、完整性审计判无效、<Ref id="qualification.assess" /> 判无实质活动（substantive activity）时，登记同样已消耗。
-- 这些情况下运行只留诊断，不出绩效指标。
-- 修复环境缺陷后可用 retry_of 另登记，候选、窗口和范围规则须与原登记相同。
-- 重试登记的准入沿用原登记的凭证时间。
-- 只有三种情况允许重试：原登记绑定的试验被中断且没有运行；运行无效；运行没有经济证据资格。
-- 结果有效但不好看，不是重试理由；也不得换窗口或范围重新登记（<Ref id="X.2.1.4" />）。
-- 相同源码在新身份下重放，另成一次登记（<Ref id="H.4.2.1" />）。
-- <Ref id="table:dolt_tests" /> 的提交校验核对两件事，作为留痕保证：绑定试验的源码与窗口符合登记；重试登记与原登记的候选和窗口相同。
+<Cap id="X.1.3.1" kind="database" tier="unverified" tierLabel="待验证" tierNote="缺一登记一回放与重试条件在账本上的实际拒绝记录。" title="一次登记只能绑定一次回放，绑定即消耗">
 
-**输入**　登记 ID 与本次回放的试验行。
+- 登记和这次回放的试验在同一笔写入里绑定，第二次绑定被拒绝。
+- 回放中断、运行无效或没有实质活动时，登记同样已经消耗。
+- 只有中断且无运行、运行无效、无经济证据资格三种情况，才可另行登记重试。
+- 重试的候选、窗口和范围须与原登记相同；结果不好看不是重试理由。
 
-**输出**　一行 validation_binding，把登记与唯一的试验关联起来。
-
-**强制**　由账本强制：validation_binding 的主键与唯一约束、与试验行同事务写入，以及 dolt_tests 提交校验。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_CONSUMED` | 该登记已被绑定过，第二次绑定主键冲突。 |
-| `RETRY_NOT_ALLOWED` | 原登记绑定的试验不属于「中断且无运行、运行无效、无经济证据资格」三种情况之一。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_binding">validation_binding</Ref> <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span></div>
 
 </Cap>
 
-<Cap id="X.1.3.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺跨市场提交核对成员路径与一次完整样本外回放的执行记录。" title="样本外回放必须与登记逐项一致，否则整笔回滚、不启动">
+<Cap id="X.1.3.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺跨市场提交核对成员路径与一次完整样本外回放的执行记录。" title="样本外回放须与登记逐项一致，否则撤回、不启动">
 
-1. 用户经唯一回放入口 <Ref id="cli.replay_run" /> 给出 registration_id，试验 purpose=validation。
-2. 子进程启动前，<Ref id="replay.seal" /> 经 <Ref id="ledger.open_trial" /> 开一个写事务并写入试验行。
-3. 在同一事务里调用 <Ref id="registration.validation_bind" /> 逐项核对；任一项不一致即抛出拒绝、整笔回滚，不启动容器。
+- 运行环境须是正式自动构建、按摘要钉死的；源码须是登记的那一版。
+- 范围规则与登记前各月的成员名单不变，窗口内的成员不得被剔除。
+- 交易落在登记窗口内，回放在窗口结束后发起，各合约输入覆盖齐全。
+- 账户配置与这个候选最近一次有效的研究回放相同。
 
-- 运行环境（runtime image）必须是在产品代码 main 上构建、按摘要钉死的镜像。
-- 产品工作树必须干净，且包含 main 的最新提交。
-- 即将执行的源码必须是登记的那一版。
-- 范围规则必须相同。
-- 登记前各月的成员名单，在登记时的市场提交与本次市场提交下必须逐行相同。
-- 窗口内各月的成员名单由环境按同一规则产出；交给策略的成员路径不得剔除成员（<Ref id="registration.membership_unchanged" />）。
-- 窗口内的下架属于生命周期事件，由引擎（engine）按回放环境规则结算并出回执（<Ref id="market.validate_lifecycle" />）。
-- 交易窗口必须落在登记窗口内，且试验时间必须晚于窗口结束。
-- 每个成员合约的输入覆盖回执必须齐全。
-- 登记凭证必须存在，且早于窗口起点。
-- 账户条款必须与该候选最近一次有效的研究回放运行相同。
-- 研究回放不经过这些核对；用其他镜像构建的运行环境在研究中仍可用。
-
-**输入**　registration_id，以及本次回放的源码、市场输入与运行环境身份。
-
-**输出**　已绑定登记的 validation 试验行；子进程随后启动，运行在此之后入账。
-
-**强制**　由代码强制：replay.seal 在子进程启动前，于同一写事务内调用 registration.validation_bind；任一项不符即回滚。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUNTIME_NOT_MAIN` | 运行环境不是 main 上构建并按摘要钉死的镜像。 |
-| `STALE_CHECKOUT` | 产品工作树不干净，或不含 main 的最新提交。 |
-| `SOURCE_MISMATCH` | 即将执行的源码不是登记的那一版。 |
-| `MEMBERSHIP_CHANGED` | 范围规则不同，或登记前各月的成员名单在两个市场提交下不逐行相同，或交给策略的成员路径剔除了成员。 |
-| `WINDOW_MISMATCH` | 交易窗口不在登记窗口内，或试验时间不晚于窗口结束。 |
-| `COVERAGE_INCOMPLETE` | 有成员合约的输入覆盖回执不全。 |
-| `REGISTRATION_TOO_LATE` | 登记凭证不存在，或不早于窗口起点。 |
-| `CONFIG_MISMATCH` | 账户条款与该候选最近一次有效的研究回放运行不同。 |
-| `REGISTRATION_CONSUMED` | 该登记已被绑定。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="replay.seal">seal</Ref> <Ref id="registration.membership_unchanged">membership_unchanged</Ref></span></div>
 
 </Cap>
 
@@ -179,37 +107,31 @@ cli.validation_registration 写一行 validation_registration，成一个账本�
 
 <Step>
 
-运行封存并写入绑定（<Ref id="X.1.3.1" />）后，Agent 以登记标识调用 <Ref id="cli.validation_report" />。
+运行封存并绑定登记后，Agent 读取样本外报告。
 
 </Step>
 
 <Step>
 
-代码读登记行、凭证 genTime 与绑定试验；未绑定只返回登记与凭证部分。
+代码给出与开发报告同口径的绩效指标，没有经济证据资格时置空。
 
 </Step>
 
 <Step>
 
-代码经资格视图取与开发报告同口径的绩效指标并遮蔽，资格可用时对窗口内日收益跑 <Ref id="report.single" />。
+代码给出窗口内日收益的区间和 p，并按同窗口登记的个数校正 p。
 
 </Step>
 
 <Step>
 
-代码取同窗口登记族，用 <Ref id="report.holm" /> 给校正 p，区间覆盖按族大小做 Bonferroni 调整。
+Agent 补算用了多少资金，照实转述，并写明模拟成交和短窗口的局限。
 
 </Step>
 
 <Step>
 
-Agent 按 skill 自算资金使用率并列，照实转述绩效指标，写明模拟成交与短窗口边界，按用语规则措辞。
-
-</Step>
-
-<Step>
-
-Agent 立即找用户，由用户看报告判断认不认可、上不上线。
+Agent 立即把报告交给用户，由用户判断认不认可。
 
 </Step>
 
@@ -217,93 +139,52 @@ Agent 立即找用户，由用户看报告判断认不认可、上不上线。
 
 ### X.2.1　绩效指标 [#X-2-1]
 
-代码只读封存运行与登记，算出绩效指标、区间与校正，不含裁决；照实报告与找用户由 skill 指导。
+代码只读账本，算绩效指标、区间和校正，不下裁决。
 
-<Cap id="X.2.1.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。" title="样本外报告给出与开发报告同口径、经资格遮蔽的绩效指标，不含裁决">
+<Cap id="X.2.1.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。" title="样本外报告与开发报告同口径，无资格即置空，不下裁决">
 
-- 绩效指标从绑定的封存运行读出，与开发报告同口径。
-- 绩效指标包括年化（<Ref id="R.2.1.1" />）、标记价（mark price）回撤（<Ref id="R.2.2.1" />）、夏普（<Ref id="R.2.1.2" />）、计划胜率（<Ref id="R.2.1.3" />）、成本、利润来源拆分（价格盈亏、手续费、资金费，<Ref id="R.1.1.2" />）。
-- 全部绩效指标经与开发报告同一的经济证据资格视图（<Ref id="G.4.2.3" />）遮蔽。
-- 资格不可用时绩效指标置空，只留原因与诊断，不拒绝出报告。
-- 资金使用率不由代码给，报告只给封存敞口表读口，由 Agent 按 <Ref id="R.3.1.1" /> 自算后并列。
-- 报告列出登记内容：候选 strategy_id@revision、窗口、共同可交易范围规则 universe_rule、检验条件、retry_of。
-- 报告列出凭证时间与验证结果、绑定试验与审计状态、同一候选版本的全部样本外登记。
-- 报告附账本提交、指标计算版本与局限清单。
-- 未绑定时只返回登记与凭证部分，并记「未绑定」局限。
-- 报告不写账本，没有裁决、通过或推荐字段。
+- 绩效指标从绑定的封存运行读出，口径与开发报告相同。
+- 没有经济证据资格时，绩效指标置空，只留原因和诊断。
+- 报告列出登记内容、凭证时间、审计状态和这个候选的全部样本外登记。
+- 报告不写账本，也没有通过、裁决或推荐。
 
-**输入**　样本外登记标识 registration_id 与可选账本版本 at，经 <Ref id="cli.validation_report" /> 调用 <Ref id="report.validation_report" />。
-
-**输出**　带登记身份、凭证时间、绑定状态、资格与局限的样本外报告。
-
-**强制**　代码强制：报告函数只读账本，口径与资格遮蔽复用开发报告的同一视图。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_NOT_FOUND` | 登记不存在于所读账本版本。 |
-| `LEDGER_CORRUPT` | 绑定引用的试验或运行缺失，或登记内容哈希不符。 |
-| `VERSION_UNKNOWN` | at 解析不到提交或标签。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.validation_report">validation_report</Ref> <Ref id="cli.validation_report">validation_report</Ref> <Ref id="qualification.mask">mask</Ref></span></div>
 
 </Cap>
 
-<Cap id="X.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="窗口内日收益用单序列循环块自助给均值与夏普的一次性区间">
+<Cap id="X.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="窗口内日收益给出均值与夏普的区间和 p">
 
-- 序列是样本外窗口内交易段的账户日收益，由 <Ref id="ledger.daily_returns" /> 取得：UTC 日历日、无缺无重、复利到期末权益。
-- 方法是单序列循环块自助（circular block bootstrap）。
-- 报日对数收益均值与年化夏普的观测值、基本区间、嵌套学生化区间。
-- 报块长半倍、一倍、两倍的敏感性，以及均值不大于零的单侧 p。
-- 显著性水平、块长、重抽次数、种子是登记时声明的检验条件，字段与配对检验相同。
-- 检验条件由 <Ref id="registration.validate_design" /> 校验。
-- 检验条件随 p 与区间一起呈现，并标「方法示例值，未校准」。
-- p 是原假设下的尾概率，不是策略有效的概率。
-- 序列不可用时报告中 single 置空并写原因，不以其他区间替代。
-- 只返回绩效指标，不返回裁决。
+- 序列是窗口内交易段的账户日收益，按日历日计，无缺无重；不可用就置空。
+- 报告给均值和年化夏普的观测值、区间、单侧 p，以及换块长后的变化。
+- 显著性水平、块长等数值取自登记的检验条件，并标明未校准。
+- p 是策略若无效、仍碰巧这么好的概率，不是策略有效的概率。
 
-**输入**　绑定运行在样本外窗口内的账户日收益序列与登记的检验条件。
-
-**输出**　均值与年化夏普的观测值、两种区间、块长敏感性与单侧 p，交 <Ref id="report.single" /> 的调用方。
-
-**强制**　代码强制：<Ref id="report.single" /> 计算并校验序列，检验条件取自登记。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `COMPARISON_UNAVAILABLE` | 序列缺日、不足两个完整块或含非有限值。 |
-| `REGISTRATION_INVALID` | 登记的检验条件不合法。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.single">single</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref></span></div>
 
 </Cap>
 
-<Cap id="X.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="同窗口同范围的登记构成检验族，报告给 Holm 校正 p">
+<Cap id="X.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="同窗口登记多个候选时，按候选个数校正 p">
 
-- 窗口起止与 universe_rule 都相同的样本外登记构成一个检验族（Bonferroni / Holm 校正对象）。
-- 族成员只由账本中的登记行决定，事后不能增减。
-- <Ref id="report.validation_report" /> 取族内每个成员绑定运行的原始单侧 p，交 <Ref id="report.holm" /> 得 Holm 逐步校正 p。
-- 报告同时给原始 p 与校正 p；无 p 的成员（未绑定、资格不可用或序列不可用）校正 p 为空并照列。
-- 区间覆盖按族大小 m 以 Bonferroni 调整（覆盖率 1−alpha/m），并注明 Holm 不对应单一区间。
-- 不做任何通过判定。
+- 同一窗口试多个候选，总有一个碰巧好看，所以要按候选个数把 p 调大。
+- 窗口和范围规则都相同的样本外登记，一起计入校正的个数。
+- 计入哪些只由账本里的登记决定，事后不能增减。
+- 报告并列原始 p 和校正后的 p，区间也按个数放宽，不判通过。
 
-**输入**　账本中同窗口同 universe_rule 的登记行及各自绑定运行的原始单侧 p。
-
-**输出**　每个族成员的原始 p、Holm 校正 p 与 Bonferroni 调整后的区间覆盖率。
-
-**强制**　代码强制：族成员由账本登记行决定，校正由 <Ref id="report.holm" /> 计算。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `COMPARISON_UNAVAILABLE` | p 列表为空或含越界值。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.holm">holm</Ref> <Ref id="report.validation_report">validation_report</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="X-2-1-4"><span className="rd-rule-id">X.2.1.4</span> 样本外结果照实立即报用户，结果不利不换窗口或范围再登记 <Ref id="rule:X.2.1.4">research-round · references/validation.md</Ref></li>
+<li id="X-2-1-4"><span className="rd-rule-id">X.2.1.4</span> 样本外结果立即照实报给用户，不利也不换窗口或范围重登记 <Ref id="rule:X.2.1.4">research-round · references/validation.md</Ref></li>
 </ul>
 
 ### X.2.2　读结果的边界与用语 [#X-2-2]
 
-由 skill 指导把样本外报告与开发报告写成给用户的结论段，写明物理边界并限定措辞。
+skill 规定结论段要写明的边界和措辞。
 
 <ul className="rd-rules">
-<li id="X-2-2-1"><span className="rd-rule-id">X.2.2.1</span> 样本外结论写明绩效只是实盘上限，并给窗口长度与可分辨效应 <Ref id="rule:X.2.2.1">research-round · references/validation.md</Ref></li>
-<li id="X-2-2-2"><span className="rd-rule-id">X.2.2.2</span> 只有凭证后窗口的回放称样本外，其余只说改善或未被反驳 <Ref id="rule:X.2.2.2">research-round · SKILL.md</Ref></li>
+<li id="X-2-2-1"><span className="rd-rule-id">X.2.2.1</span> 样本外结论写明绩效只是实盘上限 <Ref id="rule:X.2.2.1">research-round · references/validation.md</Ref></li>
+<li id="X-2-2-2"><span className="rd-rule-id">X.2.2.2</span> 只有凭证之后窗口的回放称样本外，其余只说改善或未被反驳 <Ref id="rule:X.2.2.2">research-round · SKILL.md</Ref></li>
 </ul>
 
 ## 待定事项 [#X-pending]

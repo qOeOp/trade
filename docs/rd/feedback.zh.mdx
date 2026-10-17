@@ -1,46 +1,40 @@
 # F　反馈与研究优先级：一个运行封存之后，Agent 怎样读反馈、决定下一步改什么，何时复盘并给出推荐。
 
-本章定义比较证据之后、下一次登记之前的一段：读一个运行（run）的反馈并拆到部件（F.1），据此排研究优先级（research priority）、写下一假设（F.2），按研究计数触发复盘（review）并给出推荐（recommendation）（F.3）。代码只给只读读口（资格、绩效指标、检验结果、研究计数），口径归 G、R、V 章；判断、排序、推荐由 skill 指导，结果逐条记为判断，只追加入账。代码不设通过门槛、次数停止、方向排除、优化器或推荐分数；换研究路线回入口由用户选。
+本章承接 V 章的检验结果：一个运行入账后，Agent 怎样读反馈、排下一步的研究优先级，到了节奏怎样复盘并给综合推荐。代码只给只读事实，判断由 skill 指导，逐条写成判断记录入账。
 
-<Mermaid chart={"flowchart LR\n  subgraph F-1[\"F.1 读取反馈：先定资格，再拆部件\"]\n    direction TB\n    F-1-1[\"F.1.1 反馈资格\"]\n    F-1-2[\"F.1.2 绩效指标的读法\"]\n    F-1-3[\"F.1.3 诊断顺序、判据与边界\"]\n  end\n  subgraph F-2[\"F.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"F.2.1 优先级的依据与边界\"]\n  end\n  subgraph F-3[\"F.3 复盘与推荐：次数触发，研究默认持续\"]\n    direction TB\n    F-3-1[\"F.3.1 复盘的触发与计数\"]\n    F-3-2[\"F.3.2 复盘的内容\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
+<Mermaid chart={"flowchart LR\n  subgraph F-1[\"F.1 读取反馈：先定资格，再拆到职责\"]\n    direction TB\n    F-1-1[\"F.1.1 反馈资格\"]\n    F-1-2[\"F.1.2 绩效指标的读法\"]\n    F-1-3[\"F.1.3 诊断顺序\"]\n  end\n  subgraph F-2[\"F.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"F.2.1 优先级的依据与边界\"]\n  end\n  subgraph F-3[\"F.3 复盘与推荐：节奏触发，研究默认继续\"]\n    direction TB\n    F-3-1[\"F.3.1 复盘的触发与计数\"]\n    F-3-2[\"F.3.2 复盘的内容\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
 
-## F.1　读取反馈：先定资格，再拆部件 [#F-1]
+## F.1　读取反馈：先定资格，再拆到职责 [#F-1]
 
 <Steps>
 
 <Step>
 
-取运行的经济证据资格与原因（<Ref id="qualification.assess" />）；不可用的运行绩效指标已被整体置空。
+先读运行的经济证据资格；没有资格的，绩效指标已被置空。
 
 </Step>
 
 <Step>
 
-不可用的运行按成因分诊断与修复两路（F.1.1）。
+没有资格的运行按成因分诊断或修复两路处理。
 
 </Step>
 
 <Step>
 
-可用的运行读绩效指标（<Ref id="report.run_report" />）与报告表（<Ref id="report.tables" />）：资金使用率、利润来源拆分、入场计划标签 × 出场原因拆分。
+有资格的运行读绩效指标和原生报告，看钱从哪来、怎样出场。
 
 </Step>
 
 <Step>
 
-登记声明了比较对照（control）时，读检验结果（效应、区间、p 与检验条件，<Ref id="report.compare" />）。
+登记带了比较对照的，再读检验结果。
 
 </Step>
 
 <Step>
 
-按 F.1.3 诊断并归类，事实、未证解释与拟改动部件分开写。
-
-</Step>
-
-<Step>
-
-把机制解释、适用与重评条件经 <Ref id="cli.judgment_add" /> 写成 interpretation 判断（主体挂 about，正文只引用不抄写，<Ref id="E.2.1.2" />），交给 F.2 排研究优先级；研究状态由 <Ref id="report.research_state" /> 读时给出。
+按五步诊断，把事实、解释和拟改的策略职责分开写成判断记录。
 
 </Step>
 
@@ -48,27 +42,27 @@
 
 ### F.1.1　反馈资格 [#F-1-1]
 
-代码在读取时算出四项资格结论并遮蔽不可用运行的绩效指标，skill 指导 Agent 先读资格、再按成因把不可用运行分为诊断与修复两路。
+先看运行有没有经济证据资格，没有的按成因分诊断与修复两路。
 
 <ul className="rd-rules">
-<li id="F-1-1-1"><span className="rd-rule-id">F.1.1.1</span> 先读资格视图，零成交运行只按六类归因诊断，不与亏损比优劣 <Ref id="rule:F.1.1.1">research-round · references/diagnosis.md</Ref></li>
-<li id="F-1-1-2"><span className="rd-rule-id">F.1.1.2</span> 无效、未完成或预检未过只记修复；修好重发，消耗过的登记以 retry_of 另登 <Ref id="rule:F.1.1.2">research-round · references/diagnosis.md</Ref></li>
+<li id="F-1-1-1"><span className="rd-rule-id">F.1.1.1</span> 先读经济证据资格；零成交运行只作诊断，不与亏损运行比优劣 <Ref id="rule:F.1.1.1">research-round · references/diagnosis.md</Ref></li>
+<li id="F-1-1-2"><span className="rd-rule-id">F.1.1.2</span> 运行无效、未完成或预检未过只修复，不当反馈，修好另行登记 <Ref id="rule:F.1.1.2">research-round · references/diagnosis.md</Ref></li>
 </ul>
 
 ### F.1.2　绩效指标的读法 [#F-1-2]
 
-代码提供绩效指标与经资格遮蔽的报告表，口径由 R 章定义（<Ref id="R.1.1.2" />、<Ref id="R.3.1.1" />），skill 只定何时读、怎样自算并写进推荐理由。
+绩效指标的口径前面已讲，这里只讲怎样读出场原因。
 
 <ul className="rd-rules">
-<li id="F-1-2-2"><span className="rd-rule-id">F.1.2.2</span> 出场原因只读平仓订单标签或类型，未平仓位单列，不按盈亏或价位推断 <Ref id="rule:F.1.2.2">nautilus-report-analysis · references/exit-reasons.md</Ref></li>
+<li id="F-1-2-2"><span className="rd-rule-id">F.1.2.2</span> 出场原因只读平仓单的标签或类型，不按盈亏推断，未平仓单列 <Ref id="rule:F.1.2.2">nautilus-report-analysis · references/exit-reasons.md</Ref></li>
 </ul>
 
-### F.1.3　诊断顺序、判据与边界 [#F-1-3]
+### F.1.3　诊断顺序 [#F-1-3]
 
-全部由 skill 指导，代码不参与归类、账本不存部件字段；事实读时取，机制解释与部件归类写成 interpretation 判断交给 F.2。
+诊断由 skill 指导，按固定顺序走完再提假设，结论写成判断记录。
 
 <ul className="rd-rules">
-<li id="F-1-3-1"><span className="rd-rule-id">F.1.3.1</span> 按资格、钱从哪来、过程、稳定性、机制五步诊断完再提假设 <Ref id="rule:F.1.3.1">research-round · references/diagnosis.md</Ref></li>
+<li id="F-1-3-1"><span className="rd-rule-id">F.1.3.1</span> 先按资格、钱从哪来、过程、稳定性、机制五步诊断，再提假设 <Ref id="rule:F.1.3.1">research-round · references/diagnosis.md</Ref></li>
 </ul>
 
 ## F.2　更新研究优先级：决定下一步改什么 [#F-2]
@@ -77,37 +71,31 @@
 
 <Step>
 
-读 F.1 的诊断、<Ref id="report.compare" /> 的检验结果，以及 <Ref id="report.research_state" /> 给出的当前判断、未复盘的试验和读时事实（<Ref id="report.candidates" /> 的候选谱系、<Ref id="report.research_status" /> 的计数）。
+读诊断、检验结果，以及研究状态里的当前判断和未复盘试验。
 
 </Step>
 
 <Step>
 
-按 <Ref id="F.2.1.1" /> 给研究动作排序，按 F.2.1.2 保留低优先级动作并写重评条件。
+按效应、不确定性等依据给下一研究动作排序。
 
 </Step>
 
 <Step>
 
-按 <Ref id="F.2.1.1" /> 把部件诊断转成方向倾向，联动改动按 <Ref id="H.1.1.3" /> 合成一个动作。
+结合来源选出候选假设，定研发父版本和比较对照。
 
 </Step>
 
 <Step>
 
-按 F.2.3.2 把三路来源汇成候选假设，按 F.2.3.1 写推导记录并选定研发父版本与比较对照（control）。
+把排序和理由写成一条研究优先级判断入账。
 
 </Step>
 
 <Step>
 
-经 <Ref id="cli.judgment_add" />（<Ref id="ledger.add_judgment" />）把排序与理由写成一条 priority 判断，父版本与对照挂为 parent、control 主体；机制解释与重评条件写成 interpretation，考虑过的视角写成 search_exposure。
-
-</Step>
-
-<Step>
-
-回 H 提假设，经 <Ref id="registration.register" /> 登记后才回放。
+回到提假设，登记之后才回放。
 
 </Step>
 
@@ -115,43 +103,43 @@
 
 ### F.2.1　优先级的依据与边界 [#F-2-1]
 
-由 skill 指导、代码不强制：排定下一研究动作的依据，以及哪些结果不构成排除。
+排下一研究动作的依据，以及哪些结果不构成排除某个方向。
 
 <ul className="rd-rules">
-<li id="F-2-1-1"><span className="rd-rule-id">F.2.1.1</span> 按效应、不确定性、机制、覆盖、信息价值与成本排下一动作，不关方向 <Ref id="rule:F.2.1.1">research-round · references/feedback.md</Ref></li>
+<li id="F-2-1-1"><span className="rd-rule-id">F.2.1.1</span> 按效应、不确定性、机制、覆盖、信息价值和成本排序，不排除方向 <Ref id="rule:F.2.1.1">research-round · references/feedback.md</Ref></li>
 </ul>
 
-## F.3　复盘与推荐：次数触发，研究默认持续 [#F-3]
+## F.3　复盘与推荐：节奏触发，研究默认继续 [#F-3]
 
 <Steps>
 
 <Step>
 
-读完比较证据、更新研究优先级后，Agent 读 <Ref id="report.research_state" />（命令 <Ref id="cli.research_state" />），用其中的未复盘试验与研究计数对照当前的 review_cadence 判断；未到达则继续登记下一实验。
+每次更新优先级后读研究状态，看未复盘试验是否到了节奏。
 
 </Step>
 
 <Step>
 
-到达即复盘：读 <Ref id="report.candidates" /> 的全部候选和各运行的 <Ref id="report.run_report" /> 绩效指标，在全部经济证据可用的候选上综合推荐一版或一批。
+没到就继续登记下一实验；到了就复盘。
 
 </Step>
 
 <Step>
 
-分别写下推荐与取舍（recommendation）、下一实验的父版本与对照及理由（priority）、更新后的复盘节奏（review_cadence），各作为一条判断经 <Ref id="ledger.add_judgment" />（命令 <Ref id="cli.judgment_add" />）追加入账。
+复盘时在全部有资格候选上给综合推荐，并说明取舍。
 
 </Step>
 
 <Step>
 
-在当前研究路线内继续或调整方向由 Agent 定，然后回到提假设与登记。
+推荐、下一实验的父版本与对照、新的复盘节奏各写一条判断。
 
 </Step>
 
 <Step>
 
-需要换研究路线或选新根时，Agent 给出诊断与选项并以提问结束；用户选定后经 <Ref id="ledger.select_line" /> 写新的路线记录，再登记和回放。
+要换研究路线或选新根时，给出选项并提问，由用户选。
 
 </Step>
 
@@ -159,19 +147,19 @@
 
 ### F.3.1　复盘的触发与计数 [#F-3-1]
 
-代码从账本给出只读计数与未复盘试验，Agent 按自己以 review_cadence 判断声明的节奏决定本次是否复盘。
+复盘何时触发由 Agent 自定节奏，次数从账本读。
 
 <ul className="rd-rules">
-<li id="F-3-1-1"><span className="rd-rule-id">F.3.1.1</span> 次数只引账本研究计数，可比候选数取经济证据可用数 <Ref id="rule:F.3.1.1">research-round · references/review.md</Ref></li>
-<li id="F-3-1-2"><span className="rd-rule-id">F.3.1.2</span> 复盘节奏只触发复盘，不因次数或运行限制停止或判方向无效 <Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></li>
+<li id="F-3-1-1"><span className="rd-rule-id">F.3.1.1</span> 复盘用的次数只读账本计数，可比候选数取有经济证据资格的 <Ref id="rule:F.3.1.1">research-round · references/review.md</Ref></li>
+<li id="F-3-1-2"><span className="rd-rule-id">F.3.1.2</span> 复盘节奏只触发复盘，不因次数多少停止研究或判方向无效 <Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></li>
 </ul>
 
 ### F.3.2　复盘的内容 [#F-3-2]
 
-在全部经济证据可用的候选上综合推荐，并与下一实验的父版本、比较对照分开决定。
+在全部有经济证据资格的候选上综合推荐，与下一实验的父版本分开定。
 
 <ul className="rd-rules">
-<li id="F-3-2-1"><span className="rd-rule-id">F.3.2.1</span> 推荐前在全部经济证据可用候选（含历史）上多维比较 <Ref id="rule:F.3.2.1">research-round · references/review.md</Ref></li>
+<li id="F-3-2-1"><span className="rd-rule-id">F.3.2.1</span> 推荐前在全部有经济证据资格的候选（含旧的）上多维比较 <Ref id="rule:F.3.2.1">research-round · references/review.md</Ref></li>
 </ul>
 
 ## 待定事项 [#F-pending]

@@ -1,9 +1,9 @@
-# T　候选谱系：回答什么算一个候选，以及候选之间怎样经研发父版本与改动说明连成树和森林。
+# T　候选谱系：什么算一个候选，候选之间怎样经父版本和改动说明连成树和森林。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义候选（candidate）的身份与候选谱系（lineage）。候选是账本（ledger）里一份完整源码的精确字节，以内容哈希（content hash）唯一，由登记（registration）后的一处改动产生；非根候选带研发父版本（parent）与改动说明，根节点（root）无父无比较对照（control）；树合成森林，任一候选可再派生。账本表结构与发布、登记核对强制这些约束，不读运行绩效指标；推荐与绩效指标不改身份。推荐见 <Ref id="F.3.2.1">F 章</Ref>，入口见 <Ref id="E.3.1.1">E 章</Ref>。
+本章承接 A 章的研究循环，回答什么算一个候选：它以源码字节的内容哈希为身份，经父版本和改动说明连成树与森林，任一候选都能再派生；运行结果和推荐都不改变身份与谱系。
 
 <Mermaid chart={"flowchart LR\n  subgraph T-1[\"T.1 认定候选：什么算一个候选\"]\n    direction TB\n    T-1-1[\"T.1.1 候选的身份与根\"]\n  end\n  subgraph T-2[\"T.2 连成谱系：父、对照与分枝\"]\n    direction TB\n    T-2-2[\"T.2.2 树、森林与候选清单\"]\n  end\n  T-1 --> T-2"} />
 
@@ -13,37 +13,25 @@
 
 <Step>
 
-Agent 在工作副本写完一份完整单文件源码，决定它是根（不带父），还是派生候选（带研发父版本 strategy_id@revision 与一句改动说明）。
+Agent 写完一份完整策略文件，决定它是根，还是带父版本和改动说明的派生候选。
 
 </Step>
 
 <Step>
 
-经 <Ref id="ledger.publish_candidate" /> 发布，账本派生内容哈希并核对谱系。
+发布时账本按源码字节算出内容哈希，核对谱系后入账。
 
 </Step>
 
 <Step>
 
-核对通过后写入 <Ref id="table:candidate" /> 一行，做一个账本提交，返回 strategy_id@revision 与内容哈希。
+账本返回引用名和内容哈希，之后都按内容哈希引用这个候选。
 
 </Step>
 
 <Step>
 
-登记时 <Ref id="registration.validate" /> 只核谱系（父、改动说明、根不带对照），不读父版本或自身任何运行的绩效指标。
-
-</Step>
-
-<Step>
-
-候选进入谱系，可在 <Ref id="report.candidates" /> 读出。
-
-</Step>
-
-<Step>
-
-后续读取经 <Ref id="ledger.read_candidate" />。
+以后每次读出都重算哈希，与入账时的记录核对。
 
 </Step>
 
@@ -51,30 +39,16 @@ Agent 在工作副本写完一份完整单文件源码，决定它是根（不�
 
 ### T.1.1　候选的身份与根 [#T-1-1]
 
-候选的身份、产生方式与根。
+候选的身份怎样确定。
 
-<Cap id="T.1.1.1" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。" title="候选是精确源码字节，以账本派生的内容哈希唯一标识，相同字节不能再发布">
+<Cap id="T.1.1.1" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。" title="候选以内容哈希为身份，相同字节不能再发布">
 
-- 一个候选（candidate）是账本（ledger）里一份完整单文件策略源码的精确字节。
-- 身份是 SHA-256 内容哈希（content hash），由 <Ref id="table:candidate" /> 的生成列 source_sha256 从字节计算并设唯一约束，Agent 不填写也不能改写。
-- 是否同一候选只看内容哈希，strategy_id@revision 只是引用名。
-- 改名、复制到另一个 strategy_id 或只改注释时，字节变了就是另一个候选，字节不变就被拒绝。
-- 登记、试验与报告绑定的都是内容哈希，不是名字或版本号。
-- 候选行只增不改，每次发布恰好对应一个账本提交。
-- 行级全史从 Dolt 系统表 dolt_diff_\<table> / dolt_history_\<table>（<Ref id="table:dolt_system_tables" />）读出。
-- 任一历史时刻的谱系经 <Ref id="ledger.read_as_of" /> 读取。
-- 读回时 <Ref id="ledger.read_candidate" /> 重算存储字节的哈希，并与记录的内容哈希比对。
+- 候选的身份是账本按源码字节算出的内容哈希，Agent 不能填写或改写。
+- 名字和版本号只是引用名；改名、复制或只改注释，字节变了就是另一个候选。
+- 同样的字节再次发布会被拒绝，并指回已有的那个候选。
+- 候选只增不改，每次读出都重算哈希核对，不符即视为账本损坏。
 
-**输入**　源码字节、入口类名、运行契约、发布说明，可选的研发父版本引用（strategy_id@revision）与改动说明。
-
-**输出**　引用名 strategy_id@revision 与内容哈希。
-
-**强制**　账本强制（生成列、唯一约束、只增提交），代码强制（<Ref id="ledger.publish_candidate" /> 与 <Ref id="ledger.read_candidate" />）。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `SOURCE_EXISTS` | 相同字节再次经 <Ref id="ledger.publish_candidate" /> 发布；拒绝时返回已存在的 strategy_id@revision。 |
-| `LEDGER_CORRUPT` | 读回时重算的存储字节哈希与记录的内容哈希不符。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:candidate">candidate</Ref> <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref></span></div>
 
 </Cap>
 
@@ -84,37 +58,31 @@ Agent 在工作副本写完一份完整单文件源码，决定它是根（不�
 
 <Step>
 
-Agent 带一个研发父版本和一句改动说明，调用 <Ref id="ledger.publish_candidate" /> 发布候选；不带父就是根（root），根不得带对照。
+Agent 选一个已有候选作父版本，写一句改动说明后发布新候选。
 
 </Step>
 
 <Step>
 
-Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对照（见 T.2.1.1、T.2.1.3）。
+不带父版本的就是根，根不能带比较对照。
 
 </Step>
 
 <Step>
 
-回放绑定网格点前，在同一写事务里再核一次对照（<Ref id="H.4.1.3" />、<Ref id="H.1.1.2" />）；对照为空时照常回放，检验结果置空。
+登记时只核对谱系，不读父版本或自身任何运行的绩效指标。
 
 </Step>
 
 <Step>
 
-试验（trial）与运行（run）落账；谱系边和候选身份不随结果改变。
+试验和运行的结果不改变候选身份和谱系。
 
 </Step>
 
 <Step>
 
-入口、复盘与审计用 <Ref id="cli.candidate_list" /> 读出全部候选、父与改动、登记尝试与可用性（可带 at 读历史版本），不读分数或资格标记。
-
-</Step>
-
-<Step>
-
-要从森林中任一候选另开一枝（含历史的、亏损的、未被推荐的），就以它为 parent 回到第 1 步。
+要从任一候选（含旧的、亏损的）另开一枝，就以它为父版本回到第 1 步。
 
 </Step>
 
@@ -122,34 +90,16 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 
 ### T.2.2　树、森林与候选清单 [#T-2-2]
 
-森林由候选表的可空自引用外键直接给出，不另建树表；清单由 report.candidates 读出、经 cli.candidate_list 提供；跨枝借用由 skill 指导记为一个父加来源证据。
+每个候选指向父版本，直接连成森林，候选清单把它原样读出。
 
-<Cap id="T.2.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="候选清单读出全部候选的身份、谱系、登记尝试与可用性，不带分数或资格标记">
+<Cap id="T.2.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="候选清单列出全部候选与谱系，不带分数或推荐">
 
-- <Ref id="cli.candidate_list" /> 是 Agent 读谱系唯一的命令行入口，内部调用 <Ref id="report.candidates" />。
-- 每个候选带 strategy_id、revision、source_sha256、父（parent_strategy_id, parent_revision）、difference、description、created_at 和 attempts[]。
-- 每个登记尝试（<Ref id="table:registration_attempt" />：一个被试验消耗的网格点）带登记证据包、消耗它的 trial_id、run_id、run_status（passed | invalid | unfinished）和 availability。
-- availability 含 <Ref id="qualification.check_identity" /> 给出的检查身份，及 <Ref id="qualification.assess" /> 当下算出的经济证据可用性和原因。
-- 任一尝试经济证据可用，valid_evidence 即为真。
-- 没有 run 的尝试（中断、未完成）也列出，标为 unfinished，因为网格点已被消耗；零成交或无效的尝试只显示为不可用，不附绩效指标。
-- 可用性是读时视图，不改写存储的 run.status 和审计结论（<Ref id="G.4.2.3" />）。
-- 清单不含分数、资格标记、排序或占位推荐，只按 (strategy_id, revision) 自然顺序稳定输出；推荐及理由由 Agent 另写证据包（<Ref id="F.3.2.1" />）。
-- report.candidates 经 <Ref id="ledger.read_as_of" /> 按 at 以 AS OF 打开只读连接并钉住提交。
-- 命令层不自开连接。
-- 输出附实际读到的 ledger_commit 供复读。
-- 演练中，入口恢复和复盘推荐都从候选清单读谱系、尝试与可用性；零成交和无效尝试在清单里只显示为不可用。
+- 清单列出每个候选的身份、父版本和改动说明。
+- 每个候选附上已被试验用掉的网格点，及对应运行是通过、无效还是未完成。
+- 每个网格点附读取时判定的经济证据资格和原因；不可用的不附绩效指标，也不改写已存结果。
+- 清单不含分数、排序或推荐；综合推荐由 Agent 另写判断记录。
 
-**输入**　账本档案，可选 at（提交哈希或标签，缺省读当前版本）。
-
-**输出**　JSON \{ledger_commit, checker, candidates[]\}。
-
-**强制**　代码：report.candidates 只读执行，不写账本，通过 ledger.read_as_of 钉住提交。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_REF_NOT_FOUND` | at 解析不到提交或标签 |
-| `LEDGER_SCHEMA_MISMATCH` | 所读版本的模式版本与代码不一致 |
-| `LEDGER_CORRUPT` | 尝试引用的源码哈希在同版本候选表中缺失，或 run 指向不存在的 trial；指明第一处不一致的行，不静默丢行 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_list">candidate_list</Ref> <Ref id="report.candidates">candidates</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
 
 </Cap>
 

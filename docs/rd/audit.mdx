@@ -3,329 +3,141 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义回放两道资格。完整性审计（integrity audit）判定运行（run）是否有效：退出与异常回执、输入消费、摘要身份、各表对账、保护与终止处置，任一不成立即无效（invalid），只留原因、不进比较、仍计次数；通过只证明引擎记录自洽。经济证据资格（economic evidence availability）读取时判定有效运行能否作比较证据，须有实质活动（substantive activity）。两者由代码对所有策略统一强制。回放归 W 章，入账归 J 章，效应与 p 归 V 章。
+本章回答回放之后的两道资格：完整性审计判一次回放是否有效，经济证据资格判有效运行能否作比较证据。它承接 W 章的回放环境，以及 C 章的止损声明、原生预检和独立源码审查；两道资格都由代码对所有策略统一强制。
 
 <Mermaid chart={"flowchart LR\n  subgraph G-1[\"G.1 判定回放是否有效\"]\n    direction TB\n    G-1-1[\"G.1.1 无效的判定\"]\n    G-1-2[\"G.1.2 无效后的处置\"]\n  end\n  subgraph G-2[\"G.2 核对输入与消费\"]\n    direction TB\n    G-2-1[\"G.2.1 输入身份与消费量\"]\n    G-2-2[\"G.2.2 覆盖与生命周期回执\"]\n  end\n  subgraph G-3[\"G.3 回放后独立审计\"]\n    direction TB\n    G-3-1[\"G.3.1 审计的独立性与边界\"]\n    G-3-2[\"G.3.2 各表对账\"]\n    G-3-3[\"G.3.3 持仓保护与终止检查\"]\n  end\n  subgraph G-4[\"G.4 判定经济证据资格\"]\n    direction TB\n    G-4-1[\"G.4.1 实质活动\"]\n    G-4-2[\"G.4.2 资格的来源与呈现\"]\n  end\n  G-1 --> G-2\n  G-2 --> G-3\n  G-3 --> G-4"} />
 
 ## G.1　判定回放是否有效 [#G-1]
 
-<Steps>
-
-<Step>
-
-运行器在运行环境内加载候选源码并回放；策略构造或回调异常由 <Ref id="engine.guard_callback" /> 写成结构化回执。
-
-</Step>
-
-<Step>
-
-<Ref id="engine.main" /> 先写完原生报表与摘要，有失败记录或完整性发现即以非零退出。
-
-</Step>
-
-<Step>
-
-<Ref id="replay.execute" /> 在报表齐全时启动独立审计器；<Ref id="ledger.seal_capture" /> 把各阶段退出码与日志封存为原始执行捕获。
-
-</Step>
-
-<Step>
-
-<Ref id="replay.seal" /> 在运行环境外核对导出指纹（<Ref id="G.2.1.1" />），再按序追加 <Ref id="replay.audit_problems" /> 与 <Ref id="replay.summary_problems" /> 给出的无效原因。
-
-</Step>
-
-<Step>
-
-<Ref id="ledger.ingest_run" /> 在一个写事务里写 run 行：原因非空记 invalid、绩效指标置空；原因为空记 passed 并写原生报表行与绩效指标。
-
-</Step>
-
-<Step>
-
-<Ref id="report.compare" /> 经 <Ref id="registration.check_comparable" /> 拒绝非 passed 运行；<Ref id="report.research_status" /> 把无效与未完成分列计入试验次数。
-
-</Step>
-
-</Steps>
+回放跑完后，代码在运行环境外汇总退出码、异常记录、执行身份与审计结果；任一不符即判运行无效，只留原因，仍计入试验次数。
 
 ### G.1.1　无效的判定 [#G-1-1]
 
-运行器只在运行环境内留下退出码、回执与摘要；判定全部在运行环境外由代码完成，没有 skill 判断参与。
+判定全部由运行环境外的代码完成，不靠 skill 判断。
 
-<Cap id="G.1.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计只判回放有效与否及原因；无效运行只存原因与原件，绩效指标置空">
+<Cap id="G.1.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计只判回放有效与否；无效运行只留原因与原件">
 
-1. 只接受 purpose ∈ research | validation 且尚无运行行的试验。
-2. 原因列表非空：写 run.status=invalid、failure_reasons（JSON 列表，每条带定位）、原样的原生摘要与审计结果，全部绩效指标列为空，不写任何原生报表行。
-3. 原因列表为空：须有自报通过的审计结果与原生摘要。
-4. 核对覆盖回执与生命周期事件，逐行写入六张原生报表表。
-5. 由 <Ref id="ledger.metrics" /> 算一次绩效指标，写成 run 行的列。
+- 完整性审计只回答这次回放是否有效及原因，不评价策略好坏。
+- 无效运行只存原因与封存原件，绩效指标置空。
+- 有效运行写入原生报告明细，并算一次绩效指标。
+- 只有研究与样本外回放入账；原生预检只留工作副本。
 
-- 完整性审计（integrity audit）只回答这次回放是否有效及原因，不评价策略好坏。
-- 整个入账在一个写事务内完成。
-- explore 与 precheck 的报告只留工作副本，不入账。
-- 不允许无审计却无原因的运行行。
-- invalid 运行的绩效指标列为空由 <Ref id="table:run" /> 的约束保证。
-- 绩效指标对账失败只置空对应绩效指标并写入绩效指标局限，不改判无效。
-
-**输入**　试验行、无效原因列表、原生摘要、审计结果与原生报表。
-
-**输出**　一条 run 行：passed 带绩效指标与六张原生报表行，或 invalid 带原因与原件、绩效指标为空。
-
-**强制**　代码：<Ref id="ledger.ingest_run" /> 单写事务入账，绩效指标置空由 <Ref id="table:run" /> 约束保证。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `TRIAL_PURPOSE_INVALID` | 试验 purpose 为 explore 或 precheck（不属于 research \| validation）。 |
-| `AUDIT_RESULT_INCONSISTENT` | 原因列表为空，但缺自报通过的审计结果或原生摘要。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="table:run">run</Ref> <Ref id="ledger.metrics">metrics</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行器或审计器失败、审计有发现或回执非空即无效，基础设施错误原样保留">
+<Cap id="G.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行或审计失败、有发现或有异常记录，即判无效">
 
-- 以下每个条件独立追加一条无效原因，互不覆盖。
-- 运行器非零退出。
-- 审计器未运行。
-- 审计器非零退出。
-- 审计结果缺失或不可读。
-- 审计结果自报未通过或有发现。
-- 结构化异常回执非空、格式无效或不可读。
-- 只按退出码、文件存在性与结构化字段判定，不按日志文本匹配。
-- 基础设施错误（运行环境不可用、进程被杀、报表不全导致审计器未启动）同样落为上述原因之一，不改写成证据不足，也不另设状态。
-- 这些原因与 <Ref id="ledger.seal_capture" /> 封存的命令、各阶段退出码和原生 stdout/stderr 一起原样保留。
+- 运行器非零退出、审计未运行或非零退出，各记一条原因。
+- 审计结果缺失、不可读、自报未通过或有发现，各记一条。
+- 只按退出码、文件与结构化记录判定，不匹配日志文本。
+- 基础设施故障也记为无效原因，不另设状态、不改称证据不足。
 
-**输入**　运行器与审计器退出码、审计结果文件、结构化异常回执。
-
-**输出**　执行类无效原因，追加到原因列表。
-
-**强制**　代码：<Ref id="replay.audit_problems" /> 只按结构化事实判定，由 <Ref id="replay.seal" /> 汇总。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.audit_problems">audit_problems</Ref> <Ref id="replay.seal">seal</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.1.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="策略构造或回调抛异常即无效，干净退出与空交易报告不掩盖故障">
+<Cap id="G.1.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="策略构造或回调抛异常即无效，干净退出也不掩盖">
 
-1. <Ref id="engine.main" /> 在加载源码前清空进程内失败记录。
-2. <Ref id="engine.guard_callback" /> 包装每个 on_ 回调。
-3. 策略构造或任一回调抛出异常时，<Ref id="engine.execution_failure" /> 写结构化回执，再原样抛出。
-4. 原生报表与摘要先于判定写出，无效回放也留下原件。
-5. 回放结束后，失败记录非空以 NATIVE_EXECUTION_FAILED 非零退出；摘要完整性发现非空以 INTEGRITY_FINDINGS 非零退出。
+- 策略构造或任一回调抛异常，都写下一条结构化异常记录。
+- 引擎已捕获异常并干净收尾，也照样判为无效。
+- 原生报告先于判定写出，无效回放也留下原件。
+- 有异常记录时，空交易报告是故障，不当作没有交易。
 
-- 结构化回执含阶段、异常类型、消息、回溯与合约标识，格式为 JSON Lines，写后 fsync。
-- 失败记录非空时，交易报告为空不改变这一判定。
-- 普通日志告警不按文本判错，只认结构化回执。
-- 有结构化回执的空交易报告是故障；没有回执的空交易报告交给实质活动资格（<Ref id="G.4.1.1" />）。
-
-**输入**　候选源码，以及回放中策略构造与回调抛出的异常。
-
-**输出**　结构化异常回执、原生报表与摘要、运行器退出码。
-
-**强制**　代码：运行环境内运行器的回调包装、结构化回执与非零退出码。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NATIVE_EXECUTION_FAILED` | 回放结束时进程内失败记录非空，包括引擎已捕获异常并干净收尾的情况。 |
-| `INTEGRITY_FINDINGS` | 摘要完整性发现非空。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.guard_callback">guard_callback</Ref> <Ref id="engine.execution_failure">execution_failure</Ref> <Ref id="engine.main">main</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.1.1.4" kind="code" tier="verified" tierLabel="已验证" title="原生摘要与回放的源码哈希、运行环境身份、有效配置不一致即无效">
+<Cap id="G.1.1.4" kind="code" tier="verified" tierLabel="已验证" title="原生报告摘要的执行身份须与试验一致，否则无效">
 
-- <Ref id="replay.summary_problems" /> 在运行环境外把原生摘要与同一试验行上的身份逐项核对。
-- 核对源码内容哈希（content hash）。
-- 核对按摘要钉死的运行环境身份。
-- 核对有效配置哈希。
-- 核对运行器自报的完整性通过。
-- 摘要缺失、任一身份字段缺失或不等、自报未通过，各记一条无效原因。
-- 摘要由运行器在运行环境内经 <Ref id="engine.write_native_reports" /> 写出。
-- 对照身份来自 <Ref id="runtime.resolve" /> 钉死的镜像身份与 <Ref id="runtime.inspect_runtime" /> 读出的有效配置。
-- 这是身份核对，不是报表对账；报表对账归独立审计（<Ref id="G.3.2.2" />）。
+- 在运行环境外，逐项核对摘要与试验记录上的执行身份。
+- 核对源码内容哈希、运行环境摘要、账户与撮合配置。
+- 摘要缺失、身份不符或自报未通过，各记一条无效原因。
+- 这里只核身份；报告之间的对账另由独立审计做。
 
-**输入**　原生摘要与试验行上的源码、运行环境、有效配置身份。
-
-**输出**　身份类无效原因，追加到原因列表。
-
-**强制**　代码：<Ref id="replay.summary_problems" /> 在运行环境外逐项比对身份字段。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.summary_problems">summary_problems</Ref></span></div>
 
 </Cap>
 
 ### G.1.2　无效后的处置 [#G-1-2]
 
-处置分两面：比较与计数怎么对待无效运行，以及无效原因的记录形状；目的是 Agent 不重跑即可修复。
+无效运行怎样计数、原因怎样记录，让 Agent 不重跑也能定位修复。
 
-<Cap id="G.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="无效回放不进任何比较、不给改善区间与 p，但仍计入试验次数">
+<Cap id="G.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="无效运行不进任何比较，但仍计入试验次数">
 
-- <Ref id="report.compare" /> 经 <Ref id="registration.check_comparable" /> 先核两侧运行均为 passed 且已封存。
-- 否则拒绝，并指明哪一侧、为何。
-- 被拒时不给改善、区间与 p。
-- 无效与未完成的尝试仍是试验：试验行与 <Ref id="table:registration_attempt" /> 上的网格点消耗不删除、不重算。
-- <Ref id="report.research_status" /> 把尝试、审计通过、经济可用、仅诊断、无效、未完成分列计数。
-- 折扣夏普（DSR）等多重检验折扣以含无效在内的全部尝试为基数。
+- 比较前先核两侧都有效且已封存，否则拒绝并指明哪一侧。
+- 被拒时不给检验结果。
+- 无效、未完成的试验及其消耗的网格点不删除、不重算。
+- 研究状态把有效、可作证据、仅诊断、无效、未完成分列计数。
 
-**输入**　待比较的两侧运行；研究的全部试验与登记尝试。
-
-**输出**　比较结果，或指明哪一侧、为何的拒绝；分列的试验计数。
-
-**强制**　代码：比较入口的可比性检查与研究状态计数，账本中试验行与网格点消耗不删除。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="report.research_status">research_status</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="无效原因是带定位的记录，可定位到时间、品种、数量和订单">
+<Cap id="G.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="每条无效原因带定位，能找到时间、品种、数量和订单">
 
-- 无效原因（invalid reason）是一条 \{code, message, locator\} 记录，入账时以 JSON 列表存入 run.failure_reasons，与审计结果原件一起保留。
-- 订单级发现的 locator 带 client_order_id。
-- 仓位级发现的 locator 带 position_id。
-- 保护缺口的 locator 带品种、策略、数量、起止时间与相关订单号。
-- 生命周期发现的 locator 带品种与终止时刻。
-- 退出码、回执与身份类原因的 locator 带阶段名或不符的字段名。
-- 审计发现的定位由独立审计器给出，回放入口只原样转抄，不重新解释。
+- 每条无效原因含原因码、说明与定位三部分。
+- 订单类、持仓类发现分别定位到订单号或持仓号。
+- 止损覆盖缺口定位到品种、策略、数量、起止时间与相关订单。
+- 定位由独立审计给出，入账时原样转抄，不重新解释。
 
-**输入**　独立审计器的发现，以及执行类与身份类无效原因。
-
-**输出**　run.failure_reasons 中带定位的 JSON 列表。
-
-**强制**　代码：独立审计器生成定位，回放入口原样转抄，<Ref id="table:run" /> 的 failure_reasons 列保存。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.protection">protection</Ref> <Ref id="table:run">run</Ref></span></div>
 
 </Cap>
 
 ## G.2　核对输入与消费 [#G-2]
 
-<Steps>
-
-<Step>
-
-<Ref id="registration.market_inputs" /> 把钉住的市场提交导出到不可变目录。
-
-</Step>
-
-<Step>
-
-<Ref id="replay.seal" /> 在写试验前核对导出内容（G.2.1.1）。
-
-</Step>
-
-<Step>
-
-<Ref id="replay.input_coverage" /> 写出覆盖回执，只读挂入容器。
-
-</Step>
-
-<Step>
-
-<Ref id="engine.replay" /> 执行并核对引擎迭代数与估值次数（G.2.1.2）；执行后 <Ref id="replay.seal" /> 重算原始字节哈希（G.2.1.1）。
-
-</Step>
-
-<Step>
-
-<Ref id="replay.audit_problems" /> 在工作目录上调用 <Ref id="ledger.verify_coverage" />，不符即记为无效原因。
-
-</Step>
-
-<Step>
-
-<Ref id="ledger.ingest_run" /> 入账前重算覆盖与生命周期（G.2.2.2）。
-
-</Step>
-
-</Steps>
+回放前后核对导出的市场数据没有变动、引擎确实读完了它，并核对覆盖记录与生命周期事件；入账时再按封存原件重算一次。
 
 ### G.2.1　输入身份与消费量 [#G-2-1]
 
-输入是导出目录与引擎结果，输出是无效原因、运行器失败或完整性发现。
+导出数据在执行前后不变，引擎消费的条数与导出一致。
 
-<Cap id="G.2.1.1" kind="code" tier="verified" tierLabel="已验证" title="导出内容在登记、执行前、执行后哈希一致，执行中变动即运行无效">
+<Cap id="G.2.1.1" kind="code" tier="verified" tierLabel="已验证" title="导出数据须与登记一致且执行前后不变，否则不回放或无效">
 
-1. 导出之后、写试验之前，用 <Ref id="registration.export_fingerprint" /> 算语义哈希，须等于登记时锁定的输入身份（<Ref id="J.6.1.3" />），不等即拒绝回放、不写试验。
-2. 同一时点算一次原始字节哈希，包含全部字节。
-3. 执行结束后再算一次原始字节哈希，与执行前不等即在运行（run）上记无效原因「导出内容在执行中变动」，该运行按 <Ref id="G.1.1.1" /> 处理。
+1. 写试验前，导出内容的身份须等于登记锁定的输入数据身份。
+2. 不等即拒绝回放，也不写试验。
+3. 执行开始前，记下导出文件的全部字节。
+4. 执行结束后，导出文件的全部字节须不变，否则运行无效。
 
-- 语义哈希与路径无关：按相对路径排序，逐文件纳入名字长度、名字和内容 SHA-256，排除回执里的导出用时字段。
-- 输入身份与导出器实现身份写入 <Ref id="table:run" />，<Ref id="registration.check_comparable" /> 据此判断两次运行是否同一输入（<Ref id="V.2.1.3" />）。
-- 本条不设输入质量门槛，只保证内容不变；输入质量属覆盖事实（<Ref id="W.3.3.1" />）。
-
-**输入**　一次回放的导出目录与登记时锁定的输入身份。
-
-**输出**　拒绝回放，或在运行上记下的无效原因；输入身份与导出器实现身份写入 <Ref id="table:run" />。
-
-**强制**　代码：回放入口 <Ref id="replay.seal" /> 在三个时点算哈希比对，语义哈希不等时的拒绝码由 <Ref id="replay.seal" /> 定义。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.seal">seal</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="引擎迭代数须等于导出回执条数之和、估值次数须等于标记价时间戳数">
+<Cap id="G.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="引擎消费的 K 线条数与估值次数须等于导出所含">
 
-- 引擎（engine）结束后，结果对象的迭代数须等于全部合约导出回执条数之和。
-- 不等时运行器以非零退出码失败，回放按 <Ref id="G.1.1.2" /> 判为无效。
-- K 线条数与来源回执是否一致并入这次迭代数检查，不另设。
-- 资金观察器 <Ref id="engine.capital_observer" /> 的估值时间戳数，须等于 <Ref id="engine.mark_timestamps" /> 从导出标记价文件直接读出的时间戳去重并集数。
-- 期望值来自导出文件本身，不用回执或观察器自报的计数。
-- 估值次数不等时由 <Ref id="engine.capital_findings" /> 记为完整性发现，审计按 <Ref id="G.3.2.4" /> 判为失败。
-- 标记价文件读不出时 <Ref id="engine.mark_timestamps" /> 拒绝，运行器同样以非零退出失败。
+- 引擎迭代数须等于全部合约导出的 K 线条数之和。
+- 迭代数不等时运行器非零退出，回放判为无效。
+- 持仓估值次数须等于标记价时间戳去重数，不等即审计失败。
+- 期望值直接读导出文件，不用任何自报计数。
 
-**输入**　引擎结果对象、资金观察器估值时间戳、全部合约导出回执与导出标记价文件。
-
-**输出**　运行器非零退出（回放无效）或一条完整性发现。
-
-**强制**　代码：运行器 <Ref id="engine.replay" /> 在引擎结束后比对计数，以非零退出码或 <Ref id="engine.capital_findings" /> 的完整性发现强制。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `EXPORT_MARKS_UNREADABLE` | <Ref id="engine.mark_timestamps" /> 读不出导出标记价文件 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.mark_timestamps">mark_timestamps</Ref> <Ref id="engine.capital_findings">capital_findings</Ref></span></div>
 
 </Cap>
 
 ### G.2.2　覆盖与生命周期回执 [#G-2-2]
 
-同一套 <Ref id="ledger.verify_coverage" /> 用两次：审计时在工作目录上跑，入账时由 <Ref id="ledger.original_coverage" /> 只按封存的原始捕获重跑，两次一致才能入账。
+同一套核对做两次：审计时一次，入账时只按封存原件再做一次。
 
-<Cap id="G.2.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="覆盖回执须与原生摘要一致；覆盖事实只透传，不构成无效">
+<Cap id="G.2.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="覆盖记录须与原生报告摘要一致；覆盖事实不判无效">
 
-- 覆盖回执由 <Ref id="replay.input_coverage" /> 在启动前写出，随执行封存，并进入输入身份（<Ref id="J.6.1.4" />）。
-- 覆盖回执汇总各合约的导出回执、输入身份、有效配置与成员文件。
-- <Ref id="ledger.verify_coverage" /> 核对回执与引擎原生摘要：回执版本与形态、输入起止、市场提交、合约集合，以及给定开发窗口时的起止。
-- 核对通过后交给 <Ref id="engine.lifecycle_events" /> 做逐实例生命周期核对，其拒绝原样传出。
-- 审计时由 <Ref id="replay.audit_problems" /> 调用，拒绝转为该运行的无效原因。
-- 缺口、零成交量分钟、成交价与标记价是否对齐、资金费（funding）结算时刻与条数等覆盖事实由 <Ref id="market.coverage_facts" /> 产出（<Ref id="W.3.3.1" />），本函数只原样透传，不参与有效性判定。
-- 不据覆盖事实删币、缩窗或补数（<Ref id="W.3.3.2" />）。
+- 回放前写出覆盖记录，汇总各合约导出、输入身份与配置。
+- 核对它的输入起止、市场提交、合约集合与开发窗口起止。
+- 任一不符，即为该运行的一条无效原因。
+- 缺口、零成交量分钟等覆盖事实只原样透传，不判无效。
 
-**输入**　覆盖回执、引擎原生摘要与可选的开发窗口。
-
-**输出**　透传的覆盖事实与生命周期事件，或一个拒绝（审计时转为无效原因）。
-
-**强制**　代码：<Ref id="ledger.verify_coverage" /> 比对回执与原生摘要，由 <Ref id="replay.audit_problems" /> 在审计中调用。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `COVERAGE_RECEIPT_INVALID` | 覆盖回执版本或形态不合法 |
-| `COVERAGE_MISMATCH` | 回执的输入起止、市场提交、合约集合或开发窗口起止与原生摘要不符 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.verify_coverage">verify_coverage</Ref> <Ref id="replay.audit_problems">audit_problems</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.2.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="生命周期事件须与原生逐实例计数及原始执行捕获一致，否则拒绝">
+<Cap id="G.2.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="生命周期事件须与原生计数相符，入账时只信封存原件">
 
-- 上市、禁新仓、下架结算等生命周期事件按 <Ref id="W.3.2.2" /> 作为引擎原生事件供给。
-- <Ref id="engine.lifecycle_events" /> 回放后逐实例核对：原生摘要中每个实例的状态事件数和关闭事件数等于回执里该实例片段的计数。
-- 每个实例只由一个片段表示。
-- 事件都在窗口内，并能由引擎原生类型构造。
-- 关闭类型为合约到期且关闭价为正。
-- 摘要计数非零但输入身份里没有生命周期证据包的，同样拒绝。
-- 缺事件供给按拒绝处理，不当作空集，也不降级为无事件。
-- 入账时 <Ref id="ledger.ingest_run" /> 不采信工作目录或调用方传入的回执，只经 <Ref id="ledger.original_coverage" /> 读本试验的原始执行捕获。
-- 原始捕获须完整封存、各阶段退出码为零、回执输入身份等于存储的输入身份。
-- 满足后用 <Ref id="ledger.verify_coverage" /> 重算，结果写入 <Ref id="table:run" />。
+- 每个合约的状态与关闭事件数，须等于覆盖记录里的计数。
+- 事件须在窗口内，到期关闭须带正的关闭价。
+- 缺少事件供给按拒绝处理，不当作没有事件。
+- 入账时不信工作目录或调用方的副本，只按封存原件重算。
 
-**输入**　原生摘要、覆盖回执中的生命周期片段、输入身份，以及入账时本试验的原始执行捕获。
-
-**输出**　排好序的生命周期事件元组写入 <Ref id="table:run" />，或拒绝入账。
-
-**强制**　代码：<Ref id="engine.lifecycle_events" /> 逐实例核对，<Ref id="ledger.ingest_run" /> 入账时经 <Ref id="ledger.original_coverage" /> 只按封存捕获重算并拒绝不符者。
-
-| 拒绝码 | 条件 |
-|---|---|
-| LIFECYCLE_* | 逐实例计数、片段唯一性、窗口、原生构造、关闭类型与价格任一不符，摘要计数非零而缺生命周期证据包，或缺事件供给（具体码见 <Ref id="engine.lifecycle_events" /> 定义） |
-| `CAPTURE_INCOMPLETE` | 本试验的原始执行捕获未完整封存 |
-| `PHASE_FAILED` | 原始捕获中有阶段退出码非零 |
-| `INPUT_IDENTITY_MISMATCH` | 回执输入身份不等于存储的输入身份 |
-| COVERAGE_RECEIPT_INVALID / COVERAGE_MISMATCH / LIFECYCLE_*（传出） | 入账重算时 <Ref id="ledger.verify_coverage" /> 拒绝 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_events">lifecycle_events</Ref> <Ref id="ledger.original_coverage">original_coverage</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref></span></div>
 
 </Cap>
 
@@ -335,37 +147,31 @@
 
 <Step>
 
-运行器写出原生报表、摘要与订单事件史，并把自检发现、被否被拒订单与估值缺口记入摘要 integrity_findings。
+运行器写出原生报告；报告不全则审计不运行，回放无效。
 
 </Step>
 
 <Step>
 
-<Ref id="replay.execute" /> 核对必需报表齐全；报表不全则审计不运行。
+用同一运行环境另起独立审计进程，只读报告。
 
 </Step>
 
 <Step>
 
-以同一运行环境摘要启动独立审计器进程（<Ref id="G.3.1.1" />）。
+按固定顺序核对：身份、被拒订单、止损覆盖与下架处置、各表对账。
 
 </Step>
 
 <Step>
 
-审计器对所有策略按同一固定顺序检查：字段与身份 → 被否与被拒 → 保护重建与终止处置 → 订单、成交、持仓、佣金、资金费、账户逐项对账 → 汇总核对；每条发现带定位，任一发现即审计失败。
+每条发现带定位，任一发现即审计失败。
 
 </Step>
 
 <Step>
 
-<Ref id="engine.generic_result" /> 写出结果并以退出码报告。
-
-</Step>
-
-<Step>
-
-无论回放完成、中断或宿主失败，<Ref id="ledger.seal_capture" /> 都原样封存各阶段退出码、stdout/stderr 与审计结果，<Ref id="replay.audit_problems" /> 转为无效原因，供入账、资格视图 <Ref id="G.4.2.3" /> 与报告读取。
+审计结果与退出码随回放封存，转为无效原因。
 
 </Step>
 
@@ -373,243 +179,114 @@
 
 ### G.3.1　审计的独立性与边界 [#G-3-1]
 
-审计器是与运行器分开的进程，只读报表与覆盖回执，输出结果文件与退出码，并随每次结果写明查什么、不查什么。
+审计进程与运行器分开，只读报告，并随结果写明查什么、不查什么。
 
-<Cap id="G.3.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计器是独立于运行器与策略源码的进程，对所有策略执行同一套只读检查">
+<Cap id="G.3.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计是独立进程，对所有策略执行同一套只读检查">
 
-1. <Ref id="replay.execute" /> 在同一钉死运行环境内先启动运行器（runner）；报表不全时不启动审计器（auditor），审计阶段记为未运行。
-2. 以与运行器相同的镜像摘要启动审计器容器。
-3. 审计器 <Ref id="engine.audit_main" /> 核对报表集合齐全且非空、摘要可读；否则以退出码 2 结束且不写结果。
-4. 经 <Ref id="engine.audit" /> 对所有策略执行同一套检查 <Ref id="engine.generic_audit" />，写出结果文件。
-5. passed 为假时退出码 1，为真时退出码 0。
+- 审计与运行器用同一运行环境，但在单独的容器里跑。
+- 不挂载策略源码，审计因此不能导入或执行策略。
+- 无网络、输入只读、不读账本，不按策略区别对待。
+- 报告不全、未运行、非零退出或有发现，回放即无效。
 
-- 审计器容器无网络、只读根；报表目录与覆盖回执只读挂载，唯一可写挂载为审计输出目录。
-- 不挂载策略源码目录，审计器因此不能导入或执行策略。
-- 必需报表：summary.json、orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、order_events.jsonl.gz。
-- 审计器不读账本，不按策略区别处理。
-- 审计未运行、退出码非零或有发现，回放一律无效（<Ref id="G.1.1.2" />）。
-- 退出码与审计结果随执行封存；演练中每次封存回放都先跑运行器再跑审计器。
-
-**输入**　只读挂载的报表目录与覆盖回执。
-
-**输出**　审计结果文件（报表不全或摘要不可读时不写）与退出码 0/1/2。
-
-**强制**　代码：<Ref id="replay.execute" /> 的容器挂载与网络隔离，及 <Ref id="engine.audit_main" /> 的报表核对与退出码。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REPORTS_INCOMPLETE` | 必需报表缺任一或为空，退出码 2。 |
-| `SUMMARY_UNREADABLE` | 摘要不可读，退出码 2。 |
-| `AUDIT_FINDINGS` | 结果 passed 为假，退出码 1。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.execute">execute</Ref> <Ref id="engine.audit_main">audit_main</Ref> <Ref id="engine.audit">audit</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.3.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计不查信号时钟、策略几何与止盈止损价格，边界随每次结果写出">
+<Cap id="G.3.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计不查信号与止损价格，检查边界随每次结果写出">
 
-- 审计只证明引擎原生记录自洽、保护覆盖与终止处置成立。
-- 不检查信号时钟、策略几何、止盈与止损价格，不重建信号，不重算成交、盈亏或资金费。
-- scope 写明：原生报表身份、链接、保护历史与自报经济数。
-- coverage_limits 列出以下边界。
-- 不重建信号与目标几何。
-- 保护只比只减仓止损未成交量，不比价格。
-- 同一纳秒事件一起应用，容忍至多一根执行 K 线的未覆盖。
-- 资金费只认原生调整，不按费率重算。
-- 并发成交时刻不对账资金费。
-- 有持仓时不对账期末权益。
-- 结果同时输出报表逐文件 SHA-256 与订单、成交、持仓计数。
-- 因果与前视偏差（look-ahead bias）由原生预检（native precheck，<Ref id="C.6.1.1" />）与独立源码审查（<Ref id="G.4.2.2" />）负责。
-- 源码审查结论不进入审计结果，由资格视图与审计结论分别呈现；演练中审计通过但源码审查记为因果失败的运行被资格视图排除。
+- 审计只证明引擎记录自洽、止损覆盖与下架处置成立。
+- 不重建信号，不比止损价格，不重算成交、盈亏或资金费。
+- 每次结果写明检查范围与边界，并附各报告哈希与计数。
+- 因果与前视偏差由原生预检和独立源码审查负责。
 
-**输出**　结果中的 scope、coverage_limits、报表逐文件 SHA-256 与订单、成交、持仓计数。
-
-**强制**　代码：<Ref id="engine.generic_result" /> 每次固定写出 scope 与 coverage_limits。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_result">generic_result</Ref></span></div>
 
 </Cap>
 
 ### G.3.2　各表对账 [#G-3-2]
 
-只在引擎产出的记录之间对账（事件史、订单、成交、持仓、佣金、资金费、账户、摘要），输出带定位的发现与对账后的经济数 native_economics。
+只在引擎自己的记录之间对账，输出带定位的发现。
 
-<Cap id="G.3.2.1" kind="code" tier="verified" tierLabel="已验证" title="订单事件史与订单、成交报表完全一致，事件按时间有序且范围不变">
+<Cap id="G.3.2.1" kind="code" tier="verified" tierLabel="已验证" title="订单事件史须与订单、成交报告完全一致">
 
-- 运行器 <Ref id="engine.write_order_events" /> 把引擎缓存中每个订单的原生事件原样写成 order_events.jsonl.gz，组内保持引擎顺序，字节确定。
-- 写出时任一拒绝，运行器即非零退出。
-- 审计用 <Ref id="engine.event_report_findings" /> 要求事件史与订单报表持有同一订单集合。
-- 每个订单以唯一一个初始化事件开头，组内时间不倒序，范围（strategy_id、instrument_id、account_id）不变。
-- 事件中的终态、数量、已成交量、方向、类型与订单报表一致。
-- 事件史中的成交与成交报表按 event_id、trade_id、数量、时间逐一相等。
-- 对账通过的事件史才是保护重建（<Ref id="G.3.3.1" />）与终止检查（<Ref id="G.3.3.3" />）的输入。
+- 事件史与订单报告持有同一组订单。
+- 每个订单以唯一的初始化事件开头，时间不倒序。
+- 终态、数量、方向、类型与订单报告一致，成交逐笔相等。
+- 只有对账通过的事件史，才用于止损覆盖与下架检查。
 
-**输入**　引擎缓存中的订单事件，以及订单与成交报表。
-
-**输出**　order_events.jsonl.gz（入账为 <Ref id="table:run_order_event" />）与带定位的发现。
-
-**强制**　代码：运行器 <Ref id="engine.write_order_events" /> 拒绝并非零退出，审计 <Ref id="engine.event_report_findings" /> 计为发现。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `ORDER_WITHOUT_EVENTS` | 运行器写出时某订单无事件。 |
-| `NON_FINITE_EVENT_FIELD` | 运行器写出时事件含非有限浮点。 |
-| `EVENT_ORDER_SET_MISMATCH` | 事件史与订单报表的订单集合不同。 |
-| `EVENT_NOT_INITIALIZED` | 订单不是以唯一一个初始化事件开头。 |
-| `EVENT_OUT_OF_ORDER` | 订单组内事件时间倒序。 |
-| `EVENT_SCOPE_CHANGED` | 订单事件的 strategy_id、instrument_id 或 account_id 发生变化。 |
-| `EVENT_ORDER_STATE_MISMATCH` | 终态、数量、已成交量、方向或类型与订单报表不一致。 |
-| `EVENT_FILL_MISMATCH` | 事件史成交与成交报表的 event_id、trade_id、数量或时间不等。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.event_report_findings">event_report_findings</Ref> <Ref id="engine.write_order_events">write_order_events</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="订单、成交、持仓、佣金、资金费、账户与汇总互相对账，只对账不重算">
+<Cap id="G.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="订单、成交、持仓、费用与账户互相对账，只对账不重算">
 
-1. 四张报表每行都有范围字段与必需列。
-2. 订单状态属已知集合；client_order_id 与 position_id 非空且唯一。
-3. 每笔成交对应唯一同范围订单，订单 filled_qty 等于其成交量之和，FILLED 订单满额。
-4. 每个持仓的事件恰好覆盖全部成交一次，买卖量与净量、开平仓订单、佣金与成交一致。
-5. 资金费（funding）调整只认 FUNDING 类型且逐时刻等于账户总额变动；账户每行 total = locked + free、币种一致、时间有序、同一账户。
-6. 期初余额、已实现盈亏与余额变动、闭仓与盈利计数与摘要一致。
+- 每笔成交对应唯一订单，订单已成交量等于其成交之和。
+- 持仓恰好覆盖全部成交一次，数量与手续费一致。
+- 资金费调整逐时刻等于账户总额变动，账户各行自洽。
+- 期初余额、已实现盈亏与闭仓计数与摘要一致。
 
-- 解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID，不中止其余检查。
-- 审计不重算成交、盈亏，也不按费率重算资金费。
-- 对账后的经济数写入 native_economics，供绩效指标对账；演练中亏损与盈利运行的 native_economics 都与绩效指标对账。
-
-**输入**　报表目录与摘要。
-
-**输出**　带定位的发现与 native_economics。
-
-**强制**　代码：<Ref id="engine.generic_audit" /> 逐项对账并计为发现。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REPORT_FIELDS_MISSING` | 报表行缺范围字段或必需列。 |
-| `ORDER_STATUS_UNKNOWN` | 订单状态不属已知集合。 |
-| `IDENTITY_MISSING_OR_DUPLICATED` | client_order_id 或 position_id 为空或重复。 |
-| `ORDER_FILL_MISMATCH` | 成交无唯一同范围订单、filled_qty 不等于成交量之和，或 FILLED 订单未满额。 |
-| `POSITION_FILL_COVERAGE_MISMATCH` | 持仓事件未恰好覆盖全部成交一次，或买卖量、净量、开平仓订单、佣金与成交不一致。 |
-| `FUNDING_BALANCE_MISMATCH` | 资金费调整非 FUNDING 类型或与该时刻账户总额变动不等。 |
-| `ACCOUNT_REPORT_INCONSISTENT` | 账户行 total ≠ locked + free、币种不一致、时间无序或不是同一账户。 |
-| `SUMMARY_TOTALS_MISMATCH` | 期初余额、已实现盈亏与余额变动、闭仓或盈利计数与摘要不符。 |
-| `REPORT_PAYLOAD_INVALID` | 解析、字段或算术异常。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.3.2.3" kind="code" tier="verified" tierLabel="已验证" title="成交与资金费同一时刻时不对账资金费，期末有持仓时不对账期末权益">
+<Cap id="G.3.2.3" kind="code" tier="verified" tierLabel="已验证" title="成交与资金费同刻不对账资金费，期末有仓不对账权益">
 
-- 成交与资金费落在同一时刻时，账户总额变动混合两者、不可分拆，该时刻不对账资金费，只把此类时刻数写入 native_economics。
-- 期末仍有持仓时，期末权益含未实现盈亏，审计只对账余额，不对账期末权益。
-- 两条边界固定写入 coverage_limits，不以放宽容差代替。
+- 成交与资金费同一时刻时总额变动无法拆分，跳过该时刻。
+- 跳过的时刻数照实记入结果。
+- 期末仍有持仓时权益含未实现盈亏，只对账余额。
+- 两条边界固定写入结果，不用放宽容差代替。
 
-**输出**　native_economics 中的并发时刻数与 coverage_limits 中的两条边界。
-
-**强制**　代码：<Ref id="engine.generic_audit" /> 跳过这两项对账，<Ref id="engine.generic_result" /> 把边界写入 coverage_limits。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.generic_result">generic_result</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.3.2.4" kind="code" tier="verified" tierLabel="已验证" title="策略自检发现、被否或被拒订单与估值缺口写入摘要，并计为审计失败">
+<Cap id="G.3.2.4" kind="code" tier="verified" tierLabel="已验证" title="被否决、被拒绝的订单与估值缺口，都判审计失败">
 
-1. 运行器 <Ref id="engine.write_native_reports" /> 把策略自检钩子返回的发现、被否或被拒订单，以及 <Ref id="engine.capital_findings" /> 给出的估值缺口写入摘要 integrity_findings。
-2. integrity_findings 非空即 integrity_passed 为假，运行器非零退出（<Ref id="engine.main" />）。
-3. 审计 <Ref id="engine.generic_audit" /> 把摘要自报失败或报表中存在被否被拒订单计为发现，并核对被否被拒计数与摘要。
+- 被否来自引擎风险检查，被拒来自模拟交易所。
+- 它们与策略自检发现、估值缺口一起写入原生摘要。
+- 摘要有任一发现，运行器即非零退出，审计也计为失败。
+- 只记事实，不区分被拒原因，不重算估值。
 
-- 被否（DENIED）来自引擎风险检查，被拒（REJECTED）来自模拟交易所。
-- 两侧都只记事实，不区分被否被拒的原因，不重算估值。
-- 演练中被否订单与估值缺口都使运行无效。
-
-**输入**　策略自检钩子返回值、订单状态与持仓估值时间戳。
-
-**输出**　摘要 integrity_findings 与 integrity_passed，以及审计发现。
-
-**强制**　代码：运行器非零退出，审计 <Ref id="engine.generic_audit" /> 计为发现。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `CAPITAL_VALUATION_GAP` | 持仓估值有未覆盖时段。 |
-| `CAPITAL_TIMESTAMP_COUNT_MISMATCH` | 估值时间戳数不符。 |
-| `INTEGRITY_REPORTED_FAILED` | 摘要自报失败，或报表中存在被否或被拒订单。 |
-| `DENIED_REJECTED_COUNT_MISMATCH` | 被否被拒计数与摘要不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.capital_findings">capital_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span></div>
 
 </Cap>
 
 ### G.3.3　持仓保护与终止检查 [#G-3-3]
 
-以对账通过的订单事件史逐时间戳重建持仓与只减仓（reduce-only）止损覆盖，再检查未定价终止前的归零与迟到事件，输出发现与 uncovered_intervals。
+用对账通过的订单事件史逐刻重建持仓，检查止损覆盖与下架前的清仓。
 
-<Cap id="G.3.3.1" kind="code" tier="verified" tierLabel="已验证" title="只减仓止损未覆盖的持仓持续超过一根执行 K 线即裸仓，回放无效">
+<Cap id="G.3.3.1" kind="code" tier="verified" tierLabel="已验证" title="止损未覆盖持仓超过一分钟即为裸仓，运行无效">
 
-1. <Ref id="engine.protection" /> 读订单事件史，经 <Ref id="engine.event_report_findings" /> 与订单、成交报表对账。
-2. <Ref id="engine.uncovered_intervals" /> 按时间戳逐批重放，同一纳秒事件一起应用后再读状态。
-3. 重建每（strategy_id、instrument_id）范围的净持仓。
-4. 统计平仓方向上已接受、未结束的只减仓止损单的未成交量。
-5. |净持仓| 超出覆盖量且持续超过一根执行 K 线，即为裸仓区间。
-6. 声明设止损时每个区间计一条发现，运行无效。
+1. 按时间戳逐批重放事件史，同一纳秒的事件一起应用。
+2. 重建每个策略、每个合约的净持仓。
+3. 累计平仓方向上未结束的只减仓止损单数量。
+4. 净持仓超出止损量且持续超过一分钟，即为裸仓区间。
+5. 声明设止损时，每个裸仓区间计一条发现。
 
-- 只减仓止损单类型：STOP_MARKET、STOP_LIMIT、TRAILING_STOP_MARKET、TRAILING_STOP_LIMIT。
-- 一根执行 K 线为设计常量：一分钟。
-- 发现带品种、策略、持仓量、覆盖量、起止时刻、持仓订单号与已结束止损号（<Ref id="G.1.2.2" />）。
-- 只比数量，不比价格。
-- 回放结束时仍裸露的区间计到结束，并标 open_at_end。
-- 事件载荷非法由通用审计记为报表载荷无效。
-
-**输入**　订单事件史、订单与成交报表，以及摘要中的止损声明。
-
-**输出**　UNPROTECTED_POSITION 发现与 uncovered_intervals。
-
-**强制**　代码：<Ref id="engine.protection" /> 与 <Ref id="engine.uncovered_intervals" /> 重放事件史。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `ORDER_EVENT_HISTORY_MISSING` | 订单事件史缺失。 |
-| `UNPROTECTED_POSITION` | 声明设止损且出现裸仓区间，每个区间一条。 |
-| `EVENT_PAYLOAD_INVALID` | 事件载荷非法。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.uncovered_intervals">uncovered_intervals</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.3.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="声明不设止损的策略只报告裸仓区间，不计发现">
+<Cap id="G.3.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="声明不设止损的策略，裸仓只报告、不判无效">
 
-- 策略源码以布尔开关 USES_STOP_LOSS 声明是否设止损；载入时缺失或非布尔由 <Ref id="engine.load_strategy" /> 拒绝。
-- 声明经摘要字段 strategy_uses_stop_loss 进入审计。
-- 字段为假时，裸仓区间只写入结果的 uncovered_intervals，不计发现。
-- 摘要字段缺失时按设止损处理。
-- 字段存在但非布尔时计 STOP_LOSS_DECLARATION_INVALID，并按设止损处理。
-- 不设止损是可声明、仍被报告的研究选择，不是审计豁免。
-- 演练中裸仓按声明分为发现或仅报告。
+- 策略源码用一个开关声明是否设止损，载入时校验。
+- 声明不设止损时，裸仓区间只写进结果，不计发现。
+- 声明缺失或格式不对，一律按设止损处理。
+- 不设止损是可声明的研究选择，不是审计豁免。
 
-**输入**　摘要字段 strategy_uses_stop_loss。
-
-**输出**　uncovered_intervals，或声明设止损时的 UNPROTECTED_POSITION 发现。
-
-**强制**　代码：<Ref id="engine.load_strategy" /> 载入时校验声明，<Ref id="engine.protection" /> 读摘要字段决定是否计发现。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `STOP_LOSS_DECLARATION_INVALID` | 摘要中 strategy_uses_stop_loss 存在但非布尔。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.3.3.3" kind="code" tier="verified" tierLabel="已验证" title="未定价终止前每个仓位须归零、全部订单已结束，终止时刻起的事件算迟到">
+<Cap id="G.3.3.3" kind="code" tier="verified" tierLabel="已验证" title="无结算价下架前须清仓撤单，之后的订单事件算迟到">
 
-1. 覆盖回执存在时，通用审计用 <Ref id="engine.lifecycle_events" /> 从回执与摘要构造并核对生命周期事件。
-2. <Ref id="engine.lifecycle_findings" /> 把「状态事件 CLOSE 且同一品种同一时刻无 InstrumentClose」认定为未定价终止。
-3. 核对持仓事件恰好覆盖成交、事件史成交与报表相符。
-4. 沿事件史重放到终止时刻之前：每个原生仓位净量须为零，全部订单（含休眠与条件单）须已成交完或已结束，且无在途修改。
-5. 终止时刻及之后该品种的任何订单事件计为迟到。
+1. 从覆盖记录与摘要认出无结算价的下架时刻。
+2. 沿事件史重放到该时刻之前。
+3. 每个仓位净量须为零，全部订单须已结束、无在途修改。
+4. 该时刻及之后该合约的任何订单事件都计为迟到。
+5. 未清仓即判无效，产品不代为补结算价。
 
-- 审计不造结算价；未归零的运行无效，不由产品补结算。
-- 有价终止由引擎按 InstrumentClose 自行结算，照常走逐项对账，其关闭价须能在合约初始精度网格上精确表示（<Ref id="market.require_native_price" />）。
-- 演练中已下架合约的终止处置按此检查。
-
-**输入**　覆盖回执、摘要与对账通过的订单事件史。
-
-**输出**　终止相关的发现。
-
-**强制**　代码：<Ref id="engine.lifecycle_events" /> 与 <Ref id="engine.lifecycle_findings" /> 沿事件史重放。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LIFECYCLE_COVERAGE_MISSING` | 摘要有状态或关闭事件计数，却无覆盖回执。 |
-| `LIFECYCLE_EVIDENCE_INCONSISTENT` | 持仓事件未恰好覆盖成交，或事件史成交与报表不符。 |
-| `POSITION_OPEN_AT_TERMINATION` | 终止前任一原生仓位净量不为零。 |
-| `ORDER_OPEN_AT_TERMINATION` | 终止前任一订单（含休眠与条件单）未成交完或未结束，或有在途修改。 |
-| `LATE_ORDER_EVENT` | 终止时刻及之后该品种出现任何订单事件。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> <Ref id="engine.lifecycle_events">lifecycle_events</Ref></span></div>
 
 </Cap>
 
@@ -619,37 +296,31 @@
 
 <Step>
 
-封存回放后，审计结论写入运行行 run.status；资格本身不写入任何表。
+运行入账时只存审计结论，资格本身不另存。
 
 </Step>
 
 <Step>
 
-读口调用 <Ref id="qualification.assess" />，核存储审计结论（<Ref id="G.1.1.1" />），经 <Ref id="ledger.read_capture" /> 核原始执行捕获，经 <Ref id="qualification.source_reviews" /> 取绑定的独立源码审查，经 <Ref id="ledger.load_run" /> 与 <Ref id="qualification.native_reasons" /> 核原生记录的实质活动（substantive activity）与对账。
+读取时核审计结论、封存原件、独立源码审查与实质活动。
 
 </Step>
 
 <Step>
 
-assess 汇总全部不可用原因，附 <Ref id="qualification.check_identity" /> 给出的检查身份，得出经济证据资格（economic evidence availability）。
+汇总全部不可用原因，并附上所用判据的版本。
 
 </Step>
 
 <Step>
 
-报告类读口经 <Ref id="qualification.mask" /> 输出：不可用运行的绩效指标置空，诊断保留。
+报告时，不可用运行的绩效指标置空，只留诊断。
 
 </Step>
 
 <Step>
 
-比较、对照登记与分析表之前先过 <Ref id="qualification.require" />：不可用即以 ECONOMIC_EVIDENCE_UNAVAILABLE 拒绝；双方都具备资格才计算效应、区间与 p（<Ref id="G.4.1.2" />）。
-
-</Step>
-
-<Step>
-
-Agent 读诊断与原始证据，区分无信号、未就绪、未成交、被拒等原因；产品不做归因。
+比较与登记比较对照前，不可用运行一律被拒。
 
 </Step>
 
@@ -657,130 +328,64 @@ Agent 读诊断与原始证据，区分无信号、未就绪、未成交、被�
 
 ### G.4.1　实质活动 [#G-4-1]
 
-native_reasons 从原生报表核实质活动，assess 合成资格，mask 与 require 把资格作用到读口与硬门。
+有效运行还须确实发生交易，才有经济证据资格。
 
-<Cap id="G.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计通过不算经济证据，须有真实原生成交及匹配的订单、持仓周期与账户行">
+<Cap id="G.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计通过不等于经济证据，须有真实成交且记录相互匹配">
 
-- run.status = passed 只证明引擎原生记录自洽。
-- 须有真实原生成交。
-- 每笔成交的 client_order_id 对应唯一订单。
-- 由持仓报表重建的持仓周期恰好覆盖全部成交。
-- 生命周期终止核对无发现（<Ref id="G.3.3.3" />）。
-- 闭仓经济拆分（价格盈亏、手续费、资金费 funding）与审计经济数对账。
-- 交易窗口日收益可复合到期末权益。
-- 账户首行总额等于起始余额，末行等于审计期末余额（容差为未校准示例值）。
-- 不设费用金额、频率、样本量或收益门槛；零手续费、零资金费的真实成交照常可用。
-- assess 在实质活动之上叠加存储审计结论、原始执行捕获（<Ref id="G.4.2.1" />）与绑定的独立源码审查（<Ref id="G.4.2.2" />）。
-- 任一不成立即不可用。
-- 输出列出全部原因。
-- assess 是纯读视图，不写账本；所有策略同一套判据，不含好坏判断。
+- 须有真实原生成交，每笔成交对应唯一订单。
+- 持仓周期恰好覆盖全部成交，闭仓收益拆分与审计数对账。
+- 日收益能复合到期末权益，账户首末行与余额相符。
+- 不设费用、频率、样本量或收益门槛，所有策略同一判据。
 
-**输入**　native_reasons 输入一次运行的类型化原生报表；assess 输入一次运行。
-
-**输出**　native_reasons 输出不可用原因列表，空列表即实质活动成立；assess 输出 economic_evidence_available、全部原因、活动计数与检查身份。
-
-**强制**　代码强制：qualification/availability.py 中的 native_reasons 与 assess 对类型化原生报表逐项核对。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUN_NOT_FOUND` | 运行不存在 |
-| `LEDGER_CORRUPT` | 存储内容哈希不符 |
-| `EXECUTION_IDENTITY` | 执行身份不符 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.native_reasons">native_reasons</Ref> <Ref id="qualification.assess">assess</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="零成交或缺匹配记录的运行只留诊断，比较、对照登记与分析表拒绝它">
+<Cap id="G.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="不可用运行只留诊断，比较与对照登记都拒绝它">
 
-- mask 是绩效指标流出前的唯一遮蔽点。
-- 资格不可用时，mask 把期末权益、年化、最大回撤、胜率、盈亏与成本拆分、资金使用率（capital utilisation）等全部绩效指标与 cost_basis 置空。
-- 活动计数、审计边界、执行捕获状态与审查结论保留为诊断，并挂上资格原因与检查身份。
-- require 是比较（<Ref id="report.compare" />）、对照登记（<Ref id="registration.validate" />）与描述统计读口（<Ref id="report.tables" />）之前的硬门。
-- 拒绝时携带全部原因。
-- 调用方不得为不可用运行给出改善、区间与 p。
-- 账户未变的零成交运行同样被拒，不会因为没亏损就优于亏损的比较对照（control）。
-- 诊断原因（无信号、未就绪、无机会、未成交、被拒、异常）由 Agent 读原始证据区分（<Ref id="F.1.1.1" />），产品不归因。
+- 资格不可用时全部绩效指标置空，只留活动计数等诊断。
+- 比较和登记比较对照之前都先核资格，不可用即拒绝。
+- 拒绝时列出全部原因，不给检验结果。
+- 零成交运行没亏钱，也不能因此胜过亏损的对照。
 
-**输入**　assess 给出的资格结论与运行绩效指标。
-
-**输出**　mask 输出遮蔽后的绩效指标与诊断；require 放行，或拒绝并附全部原因。
-
-**强制**　代码强制：mask 是唯一遮蔽点，require 是硬门；评测用例 research-round/zero-fill-is-diagnostic 覆盖零成交只作诊断这一点。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `ECONOMIC_EVIDENCE_UNAVAILABLE` | 资格不可用的运行进入比较、对照登记或描述统计读口 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.mask">mask</Ref> <Ref id="qualification.require">require</Ref></span></div>
 
 </Cap>
 
 ### G.4.2　资格的来源与呈现 [#G-4-2]
 
-原始执行捕获、独立源码审查与存储审计结论三类来源各自核验、分别呈现，每份资格结论都带检查身份。
+封存原件、源码审查与审计结论各自核验，资格结论附判据版本。
 
-<Cap id="G.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="原始捕获记有异常、未完成或非零退出即不作经济证据；缺失不能事后补证">
+<Cap id="G.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="封存原件记有异常、未完成或非零退出，即不作证据">
 
-- read_capture 按试验行核验开始回执与执行封存包（由 <Ref id="ledger.seal_capture" /> 写出）的试验、源码哈希、运行环境身份与用途。
-- 逐文件核对字节长度和 sha256。
-- 记有结构化异常、结局非 completed 或任一阶段退出码非零的运行不作经济证据。
-- 没有最终封存时返回 missing；missing 保持缺失并作为局限写出，缺失不能证明没有回调异常。
-- 事后的探针、从工作目录恢复的字节都不能补证。
-- <Ref id="cli.execution_recover" /> 经 <Ref id="ledger.recover_capture" /> 另写 trial-\<trial_id>-recovery 证据包。
-- 只限原始捕获缺失、purpose = precheck、无运行行、未被登记尝试消耗的试验。
-- 恢复后原捕获仍读作 missing；恢复材料只作诊断与局限，在报告中与原捕获分列。
+- 读取时核对封存原件的试验、源码、运行环境与逐文件哈希。
+- 记有异常、未正常完成或任一阶段非零退出，即不可用。
+- 没有封存原件即记为缺失，并作为局限写出。
+- 事后探针或从工作目录恢复的字节，都不能补证。
 
-**输入**　trial_id。
-
-**输出**　各阶段退出码、结局与结构化异常回执；没有最终封存时为 missing。
-
-**强制**　代码强制：read_capture 核对哈希与身份，recover_capture 检查准入条件并写入独立证据包。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `EXECUTION_IDENTITY` | 封存包的试验、源码哈希、运行环境身份或用途与试验行不符 |
-| `LEDGER_CORRUPT` | 封存文件的字节长度或 sha256 不符 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="ledger.recover_capture">recover_capture</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="与本运行同源码同环境的独立审查记为 failed，该运行即不作经济证据">
+<Cap id="G.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="绑定本运行的独立源码审查为失败，即不作证据">
 
-- 独立源码审查是具名 Agent 证据，绑定源码与运行环境。
-- <Ref id="registration.record_review" /> 把审查只追加写为证据包内的 source-review.json。
-- 源码哈希与镜像摘要从账本读取，不采信调用方提供的值。
-- <Ref id="qualification.source_reviews" /> 只计源码哈希与镜像摘要都等于本运行的审查。
-- 任一绑定审查记为 failed，该运行即不作经济证据；候选不删除。
-- 审查结论与账户审计分别呈现：审计通过不证明源码因果正确，审查通过也不能替代审计。
-- 条目写法由 skill 指导（`research-round/references/strategy-authoring.md#precheck-and-review`）。
+- 审查绑定源码与运行环境，身份从账本读，不信调用方。
+- 只计源码和运行环境都与本运行相同的审查。
+- 任一绑定审查为失败，运行即不可用，候选不删除。
+- 审查与审计分别呈现，二者不能互相替代。
 
-**输入**　<Ref id="cli.source_review" /> 接收候选 strategy_id@revision、运行环境引用、预检试验、总结论（passed | failed）、api / causal / activity / readiness 四项逐项结论与具名审查者。
-
-**输出**　证据包内的 source-review.json；source_reviews 读出与本运行绑定的审查结论。
-
-**强制**　代码强制只追加存储、身份绑定与读取；审查内容由 Agent 负责，写法由 research-round skill 指导。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `PRECHECK_NOT_FOUND` | 预检试验不是同源码、同运行环境的原生预检 |
-| `PRECHECK_CAPTURE_MISSING` | 预检试验没有原始预检捕获 |
-| `REVIEW_INVALID` | 审查条目不全 |
-| `LEDGER_CORRUPT` | 读取时存储哈希不符 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.source_reviews">source_reviews</Ref> <Ref id="registration.record_review">record_review</Ref></span></div>
 
 </Cap>
 
-<Cap id="G.4.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="资格按检查身份在读取时算出，不改写审计结论，所有读口共用一个视图">
+<Cap id="G.4.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="资格在读取时按当前判据算出，不改写审计结论">
 
-- <Ref id="qualification.check_identity" /> 给出检查名（判据版本常量）、指标计算版本与检查器源码 sha256，随每份资格结论与拒绝体一起输出。
-- 视图不改写存储的 run.status 与审计结果。
-- 判据变更后，旧运行按新检查重评。
-- 历史结论原样保留。
-- 同一运行在不同时刻读到的资格不同，由检查身份解释。
-- 运行报告、候选清单、比较、研究计数与分析表共用 <Ref id="qualification.assess" /> 与 <Ref id="qualification.mask" />。
-- 未封存的探索目录由 <Ref id="report.directory_report" /> 经 <Ref id="report.load_directory" /> 解析，按同一实质活动判据给出只读视图。
-- 目录视图固定注明「未封存、来源未核验、不作证据」，不进入候选清单与比较。
+- 每份资格结论附检查身份：判据版本与检查器版本。
+- 判据变了旧运行按新判据重评，历史结论原样保留。
+- 运行报告、候选清单、比较与研究状态共用同一视图。
+- 未封存的探索目录只给只读视图，注明不作证据。
 
-**输入**　运行（或未封存的探索目录）与当前检查身份。
-
-**输出**　带检查身份的当前资格视图，经运行报告（<Ref id="report.run_report" />）、候选清单（<Ref id="report.candidates" />）、比较（<Ref id="report.compare" />）、研究计数（<Ref id="report.research_status" />）、分析表（<Ref id="report.tables" />）与命令行读口 <Ref id="cli.replay_report" /> 呈现。
-
-**强制**　代码强制：所有读口都从同一组资格函数取得资格，检查身份随结论输出。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.check_identity">check_identity</Ref> <Ref id="qualification.assess">assess</Ref> <Ref id="report.directory_report">directory_report</Ref></span></div>
 
 </Cap>
 
