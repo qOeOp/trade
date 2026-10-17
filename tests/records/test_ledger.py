@@ -24,7 +24,7 @@ from tests.records.fixtures import reports
 
 SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
 IMAGE = "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64
-INSPECTION = {"runtime_contract": "r1-native-v4", "nautilus_version": "fixture", "dependency_lock_sha256": "c" * 64,
+INSPECTION = {"runtime_contract": "r1-native-v5", "nautilus_version": "fixture", "dependency_lock_sha256": "c" * 64,
               "platform": "linux/arm64", "source_files_sha256": {}, "source_file_paths": {}}
 
 
@@ -386,6 +386,22 @@ class LedgerProfileTests(unittest.TestCase):
             TemporaryLedger("nested")
         status = ledger.status()["ledgers"]
         self.assertEqual([(item["name"], item["running"]) for item in status], [("active-one", True)])
+
+    def test_the_research_cli_defaults_to_the_research_ledger_beside_a_market_database(self):
+        fixture = TemporaryLedger("research-one", role="active")
+        self.addCleanup(fixture.close)
+        market = {"name": "market-one", "kind": "market", "role": "active", "service": str(fixture.root / "m"),
+                  "database": "market_one", "backup": None}
+        (ledger.home() / "market-one.json").write_text(json.dumps(market))
+        self.assertEqual(ledger.profile(None)["name"], "research-one")
+        self.assertEqual(ledger.profile(None, of="market")["name"], "market-one")
+        with self.assertRaises(RecordError) as caught:
+            ledger.profile("market-one")
+        self.assertEqual(caught.exception.code, "LEDGER_KIND")
+        status = {item["name"]: item for item in ledger.status()["ledgers"]}
+        self.assertEqual(status["market-one"]["kind"], "market")
+        self.assertFalse({"open_round", "closed_rounds"} & set(status["market-one"]))
+        self.assertIn("open_round", status["research-one"])
 
     def test_a_temporary_ledger_is_gone_after_its_command(self):
         home = Path(tempfile.mkdtemp(prefix="lh-", dir="/tmp"))

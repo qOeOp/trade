@@ -1,7 +1,7 @@
 # Every native replay
 
 Every native replay goes through `artifacts run`, and each writes one trial row in the open round
-before it starts (strategy source hash, window, coins, image); without an open round it is refused.
+before it starts (strategy source hash, window, contracts, image); without an open round it is refused.
 Never start a replay or a probe with `docker run` or a direct runner command.
 
 - **Explore** a draft file into a new `/tmp` directory: reports stay there, nothing else is stored.
@@ -18,22 +18,20 @@ Never start a replay or a probe with `docker run` or a direct runner command.
   accepts only a run on an image built from a commit on origin/main: merge a missing product
   capability first, then rerun on the main image.
 - The image's contract label must equal the revision's `runtime_contract`.
-- A sealed run takes an input identity of the prepared Catalogs (a working file under `/tmp`); the
-  trees are hashed before and after the replay and the identity is stored with the run:
-
-```bash
-uv run --frozen python -m research.records.artifacts input-identity \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --output /tmp/RUNDIR/input-identity.json
-```
+- Inputs are one commit of the market database: `--market REF` (branch, tag or commit; default
+  `main`), and after `--` the contracts, `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`)
+  or `--universe pool` (every contract in the monthly pool during the trade window). USDT
+  perpetuals from 2020-01; `uv run --frozen python -m research.market.cli status` gives the newest
+  covered day and the latest complete month, `... pool --month YYYY-MM` the pool. `run` exports the
+  commit for the window (an exploration reuses a cache under the temp directory, a seal exports
+  afresh) and stores the market database, commit, pool rule and contracts with the run.
 
 ## Explore
 
 ```bash
 uv run --frozen python -m research.records.artifacts run --explore \
   --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
+  --symbols BTCUSDT ETHUSDT --start START --trade-start TRADE-START --end END
 ```
 
 `--output` receives `reports/`, the logs and `runtime-inspection.json`. The result carries
@@ -47,14 +45,12 @@ probe, run a script from `/tmp` on the host with
 ## Seal
 
 ```bash
-uv run --frozen python -m research.records.artifacts run --strategy ID@N \
-  --input-identity /tmp/RUNDIR/input-identity.json -- \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
+uv run --frozen python -m research.records.artifacts run --strategy ID@N [--market COMMIT] -- \
+  --universe pool --start START --trade-start TRADE-START --end END
 ```
 
-- Arguments after `--` go to the runner; `run` supplies the strategy file, class, hash, bindings
-  and output itself and refuses those flags.
+- Arguments after `--` go to the runner; `run` supplies the strategy file, class, hash, bindings,
+  market inputs and output itself and refuses those flags.
 - Times carry `Z` or an explicit UTC offset and fall on five-minute boundaries with
   `start <= trade-start < end`; `start` to `trade-start` is warmup. A freeze needs
   `trade-start`/`end` equal to the goal window.

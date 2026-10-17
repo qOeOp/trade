@@ -20,16 +20,20 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
   published `--entry-class` and `--strategy-class` of an exploration must agree. Runtime contract:
-  `r1-native-v4`.
-- The constructor receives `instrument_id`, `daily_bar_type`, `trade_size` positionally, then
-  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5) and `strategy_id` by
-  keyword (`_Configured.__init__` in `run.py`). Pass `StrategyConfig(strategy_id=strategy_id)` to
-  `Strategy.__init__`.
+  `r1-native-v5`.
+- The constructor receives `instrument_id` and `daily_bar_type` positionally, then
+  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5), `strategy_id` and
+  `pool_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
+  `StrategyConfig(strategy_id=strategy_id)` to `Strategy.__init__`.
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL` without an aggregation source; subscribe
   to it with `@5-MINUTE-EXTERNAL` appended, or no daily bars arrive.
-- Besides `historical_daily_bars`, only a fixed quantity per instrument arrives. The runner has no
-  signal, exit, warmup or sizing option: every rule and parameter is in the file, and a variant is
-  a new revision of it.
+- `pool_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is in
+  the monthly pool (empty when the replay names contracts the pool never held). The pool rule is
+  that a contract out of the pool takes no new positions and only closes what it holds; apply it in
+  the file, the runner and the audit do not.
+- No quantity arrives: size from the account and price in the file. The runner has no signal,
+  exit, warmup or sizing option: every rule and parameter is in the file, and a variant is a new
+  revision of it.
 - Set the class attribute `DAILY_WARMUP = True` if the file needs historical daily bars; it
   defaults to `False`, and any other value is refused.
 
@@ -56,9 +60,10 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   prior-bar indicator, update it after the decision.
 - Bars between `--start` and `--trade-start` are warm-up. Nothing blocks orders there; the file
   must not submit before `trade_start_ns`.
-- With `DAILY_WARMUP = True`, `historical_daily_bars` holds at least 200 contiguous
-  `-1-DAY-LAST-EXTERNAL` bars, the last stamped 1 ms before `--start`, so `--start` must be 00:00
-  UTC or the replay fails; without it the list is `[]`. The engine does not replay them; seed state
+- With `DAILY_WARMUP = True`, `historical_daily_bars` holds the unbroken run of daily
+  `-1-DAY-LAST-EXTERNAL` bars (derived from 1-minute bars, from 2020 at the earliest) that ends
+  1 ms before `--start`, at least 200 of them, so `--start` must be 00:00 UTC or the replay fails;
+  without it the list is `[]`. The engine does not replay them; seed state
   from the list.
 - Matching uses 5-minute bars and the order inside one bar is unknown. Do not encode an intrabar
   path.
@@ -195,7 +200,8 @@ back ([records.md](records.md)).
 
 ## Pilot, then full replay
 
-Run the draft on a pilot of two liquid instruments in `--coins`, then on the full instrument set
+Run the draft on a pilot of two liquid instruments in `--symbols`, then on the full instrument set
+(`--universe pool`)
 with the same configuration, through `artifacts run --explore` ([runs.md](runs.md)); it runs the
 current main image and writes a trial. A run a freeze or confirmation cites is sealed by
 `artifacts run --strategy ID@N`, which supplies the strategy arguments itself. Never run the replay
@@ -204,8 +210,7 @@ with `docker run` or `python -m backtest...` directly.
 ```bash
 uv run --frozen python -m research.records.artifacts run --explore \
   --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
+  --symbols BTCUSDT ETHUSDT --start START --trade-start TRADE-START --end END
 ```
 
 Times need `Z` or a UTC offset on five-minute

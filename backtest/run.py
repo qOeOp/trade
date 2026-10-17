@@ -1,15 +1,15 @@
-"""Replay one complete strategy over prepared instruments in one native Nautilus BacktestNode account.
+"""Replay one complete strategy over exported market data in one native Nautilus BacktestNode account.
 
-The runner takes four things: the strategy reference, the inputs, the window and the account. The
-account and market facts (balance, leverage, fees, funding, matching) are fixed here; everything
-else, sizing included, is the strategy source. ``--describe`` prints the image's runtime identity
+The runner takes four things: the strategy reference, the inputs (one market commit exported per
+contract, the contracts and their pool membership), the window and the account. The account and
+market facts (balance, leverage, fees, funding, matching) are fixed here; everything else, sizing
+included, is the strategy source. ``--describe`` prints the image's runtime identity
 and the resolved configuration instead of replaying.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import importlib.metadata
 import json
@@ -35,7 +35,6 @@ from nautilus_trader.model import (
     Currency,
     InstrumentId,
     OmsType,
-    Quantity,
     StrategyId,
     TraderId,
 )
@@ -48,13 +47,13 @@ from backtest.load import (
     RUNTIME_CONTRACT,
     LoadedStrategy,
     load_strategy,
-    mark_root,
+    mark_timestamps,
     ns,
-    prepare_mark_catalog,
-    read_instruments,
+    read_market,
+    read_pool,
     read_regular_file,
+    strategy_id,
     utc_datetime,
-    validate_funding_receipt,
     warmup_daily_bars,
 )
 
@@ -92,12 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     strategy.add_argument("--strategy-sha256")
     strategy.add_argument("--strategy-binding", type=Path)
     strategy.add_argument("--execution-binding", type=Path)
-    inputs = parser.add_argument_group("inputs")
-    inputs.add_argument("--catalog-root", type=Path, required=True)
-    inputs.add_argument("--daily-root", type=Path, required=True)
-    inputs.add_argument("--quantity-csv", type=Path, required=True)
-    inputs.add_argument("--mark-root", type=Path)
-    inputs.add_argument("--coins", nargs="+", required=True)
+    inputs = parser.add_argument_group("inputs: one market commit exported per contract (research.market.export)")
+    inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
+    inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
+    inputs.add_argument("--pool", type=Path, help="pool membership JSON handed to every strategy")
+    inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
     window = parser.add_argument_group("window")
     window.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
     window.add_argument("--end", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
@@ -130,6 +128,8 @@ def parse_configuration(argv: list[str] | None = None):
             or any(value.minute % 5 or value.second or value.microsecond
                    for value in (start, end, trade_start))):
         parser.error("replay needs a positive five-minute-aligned interval with trade-start inside it")
+    if len(args.symbols) != len(set(args.symbols)):
+        parser.error("--symbols must be unique")
     return args
 
 
@@ -137,11 +137,10 @@ def effective_configuration(args) -> dict:
     """Canonical experiment configuration, including native execution defaults."""
     return {
         "runtime_contract": RUNTIME_CONTRACT,
-        "catalog_root": str(args.catalog_root),
-        "daily_root": str(args.daily_root),
-        "quantity_csv": str(args.quantity_csv),
-        "mark_root": str(args.mark_root) if args.mark_root is not None else None,
-        "coins": args.coins,
+        "market_root": str(args.market_root),
+        "market_commit": args.market_commit,
+        "pool": str(args.pool) if args.pool is not None else None,
+        "symbols": args.symbols,
         "start": args.start,
         "end": args.end,
         "trade_start": args.trade_start if args.trade_start is not None else args.start,
@@ -201,13 +200,12 @@ OBSERVERS: list = []
 
 @dataclass
 class StrategyInputs:
-    coin: str
     instrument_id: str
-    trade_size: str
     trade_start_ns: int
     input_start_ns: int
     strategy_id: str
-    daily_root: str
+    catalog_path: str
+    pool_membership: list
 
 
 class _Configured:
@@ -221,14 +219,14 @@ class _Configured:
         super().__init__(
             instrument_id,
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
-            Quantity.from_str(config.trade_size),
             trade_start_ns=config.trade_start_ns,
             historical_daily_bars=(
-                warmup_daily_bars(Path(config.daily_root), config.coin, instrument_id, config.input_start_ns)
+                warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
                 if getattr(type(self), "DAILY_WARMUP", False) else []
             ),
             execution_bar_minutes=5,
             strategy_id=StrategyId(config.strategy_id),
+            pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
         )
         STRATEGIES[config.instrument_id] = self
 
@@ -320,16 +318,12 @@ class Replay:
         return self.node.generate_account_report(self.run_id, venue=venue)
 
 
-def replay(rows: list[dict], args, start_dt, end_dt, trade_start: int, strategy: LoadedStrategy):
-    marks = mark_root(args)
+def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, pool: dict):
     data = []
     for row in rows:
-        mark_path = marks / row["coin"]
-        prepare_mark_catalog(row, mark_path, start_dt, end_dt)
-        validate_funding_receipt(row, ns(args.start), ns(args.end))
         instrument_id = row["instrument_id"]
         data.extend([
-            BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=str(mark_path),
+            BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=str(row["catalog_path"]),
                                instrument_id=instrument_id),
             BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=str(row["catalog_path"]),
                                instrument_id=instrument_id),
@@ -380,13 +374,12 @@ def replay(rows: list[dict], args, start_dt, end_dt, trade_start: int, strategy:
                 strategy_path=strategy_path,
                 config_path=f"{__name__}:StrategyInputs",
                 config={
-                    "coin": row["coin"],
                     "instrument_id": str(row["instrument_id"]),
-                    "trade_size": row["quantity"],
                     "trade_start_ns": trade_start,
                     "input_start_ns": ns(args.start),
-                    "strategy_id": f"R1-{row['coin']}",
-                    "daily_root": str(args.daily_root),
+                    "strategy_id": strategy_id(row["symbol"]),
+                    "catalog_path": str(row["catalog_path"]),
+                    "pool_membership": [list(interval) for interval in pool[row["symbol"]]],
                 },
             ),
         )
@@ -399,13 +392,11 @@ def replay(rows: list[dict], args, start_dt, end_dt, trade_start: int, strategy:
         ),
     )
     result = node.run()[0]
-    expected_iterations = sum(sum(row["completion"]["counts"].values()) for row in rows)
+    expected_iterations = sum(sum(row["counts"].values()) for row in rows)
     if result.iterations != expected_iterations:
         raise RuntimeError(
-            f"native data count differs from download receipts: {result.iterations} != {expected_iterations}",
+            f"native data count differs from the export receipts: {result.iterations} != {expected_iterations}",
         )
-    for row in rows:
-        row["counts"] = row["completion"]["counts"].copy()
     strategies = {row["coin"]: STRATEGIES[str(row["instrument_id"])] for row in rows}
     if len(OBSERVERS) != 1:
         raise RuntimeError("native capital observer did not start exactly once")
@@ -425,23 +416,18 @@ def main(argv: list[str] | None = None) -> None:
     trade_start_dt = utc_datetime(args.trade_start) if args.trade_start is not None else start_dt
     start, end = ns(args.start), ns(args.end)
     trade_start = ns(trade_start_dt.isoformat())
-    with args.quantity_csv.open(newline="") as stream:
-        quantities = {row["coin"]: row["quantity"] for row in csv.DictReader(stream)}
-    if len(args.coins) != len(set(args.coins)) or any(coin not in quantities for coin in args.coins):
-        raise ValueError("coins must be unique and have registered quantities")
-    rows = read_instruments(args.catalog_root, args.coins, quantities, start, end)
-    finished, strategies = replay(rows, args, start_dt, end_dt, trade_start, strategy)
-    for row in rows:
-        if row["counts"] != row["completion"].get("counts"):
-            raise RuntimeError(f"{row['coin']}: streamed totals do not match download receipt")
+    rows = read_market(args.market_root, args.symbols, args.market_commit, start, end)
+    pool = read_pool(args.pool, args.symbols)
+    finished, strategies = replay(rows, args, trade_start, strategy, pool)
     identity = {
         **strategy.metadata(), **report.runtime_source_metadata(), **executed,
+        "market_commit": args.market_commit,
         "strategy": strategy.binding["strategy_id"] if strategy.binding else strategy.entry_class,
     }
     window = {"start": args.start, "end": args.end, "trade_start_dt": trade_start_dt, "end_dt": end_dt,
               "trade_start_ns": trade_start}
     _, findings = report.write(args.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
-                               (end - start) // BAR_INTERVAL_NS)
+                               mark_timestamps(rows))
     if findings:
         raise RuntimeError("; ".join(findings))
 

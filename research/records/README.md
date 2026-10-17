@@ -22,9 +22,10 @@ its accounts, the write protocol, backup, tests and what the guarantees are.
 ## Services, databases and profiles
 
 One Dolt 2.4.2 `sql-server` per service directory, reachable only through its unix socket (and the
-loopback port Dolt requires). A service can hold several databases: the research ledger now, the
-market data database of WS8b later. A profile names one database on one service; commands select it
-with `--ledger NAME` (default: the profile whose role is `active`). Profiles are JSON files in
+loopback port Dolt requires). A service can hold several databases: the research ledger and the
+market database ([`research/market`](../market/README.md), profile kind `market`, created with
+`ledger init --kind market`). A profile names one database on one service; commands select it with
+`--ledger NAME` (default: the research profile whose role is `active`). Profiles are JSON files in
 `~/.local/share/trade/ledgers/`; `TRADE_LEDGER_HOME` points elsewhere for tests and demonstrations.
 
 ```bash
@@ -43,8 +44,8 @@ uv run --frozen python -m research.records.cli ledger stop --ledger research
   writes need an explicit grant on this service, and the commit-test group `commit` applies to every
   database on it: a new database needs at least one `dolt_tests` row in that group, or every commit
   in it is refused.
-- Roles: one `active` profile; `isolated` and `temporary` profiles must use a different database
-  name, checked at creation and on every write. `ledger temp --name N --binary B -- CMD` starts a
+- Roles: one `active` profile of each kind; `isolated` and `temporary` profiles must use a database
+  name no active profile uses, checked at creation and on every write. `ledger temp --name N --binary B -- CMD` starts a
   throwaway service and ledger, runs `CMD` (which names `--ledger N`) and deletes both.
 - `ledger status` lists every profile, whether its service runs, the open round and its head.
 
@@ -118,4 +119,4 @@ and refuse to run when the profile directory in use holds an active ledger.
 ## Not here
 
 Old ledgers, sealed artifact directories and their backups are outside this design and are deleted
-in WS7. Only the `r1-native-v4` runtime layout is known; seals of earlier contracts are not read.
+in WS7. Only the `r1-native-v5` runtime layout is known; seals of earlier contracts are not read.
