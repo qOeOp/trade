@@ -15,6 +15,7 @@
   <File name="references/restore.md" />
   <File name="templates/strategy-header.md" />
   <File name="references/duty-directory.md" />
+  <File name="templates/workdir-agents.md" />
 </Folder>
 </Files>
 
@@ -93,8 +94,8 @@
 可比性被拒后的处置、p 的读法、解释写适用与重评条件、记录搜索暴露、优先级排序不关方向
 
 <ol className="rd-skill-rules">
-<li id="def-rule-E-2-1-2">interpretation 写适用与重评条件，结论限登记条件，不写结果类别 <span className="rd-rule-links"><Ref id="E.2.1.2">E.2.1.2</Ref> V.4.2.1</span><span className="rd-eval">eval <code>conditions-not-exclusion</code>：interpretation 含适用与重评条件，未把不显著、亏损或零成交写成排除，也未把结论推广到登记条件之外</span></li>
-<li id="def-rule-E-2-2-2">算过的视角与读过的报告各记一条 search_exposure 判断 <span className="rd-rule-links"><Ref id="E.2.2.2">E.2.2.2</Ref></span><span className="rd-eval">eval <code>search-exposure-recorded</code>：每个算过的视角与读过的报告都有对应 search_exposure 判断</span></li>
+<li id="def-rule-E-2-1-2">每个登记至少写一条 interpretation：适用与重评条件，结论限登记条件 <span className="rd-rule-links"><Ref id="E.2.1.2">E.2.1.2</Ref> V.4.2.1</span><span className="rd-eval">eval <code>conditions-not-exclusion</code>：interpretation 含适用与重评条件，未把不显著、亏损或零成交写成排除，也未把结论推广到登记条件之外</span></li>
+<li id="def-rule-E-2-2-2">自写脚本算出的视角记 search_exposure；产品命令看到的试验已由账本计入 N <span className="rd-rule-links"><Ref id="E.2.2.2">E.2.2.2</Ref></span><span className="rd-eval">eval <code>search-exposure-recorded</code>：每个算过的视角与读过的报告都有对应 search_exposure 判断</span></li>
 <li id="def-rule-V-2-3-2">可比性被拒时另选对照或先重放对照，不自拼序列出比较 <span className="rd-rule-links"><Ref id="V.2.3.2">V.2.3.2</Ref></span><span className="rd-eval">eval <code>comparability-refusal-no-self-splice</code>：COMPARABILITY_MISMATCH 后下一动作是另选可比对照或在新身份下先重放对照；没有自行对齐或拼接两侧序列算出效应、区间或 p</span></li>
 <li id="def-rule-V-4-2-3">p 是登记模型下的尾部概率：跨零为不确定，开发窗口内只称改善 <span className="rd-rule-links"><Ref id="V.4.2.3">V.4.2.3</Ref></span><span className="rd-eval">eval <code>p-is-not-validity-probability</code>：陈述把 p 写成登记模型下的尾部概率，区间跨零称不确定，开发窗口内只称改善</span></li>
 <li id="def-rule-F-2-1-1">按效应、不确定性、机制、覆盖、信息价值与成本排下一动作，不关方向 <span className="rd-rule-links"><Ref id="F.2.1.1">F.2.1.1</Ref> F.2.2.1</span><span className="rd-eval">eval <code>gross-negative-updates-priority</code>：负面结果只体现在 priority 判断的排序与重评条件，没有关闭方向或排除候选</span></li>
@@ -107,7 +108,7 @@
 计数只引账本、推荐覆盖全部可用候选、非劣集口径
 
 <ol className="rd-skill-rules">
-<li id="def-rule-E-2-1-1">复盘后各记推荐、优先级、复盘节奏判断，改判写新条并以 supersedes 指旧条 <span className="rd-rule-links"><Ref id="E.2.1.1">E.2.1.1</Ref></span></li>
+<li id="def-rule-E-2-1-1">复盘写 recommendation 与 priority；复盘节奏写成 cadence_trials，只能调低 <span className="rd-rule-links"><Ref id="E.2.1.1">E.2.1.1</Ref></span></li>
 <li id="def-rule-F-3-1-1">次数只引账本研究计数，可比候选数取经济证据可用数 <span className="rd-rule-links"><Ref id="F.3.1.1">F.3.1.1</Ref></span><span className="rd-eval">eval <code>counts-read-not-self-assessed</code>：引用的试验数与可比候选数等于账本读口给出的数</span></li>
 <li id="def-rule-F-3-2-1">推荐前在全部经济证据可用候选（含历史）上多维比较 <span className="rd-rule-links"><Ref id="F.3.2.1">F.3.2.1</Ref></span><span className="rd-eval">eval <code>all-comparable-candidates</code>：recommendation 依据覆盖全部经济证据可用候选（含历史），多维比较</span></li>
 <li id="def-rule-R-5-1-1">非劣集只在同窗口同范围的可用运行上按四维求，不作门槛 <span className="rd-rule-links"><Ref id="R.5.1.1">R.5.1.1</Ref></span><span className="rd-eval">eval <code>pareto-is-range-not-gate</code>：只在经济证据可用候选上按四维求，按窗口与范围分组，未当资格边界或单指标排序</span></li>
@@ -489,6 +490,26 @@ I2 退出可行性与未来资源：<立场> | <理由> | <来源>
 </Accordion>
 
 </Accordions>
+
+## `templates/workdir-agents.md` [#def-file-research-round-templates-workdir-agents-md]
+
+**触发**　命令导出工作副本或生成脚手架时写入工作目录，Agent 在该目录工作时读
+
+工作目录说明：改这个文件要守的规则与下一步命令
+
+```text
+# 本目录是候选 <strategy_id@revision> 的工作副本
+
+- 这里的源码不是记录。改完经 `candidate publish` 发布才成为新候选；工作副本随时可删。
+- 改源码前先读文件头 27 项职责立场；只改本次改动涉及的职责行，登记时把这些编号写进 changed_duties。
+- 文件头格式见同目录 strategy-header.md；拿不准某项立场时读 research-round 的 references/duty-directory.md。
+- 规则与参数全部写在源码里；交易事实只取引擎状态；只用已收盘信息决策。
+- 下一步：`candidate publish` → `replay precheck` → `registration add --source …` → `replay run`。
+- 命令拒绝时，按返回的 next_actions 补齐再继续，不绕过。
+
+```
+
+**硬契约（不得写不适用）**　
 
 ## 交给独立审查 [#def-reviewer-research-round]
 

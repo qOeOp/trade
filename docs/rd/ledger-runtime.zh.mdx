@@ -495,6 +495,8 @@ Agent 只追加自由文本证据包与判断行，结构化事实与样本外�
 - 产品封存命名空间 trial-\<id>-execution(-start) 与 trial-\<id>-recovery-* 只由回放封存（<Ref id="replay.seal" />、<Ref id="ledger.seal_capture" />、<Ref id="ledger.recover_capture" />）写。
 - 证据导出经 <Ref id="cli.evidence_export" /> 核验哈希后写到临时目录。
 - 账本服务由 <Ref id="cli.ledger_service" /> 起停。
+- 每个拒绝码在 <Ref id="ledger.refusal_catalogue" /> 有一条修法，拒绝信息的 next_actions 由它给出；拒绝信息因此就是违反那一刻的提示。
+- 账本每张表与每个字段带 COMMENT，内容取自表结构设计里的字段说明；Agent 查结构时直接读到字段含义。
 
 **输入**　名词、动词子命令与参数。
 

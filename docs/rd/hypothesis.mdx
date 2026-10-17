@@ -352,6 +352,7 @@ V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需�
 - 登记包写入后不可改，更正只能是新包。
 - 同内容重试幂等返回原记录。
 - 登记体含 changed_duties：本次改动涉及的职责编号（A1 至 I2，见职责目录）；根登记为空，派生登记至少一项。
+- 来源原件随登记一起入账：`registration add --source …` 在同一事务里写来源证据包；引了外部依据而没有原件即拒绝（SOURCES_REQUIRED）。
 
 **输入**　登记体（五样：经济理由与预测、来源证据包引用、一个比较维度、完整网格、本次试验的适用条件；检验条件；比较对照 control 的运行引用；网格每点的候选引用 strategy_id@revision 与配置；每点的源码审查引用；可选 retry_of）、运行环境引用、运行器参数。
 
@@ -429,6 +430,30 @@ V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需�
 | `SOURCE_PRECHECK_FAILED` | 预检失败。 |
 | `REGISTRATION_TOO_LATE` | 登记的服务器时间不早于试验的服务器时间。 |
 | `GRID_ALREADY_ATTEMPTED` | 该网格点已被消耗。 |
+
+</Cap>
+
+<Cap id="H.4.1.4" kind="code" tier="unverified" tierLabel="待验证" title="登记体按 JSON Schema 校验，失败时返回字段说明">
+
+- <Ref id="registration.plan_schema" /> 给每个字段写 description；校验失败的拒绝信息附该字段说明，Agent 不必从 skill 里记字段含义。
+
+**强制**　代码：登记校验。
+
+</Cap>
+
+<Cap id="H.4.1.5" kind="code" tier="unverified" tierLabel="待验证" title="同一路线的下一次登记，须先补齐解释、到期的复盘与复盘节奏">
+
+- <Ref id="registration.require_line_records" /> 在登记写事务内核三件事：已完成的试验都有 interpretation 判断；复盘到期时已有新的 recommendation；派生登记前已有 review_cadence。
+- 复盘节奏写成 cadence_trials（每 N 个研究试验），由 <Ref id="ledger.add_judgment" /> 校验，只能调低。
+- <Ref id="report.research_state" /> 的 gates 预先列出下一次登记还缺什么。
+
+**强制**　代码：登记写事务内的前置门；持久化与流程绑定，不靠 skill 提醒。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INTERPRETATION_REQUIRED` | 有已完成的研究试验没有解释判断 |
+| `REVIEW_DUE` | 复盘到期尚未写推荐 |
+| `REVIEW_CADENCE_REQUIRED` | 派生登记前未声明复盘节奏 |
 
 </Cap>
 

@@ -19,6 +19,7 @@
   <File name="lines.py" />
   <File name="metrics.py" />
   <File name="paths.py" />
+  <File name="refusals.py" />
   <File name="strategies.py" />
   <File name="trials.py" />
   <File name="witness.py" />
@@ -365,24 +366,25 @@ def write(
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.refusal">refusal</Ref> | 带拒绝码、缺什么与写入状态的异常；只说明缺什么，不提供绕过途径。拒绝码的取值由抛出它的各信任边界函数定义，本类型只规定形态与序列化。 |
+| <Ref id="ledger.refusal">refusal</Ref> | 带拒绝码、缺什么、修法与写入状态的异常；修法来自拒绝码目录，只给补齐所缺记录的命令，不给绕过办法 |
 
 ### `refusal` [#def-ledger-refusal]
 
-带拒绝码、缺什么与写入状态的异常；只说明缺什么，不提供绕过途径。拒绝码的取值由抛出它的各信任边界函数定义，本类型只规定形态与序列化。
+带拒绝码、缺什么、修法与写入状态的异常；修法来自拒绝码目录，只给补齐所缺记录的命令，不给绕过办法
 
 ```python
 def refusal(
     code: str,
     message: str,
     missing: tuple[str, ...],
-    expected: str | None,
     write_status: Literal['not_written', 'unknown'],
     operation_id: str | None,
+    expected: str | None,
+    next_actions: tuple[str, ...],
 ) -> 异常实例
 ```
 
-<TypeTable type={{ "code": { type: "str", description: "大写蛇形拒绝码，由抛出方的能力定义；构造时校验形态（^[A-Z][A-Z0-9_]*$），不合规视为编程错误而非拒绝" }, "message": { type: "str", description: "一句话说明缺什么或哪项核对不成立；不含 SQL、服务目录、凭证路径或任何绕过办法" }, "missing": { type: "tuple[str, ...]", description: "缺失或不成立的具体项（字段名、表名、输入键、资格项），供调用方逐项补齐；可为空" }, "expected": { type: "str | None", description: "期望的形态或取值范围，只描述契约，不给示例命令" }, "write_status": { type: "Literal['not_written', 'unknown']", description: "本次调用对账本的写入状态：not_written 表示确定未写；unknown 表示写可能已落地，调用方用同一 operation_id 重试即幂等；默认 unknown（保守）" }, "operation_id": { type: "str | None", description: "幂等写入的操作标识；write_status 为 unknown 时必须给出，重试据此判重" } }} />
+<TypeTable type={{ "code": { type: "str", description: "大写蛇形拒绝码，由抛出方的能力定义；构造时校验形态（^[A-Z][A-Z0-9_]*$），不合规视为编程错误而非拒绝" }, "message": { type: "str", description: "一句话说明缺什么或哪项核对不成立；不含 SQL、服务目录、凭证路径或任何绕过办法" }, "missing": { type: "tuple[str, ...]", description: "缺失或不成立的具体项（字段名、表名、输入键、资格项），供调用方逐项补齐；可为空" }, "write_status": { type: "Literal['not_written', 'unknown']", description: "本次调用对账本的写入状态：not_written 表示确定未写；unknown 表示写可能已落地，调用方用同一 operation_id 重试即幂等；默认 unknown（保守）" }, "operation_id": { type: "str | None", description: "幂等写入的操作标识；write_status 为 unknown 时必须给出，重试据此判重" }, "expected": { type: "str | None", description: "期望的形态或取值范围" }, "next_actions": { type: "tuple[str, ...]", description: "补齐所缺记录的命令，由 ledger.refusal_catalogue 按拒绝码给出；不含绕过办法" } }} />
 
 **返回**　异常实例（继承 Exception）；属性 code、missing、expected、write_status、operation_id 只读；方法 as_dict() 返回稳定键集 \{code, message, missing, expected, write_status, operation_id\} 的 JSON 可序列化字典，命令行据此打印并以非零退出码结束。
 
@@ -679,13 +681,14 @@ def add_judgment(
     line_bundle: str,
     based_on_commit: str,
     body: str,
+    cadence_trials: int | None,
     subjects: list[dict],
     supersedes: int | None,
     op_id: str | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "dict", description: "写账号连接档案" }, "kind": { type: "str", description: "五种判断之一" }, "line_bundle": { type: "str", description: "research-line-* 证据包名" }, "based_on_commit": { type: "str", description: "做判断时读的账本提交；接受哈希、分支或标签，入库前解析为哈希" }, "body": { type: "str", description: "Agent 的判断正文，只引用不抄写事实" }, "subjects": { type: "list[dict]", description: "每项 {role, candidate | trial_id | registration_bundle}" }, "supersedes": { type: "int | None", description: "被取代的判断" }, "op_id": { type: "str | None", description: "缺省由载荷派生" } }} />
+<TypeTable type={{ "profile": { type: "dict", description: "写账号连接档案" }, "kind": { type: "str", description: "五种判断之一" }, "line_bundle": { type: "str", description: "research-line-* 证据包名" }, "based_on_commit": { type: "str", description: "做判断时读的账本提交；接受哈希、分支或标签，入库前解析为哈希" }, "body": { type: "str", description: "Agent 的判断正文，只引用不抄写事实" }, "cadence_trials": { type: "int | None", description: "kind=review_cadence 时必填" }, "subjects": { type: "list[dict]", description: "每项 {role, candidate | trial_id | registration_bundle}" }, "supersedes": { type: "int | None", description: "被取代的判断" }, "op_id": { type: "str | None", description: "缺省由载荷派生" } }} />
 
 **返回**　dict：judgment_id、ledger_commit、replayed（是否幂等返回原行）
 
@@ -696,7 +699,8 @@ def add_judgment(
 3. 核对 line_bundle 是存在的 research-line-* 证据包。
 4. 逐个核对主体存在；登记包须在 registration_attempt 中出现过；role 与目标类型须匹配。
 5. 核对 supersedes 同 kind、同路线且未被取代过。
-6. 写入 judgment 与 judgment_subject；同 op_id 同载荷幂等返回原行。
+6. kind=review_cadence 时 cadence_trials 必填；取代旧节奏时不得调高。
+7. 写入 judgment 与 judgment_subject；同 op_id 同载荷幂等返回原行。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -707,12 +711,14 @@ def add_judgment(
 | `SUBJECT_ROLE_MISMATCH` | role 为 recommended、parent 或 control 而目标不是候选 |
 | `SUPERSEDES_INVALID` | 被取代的判断不同 kind、不同路线或已被取代 |
 | `OP_ID_CONFLICT` | 同 op_id 载荷不同 |
+| `CADENCE_REQUIRED` | review_cadence 缺 cadence_trials，或其他 kind 带了 cadence_trials |
+| `REVIEW_CADENCE_RAISED` | 取代旧 review_cadence 时 cadence_trials 大于旧值 |
 
 **使用**　<Ref id="ledger.write" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:evidence_bundle" />、<Ref id="table:registration_attempt" />、<Ref id="table:candidate" />、<Ref id="table:trial" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="H.3.1.2">H.3.1.2</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.1.1.2">F.1.1.2</Ref> <Ref id="F.1.3.1">F.1.3.1</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="X.2.2.2">X.2.2.2</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="H.3.1.2">H.3.1.2</Ref> <Ref id="H.4.1.5">H.4.1.5</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.1.1.2">F.1.1.2</Ref> <Ref id="F.1.3.1">F.1.3.1</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="X.2.2.2">X.2.2.2</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
 
 **依据**
 
@@ -727,6 +733,7 @@ def add_judgment(
 | 函数 | 用途 |
 |---|---|
 | <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
+| <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径 |
 | <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成新编号的研究路线证据包；只追加，不改旧路线记录。 |
 
 ### `current_line` [#def-ledger-current_line]
@@ -762,6 +769,40 @@ def current_line(conn: LedgerConnection, at: str | None) -> dict | None
 **依据**
 
 - [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+
+</div>
+
+### `line_trials` [#def-ledger-line_trials]
+
+按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径
+
+```python
+def line_trials(
+    conn: Connection,
+    line_bundle: str,
+    since_commit: str | None,
+    at: str | None,
+) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "Connection", description: "连接" }, "line_bundle": { type: "str", description: "research-line-* 证据包" }, "since_commit": { type: "str | None", description: "只计此提交之后新增的试验；缺省为全部" }, "at": { type: "str | None", description: "读取提交，缺省当前头" } }} />
+
+**返回**　dict：trials（trial_id 列表）、count
+
+**期望行为**
+
+1. 按路线的市场提交与开发窗口筛 purpose=research 的试验，含无效与中断。
+2. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LINE_UNKNOWN` | 研究路线不存在 |
+
+**使用**　<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:evidence_bundle" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.1.4">E.1.1.4</Ref> <Ref id="H.4.1.5">H.4.1.5</Ref>
 
 </div>
 
@@ -1242,6 +1283,35 @@ def temporary_path(
 <div className="rd-meta">
 
 **关联章节**　<Ref id="J.1.2.1">J.1.2.1</Ref> <Ref id="A.4.1.2">A.4.1.2</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref>
+
+</div>
+
+## `ledger/refusals.py` [#def-mod-ledger-refusals-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.refusal_catalogue">refusal_catalogue</Ref> | 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源 |
+
+### `refusal_catalogue` [#def-ledger-refusal_catalogue]
+
+拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源
+
+```python
+def refusal_catalogue(code: str) -> dict
+```
+
+<TypeTable type={{ "code": { type: "str", description: "拒绝码" } }} />
+
+**返回**　dict：message、next_actions
+
+**期望行为**
+
+1. 按拒绝码查目录，返回说明与修法。
+2. 目录覆盖设计中出现的全部拒绝码；测试遍历全部抛出点，任一拒绝码不在目录即失败。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref>
 
 </div>
 
