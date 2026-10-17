@@ -19,7 +19,7 @@
 
 <Step>
 
-按九组职责对研发父版本源码查漏，列出缺省与未覆盖的职责作为候选改动方向。
+汇总本路线候选文件头的 27 项立场，列出仍为缺省或不适用的职责，与诊断结合选改动职责。
 
 </Step>
 
@@ -86,6 +86,7 @@
 
 <ul className="rd-rules">
 <li id="H-1-1-3"><span className="rd-rule-id">H.1.1.3</span> 一个假设只登一处改动，选币、仓位、联动出入场都算；方向模糊先收束 <Ref id="rule:H.1.1.3">research-round · references/hypothesis.md</Ref></li>
+<li id="H-1-1-4"><span className="rd-rule-id">H.1.1.4</span> 下一假设从路线上仍为缺省或不适用、且诊断指向的职责里提，写明职责编号 <Ref id="rule:H.1.1.4">research-round · references/hypothesis.md</Ref></li>
 </ul>
 
 ## H.2　先查来源并留存 [#H-2]
@@ -350,6 +351,7 @@ V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需�
 - 任何读回都经 <Ref id="ledger.load_bundle" /> 重算内容哈希比对。
 - 登记包写入后不可改，更正只能是新包。
 - 同内容重试幂等返回原记录。
+- 登记体含 changed_duties：本次改动涉及的职责编号（A1 至 I2，见职责目录）；根登记为空，派生登记至少一项。
 
 **输入**　登记体（五样：经济理由与预测、来源证据包引用、一个比较维度、完整网格、本次试验的适用条件；检验条件；比较对照 control 的运行引用；网格每点的候选引用 strategy_id@revision 与配置；每点的源码审查引用；可选 retry_of）、运行环境引用、运行器参数。
 
@@ -487,6 +489,5 @@ V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需�
 - **不进文档**　多个假设并行时的排队与批次大小：属于 Agent 工作；正文只在 H.1.2.2 留一句小批选择，并标待验证
 - **不进文档**　下一实验的排序算法（贝叶斯优化、Thompson sampling）：产品不建优化器或推荐分数；研究优先级由 Agent 在清单里写明依据
 - **不进文档**　独立审查者的独立性如何保证：代码只核对审查、预检与精确源码及运行环境的身份绑定，不核对审查者本人
-- **不进文档**　九组 27 项职责目录：只作 research-round 参考文件；正文只写九组名（H.1.2.1、C.1.4.1）
 - **不进文档**　预检窗口长度、探针范围与预检成本上限：属于参数值与 Agent 判断；正文只写针对改动及必要依赖的最小预检
 - **不进文档**　来源证据的命名、摘录格式、视频处理步骤与发布时点规则：留在 research-sources、video-evidence、research-round 的参考文件里
