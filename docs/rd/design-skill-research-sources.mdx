@@ -3,143 +3,22 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-仓库外来源：检索与阅读论文、经济序列与监管持仓数据，记检索与阅读事实，界定来源能支持什么。
-
-**触发**　提经济假设前、陈述先前研究发现或不存在前、从文献取机制或参数前、在研究中使用外部数据前。
+检索论文、FRED 或 CFTC 数据，陈述前人发现或"没有先前研究"，或引外部依据进研究前使用
 
 <Files>
 <Folder name="research-sources" defaultOpen>
-  <File name="research-sources/SKILL.md" />
-  <File name="research-sources/references/endpoints.md" />
+  <File name="SKILL.md" />
 </Folder>
 </Files>
 
-每个 skill 节与 eval 一条：内容或判据、关联章节与参考资料。
+## `SKILL.md` [#def-file-research-sources-SKILL-md]
 
-## 节
+**触发**　检索论文、经济序列或持仓数据之前；陈述前人发现或否定断言之前；把外部来源作为假设、方法或参数依据之前
 
-### 怎么检索 [#def-research-sources-SKILL-md-search]
+写三条 core 规则：逐次检索记录与否定断言的范围、每份来源的状态与条件、出处版本与事前依据。另附各来源的访问方法（OpenAlex、Crossref、Semantic Scholar、FRED/ALFRED、CFTC），它是机制说明，不是规则。不建 references 文件，因为本 skill 只有三条规则，没有需要拆到分步文件的细则
 
-`research-sources/SKILL.md`
-
-同一问题至少三种表述、至少两个索引；只引能解析的 DOI 或 arXiv 标识；同一工作跨索引命中按工作合并；留存位置、日期与实际检视的内容。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.1.1">H.2.1.1</Ref> <Ref id="H.2.1.2">H.2.1.2</Ref>
-
-</div>
-
-### 来源能支持什么 [#def-research-sources-SKILL-md-support-and-practice]
-
-`research-sources/SKILL.md`
-
-来源证明作者在其市场与窗口研究了什么，不证明本市场有效。来源只影响研究优先级；无论文的方向仍可低优先级探索；不按引用数排名、不设引用门槛、不以缺来源关闭方向。只有登记前首次可见的版本算事前依据；之后找到的另开带日期证据包追加。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.2.3">H.2.2.3</Ref> <Ref id="H.2.1.1">H.2.1.1</Ref> <Ref id="F.2.3.2">F.2.3.2</Ref>
-
-**依据**
-
-- [McLean & Pontiff 2016, https://doi.org/10.1111/jofi.12365](https://doi.org/10.1111/jofi.12365)　论文
-- [Chen, Lopez-Lira & Zimmermann 2022, arXiv:2212.10317](https://arxiv.org/abs/2212.10317)　论文
-
-</div>
-
-### 检索记录 [#def-research-sources-SKILL-md-search-log]
-
-`research-sources/SKILL.md`
-
-每次检索一行：索引、查询原文、过滤条件、命中数、查询日期、读取程度（题录／摘要／全文）、访问限制（无密钥、401/403、配额）。否定断言只写「按这些查询没找到」并附查询与日期；访问失败是限制，不是无先前研究。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.1.2">H.2.1.2</Ref> <Ref id="H.2.1.1">H.2.1.1</Ref> <Ref id="H.2.3.2">H.2.3.2</Ref>
-
-**依据**
-
-- [Rethlefsen et al. 2021, https://doi.org/10.1186/s13643-020-01542-z](https://doi.org/10.1186/s13643-020-01542-z)　论文
-- [OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)](https://help.openalex.org/data/works/attributes/)　官方文档
-
-</div>
-
-### 用哪个来源 [#def-research-sources-SKILL-md-which-source]
-
-`research-sources/SKILL.md`
-
-论文索引回答先前研究与机制；经济序列回答宏观条件；监管持仓数据回答持仓结构。可信实践优先可识别的原作者、官方研究材料或可检视的代码，记位置、日期与实际检视的内容；匿名转述不作外部依据。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.1.1">H.2.1.1</Ref> <Ref id="A.4.3.1">A.4.3.1</Ref> <Ref id="L.1.1.1">L.1.1.1</Ref>
-
-</div>
-
-### 读每份来源 [#def-research-sources-SKILL-md-read]
-
-`research-sources/SKILL.md`
-
-每份来源记状态（期刊、工作论文、预印本、学位论文）、市场、窗口、频率、是否样本外、是否扣成本、出处位置；只读到摘要标「仅摘要」。撤稿不算；同一工作多版本合并并引发表版；复述不算独立来源。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.3.2">H.2.3.2</Ref> <Ref id="H.2.2.1">H.2.2.1</Ref>
-
-**依据**
-
-- [OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)](https://help.openalex.org/data/works/attributes/)　官方文档
-
-</div>
-
-### 查询端点 [#def-research-sources-references-endpoints-md-queries]
-
-`research-sources/references/endpoints.md`
-
-每个索引一节：curl 查询形式、可用过滤字段（年份、类型、撤稿标记）、返回中要记下的字段（标识、版本、状态）与访问限制的表现（无密钥、401/403、配额）。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.1.1">H.2.1.1</Ref>
-
-</div>
-
-## eval
-
-| eval | 验什么 |
-|---|---|
-| <Ref id="eval:research-sources/negative-claim-scoped-to-queries">negative-claim-scoped-to-queries</Ref> | 否定断言限于查询 |
-| <Ref id="eval:research-sources/source-status-and-conditions">source-status-and-conditions</Ref> | 每份来源记状态与条件 |
-
-### `negative-claim-scoped-to-queries` [#def-eval-research-sources-negative-claim-scoped-to-queries]
-
-**验什么**　否定断言限于查询
-
-**通过判据**　否定断言写成「按这些查询没找到」并附查询与日期；访问失败或全文不可读记为检索限制，不写成不存在先前研究。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.1.2">H.2.1.2</Ref>
-
-**依据**
-
-- [Rethlefsen et al. 2021, https://doi.org/10.1186/s13643-020-01542-z](https://doi.org/10.1186/s13643-020-01542-z)　论文
-- [OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)](https://help.openalex.org/data/works/attributes/)　官方文档
-
-</div>
-
-### `source-status-and-conditions` [#def-eval-research-sources-source-status-and-conditions]
-
-**验什么**　每份来源记状态与条件
-
-**通过判据**　每份来源都有状态、市场、窗口、频率、样本外、扣成本与出处位置；仅摘要已标注；撤稿被剔除；多版本合并为一条并引发表版。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="H.2.3.2">H.2.3.2</Ref>
-
-**依据**
-
-- [OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)](https://help.openalex.org/data/works/attributes/)　官方文档
-
-</div>
+<ol className="rd-skill-rules">
+<li id="def-rule-H-2-1-2">检索逐次记查询、日期与读取程度；否定断言只写按这些查询没找到，访问失败不算没有 <span className="rd-rule-links"><Ref id="H.2.1.2">H.2.1.2</Ref></span><span className="rd-eval">eval <code>negative-claim-scoped-to-queries</code>：否定断言写成「按这些查询没找到」并附查询与日期；访问失败或全文不可读记为检索限制，不写成不存在先前研究。</span></li>
+<li id="def-rule-H-2-2-3">出处记版本号或抓取日期；只把登记前首次可见的版本当事前依据 <span className="rd-rule-links"><Ref id="H.2.2.3">H.2.2.3</Ref></span><span className="rd-eval">eval <code>later-source-appended-not-backfilled</code>：出处记版本或日期，只用登记前首次可见版本作事前依据；回放后找到的材料写成带日期的新证据包，原登记与分类不变；无论文的方向仍保留为低优先级。</span></li>
+<li id="def-rule-H-2-3-2">每份来源记状态、市场窗口、频率、样本外、成本与出处；标仅摘要，剔撤稿，复述不独立 <span className="rd-rule-links"><Ref id="H.2.3.2">H.2.3.2</Ref></span><span className="rd-eval">eval <code>source-status-and-conditions</code>：每份来源都有状态、市场、窗口、频率、样本外、扣成本与出处位置；仅摘要已标注；撤稿被剔除；多版本合并为一条并引发表版。</span></li>
+</ol>

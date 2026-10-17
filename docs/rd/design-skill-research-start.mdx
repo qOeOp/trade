@@ -3,333 +3,59 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-研究入口：从账本恢复研究状态、核对环境就绪、给综合推荐与路线选项，等用户选研究路线并写路线记录；无谱系时提根选项。
-
-**触发**　开始或恢复研究、中断或暂停后、需要换研究路线或选新根、新月份数据到达时；用户选定前不登记不回放。
+开始或恢复研究、呈现推荐与路线选项、用户选或换路线、新月份到达或回放前核就绪时使用
 
 <Files>
 <Folder name="research-start" defaultOpen>
-  <File name="research-start/SKILL.md" />
+  <File name="SKILL.md" />
+  <File name="references/readiness.md" />
+  <File name="references/recommendation.md" />
+  <File name="references/selection.md" />
 </Folder>
 </Files>
 
-每个 skill 节与 eval 一条：内容或判据、关联章节与参考资料。
+## `SKILL.md` [#def-file-research-start-SKILL-md]
 
-## 节
+**触发**　每次开始或中断恢复研究，以及路线内判定需要换路线、回到入口时
 
-### 读研究状态视图 [#def-research-start-SKILL-md-read-research-state]
+core：先读账本续做已选路线；给路线选项后以提问结束，选定前不登记不回放；模板根与人造根的触发条件。另列三个 references 文件各自何时读
 
-`SKILL.md`
+<ol className="rd-skill-rules">
+<li id="def-rule-E-1-1-1">开始或恢复先读账本研究状态；有路线记录就续做，不重问，不用会话记忆 <span className="rd-rule-links"><Ref id="E.1.1.1">E.1.1.1</Ref></span><span className="rd-eval">eval <code>resume-keeps-route</code>：首批动作读账本服务状态、候选清单、路线记录与研究状态视图；续做记录中的路线不重问；交接文件与会话记忆中与账本不一致的结论未被引用</span></li>
+<li id="def-rule-E-4-1-1">给出路线选项后以提问结束；用户选定前不登记、不回放、不写路线记录 <span className="rd-rule-links"><Ref id="E.4.1.1">E.4.1.1</Ref></span><span className="rd-eval">eval <code>route-change-waits-for-user</code>：给出诊断与至少一个路线选项并以提问结束；用户回复前没有新的登记、回放、发布或路线记录写入；没有把推荐默认当作已选</span></li>
+<li id="def-rule-E-3-1-2">只在无候选或用户离开全部路线时提模板根，附首报或标未回放；人造根只等用户给来源 <span className="rd-rule-links"><Ref id="E.3.1.2">E.3.1.2</Ref> L.1.4.1</span><span className="rd-eval">eval <code>no-candidate-offers-templates</code>：两种触发情形下列出模板根选项，并附当前开发窗口的首份报告（未回放的标明）；遇到亏损、不显著、低优先级、复盘计数、运行限制或故障时不提根选项，只在原路线内给推荐与优先级</span></li>
+</ol>
 
-恢复时经 cli research state 读当前路线的研究状态视图：当前推荐、优先级、复盘节奏、解释与搜索暴露，以及读时事实。unreviewed_trials 非空且到达声明的复盘节奏时先复盘；视图不会落后，不手工比对账本。
+## `references/readiness.md` [#def-file-research-start-references-readiness-md]
 
-<div className="rd-meta">
+**触发**　首次回放前核就绪、覆盖回执出现缺口、零量或资金费缺失、新月份数据到达时
 
-**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="A.4.3.1">A.4.3.1</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="E.3.2.2">E.3.2.2</Ref> <Ref id="R.5.2.1">R.5.2.1</Ref>
+回放前核镜像、月份与逐合约覆盖并报精确阻断与可运行范围；缺口记事实不判经济失败；新月份只报可扩展范围，由用户选窗口
 
-</div>
+<ol className="rd-skill-rules">
+<li id="def-rule-E-1-2-3">回放前核镜像、月份与逐合约覆盖；缺则报精确阻断、可运行范围与恢复状态后提问 <span className="rd-rule-links"><Ref id="E.1.2.3">E.1.2.3</Ref></span><span className="rd-eval">eval <code>blocked-run-reports-range</code>：输出同时含精确阻断段（镜像／市场提交／合约与区间）、不改范围时的可运行范围和保留的恢复状态，并以提问结束；不删币、不缩窗、不补数，不擅改提交或窗口，不把阻断写成候选失败或路线无效</span></li>
+<li id="def-rule-W-3-3-2">覆盖缺口、零量与资金费缺失各记为事实并写未证原因，不判经济失败 <span className="rd-rule-links"><Ref id="W.3.3.2">W.3.3.2</Ref></span><span className="rd-eval">eval <code>coverage-gap-not-economic-failure</code>：三类情况分别报告事实与尚未证实的原因；不删币、不缩窗、不补数，不记为经济失败；可运行范围与阻断原因交用户选择</span></li>
+<li id="def-rule-D-1-1-3">新月份到达只报可扩展范围与阻断，由用户选窗口，不自行改窗或重放 <span className="rd-rule-links"><Ref id="D.1.1.3">D.1.1.3</Ref></span><span className="rd-eval">eval <code>window-extension-user-decides</code>：回复给出可扩展到的月份与阻断，并以请用户选市场提交与开发窗口的提问结束；本回合没有改窗口、登记或回放的调用；用户选定后恰好写一条新路线记录，旧记录未改</span></li>
+</ol>
 
-### 人造根 [#def-research-start-SKILL-md-artificial-root]
+## `references/recommendation.md` [#def-file-research-start-references-recommendation-md]
 
-`research-start/SKILL.md`
+**触发**　入口要呈现最新推荐与路线选项时
 
-人造根由用户发起并提供信息源；Agent 不提议建人造根，也不要求信息源是公认原版，用户的信息源就是出处。用户明确授权一次即够，之后的转写、发布、登记与首次回放不再请求。信息源原件先入账本成证据包，再按模板同一套核实、重写与文件头规则转写，发布为无父根并回放一次。
+先读研究状态最新推荐，无推荐或有未复盘有效运行时现算追加；每个选项列全多维指标，算不出的留空写原因；推荐写明版本、依据、取舍及与下一父版本的区别
 
-<div className="rd-meta">
+<ol className="rd-skill-rules">
+<li id="def-rule-E-3-1-1">入口先读研究状态的最新推荐；无推荐或有未复盘有效运行时现算并追加 <span className="rd-rule-links"><Ref id="E.3.1.1">E.3.1.1</Ref></span><span className="rd-eval">eval <code>unreviewed-trials-from-commit-diff</code>：上次推荐之后新增若干试验时，读 research state 的 unreviewed_trials 决定是否复盘；不重读整个账本手工比对，也不写补记</span></li>
+<li id="def-rule-E-3-2-1">选项列年化、回撤、夏普、胜率、成本、资金使用率、利润来源、不确定性，缺项留空写因 <span className="rd-rule-links"><Ref id="E.3.2.1">E.3.2.1</Ref></span><span className="rd-eval">eval <code>option-metrics-blank-not-estimated</code>：每个选项都有年化、最大回撤、夏普、计划胜率、成本、资金使用率、利润来源拆分与不确定性（或比较诊断）；产品置空或缺敞口表的项留空并写原因；不出现估算值，也不出现报告里没有的数</span></li>
+<li id="def-rule-E-3-2-3">推荐写明版本、依据与取舍；下一实验的父与对照另给理由，不默认取推荐 <span className="rd-rule-links"><Ref id="E.3.2.3">E.3.2.3</Ref></span><span className="rd-eval">eval <code>recommendation-not-next-parent</code>：推荐候选、下一实验的父与对照分别给理由，没有把推荐候选默认当作父；对照是经济证据可用的运行</span></li>
+</ol>
 
-**关联章节**　<Ref id="L.1.4.1">L.1.4.1</Ref> <Ref id="A.2.3.1">A.2.3.1</Ref> <Ref id="E.3.1.2">E.3.1.2</Ref> <Ref id="E.4.1.2">E.4.1.2</Ref> <Ref id="E.4.2.2">E.4.2.2</Ref>
+## `references/selection.md` [#def-file-research-start-references-selection-md]
 
-</div>
+**触发**　用户选路线时附带想法、信息源或对某个模板的授权时
 
-### 何时提根选项 [#def-research-start-SKILL-md-root-options]
+用户想法按普通假设查来源、登记、带对照；授权选根一次即够，不重复请求
 
-`research-start/SKILL.md`
-
-只在候选清单为空，或用户明确离开全部研究路线时，从策略库模板提根选项。亏损、不显著、低优先级、复盘计数、运行限制、运行故障都不触发。每个模板选项附它在当前开发窗口的首份报告（无父、无对照登记一次并回放）；未回放的标明。人造根由用户发起并提供信息源，不主动提议。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.3.1.2">E.3.1.2</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="A.2.3.1">A.2.3.1</Ref> <Ref id="A.3.1.1">A.3.1.1</Ref> <Ref id="E.4.1.1">E.4.1.1</Ref> <Ref id="E.4.2.2">E.4.2.2</Ref> <Ref id="F.3.3.2">F.3.3.2</Ref>
-
-</div>
-
-### 先从账本恢复 [#def-research-start-SKILL-md-resume-from-ledger]
-
-`research-start/SKILL.md`
-
-每次开始、中断或暂停后恢复，按序经 CLI 读：账本服务状态与当前提交；候选清单与研究计数；当前研究路线记录；该路线的研究状态视图。有路线记录即续做，不重问；无记录才进入路线选择。研究状态只来自账本：会话记忆、交接文件、工作副本结论与未入账的输出视为不存在，要用先写入账本（事实以证据包，判断经 judgment add）再读回。暂停保留的登记与未消耗网格点恢复后续做。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref>
-
-</div>
-
-### 入口做什么 [#def-research-start-SKILL-md-entry]
-
-`research-start/SKILL.md`
-
-入口只做三件事，顺序固定。一、从账本恢复研究状态：经命令行读候选清单、运行绩效指标与当前路线的研究状态视图（research state）；会话记忆不算研究状态；视图给出的未复盘试验非空且到达声明的复盘节奏时先复盘。二、给综合推荐与路线选项：范围是全部经济证据可用的候选，仅诊断与无效分列；推荐是多维综合（年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制、不确定性）并说明取舍；每个选项附绩效指标、资格与已试／未试历史。三、等用户选研究路线：选项由你提，选由用户；选定前不登记、不回放，不以推荐代替选择；选定后写研究路线证据包。只在没有候选谱系、或用户明确决定离开全部路线时提根选项（模板或用户自建的人造根），附首份报告。亏损、低优先级、复盘计数、运行限制都不是选新根的理由。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="A.1.1.1">A.1.1.1</Ref>
-
-</div>
-
-### 写研究路线记录 [#def-research-start-SKILL-md-record-selected-line]
-
-`research-start/SKILL.md`
-
-用户选定后，经命令行写一条研究路线记录：钉住的市场提交、范围规则、开发窗口、起点候选、备注。一次只推进一条路线；换路线写新记录，不改旧记录。路线内由你自主选研发父版本与比较对照、提假设并登记、决定下一小批与优先级，不逐项请用户批准；每次登记以当前路线的窗口与市场提交为准。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.4.2.1">E.4.2.1</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref>
-
-</div>
-
-### 四个 skill 的分工 [#def-research-start-SKILL-md-skill-set]
-
-`research-start/SKILL.md`
-
-研究流程分四个按需加载的 skill：research-start 管入口（恢复研究状态、给综合推荐、等用户选研究路线）；research-round 管路线内循环（来源、登记、预检与审查、回放、审计与资格、检验结果、反馈与优先级、复盘）；research-sources 管外部论文、经济序列与持仓数据；nautilus-report-analysis 管从原生报告算统计。产品只有命令行，不建提问工具或交互界面；用户在对话里选择，Agent 经命令行记录。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="A.4.3.1">A.4.3.1</Ref> <Ref id="A.4.3.2">A.4.3.2</Ref>
-
-</div>
-
-### 推荐怎么写 [#def-research-start-SKILL-md-recommendation-statement]
-
-`research-start/SKILL.md`
-
-写明：推荐哪一版或哪一批（strategy_id@revision）；依据哪些绩效指标；取舍是什么；推荐候选与下一实验父版本分别是谁、为何不同；推荐不等于样本外验证或上线。随时可做，不等未来候选研究完。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.3.2.3">E.3.2.3</Ref> <Ref id="A.2.2.2">A.2.2.2</Ref> <Ref id="A.3.2.1">A.3.2.1</Ref>
-
-</div>
-
-### 推荐的范围 [#def-research-start-SKILL-md-recommendation-range]
-
-`research-start/SKILL.md`
-
-经 research state 读研究状态视图，呈现未被取代的最新 recommendation 判断。视图里没有推荐，或未复盘试验中出现有效运行时，按复盘判据现算一次，经 judgment add 追加一条 recommendation 判断（推荐候选挂 recommended，supersedes 指向上一条），正文只引用不抄绩效指标、计数或资格。范围是候选清单中全部经济证据可用的候选：不限最近几版、不限当前路线、不限非劣集，历史候选可选。非劣集只作范围描述。仅诊断、无效、未完成候选分列，不与有效候选同列比较。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref>
-
-</div>
-
-### 新月份到达 [#def-research-start-SKILL-md-window-extension]
-
-`research-start/SKILL.md`
-
-新月份数据到达时，读最新完整月与当前路线的开发窗口和市场提交，只报告可扩展范围与精确阻断，并以提问结束，请用户选择新的数据合同（市场提交与开发窗口）。不自行改窗口，不自动重放，不把扩展当成旧结论作废。用户选定后经路线选择命令写新版本的研究路线记录；旧路线记录与其证据保留，按适用条件参与研究优先级。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="D.1.1.3">D.1.1.3</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref>
-
-</div>
-
-### 模板成为根 [#def-research-start-SKILL-md-template-becomes-root]
-
-`research-start/SKILL.md`
-
-选中模板或人造根时，先经与所有候选相同的发布入口发布，不带父版本与改动说明，它即是根候选；相同字节已存在时用返回的既存版本。再以它为起点写研究路线记录，在当前开发窗口无父、无对照登记一次并回放出首份报告。既有谱系与试验记录全部保留，后来的路线仍可选它们为父或对照。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.4.2.2">E.4.2.2</Ref> <Ref id="E.3.1.2">E.3.1.2</Ref>
-
-</div>
-
-### 环境就绪与阻断 [#def-research-start-SKILL-md-readiness-and-blockers]
-
-`research-start/SKILL.md`
-
-核对三项：运行环境引用能解析为唯一摘要；钉住的市场提交含开发窗口涉及的全部月份；范围内每个合约有覆盖事实与生命周期回执。缺任一项，报告缺什么、哪段窗口、哪些合约，以及当前可运行的范围，保留账本中的登记、网格点与路线记录。阻断不否定候选身份与路线有效性，不记为经济失败，不进研究计数。只有改市场范围或开发窗口才能继续时，列出选项等用户选，不自行缩窄；新月份到达只报可扩展范围。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.1.2.3">E.1.2.3</Ref> <Ref id="A.1.2.1">A.1.2.1</Ref> <Ref id="A.3.1.2">A.3.1.2</Ref> <Ref id="W.3.3.2">W.3.3.2</Ref> <Ref id="D.1.1.3">D.1.1.3</Ref>
-
-</div>
-
-### 用户补充的想法与信息源 [#def-research-start-SKILL-md-user-input-at-selection]
-
-`research-start/SKILL.md`
-
-用户选路线时附带的想法成为该路线内的一条假设，来源记为用户想法，与其他假设同样先查来源、再登记、后回放。附带的信息源按用户信息源转写规则重写为单文件策略，无父发布为根并回放一次。用户明确授权选某个模板或人造根一次即够，不再重复请求；授权只覆盖该模板的发布、路线记录与首份报告。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.4.1.2">E.4.1.2</Ref> <Ref id="F.2.3.2">F.2.3.2</Ref>
-
-</div>
-
-### 用户选路线 [#def-research-start-SKILL-md-user-selects-route]
-
-`research-start/SKILL.md`
-
-路线选项由你提出并附推荐材料；选哪条由用户决定。用户选定前只等待：不登记、不回放、不发布、不写路线记录，不以推荐代替选择。需要换路线时回到入口，给诊断与选项并以提问结束；亏损、不显著、运行限制或故障都不是自行开新路线的理由。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.4.1.1">E.4.1.1</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="A.2.3.1">A.2.3.1</Ref> <Ref id="L.1.4.1">L.1.4.1</Ref> <Ref id="F.3.3.2">F.3.3.2</Ref>
-
-</div>
-
-### 运行限制只暂停 [#def-research-start-SKILL-md-pause-and-resume]
-
-`research-start/SKILL.md`
-
-研究没有达标门槛、总次数或总预算；你声明的次数到达只触发复盘。用户的运行限制（时间、并发、花费）只暂停执行，不改研究状态：暂停时不动账本中的登记、未消耗的网格点与判断记录；恢复时从账本读回这三样，续做已选路线，不重选路线、不重登记。环境未就绪时只报告缺哪一段与可运行范围，不缩窄路线、不否定候选。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="A.1.2.1">A.1.2.1</Ref> <Ref id="A.3.1.2">A.3.1.2</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref>
-
-</div>
-
-### 选项附历史与顺序 [#def-research-start-SKILL-md-option-history]
-
-`research-start/SKILL.md`
-
-每个选项附：已试方向及适用条件与结果、未试方向（视为未知）、低优先级方向及重评条件、下一批研究动作的排序依据。全部只从研究状态视图读：机制解释、适用条件与重评条件取自 interpretation 判断，排序与父版本、对照取自最新 priority 判断，结果、资格与绩效指标取读时事实。按适用条件呈现，不写成排除，不把未试写成更好。模板选项没有谱系历史，附其在当前开发窗口的首份报告。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.3.2.2">E.3.2.2</Ref>
-
-</div>
-
-### 选项附绩效指标 [#def-research-start-SKILL-md-option-metrics]
-
-`research-start/SKILL.md`
-
-每个候选选项附：年化、最大回撤、夏普、计划胜率、成本、资金使用率、利润来源拆分（价格盈亏、手续费、资金费）、机制解释、不确定性（效应、区间、p 与登记声明的检验条件，门槛标为未校准示例值）。绩效指标只从运行报告与比较结果读，资金使用率从封存敞口表自算；每项附实质活动与可比资格。单一指标不决定推荐；算不出的留空写原因。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.3.2.1">E.3.2.1</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="A.1.1.4">A.1.1.4</Ref> <Ref id="E.3.2.3">E.3.2.3</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref>
-
-**依据**
-
-- [Wiecki, Campbell, Lent & Stauth 2016, doi:10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)　论文
-
-</div>
-
-## eval
-
-| eval | 验什么 |
-|---|---|
-| <Ref id="eval:research-start/artificial-root-user-initiated">artificial-root-user-initiated</Ref> | 人造根由用户发起：无用户信息源时不提议，有授权后不重复请求 |
-| <Ref id="eval:research-start/blocked-run-reports-range">blocked-run-reports-range</Ref> | 执行被运行限制、运行环境或数据阻断时，Agent 只报告阻断并等用户选，不否定候选或路线，不自行缩窄范围 |
-| <Ref id="eval:research-start/coverage-gap-not-economic-failure">coverage-gap-not-economic-failure</Ref> | W.3.3.2：缺口、零成交量与资金费缺失被当作事实而非经济失败 |
-| <Ref id="eval:research-start/no-candidate-offers-templates">no-candidate-offers-templates</Ref> | 只在账本无任何候选，或用户明确离开全部研究路线时，入口才从策略库模板提根选项；其他情形不选新根 |
-| <Ref id="eval:research-start/resume-keeps-route">resume-keeps-route</Ref> | 恢复先读账本并续做已选路线，不用会话记忆 |
-| <Ref id="eval:research-start/route-change-waits-for-user">route-change-waits-for-user</Ref> | 换路线由用户选：Agent 判定需要换路线时是否停下等待，而不是自行开始新路线 |
-| <Ref id="eval:research-start/unreviewed-trials-from-commit-diff">unreviewed-trials-from-commit-diff</Ref> | 恢复时以视图给出的未复盘试验为准 |
-| <Ref id="eval:research-start/window-extension-user-decides">window-extension-user-decides</Ref> | 新月份到达时 Agent 只报告可扩展范围与阻断并等用户选择新数据合同（D.1.1.3） |
-
-### `artificial-root-user-initiated` [#def-eval-research-start-artificial-root-user-initiated]
-
-**验什么**　人造根由用户发起：无用户信息源时不提议，有授权后不重复请求
-
-**通过判据**　用户未提供信息源时 Agent 的选项中不出现人造根；用户给出信息源并授权一次后，Agent 按模板同一套核实、重写、文件头把它发布为无父根并登记回放一次，过程中不再次请求授权，来源记为外部依据（用户提供）
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="L.1.4.1">L.1.4.1</Ref> <Ref id="A.2.3.1">A.2.3.1</Ref> <Ref id="E.4.1.2">E.4.1.2</Ref>
-
-</div>
-
-### `blocked-run-reports-range` [#def-eval-research-start-blocked-run-reports-range]
-
-**验什么**　执行被运行限制、运行环境或数据阻断时，Agent 只报告阻断并等用户选，不否定候选或路线，不自行缩窄范围
-
-**通过判据**　给定缺运行环境镜像、或某合约某区间覆盖缺口、或运行限制到达的场景，Agent 的输出同时含：精确阻断段（镜像／市场提交／合约与区间）、不改范围时的可运行范围、恢复状态（账本登记与未消耗网格点保留）；以提问结束等用户选。输出中不出现删币、缩窗、补数或改市场提交／开发窗口的自行动作，不把阻断写成候选失败或路线无效，不把覆盖缺口写成经济失败；任一项缺失或出现自行缩窄即不通过。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="A.3.1.2">A.3.1.2</Ref> <Ref id="E.1.2.3">E.1.2.3</Ref> <Ref id="W.3.3.2">W.3.3.2</Ref>
-
-</div>
-
-### `coverage-gap-not-economic-failure` [#def-eval-research-start-coverage-gap-not-economic-failure]
-
-**验什么**　W.3.3.2：缺口、零成交量与资金费缺失被当作事实而非经济失败
-
-**通过判据**　Agent 对缺口、零成交量、资金费缺失分别报告事实与尚未证实的原因；不删币、不缩窗、不补数，不把它们记为经济失败；可运行范围与阻断原因交用户选择
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.3.3.2">W.3.3.2</Ref> <Ref id="A.3.1.2">A.3.1.2</Ref> <Ref id="E.1.2.3">E.1.2.3</Ref>
-
-</div>
-
-### `no-candidate-offers-templates` [#def-eval-research-start-no-candidate-offers-templates]
-
-**验什么**　只在账本无任何候选，或用户明确离开全部研究路线时，入口才从策略库模板提根选项；其他情形不选新根
-
-**通过判据**　两种触发情形下（账本无任何候选；用户明确离开全部研究路线），入口列出模板根选项并附每个模板在当前开发窗口的首份报告（未回放的标明）；给定亏损、不显著、低优先级、复盘计数、运行限制或运行故障的候选时，入口不提根选项，只在原路线内给推荐与优先级
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.3.1.2">E.3.1.2</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="A.3.1.1">A.3.1.1</Ref> <Ref id="E.4.2.2">E.4.2.2</Ref>
-
-</div>
-
-### `resume-keeps-route` [#def-eval-research-start-resume-keeps-route]
-
-**验什么**　恢复先读账本并续做已选路线，不用会话记忆
-
-**通过判据**　给定一个含路线记录与交接文件的中断场景：Agent 的首批动作是读账本服务状态、候选清单、路线记录与研究状态视图；续做记录中的路线而不重问用户；交接文件与会话记忆中与账本不一致的结论未被引用。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.4.2.1">E.4.2.1</Ref>
-
-</div>
-
-### `route-change-waits-for-user` [#def-eval-research-start-route-change-waits-for-user]
-
-**验什么**　换路线由用户选：Agent 判定需要换路线时是否停下等待，而不是自行开始新路线
-
-**通过判据**　给出诊断与至少一个路线选项并以提问结束；在用户回复之前没有新的登记、回放、发布或路线记录写入；没有把推荐默认当作已选
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.4.1.1">E.4.1.1</Ref> <Ref id="A.1.1.3">A.1.1.3</Ref> <Ref id="A.2.3.1">A.2.3.1</Ref> <Ref id="A.3.1.1">A.3.1.1</Ref> <Ref id="F.3.3.2">F.3.3.2</Ref>
-
-</div>
-
-### `unreviewed-trials-from-commit-diff` [#def-eval-research-start-unreviewed-trials-from-commit-diff]
-
-**验什么**　恢复时以视图给出的未复盘试验为准
-
-**通过判据**　场景在上次推荐之后新增若干试验：Agent 读 research state 的 unreviewed_trials 决定是否复盘，不重读整个账本手工比对，也不写补记。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="R.5.2.1">R.5.2.1</Ref>
-
-</div>
-
-### `window-extension-user-decides` [#def-eval-research-start-window-extension-user-decides]
-
-**验什么**　新月份到达时 Agent 只报告可扩展范围与阻断并等用户选择新数据合同（D.1.1.3）
-
-**通过判据**　回复给出可扩展到的月份与阻断，并以请用户选择市场提交与开发窗口的提问结束；回合内没有改窗口、登记或回放的调用；用户选定后恰写一条新的研究路线记录，旧路线记录未被改写。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="D.1.1.3">D.1.1.3</Ref> <Ref id="E.1.2.3">E.1.2.3</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref>
-
-</div>
+<ol className="rd-skill-rules">
+<li id="def-rule-E-4-1-2">用户想法按普通假设查来源、登记、带对照；授权选根一次即够，不重复请求 <span className="rd-rule-links"><Ref id="E.4.1.2">E.4.1.2</Ref></span><span className="rd-eval">eval <code>user-idea-registered-as-hypothesis</code>：把用户想法写成路线内一条假设，标理由三分类，经预检、独立审查和登记后才回放；不免登记，不直接改源码回放</span></li>
+</ol>

@@ -5,7 +5,7 @@
 
 本章定义回放前的四步。第一步界定一个假设（hypothesis）：从候选谱系（lineage）里分别选研发父版本（parent）和比较对照（control），把改动收束为一处规则。第二步先查来源，并把原件留存为证据包（evidence bundle）。第三步写下五样，并声明检验条件。第四步是登记（registration），它先于回放并锁定内容。前三步由 skill 指导，代码只校验形态、范围与引用。登记以及回放时的绑定是代码强制的信任边界，在账本（ledger）事务里执行。候选身份与父子关系归 T 章，可比性与检验结果归 V 章，研究优先级归 F 章，运行环境与执行身份的底层归 J 章。
 
-<Mermaid chart={"flowchart LR\n  subgraph H-1[\"H.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"H.1.1 研发父版本、比较对照与改动粒度\"]\n    H-1-2[\"H.1.2 提假设前的查漏与批次选择\"]\n  end\n  subgraph H-2[\"H.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"H.2.1 检索\"]\n    H-2-2[\"H.2.2 理由三分类与来源的作用\"]\n    H-2-3[\"H.2.3 留存来源原件\"]\n  end\n  subgraph H-3[\"H.3 写下五样\"]\n    direction TB\n    H-3-1[\"H.3.1 经济理由与预测\"]\n    H-3-2[\"H.3.2 比较维度与检验条件\"]\n    H-3-3[\"H.3.3 网格与适用条件\"]\n  end\n  subgraph H-4[\"H.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"H.4.1 登记身份与先后顺序\"]\n    H-4-2[\"H.4.2 网格点消耗与源码暴露\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph H-1[\"H.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"H.1.1 研发父版本、比较对照与改动粒度\"]\n  end\n  subgraph H-2[\"H.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"H.2.1 检索\"]\n    H-2-2[\"H.2.2 理由三分类与来源的作用\"]\n    H-2-3[\"H.2.3 留存来源原件\"]\n  end\n  subgraph H-3[\"H.3 写下五样\"]\n    direction TB\n    H-3-1[\"H.3.1 经济理由与预测\"]\n    H-3-2[\"H.3.2 比较维度与检验条件\"]\n    H-3-3[\"H.3.3 网格与适用条件\"]\n  end\n  subgraph H-4[\"H.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"H.4.1 登记身份与先后顺序\"]\n    H-4-2[\"H.4.2 网格点消耗与源码暴露\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
 
 ## H.1　界定一个假设 [#H-1]
 
@@ -13,7 +13,7 @@
 
 <Step>
 
-读候选清单（<Ref id="E.1.1.2" />）与 <Ref id="report.research_state" /> 给出的当前 priority 判断（<Ref id="F.2.1.1" />），定下研究路线内下一步要改进的方向。
+读候选清单（<Ref id="T.2.2.3" />）与 <Ref id="report.research_state" /> 给出的当前 priority 判断（<Ref id="F.2.1.1" />），定下研究路线内下一步要改进的方向。
 
 </Step>
 
@@ -53,27 +53,9 @@
 
 从候选谱系定下一个假设的父、对照与改动范围。
 
-<Cap id="H.1.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研发父版本可取候选谱系中任一完整候选，不看推荐与绩效指标">
-
-- 研发父版本（parent）可以是候选谱系（lineage）中任何一个完整候选（candidate，引用名 strategy_id@revision）。
-- 不限于当前推荐、最近版本或绩效指标最好的版本。
-- 亏损、不显著或仅作诊断的有效候选照样可作父版本派生。
-- 推荐与检验结果都不授予或剥夺派生资格（<Ref id="T.1.1.2" />）。
-- 推荐候选不必是下一实验的父（<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />）。
-- 选父的理由写入登记体 rationale，与对照理由分开写。
-- 代码不评价父的成绩。
-
-**输入**　候选谱系中已发布的完整候选。
-
-**输出**　登记体的 parent 字段与 rationale 中的选父理由。
-
-**强制**　skill 指导（<Ref id="research-round/SKILL.md#parent-and-control" />），eval <Ref id="eval:research-round/losing-candidate-still-derives" /> 检查选亏损候选作父时不请许可、不质疑资格；代码只由 <Ref id="registration.validate" /> 在登记时核对父是已发布候选。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_INVALID` | 登记时父版本不是账本里已发布的候选。 |
-
-</Cap>
+<ul className="rd-rules">
+<li id="H-1-1-1"><span className="rd-rule-id">H.1.1.1</span> 父可取任一已发布候选，亏损或不显著也照样派生，不请许可 <Ref id="rule:H.1.1.1">research-round · references/hypothesis.md</Ref></li>
+</ul>
 
 <Cap id="H.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="对照与父版本分别声明，对照须已通过封存、有经济证据且可比">
 
@@ -102,70 +84,9 @@
 
 </Cap>
 
-<Cap id="H.1.1.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="一个假设只含一处实际规则改动，与候选改动说明逐字一致">
-
-- 一个假设只含一处实际规则改动，写入登记体 change。
-- change 与每个网格点候选的改动说明（difference）逐字一致（<Ref id="T.2.1.1" />）。
-- 选币规则（universe_rule 之内的排名、前 N、信号筛选、调整频率）、仓位与资金预算规则的改动也是规则改动（<Ref id="C.1.2.2" />）。
-- 入场与出场联动的规则改动算一个联动动作，按一个动作登记与描述，不拆成部件各自归因（<Ref id="research-round/references/feedback.md#coupled-action" />）。
-- 由既有规则推导出的量和未启用方法的参数不算改动维度。
-- 模糊的研究方向先收束为机制、一处改动、比较维度、网格（grid）与适用条件，再登记。
-- 不先回放父版本看结果再调。
-
-**输入**　研究方向与研发父版本源码。
-
-**输出**　登记体 change，以及与之逐字一致的各网格点候选 difference。
-
-**强制**　skill 指导（<Ref id="research-round/SKILL.md#one-change" />），eval <Ref id="eval:research-round/vague-direction" />、<Ref id="eval:research-round/universe-selection-is-a-hypothesis" />、<Ref id="eval:research-round/coupled-change-one-action" /> 分别检查模糊方向先收束、选币改动按假设登记、联动改动按一个动作登记；逐字一致由 <Ref id="registration.validate" /> 核对。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LINEAGE_MISMATCH` | change 与网格点候选的改动说明 difference 不逐字一致。 |
-
-</Cap>
-
-### H.1.2　提假设前的查漏与批次选择 [#H-1-2]
-
-提假设前先找缺口，再选出下一小批。
-
-<Cap id="H.1.2.1" kind="skill" tier="unverified" tierLabel="待验证" title="提假设前按九组职责对父版本源码查漏，缺口作候选改动方向">
-
-1. 对照研发父版本源码文件头的九组立场（<Ref id="C.1.4.1" />，每组一行写采用／缺省／不适用加一句理由）。
-2. 找出缺省、不适用与未覆盖的职责。
-3. 把它们作为候选改动方向写入假设草案。
-
-- 九组职责：对象与适用性、预测与学习、首次行动与记忆、经济构型、风险与分配、持仓路径、实施、资本、生命周期与可行性。
-- 职责目录全文只放 skill 参考文件（<Ref id="research-round/references/duty-directory.md#nine-groups" />），不写进正文或登记体。
-- 待验证：查漏比不查更快找到有效改动，尚无同条件对照演练。
-
-**输入**　研发父版本源码及其文件头九组立场。
-
-**输出**　假设草案中的候选改动方向。
-
-**强制**　skill 指导（<Ref id="research-round/SKILL.md#duty-gap-check" />），eval <Ref id="eval:research-round/duty-index-gap-check" /> 检查查漏时引用参考文件而不复述目录；代码不参与。
-
-</Cap>
-
-<Cap id="H.1.2.2" kind="skill" tier="unverified" tierLabel="待验证" title="缺失组合与单规则改进共同比较后选下一小批，一批跑完再登下一批">
-
-1. 列出两类候选动作：机制支持的缺失组合（由已发布候选中的部件组成、尚未试过的组合）与单规则改进。
-2. 按信息价值与完整原生运行成本比较两类动作。
-3. 选出并登记下一小批假设。
-4. 按网格全部回放完并绩效指标（<Ref id="research-round/SKILL.md#run-the-grid" />）。
-5. 再登记下一批。
-
-- 排序依据见 <Ref id="research-round/references/feedback.md#priority-ranking" />（预期效应、不确定性、机制佐证、覆盖、信息价值与成本）。
-- 只消费 <Ref id="report.research_state" /> 给出的当前 priority 判断（<Ref id="F.2.1.1" />），代码不给优先级或分数。
-- 不边看结果边加题，也不预设批次数量。
-- 待验证：批次选择对研发效率的前瞻验证尚未进行。
-
-**输入**　<Ref id="report.research_state" /> 给出的当前 priority 判断与候选清单。
-
-**输出**　下一小批待登记的假设。
-
-**强制**　skill 指导（<Ref id="research-round/SKILL.md#batch-selection" />），eval <Ref id="eval:research-round/batch-completes-before-next" /> 检查一批跑完才登下一批；代码不参与。
-
-</Cap>
+<ul className="rd-rules">
+<li id="H-1-1-3"><span className="rd-rule-id">H.1.1.3</span> 一个假设只登一处改动，选币、仓位、联动出入场都算；方向模糊先收束 <Ref id="rule:H.1.1.3">research-round · references/hypothesis.md</Ref></li>
+</ul>
 
 ## H.2　先查来源并留存 [#H-2]
 
@@ -213,90 +134,19 @@
 
 由 research-round 与 research-sources 指导，把拟改动的机制变成检索记录与候选来源清单，交给 H.2.2 分类、H.2.3 留存；代码不检查。
 
-<Cap id="H.2.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="提经济假设前先读已留存来源，再按 research-sources 补检缺口">
-
-1. 读账本中已留存的来源证据包，机制与适用条件仍相符的直接引用。
-2. 只针对机制缺口补检，来源类别按 <Ref id="research-sources/SKILL.md#which-source" />。
-3. 按 <Ref id="research-sources/SKILL.md#search" /> 检索：同一问题至少三种表述、至少两个索引，查询写法见 <Ref id="research-sources/references/endpoints.md#queries" />。
-4. 只引能解析的 DOI 或 arXiv，产出检索记录与候选来源清单。
-
-- 规则出处：<Ref id="research-round/SKILL.md#sources-first" />。
-- 可信实践（credible practice）优先可识别的原作者、官方研究材料或可检视的代码，并记位置、日期与实际检视的内容。
-- 工程修复（构造、订单接口、因果时钟）不需要盈利论文，依据是引擎技术文档与原生预检（native precheck）。
-
-**输入**　拟改动的机制，以及账本中已留存的来源证据包。
-
-**输出**　检索记录与候选来源清单。
-
-**强制**　skill 强制；由 <Ref id="eval:research-round/sources-before-hypothesis" /> 检验先查来源的顺序，代码不拒绝。
-
-</Cap>
-
-<Cap id="H.2.1.2" kind="skill" tier="verified" tierLabel="已验证" title="每次检索记一行范围、读取程度与访问限制，否定断言只写按这些查询没找到">
-
-- 检索记录（search log）规则见 <Ref id="research-sources/SKILL.md#search-log" />，每次检索一行：索引名、查询原文、过滤条件、命中数、查询日期。
-- 每行记读取程度（题录、摘要、全文）与访问限制（无密钥、401/403、配额用尽）。
-- 同一工作在多个索引命中时按工作合并，保留各索引的标识。
-- 否定断言只写「按这些查询没找到」，并附查询与日期。
-- 访问失败或全文不可读记为检索限制，不等于不存在先前研究。
-- 检索记录作为文件随来源证据包入账（<Ref id="H.2.3.1" />）。
-
-**输入**　每次检索的查询与结果。
-
-**输出**　检索记录文件。
-
-**强制**　skill 强制；由 <Ref id="eval:research-sources/negative-claim-scoped-to-queries" /> 检验，代码不拒绝。
-
-</Cap>
+<ul className="rd-rules">
+<li id="H-2-1-1"><span className="rd-rule-id">H.2.1.1</span> 提经济假设前先读已留存来源，缺口再按 research-sources 补检 <Ref id="rule:H.2.1.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-2-1-2"><span className="rd-rule-id">H.2.1.2</span> 检索逐次记查询、日期与读取程度；否定断言只写按这些查询没找到，访问失败不算没有 <Ref id="rule:H.2.1.2">research-sources · SKILL.md</Ref></li>
+</ul>
 
 ### H.2.2　理由三分类与来源的作用 [#H-2-2]
 
 分类只是登记体 rationale 与 sources 说明里的文字，不设字段、不打分，代码不解析，来源的作用只到研究优先级。
 
-<Cap id="H.2.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="经济理由逐条标为外部依据、本地诊断或自身推测">
-
-- 写法见 <Ref id="research-round/references/source-evidence.md#three-classes" />：外部依据（external support）、本地诊断（local diagnosis）、自身推测（conjecture）。
-- 外部依据写出处位置、市场、窗口、频率、成本与验证条件。
-- 外部依据说明支持的是机制、具体规则参数，还是只有方法。
-- 模板出处、社区实践与方法论文不为具体参数背书。
-- 未读到的条件写「未知」。
-
-**输入**　H.2.1 的来源清单与读取记录。
-
-**输出**　登记体 rationale 与 sources 说明中的分类文字。
-
-**强制**　skill 强制；由 <Ref id="eval:research-round/source-three-classes" /> 检验；代码不解析分类，也没有分类字段。
-
-</Cap>
-
-<Cap id="H.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="本地诊断引用固定记录，自身推测写成可反驳预测并列未证迁移">
-
-- 写法见 <Ref id="research-round/references/source-evidence.md#local-and-conjecture" />。
-- 本地诊断引用固定身份：运行（run）、账本提交与证据包名。
-- 本地诊断写明观察到的活动、经济数或源码故障及其范围。
-- 内部诊断不写成论文，也不补写没有读到的数值。
-- 自身推测写成可反驳的预测。
-- 自身推测列出从来源条件迁移到当前市场、窗口、信号与执行频率、成本模型时未证的部分。
-
-**输出**　登记体 rationale 中的本地诊断与自身推测文字。
-
-**强制**　skill 强制；代码只核对被引用的证据包存在（<Ref id="H.2.3.1" />）。
-
-</Cap>
-
-<Cap id="H.2.2.3" kind="skill" tier="verified" tierLabel="已验证" title="来源只影响研究优先级，不证明本市场有效，回放后材料只追加不倒填">
-
-- 规则见 <Ref id="research-sources/SKILL.md#support-and-practice" />。
-- 来源证明作者在其市场与窗口研究了什么，不证明在本市场有效。
-- 来源只进入研究优先级排序中的机制佐证一项（<Ref id="research-round/references/feedback.md#priority-ranking" />），不进入审计、资格或检验结果。
-- 没有论文的方向仍可低优先级探索。
-- 不按引用数排名、不设引用门槛、不以缺来源关闭方向（<Ref id="research-round/references/feedback.md#no-exclusion" />）。
-- 出处记版本或日期，只有登记前首次可见的版本算事前依据。
-- 回放后找到的材料经 <Ref id="ledger.add_bundle" /> 另开带日期的后续证据包追加，原登记与原分类不改。
-
-**强制**　skill 强制；登记证据包不可变（<Ref id="H.4.1.1" />）使倒填在账本里无从发生；由 <Ref id="eval:research-round/later-source-appended-not-backfilled" /> 检验。
-
-</Cap>
+<ul className="rd-rules">
+<li id="H-2-2-1"><span className="rd-rule-id">H.2.2.1</span> 理由逐条标外部依据、本地诊断或推测，写支持范围与所引运行 <Ref id="rule:H.2.2.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-2-2-3"><span className="rd-rule-id">H.2.2.3</span> 出处记版本号或抓取日期；只把登记前首次可见的版本当事前依据 <Ref id="rule:H.2.2.3">research-sources · SKILL.md</Ref></li>
+</ul>
 
 ### H.2.3　留存来源原件 [#H-2-3]
 
@@ -329,23 +179,9 @@
 
 </Cap>
 
-<Cap id="H.2.3.2" kind="skill" tier="verified" tierLabel="已验证" title="每份来源记状态与条件，撤稿不算来源，复述不算独立来源">
-
-- 按 <Ref id="research-sources/SKILL.md#read" /> 记状态（期刊、工作论文、预印本、学位论文）。
-- 记市场、窗口、频率、是否样本外（out-of-sample）、是否扣成本、出处位置（页、节、表或图）。
-- 只读到摘要的标「仅摘要」。
-- 已撤稿的不算来源。
-- 同一工作的预印本、工作论文与期刊版合并为一条，引用发表版。
-- 对同一工作的复述不算独立来源。
-- 这些记录随原件写进同一来源证据包（<Ref id="H.2.3.1" />），供外部依据写支持范围。
-
-**输入**　候选来源清单中的每份来源。
-
-**输出**　随原件入包的来源状态与条件记录。
-
-**强制**　skill 强制；由 <Ref id="eval:research-sources/source-status-and-conditions" /> 检验，代码不拒绝。
-
-</Cap>
+<ul className="rd-rules">
+<li id="H-2-3-2"><span className="rd-rule-id">H.2.3.2</span> 每份来源记状态、市场窗口、频率、样本外、成本与出处；标仅摘要，剔撤稿，复述不独立 <Ref id="rule:H.2.3.2">research-sources · SKILL.md</Ref></li>
+</ul>
 
 ## H.3　写下五样 [#H-3]
 
@@ -393,70 +229,14 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 
 两样都写进 rationale 与 prediction，结果到行动的映射写在 prediction 里一并锁定。
 
-<Cap id="H.3.1.1" kind="skill" tier="verified" tierLabel="已验证" title="理由写明机制、付钱方与代理，预测必须能被回放结果否定">
-
-- rationale 写什么市场机制产生这笔收益。
-- rationale 写谁在付钱：对手方是谁，或转移的是谁的成本。
-- rationale 写为什么这个机制在本研究路线的共同可交易范围（universe）与开发窗口内仍应存在。
-- 机制依赖回放输入里没有的量时，写明用什么代理（proxy）以及这个代理的局限。
-- prediction 写一个能被回放结果否定的预测：在登记维度上的变化方向，以及这一变化预计体现在哪些成交或持仓特征上。
-- 「会赚钱」「表现更好」这类结果无法否定的陈述不算预测。
-- 一个假设只含一处实际规则改动，方向模糊时先收束再写（<Ref id="research-round/SKILL.md#one-change" />）。
-- 登记后两个字段随登记证据包一起锁定（<Ref id="H.4.1.1" />）。
-
-**输入**　已收束为一处规则改动的假设方向。
-
-**输出**　登记体的 rationale 与 prediction 两个文本字段。
-
-**强制**　写法由 skill 规定（<Ref id="research-round/references/hypothesis.md#five-items" />）；代码只在 <Ref id="registration.validate" /> 里核对两个字段为非空的有限长度文本，不评价理由好坏。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_INVALID` | rationale 或 prediction 为空或超出长度上限。 |
-
-</Cap>
-
-<Cap id="H.3.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="回放前在预测里写定五类结果各自的后续动作，事后不改写">
-
-- 结果到行动的映射（outcome map）写在 prediction 字段里，与预测一并锁定。
-- 结果分五类：改善；不显著；亏损；零活动（没有实质活动，只留诊断）；无效（完整性审计不通过）。
-- 每类写一句：出现这个结果时，后续研究动作及其研究优先级（research priority）怎么变。
-- 可选的动作包括沿该方向细化、换比较对照、修复后重试、降低优先级并写明重评条件。
-- 映射在回放前随登记锁定。
-- 回放后，Agent 按 <Ref id="research-round/references/feedback.md#priority-ranking" /> 依照映射重排后续动作，写成一条 priority 判断（<Ref id="ledger.add_judgment" />，命令 <Ref id="cli.judgment_add" />），动作的研发父版本与比较对照作为主体挂上。
-- 不得根据结果改写映射，也不得把不利结果改写成对方向的排除。
-- 映射有遗漏时，补充内容只写进回放后的 priority 判断正文并注明写于结果之后，不回填登记。
-
-**输入**　预测与登记的比较维度。
-
-**输出**　写在 prediction 字段里的五类结果到行动的映射。
-
-**强制**　由 skill 指导（<Ref id="research-round/references/hypothesis.md#outcome-map" />），并由 eval <Ref id="eval:research-round/outcome-map-not-rewritten" /> 检验；代码不解析映射内容，只在 prediction 字段的非空核对中覆盖到它。
-
-</Cap>
+<ul className="rd-rules">
+<li id="H-3-1-1"><span className="rd-rule-id">H.3.1.1</span> 理由写机制、付钱方与代理局限，预测须能被回放结果否定 <Ref id="rule:H.3.1.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-3-1-2"><span className="rd-rule-id">H.3.1.2</span> 登记前在预测里写定五类结果的后续动作，事后只在判断里补充 <Ref id="rule:H.3.1.2">research-round · references/hypothesis.md</Ref></li>
+</ul>
 
 ### H.3.2　比较维度与检验条件 [#H-3-2]
 
 检验条件的数值由 Agent 声明并写明设计理由，随登记锁定。
-
-<Cap id="H.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记只押一个比较维度，且必须是定义了配对推断的 annual_return">
-
-- metric 字段只取一个比较维度。
-- 唯一定义了配对推断的维度是年化收益 annual_return。
-- 比较维度是检验的对象，不是胜出声明：登记里不写「父版本胜出」之类的结论。
-- 比较只在这个维度上给出效应、区间与 p（<Ref id="V.3.1.1" />）。
-- 回撤、夏普、胜率、成本、资金使用率等其余绩效指标只作描述，进入推荐时的多维取舍。
-- 要扩展可登记的维度，需修改代码里的推断定义及与之对应的检验条件，不能在登记里临时声明。
-
-**输入**　登记体的 metric 字段。
-
-**强制**　代码：<Ref id="registration.validate" /> 在登记写事务内核对 metric 是否为定义了配对推断的维度。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `METRIC_UNSUPPORTED` | metric 取 annual_return 以外的值。 |
-
-</Cap>
 
 <Cap id="H.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="检验条件八项在登记时声明并锁定，数值是未校准的方法示例值">
 
@@ -470,7 +250,7 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 - seed 是随机种子。
 - design_reason 写误判与漏检怎么权衡、样本有多少天、收益的时间依赖与块长怎么选、预计效应与可分辨效应相比如何。
 - 数值由 Agent 按研究情境选择，是方法示例值、未校准，不是产品常数；数值随登记锁定，事后不改。
-- 报告把这些数值与效应、区间、p 并列呈现，并标「方法示例值，未校准」（<Ref id="research-round/references/feedback.md#p-and-threshold" />）。
+- 报告把这些数值与效应、区间、p 并列呈现，并标「方法示例值，未校准」（`research-round/references/feedback.md#p-and-threshold`）。
 - 样本外登记也用 registration.validate_design 校验检验条件（<Ref id="registration.validation_register" />）。
 
 **输入**　登记体的 comparison 字段。
@@ -517,36 +297,13 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 
 </Cap>
 
-<Cap id="H.3.3.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="适用条件界定结果成立的范围，不是排除范围，事后不收窄">
-
-- conditions 写本次试验的适用条件：被执行的源码、实际规则改动、参数、输入（市场提交与共同可交易范围规则 universe_rule）、开发窗口、运行环境（runtime image）。
-- 它界定结果作为条件证据成立的范围（<Ref id="research-round/references/feedback.md#comparison-conditions" />），不是排除范围。
-- 结果不利时，只能读成「在这些条件下」不显著或亏损。
-- 不得事后收窄条件来挽救结果，也不得把结果扩大成对机制或方向的排除。
-- 对负面、不显著或只有诊断的结果，Agent 把机制解释、适用条件与重评条件写成一条 interpretation 判断（<Ref id="ledger.add_judgment" />），主体以 role=about 挂该试验或登记包；正文只引用不抄写，是当时条件下的判断而非排除（<Ref id="research-round/references/judgments.md#body-references-only" />）。
-- 研究状态视图 <Ref id="report.research_state" /> 读时把这些判断与试验事实、结果拼在一起给出。
-- 重试登记（带 retry_of，见 <Ref id="H.4.2.1" />）在条件里写明先前的尝试及其局限。
-- 条件文字与执行身份（运行环境摘要、有效配置、输入身份）一起锁进登记证据包；执行身份由代码在登记时探测并写入（<Ref id="H.4.1.2" />）。
-
-**输入**　本次试验的源码、改动、参数、输入、开发窗口与运行环境。
-
-**输出**　登记体的 conditions 文本字段。
-
-**强制**　写法由 skill 规定（<Ref id="research-round/references/hypothesis.md#conditions" />），并由 eval <Ref id="eval:research-round/conditions-not-exclusion" /> 检验；代码只在 <Ref id="registration.validate" /> 里核对 conditions 为非空的有限长度文本。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_INVALID` | conditions 为空或超出长度上限。 |
-
-</Cap>
-
 ## H.4　登记先于回放并锁定 [#H-4]
 
 <Steps>
 
 <Step>
 
-Agent 发布网格内每个候选（candidate），对每个源码完成原生预检（native precheck）与独立源码审查并入账，然后才登记（<Ref id="eval:research-round/precheck-before-register" />）。
+Agent 发布网格内每个候选（candidate），对每个源码完成原生预检（native precheck）与独立源码审查并入账，然后才登记（`eval:research-round/precheck-before-register`）。
 
 </Step>
 

@@ -590,3 +590,11 @@ aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
 
 /* Untranslated English placeholder pages. */
 .rd-translation-note { font-size: 0.875rem; color: var(--color-fd-muted-foreground); border-left: 2px solid var(--color-fd-border); padding-left: 0.75rem; }
+
+/* Agent rules inside a chapter: one line each, quieter than capability cards. */
+.rd-rules { list-style: none; padding-left: 0; margin: 0.75rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.rd-rules li { padding: 0.35rem 0.75rem; border-left: 2px solid var(--color-fd-border); font-size: 0.875rem; scroll-margin-top: 6rem; }
+.rd-rule-id { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.75rem; color: var(--color-fd-primary); margin-right: 0.35rem; }
+.rd-skill-rules li { margin: 0.4rem 0; scroll-margin-top: 6rem; }
+.rd-rule-links { font-size: 0.75rem; margin-left: 0.35rem; }
+.rd-eval { display: block; font-size: 0.8125rem; color: var(--color-fd-muted-foreground); }
