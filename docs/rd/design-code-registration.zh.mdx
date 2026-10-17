@@ -509,12 +509,13 @@ def validate(
 
 **期望行为**
 
-1. 核字段集合恰等于十项必有键加可选键，多一键少一键即拒；metric 不是唯一具有推断定义的比较维度即拒；comparison 交 validate_design；sources 每个包名须在 evidence_bundle 存在
-2. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
-3. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
-4. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
-5. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
-6. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
+1. 核字段集合恰等于十一项必有键（含 changed_duties）加可选键，多一键少一键即拒；metric 不是唯一具有推断定义的比较维度即拒；comparison 交 validate_design；sources 每个包名须在 evidence_bundle 存在
+2. 核 changed_duties：每项须是 27 项职责编号之一；根登记必须为空，派生登记至少一项。
+3. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
+4. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
+5. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
+6. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
+7. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -530,6 +531,7 @@ def validate(
 | `RUN_NOT_PASSED` | control_run 不是 status=passed 的封存运行 |
 | `COMPARABILITY_MISMATCH` | 对照运行的运行环境摘要、有效配置或输入内容身份与本次执行身份不一致 |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 对照运行按当前检查身份没有经济证据资格（零成交、缺匹配记录、执行捕获失败或源码审查失败） |
+| `DUTY_UNKNOWN` | changed_duties 含 27 项之外的编号，或根登记非空、派生登记为空 |
 
 **使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:evidence_bundle" />、<Ref id="table:candidate" />、<Ref id="table:run" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />
 
