@@ -15,8 +15,8 @@
 | 函数 | 用途 |
 |---|---|
 | <Ref id="qualification.assess">assess</Ref> | 综合存储审计结论、原始执行捕获、绑定的独立源码审查与原生对账，得出一次运行的当前经济证据资格与全部原因，附检查身份 |
-| <Ref id="qualification.check_identity">check_identity</Ref> | 资格检查身份：检查名、读数代码版本与检查器源码哈希，随每份资格结论输出 |
-| <Ref id="qualification.mask">mask</Ref> | 经济读数流出前的唯一遮蔽点：不可用运行的经济读数整体置空并附资格原因 |
+| <Ref id="qualification.check_identity">check_identity</Ref> | 资格检查身份：检查名、指标计算版本与检查器源码哈希，随每份资格结论输出 |
+| <Ref id="qualification.mask">mask</Ref> | 绩效指标流出前的唯一遮蔽点：不可用运行的绩效指标整体置空并附资格原因 |
 | <Ref id="qualification.native_reasons">native_reasons</Ref> | 核实质活动：真实原生成交、每笔成交对应唯一订单、周期恰好覆盖成交、生命周期终止无发现、经济拆分对账、日收益复合到期末、账户首末与审计余额一致；不设费用、频率、样本或收益门槛 |
 | <Ref id="qualification.require">require</Ref> | 比较、对照登记与描述统计读口之前的硬门：资格不可用即拒绝并返回原因 |
 | <Ref id="qualification.source_reviews">source_reviews</Ref> | 只认源码哈希与镜像摘要都匹配本运行的独立审查记录；内容哈希不符拒绝；记录身份按其写入时的账本提交核对 |
@@ -52,28 +52,28 @@ def assess(conn: LedgerConnection, run: Mapping) -> dict
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="A.2.1.1">A.2.1.1</Ref> <Ref id="A.4.1.1">A.4.1.1</Ref> <Ref id="A.5.1.2">A.5.1.2</Ref> <Ref id="E.1.1.2">E.1.1.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="L.2.2.2">L.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="V.2.3.3">V.2.3.3</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="G.4.1.2">G.4.1.2</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="J.2.4.2">J.2.4.2</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref> <Ref id="D.1.2.3">D.1.2.3</Ref>
+**关联章节**　<Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="A.2.1.1">A.2.1.1</Ref> <Ref id="A.4.1.1">A.4.1.1</Ref> <Ref id="A.5.1.2">A.5.1.2</Ref> <Ref id="E.1.1.2">E.1.1.2</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="L.2.2.2">L.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="V.2.3.3">V.2.3.3</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="G.4.1.2">G.4.1.2</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="J.2.4.2">J.2.4.2</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref> <Ref id="D.1.2.3">D.1.2.3</Ref>
 
 </div>
 
 ### `check_identity` [#def-qualification-check_identity]
 
-资格检查身份：检查名、读数代码版本与检查器源码哈希，随每份资格结论输出
+资格检查身份：检查名、指标计算版本与检查器源码哈希，随每份资格结论输出
 
 ```python
 def check_identity() -> dict
 ```
 
-**返回**　dict：\{check: 检查名（判据版本常量，如 economic_evidence_v1）, reader_revision: 读数代码版本, checker_source_sha256: 本模块字节的 sha256\}
+**返回**　dict：\{check: 检查名（判据版本常量，如 economic_evidence_v1）, metrics_revision: 指标计算版本, checker_source_sha256: 本模块字节的 sha256\}
 
 **期望行为**
 
 1. 检查名取模块常量，判据变更时递增版本名；不读账本。
-2. 经 ledger.reader_revision 取读数代码版本。
+2. 经 ledger.metrics_revision 取指标计算版本。
 3. 对本模块字节算 sha256 作检查器源码哈希。
 4. 三者组成检查身份，assess、require 的拒绝体与探索目录视图都附带它；同一运行在不同时刻的不同资格由检查身份解释，不由改写解释。
 
-**使用**　<Ref id="ledger.reader_revision" />
+**使用**　<Ref id="ledger.metrics_revision" />
 
 <div className="rd-meta">
 
@@ -83,22 +83,22 @@ def check_identity() -> dict
 
 ### `mask` [#def-qualification-mask]
 
-经济读数流出前的唯一遮蔽点：不可用运行的经济读数整体置空并附资格原因
+绩效指标流出前的唯一遮蔽点：不可用运行的绩效指标整体置空并附资格原因
 
 ```python
 def mask(output: dict, value: dict) -> dict
 ```
 
-<TypeTable type={{ "output": { type: "dict", description: "任一读口组装的运行报告字典（运行报告、候选清单条目、分析表、探索目录报告），含经济读数键、cost_basis 与活动计数" }, "value": { type: "dict", description: "assess（或探索目录按同一判据算出）的资格字典" } }} />
+<TypeTable type={{ "output": { type: "dict", description: "任一读口组装的运行报告字典（运行报告、候选清单条目、分析表、探索目录报告），含绩效指标键、cost_basis 与活动计数" }, "value": { type: "dict", description: "assess（或探索目录按同一判据算出）的资格字典" } }} />
 
-**返回**　dict：同一报告字典，附 availability = value；不可用时全部经济读数键与 cost_basis 为 None，活动计数、诊断、审计边界与检查身份保留
+**返回**　dict：同一报告字典，附 availability = value；不可用时全部绩效指标键与 cost_basis 为 None，活动计数、诊断、审计边界与检查身份保留
 
 **期望行为**
 
 1. 把资格字典整体挂到 output.availability，使每份报告都带原因与检查身份。
-2. economic_evidence_available 为假时把全部经济读数键置 None：期末权益、年化、最大回撤、收益回撤比、计划已平/赢/未平与胜率、闭仓与持仓计数、已实现盈亏、手续费、资金费、价格盈亏、未实现盈亏、按年拆分、资金使用率；cost_basis 置 None。
+2. economic_evidence_available 为假时把全部绩效指标键置 None：期末权益、年化、最大回撤、收益回撤比、计划已平/赢/未平与胜率、闭仓与持仓计数、已实现盈亏、手续费、资金费、价格盈亏、未实现盈亏、按年拆分、资金使用率；cost_basis 置 None。
 3. 活动计数、原生行数、审计 scope 与 coverage_limits、执行捕获状态、源码审查结论保留为诊断，供 Agent 归因。
-4. 可用时不改任何读数；所有读口都经本函数，不另设遮蔽。
+4. 可用时不改任何绩效指标；所有读口都经本函数，不另设遮蔽。
 
 **使用**　<Ref id="qualification.assess" />
 
@@ -147,7 +147,7 @@ def require(conn: LedgerConnection, run: Mapping) -> dict
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接" }, "run": { type: "Mapping", description: "run ⨝ trial 行，同 assess" } }} />
 
-**返回**　dict：资格可用时返回 assess 的完整资格字典，供调用方随比较读数或登记绑定一并写出；不可用时抛拒绝
+**返回**　dict：资格可用时返回 assess 的完整资格字典，供调用方随检验结果或登记绑定一并写出；不可用时抛拒绝
 
 **期望行为**
 

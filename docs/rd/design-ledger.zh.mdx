@@ -4,7 +4,7 @@
 
 ## 库 `ledger`
 
-<Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n    BIGINT byte_length\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT run_id PK\n    INT trial_id FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    CHAR_40_ image_revision\n    JSON runtime_inspection\n    VARCHAR_40_ runtime_contract\n    VARCHAR_40_ engine_version\n    CHAR_64_ dependency_lock_sha256\n    JSON effective_config\n    JSON input_identity\n    CHAR_40_ reader_revision\n    JSON summary\n    JSON audit\n  }\n  run_account {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    DECIMAL_38_18_ total\n    DECIMAL_38_18_ locked\n    DECIMAL_38_18_ free\n  }\n  run_cost_basis {\n    INT run_id PK\n    VARCHAR_16_ liquidity_side PK\n    INT fills\n    DECIMAL_38_18_ commissions_usdt\n    DECIMAL_38_18_ notional_usdt\n    DECIMAL_38_18_ fee_rate\n  }\n  run_fill {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ order_side\n    VARCHAR_16_ liquidity_side\n    DECIMAL_38_18_ last_qty\n    DECIMAL_38_18_ last_px\n    DECIMAL_38_18_ commission_usdt\n    VARCHAR_160_ position_id\n  }\n  run_order {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ side\n    VARCHAR_32_ order_type\n    VARCHAR_32_ status\n    DECIMAL_38_18_ quantity\n    DECIMAL_38_18_ filled_qty\n    DECIMAL_38_18_ price\n    DECIMAL_38_18_ avg_px\n    BIGINT ts_init\n    BIGINT ts_last\n  }\n  run_order_event {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_48_ event_type\n    BIGINT ts_event_ns\n  }\n  run_position {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_200_ position_id\n    VARCHAR_64_ instrument_id\n    TINYINT is_snapshot\n    TINYINT closed\n    BIGINT ts_closed_ns\n    DECIMAL_38_18_ realized_pnl_usdt\n  }\n  run_return {\n    INT run_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    CHAR_71_ image_digest\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    CHAR_32_ market_commit\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o{ run : \"trial_id\"\n  run ||--o{ run_account : \"run_id\"\n  run_fill ||--o{ run_cost_basis : \"run_id\"\n  run ||--o{ run_fill : \"run_id\"\n  run ||--o{ run_order : \"run_id\"\n  run ||--o{ run_order_event : \"run_id\"\n  run ||--o{ run_position : \"run_id\"\n  run ||--o{ run_return : \"run_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
+<Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n    BIGINT byte_length\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment {\n    BIGINT judgment_id PK\n    VARCHAR_32_ kind\n    VARCHAR_200_ line_bundle FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK\n    INT seq PK\n    VARCHAR_16_ role\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    BIGINT trial_id FK\n    VARCHAR_200_ registration_bundle FK\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT run_id PK\n    INT trial_id FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    CHAR_40_ image_revision\n    JSON runtime_inspection\n    VARCHAR_40_ runtime_contract\n    VARCHAR_40_ engine_version\n    CHAR_64_ dependency_lock_sha256\n    JSON effective_config\n    JSON input_identity\n    CHAR_40_ metrics_revision\n    JSON summary\n    JSON audit\n  }\n  run_account {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    DECIMAL_38_18_ total\n    DECIMAL_38_18_ locked\n    DECIMAL_38_18_ free\n  }\n  run_cost_basis {\n    INT run_id PK\n    VARCHAR_16_ liquidity_side PK\n    INT fills\n    DECIMAL_38_18_ commissions_usdt\n    DECIMAL_38_18_ notional_usdt\n    DECIMAL_38_18_ fee_rate\n  }\n  run_fill {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ order_side\n    VARCHAR_16_ liquidity_side\n    DECIMAL_38_18_ last_qty\n    DECIMAL_38_18_ last_px\n    DECIMAL_38_18_ commission_usdt\n    VARCHAR_160_ position_id\n  }\n  run_order {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ side\n    VARCHAR_32_ order_type\n    VARCHAR_32_ status\n    DECIMAL_38_18_ quantity\n    DECIMAL_38_18_ filled_qty\n    DECIMAL_38_18_ price\n    DECIMAL_38_18_ avg_px\n    BIGINT ts_init\n    BIGINT ts_last\n  }\n  run_order_event {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_48_ event_type\n    BIGINT ts_event_ns\n  }\n  run_position {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_200_ position_id\n    VARCHAR_64_ instrument_id\n    TINYINT is_snapshot\n    TINYINT closed\n    BIGINT ts_closed_ns\n    DECIMAL_38_18_ realized_pnl_usdt\n  }\n  run_return {\n    INT run_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    CHAR_71_ image_digest\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    CHAR_32_ market_commit\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_bundle ||--o{ judgment : \"line_bundle\"\n  judgment ||--o{ judgment : \"supersedes\"\n  judgment ||--o{ judgment_subject : \"judgment_id\"\n  candidate ||--o{ judgment_subject : \"strategy_id_revision\"\n  trial ||--o{ judgment_subject : \"trial_id\"\n  evidence_bundle ||--o{ judgment_subject : \"registration_bundle\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o{ run : \"trial_id\"\n  run ||--o{ run_account : \"run_id\"\n  run_fill ||--o{ run_cost_basis : \"run_id\"\n  run ||--o{ run_fill : \"run_id\"\n  run ||--o{ run_order : \"run_id\"\n  run ||--o{ run_order_event : \"run_id\"\n  run ||--o{ run_position : \"run_id\"\n  run ||--o{ run_return : \"run_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
 
 | 表 | 用途 |
 |---|---|
@@ -12,11 +12,13 @@
 | <Ref id="table:dolt_system_tables">dolt_diff_\<table> / dolt_history_\<table></Ref> | Dolt 系统表，每张业务表各一对，由 Dolt 维护：逐提交差异与行级全史，是只追加留痕与篡改发现的读取面 |
 | <Ref id="table:dolt_tests">dolt_tests</Ref> | Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_verification_groups 指定）：每次提交前跑跨表测试，失败拒提交；可被跳过参数绕过，是留痕保证，整体复核再跑一次 |
 | <Ref id="table:evidence">evidence</Ref> | 证据包内文件：原件字节与由字节派生的内容哈希、长度；大原件按固定块分行，逻辑文件由包内清单重组 |
-| <Ref id="table:evidence_bundle">evidence_bundle</Ref> | 证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、研究状态清单、更正与 Agent 自由文本都以证据包入账；包名即身份 |
+| <Ref id="table:evidence_bundle">evidence_bundle</Ref> | 证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、更正与 Agent 自由文本都以证据包入账；包名即身份 |
+| <Ref id="table:judgment">judgment</Ref> | Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴露；只追加，正文只引用不抄写事实 |
+| <Ref id="table:judgment_subject">judgment_subject</Ref> | 一条判断涉及的候选、试验或登记包，以及它们在判断里的角色 |
 | <Ref id="table:ledger_head">ledger_head</Ref> | 写入头指针单行：每次写入 +1 并记本次操作 ID，是并发写冲突的碰撞点与幂等重放的索引 |
 | <Ref id="table:ledger_schema">ledger_schema</Ref> | 账本模式代数单行；初始化与模式迁移时写 |
 | <Ref id="table:registration_attempt">registration_attempt</Ref> | 登记尝试：登记包 × 网格点源码 → 消耗它的试验；一点只消耗一次，无效与中断同样算消耗；只追加 |
-| <Ref id="table:run">run</Ref> | 运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、读数代码版本、产品读数、原生摘要与审计原样 |
+| <Ref id="table:run">run</Ref> | 运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、指标计算版本、绩效指标、原生摘要与审计原样 |
 | <Ref id="table:run_account">run_account</Ref> | 引擎账户状态报告逐行 |
 | <Ref id="table:run_cost_basis">run_cost_basis</Ref> | 视图：按运行与流动性方向汇总成交，给出观察到的实际费率（手续费÷成交名义），不是配置声明 |
 | <Ref id="table:run_fill">run_fill</Ref> | 引擎成交报告逐行 |
@@ -59,7 +61,7 @@
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref> <Ref id="A.1.2.2">A.1.2.2</Ref> <Ref id="A.5.2.1">A.5.2.1</Ref> <Ref id="E.1.1.2">E.1.1.2</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.4.2.2">E.4.2.2</Ref> <Ref id="L.2.1.1">L.2.1.1</Ref> <Ref id="T.1.1.2">T.1.1.2</Ref> <Ref id="T.1.1.3">T.1.1.3</Ref> <Ref id="T.2.1.1">T.2.1.1</Ref> <Ref id="T.2.1.2">T.2.1.2</Ref> <Ref id="T.2.2.1">T.2.2.1</Ref> <Ref id="T.2.2.2">T.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="H.1.1.1">H.1.1.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="F.3.2.2">F.3.2.2</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="C.1.1.1">C.1.1.1</Ref> <Ref id="C.1.1.2">C.1.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.1.1">J.2.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.4.3">J.2.4.3</Ref> <Ref id="J.3.1.3">J.3.1.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref>
+**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref> <Ref id="A.1.2.2">A.1.2.2</Ref> <Ref id="A.5.2.1">A.5.2.1</Ref> <Ref id="E.1.1.2">E.1.1.2</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.4.2.2">E.4.2.2</Ref> <Ref id="L.2.1.1">L.2.1.1</Ref> <Ref id="T.1.1.2">T.1.1.2</Ref> <Ref id="T.1.1.3">T.1.1.3</Ref> <Ref id="T.2.1.1">T.2.1.1</Ref> <Ref id="T.2.1.2">T.2.1.2</Ref> <Ref id="T.2.2.1">T.2.2.1</Ref> <Ref id="T.2.2.2">T.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="H.1.1.1">H.1.1.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="F.3.2.2">F.3.2.2</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="C.1.1.1">C.1.1.1</Ref> <Ref id="C.1.1.2">C.1.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.1.1">J.2.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.4.3">J.2.4.3</Ref> <Ref id="J.3.1.3">J.3.1.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref>
 
 **依据**
 
@@ -77,7 +79,7 @@ Dolt 系统表，每张业务表各一对，由 Dolt 维护：逐提交差异与
 
 **Dolt 能力**
 
-- **J.3.1.1**　整体复核逐表查 diff_type ≠ added 即报篡改发现；dolt_history 证明源码、登记、读数从未被改
+- **J.3.1.1**　整体复核逐表查 diff_type ≠ added 即报篡改发现；dolt_history 证明源码、登记、绩效指标从未被改
 - **J.3.1.3**　与 AS OF 配合，按精确版本读并给出每行的写入提交
 - **J.3.1.4**　绕过提交校验的写入与改删仍在此留痕
 - **J.3.5.2**　复核的只追加检查与登记顺序检查（登记提交早于试验插入提交）读此表
@@ -156,15 +158,15 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="A.5.2.1">A.5.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.3">J.3.1.3</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.3.4.2">J.3.4.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="D.1.1.1">D.1.1.1</Ref> <Ref id="D.1.2.2">D.1.2.2</Ref> <Ref id="D.1.2.3">D.1.2.3</Ref>
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="A.5.2.1">A.5.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.3">J.3.1.3</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.3.4.2">J.3.4.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="D.1.1.1">D.1.1.1</Ref> <Ref id="D.1.2.2">D.1.2.2</Ref> <Ref id="D.1.2.3">D.1.2.3</Ref>
 
 </div>
 
 ### `evidence_bundle` [#def-table-evidence_bundle]
 
-证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、研究状态清单、更正与 Agent 自由文本都以证据包入账；包名即身份
+证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、更正与 Agent 自由文本都以证据包入账；包名即身份
 
-<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<trial_id>-execution-start、trial-<trial_id>-execution、trial-<trial_id>-recovery-*、lifecycle-<market_commit>；Agent 命名空间约定：registration-*（含 research-plan.json）、source-review-*（含 source-review.json）、research-line-<n>（含 research-line.json）、knowledge-<market>-<window>-v<n>、correction-*；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<trial_id>-execution-start、trial-<trial_id>-execution、trial-<trial_id>-recovery-*、lifecycle-<market_commit>；Agent 命名空间约定：registration-*（含 research-plan.json）、source-review-*（含 source-review.json）、research-line-<n>（含 research-line.json）、correction-*；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
 
 **键与约束**
 
@@ -176,14 +178,83 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 - **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与业务行同一事务
 - **J.3.1.1**　dolt_diff_evidence_bundle 正常只出现 added；dolt_history_evidence_bundle 给每行每提交的哈希与时间
 - **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的包
-- **E.2.2.1**　研究状态清单每版一个包＝一个提交；DOLT_TAG 给里程碑提交建标签，按标签读回旧版
 - **J.4.1.1**　created_at 与 trial.created_at 比较＝登记先于试验；不用可指定的提交日期
 
 **写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="E.1.1.2">E.1.1.2</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="E.4.2.1">E.4.2.1</Ref> <Ref id="L.1.3.2">L.1.3.2</Ref> <Ref id="T.2.2.2">T.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.2.4.2">J.2.4.2</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="D.1.1.1">D.1.1.1</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.1.2.2">D.1.2.2</Ref> <Ref id="D.1.2.3">D.1.2.3</Ref> <Ref id="D.2.1.1">D.2.1.1</Ref>
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="E.1.1.2">E.1.1.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.4.2.1">E.4.2.1</Ref> <Ref id="L.1.3.2">L.1.3.2</Ref> <Ref id="T.2.2.2">T.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="D.1.1.1">D.1.1.1</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.1.2.2">D.1.2.2</Ref> <Ref id="D.1.2.3">D.1.2.3</Ref> <Ref id="D.2.1.1">D.2.1.1</Ref>
+
+</div>
+
+### `judgment` [#def-table-judgment]
+
+Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴露；只追加，正文只引用不抄写事实
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "主键", required: true }, "kind": { type: "VARCHAR(32)", description: "recommendation | priority | review_cadence | interpretation | search_exposure", required: true }, "line_bundle": { type: "VARCHAR(200)", description: "所属研究路线的 research-line-* 证据包", required: true }, "based_on_commit": { type: "CHAR(32)", description: "做判断时读的账本提交哈希；不早于路线包所在提交", required: true }, "body": { type: "TEXT", description: "Agent 的自由文本；只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别", required: true }, "supersedes": { type: "BIGINT", description: "被取代的上一条判断；同 kind、同路线，至多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器写入的服务器时间", required: true } }} />
+
+**键与约束**
+
+- 主键　`judgment_id`
+- 唯一　`op_id`
+- 唯一　`supersedes`
+- 外键　`line_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- 外键　`supersedes` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
+- CHECK　`kind IN ('recommendation','priority','review_cadence','interpretation','search_exposure')`
+- CHECK　`line_bundle LIKE 'research-line-%'`
+
+**Dolt 能力**
+
+- **dolt_diff_judgment**　只应出现 added；dolt_tests 在提交时核对
+- **AS OF**　按任一账本提交读当时的判断
+- **分支控制与账号**　写账号对本表只有 INSERT
+
+**写入方**　<Ref id="ledger.add_judgment" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="A.1.2.2">A.1.2.2</Ref> <Ref id="A.4.2.1">A.4.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.2.4.2">J.2.4.2</Ref> <Ref id="J.3.1.3">J.3.1.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.1.2.2">D.1.2.2</Ref> <Ref id="D.2.2.1">D.2.2.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
+
+**依据**
+
+- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+
+</div>
+
+### `judgment_subject` [#def-table-judgment_subject]
+
+一条判断涉及的候选、试验或登记包，以及它们在判断里的角色
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "所属判断", required: true }, "seq": { type: "INT", description: "判断内序号", required: true }, "role": { type: "VARCHAR(16)", description: "recommended | parent | control | about", required: true }, "strategy_id": { type: "VARCHAR(100)", description: "候选引用名 ID", required: false }, "revision": { type: "INT", description: "候选版本号", required: false }, "trial_id": { type: "BIGINT", description: "试验；覆盖没有运行行的未完成与预检失败尝试", required: false }, "registration_bundle": { type: "VARCHAR(200)", description: "登记包；须在 registration_attempt 中出现过", required: false } }} />
+
+**键与约束**
+
+- 主键　`judgment_id`, `seq`
+- 外键　`judgment_id` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
+- 外键　`strategy_id, revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+- 外键　`registration_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- CHECK　`恰有一类目标非空：(strategy_id, revision) | trial_id | registration_bundle`
+- CHECK　`role IN ('recommended','parent','control') 时目标必须是候选`
+
+**Dolt 能力**
+
+- **dolt_diff_judgment_subject**　只应出现 added；dolt_tests 在提交时核对
+
+**写入方**　<Ref id="ledger.add_judgment" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref>
+
+**依据**
+
+- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
 
 </div>
 
@@ -272,15 +343,15 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.1.2.1">A.1.2.1</Ref> <Ref id="A.5.1.1">A.5.1.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="V.4.2.1">V.4.2.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.2.1.1">D.2.1.1</Ref>
+**关联章节**　<Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.1.2.1">A.1.2.1</Ref> <Ref id="A.5.1.1">A.5.1.1</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="V.4.2.1">V.4.2.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.2.1.1">D.2.1.1</Ref>
 
 </div>
 
 ### `run` [#def-table-run]
 
-运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、读数代码版本、产品读数、原生摘要与审计原样
+运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、指标计算版本、绩效指标、原生摘要与审计原样
 
-<TypeTable type={{ "run_id": { type: "INT AUTO_INCREMENT", description: "运行主键，自增", required: true }, "trial_id": { type: "INT", description: "一试验至多一运行；UNIQUE", required: true }, "status": { type: "ENUM('passed','invalid')", description: "完整性审计结论：有效 passed / 无效 invalid；从不编辑", required: true }, "failure_reasons": { type: "JSON", description: "invalid 必有、passed 必空：运行器非零退出、审计未运行/缺失/有发现、身份不一致、构造或回调异常、基础设施错误原样", required: false }, "image_revision": { type: "CHAR(40)", description: "镜像构建源码版本（只从镜像标签读出）；validation 运行须在 main 上（[[runtime.require_main_build]]）；探针读不到时为空并进入局限", required: false }, "runtime_inspection": { type: "JSON", description: "镜像内探针报告：运行契约、引擎版本、Python 版本、依赖锁哈希、运行器与审计器源码哈希", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.runtime_contract", required: true }, "engine_version": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.engine_version", required: true }, "dependency_lock_sha256": { type: "CHAR(64)", description: "生成列 ← runtime_inspection.$.dependency_lock_sha256", required: true }, "effective_config": { type: "JSON", description: "运行器在镜像内读出的有效配置：窗口、本金与账户条款、费率与资金费口径、合约集、撮合开关及其哈希", required: true }, "input_identity": { type: "JSON", description: "输入身份：市场库名、market_commit、universe_rule、合约集与成员时间路径、导出内容哈希、导出器源码哈希、lifecycle 证据包名", required: true }, "reader_revision": { type: "CHAR(40)", description: "读数代码版本", required: true }, "summary": { type: "JSON", description: "原生摘要原样（含运行器写入的年化、夏普、期末权益、源码哈希、配置哈希）", required: false }, "audit": { type: "JSON", description: "独立审计器结果原样（含审计边界与覆盖局限）", required: false }, "final_equity_usdt": { type: "DECIMAL(24,8)", description: "生成列 ← summary.$.final_equity_usdt", required: false }, "annual_return": { type: "DOUBLE", description: "生成列 ← summary.$.annual_return；口径见 [[R.2.1.1]]", required: false }, "max_drawdown": { type: "DOUBLE", description: "标记价权益逐 K 线最大峰谷比例；非 passed 为空", required: false }, "plans_closed": { type: "INT", description: "已平计划数；计划标签不合规时为空", required: false }, "plans_won": { type: "INT", description: "赢的计划数", required: false }, "plans_open": { type: "INT", description: "期末未平计划数（算非赢）", required: false }, "plan_win_rate": { type: "DOUBLE", description: "生成列 plans_won / NULLIF(plans_closed + plans_open, 0)", required: false }, "closed_positions": { type: "INT", description: "已平持仓周期数（闭仓总体样本量）", required: false }, "open_positions": { type: "INT", description: "期末未平持仓数", required: false }, "realized_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓已实现合计", required: false }, "price_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓价格盈亏", required: false }, "commissions_usdt": { type: "DECIMAL(24,8)", description: "闭仓手续费", required: false }, "funding_usdt": { type: "DECIMAL(24,8)", description: "闭仓资金费；恒等式 price_pnl − commissions + funding = realized 对账不符则四列整体留空", required: false }, "unrealized_usdt": { type: "DECIMAL(24,8)", description: "未实现残差＝期末权益 − 审计期末余额", required: false }, "reading_limitations": { type: "JSON", description: "合并后的局限清单：撮合与条款局限、审计覆盖局限、读数局限、留空原因", required: true }, "exposures": { type: "LONGBLOB", description: "逐分钟标记价敞口估值压缩原件，资金使用率由此算；非 passed 为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "固定为 run:trial-<trial_id>；第二次写入返回原记录", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器归 J.4.1.1）", required: true } }} />
+<TypeTable type={{ "run_id": { type: "INT AUTO_INCREMENT", description: "运行主键，自增", required: true }, "trial_id": { type: "INT", description: "一试验至多一运行；UNIQUE", required: true }, "status": { type: "ENUM('passed','invalid')", description: "完整性审计结论：有效 passed / 无效 invalid；从不编辑", required: true }, "failure_reasons": { type: "JSON", description: "invalid 必有、passed 必空：运行器非零退出、审计未运行/缺失/有发现、身份不一致、构造或回调异常、基础设施错误原样", required: false }, "image_revision": { type: "CHAR(40)", description: "镜像构建源码版本（只从镜像标签读出）；validation 运行须在 main 上（[[runtime.require_main_build]]）；探针读不到时为空并进入局限", required: false }, "runtime_inspection": { type: "JSON", description: "镜像内探针报告：运行契约、引擎版本、Python 版本、依赖锁哈希、运行器与审计器源码哈希", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.runtime_contract", required: true }, "engine_version": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.engine_version", required: true }, "dependency_lock_sha256": { type: "CHAR(64)", description: "生成列 ← runtime_inspection.$.dependency_lock_sha256", required: true }, "effective_config": { type: "JSON", description: "运行器在镜像内读出的有效配置：窗口、本金与账户条款、费率与资金费口径、合约集、撮合开关及其哈希", required: true }, "input_identity": { type: "JSON", description: "输入身份：市场库名、market_commit、universe_rule、合约集与成员时间路径、导出内容哈希、导出器源码哈希、lifecycle 证据包名", required: true }, "metrics_revision": { type: "CHAR(40)", description: "指标计算版本", required: true }, "summary": { type: "JSON", description: "原生摘要原样（含运行器写入的年化、夏普、期末权益、源码哈希、配置哈希）", required: false }, "audit": { type: "JSON", description: "独立审计器结果原样（含审计边界与覆盖局限）", required: false }, "final_equity_usdt": { type: "DECIMAL(24,8)", description: "生成列 ← summary.$.final_equity_usdt", required: false }, "annual_return": { type: "DOUBLE", description: "生成列 ← summary.$.annual_return；口径见 [[R.2.1.1]]", required: false }, "max_drawdown": { type: "DOUBLE", description: "标记价权益逐 K 线最大峰谷比例；非 passed 为空", required: false }, "plans_closed": { type: "INT", description: "已平计划数；计划标签不合规时为空", required: false }, "plans_won": { type: "INT", description: "赢的计划数", required: false }, "plans_open": { type: "INT", description: "期末未平计划数（算非赢）", required: false }, "plan_win_rate": { type: "DOUBLE", description: "生成列 plans_won / NULLIF(plans_closed + plans_open, 0)", required: false }, "closed_positions": { type: "INT", description: "已平持仓周期数（闭仓总体样本量）", required: false }, "open_positions": { type: "INT", description: "期末未平持仓数", required: false }, "realized_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓已实现合计", required: false }, "price_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓价格盈亏", required: false }, "commissions_usdt": { type: "DECIMAL(24,8)", description: "闭仓手续费", required: false }, "funding_usdt": { type: "DECIMAL(24,8)", description: "闭仓资金费；恒等式 price_pnl − commissions + funding = realized 对账不符则四列整体留空", required: false }, "unrealized_usdt": { type: "DECIMAL(24,8)", description: "未实现残差＝期末权益 − 审计期末余额", required: false }, "metric_limitations": { type: "JSON", description: "合并后的局限清单：撮合与条款局限、审计覆盖局限、绩效指标局限、留空原因", required: true }, "exposures": { type: "LONGBLOB", description: "逐分钟标记价敞口估值压缩原件，资金使用率由此算；非 passed 为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "固定为 run:trial-<trial_id>；第二次写入返回原记录", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器归 J.4.1.1）", required: true } }} />
 
 **键与约束**
 
@@ -298,9 +369,9 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与六张报告表同一事务恰一个 DOLT_COMMIT
 - **J.3.2.2**　UNIQUE trial_id 加固定 op_id：幂等，第二次写入返回原记录
-- **J.3.1.1**　dolt_diff_run 定位任何被改读数，非 added 即篡改发现
-- **J.3.1.3**　AS OF 重算当时读数
-- **D.1.2.2**　读数列与 status 从不改写；重评与更正只作新证据包，旧版本 AS OF 可读
+- **J.3.1.1**　dolt_diff_run 定位任何被改绩效指标，非 added 即篡改发现
+- **J.3.1.3**　AS OF 重算当时绩效指标
+- **D.1.2.2**　绩效指标列与 status 从不改写；重评与更正只作新证据包，旧版本 AS OF 可读
 - **D.3.2.1**　运行环境身份列随行永久可读回，旧镜像按摘要仍可拉取
 - **J.3.5.1**　不运行 DOLT_GC；随 dolt_backup 全史备份
 
@@ -328,7 +399,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与 run 行同一事务同一提交
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
@@ -379,7 +450,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与 run 行同一事务同一提交
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
 - **R.1.3.2**　run_cost_basis 视图按 (run_id, liquidity_side) 汇总本表，可 AS OF 重算任一版本
 
 **写入方**　<Ref id="ledger.ingest_run" />
@@ -407,7 +478,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与 run 行同一事务同一提交
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
 - **J.3.5.1**　随 dolt_backup 整份备份
 
 **写入方**　<Ref id="ledger.ingest_run" />
@@ -434,7 +505,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与 run 行同一事务同一提交
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
@@ -460,7 +531,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与 run 行同一事务同一提交
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
@@ -485,7 +556,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与 run 行同一事务同一提交
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　只读账号的整体复核按原生序列重算配对读数
+- **J.3.5.2**　只读账号的整体复核按原生序列重算检验结果
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
@@ -520,7 +591,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="A.5.2.1">A.5.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="T.2.1.2">T.2.1.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.1">W.2.1.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.2">J.2.4.2</Ref> <Ref id="J.2.4.3">J.2.4.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="D.1.1.2">D.1.1.2</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.2.1.1">D.2.1.1</Ref> <Ref id="D.3.1.2">D.3.1.2</Ref> <Ref id="D.3.2.1">D.3.2.1</Ref>
+**关联章节**　<Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="A.5.2.1">A.5.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="T.2.1.2">T.2.1.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.1.1.1">V.1.1.1</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.1">W.2.1.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="R.4.2.1">R.4.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.2">J.2.4.2</Ref> <Ref id="J.2.4.3">J.2.4.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="D.1.1.2">D.1.1.2</Ref> <Ref id="D.1.2.1">D.1.2.1</Ref> <Ref id="D.2.1.1">D.2.1.1</Ref> <Ref id="D.3.1.2">D.3.1.2</Ref> <Ref id="D.3.2.1">D.3.2.1</Ref>
 
 </div>
 

@@ -25,7 +25,7 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 <Step>
 
-策略经 <Ref id="ledger.publish_candidate" /> 发布为候选 candidate；来源原件、审查结论与备注经 <Ref id="ledger.add_bundle" /> 入账为证据包。
+策略经 <Ref id="ledger.publish_candidate" /> 发布为候选 candidate；来源原件、审查结论与备注经 <Ref id="ledger.add_bundle" /> 入账为证据包；Agent 的判断经 <Ref id="ledger.add_judgment" /> 逐条入账。
 
 </Step>
 
@@ -58,16 +58,17 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 - 持久研究记录只有一个来源：账本及其 dolt_backup 备份（<Ref id="J.3.5.1" />）。
 - 候选 candidate 以完整单文件源码入账（<Ref id="table:candidate" />），引用名为 strategy_id@revision。
 - 登记 registration（<Ref id="J.2.1.2" />）、试验 trial（<Ref id="table:trial" />）与运行 run（<Ref id="table:run" />）记录入账。
-- 引擎 engine 原生报告与执行日志、来源与源码审查证据、研究状态清单与备注以证据包（<Ref id="table:evidence_bundle" />）入账，包名即身份。
+- 引擎 engine 原生报告与执行日志、来源与源码审查证据与备注以证据包（<Ref id="table:evidence_bundle" />）入账，包名即身份。
+- Agent 的判断（推荐、优先级、复盘节奏、解释与搜索暴露）经 <Ref id="cli.judgment_add" /> 逐条只追加入账（<Ref id="table:judgment" />）；研究状态是 <Ref id="report.research_state" /> 的读时视图，不另存。
 - 写入只经 <Ref id="cli.main" /> 分派的声明命令，Agent 不开直连写库。
 - 同内容重试幂等。
 - 会话记忆、交接文件与工作副本都不是记录。
 - 引用结论时必须给出证据包名、运行或登记编号与账本提交。
 - 未入账的材料先入账再引用，否则视为不存在。
 
-**输入**　研究过程的各类产物。
+**输入**　研究过程的各类产物与 Agent 的判断。
 
-**输出**　账本里的候选、登记、试验、运行与证据包。
+**输出**　账本里的候选、登记、试验、运行、判断与证据包。
 
 **强制**　入账形态、内容哈希 content hash 与只追加由代码与账本强制（<Ref id="J.3.1.1" />、<Ref id="J.3.4.1" />，按版本读回见 <Ref id="J.3.1.3" />）；「结论只引已入账的记录」由 skill 节 <Ref id="research-round/references/ledger.md#only-record" /> 指导，由 <Ref id="eval:research-round/ledger-is-the-only-record" /> 检查。
 
@@ -185,7 +186,13 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 <Step>
 
-读：<Ref id="report.research_status" />、<Ref id="report.candidates" />、<Ref id="report.compare" /> 读时按资格视图给计数与读数，不存裁决。
+判断：Agent 经 <Ref id="cli.judgment_add" /> → <Ref id="ledger.add_judgment" /> 逐条追加推荐、优先级、复盘节奏、解释与搜索暴露到 <Ref id="table:judgment" />，正文只引用候选、试验、登记包与账本提交。
+
+</Step>
+
+<Step>
+
+读：<Ref id="report.research_status" />、<Ref id="report.candidates" />、<Ref id="report.compare" /> 读时按资格视图给计数与绩效指标；<Ref id="report.research_state" /> 把当前判断与这些读时事实拼成研究状态视图，不存裁决。
 
 </Step>
 
@@ -226,7 +233,7 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 - 同载荷重试返回原包。
 - 包头时间由服务器触发器写（<Ref id="J.4.1.1" />）。
 - 改意图、改网格或改源码只能另起新登记，旧包不改不删（<Ref id="J.3.1.1" />）。
-- <Ref id="table:evidence_bundle" /> 与 <Ref id="table:evidence" /> 同时承载源码审查、执行封存、生命周期事实、研究路线、研究状态清单与更正。
+- <Ref id="table:evidence_bundle" /> 与 <Ref id="table:evidence" /> 同时承载源码审查、执行封存、生命周期事实、研究路线与更正。
 - 产品保留命名空间（trial-*、lifecycle-*）只由代码写。
 
 **输入**　Agent 给的登记 JSON。
@@ -273,13 +280,13 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 - 完整性审计结论 passed 或 invalid 及逐条原因。
 - 镜像内探针给出的运行环境检视与运行器读出的有效配置。
 - 输入身份：市场提交、universe_rule、合约集与成员时间路径、导出与导出器哈希、生命周期证据包。
-- 另含读数代码版本、产品读数与读数局限、原生摘要与审计结果原样，以及逐分钟敞口估值压缩原件。
+- 另含指标计算版本、绩效指标与绩效指标局限、原生摘要与审计结果原样，以及逐分钟敞口估值压缩原件。
 - 入账前经 <Ref id="ledger.original_coverage" /> 核原始捕获。
-- 读数由 <Ref id="ledger.readings" /> 从原生行算出；对账失败只置空对应读数，不判运行无效、不改写原生值。
-- CHECK：invalid 必有原因、passed 必无原因；非 passed 时读数与敞口列全空。
+- 绩效指标由 <Ref id="ledger.metrics" /> 从原生行算出；对账失败只置空对应绩效指标，不判运行无效、不改写原生值。
+- CHECK：invalid 必有原因、passed 必无原因；非 passed 时绩效指标与敞口列全空。
 - 运行契约、引擎版本、依赖锁哈希、年化、期末权益与计划胜率是生成列，调用方不能填写。
 - op_id 固定为 run:trial-\<trial_id>，重复写入返回原行。
-- status 与读数从不改写，重评与更正只作新证据包（<Ref id="J.3.1.2" />）。
+- status 与绩效指标从不改写，重评与更正只作新证据包（<Ref id="J.3.1.2" />）。
 
 **输入**　一条 research 或 validation 试验的审计结论、探针、有效配置、输入身份与原生报告。
 
@@ -297,7 +304,7 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 - 只在运行 passed 时与运行行同一事务写入；invalid 运行没有报告行。
 - 日收益按 UTC 日钟排列，是配对比较与样本外区间的唯一配对单位。
 - explore 与 precheck 的报告只留在临时工作副本目录，账本只有其试验行与执行封存。
-- 整体复核按 raw 重算读数并与运行行核对（<Ref id="J.3.5.2" />）。
+- 整体复核按 raw 重算绩效指标并与运行行核对（<Ref id="J.3.5.2" />）。
 
 **输入**　research 或 validation 回放的引擎原生报告。
 
@@ -314,7 +321,7 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 <Cap id="J.2.3.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="失败或无效的回放照样写运行行，标 invalid 并逐条列原因">
 
 - research 与 validation 的失败或无效回放写 <Ref id="table:run" /> 并标 invalid，不得标 passed。
-- 只留逐条原因、原生摘要与审计结果原样，不留读数、敞口与报告行，由 CHECK 保证。
+- 只留逐条原因、原生摘要与审计结果原样，不留绩效指标、敞口与报告行，由 CHECK 保证。
 - 原因由代码汇总，逐条列出、互不覆盖。
 - <Ref id="replay.audit_problems" /> 给出：运行器或审计器非零退出、审计缺失或有发现、结构化异常回执非空；基础设施错误原样保留，不改写成证据不足。
 - <Ref id="replay.summary_problems" /> 给出：原生摘要与试验的源码、运行环境、有效配置身份不符。
@@ -326,7 +333,7 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 **输出**　标 invalid 并带原因的运行行。
 
-**强制**　代码与账本：<Ref id="ledger.ingest_run" /> 汇总两类问题写入，CHECK 保证 invalid 行无读数、敞口与报告行。
+**强制**　代码与账本：<Ref id="ledger.ingest_run" /> 汇总两类问题写入，CHECK 保证 invalid 行无绩效指标、敞口与报告行。
 
 </Cap>
 
@@ -361,7 +368,7 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 **输入**　中断试验的开始回执与事后恢复材料。
 
-**输出**　missing 读数，或追加的 trial-\<trial_id>-recovery-* 证据包。
+**输出**　missing 绩效指标，或追加的 trial-\<trial_id>-recovery-* 证据包。
 
 **强制**　代码：<Ref id="ledger.read_capture" /> 与 <Ref id="ledger.recover_capture" /> 按开始回执核对。
 
@@ -369,23 +376,25 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 ### J.2.4　写入分工 [#J-2-4]
 
-Agent 只追加自由文本证据包，结构化事实与样本外入账由代码写，资格与计数不存、读时算。
+Agent 只追加自由文本证据包与判断行，结构化事实与样本外入账由代码写，资格与计数不存、读时算。
 
-<Cap id="J.2.4.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="Agent 只追加自由文本与证据原件，不承载分数或裁决">
+<Cap id="J.2.4.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="Agent 只追加自由文本、证据原件与判断行，不承载分数或裁决">
 
-- Agent 写：登记正文、改动说明、理由、来源、源码审查结论、备注、推荐 recommendation、研究优先级 research priority、复盘 review、更正 correction 与研究状态清单。
-- 全部作为只追加证据包入账（<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />），不是产品字段，也不承载分数或裁决。
+- Agent 写证据包：登记正文、改动说明、理由、来源、源码审查结论、备注与更正 correction。
+- 证据包只追加入账（<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />），不是产品字段，也不承载分数或裁决。
 - 登记经 <Ref id="registration.register" /> 校验后写入，其余经 <Ref id="cli.evidence_add" /> → <Ref id="ledger.add_bundle" />。
 - 包名占用产品保留命名空间（trial-*、lifecycle-*）即拒绝。
 - 空文件与媒体文件拒绝；单文件有容量上限（未校准示例值）。
 - 同载荷重试返回原包。
 - 改写只能另起新包并引用旧包；读回经 <Ref id="ledger.load_bundle" /> 重验哈希。
+- Agent 的判断（推荐 recommendation、研究优先级 priority、复盘节奏 review_cadence、解释 interpretation、搜索暴露 search_exposure）经 <Ref id="cli.judgment_add" /> → <Ref id="ledger.add_judgment" /> 逐条只追加到 <Ref id="table:judgment" /> 与 <Ref id="table:judgment_subject" />；改判断写新一条并以 supersedes 指向旧的。
+- 判断正文只引用候选 strategy_id@revision、trial_id、登记包名与账本提交，不存结果类别、绩效指标、计数或资格；这些由 <Ref id="report.research_state" /> 读时取（<Ref id="research-round/references/judgments.md#body-references-only" />）。
 
-**输入**　Agent 给的包名与文本文件。
+**输入**　Agent 给的包名与文本文件；或一条判断的种类、研究路线、所读账本提交、正文与主体。
 
-**输出**　一个只追加证据包。
+**输出**　一个只追加证据包，或一行判断及其主体。
 
-**强制**　代码管形态与命名（<Ref id="ledger.add_bundle" />）；包内写什么由 skill 指导。
+**强制**　代码管证据包的形态与命名（<Ref id="ledger.add_bundle" />）与判断的路线、提交、主体与取代关系（<Ref id="ledger.add_judgment" />）；包内与判断正文写什么由 skill 指导。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -393,21 +402,22 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 
 </Cap>
 
-<Cap id="J.2.4.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="读数、计数、身份、时间只由代码写或算，账本不存裁决">
+<Cap id="J.2.4.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="绩效指标、计数、身份、时间只由代码写或算，账本不存裁决">
 
-- 读数 reading 在入账时由 <Ref id="ledger.readings" /> 从原生行算出，随运行行存。
+- 绩效指标 performance metrics 在入账时由 <Ref id="ledger.metrics" /> 从原生行算出，随运行行存。
 - 身份从源码字节、镜像探针与导出内容读出。
 - 时间由服务器触发器写（<Ref id="J.4.1.1" />）。
 - 研究计数读时由 <Ref id="report.research_status" /> 从试验、登记尝试、运行与样本外登记算出，经 <Ref id="cli.research_status" /> 输出。
 - 经济证据资格是读时按检查身份算的视图（<Ref id="qualification.assess" />、<Ref id="G.4.2.3" />），不改写存储的审计结论。
-- <Ref id="report.candidates" />、<Ref id="report.compare" /> 与计数只给事实、读数与检查身份，没有推荐分数、排序、停止标志或目标字段。
-- 复盘时机与研究优先级由 skill 依计数判断（<Ref id="F.3.1.1" />）。
+- <Ref id="report.candidates" />、<Ref id="report.compare" /> 与计数只给事实、绩效指标与检查身份，没有推荐分数、排序、停止标志或目标字段。
+- 复盘节奏与研究优先级是 Agent 依计数做的判断（<Ref id="F.3.1.1" />），经 <Ref id="ledger.add_judgment" /> 写入 <Ref id="table:judgment" />，代码不读其为分数。
+- 判断行不存结果类别、绩效指标、计数或资格；<Ref id="report.research_state" /> 读时把当前判断与这些事实拼成研究状态视图。
 
 **输入**　试验、登记尝试、运行、样本外登记与原生行。
 
-**输出**　入账时存的读数；读时算出的计数与资格视图。
+**输出**　入账时存的绩效指标；读时算出的计数与资格视图。
 
-**强制**　代码与账本：读数随 <Ref id="ledger.ingest_run" /> 写入，时间由服务器触发器写，计数与资格由读报告代码现算。
+**强制**　代码与账本：绩效指标随 <Ref id="ledger.ingest_run" /> 写入，时间由服务器触发器写，计数与资格由读报告代码现算。
 
 </Cap>
 
@@ -456,45 +466,7 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 
 ## J.3　写入保护：怎么证明没被改 [#J-3]
 
-<Steps>
-
-<Step>
-
-<Ref id="cli.main" /> 按命令角色经 <Ref id="ledger.connect" /> 以写账号或读账号开一条连接。
-
-</Step>
-
-<Step>
-
-写命令经 <Ref id="ledger.write" /> 在一个事务里核对写角色、按 op_id 查重放、拒脏工作集、只插入、头指针加一、dolt_commit（<Ref id="table:dolt_tests" /> 在此运行）。
-
-</Step>
-
-<Step>
-
-源码、证据与执行捕获以字节入账，内容哈希由生成列派生；读出时 <Ref id="ledger.load_bundle" /> 与 <Ref id="ledger.read_capture" /> 重算核对。
-
-</Step>
-
-<Step>
-
-改口走更正证据包（<Ref id="J.3.1.2" />）。
-
-</Step>
-
-<Step>
-
-全史由 <Ref id="ledger.export_history" /> 以 dolt_backup 增量同步到服务目录之外。
-
-</Step>
-
-<Step>
-
-<Ref id="cli.ledger_review" /> 做整体复核（<Ref id="J.3.5.2" />）。
-
-</Step>
-
-</Steps>
+五个组件沿写入路径排列：写入只经命令行接口以写账号进入（J.3.3），每次写入是一个原子幂等的事务（J.3.2），只产生插入行与一个 Dolt 提交（J.3.1）；封存内容的哈希由库内派生、读时核验（J.3.4）；全史同步到备份，整体复核由读账号按精确版本事后核对全部不变量（J.3.5）。强制分三处：账号权限与提交校验在账本层，写协议与哈希核验在代码层，复核只报发现、不写记录。保证是留痕而非不可改：同一系统用户以管理账号连接或直接改数据目录不能阻止，只能由差异系统表与整体复核事后发现（<Ref id="A.5.2.2" />）。
 
 ### J.3.1　只追加 [#J-3-1]
 
@@ -508,7 +480,7 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 - 每次写入产生一个 Dolt 提交。
 - 任一行的插入、修改或删除都落进该表的 dolt_diff_\<table> 与 dolt_history_\<table>。
 - 本能力定义这一读取面。
-- 审计结论、读数、登记与候选源码一经写入不可编辑，改口只能追加更正（<Ref id="J.3.1.2" />）。
+- 审计结论、绩效指标、登记与候选源码一经写入不可编辑，改口只能追加更正（<Ref id="J.3.1.2" />）。
 - 正常路径之外出现的修改或删除写时不拒绝，由 <Ref id="report.review_all" /> 逐表读差异表报为发现。
 
 **输出**　每张业务表的 dolt_diff_\<table> 与 dolt_history_\<table> 读取面。
@@ -540,7 +512,7 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 <Cap id="J.3.1.3" kind="database" tier="verified" tierLabel="已验证" title="读历史按精确版本，结论引用账本编号与账本提交哈希">
 
 - 读连接接受提交哈希、标签或 branch 名，用 Dolt AS OF 读出该版本的表与视图（<Ref id="ledger.read_as_of" />），结果不随后续写入变化。
-- 结论、备注与更正引用 run_id、登记证据包名、证据包名、候选引用名 strategy_id@revision 与账本提交哈希，不引用 Git 提交号。
+- 结论、判断正文、备注与更正引用 run_id、trial_id、登记证据包名、证据包名、候选引用名 strategy_id@revision 与账本提交哈希，不引用 Git 提交号。
 - 任意只读 SQL 只由读账号执行（<Ref id="cli.ledger_sql" />）。
 - 二进制大对象只打印长度、不打印内容。
 
@@ -555,6 +527,7 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 <Cap id="J.3.1.4" kind="database" tier="verified" tierLabel="已验证" title="改与删可查但不能阻止：保证是留痕而非不可改">
 
 - <Ref id="table:dolt_tests" /> 中验证组 commit 的跨表测试在每次 dolt_commit 前运行。
+- 判断两表 <Ref id="table:judgment" /> 与 <Ref id="table:judgment_subject" /> 的提交测试核对其 dolt_diff 只出现 added。
 - 任一返回非零即整笔回滚，拦住正常路径上的错误。
 - 提交前校验不是信任边界：Dolt 的 --skip-verification 与管理账号都能绕过。
 - 行级留痕：每行的插入提交可从 dolt_diff_\<table>.to_commit 查到，修改或删除留下 diff_type 为 modified 或 removed 的行。
@@ -641,11 +614,11 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 
 <Cap id="J.3.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="写入只经声明的命令行接口，封存命名空间只由回放封存写">
 
-- <Ref id="cli.main" /> 的名词为 ledger、strategy、evidence、line、hypothesis、candidate、research、source-review、execution-recover、validation、replay、market，动词子命令按分派表决定连接角色。
+- <Ref id="cli.main" /> 的名词为 ledger、strategy、evidence、line、hypothesis、candidate、research、judgment、source-review、execution-recover、validation、replay、market，动词子命令按分派表决定连接角色。
 - 每条命令一条连接、一份结果 JSON；拒绝在标准错误写 \{code, message, next_actions, write_status\}。
 - Agent 不做直接 SQL 写入，只读查询经读账号。
 - 绕过接口留下的半截改动在下一次写入时由脏工作集检查拒绝（<Ref id="J.3.2.1" />）。
-- Agent 的自由文本与原件只经 <Ref id="cli.evidence_add" /> 到 <Ref id="ledger.add_bundle" /> 入账。
+- Agent 的判断只经 <Ref id="cli.judgment_add" /> 到 <Ref id="ledger.add_judgment" /> 入账；其余自由文本与原件只经 <Ref id="cli.evidence_add" /> 到 <Ref id="ledger.add_bundle" /> 入账。
 - 产品封存命名空间 trial-\<id>-execution(-start) 与 trial-\<id>-recovery-* 只由回放封存（<Ref id="replay.seal" />、<Ref id="ledger.seal_capture" />、<Ref id="ledger.recover_capture" />）写。
 - 证据导出经 <Ref id="cli.evidence_export" /> 核验哈希后写到临时目录。
 - 账本服务由 <Ref id="cli.ledger_service" /> 起停。
@@ -719,7 +692,7 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 - <Ref id="cli.ledger_review" /> 调 <Ref id="report.review_all" />，只用读账号、钉到一个精确提交运行，全程不开写事务。
 - 核对提交测试全部为零。
 - 核对每张业务表的差异表只有 added（头指针单行除外）。
-- 核对已存读数与按原生行重算一致。
+- 核对已存绩效指标与按原生行重算一致。
 - 核对登记提交早于试验插入提交，且源码哈希在登记锁定的网格内。
 - 核对通过的运行与其登记可比。
 - 核对每次试验的执行封存身份与试验、运行行一致。
@@ -1039,7 +1012,7 @@ Agent 只追加自由文本证据包，结构化事实与样本外入账由代�
 - 研究封存与样本外验证走 <Ref id="cli.replay_run" />，主体为函数 run（<Ref id="registration" />）。
 - 入口顺序固定，按步骤执行。
 - 研究与样本外回放在临时目录完成，经 <Ref id="ledger.ingest_run" /> 一次写入账本后删除目录；失败保留目录供诊断。
-- 探索不登记，报告只留在临时目录，账本只有试验行与执行封存，读数注明来源未核验。
+- 探索不登记，报告只留在临时目录，账本只有试验行与执行封存，绩效指标注明来源未核验。
 - 探索过的源码此后不能作为新登记（<Ref id="registration.validate" /> 拒绝）。
 
 **输入**　试验用途、策略源码、运行环境引用与钉住的市场提交。

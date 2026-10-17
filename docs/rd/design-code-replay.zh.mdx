@@ -112,7 +112,7 @@ def explore(
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场库连接配置" }, "at": { type: "str | None", description: "市场提交；空表示当前头" }, "strategy_file": { type: "Path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名，须是合法 Python 标识符" }, "output": { type: "Path", description: "输出目录，须是尚不存在的临时目录" }, "runtime": { type: "str | None", description: "运行环境引用；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数" } }} />
 
-**返回**　dict \{purpose: explore, status: passed|invalid, problems, path, trial_id, image_ref, market（输入身份）, readings（未核验目录读数）\}
+**返回**　dict \{purpose: explore, status: passed|invalid, problems, path, trial_id, image_ref, market（输入身份）, metrics（未核验目录绩效指标）\}
 
 **期望行为**
 
@@ -121,7 +121,7 @@ def explore(
 3. 建 source/ 与 reports/，写入源码、运行环境检视与覆盖回执（replay.input_coverage）。
 4. 容器启动前经 ledger.open_trial 与 ledger.start_receipt 写 purpose=explore 的试验行与开始回执，记源码哈希、运行环境引用、合约集与窗口。
 5. 挂入源码、报告目录与覆盖回执调用 replay.execute，结束后由 replay.audit_problems 得出问题清单；执行捕获由 replay.execute 交 ledger.seal_capture 封存。
-6. 目录保留；读数由 report.directory_report 从未核验的临时报告读出，只供导向不作证据；finally 清理导出目录。
+6. 目录保留；绩效指标由 report.directory_report 从未核验的临时报告读出，只供导向不作证据；finally 清理导出目录。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -188,7 +188,7 @@ def precheck(
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场库连接配置，只读" }, "at": { type: "str", description: "市场提交，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选" }, "runtime": { type: "str", description: "运行环境引用，须与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数（覆盖改动的最短窗口、最少合约）" }, "output": { type: "Path", description: "尚不存在的临时目录" } }} />
 
-**返回**　dict \{purpose: 'precheck', trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, readings, scope: '仅工程证据；接口、因果、活动、就绪由独立 Agent 审查'\}。status 为 passed 表示原生与审计退出为零、无回调异常且审计问题清单为空
+**返回**　dict \{purpose: 'precheck', trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, metrics, scope: '仅工程证据；接口、因果、活动、就绪由独立 Agent 审查'\}。status 为 passed 表示原生与审计退出为零、无回调异常且审计问题清单为空
 
 **期望行为**
 
@@ -196,7 +196,7 @@ def precheck(
 2. 按 at 以 registration.market_inputs 新鲜导出输入（与登记同一导出器、同一提交），算 registration.input_key；经 runtime.inspect_runtime 在镜像内读出有效配置，算 registration.config_key。
 3. 建工作目录 source/、reports/，写入源码原字节、运行环境检视结果与 replay.input_coverage 覆盖回执。
 4. 在一个写事务里经 ledger.open_trial 写 purpose=precheck 的试验行（不带登记绑定器），并经 ledger.start_receipt 写开始回执（用途 precheck、源码哈希、运行环境、input_key、config_key）；事务成功后才启动容器。
-5. 调用 replay.execute（标预检用途）：先运行器后审计器，结束时（含中断与宿主失败）由 ledger.seal_capture 封存原件；再由 replay.audit_problems 给出问题清单，report.directory_report 读出工程诊断用读数。
+5. 调用 replay.execute（标预检用途）：先运行器后审计器，结束时（含中断与宿主失败）由 ledger.seal_capture 封存原件；再由 replay.audit_problems 给出问题清单，report.directory_report 读出工程诊断用绩效指标。
 6. 保留 output，清理导出目录，返回结果。预检不消耗网格点；失败或重复的预检都不成为登记尝试。
 
 | 拒绝码 | 条件 |
@@ -289,7 +289,7 @@ def seal(
 3. 新建临时工作目录，写 source/strategy.py、binding.json（账本库名、账本提交、strategy_id@revision、源码哈希、入口类、运行契约）、execution.json（运行环境身份、有效配置及其哈希）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
 5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、replay.summary_problems、replay.audit_problems，逐条去重互不覆盖
-6. ledger.ingest_run 入账（有效含读数与原生报表行，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
+6. ledger.ingest_run 入账（有效含绩效指标与原生报表行，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
 
 | 拒绝码 | 条件 |
 |---|---|

@@ -506,7 +506,7 @@ def validate(
 ) -> set[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十项：parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（每格 source-review 证据包名）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前读数版本重算，拒绝归属于绑定" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十项：parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（每格 source-review 证据包名）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
 
 **返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
 

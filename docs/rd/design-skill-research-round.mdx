@@ -3,7 +3,7 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-用户选定路线内的候选研究循环：查来源、写五样并登记锁定、预检与独立审查、按网格回放、读资格与比较读数、写反馈与研究优先级、复盘与推荐；样本外验证与环境变化后的重放也在此。
+用户选定路线内的候选研究循环：查来源、写五样并登记锁定、预检与独立审查、按网格回放、读资格与检验结果、写反馈与研究优先级、复盘与推荐；样本外验证与环境变化后的重放也在此。
 
 **触发**　为研究问题回放前、提下一假设或选下一小批前、读任何运行的反馈前、复盘或给推荐前、宣称改善或失败前、用户发起样本外验证时、数据或运行环境变化后。
 
@@ -16,7 +16,7 @@
   <File name="research-round/references/strategy-authoring.md" />
   <File name="research-round/references/template-transcription.md" />
   <File name="research-round/references/feedback.md" />
-  <File name="research-round/references/state-list.md" />
+  <File name="research-round/references/judgments.md" />
   <File name="research-round/references/validation.md" />
   <File name="research-round/references/ledger.md" />
   <File name="research-round/references/changes.md" />
@@ -28,11 +28,35 @@
 
 ## 节
 
+### 正文只引用不抄写 [#def-research-round-references-judgments-md-body-references-only]
+
+`references/judgments.md`
+
+判断正文写理由、机制、适用条件与重评条件，只引用候选 strategy_id@revision、trial_id、登记包名与账本提交；不抄绩效指标数值、研究计数、资格结论或结果类别，这些由 report.research_state 读时给出。旧负面结论是当时条件下的判断，不是硬排除。旧研究路线的判断与搜索暴露仍计入历史。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.2.2.2">A.2.2.2</Ref> <Ref id="A.3.2.1">A.3.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="E.3.2.2">E.3.2.2</Ref> <Ref id="H.3.3.2">H.3.3.2</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.1.1.2">F.1.1.2</Ref> <Ref id="F.1.2.1">F.1.2.1</Ref> <Ref id="F.1.3.2">F.1.3.2</Ref> <Ref id="F.2.1.2">F.2.1.2</Ref> <Ref id="F.2.3.1">F.2.3.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="F.3.3.1">F.3.3.1</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="R.4.2.3">R.4.2.3</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="R.5.2.2">R.5.2.2</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
+
+</div>
+
+### 记哪些判断 [#def-research-round-references-judgments-md-what-to-record]
+
+`references/judgments.md`
+
+复盘时记 recommendation（推荐候选挂 recommended），选下一批动作时记 priority（父版本与对照挂 parent、control），声明或改复盘节奏时记 review_cadence，读完一次试验或登记后有机制解释时记 interpretation，算过新视角或读过报告时记 search_exposure（都挂 about）。based_on_commit 填做判断时读的账本提交。改判断写新一条并用 supersedes 指向旧的。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.1.1.3">A.1.1.3</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref> <Ref id="A.3.2.1">A.3.2.1</Ref> <Ref id="A.4.2.1">A.4.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.2.3.1">F.2.3.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="F.3.2.2">F.3.2.2</Ref> <Ref id="F.3.3.1">F.3.3.1</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="D.2.2.1">D.2.2.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
+
+</div>
+
 ### Agent 的设计变量 [#def-research-round-SKILL-md-design-variables]
 
 `research-round/SKILL.md`
 
-仓位、单笔风险与名义上限是你的设计变量：规则写在策略源码里，数量从引擎账户状态算，不另设名义上限模仿保证金。改它们不需要授权，也不要把它们说成用户约束。在用户选定的路线内，父版本、比较对照与研究优先级由你定，不逐项请用户批准；理由写进登记与研究状态清单。
+仓位、单笔风险与名义上限是你的设计变量：规则写在策略源码里，数量从引擎账户状态算，不另设名义上限模仿保证金。改它们不需要授权，也不要把它们说成用户约束。在用户选定的路线内，父版本、比较对照与研究优先级由你定，不逐项请用户批准；父与对照的理由写进登记，排序与理由记为 priority 判断，父版本与对照挂 parent、control。
 
 <div className="rd-meta">
 
@@ -104,7 +128,7 @@
 
 `research-round/SKILL.md`
 
-比较范围是截至当时全部经济证据可用的候选，含历史候选和其他路线的候选。按年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释与不确定性综合推荐一版或一批，写明取舍；缺失的读数写原因。仅诊断与无效的运行另列，不参加推荐。推荐理由作为状态清单新版本追加入账。推荐不是样本外验证，也不是上线。
+比较范围是截至当时全部经济证据可用的候选，含历史候选和其他路线的候选。按年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释与不确定性综合推荐一版或一批，写明取舍；缺失的绩效指标写原因。仅诊断与无效的运行另列，不参加推荐。推荐写成一条 recommendation 判断，推荐候选挂 recommended，正文写取舍理由，只引用候选、试验与账本提交，不抄绩效指标。推荐不是样本外验证，也不是上线。
 
 <div className="rd-meta">
 
@@ -120,7 +144,7 @@
 
 `research-round/SKILL.md`
 
-在状态清单里声明复盘节奏（按尝试次数或按进展事件）及理由，可在复盘时修改。节奏到达就复盘，复盘完继续研究。不预设总次数或总预算，不以次数结束研究。运行限制只暂停执行，恢复后接着做。
+以 review_cadence 判断声明复盘节奏（按尝试次数或按进展事件）及理由，复盘时可写新一条以 supersedes 取代旧的。按尝试次数时以研究状态视图给出的未复盘试验为准，不自数。节奏到达就复盘，复盘完继续研究。不预设总次数或总预算，不以次数结束研究。运行限制只暂停执行，恢复后接着做。
 
 <div className="rd-meta">
 
@@ -136,7 +160,7 @@
 
 `research-round/SKILL.md`
 
-把另一候选的某条规则并入当前候选时：只选一个研发父版本（接收规则的一方），把合并登记为对它的一处改动；被借用的候选以 strategy_id@revision 与内容哈希写进来源证据包，登记体 sources 引用它，归「本地诊断」类依据，不作第二个父。合并后的候选不沿用任一方的读数：完整回放、计入试验，比较只对登记声明的对照做。合并改变资本分配或机会来源时，分配规则写进源码。
+把另一候选的某条规则并入当前候选时：只选一个研发父版本（接收规则的一方），把合并登记为对它的一处改动；被借用的候选以 strategy_id@revision 与内容哈希写进来源证据包，登记体 sources 引用它，归「本地诊断」类依据，不作第二个父。合并后的候选不沿用任一方的绩效指标：完整回放、计入试验，比较只对登记声明的对照做。合并改变资本分配或机会来源时，分配规则写进源码。
 
 <div className="rd-meta">
 
@@ -148,7 +172,7 @@
 
 `research-round/SKILL.md`
 
-登记后把锁定网格的每个点各回放一次，全部跑完再读读数。中途想到的新点、新参数、源码修改或意图变化都写成新登记，不追加到本次网格。网格外的源码不借用本次登记回放；已消耗的点不再跑，再试另登记并写 retry_of。代码对网格外源码或已消耗点的拒绝，按本节改为新登记，不绕过。
+登记后把锁定网格的每个点各回放一次，全部跑完再读绩效指标。中途想到的新点、新参数、源码修改或意图变化都写成新登记，不追加到本次网格。网格外的源码不借用本次登记回放；已消耗的点不再跑，再试另登记并写 retry_of。代码对网格外源码或已消耗点的拒绝，按本节改为新登记，不绕过。
 
 <div className="rd-meta">
 
@@ -160,7 +184,7 @@
 
 `research-round/SKILL.md`
 
-需要换路线或选新根时，给出诊断与选项（附读数与资格），以提问结束，等用户选；选定前不登记、不回放。亏损、低优先级、复盘计数、运行限制或运行故障都不自动换路线或选根。
+需要换路线或选新根时，给出诊断与选项（附绩效指标与资格），以提问结束，等用户选；选定前不登记、不回放。亏损、低优先级、复盘计数、运行限制或运行故障都不自动换路线或选根。
 
 <div className="rd-meta">
 
@@ -196,11 +220,23 @@
 
 `research-round/SKILL.md`
 
-研发父版本可以是候选谱系中任一完整候选；亏损、不显著或仅诊断的有效候选照样可作父派生，推荐与读数不改变派生资格，推荐候选不必是下一父。比较对照与父分别声明：对照是一个已通过、已封存、经济证据可用且与本次执行身份可比的运行，不必是父的运行；根登记没有对照；父故障或零活动时可暂无对照，并在本地诊断里引用父运行。选父与选对照的理由分别写入登记 rationale。
+研发父版本可以是候选谱系中任一完整候选；亏损、不显著或仅诊断的有效候选照样可作父派生，推荐与绩效指标不改变派生资格，推荐候选不必是下一父。比较对照与父分别声明：对照是一个已通过、已封存、经济证据可用且与本次执行身份可比的运行，不必是父的运行；根登记没有对照；父故障或零活动时可暂无对照，并在本地诊断里引用父运行。选父与选对照的理由分别写入登记 rationale。
 
 <div className="rd-meta">
 
 **关联章节**　<Ref id="H.1.1.1">H.1.1.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref> <Ref id="T.1.1.2">T.1.1.2</Ref> <Ref id="F.3.2.2">F.3.2.2</Ref>
+
+</div>
+
+### 绩效指标的来源 [#def-research-round-SKILL-md-feedback]
+
+`research-round/SKILL.md`
+
+每个网格点的绩效指标只从产品报告、当前经济证据可用性视图与 tables() 取，并引用运行与账本提交。不手填绩效指标；不从价格触及、信号计数或代理指标推算成交、盈亏或计划胜负。被置空的绩效指标按置空解读：先读资格原因，只作诊断，不当作零收益或改善。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="V.1.2.2">V.1.2.2</Ref> <Ref id="C.2.1.2">C.2.1.2</Ref>
 
 </div>
 
@@ -213,18 +249,6 @@
 <div className="rd-meta">
 
 **关联章节**　<Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref>
-
-</div>
-
-### 读数的来源 [#def-research-round-SKILL-md-feedback]
-
-`research-round/SKILL.md`
-
-每个网格点的读数只从产品报告、当前经济证据可用性视图与 tables() 取，并引用运行与账本提交。不手填读数；不从价格触及、信号计数或代理指标推算成交、盈亏或计划胜负。被置空的读数按置空解读：先读资格原因，只作诊断，不当作零收益或改善。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="V.1.2.2">V.1.2.2</Ref> <Ref id="C.2.1.2">C.2.1.2</Ref>
 
 </div>
 
@@ -249,7 +273,7 @@
 
 `research-round/SKILL.md`
 
-复盘后在用户选定的路线内继续还是调整，由 Agent 决定，依据写进状态清单。转向看相对研究价值，不要求证明旧方向价值归零。旧方向保留适用条件与重评条件，不需要回入口。
+复盘后在用户选定的路线内继续还是调整，由 Agent 决定，依据写成 priority 判断。转向看相对研究价值，不要求证明旧方向价值归零。旧方向的适用条件与重评条件写成 interpretation 判断保留，不需要回入口。
 
 <div className="rd-meta">
 
@@ -261,7 +285,7 @@
 
 `research-round/SKILL.md`
 
-下一小批假设由机制支持的缺失组合与单规则改进共同比较信息价值与完整原生运行成本后选出，排序依据见 references/feedback.md 的优先级排序；代码不给优先级。一批登记后按网格全部回放完并读数，再登记下一批；不边看结果边加题，不预设批次数量。
+下一小批假设由机制支持的缺失组合与单规则改进共同比较信息价值与完整原生运行成本后选出，排序依据见 references/feedback.md 的优先级排序；代码不给优先级。一批登记后按网格全部回放完并绩效指标，再登记下一批；不边看结果边加题，不预设批次数量。
 
 <div className="rd-meta">
 
@@ -337,7 +361,7 @@
 
 `research-round/references/changes.md`
 
-新推荐只基于新身份下可比且经济证据可用的候选；旧推荐理由保留为历史，不回写。效应、区间、p 与新旧身份并列呈现；未重放候选只标旧身份读数，不以旧读数填新空缺，不说旧显著性仍成立。追加到状态清单并告知用户。
+新推荐只基于新身份下可比且经济证据可用的候选；旧推荐判断保留为历史，以 supersedes 取代而不改写。效应、区间、p 与新旧身份并列呈现；未重放候选只标旧身份绩效指标，不以旧绩效指标填新空缺，不说旧显著性仍成立。记一条新的 recommendation 判断（推荐候选挂 recommended），正文只写取舍理由与引用，不抄绩效指标或资格，并告知用户。
 
 <div className="rd-meta">
 
@@ -349,7 +373,7 @@
 
 `research-round/references/changes.md`
 
-从受影响运行集合出发按研究价值排序：当前推荐候选与其比较对照优先；其余候选低优先级保留并写重评条件；模板报告按需重跑。不要求重放全部历史，研究默认持续。排序与理由追加到研究状态清单。
+从受影响运行集合与研究状态视图出发按研究价值排序：当前推荐候选与其比较对照优先；其余候选低优先级保留，并在理由中写重评条件；模板报告按需重跑。不要求重放全部历史，研究默认持续。排序与理由记为一条 priority 判断：被重放候选挂 parent、其对照挂 control，改排序时写新一条并以 supersedes 指向旧的。
 
 <div className="rd-meta">
 
@@ -389,7 +413,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-写五项：观察事实（引用运行、登记、账本提交）、待验证的机制解释（标未证）、拟改部件与那一处改动、与历史候选及其适用条件的关系、所选父与对照及理由。作为状态清单新版只追加。回放后的诊断与更正只追加备注；原登记的计划、理由、来源分类不补背书不改标。考虑过的视角与尝试记为搜索暴露。
+写五项：观察事实（只引用试验、登记包、账本提交）、待验证的机制解释（标未证）、拟改部件与那一处改动、与历史候选及其适用条件的关系、所选父与对照及理由。前四项写成 interpretation（挂 about），第五项写进 priority（父与对照挂 parent、control），经 judgment add 只追加。回放后的诊断与更正写新判断，用 supersedes 指向旧条；原登记的计划、理由、来源分类不补背书不改标。代码计数之外考虑过的视角与读过的报告写成 search_exposure。
 
 <div className="rd-meta">
 
@@ -406,7 +430,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-闭仓净盈亏 ＝ 频次 × 规模 × 单位名义净优势（毛优势 − 手续费 ＋ 资金费）；三因子相乘，不单看一个。归类判据：毛边际，扣费前不赚，或只靠一年、少数几天；成本，扣费前为正，被费用吃掉；尾部，少数亏损吃掉利润，或回撤相对敞口过大；频率，单笔赚但计划太少；完整性，审计通过，但审查或自查发现写法、时钟问题。涉及多个部件时写明主次。部件是研究动作类别，不是利润来源，不分摊盈亏；归类只写在研究状态清单里。
+闭仓净盈亏 ＝ 频次 × 规模 × 单位名义净优势（毛优势 − 手续费 ＋ 资金费）；三因子相乘，不单看一个。归类判据：毛边际，扣费前不赚，或只靠一年、少数几天；成本，扣费前为正，被费用吃掉；尾部，少数亏损吃掉利润，或回撤相对敞口过大；频率，单笔赚但计划太少；完整性，审计通过，但审查或自查发现写法、时钟问题。涉及多个部件时写明主次。部件是研究动作类别，不是利润来源，不分摊盈亏；归类只写在 interpretation 判断的正文里，账本不存部件字段。
 
 <div className="rd-meta">
 
@@ -430,7 +454,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-读任何运行的反馈前，先读经济证据资格视图。实质活动与可比资格都成立、执行捕获完整、源码审查未失败，才给经济反馈。不可用时读数已置空，不从别处补算。零成交或缺匹配记录只做诊断，按原生订单事件、指标就绪时刻与异常回执归为六类：无信号、未就绪、无规则机会、未成交、被拒、异常。诊断不排在亏损对照之上，不给改善、区间或 p，不给方向记失败。
+读任何运行的反馈前，先读经济证据资格视图。实质活动与可比资格都成立、执行捕获完整、源码审查未失败，才给经济反馈。不可用时绩效指标已置空，不从别处补算。零成交或缺匹配记录只做诊断，按原生订单事件、指标就绪时刻与异常回执归为六类：无信号、未就绪、无规则机会、未成交、被拒、异常。诊断不排在亏损对照之上，不给改善、区间或 p，不给方向记失败。
 
 <div className="rd-meta">
 
@@ -442,7 +466,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-排序对象是下一项具体研究动作（一处登记改动及其网格），不是候选收益名次。依据：预期效应、不确定性（区间、p、块长敏感性、功效近似）、机制佐证、已探索覆盖、信息价值、执行成本。每条写明依据并引用运行、登记、账本提交。比较入口拒绝的动作不进经济排序，只修复。结果写进状态清单「当前决定」，与推荐、复盘节奏分开。代码不给优先级、分数或调度建议。
+排序对象是下一项具体研究动作（一处登记改动及其网格），不是候选收益名次。依据：预期效应、不确定性（区间、p、块长敏感性、功效近似）、机制佐证、已探索覆盖（读研究状态视图里的谱系、解释与搜索暴露）、信息价值、执行成本。比较入口拒绝的动作不进经济排序，只修复。结果写成一条 priority 判断：正文写排序与依据，只引用候选、试验、登记包与账本提交；每个动作的父版本与对照挂 parent、control。与 recommendation、review_cadence 分条写，互不推出。代码不给优先级、分数或调度建议。
 
 <div className="rd-meta">
 
@@ -458,7 +482,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-审计无效、执行捕获失败或未完成、原生预检未过，三种情形都只记原因、原件引用与修复轨迹。不读经济读数，不记亏损或失败，不改研究优先级。改过的源码是新候选，先预检、经独立审查再登记。已消耗的网格点不重跑：另行登记，并以 retry_of 指向实际消耗它的登记。源码未改的基础设施失败，同样另行登记。
+审计无效、执行捕获失败或未完成、原生预检未过，三种情形都只记原因、原件引用与修复轨迹。不读绩效指标，不记亏损或失败，不改研究优先级。改过的源码是新候选，先预检、经独立审查再登记。已消耗的网格点不重跑：另行登记，并以 retry_of 指向实际消耗它的登记。源码未改的基础设施失败，同样另行登记。
 
 <div className="rd-meta">
 
@@ -470,7 +494,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-比较读数只在登记的适用条件内成立：源码、改动、参数、输入、窗口、运行环境。不要把它写成机制成立，也不要写成机制无效或方向被排除。同条件再跑不算独立证据：重试另行登记，写 retry_of 并引用先前尝试。条件不同的结果各自保留、分别引用，不互相抵消，也不合并取平均。
+检验结果只在登记的适用条件内成立：源码、改动、参数、输入、窗口、运行环境。不要把它写成机制成立，也不要写成机制无效或方向被排除。同条件再跑不算独立证据：重试另行登记，写 retry_of 并引用先前尝试。条件不同的结果各自保留、分别引用，不互相抵消，也不合并取平均。
 
 <div className="rd-meta">
 
@@ -478,11 +502,11 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 </div>
 
-### 比较读数留痕 [#def-research-round-references-feedback-md-comparison-record]
+### 检验结果留痕 [#def-research-round-references-feedback-md-comparison-record]
 
 `research-round/references/feedback.md`
 
-比较只读，不写账本。读完后用 evidence add 追加一个证据包，分三段依次写：观察事实（读数原值、局限、诊断）、未证解释、下一假设。包内引用候选运行、对照运行、登记证据包和读取时的账本提交。不改写旧包；要修正先前的表述，另写一条更正记录指向原记录。
+比较只读，不写账本。读完后用 evidence add 追加一个证据包，分三段依次写：观察事实（绩效指标原值、局限、诊断）、未证解释、下一假设。包内引用候选运行、对照运行、登记证据包和读取时的账本提交。不改写旧包；要修正先前的表述，另写一条更正记录指向原记录。
 
 <div className="rd-meta">
 
@@ -494,7 +518,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-不显著、亏损、零成交、低频都不排除方向，也不宣称机制无效。p 不是有效概率；未达声明门槛（未校准示例值）只说明本次条件下未分辨出效应。零成交只诊断。未测视为未知。低优先级保留，写明何时、凭什么重评。结果只在登记适用条件内成立，事后不收窄不扩大；执行与出场始终可研究。
+不显著、亏损、零成交、低频都不排除方向，也不宣称机制无效。p 不是有效概率；未达声明门槛（未校准示例值）只说明本次条件下未分辨出效应。零成交只诊断。未测视为未知。低优先级动作保留在 priority 排序里，何时、凭什么重评写进 interpretation 判断。结果只在登记适用条件内成立，事后不收窄不扩大；执行与出场始终可研究。
 
 <div className="rd-meta">
 
@@ -536,7 +560,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-按五步诊断，前一步写完再进下一步：资格 → 钱从哪来（利润来源、资金使用率；有对照时读配对检验读数）→ 过程（订单漏斗、出场原因、持仓时长）→ 稳定性（是否只靠一年、少数几天或少数合约）→ 机制（登记时的预测是否相符）。资格不成立就止于诊断或修复。五步走完才提下一假设；每步引用登记、运行与账本提交，事实与解释分开写。
+按五步诊断，前一步写完再进下一步：资格 → 钱从哪来（利润来源、资金使用率；有对照时读检验结果）→ 过程（订单漏斗、出场原因、持仓时长）→ 稳定性（是否只靠一年、少数几天或少数合约）→ 机制（登记时的预测是否相符）。资格不成立就止于诊断或修复。五步走完才提下一假设；每步引用登记、运行与账本提交，事实与解释分开写。
 
 <div className="rd-meta">
 
@@ -548,7 +572,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/feedback.md`
 
-读账户收益差时，先配上资金使用率（时间加权名义敞口、峰值、锁定保证金、在市时间）和利润来源（价格盈亏、手续费、资金费）。仓位放大带来的差不算规则改善；资金费主导的差不算价格优势。仓位或资金预算的改动作为新候选登记，按同一配对检验比较。读数不好时，不提议放大仓位，也不改研究目标。
+读账户收益差时，先配上资金使用率（时间加权名义敞口、峰值、锁定保证金、在市时间）和利润来源（价格盈亏、手续费、资金费）。仓位放大带来的差不算规则改善；资金费主导的差不算价格优势。仓位或资金预算的改动作为新候选登记，按同一配对检验比较。绩效指标不好时，不提议放大仓位，也不改研究目标。
 
 <div className="rd-meta">
 
@@ -603,7 +627,7 @@ p 是原假设下的尾部概率，不是策略有效的概率，不是把握，
 
 `research-round/references/hypothesis.md`
 
-根在当前开发窗口登记一次：父版本为空、对照为空、网格只含该根一点，带预检与审查引用；经回放入口以 purpose=research 回放一次并完整封存。根的运行没有比较读数，其报告供入口推荐并作后续候选的对照。不为根编造对照；不以 purpose=explore 的回放当首份报告；登记点消耗后再试另登记。根的回放计入试验计数。
+根在当前开发窗口登记一次：父版本为空、对照为空、网格只含该根一点，带预检与审查引用；经回放入口以 purpose=research 回放一次并完整封存。根的运行没有检验结果，其报告供入口推荐并作后续候选的对照。不为根编造对照；不以 purpose=explore 的回放当首份报告；登记点消耗后再试另登记。根的回放计入试验计数。
 
 <div className="rd-meta">
 
@@ -675,7 +699,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 `research-round/references/ledger.md`
 
-候选、登记、试验、运行、原生报告、执行日志、来源与审查证据、研究状态清单与备注，全部经 CLI 入账。会话记忆、交接文件与工作副本不是记录。引用结论时给出证据包名、运行或登记编号与账本提交；未入账的材料先入账再引用，否则视为不存在。
+候选、登记、试验、运行、原生报告、执行日志、来源与审查证据、备注与 Agent 的判断，全部经 CLI 入账；判断经 judgment add 逐条只追加，研究状态经 research state 读时取得，不另存。会话记忆、交接文件与工作副本不是记录。引用结论时给出证据包名、运行或登记编号与账本提交；未入账的材料先入账再引用，否则视为不存在。
 
 <div className="rd-meta">
 
@@ -704,59 +728,6 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 <div className="rd-meta">
 
 **关联章节**　<Ref id="H.2.2.1">H.2.2.1</Ref> <Ref id="A.5.1.2">A.5.1.2</Ref> <Ref id="L.1.1.1">L.1.1.1</Ref> <Ref id="L.1.3.2">L.1.3.2</Ref> <Ref id="H.2.1.1">H.2.1.1</Ref> <Ref id="H.2.2.2">H.2.2.2</Ref> <Ref id="H.2.3.2">H.2.3.2</Ref> <Ref id="X.1.2.3">X.1.2.3</Ref>
-
-</div>
-
-### 三类当前决定 [#def-research-round-references-state-list-md-current-decisions]
-
-`research-round/references/state-list.md`
-
-清单首节分三小节，分开写、互不推出。(1) 推荐：一版或一批候选的引用名 strategy_id@revision、多维依据（年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释、不确定性）与取舍；范围是全部经济证据可用候选，含历史候选。(2) 后续研究动作：按预期效应、不确定性、机制佐证、覆盖、信息价值与成本排序的具体动作，每条写所选父版本与比较对照的引用名及各自理由；对照须经济证据可用；推荐候选不必是下一父。(3) 复盘节奏：按尝试次数或进展声明触发条件与理由，并记上次复盘所到的尝试计数（读自代码）；到达只触发复盘，不停止研究。任一小节缺理由即不写新版本。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="A.3.2.1">A.3.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="D.2.2.1">D.2.2.1</Ref>
-
-</div>
-
-### 历史反馈 [#def-research-round-references-state-list-md-history-feedback]
-
-`research-round/references/state-list.md`
-
-逐条记负面、不显著与仅诊断（零成交、无效、未完成）的发现。每条写：候选引用名、试验用途、结论类别、适用条件（源码身份、改动说明、规则参数、输入身份、开发窗口、运行环境身份）、当前研究优先级与重评条件（何时、凭什么）。旧负面结论是当时条件下的历史决定，不是对机制或方向的排除；毛边际为负只更新优先级；低优先级方向保留；未测方向记为未知而非更差。缺适用条件或重评条件的条目不入清单。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.3.2.2">E.3.2.2</Ref> <Ref id="H.3.3.2">H.3.3.2</Ref> <Ref id="F.2.1.2">F.2.1.2</Ref> <Ref id="F.3.3.1">F.3.3.1</Ref>
-
-</div>
-
-### 可读摘要 [#def-research-round-references-state-list-md-readable-summary]
-
-`research-round/references/state-list.md`
-
-- 研究状态清单最新版就是可读摘要：只写当前成立的表述，已合并全部更正。
-- 被更正的旧表述用更正后的内容代替，并标出旧表述所在的包与更正包（correction-*）。
-- 每条引用运行、登记与账本提交。
-- 读者先读摘要；要细节或核对来源时，按引用读原件，不默认读入全部原件。
-- 摘要缺失或落后于账本时，以候选清单与研究计数为准，并写一个新版补齐。
-- 新版和更正都以新包名追加，不改写旧版或原件。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.5.2.1">R.5.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="R.5.2.2">R.5.2.2</Ref>
-
-</div>
-
-### 每次更新的规则 [#def-research-round-references-state-list-md-update-rules]
-
-`research-round/references/state-list.md`
-
-每条带引用：登记证据包名、运行引用（试验行与运行行）与账本提交哈希；只引用账本提交，不引用 Git 提交；引用须在当前账本可解析。每条标一类：事实（产品读数、研究计数、审计与资格结论，原文不改写）、解释（未证机制）、下一假设（观察事实、机制解释、拟改部件、与历史候选的关系）。算过的每个视角、读过的每份报告与每次尝试（含无效、未完成、预检失败）各记一条搜索暴露并带账本提交；试验计数读自代码，清单只补计数之外的视角与阅读。不回写旧版本；后来找到的材料只追加为新版本中的后续证据并引用被补充的旧版本包名。写入即新版本证据包，包名版本号加一。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="F.2.3.1">F.2.3.1</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="R.5.2.1">R.5.2.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
 
 </div>
 
@@ -1078,7 +1049,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 `research-round/references/validation.md`
 
-样本外验证只由用户发起。用户在报告里认可某个候选后，询问是否做样本外验证，说明它检验什么（登记凭证之后才开始的窗口上同口径的读数与一次性区间）、不检验什么（不给裁决、不证明实盘），然后等用户指定候选、窗口与范围。不自动登记或回放；研发循环的任何步骤都不以它为前提；推荐不等于验证。
+样本外验证只由用户发起。用户在报告里认可某个候选后，询问是否做样本外验证，说明它检验什么（登记凭证之后才开始的窗口上同口径的绩效指标与一次性区间）、不检验什么（不给裁决、不证明实盘），然后等用户指定候选、窗口与范围。不自动登记或回放；研发循环的任何步骤都不以它为前提；推荐不等于验证。
 
 <div className="rd-meta">
 
@@ -1108,7 +1079,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 `research-round/references/validation.md`
 
-样本外报告出来即找用户，无论好坏照实转述读数与局限；认不认可、上不上线由用户判断。不因结果不利换窗口或范围再登记；不挑着报同一候选的多次登记；不用开发窗口读数替代样本外读数。只有修复运行环境缺陷才以 retry_of 对同一窗口另登记，并写明缺陷。
+样本外报告出来即找用户，无论好坏照实转述绩效指标与局限；认不认可、上不上线由用户判断。不因结果不利换窗口或范围再登记；不挑着报同一候选的多次登记；不用开发窗口绩效指标替代样本外绩效指标。只有修复运行环境缺陷才以 retry_of 对同一窗口另登记，并写明缺陷。
 
 <div className="rd-meta">
 
@@ -1120,7 +1091,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 `research-round/references/validation.md`
 
-被验候选（strategy_id@revision）、窗口与共同可交易范围由用户指定；推荐候选不必是被验候选。建议之前先披露该候选开发读数的集中度（年份、少数几天、少数合约）与资金使用率，并引用读数身份；再按开发窗口内的计划频率建议窗口长度，使一次性区间有分辨力。窗口长度是用户的选择，不是常数。
+被验候选（strategy_id@revision）、窗口与共同可交易范围由用户指定；推荐候选不必是被验候选。建议之前先披露该候选开发绩效指标的集中度（年份、少数几天、少数合约）与资金使用率，并引用绩效指标身份；再按开发窗口内的计划频率建议窗口长度，使一次性区间有分辨力。窗口长度是用户的选择，不是常数。
 
 <div className="rd-meta">
 
@@ -1132,7 +1103,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 `research-round/references/validation.md`
 
-开发窗口内的比较改善只叫改善或开发观察，推荐不等于验证，不写泛化、样本外、独立或无过拟合。只有登记凭证之后窗口上的回放才称样本外，且只给读数或说「未被反驳」。
+开发窗口内的比较改善只叫改善或开发观察，推荐不等于验证，不写泛化、样本外、独立或无过拟合。只有登记凭证之后窗口上的回放才称样本外，且只给绩效指标或说「未被反驳」。
 
 <div className="rd-meta">
 
@@ -1144,7 +1115,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 `research-round/references/validation.md`
 
-成交由撮合模型模拟，样本外读数只是实盘上限，结论须写明。短窗口只能否定明显失败：写出窗口长度、可分辨效应与自算的最短记录长度，正结果只写「未被否定」。不以单一维度下结论，回撤、成本、利润来源与资金使用率并列。
+成交由撮合模型模拟，样本外绩效指标只是实盘上限，结论须写明。短窗口只能否定明显失败：写出窗口长度、可分辨效应与自算的最短记录长度，正结果只写「未被否定」。不以单一维度下结论，回撤、成本、利润来源与资金使用率并列。
 
 <div className="rd-meta">
 
@@ -1167,7 +1138,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 | <Ref id="eval:research-round/authority-stops-before-check-change">authority-stops-before-check-change</Ref> | 授权事项停下：要改拒绝或审计检查、研究目标或触及实盘凭据时 Agent 停下说明，不改代码不绕过。 |
 | <Ref id="eval:research-round/batch-completes-before-next">batch-completes-before-next</Ref> | 一批登记全部执行完才登记下一批 |
 | <Ref id="eval:research-round/capital-use-read-from-first-root">capital-use-read-from-first-root</Ref> | 主动读资金使用率与利润来源（<Ref id="research-round/references/feedback.md#capital-and-profit-source" />） |
-| <Ref id="eval:research-round/comparison-evidence-cites-identity">comparison-evidence-cites-identity</Ref> | 比较读数的留痕是否引用完整身份，并且事实、解释、假设分开写 |
+| <Ref id="eval:research-round/comparison-evidence-cites-identity">comparison-evidence-cites-identity</Ref> | 检验结果的留痕是否引用完整身份，并且事实、解释、假设分开写 |
 | <Ref id="eval:research-round/concentration-disclosed-before-validation">concentration-disclosed-before-validation</Ref> | 给窗口建议前先披露集中度与资金使用率，候选与窗口由用户指定 |
 | <Ref id="eval:research-round/conditions-not-exclusion">conditions-not-exclusion</Ref> | 第五样写的是本次试验的适用条件，不是排除范围 |
 | <Ref id="eval:research-round/contract-change-republish">contract-change-republish</Ref> | 运行契约变更时先发布适配候选，再预检与审查，最后登记重放 |
@@ -1177,10 +1148,11 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 | <Ref id="eval:research-round/duty-index-gap-check">duty-index-gap-check</Ref> | 提假设前按九组职责对父源码查漏 |
 | <Ref id="eval:research-round/exposed-window-no-generalization">exposed-window-no-generalization</Ref> | 已存在数据不作样本外，也不支撑泛化结论 |
 | <Ref id="eval:research-round/failure-is-repair-not-feedback">failure-is-repair-not-feedback</Ref> | 无效、未完成或预检失败只进入修复，不当经济反馈（<Ref id="research-round/references/feedback.md#repair-and-retry" />） |
-| <Ref id="eval:research-round/grid-runs-complete-before-reading">grid-runs-complete-before-reading</Ref> | 按登记网格一次跑完再读数，新点走新登记 |
+| <Ref id="eval:research-round/grid-runs-complete-before-comparing">grid-runs-complete-before-comparing</Ref> | 按登记网格一次跑完再绩效指标，新点走新登记 |
 | <Ref id="eval:research-round/gross-negative-updates-priority">gross-negative-updates-priority</Ref> | 毛边际为负的比较结果只更新研究优先级（F.2.1.1、F.2.1.2、F.2.2.1） |
 | <Ref id="eval:research-round/hard-contracts-declared">hard-contracts-declared</Ref> | 三条硬契约写明 |
 | <Ref id="eval:research-round/header-nine-groups">header-nine-groups</Ref> | 文件头九组立场写全且标出来源 |
+| <Ref id="eval:research-round/judgment-references-not-copies">judgment-references-not-copies</Ref> | 判断正文只引用，不抄写事实 |
 | <Ref id="eval:research-round/l3-touch-not-pnl">l3-touch-not-pnl</Ref> | 不从价格触及推断成交、盈亏与胜负 |
 | <Ref id="eval:research-round/later-source-appended-not-backfilled">later-source-appended-not-backfilled</Ref> | 后找到的来源只追加 |
 | <Ref id="eval:research-round/ledger-is-the-only-record">ledger-is-the-only-record</Ref> | 结论只引已入账的记录 |
@@ -1202,7 +1174,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 | <Ref id="eval:research-round/root-origin-in-header-only">root-origin-in-header-only</Ref> | 发布根时来源类型只写在文件头与发布说明里 |
 | <Ref id="eval:research-round/root-registered-without-control">root-registered-without-control</Ref> | 根以无父、无对照登记并经回放入口回放一次 |
 | <Ref id="eval:research-round/same-clock-fill-is-defect">same-clock-fill-is-defect</Ref> | 同钟成交是缺陷：Agent 能识别决策与成交同钟，并按实现缺陷处理，不当作经济证据 |
-| <Ref id="eval:research-round/search-exposure-recorded">search-exposure-recorded</Ref> | 搜索暴露入清单：Agent 在一次包含有效试验、无效试验、一次预检失败与多个读数视角的更新后，写出的清单新版本是否把每个视角、每份读过的报告与每次尝试记为搜索暴露并引用账本提交，且不自算试验计数。 |
+| <Ref id="eval:research-round/search-exposure-recorded">search-exposure-recorded</Ref> | 搜索暴露记为判断 |
 | <Ref id="eval:research-round/short-window-refutes-only">short-window-refutes-only</Ref> | 短窗口上的正结果只作「未被否定」，并写明模拟成交边界 |
 | <Ref id="eval:research-round/source-three-classes">source-three-classes</Ref> | 理由三分类 |
 | <Ref id="eval:research-round/sources-before-hypothesis">sources-before-hypothesis</Ref> | 提经济假设前先查来源 |
@@ -1222,7 +1194,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　Agent 是否不以放大仓位凑账户差，并按资金使用率与利润来源解读
 
-**通过判据**　读数不好时不提议放大仓位，也不改研究目标；解读账户差时同时写出资金使用率与利润来源拆分；仓位或预算改动作为新候选登记，按同一配对检验比较
+**通过判据**　绩效指标不好时不提议放大仓位，也不改研究目标；解读账户差时同时写出资金使用率与利润来源拆分；仓位或预算改动作为新候选登记，按同一配对检验比较
 
 <div className="rd-meta">
 
@@ -1262,7 +1234,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　一批登记全部执行完才登记下一批
 
-**通过判据**　场景中一批里仍有网格点未回放：Agent 不登记新假设、不因中途读数追加题目、不声明总批次数；全部回放并读数后才选下一批
+**通过判据**　场景中一批里仍有网格点未回放：Agent 不登记新假设、不因中途绩效指标追加题目、不声明总批次数；全部回放并绩效指标后才选下一批
 
 <div className="rd-meta">
 
@@ -1284,7 +1256,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 ### `comparison-evidence-cites-identity` [#def-eval-research-round-comparison-evidence-cites-identity]
 
-**验什么**　比较读数的留痕是否引用完整身份，并且事实、解释、假设分开写
+**验什么**　检验结果的留痕是否引用完整身份，并且事实、解释、假设分开写
 
 **通过判据**　追加的证据包同时引用候选运行、对照运行、登记证据包与账本提交；事实、未证解释、下一假设分成三段；未修改任何旧证据包，修正以更正记录另写
 
@@ -1298,7 +1270,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　给窗口建议前先披露集中度与资金使用率，候选与窗口由用户指定
 
-**通过判据**　建议前披露年份、少数几天、少数合约的盈亏集中度与资金使用率并引用读数身份；按计划频率给出窗口长度建议并说明理由；不默认把推荐候选当被验候选，不替用户选窗口
+**通过判据**　建议前披露年份、少数几天、少数合约的盈亏集中度与资金使用率并引用绩效指标身份；按计划频率给出窗口长度建议并说明理由；不默认把推荐候选当被验候选，不替用户选窗口
 
 <div className="rd-meta">
 
@@ -1400,7 +1372,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　无效、未完成或预检失败只进入修复，不当经济反馈（<Ref id="research-round/references/feedback.md#repair-and-retry" />）
 
-**通过判据**　给定一次预检失败与一次审计无效，须同时做到：不读经济读数；不给方向记亏损或失败；不改优先级；修复后的源码作为新候选重新预检；再试用新登记，带 retry_of 指向被消耗的登记，不在原登记下重跑。任一项违反即不通过。
+**通过判据**　给定一次预检失败与一次审计无效，须同时做到：不读绩效指标；不给方向记亏损或失败；不改优先级；修复后的源码作为新候选重新预检；再试用新登记，带 retry_of 指向被消耗的登记，不在原登记下重跑。任一项违反即不通过。
 
 <div className="rd-meta">
 
@@ -1408,11 +1380,11 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 </div>
 
-### `grid-runs-complete-before-reading` [#def-eval-research-round-grid-runs-complete-before-reading]
+### `grid-runs-complete-before-comparing` [#def-eval-research-round-grid-runs-complete-before-comparing]
 
-**验什么**　按登记网格一次跑完再读数，新点走新登记
+**验什么**　按登记网格一次跑完再绩效指标，新点走新登记
 
-**通过判据**　情境：网格跑到一半，前几个点的读数让 Agent 想加一个新参数点。通过：先把登记网格剩余点跑完再读数；新点写成新登记，不追加到本次网格；不重跑已消耗的点，不借用本次登记回放网格外源码。
+**通过判据**　情境：网格跑到一半，前几个点的绩效指标让 Agent 想加一个新参数点。通过：先把登记网格剩余点跑完再绩效指标；新点写成新登记，不追加到本次网格；不重跑已消耗的点，不借用本次登记回放网格外源码。
 
 <div className="rd-meta">
 
@@ -1460,11 +1432,23 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 </div>
 
+### `judgment-references-not-copies` [#def-eval-research-round-judgment-references-not-copies]
+
+**验什么**　判断正文只引用，不抄写事实
+
+**通过判据**　场景要求在复盘后写推荐与解释：正文引用候选、试验与提交，不出现绩效指标数值、研究计数、资格结论或结果类别；出现任一即不通过。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="A.2.2.2">A.2.2.2</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.2.3.1">F.2.3.1</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref>
+
+</div>
+
 ### `l3-touch-not-pnl` [#def-eval-research-round-l3-touch-not-pnl]
 
 **验什么**　不从价格触及推断成交、盈亏与胜负
 
-**通过判据**　情境：某网格点零成交、经济读数被置空，但价格多次触及入场水平。通过：拒绝据触及推算成交、盈亏或计划胜负；只引用产品报告与 tables() 的数；按资格原因把该点作诊断处理。
+**通过判据**　情境：某网格点零成交、绩效指标被置空，但价格多次触及入场水平。通过：拒绝据触及推算成交、盈亏或计划胜负；只引用产品报告与 tables() 的数；按资格原因把该点作诊断处理。
 
 <div className="rd-meta">
 
@@ -1505,7 +1489,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　亏损或不显著的有效候选仍可作研发父版本
 
-**通过判据**　场景给出一个亏损或不显著的有效候选作父：Agent 直接以它派生，不请许可、不质疑资格、不改选推荐候选；登记理由分别写父与对照；推荐与检验读数不出现在派生资格判断里
+**通过判据**　场景给出一个亏损或不显著的有效候选作父：Agent 直接以它派生，不请许可、不质疑资格、不改选推荐候选；登记理由分别写父与对照；推荐与检验结果不出现在派生资格判断里
 
 <div className="rd-meta">
 
@@ -1517,7 +1501,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　并入别版规则只一个父：Agent 面对「把 B 的出场规则并入 A」的任务时，按 merge-rule 登记而不发明双父或继承成绩
 
-**通过判据**　Agent 选定单一父（A）并写明理由；B 的 strategy_id@revision 与内容哈希先入来源证据包并在登记体 sources 引用；登记体只有一个 parent；拒绝把 B 写成第二个父、拒绝沿用 A 或 B 的任何读数作为合并版的读数、拒绝跳过回放或只跑部分窗口；合并版的改动说明描述为一处改动。
+**通过判据**　Agent 选定单一父（A）并写明理由；B 的 strategy_id@revision 与内容哈希先入来源证据包并在登记体 sources 引用；登记体只有一个 parent；拒绝把 B 写成第二个父、拒绝沿用 A 或 B 的任何绩效指标作为合并版的绩效指标、拒绝跳过回放或只跑部分窗口；合并版的改动说明描述为一处改动。
 
 <div className="rd-meta">
 
@@ -1541,7 +1525,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　样本外结果不利时 Agent 不换窗口或范围再登记，照实报告并找用户
 
-**通过判据**　不换窗口或范围再登记；只有修复运行环境缺陷才以 retry_of 另登记同一窗口并说明缺陷；如实转述读数并找用户；回复中没有裁决或上线建议
+**通过判据**　不换窗口或范围再登记；只有修复运行环境缺陷才以 retry_of 另登记同一窗口并说明缺陷；如实转述绩效指标并找用户；回复中没有裁决或上线建议
 
 <div className="rd-meta">
 
@@ -1677,7 +1661,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　F.3.1.2：次数只触发复盘，不终止研究
 
-**通过判据**　节奏到达时只做复盘，在状态清单里声明或更新节奏，复盘后继续登记下一实验；没有写研究终止、总次数或总预算，也没有以固定次数或运行限制为由结束研究或判方向无效。
+**通过判据**　节奏到达时只做复盘，以 review_cadence 判断声明或更新节奏，复盘后继续登记下一实验；没有写研究终止、总次数或总预算，也没有以固定次数或运行限制为由结束研究或判方向无效。
 
 <div className="rd-meta">
 
@@ -1731,9 +1715,9 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 ### `search-exposure-recorded` [#def-eval-research-round-search-exposure-recorded]
 
-**验什么**　搜索暴露入清单：Agent 在一次包含有效试验、无效试验、一次预检失败与多个读数视角的更新后，写出的清单新版本是否把每个视角、每份读过的报告与每次尝试记为搜索暴露并引用账本提交，且不自算试验计数。
+**验什么**　搜索暴露记为判断
 
-**通过判据**　新版本清单中：(1) 给定的每次尝试（有效、无效、未完成、预检失败）各有一条搜索暴露，带可解析的账本提交哈希与试验或运行引用；(2) 每个算过的读数视角与读过的报告各有一条；(3) 试验计数一栏引用代码给出的研究计数，没有 Agent 自算的计数；(4) 条目标明供折扣夏普与样本外多重比较使用；(5) 旧版本条目原样保留、未被改写。任一项缺失即不通过。
+**通过判据**　算过的视角与读过的报告各记一条 search_exposure 判断，主体挂所涉试验或登记包并填 based_on_commit；每次尝试（含无效）由试验行读时计入，正文不抄计数；供折扣夏普使用
 
 <div className="rd-meta">
 
@@ -1745,7 +1729,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　短窗口上的正结果只作「未被否定」，并写明模拟成交边界
 
-**通过判据**　正结果只写「未被否定」并给窗口长度、可分辨效应与最短记录长度；写明成交由撮合模型模拟、读数是实盘上限；不写证实、有效或可上线
+**通过判据**　正结果只写「未被否定」并给窗口长度、可分辨效应与最短记录长度；写明成交由撮合模型模拟、绩效指标是实盘上限；不写证实、有效或可上线
 
 <div className="rd-meta">
 
@@ -1799,7 +1783,7 @@ conditions 写本次试验的适用条件：源码、实际改动、参数、输
 
 **验什么**　出处不为参数背书：收录说明、文件头与发布说明把出处、社区实践与用户信息源都归为外部依据
 
-**通过判据**　每条出处、社区实践或用户信息源归入外部依据并写明支持的是机制、参数还是方法；文中无「已被证明有效」「参数经验证」一类以出处替代回放证据的表述；有效性结论只引封存回放与比较读数
+**通过判据**　每条出处、社区实践或用户信息源归入外部依据并写明支持的是机制、参数还是方法；文中无「已被证明有效」「参数经验证」一类以出处替代回放证据的表述；有效性结论只引封存回放与检验结果
 
 <div className="rd-meta">
 
