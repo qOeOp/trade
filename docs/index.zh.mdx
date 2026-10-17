@@ -1,0 +1,52 @@
+# 研发长链
+
+研发是一个不停的循环：入口恢复状态并给出综合推荐，用户选研究路线；Agent 在路线内提假设、回放前登记并锁定、原生预检后回放；完整性审计与实质活动资格决定一次回放算不算经济证据；配对检验给出效应、区间和 p；反馈更新研究优先级，次数触发复盘。所有完整版本都是候选，认不认可由用户看报告后判断。样本外验证由用户发起。
+
+<Mermaid chart={"flowchart LR\n  E[入口：恢复状态与综合推荐] --> H[提假设：登记并锁定]\n  H --> P[原生预检与独立审查]\n  P --> G[回放：完整性审计与活动资格]\n  G --> V[比较证据：效应、区间、p]\n  V --> F[反馈：优先级与复盘]\n  F --> H\n  F -->|换路线| E\n  V --> T[候选谱系与推荐]\n  T --> E\n  L[策略库：根节点] --> E\n  T -.->|用户发起| X[样本外验证]"} />
+
+一级是章，二级是功能（如何组织组件），三级是组件（如何组织能力），四级是能力。章节页只写规则；每个函数、表、skill 节与 eval 在设计页里逐条写全，章节页通过链接跳转并可悬停预览。能力标验证档位：已验证（有文档依据）、演练证据（在演练中实际走过）、待验证。
+
+## 章节
+
+<Cards>
+<Card href="/zh/docs/principles/" title="A 总则">研发循环怎么转、代码／Agent／用户各决定什么、何时找用户、产品代码管到哪、保证到什么程度。</Card>
+<Card href="/zh/docs/entry/" title="E 入口">每次开始或中断后，Agent 如何从账本恢复研究状态、给出综合推荐，并由用户选定研究路线。</Card>
+<Card href="/zh/docs/library/" title="L 策略库">候选谱系的根节点从哪来，怎样作为候选入账，又怎样得到第一份可供比较的报告。</Card>
+<Card href="/zh/docs/lineage/" title="T 候选谱系">回答什么算一个候选，以及候选之间怎样经研发父版本与改动说明连成树和森林。</Card>
+<Card href="/zh/docs/hypothesis/" title="H 提假设">一次回放之前，Agent 要界定、查证、写下并锁定什么，其中哪些由代码强制。</Card>
+<Card href="/zh/docs/comparison/" title="V 比较证据">登记的网格跑完后，候选与比较对照能不能比、差多少、有多确定，读数怎么出、怎么读、留在哪。</Card>
+<Card href="/zh/docs/feedback/" title="F 反馈与研究优先级">一个运行封存之后，Agent 怎样读反馈、决定下一步改什么，何时复盘并给出推荐。</Card>
+<Card href="/zh/docs/validation/" title="X 样本外验证：用户发起的一次性检验">样本外验证由谁发起，怎样登记与准入，怎样一次性回放并照实报告。</Card>
+<Card href="/zh/docs/strategy-file/" title="C 策略文件">一份候选策略文件从发布、加载、回放到登记前必须遵守哪些契约，各由哪一层强制</Card>
+<Card href="/zh/docs/replay-environment/" title="W 回放环境">每次回放看到哪些交易所数据、哪个窗口、哪个共同可交易范围、怎样的账户与撮合，由谁固定。</Card>
+<Card href="/zh/docs/audit/" title="G 完整性审计与证据资格">一次回放什么时候算有效，有效之后什么时候才能作经济证据。</Card>
+<Card href="/zh/docs/report/" title="R 报告">一次运行有哪些读数、由谁算、按什么口径，比较读数、试验次数与跨候选汇总怎样呈现而不裁决。</Card>
+<Card href="/zh/docs/ledger-runtime/" title="J 账本与运行环境">研究证据存在哪里、谁能写、怎么证明没被改、怎么证明登记在先，以及回放在什么环境里跑、凭什么能重放。</Card>
+<Card href="/zh/docs/changes/" title="D 变化之后">交易所数据、开发窗口或运行环境变了以后，旧结论怎样保留，又怎样在新条件下重新建立比较证据。</Card>
+</Cards>
+
+## 设计
+
+<Cards>
+<Card href="/zh/docs/design-code-market/" title="代码：市场数据"></Card>
+<Card href="/zh/docs/design-code-engine/" title="代码：引擎运行器与审计器"></Card>
+<Card href="/zh/docs/design-code-runtime/" title="代码：运行环境身份"></Card>
+<Card href="/zh/docs/design-code-ledger/" title="代码：账本"></Card>
+<Card href="/zh/docs/design-code-qualification/" title="代码：经济证据资格"></Card>
+<Card href="/zh/docs/design-code-registration/" title="代码：登记与准入"></Card>
+<Card href="/zh/docs/design-code-replay/" title="代码：回放入口"></Card>
+<Card href="/zh/docs/design-code-report/" title="代码：报告读口"></Card>
+<Card href="/zh/docs/design-code-cli/" title="代码：命令行"></Card>
+<Card href="/zh/docs/design-ledger/" title="表结构设计"></Card>
+<Card href="/zh/docs/design-skill-nautilus-report-analysis/" title="skill：nautilus-report-analysis"></Card>
+<Card href="/zh/docs/design-skill-research-round/" title="skill：research-round"></Card>
+<Card href="/zh/docs/design-skill-research-sources/" title="skill：research-sources"></Card>
+<Card href="/zh/docs/design-skill-research-start/" title="skill：research-start"></Card>
+</Cards>
+
+## 附录
+
+<Cards>
+<Card href="/zh/docs/appendix-references/" title="参考资料"></Card>
+<Card href="/zh/docs/appendix-open/" title="待定与待验证事项"></Card>
+</Cards>

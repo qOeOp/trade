@@ -1,0 +1,320 @@
+# 代码设计：运行环境身份
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+`runtime/`　运行环境身份：镜像由代码仓库自动构建、按清单摘要钉死、身份从镜像读出；容器无网络只读去特权。
+
+每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
+
+<Files>
+<Folder name="runtime" defaultOpen>
+  <File name="ci/runtime_image.yml" />
+  <File name="container.py" />
+  <File name="image.py" />
+</Folder>
+</Files>
+
+## `runtime/ci/runtime_image.yml` [#def-mod-runtime-ci-runtime_image-yml]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="runtime.build_image">build_image</Ref> | 源码托管平台的自动构建：从 main 推送、本项目内发起的拉取请求或手动重建产出单平台镜像并推送到镜像注册表（registry），带构建源码版本与运行契约标签；本机无构建路径 |
+
+### `build_image` [#def-runtime-build_image]
+
+源码托管平台的自动构建：从 main 推送、本项目内发起的拉取请求或手动重建产出单平台镜像并推送到镜像注册表（registry），带构建源码版本与运行契约标签；本机无构建路径
+
+```python
+def build_image(
+    event: enum{push, pull_request, manual},
+    revision: str（40 位十六进制 Git 提交哈希）,
+    request_number: int | None,
+    build_paths: list[path],
+    registry: str,
+    platform: str,
+) -> 推送结果
+```
+
+<TypeTable type={{ "event": { type: "enum{push, pull_request, manual}", description: "触发事件。push 只限主干 main；pull_request 只限本项目内发起（外部 fork 无镜像注册表写权限，跳过）；manual 为手动重建，只打 sha 标签。" }, "revision": { type: "str（40 位十六进制 Git 提交哈希）", description: "被构建的源码版本：push 取当前提交，pull_request 取请求头提交。写入标签 org.opencontainers.image.revision，是 runtime.resolve 的 build_revision 与 runtime.require_main_build 的唯一来源。" }, "request_number": { type: "int | None", description: "拉取请求编号，只在 pull_request 事件有值，用于 review-<request_number> 标签。" }, "build_paths": { type: "list[path]", description: "触发构建的路径集合：运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流文件。其余路径变化不构建，也不改变摘要。" }, "registry": { type: "str", description: "镜像注册表中的镜像名，形如 ghcr.io/<owner>/trade-runtime，owner 小写。推送用平台颁发的短期令牌，项目源码中不存长期凭据。" }, "platform": { type: "str", description: "单一目标平台（如 linux/arm64），须属于 runtime.validate_identity 的受支持平台集合，构建机架构与之一致。" } }} />
+
+**返回**　推送结果：镜像引用 \<registry>@sha256:\<manifest_digest>（单一清单，不生成清单列表）；标签集 \{sha-\<revision>\} 加 main 或 review-\<request_number> 之一；镜像标签 org.opencontainers.image.revision=\<revision>、org.opencontainers.image.source=\<项目源码地址>、trade.runtime.contract=\<运行契约>；写入构建摘要页作为人可读回执。回放侧只按摘要引用它。
+
+**期望行为**
+
+1. 核对触发：事件属 main 推送、本项目内发起的拉取请求或手动，且改动落在 build_paths 内；fork 发起的拉取请求拒绝 FORK_PULL_REQUEST。同一引用的并发构建分组，拉取请求取消进行中的旧构建，main 不取消。
+2. 命名：始终打 sha-\<revision>；main 推送追加 main，拉取请求追加 review-\<request_number>，手动只有 sha 标签。
+3. 取运行契约：从 runtime.layout 读当前契约版本写入 trade.runtime.contract；取不到或不在受支持集内拒绝 CONTRACT_UNDECLARED。
+4. 构建：以项目源码根目录为上下文、运行环境 Dockerfile 为定义做单平台构建；镜像只装引擎与冻结安装的锁定依赖、运行器、报告写出、审计器与探针源码；关闭 provenance 与 SBOM 附件，保证产出单一清单、摘要唯一。失败拒绝 IMAGE_BUILD_FAILED，不推送任何标签。
+5. 推送：一次推送全部标签与三条镜像标签；失败拒绝 REGISTRY_PUSH_FAILED，不留部分标签。成功后把 \<registry>@\<digest>、revision 与标签集写入构建摘要页。
+6. 边界：不写账本、不跑回放、不验证镜像行为；身份读取归 runtime.resolve，main 来源核对归 runtime.require_main_build，内容核对归 runtime.inspect_runtime。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `FORK_PULL_REQUEST` | 拉取请求来自外部 fork，没有镜像注册表写权限；作业跳过，不产出镜像。 |
+| `CONTRACT_UNDECLARED` | runtime.layout 未声明当前运行契约，或声明值不在受支持契约集内，无法写契约标签。 |
+| `IMAGE_BUILD_FAILED` | Dockerfile 构建失败（锁定依赖冻结安装不通过、源码缺失、平台不匹配）；不推送任何标签。 |
+| `REGISTRY_PUSH_FAILED` | 推送到镜像注册表失败（认证、网络、配额）；构建摘要页记录失败，不留部分标签。 |
+
+**使用**　<Ref id="runtime.layout" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.5.1.1" />
+
+**使用于**　<Ref id="C.1.3.1" />、<Ref id="J.1.2.2" />、<Ref id="J.5.1.2" />、<Ref id="J.5.2.1" />
+
+**依据**　[\[149\]](/zh/docs/appendix-references/#ref-149 "SLSA — Build track levels（v1.0）")
+
+</div>
+
+## `runtime/container.py` [#def-mod-runtime-container-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="runtime.container_command">container_command</Ref> | 生成回放、审计与探针用的隔离容器命令：按摘要引用镜像、不拉取、无网络、只读根、去除能力、禁止提权、限进程数、当前用户；只读 bind 挂载声明的输入，唯一可写挂载为报告目录 |
+
+### `container_command` [#def-runtime-container_command]
+
+生成回放、审计与探针用的隔离容器命令：按摘要引用镜像、不拉取、无网络、只读根、去除能力、禁止提权、限进程数、当前用户；只读 bind 挂载声明的输入，唯一可写挂载为报告目录
+
+```python
+def container_command(
+    identity: dict,
+    mounts: list[dict],
+    module: str,
+    argv: list[str],
+) -> list[str]
+```
+
+<TypeTable type={{ "identity": { type: "dict", description: "运行环境身份 {image_ref, image_digest, platform, runtime_contract}，由 runtime.resolve 产出；命令按含 @sha256: 的 image_ref 引用镜像，不用标签。" }, "mounts": { type: "list[dict]", description: "挂载清单，每项 {host_path, container_path, writable}。host_path 为已存在的宿主绝对路径；container_path 为容器内绝对路径；只有 /reports 可 writable=True，源码、导出数据目录、共同可交易范围成员文件、覆盖回执一律只读。" }, "module": { type: "str", description: "镜像内要执行的 Python 模块（运行器、审计器或身份探针），须是 runtime.layout 为该契约声明的模块。" }, "argv": { type: "list[str]", description: "原样追加在模块名之后的参数；每项须为字符串，不经 shell 解释。" } }} />
+
+**返回**　list[str]：完整 docker run 参数列表（首项为 docker），调用方按参数列表直接执行；本函数不起容器、不写文件、不读账本
+
+**期望行为**
+
+1. 核对身份：经 runtime.validate_identity 校验，取 platform 填 --platform，取含摘要的 image_ref 作镜像引用。
+2. 核对模块：取 runtime.layout(identity.runtime_contract) 声明的运行器、审计器与探针模块；module 不在其中拒绝 MODULE_NOT_IN_LAYOUT。
+3. 核对挂载：host_path 为存在的绝对路径；container_path 为绝对路径、不重复、不覆盖 /tmp；可写项只能是 /reports 且恰好一项，缺失拒绝 REPORTS_MOUNT_MISSING。
+4. 拼固定隔离参数：--rm --pull never --platform \<platform> --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit \<固定上限，未校准示例值> --user \<当前 uid:gid> --tmpfs /tmp；不加环境变量、端口、设备或额外能力。
+5. 按清单顺序拼 --mount type=bind,src=\<host_path>,dst=\<container_path>,readonly（/reports 省略 readonly），相同输入得到相同命令行。
+6. 追加镜像引用、python -m \<module> 与 argv 后返回；拒绝时抛带拒绝码的异常，不返回部分命令。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_IDENTITY_INVALID` | runtime.validate_identity 判身份形态不合，或 image_ref 不含 @sha256: 摘要、与 image_digest 不一致 |
+| `RUNTIME_UNSUPPORTED` | platform 或 runtime_contract 不受支持 |
+| `MODULE_NOT_IN_LAYOUT` | module 不是 runtime.layout 为该契约声明的运行器、审计器或探针模块 |
+| `MOUNT_HOST_PATH_INVALID` | 某项 host_path 不是绝对路径或在宿主上不存在 |
+| `MOUNT_TARGET_INVALID` | 某项 container_path 不是绝对路径、重复出现，或等于或覆盖 /tmp |
+| `MOUNT_WRITABLE_NOT_REPORTS` | 可写挂载目标不是 /reports，或可写挂载多于一项 |
+| `REPORTS_MOUNT_MISSING` | 挂载清单中没有 /reports 可写挂载 |
+| `ARGV_INVALID` | argv 含非字符串项 |
+
+**使用**　<Ref id="runtime.validate_identity" />、<Ref id="runtime.layout" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.5.2.2" />
+
+**使用于**　<Ref id="A.4.2.3" />、<Ref id="C.1.3.1" />、<Ref id="G.3.1.1" />、<Ref id="J.5.2.3" />、<Ref id="J.6.1.2" />
+
+**依据**　[\[150\]](/zh/docs/appendix-references/#ref-150 "Docker — docker container run reference") [\[11\]](/zh/docs/appendix-references/#ref-11 "Docker — none network driver") [\[151\]](/zh/docs/appendix-references/#ref-151 "Docker — Bind mounts")
+
+</div>
+
+## `runtime/image.py` [#def-mod-runtime-image-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> | 宿主侧核对运行环境身份：本地镜像带该摘要与平台，隔离容器内运行探针，报告与清单契约、源码布局一致且有效配置哈希自洽；返回写入运行记录的运行环境检视 |
+| <Ref id="runtime.layout">layout</Ref> | 返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块与参数、身份探针模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对 |
+| <Ref id="runtime.require_main_build">require_main_build</Ref> | 样本外验证专用：核运行环境来自产品镜像注册表 registry、构建源码版本在产品源码 main 上、镜像内运行器与审计器源码及依赖锁哈希等于该版本源码中的字节；研究回放不调用，任一构建来源的镜像在研究中仍可用 |
+| <Ref id="runtime.resolve">resolve</Ref> | 把标签或摘要引用解析为该镜像名下唯一的清单摘要，并从镜像清单与标签读出身份；身份不能手写，缺省引用为镜像注册表中的 main 标签 |
+| <Ref id="runtime.validate_identity">validate_identity</Ref> | 核对运行环境身份字典的形态：四个必需字段齐全、引用含不可变摘要且与摘要字段一致、平台与运行契约受支持；登记、回放、比较、样本外等所有接收身份的入口共用这一个核对 |
+
+### `inspect_runtime` [#def-runtime-inspect_runtime]
+
+宿主侧核对运行环境身份：本地镜像带该摘要与平台，隔离容器内运行探针，报告与清单契约、源码布局一致且有效配置哈希自洽；返回写入运行记录的运行环境检视
+
+```python
+def inspect_runtime(
+    identity: dict,
+    runner_args: list[str],
+    mounts: list[tuple[Path, str, bool]],
+) -> inspection dict
+```
+
+<TypeTable type={{ "identity": { type: "dict", description: "经 runtime.validate_identity 核对的清单身份" }, "runner_args": { type: "list[str]", description: "传给探针的运行器参数（市场根、提交、成员文件、窗口、账户条款），使探针读出的有效配置与实际回放相同" }, "mounts": { type: "list[tuple[Path, str, bool]]", description: "探针所需的只读挂载（导出目录、成员文件）；含可写挂载即拒绝" } }} />
+
+**返回**　inspection dict：engine.describe 的报告全文加 image_config_digest 与 platform
+
+**期望行为**
+
+1. runtime.validate_identity 后检视本地镜像：RepoDigests 须含 identity.image_ref 且平台等于 identity.platform；检视命令失败即 RUNTIME_UNAVAILABLE
+2. 按 runtime.layout(identity.runtime_contract) 取探针模块，用 runtime.container_command 构造无网络、只读、去特权容器执行探针并传 runner_args；退出非零或输出非 JSON 即拒绝
+3. 核对报告字段齐全且各哈希为 sha256 形态，缺一即拒绝
+4. 核对报告 runtime_contract 等于身份契约，source_file_paths 的键与路径逐项等于布局；重算 effective_config 规范 JSON 哈希须等于 effective_config_sha256
+5. 附加 image_config_digest 与 platform 返回；不写账本，由回放与登记路径写入运行记录
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_MISMATCH` | 本地镜像不带该摘要、平台不符、报告契约与身份不符、源码路径与布局不符或配置哈希不自洽 |
+| `RUNTIME_PROBE_INVALID` | 探针执行失败、输出非 JSON、字段缺失、哈希形态不合，或挂载含可写项 |
+| `RUNTIME_UNAVAILABLE` | 本地镜像检视失败 |
+
+**使用**　<Ref id="runtime.validate_identity" />、<Ref id="runtime.layout" />、<Ref id="runtime.container_command" />、<Ref id="engine.describe" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.6.1.2" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="H.4.1.2" />、<Ref id="G.1.1.4" />、<Ref id="J.2.4.4" />、<Ref id="J.5.1.2" />、<Ref id="J.5.2.1" />、<Ref id="J.5.2.2" />、<Ref id="J.5.2.3" />、<Ref id="D.1.1.2" />
+
+</div>
+
+### `layout` [#def-runtime-layout]
+
+返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块与参数、身份探针模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对
+
+```python
+def layout(runtime_contract: str | None) -> layout dict
+```
+
+<TypeTable type={{ "runtime_contract": { type: "str | None", description: "运行契约版本标识；None 返回全部契约的布局映射。" } }} />
+
+**返回**　layout dict：runner_module、audit_module、audit_args、probe_module、source_paths（探针字段名 → 镜像内源码相对路径）、audit_path、lock_path；参数为 None 时返回 \{契约: layout\}
+
+**期望行为**
+
+1. 布局是模块级常量，按契约版本声明；只能追加新契约条目，不能改写已声明条目。
+2. 每个契约声明运行器模块、审计器模块与参数、身份探针模块，以及运行器各文件、审计器、依赖锁三类源码路径；不声明策略源码、账本配置或市场数据路径。
+3. 按给定契约查布局；契约未声明拒绝 RUNTIME_UNSUPPORTED。
+4. 受支持契约集合即布局映射的键，供 runtime.validate_identity 与 runtime.build_image 读取。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_UNSUPPORTED` | 请求的运行契约没有布局声明 |
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.5.2.1" />
+
+**使用于**　<Ref id="G.3.1.1" />、<Ref id="J.2.4.4" />、<Ref id="J.5.1.1" />、<Ref id="J.5.1.2" />、<Ref id="J.5.2.2" />、<Ref id="J.6.1.2" />
+
+</div>
+
+### `require_main_build` [#def-runtime-require_main_build]
+
+样本外验证专用：核运行环境来自产品镜像注册表 registry、构建源码版本在产品源码 main 上、镜像内运行器与审计器源码及依赖锁哈希等于该版本源码中的字节；研究回放不调用，任一构建来源的镜像在研究中仍可用
+
+```python
+def require_main_build(
+    identity: dict,
+    inspection: dict,
+) -> build_revision
+```
+
+<TypeTable type={{ "identity": { type: "dict", description: "经 validate_identity 核对的身份，须含 build_revision" }, "inspection": { type: "dict", description: "runtime.inspect_runtime 返回的检视（取 source_files_sha256、source_file_paths、audit_source_sha256、dependency_lock_sha256）" } }} />
+
+**返回**　build_revision：在 main 上的构建源码版本（Git 提交哈希），随样本外运行行记为 image_revision
+
+**期望行为**
+
+1. 经 runtime.validate_identity 核身份形态，不过即 RUNTIME_IDENTITY_INVALID。
+2. 核 image_ref 所在的镜像注册表 registry 与命名空间等于产品镜像注册表。
+3. 取 identity.build_revision；缺失即拒绝（身份只从镜像标签读出，不接受调用方补写）。
+4. 核该版本是产品源码托管远端 main 的祖先：先本地判定，失败则抓取一次远端 main 再判定。
+5. 按 runtime.layout 取运行器各源码、审计器与依赖锁路径，读该版本下每个文件字节算 sha256，逐项等于检视中对应哈希；任一不等即拒绝（防重贴标签的镜像）。
+6. 返回 build_revision；不写账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_NOT_MAIN` | 镜像不在产品镜像注册表、无构建源码版本、版本不在 main 上，或镜像内源码与依赖锁哈希不等于该版本字节 |
+| `RUNTIME_IDENTITY_INVALID` | 身份未通过 runtime.validate_identity |
+
+**使用**　<Ref id="runtime.validate_identity" />、<Ref id="runtime.layout" />、<Ref id="runtime.inspect_runtime" />、<Ref id="runtime.resolve" />、<Ref id="registration.validation_bind" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.4.4" />
+
+**使用于**　<Ref id="X.1.3.2" />、<Ref id="J.2.4.3" />、<Ref id="J.5.1.1" />、<Ref id="J.5.1.2" />、<Ref id="J.5.2.3" />
+
+</div>
+
+### `resolve` [#def-runtime-resolve]
+
+把标签或摘要引用解析为该镜像名下唯一的清单摘要，并从镜像清单与标签读出身份；身份不能手写，缺省引用为镜像注册表中的 main 标签
+
+```python
+def resolve(reference: str | None) -> identity dict
+```
+
+<TypeTable type={{ "reference": { type: "str | None", description: "镜像引用：<镜像名>:<标签> 或 <镜像名>@sha256:<摘要>；None 取镜像注册表中的 main 标签。" } }} />
+
+**返回**　identity dict：image_ref（\<镜像名>@sha256:\<摘要>）、image_digest（sha256:\<摘要>）、platform（os/arch）、runtime_contract（契约标签值）、build_revision（构建源码版本标签值，缺则 None）；已经 runtime.validate_identity 核对
+
+**期望行为**
+
+1. 标签引用每次都拉取以取最新清单；摘要引用只在本地缺失时拉取；拉取或检视失败拒绝 RUNTIME_UNAVAILABLE。
+2. 读本地镜像的 RepoDigests，只保留与引用同镜像名的项；不是恰好一个拒绝 RUNTIME_DIGEST_AMBIGUOUS；取该摘要并把 image_ref 改写为 \<镜像名>@\<摘要>。
+3. 从镜像配置标签读运行契约与构建源码版本；缺契约标签拒绝 RUNTIME_IDENTITY_INVALID，缺构建源码版本记 None。
+4. 从镜像配置读 os 与 architecture 组成 platform。
+5. 组装身份交 runtime.validate_identity 核对后返回；全部字段来自镜像，调用方不得改写。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_UNAVAILABLE` | 引用无法拉取或本地检视失败 |
+| `RUNTIME_DIGEST_AMBIGUOUS` | 本地镜像在该镜像名下没有恰好一个清单摘要 |
+| `RUNTIME_IDENTITY_INVALID` | 镜像缺运行契约标签，或组装出的身份未通过 runtime.validate_identity |
+| `RUNTIME_UNSUPPORTED` | 平台或运行契约不受支持（由 runtime.validate_identity 转发） |
+
+**使用**　<Ref id="runtime.validate_identity" />、<Ref id="runtime.layout" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.5.1.2" />
+
+**使用于**　<Ref id="A.3.1.2" />、<Ref id="A.4.1.1" />、<Ref id="A.5.1.1" />、<Ref id="A.5.2.1" />、<Ref id="E.1.2.3" />、<Ref id="H.4.1.2" />、<Ref id="V.2.1.1" />、<Ref id="C.6.1.1" />、<Ref id="G.1.1.4" />、<Ref id="G.4.2.2" />、<Ref id="J.1.2.2" />、<Ref id="J.2.4.4" />、<Ref id="J.5.1.1" />、<Ref id="J.5.2.3" />、<Ref id="J.6.1.2" />、<Ref id="J.6.2.1" />、<Ref id="D.1.1.2" />、<Ref id="D.3.1.1" />、<Ref id="D.3.2.1" />
+
+**依据**　[\[141\]](/zh/docs/appendix-references/#ref-141 "OCI — image-spec descriptor")
+
+</div>
+
+### `validate_identity` [#def-runtime-validate_identity]
+
+核对运行环境身份字典的形态：四个必需字段齐全、引用含不可变摘要且与摘要字段一致、平台与运行契约受支持；登记、回放、比较、样本外等所有接收身份的入口共用这一个核对
+
+```python
+def validate_identity(value: dict) -> 规范化身份 dict
+```
+
+<TypeTable type={{ "value": { type: "dict", description: "待核对身份：image_ref、image_digest、platform、runtime_contract 必需，build_revision 可选。" } }} />
+
+**返回**　规范化身份 dict（只含上述五个字段）
+
+**期望行为**
+
+1. 核对四个必需字段存在且为非空字符串；缺字段或出现未知字段拒绝 RUNTIME_IDENTITY_INVALID。
+2. 核对 image_ref 形如 \<镜像名>@sha256:\<64 位十六进制>、image_digest 形如 sha256:\<64 位十六进制>，且两者摘要相等。
+3. 核对 platform 在受支持平台集合内、runtime_contract 是 runtime.layout 的键；否则拒绝 RUNTIME_UNSUPPORTED。
+4. build_revision 若存在须为 40 位十六进制 Git 提交哈希。
+5. 返回规范化身份；纯形态核对，不触碰容器运行时。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_IDENTITY_INVALID` | 字段缺失或多余、形态不合、引用与摘要不一致，或 build_revision 形态不合 |
+| `RUNTIME_UNSUPPORTED` | 平台不在受支持集合，或运行契约不是 runtime.layout 声明的契约 |
+
+**使用**　<Ref id="runtime.layout" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.5.1.2" />
+
+**使用于**　<Ref id="G.4.2.1" />、<Ref id="J.2.4.4" />、<Ref id="J.5.2.2" />、<Ref id="J.6.1.2" />、<Ref id="D.3.2.1" />
+
+**依据**　[\[141\]](/zh/docs/appendix-references/#ref-141 "OCI — image-spec descriptor")
+
+</div>

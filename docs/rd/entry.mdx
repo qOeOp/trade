@@ -1,0 +1,534 @@
+# E　入口：每次开始或中断后，Agent 如何从账本恢复研究状态、给出综合推荐，并由用户选定研究路线。
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+入口是研究循环的起点和中断后的回归点。本章定义：从账本 ledger 恢复研究状态 research state 并核对环境就绪；只追加的研究状态清单；在全部经济证据可用的候选 candidate 上给出综合推荐 recommendation 与路线选项；把用户的选择写成研究路线 research line 记录。读出、核哈希与路线窗口由代码强制，读的顺序、推荐写法与选定前等待由 skill 强制；不设达标门槛、不排除方向。候选谱系、比较读数、生命周期回执产出与账本机制见 T、V、W、J 章。
+
+<Mermaid chart={"flowchart LR\n  subgraph E-1[\"E.1 恢复研究状态\"]\n    direction TB\n    E-1-1[\"E.1.1 时机与从账本读的材料\"]\n    E-1-2[\"E.1.2 核对环境就绪\"]\n  end\n  subgraph E-2[\"E.2 维护研究状态清单\"]\n    direction TB\n    E-2-1[\"E.2.1 内容\"]\n    E-2-2[\"E.2.2 存法与版本\"]\n  end\n  subgraph E-3[\"E.3 给出综合推荐与路线选项\"]\n    direction TB\n    E-3-1[\"E.3.1 候选范围\"]\n    E-3-2[\"E.3.2 选项材料与呈现\"]\n  end\n  subgraph E-4[\"E.4 用户选定研究路线\"]\n    direction TB\n    E-4-1[\"E.4.1 选择权\"]\n    E-4-2[\"E.4.2 选定的结果\"]\n  end\n  E-1 --> E-2\n  E-2 --> E-3\n  E-3 --> E-4"} />
+
+## E.1　恢复研究状态 [#E-1]
+
+恢复研究状态 research state 按固定顺序进行，输入是账本 ledger 的当前提交，输出是可直接续做的研究状态。第一步经命令行接口读账本服务状态与当前提交；第二步读候选清单（每个候选 candidate 的源码身份、研发父版本 parent 与改动说明、每次登记 registration 的尝试及其运行 run 状态与经济证据可用性）与研究计数；第三步读 Agent 维护的只追加研究状态清单 knowledge list 最新版并核内容哈希；第四步读当前研究路线 research line 记录取出钉住的市场提交 market commit 与开发窗口 development window，再核对市场库新鲜度、逐合约覆盖与生命周期回执、运行环境 runtime image 是否可解析。前四步的事实由代码从账本与市场库按精确版本读出，不带推荐分数或资格标记；skill 规定读的顺序、不认的来源（会话记忆、交接文件、工作副本）与读完后的行为。第五步缺什么就报告精确阻断与可运行范围，不改候选身份，不否定路线有效性，改范围由用户选。整段恢复不依赖会话记忆，任何未写入账本的事实视为不存在。
+
+<Steps>
+
+<Step>
+
+经 <Ref id="cli.ledger_service" /> 读账本服务状态与当前提交；服务未起先启动，不可用即按 <Ref id="E.1.2.3" /> 报阻断。
+
+</Step>
+
+<Step>
+
+经 <Ref id="report.candidates" /> 读候选清单，经 <Ref id="report.research_status" /> 读研究计数；两者只含账本事实。
+
+</Step>
+
+<Step>
+
+按 <Ref id="research-start/SKILL.md#read-state-list" /> 读研究状态清单最新版并核哈希；缺或落后时以候选清单与计数为准。
+
+</Step>
+
+<Step>
+
+经 <Ref id="ledger.current_line" /> 读当前研究路线记录；有记录即续做该路线，无记录进入路线选择 <Ref id="E.4.1.1" />。
+
+</Step>
+
+<Step>
+
+按路线记录的市场提交经 <Ref id="market.freshness" /> 读新鲜度、经 <Ref id="cli.market_coverage" /> 逐合约读覆盖与生命周期回执、经 <Ref id="runtime.resolve" /> 解析运行环境身份。
+
+</Step>
+
+<Step>
+
+按 <Ref id="research-start/SKILL.md#readiness-and-blockers" /> 报告就绪或精确阻断与可运行范围；就绪则进入综合推荐或路线内下一假设。
+
+</Step>
+
+</Steps>
+
+### E.1.1　时机与从账本读的材料 [#E-1-1]
+
+三条能力分别规定何时恢复、读哪些代码产出的事实、读哪份 Agent 维护的清单。代码强制候选清单与计数只来自账本的精确版本且不带推荐分数或资格标记；skill 强制恢复的时机与顺序，并规定会话记忆与交接文件不算来源。输入是账本当前提交，输出是恢复后的研究状态与当前路线。
+
+<Cap id="E.1.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="每次开始、中断或暂停后恢复都先从账本读状态；已选路线直接续做；不依赖会话记忆或交接文件">
+
+每次开始研究、中断或暂停后恢复，Agent 先经声明的命令行接口 <Ref id="cli.main" /> 读账本 ledger：经 <Ref id="cli.ledger_service" /> 读服务状态与当前提交，经 <Ref id="report.candidates" /> 读候选清单，经 <Ref id="report.research_status" /> 读研究计数，再按 <Ref id="research-start/SKILL.md#read-state-list" /> 读研究状态清单，最后经 <Ref id="ledger.current_line" /> 读当前研究路线 research line 记录。路线记录存在即表示用户已选路线，Agent 直接续做，不重问，不以推荐代替用户已做的选择；记录不存在才进入路线选择 <Ref id="E.4.1.1" />。研究状态 research state 的唯一来源是账本：会话记忆、交接文件、工作副本中的结论与未入账的运行输出一律视为不存在，不得用于推荐或下一假设；要用必须先以证据包写入账本再读回。暂停只保留账本中的登记与未消耗的网格点，恢复后续做，不重开登记（<Ref id="A.1.2.1" />）。每条读命令一条连接、JSON 输出、拒绝带码；代码保证读出的清单与计数只来自账本且不带分数，skill 强制顺序与来源规则。演练中两次在中断与运行故障后均按此恢复并续做已选路线。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#resume-from-ledger" />、<Ref id="eval:research-start/resume-keeps-route" />
+
+**使用**　<Ref id="cli.main" />、<Ref id="cli.ledger_service" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="ledger.current_line" />、<Ref id="research-start/SKILL.md#read-state-list" />、<Ref id="A.1.2.1" />、<Ref id="E.4.1.1" />
+
+</div>
+
+<p className="rd-resolves">合并前稿 E.1.3.1/E.1.3.2（只认账本、未写入视为不存在）</p>
+
+</Cap>
+
+<Cap id="E.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="读候选清单：源码身份、父与改动、登记尝试与经济证据可用性">
+
+入口经 <Ref id="report.candidates" /> 读候选清单 candidate list：全部候选 candidate（引用名 strategy_id@revision）的精确源码身份（内容哈希）、研发父版本 parent 与改动说明、每次登记 registration 的尝试及其运行 run 状态与当前经济证据可用性，附所读账本提交；给出账本提交或标签时按精确版本读当时的清单。经 <Ref id="report.research_status" /> 读研究计数：尝试、审计通过、经济可用、仅诊断、无效、未完成，以及样本外 out-of-sample 登记状态（已登记未绑定、已绑定、已封存），样本外状态由 <Ref id="table:validation_registration" /> 与 <Ref id="table:validation_binding" /> 读出。候选身份与谱系边来自 <Ref id="table:candidate" />，登记与运行事实来自账本证据包 <Ref id="table:evidence_bundle" />。经济证据可用性是读时由 <Ref id="qualification.assess" /> 按检查身份算出的视图，不是存储字段：零成交或缺匹配记录的尝试在清单里只显示不可用的原因。清单与计数由代码从账本算出，不带推荐分数、资格标记、排序或停止标志；推荐另写入研究状态清单（<Ref id="E.3.1.1" />）。拒绝：账本服务不可达或所给提交不存在时按 <Ref id="cli.main" /> 的拒绝码返回，不返回部分清单。
+
+<div className="rd-meta">
+
+**使用**　<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="table:candidate" />、<Ref id="table:evidence_bundle" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="cli.main" />
+
+</div>
+
+<p className="rd-resolves">替代前稿 E.2.1.3（假设清单与状态）：卡状态消失，候选谱系由代码读出；吸收前稿 E.1.2.4（进行中的样本外验证）：其登记状态随研究计数读出</p>
+
+</Cap>
+
+<Cap id="E.1.1.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="读研究状态清单最新版：推荐与取舍、研究优先级、复盘节奏、历史反馈">
+
+入口读研究状态清单 research state list 的最新版本：当前推荐 recommendation 与取舍、后续研究动作的研究优先级 research priority 与所选父版本及对照 control、复盘 review 节奏及理由、历史反馈及其适用条件（四节内容按 <Ref id="research-round/references/state-list.md#current-decisions" /> 与 <Ref id="E.2.1.1" /> 定义）。清单是 Agent 维护的只追加证据包，按证据包名的版本号取最大者为最新版，经 <Ref id="cli.evidence_export" /> 导出并核对内容哈希与 <Ref id="table:evidence_bundle" /> 存储值一致，不一致不采用该版。最新版是合并了更正的简洁视图（<Ref id="research-round/references/state-list.md#readable-summary" />），先读它，原件按需读。清单每条结论须引用它所依据的登记、运行与账本提交；没有清单，或最新版所引账本提交早于候选清单中最新的有效运行，以候选清单与计数为准，并在下一版清单里补记差异，不改写旧版。清单不含资格裁决与分数：资格由代码读出，清单只记解释与优先级。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#read-state-list" />
+
+**使用**　<Ref id="research-round/references/state-list.md#current-decisions" />、<Ref id="research-round/references/state-list.md#readable-summary" />、<Ref id="cli.evidence_export" />、<Ref id="table:evidence_bundle" />、<Ref id="E.2.1.1" />
+
+</div>
+
+<p className="rd-resolves">改写前稿 E.1.1.3；清单四节内容按 E.2.1 定义</p>
+
+</Cap>
+
+### E.1.2　核对环境就绪 [#E-1-2]
+
+入口读完账本后核对三件事：市场库新鲜度与钉住的市场提交；逐合约的覆盖与生命周期回执；运行环境与数据是否可用。前两件由代码按精确市场提交读事实并原样返回，不排序不筛除；第三件由 skill 规定只报告不裁决。输入是研究路线记录里的市场提交、开发窗口与范围规则，输出是就绪结论或精确阻断与可运行范围。
+
+<Cap id="E.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="读市场库新鲜度并钉住一个市场提交，整段可比开发共用同一提交">
+
+入口经 <Ref id="ledger.current_line" /> 读当前研究路线记录，取出钉住的市场提交 market commit、开发窗口 development window 与范围规则 universe_rule；再经 <Ref id="market.freshness" /> 按该提交 AS OF 读交易所数据 exchange data 库的新鲜度：成员月份、合约数、最新完整日、最新完整月与当前月覆盖到的时刻。用户给出的引用（具名引用如 main、标签或哈希前缀）一律先经 <Ref id="market.resolve_commit" /> 解析为唯一提交哈希，工作集引用拒绝 NOT_A_COMMIT。市场提交在用户选定路线时经 <Ref id="ledger.select_line" /> 写入研究路线记录；此后同一路线内每次登记与回放都按同一提交导出输入并写入输入身份（<Ref id="J.6.1.3" />），相同提交上的回放才可比。市场库出现新月份时入口只报告可扩展范围（新月份、覆盖到的时刻），不自动换提交；换提交即开发窗口或数据合同的变化，由用户经 <Ref id="E.4.1.1" /> 选择后写成新一条路线记录。新鲜度来自 <Ref id="table:market_schema" /> 与 <Ref id="table:universe_month" />，只是事实，不判数据够不够用。拒绝：没有路线记录时返回空并进入路线选择；该提交下没有任何月份拒绝 MARKET_EMPTY。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="ledger.current_line" />、<Ref id="market.freshness" />、<Ref id="market.resolve_commit" />
+
+**使用**　<Ref id="ledger.select_line" />、<Ref id="table:universe_month" />、<Ref id="table:market_schema" />、<Ref id="table:evidence_bundle" />、<Ref id="J.6.1.3" />、<Ref id="E.4.1.1" />
+
+**依据**　[\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history")
+
+</div>
+
+<p className="rd-resolves">升自前稿 E.1.2.5（读数据是否最新）并改写为钉住提交</p>
+
+</Cap>
+
+<Cap id="E.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="按合约读覆盖与生命周期回执，只读事实，不删币、缩窗、补数">
+
+入口经 <Ref id="cli.market_coverage" /> 按钉住的市场提交逐合约读覆盖事实与生命周期回执。合约范围缺省为开发窗口（含预热）涉及月份在 <Ref id="table:universe_month" /> 中的全部成员，显式给出时按给出的清单；命令把范围展开后交 <Ref id="market.diagnose_coverage" />，后者只接受显式清单。每个合约的覆盖事实由 <Ref id="market.coverage_facts" /> 产出：成员月份、输入区间内成交价与标记价 mark price 的缺口区间与零成交量分钟、两者时刻对齐、资金费 funding 结算时刻与条数；首末数据只是数据起止，不等于上市或下架。生命周期回执来自账本中的生命周期证据包：经 <Ref id="registration.load_lifecycle" /> 读出清单与来源原件，经 <Ref id="market.validate_lifecycle" /> 核对清单绑定同一市场提交、事件为引擎原生事件字典、时钟单调、来源原件在包内；上市、禁新仓、下架结算与 ticker 重用以原生事件随证据包留存。返回只有事实：缺口、零量、资金费缺失、生命周期缺失都原样列出，入口不据此删币、缩窗、补数或判经济失败，也不替策略判定指标是否就绪（<Ref id="W.3.3.2" />）。拒绝：区间非整分钟或起点不早于终点 INTERVAL_INVALID；展开后合约清单为空或显式清单有重复 EMPTY_SYMBOLS；市场提交引用解析不到 UNKNOWN_REF / AMBIGUOUS_REF / NOT_A_COMMIT；合约不在该提交 UNKNOWN_SYMBOL；生命周期证据包缺失、提交不符或事件非原生 LIFECYCLE_INPUT；任一拒绝整次不返回部分结果。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="cli.market_coverage" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />
+
+**使用**　<Ref id="market.coverage_facts" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:evidence" />、<Ref id="table:universe_month" />、<Ref id="W.3.3.2" />
+
+</div>
+
+<p className="rd-resolves">本条只写入口读法；覆盖回执内容归 W.3.3.1，生命周期证据包归 W.3.2.2</p>
+
+</Cap>
+
+<Cap id="E.1.2.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="缺运行环境或数据时报告精确阻断与可运行范围并保留恢复状态；改变数据范围由用户选">
+
+入口核对三项就绪：运行环境 runtime image 经 <Ref id="runtime.resolve" /> 能解析为唯一摘要并读出身份；市场库经 <Ref id="market.freshness" /> 在钉住的市场提交下含开发窗口涉及的全部月份；覆盖与生命周期回执经 <Ref id="market.diagnose_coverage" /> 对范围内每个合约读出。任一项不满足，Agent 报告精确阻断：缺什么（镜像摘要、月份、合约、生命周期证据包）、哪一段窗口、哪些合约，以及当前可运行的范围（已就绪的合约与窗口），并保留恢复状态——账本中的登记、未消耗网格点与路线记录不动。阻断不否定任何候选的身份、不否定路线的有效性、不记为经济失败、不进入研究计数；运行限制（内存、容量）同样只暂停执行。只有改变用户选定的市场范围或开发窗口才能继续时，Agent 列出选项（缩范围、换提交、等数据到达）并等用户选，不自行缩窄；新月份到达同样只报可扩展范围（<Ref id="D.1.1.3" />）。全局规则见 <Ref id="A.3.1.2" />。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#readiness-and-blockers" />
+
+**使用**　<Ref id="runtime.resolve" />、<Ref id="market.freshness" />、<Ref id="market.diagnose_coverage" />、<Ref id="eval:research-start/blocked-run-reports-range" />、<Ref id="eval:research-start/window-extension-user-decides" />、<Ref id="eval:research-start/coverage-gap-not-economic-failure" />、<Ref id="A.3.1.2" />、<Ref id="D.1.1.3" />
+
+</div>
+
+<p className="rd-resolves">A.3.1.2 的入口侧</p>
+
+</Cap>
+
+## E.2　维护研究状态清单 [#E-2]
+
+研究状态清单 (research state list) 是 Agent 自己维护、只追加的证据包，按市场与开发窗口 (development window) 各一份，每次更新是一个新版本。数据流是单向的：Agent 从账本 (ledger) 读候选 (candidate) 清单、产品读数与研究计数，按 skill 规定写四节内容（当前决定、历史反馈、每次更新的引用与分类、搜索暴露），再以带版本号的包名经账本写入口追加为新证据包；代码只在写入时核内容哈希、拒绝占用保留命名空间与同名不同内容，并保证旧版可按包名、账本提交或标签读回。清单不是产品字段，任何代码判定（资格、检验读数、计数）都不读它；写什么、怎么分节、怎么引用全部由 skill 强制，并由 eval 检验。
+
+<Steps>
+
+<Step>
+
+Agent 按 <Ref id="research-start/SKILL.md#read-state-list" /> 读最新版清单并核哈希，同时读候选清单、研究计数（<Ref id="research-round/SKILL.md#counts-from-code" />）与本次试验的比较读数。
+
+</Step>
+
+<Step>
+
+按 <Ref id="research-round/references/state-list.md#current-decisions" /> 写三类当前决定：推荐与取舍、后续研究动作的优先级与所选父版本及对照、复盘节奏。
+
+</Step>
+
+<Step>
+
+按 <Ref id="research-round/references/state-list.md#history-feedback" /> 逐条追加本次产生的负面、不显著与仅诊断发现，各带适用条件与重评条件。
+
+</Step>
+
+<Step>
+
+按 <Ref id="research-round/references/state-list.md#update-rules" /> 给每条引用登记证据包、运行与账本提交，标为事实／解释／下一假设，并把算过的视角、读过的报告与每次尝试记为搜索暴露。
+
+</Step>
+
+<Step>
+
+以同市场、同窗口、版本号加一的包名经 <Ref id="ledger.add_bundle" /> 追加整份清单；代码核哈希，拒绝保留命名空间与同名不同内容，并发写冲突由 <Ref id="ledger.write" /> 拒绝。
+
+</Step>
+
+<Step>
+
+后续读者按包名读最新版，或经 <Ref id="ledger.read_as_of" /> 按账本提交或标签读旧版；<Ref id="eval:research-round/search-exposure-recorded" /> 检验搜索暴露是否完整入清单。
+
+</Step>
+
+</Steps>
+
+### E.2.1　内容 [#E-2-1]
+
+两条 skill 能力规定清单的「当前决定」与「历史反馈」两节分别记什么、历史发现怎么定性。输入是候选清单、产品读数、研究计数与 Agent 的诊断；输出是清单新版本中的对应章节。代码不读这两节，也不从中产生优先级或推荐分数。
+
+<Cap id="E.2.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="分开记当前推荐与取舍、后续研究动作的优先级与所选父版本、复盘节奏及其理由">
+
+清单的「当前决定」节分三小节，由 skill 强制，代码不读。输入：全部经济证据可用候选的多维读数（年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释、不确定性，读数来源见 <Ref id="R.5.1.2" />）、研究计数（<Ref id="research-round/SKILL.md#counts-from-code" />）与 Agent 的诊断。输出三小节：(1) 当前推荐 (recommendation)：一版或一批候选（引用名 strategy_id@revision）、依据与取舍，按 <Ref id="research-round/SKILL.md#review-and-recommendation" /> 写；(2) 后续研究动作：按 <Ref id="research-round/references/feedback.md#priority-ranking" /> 排序的具体动作，每条写所选研发父版本 (parent) 与比较对照 (control) 的引用名及各自理由，对照须经济证据可用（<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />）；(3) 复盘节奏：按尝试次数或进展声明的触发条件、理由，以及上次复盘所到的尝试计数（读自代码，<Ref id="research-round/SKILL.md#review-cadence" />）。三小节互不推出：推荐候选不必是下一实验的父版本；优先级最高的动作不必指向推荐候选；复盘次数只触发复盘，不是停止条件。何时不写：任一小节缺理由、推荐候选没有经济证据可用、父或对照引用名在候选表 <Ref id="table:candidate" /> 中不存在，Agent 不写新版本，先补齐；代码层不拒绝。演练中推荐候选与最新派生版本不同，各写理由。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/state-list.md#current-decisions" />
+
+**使用**　<Ref id="research-round/SKILL.md#review-and-recommendation" />、<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />、<Ref id="research-round/references/feedback.md#priority-ranking" />、<Ref id="research-round/SKILL.md#review-cadence" />、<Ref id="research-round/SKILL.md#counts-from-code" />、<Ref id="table:candidate" />、<Ref id="R.5.1.2" />
+
+</div>
+
+<p className="rd-resolves">替代 10-12 E.2.1.1（最好的一批）：非劣集降为 R 章读数</p>
+
+</Cap>
+
+<Cap id="E.2.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="记历史反馈及适用条件：负面与不显著发现、仅诊断的尝试；旧负面结论不是硬排除，低优先级方向保留重评">
+
+清单的「历史反馈」节逐条记录，由 skill 强制，代码不读。输入：每次试验 (trial) 的资格视图中的资格结论（零成交、无效、未完成只留诊断，见 <Ref id="F.1.1.1" /> 与 <Ref id="F.1.1.2" />）、比较读数（效应、区间、p）与 Agent 的诊断。每条写：候选引用名 strategy_id@revision、试验用途 purpose、结论类别（负面／不显著／仅诊断，仅诊断再分零成交、无效、未完成）、适用条件 (applicability conditions)：源码身份、改动说明、规则参数、输入身份、开发窗口、运行环境 (runtime image) 身份，以及当前研究优先级 (research priority) 与重评条件（何时、凭什么重评）。定性规则：旧的负面结论是当时条件下的历史决定，不是对机制或方向的硬排除（<Ref id="research-round/references/feedback.md#no-exclusion" />）；毛边际为负只更新优先级；低优先级方向保留并写明重评条件；未测方向记为「未知」而非「更差」；不显著、亏损、零成交、低频都不写成排除。何时不写：缺适用条件或缺重评条件的条目不入清单，Agent 先补；代码层不拒绝。eval <Ref id="eval:research-round/conditions-not-exclusion" /> 与 <Ref id="eval:research-round/gross-negative-updates-priority" /> 检验此节。演练中亏损或不显著的版本继续派生，零成交尝试只留诊断。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/state-list.md#history-feedback" />
+
+**使用**　<Ref id="research-round/references/feedback.md#no-exclusion" />、<Ref id="eval:research-round/conditions-not-exclusion" />、<Ref id="eval:research-round/gross-negative-updates-priority" />、<Ref id="F.1.1.1" />、<Ref id="F.1.1.2" />
+
+</div>
+
+<p className="rd-resolves">替代 10-12 E.2.1.2 与 E.2.2.1/E.2.2.2（旧的硬排除条目及其重开规矩）</p>
+
+</Cap>
+
+### E.2.2　存法与版本 [#E-2-2]
+
+清单以固定命名的证据包存入账本，每次更新是一个新包。database 能力由代码强制只追加、内容哈希与版本可读回；skill 能力规定每版引用什么、把内容分成事实、解释与下一假设，并把搜索暴露记全，由 eval 检验。
+
+<Cap id="E.2.2.1" kind="database" tier="verified" tierLabel="已验证" title="按市场和开发窗口各一份，每次更新是新版本的证据包，只追加不覆盖，旧版可按提交或标签读回">
+
+研究状态清单按市场与开发窗口各一份，以证据包存入账本，存于 <Ref id="table:evidence_bundle" />（包头）与 <Ref id="table:evidence" />（文件字节、长度与由字节派生的内容哈希 content hash）。包名即身份：`research_state/<market_commit>/<window_start>_<window_end>/v<version>`，market_commit 与开发窗口取自当前研究路线记录（<Ref id="ledger.current_line" />），version 为十进制整数、每次更新加一。输入：整份清单文件（一个或多个逻辑文件）与包名；输出：账本提交哈希与各文件内容哈希。写入经 <Ref id="ledger.add_bundle" /> 在一个写事务（<Ref id="ledger.write" />）内完成：同名同内容重试幂等返回原记录；同名不同内容拒绝（拒绝码 bundle_name_taken）；包名落在产品保留命名空间拒绝（reserved_namespace）；并发写冲突拒绝（write_conflict），Agent 重读最新版后再写。旧包永不编辑或删除；任一版本从未被改写由 <Ref id="table:dolt_system_tables" /> 的行历史证明。读回：按包名读指定版本并核哈希后导出（<Ref id="cli.evidence_export" />），或经 <Ref id="ledger.read_as_of" /> 按账本提交哈希或标签读当时的最新版；里程碑标签指向账本提交，按标签解析到提交后读回。换市场提交或开发窗口另开一份清单（新前缀从 v1 起），旧清单保留并仍计为历史搜索暴露。由代码与账本强制。演练中以逐版证据包写清单与检查点，旧版按包名与提交读回。
+
+<div className="rd-meta">
+
+**使用**　<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="ledger.add_bundle" />、<Ref id="cli.evidence_export" />、<Ref id="ledger.write" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.current_line" />、<Ref id="table:dolt_system_tables" />
+
+**依据**　[\[19\]](/zh/docs/appendix-references/#ref-19 "Dolt — Querying history") [\[20\]](/zh/docs/appendix-references/#ref-20 "Dolt — SQL procedures") [\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables")
+
+</div>
+
+<p className="rd-resolves">合并 10-12 E.2.3.1（按市场和开发窗口各一份、共用）与 E.2.4.1（每次更新是新版本）</p>
+
+</Cap>
+
+<Cap id="E.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="每次更新引用支撑的登记、运行与账本提交，区分事实、解释与下一假设；算过的每个视角和每次尝试都记为搜索暴露">
+
+清单每个新版本的每一条都带引用并带分类标签，由 skill 强制、eval <Ref id="eval:research-round/search-exposure-recorded" /> 检验，代码不读。引用：支撑该条的登记证据包名（<Ref id="table:registration_attempt" /> 所指的登记包）、运行引用（<Ref id="table:trial" /> 与 <Ref id="table:run" /> 的行标识）与账本提交哈希；只引用账本提交，不引用 Git 提交；引用在当前账本中必须可解析，否则该条不写。分类：每条标为事实（产品读数、研究计数、审计与资格结论，原文引用不改写）、解释（未证的机制说明）或下一假设 (hypothesis)（按 <Ref id="research-round/references/feedback.md#next-hypothesis-record" /> 写观察事实、机制解释、拟改部件、与历史候选的关系）三类之一，不混写。搜索暴露 (search exposure)：算过的每个视角（读数、切分维度、参数视角）、读过的每份报告与每次尝试（含无效、未完成、预检失败）各记一条，带账本提交；试验计数本身读自代码（<Ref id="R.4.2.1" />），清单补记的是代码计数之外的视角与报告阅读，供折扣夏普 DSR（<Ref id="nautilus-report-analysis/SKILL.md#deflated-sharpe" />）与样本外验证 (validation) 的多重比较判断使用。不回写：不修改旧版本的任何条目；后来找到的材料（论文、诊断、更正）只追加为新版本中的后续证据，并引用被补充的旧版本包名。写入经 <Ref id="ledger.add_bundle" /> 成为新版本（<Ref id="E.2.2.1" />）。何时不写：任一条缺引用、缺分类或引用不可解析，不写新版本，先补；代码层不拒绝。演练中每版清单引用登记包、运行与账本提交，把事实、解释与下一假设分列。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-round/references/state-list.md#update-rules" />、<Ref id="eval:research-round/search-exposure-recorded" />
+
+**使用**　<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:registration_attempt" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="research-round/references/feedback.md#next-hypothesis-record" />、<Ref id="nautilus-report-analysis/SKILL.md#deflated-sharpe" />、<Ref id="R.4.2.1" />
+
+</div>
+
+<p className="rd-resolves">改写合并 10-12 E.2.4.2（记录算过的每个视角）</p>
+
+</Cap>
+
+## E.3　给出综合推荐与路线选项 [#E-3]
+
+vx
+
+<Steps>
+
+<Step>
+
+读研究状态清单最新版，取最新一条推荐；没有复盘记录或推荐早于之后出现的有效运行时，按复盘判据在全部经济证据可用候选上现算一次并追加新版清单
+
+</Step>
+
+<Step>
+
+用候选清单与资格读取划定范围：全部经济证据可用候选为可选项，仅诊断、无效与未完成候选分列
+
+</Step>
+
+<Step>
+
+账本里没有任何候选，或用户明确离开全部研究路线时，改从策略库模板提根选项，并附每个模板在当前开发窗口的首份报告
+
+</Step>
+
+<Step>
+
+为每个选项附多维读数与诊断：年化、最大回撤、夏普、计划胜率、成本、资金使用率、利润来源拆分、机制解释、不确定性，附实质活动与可比资格
+
+</Step>
+
+<Step>
+
+为每个选项附历史反馈与当前研究顺序：已试方向及适用条件、未试方向、低优先级方向及重评条件、排序依据
+
+</Step>
+
+<Step>
+
+写推荐说明：推荐哪一版或哪一批、依据哪些读数、取舍是什么、与下一实验父版本的区别；然后交由用户选路线（<Ref id="E.4.1.1" />）
+
+</Step>
+
+</Steps>
+
+### E.3.1　候选范围 [#E-3-1]
+
+两条 skill 能力划定选项从哪来。有候选时，范围是全部经济证据可用的候选，历史候选同样在内；候选清单由代码 <Ref id="report.candidates" /> 读出（不带分数、资格标记或排序），每个候选的当前资格由代码 <Ref id="qualification.assess" /> 给出。没有候选或用户明确离开全部研究路线时，选项来自策略库模板。两条能力的触发条件与呈现清单由 skill 指导并以 eval 校验。
+
+<Cap id="E.3.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="入口呈现最新推荐；无复盘记录时现算一次；范围是全部经济证据可用的候选，历史候选也可选">
+
+入口呈现研究状态清单（<Ref id="research-start/SKILL.md#read-state-list" />）里的最新一条推荐 recommendation。两种情况下 Agent 现算一次：清单里没有任何复盘 review 记录；或最新推荐早于其后出现的有效运行 run。现算按复盘判据 <Ref id="research-round/SKILL.md#review-and-recommendation" /> 在全部经济证据可用的候选上多维综合，结果按 <Ref id="research-round/references/state-list.md#update-rules" /> 追加为新版清单，不改旧版。范围的输入是代码读出的候选清单 <Ref id="report.candidates" />（每个候选的源码身份、父版本与改动、每次登记尝试及其运行状态与经济证据可用性，附账本提交）和每个候选的当前资格 <Ref id="qualification.assess" />（综合审计状态、执行捕获、独立源码审查与原生对账，附检查身份）。范围是候选谱系 lineage 中全部经济证据可用的候选：不限最近几版、不限当前研究路线、不限非劣集；历史候选与非劣读数之外的候选都可被选。非劣候选集 <Ref id="nautilus-report-analysis/SKILL.md#pareto-range" /> 由 Agent 按年化、回撤、夏普、胜率自算，只作范围描述，不是资格、不是排序。仅诊断、无效与未完成的候选分列呈现，不与有效候选同列比较（分列口径见 <Ref id="R.5.1.2" />）。强制层：skill 指导，eval <Ref id="eval:research-round/all-comparable-candidates" /> 校验推荐覆盖全部可比候选；代码只保证候选清单不带分数与资格标记。本能力无代码拒绝码；候选清单与资格读取的拒绝由各自定义处规定。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#recommendation-range" />
+
+**使用**　<Ref id="report.candidates" />、<Ref id="qualification.assess" />、<Ref id="research-round/SKILL.md#review-and-recommendation" />、<Ref id="eval:research-round/all-comparable-candidates" />、<Ref id="nautilus-report-analysis/SKILL.md#pareto-range" />、<Ref id="research-start/SKILL.md#read-state-list" />、<Ref id="research-round/references/state-list.md#update-rules" />、<Ref id="R.5.1.2" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 E.3.1.1；吸收 E.3.3.1/E.3.3.2（回入口时的呈现，改引用 F.3.2.2）</p>
+
+</Cap>
+
+<Cap id="E.3.1.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="没有任何候选或用户明确离开全部研究路线时，从策略库模板提根选项">
+
+只有两种情况入口从策略库模板提根节点 root 选项：候选清单 <Ref id="report.candidates" /> 为空（账本里没有任何候选）；或用户明确说离开全部研究路线（换路线由用户选，见 <Ref id="F.3.3.2" />）。亏损、不显著、低优先级、复盘计数、运行限制或运行故障都不触发选新根；这些只更新研究优先级（<Ref id="research-round/references/feedback.md#no-exclusion" />）。每个模板选项附该模板在当前开发窗口 development window 的首份报告：模板按 <Ref id="research-round/references/template-transcription.md#intake" /> 从一手出处转写，按 <Ref id="research-round/references/hypothesis.md#root-registration" /> 以无父、无对照登记一次并回放，报告只有读数没有比较结果；没有首份报告的模板也列出，但标明未回放。模板之外的人造根由用户自己发起并提供信息源（<Ref id="research-start/SKILL.md#artificial-root" />），Agent 不主动提议；用户选中模板后它成为无父版本的根候选（<Ref id="research-start/SKILL.md#template-becomes-root" />）。强制层：skill 指导，eval <Ref id="eval:research-start/no-candidate-offers-templates" /> 校验触发条件；本能力无代码拒绝码。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#root-options" />、<Ref id="eval:research-start/no-candidate-offers-templates" />
+
+**使用**　<Ref id="report.candidates" />、<Ref id="F.3.3.2" />、<Ref id="research-start/SKILL.md#artificial-root" />、<Ref id="research-round/references/template-transcription.md#intake" />、<Ref id="research-round/references/hypothesis.md#root-registration" />、<Ref id="research-round/references/feedback.md#no-exclusion" />、<Ref id="research-start/SKILL.md#template-becomes-root" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 E.3.1.2；10-12 E.1.1.2 改为引用 F.3.3.2</p>
+
+</Cap>
+
+### E.3.2　选项材料与呈现 [#E-3-2]
+
+三条 skill 能力规定每个选项附什么、推荐怎么说。读数由代码从封存报告读出并经资格遮蔽（<Ref id="report.run_report" />），不确定性由代码的比较入口给出（<Ref id="report.compare" />，只给效应、区间、p，不返回裁决）；资金使用率与非劣集由 Agent 按 skill 自算；历史反馈与研究顺序只从研究状态清单读。本组件只定呈现清单与措辞，不定判据。
+
+<Cap id="E.3.2.1" kind="skill" tier="verified" tierLabel="已验证" title="附多维读数与诊断：年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释、不确定性">
+
+每个候选选项附一组多维读数 reading 与诊断：年化、最大回撤、夏普、计划胜率、成本、资金使用率 capital utilisation、利润来源拆分（价格盈亏、手续费、资金费）、机制解释，以及不确定性。读数来源有三：年化、回撤、夏普、胜率、成本与利润来源拆分从代码的运行报告 <Ref id="report.run_report" /> 读出，它经资格视图遮蔽并附总体与样本量、读数代码版本、检查身份和局限清单（经济口径见 <Ref id="R.1.1.2" />）；不确定性从代码的比较入口 <Ref id="report.compare" /> 读出，即配对检验的效应、区间、p 与登记时声明的检验条件（显著性水平、最小改进均标为「未校准示例值」），无对照或任一侧不可比时 <Ref id="report.compare" /> 拒绝并只留诊断，选项里照抄诊断；资金使用率由 Agent 按 <Ref id="nautilus-report-analysis/SKILL.md#capital-utilisation" /> 从封存敞口表自算（时间加权名义额、采样峰值、锁定保证金、在市时间），无敞口表不填。每项读数附实质活动 substantive activity 与可比资格 comparability，无资格的候选整体只给诊断。夏普或任何单一指标不单独决定推荐；算不出的项留空并写原因，不估、不补。机制解释写该候选利润来自哪类活动（如趋势持有、资金费收取）与它成立的市场条件，属 Agent 判断，须标为解释。强制层：skill 指导，eval <Ref id="eval:research-round/capital-use-read-from-first-root" /> 校验资金使用率与利润来源从首个有效根起主动读出；代码强制读数遮蔽与比较不裁决。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#option-readings" />
+
+**使用**　<Ref id="report.run_report" />、<Ref id="report.compare" />、<Ref id="nautilus-report-analysis/SKILL.md#capital-utilisation" />、<Ref id="eval:research-round/capital-use-read-from-first-root" />、<Ref id="R.1.1.2" />
+
+**依据**　[\[21\]](/zh/docs/appendix-references/#ref-21 "Wiecki, Campbell, Lent &amp; Stauth 2016, doi:10.3905/joi.2016.25.3.069")
+
+</div>
+
+<p className="rd-resolves">合并 10-12 E.3.2.2（附失败部件）：不拆部件归因，改为机制解释与诊断</p>
+
+</Cap>
+
+<Cap id="E.3.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="附历史反馈与当前研究顺序：已试方向及适用条件、未试方向、低优先级方向及重评条件；模板选项附其在当前开发窗口的报告">
+
+每个选项附历史反馈与当前研究顺序，全部只从研究状态清单读出，不从会话记忆或交接文件读。内容四项：已试方向及其适用条件与结果（按 <Ref id="research-round/references/state-list.md#history-feedback" />，负面、不显著、仅诊断逐条带适用条件，旧负面是当时的决定不是排除）；未试方向（视为未知，不写成更好）；低优先级方向及其重评条件（何时、凭什么重评，见 <Ref id="research-round/references/feedback.md#no-exclusion" />）；下一批研究动作的排序依据（按 <Ref id="research-round/references/feedback.md#priority-ranking" />，写明为何此序）。历史反馈按适用条件呈现，不写成排除，不把亏损、零成交、低频写成方向失败。模板选项没有谱系历史，改附该模板在当前开发窗口的首份报告（按 <Ref id="research-round/references/hypothesis.md#root-registration" /> 登记并回放所得，只有读数无比较）。强制层：skill 指导；本能力无代码拒绝码，清单读取由 <Ref id="research-start/SKILL.md#read-state-list" /> 规定。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#option-history" />
+
+**使用**　<Ref id="research-round/references/state-list.md#history-feedback" />、<Ref id="research-round/references/feedback.md#no-exclusion" />、<Ref id="research-round/references/feedback.md#priority-ranking" />、<Ref id="research-round/references/hypothesis.md#root-registration" />、<Ref id="research-start/SKILL.md#read-state-list" />
+
+</div>
+
+<p className="rd-resolves">合并 10-12 E.3.2.3（未试方向）、E.3.2.4（旧排除条目→历史反馈）、E.3.2.5（模板报告）</p>
+
+</Cap>
+
+<Cap id="E.3.2.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="说明推荐哪一版或哪一批、为什么、取舍是什么，不等未来候选研究完">
+
+推荐说明写五件事：推荐哪一版或哪一批候选（引用名 strategy_id@revision）；依据哪些读数（指向 <Ref id="research-start/SKILL.md#option-readings" /> 列出的项，不引入新指标）；取舍是什么（例如年化高但回撤或资金使用率不利、利润主要来自资金费）；推荐候选与下一实验的研发父版本 parent 分别是谁、为何不同（按 <Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />，父与对照分别给理由，对照须经济证据可用）；推荐不等于样本外验证 validation 或上线，认可与上线由用户看报告后判断。推荐随时可做，不等待未来候选研究完，研究继续时即给出。强制层：skill 指导，eval <Ref id="eval:research-round/recommendation-not-next-parent" /> 校验推荐与父分开写；本能力无代码拒绝码。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#recommendation-statement" />
+
+**使用**　<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />、<Ref id="eval:research-round/recommendation-not-next-parent" />、<Ref id="research-start/SKILL.md#option-readings" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 E.3.2.1 的推荐说明部分</p>
+
+</Cap>
+
+## E.4　用户选定研究路线 [#E-4]
+
+入口把综合推荐与路线选项交给用户后停下等待，这一步由 skill 强制：选定前不登记、不回放、不发布。用户选定后，Agent 经命令行把选择写成一条研究路线 research line 记录——钉住的市场提交、共同可交易范围规则 universe_rule、开发窗口 development window、起点候选、备注——账本以新版本证据包只追加入账，当前路线即最新版本，旧版本保留可读。选中模板时顺序多一步：先经与所有候选相同的发布入口无父发布为根候选 root，再写路线记录，再在当前窗口登记并回放出首份报告。路线写入后，路线内的每次登记都必须以该路线的窗口与市场提交为准，由登记校验强制；路线内的父版本、对照、假设与下一小批由 Agent 自主决定，不逐项请用户批准，直到需要换路线再回入口。
+
+<Steps>
+
+<Step>
+
+Agent 呈现推荐与路线选项（经济证据可用的候选起点，或符合条件时的策略库模板），以提问结束并等待。
+
+</Step>
+
+<Step>
+
+用户选定一条路线；可附信息源或想法，可一次性明确授权选某个模板。
+
+</Step>
+
+<Step>
+
+选中模板时，Agent 经 <Ref id="ledger.publish_candidate" /> 不带父版本、不带改动说明发布它，得到根候选。
+
+</Step>
+
+<Step>
+
+Agent 经 <Ref id="cli.line_select" /> 调 <Ref id="ledger.select_line" /> 写研究路线记录（市场提交、universe_rule、开发窗口、起点候选、备注），账本入账为新版本证据包。
+
+</Step>
+
+<Step>
+
+用户附带的想法写成路线内的一条假设照常登记；模板根在当前窗口无父、无对照登记一次并回放出首份报告。
+
+</Step>
+
+<Step>
+
+Agent 在路线内自主推进；需要换路线时回到第 1 步，给诊断与选项并等待用户。
+
+</Step>
+
+</Steps>
+
+### E.4.1　选择权 [#E-4-1]
+
+两条能力都由 skill 指导：第一条规定谁提选项、谁选、选定前怎么等；第二条规定用户附带的想法与信息源如何进入路线、一次性授权覆盖多大范围。输入是入口呈现的推荐与选项，输出是用户的一次明确选择及其附件。
+
+<Cap id="E.4.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="路线选项由 Agent 提出，选哪条由用户定；用户选定前等待，不自行开始">
+
+决定权划分：Agent 提出路线选项并附推荐材料（多维读数、历史反馈、取舍），选项是经济证据可用的候选起点；只有在 <Ref id="research-start/SKILL.md#root-options" /> 规定的条件下（账本没有任何候选，或用户明确离开全部路线）才把策略库模板列为选项。选哪条由用户决定。用户选定前 Agent 只等待：不登记、不回放、不发布新候选、不写路线记录，也不把推荐第一名默认当作已选。路线内需要换路线时按 <Ref id="research-round/SKILL.md#route-change" /> 回入口，给诊断与选项、以提问结束并等待；亏损、不显著、运行限制或故障都不是自行开新路线的理由。由 skill 强制（<Ref id="research-start/SKILL.md#user-selects-route" />）；账本侧没有可绕过的入口，因为写路线记录的命令只在用户选定后由 Agent 调用。eval <Ref id="eval:research-start/route-change-waits-for-user" /> 校验换路线时以提问结束。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#user-selects-route" />、<Ref id="eval:research-start/route-change-waits-for-user" />
+
+**使用**　<Ref id="research-start/SKILL.md#root-options" />、<Ref id="research-round/SKILL.md#route-change" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 E.4.1.1</p>
+
+</Cap>
+
+<Cap id="E.4.1.2" kind="skill" tier="unverified" tierLabel="待验证" title="用户可补充信息或想法，想法成为路线内的一条假设；明确授权选某模板一次即够">
+
+用户选路线时可附两类补充。想法 idea：成为选定路线内的一条假设 hypothesis，来源归『用户想法』，与报告诊断、来源研究走同一条登记路径（<Ref id="research-round/references/feedback.md#three-sources-of-hypotheses" />）：先按 <Ref id="research-round/SKILL.md#sources-first" /> 查来源，再写机制与可反驳预测，经登记后才回放；不因来自用户而免登记、免对照或直接改源码回放。信息源 source（文档、论文、公开策略描述）：按 <Ref id="research-round/references/template-transcription.md#user-source-transcription" /> 的核实、重写与文件头规则转写成单文件策略，来源记为『外部依据（用户提供）』，经 <Ref id="ledger.publish_candidate" /> 无父发布为根并在路线内回放一次，即 <Ref id="research-start/SKILL.md#artificial-root" /> 的人造根。授权：用户明确授权选某个模板或人造根一次即够，Agent 随后不再重复请求；授权只覆盖该模板的发布、路线记录与首份报告，不扩展到其他模板、其他路线，也不代替路线内各假设的登记。由 skill 强制（<Ref id="research-start/SKILL.md#user-input-at-selection" />）。缺少的证据：演练中未出现用户在入口补充想法或一次性授权选模板的实际过程。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#user-input-at-selection" />
+
+**使用**　<Ref id="research-round/SKILL.md#sources-first" />、<Ref id="research-round/references/feedback.md#three-sources-of-hypotheses" />、<Ref id="research-round/references/template-transcription.md#user-source-transcription" />、<Ref id="research-start/SKILL.md#artificial-root" />、<Ref id="ledger.publish_candidate" />、<Ref id="eval:research-round/user-idea-registered-as-hypothesis" />、<Ref id="eval:research-start/artificial-root-user-initiated" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 E.4.1.2</p>
+
+</Cap>
+
+### E.4.2　选定的结果 [#E-4-2]
+
+两条能力规定选中候选与选中模板分别产生什么账本记录：前者直接写研究路线记录；后者先经发布入口成为根候选再写路线记录。记录的形态、只追加与幂等由代码和账本强制，路线内自主与首份报告由 skill 指导；既有谱系与试验记录都保留。
+
+<Cap id="E.4.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="选中的候选成为当前唯一研究路线的起点；路线内 Agent 自主派生，不逐项请用户批准">
+
+用户选中一个候选 candidate（strategy_id@revision）后，它成为当前唯一研究路线的起点。Agent 经命令行 <Ref id="cli.line_select" /> 调 <Ref id="ledger.select_line" /> 写一条研究路线记录，内容：钉住的市场提交 market_commit、范围规则 universe_rule、开发窗口（预热段与交易段，UTC，按 <Ref id="W.2.1.2" />）、起点候选 start_candidate、备注 note。账本把它作为研究路线证据包的新版本入账（<Ref id="table:evidence_bundle" />）：只追加不覆盖，旧版本保留并可按版本读回；当前路线由最新版本定义，经 <Ref id="ledger.current_line" /> 读出，恢复时据此续做（<Ref id="eval:research-start/resume-keeps-route" />）。换路线即写新版本（新编号），不编辑旧版；一次只推进一条路线。起点候选不存在、市场提交无法解析、窗口形态不合法时由 select_line 拒绝，拒绝码由其定义。路线写入后，路线内的每次登记必须以本路线的窗口与市场提交为准，由 <Ref id="registration.validate" /> 强制。路线内 Agent 自主：选研发父版本（谱系中任一完整候选）、选比较对照、提假设并登记、决定下一小批与研究优先级，不逐项请用户批准（<Ref id="research-start/SKILL.md#record-selected-line" />）。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#record-selected-line" />
+
+**使用**　<Ref id="cli.line_select" />、<Ref id="ledger.select_line" />、<Ref id="ledger.current_line" />、<Ref id="table:evidence_bundle" />、<Ref id="W.2.1.2" />、<Ref id="registration.validate" />、<Ref id="eval:research-start/resume-keeps-route" />
+
+</div>
+
+<p className="rd-resolves">合并 10-12 E.4.3/E.4.3.1（一次只推进一个出发点）</p>
+
+</Cap>
+
+<Cap id="E.4.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="选中的模板成为无父版本的根候选，开启一条新谱系；既有谱系与试验记录保留">
+
+只在账本没有任何候选或用户明确离开全部路线时才把策略库模板列为选项（<Ref id="research-start/SKILL.md#root-options" />），eval <Ref id="eval:research-start/no-candidate-offers-templates" /> 校验。用户选中一个策略库模板（或按 <Ref id="research-start/SKILL.md#artificial-root" /> 由用户发起的人造根）时，Agent 先经与所有候选相同的发布入口 <Ref id="ledger.publish_candidate" /> 把源码作为候选入账：不带研发父版本、不带改动说明，因此它是根候选 root，开启一条新谱系 lineage（<Ref id="table:candidate" /> 中无父的一行）；相同字节已在账本时发布入口拒绝并返回既存版本，Agent 以该版本为起点而不再造一个。然后按 <Ref id="E.4.2.1" /> 写研究路线记录，以它为起点。随后在当前开发窗口按 <Ref id="research-round/references/hypothesis.md#root-registration" /> 无父、无对照登记一次并回放，出首份报告；该次计入试验，没有比较读数。既有谱系、登记与试验记录全部保留，后来的路线仍可把其中任一候选选为父版本或对照。根没有人造／系统之类的特殊标记：根只是无父的候选。流程由 skill 指导（<Ref id="research-start/SKILL.md#template-becomes-root" />）；无父即根与相同字节拒绝由发布入口的代码强制。
+
+<div className="rd-meta">
+
+**定义**　<Ref id="research-start/SKILL.md#template-becomes-root" />
+
+**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="table:candidate" />、<Ref id="ledger.select_line" />、<Ref id="research-round/references/hypothesis.md#root-registration" />、<Ref id="research-start/SKILL.md#root-options" />、<Ref id="research-start/SKILL.md#artificial-root" />、<Ref id="eval:research-start/no-candidate-offers-templates" />
+
+</div>
+
+<p className="rd-resolves">改写 10-12 E.4.2.2；人造／系统根标记随 L.2.1.2 删除</p>
+
+</Cap>
+
+## 待定事项 [#E-pending]
+
+**待用户定**
+
+- **是否允许同时推进两条用户选定的研究路线**　演练中只走过单路线，研究路线记录按一次一条设计（E.4.2.1）；是否放宽由用户定
+
+- **不进文档**　研究优先级排序算法与调度方法（贝叶斯优化、Thompson sampling 等）：不建优化器、推荐分数或调度器；Agent 在研究状态清单里写排序依据（F.2.1.1）
+- **不进文档**　整套入口流程是否提高研发效率或成功率：缺同条件新旧流程对照，属待验证主张，不作任何能力的依据
+- **不进文档**　入口的产品形态：归 A.4.3.1：研究流程是按需加载的 skill，产品不加交互代码
+- **不进文档**　入口是否另列授权事项清单：归 A.2.3.3；入口只在需要授权时停下，不另列清单
+- **不进文档**　候选很多时的摘要视图：归 R.5.2.1 可读摘要与 J.3.1.2 更正存法；本章只读不定义

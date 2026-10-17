@@ -1,0 +1,219 @@
+[
+ [
+  "index",
+  "index",
+  "Research Chain",
+  "研发长链",
+  ""
+ ],
+ [
+  "principles",
+  "rd/principles",
+  "A Principles",
+  "A 总则",
+  "chapters"
+ ],
+ [
+  "entry",
+  "rd/entry",
+  "E Entry",
+  "E 入口",
+  "chapters"
+ ],
+ [
+  "library",
+  "rd/library",
+  "L Strategy Library",
+  "L 策略库",
+  "chapters"
+ ],
+ [
+  "lineage",
+  "rd/lineage",
+  "T Candidate Lineage",
+  "T 候选谱系",
+  "chapters"
+ ],
+ [
+  "hypothesis",
+  "rd/hypothesis",
+  "H Hypothesis",
+  "H 提假设",
+  "chapters"
+ ],
+ [
+  "comparison",
+  "rd/comparison",
+  "V Comparison Evidence",
+  "V 比较证据",
+  "chapters"
+ ],
+ [
+  "feedback",
+  "rd/feedback",
+  "F Feedback and Priority",
+  "F 反馈与研究优先级",
+  "chapters"
+ ],
+ [
+  "validation",
+  "rd/validation",
+  "X Out-of-Sample Validation",
+  "X 样本外验证：用户发起的一次性检验",
+  "chapters"
+ ],
+ [
+  "strategy-file",
+  "rd/strategy-file",
+  "C Strategy File",
+  "C 策略文件",
+  "chapters"
+ ],
+ [
+  "replay-environment",
+  "rd/replay-environment",
+  "W Replay Environment",
+  "W 回放环境",
+  "chapters"
+ ],
+ [
+  "audit",
+  "rd/audit",
+  "G Integrity Audit and Evidence Eligibility",
+  "G 完整性审计与证据资格",
+  "chapters"
+ ],
+ [
+  "report",
+  "rd/report",
+  "R Report",
+  "R 报告",
+  "chapters"
+ ],
+ [
+  "ledger-runtime",
+  "rd/ledger-runtime",
+  "J Ledger and Runtime",
+  "J 账本与运行环境",
+  "chapters"
+ ],
+ [
+  "changes",
+  "rd/changes",
+  "D After Changes",
+  "D 变化之后",
+  "chapters"
+ ],
+ [
+  "design-code-market",
+  "rd/design-code-market",
+  "Code: Market data",
+  "代码：市场数据",
+  "design"
+ ],
+ [
+  "design-code-engine",
+  "rd/design-code-engine",
+  "Code: Engine runner and auditor",
+  "代码：引擎运行器与审计器",
+  "design"
+ ],
+ [
+  "design-code-runtime",
+  "rd/design-code-runtime",
+  "Code: Runtime identity",
+  "代码：运行环境身份",
+  "design"
+ ],
+ [
+  "design-code-ledger",
+  "rd/design-code-ledger",
+  "Code: Ledger",
+  "代码：账本",
+  "design"
+ ],
+ [
+  "design-code-qualification",
+  "rd/design-code-qualification",
+  "Code: Economic evidence eligibility",
+  "代码：经济证据资格",
+  "design"
+ ],
+ [
+  "design-code-registration",
+  "rd/design-code-registration",
+  "Code: Registration and admission",
+  "代码：登记与准入",
+  "design"
+ ],
+ [
+  "design-code-replay",
+  "rd/design-code-replay",
+  "Code: Replay entry",
+  "代码：回放入口",
+  "design"
+ ],
+ [
+  "design-code-report",
+  "rd/design-code-report",
+  "Code: Report readers",
+  "代码：报告读口",
+  "design"
+ ],
+ [
+  "design-code-cli",
+  "rd/design-code-cli",
+  "Code: Command line",
+  "代码：命令行",
+  "design"
+ ],
+ [
+  "design-ledger",
+  "rd/design-ledger",
+  "Table design",
+  "表结构设计",
+  "design"
+ ],
+ [
+  "design-skill-nautilus-report-analysis",
+  "rd/design-skill-nautilus-report-analysis",
+  "Skill: nautilus-report-analysis",
+  "skill：nautilus-report-analysis",
+  "design"
+ ],
+ [
+  "design-skill-research-round",
+  "rd/design-skill-research-round",
+  "Skill: research-round",
+  "skill：research-round",
+  "design"
+ ],
+ [
+  "design-skill-research-sources",
+  "rd/design-skill-research-sources",
+  "Skill: research-sources",
+  "skill：research-sources",
+  "design"
+ ],
+ [
+  "design-skill-research-start",
+  "rd/design-skill-research-start",
+  "Skill: research-start",
+  "skill：research-start",
+  "design"
+ ],
+ [
+  "appendix-references",
+  "rd/appendix-references",
+  "References",
+  "参考资料",
+  "appendices"
+ ],
+ [
+  "appendix-open",
+  "rd/appendix-open",
+  "Open and unverified items",
+  "待定与待验证事项",
+  "appendices"
+ ]
+]

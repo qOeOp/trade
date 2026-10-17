@@ -1,0 +1,834 @@
+# 表结构设计
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+先给全库关系图，再每张表一条：字段、键与约束、Dolt 能力用法、写入方、关联章节与参考资料。
+
+## 库 `ledger`
+
+<Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n    BIGINT byte_length\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT run_id PK\n    INT trial_id FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    CHAR_40_ image_revision\n    JSON runtime_inspection\n    VARCHAR_40_ runtime_contract\n    VARCHAR_40_ engine_version\n    CHAR_64_ dependency_lock_sha256\n    JSON effective_config\n    JSON input_identity\n    CHAR_40_ reader_revision\n    JSON summary\n    JSON audit\n  }\n  run_account {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    DECIMAL_38_18_ total\n    DECIMAL_38_18_ locked\n    DECIMAL_38_18_ free\n  }\n  run_cost_basis {\n    INT run_id PK\n    VARCHAR_16_ liquidity_side PK\n    INT fills\n    DECIMAL_38_18_ commissions_usdt\n    DECIMAL_38_18_ notional_usdt\n    DECIMAL_38_18_ fee_rate\n  }\n  run_fill {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ order_side\n    VARCHAR_16_ liquidity_side\n    DECIMAL_38_18_ last_qty\n    DECIMAL_38_18_ last_px\n    DECIMAL_38_18_ commission_usdt\n    VARCHAR_160_ position_id\n  }\n  run_order {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ side\n    VARCHAR_32_ order_type\n    VARCHAR_32_ status\n    DECIMAL_38_18_ quantity\n    DECIMAL_38_18_ filled_qty\n    DECIMAL_38_18_ price\n    DECIMAL_38_18_ avg_px\n    BIGINT ts_init\n    BIGINT ts_last\n  }\n  run_order_event {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_48_ event_type\n    BIGINT ts_event_ns\n  }\n  run_position {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_200_ position_id\n    VARCHAR_64_ instrument_id\n    TINYINT is_snapshot\n    TINYINT closed\n    BIGINT ts_closed_ns\n    DECIMAL_38_18_ realized_pnl_usdt\n  }\n  run_return {\n    INT run_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    CHAR_71_ image_digest\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    CHAR_32_ market_commit\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o{ run : \"trial_id\"\n  run ||--o{ run_account : \"run_id\"\n  run_fill ||--o{ run_cost_basis : \"run_id\"\n  run ||--o{ run_fill : \"run_id\"\n  run ||--o{ run_order : \"run_id\"\n  run ||--o{ run_order_event : \"run_id\"\n  run ||--o{ run_position : \"run_id\"\n  run ||--o{ run_return : \"run_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
+
+| 表 | 用途 |
+|---|---|
+| <Ref id="table:candidate">candidate</Ref> | 候选 candidate：一份完整单文件策略源码的精确字节；身份是账本从字节派生的内容哈希，引用名是 strategy_id@revision；父版本与改动说明构成候选谱系的边。只增不改，每次发布恰一个账本提交。 |
+| <Ref id="table:dolt_system_tables">dolt_diff_\<table> / dolt_history_\<table></Ref> | Dolt 系统表，每张业务表各一对，由 Dolt 维护：逐提交差异与行级全史，是只追加留痕与篡改发现的读取面 |
+| <Ref id="table:dolt_tests">dolt_tests</Ref> | Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_verification_groups 指定）：每次提交前跑跨表测试，失败拒提交；可被跳过参数绕过，是留痕保证，整体复核再跑一次 |
+| <Ref id="table:evidence">evidence</Ref> | 证据包内文件：原件字节与由字节派生的内容哈希、长度；大原件按固定块分行，逻辑文件由包内清单重组 |
+| <Ref id="table:evidence_bundle">evidence_bundle</Ref> | 证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、研究状态清单、更正与 Agent 自由文本都以证据包入账；包名即身份 |
+| <Ref id="table:ledger_head">ledger_head</Ref> | 写入头指针单行：每次写入 +1 并记本次操作 ID，是并发写冲突的碰撞点与幂等重放的索引 |
+| <Ref id="table:ledger_schema">ledger_schema</Ref> | 账本模式代数单行；初始化与模式迁移时写 |
+| <Ref id="table:registration_attempt">registration_attempt</Ref> | 登记尝试：登记包 × 网格点源码 → 消耗它的试验；一点只消耗一次，无效与中断同样算消耗；只追加 |
+| <Ref id="table:run">run</Ref> | 运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、读数代码版本、产品读数、原生摘要与审计原样 |
+| <Ref id="table:run_account">run_account</Ref> | 引擎账户状态报告逐行 |
+| <Ref id="table:run_cost_basis">run_cost_basis</Ref> | 视图：按运行与流动性方向汇总成交，给出观察到的实际费率（手续费÷成交名义），不是配置声明 |
+| <Ref id="table:run_fill">run_fill</Ref> | 引擎成交报告逐行 |
+| <Ref id="table:run_order">run_order</Ref> | 引擎订单报告逐行 |
+| <Ref id="table:run_order_event">run_order_event</Ref> | 引擎订单事件史逐行；保护单覆盖重建与事件-订单-成交对账的依据 |
+| <Ref id="table:run_position">run_position</Ref> | 引擎持仓报告逐行（含快照行） |
+| <Ref id="table:run_return">run_return</Ref> | 引擎日收益序列（UTC 日钟），配对比较与样本外区间的唯一配对单位 |
+| <Ref id="table:trial">trial</Ref> | 试验 trial：每次回放一行，在子进程启动前写下用途、被执行源码身份、钉死运行环境、合约集与窗口；无效与中断同样有行 |
+| <Ref id="table:validation_binding">validation_binding</Ref> | 一次样本外登记绑定一次回放：以登记为主键，第二次绑定主键冲突即拒绝；中断或无效的试验同样留行 |
+| <Ref id="table:validation_registration">validation_registration</Ref> | 样本外登记（预登记）：被验候选、共同可交易范围身份、窗口与声明的检验条件；其账本提交取 RFC 3161 凭证 |
+| <Ref id="table:witness">witness</Ref> | 时间凭证：对样本外登记诞生提交取得的 RFC 3161 凭证原件；证明记录在 genTime 前已存在，不证明唯一 |
+
+### `candidate` [#def-table-candidate]
+
+候选 candidate：一份完整单文件策略源码的精确字节；身份是账本从字节派生的内容哈希，引用名是 strategy_id@revision；父版本与改动说明构成候选谱系的边。只增不改，每次发布恰一个账本提交。
+
+<TypeTable type={{ "strategy_id": { type: "VARCHAR(100)", description: "引用名 ID；同一 ID 下 revision 由发布函数取当前最大值加一", required: true }, "revision": { type: "INT", description: "版本号 N；只是引用名，不是身份", required: true }, "source": { type: "LONGBLOB", description: "完整单文件源码原字节（UTF-8），精确保存，不规范化", required: true }, "source_sha256": { type: "CHAR(64)", description: "生成列 SHA2(source, 256)，小写十六进制；内容身份，UNIQUE：相同字节不能成为两个候选（SOURCE_EXISTS）；读回时重算比对（LEDGER_CORRUPT）", required: true }, "entry_class": { type: "VARCHAR(100)", description: "唯一顶层入口类名；发布时只解析源码不执行，核对该类存在且唯一", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "发布时生效的运行契约标识；登记时须与运行环境（runtime image）声明的契约一致，否则 CONFIG_MISMATCH（由登记核对强制）", required: true }, "description": { type: "VARCHAR(2000)", description: "发布说明：规则摘要、来源声明与非声明；根的来源只写在这里与文件头，不设标记字段", required: true }, "parent_strategy_id": { type: "VARCHAR(100)", description: "研发父版本 ID；根为空", required: false }, "parent_revision": { type: "INT", description: "研发父版本 N；根为空", required: false }, "difference": { type: "VARCHAR(2000)", description: "改动说明：与父版本同空同非空，是谱系边上唯一的语义；登记时须等于登记锁定的改动", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录而不是第二个候选；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器规则见 [[J.4.1.1]]）；父早于子由提交顺序与本列共同证明", required: true } }} />
+
+**键与约束**
+
+- 主键　`strategy_id`, `revision`
+- 唯一　`source_sha256`
+- 唯一　`op_id`
+- 外键　`parent_strategy_id, parent_revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- CHECK　`revision > 0`
+- CHECK　`(parent_strategy_id IS NULL AND parent_revision IS NULL AND difference IS NULL) OR (parent_strategy_id IS NOT NULL AND parent_revision IS NOT NULL AND difference IS NOT NULL)`
+- CHECK　`NOT (parent_strategy_id = strategy_id AND parent_revision = revision)`
+- 生成列　`source_sha256 = SHA2(source, 256) STORED UNIQUE`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次发布恰一个 DOLT_COMMIT，整笔成或整笔不成：候选只增
+- **J.3.1.1**　dolt_diff_candidate 正常路径只应出现 added；出现 modified 或 removed 即篡改线索
+- **J.3.1.3**　AS OF 读任一账本提交时刻的候选谱系，候选清单按版本读历史
+- **T.2.1.2**　父外键指向已存在行且表只追加，所以谱系是无环森林；父早于子由提交顺序与 created_at 证明，无需额外字段
+- **T.1.1.1**　dolt_history_candidate 单元格级历史证明父列与改动说明从未被改
+- **J.3.4.1**　内容寻址：生成列哈希加 UNIQUE，读回重算比对，重复身份拒写
+
+**写入方**　<Ref id="ledger.publish_candidate" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="T.1.1.1" />
+
+**使用于**　<Ref id="A.1.2.2" />、<Ref id="A.5.2.1" />、<Ref id="E.1.1.2" />、<Ref id="E.2.1.1" />、<Ref id="E.4.2.2" />、<Ref id="L.2.1.1" />、<Ref id="T.1.1.2" />、<Ref id="T.1.1.3" />、<Ref id="T.2.1.1" />、<Ref id="T.2.1.2" />、<Ref id="T.2.2.1" />、<Ref id="T.2.2.2" />、<Ref id="T.2.2.3" />、<Ref id="H.1.1.1" />、<Ref id="H.1.1.2" />、<Ref id="H.3.3.1" />、<Ref id="H.4.2.1" />、<Ref id="V.1.1.1" />、<Ref id="F.3.2.2" />、<Ref id="X.1.2.1" />、<Ref id="C.1.1.1" />、<Ref id="C.1.1.2" />、<Ref id="C.6.2.1" />、<Ref id="R.4.2.1" />、<Ref id="J.1.1.1" />、<Ref id="J.2.1.1" />、<Ref id="J.2.2.1" />、<Ref id="J.2.4.3" />、<Ref id="J.3.1.3" />、<Ref id="J.3.1.4" />、<Ref id="J.3.4.1" />、<Ref id="J.4.1.1" />、<Ref id="J.6.1.1" />、<Ref id="D.1.2.1" />
+
+**依据**　[\[30\]](/zh/docs/appendix-references/#ref-30 "Pro Git — Git Internals: Git Objects") [\[31\]](/zh/docs/appendix-references/#ref-31 "OCI image-spec — descriptor") [\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables")
+
+</div>
+
+### `dolt_diff_\<table> / dolt_history_\<table>` [#def-table-dolt_system_tables]
+
+Dolt 系统表，每张业务表各一对，由 Dolt 维护：逐提交差异与行级全史，是只追加留痕与篡改发现的读取面
+
+<TypeTable type={{ "dolt_diff_<t>.diff_type": { type: "ENUM('added','modified','removed')", description: "正常路径只应出现 added；其余值即非追加改动", required: true }, "dolt_diff_<t>.from_<col> / to_<col>": { type: "业务表各列", description: "改动前后的值，定位被改单元格；插入行 from_ 为空，删除行 to_ 为空", required: false }, "dolt_diff_<t>.from_commit / to_commit / to_commit_date": { type: "VARCHAR 提交哈希 / DATETIME", description: "to_commit 把一行绑到写入它的提交", required: true }, "dolt_history_<t>.commit_hash / committer / commit_date": { type: "VARCHAR / VARCHAR / DATETIME", description: "每行在每个提交的取值，单元格级历史", required: true } }} />
+
+**Dolt 能力**
+
+- **J.3.1.1**　整体复核逐表查 diff_type ≠ added 即报篡改发现；dolt_history 证明源码、登记、读数从未被改
+- **J.3.1.3**　与 AS OF 配合，按精确版本读并给出每行的写入提交
+- **J.3.1.4**　绕过提交校验的写入与改删仍在此留痕
+- **J.3.5.2**　复核的只追加检查与登记顺序检查（登记提交早于试验插入提交）读此表
+
+**写入方**　`Dolt（系统表，由每次 dolt_commit 自动维护）`
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.3.1.1" />
+
+**使用于**　<Ref id="A.5.2.2" />、<Ref id="E.2.2.1" />、<Ref id="T.1.1.1" />、<Ref id="T.2.1.2" />、<Ref id="J.3.1.3" />、<Ref id="J.3.1.4" />、<Ref id="J.4.2.2" />、<Ref id="D.1.1.1" />、<Ref id="D.1.2.2" />
+
+**依据**　[\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables") [\[136\]](/zh/docs/appendix-references/#ref-136 "Sigstore Rekor — 只追加透明日志")
+
+</div>
+
+### `dolt_tests` [#def-table-dolt_tests]
+
+Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_verification_groups 指定）：每次提交前跑跨表测试，失败拒提交；可被跳过参数绕过，是留痕保证，整体复核再跑一次
+
+<TypeTable type={{ "test_name": { type: "VARCHAR(255)", description: "Dolt 原生列", required: true }, "test_group": { type: "VARCHAR(255)", description: "恒为 commit", required: true }, "test_query": { type: "TEXT", description: "返回违规行数的 SELECT", required: true }, "assertion_type": { type: "VARCHAR(32)", description: "恒为 expected_single_value", required: true }, "assertion_comparator": { type: "VARCHAR(8)", description: "恒为 ==", required: true }, "assertion_value": { type: "VARCHAR(32)", description: "恒为 0", required: true } }} />
+
+**键与约束**
+
+- 主键　`test_name`
+- CHECK　`必备行 research_and_validation_trials_have_published_sources：purpose ∈ \{research, validation\} 的试验其源码哈希都在 candidate 表`
+- CHECK　`必备行 validation_trials_are_bound：每个 purpose = validation 的试验在 validation_binding 有行`
+- CHECK　`必备行 validation_windows_start_after_registration：样本外窗口起点晚于登记插入时间`
+- CHECK　`必备行 validation_runs_match_their_registration：样本外运行的候选、共同可交易范围与窗口等于其登记`
+- CHECK　`必备行 validation_retries_keep_candidate_and_window：样本外重试保持被验候选与窗口不变`
+- CHECK　`必备行 witnesses_stamp_validation_registrations：每条凭证所盖提交是一条样本外登记的插入提交`
+
+**Dolt 能力**
+
+- **J.3.1.4**　每次 dolt_commit 前按验证组运行，失败整笔回滚；--skip-verification 可绕过，不是信任边界
+- **A.5.2.2**　只约束经认证的 SQL 会话；持有服务目录者可绕过，篡改由 report.review_all 事后发现
+
+**写入方**　<Ref id="ledger.init" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.3.1.4" />
+
+**使用于**　<Ref id="A.4.1.2" />、<Ref id="A.5.2.2" />、<Ref id="X.1.2.1" />、<Ref id="X.1.3.1" />、<Ref id="J.3.3.1" />、<Ref id="J.4.1.1" />、<Ref id="J.4.2.2" />
+
+**依据**　[\[138\]](/zh/docs/appendix-references/#ref-138 "Dolt — Commit verification") [\[14\]](/zh/docs/appendix-references/#ref-14 "Dolt — System tables") [\[136\]](/zh/docs/appendix-references/#ref-136 "Sigstore Rekor — 只追加透明日志")
+
+</div>
+
+### `evidence` [#def-table-evidence]
+
+证据包内文件：原件字节与由字节派生的内容哈希、长度；大原件按固定块分行，逻辑文件由包内清单重组
+
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "所属证据包", required: true }, "path": { type: "VARCHAR(512)", description: "包内相对路径；分块封存时为 <逻辑文件>.part-<n>，清单文件 execution.json 记逻辑名、总长、总哈希与块序（容量规则见 [[J.3.4.2]]）", required: true }, "content": { type: "LONGBLOB", description: "原件字节，非空", required: true }, "sha256": { type: "CHAR(64)", description: "生成列 SHA2(content,256)；读回时重算核对，不符 LEDGER_CORRUPT", required: true }, "byte_length": { type: "BIGINT", description: "生成列 LENGTH(content)", required: true } }} />
+
+**键与约束**
+
+- 主键　`bundle`, `path`
+- 外键　`bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- CHECK　`LENGTH(content) > 0`
+- 生成列　`sha256 = SHA2(content, 256) STORED`
+- 生成列　`byte_length = LENGTH(content) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与包头同一事务恰一个 DOLT_COMMIT
+- **J.3.1.1**　dolt_diff_evidence 正常只出现 added；任何 modified/removed 即篡改发现，登记与审查结论不能被事后改写
+- **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的文件
+- **J.3.4.1**　内容寻址：哈希由库内生成列派生，调用方不能填写或改写；INDEX sha256 供按内容查找
+- **J.3.5.1**　随 dolt_backup 整份备份；不运行 DOLT_GC，被引用的原件永久保留
+
+**写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.1.2" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="E.1.2.2" />、<Ref id="E.2.2.1" />、<Ref id="H.2.3.1" />、<Ref id="H.4.1.1" />、<Ref id="C.6.2.1" />、<Ref id="W.3.2.2" />、<Ref id="G.4.2.1" />、<Ref id="G.4.2.2" />、<Ref id="J.2.3.2" />、<Ref id="J.2.3.3" />、<Ref id="J.2.4.1" />、<Ref id="J.3.1.2" />、<Ref id="J.3.1.3" />、<Ref id="J.3.3.2" />、<Ref id="J.3.4.1" />、<Ref id="J.3.4.2" />、<Ref id="J.4.2.1" />、<Ref id="D.1.1.1" />、<Ref id="D.1.2.2" />、<Ref id="D.1.2.3" />
+
+</div>
+
+### `evidence_bundle` [#def-table-evidence_bundle]
+
+证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、研究状态清单、更正与 Agent 自由文本都以证据包入账；包名即身份
+
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<trial_id>-execution-start、trial-<trial_id>-execution、trial-<trial_id>-recovery-*、lifecycle-<market_commit>；Agent 命名空间约定：registration-*（含 research-plan.json）、source-review-*（含 source-review.json）、research-line-<n>（含 research-line.json）、knowledge-<market>-<window>-v<n>、correction-*；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
+
+**键与约束**
+
+- 主键　`bundle`
+- 唯一　`op_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与业务行同一事务
+- **J.3.1.1**　dolt_diff_evidence_bundle 正常只出现 added；dolt_history_evidence_bundle 给每行每提交的哈希与时间
+- **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的包
+- **E.2.2.1**　研究状态清单每版一个包＝一个提交；DOLT_TAG 给里程碑提交建标签，按标签读回旧版
+- **J.4.1.1**　created_at 与 trial.created_at 比较＝登记先于试验；不用可指定的提交日期
+
+**写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.1.2" />
+
+**使用于**　<Ref id="E.1.1.2" />、<Ref id="E.1.1.3" />、<Ref id="E.1.2.1" />、<Ref id="E.2.2.1" />、<Ref id="E.2.2.2" />、<Ref id="E.4.2.1" />、<Ref id="L.1.3.2" />、<Ref id="T.2.2.2" />、<Ref id="T.2.2.3" />、<Ref id="H.2.3.1" />、<Ref id="H.4.1.1" />、<Ref id="H.4.1.3" />、<Ref id="H.4.2.1" />、<Ref id="V.1.1.1" />、<Ref id="V.2.2.1" />、<Ref id="V.4.1.2" />、<Ref id="V.4.2.2" />、<Ref id="C.6.2.1" />、<Ref id="W.2.1.2" />、<Ref id="W.3.2.2" />、<Ref id="G.1.2.1" />、<Ref id="G.4.2.1" />、<Ref id="G.4.2.2" />、<Ref id="J.1.1.1" />、<Ref id="J.2.3.2" />、<Ref id="J.2.3.3" />、<Ref id="J.2.4.1" />、<Ref id="J.2.4.2" />、<Ref id="J.3.1.2" />、<Ref id="J.3.1.4" />、<Ref id="J.3.3.2" />、<Ref id="J.3.5.2" />、<Ref id="J.4.1.1" />、<Ref id="J.4.1.2" />、<Ref id="J.4.2.1" />、<Ref id="D.1.1.1" />、<Ref id="D.1.2.1" />、<Ref id="D.1.2.2" />、<Ref id="D.1.2.3" />、<Ref id="D.2.1.1" />
+
+</div>
+
+### `ledger_head` [#def-table-ledger_head]
+
+写入头指针单行：每次写入 +1 并记本次操作 ID，是并发写冲突的碰撞点与幂等重放的索引
+
+<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "seq": { type: "BIGINT", description: "每次成功写入 +1", required: true }, "op_id": { type: "VARCHAR(160)", description: "本次写入的操作 ID；两事务写相同值会被 Dolt 合并，所以每次写入必须唯一", required: true } }} />
+
+**键与约束**
+
+- 主键　`singleton`
+- CHECK　`singleton = 1`
+- CHECK　`seq >= 0`
+
+**Dolt 能力**
+
+- **J.3.2.2**　两事务把同格改为不同值，提交时三方合并冲突，后到者回滚（Dolt 错误 1213）并报 CONCURRENT_WRITE
+- **J.3.3.1**　写账号对本表有 UPDATE，对其余业务表只有 INSERT
+- **J.3.1.1**　差异表里本表的 modified 行是正常写入，复核排除
+
+**写入方**　<Ref id="ledger.write" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.3.2.1" />
+
+**使用于**　<Ref id="A.4.1.2" />、<Ref id="A.5.2.2" />、<Ref id="J.3.1.1" />、<Ref id="J.3.2.2" />、<Ref id="J.3.3.1" />、<Ref id="J.3.5.1" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[139\]](/zh/docs/appendix-references/#ref-139 "Dolt — SQL procedures（DOLT_COMMIT）")
+
+</div>
+
+### `ledger_schema` [#def-table-ledger_schema]
+
+账本模式代数单行；初始化与模式迁移时写
+
+<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "version": { type: "INT", description: "模式代数；建库时写 1，每次模式迁移加一", required: true } }} />
+
+**键与约束**
+
+- 主键　`singleton`
+- CHECK　`singleton = 1`
+- CHECK　`version > 0`
+
+**Dolt 能力**
+
+- **J.3.3.1**　只有管理账号能写；写账号没有 UPDATE
+
+**写入方**　<Ref id="ledger.init" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.3.2.1" />
+
+**使用于**　<Ref id="A.4.1.2" />、<Ref id="J.3.1.1" />、<Ref id="J.3.3.1" />
+
+**依据**　[\[5\]](/zh/docs/appendix-references/#ref-5 "Dolt — Transactions") [\[139\]](/zh/docs/appendix-references/#ref-139 "Dolt — SQL procedures（DOLT_COMMIT）")
+
+</div>
+
+### `registration_attempt` [#def-table-registration_attempt]
+
+登记尝试：登记包 × 网格点源码 → 消耗它的试验；一点只消耗一次，无效与中断同样算消耗；只追加
+
+<TypeTable type={{ "registration_bundle": { type: "VARCHAR(160)", description: "登记证据包名（含 research-plan.json）", required: true }, "source_sha256": { type: "CHAR(64)", description: "网格点源码的内容哈希，须为已发布候选", required: true }, "trial_id": { type: "INT", description: "消耗该点的试验；唯一：一次试验只绑定一个点", required: true } }} />
+
+**键与约束**
+
+- 主键　`registration_bundle`, `source_sha256`
+- 唯一　`trial_id`
+- 外键　`registration_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- 外键　`source_sha256` → <Ref id="table:candidate">candidate</Ref> `source_sha256`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　随试验行在同一事务、同一提交落账，试验行与消耗行同生同灭
+- **J.3.1.1**　dolt_diff_registration_attempt 只应出现 added，出现 modified 或 removed 即被整体复核发现
+- **H.4.2.1**　主键为（登记包，源码）：第二次绑定同一点主键冲突即 GRID_ALREADY_ATTEMPTED；并发绑定提交冲突即拒绝
+- **J.3.1.4**　dolt_tests research_trials_follow_their_registration：每行对应的 trial.created_at 晚于登记包 created_at
+
+**写入方**　<Ref id="registration.bind" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="H.4.2.1" />
+
+**使用于**　<Ref id="A.1.1.2" />、<Ref id="A.1.2.1" />、<Ref id="A.5.1.1" />、<Ref id="E.2.2.2" />、<Ref id="L.2.2.1" />、<Ref id="T.2.2.3" />、<Ref id="V.1.1.1" />、<Ref id="V.4.2.1" />、<Ref id="G.1.2.1" />、<Ref id="R.4.2.1" />、<Ref id="J.2.2.1" />、<Ref id="J.2.3.1" />、<Ref id="J.3.1.4" />、<Ref id="J.4.1.1" />、<Ref id="J.4.1.2" />、<Ref id="J.4.2.1" />、<Ref id="D.1.2.1" />、<Ref id="D.2.1.1" />
+
+</div>
+
+### `run` [#def-table-run]
+
+运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、读数代码版本、产品读数、原生摘要与审计原样
+
+<TypeTable type={{ "run_id": { type: "INT AUTO_INCREMENT", description: "运行主键，自增", required: true }, "trial_id": { type: "INT", description: "一试验至多一运行；UNIQUE", required: true }, "status": { type: "ENUM('passed','invalid')", description: "完整性审计结论：有效 passed / 无效 invalid；从不编辑", required: true }, "failure_reasons": { type: "JSON", description: "invalid 必有、passed 必空：运行器非零退出、审计未运行/缺失/有发现、身份不一致、构造或回调异常、基础设施错误原样", required: false }, "image_revision": { type: "CHAR(40)", description: "镜像构建源码版本（只从镜像标签读出）；validation 运行须在 main 上（[[runtime.require_main_build]]）；探针读不到时为空并进入局限", required: false }, "runtime_inspection": { type: "JSON", description: "镜像内探针报告：运行契约、引擎版本、Python 版本、依赖锁哈希、运行器与审计器源码哈希", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.runtime_contract", required: true }, "engine_version": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.engine_version", required: true }, "dependency_lock_sha256": { type: "CHAR(64)", description: "生成列 ← runtime_inspection.$.dependency_lock_sha256", required: true }, "effective_config": { type: "JSON", description: "运行器在镜像内读出的有效配置：窗口、本金与账户条款、费率与资金费口径、合约集、撮合开关及其哈希", required: true }, "input_identity": { type: "JSON", description: "输入身份：市场库名、market_commit、universe_rule、合约集与成员时间路径、导出内容哈希、导出器源码哈希、lifecycle 证据包名", required: true }, "reader_revision": { type: "CHAR(40)", description: "读数代码版本", required: true }, "summary": { type: "JSON", description: "原生摘要原样（含运行器写入的年化、夏普、期末权益、源码哈希、配置哈希）", required: false }, "audit": { type: "JSON", description: "独立审计器结果原样（含审计边界与覆盖局限）", required: false }, "final_equity_usdt": { type: "DECIMAL(24,8)", description: "生成列 ← summary.$.final_equity_usdt", required: false }, "annual_return": { type: "DOUBLE", description: "生成列 ← summary.$.annual_return；口径见 [[R.2.1.1]]", required: false }, "max_drawdown": { type: "DOUBLE", description: "标记价权益逐 K 线最大峰谷比例；非 passed 为空", required: false }, "plans_closed": { type: "INT", description: "已平计划数；计划标签不合规时为空", required: false }, "plans_won": { type: "INT", description: "赢的计划数", required: false }, "plans_open": { type: "INT", description: "期末未平计划数（算非赢）", required: false }, "plan_win_rate": { type: "DOUBLE", description: "生成列 plans_won / NULLIF(plans_closed + plans_open, 0)", required: false }, "closed_positions": { type: "INT", description: "已平持仓周期数（闭仓总体样本量）", required: false }, "open_positions": { type: "INT", description: "期末未平持仓数", required: false }, "realized_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓已实现合计", required: false }, "price_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓价格盈亏", required: false }, "commissions_usdt": { type: "DECIMAL(24,8)", description: "闭仓手续费", required: false }, "funding_usdt": { type: "DECIMAL(24,8)", description: "闭仓资金费；恒等式 price_pnl − commissions + funding = realized 对账不符则四列整体留空", required: false }, "unrealized_usdt": { type: "DECIMAL(24,8)", description: "未实现残差＝期末权益 − 审计期末余额", required: false }, "reading_limitations": { type: "JSON", description: "合并后的局限清单：撮合与条款局限、审计覆盖局限、读数局限、留空原因", required: true }, "exposures": { type: "LONGBLOB", description: "逐分钟标记价敞口估值压缩原件，资金使用率由此算；非 passed 为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "固定为 run:trial-<trial_id>；第二次写入返回原记录", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器归 J.4.1.1）", required: true } }} />
+
+**键与约束**
+
+- 主键　`run_id`
+- 唯一　`trial_id`
+- 唯一　`op_id`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+- CHECK　`(status = 'invalid' AND failure_reasons IS NOT NULL) OR (status = 'passed' AND failure_reasons IS NULL)`
+- CHECK　`status = 'passed' OR (max_drawdown IS NULL AND plans_closed IS NULL AND plans_won IS NULL AND plans_open IS NULL AND closed_positions IS NULL AND open_positions IS NULL AND realized_pnl_usdt IS NULL AND price_pnl_usdt IS NULL AND commissions_usdt IS NULL AND funding_usdt IS NULL AND unrealized_usdt IS NULL AND exposures IS NULL)`
+- 生成列　`runtime_contract / engine_version / dependency_lock_sha256 ← JSON_EXTRACT(runtime_inspection) STORED`
+- 生成列　`final_equity_usdt / annual_return ← JSON_EXTRACT(summary) STORED`
+- 生成列　`plan_win_rate = plans_won / NULLIF(plans_closed + plans_open, 0) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与六张报告表同一事务恰一个 DOLT_COMMIT
+- **J.3.2.2**　UNIQUE trial_id 加固定 op_id：幂等，第二次写入返回原记录
+- **J.3.1.1**　dolt_diff_run 定位任何被改读数，非 added 即篡改发现
+- **J.3.1.3**　AS OF 重算当时读数
+- **D.1.2.2**　读数列与 status 从不改写；重评与更正只作新证据包，旧版本 AS OF 可读
+- **D.3.2.1**　运行环境身份列随行永久可读回，旧镜像按摘要仍可拉取
+- **J.3.5.1**　不运行 DOLT_GC；随 dolt_backup 全史备份
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.2" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="E.2.2.2" />、<Ref id="T.2.2.3" />、<Ref id="H.1.1.2" />、<Ref id="V.2.1.1" />、<Ref id="V.2.1.2" />、<Ref id="V.2.1.3" />、<Ref id="V.2.2.1" />、<Ref id="V.4.1.2" />、<Ref id="X.1.3.1" />、<Ref id="C.5.2.1" />、<Ref id="G.1.1.1" />、<Ref id="G.1.2.2" />、<Ref id="G.2.1.1" />、<Ref id="G.4.1.1" />、<Ref id="G.4.2.3" />、<Ref id="R.1.1.1" />、<Ref id="R.1.1.3" />、<Ref id="R.1.1.4" />、<Ref id="R.1.3.2" />、<Ref id="R.2.1.1" />、<Ref id="R.2.1.3" />、<Ref id="R.2.2.1" />、<Ref id="R.2.3.2" />、<Ref id="R.4.2.1" />、<Ref id="J.1.1.1" />、<Ref id="J.2.2.3" />、<Ref id="J.2.3.1" />、<Ref id="J.2.4.2" />、<Ref id="J.2.4.3" />、<Ref id="J.3.1.3" />、<Ref id="J.3.1.4" />、<Ref id="J.3.5.2" />、<Ref id="J.5.2.3" />、<Ref id="J.6.1.1" />、<Ref id="D.1.1.2" />、<Ref id="D.1.2.1" />、<Ref id="D.1.2.2" />、<Ref id="D.3.1.2" />、<Ref id="D.3.2.1" />
+
+</div>
+
+### `run_account` [#def-table-run_account]
+
+引擎账户状态报告逐行
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "ts_event_ns": { type: "BIGINT", description: "生成列，引擎纳秒", required: true }, "total": { type: "DECIMAL(38,18)", description: "生成列；total = locked + free 由审计对账", required: true }, "locked": { type: "DECIMAL(38,18)", description: "生成列：锁定保证金", required: true }, "free": { type: "DECIMAL(38,18)", description: "生成列", required: true } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `seq`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.3" />
+
+**使用于**　<Ref id="G.1.1.1" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.2" />、<Ref id="R.2.2.1" />、<Ref id="J.6.2.3" />、<Ref id="D.3.1.2" />
+
+</div>
+
+### `run_cost_basis` [#def-table-run_cost_basis]
+
+视图：按运行与流动性方向汇总成交，给出观察到的实际费率（手续费÷成交名义），不是配置声明
+
+<TypeTable type={{ "run_id": { type: "INT", description: "运行，取自 run_fill.run_id", required: true }, "liquidity_side": { type: "VARCHAR(16)", description: "MAKER 或 TAKER，取自成交行", required: true }, "fills": { type: "INT", description: "该方向成交笔数，COUNT(*)", required: true }, "commissions_usdt": { type: "DECIMAL(38,18)", description: "手续费合计，SUM(commission_usdt)", required: false }, "notional_usdt": { type: "DECIMAL(38,18)", description: "成交名义合计，SUM(last_qty × last_px)", required: false }, "fee_rate": { type: "DECIMAL(38,18)", description: "观察费率，commissions_usdt / NULLIF(notional_usdt, 0)；名义为零时为 NULL", required: false } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `liquidity_side`
+- 外键　`run_id` → <Ref id="table:run_fill">run_fill</Ref> `run_id`
+- 生成列　`整表为 CREATE VIEW … FROM run_fill GROUP BY run_id, liquidity_side；不存数、无外键，主键是视图分组键`
+- 生成列　`无写入方：底表 run_fill 由 ledger.ingest_run 在封存时写入`
+
+**Dolt 能力**
+
+- **J.3.1.3**　视图随 AS OF 在任一历史账本版本上重算费率，报告引用的费率可按提交复现
+
+**写入方**　`无（视图，从 run_fill 派生；底表由 ledger.ingest_run 写入）`
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="R.1.3.2" />
+
+**使用于**　<Ref id="J.3.3.1" />
+
+</div>
+
+### `run_fill` [#def-table-run_fill]
+
+引擎成交报告逐行
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "ts_event_ns": { type: "BIGINT", description: "生成列 ← raw.$.ts_event，引擎纳秒", required: true }, "event_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "client_order_id": { type: "VARCHAR(100)", description: "生成列", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "order_side": { type: "VARCHAR(8)", description: "生成列", required: true }, "liquidity_side": { type: "VARCHAR(16)", description: "生成列：MAKER/TAKER，费率口径按此分组", required: true }, "last_qty": { type: "DECIMAL(38,18)", description: "生成列", required: true }, "last_px": { type: "DECIMAL(38,18)", description: "生成列", required: true }, "commission_usdt": { type: "DECIMAL(38,18)", description: "生成列 ← raw.$.commission 数值部分", required: false }, "position_id": { type: "VARCHAR(160)", description: "生成列", required: false } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `seq`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **R.1.3.2**　run_cost_basis 视图按 (run_id, liquidity_side) 汇总本表，可 AS OF 重算任一版本
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.3" />
+
+**使用于**　<Ref id="C.5.1.2" />、<Ref id="G.1.1.1" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.2" />、<Ref id="R.1.3.2" />、<Ref id="J.6.2.3" />、<Ref id="D.3.1.2" />
+
+</div>
+
+### `run_order` [#def-table-run_order]
+
+引擎订单报告逐行
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "client_order_id": { type: "VARCHAR(100)", description: "生成列 ← raw.$.client_order_id", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "生成列 ← raw.$.instrument_id", required: true }, "side": { type: "VARCHAR(8)", description: "生成列", required: true }, "order_type": { type: "VARCHAR(32)", description: "生成列 ← raw.$.type", required: true }, "status": { type: "VARCHAR(32)", description: "生成列", required: true }, "quantity": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "filled_qty": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "price": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "avg_px": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "ts_init": { type: "BIGINT", description: "生成列，引擎纳秒", required: false }, "ts_last": { type: "BIGINT", description: "生成列，引擎纳秒", required: false }, "parent_order_id": { type: "VARCHAR(100)", description: "生成列；括号单子单指向母单", required: false }, "tags": { type: "JSON", description: "生成列 ← raw.$.tags；计划标签读取（[[C.5.1.1]]）由此取", required: false } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `seq`
+- 唯一　`run_id, client_order_id`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+- **J.3.5.1**　随 dolt_backup 整份备份
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.3" />
+
+**使用于**　<Ref id="C.5.1.1" />、<Ref id="G.1.1.1" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.2" />、<Ref id="J.6.2.3" />、<Ref id="D.3.1.2" />
+
+</div>
+
+### `run_order_event` [#def-table-run_order_event]
+
+引擎订单事件史逐行；保护单覆盖重建与事件-订单-成交对账的依据
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "event_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "client_order_id": { type: "VARCHAR(100)", description: "生成列", required: true }, "event_type": { type: "VARCHAR(48)", description: "生成列 ← raw.$.type", required: true }, "ts_event_ns": { type: "BIGINT", description: "生成列", required: true } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `seq`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.3" />
+
+**使用于**　<Ref id="C.4.1.2" />、<Ref id="C.5.2.2" />、<Ref id="G.1.1.1" />、<Ref id="J.6.2.3" />
+
+</div>
+
+### `run_position` [#def-table-run_position]
+
+引擎持仓报告逐行（含快照行）
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "position_id": { type: "VARCHAR(200)", description: "生成列", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "is_snapshot": { type: "TINYINT", description: "生成列", required: true }, "closed": { type: "TINYINT", description: "生成列：ts_closed 非空", required: true }, "ts_closed_ns": { type: "BIGINT", description: "生成列；按平仓年拆分用", required: false }, "realized_pnl_usdt": { type: "DECIMAL(38,18)", description: "生成列", required: false } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `seq`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算读数核对
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.3" />
+
+**使用于**　<Ref id="C.5.1.2" />、<Ref id="G.1.1.1" />、<Ref id="G.4.1.1" />、<Ref id="R.1.1.2" />、<Ref id="J.6.2.3" />、<Ref id="D.3.1.2" />
+
+</div>
+
+### `run_return` [#def-table-run_return]
+
+引擎日收益序列（UTC 日钟），配对比较与样本外区间的唯一配对单位
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "ts_event_ns": { type: "BIGINT", description: "UTC 日钟时刻，引擎纳秒", required: true }, "native_return": { type: "DOUBLE", description: "引擎原生日收益；须复利到期末权益，否则该侧序列不可用（[[ledger.daily_returns]]）", required: true } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `ts_event_ns`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　只读账号的整体复核按原生序列重算配对读数
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.3" />
+
+**使用于**　<Ref id="V.2.2.2" />、<Ref id="X.2.1.2" />、<Ref id="G.1.1.1" />、<Ref id="J.6.2.3" />、<Ref id="D.3.1.2" />
+
+</div>
+
+### `trial` [#def-table-trial]
+
+试验 trial：每次回放一行，在子进程启动前写下用途、被执行源码身份、钉死运行环境、合约集与窗口；无效与中断同样有行
+
+<TypeTable type={{ "trial_id": { type: "INT AUTO_INCREMENT", description: "试验主键，自增", required: true }, "purpose": { type: "ENUM('explore','precheck','research','validation')", description: "explore 未登记探索，报告留工作副本；precheck 事前声明用途的原生预检；research 研究封存回放，须同事务有 registration_attempt；validation 样本外回放，须同事务有 validation_binding", required: true }, "source_sha256": { type: "CHAR(64)", description: "被执行源码的内容哈希；research 与 validation 须等于已发布候选（提交校验）", required: true }, "image_ref": { type: "VARCHAR(300)", description: "含 @sha256: 的钉死运行环境引用", required: true }, "image_digest": { type: "CHAR(71)", description: "生成列：image_ref 的 @ 后部分；内容地址，相同摘要即相同字节", required: true }, "instruments": { type: "JSON", description: "合约集（原生合约 ID 列表，ticker 重用已按生命周期拆分）", required: true }, "input_start": { type: "DATETIME(6)", description: "预热起点 UTC，整分钟", required: true }, "trade_start": { type: "DATETIME(6)", description: "交易起点 UTC，左闭", required: true }, "trade_end": { type: "DATETIME(6)", description: "交易终点 UTC，右开", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器归 J.4.1.1）", required: true } }} />
+
+**键与约束**
+
+- 主键　`trial_id`
+- 唯一　`op_id`
+- CHECK　`input_start \<= trade_start AND trade_start \< trade_end`
+- 生成列　`image_digest = SUBSTRING_INDEX(image_ref, '@', -1) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与绑定、开始回执同一事务
+- **J.3.1.1**　dolt_diff_trial 只应出现 added；dolt_history_trial 给每行提交哈希与时间
+- **J.3.1.3**　AS OF 读该版本的试验
+- **J.4.1.1**　created_at 为服务器时间；与登记包 created_at 比较即登记先于试验，由 dolt_tests 每次提交复核
+- **J.4.1.2**　试验行、网格点或样本外绑定与开始回执同一事务同一提交：先有身份后有输出
+
+**写入方**　<Ref id="ledger.open_trial" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.2.2.1" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="E.2.2.2" />、<Ref id="T.2.1.2" />、<Ref id="T.2.2.3" />、<Ref id="H.1.1.2" />、<Ref id="H.4.1.3" />、<Ref id="H.4.2.1" />、<Ref id="V.1.1.1" />、<Ref id="V.2.1.1" />、<Ref id="V.2.2.1" />、<Ref id="V.4.1.2" />、<Ref id="X.1.3.1" />、<Ref id="C.6.1.1" />、<Ref id="C.6.2.1" />、<Ref id="W.2.1.1" />、<Ref id="G.4.2.1" />、<Ref id="R.4.2.1" />、<Ref id="J.1.1.1" />、<Ref id="J.2.2.2" />、<Ref id="J.2.2.3" />、<Ref id="J.2.3.2" />、<Ref id="J.2.3.3" />、<Ref id="J.2.4.2" />、<Ref id="J.2.4.3" />、<Ref id="J.3.1.4" />、<Ref id="J.3.5.2" />、<Ref id="J.4.1.1" />、<Ref id="J.4.1.2" />、<Ref id="J.5.2.3" />、<Ref id="D.1.1.2" />、<Ref id="D.1.2.1" />、<Ref id="D.2.1.1" />、<Ref id="D.3.1.2" />、<Ref id="D.3.2.1" />
+
+</div>
+
+### `validation_binding` [#def-table-validation_binding]
+
+一次样本外登记绑定一次回放：以登记为主键，第二次绑定主键冲突即拒绝；中断或无效的试验同样留行
+
+<TypeTable type={{ "registration_id": { type: "INT", description: "被消耗的样本外登记", required: true }, "trial_id": { type: "INT", description: "绑定的那次回放（purpose=validation）；运行经 run.trial_id 关联", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID，与试验行同一操作", required: true } }} />
+
+**键与约束**
+
+- 主键　`registration_id`
+- 唯一　`trial_id`
+- 唯一　`op_id`
+- 外键　`registration_id` → <Ref id="table:validation_registration">validation_registration</Ref> `registration_id`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与试验行、执行开始回执同一事务同一提交
+- **J.3.1.1**　dolt_diff_validation_binding 只应出现 added；任何改删即篡改发现
+- **X.1.3.1**　主键为登记：再次绑定主键冲突即拒绝；dolt_history_validation_binding 可追每次绑定的提交
+- **J.3.1.4**　dolt_tests validation_binding_matches_registration（绑定试验的源码哈希与交易窗口符合登记）与 validation_retry_keeps_candidate_window（重试登记与原登记同候选、同窗口、同范围规则）
+
+**写入方**　<Ref id="ledger.open_trial" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="X.1.3.1" />
+
+**使用于**　<Ref id="E.1.1.2" />、<Ref id="X.1.3.2" />、<Ref id="X.2.1.1" />、<Ref id="R.4.2.1" />、<Ref id="J.2.2.1" />、<Ref id="J.2.4.2" />、<Ref id="J.2.4.3" />、<Ref id="J.3.1.4" />、<Ref id="J.3.5.2" />、<Ref id="J.4.1.1" />、<Ref id="J.4.1.2" />
+
+</div>
+
+### `validation_registration` [#def-table-validation_registration]
+
+样本外登记（预登记）：被验候选、共同可交易范围身份、窗口与声明的检验条件；其账本提交取 RFC 3161 凭证
+
+<TypeTable type={{ "registration_id": { type: "INT AUTO_INCREMENT", description: "登记编号", required: true }, "strategy_id": { type: "VARCHAR(100)", description: "被验候选 ID", required: true }, "revision": { type: "INT", description: "被验候选版本号；源码身份经 candidate.source_sha256", required: true }, "market_commit": { type: "CHAR(32)", description: "登记时钉住的市场提交；登记前各月成员时间路径由 universe_month 按它 AS OF 派生", required: true }, "universe_rule": { type: "VARCHAR(60)", description: "共同可交易范围规则版本；窗口内月份由环境按同一规则产出", required: true }, "window_start": { type: "DATETIME(6)", description: "样本外窗口起点，UTC，左闭；非重试登记须晚于 created_at，绑定时须晚于凭证 genTime", required: true }, "window_end": { type: "DATETIME(6)", description: "样本外窗口终点，UTC，右开", required: true }, "design": { type: "JSON", description: "声明的检验条件：method、block_days、resamples、inner_resamples、seed、alpha、minimum_effect、design_reason；数值为未校准示例值", required: true }, "retry_of": { type: "INT", description: "修复环境缺陷后对同一候选、窗口、范围规则再登记时指向的原登记；准入沿用原登记凭证时间", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原行", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 J.4.1.1）", required: true } }} />
+
+**键与约束**
+
+- 主键　`registration_id`
+- 唯一　`op_id`
+- 外键　`strategy_id, revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- 外键　`retry_of` → <Ref id="table:validation_registration">validation_registration</Ref> `registration_id`
+- CHECK　`window_start \< window_end`
+- CHECK　`retry_of IS NULL OR retry_of \< registration_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次登记恰一个 DOLT_COMMIT，登记行与提交一一对应
+- **J.3.1.1**　只追加：dolt_diff_validation_registration 出现任何非 added 行即篡改发现；没有「已用于验证」列，准入只靠凭证时间
+- **J.3.1.3**　AS OF 读任一时刻的登记
+- **X.1.2.1**　dolt_diff_validation_registration 中该行 diff_type='added' 的 to_commit 是登记提交，即凭证的被哈希对象；witness.commit_hash 等于它
+- **J.4.1.1**　created_at 由服务器触发器写；dolt_tests validation_window_after_registration 核非重试行 window_start > created_at
+- **W.3.1.2**　universe_month AS OF market_commit 重现登记时的范围规则与各月名单，绑定时逐行比对
+
+**写入方**　<Ref id="registration.validation_register" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="X.1.2.1" />
+
+**使用于**　<Ref id="E.1.1.2" />、<Ref id="X.1.2.2" />、<Ref id="X.1.3.1" />、<Ref id="X.1.3.2" />、<Ref id="X.2.1.1" />、<Ref id="X.2.1.3" />、<Ref id="X.2.1.4" />、<Ref id="R.4.2.1" />、<Ref id="J.2.4.2" />、<Ref id="J.2.4.3" />、<Ref id="J.3.1.4" />、<Ref id="J.3.5.2" />、<Ref id="J.4.1.1" />、<Ref id="J.4.2.2" />
+
+**依据**　[\[71\]](/zh/docs/appendix-references/#ref-71 "RFC 3161 — Internet X.509 PKI Time-Stamp Protocol（2001，更新于 RFC 5816）") [\[16\]](/zh/docs/appendix-references/#ref-16 "Haber &amp; Stornetta 1991, doi:10.1007/BF00196791") [\[72\]](/zh/docs/appendix-references/#ref-72 "Nosek, Ebersole, DeHaven &amp; Mellor 2018, doi:10.1073/pnas.1708274114") [\[73\]](/zh/docs/appendix-references/#ref-73 "Dolt — System tables（dolt_diff_&lt;t>、dolt_history_&lt;t>）")
+
+</div>
+
+### `witness` [#def-table-witness]
+
+时间凭证：对样本外登记诞生提交取得的 RFC 3161 凭证原件；证明记录在 genTime 前已存在，不证明唯一
+
+<TypeTable type={{ "commit_hash": { type: "CHAR(32)", description: "被盖戳的账本提交（样本外登记行诞生的提交）", required: true }, "token": { type: "LONGBLOB", description: "RFC 3161 TimeStampToken 的 DER 原字节；genTime 由离线验证读出，不另存", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID，取 witness:<commit_hash>；同载荷重试返回原记录", required: true } }} />
+
+**键与约束**
+
+- 主键　`commit_hash`
+- 唯一　`op_id`
+- CHECK　`LENGTH(commit_hash) = 32`
+- CHECK　`LENGTH(token) > 0`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每份凭证一个事务一个提交
+- **J.3.1.1**　只追加，凭证从不改写；改删留在 dolt_history_witness 可查
+- **J.3.1.4**　dolt_tests 提交校验 witness_stamps_validation_registration：每行 commit_hash 是 dolt_diff_validation_registration 中 diff_type='added' 的 to_commit
+- **A.5.2.1**　外部先后由凭证证明，只有摘要离开本机
+
+**写入方**　<Ref id="ledger.witness" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="J.4.2.2" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="A.5.2.2" />、<Ref id="X.1.2.1" />、<Ref id="X.1.2.2" />、<Ref id="X.2.1.1" />、<Ref id="J.2.4.3" />、<Ref id="J.3.1.4" />
+
+**依据**　[\[147\]](/zh/docs/appendix-references/#ref-147 "IETF — RFC 3161 Time-Stamp Protocol") [\[148\]](/zh/docs/appendix-references/#ref-148 "Haber &amp; Stornetta 1991, https://doi.org/10.1007/BF00196791")
+
+</div>
+
+## 库 `market`
+
+<Mermaid chart={"erDiagram\n  bar {\n    VARCHAR_40_ symbol PK\n    ENUM__LAST___MARK__ price_type PK\n    BIGINT ts_open PK\n    BIGINT open\n    BIGINT high\n    BIGINT low\n    BIGINT close\n    BIGINT volume\n  }\n  funding {\n    VARCHAR_40_ symbol PK\n    BIGINT funding_time PK\n    DECIMAL_20_10_ rate\n  }\n  instrument {\n    VARCHAR_40_ symbol PK\n    BIGINT observed_at PK\n    ENUM__exchange_info_ terms_source\n    VARCHAR_40_ price_increment\n    VARCHAR_40_ size_increment\n    VARCHAR_40_ min_quantity\n    VARCHAR_40_ max_quantity\n    VARCHAR_40_ min_notional\n    VARCHAR_40_ min_price\n    VARCHAR_40_ max_price\n    JSON classification\n  }\n  market_dolt_tests {\n    VARCHAR test_name PK\n    VARCHAR test_group\n    TEXT test_query\n    VARCHAR assertion_type\n    VARCHAR assertion_comparator\n    TEXT assertion_value\n  }\n  market_schema {\n    TINYINT singleton PK\n    INT version\n    TINYINT price_scale\n    TINYINT volume_scale\n    VARCHAR_60_ universe_rule\n    BIGINT import_seq\n  }\n  universe_month {\n    VARCHAR_60_ universe_rule PK\n    DATE month PK\n    VARCHAR_40_ symbol PK\n  }"} />
+
+| 表 | 用途 |
+|---|---|
+| <Ref id="table:bar">bar</Ref> | 1 分钟 K 线：成交价 LAST 与标记价 MARK（无量）；每个永续独立序列，三来源拼成一条、来源不留痕；缺口即缺行，不补造 |
+| <Ref id="table:funding">funding</Ref> | 资金费按交易所实际结算时刻记录，保留抖动；导出为引擎资金费更新 |
+| <Ref id="table:instrument">instrument</Ref> | 合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长；导出按市场提交取最新一行 |
+| <Ref id="table:market.dolt_tests">market.dolt_tests</Ref> | 市场库提交校验（验证组 commit）：每次导入 DOLT_COMMIT 前运行的跨表校验，失败即拒提交；与账本的同名表分开；用例由 market.import_month 在空库首次导入时随模式初始化写入，此后的导入只运行、不改 |
+| <Ref id="table:market_schema">market_schema</Ref> | 市场库自述单行：模式代数、整数价量比例、当前产出范围的规则版本、导入序号（并发导入冲突碰撞点） |
+| <Ref id="table:universe_month">universe_month</Ref> | 共同可交易范围 universe：环境按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里；成员时间路径由本表按 AS OF 派生 |
+
+### `bar` [#def-table-bar]
+
+1 分钟 K 线：成交价 LAST 与标记价 MARK（无量）；每个永续独立序列，三来源拼成一条、来源不留痕；缺口即缺行，不补造
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "price_type": { type: "ENUM('LAST','MARK')", description: "成交价或标记价", required: true }, "ts_open": { type: "BIGINT", description: "开盘时刻 UTC 毫秒，整分钟；导出时以收盘时刻为事件时间", required: true }, "open": { type: "BIGINT", description: "× 10^price_scale", required: true }, "high": { type: "BIGINT", description: "× 10^price_scale", required: true }, "low": { type: "BIGINT", description: "× 10^price_scale", required: true }, "close": { type: "BIGINT", description: "× 10^price_scale", required: true }, "volume": { type: "BIGINT", description: "× 10^volume_scale；MARK 恒 0", required: true } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `price_type`, `ts_open`
+- CHECK　`low > 0 AND low \<= open AND low \<= close AND high >= open AND high >= close AND volume >= 0`
+- CHECK　`price_type = 'LAST' OR volume = 0`
+
+**Dolt 能力**
+
+- **W.1.3.2**　一次导入全部追加后恰一个 DOLT_COMMIT：提交哈希即数据版本 market commit
+- **W.1.3.2**　AS OF '\<market_commit>' 导出：任何时候逐字节复现某次回放读到的 K 线
+- **D.1.1.1**　dolt_diff_bar 只应出现 added；出现 modified/removed 即数据被改写
+- **W.1.1.2**　同一分钟两来源不等即整次导入拒绝，不以一方覆盖另一方
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.2.1" />
+
+**使用于**　<Ref id="W.1.1.1" />、<Ref id="W.1.1.2" />、<Ref id="W.1.2.2" />、<Ref id="W.1.3.2" />、<Ref id="W.3.3.1" />、<Ref id="R.3.2.2" />、<Ref id="D.1.1.1" />
+
+**依据**　[\[98\]](/zh/docs/appendix-references/#ref-98 "Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）") [\[99\]](/zh/docs/appendix-references/#ref-99 "Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）") [\[100\]](/zh/docs/appendix-references/#ref-100 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）")
+
+</div>
+
+### `funding` [#def-table-funding]
+
+资金费按交易所实际结算时刻记录，保留抖动；导出为引擎资金费更新
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "funding_time": { type: "BIGINT", description: "实际结算时刻 UTC 毫秒，不按固定周期对齐", required: true }, "rate": { type: "DECIMAL(20,10)", description: "资金费率，正费率多头付、空头收", required: true } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `funding_time`
+- CHECK　`rate > -1 AND rate \< 1`
+
+**Dolt 能力**
+
+- **W.1.3.2**　一次导入全部追加后恰一个 DOLT_COMMIT
+- **W.1.3.2**　AS OF market_commit 随提交复现
+- **D.1.1.1**　dolt_diff_funding 只应出现 added
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.2.1" />
+
+**使用于**　<Ref id="W.1.1.1" />、<Ref id="W.1.1.2" />、<Ref id="W.1.3.2" />、<Ref id="W.3.3.1" />、<Ref id="W.5.2.3" />、<Ref id="D.1.1.1" />
+
+**依据**　[\[98\]](/zh/docs/appendix-references/#ref-98 "Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）") [\[99\]](/zh/docs/appendix-references/#ref-99 "Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）") [\[100\]](/zh/docs/appendix-references/#ref-100 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）")
+
+</div>
+
+### `instrument` [#def-table-instrument]
+
+合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长；导出按市场提交取最新一行
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "observed_at": { type: "BIGINT", description: "观测时刻 UTC 毫秒；每次条款变化追加一行", required: true }, "terms_source": { type: "ENUM('exchange_info','inferred')", description: "公开原文或推断", required: true }, "price_increment": { type: "VARCHAR(40)", description: "原精度字符串，小数位即精度", required: true }, "size_increment": { type: "VARCHAR(40)", description: "原精度字符串", required: true }, "min_quantity": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "max_quantity": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "min_notional": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "min_price": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "max_price": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "classification": { type: "JSON", description: "条款原文分类：contract_type、quote_asset、underlying_type、underlying_sub_types；范围规则据此排除指数类、稳定币对与股票类；inferred 时为空", required: false } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `observed_at`
+- CHECK　`(terms_source = 'inferred') = (min_quantity IS NULL AND max_quantity IS NULL AND min_notional IS NULL AND min_price IS NULL AND max_price IS NULL AND classification IS NULL)`
+
+**Dolt 能力**
+
+- **W.1.3.2**　一次导入全部追加后恰一个 DOLT_COMMIT：提交哈希即数据版本 market commit
+- **W.1.3.2**　AS OF '\<market_commit>' 导出：任何时候逐字节复现某次回放读到的条款
+- **D.1.1.1**　dolt_diff_instrument 只应出现 added；出现 modified/removed 即条款被改写
+- **W.4.2.2**　导出取 AS OF market_commit 下 observed_at 最新一行，回执记 CURRENT_SNAPSHOT_APPROXIMATION
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.2.1" />
+
+**使用于**　<Ref id="W.1.1.2" />、<Ref id="W.1.3.2" />、<Ref id="W.3.1.1" />、<Ref id="W.3.3.1" />、<Ref id="W.4.2.2" />、<Ref id="D.1.1.1" />
+
+**依据**　[\[98\]](/zh/docs/appendix-references/#ref-98 "Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）") [\[99\]](/zh/docs/appendix-references/#ref-99 "Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）") [\[100\]](/zh/docs/appendix-references/#ref-100 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）")
+
+</div>
+
+### `market.dolt_tests` [#def-table-market-dolt_tests]
+
+市场库提交校验（验证组 commit）：每次导入 DOLT_COMMIT 前运行的跨表校验，失败即拒提交；与账本的同名表分开；用例由 market.import_month 在空库首次导入时随模式初始化写入，此后的导入只运行、不改
+
+<TypeTable type={{ "test_name": { type: "VARCHAR", description: "用例名", required: true }, "test_group": { type: "VARCHAR", description: "恒为 commit，由服务级验证组变量在提交前触发", required: true }, "test_query": { type: "TEXT", description: "返回违例计数的查询", required: true }, "assertion_type": { type: "VARCHAR", description: "expected_single_value", required: true }, "assertion_comparator": { type: "VARCHAR", description: "==", required: true }, "assertion_value": { type: "TEXT", description: "0（无违例）", required: true } }} />
+
+**键与约束**
+
+- 主键　`test_name`
+- CHECK　`universe_members_traded_on_the_eve：每个 universe_month 成员在该月前一 UTC 日至少有一根 LAST 且 volume > 0 的 bar 行；违例数须为 0`
+- CHECK　`universe_members_have_terms：每个 universe_month 成员在 instrument 至少有一行 observed_at 早于该月下一月初的条款；违例数须为 0`
+- CHECK　`universe_rule_is_recorded：最新月份的 universe_month 行的 universe_rule 等于 market_schema.universe_rule；违例数须为 0`
+- CHECK　`test_group = 'commit'`
+
+**Dolt 能力**
+
+- **W.1.3.2**　market.import_month 在 DOLT_COMMIT 前运行，任一失败回滚并 DATA_TESTS_FAILED
+- **J.3.1.4**　提交校验是导入正常路径上的守卫，不是不可改保证；绕过它的改写由 dolt_diff 留痕并在整体复核时发现
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.3.2" />
+
+**依据**　[\[101\]](/zh/docs/appendix-references/#ref-101 "Dolt — Querying history（AS OF 接提交哈希、分支或其他引用、时间戳，只返回已提交版本）") [\[102\]](/zh/docs/appendix-references/#ref-102 "Dolt — SQL procedures（DOLT_COMMIT 返回提交哈希；DOLT_TAG 为提交打只读标签）")
+
+</div>
+
+### `market_schema` [#def-table-market_schema]
+
+市场库自述单行：模式代数、整数价量比例、当前产出范围的规则版本、导入序号（并发导入冲突碰撞点）
+
+<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "version": { type: "INT", description: "模式代数；market.connect 核对", required: true }, "price_scale": { type: "TINYINT", description: "bar 价格列 = 原值 × 10^price_scale", required: true }, "volume_scale": { type: "TINYINT", description: "bar 成交量列 = 原值 × 10^volume_scale", required: true }, "universe_rule": { type: "VARCHAR(60)", description: "导入按此规则版本产出 universe_month；改规则出新版本，旧行不改", required: true }, "import_seq": { type: "BIGINT", description: "每次导入 +1；两次并发导入改同一格为不同值时后到者回滚", required: true } }} />
+
+**键与约束**
+
+- 主键　`singleton`
+- CHECK　`singleton = 1`
+- CHECK　`import_seq >= 0`
+
+**Dolt 能力**
+
+- **J.3.2.2**　并发写冲突即拒绝：两次导入同时改 import_seq，后到者的提交冲突回滚
+- **J.3.3.1**　导入账号仅对本表有 UPDATE，对其余市场表只有 INSERT；只读账号无写权
+- **W.1.3.2**　随每次导入同一提交更新，AS OF 读出该提交使用的规则版本与比例
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.1.2.1" />
+
+**使用于**　<Ref id="E.1.2.1" />、<Ref id="W.1.3.2" />、<Ref id="W.3.1.1" />、<Ref id="W.3.1.2" />、<Ref id="J.3.3.1" />、<Ref id="J.6.1.3" />
+
+**依据**　[\[98\]](/zh/docs/appendix-references/#ref-98 "Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）") [\[99\]](/zh/docs/appendix-references/#ref-99 "Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）") [\[100\]](/zh/docs/appendix-references/#ref-100 "He, Manela, Ross &amp; von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）")
+
+</div>
+
+### `universe_month` [#def-table-universe_month]
+
+共同可交易范围 universe：环境按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里；成员时间路径由本表按 AS OF 派生
+
+<TypeTable type={{ "universe_rule": { type: "VARCHAR(60)", description: "产出该行的范围规则版本；不同版本的名单共存，旧行不改", required: true }, "month": { type: "DATE", description: "UTC 月初", required: true }, "symbol": { type: "VARCHAR(40)", description: "成员合约的交易所公开名；ticker 重用在导出时按生命周期拆为原生合约", required: true } }} />
+
+**键与约束**
+
+- 主键　`universe_rule`, `month`, `symbol`
+- CHECK　`DAYOFMONTH(month) = 1`
+
+**Dolt 能力**
+
+- **W.1.3.2**　随导入在同一提交追加；导入前重算全部月份并与已存行比对，不一致 UNIVERSE_CHANGED 拒绝，旧提交上的名单不被改写
+- **D.1.1.1**　dolt_diff_universe_month 只应出现 added；AS OF 重现任一提交的成员时间路径
+- **W.3.1.2**　AS OF market_commit 派生范围规则、合约清单与每合约 [start, end) 成员时间路径，进入输入身份
+- **X.1.3.1**　样本外绑定时在登记的 market_commit 与本次 market_commit 下逐行比对登记前各月名单
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**定义于**　<Ref id="W.3.1.2" />
+
+**使用于**　<Ref id="A.5.2.1" />、<Ref id="E.1.2.1" />、<Ref id="E.1.2.2" />、<Ref id="V.2.1.3" />、<Ref id="X.1.2.1" />、<Ref id="X.1.3.2" />、<Ref id="W.1.3.2" />、<Ref id="W.3.1.1" />、<Ref id="W.3.3.1" />、<Ref id="J.2.4.3" />、<Ref id="J.6.1.3" />、<Ref id="D.1.1.1" />
+
+</div>
