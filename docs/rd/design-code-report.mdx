@@ -636,7 +636,7 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" } }} />
 
-**返回**　dict：at、line、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、facts\{candidates, counts\}
+**返回**　dict：at、line、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记还缺什么）、facts\{candidates, counts\}
 
 **期望行为**
 
@@ -645,17 +645,18 @@ def research_state(
 3. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
 4. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
 5. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。
+6. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出；gates 列出 registration.require_line_records 当前会拒绝的项。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LINE_UNKNOWN` | 研究路线不存在 |
 | `VERSION_UNKNOWN` | at 解析不到提交、分支或标签 |
 
-**使用**　<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:trial" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />
+**使用**　<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:trial" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
+**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="A.2.2.1">A.2.2.1</Ref> <Ref id="E.1.1.4">E.1.1.4</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="H.4.1.5">H.4.1.5</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
 
 </div>
 

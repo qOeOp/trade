@@ -80,6 +80,15 @@ skill 规定何时恢复与读的顺序，代码保证候选清单与计数只�
 
 </Cap>
 
+<Cap id="E.1.1.4" kind="code" tier="unverified" tierLabel="待验证" title="多重比较的 N 取路线内全部研究试验数，由账本派生">
+
+- <Ref id="ledger.line_trials" /> 给出路线内 purpose=research 的全部试验（含无效与中断）；<Ref id="report.research_state" /> 展示这个数，作为 DSR 与样本外多重比较的 N。
+- 把路线内全部试验都当作看过，是不依赖 Agent 记忆的保守上界；Agent 自写脚本算的视角仍记 search_exposure 判断。
+
+**强制**　代码：账本派生，不由 Agent 记录。
+
+</Cap>
+
 ### E.1.2　核对环境就绪 [#E-1-2]
 
 代码按精确市场提交原样读出新鲜度与逐合约覆盖事实，skill 据此只报告就绪或阻断而不裁决。
@@ -196,8 +205,8 @@ Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.researc
 规定推荐、后续动作、复盘节奏与机制解释各记成哪种判断、写什么；资格、检验结果、计数等代码判定都不读判断正文，也不从中产生优先级或推荐分数。
 
 <ul className="rd-rules">
-<li id="E-2-1-1"><span className="rd-rule-id">E.2.1.1</span> 复盘后各记推荐、优先级、复盘节奏判断，改判写新条并以 supersedes 指旧条 <Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></li>
-<li id="E-2-1-2"><span className="rd-rule-id">E.2.1.2</span> interpretation 写适用与重评条件，结论限登记条件，不写结果类别 <Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></li>
+<li id="E-2-1-1"><span className="rd-rule-id">E.2.1.1</span> 复盘写 recommendation 与 priority；复盘节奏写成 cadence_trials，只能调低 <Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></li>
+<li id="E-2-1-2"><span className="rd-rule-id">E.2.1.2</span> 每个登记至少写一条 interpretation：适用与重评条件，结论限登记条件 <Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></li>
 </ul>
 
 ### E.2.2　存法与读回 [#E-2-2]
@@ -239,7 +248,7 @@ Agent 按 `research-start/SKILL.md#read-research-state` 经 <Ref id="cli.researc
 </Cap>
 
 <ul className="rd-rules">
-<li id="E-2-2-2"><span className="rd-rule-id">E.2.2.2</span> 算过的视角与读过的报告各记一条 search_exposure 判断 <Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></li>
+<li id="E-2-2-2"><span className="rd-rule-id">E.2.2.2</span> 自写脚本算出的视角记 search_exposure；产品命令看到的试验已由账本计入 N <Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></li>
 </ul>
 
 ## E.3　给出综合推荐与路线选项 [#E-3]

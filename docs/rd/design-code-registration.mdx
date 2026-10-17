@@ -385,7 +385,9 @@ def require_precheck(
 | 函数 | 用途 |
 |---|---|
 | <Ref id="registration.bind">bind</Ref> | 回放开始前，在写试验行的同一事务里把试验绑定到一个已登记网格点：重验登记包与登记校验、源码在网格内、执行身份逐项一致、预检审查通过、登记早于试验、该点未被消耗；通过即写 registration_attempt 一行，任一不符抛拒绝，由调用方回滚整笔事务且不启动子进程 |
+| <Ref id="registration.plan_schema">plan_schema</Ref> | 登记体 research-plan.json 的 JSON Schema：每个字段带 description；校验失败时把该字段的 description 原样放进拒绝信息 |
 | <Ref id="registration.register">register</Ref> | 登记入口：探测钉死的运行环境、按研究路线的市场提交新鲜导出不可变输入、在运行环境内读出生效配置，合成执行身份；再在一个写事务里校验并把登记体、执行身份与审查引用写成不可变登记证据包 research-plan.json；同内容重试幂等 |
+| <Ref id="registration.require_line_records">require_line_records</Ref> | 下一次登记的前置门：同一路线上已完成的试验都有解释、复盘到期时已有推荐、派生登记前已声明复盘节奏；在登记写事务内按当前头求值 |
 | <Ref id="registration.validate">validate</Ref> | 登记体与执行身份的全部核对：字段恰为规定项；单一比较维度；来源证据包存在；父与对照分别核对，根不得带对照；窗口等于研究路线；网格一到五点且每点父与改动等于登记；源码未暴露或带 retry_of；每格预检审查通过；对照须可比且经济证据可用。返回锁定网格的源码哈希集合。只读，不写账本。 |
 | <Ref id="registration.validate_design">validate_design</Ref> | 校验检验条件 comparison 的形态：字段恰为 method、block_days、resamples、inner_resamples、seed、alpha、minimum_effect、design_reason 八项，并核对类型与范围；不评价数值是否合理。数值是方法示例值，随登记锁定。 |
 
@@ -441,6 +443,27 @@ def bind(
 
 </div>
 
+### `plan_schema` [#def-registration-plan_schema]
+
+登记体 research-plan.json 的 JSON Schema：每个字段带 description；校验失败时把该字段的 description 原样放进拒绝信息
+
+```python
+def plan_schema() -> dict
+```
+
+**返回**　dict：JSON Schema
+
+**期望行为**
+
+1. 定义十一项必有键（含 changed_duties）与可选键的类型与说明。
+2. registration.validate 先按它校验形态；失败时拒绝码 REGISTRATION_INVALID，missing 列出字段，message 附该字段 description。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="H.4.1.4">H.4.1.4</Ref>
+
+</div>
+
 ### `register` [#def-registration-register]
 
 登记入口：探测钉死的运行环境、按研究路线的市场提交新鲜导出不可变输入、在运行环境内读出生效配置，合成执行身份；再在一个写事务里校验并把登记体、执行身份与审查引用写成不可变登记证据包 research-plan.json；同内容重试幂等
@@ -453,21 +476,24 @@ def register(
     runtime_ref: str,
     market: MarketProfile,
     runner_argv: list[str],
+    source_files: list[Path],
 ) -> dict {bundle
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名；不得落在产品保留命名空间（trial-*、knowledge-*、research-line-*、source-review-*、lifecycle-*）" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取研究路线记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名；不得落在产品保留命名空间（trial-*、knowledge-*、research-line-*、source-review-*、lifecycle-*）" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取研究路线记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" } }} />
 
 **返回**　dict \{bundle, sha256（research-plan.json 内容哈希）, execution（写入的执行身份）, ledger_commit, replayed（同内容重试为 True）\}
 
 **期望行为**
 
 1. 核包名不在保留命名空间（RESERVED_BUNDLE_NAME）；ledger.connect 打开写连接，ledger.current_line 读研究路线（市场提交、范围规则、开发窗口），没有即透传 NO_RESEARCH_LINE。
-2. runtime.resolve 解析唯一清单摘要，runtime.inspect_runtime 在镜像内探针读出运行契约、依赖锁哈希与生效配置；registration.market_inputs 按研究路线的市场提交导出 1 分钟输入并经 registration.export_fingerprint 算内容身份；三者合成 execution，宿主路径不进身份。
-3. 组装 research-plan.json：body 全部字段、execution、每格审查引用与登记时的运行环境引用；算内容哈希，op_id 由包名与内容哈希派生。
-4. 在 ledger.write 的事务里调 registration.validate(conn, body, execution, before_replay=False)（含窗口、预检、暴露与 retry_of 核对）；同名包已存在且哈希相同即幂等返回，哈希不同即 DUPLICATE_BUNDLE；否则经 ledger.add_bundle 写 evidence_bundle 一行与 evidence 一行，created_at 由服务器触发器写。
-5. 事务内任一步失败整笔回滚、不留半截；validate、运行环境与导出的拒绝码原样透传。
-6. 返回包名、哈希、执行身份与账本提交；探测与导出的工作副本留在临时目录，账本不存导出数据与镜像。
+2. 在登记的同一写事务里，把每份 source_files 写成来源证据包（包名由内容哈希派生），并把包名写进登记体 sources；理由里引了外部依据却没有来源原件即拒绝。
+3. 调用 registration.require_line_records：解释、复盘与节奏三道前置门任一不满足即拒绝，拒绝信息给出要补的判断与命令。
+4. runtime.resolve 解析唯一清单摘要，runtime.inspect_runtime 在镜像内探针读出运行契约、依赖锁哈希与生效配置；registration.market_inputs 按研究路线的市场提交导出 1 分钟输入并经 registration.export_fingerprint 算内容身份；三者合成 execution，宿主路径不进身份。
+5. 组装 research-plan.json：body 全部字段、execution、每格审查引用与登记时的运行环境引用；算内容哈希，op_id 由包名与内容哈希派生。
+6. 在 ledger.write 的事务里调 registration.validate(conn, body, execution, before_replay=False)（含窗口、预检、暴露与 retry_of 核对）；同名包已存在且哈希相同即幂等返回，哈希不同即 DUPLICATE_BUNDLE；否则经 ledger.add_bundle 写 evidence_bundle 一行与 evidence 一行，created_at 由服务器触发器写。
+7. 事务内任一步失败整笔回滚、不留半截；validate、运行环境与导出的拒绝码原样透传。
+8. 返回包名、哈希、执行身份与账本提交；探测与导出的工作副本留在临时目录，账本不存导出数据与镜像。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -479,8 +505,9 @@ def register(
 | `SOURCE_ALREADY_EXPOSED` | 网格源码已暴露且无合法 retry_of（由 validate 抛出） |
 | `CONCURRENT_WRITE` | 提交时写入头指针被另一写入抢先，后到者回滚 |
 | `DIRTY_WORKSET` | 写前发现账本有未提交的 SQL 改动 |
+| `SOURCES_REQUIRED` | rationale.external 非空而没有来源原件，或 sources 引用的包不存在 |
 
-**使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:ledger_head" />
+**使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:ledger_head" />、<Ref id="registration.require_line_records" />、<Ref id="registration.plan_schema" />
 
 <div className="rd-meta">
 
@@ -490,6 +517,44 @@ def register(
 
 - [Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)　论文
 - [Dolt — System tables (https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)　官方文档
+
+</div>
+
+### `require_line_records` [#def-registration-require_line_records]
+
+下一次登记的前置门：同一路线上已完成的试验都有解释、复盘到期时已有推荐、派生登记前已声明复盘节奏；在登记写事务内按当前头求值
+
+```python
+def require_line_records(
+    conn: Connection,
+    line_bundle: str,
+    is_derived: bool,
+) -> None
+```
+
+<TypeTable type={{ "conn": { type: "Connection", description: "登记写事务的连接" }, "line_bundle": { type: "str", description: "研究路线" }, "is_derived": { type: "bool", description: "登记体 parent 非空" } }} />
+
+**返回**　None；任一不满足即抛拒绝
+
+**期望行为**
+
+1. 已完成：试验有 run 行（passed 或 invalid）或已被 recovery 结案。路线内每个已完成的研究试验，须被某条 interpretation 判断覆盖（主体含该试验或其登记包；被取代的解释也算），否则 INTERPRETATION_REQUIRED，missing 列出试验。
+2. 复盘起点：最新且未被取代的 recommendation 的 based_on_commit；没有推荐时取路线包所在提交。经 ledger.line_trials 计起点之后的研究试验数。
+3. 节奏：最新且未被取代的 review_cadence 的 cadence_trials。派生登记而路线上没有节奏即 REVIEW_CADENCE_REQUIRED。
+4. 计数达到 cadence_trials 而起点之后没有新的 recommendation 即 REVIEW_DUE。
+5. 只调 ledger 查询，不调 report；在登记写事务内求值，并发由 ledger_head 冲突串行化。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INTERPRETATION_REQUIRED` | 路线内有已完成的研究试验没有被任何 interpretation 判断覆盖 |
+| `REVIEW_DUE` | 上次推荐以来的研究试验数已达到复盘节奏，尚未写新的 recommendation |
+| `REVIEW_CADENCE_REQUIRED` | 派生登记时路线上还没有 review_cadence 判断 |
+
+**使用**　<Ref id="ledger.line_trials" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:run" />、<Ref id="table:trial" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="H.4.1.5">H.4.1.5</Ref>
 
 </div>
 

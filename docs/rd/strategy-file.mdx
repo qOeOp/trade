@@ -5,7 +5,7 @@
 
 本章定义候选 candidate 策略文件契约：单文件与内容身份、规则与参数只在源码、依赖边界与必带钩子、文件头 27 项职责立场（含硬契约行）；交易事实归引擎 engine；只按已收盘信息决策；每个持仓有只减仓 reduce-only 止损覆盖；订单切成计划 plan；登记 registration 前过原生预检 native precheck 与独立源码审查。代码强制身份、加载检查、引擎配置、计划统计与预检绑定；经济设计由 skill 指导、经审查核对。回放环境、账户审计与绩效指标口径分归 W、G、R 章。
 
-<Mermaid chart={"flowchart LR\n  subgraph C-1[\"C.1 写成一份可登记的单文件\"]\n    direction TB\n    C-1-1[\"C.1.1 单文件、入口与身份一致\"]\n    C-1-2[\"C.1.2 规则与参数的归属\"]\n    C-1-3[\"C.1.3 加载时检查：依赖边界与自带钩子\"]\n    C-1-4[\"C.1.4 文件头的立场与硬契约\"]\n  end\n  subgraph C-2[\"C.2 把交易事实交给引擎\"]\n    direction TB\n    C-2-1[\"C.2.1 引擎独占的事实\"]\n  end\n  subgraph C-3[\"C.3 只用已发生的信息决策\"]\n    direction TB\n    C-3-1[\"C.3.1 决策能用的信息与成交时钟\"]\n  end\n  subgraph C-4[\"C.4 给每个持仓挂保护单\"]\n    direction TB\n    C-4-1[\"C.4.1 止损声明与覆盖\"]\n  end\n  subgraph C-5[\"C.5 把交易切成可计数的计划\"]\n    direction TB\n    C-5-1[\"C.5.1 计划的定义与标签\"]\n    C-5-2[\"C.5.2 不合规与原生平仓单\"]\n  end\n  subgraph C-6[\"C.6 登记前的原生预检与独立审查\"]\n    direction TB\n    C-6-1[\"C.6.1 原生预检\"]\n    C-6-2[\"C.6.2 独立源码审查\"]\n  end\n  C-1 --> C-2\n  C-2 --> C-3\n  C-3 --> C-4\n  C-4 --> C-5\n  C-5 --> C-6"} />
+<Mermaid chart={"flowchart LR\n  subgraph C-1[\"C.1 写成一份可登记的单文件\"]\n    direction TB\n    C-1-1[\"C.1.1 单文件、入口与身份一致\"]\n    C-1-2[\"C.1.2 规则与参数的归属\"]\n    C-1-3[\"C.1.3 加载时检查：依赖边界与自带钩子\"]\n    C-1-4[\"C.1.4 文件头的立场与硬契约\"]\n    C-1-5[\"C.1.5 工作副本与脚手架\"]\n  end\n  subgraph C-2[\"C.2 把交易事实交给引擎\"]\n    direction TB\n    C-2-1[\"C.2.1 引擎独占的事实\"]\n  end\n  subgraph C-3[\"C.3 只用已发生的信息决策\"]\n    direction TB\n    C-3-1[\"C.3.1 决策能用的信息与成交时钟\"]\n  end\n  subgraph C-4[\"C.4 给每个持仓挂保护单\"]\n    direction TB\n    C-4-1[\"C.4.1 止损声明与覆盖\"]\n  end\n  subgraph C-5[\"C.5 把交易切成可计数的计划\"]\n    direction TB\n    C-5-1[\"C.5.1 计划的定义与标签\"]\n    C-5-2[\"C.5.2 不合规与原生平仓单\"]\n  end\n  subgraph C-6[\"C.6 登记前的原生预检与独立审查\"]\n    direction TB\n    C-6-1[\"C.6.1 原生预检\"]\n    C-6-2[\"C.6.2 独立源码审查\"]\n  end\n  C-1 --> C-2\n  C-2 --> C-3\n  C-3 --> C-4\n  C-4 --> C-5\n  C-5 --> C-6"} />
 
 ## C.1　写成一份可登记的单文件 [#C-1]
 
@@ -191,6 +191,27 @@ Agent 按 skill 写单文件源码：唯一入口类、两个钩子、按模板�
 <li id="C-1-4-2"><span className="rd-rule-id">C.1.4.2</span> 改源码前先读父版本文件头，改动后只改涉及职责的行，并在登记体写 changed_duties <Ref id="rule:C.1.4.2">research-round · SKILL.md</Ref></li>
 <li id="C-1-4-4"><span className="rd-rule-id">C.1.4.4</span> 源码写明资金预算、退出范围只减仓不开新仓、共享本金分配，不靠回调顺序 <Ref id="rule:C.1.4.4">research-round · SKILL.md</Ref></li>
 </ul>
+
+### C.1.5　工作副本与脚手架 [#C-1-5]
+
+源码离开账本进入工作目录时，改它要守的规则随文件一起落到同一目录。
+
+<Cap id="C.1.5.1" kind="code" tier="unverified" tierLabel="待验证" title="导出工作副本时，工作目录说明与文件头模板随源码一起写入">
+
+- <Ref id="cli.candidate_export" /> 在源码旁写 AGENTS.md 与 strategy-header.md；工作目录说明来自 research-round 的 templates/workdir-agents.md。
+- 说明只写改这个文件要守的几条规则与下一步命令；skill 不再重复这些规则。
+
+**强制**　代码：导出命令总是写这两个文件。
+
+</Cap>
+
+<Cap id="C.1.5.2" kind="code" tier="unverified" tierLabel="待验证" title="新策略从脚手架起步，文件头与钩子注释由命令生成">
+
+- <Ref id="cli.candidate_new" /> 生成带文件头模板、入口类与钩子注释桩的源码和工作目录说明，不写账本。
+
+**强制**　代码：脚手架命令。
+
+</Cap>
 
 ## C.2　把交易事实交给引擎 [#C-2]
 

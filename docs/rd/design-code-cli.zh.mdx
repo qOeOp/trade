@@ -14,8 +14,9 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="cli.candidate_export">candidate_export</Ref> | 命令行入口：把一个候选的源码字节按账本版本原样导出到临时根下的工作副本 |
+| <Ref id="cli.candidate_export">candidate_export</Ref> | 把一个候选的源码导出到临时工作目录，同时写入工作目录说明 AGENTS.md 与文件头模板 strategy-header.md |
 | <Ref id="cli.candidate_list">candidate_list</Ref> | Agent 读候选清单的唯一命令行入口：全部候选的身份、父与改动、登记尝试及其运行状态与经济证据可用性，可按账本版本读历史 |
+| <Ref id="cli.candidate_new">candidate_new</Ref> | 在临时工作目录生成新策略脚手架：文件头模板、唯一入口类与两个钩子的注释桩，以及工作目录说明；不写账本 |
 | <Ref id="cli.candidate_publish">candidate_publish</Ref> | 把一份单文件源码发布为候选：带研发父版本与改动说明，或不带父作为根节点 |
 | <Ref id="cli.candidate_show">candidate_show</Ref> | 按 strategy_id@revision 读候选记录，可钉账本版本；不含源码正文 |
 | <Ref id="cli.evidence_add">evidence_add</Ref> | 追加 Agent 的证据包（自由文本与原件），是 Agent 写证据的唯一入口 |
@@ -47,7 +48,7 @@
 
 ### `candidate_export` [#def-cli-candidate_export]
 
-命令行入口：把一个候选的源码字节按账本版本原样导出到临时根下的工作副本
+把一个候选的源码导出到临时工作目录，同时写入工作目录说明 AGENTS.md 与文件头模板 strategy-header.md
 
 ```python
 def candidate_export(
@@ -68,6 +69,8 @@ def candidate_export(
 2. 给出 at 时经 ledger.read_as_of 取只读版本连接；ledger.read_candidate 取字节并核对存储哈希
 3. 原样写出字节（不改编码、不加头尾），写后重读文件哈希须等于 source_sha256
 4. 返回路径与哈希；该副本是派生新候选或无产品工作树重放的起点
+5. 在同一目录写 AGENTS.md：由 research-round 的 templates/workdir-agents.md 填入候选引用与下一步命令；Agent 进入该目录工作时读到它。
+6. 在同一目录写 strategy-header.md：research-round 的文件头模板原文。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -80,7 +83,7 @@ def candidate_export(
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.6.2.3">J.6.2.3</Ref> <Ref id="J.1.2.2">J.1.2.2</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
+**关联章节**　<Ref id="J.6.2.3">J.6.2.3</Ref> <Ref id="C.1.5.1">C.1.5.1</Ref> <Ref id="J.1.2.2">J.1.2.2</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
 
 </div>
 
@@ -118,6 +121,38 @@ def candidate_list(ledger: path, at: str | None) -> JSON
 **依据**
 
 - [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+
+</div>
+
+### `candidate_new` [#def-cli-candidate_new]
+
+在临时工作目录生成新策略脚手架：文件头模板、唯一入口类与两个钩子的注释桩，以及工作目录说明；不写账本
+
+```python
+def candidate_new(args: Namespace) -> JSON
+```
+
+<TypeTable type={{ "args": { type: "Namespace", description: "output（/tmp 下的新目录）、strategy_id（引用名）" } }} />
+
+**返回**　JSON：output、files
+
+**期望行为**
+
+1. 核 output 在临时目录且不存在，否则 NOT_TEMPORARY_PATH / PATH_EXISTS。
+2. 写 strategy.py：顶部是按模板生成的文件头（出处行与 27 行职责立场待填），下面是唯一入口类与两个钩子的桩，钩子注释写明只用已收盘信息、交易事实取引擎状态。
+3. 写 AGENTS.md 与 strategy-header.md，内容同 cli.candidate_export。
+4. 不连接账本；发布仍经 cli.candidate_publish。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NOT_TEMPORARY_PATH` | output 不在临时目录 |
+| `PATH_EXISTS` | output 已存在 |
+
+**使用**　<Ref id="cli.candidate_publish" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="C.1.5.2">C.1.5.2</Ref>
 
 </div>
 
@@ -833,10 +868,11 @@ def registration_add(
     runtime: str,
     market: path,
     runner_argv: list[str],
+    source: list[Path],
 ) -> JSON {bundle
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "研究账本档案路径；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名；不得落在产品保留命名空间" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自当前研究路线，不由调用方给" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "研究账本档案路径；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名；不得落在产品保留命名空间" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自当前研究路线，不由调用方给" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" } }} />
 
 **返回**　JSON \{bundle, content_hash, grid_points, execution, files: [\{name, sha256\}], ledger_commit, replayed\}
 
