@@ -37,7 +37,7 @@
 
 <Step>
 
-<Ref id="ledger.ingest_run" /> 在一个写事务里写 run 行：原因非空记 invalid、读数置空；原因为空记 passed 并写原生报表行与读数。
+<Ref id="ledger.ingest_run" /> 在一个写事务里写 run 行：原因非空记 invalid、绩效指标置空；原因为空记 passed 并写原生报表行与绩效指标。
 
 </Step>
 
@@ -53,26 +53,26 @@
 
 运行器只在运行环境内留下退出码、回执与摘要；判定全部在运行环境外由代码完成，没有 skill 判断参与。
 
-<Cap id="G.1.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计只判回放有效与否及原因；无效运行只存原因与原件，读数置空">
+<Cap id="G.1.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计只判回放有效与否及原因；无效运行只存原因与原件，绩效指标置空">
 
 1. 只接受 purpose ∈ research | validation 且尚无运行行的试验。
-2. 原因列表非空：写 run.status=invalid、failure_reasons（JSON 列表，每条带定位）、原样的原生摘要与审计结果，全部读数列为空，不写任何原生报表行。
+2. 原因列表非空：写 run.status=invalid、failure_reasons（JSON 列表，每条带定位）、原样的原生摘要与审计结果，全部绩效指标列为空，不写任何原生报表行。
 3. 原因列表为空：须有自报通过的审计结果与原生摘要。
 4. 核对覆盖回执与生命周期事件，逐行写入六张原生报表表。
-5. 由 <Ref id="ledger.readings" /> 算一次读数，写成 run 行的列。
+5. 由 <Ref id="ledger.metrics" /> 算一次绩效指标，写成 run 行的列。
 
 - 完整性审计（integrity audit）只回答这次回放是否有效及原因，不评价策略好坏。
 - 整个入账在一个写事务内完成。
 - explore 与 precheck 的报告只留工作副本，不入账。
 - 不允许无审计却无原因的运行行。
-- invalid 运行的读数列为空由 <Ref id="table:run" /> 的约束保证。
-- 读数对账失败只置空对应读数并写入读数局限，不改判无效。
+- invalid 运行的绩效指标列为空由 <Ref id="table:run" /> 的约束保证。
+- 绩效指标对账失败只置空对应绩效指标并写入绩效指标局限，不改判无效。
 
 **输入**　试验行、无效原因列表、原生摘要、审计结果与原生报表。
 
-**输出**　一条 run 行：passed 带读数与六张原生报表行，或 invalid 带原因与原件、读数为空。
+**输出**　一条 run 行：passed 带绩效指标与六张原生报表行，或 invalid 带原因与原件、绩效指标为空。
 
-**强制**　代码：<Ref id="ledger.ingest_run" /> 单写事务入账，读数置空由 <Ref id="table:run" /> 约束保证。
+**强制**　代码：<Ref id="ledger.ingest_run" /> 单写事务入账，绩效指标置空由 <Ref id="table:run" /> 约束保证。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -470,7 +470,7 @@
 
 - 解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID，不中止其余检查。
 - 审计不重算成交、盈亏，也不按费率重算资金费。
-- 对账后的经济数写入 native_economics，供产品读数对账；演练中亏损与盈利运行的 native_economics 都与产品读数对账。
+- 对账后的经济数写入 native_economics，供绩效指标对账；演练中亏损与盈利运行的 native_economics 都与绩效指标对账。
 
 **输入**　报表目录与摘要。
 
@@ -637,7 +637,7 @@ assess 汇总全部不可用原因，附 <Ref id="qualification.check_identity" 
 
 <Step>
 
-报告类读口经 <Ref id="qualification.mask" /> 输出：不可用运行的经济读数置空，诊断保留。
+报告类读口经 <Ref id="qualification.mask" /> 输出：不可用运行的绩效指标置空，诊断保留。
 
 </Step>
 
@@ -691,8 +691,8 @@ native_reasons 从原生报表核实质活动，assess 合成资格，mask 与 r
 
 <Cap id="G.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="零成交或缺匹配记录的运行只留诊断，比较、对照登记与分析表拒绝它">
 
-- mask 是经济读数流出前的唯一遮蔽点。
-- 资格不可用时，mask 把期末权益、年化、最大回撤、胜率、盈亏与成本拆分、资金使用率（capital utilisation）等全部经济读数与 cost_basis 置空。
+- mask 是绩效指标流出前的唯一遮蔽点。
+- 资格不可用时，mask 把期末权益、年化、最大回撤、胜率、盈亏与成本拆分、资金使用率（capital utilisation）等全部绩效指标与 cost_basis 置空。
 - 活动计数、审计边界、执行捕获状态与审查结论保留为诊断，并挂上资格原因与检查身份。
 - require 是比较（<Ref id="report.compare" />）、对照登记（<Ref id="registration.validate" />）与描述统计读口（<Ref id="report.tables" />）之前的硬门。
 - 拒绝时携带全部原因。
@@ -700,9 +700,9 @@ native_reasons 从原生报表核实质活动，assess 合成资格，mask 与 r
 - 账户未变的零成交运行同样被拒，不会因为没亏损就优于亏损的比较对照（control）。
 - 诊断原因（无信号、未就绪、无机会、未成交、被拒、异常）由 Agent 读原始证据区分（<Ref id="F.1.1.1" />），产品不归因。
 
-**输入**　assess 给出的资格结论与运行读数。
+**输入**　assess 给出的资格结论与运行绩效指标。
 
-**输出**　mask 输出遮蔽后的读数与诊断；require 放行，或拒绝并附全部原因。
+**输出**　mask 输出遮蔽后的绩效指标与诊断；require 放行，或拒绝并附全部原因。
 
 **强制**　代码强制：mask 是唯一遮蔽点，require 是硬门；评测用例 research-round/zero-fill-is-diagnostic 覆盖零成交只作诊断这一点。
 
@@ -767,7 +767,7 @@ native_reasons 从原生报表核实质活动，assess 合成资格，mask 与 r
 
 <Cap id="G.4.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="资格按检查身份在读取时算出，不改写审计结论，所有读口共用一个视图">
 
-- <Ref id="qualification.check_identity" /> 给出检查名（判据版本常量）、读数代码版本与检查器源码 sha256，随每份资格结论与拒绝体一起输出。
+- <Ref id="qualification.check_identity" /> 给出检查名（判据版本常量）、指标计算版本与检查器源码 sha256，随每份资格结论与拒绝体一起输出。
 - 视图不改写存储的 run.status 与审计结果。
 - 判据变更后，旧运行按新检查重评。
 - 历史结论原样保留。

@@ -3,7 +3,7 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义回放前的四步。第一步界定一个假设（hypothesis）：从候选谱系（lineage）里分别选研发父版本（parent）和比较对照（control），把改动收束为一处规则。第二步先查来源，并把原件留存为证据包（evidence bundle）。第三步写下五样，并声明检验条件。第四步是登记（registration），它先于回放并锁定内容。前三步由 skill 指导，代码只校验形态、范围与引用。登记以及回放时的绑定是代码强制的信任边界，在账本（ledger）事务里执行。候选身份与父子关系归 T 章，可比性与检验读数归 V 章，研究优先级归 F 章，运行环境与执行身份的底层归 J 章。
+本章定义回放前的四步。第一步界定一个假设（hypothesis）：从候选谱系（lineage）里分别选研发父版本（parent）和比较对照（control），把改动收束为一处规则。第二步先查来源，并把原件留存为证据包（evidence bundle）。第三步写下五样，并声明检验条件。第四步是登记（registration），它先于回放并锁定内容。前三步由 skill 指导，代码只校验形态、范围与引用。登记以及回放时的绑定是代码强制的信任边界，在账本（ledger）事务里执行。候选身份与父子关系归 T 章，可比性与检验结果归 V 章，研究优先级归 F 章，运行环境与执行身份的底层归 J 章。
 
 <Mermaid chart={"flowchart LR\n  subgraph H-1[\"H.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"H.1.1 研发父版本、比较对照与改动粒度\"]\n    H-1-2[\"H.1.2 提假设前的查漏与批次选择\"]\n  end\n  subgraph H-2[\"H.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"H.2.1 检索\"]\n    H-2-2[\"H.2.2 理由三分类与来源的作用\"]\n    H-2-3[\"H.2.3 留存来源原件\"]\n  end\n  subgraph H-3[\"H.3 写下五样\"]\n    direction TB\n    H-3-1[\"H.3.1 经济理由与预测\"]\n    H-3-2[\"H.3.2 比较维度与检验条件\"]\n    H-3-3[\"H.3.3 网格与适用条件\"]\n  end\n  subgraph H-4[\"H.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"H.4.1 登记身份与先后顺序\"]\n    H-4-2[\"H.4.2 网格点消耗与源码暴露\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
 
@@ -13,7 +13,7 @@
 
 <Step>
 
-读候选清单（<Ref id="E.1.1.2" />）与研究状态清单里的研究优先级（<Ref id="F.2.1.1" />），定下研究路线内下一步要改进的方向。
+读候选清单（<Ref id="E.1.1.2" />）与 <Ref id="report.research_state" /> 给出的当前 priority 判断（<Ref id="F.2.1.1" />），定下研究路线内下一步要改进的方向。
 
 </Step>
 
@@ -53,12 +53,12 @@
 
 从候选谱系定下一个假设的父、对照与改动范围。
 
-<Cap id="H.1.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研发父版本可取候选谱系中任一完整候选，不看推荐与读数">
+<Cap id="H.1.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研发父版本可取候选谱系中任一完整候选，不看推荐与绩效指标">
 
 - 研发父版本（parent）可以是候选谱系（lineage）中任何一个完整候选（candidate，引用名 strategy_id@revision）。
-- 不限于当前推荐、最近版本或读数最好的版本。
+- 不限于当前推荐、最近版本或绩效指标最好的版本。
 - 亏损、不显著或仅作诊断的有效候选照样可作父版本派生。
-- 推荐与检验读数都不授予或剥夺派生资格（<Ref id="T.1.1.2" />）。
+- 推荐与检验结果都不授予或剥夺派生资格（<Ref id="T.1.1.2" />）。
 - 推荐候选不必是下一实验的父（<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />）。
 - 选父的理由写入登记体 rationale，与对照理由分开写。
 - 代码不评价父的成绩。
@@ -85,13 +85,13 @@
 - 根登记（parent 为空）不得带对照与改动。
 - 非根登记在父版本故障或零活动时可暂无对照。
 - 此时 rationale.local 须引用父运行的故障或零活动诊断。
-- 比较读数置空，直到后续登记选到可用对照。
+- 检验结果置空，直到后续登记选到可用对照。
 
 **输入**　登记体的 parent、control_run 与 rationale，以及账本中对照运行的状态、经济证据资格与三类身份。
 
 **输出**　通过，或带拒绝码的拒绝；只读，不写账本。
 
-**强制**　代码强制：<Ref id="registration.validate" /> 调用 <Ref id="qualification.require" /> 与 <Ref id="registration.check_comparable" />，登记时执行，并在 <Ref id="registration.bind" /> 前按当前读数版本重算一次。
+**强制**　代码强制：<Ref id="registration.validate" /> 调用 <Ref id="qualification.require" /> 与 <Ref id="registration.check_comparable" />，登记时执行，并在 <Ref id="registration.bind" /> 前按当前指标计算版本重算一次。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -151,15 +151,15 @@
 1. 列出两类候选动作：机制支持的缺失组合（由已发布候选中的部件组成、尚未试过的组合）与单规则改进。
 2. 按信息价值与完整原生运行成本比较两类动作。
 3. 选出并登记下一小批假设。
-4. 按网格全部回放完并读数（<Ref id="research-round/SKILL.md#run-the-grid" />）。
+4. 按网格全部回放完并绩效指标（<Ref id="research-round/SKILL.md#run-the-grid" />）。
 5. 再登记下一批。
 
 - 排序依据见 <Ref id="research-round/references/feedback.md#priority-ranking" />（预期效应、不确定性、机制佐证、覆盖、信息价值与成本）。
-- 只消费研究状态清单里的研究优先级（<Ref id="F.2.1.1" />），代码不给优先级或分数。
+- 只消费 <Ref id="report.research_state" /> 给出的当前 priority 判断（<Ref id="F.2.1.1" />），代码不给优先级或分数。
 - 不边看结果边加题，也不预设批次数量。
 - 待验证：批次选择对研发效率的前瞻验证尚未进行。
 
-**输入**　研究状态清单里的研究优先级与候选清单。
+**输入**　<Ref id="report.research_state" /> 给出的当前 priority 判断与候选清单。
 
 **输出**　下一小批待登记的假设。
 
@@ -288,7 +288,7 @@
 
 - 规则见 <Ref id="research-sources/SKILL.md#support-and-practice" />。
 - 来源证明作者在其市场与窗口研究了什么，不证明在本市场有效。
-- 来源只进入研究优先级排序中的机制佐证一项（<Ref id="research-round/references/feedback.md#priority-ranking" />），不进入审计、资格或比较读数。
+- 来源只进入研究优先级排序中的机制佐证一项（<Ref id="research-round/references/feedback.md#priority-ranking" />），不进入审计、资格或检验结果。
 - 没有论文的方向仍可低优先级探索。
 - 不按引用数排名、不设引用门槛、不以缺来源关闭方向（<Ref id="research-round/references/feedback.md#no-exclusion" />）。
 - 出处记版本或日期，只有登记前首次可见的版本算事前依据。
@@ -423,9 +423,9 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 - 每类写一句：出现这个结果时，后续研究动作及其研究优先级（research priority）怎么变。
 - 可选的动作包括沿该方向细化、换比较对照、修复后重试、降低优先级并写明重评条件。
 - 映射在回放前随登记锁定。
-- 回放后，Agent 按 <Ref id="research-round/references/feedback.md#priority-ranking" /> 依照映射更新优先级。
+- 回放后，Agent 按 <Ref id="research-round/references/feedback.md#priority-ranking" /> 依照映射重排后续动作，写成一条 priority 判断（<Ref id="ledger.add_judgment" />，命令 <Ref id="cli.judgment_add" />），动作的研发父版本与比较对照作为主体挂上。
 - 不得根据结果改写映射，也不得把不利结果改写成对方向的排除。
-- 映射有遗漏时，补充内容只追加到反馈记录里并注明写于结果之后，不回填登记。
+- 映射有遗漏时，补充内容只写进回放后的 priority 判断正文并注明写于结果之后，不回填登记。
 
 **输入**　预测与登记的比较维度。
 
@@ -445,7 +445,7 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 - 唯一定义了配对推断的维度是年化收益 annual_return。
 - 比较维度是检验的对象，不是胜出声明：登记里不写「父版本胜出」之类的结论。
 - 比较只在这个维度上给出效应、区间与 p（<Ref id="V.3.1.1" />）。
-- 回撤、夏普、胜率、成本、资金使用率等其余读数只作描述，进入推荐时的多维取舍。
+- 回撤、夏普、胜率、成本、资金使用率等其余绩效指标只作描述，进入推荐时的多维取舍。
 - 要扩展可登记的维度，需修改代码里的推断定义及与之对应的检验条件，不能在登记里临时声明。
 
 **输入**　登记体的 metric 字段。
@@ -523,7 +523,8 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 - 它界定结果作为条件证据成立的范围（<Ref id="research-round/references/feedback.md#comparison-conditions" />），不是排除范围。
 - 结果不利时，只能读成「在这些条件下」不显著或亏损。
 - 不得事后收窄条件来挽救结果，也不得把结果扩大成对机制或方向的排除。
-- 历史上的负面结果连同其适用条件进入研究状态（<Ref id="research-round/references/state-list.md#history-feedback" />）。
+- 对负面、不显著或只有诊断的结果，Agent 把机制解释、适用条件与重评条件写成一条 interpretation 判断（<Ref id="ledger.add_judgment" />），主体以 role=about 挂该试验或登记包；正文只引用不抄写，是当时条件下的判断而非排除（<Ref id="research-round/references/judgments.md#body-references-only" />）。
+- 研究状态视图 <Ref id="report.research_state" /> 读时把这些判断与试验事实、结果拼在一起给出。
 - 重试登记（带 retry_of，见 <Ref id="H.4.2.1" />）在条件里写明先前的尝试及其局限。
 - 条件文字与执行身份（运行环境摘要、有效配置、输入身份）一起锁进登记证据包；执行身份由代码在登记时探测并写入（<Ref id="H.4.1.2" />）。
 
@@ -683,7 +684,7 @@ V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需�
 - 消耗行与试验行同生同灭；之后无效或中断的尝试照样保留消耗行并算作消耗。
 - 同一源码再试须另登记，并在登记体 retry_of 写明在 registration_attempt 中实际消耗过该源码的先前登记包。
 - 缺 retry_of 或 retry_of 指向未消耗该源码的登记，由登记校验拒绝。
-- 相同条件的重复不算独立证据：retry_of 把它们连成同一网格点的重复尝试，读数侧据此识别。
+- 相同条件的重复不算独立证据：retry_of 把它们连成同一网格点的重复尝试，绩效指标侧据此识别。
 
 **输入**　登记体里的网格与 retry_of，以及绑定请求。
 

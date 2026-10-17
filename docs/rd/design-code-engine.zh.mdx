@@ -341,11 +341,11 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="engine.compare_reports">compare_reports</Ref> | 规范化排序后逐行逐字段比较两份报告目录中订单、成交、持仓、账户、日收益序列的非随机列，资金费调整逐条比较，账户读数在容差内比较；目录可来自引擎直接写出，也可来自 report.compare_runs 从账本导出；只读。 |
+| <Ref id="engine.compare_reports">compare_reports</Ref> | 规范化排序后逐行逐字段比较两份报告目录中订单、成交、持仓、账户、日收益序列的非随机列，资金费调整逐条比较，账户绩效指标在容差内比较；目录可来自引擎直接写出，也可来自 report.compare_runs 从账本导出；只读。 |
 
 ### `compare_reports` [#def-engine-compare_reports]
 
-规范化排序后逐行逐字段比较两份报告目录中订单、成交、持仓、账户、日收益序列的非随机列，资金费调整逐条比较，账户读数在容差内比较；目录可来自引擎直接写出，也可来自 report.compare_runs 从账本导出；只读。
+规范化排序后逐行逐字段比较两份报告目录中订单、成交、持仓、账户、日收益序列的非随机列，资金费调整逐条比较，账户绩效指标在容差内比较；目录可来自引擎直接写出，也可来自 report.compare_runs 从账本导出；只读。
 
 ```python
 def compare_reports(
@@ -355,9 +355,9 @@ def compare_reports(
 ) -> dict
 ```
 
-<TypeTable type={{ "reference": { type: "Path", description: "参照报告目录（如旧运行环境的回放），须含 engine.write_native_reports 布局下的五张表文件与 summary" }, "candidate": { type: "Path", description: "待比较报告目录（如新运行环境的回放），布局同 reference" }, "account_tolerance": { type: "Decimal", description: "账户汇总读数（余额、权益、未实现盈亏）的绝对容差，缺省取固定常量，未校准示例值；表行逐字段比较与资金费比较不用容差" } }} />
+<TypeTable type={{ "reference": { type: "Path", description: "参照报告目录（如旧运行环境的回放），须含 engine.write_native_reports 布局下的五张表文件与 summary" }, "candidate": { type: "Path", description: "待比较报告目录（如新运行环境的回放），布局同 reference" }, "account_tolerance": { type: "Decimal", description: "账户汇总绩效指标（余额、权益、未实现盈亏）的绝对容差，缺省取固定常量，未校准示例值；表行逐字段比较与资金费比较不用容差" } }} />
 
-**返回**　dict：passed（bool）；tables\{orders, fills, positions, account, returns_series\} 各含 counts（两侧行数）、column_match、compared_columns、excluded_columns、mismatch_count、first_mismatches（前若干条：业务键、列、两侧值）；funding_adjustments\{counts, mismatch_count, first_mismatches\}；metrics\{读数名: \{reference, candidate, within_tolerance\}\}；summary_sha256\{reference, candidate\}；engine_version\{reference, candidate\}。不写任何文件。
+**返回**　dict：passed（bool）；tables\{orders, fills, positions, account, returns_series\} 各含 counts（两侧行数）、column_match、compared_columns、excluded_columns、mismatch_count、first_mismatches（前若干条：业务键、列、两侧值）；funding_adjustments\{counts, mismatch_count, first_mismatches\}；metrics\{绩效指标名: \{reference, candidate, within_tolerance\}\}；summary_sha256\{reference, candidate\}；engine_version\{reference, candidate\}。不写任何文件。
 
 **期望行为**
 
@@ -365,13 +365,13 @@ def compare_reports(
 2. 每表按固定的随机编号列集合（venue order id、trade id、position id、event id 及派生列）剔除后取两侧共有列为 compared_columns；两侧非随机列集合不同记 column_match=false，仍比较交集。
 3. 每表按非随机业务键（时间戳、合约、方向、数量、价格）规范化排序，逐行逐字段按字面值比较；行数不等或任一字段不等计入 mismatch_count，并保留前若干条 first_mismatches。
 4. 从账户报告取全部资金费调整条目，按时间戳与合约排序，逐条比较金额与方向，不用容差。
-5. 从 summary 读账户读数逐项按 account_tolerance 判定；一侧缺某读数记为不可比；同时记两份 summary 的内容哈希与两侧引擎版本。
-6. 任一表不一致、资金费不一致、任一读数超容差或不可比时 passed=false，否则为 true；只返回字典，不写账本、不产生研究读数。
+5. 从 summary 读账户绩效指标逐项按 account_tolerance 判定；一侧缺某绩效指标记为不可比；同时记两份 summary 的内容哈希与两侧引擎版本。
+6. 任一表不一致、资金费不一致、任一绩效指标超容差或不可比时 passed=false，否则为 true；只返回字典，不写账本、不产生研究绩效指标。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `REPORT_DIR_MISSING` | reference 或 candidate 目录不存在，或缺五张表文件或 summary 中任一项 |
-| `REPORT_TABLE_UNREADABLE` | 任一表文件解析失败、缺该表的业务键列，或 summary 缺引擎版本与账户读数区 |
+| `REPORT_TABLE_UNREADABLE` | 任一表文件解析失败、缺该表的业务键列，或 summary 缺引擎版本与账户绩效指标区 |
 | `SAME_REPORT_DIRECTORY` | reference 与 candidate 解析为同一目录 |
 | `INVALID_TOLERANCE` | account_tolerance 为负、非有限数或不可解析为 Decimal |
 
@@ -621,7 +621,7 @@ def diagnostics(strategy: Strategy) -> dict
 2. 返回值须是 dict，且键集与原生报告事实保留键（coin、instrument、quantity、counts、positions 等）无交集。
 3. 返回值须能无损序列化为 JSON（只含 str、int、float、bool、None、list、dict），否则拒绝。
 4. 钩子本身抛出异常按回调异常处理，经 engine.execution_failure 记为执行失败并非零退出。
-5. 通过的字典只作自报诊断写入摘要的 self_reported_diagnostics，不参与任何审计或读数。
+5. 通过的字典只作自报诊断写入摘要的 self_reported_diagnostics，不参与任何审计或绩效指标。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -647,7 +647,7 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict
 
 <TypeTable type={{ "coverage": { type: "dict", description: "覆盖回执：format、effective_config{start, end}、input_identity{market_commit, lifecycle_bundle}、export_receipts{symbol: 回执，含 episodes}。" }, "summary": { type: "dict", description: "原生摘要：input_start_utc、period_end_utc、market_commit、per_coin[{instrument, counts}]。" } }} />
 
-**返回**　tuple[dict, ...]：窗口内的终止事件（InstrumentClose 与 InstrumentStatus CLOSE），按引擎原生结构，供审计与读数使用。
+**返回**　tuple[dict, ...]：窗口内的终止事件（InstrumentClose 与 InstrumentStatus CLOSE），按引擎原生结构，供审计与绩效指标使用。
 
 **期望行为**
 
@@ -894,7 +894,7 @@ def summary_statistics(
 3. 过滤日收益：只留 ts_event_ns ∈ [trade_start_ns, end_ns)，预热段不计；记录进入统计的日数
 4. 年化＝(final_equity÷starting_balance)^(365÷trading_window_days)−1，Decimal 运算后写出
 5. 夏普用引擎统计类按 365 天年化对过滤后的日收益调用 calculate_from_returns；非有限值写 null 并在 statistics_notes 说明，不自行替代计算
-6. 不算回撤、胜率或拆分：它们由账本读数从原生报表行算，摘要不占这些名字
+6. 不算回撤、胜率或拆分：它们由账本绩效指标从原生报表行算，摘要不占这些名字
 
 | 拒绝码 | 条件 |
 |---|---|

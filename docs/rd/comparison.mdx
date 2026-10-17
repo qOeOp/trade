@@ -1,11 +1,11 @@
-# V　比较证据：登记的网格跑完后，候选与比较对照能不能比、差多少、有多确定，读数怎么出、怎么读、留在哪。
+# V　比较证据：登记的网格跑完后，候选与比较对照能不能比、差多少、有多确定，绩效指标怎么出、怎么读、留在哪。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义登记之后、反馈之前：每个登记网格点各回放一次；比较前由代码核可比资格（comparability）：两侧同一运行环境、同一有效配置、同一输入内容身份，且都有经济证据资格；再对登记的唯一维度做配对块自助检验（paired block bootstrap），出效应、区间、p 与稳健性读数（reading）。代码只出读数，不裁决、不写账本、不改候选身份。登记与检验条件归 <Ref id="H.4.1.1">H 章</Ref>，反馈与研究优先级归 <Ref id="F.2.1.1">F 章</Ref>，呈现归 <Ref id="R.4.1.1">R 章</Ref>。
+本章定义登记之后、反馈之前：每个登记网格点各回放一次；比较前由代码核可比资格（comparability）：两侧同一运行环境、同一有效配置、同一输入内容身份，且都有经济证据资格；再对登记的唯一维度做配对块自助检验（paired block bootstrap），出效应、区间、p 与稳健性绩效指标（performance metrics）。代码只出绩效指标，不裁决、不写账本、不改候选身份。登记与检验条件归 <Ref id="H.4.1.1">H 章</Ref>，反馈与研究优先级归 <Ref id="F.2.1.1">F 章</Ref>，呈现归 <Ref id="R.4.1.1">R 章</Ref>。
 
-<Mermaid chart={"flowchart LR\n  subgraph V-1[\"V.1 跑登记的网格：每个网格点一次完整回放\"]\n    direction TB\n    V-1-1[\"V.1.1 网格点的回放与绑定\"]\n    V-1-2[\"V.1.2 回放纪律\"]\n  end\n  subgraph V-2[\"V.2 核可比性：比之前核对两边同一环境、同一单位、都有可比资格\"]\n    direction TB\n    V-2-1[\"V.2.1 必须一致的环境\"]\n    V-2-2[\"V.2.2 配对的双方与单位\"]\n    V-2-3[\"V.2.3 核查时点与拒绝\"]\n  end\n  subgraph V-3[\"V.3 做配对检验：读数怎么算\"]\n    direction TB\n    V-3-1[\"V.3.1 检验对象\"]\n    V-3-2[\"V.3.2 检验方法\"]\n    V-3-3[\"V.3.3 稳健性读数\"]\n  end\n  subgraph V-4[\"V.4 出比较证据：读数怎么出、怎么读、留在哪\"]\n    direction TB\n    V-4-1[\"V.4.1 比较读数的内容与身份\"]\n    V-4-2[\"V.4.2 结果的适用、读法与留痕\"]\n  end\n  V-1 --> V-2\n  V-2 --> V-3\n  V-3 --> V-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph V-1[\"V.1 跑登记的网格：每个网格点一次完整回放\"]\n    direction TB\n    V-1-1[\"V.1.1 网格点的回放与绑定\"]\n    V-1-2[\"V.1.2 回放纪律\"]\n  end\n  subgraph V-2[\"V.2 核可比性：比之前核对两边同一环境、同一单位、都有可比资格\"]\n    direction TB\n    V-2-1[\"V.2.1 必须一致的环境\"]\n    V-2-2[\"V.2.2 配对的双方与单位\"]\n    V-2-3[\"V.2.3 核查时点与拒绝\"]\n  end\n  subgraph V-3[\"V.3 做配对检验：绩效指标怎么算\"]\n    direction TB\n    V-3-1[\"V.3.1 检验对象\"]\n    V-3-2[\"V.3.2 检验方法\"]\n    V-3-3[\"V.3.3 稳健性绩效指标\"]\n  end\n  subgraph V-4[\"V.4 出比较证据：绩效指标怎么出、怎么读、留在哪\"]\n    direction TB\n    V-4-1[\"V.4.1 检验结果的内容与身份\"]\n    V-4-2[\"V.4.2 结果的适用、读法与留痕\"]\n  end\n  V-1 --> V-2\n  V-2 --> V-3\n  V-3 --> V-4"} />
 
 ## V.1　跑登记的网格：每个网格点一次完整回放 [#V-1]
 
@@ -37,7 +37,7 @@ Agent 取登记锁定的网格点（候选 strategy_id@revision），每点调�
 
 <Step>
 
-全部网格点跑完后，Agent 经产品报告与 tables() 读每点读数；不可用的经济读数为空并附原因。
+全部网格点跑完后，Agent 经产品报告与 tables() 读每点绩效指标；不可用的绩效指标为空并附原因。
 
 </Step>
 
@@ -83,11 +83,11 @@ Agent 取登记锁定的网格点（候选 strategy_id@revision），每点调�
 
 ### V.1.2　回放纪律 [#V-1-2]
 
-Agent 跑登记网格和读读数时守的纪律。
+Agent 跑登记网格和读绩效指标时守的纪律。
 
-<Cap id="V.1.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="登记网格每点各回放一次，全部跑完再读读数">
+<Cap id="V.1.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="登记网格每点各回放一次，全部跑完再读绩效指标">
 
-- 登记后把锁定网格里的每个网格点各回放一次，全部跑完再读读数。
+- 登记后把锁定网格里的每个网格点各回放一次，全部跑完再读绩效指标。
 - 不边看结果边加点、换参数或改源码。
 - 改网格、改源码或改意图都是新假设，须经 <Ref id="registration.register" /> 重新登记；新点不追加到本次网格。
 - 网格外的源码不能借用本次登记回放。
@@ -98,7 +98,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 **输出**　网格内每个点各一次回放。
 
-**强制**　skill <Ref id="research-round/SKILL.md#run-the-grid" /> 指导，eval <Ref id="eval:research-round/grid-runs-complete-before-reading" /> 由独立 Agent 前向检查；代码以 <Ref id="registration.bind" /> 的拒绝兜底。
+**强制**　skill <Ref id="research-round/SKILL.md#run-the-grid" /> 指导，eval <Ref id="eval:research-round/grid-runs-complete-before-comparing" /> 由独立 Agent 前向检查；代码以 <Ref id="registration.bind" /> 的拒绝兜底。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -107,21 +107,21 @@ Agent 跑登记网格和读读数时守的纪律。
 
 </Cap>
 
-<Cap id="V.1.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="网格点读数只从产品报告与资格遮蔽后的表读口取">
+<Cap id="V.1.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="网格点绩效指标只从产品报告与资格遮蔽后的表读口取">
 
-- 每个网格点的读数只从产品报告 <Ref id="report.run_report" /> 与类型化表读口 <Ref id="report.tables" /> 取。
+- 每个网格点的绩效指标只从产品报告 <Ref id="report.run_report" /> 与类型化表读口 <Ref id="report.tables" /> 取。
 - 两个读口都经当前经济证据可用性（资格视图）遮蔽。
-- 不可用运行（无效、零成交、缺匹配记录）的经济读数整体置空并附资格原因（<Ref id="qualification.mask" />）。
-- Agent 不手填读数，不从价格触及、信号计数或其他代理指标推算成交、盈亏或计划胜负。
+- 不可用运行（无效、零成交、缺匹配记录）的绩效指标整体置空并附资格原因（<Ref id="qualification.mask" />）。
+- Agent 不手填绩效指标，不从价格触及、信号计数或其他代理指标推算成交、盈亏或计划胜负。
 - 置空就按置空解读，不当作零收益或改善。
 - 遇到置空先读资格原因，只作诊断。
 - 描述统计按 <Ref id="nautilus-report-analysis/SKILL.md#before-computing" /> 经 tables() 取表，并引用账本提交。
 
 **输入**　运行 run 的标识。
 
-**输出**　遮蔽过不可用经济读数并附资格原因的报告与表。
+**输出**　遮蔽过不可用绩效指标并附资格原因的报告与表。
 
-**强制**　skill <Ref id="research-round/SKILL.md#feedback" /> 指导，eval <Ref id="eval:research-round/l3-touch-not-pnl" /> 由独立 Agent 前向检查；代码保证被遮蔽的经济读数不从任何读口流出。
+**强制**　skill <Ref id="research-round/SKILL.md#feedback" /> 指导，eval <Ref id="eval:research-round/l3-touch-not-pnl" /> 由独立 Agent 前向检查；代码保证被遮蔽的绩效指标不从任何读口流出。
 
 </Cap>
 
@@ -161,7 +161,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 <Step>
 
-全部通过才把两条序列交给 <Ref id="report.paired" /> 出读数；任一步拒绝即返回拒绝码与冲突项，不写账本。
+全部通过才把两条序列交给 <Ref id="report.paired" /> 出绩效指标；任一步拒绝即返回拒绝码与冲突项，不写账本。
 
 </Step>
 
@@ -252,7 +252,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 **输入**　登记证据包与候选运行。
 
-**输出**　读数、检验条件与两侧身份。
+**输出**　绩效指标、检验条件与两侧身份。
 
 **强制**　由代码强制：<Ref id="report.compare" /> 只读核对两侧身份与网格绑定。
 
@@ -309,7 +309,7 @@ Agent 跑登记网格和读读数时守的纪律。
 - 拒绝码原样透传，登记不成立。
 - 根登记不得带对照。
 - 故障或零活动父版本的修复派生可声明暂无对照，此时登记成立。
-- 声明暂无对照时，比较时由 <Ref id="report.compare" /> 返回 NO_CONTROL，不出比较读数（见 V.2.2.1）。
+- 声明暂无对照时，比较时由 <Ref id="report.compare" /> 返回 NO_CONTROL，不出检验结果（见 V.2.2.1）。
 
 **输入**　登记声明的对照运行与本登记的执行身份。
 
@@ -330,8 +330,8 @@ Agent 跑登记网格和读读数时守的纪律。
 - 拒绝只读不写账本，以 <Ref id="ledger.refusal" /> 返回拒绝码与全部冲突项：runtime_image、effective_configuration、input_identity 中哪些不等。
 - 被拒绝的比较不进入 <Ref id="V.3.2.1">配对块自助检验</Ref>。
 - Agent 据此另选可比的对照，或在新身份下先重放对照再重放候选（<Ref id="D.2.1.2" />）。
-- 代码不提供放宽入口，读数只由 <Ref id="report.compare" /> 产出。
-- Agent 不得调整任一侧的读数、窗口或序列来凑齐可比性。
+- 代码不提供放宽入口，绩效指标只由 <Ref id="report.compare" /> 产出。
+- Agent 不得调整任一侧的绩效指标、窗口或序列来凑齐可比性。
 
 **输入**　<Ref id="registration.check_comparable" /> 的冲突项。
 
@@ -367,7 +367,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 </Cap>
 
-## V.3　做配对检验：读数怎么算 [#V-3]
+## V.3　做配对检验：绩效指标怎么算 [#V-3]
 
 <Steps>
 
@@ -379,7 +379,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 <Step>
 
-连同登记锁定的检验条件（显著性水平、最小改进、块长、重抽次数、种子，均为登记声明的未校准示例值）与本次网格点数调用 <Ref id="report.paired" />；它经 <Ref id="registration.validate_design" /> 再校验条件形态与范围，并核两序列等长、有限、大于 -1、至少两个完整块，不合即拒绝、不出任何读数。
+连同登记锁定的检验条件（显著性水平、最小改进、块长、重抽次数、种子，均为登记声明的未校准示例值）与本次网格点数调用 <Ref id="report.paired" />；它经 <Ref id="registration.validate_design" /> 再校验条件形态与范围，并核两序列等长、有限、大于 -1、至少两个完整块，不合即拒绝、不出任何绩效指标。
 
 </Step>
 
@@ -403,7 +403,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 <Step>
 
-读数交回比较入口绑定身份后返回，只给读数不给裁决；呈现见 <Ref id="R.4.1.1" />、<Ref id="R.4.1.2" />，进入研究优先级见 <Ref id="F.2.1.1" />。
+绩效指标交回比较入口绑定身份后返回，只给绩效指标不给裁决；呈现见 <Ref id="R.4.1.1" />、<Ref id="R.4.1.2" />，进入研究优先级见 <Ref id="F.2.1.1" />。
 
 </Step>
 
@@ -416,12 +416,12 @@ Agent 跑登记网格和读读数时守的纪律。
 <Cap id="V.3.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="配对推断只在登记锁定的唯一比较维度上做">
 
 - 只对登记锁定的那一个比较维度给区间与 p。
-- 回撤、胜率、成本、资金使用率等其余读数由报告作描述与诊断并列呈现（见 <Ref id="R.4.1.1" />），不附区间、不附 p、不做推断。
-- 演练中每次登记只押年化收益一个维度，其余读数只作诊断。
+- 回撤、胜率、成本、资金使用率等其余绩效指标由报告作描述与诊断并列呈现（见 <Ref id="R.4.1.1" />），不附区间、不附 p、不做推断。
+- 演练中每次登记只押年化收益一个维度，其余绩效指标只作诊断。
 
 **输入**　登记包里的单一维度字段（见 <Ref id="H.3.2.1" />）与两侧账户日收益。
 
-**输出**　该维度的配对读数。
+**输出**　该维度的检验结果。
 
 **强制**　代码：登记时 <Ref id="registration.validate" /> 校验维度个数，比较时 <Ref id="report.paired" /> 只对该维度出推断。
 
@@ -462,12 +462,12 @@ Agent 跑登记网格和读读数时守的纪律。
 - 检验条件的形态与范围在登记时由 <Ref id="registration.validate_design" /> 校验（见 <Ref id="H.3.2.2" />），函数入口再校验一次。
 - 函数只读，不写账本。
 - 同一输入与种子重算结果逐位一致。
-- 只给读数不给裁决（见 <Ref id="V.4.1.1" />）。
-- 演练中全部比较读数由该函数算出，配对年化差区间跨零的结果被如实报告。
+- 只给绩效指标不给裁决（见 <Ref id="V.4.1.1" />）。
+- 演练中全部检验结果由该函数算出，配对年化差区间跨零的结果被如实报告。
 
 **输入**　<Ref id="report.compare" /> 经 <Ref id="ledger.daily_returns" /> 取得的对照侧与候选侧按同一 UTC 日钟逐日对应的账户日简单收益（配对单位见 <Ref id="V.2.2.2" />），登记锁定的检验条件 design（method、block_days、resamples、inner_resamples、seed、alpha、minimum_effect、design_reason），以及网格点数。
 
-**输出**　平均日对数差、按 365 日历日由两侧平均日对数收益换算的年化差，以及本节区间、校正与稳健性各项读数。
+**输出**　平均日对数差、按 365 日历日由两侧平均日对数收益换算的年化差，以及本节区间、校正与稳健性各项绩效指标。
 
 **强制**　代码：由只读函数 <Ref id="report.paired" /> 实现，比较入口 <Ref id="report.compare" /> 调用。
 
@@ -482,7 +482,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 - 基本区间（basic）：由中心化分布的上下分位数反射得到。
 - 嵌套学生化区间（studentized）：在每个外层重抽内再以 inner_resamples 次内层块自助估计标准误、算学生化统计量，由其分位数乘外层标准误得到。
-- 配对年化差的百分位区间（percentile）是独立读数，不与 p 混称，也不是对登记最小改进的检验。
+- 配对年化差的百分位区间（percentile）是独立绩效指标，不与 p 混称，也不是对登记最小改进的检验。
 - 外层标准误退化（不大于数值零阈值）时 p、校正后 p 与学生化区间留空，并写入局限。
 - 任一内层标准误退化时学生化区间留空并计数，并写入局限。
 - 留空时不以其他区间替代。
@@ -501,7 +501,7 @@ Agent 跑登记网格和读读数时守的纪律。
 - 网格每个点的运行各自与登记声明的对照比较，不取代表点。
 - 每点区间覆盖 interval_coverage_grid_adjusted = 1 − alpha/网格点数。
 - 校正后 p = 原始单侧 p × 网格点数，截到 1。
-- 校正只覆盖本次登记的网格，不代表跨登记、跨候选的全程自适应研究误差受控；这一句作为固定局限随读数返回。
+- 校正只覆盖本次登记的网格，不代表跨登记、跨候选的全程自适应研究误差受控；这一句作为固定局限随绩效指标返回。
 - 同一样本外窗口多候选的校正由 <Ref id="report.holm" /> 承担（见 <Ref id="X.2.1.3" />）。
 
 **输入**　登记的 alpha、本次登记的网格点数与原始单侧 p。
@@ -516,7 +516,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 </Cap>
 
-### V.3.3　稳健性读数 [#V-3-3]
+### V.3.3　稳健性绩效指标 [#V-3-3]
 
 供 Agent 核对样本量、时间相依与可分辨效应，随每次 <Ref id="report.paired" /> 结果返回（解读见 <Ref id="V.4.2.3" />）。
 
@@ -526,7 +526,7 @@ Agent 跑登记网格和读读数时守的纪律。
 - 三档各用登记种子重新建随机源，区间覆盖同为网格调整后水平。
 - 交易天数不足该档块长两倍时标 available=false，不给数。
 - 差值集中度：绝对日对数差最大的五日占全部绝对差之和的比例，全为零时报 0，用于判断效应是否只靠少数几天。
-- 只作读数，不用于挑选块长或版本。
+- 只作绩效指标，不用于挑选块长或版本。
 
 **输入**　两侧日对数差序列、登记块长与种子。
 
@@ -551,7 +551,7 @@ Agent 跑登记网格和读读数时守的纪律。
 
 </Cap>
 
-## V.4　出比较证据：读数怎么出、怎么读、留在哪 [#V-4]
+## V.4　出比较证据：绩效指标怎么出、怎么读、留在哪 [#V-4]
 
 <Steps>
 
@@ -569,7 +569,7 @@ Agent 对已封存的登记网格点调用 <Ref id="cli.registration_compare" />
 
 <Step>
 
-<Ref id="report.compare" /> 调用 <Ref id="report.paired" /> 做配对块自助检验（paired block bootstrap），返回读数与身份。
+<Ref id="report.compare" /> 调用 <Ref id="report.paired" /> 做配对块自助检验（paired block bootstrap），返回绩效指标与身份。
 
 </Step>
 
@@ -581,21 +581,21 @@ Agent 按 skill 只在登记的适用条件内解读：p 不当作有效概率�
 
 <Step>
 
-Agent 经 <Ref id="cli.evidence_add" /> 追加证据包，分段写观察事实、未证解释与下一假设，并引用候选运行、对照运行、登记与账本提交。
+Agent 经 <Ref id="cli.evidence_add" /> 追加证据包，记观察事实，并引用候选运行、对照运行、登记与账本提交；机制解释与下一假设经 <Ref id="cli.judgment_add" /> 写成 interpretation 与 priority 判断。
 
 </Step>
 
 <Step>
 
-读数流向反馈与研究优先级（<Ref id="F.2.1.1" />）和综合推荐（<Ref id="F.3.2.1" />），报告并列呈现见 <Ref id="R.4.1.1" />。
+绩效指标流向反馈与研究优先级（<Ref id="F.2.1.1" />）和综合推荐（<Ref id="F.3.2.1" />），由 <Ref id="report.research_state" /> 读时附在判断主体上；报告并列呈现见 <Ref id="R.4.1.1" />。
 
 </Step>
 
 </Steps>
 
-### V.4.1　比较读数的内容与身份 [#V-4-1]
+### V.4.1　检验结果的内容与身份 [#V-4-1]
 
-代码产出的比较结果只有读数、检验条件、局限、身份四组字段，没有任何裁决字段。
+代码产出的比较结果只有绩效指标、检验条件、局限、身份四组字段，没有任何裁决字段。
 
 <Cap id="V.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="比较结果只给效应、区间、p 与检验条件，不含裁决字段">
 
@@ -624,16 +624,16 @@ Agent 经 <Ref id="cli.evidence_add" /> 追加证据包，分段写观察事实�
 
 <Cap id="V.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="每份比较结果绑定同一只读事务取得的完整身份，缺一项即拒绝">
 
-- 身份由 <Ref id="report.compare" /> 在取读数的同一只读事务（<Ref id="ledger.read_as_of" />）里取得。
+- 身份由 <Ref id="report.compare" /> 在取绩效指标的同一只读事务（<Ref id="ledger.read_as_of" />）里取得。
 - 候选运行与对照运行的编号（<Ref id="table:run" />），以及它们经试验（trial，<Ref id="table:trial" />）绑定的登记网格点。
 - 登记证据包名（<Ref id="table:evidence_bundle" />），以及服务器写入的登记时间（<Ref id="J.4.1.1" />）。
 - 研发父版本的 strategy_id@revision。
 - 读取时的账本提交哈希。
-- 读数代码版本（<Ref id="ledger.reader_revision" />）与比较代码的源码哈希。
+- 指标计算版本（<Ref id="ledger.metrics_revision" />）与比较代码的源码哈希。
 - 两侧的经济证据可用性结论及其检查身份（<Ref id="qualification.check_identity" />）。
 - 比较不写账本，不返回裁决。
 - Agent 引用比较结果时必须连同这组身份一起引用（见 <Ref id="eval:research-round/comparison-evidence-cites-identity" />）。
-- 凭这组身份，任何读数都能按账本提交与代码版本重算复核。
+- 凭这组身份，任何绩效指标都能按账本提交与代码版本重算复核。
 
 **输出**　附在每份比较结果上的一组身份。
 
@@ -647,12 +647,12 @@ Agent 经 <Ref id="cli.evidence_add" /> 追加证据包，分段写观察事实�
 
 ### V.4.2　结果的适用、读法与留痕 [#V-4-2]
 
-research-round 的 references/feedback.md 用四条规则约束读数的适用条件、留痕、p 的含义与账户收益差读法，每条由对应 eval 检验；代码只提供读数和证据包写入（<Ref id="ledger.add_bundle" />）。
+research-round 的 references/feedback.md 用四条规则约束绩效指标的适用条件、留痕、p 的含义与账户收益差读法，每条由对应 eval 检验；代码只提供绩效指标、证据包写入（<Ref id="ledger.add_bundle" />）与判断写入（<Ref id="ledger.add_judgment" />）。
 
-<Cap id="V.4.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="比较读数只在登记的适用条件内成立，不推广也不用来排除方向">
+<Cap id="V.4.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="检验结果只在登记的适用条件内成立，不推广也不用来排除方向">
 
 - 适用条件包括源码、改动、参数、输入、窗口与运行环境（runtime image），见 <Ref id="research-round/references/hypothesis.md#conditions" />。
-- 读数不推广为对机制的肯定，也不用作排除某个方向的依据（见 <Ref id="research-round/references/feedback.md#no-exclusion" />）。
+- 绩效指标不推广为对机制的肯定，也不用作排除某个方向的依据（见 <Ref id="research-round/references/feedback.md#no-exclusion" />）。
 - 相同条件的重复回放不算另一份独立证据：登记网格点只消耗一次（<Ref id="table:registration_attempt" />）。
 - 重试必须另行登记并写 retry_of。
 - 条件不同的结果不互相抵消，各自保留、分别引用；它们对研究优先级（research priority）的含义见 <Ref id="F.2.1.2" />。
@@ -661,19 +661,22 @@ research-round 的 references/feedback.md 用四条规则约束读数的适用�
 
 </Cap>
 
-<Cap id="V.4.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="比较不写账本，读数与解释由 Agent 写成只追加的证据包">
+<Cap id="V.4.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="比较不写账本，检验结果由 Agent 写成只追加的证据包，解释与下一步写成判断">
 
 - <Ref id="report.compare" /> 只读，不写任何表。
-- Agent 把比较读数写成只追加的证据包，经 <Ref id="cli.evidence_add" />（<Ref id="ledger.add_bundle" />）入账。
-- 证据包分三段：观察事实（读数原值、局限与诊断）、未证解释、下一假设。
-- 包内引用候选运行、对照运行、登记证据包和读取时的账本提交，规则同 <Ref id="research-round/references/state-list.md#update-rules" />。
-- 旧证据包不改写；修正先前的表述时，另写一条指向原记录的更正（correction）记录（<Ref id="J.3.1.2" />）。
+- Agent 把检验结果写成只追加的证据包，经 <Ref id="cli.evidence_add" />（<Ref id="ledger.add_bundle" />）入账。
+- 证据包记观察事实：绩效指标原值、局限与诊断。
+- 包内引用候选运行、对照运行、登记证据包和读取时的账本提交。
+- 对这次比较的机制解释、适用条件与重评条件写成 interpretation 判断，主体以 about 挂登记包；下一假设与后续动作写成 priority 判断，父版本与对照分别挂 parent、control（见 <Ref id="research-round/references/judgments.md#what-to-record" />）。
+- 判断经 <Ref id="cli.judgment_add" />（<Ref id="ledger.add_judgment" />）追加，based_on_commit 填读取比较结果时的账本提交。
+- 判断正文只引用候选、试验、登记包与账本提交，不抄绩效指标、计数或资格结论（见 <Ref id="research-round/references/judgments.md#body-references-only" />）。
+- 旧证据包不改写；修正先前的表述时，另写一条指向原记录的更正（correction）记录（<Ref id="J.3.1.2" />）；改判断时写新一条并以 supersedes 指向旧的。
 
-**输入**　比较读数及其身份。
+**输入**　检验结果及其身份。
 
-**输出**　<Ref id="table:evidence_bundle" /> 中一条只追加的证据包。
+**输出**　<Ref id="table:evidence_bundle" /> 中一条只追加的证据包；<Ref id="table:judgment" /> 中只追加的 interpretation 与 priority 判断。
 
-**强制**　代码只保证证据包只追加、记内容哈希且同内容重试幂等、拒绝占用产品保留命名空间的包名；分段与引用由 skill（research-round/references/feedback.md#comparison-record）要求，由 eval 检验。
+**强制**　代码只保证证据包只追加、记内容哈希且同内容重试幂等、拒绝占用产品保留命名空间的包名；判断只追加，路线、提交、主体与取代关系由 <Ref id="ledger.add_judgment" /> 核对。分段、判断种类与只引用由 skill（research-round/references/feedback.md#comparison-record、research-round/references/judgments.md#body-references-only）要求，由 eval 检验。
 
 </Cap>
 
@@ -700,7 +703,7 @@ research-round 的 references/feedback.md 用四条规则约束读数的适用�
 - 仓位与资金预算规则是策略源码里的设计变量。
 - 改动它们要作为新候选登记，按同一配对检验比较。
 - 这类比较把资金使用率与利润来源作为必读诊断（读法与时机见 <Ref id="F.1.2.1" />）。
-- 读数不好时，不靠放大仓位或改研究目标来凑账户差。
+- 绩效指标不好时，不靠放大仓位或改研究目标来凑账户差。
 
 **输入**　封存的敞口表与报表。
 
@@ -714,7 +717,7 @@ research-round 的 references/feedback.md 用四条规则约束读数的适用�
 
 - **非收益维度（回撤、胜率、夏普）的配对推断**　夏普差可用学生化循环块自助（与 V.3.2.1 同机制）作第二个可登记维度；回撤是路径统计量、胜率两侧计划数不等，无成熟配对设计；扩维度改拒绝边界须用户授权。
 
-- **不进文档**　全程自适应搜索的误差控制（试验次数折扣、DSR、PBO、ONC）：归 R 章试验计数与折扣夏普读数；本章只在 V.3.2.3 写明 Bonferroni 只校正本次网格、不控制全程搜索。
+- **不进文档**　全程自适应搜索的误差控制（试验次数折扣、DSR、PBO、ONC）：归 R 章试验计数与折扣夏普绩效指标；本章只在 V.3.2.3 写明 Bonferroni 只校正本次网格、不控制全程搜索。
 - **不进文档**　显著性水平、最小改进的数值：由 Agent 登记时声明并写设计理由（H.3.2.2），正文一律写「未校准示例值」，不作常数。
 - **不进文档**　策略嵌入离线拟合常量绕过网格计数：归 C 章源码契约与独立源码审查；比较只认已发布源码的内容哈希。
 - **不进文档**　双父合成版本与谁比：合成版本按 T 章一父加来源证据处理；本章由「对照由登记声明、不必是父版本」（V.2.2.1）覆盖。

@@ -1,6 +1,6 @@
 # T　候选谱系：回答什么算一个候选，以及候选之间怎样经研发父版本与改动说明连成树和森林。
 
-本章定义候选（candidate）的身份与候选谱系（lineage）。候选是账本（ledger）里一份完整源码的精确字节，以内容哈希（content hash）唯一，由登记（registration）后的一处改动产生；非根候选带研发父版本（parent）与改动说明，根节点（root）无父无比较对照（control）；树合成森林，任一候选可再派生。账本表结构与发布、登记核对强制这些约束，不读运行读数；推荐与读数不改身份。推荐见 <Ref id="F.3.2.1">F 章</Ref>，入口见 <Ref id="E.3.1.1">E 章</Ref>。
+本章定义候选（candidate）的身份与候选谱系（lineage）。候选是账本（ledger）里一份完整源码的精确字节，以内容哈希（content hash）唯一，由登记（registration）后的一处改动产生；非根候选带研发父版本（parent）与改动说明，根节点（root）无父无比较对照（control）；树合成森林，任一候选可再派生。账本表结构与发布、登记核对强制这些约束，不读运行绩效指标；推荐与绩效指标不改身份。推荐见 <Ref id="F.3.2.1">F 章</Ref>，入口见 <Ref id="E.3.1.1">E 章</Ref>。
 
 <Mermaid chart={"flowchart LR\n  subgraph T-1[\"T.1 认定候选：什么算一个候选\"]\n    direction TB\n    T-1-1[\"T.1.1 候选的身份与根\"]\n  end\n  subgraph T-2[\"T.2 连成谱系：父、对照与分枝\"]\n    direction TB\n    T-2-1[\"T.2.1 父关系与比较对照怎么记\"]\n    T-2-2[\"T.2.2 树、森林与候选清单\"]\n  end\n  T-1 --> T-2"} />
 
@@ -28,7 +28,7 @@ Agent 在工作副本写完一份完整单文件源码，决定它是根（不�
 
 <Step>
 
-登记时 <Ref id="registration.validate" /> 只核谱系（父、改动说明、根不带对照），不读父版本或自身任何运行的读数。
+登记时 <Ref id="registration.validate" /> 只核谱系（父、改动说明、根不带对照），不读父版本或自身任何运行的绩效指标。
 
 </Step>
 
@@ -84,7 +84,7 @@ Agent 在工作副本写完一份完整单文件源码，决定它是根（不�
 - 两道核对的输入只有源码身份、父引用与改动说明。
 - 父版本或自身任何运行的收益、显著性、可比资格与推荐状态都不是核对输入，代码不能据此拒绝。
 - 审计有效、但亏损、不显著或未达用户期望的候选保持候选身份，可被任何后续登记声明为研发父版本（parent）继续派生，不需额外授权。
-- 试验（trial）、运行（run）、推荐（recommendation）与检验读数（reading）都在候选之外产生，对候选身份没有写权，既不授予也不剥夺派生资格。
+- 试验（trial）、运行（run）、推荐（recommendation）与检验结果（performance metrics）都在候选之外产生，对候选身份没有写权，既不授予也不剥夺派生资格。
 - 候选清单 <Ref id="report.candidates" /> 并列读出全部候选，不带分数、资格标记或排序。
 
 **输入**　源码字节、父引用、改动说明。
@@ -108,7 +108,7 @@ Agent 在工作副本写完一份完整单文件源码，决定它是根（不�
 - 账本不设「系统」「人造」之类的来源标记字段。
 - 根的来源（策略库模板或用户发起并提供信息源的人造根，见 <Ref id="L.2.1.1" />、<Ref id="L.1.4.1" />）只写在源码文件头与发布说明里。
 - 根与派生候选经同一入口 <Ref id="ledger.publish_candidate" /> 发布，不带父即为根，没有第二条路径。
-- 根只做一次无父、无对照的登记与回放，不产生比较读数；这次回放计入试验（见 <Ref id="L.2.2.1" />）。
+- 根只做一次无父、无对照的登记与回放，不产生检验结果；这次回放计入试验（见 <Ref id="L.2.2.1" />）。
 
 **输入**　源码字节与发布说明，不带父。
 
@@ -141,7 +141,7 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 
 <Step>
 
-回放绑定网格点前，在同一写事务里再核一次对照（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />）；对照为空时照常回放，比较读数置空。
+回放绑定网格点前，在同一写事务里再核一次对照（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />）；对照为空时照常回放，检验结果置空。
 
 </Step>
 
@@ -214,7 +214,7 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 
 </Cap>
 
-<Cap id="T.2.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记时 parent 与 control 分开声明；对照可为空，为空时不给比较读数">
+<Cap id="T.2.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="登记时 parent 与 control 分开声明；对照可为空，为空时不给检验结果">
 
 - parent 是改动所基于的候选（strategy_id@revision）。
 - control 是一次已封存运行（run）的身份。
@@ -227,11 +227,11 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 - 运行具备经济证据资格。
 - control 可以为空：故障、无效或零活动的父可以修复派生后无对照登记，照常回放并计入试验，只是不产生改善、区间和 p。
 - 对照的可比性与可用性核两次：登记时一次，回放绑定前再一次（<Ref id="H.4.1.3" />、<Ref id="V.2.3.1" />）；中间若因读时视图变化丢了资格，绑定被拒绝。
-- 演练中实际出现过父与对照不同的登记；故障父的修复以无对照登记后回放，比较读数为空。
+- 演练中实际出现过父与对照不同的登记；故障父的修复以无对照登记后回放，检验结果为空。
 
 **输入**　登记体中的 parent、可选的 control 和网格点。
 
-**输出**　被接受的登记（无对照时比较读数为空），或具名拒绝码。
+**输出**　被接受的登记（无对照时检验结果为空），或具名拒绝码。
 
 **强制**　代码：registration.validate 的登记检查、registration.check_comparable 的可比性核对和 qualification.require 的资格硬门。
 
@@ -276,7 +276,7 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 - Agent 按 <Ref id="research-round/SKILL.md#merge-rule" /> 操作。
 - <Ref id="registration.register" /> 内的 <Ref id="registration.validate" /> 核对 sources 引用的证据包在账本里存在，不存在就拒绝。
 - 登记体只有一个 parent 字段，结构上写不出双父。
-- 合并后的候选不继承任一方的读数。
+- 合并后的候选不继承任一方的绩效指标。
 - 源码仍遵守单文件契约和三条硬契约（<Ref id="C.1.4.2" />、<Ref id="C.1.4.3" />、<Ref id="research-round/references/strategy-authoring.md#hard-contract-allocation" />），合并带来的资本分配变化须写在源码里。
 - 待验证：演练中还没有实际发生过合并登记，也没有比较过「一父加来源证据」与双父记法哪个在审计中更易读。
 
@@ -295,7 +295,7 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 - 每个登记尝试（<Ref id="table:registration_attempt" />：一个被试验消耗的网格点）带登记证据包、消耗它的 trial_id、run_id、run_status（passed | invalid | unfinished）和 availability。
 - availability 含 <Ref id="qualification.check_identity" /> 给出的检查身份，及 <Ref id="qualification.assess" /> 当下算出的经济证据可用性和原因。
 - 任一尝试经济证据可用，valid_evidence 即为真。
-- 没有 run 的尝试（中断、未完成）也列出，标为 unfinished，因为网格点已被消耗；零成交或无效的尝试只显示为不可用，不附读数。
+- 没有 run 的尝试（中断、未完成）也列出，标为 unfinished，因为网格点已被消耗；零成交或无效的尝试只显示为不可用，不附绩效指标。
 - 可用性是读时视图，不改写存储的 run.status 和审计结论（<Ref id="G.4.2.3" />）。
 - 清单不含分数、资格标记、排序或占位推荐，只按 (strategy_id, revision) 自然顺序稳定输出；推荐及理由由 Agent 另写证据包（<Ref id="F.3.2.1" />）。
 - report.candidates 经 <Ref id="ledger.read_as_of" /> 按 at 以 AS OF 打开只读连接并钉住提交。
@@ -325,5 +325,5 @@ Agent 提交登记，由 <Ref id="registration.validate" /> 核对谱系与对�
 
 - **不进文档**　两份源码怎么合成一份：属 Agent 工作，无产品规则；T.2.2.2 只定登记与来源证据的写法。
 - **不进文档**　推荐的排序算法或推荐分数：不存在推荐分数；候选清单不带分数或资格列，推荐理由只写在研究状态证据包里（E、F 章）。
-- **不进文档**　推荐多久更新一次、复盘触发次数的声明：归 F 章，由 Agent 在研究状态清单里声明节奏与理由；本章只保证推荐随时可做且不改谱系。
+- **不进文档**　推荐多久更新一次、复盘触发次数的声明：归 F 章，由 Agent 以 review_cadence 判断声明节奏与理由；本章只保证推荐随时可做且不改谱系。
 - **不进文档**　非劣集视图纳入哪些维度：归 R、F 章；本章不列维度清单。

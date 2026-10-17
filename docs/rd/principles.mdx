@@ -45,31 +45,31 @@
 
 ### A.1.1　循环的步骤 [#A-1-1]
 
-四步都是 skill 指导的 Agent 行为，代码只在步骤之间强制登记锁定网格点、完整性审计、实质活动与可比资格、配对检验读数，不决定下一步、不返回裁决。
+四步都是 skill 指导的 Agent 行为。输入是账本里的候选清单、运行绩效指标与研究状态视图 <Ref id="report.research_state" />；输出是写回账本的登记、证据包与判断。代码只在步骤之间强制登记先于回放并锁定网格点、完整性审计、实质活动与可比资格、检验结果，不决定下一步、不返回裁决。
 
 <Cap id="A.1.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="入口先恢复研究状态并给综合推荐，再由用户选研究路线">
 
-1. 经命令行从账本读候选清单 <Ref id="report.candidates" />、运行读数与最新版研究状态清单。
-2. 清单缺失或落后于账本时，以候选清单与事实计数为准并补写新版。
+1. 经命令行读候选清单 <Ref id="report.candidates" />、运行绩效指标与当前路线的研究状态视图 <Ref id="report.research_state" />（命令 <Ref id="cli.research_state" />）。
+2. 视图给出的未复盘试验非空且到达声明的复盘节奏时，先复盘再给推荐。
 3. 在全部经济证据可用的候选上给多维综合推荐与路线选项，并说明取舍。
 4. 等用户选研究路线，选定前不登记、不回放。
 5. 把选定的起点候选、开发窗口与钉住的市场提交写成研究路线证据包（<Ref id="ledger.select_line" />）。
 
-- 研究状态清单 research state list 按市场与开发窗口 development window 各一份，是只追加的证据包。
+- 研究状态 research state 是读时视图：当前判断加候选身份、资格、绩效指标与研究计数等读时事实，按研究路线在读取提交上现算，不另存。
 - 会话记忆不算研究状态。
 - 仅诊断与无效候选分列，不入推荐。
 - 推荐维度：年化、回撤、夏普、胜率、成本、资金使用率 capital utilisation、利润来源、机制、不确定性。
-- 每个选项附读数、资格与已试／未试历史。
+- 每个选项附绩效指标、资格与已试／未试历史。
 - 选项由 Agent 提、由用户选，不以推荐代替选择。
 - 只在两种情况下提根节点 root 选项：账本里没有候选谱系 lineage，或用户明确决定离开全部现存路线（<Ref id="research-start/SKILL.md#root-options" />）。
 - 根来自策略库模板或用户自建的人造根 artificial root，附首份报告。
 - 亏损、低优先级、复盘计数或运行限制都不触发选新根。
 
-**输入**　账本中的候选清单、运行读数与研究状态清单。
+**输入**　账本中的候选清单、运行绩效指标与研究状态视图 <Ref id="report.research_state" />。
 
 **输出**　综合推荐与路线选项；用户选定后的研究路线证据包。
 
-**强制**　research-start skill 指导恢复、推荐、等用户选三阶段与提根条件；代码只提供只读读口与路线证据包写入，不做选择。
+**强制**　research-start skill 指导恢复、推荐、等用户选三阶段与提根条件；代码只提供只读读口（<Ref id="report.research_state" />）与路线证据包写入，不做选择。
 
 </Cap>
 
@@ -83,7 +83,7 @@
 6. 回放：对每个网格点各跑一次 purpose=research 的试验，产生运行 run。
 7. 审计与资格：运行环境内的独立审计器只对账不重算，实质活动与可比资格都通过才给经济反馈。
 8. 读比较证据：经 <Ref id="report.compare" /> 取登记声明的对照，配对块自助给效应、区间、p，不返回裁决。
-9. 反馈与优先级：结论写成只追加证据包，并给后续具体研究动作排研究优先级 research priority。
+9. 反馈与优先级：机制解释、适用条件与重评条件记为 interpretation 判断，后续具体研究动作的排序记为 priority 判断（父版本与对照挂为主体），都经 <Ref id="ledger.add_judgment" />（命令 <Ref id="cli.judgment_add" />）只追加入账。
 
 - Agent 不在步骤之间请用户批准。
 - 理由分外部依据、本地诊断、自身推测三类；工程修复不需论文。
@@ -95,12 +95,14 @@
 - 零成交只诊断原因，不记亏损、不改优先级。
 - 结论只在登记的适用条件内成立。
 - 优先级按预期效应、不确定性、机制佐证、覆盖、信息价值与成本排定；低优先级保留重评。
+- 算过的视角与读过的报告记为 search_exposure 判断（<Ref id="research-round/references/judgments.md#what-to-record" />）。
+- 判断正文只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别（<Ref id="research-round/references/judgments.md#body-references-only" />）。
 
 **输入**　选定的研究路线及其中的父候选、账本与外部来源资料。
 
-**输出**　新候选版本、登记证据、运行、比较读数与只追加的反馈证据包。
+**输出**　新候选版本、登记证据、运行、检验结果与只追加的 interpretation、priority 判断。
 
-**强制**　步骤顺序与优先级由 research-round skill 指导；登记、回放、审计与资格、比较读数的拒绝由代码强制并写入账本。
+**强制**　步骤顺序与优先级由 research-round skill 指导；登记、回放、审计与资格、检验结果的拒绝由代码强制并写入账本。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -113,55 +115,56 @@
 
 <Cap id="A.1.1.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="复盘按声明的次数或进展触发并给综合推荐，换路线须回入口由用户选">
 
-1. Agent 事先在研究状态清单里声明复盘节奏（按尝试次数或按进展）及理由。
-2. 节奏到达即复盘，在全部经济证据可用的候选上综合推荐一版或一批，说明取舍与不确定性。
-3. 推荐作为新版研究状态清单追加入账。
+1. Agent 事先把复盘节奏（按尝试次数或按进展）及理由记为 review_cadence 判断。
+2. 节奏到达即复盘：对照研究状态视图 <Ref id="report.research_state" /> 给出的未复盘试验，在全部经济证据可用的候选上综合推荐一版或一批，说明取舍与不确定性。
+3. 推荐记为 recommendation 判断，经 <Ref id="ledger.add_judgment" /> 追加入账，based_on_commit 填复盘时读的账本提交。
 4. 研究默认在同一路线内继续。
 5. 仅当 Agent 判断需要换路线时，给出诊断与路线选项，以提问结束回到入口，等用户选。
 
 - 复盘不停止研究，没有总次数或总预算。
 - 被推荐的候选不必是最新版本，也不必是下一实验的父版本。
 - 亏损、计数到达、运行限制或故障都不自动换路线。
+- 上次复盘以来的试验与计数按最新推荐的 based_on_commit 读时算，不存。
 
-**输入**　研究状态清单中声明的节奏、事实计数 <Ref id="report.research_status" /> 与全部可比候选的读数。
+**输入**　review_cadence 判断、研究状态视图 <Ref id="report.research_state" /> 中的未复盘试验、事实计数 <Ref id="report.research_status" /> 与全部可比候选的绩效指标。
 
-**输出**　含推荐的新版研究状态清单；需换路线时的诊断与路线选项。
+**输出**　recommendation 判断；需换路线时的诊断与路线选项。
 
-**强制**　全部由 research-round skill 指导；代码只提供事实计数供声明节奏对照，不含停止标志。
+**强制**　全部由 research-round skill 指导；代码只提供研究状态视图与事实计数供声明节奏对照，不含停止标志。
 
 </Cap>
 
 <Cap id="A.1.1.4" kind="skill" tier="rehearsal" tierLabel="演练证据" title="用户随时读报告与推荐，样本外验证只由用户发起，观察不改候选资格">
 
-- 用户随时读任一候选的运行报告、比较证据与最新推荐，不必等复盘。
-- 报告经 <Ref id="report.run_report" /> 从运行行给出：产品读数经资格视图遮蔽，不可用的经济读数留空并写原因。
-- 报告附总体与样本量、读数代码版本与局限清单；推荐选项附读数与资格。
+- 用户随时读任一候选的运行报告、比较证据与最新推荐（<Ref id="report.research_state" />），不必等复盘。
+- 报告经 <Ref id="report.run_report" /> 从运行行给出：绩效指标经资格视图遮蔽，不可用的绩效指标留空并写原因。
+- 报告附总体与样本量、指标计算版本与局限清单；推荐选项附绩效指标与资格。
 - 用户认可某候选后，Agent 询问是否发起样本外 out-of-sample 验证 validation，并说明检验什么。
 - 验证是 purpose=validation 的试验，只由用户发起；产品不自动登记，循环不以它为前提（<Ref id="research-round/references/validation.md#user-initiated" />）。
 - 候选不因被读、被推荐或被验证而获得或失去作父版本的资格。
 
-**输入**　账本中的运行行、比较证据与最新推荐。
+**输入**　账本中的运行行、比较证据与最新 recommendation 判断。
 
 **输出**　只读的候选报告；用户发起时的验证试验。
 
-**强制**　读报告与发起验证由 skill 指导；读数遮蔽与报告内容由代码只读给出。
+**强制**　读报告与发起验证由 skill 指导；绩效指标遮蔽与报告内容由代码只读给出。
 
 </Cap>
 
 ### A.1.2　没有终点 [#A-1-2]
 
-输入是账本中的登记、未消耗网格点、研究状态清单与候选表；输出是恢复后的续做与不带分数的候选清单。
+两条能力一条由 skill 指导（研究默认持续，运行限制只暂停），一条由代码强制（候选身份与派生资格不受推荐、显著性或达标影响），共同保证循环不会被门槛、计数或裁决终止。输入是账本中的登记、未消耗网格点、判断记录与候选表；输出是恢复后的续做与不带分数的候选清单。
 
 <Cap id="A.1.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研究不设达标门槛、总次数或总预算，运行限制与环境未就绪只暂停执行">
 
 - Agent 声明的次数到达只触发复盘（<Ref id="research-round/SKILL.md#review-cadence" />）。
 - 用户设置的运行限制（时间、并发、花费）只暂停执行，不改变研究状态。
-- 暂停时账本中的登记、未消耗的网格点（<Ref id="table:registration_attempt" />）与研究状态清单保持原样。
+- 暂停时账本中的登记、未消耗的网格点（<Ref id="table:registration_attempt" />）与判断记录保持原样。
 - 恢复时 Agent 从账本读回这三样，续做已选路线，不重选路线、不重登记。
 - 环境未就绪（运行环境、市场提交、覆盖回执缺失）只报告缺哪一段与可运行范围，不缩窄路线、不否定候选（<Ref id="research-start/SKILL.md#readiness-and-blockers" />）。
-- 账本给出的研究状态只有事实计数：尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，没有停止标志、目标或分数字段（<Ref id="report.research_status" />）。
+- 研究计数只给事实：尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态（<Ref id="report.research_status" />）；研究计数与研究状态视图都没有停止标志、目标或分数字段。
 
-**输入**　账本中的登记、未消耗网格点与研究状态清单；用户设置的运行限制。
+**输入**　账本中的登记、未消耗网格点与判断记录；用户设置的运行限制。
 
 **输出**　恢复后在已选路线内续做；环境未就绪时的缺口与可运行范围报告。
 
@@ -180,7 +183,7 @@
 
 **输出**　候选表行与不带分数或排序的候选清单。
 
-**强制**　账本表结构强制候选表不含分数、推荐、资格或排序字段；推荐与资格只存在于只追加的证据包，不回写候选。
+**强制**　账本表结构强制候选表不含分数、推荐、资格或排序字段；推荐只存在于只追加的判断记录，资格读时给出，都不回写候选。
 
 </Cap>
 
@@ -208,13 +211,13 @@ Agent 在路线内提假设 hypothesis、选研发父版本 parent 与比较对�
 
 <Step>
 
-代码对有资格的两侧运行给配对检验读数 reading：效应、区间、p 与登记时声明的检验条件，不返回通过或失败；账本不存分数、裁决或状态字段。
+代码对有资格的两侧运行给配对检验绩效指标 performance metrics：效应、区间、p 与登记时声明的检验条件，不返回通过或失败；账本不存分数、裁决或状态字段。
 
 </Step>
 
 <Step>
 
-Agent 读账本里的登记 registration、运行 run 记录与读数，写反馈、更新研究优先级 research priority；按声明的次数复盘 review 并给综合推荐 recommendation，推荐候选与下一实验父版本分别说明。
+Agent 经 <Ref id="report.research_state" /> 读登记 registration、运行 run 记录、绩效指标与当前判断，把研究优先级 research priority 等判断经 <Ref id="ledger.add_judgment" /> 追加到账本；按声明的复盘节奏复盘 review 并给综合推荐 recommendation，推荐候选与下一实验父版本分别说明。
 
 </Step>
 
@@ -233,14 +236,14 @@ Agent 读账本里的登记 registration、运行 run 记录与读数，写反�
 <Cap id="A.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" tierNote="演练中实际走过：早期曾把零成交运行误读为经济结果，此后由资格检查把零成交只列为诊断，不给区间与 p。" title="审计不过的回放无效；有真实成交且记录互相匹配才有经济证据资格">
 
 1. 每次回放结束后，与运行器和策略源码独立的进程在同一运行环境 runtime image 内只读回放报告，执行完整性审计 <Ref id="engine.audit" />。
-2. 审计不通过、审计未运行或运行器非零退出的回放记为无效 invalid；<Ref id="ledger.ingest_run" /> 只写状态、逐条原因与原生摘要，读数列一律置空。
-3. 有效运行才写读数与原生报表行。
+2. 审计不通过、审计未运行或运行器非零退出的回放记为无效 invalid；<Ref id="ledger.ingest_run" /> 只写状态、逐条原因与原生摘要，绩效指标列一律置空。
+3. 有效运行才写绩效指标与原生报表行。
 4. 读取时 <Ref id="qualification.assess" /> 按明确的检查身份算出经济证据资格 comparability 的当前视图，附原因。
 5. 比较与对照登记前，<Ref id="qualification.require" /> 作硬门：任一侧不可用即拒绝并返回原因。
 
 - 无效运行不参与任何比较，但仍计入试验 trial 次数（<Ref id="G.1.2.1" />）。
 - 有效不等于可比：运行须有真实原生成交，且订单、持仓周期、费用、资金费 funding 与账户记录互相匹配，才具备可比资格并可获得改善、区间与 p。
-- 零成交或缺匹配记录的运行只留诊断，经济读数置空，也不因账户未变而优于亏损对照。
+- 零成交或缺匹配记录的运行只留诊断，绩效指标置空，也不因账户未变而优于亏损对照。
 - 资格视图综合审计状态、原始执行捕获与绑定的独立源码审查。
 - 资格视图不改写存储的审计结论。
 - 报告、候选清单、比较与计数共用这一视图。
@@ -255,7 +258,7 @@ Agent 读账本里的登记 registration、运行 run 记录与读数，写反�
 
 </Cap>
 
-<Cap id="A.2.1.2" kind="code" tier="verified" tierLabel="已验证" tierNote="演练中比较读数全部由代码算出并附检验条件，推荐只引用读数。" title="比较只返回效应、区间、p 与检验条件，不返回通过或失败">
+<Cap id="A.2.1.2" kind="code" tier="verified" tierLabel="已验证" tierNote="演练中检验结果全部由代码算出并附检验条件，推荐只引用绩效指标。" title="比较只返回效应、区间、p 与检验条件，不返回通过或失败">
 
 1. 比较的唯一入口 <Ref id="report.compare" /> 接收一个登记 registration 的引用。
 2. 核对登记声明了比较对照 control，且候选运行绑定本登记的网格点。
@@ -268,8 +271,8 @@ Agent 读账本里的登记 registration、运行 run 记录与读数，写反�
 - 声明的检验条件是显著性水平与最小改进，均为未校准示例值。
 - 输出绑定两侧运行与登记的身份。
 - 代码不返回通过、失败或采纳字段。
-- 比较不写账本；读数与解释由 Agent 作只追加证据留存（<Ref id="V.4.2.2" />）。
-- 读数只服务于诊断、推荐与用户判断。
+- 比较不写账本；绩效指标与解释由 Agent 作只追加证据留存（<Ref id="V.4.2.2" />）。
+- 绩效指标只服务于诊断、推荐与用户判断。
 
 **输入**　一个登记的引用。
 
@@ -281,7 +284,7 @@ Agent 读账本里的登记 registration、运行 run 记录与读数，写反�
 
 ### A.2.2　Agent 决定的 [#A-2-2]
 
-Agent 读账本的候选清单、读数与研究状态清单，产出登记、策略源码、推荐与研究优先级；代码只提供读数与计数，不介入裁决。
+Agent 经研究状态视图读候选、绩效指标与当前判断，产出登记、策略源码，以及推荐与研究优先级等判断记录；代码只提供绩效指标与计数，不介入裁决。
 
 <Cap id="A.2.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" tierNote="演练中 Agent 自行决定父版本与对照并在源码中改仓位规则，没有请求授权；所选父版本与当时的推荐候选不同。" title="路线内研究动作由 Agent 自主决定；仓位与风险上限是设计变量而非用户约束">
 
@@ -290,19 +293,20 @@ Agent 读账本的候选清单、读数与研究状态清单，产出登记、�
 - 对照须经济证据可用。
 - 父与对照分别声明，理由写进登记（<Ref id="research-round/SKILL.md#parent-and-control" />）。
 - 研究优先级按预期效应、不确定性、机制佐证、覆盖、信息价值与成本排具体动作；代码不给优先级（<Ref id="research-round/references/feedback.md#priority-ranking" />）。
+- 排序与理由经 <Ref id="ledger.add_judgment" /> 记为 priority 判断，每个动作的父版本与对照挂为 parent、control 主体（<Ref id="research-round/references/judgments.md#what-to-record" />）。
 - 仓位、单笔风险与名义上限是 Agent 的设计变量：规则写在策略源码里，数量由引擎 engine 账户状态算出。
 - 不另设名义上限模仿保证金 margin；资金使用率 capital utilisation 从报告读出（<Ref id="research-round/references/strategy-authoring.md#hard-contract-capital" />）。
 - 设计变量不构成用户约束，改动不需要授权，也不得在推荐或反馈里被说成用户约束。
 
-**输入**　用户选定的研究路线、账本的候选清单、读数与研究状态清单。
+**输入**　用户选定的研究路线；<Ref id="report.research_state" /> 给出的候选、绩效指标与当前判断。
 
-**输出**　登记（含父版本与对照的理由）、策略源码、写入研究状态清单的研究优先级。
+**输出**　登记（含父版本与对照的理由）、策略源码、追加到账本的 priority 判断。
 
 **强制**　skill 强制（<Ref id="research-round/SKILL.md#design-variables" />），eval <Ref id="eval:research-round/own-sizing-not-user-constraint" /> 校验。
 
 </Cap>
 
-<Cap id="A.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" tierNote="演练中最终推荐不是最新版本，而下一实验的父版本另有理由；两者分别记录在研究状态清单。" title="推荐综合全部可用候选并说明取舍；不替用户选路线，也不必是下一父版本">
+<Cap id="A.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" tierNote="演练中最终推荐不是最新版本，而下一实验的父版本另有理由；两者分别记为 recommendation 与 priority 判断。" title="推荐综合全部可用候选并说明取舍；不替用户选路线，也不必是下一父版本">
 
 - 推荐在复盘或入口给出，范围是全部经济证据可用的候选 candidate，含历史候选。
 - 综合维度：年化、回撤、夏普、胜率、成本、资金使用率、利润来源（价格盈亏、手续费、资金费拆分）、机制解释与不确定性。
@@ -310,13 +314,14 @@ Agent 读账本的候选清单、读数与研究状态清单，产出登记、�
 - 推荐随时可做，不等未来候选研究完，不等于验证。
 - 推荐是用户选择研究路线的输入，不是选择本身。
 - 推荐候选不必是下一实验的研发父版本：父与对照按研究需要另选，两者分别给理由、分别记录（<Ref id="research-round/SKILL.md#recommendation-vs-next-parent" />）。
-- 推荐只引用代码给出的读数与计数，不引用任何裁决字段。
+- 推荐依据代码给出的绩效指标与计数，不引用任何裁决字段。
+- 推荐经 <Ref id="ledger.add_judgment" /> 记为 recommendation 判断，推荐候选挂 recommended 主体；正文写取舍理由，只引用候选、试验、登记包与账本提交，不抄绩效指标数值、计数或资格结论，这些由 <Ref id="report.research_state" /> 读时给出（<Ref id="research-round/references/judgments.md#body-references-only" />）。
 
-**输入**　账本中全部经济证据可用的候选及其读数与计数。
+**输入**　<Ref id="report.research_state" /> 给出的全部经济证据可用的候选及其绩效指标与计数。
 
-**输出**　追加到研究状态清单的综合推荐及取舍说明。
+**输出**　追加到账本的 recommendation 判断：推荐候选与取舍理由。
 
-**强制**　skill 强制（<Ref id="research-round/SKILL.md#review-and-recommendation" />、<Ref id="research-start/SKILL.md#recommendation-statement" />），eval <Ref id="eval:research-round/recommendation-not-next-parent" /> 校验。
+**强制**　skill 强制（<Ref id="research-round/SKILL.md#review-and-recommendation" />、<Ref id="research-start/SKILL.md#recommendation-statement" />），eval <Ref id="eval:research-round/recommendation-not-next-parent" /> 与 <Ref id="eval:research-round/judgment-references-not-copies" /> 校验。
 
 </Cap>
 
@@ -326,7 +331,7 @@ Agent 读账本的候选清单、读数与研究状态清单，产出登记、�
 
 <Cap id="A.2.3.1" kind="skill" tier="rehearsal" tierLabel="演练证据" tierNote="演练中根均由用户选定的模板发布，路线切换等待用户选择。" title="研究路线由用户选定；选定前 Agent 不登记、不回放">
 
-1. Agent 提出选项：推荐与取舍、多维读数、历史反馈。
+1. Agent 经 <Ref id="report.research_state" /> 读当前判断与读时事实，提出选项：推荐与取舍、多维绩效指标、历史试验的机制解释与重评条件。
 2. 用户从中选，或指定推荐范围外的历史候选、策略库模板，或用自己提供的信息源建人造根。
 3. 选中项成为当前唯一研究路线的起点，路线内由 Agent 自主派生。
 
@@ -335,7 +340,7 @@ Agent 读账本的候选清单、读数与研究状态清单，产出登记、�
 - 人造根由用户发起并提供信息源，Agent 不主动提议（<Ref id="research-start/SKILL.md#artificial-root" />）。
 - 用户明确授权选某模板一次即够，不重复请求。
 
-**输入**　Agent 给出的推荐、多维读数与历史反馈；或用户指定的历史候选、模板、信息源。
+**输入**　Agent 给出的推荐、多维绩效指标与历史试验的机制解释；或用户指定的历史候选、模板、信息源。
 
 **输出**　当前唯一研究路线的起点。
 
@@ -353,7 +358,7 @@ Agent 读账本的候选清单、读数与研究状态清单，产出登记、�
 
 - 账本与代码不含认可、上线或验证状态字段，研究循环也不以它们为前提。
 - Agent 的职责到报告为止。
-- 报告验证结果时不换窗口或范围再登记，不挑着报，不用开发窗口读数替代（<Ref id="research-round/references/validation.md#report-as-is" />）。
+- 报告验证结果时不换窗口或范围再登记，不挑着报，不用开发窗口绩效指标替代（<Ref id="research-round/references/validation.md#report-as-is" />）。
 
 **输入**　报告与综合推荐。
 
@@ -396,7 +401,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 <Step>
 
-做选择的时刻产出诊断或精确阻断加选项并保留恢复状态；看结果的时刻产出推荐或读数，写明取舍、局限与不确定性。
+做选择的时刻产出诊断或精确阻断加选项并保留恢复状态；看结果的时刻产出推荐或绩效指标，写明取舍、局限与不确定性。
 
 </Step>
 
@@ -416,7 +421,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 ### A.3.1　要用户做选择时 [#A-3-1]
 
-由 skill（research-start 为主、research-round 换路线节配合）指导，输入是账本研究状态、候选清单与代码只读产出的环境事实。
+由 skill（research-start 为主、research-round 换路线节配合）指导，输入是研究状态视图、候选清单与代码只读产出的环境事实。
 
 <Cap id="A.3.1.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="候选谱系为空或需离开当前路线时，Agent 给诊断与选项并等用户选">
 
@@ -424,15 +429,15 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 - 触发 (a)：账本中没有经济证据可用的候选（candidate），候选谱系为空。
 - 触发 (b)：复盘后 Agent 判断当前研究路线内已无值得优先做的后续动作。
 - (a) 情况从策略库模板提根节点（root）选项，每个模板附其在当前开发窗口（development window）的首份报告（<Ref id="research-start/SKILL.md#root-options" />）。
-- (b) 情况列出历史候选、其他路线、模板或人造根，每项附多维读数与取舍（<Ref id="A.2.3.1" />）。
+- (b) 情况列出历史候选、其他路线、模板或人造根，每项附多维绩效指标与取舍（<Ref id="A.2.3.1" />）。
 - 报告以提问结束，等用户选（<Ref id="E.4.1.1" />）。
 - 用户选定前不登记、不回放、不改开发窗口与范围，不以推荐代替选择。
-- 不要求证明旧路线无价值：旧路线、其候选与证据在账本中原样保留，低优先级方向可随时重评。
+- 不要求证明旧路线无价值：旧路线、其候选、证据与判断在账本中原样保留，低优先级方向可随时重评。
 - 亏损与不显著不是触发条件，走反馈与优先级（<Ref id="A.1.1.2" />）。
 - 研究计数到达不是触发条件，只触发复盘（<Ref id="F.3.1.2" />）。
 - 运行限制或故障不是触发条件，走 <Ref id="A.3.1.2" />。
 
-**输入**　研究状态清单最新版（推荐与取舍、研究优先级、历史反馈，<Ref id="E.1.1.3" />）与候选清单（<Ref id="E.1.1.2" />）。
+**输入**　研究状态视图（当前 recommendation、priority 与 interpretation 判断及读时事实，<Ref id="report.research_state" />，命令 <Ref id="cli.research_state" />）与候选清单（<Ref id="E.1.1.2" />）。
 
 **输出**　一份诊断（为什么没有起点，或为什么当前路线继续的预期价值低于其他选项）加选项清单，以提问结束。
 
@@ -451,7 +456,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 - 报告给出恢复状态：账本中的登记与未消耗网格点原样保留，恢复后续做（<Ref id="research-start/SKILL.md#pause-and-resume" />）。
 - 以提问结束，等用户在三项中选：等待修复后原范围重跑、在可运行范围内继续、改市场提交或开发窗口（后者走 <Ref id="D.1.1.3" />）。
 - Agent 不自行删币、缩窗或补数（<Ref id="W.3.3.2" />）。
-- 阻断不否定候选身份或路线有效性，覆盖缺口不是经济失败；已完成运行的读数照常可读。
+- 阻断不否定候选身份或路线有效性，覆盖缺口不是经济失败；已完成运行的绩效指标照常可读。
 - 不设达标门槛、总次数或总预算（<Ref id="A.1.2.1" />）。
 
 **输入**　运行环境解析结果、按合约的覆盖事实与生命周期回执（只读，<Ref id="E.1.2.2" />）、账本中的登记与未消耗网格点。
@@ -464,25 +469,26 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 ### A.3.2　要用户看结果时 [#A-3-2]
 
-由 research-round 指导，复盘推荐与样本外读数都以报告交给用户。
+由 research-round 指导，复盘推荐与样本外绩效指标都以报告交给用户。
 
 <Cap id="A.3.2.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="复盘给出综合推荐时，Agent 报告推荐与取舍后不等待，继续循环">
 
-- 复盘按研究状态清单中声明的次数或进展节奏触发（<Ref id="F.3.1.2" />），到达即复盘，不停止研究。
+- 复盘按当前 review_cadence 判断声明的次数或进展节奏触发（<Ref id="F.3.1.2" />），到达即复盘，不停止研究。
 - 推荐写明推荐哪一版或哪一批、理由、取舍、不确定性。
 - 另写明下一动作的优先级。
 - 另写明所选父版本（parent）与比较对照（control）及理由。
 - 另写明复盘节奏及理由。
 - 三者互不推出，推荐候选不必是下一实验的父版本（<Ref id="F.3.2.2" />）。
-- 推荐追加到研究状态清单（<Ref id="research-round/references/state-list.md#current-decisions" />）。
+- 三者各写成一条判断经 <Ref id="cli.judgment_add" /> 写入（<Ref id="ledger.add_judgment" />）：recommendation 挂推荐候选为 recommended，priority 挂父版本与对照为 parent、control，review_cadence 记节奏（<Ref id="research-round/references/judgments.md#what-to-record" />）。
+- 判断正文只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别，这些由 <Ref id="report.research_state" /> 读时给出（<Ref id="research-round/references/judgments.md#body-references-only" />）。
 - 交给用户后不等待：用户可继续（Agent 默认按优先级续做）、换路线（走 <Ref id="A.3.1.1" />）或发起样本外验证（走 <Ref id="X.1.1.1" />）。
 - 推荐不是裁决也不是验证，不含采纳门槛或推荐分数；认不认可、上不上线由用户看报告后判断（<Ref id="A.2.3.2" />）。
 
-**输入**　全部经济证据可用的候选及其读数（年化、回撤、夏普、胜率、成本、资金使用率 capital utilisation、利润来源拆分、机制解释、不确定性，<Ref id="E.3.2.1" />）、历史反馈与当前研究优先级（research priority）。
+**输入**　全部经济证据可用的候选及其绩效指标（年化、回撤、夏普、胜率、成本、资金使用率 capital utilisation、利润来源拆分、机制解释、不确定性，<Ref id="E.3.2.1" />），以及研究状态视图中的 interpretation 判断、当前 priority 判断与未复盘试验（<Ref id="report.research_state" />）。
 
-**输出**　一份交给用户看的推荐，追加到研究状态清单。
+**输出**　一份交给用户看的推荐，以及写入账本的 recommendation、priority、review_cadence 三条判断。
 
-**强制**　由 skill 强制；读数来自代码，Agent 不自评（<Ref id="F.3.1.1" />）。
+**强制**　由 skill 强制；绩效指标来自代码，Agent 不自评（<Ref id="F.3.1.1" />）；判断写入由 <Ref id="ledger.add_judgment" /> 核对路线、账本提交、主体与取代关系。
 
 </Cap>
 
@@ -494,20 +500,20 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 - 登记时取公共时间戳凭证，窗口在凭证之后开始。
 - 一次登记绑定一次回放，不一致由账本拒绝（<Ref id="X.1.3.2" />）。
 - 报告第一部分：登记的检验条件。
-- 报告第二部分：与开发报告同口径的读数及其一次性区间（<Ref id="X.2.1.1" />），多候选同一窗口时附校正。
+- 报告第二部分：与开发报告同口径的绩效指标及其一次性区间（<Ref id="X.2.1.1" />），多候选同一窗口时附校正。
 - 报告第三部分：局限。
-- 局限一：成交由撮合模型模拟，读数是实盘上限。
+- 局限一：成交由撮合模型模拟，绩效指标是实盘上限。
 - 局限二：短窗口只能否定，写出窗口长度与可分辨效应（<Ref id="research-round/references/validation.md#limits" />）。
-- 报告第四部分：用语只说读数或「未被反驳」，不说验证通过（<Ref id="research-round/references/validation.md#wording" />）。
-- 无论好坏都报：不改口径、不换窗口或范围再登记、不挑着报、不用开发窗口读数替代。
+- 报告第四部分：用语只说绩效指标或「未被反驳」，不说验证通过（<Ref id="research-round/references/validation.md#wording" />）。
+- 无论好坏都报：不改口径、不换窗口或范围再登记、不挑着报、不用开发窗口绩效指标替代。
 - 认不认可由用户判断，Agent 不出裁决；报告后循环继续，不以验证结果为前提。
 - 待验证：缺实际完成的样本外验证案例。
 
 **输入**　样本外报告（<Ref id="cli.validation_report" />）与该次登记的检验条件。
 
-**输出**　包含检验条件、同口径读数与区间、局限、规范用语四部分的报告。
+**输出**　包含检验条件、同口径绩效指标与区间、局限、规范用语四部分的报告。
 
-**强制**　登记一致性、时间戳凭证与读数由代码与账本强制；呈现方式与不重跑由 skill 强制。
+**强制**　登记一致性、时间戳凭证与绩效指标由代码与账本强制；呈现方式与不重跑由 skill 强制。
 
 </Cap>
 
@@ -563,7 +569,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 - (2) 完整性审计：<Ref id="engine.audit" /> 只读原生报告，不导入策略源码。
 - (3) 实质活动 substantive activity 与可比资格 comparability：<Ref id="qualification.assess" /> 在读取时算出当前资格，零成交或缺匹配记录只留诊断。
 - <Ref id="registration.check_comparable" /> 核两侧可比。
-- (4) 配对检验读数：<Ref id="report.paired" /> 只给效应、区间与 p，不返回采纳裁决。
+- (4) 检验结果：<Ref id="report.paired" /> 只给效应、区间与 p，不返回采纳裁决。
 - (5) 账本只追加、原子幂等与封存 seal：写入只经 <Ref id="ledger.write" />。
 - 回放结束（含中断与宿主失败）由 <Ref id="ledger.seal_capture" /> 原样封存命令、各阶段退出码与原生 stdout、stderr。
 - (6) 运行环境钉死与执行身份：<Ref id="runtime.resolve" /> 从镜像清单读出身份，不接受手写身份。
@@ -573,7 +579,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 **输入**　登记与网格源码、回放命令与原生报告、镜像清单、固定市场提交及样本外窗口。
 
-**输出**　通过时写入账本或给出读数；不满足时给出带拒绝码、缺什么与写入状态的拒绝。
+**输出**　通过时写入账本或给出绩效指标；不满足时给出带拒绝码、缺什么与写入状态的拒绝。
 
 **强制**　代码：registration、engine、qualification、report、runtime、market、ledger 包内的所列函数抛 <Ref id="ledger.refusal" />，不给绕过途径。
 
@@ -631,19 +637,21 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 三条消极约束由运行器交给引擎的配置、容器命令与账本账号权限实现，可在源码、账本模式与运行环境检视中核对。
 
-<Cap id="A.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="代码不建平行系统，出口只给事实读数，不设门槛、终止或大类排除">
+<Cap id="A.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="代码不建平行系统，出口只给事实与绩效指标，不设门槛、终止或大类排除">
 
 - 代码不建与引擎平行的引擎、账本、调度器、策略语言或组件注册器。
 - 代码不建优化器、推荐分数、贝叶斯或 Thompson 调度、影子账户或知识图谱库。
 - 代码不设通过门槛、固定次数终止或按大类排除方向。
-- 候选清单 <Ref id="report.candidates" />、比较入口 <Ref id="report.compare" /> 与研究计数 <Ref id="report.research_status" /> 只给事实与读数，不含裁决、分数、排序或停止字段。
+- 候选清单 <Ref id="report.candidates" />、比较入口 <Ref id="report.compare" /> 与研究计数 <Ref id="report.research_status" /> 只给事实与绩效指标，不含裁决、分数、排序或停止字段。
 - 账本表也没有这类列。
-- 推荐、研究优先级 research priority 与复盘节奏由 Agent 按 skill 写进研究状态证据包。
+- 推荐 recommendation、研究优先级 research priority 与复盘节奏 review_cadence 是 Agent 按 <Ref id="research-round/references/judgments.md#what-to-record" /> 经 <Ref id="cli.judgment_add" /> 追加的判断，由 <Ref id="ledger.add_judgment" /> 写入 <Ref id="table:judgment" />。
+- 判断正文只引用候选、试验、登记包与账本提交，不存绩效指标、计数、资格或结果类别。
+- 研究状态由 <Ref id="report.research_state" /> 读时把当前判断与事实拼出，代码不在其中加分数、排序或停止字段。
 - 回放中的事件全部交给 <Ref id="engine.replay" /> 里的引擎处理。
 
-**输出**　只读出口返回的事实与读数。
+**输出**　只读出口返回的事实与绩效指标；研究状态视图另附 Agent 的当前判断。
 
-**强制**　代码与账本模式：账本模式与三个出口的返回字段里不出现分数、通过、停止类字段，可检视核对。
+**强制**　代码与账本模式：账本模式（含 judgment 表）与四个只读出口的返回字段里不出现分数、通过、停止类字段，可检视核对。
 
 </Cap>
 
@@ -654,7 +662,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 - 撮合、订单、成交、结算、风控、账户与保证金 margin 全归引擎 engine。
 - 代码不重算成交、持仓、余额或盈亏，不在引擎之外维护订单状态。
-- 需要交易事实的读数一律取原生报告行。
+- 需要交易事实的绩效指标一律取原生报告行。
 
 **输入**　固定账户与撮合常量、回放数据。
 
@@ -664,7 +672,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 
 </Cap>
 
-<Cap id="A.4.2.3" kind="code" tier="verified" tierLabel="已验证" title="研究不碰实盘：回放只读数据，无交易账户与凭据，运行环境断网">
+<Cap id="A.4.2.3" kind="code" tier="verified" tierLabel="已验证" title="研究不碰实盘：回放只读交易所数据，无交易账户与凭据，运行环境断网">
 
 - 回放只读交易所数据 exchange data，不连交易账户、不用交易凭据、不下实盘单。
 - <Ref id="runtime.container_command" /> 以无网络、只读根、去除能力、禁止提权、当前用户、不拉取的容器执行运行环境 runtime image。
@@ -684,7 +692,7 @@ Agent 在研究路线内自主推进（<Ref id="A.2.2.1" />），假设、登记
 <Cap id="A.4.3.1" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研究流程由四个按需加载的 skill 指导，产品只给命令行">
 
 - 四个 skill 的分工见 <Ref id="research-start/SKILL.md#skill-set" />。
-- research-start 管入口：恢复研究状态 research state、综合推荐 recommendation、用户选研究路线 research line。
+- research-start 管入口：按 <Ref id="research-start/SKILL.md#read-research-state" /> 经 <Ref id="cli.research_state" /> 读研究状态 research state 视图、综合推荐 recommendation、用户选研究路线 research line。
 - research-round 管路线内循环 <Ref id="research-round/SKILL.md#continuous-research" />。
 - research-sources 管外部来源 <Ref id="research-sources/SKILL.md#which-source" />。
 - nautilus-report-analysis 管从原生报告算描述统计 <Ref id="nautilus-report-analysis/SKILL.md#before-computing" />。
@@ -746,7 +754,7 @@ Agent 按 skill 产出独立源码审查与来源三分类，经 <Ref id="regist
 
 <Step>
 
-只读账号按精确版本运行 <Ref id="report.review_all" />，逐表核对非追加差异、读数重算、登记时序与凭证是否在位；差异只报「发现」，不写任何记录。
+只读账号按精确版本运行 <Ref id="report.review_all" />，逐表核对非追加差异、绩效指标重算、登记时序与凭证是否在位；差异只报「发现」，不写任何记录。
 
 </Step>
 
@@ -821,7 +829,7 @@ Agent 按 skill 产出独立源码审查与来源三分类，经 <Ref id="regist
 - <Ref id="runtime.inspect_runtime" /> 在隔离容器内运行探针，核对契约、源码路径与有效配置哈希是否自洽。
 - 封存产物身份：证据包内每个文件的原件字节，以及由字节派生的哈希与长度（<Ref id="table:evidence" />）；读回时逐文件重验。
 - 执行身份：子进程启动前，试验行写下用途、源码哈希、运行环境摘要、合约集与窗口（<Ref id="table:trial" />）。
-- 运行行记录有效配置哈希、输入身份与读数代码版本（<Ref id="table:run" />）；输入身份包括钉住的市场提交（<Ref id="market.resolve_commit" />）与按 AS OF 派生的成员时间路径（<Ref id="table:universe_month" />）。
+- 运行行记录有效配置哈希、输入身份与指标计算版本（<Ref id="table:run" />）；输入身份包括钉住的市场提交（<Ref id="market.resolve_commit" />）与按 AS OF 派生的成员时间路径（<Ref id="table:universe_month" />）。
 - 写入时间由服务器触发器填写，Agent 不能提供。
 - 账本内的先后由提交顺序证明；dolt_history_\<t> 给出每行在每次提交时的值与提交时间。
 - 对外的先后（如样本外登记早于窗口起点）由 RFC 3161 时间凭证证明（<Ref id="table:witness" />），离线验证走 <Ref id="ledger.token_time" />；凭证只证明记录当时已经存在，不证明它唯一。
@@ -843,7 +851,7 @@ Agent 按 skill 产出独立源码审查与来源三分类，经 <Ref id="regist
 - 写入侧的并发碰撞点是 ledger_head 单行，冲突时一方由数据库回滚。
 - 篡改不能阻止，只能事后发现：由只读账号按精确版本运行 <Ref id="report.review_all" />。
 - 复核逐表读取 dolt_diff_\<table> 与 dolt_history_\<table> 核对非追加差异，diff_type 为修改或删除即是发现。
-- 用历史版本的读数代码重算读数，并与存储值比对。
+- 用历史版本的指标计算代码重算绩效指标，并与存储值比对。
 - 核对登记时间早于试验，且被执行的源码在登记网格内。
 - 核对封存身份与 <Ref id="table:witness" /> 凭证都在位。
 - 核对 <Ref id="table:ledger_head" /> 的操作序列连续、无缺号。

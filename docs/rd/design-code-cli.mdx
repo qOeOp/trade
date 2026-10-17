@@ -24,7 +24,8 @@
 | <Ref id="cli.evidence_add">evidence_add</Ref> | 追加 Agent 的证据包（自由文本与原件），是 Agent 写证据的唯一入口 |
 | <Ref id="cli.evidence_export">evidence_export</Ref> | 核验内容哈希后把证据包文件导出到临时目录 |
 | <Ref id="cli.execution_recover">execution_recover</Ref> | 命令行入口：把从保留工作目录恢复的字节另标追加到原始捕获缺失的预检试验，不补证 |
-| <Ref id="cli.registration_compare">hypothesis_compare</Ref> | 命令行比较入口：对本登记某网格点的封存运行与登记声明的对照出配对比较读数，原样透传 report.compare 的读数与拒绝 |
+| <Ref id="cli.registration_compare">hypothesis_compare</Ref> | 命令行比较入口：对本登记某网格点的封存运行与登记声明的对照出检验结果，原样透传 report.compare 的绩效指标与拒绝 |
+| <Ref id="cli.judgment_add">judgment_add</Ref> | 命令 judgment add：调用 ledger.add_judgment，输出 JSON |
 | <Ref id="cli.ledger_export">ledger_export</Ref> | 命令行入口：以读账号导出账本全史备份与复现清单，或把全史增量同步到档案声明的备份目标 |
 | <Ref id="cli.ledger_init">ledger_init</Ref> | 命令行入口 ledger init：初始化一个账本档案（账号、branch 写权、提交校验组），只在此命令内使用管理权限 |
 | <Ref id="cli.ledger_review">ledger_review</Ref> | 整体复核的命令入口：读账号按精确版本复核，只报发现 |
@@ -41,6 +42,7 @@
 | <Ref id="cli.replay_precheck">replay_precheck</Ref> | 事前声明用途的原生预检的命令入口：把命令行参数交给 replay.precheck，输出结果 JSON，并按 status 设退出码 |
 | <Ref id="cli.replay_report">replay_report</Ref> | 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图 |
 | <Ref id="cli.replay_run">replay_run</Ref> | 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration） |
+| <Ref id="cli.research_state">research_state</Ref> | 命令 research state：调用 report.research_state，输出 JSON |
 | <Ref id="cli.research_status">research_status</Ref> | 命令行读研究事实计数：research status [--at \<版本>]，JSON 原样输出 |
 | <Ref id="cli.source_review">source_review</Ref> | 命令行入口：追加独立源码审查结论，绑定候选源码与运行环境身份及其原生预检试验 |
 | <Ref id="cli.validation_registration">validation_registration</Ref> | 命令行入口：登记一次样本外验证并取凭证，JSON 输出 |
@@ -95,7 +97,7 @@ def candidate_list(ledger: path, at: str | None) -> JSON
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径，解析为 LedgerProfile（连接位置与只读账号）" }, "at": { type: "str | None", description: "可选账本版本：提交哈希或标签；None 读当前" } }} />
 
-**返回**　JSON：\{ledger_commit, checker: \{check, reader_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_id, run_status, availability\}], valid_evidence\}]\}；原样转发 report.candidates 的结果，不加分数、排序或资格标记
+**返回**　JSON：\{ledger_commit, checker: \{check, metrics_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_id, run_status, availability\}], valid_evidence\}]\}；原样转发 report.candidates 的结果，不加分数、排序或资格标记
 
 **期望行为**
 
@@ -272,7 +274,7 @@ def evidence_export(
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
+**关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
 
 </div>
 
@@ -318,7 +320,7 @@ def execution_recover(
 
 ### `hypothesis_compare` [#def-cli-registration_compare]
 
-命令行比较入口：对本登记某网格点的封存运行与登记声明的对照出配对比较读数，原样透传 report.compare 的读数与拒绝
+命令行比较入口：对本登记某网格点的封存运行与登记声明的对照出检验结果，原样透传 report.compare 的绩效指标与拒绝
 
 ```python
 def hypothesis_compare(
@@ -332,12 +334,12 @@ def hypothesis_compare(
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "conn": { type: "connection", description: "以只读账号打开的 main 连接" }, "bundle": { type: "str", description: "登记证据包名" }, "run_id": { type: "str", description: "候选侧封存运行" }, "at": { type: "str | None", description: "账本版本（提交、标签）；缺省为当前 HEAD" } }} />
 
-**返回**　JSON：\{bundle, run_id, control_run_id, research_parent, ledger_commit, registered_at, reader_revision, availability\{candidate, control\}, test_conditions, readings\{effect, interval, p, studentized_interval, block_sensitivity, power_approx\}\}；无采纳或显著性裁决字段；拒绝时以非零退出码输出拒绝码与原因
+**返回**　JSON：\{bundle, run_id, control_run_id, research_parent, ledger_commit, registered_at, metrics_revision, availability\{candidate, control\}, test_conditions, metrics\{effect, interval, p, studentized_interval, block_sensitivity, power_approx\}\}；无采纳或显著性裁决字段；拒绝时以非零退出码输出拒绝码与原因
 
 **期望行为**
 
 1. 给定 at 时经 ledger.read_as_of 钉住账本版本；调用 report.compare
-2. 原样输出 report.compare 的读数、两侧身份与资格，附登记的检验条件原文（门槛标「方法示例值，未校准」）
+2. 原样输出 report.compare 的绩效指标、两侧身份与资格，附登记的检验条件原文（门槛标「方法示例值，未校准」）
 3. report.compare 的任一拒绝原码透传并以非零退出，不改写、不降级为警告
 4. 不写账本；是否显著、是否推荐由 Agent 读后判断
 
@@ -357,6 +359,32 @@ def hypothesis_compare(
 <div className="rd-meta">
 
 **关联章节**　<Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.1">V.4.1.1</Ref> <Ref id="R.4.1.1">R.4.1.1</Ref>
+
+</div>
+
+### `judgment_add` [#def-cli-judgment_add]
+
+命令 judgment add：调用 ledger.add_judgment，输出 JSON
+
+```python
+def judgment_add(args: Namespace) -> JSON
+```
+
+<TypeTable type={{ "args": { type: "Namespace", description: "kind、line、based-on、body 文件、subject（可重复）、supersedes、op-id" } }} />
+
+**返回**　JSON：judgment_id、ledger_commit、replayed
+
+**期望行为**
+
+1. 读 body 文件为 UTF-8 文本。
+2. 解析 --subject role=…,candidate=ID@N | trial=… | registration=…。
+3. 调用 ledger.add_judgment 并输出 JSON；拒绝时输出拒绝码与非零退出。
+
+**使用**　<Ref id="ledger.add_judgment" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="A.3.2.1">A.3.2.1</Ref> <Ref id="A.4.2.1">A.4.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="H.3.1.2">H.3.1.2</Ref> <Ref id="V.4.2.2">V.4.2.2</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.2.3.1">F.2.3.1</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="D.2.2.1">D.2.2.1</Ref> <Ref id="D.2.2.2">D.2.2.2</Ref>
 
 </div>
 
@@ -858,13 +886,13 @@ def replay_explore(
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；只写试验行、开始回执与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；空表示当前头" }, "strategy_file": { type: "path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名" }, "output": { type: "path", description: "尚不存在的临时目录，报告留在这里" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数，不得含入口保留选项" } }} />
 
-**返回**　JSON \{purpose: explore, trial_id, status: passed|invalid, problems, path, image_ref, readings\}；readings 标「来源未核验」，只供导向、不作证据
+**返回**　JSON \{purpose: explore, trial_id, status: passed|invalid, problems, path, image_ref, metrics\}；metrics 标「来源未核验」，只供导向、不作证据
 
 **期望行为**
 
 1. 解析参数后调用 replay.explore，原样转发其拒绝码与 runtime.resolve 的拒绝码。
 2. replay.explore 以钉死运行环境先写 purpose=explore 的试验行与开始回执再起容器；报告与审计结果留在 output，不入账本。
-3. 输出目录、问题清单与只读读数；提示该源码已被探索暴露，之后不能作为新登记，须派生新候选。
+3. 输出目录、问题清单与只读绩效指标；提示该源码已被探索暴露，之后不能作为新登记，须派生新候选。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -900,7 +928,7 @@ def replay_precheck(
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str", description: "运行环境引用，须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
 
-**返回**　JSON \{purpose: precheck, trial_id, execution_bundle, source_sha256, image_ref, status: passed|failed, problems, path, readings\}；status 为 failed 时退出码 1，拒绝时输出带码错误并以非零退出
+**返回**　JSON \{purpose: precheck, trial_id, execution_bundle, source_sha256, image_ref, status: passed|failed, problems, path, metrics\}；status 为 failed 时退出码 1，拒绝时输出带码错误并以非零退出
 
 **期望行为**
 
@@ -942,14 +970,14 @@ def replay_report(
 
 <TypeTable type={{ "ledger": { type: "path | None", description: "账本档案路径；以读账号连接；只读目录时可不连账本" }, "run_id": { type: "int | None", description: "封存运行；与 directory 恰给一个" }, "directory": { type: "path | None", description: "探索或预检输出目录；与 run_id 恰给一个" }, "at": { type: "str | None", description: "账本提交或标签" }, "exposures": { type: "bool", description: "是否附封存敞口表供 Agent 自算资金使用率" } }} />
 
-**返回**　\{source: sealed | directory, identity, availability, readings, tables, limitations\}；directory 时 availability 附「未封存、来源未核验」
+**返回**　\{source: sealed | directory, identity, availability, metrics, tables, limitations\}；directory 时 availability 附「未封存、来源未核验」
 
 **期望行为**
 
 1. run_id 与 directory 恰给一个，否则拒绝 USAGE_ERROR。
-2. run_id：给定 at 时经 ledger.read_as_of 钉版本，调用 report.run_report 取经资格视图遮蔽的读数；exposures 时附敞口表。
+2. run_id：给定 at 时经 ledger.read_as_of 钉版本，调用 report.run_report 取经资格视图遮蔽的绩效指标；exposures 时附敞口表。
 3. directory：调用 report.directory_report 按同一判据读目录并标明未核验。
-4. 返回读数、检查身份与局限；无裁决字段，不写账本。
+4. 返回绩效指标、检查身份与局限；无裁决字段，不写账本。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1012,6 +1040,31 @@ def replay_run(
 <div className="rd-meta">
 
 **关联章节**　<Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref>
+
+</div>
+
+### `research_state` [#def-cli-research_state]
+
+命令 research state：调用 report.research_state，输出 JSON
+
+```python
+def research_state(args: Namespace) -> JSON
+```
+
+<TypeTable type={{ "args": { type: "Namespace", description: "line（缺省当前路线）、at" } }} />
+
+**返回**　JSON：report.research_state 的返回
+
+**期望行为**
+
+1. 打开只读连接。
+2. 调用 report.research_state 并输出 JSON；拒绝时输出拒绝码与非零退出。
+
+**使用**　<Ref id="report.research_state" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="A.1.1.1">A.1.1.1</Ref> <Ref id="A.3.1.1">A.3.1.1</Ref> <Ref id="A.4.3.1">A.4.3.1</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="E.3.2.2">E.3.2.2</Ref> <Ref id="R.5.2.1">R.5.2.1</Ref>
 
 </div>
 
