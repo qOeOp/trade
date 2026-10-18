@@ -1,10 +1,11 @@
 """Trials (`ledger.open_trial`); storing a sealed run (`ingest_run`) is a later phase.
 
 Every replay writes one trial row before its container starts: purpose, the executed source's
-content hash, the pinned runtime image, instruments and windows. The row, the registration
-binding (written by the injected binder, so the ledger never imports registration code) and the
-execution start receipt land in one transaction and one commit; any refusal rolls all of them
-back and no container may start.
+content hash, the pinned runtime image, instruments and windows. The row, the execution start
+receipt and the registration binding (written by the injected binder, so the ledger never imports
+registration code; it reads the row and the receipt it binds) land in one transaction and one
+commit; any refusal rolls all of them back and no container may start. While a validation
+registration is unbound, no other trial of its candidate may trade inside its window.
 """
 
 from __future__ import annotations
@@ -31,9 +32,23 @@ def _utc(ns: int) -> datetime:
     return EPOCH + timedelta(microseconds=ns // 1000)
 
 
+def _require_unreserved(conn: db.LedgerConnection, source_sha256: str, trade_start: datetime,
+                        trade_end: datetime) -> None:
+    """Refuse a trial trading inside the window of an unbound validation registration of its source.
+    Runs after the binder, so the registration a validation trial binds is no longer unbound."""
+    reserved = conn.rows("SELECT v.registration_id FROM validation_registration v JOIN candidate c ON "
+                         "c.strategy_id = v.strategy_id AND c.revision = v.revision WHERE c.source_sha256 = %s AND "
+                         "v.window_start < %s AND %s < v.window_end AND NOT EXISTS (SELECT 1 FROM validation_binding "
+                         "b WHERE b.registration_id = v.registration_id) ORDER BY v.registration_id",
+                         (source_sha256, trade_end, trade_start))
+    if reserved:
+        raise refuse("OUT_OF_SAMPLE_RESERVED", f"the trading window overlaps the unbound validation registration "
+                                               f"{reserved[0][0]} of this source", missing=(str(reserved[0][0]),))
+
+
 def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runtime_identity: Mapping,
                inputs: Mapping, window: Mapping, start_context: Mapping, binder: Binder | None = None) -> dict:
-    """Write the trial row, its binding and its start receipt as one write; returns the trial ID.
+    """Write the trial row, its start receipt and its binding as one write; returns the trial ID.
 
     `runtime_identity`: image_ref, image_digest, platform, runtime_contract and `inspection`
     (the probe report). `inputs`: `identity` (market_commit, universe_rule, symbols,
@@ -92,13 +107,14 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
                (purpose, source_sha256, identity["image_ref"], db.canonical_json(symbols), _utc(window["start"]),
                 _utc(window["trade_start"]), _utc(window["end"]), op_id))
         (trial_id,), = c.rows("SELECT LAST_INSERT_ID()")
-        if binder is not None:
-            binder(c, trial_id)
         receipt = execution.start_receipt(c, trial_id, {
             "source_sha256": source_sha256, "runtime_identity": identity, "workdir": start_context.get("workdir"),
             "argv": start_context.get("argv"), "mounts": start_context.get("mounts"),
             "input_identity": input_identity, "source_bytes": source, "input_coverage": inputs["input_coverage"]},
             op_id)
+        if binder is not None:
+            binder(c, trial_id)
+        _require_unreserved(c, source_sha256, _utc(window["trade_start"]), _utc(window["end"]))
         return {"trial_id": trial_id, "execution_bundle": receipt["bundle"]}
 
     def replay(c, row):
