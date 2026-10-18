@@ -129,9 +129,9 @@ def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck",
     """Seal trial-<id>-execution in the capture format ledger.read_capture reads (seal_capture is a
     later phase): execution.json listing every file with its status, length and hash."""
     files = {"native.stdout.txt": b"native ran\n", "native.stderr.txt": b"", "source/strategy.py": source_bytes,
-             "reports/runtime_errors.jsonl": runtime_errors, **(extra or {})}
+             "reports/runtime_failures.jsonl": runtime_errors, **(extra or {})}
     if audit_exit is not None:
-        files.update({"audit.stdout.txt": b"audit ran\n", "reports/audit.json": b'{"passed": true}'})
+        files.update({"audit.stdout.txt": b"audit ran\n", "audit/audit.json": b'{"passed": true}'})
     listed, stored = {}, {}
     for path, data in files.items():
         if data:

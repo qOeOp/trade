@@ -1,0 +1,237 @@
+"""Execution captures: sealing what a working directory holds, the capacity refusal, recovery material
+that never replaces the capture, and coverage at ingest read only from the original capture."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import shutil
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from ledger import coverage, db, execution, strategies, trials
+from ledger.errors import Refusal
+from tests.ledger.dolt import BINARY, RUNTIME, SKIP, Service, inputs, sha, source, window
+
+
+EXITED = {"native": {"state": "exited", "exit_code": 0}, "audit": None}
+DONE = {"kind": "completed", "detail": None}
+SYMBOLS = ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"]
+
+
+def coverage_receipt(identity: dict) -> dict:
+    return {"format": coverage.FORMAT, "input_identity": identity,
+            "effective_config": {"start": "2026-01-01T00:00:00Z", "end": "2026-02-01T00:00:00Z"},
+            "export_receipts": {symbol: {"instrument_id": symbol} for symbol in identity["symbols"]}}
+
+
+def native_summary(**changes) -> dict:
+    summary = {"input_start_utc": "2026-01-01T00:00:00Z", "period_end_utc": "2026-02-01T00:00:00Z",
+               "market_commit": inputs()["identity"]["market_commit"],
+               "per_coin": [{"instrument": symbol, "counts": {"last": 1}} for symbol in SYMBOLS]}
+    summary.update(changes)
+    return summary
+
+
+class LedgerCase(unittest.TestCase):
+    """A throwaway ledger with one published source, and trials opened on it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
+        cls.profile = cls.service.ledger("capture")
+        cls.data = source("prechecked")
+        strategies.publish_candidate(cls.profile, cls.data, "pre", "Fixture", "a precheck source")
+
+    def setUp(self):
+        self.conn = db.connect(self.profile, "writer")
+        self.addCleanup(self.conn.close)
+
+    def seq(self) -> int:
+        return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]
+
+    def workdir(self, files: dict[str, bytes]) -> Path:
+        root = Path(tempfile.mkdtemp(prefix="capture-", dir=self.service.root))
+        for name, data in {"source/strategy.py": self.data, **files}.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_bytes(data)
+        return root
+
+    def trial(self, workdir: Path, purpose: str = "explore", identity: dict | None = None) -> int:
+        given = inputs()
+        if identity is not None:
+            given = {**given, "identity": identity}
+        return trials.open_trial(self.conn, purpose, sha(self.data), RUNTIME, given, window(),
+                                 {"argv": ["runner"], "mounts": [], "workdir": str(workdir),
+                                  "source_bytes": self.data})["trial_id"]
+
+    def refused(self, call) -> str:
+        seq = self.seq()
+        with self.assertRaises(Refusal) as caught:
+            call()
+        self.assertEqual(self.seq(), seq, "a refused call writes nothing")
+        return caught.exception.code
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class CaptureTests(LedgerCase):
+    def test_a_capture_seals_the_bytes_that_exist_and_reads_them_back(self):
+        workdir = self.workdir({"native.stdout.txt": b"ran\n", "native.stderr.txt": b""})
+        trial_id = self.trial(workdir)
+        sealed = execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE, self.conn)
+        read = execution.read_capture(self.conn, trial_id)
+        self.assertEqual(read["status"], "captured")
+        self.assertEqual((read["statuses"]["native.stdout.txt"], read["statuses"]["native.stderr.txt"],
+                          read["statuses"]["reports/summary.json"], read["statuses"]["audit/audit.json"]),
+                         ("captured", "captured_empty", "missing", "not_started"))
+        self.assertEqual((read["files"]["native.stdout.txt"], read["stages"], read["outcome"]),
+                         (b"ran\n", EXITED, DONE))
+        again = execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE, self.conn)
+        self.assertEqual((again["replayed"], again["manifest_sha256"]), (True, sealed["manifest_sha256"]))
+        (workdir / "native.stdout.txt").write_bytes(b"rewritten later\n")
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE,
+                                                                     self.conn)), "BUNDLE_EXISTS")
+
+    def test_a_capture_needs_a_start_receipt_and_well_formed_stages(self):
+        workdir = self.workdir({})
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, 9999, workdir, EXITED, DONE,
+                                                                     self.conn)), "EXECUTION_START_MISSING")
+        trial_id = self.trial(workdir)
+        for stages, outcome in (({"native": {"state": "started", "exit_code": 0}, "audit": None}, DONE),
+                                ({"native": {"state": "exited", "exit_code": None}, "audit": None}, DONE),
+                                (EXITED, {"kind": "crashed"})):
+            with self.subTest(stages=stages, outcome=outcome):
+                self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, stages,
+                                                                             outcome, self.conn)), "EXECUTION_IDENTITY")
+
+    def test_an_interrupted_replay_is_sealed_as_interrupted_with_what_it_left(self):
+        workdir = self.workdir({"native.stdout.txt": b"half\n"})
+        trial_id = self.trial(workdir)
+        started = {"native": {"state": "started", "exit_code": None}, "audit": None}
+        execution.seal_capture(self.profile, trial_id, workdir, started, {"kind": "interrupted", "detail": "SIGINT"},
+                               self.conn)
+        read = execution.read_capture(self.conn, trial_id)
+        self.assertEqual((read["outcome"]["kind"], read["stages"]["native"]["state"]), ("interrupted", "started"))
+
+    def test_a_precheck_keeps_every_report_and_an_oversized_capture_writes_nothing(self):
+        reports = {"reports/orders.csv": b"client_order_id\nO-1\n", "reports/summary.json": b"{}"}
+        explored = self.workdir(reports)
+        explore_id = self.trial(explored)
+        execution.seal_capture(self.profile, explore_id, explored, EXITED, DONE, self.conn)
+        self.assertNotIn("reports/orders.csv", execution.read_capture(self.conn, explore_id)["statuses"])
+        prechecked = self.workdir(reports)
+        precheck_id = self.trial(prechecked, "precheck")
+        execution.seal_capture(self.profile, precheck_id, prechecked, EXITED, DONE, self.conn)
+        self.assertEqual(execution.read_capture(self.conn, precheck_id)["files"]["reports/orders.csv"],
+                         reports["reports/orders.csv"])
+        oversized = self.workdir({"native.stdout.txt": b"x" * 64})
+        oversized_id = self.trial(oversized)
+        with patch.object(execution, "CAPTURE_LIMIT", 32):
+            self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, oversized_id, oversized, EXITED,
+                                                                         DONE, self.conn)), "EXECUTION_CAPTURE_LIMIT")
+        self.assertEqual(execution.read_capture(self.conn, oversized_id)["status"], "missing")
+
+    def recovery_case(self, native_exit: int = 1, reports: dict | None = None) -> tuple[int, Path, Path]:
+        stages = {"native": {"state": "exited", "exit_code": native_exit}, "audit": None}
+        workdir = self.workdir({"native.stdout.txt": b"y" * 64, "process.json": json.dumps({"stages": stages}).encode(),
+                                **(reports or {})})
+        trial_id = self.trial(workdir, "precheck")
+        with patch.object(execution, "PRECHECK_CAPTURE_LIMIT", 32), self.assertRaises(Refusal) as caught:
+            execution.seal_capture(self.profile, trial_id, workdir, stages, DONE, self.conn)
+        receipt = workdir / execution.HOST_ERROR
+        receipt.write_text(json.dumps(caught.exception.as_dict()))
+        return trial_id, workdir, receipt
+
+    def test_recovered_bytes_are_appended_apart_and_the_capture_stays_missing(self):
+        trial_id, workdir, receipt = self.recovery_case()
+        recovered = execution.recover_capture(self.profile, trial_id, workdir, receipt)
+        self.assertEqual((recovered["bundle"], recovered["original_capture"]), (f"trial-{trial_id}-recovery", "missing"))
+        self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "missing")
+        stored = self.service.sql(self.profile, "SELECT path FROM evidence WHERE bundle = %s ORDER BY path",
+                                  (recovered["bundle"],))
+        self.assertIn(("native.stdout.txt",), stored)
+
+    def test_recovery_applies_only_to_a_refused_precheck_with_its_originals(self):
+        trial_id, workdir, receipt = self.recovery_case()
+        captured = self.workdir({"process.json": json.dumps({"stages": EXITED}).encode()})
+        captured_id = self.trial(captured, "precheck")
+        execution.seal_capture(self.profile, captured_id, captured, EXITED, DONE, self.conn)
+        self.assertEqual(self.refused(lambda: execution.recover_capture(self.profile, captured_id, captured, receipt)),
+                         "RECOVERY_NOT_APPLICABLE")
+        other = self.workdir({})
+        self.assertEqual(self.refused(lambda: execution.recover_capture(self.profile, trial_id, other, receipt)),
+                         "RECOVERY_NOT_APPLICABLE")
+        wrong = workdir / "other-error.json"
+        wrong.write_text(json.dumps({"code": "LEDGER_UNAVAILABLE"}))
+        self.assertEqual(self.refused(lambda: execution.recover_capture(self.profile, trial_id, workdir, wrong)),
+                         "RECOVERY_INCOMPLETE")
+        exited_ok, ok_dir, ok_receipt = self.recovery_case(native_exit=0)
+        self.assertEqual(self.refused(lambda: execution.recover_capture(self.profile, exited_ok, ok_dir, ok_receipt)),
+                         "RECOVERY_INCOMPLETE")
+        (workdir / "source" / "strategy.py").write_bytes(b"# another source\n")
+        self.assertEqual(self.refused(lambda: execution.recover_capture(self.profile, trial_id, workdir, receipt)),
+                         "EXECUTION_IDENTITY")
+        shutil.rmtree(other)
+
+
+class VerifyCoverageTests(unittest.TestCase):
+    def test_a_receipt_that_agrees_with_the_summary_gives_no_lifecycle_events(self):
+        self.assertEqual(coverage.verify_coverage(coverage_receipt(inputs()["identity"]), native_summary()), ())
+
+    def test_the_receipt_and_summary_must_agree(self):
+        identity = inputs()["identity"]
+        unreceipted = coverage_receipt(identity)
+        del unreceipted["export_receipts"][SYMBOLS[1]]
+        cases = [({**coverage_receipt(identity), "format": "v0"}, native_summary(), "COVERAGE_RECEIPT_INVALID"),
+                 (unreceipted, native_summary(), "COVERAGE_RECEIPT_INVALID"),
+                 (coverage_receipt(identity), native_summary(per_coin=native_summary()["per_coin"][:1]),
+                  "COVERAGE_MISMATCH"),
+                 (coverage_receipt(identity), native_summary(market_commit="n" * 32), "COVERAGE_MISMATCH"),
+                 (coverage_receipt(identity), native_summary(input_start_utc="2026-01-02T00:00:00Z"),
+                  "COVERAGE_MISMATCH"),
+                 (coverage_receipt(identity), native_summary(per_coin=[
+                     {"instrument": symbol, "counts": {"instrument_close": 1}} for symbol in SYMBOLS]),
+                  "LIFECYCLE_BUNDLE_MISSING"),
+                 (coverage_receipt(identity), native_summary(per_coin=[
+                     {"instrument": symbol, "counts": {"instrument_status": -1}} for symbol in SYMBOLS]),
+                  "LIFECYCLE_NATIVE_COUNT_INVALID")]
+        for receipt, summary, code in cases:
+            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
+                coverage.verify_coverage(receipt, summary)
+            self.assertEqual(caught.exception.code, code)
+        with self.assertRaises(Refusal) as caught:
+            coverage.verify_coverage(coverage_receipt(identity), native_summary(),
+                                     ("2026-01-01T00:00:00Z", "2026-01-15T00:00:00Z"))
+        self.assertEqual(caught.exception.code, "COVERAGE_MISMATCH")
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class OriginalCoverageTests(LedgerCase):
+    """Ingest trusts only the coverage receipt and summary of the trial's original capture."""
+
+    def sealed(self, audit_exit: int | None = 0) -> int:
+        identity = inputs()["identity"]
+        workdir = self.workdir({execution.COVERAGE: json.dumps(coverage_receipt(identity)).encode(),
+                                "reports/summary.json": json.dumps(native_summary()).encode()})
+        trial_id = self.trial(workdir)
+        stages = {"native": {"state": "exited", "exit_code": 0},
+                  "audit": None if audit_exit is None else {"state": "exited", "exit_code": audit_exit}}
+        execution.seal_capture(self.profile, trial_id, workdir, stages, DONE, self.conn)
+        return trial_id
+
+    def test_coverage_is_rebuilt_from_the_original_capture_only(self):
+        identity = inputs()["identity"]
+        self.assertEqual(coverage.original_coverage(self.conn, self.sealed(), identity), ())
+        unsealed = self.trial(self.workdir({}))
+        self.assertEqual(self.refused(lambda: coverage.original_coverage(self.conn, unsealed, identity)),
+                         "CAPTURE_INCOMPLETE")
+        failed, passed = self.sealed(audit_exit=1), self.sealed()
+        self.assertEqual(self.refused(lambda: coverage.original_coverage(self.conn, failed, identity)), "PHASE_FAILED")
+        self.assertEqual(self.refused(lambda: coverage.original_coverage(
+            self.conn, passed, {**identity, "export_content_sha256": "0" * 64})), "INPUT_IDENTITY_MISMATCH")
+
+
+if __name__ == "__main__":
+    unittest.main()

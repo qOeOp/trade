@@ -1,4 +1,4 @@
-"""Trials (`ledger.open_trial`); storing a sealed run (`ingest_run`) is a later phase.
+"""Trials (`ledger.open_trial`) and the sealed runs of research and validation trials (`ledger.ingest_run`).
 
 Every replay writes one trial row before its container starts: purpose, the executed source's
 content hash, the pinned runtime image, instruments and windows. The row, the execution start
@@ -13,8 +13,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 import hashlib
+import json
+from pathlib import Path
 
-from ledger import db, execution, strategies
+from ledger import coverage, db, execution, metrics, strategies
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
@@ -121,4 +124,109 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
         return {"trial_id": row["trial_id"], "execution_bundle": f"trial-{row['trial_id']}-execution-start"}
 
     written = db.write(conn, "open_trial", payload, "trial", insert, replay, op_id=op)
+    return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
+
+
+RUN_PURPOSES = ("research", "validation")
+SEALED_REPORTS = (metrics.SUMMARY, *metrics.REPORT_FILES.values())
+
+
+def _audit_result(workdir: Path) -> dict | None:
+    """The audit result the auditor wrote; None when it is missing or unreadable."""
+    path = workdir / execution.AUDIT_RESULT
+    try:
+        value = json.loads(path.read_bytes().decode("utf-8")) if path.is_file() and not path.is_symlink() else None
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _run_trial(conn: db.LedgerConnection, trial_id: int, require_new: bool) -> dict:
+    trial = conn.one("SELECT trial_id, purpose FROM trial WHERE trial_id = %s", (trial_id,))
+    if trial is None:
+        raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id}", missing=(str(trial_id),))
+    if trial["purpose"] not in RUN_PURPOSES:
+        raise refuse("TRIAL_PURPOSE_INVALID", f"trial {trial_id} is a {trial['purpose']} replay; its reports stay a "
+                                              "working copy", expected=" | ".join(RUN_PURPOSES))
+    if require_new and conn.rows("SELECT 1 FROM run WHERE trial_id = %s", (trial_id,)):
+        raise refuse("RUN_ALREADY_INGESTED", f"trial {trial_id} already has a run", missing=(str(trial_id),))
+    return trial
+
+
+def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, failure_reasons: list[dict],
+               runtime_inspection: Mapping, effective_config: Mapping, input_identity: Mapping,
+               fingerprints: Mapping | None = None) -> dict:
+    """Store one sealed replay as a run in one write; returns {run_id, status}.
+
+    `failure_reasons` empty means passed. `fingerprints` is the semantic fingerprint the runtime
+    image computed (engine.report_fingerprint), None when the image has no fingerprint entry: the
+    run row then records it absent. `runtime_inspection` and `effective_config` are not stored;
+    the execution identity lives in the start receipt and the registration.
+    """
+    workdir = Path(workdir)
+    _run_trial(conn, trial_id, require_new=False)  # a retry of the same write replays below
+    reasons = [dict(reason) for reason in failure_reasons or ()]
+    audit = _audit_result(workdir)
+    record = {"ran": audit is not None, "findings": list(audit.get("findings") or []) if audit else []}
+    status, report, revision, daily, cycle_rows = ("invalid" if reasons else "passed"), None, None, [], []
+    if status == "passed":
+        summary_path = workdir / "reports" / metrics.SUMMARY
+        if audit is None or audit.get("passed") is not True or audit.get("findings") or not summary_path.is_file():
+            raise refuse("AUDIT_RESULT_INCONSISTENT", f"trial {trial_id} has no failure reason, but its audit result is "
+                                                      "missing, unreadable or not passed, or its native summary is "
+                                                      "missing", missing=(execution.AUDIT_RESULT, metrics.SUMMARY))
+        try:
+            reports = metrics.load_directory(workdir)
+        except Refusal as exc:
+            if exc.code == "REPORT_UNREADABLE":
+                raise refuse("REPORT_MISSING", exc.message, missing=exc.missing) from exc
+            raise
+        absent = [name for name in SEALED_REPORTS if name not in reports.present]
+        if absent or reports.summary is None:
+            raise refuse("REPORT_MISSING", "a passed run lacks " + ", ".join(absent or [metrics.SUMMARY]),
+                         missing=tuple(absent or [metrics.SUMMARY]))
+        reports.lifecycle_events = coverage.original_coverage(conn, trial_id, input_identity)
+        revision = metrics.metrics_revision()
+        try:
+            report = metrics.metrics(reports, revision)
+        except Refusal as exc:
+            if exc.code == "REPORT_UNREADABLE":
+                raise refuse("REPORT_MISSING", exc.message, missing=exc.missing) from exc
+            raise
+        daily = metrics.daily_rows(reports)
+        try:
+            cycle_rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
+        except metrics.Unreconciled:
+            cycle_rows = []  # the sealed report names why (cycles_cover_fills)
+    payload = {"trial_id": trial_id, "status": status, "failure_reasons": reasons, "audit": record,
+               "fingerprints": fingerprints if status == "passed" else None, "metrics_revision": revision,
+               "report_sha256": hashlib.sha256(db.canonical_json(report).encode()).hexdigest() if report else None}
+
+    def insert(c, op_id):
+        _run_trial(c, trial_id, require_new=True)
+        c.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
+               "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
+               (trial_id, status, db.canonical_json(reasons) if reasons else None, db.canonical_json(record),
+                db.canonical_json(fingerprints) if status == "passed" and fingerprints is not None else None, op_id))
+        (run_id,), = c.rows("SELECT LAST_INSERT_ID()")
+        if status == "passed":
+            c.rows("INSERT INTO run_sealed (run_id, metrics_revision, report, op_id, created_at) "
+                   "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6))", (run_id, revision, db.canonical_json(report), op_id))
+            if daily:
+                c.many("INSERT INTO run_return (run_id, ts_event_ns, native_return, mean_gross_notional) "
+                       "VALUES (%s, %s, %s, %s)", [(run_id, ts, value, mean) for ts, value, mean in daily])
+            if cycle_rows:
+                c.many("INSERT INTO run_cycle (run_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
+                       "realized_pnl, commissions, funding, open_unrealized, plan_tag, closing_order_type, "
+                       "closing_order_tag) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                       [(run_id, row["seq"], row["instrument_id"], row["side"], row["ts_opened_ns"],
+                         row["ts_closed_ns"], row["realized_pnl"], row["commissions"], row["funding"],
+                         row["open_unrealized"], row["plan_tag"], row["closing_order_type"], row["closing_order_tag"])
+                        for row in cycle_rows])
+        return {"run_id": run_id, "status": status}
+
+    def replay(c, row):
+        return {"run_id": row["run_id"], "status": row["status"]}
+
+    written = db.write(conn, "ingest_run", payload, "run", insert, replay)
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
