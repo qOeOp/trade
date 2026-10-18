@@ -338,7 +338,7 @@ def write(
 4. 执行 insert；随后 UPDATE ledger_head 单行 seq = seq + 1、op_id = 本操作 ID，使并发写在同一格上必然冲突。
 5. 同一事务内 CALL dolt_commit('-a', '-m', '\<kind>:\<op_id>')，提交校验组 dolt_tests(commit) 在此运行，失败整笔回滚并拒绝。
 6. 返回提交哈希；提交时合并冲突即回滚并拒绝 CONCURRENT_WRITE，调用方重试会按 op_id 命中胜者或重新写入；其他 SQL 错误回滚后按权限或通用错误拒绝。
-7. 提交前读服务的提交校验组设置；不等于 commit 即回滚并拒绝 COMMIT_CHECKS_DISABLED：任何账号都能改这个全局设置，不核就会在无痕迹的情况下跳过全部提交校验。
+7. 提交前读服务级的提交校验组设置（@@GLOBAL，提交实际用的那份；会话副本在连接时取、之后不更新，不能读它）；不等于 commit 即回滚并拒绝 COMMIT_CHECKS_DISABLED：任何账号都能改这个全局设置，不核就会在无痕迹的情况下跳过全部提交校验。读设置与提交之间仍有极短窗口，由整体复核重跑提交校验兜底。
 8. conn 已处在另一次 ledger.write 的写事务里时（如 open_trial 调 start_receipt），并入调用方事务：不单独提交，返回的提交为空，由最外层一次提交。
 
 | 拒绝码 | 条件 |
