@@ -188,6 +188,9 @@ def connect(
 3. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝。
 4. 读 ledger_schema 单行，version 不等于本代码期望的模式版本即关闭连接并拒绝。
 5. 返回带角色属性的连接；ledger.write 据此拒绝只读连接。
+6. 已知限制（Dolt 2.4.2 实测）：分支权限表按 LIKE 匹配库名、分支名与账号名，下划线是通配符且无法转义，所以研究分支名里的下划线会顺带匹配同形的其他分支；只有管理账号能建分支，SQL 授权按库名逐字匹配，暴露面很小。
+7. 连接时同样核对提交校验组设置为 commit，不是即拒绝 COMMIT_CHECKS_DISABLED。
+8. 已知限制（Dolt 2.4.2 实测）：写账号仍能 DOLT_COMMIT --amend 与 --date、临时关外键检查、插入 dolt_tests 与 dolt_ignore 行，任何账号都能改全局提交校验设置；这些不靠权限挡住，由写入前核对与整体复核发现（见第 13 章待定事项）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -198,6 +201,9 @@ def connect(
 | `LEDGER_UNAVAILABLE` | 服务未启动或不接受连接 |
 | `LEDGER_PERMISSION` | 账号或口令被服务拒绝 |
 | `SCHEMA_MISMATCH` | ledger_schema.version 与本代码期望的模式版本不等 |
+| `INVALID_REF` | branch 或版本引用形态不合法 |
+| `UNKNOWN_REF` | branch 或版本引用在账本中不存在 |
+| `COMMIT_CHECKS_DISABLED` | 服务的提交校验组设置不是 commit |
 
 **使用**　<Ref id="ledger.refusal" />、<Ref id="table:ledger_schema" />
 
@@ -239,6 +245,7 @@ def init(
 4. 删除 dolt_branch_control 中的通配写权行，只留管理账号；创建 writer 与 reader 两账号，口令随机。
 5. 授权 writer：SELECT、INSERT、对 ledger_head 的 UPDATE、dolt_commit 过程的 EXECUTE，并在 dolt_branch_control 只对 research_branch 授 write；reader 只 SELECT；不授 UPDATE/DELETE（ledger_head 除外）、库级 EXECUTE、打标签或改 branch 的权限。
 6. 把账号写入服务目录私有文件，把档案写入账本档案目录，返回不含口令的结果。
+7. 服务端口由本函数在本机选空闲端口；Unix 套接字路径超过 100 字节时在创建任何文件前拒绝 LEDGER_START；active 缺备份目录拒绝 ISOLATION_BREACH。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -315,10 +322,11 @@ def write(
     table: str,
     insert: Callable[[LedgerConnection, str], Mapping],
     replay: Callable[[LedgerConnection, Mapping], Mapping] | None,
+    op_id: str | None,
 ) -> WriteResult
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect(role='writer') 得到的连接；一条命令一条连接，读写共用" }, "kind": { type: "str", description: "操作种类（如 publish_candidate、add_bundle、open_trial、ingest_run），进入操作 ID 与提交信息" }, "payload": { type: "Mapping", description: "规范化载荷（键排序、可 JSON 序列化，大对象以内容哈希代入）；op_id = sha256(kind ‖ canonical_json(payload))" }, "table": { type: "str", description: "持有本操作 op_id 列的记录表名，用于幂等查找" }, "insert": { type: "Callable[[LedgerConnection, str], Mapping]", description: "在同一事务内执行全部 INSERT 的回调，收到连接与 op_id，返回给调用方的记录；只允许插入" }, "replay": { type: "Callable[[LedgerConnection, Mapping], Mapping] | None", description: "命中同 op_id 的记录时把它整理成与首次相同形状的返回值；缺省原样返回该行" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect(role='writer') 得到的连接；一条命令一条连接，读写共用" }, "kind": { type: "str", description: "操作种类（如 publish_candidate、add_bundle、open_trial、ingest_run），进入操作 ID 与提交信息" }, "payload": { type: "Mapping", description: "规范化载荷（键排序、可 JSON 序列化，大对象以内容哈希代入）；op_id = sha256(kind ‖ canonical_json(payload))" }, "table": { type: "str", description: "持有本操作 op_id 列的记录表名，用于幂等查找" }, "insert": { type: "Callable[[LedgerConnection, str], Mapping]", description: "在同一事务内执行全部 INSERT 的回调，收到连接与 op_id，返回给调用方的记录；只允许插入" }, "replay": { type: "Callable[[LedgerConnection, Mapping], Mapping] | None", description: "命中同 op_id 的记录时把它整理成与首次相同形状的返回值；缺省原样返回该行" }, "op_id": { type: "str | None", description: "调用方自定的操作 ID；缺省由 kind 与规范化载荷派生" } }} />
 
 **返回**　WriteResult：\{record, op_id, commit, replayed, write_status\}；首次写入 write_status='written'；命中同 op_id 时 replayed=True、commit 为原记录所在提交、write_status='replayed'；任何拒绝 write_status='not_written'
 
@@ -330,6 +338,8 @@ def write(
 4. 执行 insert；随后 UPDATE ledger_head 单行 seq = seq + 1、op_id = 本操作 ID，使并发写在同一格上必然冲突。
 5. 同一事务内 CALL dolt_commit('-a', '-m', '\<kind>:\<op_id>')，提交校验组 dolt_tests(commit) 在此运行，失败整笔回滚并拒绝。
 6. 返回提交哈希；提交时合并冲突即回滚并拒绝 CONCURRENT_WRITE，调用方重试会按 op_id 命中胜者或重新写入；其他 SQL 错误回滚后按权限或通用错误拒绝。
+7. 提交前读服务级的提交校验组设置（@@GLOBAL，提交实际用的那份；会话副本在连接时取、之后不更新，不能读它）；不等于 commit 即回滚并拒绝 COMMIT_CHECKS_DISABLED：任何账号都能改这个全局设置，不核就会在无痕迹的情况下跳过全部提交校验。读设置与提交之间仍有极短窗口，由整体复核重跑提交校验兜底。
+8. conn 已处在另一次 ledger.write 的写事务里时（如 open_trial 调 start_receipt），并入调用方事务：不单独提交，返回的提交为空，由最外层一次提交。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -339,6 +349,7 @@ def write(
 | `CONCURRENT_WRITE` | 提交时与另一并发写入在 ledger_head 单行或同一记录格上冲突，本事务已回滚 |
 | `LEDGER_PERMISSION` | insert 执行了 writer 账号没有的语句（UPDATE/DELETE、其他表或过程） |
 | `DOLT_SQL_ERROR` | 其他 SQL 错误；事务已回滚，不留半截记录 |
+| `COMMIT_CHECKS_DISABLED` | 服务的提交校验组设置不是 commit |
 
 **使用**　<Ref id="ledger.refusal" />、<Ref id="table:ledger_head" />、<Ref id="table:dolt_tests" />
 
@@ -400,6 +411,7 @@ def refusal(
 |---|---|
 | <Ref id="ledger.add_bundle">add_bundle</Ref> | 追加一个证据包及其文件，内容哈希由库内派生；占用产品保留命名空间拒绝；同内容重试幂等 |
 | <Ref id="ledger.load_bundle">load_bundle</Ref> | 按精确账本版本读回一个证据包的全部文件，逐文件重算内容哈希，不符即拒绝；只验字节身份，不做语义校验 |
+| <Ref id="ledger.write_files">write_files</Ref> | 产品内部的证据包写入口：以字节写一个包，不受保留命名空间限制；开始回执、执行封存、恢复材料与研究路线经它写，Agent 不可达 |
 
 ### `add_bundle` [#def-ledger-add_bundle]
 
@@ -420,11 +432,11 @@ def add_bundle(
 
 **期望行为**
 
-1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品封存命名空间 trial-\<id>-execution(-start) 与 trial-\<id>-recovery-*（RESERVED_BUNDLE）；该命名空间只由 replay.seal、ledger.seal_capture 与 ledger.recover_capture 经 ledger.write 写。
+1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品保留命名空间 trial-\<id>-execution-start、trial-\<id>-execution、trial-\<id>-recovery、trial-\<id>-recovery-*、registration-*、source-review-*、research-line-\<n>、lifecycle-\<market_commit>（RESERVED_BUNDLE）；这些包只由对应的产品命令经 ledger.write_files 写。
 2. 逐源读字节：源或其后代是符号链接、包内路径为绝对路径或含 .. 或重复即 INVALID_EVIDENCE_PATH；空文件或没有任何文件即 EMPTY_EVIDENCE；音视频媒体即 MEDIA_NOT_KEPT；单文件超上限即 EVIDENCE_TOO_LARGE；拒绝时不写任何行。
 3. 对每份文件算 sha256，op_id 缺省时由包名与逐文件哈希派生。
 4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、content；sha256 与 byte_length 由数据库从内容派生）。
-5. op_id 已存在则不写，读回已存逐文件哈希并返回 replayed；包名已存在而 op_id 不同即 BUNDLE_EXISTS，提示换包名，旧包永不覆盖。
+5. op_id 已存在且包名与逐文件哈希都相同则不写，读回已存逐文件哈希并返回 replayed；op_id 相同而包名或内容不同即 OP_ID_CONFLICT；包名已存在而 op_id 不同即 BUNDLE_EXISTS，提示换包名，旧包永不覆盖。
 6. 返回包名、逐文件哈希、写入状态与提交；调用方（cli.evidence_add、registration.register、registration.record_review、market.write_lifecycle_events）把包名与哈希记入各自记录。
 
 | 拒绝码 | 条件 |
@@ -436,6 +448,7 @@ def add_bundle(
 | `MEDIA_NOT_KEPT` | 文件后缀属于音视频媒体；账本只存派生证据 |
 | `EVIDENCE_TOO_LARGE` | 单文件字节数超过上限（未校准示例值） |
 | `BUNDLE_EXISTS` | 同名证据包已在账本且 op_id 与本次不同（内容不同） |
+| `OP_ID_CONFLICT` | 调用方给的 op_id 已属于另一个包或另一份内容 |
 
 **使用**　<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="table:v_evidence" />
 
@@ -485,6 +498,40 @@ def load_bundle(
 
 - [Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)　论文
 - [Dolt — System tables (https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)　官方文档
+
+</div>
+
+### `write_files` [#def-ledger-write_files]
+
+产品内部的证据包写入口：以字节写一个包，不受保留命名空间限制；开始回执、执行封存、恢复材料与研究路线经它写，Agent 不可达
+
+```python
+def write_files(
+    conn: LedgerConnection,
+    bundle: str,
+    files: dict[str, bytes],
+    op_id: str,
+) -> {bundle
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写事务连接" }, "bundle": { type: "str", description: "包名" }, "files": { type: "dict[str, bytes]", description: "包内路径到字节" }, "op_id": { type: "str", description: "操作 ID" } }} />
+
+**返回**　\{bundle, files: \{path: sha256\}\}
+
+**期望行为**
+
+1. 与 add_bundle 同样核路径、空文件与大小；包名已存在且内容不同即 BUNDLE_EXISTS。
+2. 在调用方事务里写 evidence_bundle 与 evidence；不单独提交。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `BUNDLE_EXISTS` | 同名包已存在且内容不同 |
+
+**使用**　<Ref id="ledger.write" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
 
 </div>
 
@@ -782,12 +829,13 @@ def line_trials(
 
 **期望行为**
 
-1. 按路线的市场提交与开发窗口筛 purpose=research 的试验，含无效与中断。
+1. 读路线记录的市场提交与开发窗口；列出 purpose=research 的试验（含无效与中断），市场提交取其开始回执里的 execution.json，交易窗口取试验行，两者都与路线相等的才算本路线；开始回执与试验同一提交写入，缺回执即账本损坏，拒绝 LEDGER_CORRUPT。
 2. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LINE_UNKNOWN` | 研究路线不存在 |
+| `LEDGER_CORRUPT` | 某个研究试验没有开始回执或回执不可读 |
 
 **使用**　<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
 
@@ -825,6 +873,7 @@ def select_line(
 4. 组装 research-line.json（format research-line-v1：line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
 5. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包内容哈希不同拒绝 LINE_CONFLICT，不覆盖。
 6. 返回包名与写入身份；此后每次登记的窗口核对与可比核对都读这条记录。
+7. 最新路线与本次内容完全相同时不写新记录，返回该路线并标 created=false；内容不同才写 research-line-\<n+1>。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -834,7 +883,7 @@ def select_line(
 | `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |
 | `LINE_CONFLICT` | 研究路线包名已存在且内容哈希不同（并发选路或重复编号） |
 
-**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.add_bundle" />、<Ref id="ledger.write" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -1374,10 +1423,11 @@ def publish_candidate(
 
 1. 核对 strategy_id 符合引用名格式；调用 ledger.check_source 核对源码形态；description 与 difference 按备注规则核对（非空、长度上限）。
 2. 核对 parent 与 difference 同有同无；parent 经 ledger.read_candidate 读到才继续（账本外键同样守卫）。
-3. 计算源码 SHA-256 为内容哈希；op_id 缺省由载荷派生；运行契约名取自 engine.account_contract，不由调用方填写。
+3. 计算源码 SHA-256 为内容哈希；op_id 缺省由载荷派生；运行契约名取自 引擎包声明的运行契约常量，不由调用方填写。
 4. 在 ledger.write 的一笔事务里按内容哈希查 candidate，存在即以 SOURCE_EXISTS 拒绝并附该候选的引用；修订号取该 strategy_id 下最大修订号加一；插入一行（源码原字节、内容哈希、入口类、运行契约、说明、父、改动说明、op_id），created_at 由服务器触发器写入，提交一次。
-5. 相同 op_id 重放由 ledger.write 返回原记录，不写第二行；并发写入同格不同值以 CONCURRENT_WRITE 拒绝；写前有未提交改动以 DIRTY_WORKSET 拒绝。
+5. 相同 op_id 重放由 ledger.write 返回原记录，不写第二行；并发写入同格不同值以 CONCURRENT_WRITE 拒绝；写前有未提交改动以 DIRTY_WORKING_SET 拒绝。
 6. 全程不读父版本或任何运行的收益、显著性与推荐：亏损或不显著的有效候选照样可作父版本。
+7. 调用方给的 op_id 已存在而载荷不同即 OP_ID_CONFLICT，不返回别人的记录。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1387,7 +1437,8 @@ def publish_candidate(
 | `LINEAGE_INCOMPLETE` | parent 与 difference 只给了一个 |
 | `BAD_REF / UNKNOWN_CANDIDATE` | parent 不是 strategy_id@revision 格式，或账本里没有该父版本 |
 | `SOURCE_EXISTS` | 相同字节已是某个候选；附加信息带该候选的引用 |
-| `DIRTY_WORKSET / CONCURRENT_WRITE` | 由 ledger.write 抛出：写前有未提交改动，或提交时与并发写入同格不同值 |
+| `DIRTY_WORKING_SET / CONCURRENT_WRITE` | 由 ledger.write 抛出：写前有未提交改动，或提交时与并发写入同格不同值 |
+| `OP_ID_CONFLICT` | op_id 已存在而载荷不同 |
 
 **使用**　<Ref id="ledger.check_source" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.write" />、<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="engine.account_contract" />、<Ref id="table:candidate" />、<Ref id="table:ledger_head" />
 
@@ -1509,7 +1560,7 @@ def open_trial(
 
 1. 核对用途与绑定器：explore/precheck 带 binder 拒 BINDING_NOT_ALLOWED；research/validation 无 binder 拒 BINDING_REQUIRED；非 explore 时经 ledger.read_candidate 核 source_sha256 是已发布候选，否则 SOURCE_NOT_PUBLISHED
 2. 经 runtime.validate_identity 核运行环境身份含不可变摘要且带探针检视，否则 RUNTIME_NOT_PINNED；输入身份与窗口字段齐全，否则 TRIAL_INPUT_INCOMPLETE
-3. 在 conn 内插 trial 行（purpose、source_sha256、image_ref、合约集、预热起点、交易窗口、输入身份、op_id=trial:\<载荷哈希>）；不写 created_at，由触发器写服务器 UTC
+3. 在 conn 内插 trial 行（purpose、source_sha256、image_ref、合约集、预热起点、交易窗口；op_id=trial:\<载荷哈希>，载荷含输入身份）；输入身份与市场提交不在试验行上重复，写进同一事务里的开始回执；不写 created_at，由触发器写服务器 UTC
 4. 有 binder 时以 (conn, trial_id) 调用；它核对登记早于本试验、身份一致并写 registration_attempt 或 validation_binding 行，其拒绝原样上抛
 5. 经 ledger.start_receipt 在同一 conn 写执行开始回执，其拒绝原样上抛
 6. 返回 trial_id 与回执包名；调用方只在 ledger.write 提交成功后启动容器
@@ -1620,7 +1671,7 @@ def sync_witness(
 | 拒绝码 | 条件 |
 |---|---|
 | `WITNESS_INVALID` | 某次响应离线验证不通过，中止补取，不写该凭证 |
-| `LEDGER_DIRTY` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
+| `DIRTY_WORKING_SET` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
 
 **使用**　<Ref id="ledger.witness" />、<Ref id="ledger.refusal" />、<Ref id="table:witness" />、<Ref id="table:v_validations" />、<Ref id="table:dolt_system_tables" />
 
@@ -1708,7 +1759,7 @@ def witness(
 | `NOT_REGISTRATION_COMMIT` | commit 不是任何 validation_registration 行诞生的账本提交 |
 | `WITNESS_INVALID` | 响应验证不通过，或 genTime 早于登记 created_at、晚于本机时间加容差 |
 | `WITNESS_UNAVAILABLE` | 时间戳机构不可达、超时或未授予；作为 status=failed 的原因返回，登记保留 |
-| `LEDGER_DIRTY` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
+| `DIRTY_WORKING_SET` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
 
 **使用**　<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="ledger.token_time" />、<Ref id="table:witness" />、<Ref id="table:validation_registration" />、<Ref id="table:dolt_system_tables" />
 
