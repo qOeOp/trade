@@ -17,7 +17,7 @@ from tests.ledger.dolt import BINARY, SKIP, Service, source
 from tests.ledger.tsa import LocalAuthority
 
 
-FIXTURE = Path(__file__).resolve().parents[1] / "records" / "fixtures" / "digicert-witness.tsr"
+FIXTURE = Path(__file__).with_name("fixtures") / "digicert-witness.tsr"
 FIXTURE_COMMIT = "r1hp2ilqpahb7h6dulga0lnga1q87ouf"  # the Dolt commit this DigiCert response stamps
 
 
@@ -62,15 +62,12 @@ class WitnessLedgerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("witness")
         cls.published = strategies.publish_candidate(cls.profile, source("validated"), "validated", "Fixture",
                                                      "root")["ledger_commit"]
         cls.authority = LocalAuthority()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.close()
-        cls.authority.close()
+        cls.addClassCleanup(cls.authority.close)
 
     def setUp(self):
         self.conn = db.connect(self.profile, "writer")
@@ -79,15 +76,16 @@ class WitnessLedgerTests(unittest.TestCase):
         self.posted.start()
         self.addCleanup(self.posted.stop)
 
-    def register(self, label: str) -> str:
+    def register(self, label: str, retry_of: int | None = None, universe_rule: str = "pool-v1") -> str:
         """A validation registration row (registration.validation_register is a later phase)."""
-        start = datetime.now(UTC).replace(tzinfo=None, microsecond=0) + timedelta(days=30)
+        start = datetime(2030, 1, 1)
 
         def insert(conn, op):
             conn.rows("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
-                      "window_start, window_end, design, op_id, created_at) VALUES ('validated', 1, %s, 'pool-v1', "
-                      "%s, %s, %s, %s, NOW())", ("m" * 32, start, start + timedelta(days=90),
-                                                 json.dumps({"method": "fixture", "label": label}), op))
+                      "window_start, window_end, design, retry_of, op_id, created_at) VALUES ('validated', 1, %s, "
+                      "%s, %s, %s, %s, %s, %s, NOW())",
+                      ("m" * 32, universe_rule, start, start + timedelta(days=90),
+                       json.dumps({"method": "fixture", "label": label}), retry_of, op))
             return {}
 
         return db.write(self.conn, "validation_register", {"label": label}, "validation_registration", insert)["commit"]
@@ -144,6 +142,14 @@ class WitnessLedgerTests(unittest.TestCase):
                                           (commit,)), [(0,)])
         with self.assertRaises(ValueError):
             witness.witness(self.conn, commit, tsa_url="http://timestamp.example.invalid")
+
+    def test_a_retry_keeps_the_candidate_universe_and_window(self):
+        self.register("original")
+        (original,), = self.service.sql(self.profile, "SELECT MAX(registration_id) FROM validation_registration")
+        self.register("retry", retry_of=original)
+        with self.assertRaises(Refusal) as caught:
+            self.register("drifted retry", retry_of=original, universe_rule="pool-v2")
+        self.assertEqual(caught.exception.missing, ("validation_retries_keep_candidate_and_window",))
 
     def test_sync_stamps_every_registration_still_missing_a_token(self):
         first, second = self.register("sync-a"), self.register("sync-b")
