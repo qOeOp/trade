@@ -1,10 +1,11 @@
 """Named ledgers on local Dolt services: profiles, lifecycle, backup, export and reads.
 
 A service is one `dolt sql-server` with its own directory, unix socket and accounts; it can hold
-several databases (the research ledger now, market data later). A profile names one database on
-one service: `--ledger NAME` selects it. Profiles live in `~/.local/share/trade/ledgers/`
-(`TRADE_LEDGER_HOME` overrides the directory for tests and demonstrations). Exactly one profile
-may be `active`; `isolated` and `temporary` ones must use another database name.
+several databases (the research ledger and market data). A profile names one database on one
+service and its kind (`research` or `market`): `--ledger NAME` selects it. Profiles live in
+`~/.local/share/trade/ledgers/` (`TRADE_LEDGER_HOME` overrides the directory for tests and
+demonstrations). At most one profile of each kind may be `active`; `isolated` and `temporary`
+ones must use a database name no active profile uses.
 """
 
 from __future__ import annotations
@@ -25,9 +26,11 @@ from research.records import db
 
 DEFAULT_HOME = Path.home() / ".local/share/trade/ledgers"
 ROLES = ("active", "isolated", "temporary")
+KINDS = ("research", "market")
 SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
 COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
+MARKET_SCHEMA = Path(__file__).parents[1] / "market" / "schema.sql"
 
 
 def _refuse(message, code="LEDGER_REFUSED", **extra):
@@ -61,18 +64,26 @@ def profiles() -> dict[str, dict]:
     return {path.stem: _read(path) for path in sorted(directory.glob("*.json"))}
 
 
-def profile(name: str | None) -> dict:
-    """The named profile, or the active one when no name is given."""
+def kind(value: dict) -> str:
+    return value.get("kind", "research")
+
+
+def profile(name: str | None, of: str | None = "research") -> dict:
+    """The named profile, or the active one of kind `of` when no name is given (`of=None`: any kind
+    by name, the research ledger by default)."""
     found = profiles()
     if name is None:
-        active = [value for value in found.values() if value["role"] == "active"]
+        of = of or "research"
+        active = [value for value in found.values() if value["role"] == "active" and kind(value) == of]
         if len(active) != 1:
-            raise _refuse("no --ledger given and no single active ledger profile", "LEDGER_UNSELECTED",
-                          next_actions=["Pass --ledger NAME (see `ledger status`)."])
+            raise _refuse(f"no name given and no single active {of} profile", "LEDGER_UNSELECTED",
+                          next_actions=["Pass the profile name (see `ledger status`)."])
         return active[0]
     if name not in found:
         raise _refuse(f"unknown ledger {name!r} in {home()}", "LEDGER_UNKNOWN",
                       next_actions=["List them with `ledger status`; create one with `ledger init`."])
+    if of is not None and kind(found[name]) != of:
+        raise _refuse(f"profile {name} holds {kind(found[name])} data, not {of}", "LEDGER_KIND")
     return found[name]
 
 
@@ -91,12 +102,12 @@ def credentials(value: dict, role: str) -> tuple[str, str, str]:
 
 
 def require_writable(value: dict) -> None:
-    """An isolated or temporary ledger may never use the active ledger's database name."""
+    """An isolated or temporary profile may never use an active profile's database name."""
     if value["role"] == "active":
         return
     for other in profiles().values():
         if other["role"] == "active" and other["database"] == value["database"]:
-            raise _refuse(f"ledger {value['name']} uses the active ledger's database name {value['database']}",
+            raise _refuse(f"ledger {value['name']} uses the active database name {value['database']}",
                           "ISOLATION_BREACH")
 
 
@@ -224,18 +235,21 @@ def _statements(text: str) -> list[str]:
 
 
 def init(*, name: str, database: str, service_root: Path, binary: str, port: int, role: str,
-         backup_root: Path | None) -> dict:
+         backup_root: Path | None, of: str = "research") -> dict:
     """Create the profile, its service if new, the database on main with the schema, and its accounts."""
     if role not in ROLES:
         raise _refuse(f"role must be one of {ROLES}")
+    if of not in KINDS:
+        raise _refuse(f"kind must be one of {KINDS}")
     if not name.replace("-", "").replace("_", "").isalnum() or not database.replace("_", "").isalnum():
         raise _refuse("ledger and database names use letters, digits, hyphens and underscores")
     found = profiles()
     if name in found:
         raise _refuse(f"ledger {name} already exists; no implicit replacement", "LEDGER_EXISTS")
     actives = [value for value in found.values() if value["role"] == "active"]
-    if role == "active" and actives:
-        raise _refuse(f"ledger {actives[0]['name']} is already active", "LEDGER_EXISTS")
+    same = [value for value in actives if kind(value) == of]
+    if role == "active" and same:
+        raise _refuse(f"ledger {same[0]['name']} is already active", "LEDGER_EXISTS")
     if role != "active" and any(value["database"] == database for value in actives):
         raise _refuse(f"database {database} is the active ledger's; use another name", "ISOLATION_BREACH")
     service_root = Path(service_root).expanduser().absolute()
@@ -259,25 +273,38 @@ def init(*, name: str, database: str, service_root: Path, binary: str, port: int
             if not config.get("secured"):
                 _secure_service(cursor)
                 config["secured"] = True
-            for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
+            schema = SCHEMA if of == "research" else MARKET_SCHEMA
+            for statement in _statements(schema.read_text(encoding="utf-8")):
                 cursor.execute(statement)
-            cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (db.SCHEMA_VERSION,))
-            cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
-            cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{db.SCHEMA_VERSION}",))
+            if of == "research":
+                cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (db.SCHEMA_VERSION,))
+                cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
+            else:
+                from research.market.store import PRICE_SCALE, VOLUME_SCALE
+                from research.market.universe import POOL_RULE
+                cursor.execute("INSERT INTO market_schema VALUES (1, %s, %s, %s, %s)",
+                               (db.MARKET_SCHEMA_VERSION, PRICE_SCALE, VOLUME_SCALE, POOL_RULE))
+            version = db.SCHEMA_VERSION if of == "research" else db.MARKET_SCHEMA_VERSION
+            cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{version}",))
             writer, reader = accounts["writer"], accounts["reader"]
             cursor.execute(f"CREATE USER '{writer['user']}'@'%%' IDENTIFIED BY %s", (writer["password"],))
             cursor.execute(f"CREATE USER '{reader['user']}'@'%%' IDENTIFIED BY %s", (reader["password"],))
             # Least privilege: no UPDATE or DELETE except the concurrency row, no database-wide EXECUTE
             # (it would allow reset, tag deletion and amend), only DOLT_COMMIT by name.
             cursor.execute(f"GRANT SELECT, INSERT ON `{database}`.* TO '{writer['user']}'@'%'")
-            cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer['user']}'@'%'")
+            if of == "research":
+                cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer['user']}'@'%'")
+            else:
+                # Market data appends on main only.
+                cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, 'main', %s, '%%', 'write')",
+                               (database, writer["user"]))
             cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer['user']}'@'%'")
             cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader['user']}'@'%'")
     finally:
         conn.close()
     config["databases"][database] = accounts
     _private_write(service_root / "service.json", config)
-    value = {"name": name, "role": role, "service": str(service_root), "database": database,
+    value = {"name": name, "kind": of, "role": role, "service": str(service_root), "database": database,
              "backup": str(Path(backup_root).expanduser().absolute()) if backup_root else None}
     _private_write(home() / f"{name}.json", value)
     return {"ledger": value, "status": status_of(value)}
@@ -333,10 +360,13 @@ def close_round(value: dict) -> dict:
 # Status, backup, export, SQL
 
 def status_of(value: dict) -> dict:
-    result = {"name": value["name"], "role": value["role"], "database": value["database"],
+    result = {"name": value["name"], "kind": kind(value), "role": value["role"], "database": value["database"],
               "service": value["service"], "running": _pid(Path(value["service"])) is not None}
     if not result["running"]:
         return result
+    if kind(value) == "market":
+        from research.market.store import freshness
+        return {**result, **freshness(value)}
     conn = db.connect(value, "reader")
     try:
         found = db.rounds(conn)

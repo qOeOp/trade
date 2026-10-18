@@ -387,6 +387,22 @@ class LedgerProfileTests(unittest.TestCase):
         status = ledger.status()["ledgers"]
         self.assertEqual([(item["name"], item["running"]) for item in status], [("active-one", True)])
 
+    def test_the_research_cli_defaults_to_the_research_ledger_beside_a_market_database(self):
+        fixture = TemporaryLedger("research-one", role="active")
+        self.addCleanup(fixture.close)
+        market = {"name": "market-one", "kind": "market", "role": "active", "service": str(fixture.root / "m"),
+                  "database": "market_one", "backup": None}
+        (ledger.home() / "market-one.json").write_text(json.dumps(market))
+        self.assertEqual(ledger.profile(None)["name"], "research-one")
+        self.assertEqual(ledger.profile(None, of="market")["name"], "market-one")
+        with self.assertRaises(RecordError) as caught:
+            ledger.profile("market-one")
+        self.assertEqual(caught.exception.code, "LEDGER_KIND")
+        status = {item["name"]: item for item in ledger.status()["ledgers"]}
+        self.assertEqual(status["market-one"]["kind"], "market")
+        self.assertFalse({"open_round", "closed_rounds"} & set(status["market-one"]))
+        self.assertIn("open_round", status["research-one"])
+
     def test_a_temporary_ledger_is_gone_after_its_command(self):
         home = Path(tempfile.mkdtemp(prefix="lh-", dir="/tmp"))
         self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
