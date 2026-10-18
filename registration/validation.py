@@ -88,8 +88,9 @@ def _covered(interval: tuple[int, int], given: list) -> bool:
 
 
 def membership_unchanged(market, registration: Mapping, inputs: Mapping) -> None:
-    """Refuse MEMBERSHIP_CHANGED unless the replay's universe keeps the registered rule, the months before
-    registration, every window month and every member of the path the strategy receives."""
+    """Refuse MEMBERSHIP_CHANGED unless the replay's universe keeps the registered rule, every month up to
+    and including the registration month, every window month and every member of the path the
+    strategy receives."""
     adapter = seams.current.market(market)
     identity = inputs["identity"]
 
@@ -102,7 +103,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping) -> None
     then = _by_month(adapter.universe_month(registration["market_commit"]))
     now = _by_month(adapter.universe_month(identity["market_commit"]))
     for month in sorted(set(then) | set(now)):
-        if month < registered_month and then.get(month) != now.get(month):
+        if month <= registered_month and then.get(month) != now.get(month):
             symbols = sorted({row[1] for row in set(then.get(month, [])) ^ set(now.get(month, []))})
             raise changed(f"members of {month} changed between the market commits: " + ", ".join(symbols), month,
                           *symbols)
@@ -197,7 +198,11 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                                                       f"time {created}", missing=("window_start",))
             return {"registration_id": registration_id}
 
-        def replay(c, prior):  # the same op_id returns the existing registration, as the design states
+        def replay(c, prior):  # the same op_id returns the existing registration only for the same content
+            if not _same_registration(prior, payload):
+                raise refuse("OP_ID_CONFLICT", f"operation {op_id} already registered other content as validation "
+                                               f"registration {prior['registration_id']}",
+                             missing=(str(op_id),))
             return {"registration_id": prior["registration_id"]}
 
         written = db.write(conn, "validation_register", payload, "validation_registration", insert, replay, op_id=op_id)
@@ -212,6 +217,8 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                       else {"status": "failed", "stamped_at": None, "error": stamped["reason"]})
         except Refusal as exc:
             result = {"status": "failed", "stamped_at": None, "error": exc.code}
+        except (ValueError, RuntimeError, OSError) as exc:  # the registration is committed; the witness is retried
+            result = {"status": "failed", "stamped_at": None, "error": str(exc)}
     return {"registration_id": registration_id, "ledger_commit": commit, "created_at": created_at, "witness": result,
             "replayed": written["replayed"]}
 

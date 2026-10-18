@@ -147,6 +147,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "TRIAL_INPUT_INCOMPLETE": ("The input identity lacks the market commit, universe rule, instruments, export "
                                "content hash or coverage receipt, or the window lacks a bound.",
                                ("Export the market inputs for the window again, then replay.",)),
+    "OUT_OF_SAMPLE_RESERVED": ("The trial trades inside the window of a validation registration of the same "
+                               "candidate source that is not yet bound.",
+                               ("Run the validation the user registered; other trials of this candidate may not "
+                                "touch its window until it is bound.",)),
     "TRIAL_NOT_FOUND": ("The trial does not exist on this ledger version.",
                         ("List trials with `research status`.",)),
     "EXECUTION_IDENTITY": ("The execution start receipt disagrees with its trial row (source, runtime identity) "
@@ -270,8 +274,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, or the membership file "
                                "is missing.",
                                ("Export the market inputs again into a new directory.",)),
-    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is missing, lacks lifecycle.json, fails its hash check or "
-                        "does not validate against the pinned market commit.",
+    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_commit> of the pinned commit, is "
+                        "missing, lacks lifecycle.json, fails its hash check or does not validate against the "
+                        "pinned market commit.",
                         ("Write the lifecycle bundle for this market commit again with the market command.",)),
     # Prechecks and source reviews (registration/precheck.py)
     "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
@@ -304,8 +309,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "RUNTIME_NOT_MAIN": ("The runtime image is not a main build of the product image source, or its code differs "
                          "from that revision, or the trial ran another image.",
                          ("Merge first, then rerun with the main runtime image.",)),
-    "MEMBERSHIP_CHANGED": ("The universe rule differs, a month before registration changed between the two market "
-                           "commits, a window month is missing, or a member was removed from the strategy's path.",
+    "MEMBERSHIP_CHANGED": ("The universe rule differs, a month up to the registration month changed between the "
+                           "two market commits, a window month is missing, a member was removed from the strategy's "
+                           "path, or the trial's instruments differ from its recorded membership.",
                            ("Replay with the registered universe rule on a market commit that keeps the registered "
                             "months and covers the window.",)),
     "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",

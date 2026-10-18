@@ -86,11 +86,15 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
 
 
 def load_lifecycle(profile, bundle: str, commit: str, *, market=None) -> tuple[dict, dict[str, bytes]]:
-    """(episodes, files) of a lifecycle evidence bundle validated against the pinned market commit.
+    """(episodes, files) of the lifecycle evidence bundle lifecycle-<commit>, validated against the
+    pinned market commit.
 
     `profile` is the research ledger profile (or its name); `market` the market adapter whose
     validate_lifecycle checks the manifest (default: the seam's adapter for no profile).
     """
+    if bundle != f"lifecycle-{commit}":  # the market command writes lifecycle-<market_commit> for each commit
+        raise refuse("LIFECYCLE_INPUT", f"{bundle!r} is not the lifecycle bundle lifecycle-{commit} of the pinned "
+                                        "market commit", missing=(str(bundle),), expected=f"lifecycle-{commit}")
     if isinstance(profile, str):
         profile = db.load_profile(profile)
     try:

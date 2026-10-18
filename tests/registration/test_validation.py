@@ -97,7 +97,9 @@ class MembershipTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.market = FakeMarket({MARKET_COMMIT: months_rows(self.months[:3]), "n" * 32: months_rows(self.months),
                                   "a" * 32: months_rows(self.months[:2], ["AAAUSDT"]) + months_rows(self.months[2:]),
-                                  "s" * 32: months_rows(self.months[:3])})
+                                  "s" * 32: months_rows(self.months[:3]),
+                                  "b" * 32: months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
+                                  + months_rows(self.months[3:])})
         self.registration = {"market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                              "created_at": datetime(2026, 10, 19, 12), "window_start": datetime(2026, 11, 2),
                              "window_end": datetime(2026, 11, 9)}
@@ -124,6 +126,7 @@ class MembershipTests(unittest.TestCase):
         self.assertEqual(self.code({**fresh, "identity": {**fresh["identity"], "universe_rule": "pool-v2"}}),
                          "MEMBERSHIP_CHANGED")
         self.assertEqual(self.code(self.inputs("a" * 32)), "MEMBERSHIP_CHANGED", "a month before registration changed")
+        self.assertEqual(self.code(self.inputs("b" * 32)), "MEMBERSHIP_CHANGED", "the registration month changed")
         self.assertEqual(self.code(self.inputs("s" * 32, {"symbols": SYMBOLS})), "MEMBERSHIP_CHANGED", "the window month is not produced")
         removed = {**fresh, "identity": {**fresh["identity"], "membership": {"AAAUSDT": fresh["identity"]["membership"][
             "AAAUSDT"]}}}
@@ -290,6 +293,51 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.code(self.register, "interrupted-retry", **retry), "RETRY_NOT_ALLOWED")
         capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
         self.assertEqual(self.register("interrupted-retry", **retry)["witness"]["status"], "stamped")
+
+    def test_the_same_op_id_with_other_content_conflicts(self):
+        start, end = self.windows["bound"]
+        cases = [{"universe_rule": "pool-v2"}, {"design": {**DESIGN, "seed": 8}}, {"window_end": end + timedelta(1)},
+                 {"candidate": self.unrun["candidate"]}]
+        seq = self.world.seq()
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                self.assertEqual(self.code(self.register, "bound", **overrides), "OP_ID_CONFLICT")
+        self.assertEqual(self.world.seq(), seq)
+        self.assertTrue(self.register("bound")["replayed"])
+
+    def test_a_failing_witness_after_the_commit_leaves_the_registration_and_reports_it(self):
+        later = datetime.now(UTC) + timedelta(days=60)
+        registered = self.register("insecure-witness", window_start=later, window_end=later + timedelta(days=1),
+                                   tsa_url="http://timestamp.example.invalid")
+        self.assertEqual((registered["witness"]["status"], registered["witness"]["stamped_at"]), ("failed", None))
+        self.assertIn("https", registered["witness"]["error"])
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM validation_registration "
+                                                                    "WHERE registration_id = %s",
+                                                (registered["registration_id"],)), [(1,)])
+
+    def test_an_unbound_registration_reserves_its_window_for_its_candidate(self):
+        start, end = self.windows["released"]
+        identity = self.market_inputs(start, end)["identity"]
+
+        def trial(data: bytes, trade_start: datetime, trade_end: datetime, purpose: str = "explore") -> int:
+            window = {"start": _ns(trade_start.replace(second=0)), "trade_start": _ns(trade_start),
+                      "end": _ns(trade_end)}
+            self.binds += 1
+            return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
+                                     {"identity": identity, "input_coverage": coverage_bytes(config())}, window,
+                                     context(data, f"/tmp/reserved-{self.binds}"))["trial_id"]
+
+        seq = self.world.seq()
+        for purpose in ("explore", "precheck"):
+            with self.subTest(purpose=purpose):
+                self.assertEqual(self.code(trial, source("root"), start - timedelta(seconds=30),
+                                           start + timedelta(milliseconds=1), purpose), "OUT_OF_SAMPLE_RESERVED")
+        self.assertEqual(self.world.seq(), seq)
+        trial(source("root"), end, end + timedelta(seconds=1))  # touching the last window is outside it
+        trial(self.unrun["source"], start, end)  # another candidate's source
+        self.bind("released")
+        trial(source("root"), start, end)
+
     def test_the_replay_must_match_the_registration_in_every_identity(self):
         root = source("root")
         dirty = self.git_root / "dirty"

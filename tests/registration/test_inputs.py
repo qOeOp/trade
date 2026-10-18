@@ -115,6 +115,8 @@ class LifecycleTests(unittest.TestCase):
                       {"lifecycle.json": json.dumps(manifest).encode(), "sources/delisting.html": b"<p>delisted</p>"})
         product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + "n" * 32,
                       {"notes.txt": b"no manifest"})
+        product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + "q" * 32,  # names another commit
+                      {"lifecycle.json": json.dumps(manifest).encode()})
 
     def test_a_lifecycle_bundle_is_validated_against_the_pinned_commit_and_exported(self):
         world = self.world
@@ -132,7 +134,7 @@ class LifecycleTests(unittest.TestCase):
     def test_missing_unbound_or_damaged_lifecycle_evidence_is_refused(self):
         world = self.world
         cases = [("lifecycle-" + "z" * 32, MARKET_COMMIT), ("lifecycle-" + "n" * 32, MARKET_COMMIT),
-                 ("lifecycle-" + MARKET_COMMIT, "n" * 32)]
+                 ("lifecycle-" + MARKET_COMMIT, "n" * 32), ("lifecycle-" + "q" * 32, MARKET_COMMIT)]
         for bundle, commit in cases:
             with self.subTest(bundle=bundle, commit=commit), self.assertRaises(Refusal) as caught:
                 inputs.load_lifecycle(world.profile.name, bundle, commit, market=world.market)
