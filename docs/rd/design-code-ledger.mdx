@@ -99,9 +99,10 @@ def original_coverage(
 
 1. 读 table:trial 取该试验的候选内容哈希与运行环境身份，以此调用 ledger.read_capture；它的核验拒绝原样传出。返回缺失、未最终封存，或缺执行前回执、执行阶段、原生报告任一项，拒绝 CAPTURE_INCOMPLETE。
 2. 各阶段退出码须全为零，否则拒绝 PHASE_FAILED，并带上首个非零阶段名与退出码。
-3. 取捕获中封存的覆盖回执，其 input_identity 与参数 input_identity 做字典深比较，须完全相等，否则拒绝 INPUT_IDENTITY_MISMATCH。工作目录或调用方另传的回执一律不采信。
-4. 从捕获的原生报告取原生摘要，调用 ledger.verify_coverage(coverage, summary)；它的拒绝原样传出，不捕获、不降级。
-5. 返回事件元组，交 ledger.ingest_run 写入运行行；本函数不写任何东西。
+3. 封存的覆盖回执须与开始回执里的 input-coverage.json 逐字节相同，其 input_identity 须等于开始回执记下的输入身份，否则 COVERAGE_MISMATCH。
+4. 取捕获中封存的覆盖回执，其 input_identity 与参数 input_identity 做字典深比较，须完全相等，否则拒绝 INPUT_IDENTITY_MISMATCH。工作目录或调用方另传的回执一律不采信。
+5. 从捕获的原生报告取原生摘要，调用 ledger.verify_coverage(coverage, summary)；它的拒绝原样传出，不捕获、不降级。
+6. 返回事件元组，交 ledger.ingest_run 写入运行行；本函数不写任何东西。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -109,6 +110,7 @@ def original_coverage(
 | `PHASE_FAILED` | 捕获中任一阶段退出码非零。 |
 | `INPUT_IDENTITY_MISMATCH` | 捕获中覆盖回执的输入身份不等于存储的输入身份。 |
 | `COVERAGE_RECEIPT_INVALID / COVERAGE_MISMATCH / LIFECYCLE_*` | 由 ledger.verify_coverage 原样传出。 |
+| `COVERAGE_MISMATCH` | 封存的覆盖回执与开始回执的不同 |
 
 **使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.refusal" />、<Ref id="table:v_trials" />
 
@@ -563,7 +565,7 @@ def read_capture(conn: LedgerConnection, trial_id: int) -> dict
 3. 执行封存包无清单时返回 status = missing 与 reason「原始最终捕获缺失，后来的探针不能替代」；不读、不合并任何 recovery 包。
 4. 核封存清单：format、trial_id、source_sha256、运行环境身份与试验行一致，purpose 与开始回执相同，包内无清单外文件，否则拒绝 EXECUTION_IDENTITY。
 5. 逐文件核验：状态只允许 captured、captured_empty、missing、not_started；captured 的存储字节长度与 sha256 须等于清单，captured_empty 须无内容，否则拒绝 LEDGER_CORRUPT；封存的 strategy.py 哈希须等于 trial.source_sha256，否则拒绝 EXECUTION_IDENTITY。
-6. 把 runtime_errors.jsonl 解析为 runtime_failures 后原样返回；是否构成不可用由 qualification.assess 判定，本函数不裁决。
+6. 把 runtime_failures.jsonl 解析为 runtime_failures 后原样返回；是否构成不可用由 qualification.assess 判定，本函数不裁决。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -635,18 +637,20 @@ def seal_capture(
 ) -> dict {bundle
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本连接档案；写入经 ledger.write 单事务提交" }, "trial_id": { type: "int", description: "要封存的试验，须有开始回执" }, "workdir": { type: "Path", description: "回放工作目录：native.stdout.txt、native.stderr.txt、audit.stdout.txt、audit.stderr.txt、source/strategy.py、input_coverage.json、reports/runtime_errors.jsonl、reports/summary.json 等" }, "stages": { type: "dict", description: "各阶段事实 {native: {state ∈ {started, exited}, exit_code: int | None}, audit: 同形或 None（未运行）}，由回放入口在 finally 中给出" }, "outcome": { type: "dict", description: "结局 {kind ∈ {completed, interrupted, host_failure}, detail}：interrupted 为信号或超时中断，host_failure 为运行环境不可用、进程被杀等宿主侧失败并附原样错误" }, "conn": { type: "Connection | None", description: "可选，沿用调用方事务；为空时由 ledger.write 自开事务" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本连接档案；写入经 ledger.write 单事务提交" }, "trial_id": { type: "int", description: "要封存的试验，须有开始回执" }, "workdir": { type: "Path", description: "回放工作目录：native.stdout.txt、native.stderr.txt、audit.stdout.txt、audit.stderr.txt、source/strategy.py、input-coverage.json、reports/runtime_failures.jsonl、reports/summary.json 等" }, "stages": { type: "dict", description: "各阶段事实 {native: {state ∈ {started, exited}, exit_code: int | None}, audit: 同形或 None（未运行）}，由回放入口在 finally 中给出" }, "outcome": { type: "dict", description: "结局 {kind ∈ {completed, interrupted, host_failure}, detail}：interrupted 为信号或超时中断，host_failure 为运行环境不可用、进程被杀等宿主侧失败并附原样错误" }, "conn": { type: "Connection | None", description: "可选，沿用调用方事务；为空时由 ledger.write 自开事务" } }} />
 
 **返回**　dict \{bundle, status: captured, files: \{path: sha256\}, manifest_sha256\}；同一试验同载荷重复调用返回原记录（幂等）
 
 **期望行为**
 
-1. 读试验行与开始回执（ledger.load_bundle 读 trial-\<trial_id>-execution-start）；缺任一项拒绝 EXECUTION_START_MISSING，不封存任何字节。
-2. 核对 stages 中 state 与 exit_code 互相一致、outcome.kind 合法，否则拒绝 EXECUTION_IDENTITY。容量上限按试验用途取：purpose=precheck 用工程容量上限并封存 reports/ 下全部文件，其余用常规上限（常规 32 MiB、预检 512 MiB，均为未校准示例值）。
-3. 逐文件生成清单：存在且非空记 captured（sha256 与长度），存在但为空记 captured_empty（显式空字节证明），不存在记 missing；audit 为 None 时 audit.* 与 audit/audit.json 记 not_started。缺失文件不由后来的探针补哈希。
-4. 总字节超过上限时不写任何行、保留工作目录，拒绝 EXECUTION_CAPTURE_LIMIT，并把拒绝作为宿主错误交回调用方，供 ledger.recover_capture 另标追加。
-5. 组装清单 \{format: execution_capture_v1, trial_id, purpose, source_sha256, runtime_identity, argv, stages, outcome, files\}，经 ledger.write 以 op_id = execution:trial-\<trial_id> 单事务写 evidence_bundle 与 evidence；同 op 同载荷重试返回原记录，载荷不同拒绝 BUNDLE_EXISTS。
-6. 不判成败、不解释日志：是否无效由 replay.audit_problems 与 replay.summary_problems 得出，经济证据资格由 ledger.read_capture 读出。
+1. 每个试验只封存一次：已有执行封存或任一 trial-\<id>-recovery* 恢复包即拒绝 BUNDLE_EXISTS；stages 须与回放入口写下的进程记录一致、命令须等于开始回执的 argv，否则 EXECUTION_IDENTITY。
+2. 读试验行与开始回执（ledger.load_bundle 读 trial-\<trial_id>-execution-start）；缺任一项拒绝 EXECUTION_START_MISSING，不封存任何字节。
+3. 核对 stages 中 state 与 exit_code 互相一致、outcome.kind 合法，否则拒绝 EXECUTION_IDENTITY。容量上限按试验用途取：purpose=precheck 用工程容量上限并封存 reports/ 下全部文件，其余用常规上限（常规 32 MiB、预检 512 MiB，均为未校准示例值）。
+4. 逐文件生成清单：存在且非空记 captured（sha256 与长度），存在但为空记 captured_empty（显式空字节证明），不存在记 missing；audit 为 None 时 audit.* 与 audit/audit.json 记 not_started。缺失文件不由后来的探针补哈希。
+5. 总字节超过上限时不写任何行、保留工作目录，拒绝 EXECUTION_CAPTURE_LIMIT，并把拒绝作为宿主错误交回调用方，供 ledger.recover_capture 另标追加。
+6. 组装清单 \{format: execution_capture_v1, trial_id, purpose, source_sha256, runtime_identity, argv, stages, outcome, files\}，经 ledger.write 以 op_id = execution:trial-\<trial_id> 单事务写 evidence_bundle 与 evidence；同 op 同载荷重试返回原记录，载荷不同拒绝 BUNDLE_EXISTS。
+7. 不判成败、不解释日志：是否无效由 replay.audit_problems 与 replay.summary_problems 得出，经济证据资格由 ledger.read_capture 读出。
+8. 研究或样本外试验因容量超限封存失败是终局：回放入口写恢复材料，并把运行存为 invalid（原因 EXECUTION_CAPTURE_LIMIT），网格点由这次无效运行消耗，不留悬空；恢复材料永远不产生通过的运行或通过的预检。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1087,6 +1091,7 @@ def load_run(
 1. 按 run_id 读运行行，不存在即拒绝；读逐日序列与持仓周期。
 2. 通过的运行核执行封存与报告指纹在位；缺失或哈希不符即拒绝，由资格视图标不可用。
 3. 不返回原生报告行；调用方需要时经 replay.reproduce 重放并核指纹。
+4. 通过的运行缺原始执行封存或缺指纹时如实报告缺项；覆盖身份与运行记下的输入身份核对，不符即 COVERAGE_MISMATCH。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1123,9 +1128,10 @@ def mark_drawdown(
 
 1. 核输入：exposures 为 None 拒绝 EXPOSURE_REPORT_MISSING；account 无任何行拒绝 ACCOUNT_STATE_MISSING
 2. 以 K 线周期为步长在交易窗口内生成标签网格，偏移取自敞口行时间戳；任一敞口行标签不在网格上拒绝 EXPOSURE_GRID_MISMATCH
-3. 每个标签 T 的权益＝时间早于下一标签的最近一条账户 total（无则初始权益）＋标签为 T 的全部敞口行未实现盈亏之和（无行即空仓）
+3. 每个标签 T 的权益＝时间不晚于 T 的最近一条账户 total（同一时刻多行按报告顺序取最后一行；不取 T 之后的账户状态，避免偷看下一根 K 线）（无则初始权益）＋标签为 T 的全部敞口行未实现盈亏之和（无行即空仓）
 4. 峰值自初始权益起逐标签更新，最大跌幅＝max((峰值−权益)÷峰值)，以 Decimal 计算后输出比例
 5. 附价源、采样周期与采样根数，把「K 线内权益路径不可见」写入 limitations；拒绝以 ledger.unreconciled 抛出，由 ledger.metrics 置空本绩效指标，不判运行无效、不补算无法估值的 K 线
+6. 度量版本 mark_max_drawdown@2：@1 取「早于下一标签」的账户状态，会把下一根 K 线内的已实现盈亏与 T 的未实现盈亏重复计入。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1156,7 +1162,7 @@ def metrics(reports: Reports) -> dict
 
 <TypeTable type={{ "reports": { type: "Reports", description: "ledger.load_run 返回的类型化原生报表：订单、成交、持仓（含快照行）、账户、日收益、敞口表、原生摘要与完整性审计写出的账户经济数" } }} />
 
-**返回**　dict：annual_return（原生摘要年化，复核后）、max_drawdown（标记价峰谷比例及价源、采样周期）、plans（已平、赢、未平、胜率）、economics（闭仓拆分、closed_by_year、账户整体资金费与手续费、未实现残差）、populations（闭仓／持仓／账户整体各自样本量：闭仓数、已平与未平计划数、交易窗口天数）、limitations（去重：运行器声明＋审计覆盖局限＋绩效指标自身原因）、metrics_revision。不可得的绩效指标为 None。
+**返回**　dict：run_sealed 的不可派生值（资格事实、标记价回撤及其窗口与最大贡献合约、资金峰值、按挂单吃单拆分的手续费、订单漏斗、计划有效性）、populations、limitations、metrics_revision。年化与计划胜率可派生，不在其中。
 
 **期望行为**
 
@@ -1166,6 +1172,7 @@ def metrics(reports: Reports) -> dict
 4. 按流动性方向汇总手续费与成交额；数订单漏斗；核计划标签与周期一一对应，记计划统计是否成立。
 5. 每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因；局限只记本运行特有的。
 6. 能从持仓周期与逐日序列算出的量不在这里算，由 report.derive_measures 读时算。
+7. metrics_revision 取产品代码提交；工作树有未提交改动即拒绝 STALE_CHECKOUT，未提交的计算代码不能盖上干净的版本。按挂单吃单拆分的名义额乘合约乘数，与持仓周期一致。
 
 **使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.plan_metrics" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.mark_drawdown" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.summary_statistics" />
 
@@ -1498,24 +1505,24 @@ def ingest_run(
     conn: LedgerConnection,
     trial_id: int,
     workdir: Path,
-    failure_reasons: list[dict],
     input_identity: dict,
-    fingerprints: dict | None,
 ) -> {run_id
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "由 ledger.write 打开的写事务连接" }, "trial_id": { type: "int", description: "试验编号；试验须 purpose ∈ research | validation 且尚无运行行" }, "workdir": { type: "Path", description: "回放工作目录：原生摘要、审计结果、订单／成交／持仓／账户／日收益／订单事件史报表、逐分钟敞口、覆盖回执" }, "failure_reasons": { type: "list[dict]", description: "回放入口汇总的无效原因 {code, message, locator}（来自 G.2.1.1、replay.audit_problems、replay.summary_problems）；空列表表示通过" }, "input_identity": { type: "dict", description: "本次回放的输入身份，须与试验行一致，含覆盖回执哈希" }, "fingerprints": { type: "dict | None", description: "replay.seal 在镜像内经 engine.report_fingerprint 算出的语义指纹；账本函数不运行容器；镜像不提供时为 None" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "由 ledger.write 打开的写事务连接" }, "trial_id": { type: "int", description: "试验编号；试验须 purpose ∈ research | validation 且尚无运行行" }, "workdir": { type: "Path", description: "回放工作目录；须等于开始回执记下的工作目录，其中每个原生报告、摘要与审计结果的哈希与长度须等于执行封存清单所记" }, "input_identity": { type: "dict", description: "本次回放的输入身份，须与试验行一致，含覆盖回执哈希" } }} />
 
 **返回**　\{run_id: int, status: 'passed' | 'invalid'\}；拒绝时抛带码拒绝、事务回滚、工作目录保留
 
 **期望行为**
 
-1. 核对试验存在、用途为 research 或 validation、尚无运行行；从工作目录读原生报告与审计结果，缺失即为空。
-2. failure_reasons 非空即 invalid：写状态、引用审计发现的原因与审计，不写封存结果与指纹。
-3. passed：经 ledger.metrics 从工作目录的原生报告算出单运行报告；写入调用方传入的语义指纹（由 replay.seal 在镜像内算出），为空时运行行指纹为 NULL，复现会拒绝。
-4. 在一个写事务里写运行行、封存结果（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
-5. 原生报告留在工作目录，随后清理；需要时经 replay.reproduce 重放复现。
-6. 运行契约、引擎版本、依赖锁与有效配置已在开始回执与执行封存里，运行行不重复存。
+1. 失败原因由本函数从原始执行封存算出，不收调用方的原因：各阶段状态与退出码、结局、封存的审计结果 audit/audit.json、封存的运行期失败、封存的原生摘要（含完整性标志），按 replay.audit_problems 与 replay.summary_problems 的同一规则；任一非空即 invalid，只写状态、原因与审计，不写封存结果与指纹。
+2. 工作目录须等于开始回执记下的目录；原生报告不入账，但执行封存清单记下每个报告文件的 sha256 与长度，计算封存结果前逐一重算核对，不符即 EXECUTION_IDENTITY；只读常规文件，不跟随符号链接。
+3. 语义指纹只取执行封存里指纹阶段的输出；镜像不提供指纹入口时该阶段记 not_available，运行行指纹为 NULL。
+4. 核对试验存在、用途为 research 或 validation、尚无运行行；从工作目录读原生报告与审计结果，缺失即为空。
+5. passed：经 ledger.metrics 从工作目录的原生报告算出单运行报告；写入调用方传入的语义指纹（由 replay.seal 在镜像内算出），为空时运行行指纹为 NULL，复现会拒绝。
+6. 在一个写事务里写运行行、封存结果（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
+7. 原生报告留在工作目录，随后清理；需要时经 replay.reproduce 重放复现。
+8. 运行契约、引擎版本、依赖锁与有效配置已在开始回执与执行封存里，运行行不重复存。
 
 | 拒绝码 | 条件 |
 |---|---|

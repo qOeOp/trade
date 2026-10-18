@@ -39,7 +39,7 @@ def audit_problems(
 ) -> tuple
 ```
 
-<TypeTable type={{ "workdir": { type: "Path", description: "回放工作目录；读 reports/audit.json 与 reports/runtime_failures.jsonl" }, "native_exit": { type: "int", description: "运行器退出码" }, "audit_exit": { type: "int | None", description: "审计器退出码；空表示审计器未运行" } }} />
+<TypeTable type={{ "workdir": { type: "Path", description: "回放工作目录；读 audit/audit.json 与 reports/runtime_failures.jsonl" }, "native_exit": { type: "int", description: "运行器退出码" }, "audit_exit": { type: "int | None", description: "审计器退出码；空表示审计器未运行" } }} />
 
 **返回**　tuple(reasons: list[dict], audit: dict | None)；reasons 每条 \{code, message, locator\}，audit 为读出的审计结果原件，缺失或不可读为空
 
@@ -47,7 +47,7 @@ def audit_problems(
 
 1. native_exit 非零：追加 NATIVE_EXIT_NONZERO，message 带退出码。
 2. audit_exit 为空：追加 AUDIT_NOT_RUN；非零：追加 AUDIT_EXIT_NONZERO。
-3. reports/audit.json 不存在追加 AUDIT_RESULT_MISSING，不可读追加 AUDIT_RESULT_UNREADABLE（附读取错误原文）；自报未通过或 findings 非空追加 AUDIT_FINDINGS，每条发现的定位原样转为 locator。
+3. audit/audit.json 不存在追加 AUDIT_RESULT_MISSING，不可读追加 AUDIT_RESULT_UNREADABLE（附读取错误原文）；自报未通过或 findings 非空追加 AUDIT_FINDINGS，每条发现的定位原样转为 locator。
 4. reports/runtime_failures.jsonl 非空：每行须是结构化异常回执，全部合规追加 RUNTIME_FAILURE_RECORDED（locator 带阶段与合约标识），否则 RUNTIME_FAILURE_MALFORMED；不可解析追加 RUNTIME_FAILURE_UNREADABLE。
 5. 只按退出码、文件存在性与结构化字段判定，不匹配日志文本；每条独立追加，前一条成立不省略后一条；只读不写。本函数不拒绝：任何缺失、不可读或不合规都写成无效原因返回，不抛出带码拒绝。
 
@@ -90,6 +90,8 @@ def execute(
 6. 本函数不拒绝：报表不全、进程无法启动、中断或宿主失败都如实记入阶段记录并封存，由 replay.audit_problems 转成无效原因。
 7. 挂载：运行器只写 reports/（运行期回调失败写 reports/runtime_failures.jsonl）；审计器只写 audit/，结果为 audit/audit.json，原生报告对它只读；运行器因此写不出审计结果。
 8. 入口保留的运行器选项包括输出目录、市场根与提交、成员文件与 --describe；Agent 传入即 RUNNER_OPTION_RESERVED。
+9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态与输出随执行封存，入账只从封存取指纹，调用方给不了。
+10. 容器按试验命名；中断或可选超时到期时按名停止容器再封存，结局记 interrupted。
 
 **使用**　<Ref id="runtime.layout" />、<Ref id="runtime.container_command" />、<Ref id="ledger.seal_capture" />、<Ref id="engine.audit_main" />
 
@@ -297,6 +299,7 @@ def seal(
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
 5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、replay.summary_problems、replay.audit_problems，逐条去重互不覆盖
 6. ledger.ingest_run 入账（有效含绩效指标与原生报表行，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
+7. 内容原因导致的入账失败（原生报表缺失或不可读、摘要缺键、覆盖身份不符、绩效指标计算出错）都作为失败原因存成 invalid 运行（NATIVE_REPORT_UNREADABLE 等）；只有账本不可用、并发写这类基础设施错误才让试验暂时没有运行。容器启动前就被拒绝时删除工作目录。
 
 | 拒绝码 | 条件 |
 |---|---|
