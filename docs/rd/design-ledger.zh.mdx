@@ -2,6 +2,203 @@
 
 先给全库关系图，再每张表一条：字段、键与约束、Dolt 能力用法、写入方、关联章节与参考资料。
 
+## 读取视图
+
+各流程经这些视图读账本；底表只由写入它的功能、视图定义与读字节或原生报表的入口直接读。历史读取按「库/提交」的修订库读，得到当时的视图定义。视图不是访问边界。
+
+| 表 | 用途 |
+|---|---|
+| <Ref id="table:v_candidates">v_candidates</Ref> | 候选的身份与谱系，不含源码字节 |
+| <Ref id="table:v_trials">v_trials</Ref> | 每次试验及其登记网格点、样本外绑定与运行状态；路线内试验、研究计数与前置门都读它 |
+| <Ref id="table:v_runs">v_runs</Ref> | 运行的身份、审计结论与存储的绩效指标；指标在读取入口里按资格遮蔽后才流出 |
+| <Ref id="table:v_judgments">v_judgments</Ref> | 当前生效（未被取代）的判断及其主体，一行一个主体 |
+| <Ref id="table:v_evidence">v_evidence</Ref> | 证据包与其文件目录（路径、哈希、长度），不含原件字节 |
+| <Ref id="table:v_validations">v_validations</Ref> | 样本外登记、它绑定的试验与运行状态 |
+| <Ref id="table:v_universe">v_universe</Ref> | 共同可交易范围：每个规则、每月的成员合约 |
+
+### `v_candidates` [#def-table-v_candidates]
+
+候选的身份与谱系，不含源码字节
+
+<TypeTable type={{ "strategy_id": { type: "VARCHAR(100)", description: "引用名 ID", required: false }, "revision": { type: "INT", description: "版本号", required: false }, "source_sha256": { type: "CHAR(64)", description: "内容身份", required: false }, "entry_class": { type: "VARCHAR(100)", description: "入口类", required: false }, "runtime_contract": { type: "VARCHAR(40)", description: "运行契约", required: false }, "parent_strategy_id": { type: "VARCHAR(100)", description: "研发父版本 ID", required: false }, "parent_revision": { type: "INT", description: "研发父版本号", required: false }, "difference": { type: "VARCHAR(2000)", description: "改动说明", required: false }, "created_at": { type: "DATETIME(6)", description: "服务器时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_candidates AS
+SELECT strategy_id, revision, source_sha256, entry_class, runtime_contract,
+       parent_strategy_id, parent_revision, difference, created_at
+FROM candidate
+```
+
+**底表**　<Ref id="table:candidate">candidate</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.1.1.1">C.1.1.1</Ref> <Ref id="C.1.1.2">C.1.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.1.1.1">H.1.1.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.1.1">J.2.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+
+</div>
+
+### `v_trials` [#def-table-v_trials]
+
+每次试验及其登记网格点、样本外绑定与运行状态；路线内试验、研究计数与前置门都读它
+
+<TypeTable type={{ "trial_id": { type: "BIGINT", description: "试验", required: false }, "purpose": { type: "VARCHAR(20)", description: "explore | precheck | research | validation", required: false }, "source_sha256": { type: "CHAR(64)", description: "被回放的源码", required: false }, "registration_bundle": { type: "VARCHAR(200)", description: "消耗的登记包；无则为空", required: false }, "validation_registration": { type: "BIGINT", description: "样本外登记；无则为空", required: false }, "image_digest": { type: "CHAR(71)", description: "运行环境摘要", required: false }, "trade_start": { type: "DATETIME(6)", description: "交易起点", required: false }, "trade_end": { type: "DATETIME(6)", description: "交易终点", required: false }, "run_id": { type: "BIGINT", description: "入账的运行；未完成为空", required: false }, "run_status": { type: "VARCHAR(10)", description: "passed | invalid；未完成为空", required: false }, "created_at": { type: "DATETIME(6)", description: "试验开始的服务器时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_trials AS
+SELECT t.trial_id, t.purpose, t.source_sha256, a.registration_bundle,
+       b.registration_id AS validation_registration, t.image_digest,
+       t.trade_start, t.trade_end, r.run_id, r.status AS run_status, t.created_at
+FROM trial t
+LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
+LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
+LEFT JOIN run r ON r.trial_id = t.trial_id
+```
+
+**底表**　<Ref id="table:trial">trial</Ref>、<Ref id="table:registration_attempt">registration_attempt</Ref>、<Ref id="table:validation_binding">validation_binding</Ref>、<Ref id="table:run">run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.1">W.2.1.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.5.4.1">J.5.4.1</Ref>
+
+</div>
+
+### `v_runs` [#def-table-v_runs]
+
+运行的身份、审计结论与存储的绩效指标；指标在读取入口里按资格遮蔽后才流出
+
+<TypeTable type={{ "run_id": { type: "BIGINT", description: "运行", required: false }, "trial_id": { type: "BIGINT", description: "所属试验", required: false }, "status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "failure_reasons": { type: "JSON", description: "无效原因", required: false }, "image_revision": { type: "VARCHAR(64)", description: "运行环境版本", required: false }, "runtime_contract": { type: "VARCHAR(40)", description: "运行契约", required: false }, "effective_config": { type: "JSON", description: "生效配置身份", required: false }, "input_identity": { type: "JSON", description: "输入身份", required: false }, "metrics_revision": { type: "VARCHAR(64)", description: "指标计算版本", required: false }, "audit": { type: "JSON", description: "审计结论", required: false }, "annual_return": { type: "DOUBLE", description: "年化（未遮蔽）", required: false }, "max_drawdown": { type: "DOUBLE", description: "标记价最大回撤（未遮蔽）", required: false }, "plan_win_rate": { type: "DOUBLE", description: "计划胜率（未遮蔽）", required: false }, "metric_limitations": { type: "JSON", description: "指标局限", required: false }, "created_at": { type: "DATETIME(6)", description: "入账时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_runs AS
+SELECT run_id, trial_id, status, failure_reasons, image_revision, runtime_contract,
+       effective_config, input_identity, metrics_revision, audit,
+       annual_return, max_drawdown, plan_win_rate, metric_limitations, created_at
+FROM run
+```
+
+**底表**　<Ref id="table:run">run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.1.2.2">G.1.2.2</Ref> <Ref id="G.2.1.1">G.2.1.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.2.1.1">R.2.1.1</Ref> <Ref id="R.2.1.3">R.2.1.3</Ref> <Ref id="R.2.2.1">R.2.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.1.2">V.2.1.2</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.5.4.1">J.5.4.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+
+</div>
+
+### `v_judgments` [#def-table-v_judgments]
+
+当前生效（未被取代）的判断及其主体，一行一个主体
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "判断", required: false }, "kind": { type: "VARCHAR(32)", description: "判断种类", required: false }, "line_bundle": { type: "VARCHAR(200)", description: "研究路线", required: false }, "based_on_commit": { type: "CHAR(32)", description: "所依据的账本提交", required: false }, "cadence_trials": { type: "INT", description: "复盘节奏（仅 review_cadence）", required: false }, "body": { type: "TEXT", description: "判断正文", required: false }, "role": { type: "VARCHAR(16)", description: "主体角色", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "候选 ID", required: false }, "revision": { type: "INT", description: "候选版本", required: false }, "trial_id": { type: "BIGINT", description: "试验", required: false }, "registration_bundle": { type: "VARCHAR(200)", description: "登记包", required: false }, "created_at": { type: "DATETIME(6)", description: "写入时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_judgments AS
+SELECT j.judgment_id, j.kind, j.line_bundle, j.based_on_commit, j.cadence_trials, j.body,
+       s.role, s.strategy_id, s.revision, s.trial_id, s.registration_bundle, j.created_at
+FROM judgment j
+LEFT JOIN judgment_subject s ON s.judgment_id = j.judgment_id
+WHERE NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id)
+```
+
+**底表**　<Ref id="table:judgment">judgment</Ref>、<Ref id="table:judgment_subject">judgment_subject</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="V.2.4.1">V.2.4.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+
+</div>
+
+### `v_evidence` [#def-table-v_evidence]
+
+证据包与其文件目录（路径、哈希、长度），不含原件字节
+
+<TypeTable type={{ "bundle": { type: "VARCHAR(200)", description: "包名", required: false }, "created_at": { type: "DATETIME(6)", description: "入账时间", required: false }, "path": { type: "VARCHAR(400)", description: "文件路径", required: false }, "sha256": { type: "CHAR(64)", description: "内容哈希", required: false }, "byte_length": { type: "BIGINT", description: "字节数", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_evidence AS
+SELECT b.bundle, b.created_at, e.path, e.sha256, e.byte_length
+FROM evidence_bundle b
+JOIN evidence e ON e.bundle = b.bundle
+```
+
+**底表**　<Ref id="table:evidence_bundle">evidence_bundle</Ref>、<Ref id="table:evidence">evidence</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.3.4.2">J.3.4.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
+
+</div>
+
+### `v_validations` [#def-table-v_validations]
+
+样本外登记、它绑定的试验与运行状态
+
+<TypeTable type={{ "registration_id": { type: "BIGINT", description: "样本外登记", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "被验候选 ID", required: false }, "revision": { type: "INT", description: "被验候选版本", required: false }, "market_commit": { type: "CHAR(32)", description: "钉住的市场提交", required: false }, "universe_rule": { type: "VARCHAR(80)", description: "范围规则", required: false }, "window_start": { type: "DATETIME(6)", description: "窗口起点", required: false }, "window_end": { type: "DATETIME(6)", description: "窗口终点", required: false }, "trial_id": { type: "BIGINT", description: "绑定的试验；未绑定为空", required: false }, "run_id": { type: "BIGINT", description: "运行；未完成为空", required: false }, "run_status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "created_at": { type: "DATETIME(6)", description: "登记时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_validations AS
+SELECT g.registration_id, g.strategy_id, g.revision, g.market_commit, g.universe_rule,
+       g.window_start, g.window_end, b.trial_id, r.run_id, r.status AS run_status, g.created_at
+FROM validation_registration g
+LEFT JOIN validation_binding b ON b.registration_id = g.registration_id
+LEFT JOIN run r ON r.trial_id = b.trial_id
+```
+
+**底表**　<Ref id="table:validation_registration">validation_registration</Ref>、<Ref id="table:validation_binding">validation_binding</Ref>、<Ref id="table:run">run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.2.2">X.1.2.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="X.2.1.3">X.2.1.3</Ref> <Ref id="X.2.1.4">X.2.1.4</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.2">J.4.2.2</Ref>
+
+</div>
+
+### `v_universe` [#def-table-v_universe]
+
+共同可交易范围：每个规则、每月的成员合约
+
+<TypeTable type={{ "universe_rule": { type: "VARCHAR(80)", description: "范围规则", required: false }, "month": { type: "DATE", description: "月份", required: false }, "symbol": { type: "VARCHAR(40)", description: "合约", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_universe AS
+SELECT universe_rule, month, symbol
+FROM universe_month
+```
+
+**底表**　<Ref id="table:universe_month">universe_month</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.1.1">W.3.1.1</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="J.6.1.3">J.6.1.3</Ref>
+
+</div>
+
 ## 库 `ledger`
 
 <Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n    BIGINT byte_length\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment {\n    BIGINT judgment_id PK\n    VARCHAR_32_ kind\n    VARCHAR_200_ line_bundle FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    INT cadence_trials\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK\n    INT seq PK\n    VARCHAR_16_ role\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    BIGINT trial_id FK\n    VARCHAR_200_ registration_bundle FK\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT run_id PK\n    INT trial_id FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    CHAR_40_ image_revision\n    JSON runtime_inspection\n    VARCHAR_40_ runtime_contract\n    VARCHAR_40_ engine_version\n    CHAR_64_ dependency_lock_sha256\n    JSON effective_config\n    JSON input_identity\n    CHAR_40_ metrics_revision\n    JSON summary\n    JSON audit\n  }\n  run_account {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    DECIMAL_38_18_ total\n    DECIMAL_38_18_ locked\n    DECIMAL_38_18_ free\n  }\n  run_cost_basis {\n    INT run_id PK\n    VARCHAR_16_ liquidity_side PK\n    INT fills\n    DECIMAL_38_18_ commissions_usdt\n    DECIMAL_38_18_ notional_usdt\n    DECIMAL_38_18_ fee_rate\n  }\n  run_fill {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ order_side\n    VARCHAR_16_ liquidity_side\n    DECIMAL_38_18_ last_qty\n    DECIMAL_38_18_ last_px\n    DECIMAL_38_18_ commission_usdt\n    VARCHAR_160_ position_id\n  }\n  run_order {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ side\n    VARCHAR_32_ order_type\n    VARCHAR_32_ status\n    DECIMAL_38_18_ quantity\n    DECIMAL_38_18_ filled_qty\n    DECIMAL_38_18_ price\n    DECIMAL_38_18_ avg_px\n    BIGINT ts_init\n    BIGINT ts_last\n  }\n  run_order_event {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_48_ event_type\n    BIGINT ts_event_ns\n  }\n  run_position {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_200_ position_id\n    VARCHAR_64_ instrument_id\n    TINYINT is_snapshot\n    TINYINT closed\n    BIGINT ts_closed_ns\n    DECIMAL_38_18_ realized_pnl_usdt\n  }\n  run_return {\n    INT run_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    CHAR_71_ image_digest\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    CHAR_32_ market_commit\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_bundle ||--o{ judgment : \"line_bundle\"\n  judgment ||--o{ judgment : \"supersedes\"\n  judgment ||--o{ judgment_subject : \"judgment_id\"\n  candidate ||--o{ judgment_subject : \"strategy_id_revision\"\n  trial ||--o{ judgment_subject : \"trial_id\"\n  evidence_bundle ||--o{ judgment_subject : \"registration_bundle\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o{ run : \"trial_id\"\n  run ||--o{ run_account : \"run_id\"\n  run_fill ||--o{ run_cost_basis : \"run_id\"\n  run ||--o{ run_fill : \"run_id\"\n  run ||--o{ run_order : \"run_id\"\n  run ||--o{ run_order_event : \"run_id\"\n  run ||--o{ run_position : \"run_id\"\n  run ||--o{ run_return : \"run_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
@@ -59,9 +256,11 @@
 
 **写入方**　<Ref id="ledger.publish_candidate" />
 
+**读取视图**　<Ref id="table:v_candidates">v_candidates</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.1.1.1">C.1.1.1</Ref> <Ref id="C.1.1.2">C.1.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.1.1.1">H.1.1.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.1.1">J.2.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref>
 
 **依据**
 
@@ -156,9 +355,11 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 **写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
 
+**读取视图**　<Ref id="table:v_evidence">v_evidence</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.3.4.2">J.3.4.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
 
 </div>
 
@@ -182,9 +383,11 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 **写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
 
+**读取视图**　<Ref id="table:v_evidence">v_evidence</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
 
 </div>
 
@@ -213,9 +416,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.add_judgment" />
 
+**读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="V.2.4.1">V.2.4.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
 
 **依据**
 
@@ -247,9 +452,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.add_judgment" />
 
+**读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
 
 **依据**
 
@@ -341,9 +548,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="registration.bind" />
 
+**读取视图**　<Ref id="table:v_trials">v_trials</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
+**关联章节**　<Ref id="H.4.2.1">H.4.2.1</Ref>
 
 </div>
 
@@ -377,9 +586,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="table:v_runs">v_runs</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.1.2.2">G.1.2.2</Ref> <Ref id="G.2.1.1">G.2.1.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.2.1.1">R.2.1.1</Ref> <Ref id="R.2.1.3">R.2.1.3</Ref> <Ref id="R.2.2.1">R.2.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.1.2">V.2.1.2</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.5.4.1">J.5.4.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -403,9 +614,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="R.1.1.2">R.1.1.2</Ref> <Ref id="R.2.2.1">R.2.2.1</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -455,9 +668,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="C.5.1.2">C.5.1.2</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="R.1.1.2">R.1.1.2</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -483,9 +698,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="C.5.1.1">C.5.1.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="R.1.1.2">R.1.1.2</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -509,9 +726,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="C.5.2.2">C.5.2.2</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -535,9 +754,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="C.5.1.2">C.5.1.2</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="R.1.1.2">R.1.1.2</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -560,9 +781,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="V.2.2.2">V.2.2.2</Ref> <Ref id="X.2.1.2">X.2.1.2</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.6.2.3">J.6.2.3</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
 
@@ -589,9 +812,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.open_trial" />
 
+**读取视图**　<Ref id="table:v_trials">v_trials</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="W.2.1.1">W.2.1.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.5.4.1">J.5.4.1</Ref>
+**关联章节**　<Ref id="H.4.1.3">H.4.1.3</Ref>
 
 **依据**
 
@@ -623,9 +848,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="ledger.open_trial" />
 
+**读取视图**　<Ref id="table:v_validations">v_validations</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref>
+**关联章节**　<Ref id="X.1.3.1">X.1.3.1</Ref>
 
 </div>
 
@@ -655,9 +882,11 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="registration.validation_register" />
 
+**读取视图**　<Ref id="table:v_validations">v_validations</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.2.2">X.1.2.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="X.2.1.3">X.2.1.3</Ref> <Ref id="X.2.1.4">X.2.1.4</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.2.2">J.4.2.2</Ref>
+**关联章节**　<Ref id="X.1.2.1">X.1.2.1</Ref>
 
 **依据**
 
@@ -894,8 +1123,10 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 **写入方**　<Ref id="market.import_month" />
 
+**读取视图**　<Ref id="table:v_universe">v_universe</Ref>
+
 <div className="rd-meta">
 
-**关联章节**　<Ref id="W.3.1.2">W.3.1.2</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.1.1">W.3.1.1</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="J.6.1.3">J.6.1.3</Ref>
+**关联章节**　<Ref id="W.3.1.2">W.3.1.2</Ref>
 
 </div>

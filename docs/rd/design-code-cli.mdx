@@ -82,7 +82,7 @@ def candidate_export(
 | `NOT_TEMPORARY_PATH` | 目标不在平台临时根之下 |
 | `LEDGER_CORRUPT` | 存储字节或写出文件的哈希不符 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="table:candidate" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_candidates" />
 
 <div className="rd-meta">
 
@@ -115,7 +115,7 @@ def candidate_list(ledger: path, at: str | None) -> JSON
 | `LEDGER_SCHEMA_MISMATCH` | 所读版本的账本模式版本与当前代码不一致或账本未初始化（转发） |
 | `LEDGER_CORRUPT` | 尝试引用的候选在同版本候选表中缺失，或 run 指向不存在的 trial（转发，指明首个不一致行） |
 
-**使用**　<Ref id="cli.main" />、<Ref id="ledger.read_as_of" />、<Ref id="report.candidates" />、<Ref id="table:candidate" />、<Ref id="table:registration_attempt" />、<Ref id="table:trial" />、<Ref id="table:run" />
+**使用**　<Ref id="cli.main" />、<Ref id="ledger.read_as_of" />、<Ref id="report.candidates" />、<Ref id="table:v_candidates" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />
 
 <div className="rd-meta">
 
@@ -192,7 +192,7 @@ def candidate_publish(
 | `SOURCE_UNREADABLE` | file 不是普通文件、是符号链接或读取失败 |
 | `（ledger.publish_candidate 的拒绝）` | 形态、引用名、备注、谱系、重复字节与并发写入的拒绝原样透传 |
 
-**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="ledger.connect" />、<Ref id="table:candidate" />
+**使用**　<Ref id="ledger.publish_candidate" />、<Ref id="ledger.connect" />、<Ref id="table:v_candidates" />
 
 <div className="rd-meta">
 
@@ -228,7 +228,7 @@ def candidate_show(
 | `UNKNOWN_CANDIDATE` | 该版本账本里没有这个候选 |
 | `LEDGER_CORRUPT` | 存储字节重算的哈希与记录的内容哈希不符 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="cli.candidate_export" />、<Ref id="table:candidate" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="cli.candidate_export" />、<Ref id="table:v_candidates" />
 
 <div className="rd-meta">
 
@@ -265,7 +265,7 @@ def evidence_add(
 |---|---|
 | `EMPTY_EVIDENCE` | 既没有文件也没有文本 |
 
-**使用**　<Ref id="ledger.add_bundle" />、<Ref id="ledger.temporary_path" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+**使用**　<Ref id="ledger.add_bundle" />、<Ref id="ledger.temporary_path" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -305,7 +305,7 @@ def evidence_export(
 | `BUNDLE_NOT_FOUND` | 包名在该版本不存在 |
 | `LEDGER_CORRUPT` | 文件哈希与记录不符 |
 
-**使用**　<Ref id="ledger.temporary_path" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+**使用**　<Ref id="ledger.temporary_path" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -389,7 +389,7 @@ def hypothesis_compare(
 | `COMPARISON_UNAVAILABLE` | 任一侧日收益序列不可用（透传，附局限） |
 | `CLOCK_MISMATCH` | 两侧日收益时间轴不逐日一致（透传） |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="report.compare" />、<Ref id="table:registration_attempt" />、<Ref id="table:run" />、<Ref id="table:run_return" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="report.compare" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="ledger.load_run" />
 
 <div className="rd-meta">
 
@@ -669,7 +669,7 @@ def ledger_witness(profile: path, tsa_url: str | None) -> JSON {checked
 | `WITNESS_INVALID` | 取回的凭证离线验证不通过，补取中止 |
 | `WITNESS_UNAVAILABLE` | 时间戳机构不可达或未授予；该提交列入 failed，命令以非零退出码结束 |
 
-**使用**　<Ref id="cli.main" />、<Ref id="ledger.sync_witness" />、<Ref id="table:validation_registration" />、<Ref id="table:witness" />
+**使用**　<Ref id="cli.main" />、<Ref id="ledger.sync_witness" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />
 
 <div className="rd-meta">
 
@@ -796,7 +796,7 @@ def market_coverage(
 | `UNKNOWN_SYMBOL` | 显式合约在该提交下不存在（由 market.diagnose_coverage 传出） |
 | `LIFECYCLE_INPUT` | 生命周期证据包缺失、提交不符、事件非原生或来源原件缺失（由 registration.load_lifecycle 或 market.diagnose_coverage 传出） |
 
-**使用**　<Ref id="market.resolve_commit" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
+**使用**　<Ref id="market.resolve_commit" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:v_universe" />
 
 <div className="rd-meta">
 
@@ -940,7 +940,7 @@ def replay_explore(
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项 |
 | `RUNTIME_UNAVAILABLE` | 运行环境引用无法拉取或检视（转发自 runtime.resolve；RUNTIME_DIGEST_AMBIGUOUS、RUNTIME_IDENTITY_INVALID 同样转发） |
 
-**使用**　<Ref id="replay.explore" />、<Ref id="runtime.resolve" />、<Ref id="table:trial" />
+**使用**　<Ref id="replay.explore" />、<Ref id="runtime.resolve" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 
@@ -984,7 +984,7 @@ def replay_precheck(
 | `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像运行契约不一致 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项 |
 
-**使用**　<Ref id="replay.precheck" />、<Ref id="ledger.read_candidate" />、<Ref id="table:trial" />、<Ref id="table:evidence_bundle" />
+**使用**　<Ref id="replay.precheck" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -1027,7 +1027,7 @@ def replay_report(
 | `NATIVE_SUMMARY_MISSING` | 透传 directory_report |
 | `REPORT_PARSE_FAILED` | 透传 directory_report |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="report.run_report" />、<Ref id="report.directory_report" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:run_account" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="report.run_report" />、<Ref id="report.directory_report" />、<Ref id="table:v_runs" />、<Ref id="ledger.load_run" />
 
 <div className="rd-meta">
 
@@ -1073,7 +1073,7 @@ def replay_run(
 | `MAIN_BUILD_REQUIRED` | 样本外回放的运行环境不是 main 构建或工作树不含 main 最新提交（转发自函数 run） |
 | `RUNTIME_UNAVAILABLE` | 运行环境引用无法拉取或检视（转发自 runtime.resolve；其余运行环境身份拒绝码同样转发） |
 
-**使用**　<Ref id="registration" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:registration_attempt" />、<Ref id="table:validation_binding" />
+**使用**　<Ref id="registration" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />
 
 <div className="rd-meta">
 
@@ -1179,7 +1179,7 @@ def source_review(
 | `PRECHECK_CAPTURE_MISSING` | 透传 record_review |
 | `CONCURRENT_WRITE` | 透传 record_review |
 
-**使用**　<Ref id="ledger.read_candidate" />、<Ref id="runtime.resolve" />、<Ref id="registration.record_review" />、<Ref id="table:trial" />
+**使用**　<Ref id="ledger.read_candidate" />、<Ref id="runtime.resolve" />、<Ref id="registration.record_review" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 

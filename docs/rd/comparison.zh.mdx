@@ -144,7 +144,7 @@ Agent 跑网格、读绩效指标时守的两条纪律。
 4. 核两边日历逐日一致，不一致就拒绝比较。
 5. 任一步不满足，该边序列不可用并写明局限，不插补也不重采样。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.daily_returns">daily_returns</Ref> <Ref id="table:run_return">run_return</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.daily_returns">daily_returns</Ref> <Ref id="ledger.load_run">load_run</Ref></span></div>
 
 </Cap>
 
@@ -365,7 +365,7 @@ p 和区间按登记模型读；资金使用率和利润来源按指标口径读
 - 登记的网格点按结果分为未完成、无效、经济可用、仅诊断。
 - 可按任一账本版本复读；输出不含停止标志、分数或排序。
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_status">research_status</Ref> <Ref id="table:trial">trial</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_status">research_status</Ref> <Ref id="table:v_trials">v_trials</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
 
 </Cap>
 
