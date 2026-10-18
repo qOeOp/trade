@@ -7,109 +7,116 @@
   ""
  ],
  [
+  "tour",
+  "rd/tour",
+  "One round, start to finish",
+  "一轮研究走一遍",
+  "start"
+ ],
+ [
   "concepts",
   "rd/concepts",
   "Core Concepts",
   "核心概念",
-  "chapters"
- ],
- [
-  "principles",
-  "rd/principles",
-  "A Principles",
-  "A 总则",
-  "chapters"
- ],
- [
-  "lineage",
-  "rd/lineage",
-  "T Candidate Lineage",
-  "T 候选谱系",
-  "chapters"
- ],
- [
-  "strategy-file",
-  "rd/strategy-file",
-  "C Strategy File",
-  "C 策略文件",
-  "chapters"
- ],
- [
-  "replay-environment",
-  "rd/replay-environment",
-  "W Replay Environment",
-  "W 回放环境",
-  "chapters"
- ],
- [
-  "audit",
-  "rd/audit",
-  "G Integrity Audit and Evidence Eligibility",
-  "G 完整性审计与证据资格",
-  "chapters"
- ],
- [
-  "report",
-  "rd/report",
-  "R Report",
-  "R 报告",
-  "chapters"
- ],
- [
-  "hypothesis",
-  "rd/hypothesis",
-  "H Hypothesis",
-  "H 提假设",
-  "chapters"
- ],
- [
-  "comparison",
-  "rd/comparison",
-  "V Comparison Evidence",
-  "V 比较证据",
-  "chapters"
- ],
- [
-  "attribution",
-  "rd/attribution",
-  "P Performance Attribution",
-  "P 绩效归因",
-  "chapters"
- ],
- [
-  "feedback",
-  "rd/feedback",
-  "F Feedback and Priority",
-  "F 反馈与研究优先级",
-  "chapters"
+  "start"
  ],
  [
   "entry",
   "rd/entry",
-  "E Entry",
-  "E 入口",
-  "chapters"
+  "1 Entry",
+  "1 入口",
+  "begin"
  ],
  [
   "library",
   "rd/library",
-  "L Strategy Library",
-  "L 策略库",
-  "chapters"
+  "2 Strategy Library",
+  "2 策略库",
+  "begin"
+ ],
+ [
+  "lineage",
+  "rd/lineage",
+  "3 Candidate Lineage",
+  "3 候选谱系",
+  "begin"
+ ],
+ [
+  "strategy-file",
+  "rd/strategy-file",
+  "4 Strategy File",
+  "4 策略文件",
+  "begin"
+ ],
+ [
+  "hypothesis",
+  "rd/hypothesis",
+  "5 Hypothesis",
+  "5 提假设",
+  "iterate"
+ ],
+ [
+  "replay-environment",
+  "rd/replay-environment",
+  "6 Replay Environment",
+  "6 回放环境",
+  "iterate"
+ ],
+ [
+  "audit",
+  "rd/audit",
+  "7 Integrity Audit and Evidence Eligibility",
+  "7 完整性审计与证据资格",
+  "iterate"
+ ],
+ [
+  "report",
+  "rd/report",
+  "8 Report",
+  "8 报告",
+  "iterate"
+ ],
+ [
+  "comparison",
+  "rd/comparison",
+  "9 Comparison Evidence",
+  "9 比较证据",
+  "iterate"
+ ],
+ [
+  "attribution",
+  "rd/attribution",
+  "10 Performance Attribution",
+  "10 绩效归因",
+  "iterate"
+ ],
+ [
+  "feedback",
+  "rd/feedback",
+  "11 Feedback and Priority",
+  "11 反馈与研究优先级",
+  "iterate"
  ],
  [
   "validation",
   "rd/validation",
-  "X Out-of-Sample Validation",
-  "X 样本外验证：用户发起的一次性检验",
-  "chapters"
+  "12 Out-of-Sample Validation",
+  "12 样本外验证：用户发起的一次性检验",
+  "close"
  ],
  [
   "ledger-runtime",
   "rd/ledger-runtime",
-  "J Ledger and Runtime",
-  "J 账本与运行环境",
-  "chapters"
+  "13 Ledger and Runtime",
+  "13 账本与运行环境",
+  "close"
+ ],
+ [
+  "principles",
+  "rd/principles",
+  "14 Principles",
+  "14 总则",
+  "close"
  ],
  [
   "design-code-market",

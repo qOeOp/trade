@@ -52,7 +52,7 @@ type CapData = { cap: MapCapability; slug: string; locale: Locale; state: string
 function ChapterLabelNode({ data: d }: NodeProps<Node<LabelData>>) {
   return (
     <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label">
-      <span className="rd-box-id">{d.chapter.prefix}</span>
+      <span className="rd-box-id">{d.chapter.num}</span>
       <span>{d.chapter.title}</span>
     </Link>
   );
@@ -63,8 +63,7 @@ function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
     <div className={`rd-func rd-func-${d.state} ${d.compact ? 'rd-func-compact' : ''}`}>
       <Handles />
       <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.fn.path)}`} className="rd-func-head">
-        {d.chapter ? <span className="rd-chip">{d.chapter}</span> : null}
-        <span className="rd-box-id">{d.fn.path}</span>
+        <span className="rd-box-id">{d.fn.label}</span>
         <span className="rd-func-title">{d.fn.title}</span>
       </Link>
       {d.outside ? <span className="rd-func-out">{mapCopy.outside[d.locale]} {d.outside}</span> : null}
@@ -75,7 +74,7 @@ function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
 function ComponentNode({ data: d }: NodeProps<Node<CompData>>) {
   return (
     <div className="rd-comp">
-      <div className="rd-comp-head"><span className="rd-fn-id">{d.comp.path}</span><span>{d.comp.title}</span></div>
+      <div className="rd-comp-head"><span>{d.comp.title}</span></div>
     </div>
   );
 }
@@ -84,7 +83,6 @@ function CapabilityNode({ data: d }: NodeProps<Node<CapData>>) {
   return (
     <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.cap.path)}`} className={`rd-cap-card rd-cap-${d.cap.kind} rd-fn-${d.state}`} title={d.cap.title}>
       <Handles />
-      <span className="rd-fn-id">{d.cap.path}</span>
       <span className="rd-cap-title">{d.cap.title}</span>
     </Link>
   );
@@ -94,7 +92,7 @@ function TileNode({ data: d }: NodeProps<Node<LabelData>>) {
   return (
     <div className="rd-tile">
       <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label rd-tile-head">
-        <span className="rd-box-id">{d.chapter.prefix}</span>
+        <span className="rd-box-id">{d.chapter.num}</span>
         <span>{d.chapter.title}</span>
       </Link>
     </div>
@@ -187,13 +185,18 @@ function facing(a: Rect, b: Rect): { from: Side; to: Side } {
   return dy >= 0 ? { from: 'b', to: 't' } : { from: 't', to: 'b' };
 }
 
-export function ResearchMap({ locale }: { locale: Locale }) {
+// `chapter` draws one chapter's sections only (chapter pages); `interactive` enables pan and zoom.
+export function ResearchMap({ locale, chapter, interactive = true }: { locale: Locale; chapter?: string; interactive?: boolean }) {
   const { resolvedTheme } = useTheme();
-  const [tab, setTab] = useState<string>('overview');
+  const [tab, setTab] = useState<string>(chapter ? 'chapter' : 'overview');
   const [hovered, setHovered] = useState<string | null>(null);
   const [aspect, setAspect] = useState(1.8);
   const box = useRef<HTMLDivElement>(null);
-  const flow = flows.find((f) => f.id === tab);
+  const chapterFlow = useMemo(() => {
+    const ch = chapter ? data.chapters.find((c) => c.prefix === chapter) : undefined;
+    return ch ? { id: 'chapter', title: { zh: ch.title, en: ch.title }, functions: ch.functions.map((f) => f.path) } : undefined;
+  }, [chapter]);
+  const flow = chapterFlow ?? flows.find((f) => f.id === tab);
 
   useEffect(() => {
     const el = box.current;
@@ -288,13 +291,19 @@ export function ResearchMap({ locale }: { locale: Locale }) {
         nodesConnectable={false}
         elementsSelectable={false}
         proOptions={{ hideAttribution: true }}
+        panOnDrag={interactive}
+        zoomOnScroll={interactive}
+        zoomOnPinch={interactive}
+        zoomOnDoubleClick={interactive}
+        preventScrolling={interactive}
         onNodeMouseEnter={(_, node) => (node.type === 'cap' || node.type === 'func') && setHovered(node.id)}
         onNodeMouseLeave={(_, node) => (node.type === 'cap' || node.type === 'func') && setHovered(null)}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
-        <Controls showInteractive={false} position="bottom-right" />
+        {interactive ? <Controls showInteractive={false} position="bottom-right" /> : null}
       </ReactFlow>
       </div>
+      {chapter ? null : <>
       <div className="docs-scenario-tabs" role="tablist" aria-label={mapCopy.overview[locale]}>
         {[{ id: 'overview', title: mapCopy.overview }, ...flows].map((f) => (
           <button key={f.id} type="button" role="tab" aria-selected={tab === f.id} className={tab === f.id ? 'is-active' : ''} onClick={() => { setTab(f.id); setHovered(null); }}>
@@ -303,6 +312,7 @@ export function ResearchMap({ locale }: { locale: Locale }) {
         ))}
       </div>
       <p className="rd-map-hint">{mapCopy.hover[locale]}</p>
+      </>}
     </div>
   );
 }

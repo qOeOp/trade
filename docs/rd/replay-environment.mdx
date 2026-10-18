@@ -1,141 +1,167 @@
-# W　回放环境：每次回放看到哪些数据、哪个窗口、哪些合约、怎样的账户与撮合，由谁固定。
+# 6　回放环境：每次回放用哪份数据、哪段时间、哪些合约、怎样的账户和撮合，都由代码钉住，策略改不了。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章回答每次回放处在什么环境里：用哪些交易所数据、哪个窗口、哪些合约、怎样的账户和撮合。承接前几章写好的候选与策略文件：策略只写规则，环境由代码钉住，策略改不了。
+前几章写好了候选和策略文件，接下来就要回放：在钉死的运行环境里，用引擎把候选放到历史数据上模拟跑一遍。本章说的是回放处在什么环境里。策略只写交易规则；环境由代码钉住，策略源码改不了，Agent 能决定的只是引用哪一份数据。
 
-<Mermaid chart={"flowchart LR\n  subgraph W-1[\"W.1 供给交易所数据\"]\n    direction TB\n    W-1-1[\"W.1.1 来源与拼接\"]\n    W-1-2[\"W.1.2 数据内容\"]\n    W-1-3[\"W.1.3 缺口与版本\"]\n  end\n  subgraph W-2[\"W.2 划定窗口\"]\n    direction TB\n    W-2-1[\"W.2.1 窗口结构与边界\"]\n    W-2-2[\"W.2.2 预热与就绪\"]\n  end\n  subgraph W-3[\"W.3 产出共同可交易范围\"]\n    direction TB\n    W-3-1[\"W.3.1 范围规则\"]\n    W-3-2[\"W.3.2 成员变化与生命周期\"]\n    W-3-3[\"W.3.3 覆盖核验\"]\n  end\n  subgraph W-4[\"W.4 固定账户、条款与已知近似\"]\n    direction TB\n    W-4-1[\"W.4.1 账户结构与条款\"]\n    W-4-2[\"W.4.2 不建模与近似\"]\n  end\n  subgraph W-5[\"W.5 模拟撮合与结算\"]\n    direction TB\n    W-5-1[\"W.5.1 撮合输入与模型\"]\n    W-5-2[\"W.5.2 成交与结算规则\"]\n  end\n  W-1 --> W-2\n  W-2 --> W-3\n  W-3 --> W-4\n  W-4 --> W-5"} />
+本章做五件事。交易所公开数据按月导入市场库，每次导入定成一个不可变的版本；窗口分成预热段和交易段，边界和可见时刻都固定；可交易的合约名单按公开规则逐月算出，上市和下架按权威事件处理；账户和条款对所有候选都一样，没建模的部分标为近似；撮合和结算全部交给引擎。
 
-## W.1　供给交易所数据 [#W-1]
+举个例子：全池 RSI 路线钉住一个市场提交，交易段从 2025-10-09 到 2026-10-07，预热从 2025-10-07 开始。涉及的 210 个合约里，BAKE、HIFI 在输入开始前已下架，AIA 下架后重新上市，拆成两段。所有候选共用一个 100000 USDT 的账户，按 1 分钟成交价 K 线撮合、按 1 分钟标记价估值。十个假设都在这同一个环境里跑，结果才能两两比较。
+
+<ChapterMap chapter="W" lang="zh" />
+
+## 6.1　供给交易所数据 [#W-1]
+
+交易所公开数据按月导入市场库，每次导入恰好成一个市场提交，回放只读登记钉住的那一个。
 
 <Steps>
 
 <Step>
 
-指定一个 UTC 月份发起导入，先核对该月是否已完整。
+指定一个 UTC 月份发起导入，先看这个月的数据是否已经齐了。
 
 </Step>
 
 <Step>
 
-读交易所公开条款，定出合格合约，条款变化就追加记录。
+读交易所公开的合约条款，定出合格合约；条款有变化就追加一条记录。
 
 </Step>
 
 <Step>
 
-把各来源拼成每合约一条 1 分钟序列，冲突即整次拒绝。
+把各来源拼成每个合约一条 1 分钟序列，来源之间有冲突就整次拒绝。
 
 </Step>
 
 <Step>
 
-校验通过后只追加，恰生成一个市场提交，并报告缺口。
+全部校验通过后只追加新行，恰好生成一个市场提交，并报告哪些分钟没有数据。
 
 </Step>
 
 <Step>
 
-登记钉住一个提交，回放只导出该提交上窗口内的数据。
+登记时钉住一个提交，回放只导出这个提交里窗口内的数据。
 
 </Step>
 
 </Steps>
 
-### W.1.1　来源与拼接 [#W-1-1]
+### 来源与拼接 [#W-1-1]
 
-把各公开来源拼成一条整分钟序列，来源不进数据。
+数据从哪几个公开来源来，怎样拼成一条整分钟序列；来源本身不进数据。
 
-<Cap id="W.1.1.1" kind="code" tier="verified" tierLabel="已验证" title="只用交易所公开数据，按固定顺序拼成一条 1 分钟序列">
+#### 只用交易所公开数据，按固定顺序拼成一条 1 分钟序列 [#W-1-1-1]
 
-1. 以交易所的月归档为主来源。
-2. 月归档缺失的月份，按天取日归档。
-3. 归档都没覆盖的尾段（通常是当月）由公开接口补。
-4. 拼成按时刻排序、无重复、整分钟对齐的一条序列。
-5. 来源不入库，策略看不到拼接边界。
+数据只来自交易所的公开来源，按固定顺序取：月归档为主；某个月的月归档还没有，就按天取日归档；归档都没覆盖的尾段（通常是当月）用公开行情接口补。三者拼成一条按时刻排序、没有重复、对齐整分钟的序列。来源是什么不进市场库，策略也看不到拼接边界在哪。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.stitch_series">stitch_series</Ref> <Ref id="market.monthly_archives">monthly_archives</Ref> <Ref id="market.rest_klines">rest_klines</Ref></span></div>
+月归档要到下个月初才发布，只等月归档，最近几周就没有数据。固定的取数顺序保证同一分钟永远按同一规矩来，策略也没法依赖数据从哪来。
 
-</Cap>
+<div className="rd-example">
 
-<Cap id="W.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="归档先核交易所校验和，两来源同一时刻不等即整次拒绝">
+比如 10 月 20 日导入当月数据：10 月的月归档还没发布，前 19 天按天取日归档，20 日当天已收盘的分钟由公开接口补。拼好之后，策略读到的是一条连续的 1 分钟序列，分不出哪段来自哪里。
 
-1. 按交易所随文件发布的校验和核对每个归档文件。
-2. 两个来源都有同一时刻时逐字段比较，相等只留一行。
-3. 不等时不拿任一方覆盖另一方，拒绝整次导入。
-4. 任何拒绝都回滚本次全部追加，数据停在导入前的版本。
+</div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.fetch_archive">fetch_archive</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="cli.market_import">market_import</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.stitch_series">stitch_series</Ref> <Ref id="market.monthly_archives">monthly_archives</Ref> <Ref id="market.rest_klines">rest_klines</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
+#### 归档先核校验和，两个来源同一时刻对不上就整次拒绝 [#W-1-1-2]
 
-### W.1.2　数据内容 [#W-1-2]
+每个归档文件先按交易所随文件发布的校验和核对。两个来源都有同一分钟时逐字段比较：相等只留一行；不相等时不拿任何一方覆盖另一方，整次导入被拒绝。任何一处拒绝都会回滚本次全部追加，数据停在导入前的版本。
 
-市场数据只存三样基础事实和条款，高周期在导出时派生。
+两个来源对同一分钟给出不同的数，说明至少一方有问题。随便挑一个，等于悄悄替数据做了决定；整次回滚则保证库里不会留下半截导入。
 
-<Cap id="W.1.2.1" kind="database" tier="verified" tierLabel="已验证" title="只存 1 分钟成交价、标记价、资金费与条款，每合约独立">
+<div className="rd-example">
 
-- 成交价和标记价（交易所估值用参考价）都只存 1 分钟 K 线。
-- 资金费按交易所实际结算时刻记录，不对齐到固定周期。
-- 每个永续合约单独成序列，不跨合约拼接、不复权。
-- 条款按观测时刻追加；已下架合约的步长从成交推断。
+比如某合约某一分钟的收盘价，日归档写 1.2345，公开接口写 1.2346。这次导入整次作废，库里还是导入前的版本，已经钉住旧提交的回放不受任何影响。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:bar">bar</Ref> <Ref id="table:funding">funding</Ref> <Ref id="table:instrument">instrument</Ref></span></div>
+</div>
 
-</Cap>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.fetch_archive">fetch_archive</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="cli.market_import">market_import</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-<Cap id="W.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺一次覆盖全池、与交易所原生同周期 K 线的系统比对结果。" title="高于 1 分钟的 K 线不入库，导出时从 1 分钟派生">
+### 数据内容 [#W-1-2]
 
-- 周期只取固定清单，从 UTC 零点对齐，周从周一开始。
-- 开取首个有成交分钟，收取末分钟，成交量求和。
-- 没有分钟的桶不存在，不用邻桶填充。
-- 派生结果与交易所原生同周期 K 线对照，差异记为数据缺陷。
+市场库只存三样基础数据和合约条款，更长周期的 K 线导出时再算。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.derive_bars">derive_bars</Ref> <Ref id="market.check_derived">check_derived</Ref></span></div>
+#### 只存 1 分钟成交价、标记价、资金费和条款，每个合约各自一条 [#W-1-2-1]
 
-</Cap>
+市场库只存几样基础事实：成交价和标记价（交易所估值用的参考价）的 1 分钟 K 线，按交易所实际结算时刻记下的资金费，以及合约条款。每个永续合约单独一条序列，不跨合约拼接，也不复权。条款按观测到的时刻追加；已下架合约的步长从它的成交推断。
 
-### W.1.3　缺口与版本 [#W-1-3]
+资金费的结算间隔各合约可以不同，也会调整；硬对齐到固定周期，就会算错谁该收付。只存最底层的事实，其他东西都从它推出来，就不会有两份对不上的数据。
 
-缺口照实记录，数据按市场提交只追加地版本化。
+<div className="rd-example">
 
-<Cap id="W.1.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="没有来源的分钟如实记为缺失区间，不补造、不缩窗、不删币">
+全池 RSI 路线用的就是这几样：按 1 分钟成交价 K 线撮合，按 1 分钟标记价给账户估值，资金费按每个合约自己的结算时刻收付。
 
-- 缺口从分钟网格算出，记为左闭右开的缺失区间。
-- 零成交分钟是有数据的事实，另行计数，不算缺口。
-- 不插值、不前值填充、不以标记价代替成交价。
-- 缺口对某次回放意味着什么，由回放前逐合约统计的缺口事实呈现，不由数据层定。
+</div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.missing_intervals">missing_intervals</Ref> <Ref id="market.coverage_facts">coverage_facts</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:bar">bar</Ref> <Ref id="table:funding">funding</Ref> <Ref id="table:instrument">instrument</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
+#### 高于 1 分钟的 K 线不入库，导出时从 1 分钟当场算 [#W-1-2-2]
 
-<Cap id="W.1.3.2" kind="database" tier="verified" tierLabel="已验证" title="市场数据只追加，一次导入恰成一个市场提交">
+更长的周期只从一份固定清单里取，从 UTC 零点开始对齐，周线从周一开始。每根的开盘取第一个有成交的分钟，收盘取最后一个分钟，成交量求和；一分钟数据都没有的时段，这根 K 线就不存在，不拿相邻的补。算出来的 K 线会和交易所原生的同周期 K 线对照，差异记为数据缺陷，两边都不改。
 
-1. 一次导入在一个事务里只追加新行，不改不删旧行。
-2. 两次导入并发时，后到者回滚。
-3. 提交前跑跨表校验，任一失败即整次回滚。
-4. 全部通过后恰生成一个市场提交。
-5. 登记钉住该提交，回放只读它当时的内容。
+所有周期都从同一份 1 分钟数据按同一规则算出来，小时线和分钟线就不会互相矛盾。对照原生 K 线，是为了把数据问题和策略问题分开。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:market.dolt_tests">market.dolt_tests</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span></div>
+<div className="rd-example">
 
-</Cap>
+全池 RSI 路线的 RSI 信号看小时线。按这条规则，每根小时线都由这一小时里的 1 分钟 K 线算出。比如某个小时一分钟数据都没有，这一小时就没有小时线，而不是拿上一小时的数填上。
 
-## W.2　划定窗口 [#W-2]
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.derive_bars">derive_bars</Ref> <Ref id="market.check_derived">check_derived</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺一次覆盖全池、与交易所原生同周期 K 线的系统比对结果。</p>
+
+### 缺口与版本 [#W-1-3]
+
+缺的数据照实记下，数据版本按市场提交只追加地管理。
+
+#### 没有来源的分钟如实记成缺口，不补造、不缩窗、不删币 [#W-1-3-1]
+
+缺口从分钟网格上算出，记成左闭右开的缺失区间（含起点、不含终点）。零成交的分钟是有数据的，只是没人成交，另外计数，不算缺口。数据层不插值、不用前一分钟的值填，也不拿标记价顶替成交价；缺口对某次回放意味着什么，由回放前逐个合约统计的缺口事实来呈现，数据层不下结论。
+
+补出来的价格不是真实发生过的行情，策略在上面赚的钱也不真实。缺口怎么对待是研究的事，数据层只管说实话。
+
+<div className="rd-example">
+
+比如某合约 3 月 5 日 02:00 到 02:30 没有任何来源的数据，就记成一个 30 分钟的缺失区间 [02:00, 02:30)。它另有 200 分钟有数据但成交量为零，单独计为零成交分钟，不算进缺口。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.missing_intervals">missing_intervals</Ref> <Ref id="market.coverage_facts">coverage_facts</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 市场数据只追加，一次导入恰好成一个市场提交 [#W-1-3-2]
+
+一次导入在一个事务里只追加新行，不改、不删旧行；两次导入同时进行时，后到的那次回滚。提交前先跑跨表校验，任何一项不过就整次回滚；全部通过才恰好生成一个市场提交，也就是市场数据的一个不可变版本。登记钉住这个提交，回放只读它当时的内容。
+
+数据会一直增加，但做过的回放必须能按原样重现。只追加加上按提交读取，后来的导入就动不了以前的结果。
+
+<div className="rd-example">
+
+全池 RSI 路线的十个假设都钉在同一个市场提交上。即使之后又导入了新的月份、生成了新的提交，这十次回放读到的仍是当时那一份数据。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:market.dolt_tests">market.dolt_tests</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+## 6.2　划定窗口 [#W-2]
+
+开发窗口随研究路线由你选定，登记时核对；窗口边界、预热数据和 K 线何时可见由代码固定，指标何时就绪由 Agent 声明。
 
 <Steps>
 
 <Step>
 
-用户选研究路线时定下开发窗口，登记时核对交易段等于它。
+你选研究路线时定下开发窗口；每次登记，试验的交易段都要等于它。
 
 </Step>
 
 <Step>
 
-只导出开发窗口及其预热所需的数据。
+只导出开发窗口和它前面预热所需的数据。
 
 </Step>
 
@@ -147,333 +173,487 @@
 
 <Step>
 
-引擎以 K 线收盘时刻为可见时刻回放。
+引擎以 K 线的收盘时刻作为策略看到它的时刻。
 
 </Step>
 
 <Step>
 
-成绩和配对比较只用交易段的日收益。
+成绩和配对比较只用交易段的逐日收益。
 
 </Step>
 
 </Steps>
 
-### W.2.1　窗口结构与边界 [#W-2-1]
+### 窗口结构与边界 [#W-2-1]
 
-窗口的边界形态、可见时刻和统计区段各由代码固定。
+窗口边界怎么写、K 线何时可见、成绩算哪一段，都由代码固定。
 
-<Cap id="W.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="回放窗口分预热段与交易段，边界须显式 UTC、整分钟对齐">
+#### 回放窗口分预热段和交易段，边界写明时区并对齐整分钟 [#W-2-1-1]
 
-- 预热段在前、交易段在后，都是左闭右开。
-- 不给交易起点时它等于窗口起点，即没有预热段。
-- 每个边界须带时区，换算成 UTC 后落在整分钟上。
-- 边界不合规在启动引擎前就拒绝，从不读本机时区。
+一次回放的窗口由三个边界分成两段：前面是预热段，用来给指标积累历史；后面是交易段，成绩从这里算起。两段都是左闭右开；不给交易起点时，它就等于窗口起点，也就没有预热段。每个边界都要带时区，换算成 UTC 后落在整分钟上；不合规在启动引擎前就被拒绝，从不读本机时区。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.parse_window">parse_window</Ref></span></div>
+同一个时间字符串，在不同时区的机器上指向不同的时刻。只认显式 UTC 和整分钟，两次回放的窗口要么一模一样，要么一眼看出不同。
 
-</Cap>
+<div className="rd-example">
 
-<Cap id="W.2.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="开发窗口由用户随研究路线选定，登记的交易段须等于它">
+全池 RSI 路线的预热段从 2025-10-07 开始，交易段从 2025-10-09 到 2026-10-07T08:30Z。比如有人把起点写成不带时区的「2025-10-09 08:00」，或者写成 08:00:30，引擎还没启动就会被拒绝。
 
-1. 用户选路线时给出起点候选、开发窗口和市场提交。
-2. 代码核对起点存在、提交可解析、窗口不超出数据覆盖。
-3. 通过后追加一条路线记录；改窗口只能由用户另选。
-4. 每次登记读最新路线，交易段不等于开发窗口即拒绝。
+</div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.select_line">select_line</Ref> <Ref id="registration.validate">validate</Ref> <Ref id="cli.line_select">line_select</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.parse_window">parse_window</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
+#### 开发窗口随研究路线由你选定，登记的交易段必须等于它 [#W-2-1-2]
 
-<Cap id="W.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="K 线对策略可见的时刻只有一个：收盘时刻">
+你选路线时给出起点候选、开发窗口和市场提交。代码核对起点存在、提交能解析、窗口没有超出数据覆盖，通过后追加一条路线记录；改窗口只能由你另选。之后每次登记都读最新的路线记录，交易段不等于开发窗口就被拒绝。
 
-- 引擎把 K 线的事件时间配置为收盘时刻。
-- 导出的每根 1 分钟 K 线都以收盘时刻计时，乱序即拒绝。
-- 预热段与交易段按同一定义判断是否可见。
-- 策略源码改不了这项配置。
+窗口要是能在每次试验里自己挑，就可能挑出让结果好看的那一段。窗口固定在路线上，路线里的试验之间才比得了。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="market.write_bars">write_bars</Ref></span></div>
+<div className="rd-example">
 
-</Cap>
+全池 RSI 路线的开发窗口是 2025-10-09 到 2026-10-07T08:30Z，十个假设的交易段都等于它。比如某次登记把交易段写到 2026-09-30 就结束，会被拒绝；想换窗口，要由你另选路线。
 
-<Cap id="W.2.1.4" kind="code" tier="verified" tierLabel="已验证" title="成绩只算交易段，配对只用同一交易段的逐日收益">
+</div>
 
-- 报告期间从交易起点开始，预热段不计入任何绩效指标。
-- 日收益按 UTC 日排列，须无缺无重、逐日相连。
-- 日收益序列不完整就不可用，配对比较据此拒绝。
-- 两边窗口任一边界不同，就没有可比资格。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.select_line">select_line</Ref> <Ref id="registration.validate">validate</Ref> <Ref id="cli.line_select">line_select</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref> <Ref id="registration.check_comparable">check_comparable</Ref></span></div>
+#### K 线对策略可见的时刻只有一个：收盘时刻 [#W-2-1-3]
 
-</Cap>
+运行器把引擎里 K 线的事件时间配置成收盘时刻。导出的每根 1 分钟 K 线都以收盘时刻计时，顺序乱了就拒绝。预热段和交易段按同一个定义判断一根 K 线能不能看到；策略源码改不了这项配置。
 
-### W.2.2　预热与就绪 [#W-2-2]
+策略要是在一根 K 线收盘前就能看到它的收盘价，就等于提前知道了未来，回放成绩会虚高。
 
-预热数据的连续性由代码强制，指标何时就绪由 Agent 声明。
+<div className="rd-example">
 
-<Cap id="W.2.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="预热日线须连续并紧贴交易起点，不足即拒绝回放">
+比如 09:00 到 09:01 这根 1 分钟 K 线，时间戳记为 09:01，策略在 09:01 才看到它；据此做的决定，最早在下一根 K 线里成交。
 
-- 装载时核对导出数据的提交、起止与周期和本次回放一致。
-- 需要日线预热的策略，构造时收到由 1 分钟派生的日线。
-- 日线逐日相连，最后一根恰在交易起点前收盘。
-- 根数不足或不紧贴起点即拒绝，不用更短历史凑数。
+</div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> <Ref id="engine.read_market">read_market</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="market.write_bars">write_bars</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
+#### 成绩只算交易段，配对比较只用同一交易段的逐日收益 [#W-2-1-4]
 
-<ul className="rd-rules">
-<li id="W-2-2-2"><span className="rd-rule-id">W.2.2.2</span> 改周期或指标长度时，登记初始化条件并写明两边首次就绪时点 <Ref id="rule:W.2.2.2">research-round · references/diagnosis.md</Ref></li>
-</ul>
+报告的统计期从交易起点开始，预热段不计入任何绩效指标。日收益按 UTC 日排列，必须没有缺、没有重复、逐日相连；不完整的日收益序列不能用，配对比较据此拒绝。两边窗口有任何一个边界不同，就没有可比资格，也就是不能配对比较。
 
-## W.3　产出共同可交易范围 [#W-3]
+预热段是给指标攒历史用的，算进去，成绩里就混进了本不该算的日子。两边的日子对不齐，配对比较就是在拿不同的日子比。
+
+<div className="rd-example">
+
+全池 RSI 路线的成绩从 2025-10-09 起算，10 月 7 日、8 日两天预热不算进去。比如某次运行少了一天的日收益，它和其他运行的配对比较就会被拒绝。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref> <Ref id="registration.check_comparable">check_comparable</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 预热与就绪 [#W-2-2]
+
+预热数据够不够、连不连续由代码查；指标从什么时候起能用，由 Agent 声明。
+
+#### 预热日线必须连续并紧贴交易起点，不够就拒绝回放 [#W-2-2-1]
+
+装载时核对导出数据的市场提交、起止时间和周期是否和这次回放一致。需要日线预热的策略，构造时收到从 1 分钟派生的日线；这些日线要逐日相连，最后一根恰好在交易起点前收盘。根数不够或没紧贴起点，就拒绝回放，不用更短的历史凑数。
+
+指标用不够长的历史算出来，开头一段的数值不可靠。悄悄拿短历史凑，前几周的交易就建立在不可靠的信号上。
+
+<div className="rd-example">
+
+比如策略声明需要 200 根日线预热，交易起点是 2025-10-09，那么最后一根必须是 10 月 8 日的日线。某个合约只有 150 根，或者中间缺了几天，这次回放就被拒绝。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> <Ref id="engine.read_market">read_market</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 改信号周期或指标长度，要登记初始化条件并报告两边实际何时就绪 [#W-2-2-2]
+
+改信号周期或指标长度的假设，登记时要写明初始化条件；解读结果时要写明两边各自从什么时候起真正能做决定。这条由 skill 指导，有评测用例检查；产品代码只记录审查结论，不推断就绪。
+
+指标长度不同，就绪的早晚也不同。一边已经在交易、另一边还在等指标，这段差异来自起步早晚，不是新规则更好或更差。
+
+<div className="rd-example">
+
+全池 RSI 路线的 H05 把 RSI 长度从 14 改到 24，就属于这种改动：登记要写明 RSI 24 需要多少根小时线才能第一次给出信号，回放后分别写出 H05 和对照第一次就绪的时点。如果某一边在交易起点之后才就绪，那段时间里的差异不能算到长度改动头上。
+
+</div>
+
+1. 登记时在适用条件里写明：需要多长历史，第一次能做决定的条件是什么。
+2. 原生预检和独立源码审查的就绪项，记下实际第一次就绪的时点。
+3. 审查结论绑定源码哈希和运行环境身份，只追加入账；状态原样保留，未解决的不改写成通过。
+4. 原始输入有多少条，不能当作已经就绪的证据。
+5. 解读检验结果时写明两边首次就绪的时点和它对差异的影响；没就绪那段的差异不算作机制效果。
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:W.2.2.2">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+## 6.3　产出共同可交易范围 [#W-3]
+
+可交易合约名单由数据层按公开规则逐月算出，上市、下架按权威事件处理，覆盖情况照实记录。
 
 <Steps>
 
 <Step>
 
-每次导入按规则版本逐月算出可交易范围名单，只追加。
+每次导入都按带版本的规则逐月算出可交易合约名单，只追加。
 
 </Step>
 
 <Step>
 
-登记时从钉住的提交读出名单和成员时段，锁进执行身份。
+登记时从钉住的提交读出名单和每个合约的成员时段，锁进执行身份。
 
 </Step>
 
 <Step>
 
-回放前校验合约上市、下架等生命期事件，按每段生命期导出数据并算覆盖事实。
+回放前校验上市、下架等生命期事件，按每段生命期导出数据并算出覆盖事实。
 
 </Step>
 
 <Step>
 
-运行时每段活跃生命期建一个策略实例，传入成员时段。
+回放时每段活跃的生命期建一个策略实例，并传入它的成员时段。
 
 </Step>
 
 <Step>
 
-覆盖事实随试验封存，Agent 照实报告，用户选可运行范围。
+覆盖事实随试验封存；Agent 照实报告，可运行的范围由你选。
 
 </Step>
 
 </Steps>
 
-### W.3.1　范围规则 [#W-3-1]
+### 范围规则 [#W-3-1]
 
-按带版本的公开规则逐月产出名单，由市场提交定义范围。
+名单按带版本的公开规则逐月产出，由一个市场提交定义。
 
-<Cap id="W.3.1.1" kind="code" tier="verified" tierLabel="已验证" title="每月初按带版本的事前规则产出可交易范围，不排名、下架照收">
+#### 每月初按事先定好的带版本规则出名单，不排名，后来下架的照收 [#W-3-1-1]
 
-- 只留 USDT 永续，排除指数类、股票类和稳定币等，并记原因。
-- 入选须月初前仍有日线，且连续上市满规定天数。
-- 只用当时可知的数据，不按成交额排名，后来下架的照样在册。
-- 改规则即出新版本，新旧名单并存，旧名单不被改写。
+每个 UTC 月初，数据层按一套带版本、事先写好的规则，算出共同可交易范围，也就是这个月能交易的合约名单。名单由数据层产出，规则如下。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.monthly_universe">monthly_universe</Ref> <Ref id="market.classify_contract">classify_contract</Ref></span></div>
+用今天还活着的币回头挑历史名单，等于事先剔除了失败者，回放会显得比实际好。按当时可知的规则逐月算，才不会把后来才知道的事带进过去。
 
-</Cap>
+<div className="rd-example">
 
-<Cap id="W.3.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="同一共同可交易范围由一个精确市场提交定义">
+全池 RSI 路线涉及 210 个合约，这是各月名单的并集，不是同一时刻能交易的数量。BAKE 和 HIFI 在输入开始前就已下架，仍以不活跃的身份留在名单里。
 
-- 从该提交读出规则版本、合约清单和每个合约的成员时段。
-- 成员按月成段，相邻月份合并，中断后另起一段。
-- 这三样随登记锁进执行身份的输入数据。
-- 输入相同即共享同一范围，策略实际交易的子集可以不同。
+</div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.membership_path">membership_path</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span></div>
+1. 只留 USDT 永续，排除指数类、股票类和稳定币等，并记下排除原因。
+2. 入选要求月初前仍有日线，并且已连续上市满规定天数。
+3. 只用当时就能知道的数据，不按成交额排名；后来下架的合约照样留在当月名单里。
+4. 改规则就出新版本，新旧名单并存，旧名单不被改写。
 
-</Cap>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.monthly_universe">monthly_universe</Ref> <Ref id="market.classify_contract">classify_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-### W.3.2　成员变化与生命周期 [#W-3-2]
+#### 同一个共同可交易范围由一个确定的市场提交定义 [#W-3-1-2]
 
-上市、停止新开仓与下架以权威事件供给，每段生命期一个实例。
+从钉住的市场提交里读出三样：规则版本、合约清单、每个合约的成员时段。成员时段按月成段，相邻月份合并，中断之后另起一段。这三样随登记锁进执行身份的输入数据；输入相同就是同一个范围，策略实际交易的子集可以不同。
 
-<Cap id="W.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="每个活跃的上市片段建一个策略实例，并传入成员时段">
+范围由提交来定义，就不会出现两次回放都说用了「全池」，名单却不一样的情况。
 
-- 片段指一个合约从上市到终止的一段生命期，只按权威事件判定。
-- 片段与回放窗口相交，就建一个策略实例。
-- 成员时段截到停止新开仓或终止为止，不传任何规则参数。
-- 成员时段是输入不是审计，退出范围后的处置由源码写明。
+<div className="rd-example">
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.episode_active">episode_active</Ref> <Ref id="engine.episode_membership">episode_membership</Ref> <Ref id="engine.read_universe">read_universe</Ref></span></div>
+比如某合约 1 月到 4 月在名单里，5 月不在，6 月又回来：它的成员时段就是两段，1 月初到 4 月底一段，6 月初起另一段。两个候选只要钉同一个提交，就是同一个范围，哪怕其中一个只交易 20 个合约。
 
-</Cap>
+</div>
 
-<Cap id="W.3.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="上市、停止新开仓、下架结算以引擎原生事件供给">
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.membership_path">membership_path</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-1. 这些事件连同来源原件存成账本证据包，绑定一个市场提交。
-2. 回放前读出证据包，逐项校验格式、片段与事件。
-3. 结算价须能在合约原精度上精确表示，不舍入。
-4. 只把窗口内事件按引擎原生格式交给回放。
-5. 引擎执行开仓截止和按结算价下架；无结算价只供终止时刻。
+### 成员变化与生命周期 [#W-3-2]
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.validate_lifecycle">validate_lifecycle</Ref> <Ref id="market.require_native_price">require_native_price</Ref> <Ref id="market.write_lifecycle_events">write_lifecycle_events</Ref></span></div>
+上市、停止新开仓和下架按权威事件供给，每段生命期一个策略实例。
 
-</Cap>
+#### 每个活跃的上市片段建一个策略实例，并传入成员时段 [#W-3-2-1]
 
-<Cap id="W.3.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="被重用的代码按片段拆成独立合约与实例，状态不跨片段">
+片段指一个合约从上市到终止的一段生命期，只按权威事件判定。片段和回放窗口有交集，就建一个策略实例；传给它的成员时段截到停止新开仓或终止为止，不附带任何规则参数。成员时段只是输入，不是审计；退出范围之后怎么处置，由策略源码写明。
 
-- 同一代码被不同合约重用时，按生命期拆成编号片段。
-- 每个片段一个原生合约、一份数据、一个策略实例。
-- 只收片段内完整的分钟，跨边界的半截分钟不进任何片段。
-- 非 ASCII 币名换成确定的 ASCII 别名，公开名照原样记录。
+每段生命期各用一个实例，状态就不会从一段带到另一段。离开名单后怎么平仓是策略设计的一部分，所以成员时段只交给策略，不由代码替它处置。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.split_episodes">split_episodes</Ref> <Ref id="market.native_symbol">native_symbol</Ref> <Ref id="market.export_episode">export_episode</Ref></span></div>
+<div className="rd-example">
 
-</Cap>
+全池 RSI 路线实际有 208 个活跃合约、209 个活跃片段。多出的一个来自 AIA：它下架后重新上市，拆成两段，各建一个策略实例。
 
-### W.3.3　覆盖核验 [#W-3-3]
+</div>
 
-覆盖只记事实并随试验封存，解读交给 Agent 和用户。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.episode_active">episode_active</Ref> <Ref id="engine.episode_membership">episode_membership</Ref> <Ref id="engine.read_universe">read_universe</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<Cap id="W.3.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="固定市场提交后逐合约算覆盖事实，随试验封存">
+#### 上市、停止新开仓、下架结算，都以引擎原生事件供给 [#W-3-2-2]
 
-- 覆盖事实含成员月份、缺口、缺失与零成交分钟、资金费条数。
-- 首末数据只是上市下架的代理，标为未证实。
-- 只记事实，不评级、不删币、不缩窗、不补数。
-- 任一合约导出失败即整次失败，不留部分结果。
+上市、停止新开仓和下架这些生命期事件，连同来源原件存成账本里的证据包，交给引擎原生处理。开仓截止和按结算价下架都由引擎执行；没有结算价时，只提供终止时刻。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.coverage_facts">coverage_facts</Ref> <Ref id="market.export_catalogs">export_catalogs</Ref> <Ref id="replay.input_coverage">input_coverage</Ref></span></div>
+下架时仓位按什么价结算，直接改变盈亏。交给引擎按原生事件处理，就不用另写一套结算逻辑，价格也不会被舍入悄悄改掉。
 
-</Cap>
+<div className="rd-example">
 
-<ul className="rd-rules">
-<li id="W-3-3-2"><span className="rd-rule-id">W.3.3.2</span> 缺口、零成交与资金费缺失记为事实并写原因，不判经济失败 <Ref id="rule:W.3.3.2">research-start · references/readiness.md</Ref></li>
-</ul>
+全池 RSI 路线没有拿到所有合约实际的下架结算价。你授权的方案是保留原来的币池和窗口，让策略在下架前用原生订单平仓，并严格核对下架时已经空仓、没有挂着的订单。
 
-## W.4　固定账户、条款与已知近似 [#W-4]
+</div>
 
-账户、撮合常量与合约条款由运行器固定进执行身份，所有候选共用。做不到的部分只声明为近似，作为局限呈现，不做修正。
+1. 事件连同来源原件存成证据包，绑定一个市场提交。
+2. 回放前读出证据包，逐项校验格式、片段和事件。
+3. 结算价必须能在合约原来的精度上精确表示，不舍入。
+4. 只把窗口内的事件按引擎原生格式交给回放。
+5. 引擎执行开仓截止和按结算价下架；没有结算价时只提供终止时刻。
 
-### W.4.1　账户结构与条款 [#W-4-1]
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.validate_lifecycle">validate_lifecycle</Ref> <Ref id="market.require_native_price">require_native_price</Ref> <Ref id="market.write_lifecycle_events">write_lifecycle_events</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-账户结构与条款固定，所有候选共用。
+#### 被重用的合约代码按片段拆成独立合约和实例，状态不跨片段 [#W-3-2-3]
 
-<Cap id="W.4.1.1" kind="code" tier="verified" tierLabel="已验证" title="一个候选是一个净额保证金账户，所有合约共用 10 万 USDT">
+同一个代码先后被不同合约使用时，按生命期拆成带编号的片段；每个片段一个原生合约、一份数据、一个策略实例。只收片段内完整的分钟，跨边界的半截分钟不进任何片段。币名不是 ASCII 字符时，换成一个确定的 ASCII 别名，公开名照原样记录。
 
-- 每次回放只有一个场所和一个净额保证金账户。
-- 本金固定 10 万 USDT，是用户定的设计常量。
-- 每个活跃合约一个策略实例，竞争同一份资金。
-- 账户、持仓与保证金只由引擎记，运行器不另记账。
+同名不等于同一个合约。混成一条，前一个合约的价格和持仓就会接到后一个身上。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.account_contract">account_contract</Ref></span></div>
+<div className="rd-example">
 
-</Cap>
+全池 RSI 路线就遇到过这两类真实阻断：AIA 重新上市后要拆成两段；还有中文名的合约，要换成 ASCII 别名才能作为引擎里的合约，公开名另行原样记下。
 
-<Cap id="W.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="账户与市场条款由运行器固定，所有候选共用，源码不可改">
+</div>
 
-- 本金、杠杆、撮合方式和订单能力是运行器常量。
-- 手续费率、保证金率和步长随导出的合约给出。
-- 这些都进执行身份，身份不同的两次运行不可比。
-- 回放不接受任何外部账户或策略参数。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.split_episodes">split_episodes</Ref> <Ref id="market.native_symbol">native_symbol</Ref> <Ref id="market.export_episode">export_episode</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref></span></div>
+### 覆盖核验 [#W-3-3]
 
-</Cap>
+覆盖只记事实，随试验封存；怎么解读交给 Agent 和你。
 
-### W.4.2　不建模与近似 [#W-4-2]
+#### 钉住市场提交后逐个合约算覆盖事实，随试验封存 [#W-3-3-1]
 
-不建模或取假设值的部分标为近似，列为局限。
+在钉住的市场提交上逐个合约算覆盖事实：成员月份、缺口、缺失分钟和零成交分钟、资金费条数。首末两条数据只是上市和下架的替代线索，标为未证实。这里只记事实，不评级、不删币、不缩窗、不补数；任何一个合约导出失败就整次失败，不留部分结果。
 
-<Cap id="W.4.2.1" kind="code" tier="verified" tierLabel="已验证" title="强平与分档维持保证金不建模，只声明为近似">
+覆盖情况是读懂结果的前提，要和结果一起封存，也就是原样存进账本并记下内容哈希。只导出一部分就开跑，等于悄悄缩小了范围。
 
-- 引擎强平保持关闭，维持保证金率取单一假设值。
-- 保证金不足时引擎只拒单，被拒订单写进原生报告。
-- 这项近似本身不使运行无效。
-- 近似写进原生报告摘要，作为局限呈现。
+<div className="rd-example">
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span></div>
+比如某合约的数据从 2025-11-03 才开始，覆盖事实只记「首条数据在 11 月 3 日，作为上市时间未证实」，不推断它那天才上市。
 
-</Cap>
+</div>
 
-<Cap id="W.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="费率与保证金率是假设值，条款取最新观测快照，均标为近似">
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.coverage_facts">coverage_facts</Ref> <Ref id="market.export_catalogs">export_catalogs</Ref> <Ref id="replay.input_coverage">input_coverage</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-- 手续费（挂单 0.02%、吃单 0.05%）与保证金率 10% 是假设值。
-- 步长与价格数量边界取该市场提交上最新一次观测。
-- 窗口内不回溯条款历史，已下架合约的步长从成交推断。
-- 这些假设值和快照作为局限随报告呈现。
+#### 缺口、零成交、资金费缺失各自记为事实并写原因，不当成经济失败 [#W-3-3-2]
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.build_instrument">build_instrument</Ref> <Ref id="market.terms">terms</Ref> <Ref id="engine.read_market">read_market</Ref></span></div>
+Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失分别保留为事实，各自写明还没证实的原因，不默认算作经济失败，也不悄悄删币、缩窗或补数。能继续跑的范围和阻断原因报告给你，改数据范围由你选；候选身份和研究路线的有效性不因此改变（见 <Ref id="E.1.2.3" />）。这条由 skill 指导，有评测用例检查。
 
-</Cap>
+数据缺失说明不了策略好坏。把它当成策略失败，会错误地否掉一个方向；自己缩范围，又会悄悄改了研究问题。
 
-## W.5　模拟撮合与结算 [#W-5]
+<div className="rd-example">
 
-撮合、成交与资金费结算全部交给引擎；产品只供给三种数据流、固定撮合配置，并核对引擎读入了全部数据。
+全池第一次尝试时，在 AIA、LIT 的数据缺口和 BAKE、HIFI 的活动与资金费问题上停了下来，等你授权改范围后才继续，那一轮改成只跑 BTC、ETH。后来的全池十轮演练保留了原来的币池和窗口。
 
-### W.5.1　撮合输入与模型 [#W-5-1]
+</div>
 
-撮合所见的数据和撮合模型由导出与引擎配置固定。
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:W.3.3.2">research-start · references/readiness.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<Cap id="W.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="撮合只读三种数据流，按 1 分钟成交价 K 线撮合">
+## 6.4　固定账户、条款与已知近似 [#W-4]
 
-- 撮合输入只有 1 分钟成交价 K 线、每分钟标记价和资金费。
-- 没有盘口和逐笔数据，预热日线不参与撮合。
-- 订单只在决策所在 K 线收盘之后的事件里成交。
-- 引擎实际读入条数不等于导出条数，运行即失败。
+账户、撮合常量和合约条款由运行器固定，所有候选共用；做不到的部分只声明为近似，列为局限，不做修正。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_bars">write_bars</Ref> <Ref id="market.write_marks">write_marks</Ref> <Ref id="engine.account_contract">account_contract</Ref></span></div>
+<Steps>
 
-</Cap>
+<Step>
 
-<Cap id="W.5.1.2" kind="code" tier="verified" tierLabel="已验证" title="滑点与排队只用引擎缺省撮合模型，回放成绩视为实盘上限">
+运行器把本金、杠杆、撮合方式和订单能力固定为常量。
 
-- 运行器和策略都不自建成交逻辑。
-- 缺省下限价单触价即成交，无随机滑点、无撮合延迟。
-- 市价单吃完最优一档后，余量按差一档成交。
-- 改用保守撮合须换运行环境，所有候选重新登记回放。
+</Step>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span></div>
+<Step>
 
-</Cap>
+手续费率、保证金率和步长随导出的合约一起给出。
 
-### W.5.2　成交与结算规则 [#W-5-2]
+</Step>
 
-K 线内顺序、止损触发与资金费结算由引擎按固定配置执行。
+<Step>
 
-<Cap id="W.5.2.1" kind="code" tier="verified" tierLabel="已验证" title="K 线内按开、高、低、收固定顺序处理挂单">
+这些都写进执行身份，所有候选共用，策略源码改不了。
 
-- 每根 1 分钟 K 线内按开、高、低、收的顺序处理挂单。
-- 不启用自适应路径猜测，策略和运行器也不猜价格路径。
-- 止损止盈在同根 K 线都能触发时，先后只由此顺序定。
-- 成交量由引擎均分到四个价格点，余量归收盘。
+</Step>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref></span></div>
+<Step>
 
-</Cap>
+没建模或取假设值的部分标为近似，写进原生报告摘要。
 
-<Cap id="W.5.2.2" kind="code" tier="verified" tierLabel="已验证" title="止损按成交价 K 线触发，标记价触发不建模">
+</Step>
 
-- 开盘已越过触发价时按开盘价成交，否则按触发价成交。
-- 引擎不拒止损单。
-- 标记价只用于估值和保证金，不触发订单。
-- 这一差异作为局限写进原生报告摘要。
+</Steps>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span></div>
+### 账户结构与条款 [#W-4-1]
 
-</Cap>
+账户怎么设、条款从哪来，所有候选都一样。
 
-<Cap id="W.5.2.3" kind="code" tier="verified" tierLabel="已验证" title="资金费在各合约实际结算时刻结算，正费率多头付、空头收">
+#### 一个候选一个净额保证金账户，所有合约共用 10 万 USDT [#W-4-1-1]
 
-- 每条资金费按市场数据里的实际结算时刻交给引擎。
-- 引擎在该时刻结算一次，只有当时持仓者收付。
-- 不假设统一 8 小时周期，各合约间隔可以不同。
-- 某段没有资金费记录时记为覆盖事实，不补造。
+每次回放只有一个交易场所和一个净额保证金账户（同一合约的多空相抵，只留一个净持仓）。本金固定 10 万 USDT，这是你定的设计常量。每个活跃合约一个策略实例，竞争同一份资金；账户、持仓和保证金只由引擎记账，运行器不另记一套。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_funding">write_funding</Ref> <Ref id="table:funding">funding</Ref></span></div>
+全池的合约共用一份钱，才像一个真实账户：一个合约占了资金，别的合约能用的就少了。另记一套账，迟早会和引擎对不上。
 
-</Cap>
+<div className="rd-example">
+
+全池 RSI 路线的 H09 平均名义敞口约 4161 USDT，最高的那一分钟约 40229 USDT，全都出自同一个 10 万 USDT 的账户。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.account_contract">account_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 账户和市场条款由运行器固定，所有候选共用，源码改不了 [#W-4-1-2]
+
+本金、杠杆、撮合方式和订单能力是运行器里的常量；手续费率、保证金率和步长随导出的合约给出。这些都写进执行身份（一次回放绑定的源码、运行环境、配置和数据），身份不同的两次运行不能比。回放不接受任何外部传入的账户参数或策略参数。
+
+某个候选要是能自己调低手续费或加大杠杆，成绩的差别就分不清来自规则还是来自条件。
+
+<div className="rd-example">
+
+比如想看手续费翻倍后结果如何，不能在某次回放里传个参数改费率；换了配置的运行和以前的运行不可比。仓位大小不在此列，它写在策略源码里：全池 RSI 路线的 H06、H09 改的就是源码里的单笔预算。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 不建模与近似 [#W-4-2]
+
+哪些部分没有建模或用了假设值，都标为近似，列为局限。
+
+#### 强平和分档维持保证金不建模，只声明为近似 [#W-4-2-1]
+
+引擎的强平保持关闭，维持保证金率取一个统一的假设值。保证金不够时，引擎只拒绝订单，被拒的订单写进原生报告。这项近似本身不会让运行无效，它写进原生报告摘要，作为局限呈现。
+
+没建模的部分，就不假装建了模。标出来，读报告的人就知道：仓位很大时，回放结果可能比实际乐观。
+
+<div className="rd-example">
+
+比如某一刻账户的保证金不够，策略又下一笔开仓单，引擎直接拒单，这条记录出现在原生报告里；账户不会被强平，这次运行也照样有效。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 费率和保证金率是假设值，条款取最新快照，都标为近似 [#W-4-2-2]
+
+手续费（挂单 0.02%、吃单 0.05%）和保证金率 10% 是假设值。步长和价格、数量的边界取这个市场提交上最近一次观测到的条款；窗口内不回溯条款历史，已下架合约的步长从成交推断。这些假设值和快照作为局限随报告呈现。
+
+实际费率随账户等级变化，条款也会调整。用固定的假设值，所有候选按同一把尺子算成本；标为近似，读者就知道成本不是精确还原。
+
+<div className="rd-example">
+
+全池 RSI 路线的 H09 一年里全部成交费用约 857 USDT，就是按这组假设费率算的。比如窗口里某合约中途改过价格步长，回放全程用的仍是最新那一个。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.build_instrument">build_instrument</Ref> <Ref id="market.terms">terms</Ref> <Ref id="engine.read_market">read_market</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+## 6.5　模拟撮合与结算 [#W-5]
+
+撮合、成交和资金费结算全部交给引擎；产品只供给三种数据、固定撮合配置，并核对引擎读进了全部数据。
+
+<Steps>
+
+<Step>
+
+导出 1 分钟成交价 K 线、每分钟标记价和资金费三种数据交给引擎。
+
+</Step>
+
+<Step>
+
+撮合配置固定在运行器里，策略和运行器都不自己写成交逻辑。
+
+</Step>
+
+<Step>
+
+引擎按固定顺序处理每根 K 线里的挂单，按实际结算时刻结算资金费。
+
+</Step>
+
+<Step>
+
+核对引擎读入的条数和导出的条数一致，不一致运行即失败。
+
+</Step>
+
+</Steps>
+
+### 撮合输入与模型 [#W-5-1]
+
+撮合看到哪些数据、用什么撮合模型，由导出和引擎配置固定。
+
+#### 撮合只读三种数据，按 1 分钟成交价 K 线撮合 [#W-5-1-1]
+
+撮合的输入只有三种：1 分钟成交价 K 线、每分钟的标记价、资金费。没有盘口和逐笔成交，预热日线也不参与撮合。订单只在做决定的那根 K 线收盘之后的事件里成交；引擎实际读进的条数和导出的条数不相等，运行就失败。
+
+没有盘口数据，就不假装能模拟深度。条数核对能发现数据在半路丢了，不让只读到一部分数据的运行混进结果。
+
+<div className="rd-example">
+
+全池 RSI 路线的交易段一共 523230 分钟。比如策略在 10:00 收盘的 K 线上决定开仓，这笔单最早在 10:00 到 10:01 那根 K 线里成交；某个合约导出了 1000 条，引擎只读进 998 条，这次运行就失败。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_bars">write_bars</Ref> <Ref id="market.write_marks">write_marks</Ref> <Ref id="engine.account_contract">account_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 滑点和排队只用引擎缺省撮合模型，回放成绩当作实盘上限 [#W-5-1-2]
+
+运行器和策略都不自己写成交逻辑。缺省模型下，限价单价格一触到就成交，没有随机滑点，也没有撮合延迟；市价单吃完最优一档后，剩下的量按差一档的价格成交。要改用更保守的撮合，必须换运行环境，所有候选重新登记、重新回放。
+
+真实交易里限价单要排队，触价不一定成交，市价单也可能滑得更多。所以回放成绩只能看成实盘能做到的上限，不能当成预期。
+
+<div className="rd-example">
+
+全池 RSI 路线的 H02 改用原生限价单退出。在这套模型里，退出价一被 K 线触到就算成交；实盘里同一价位可能有人排在前面，未必能成交。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 成交与结算规则 [#W-5-2]
+
+一根 K 线里先处理什么、止损怎么触发、资金费怎么结算，由引擎按固定配置执行。
+
+#### 每根 K 线里按开、高、低、收的固定顺序处理挂单 [#W-5-2-1]
+
+每根 1 分钟 K 线里，引擎按开盘、最高、最低、收盘的顺序处理挂单。不启用自适应的路径猜测，策略和运行器也不猜价格路径；止损和止盈在同一根 K 线里都能触发时，先后只由这个顺序决定。成交量由引擎平均分到四个价格点，余数归收盘。
+
+一根 K 线里价格先到高点还是先到低点，K 线本身看不出来。固定一个顺序，所有候选按同样的规矩判，结果可重复、可比较。
+
+<div className="rd-example">
+
+比如多头的止损在 99、止盈在 101，某根 K 线开 100、高 102、低 98、收 100。按开、高、低、收的顺序，价格先到高点，止盈先触发。这根 K 线成交量是 1003 时，每个价格点分到 250，余下的 3 归收盘。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 止损按成交价 K 线触发，标记价触发不建模 [#W-5-2-2]
+
+止损按成交价 K 线判断是否触发：开盘就已越过触发价时按开盘价成交，否则按触发价成交。引擎不拒止损单。标记价只用于估值和保证金，不触发订单；这一差异作为局限写进原生报告摘要。
+
+有的交易所支持按标记价触发止损，剧烈行情里两种价格可能差得很远。这里没有建模，所以要写明，读者才知道止损是按成交价判断的。
+
+<div className="rd-example">
+
+比如多头止损设在 95，下一根 K 线开盘就跳到 93：止损按 93 成交，不是 95。反过来，如果只是标记价跌破 95，而成交价最低只到 95.5，止损不会触发。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 资金费在各合约实际结算时刻结算，正费率多头付、空头收 [#W-5-2-3]
+
+每条资金费按市场数据里记下的实际结算时刻交给引擎，引擎在这个时刻结算一次，只有当时持仓的才收付；费率为正时多头付、空头收。不假设统一的 8 小时周期，各合约的间隔可以不同。某段时间没有资金费记录，记为覆盖事实，不补造。
+
+资金费可能是收益的一大块。时刻对不准，就会把钱算给当时其实没有持仓的一方。
+
+<div className="rd-example">
+
+全池 RSI 路线的 H09 一年里持仓收到的资金费约 1979 USDT，比全部成交费用（约 857 USDT）还多。比如某合约改成每 4 小时结算一次，引擎就在那几个实际时刻结算，不按 8 小时算。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_funding">write_funding</Ref> <Ref id="table:funding">funding</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#W-pending]
 
 **待用户定**
 
-- **外部数据按发布时刻对齐（point-in-time）是否在本章另立一节**　做法见 research-sources 的数据参考（point-in-time、ALFRED vintage）；本章暂不含，外部数据来源归 H 章
-- **撮合保守化配置与加压绩效指标（引擎撮合模型的滑点与排队）是否扩成功能**　引擎撮合模型可配滑点与排队（官方文档）；需新运行环境并重跑全部候选，只报告不裁决；本章只列为局限（W.5.1.2）
-- **杠杆与保证金率归环境条款还是策略设计变量**　本章写为运行器固定的环境条款（W.4.1.2、W.4.2.2）；改为设计变量需新运行环境并重跑全部候选
+- **外部数据按发布时刻对齐（point-in-time）是否在本章另立一节**　做法见 research-sources 的数据参考（point-in-time、ALFRED vintage）；本章暂不含，外部数据来源归第 5 章
+- **撮合保守化配置与加压绩效指标（引擎撮合模型的滑点与排队）是否扩成功能**　引擎撮合模型可配滑点与排队（官方文档）；需新运行环境并重跑全部候选，只报告不裁决；本章只列为局限（<Ref id="W.5.1.2" />）
+- **杠杆与保证金率归环境条款还是策略设计变量**　本章写为运行器固定的环境条款（<Ref id="W.4.1.2" />、<Ref id="W.4.2.2" />）；改为设计变量需新运行环境并重跑全部候选
 - **预热期下单由代码拒绝还是源码自律**　本章写为源码自律加原生预检与独立源码审查；改为代码拒绝属改变拒绝边界，需用户授权
-- **下架结算价的权威来源**　交易所公告给禁新仓与结算时刻，不给结算价算法；无权威价时只供给终止时钟并要求终止前空仓（W.3.2.2）
+- **下架结算价的权威来源**　交易所公告给禁新仓与结算时刻，不给结算价算法；无权威价时只供给终止时钟并要求终止前空仓（<Ref id="W.3.2.2" />）

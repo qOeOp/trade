@@ -9,8 +9,8 @@ import mapData from '@/lib/generated/rd-map.json';
 export type Side = 't' | 'r' | 'b' | 'l';
 export type MapCapability = { path: string; title: string; kind: 'mechanism' | 'rule'; guarantee: string };
 export type MapComponent = { path: string; title: string; caps: MapCapability[] };
-export type MapFunction = { path: string; title: string; components: MapComponent[] };
-export type MapChapter = { prefix: string; slug: string; title: string; functions: MapFunction[] };
+export type MapFunction = { path: string; label: string; title: string; components: MapComponent[] };
+export type MapChapter = { prefix: string; num: number; slug: string; title: string; functions: MapFunction[] };
 export type FlowEdge = { source: string; target: string; label: Record<Locale, string>; kind: 'loop' | 'flow'; from?: Side; to?: Side };
 
 export const data = mapData as { chapters: MapChapter[]; links: [string, string][] };
