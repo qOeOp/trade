@@ -247,12 +247,12 @@ export function ResearchMap({ locale }: { locale: Locale }) {
       const ra = rects.get(a), rb = rects.get(b);
       if (!ra || !rb) return null;
       const f = facing(ra, rb);
-      return {
-        id, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'default', className: cls, zIndex: 4,
+      return ({
+        id, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'smoothstep', pathOptions: { borderRadius: 10, offset: 18 }, className: cls, zIndex: 4,
         // labels only for the edges of what is hovered; at rest the curves stay quiet
         label: hovered && on ? label : undefined, markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color },
         style: { opacity: !hovered ? 0.45 : on ? 1 : 0.06 }, labelBgPadding: [5, 2] as [number, number], labelBgBorderRadius: 4,
-      };
+      }) as Edge;
     };
     if (!flow) {
       for (const e of flowEdges) {
