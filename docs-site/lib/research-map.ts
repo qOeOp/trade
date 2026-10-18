@@ -33,7 +33,7 @@ export const LABEL_H = 34;
 // ledger and runtime (its functions laid out side by side).
 export const grid: Record<string, { row: 0 | 1 | 2; col: number }> = {
   L: { row: 0, col: 0 }, T: { row: 0, col: 1 }, E: { row: 0, col: 2 }, H: { row: 0, col: 3 }, V: { row: 0, col: 4 }, F: { row: 0, col: 5 }, X: { row: 0, col: 6 },
-  A: { row: 1, col: 0 }, C: { row: 1, col: 2 }, W: { row: 1, col: 3 }, G: { row: 1, col: 4 }, R: { row: 1, col: 5 }, D: { row: 1, col: 6 },
+  A: { row: 1, col: 0 }, C: { row: 1, col: 2 }, W: { row: 1, col: 3 }, G: { row: 1, col: 4 }, R: { row: 1, col: 5 },
   J: { row: 2, col: 1 },
 };
 
@@ -57,7 +57,7 @@ export const flowEdges: FlowEdge[] = [
   { source: 'G.4', target: 'V.2', label: c('经济证据资格', 'eligibility'), kind: 'flow', from: 'r', to: 'r' },
   { source: 'R.1', target: 'V.3', label: c('日收益', 'daily returns'), kind: 'flow', from: 'l', to: 'r' },
   { source: 'X.1', target: 'W.5', label: c('只回放一次', 'replay once'), kind: 'flow', from: 'b', to: 'b' },
-  { source: 'W.1', target: 'D.1', label: c('数据修正或新月份', 'data revised'), kind: 'flow', from: 't', to: 't' },
+  { source: 'W.1', target: 'J.6', label: c('数据修正或新月份', 'data revised'), kind: 'flow', from: 'l', to: 't' },
   { source: 'H.4', target: 'J.4', label: c('登记先后入账', 'registration recorded'), kind: 'flow', from: 'l', to: 't' },
   { source: 'E.2', target: 'J.2', label: c('判断只追加入账', 'judgments appended'), kind: 'flow', from: 'l', to: 't' },
   { source: 'J.5', target: 'W.5', label: c('钉死的镜像', 'pinned image'), kind: 'flow', from: 't', to: 'b' },
@@ -68,11 +68,10 @@ export const flowEdges: FlowEdge[] = [
 export type Flow = { id: string; title: Record<Locale, string>; functions: string[] };
 export const flows: Flow[] = [
   { id: 'start', title: c('起步', 'Getting started'), functions: ['L.1', 'L.2', 'T.1', 'T.2', 'E.1', 'E.3', 'E.4'] },
-  { id: 'register', title: c('提假设与登记', 'Hypothesis and registration'), functions: ['H.1', 'H.2', 'H.3', 'H.4', 'C.1', 'C.6', 'J.4'] },
-  { id: 'replay', title: c('回放与证据', 'Replay and evidence'), functions: ['V.1', 'W.4', 'W.5', 'G.1', 'G.2', 'G.3', 'G.4', 'R.1'] },
-  { id: 'compare', title: c('比较与反馈', 'Comparison and feedback'), functions: ['R.2', 'V.2', 'V.3', 'V.4', 'F.1', 'F.2', 'F.3', 'E.2'] },
-  { id: 'validation', title: c('样本外验证', 'Out-of-sample'), functions: ['F.3', 'X.1', 'X.2', 'J.4'] },
-  { id: 'change', title: c('变化之后', 'After changes'), functions: ['W.1', 'D.1', 'D.2', 'D.3', 'J.5', 'V.2'] },
+  { id: 'register', title: c('提假设与登记', 'Hypothesis and registration'), functions: ['H.1', 'H.2', 'H.3', 'H.4', 'C.1', 'C.6'] },
+  { id: 'replay', title: c('回放与证据', 'Replay and evidence'), functions: ['V.1', 'W.4', 'W.5', 'G.1', 'G.2', 'G.3', 'G.4', 'R.1', 'R.2'] },
+  { id: 'compare', title: c('比较与反馈', 'Comparison and feedback'), functions: ['V.2', 'V.3', 'V.4', 'F.1', 'F.2', 'F.3', 'E.2'] },
+  { id: 'validation', title: c('样本外验证', 'Out-of-sample'), functions: ['F.3', 'X.1', 'X.2'] },
   { id: 'strategy', title: c('策略文件与数据', 'Strategy file and data'), functions: ['C.1', 'C.2', 'C.3', 'C.4', 'C.5', 'W.1', 'W.2', 'W.3'] },
   { id: 'ledger', title: c('账本与运行环境', 'Ledger and runtime'), functions: ['J.1', 'J.2', 'J.3', 'J.4', 'J.5', 'J.6'] },
 ];

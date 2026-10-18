@@ -1,11 +1,11 @@
-# V　比较证据：登记的网格跑完后，候选和比较对照能不能比、差多少、有多确定。
+# V　比较证据：登记的网格跑完后，候选和对照能不能比、差多少、有多确定，以及身份变化后怎样恢复可比。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章承接 H 章的登记和检验条件，回答三件事：网格怎么跑，两边能不能比，差多少、有多确定。顺序是逐点回放、核可比资格、做配对检验，最后给出只呈现、不裁决的检验结果。
+本章承接 H 章的登记和检验条件，回答网格怎么跑、两边能不能比、差多少、有多确定。顺序是逐点回放、核可比资格、做配对检验，最后呈现只读的检验结果和试验次数；执行身份变化后，先重放推荐候选及其对照，恢复可比。
 
-<Mermaid chart={"flowchart LR\n  subgraph V-1[\"V.1 跑登记的网格：每个网格点回放一次\"]\n    direction TB\n    V-1-2[\"V.1.2 回放纪律\"]\n  end\n  subgraph V-2[\"V.2 核可比资格：比较前确认两边能配对\"]\n    direction TB\n    V-2-1[\"V.2.1 必须一致的三样身份\"]\n    V-2-2[\"V.2.2 配对的双方与单位\"]\n    V-2-3[\"V.2.3 核查时点与拒绝\"]\n  end\n  subgraph V-3[\"V.3 做配对检验：效应、区间和 p 怎么算\"]\n    direction TB\n    V-3-2[\"V.3.2 检验方法\"]\n    V-3-3[\"V.3.3 稳健性数字\"]\n  end\n  subgraph V-4[\"V.4 出检验结果：给什么、怎么读、存在哪\"]\n    direction TB\n    V-4-1[\"V.4.1 检验结果的内容与身份\"]\n    V-4-2[\"V.4.2 结果的读法\"]\n  end\n  V-1 --> V-2\n  V-2 --> V-3\n  V-3 --> V-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph V-1[\"V.1 跑登记的网格：每个网格点回放一次\"]\n    direction TB\n    V-1-2[\"V.1.2 回放纪律\"]\n  end\n  subgraph V-2[\"V.2 核可比资格：比较前确认两边能配对\"]\n    direction TB\n    V-2-1[\"V.2.1 必须一致的三样身份\"]\n    V-2-2[\"V.2.2 配对的双方与单位\"]\n    V-2-3[\"V.2.3 核查时点与拒绝\"]\n    V-2-4[\"V.2.4 重放范围和结果呈现\"]\n  end\n  subgraph V-3[\"V.3 做配对检验：效应、区间和 p 怎么算\"]\n    direction TB\n    V-3-2[\"V.3.2 检验方法\"]\n    V-3-3[\"V.3.3 稳健性数字\"]\n  end\n  subgraph V-4[\"V.4 出检验结果：给什么、怎么读、存在哪\"]\n    direction TB\n    V-4-1[\"V.4.1 检验结果的内容与身份\"]\n    V-4-2[\"V.4.2 结果的读法\"]\n    V-4-3[\"V.4.3 检验结果的呈现\"]\n    V-4-4[\"V.4.4 试验次数与选择效应\"]\n  end\n  V-1 --> V-2\n  V-2 --> V-3\n  V-3 --> V-4"} />
 
 ## V.1　跑登记的网格：每个网格点回放一次 [#V-1]
 
@@ -58,31 +58,31 @@ Agent 跑网格、读绩效指标时守的两条纪律。
 
 <Step>
 
-登记时先核声明的对照运行，不可比就拒绝登记。
+登记和比较时用同一套核对：候选出自本登记的网格点，对照用登记声明的那份，不可比就拒绝。
 
 </Step>
 
 <Step>
 
-比较时确认候选运行出自本登记的网格点，对照用登记声明的那份。
-
-</Step>
-
-<Step>
-
-两边都要封存并通过完整性审计，运行环境、账户配置、输入数据都相同。
-
-</Step>
-
-<Step>
-
-两边都要有经济证据资格，否则只留诊断。
+两边都要封存、通过完整性审计并有经济证据资格，运行环境、账户配置、输入数据逐项相同。
 
 </Step>
 
 <Step>
 
 两边各取交易窗口内的账户日收益，逐日对齐后才进入配对检验。
+
+</Step>
+
+<Step>
+
+被拒就另选对照或重放对照，不自己拼序列。
+
+</Step>
+
+<Step>
+
+执行身份变化后，先重放当前推荐候选和它的对照，只凭新的可比证据推荐。
 
 </Step>
 
@@ -161,6 +161,14 @@ Agent 跑网格、读绩效指标时守的两条纪律。
 
 <ul className="rd-rules">
 <li id="V-2-3-2"><span className="rd-rule-id">V.2.3.2</span> 可比资格被拒就另选对照或重放对照，不自己拼序列 <Ref id="rule:V.2.3.2">research-round · references/feedback.md</Ref></li>
+</ul>
+
+### V.2.4　重放范围和结果呈现 [#V-2-4]
+
+执行身份变化后，按受影响的运行定重放优先级，只凭新的可比证据给推荐。
+
+<ul className="rd-rules">
+<li id="V-2-4-1"><span className="rd-rule-id">V.2.4.1</span> 执行身份变了，先重放当前推荐候选和它的对照，只凭新的可比证据推荐 <Ref id="rule:V.2.4.1">research-round · references/changes.md</Ref></li>
 </ul>
 
 ## V.3　做配对检验：效应、区间和 p 怎么算 [#V-3]
@@ -269,31 +277,31 @@ Agent 跑网格、读绩效指标时守的两条纪律。
 
 <Step>
 
-Agent 对已封存的网格点发起比较，代码只读地核对，再做配对检验。
+Agent 对已封存的网格点发起比较，代码只读核对后做配对检验。
 
 </Step>
 
 <Step>
 
-代码返回检验结果和一组身份，不给裁决，也不写账本。
+代码返回效应、区间、p、检验条件和局限，绑定完整身份，不给裁决，也不写账本。
 
 </Step>
 
 <Step>
 
-Agent 按技能在登记的适用条件内解读。
+结果附代码从账本统计的试验计数，夏普按去重版本数和全部试验数各打一次折扣。
 
 </Step>
 
 <Step>
 
-Agent 把观察事实作为证据包入账，引用两边运行、登记和账本版本。
+Agent 按技能在登记的适用条件内解读，并按指标口径核对资金使用率和利润来源。
 
 </Step>
 
 <Step>
 
-机制解释和下一步写成判断记录，供研究优先级和复盘使用。
+观察事实作为证据包入账，引用两边运行、登记和账本版本；机制解释和下一步写成判断记录。
 
 </Step>
 
@@ -327,11 +335,45 @@ Agent 把观察事实作为证据包入账，引用两边运行、登记和账�
 
 ### V.4.2　结果的读法 [#V-4-2]
 
-资金使用率指持仓名义占权益的比例，利润来源指价差、费用、资金费各占多少。
+p 和区间按登记模型读；资金使用率和利润来源按指标口径读，靠放大仓位或资金费赚的不算改善。
 
 <ul className="rd-rules">
 <li id="V-4-2-3"><span className="rd-rule-id">V.4.2.3</span> p 只是登记模型下的尾部概率；区间跨零算不确定，不跨零也只算窗口内改善 <Ref id="rule:V.4.2.3">research-round · references/feedback.md</Ref></li>
 <li id="V-4-2-4"><span className="rd-rule-id">V.4.2.4</span> 从首个根起就看资金使用率和利润来源，靠放大仓位或资金费赚的不算改善 <Ref id="rule:V.4.2.4">research-round · references/diagnosis.md</Ref></li>
+</ul>
+
+### V.4.3　检验结果的呈现 [#V-4-3]
+
+检验结果只读，固定附检验对象、原假设、局限和试验次数，不带通过、失败或资格结论。
+
+<Cap id="V.4.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="每份检验结果固定附检验对象、原假设和局限">
+
+- 检验对象：同日配对的候选与对照账户日收益对数差。
+- 原假设：平均日对数差不大于零（单侧）。
+- 局限：p 不是策略有效的概率；开发窗口内比较不是独立验证。
+- 局限：多重校正只覆盖本次登记网格，不覆盖跨登记搜索。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span></div>
+
+</Cap>
+
+### V.4.4　试验次数与选择效应 [#V-4-4]
+
+试验越多，最好成绩越可能来自运气，所以夏普要按试验次数打折扣，折扣只用代码给出的试验计数。
+
+<Cap id="V.4.4.1" kind="database" tier="verified" tierLabel="已验证" title="试验计数由代码读取时从账本统计，Agent 不自数">
+
+- 全部试验都计，含失败、中断、未完成和无效的。
+- 另按源码内容哈希去重计版本数，两者按开发窗口分列。
+- 登记的网格点按结果分为未完成、无效、经济可用、仅诊断。
+- 可按任一账本版本复读；输出不含停止标志、分数或排序。
+
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_status">research_status</Ref> <Ref id="table:trial">trial</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
+
+</Cap>
+
+<ul className="rd-rules">
+<li id="V-4-4-2"><span className="rd-rule-id">V.4.4.2</span> 按试验次数折扣的夏普以去重版本数和全部试验数各算一端 <Ref id="rule:V.4.4.2">nautilus-report-analysis · references/ratios.md</Ref></li>
 </ul>
 
 ## 待定事项 [#V-pending]
