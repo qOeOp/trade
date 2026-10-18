@@ -36,10 +36,18 @@ ledger: publication is append-only.
 
 ## Where things go
 
-- Persistent research data lives only in the Dolt ledger (and its `dolt_backup` copy): complete
-  strategy source (one UTF-8 file per independent strategy), stored runs with their native reports,
-  derived evidence, freezes and confirmations. Everything else (drafts, exploratory scripts,
-  replay outputs, media, derived reports) is a working copy in `/tmp`.
+- Persistent research data lives only in the Dolt ledger (and its `dolt_backup` copy), and only
+  what a replay cannot give back: decisions and declarations (registrations, judgments, source
+  reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
+  logs, source originals, timestamp tokens, market data); the minimal identity to reproduce the
+  rest (complete strategy source, one UTF-8 file per independent strategy; runtime image digest;
+  market commit; configuration and input identity); and readings computed once at sealing (audit
+  and eligibility verdicts, metrics, report measures, daily returns) with fingerprints of the
+  native reports. Store each fact once and never what stored data derives. Native reports and
+  other replay outputs are cache: regenerate them into `/tmp` and check them against the
+  fingerprints with the semantic report comparison. Reports already stored stay as they are until
+  the ledger is rebuilt against the design. Everything else (drafts, exploratory scripts, replay
+  outputs, media, derived reports) is a working copy in `/tmp`.
 - Write to the ledger only through `python -m research.records.cli` and
   `research.records.artifacts run`, never with direct SQL or another account. No strategy bodies or
   experiment receipts in Git.
