@@ -7,6 +7,7 @@
 <Files>
 <Folder name="registration" defaultOpen>
   <File name="comparability.py" />
+  <File name="duties.py" />
   <File name="inputs.py" />
   <File name="precheck.py" />
   <File name="register.py" />
@@ -124,6 +125,37 @@ def input_key(value: Mapping) -> dict
 **依据**
 
 - [MLflow — Dataset Tracking：Dataset 带内容摘要（digest），经 log_input 随运行记录来源与摘要](https://mlflow.org/docs/latest/ml/dataset/)　开源实现
+
+</div>
+
+## `registration/duties.py` [#def-mod-registration-duties-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="registration.attribution_catalogue">attribution_catalogue</Ref> | 归因切面目录：切面、所属职责与可被预测引用的标量名；与 27 项职责表放在同一模块，登记核对与归因报告共用 |
+
+### `attribution_catalogue` [#def-registration-attribution_catalogue]
+
+归因切面目录：切面、所属职责与可被预测引用的标量名；与 27 项职责表放在同一模块，登记核对与归因报告共用
+
+```python
+def attribution_catalogue() -> dict
+```
+
+**返回**　dict：\{slices: [\{id, title, duties, measures\}]\}
+
+**期望行为**
+
+1. 目录固定为：profit_bridge（利润来源桥）：price、fee、funding、open_mark、account；capital_scaled（规模归一）：notional_ratio、net_per_notional；fee_stress（费用压力）：breakeven_fee_multiple；by_instrument（品种与方向）：top5_abs_share、one_side_instruments、long_net、short_net；by_period（时期）：months_won_share、residual_after_top5_days；trade_structure（交易结构）：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share；drawdown（回撤）：max_drawdown、drawdown_days、top_instrument_share_in_drawdown。
+2. 改目录即升 metrics_revision；旧报告按旧版本复读。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="P.1.1.2">P.1.1.2</Ref>
+
+**依据**
+
+- [Bacon 2023, Practical Portfolio Performance Measurement and Attribution（第 3 版, Wiley）](https://doi.org/10.1002/9781119831976)　书
 
 </div>
 
@@ -452,12 +484,13 @@ def plan_schema() -> dict
 
 **期望行为**
 
-1. 定义十一项必有键（含 changed_duties）与可选键的类型与说明。
-2. registration.validate 先按它校验形态；失败时拒绝码 REGISTRATION_INVALID，missing 列出字段，message 附该字段 description。
+1. 定义十二项必有键（含 prediction 与 changed_duties）与可选键的类型与说明。
+2. prediction 是 \{mechanism: [\{slice, measure, direction, duty, reason\}], outcomes: \{improved, not_significant, loss, zero_activity, invalid\}, interaction?: \{base, a, b\}\}；direction 只取升或降；slice 与 measure 取自 registration.attribution_catalogue，slice 可为空。
+3. registration.validate 先按它校验形态；失败时拒绝码 REGISTRATION_INVALID，missing 列出字段，message 附该字段 description。
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="H.4.1.4">H.4.1.4</Ref>
+**关联章节**　<Ref id="H.4.1.4">H.4.1.4</Ref> <Ref id="P.2.1.1">P.2.1.1</Ref>
 
 </div>
 
@@ -568,19 +601,20 @@ def validate(
 ) -> set[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十项：parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（每格 source-review 证据包名）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十二项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（每格 source-review 证据包名）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
 
 **返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
 
 **期望行为**
 
-1. 核字段集合恰等于十一项必有键（含 changed_duties）加可选键，多一键少一键即拒；metric 不是唯一具有推断定义的比较维度即拒；comparison 交 validate_design；sources 每个包名须在 evidence_bundle 存在
+1. 核字段集合恰等于十二项必有键（含 prediction 与 changed_duties）加可选键，多一键少一键即拒；metric 不是唯一具有推断定义的比较维度即拒；comparison 交 validate_design；sources 每个包名须在 evidence_bundle 存在
 2. 核 changed_duties：每项须是 27 项职责编号之一；根登记必须为空，派生登记至少一项。
-3. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
-4. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
-5. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
-6. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
-7. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
+3. 核 prediction：mechanism 每项的职责在 changed_duties 里，切面与标量在归因目录里（切面为空时须有理由）；changed_duties 每项至少一项预测；根登记的 mechanism 可为空。
+4. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
+5. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
+6. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
+7. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
+8. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -597,12 +631,13 @@ def validate(
 | `COMPARABILITY_MISMATCH` | 对照运行的运行环境摘要、有效配置或输入内容身份与本次执行身份不一致 |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 对照运行按当前检查身份没有经济证据资格（零成交、缺匹配记录、执行捕获失败或源码审查失败） |
 | `DUTY_UNKNOWN` | changed_duties 含 27 项之外的编号，或根登记非空、派生登记为空 |
+| `PREDICTION_INVALID` | 预测的职责不在 changed_duties 里、切面或标量不在目录里，或某个改动职责没有预测 |
 
-**使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_evidence" />、<Ref id="table:v_candidates" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />
+**使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_evidence" />、<Ref id="table:v_candidates" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="registration.attribution_catalogue" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="G.4.1.2">G.4.1.2</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.3.1.1">H.3.1.1</Ref> <Ref id="H.3.2.2">H.3.2.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="H.4.2.2">H.4.2.2</Ref> <Ref id="F.1.1.2">F.1.1.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
+**关联章节**　<Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="G.4.1.2">G.4.1.2</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.3.1.1">H.3.1.1</Ref> <Ref id="H.3.2.2">H.3.2.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="H.4.2.2">H.4.2.2</Ref> <Ref id="P.2.1.1">P.2.1.1</Ref> <Ref id="F.1.1.2">F.1.1.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="J.2.1.2">J.2.1.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
 
 </div>
 
