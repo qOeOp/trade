@@ -1558,9 +1558,10 @@ def open_trial(
 1. 核对用途与绑定器：explore/precheck 带 binder 拒 BINDING_NOT_ALLOWED；research/validation 无 binder 拒 BINDING_REQUIRED；非 explore 时经 ledger.read_candidate 核 source_sha256 是已发布候选，否则 SOURCE_NOT_PUBLISHED
 2. 经 runtime.validate_identity 核运行环境身份含不可变摘要且带探针检视，否则 RUNTIME_NOT_PINNED；输入身份与窗口字段齐全，否则 TRIAL_INPUT_INCOMPLETE
 3. 在 conn 内插 trial 行（purpose、source_sha256、image_ref、合约集、预热起点、交易窗口；op_id=trial:\<载荷哈希>，载荷含输入身份）；输入身份与市场提交不在试验行上重复，写进同一事务里的开始回执；不写 created_at，由触发器写服务器 UTC
-4. 有 binder 时以 (conn, trial_id) 调用；它核对登记早于本试验、身份一致并写 registration_attempt 或 validation_binding 行，其拒绝原样上抛
-5. 经 ledger.start_receipt 在同一 conn 写执行开始回执，其拒绝原样上抛
-6. 返回 trial_id 与回执包名；调用方只在 ledger.write 提交成功后启动容器
+4. 经 ledger.start_receipt 在同一 conn 写执行开始回执，其拒绝原样上抛
+5. 有 binder 时在开始回执写入之后以 (conn, trial_id) 调用；它从同一事务读试验行与开始回执，核对登记早于本试验、实际身份一致，并写 registration_attempt 或 validation_binding 行，其拒绝原样上抛、整笔回滚
+6. 样本外窗口保留：某条样本外登记尚未绑定时，该候选源码的任何其他试验（经 validation_bind 绑定的那次除外）交易窗口与登记窗口 [window_start, window_end) 重叠即拒绝 OUT_OF_SAMPLE_RESERVED。
+7. 返回 trial_id 与回执包名；调用方只在 ledger.write 提交成功后启动容器
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1577,6 +1578,7 @@ def open_trial(
 | `SOURCE_PRECHECK_FAILED` | 由 binder 上抛：预检或独立审查未通过 |
 | `GRID_ALREADY_ATTEMPTED` | 由 binder 上抛：该网格点已被消耗（含无效与中断的尝试），或样本外登记已绑定过一次回放 |
 | `CONCURRENT_WRITE` | 由 ledger.write 在提交时上抛：并发写同格不同值，后到者回滚 |
+| `OUT_OF_SAMPLE_RESERVED` | 候选有未绑定的样本外登记，本试验的交易窗口与其窗口重叠 |
 
 **使用**　<Ref id="table:trial" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.start_receipt" />、<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="runtime.validate_identity" />
 
