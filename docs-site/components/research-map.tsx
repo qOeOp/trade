@@ -125,7 +125,8 @@ function flowNodes(fnPaths: string[], locale: Locale, outside: Map<string, numbe
     if (!entry) return;
     const { fn, chapter } = entry;
     const h = fnHeight(fn);
-    nodes.push({ id: fn.path, type: 'func', position: { x: i * (FN_W + COL_GAP), y: 0 }, data: { fn, slug: chapter.slug, locale, state: 'idle', outside: outside.get(fn.path) }, style: { width: FN_W, height: h }, width: FN_W, height: h, zIndex: 0, ...base });
+    nodes.push({ id: `label-${fn.path}`, type: 'label', position: { x: i * (FN_W + COL_GAP), y: 0 }, data: { chapter, locale }, style: { width: FN_W, height: LABEL_H - 6 }, ...base });
+    nodes.push({ id: fn.path, type: 'func', position: { x: i * (FN_W + COL_GAP), y: LABEL_H }, data: { fn, slug: chapter.slug, locale, state: 'idle', outside: outside.get(fn.path) }, style: { width: FN_W, height: h }, width: FN_W, height: h, zIndex: 0, ...base });
     let cy = FN_HEAD;
     for (const comp of fn.components) {
       const ch2 = compHeight(comp);
@@ -200,8 +201,8 @@ export function ResearchMap({ locale }: { locale: Locale }) {
         const on = !lit || (lit.has(a) && lit.has(b));
         out.push({
           id: `link-${a}-${b}`, source: a, target: b, sourceHandle: forward ? 's-r' : 's-l', targetHandle: forward ? 't-l' : 't-r',
-          type: 'default', className: 'rd-edge-link', zIndex: 4,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 11, height: 11, color: 'var(--rd-link)' },
+          type: 'smoothstep', className: 'rd-edge-flow', zIndex: 4,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: 'var(--rd-edge)' },
           style: { opacity: on ? 0.9 : 0.06 },
         });
       }
@@ -210,7 +211,8 @@ export function ResearchMap({ locale }: { locale: Locale }) {
   }, [baseNodes, flow, links, hovered, lit, locale]);
 
   return (
-    <div className="rd-map h-full w-full">
+    <div className="rd-map flex h-full w-full flex-col">
+      <div className="min-h-0 flex-1">
       <ReactFlow
         key={tab}
         nodes={nodes}
@@ -231,9 +233,10 @@ export function ResearchMap({ locale }: { locale: Locale }) {
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
-      <div className="rd-tabs" role="tablist" aria-label={mapCopy.overview[locale]}>
+      </div>
+      <div className="docs-scenario-tabs" role="tablist" aria-label={mapCopy.overview[locale]}>
         {[{ id: 'overview', title: mapCopy.overview }, ...flows].map((f) => (
-          <button key={f.id} type="button" role="tab" aria-selected={tab === f.id} onClick={() => { setTab(f.id); setHovered(null); }}>
+          <button key={f.id} type="button" role="tab" aria-selected={tab === f.id} className={tab === f.id ? 'is-active' : ''} onClick={() => { setTab(f.id); setHovered(null); }}>
             {f.title[locale]}
           </button>
         ))}
