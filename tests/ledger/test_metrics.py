@@ -4,10 +4,10 @@ only their own metric, the bar-close mark-equity path, daily series and the posi
 from __future__ import annotations
 
 from decimal import Decimal
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from ledger import metrics
 from ledger.errors import Refusal
@@ -90,17 +90,17 @@ class SealedReportTests(unittest.TestCase):
     def test_the_bar_close_mark_path_gives_drawdown_capital_and_the_daily_notional(self):
         sealed = report(native())
         drawdown, capital = sealed["drawdown"], sealed["capital"]
-        self.assertAlmostEqual(drawdown["mark_max_drawdown@1"]["value"], float(Decimal(500) / Decimal("100109.7")))
-        self.assertEqual((drawdown["peak_utc@1"]["value"], drawdown["trough_utc@1"]["value"]),
+        self.assertAlmostEqual(drawdown["mark_max_drawdown@2"]["value"], float(Decimal(500) / Decimal("100109.7")))
+        self.assertEqual((drawdown["peak_utc@2"]["value"], drawdown["trough_utc@2"]["value"]),
                          ("2026-01-02T23:59", "2026-01-03T23:59"))
-        self.assertEqual(drawdown["duration_days@1"]["value"], 1.0)
-        self.assertEqual((drawdown["top_instrument@1"]["value"], drawdown["top_instrument_share_in_drawdown@1"]["value"]),
+        self.assertEqual(drawdown["duration_days@2"]["value"], 1.0)
+        self.assertEqual((drawdown["top_instrument@2"]["value"], drawdown["top_instrument_share_in_drawdown@2"]["value"]),
                          (IID, 1.0))
         self.assertEqual((capital["peak_gross_notional@1"]["value"], capital["peak_utc@1"]["value"]),
                          ("1100.00000000", "2026-01-02T23:59"))
         self.assertEqual(capital["time_in_market@1"]["value"], 0.75)
         self.assertEqual(capital["peak_locked_margin@1"]["value"], "100.00000000")
-        self.assertEqual(sealed["fees_by_liquidity_side@1"]["TAKER"], {"commissions": "0.10000000",
+        self.assertEqual(sealed["fees_by_liquidity_side@2"]["TAKER"], {"commissions": "0.10000000",
                                                                       "notional": "110.00000000", "fills": 1})
         self.assertEqual(sealed["order_funnel@1"], {"FILLED": 2})
         self.assertEqual(sealed["populations"], {"fills": 3, "cycles": 2, "bars": 4, "days": 4})
@@ -190,11 +190,7 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual((opened["ts_closed_ns"], opened["realized_pnl"], opened["open_unrealized"], opened["side"]),
                          (None, None, Decimal(-200), "long"))
 
-    def test_metrics_need_a_checkout_and_readable_reports(self):
-        with patch.object(metrics.subprocess, "run", side_effect=OSError("no git")), \
-                self.assertRaises(Refusal) as caught:
-            metrics.metrics_revision()
-        self.assertEqual(caught.exception.code, "NOT_A_CHECKOUT")
+    def test_metrics_need_readable_reports(self):
         with tempfile.TemporaryDirectory() as directory:
             reports = Path(directory) / "reports"
             reports.mkdir()
@@ -202,6 +198,82 @@ class SealedReportTests(unittest.TestCase):
             with self.assertRaises(Refusal) as caught:
                 metrics.load_directory(Path(directory))
             self.assertEqual(caught.exception.code, "REPORT_UNREADABLE")
+
+    def test_only_regular_files_and_the_audit_directory_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "reports").mkdir()
+            (root / "audit").mkdir()
+            outside = root / "elsewhere.csv"
+            outside.write_text("client_order_id\nO-1\n")
+            (root / "reports" / "orders.csv").symlink_to(outside)
+            (root / "reports" / "audit.json").write_text('{"passed": true}')
+            loaded = metrics.load_directory(root)
+            self.assertEqual((loaded.orders, loaded.audit, "orders.csv" in loaded.present), ([], None, False))
+            (root / "audit" / "audit.json").write_text('{"passed": false}')
+            self.assertEqual(metrics.load_directory(root).audit, {"passed": False})
+
+    def test_the_metrics_revision_is_a_clean_checkout_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(Refusal) as caught:
+                metrics.metrics_revision(root)
+            self.assertEqual(caught.exception.code, "NOT_A_CHECKOUT")
+            env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x.invalid", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@x.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "PATH": "/usr/bin:/bin"}
+            for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "c"]):
+                subprocess.run(["git", *argv], cwd=root, env=env, check=True, capture_output=True)
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
+            self.assertEqual(metrics.metrics_revision(root), head)
+            (root / "uncommitted.py").write_text("changed = True\n")
+            with self.assertRaises(Refusal) as caught:
+                metrics.metrics_revision(root)
+            self.assertEqual(caught.exception.code, "STALE_CHECKOUT")
+
+
+class MarkEquityTests(unittest.TestCase):
+    SUMMARY = {"starting_balance_usdt": "100000", "data_interval_minutes": 1440,
+               "period_start_utc": "2026-01-01T00:00:00Z", "period_end_utc": "2026-01-04T00:00:00Z"}
+
+    def test_equity_at_a_label_never_reads_a_later_account_row(self):
+        """A long marked +100 at the day-1 close and closed an hour into day 2 for +100: the bar-close
+        equity is 100000 -> 100100 -> 100100, never the +200 of pairing the day-1 mark with the day-2 close."""
+        account = [{"ts_event": iso(JAN), "total": "100000"},
+                   {"ts_event": iso(JAN + DAY + 3_600 * 10**9), "total": "100100"}]
+        exposures = [{"ts_event_ns": JAN + LABEL, "position_id": "P", "notional_value": Decimal(1000),
+                      "unrealized_pnl": Decimal(100)}]
+        path = metrics.equity_path(self.SUMMARY, account, exposures)
+        self.assertEqual([point["equity"] for point in path], [Decimal(100100), Decimal(100100), Decimal(100100)])
+        self.assertEqual(metrics.mark_drawdown(self.SUMMARY, account, exposures, path)["max_drawdown"], 0.0)
+
+    def test_account_rows_tied_on_time_keep_report_order(self):
+        account = [{"ts_event": iso(JAN), "total": "100000", "locked": "0"},
+                   {"ts_event": iso(JAN + 3_600 * 10**9), "total": "100050", "locked": "0"},
+                   {"ts_event": iso(JAN + 3_600 * 10**9), "total": "99990", "locked": "0"}]
+        path = metrics.equity_path(self.SUMMARY, account, [])
+        self.assertEqual(path[0]["equity"], Decimal(99990))
+        reports = native()
+        reports.account = [*reports.account, {**reports.account[-1], "total": "100020.00000000"},
+                           {**reports.account[-1]}]
+        self.assertTrue(report(reports)["activity"]["account_endpoints_match@2"]["passed"])
+
+
+class FeeAndPlanTests(unittest.TestCase):
+    def test_fee_notional_includes_the_contract_multiplier(self):
+        reports = native()
+        for row in reports.positions:
+            row["multiplier"] = "10"
+        self.assertEqual(report(reports)["fees_by_liquidity_side@2"]["TAKER"]["notional"], "1100.00000000")
+
+    def test_a_plan_tag_longer_than_its_column_fails_plan_validity(self):
+        reports = native()
+        long = "plan:" + "x" * 200
+        reports.orders[0]["tags"] = reports.orders[1]["tags"] = repr([long])
+        sealed = report(reports)
+        self.assertEqual(sealed["plans_valid@1"]["code"], "PLAN_TAG_TOO_LONG")
+        self.assertTrue(any(item.startswith("PLAN_TAG_TOO_LONG") for item in sealed["limitations"]))
+        rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
+        self.assertIsNone(rows[0]["plan_tag"])
 
 
 if __name__ == "__main__":

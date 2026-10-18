@@ -30,11 +30,12 @@ from ledger import db
 from ledger.refusals import refuse
 
 
-CATALOGUE = "measures@2026-10-18"
+CATALOGUE = "measures@2026-10-19"
 TOLERANCE = Decimal("0.000001")
 EQUITY_TOLERANCE = Decimal("0.01")  # compounding to final equity; an uncalibrated example value
 MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale
 PLAN_TAG = "plan:"
+PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
@@ -143,44 +144,70 @@ def _report_root(directory: Path) -> tuple[Path, Path]:
     return directory.parent, directory
 
 
+def _regular(path: Path) -> bytes | None:
+    """The bytes of a regular file, never through a link; None when there is none."""
+    try:
+        return path.read_bytes() if path.is_file() and not path.is_symlink() else None
+    except OSError:
+        return None
+
+
+REPORTS_DIR = "reports"
+WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()), AUDIT,
+                 COVERAGE)
+
+
 def load_directory(directory: Path, account: bool = True, exposures: bool = True) -> Reports:
     """The native reports of a replay working directory (or its reports/), parsed but not converted.
+
+    Only regular files count (a link is missing); the audit result is audit/audit.json beside
+    reports/ and nothing else.
+    """
+    root, base = _report_root(directory)
+    files = {}
+    for name in WORKDIR_FILES:
+        path = base / name.removeprefix(f"{REPORTS_DIR}/") if name.startswith(f"{REPORTS_DIR}/") else root / name
+        data = _regular(path)
+        if data is not None:
+            files[name] = data
+    return load_files(files, account, exposures)
+
+
+def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
+    """The native reports from their bytes by working-directory path (reports/<name>, audit/audit.json,
+    input-coverage.json).
 
     A missing file is empty (None for the summary, audit, exposures and order events); `present`
     names the report files that exist. A file that exists but does not parse is REPORT_UNREADABLE.
     """
-    root, base = _report_root(directory)
     present = set()
 
-    def read(path: Path) -> bytes | None:
-        if path.is_file():
-            present.add(path.name)
-            return path.read_bytes()
-        return None
+    def read(name: str) -> bytes | None:
+        data = files.get(f"{REPORTS_DIR}/{name}")
+        if data is not None:
+            present.add(name)
+        return data
 
     def parsed(name: str, parse):
-        data = read(base / name)
+        data = read(name)
         if data is None:
             return None
         try:
             return parse(data)
-        except (UnicodeDecodeError, ValueError, csv.Error, OSError, EOFError) as exc:
+        except (UnicodeDecodeError, ValueError, KeyError, csv.Error, OSError, EOFError) as exc:
             raise _unreadable(name, exc) from exc
 
-    def json_file(path: Path, name: str):
-        if not path.is_file():
+    def json_file(data: bytes | None, name: str):
+        if data is None:
             return None
         try:
-            value = json.loads(path.read_bytes().decode("utf-8"))
+            value = json.loads(data.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as exc:
             raise _unreadable(name, exc) from exc
         return value if isinstance(value, dict) else None
 
-    summary = json_file(base / SUMMARY, SUMMARY)
-    if summary is not None:
-        present.add(SUMMARY)
-    # The auditor writes audit/audit.json beside reports/; an older layout kept it in reports/.
-    audit = json_file(root / AUDIT, AUDIT) if (root / AUDIT).is_file() else json_file(base / "audit.json", "audit.json")
+    summary = json_file(read(SUMMARY), SUMMARY)
+    audit = json_file(files.get(AUDIT), AUDIT)
     rows = {name: parsed(REPORT_FILES[name], _csv) or [] for name in ("orders", "fills", "positions")}
     account_rows = parsed(REPORT_FILES["account"], _csv) if account else None
     returns = parsed(REPORT_FILES["returns"], lambda data: [(int(row["ts_event_ns"]), float(row["native_return"]))
@@ -190,7 +217,7 @@ def load_directory(directory: Path, account: bool = True, exposures: bool = True
                                                                  gzip.decompress(data).splitlines() if line.strip()])
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
                    positions=rows["positions"], account=account_rows or [], returns=returns or [],
-                   exposures=exposure_rows, order_events=events, coverage=json_file(root / COVERAGE, COVERAGE),
+                   exposures=exposure_rows, order_events=events, coverage=json_file(files.get(COVERAGE), COVERAGE),
                    present=frozenset(present))
 
 
@@ -198,9 +225,11 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
              account: bool = True, exposures: bool = True):
     """One run: a sealed run by `run_id` on `conn`, or an unsealed replay directory.
 
-    A sealed run gives {run, trial, sealed (by metrics revision), returns, cycles, capture}; its
-    native reports are not in the ledger (replay.reproduce gives them back). A directory gives its
-    parsed native `Reports`.
+    A sealed run gives {run, trial, sealed (by metrics revision), returns, cycles, capture, evidence};
+    its native reports are not in the ledger (replay.reproduce gives them back). A passed run whose
+    original capture or semantic fingerprint is missing is named in `evidence.unavailable` (the
+    qualification view marks it unusable); a coverage receipt naming other inputs than the stored
+    input identity refuses. A directory gives its parsed native `Reports`.
     """
     if conn is None:
         if directory is None:
@@ -216,6 +245,20 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
     trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments, input_start, "
                      "trade_start, trade_end FROM trial WHERE trial_id = %s", (run["trial_id"],))
     capture = execution.read_capture(conn, run["trial_id"])
+    stored_identity = capture["start"].get("input_identity")
+    receipts = [capture.get("input_coverage")]
+    if capture["status"] == "captured":
+        receipts.append(_json_bytes(capture["files"].get(COVERAGE)))
+        if capture["files"].get(COVERAGE) != capture.get("input_coverage_bytes"):
+            receipts.append(None)
+    if any(not isinstance(item, dict) or item.get("input_identity") != stored_identity for item in receipts):
+        raise refuse("EXECUTION_IDENTITY", f"the coverage receipts of run {run_id} name other inputs than its stored "
+                                           "input identity", missing=(COVERAGE,))
+    unavailable = []
+    if run["status"] == "passed" and capture["status"] != "captured":
+        unavailable.append(f"CAPTURE_MISSING: {capture.get('reason')}")
+    if run["status"] == "passed" and run["fingerprints"] is None:
+        unavailable.append("FINGERPRINT_MISSING: the run has no semantic fingerprint; it cannot be reproduced")
     sealed = {revision: json.loads(report) if isinstance(report, (str, bytes)) else report
               for revision, report in conn.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s "
                                                 "ORDER BY metrics_revision", (run_id,))}
@@ -223,7 +266,17 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
         "SELECT ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE run_id = %s ORDER BY ts_event_ns",
         (run_id,))]
     cycles = conn.dicts("SELECT * FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
-    return {"run": run, "trial": trial, "sealed": sealed, "returns": returns, "cycles": cycles, "capture": capture}
+    return {"run": run, "trial": trial, "sealed": sealed, "returns": returns, "cycles": cycles, "capture": capture,
+            "evidence": {"capture": capture["status"],
+                         "fingerprints": "missing" if run["fingerprints"] is None else "recorded",
+                         "unavailable": unavailable}}
+
+
+def _json_bytes(data: bytes | None):
+    try:
+        return json.loads(data.decode("utf-8")) if data is not None else None
+    except (UnicodeDecodeError, ValueError):
+        return None
 
 
 # Position cycles and economics
@@ -411,6 +464,10 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
             (doubled if tags else untagged).append(order.get("client_order_id"))
     if doubled:
         raise unreconciled("PLAN_TAG_MULTIPLE", f"orders {_sample(doubled)} carry more than one plan tag")
+    long = [order_id for order_id, tag in plan_of.items() if len(tag) > PLAN_TAG_LIMIT]
+    if long:
+        raise unreconciled("PLAN_TAG_TOO_LONG", f"orders {_sample(long)} carry a plan tag longer than "
+                                                f"{PLAN_TAG_LIMIT} characters")
     plan_of.update(expiry_plan_owners(orders, fills, positions, found, plan_of, order_events, lifecycle_events))
     untagged = [order_id for order_id in untagged if order_id not in plan_of]
     if untagged:
@@ -513,26 +570,33 @@ def _labels(summary: dict, exposures: list[dict]) -> tuple[int, list[int]]:
     return step, labels
 
 
+def _account_states(account: list[dict], *fields: str) -> list[tuple]:
+    """(UTC ns, Decimal fields...) per account row, ordered by time only: rows tied on a timestamp keep
+    report order."""
+    return sorted(((utc_ns(row["ts_event"]), *(Decimal(row[field]) for field in fields)) for row in account),
+                  key=lambda state: state[0])
+
+
 def equity_path(summary: dict, account: list[dict], exposures: list[dict] | None) -> list[dict]:
-    """Per bar label T: mark equity (the latest account total before the next label plus the
-    unrealized PnL of the exposure rows labelled T), gross notional and open rows."""
+    """Per bar label T: mark equity (the last account total at or before T, never a later row, plus
+    the unrealized PnL of the exposure rows labelled T), gross notional and open rows."""
     if exposures is None:
         raise unreconciled("EXPOSURE_REPORT_MISSING", "the run has no exposure report")
     if not account:
         raise unreconciled("ACCOUNT_STATE_MISSING", "the account report has no rows")
-    step, labels = _labels(summary, exposures)
+    _, labels = _labels(summary, exposures)
     by_label = defaultdict(list)
     for row in exposures:
         by_label[row["ts_event_ns"]].append(row)
     try:
-        states = sorted((utc_ns(row["ts_event"]), Decimal(row["total"])) for row in account)
+        states = _account_states(account, "total")
     except (KeyError, ValueError, ArithmeticError) as exc:
         raise unreconciled("NATIVE_VALUE_UNREADABLE", "an account row has no readable time or total") from exc
     times = [ts for ts, _ in states]
     starting = Decimal(summary["starting_balance_usdt"])
     path = []
     for label in labels:
-        index = bisect.bisect_left(times, label + step) - 1
+        index = bisect.bisect_right(times, label) - 1
         rows = by_label.get(label, [])
         path.append({"label": label, "rows": rows,
                      "equity": (states[index][1] if index >= 0 else starting)
@@ -569,16 +633,31 @@ def daily_notional(summary: dict, path: list[dict]) -> dict[int, Decimal]:
 
 # The sealed single-run report
 
-def metrics_revision() -> str:
-    """The HEAD commit of the checkout holding this metrics code."""
+def _git(root: Path, *argv: str):
     try:
-        found = subprocess.run(["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parent, capture_output=True,
-                               text=True, check=False, timeout=30)
+        return subprocess.run(["git", *argv], cwd=root, capture_output=True, text=True, check=False, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        found = None
+        return None
+
+
+def metrics_revision(checkout: Path | None = None, clean: bool = True) -> str:
+    """The HEAD commit of the product checkout holding this metrics code (default: this repository);
+    refused while the checkout has uncommitted or untracked changes, whose code no commit names
+    (`clean=False`: an unsealed directory report, which is no evidence, reads HEAD regardless)."""
+    root = Path(checkout) if checkout is not None else db.REPOSITORY
+    found = _git(root, "rev-parse", "HEAD")
     revision = found.stdout.strip() if found is not None and found.returncode == 0 else ""
     if not REVISION.fullmatch(revision):
-        raise refuse("NOT_A_CHECKOUT", "the metrics code is not in a Git checkout; no revision to record")
+        raise refuse("NOT_A_CHECKOUT", f"{root} is not a Git checkout; no revision to record")
+    if not clean:
+        return revision
+    status = _git(root, "status", "--porcelain", "--untracked-files=normal")
+    if status is None or status.returncode:
+        raise refuse("STALE_CHECKOUT", f"the work tree status of {root} cannot be read", missing=(str(root),))
+    dirty = [line for line in status.stdout.splitlines() if line.strip()]
+    if dirty:
+        raise refuse("STALE_CHECKOUT", f"{root} has {len(dirty)} changed or untracked files; revision {revision} does "
+                                       "not name the code that would compute the report", missing=(str(root),))
     return revision
 
 
@@ -591,7 +670,10 @@ def _fact(passed: bool, code: str | None, **counts) -> dict:
 
 
 def metrics(reports: Reports, revision: str | None = None) -> dict:
-    """The sealed single-run report: only what the stored cycles and daily series cannot give back."""
+    """The sealed single-run report: only what the stored cycles and daily series cannot give back.
+
+    `revision` is the clean checkout's metrics_revision for a sealed run; without it the report
+    names HEAD as it is (an unsealed directory)."""
     summary, audit = reports.summary or {}, reports.audit or {}
     absent = [key for key in SUMMARY_KEYS if summary.get(key) is None]
     if absent:
@@ -621,14 +703,13 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
         final_equity=final)
     native = audit.get("native_economics")
     try:
-        states = sorted((utc_ns(row["ts_event"]), Decimal(row["total"]), Decimal(row["locked"]))
-                        for row in reports.account)
+        states = _account_states(reports.account, "total", "locked")
     except (KeyError, ValueError, ArithmeticError) as exc:
         states = []
         limitations.append(f"NATIVE_VALUE_UNREADABLE: an account row is unreadable ({type(exc).__name__})")
     endpoints = bool(states) and states[0][1] == Decimal(summary.get("starting_balance_usdt", "NaN")) and (
         native is None or states[-1][1] == Decimal(str(native.get("final_balance_usdt"))))
-    activity["account_endpoints_match@1"] = _fact(endpoints, "ACCOUNT_ENDPOINTS_MISMATCH", rows=len(states))
+    activity["account_endpoints_match@2"] = _fact(endpoints, "ACCOUNT_ENDPOINTS_MISMATCH", rows=len(states))
     if found is not None:
         try:
             economics(found, fills, summary, native, limitations)
@@ -656,17 +737,19 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
 
     fees = defaultdict(lambda: {"commissions": Decimal(0), "notional": Decimal(0), "fills": 0})
     try:
+        multiplier = _multipliers(reports.positions)
         for fill in fills:
             side = fees[fill.get("liquidity_side") or "NO_LIQUIDITY_SIDE"]
             side["commissions"] += _usdt(fill["commission"])
-            side["notional"] += Decimal(fill["last_qty"]) * Decimal(fill["last_px"])
+            side["notional"] += Decimal(fill["last_qty"]) * Decimal(fill["last_px"]) * multiplier[fill["event_id"]]
             side["fills"] += 1
         fee_section = {side: {"commissions": money(item["commissions"]), "notional": money(item["notional"]),
                               "fills": item["fills"]} for side, item in sorted(fees.items())}
-    except (Unreconciled, KeyError, ValueError, ArithmeticError) as exc:
+    except (Unreconciled, KeyError, ValueError, ArithmeticError, SyntaxError, TypeError) as exc:
         fee_section = None
         limitations.append(str(exc) if isinstance(exc, Unreconciled) else
-                           "NATIVE_VALUE_UNREADABLE: a fill has no readable commission, quantity or price")
+                           "NATIVE_VALUE_UNREADABLE: a fill has no readable commission, quantity, price or position "
+                           "multiplier")
     entries = [order for order in orders if not order.get("parent_order_id") and order.get("is_reduce_only") != "True"]
     untagged = sum(1 for order in orders if not any(str(tag).startswith(PLAN_TAG)
                                                     for tag in _safe_tags(order)))
@@ -678,14 +761,24 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
         except Unreconciled as exc:
             plans = {"passed": False, "code": exc.code, "untagged_orders": untagged}
             limitations.append(str(exc))
-    return {"catalogue": CATALOGUE, "metrics_revision": revision or metrics_revision(),
+    return {"catalogue": CATALOGUE, "metrics_revision": revision or metrics_revision(clean=False),
             "populations": {"fills": len(fills), "cycles": len(found) if found is not None else None,
                             "bars": len(path) if path is not None else None,
                             "days": len(series) if series is not None else None},
             "activity": activity, "drawdown": drawdown, "capital": capital,
-            "fees_by_liquidity_side@1": fee_section,
+            "fees_by_liquidity_side@2": fee_section,
             "order_funnel@1": dict(sorted(Counter(order.get("status") for order in entries).items())),
             "plans_valid@1": plans, "limitations": list(dict.fromkeys(limitations))}
+
+
+def _multipliers(positions: list[dict]) -> dict[str, Decimal]:
+    """The contract multiplier of each fill, by event ID, from the position row holding it."""
+    found = {}
+    for row in positions:
+        multiplier = Decimal(row["multiplier"])
+        for event in _list(row.get("events", "")):
+            found[event["event_id"]] = multiplier
+    return found
 
 
 def _positive(value) -> bool:
@@ -720,11 +813,12 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
             top, worst = max(negative.items(), key=lambda item: item[1])
             share = float(worst / sum(negative.values()))
     duration = None if peak is None or trough is None else (trough - peak) / DAY_NS
-    return {"mark_max_drawdown@1": _measure(drawn["max_drawdown"], "bars"),
-            "peak_utc@1": _measure(iso_minute(peak), "bars"), "trough_utc@1": _measure(iso_minute(trough), "bars"),
-            "duration_days@1": _measure(duration, "bars"),
-            "top_instrument_share_in_drawdown@1": _measure(share, "instruments"),
-            "top_instrument@1": _measure(top, "instruments")}
+    # @2: the equity at a bar label no longer reads account rows after it (mark_max_drawdown@1 did)
+    return {"mark_max_drawdown@2": _measure(drawn["max_drawdown"], "bars"),
+            "peak_utc@2": _measure(iso_minute(peak), "bars"), "trough_utc@2": _measure(iso_minute(trough), "bars"),
+            "duration_days@2": _measure(duration, "bars"),
+            "top_instrument_share_in_drawdown@2": _measure(share, "instruments"),
+            "top_instrument@2": _measure(top, "instruments")}
 
 
 def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
@@ -749,7 +843,7 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
                      "realized_pnl": cycle["realized"] if cycle["closed"] else None,
                      "commissions": cycle["commissions"], "funding": cycle["funding"],
                      "open_unrealized": None if cycle["closed"] else last_unrealized.get(row.get("position_id")),
-                     "plan_tag": plan[0] if len(plan) == 1 else None,
+                     "plan_tag": plan[0] if len(plan) == 1 and len(plan[0]) <= PLAN_TAG_LIMIT else None,
                      "closing_order_type": closing.get("type") or None,
                      "closing_order_tag": others[0][:160] if others else None})
     return rows
