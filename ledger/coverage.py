@@ -120,6 +120,10 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
             raise refuse("PHASE_FAILED", f"stage {name} of trial {trial_id} did not exit 0 (exit code {code})",
                          missing=(name,))
     coverage = _json(files[execution.COVERAGE])
+    if (files[execution.COVERAGE] != capture.get("input_coverage_bytes") or not isinstance(coverage, Mapping)
+            or coverage.get("input_identity") != capture["start"].get("input_identity")):
+        raise refuse("COVERAGE_MISMATCH", f"the sealed coverage receipt of trial {trial_id} is not the one its start "
+                                          "receipt holds", missing=(execution.COVERAGE,))
     if not isinstance(coverage, Mapping) or coverage.get("input_identity") != input_identity:
         raise refuse("INPUT_IDENTITY_MISMATCH", f"the sealed coverage receipt of trial {trial_id} names other "
                                                 "inputs than the stored input identity", missing=("input_identity",))

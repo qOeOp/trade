@@ -85,7 +85,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Store the transcript, frames and receipts derived from the media instead.",)),
     "EVIDENCE_TOO_LARGE": ("An evidence file exceeds the per-file size limit.",
                            ("Store a derived, smaller file instead of the original.",)),
-    "BUNDLE_EXISTS": ("A bundle of that name already exists with other content; bundles are never replaced.",
+    "BUNDLE_EXISTS": ("A bundle of that name already exists with other content, or a trial with recovery material "
+                      "is sealed again; bundles are never replaced and a trial is sealed once.",
                       ("Use a new bundle name; to correct a bundle, add a correction-* bundle naming it.",)),
     "UNKNOWN_BUNDLE": ("The ledger version read holds no bundle of that name.",
                        ("List bundles with `ledger sql \"SELECT DISTINCT bundle FROM v_evidence\"`.",)),
@@ -156,7 +157,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "TRIAL_NOT_FOUND": ("The trial does not exist on this ledger version.",
                         ("List trials with `research status`.",)),
     "EXECUTION_IDENTITY": ("The execution start receipt disagrees with its trial row (source, runtime identity) "
-                           "or is malformed.",
+                           "or is malformed; or the stages, commands or working directory of a capture differ from "
+                           "the process record, the start receipt or the sealed hashes.",
                            ("Replay through `replay run`, `replay precheck` or `replay explore`, which write both "
                             "together.",)),
     "REGISTRATION_TOO_LATE": ("The registration was not recorded strictly before the trial, or a validation "
@@ -185,13 +187,16 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 ("Replay through `replay run`, `replay precheck` or `replay explore`, which write the "
                                  "trial and its start receipt before the container starts.",)),
     "EXECUTION_CAPTURE_LIMIT": ("The execution capture exceeds the capacity limit of its purpose (or one file the "
-                                "per-file limit); nothing was written and the working directory is kept.",
+                                "per-file limit); no capture was written and the working directory is kept. A "
+                                "research or validation trial is stored as an invalid run with its recovery "
+                                "material.",
                                 ("Rerun with a shorter window or fewer instruments; for a precheck, append the kept "
                                  "bytes with `replay recover-capture` (they stay recovery material, not the "
                                  "capture).",)),
-    "RECOVERY_NOT_APPLICABLE": ("Recovery applies only to a precheck whose original capture is missing, from the "
-                                "working directory its start receipt records, with no run and no registration "
-                                "attempt.",
+    "RECOVERY_NOT_APPLICABLE": ("Recovery applies only to a trial whose original capture is missing, from the "
+                                "working directory its start receipt records: a precheck with no run and no "
+                                "registration attempt, or (by the replay entry only) a sealed replay refused for "
+                                "size.",
                                 ("Read the trial's capture with `research status`; replay again instead of "
                                  "recovering.",)),
     "RECOVERY_INCOMPLETE": ("The kept directory lacks valid stage facts or an original the stages require, or the "
@@ -210,7 +215,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                  "or instruments, or an instrument has no export receipt.",
                                  ("Export the market inputs again and replay through the product entry.",)),
     "COVERAGE_MISMATCH": ("The coverage receipt and the native summary differ in instruments, market commit or input "
-                          "interval (or a given window).",
+                          "interval (or a given window), or the sealed receipt is not the start receipt's.",
                           ("Replay with the inputs the receipt names; report the runner if it read others.",)),
     "LIFECYCLE_NATIVE_COUNT_INVALID": ("A native lifecycle count is not a nonnegative integer, or an instance repeats.",
                                        ("Report the runner defect; the run cannot be stored.",)),
@@ -222,11 +227,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Read the exploration or precheck from its directory; register to store a run.",)),
     "RUN_ALREADY_INGESTED": ("The trial already has a run.",
                              ("Read it with `research status`; a trial is stored once.",)),
-    "AUDIT_RESULT_INCONSISTENT": ("No failure reason was given, but the audit result is missing, unreadable or not "
-                                  "passed, or the native summary is missing.",
-                                  ("Store the replay as invalid with the audit reasons (the replay entry does this).",)),
-    "REPORT_MISSING": ("A passed run lacks or cannot parse a native report it is stored from.",
-                       ("Store it as invalid; replay again once the runner writes every report.",)),
     "NOT_A_CHECKOUT": ("The metrics code is not in a Git checkout, so no metrics revision can be recorded.",
                        ("Run the product from its Git checkout.",)),
     "UNKNOWN_RUN": ("The ledger version read holds no run of that ID.",
@@ -406,7 +406,7 @@ def refusal_catalogue(code: str) -> dict:
 
 
 def refuse(code: str, message: str, *, missing: tuple[str, ...] = (), expected: str | None = None,
-           write_status: Literal["not_written", "unknown"] = "not_written",
+           write_status: Literal["not_written", "unknown", "written"] = "not_written",
            operation_id: str | None = None) -> Refusal:
     """A refusal whose repair commands come from the catalogue (an unknown code is a KeyError)."""
     return refusal(code, message, missing=missing, write_status=write_status, operation_id=operation_id,
