@@ -13,7 +13,7 @@ import copy
 from ledger.refusals import refuse
 
 
-CONFIG_KEYS = ("runtime_contract", "window_start", "window_end", "trade_start", "symbols", "account")
+CONFIG_KEYS = ("runtime_contract", "start", "trade_start", "end", "symbols", "account")  # the engine's keys
 INPUT_KEYS = ("market_commit", "universe_rule", "export_content_sha256")
 COMPARABLE_PURPOSES = ("research", "validation")
 

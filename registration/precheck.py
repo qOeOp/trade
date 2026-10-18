@@ -27,7 +27,7 @@ ITEM_STATUSES = ("passed", "failed", "unresolved", "no_opportunity")
 VERDICTS = ("passed", "failed")
 PASSING = ("passed", "no_opportunity")
 NOTE_LIMIT = 8000  # uncalibrated example value
-WINDOW_KEYS = ("window_start", "window_end", "trade_start")
+WINDOW_KEYS = ("start", "trade_start", "end")
 # Input facts a precheck's start receipt must share with the registration (input_key keys).
 EXEMPT_INPUT_KEYS = ("market_database", "market_commit", "universe_rule", "lifecycle_bundle")
 PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle", "window")

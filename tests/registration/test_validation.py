@@ -18,7 +18,8 @@ from ledger.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, sha, source
 from tests.ledger.tsa import LocalAuthority
-from tests.registration.world import DESIGN, MONTHS, SYMBOLS, FakeMarket, World, config, months_rows
+from tests.registration.world import (DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, coverage_bytes,
+                                      months_rows)
 
 GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
@@ -166,17 +167,21 @@ class ValidationTests(unittest.TestCase):
         world.register("registration-root", world.body(["rsi@1"], {"rsi@1": review}))
         world.seal_run(world.research_trial("registration-root", source("root")))
         cls.unrun = world.publish("never researched", parent=None)
-        cls.start = (datetime.now(UTC) + timedelta(seconds=4)).replace(microsecond=0)
-        cls.end = cls.start + timedelta(seconds=2)
-        cls.registered = {label: cls.register(label) for label in ("bound", "consumed", "retried", "checks", "unrun")}
+        # One-second windows, one per registration: an unbound registration reserves its own window.
+        labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "released")
+        first = (datetime.now(UTC) + timedelta(seconds=5)).replace(microsecond=0)
+        cls.windows = {label: (first + timedelta(seconds=k), first + timedelta(seconds=k + 1))
+                       for k, label in enumerate(labels)}
+        cls.registered = {label: cls.register(label) for label in labels if label != "unwitnessed"}
         with patch.object(witness, "_post", side_effect=OSError("offline")):
             cls.registered["unwitnessed"] = cls.register("unwitnessed")
-        time.sleep(max(0.0, (cls.end - datetime.now(UTC)).total_seconds()) + 1.2)
+        time.sleep(max(0.0, (cls.windows[labels[-1]][1] - datetime.now(UTC)).total_seconds()) + 1.2)
 
     @classmethod
     def register(cls, label: str, **overrides) -> dict:
-        arguments = {"candidate": cls.unrun["candidate"] if label == "unrun" else "rsi@1", "window_start": cls.start,
-                     "window_end": cls.end, "universe_rule": "pool-v1", "market": MARKET_COMMIT, "design": DESIGN,
+        start, end = cls.windows.get(label, cls.windows["bound"])
+        arguments = {"candidate": cls.unrun["candidate"] if label == "unrun" else "rsi@1", "window_start": start,
+                     "window_end": end, "universe_rule": "pool-v1", "market": MARKET_COMMIT, "design": DESIGN,
                      "retry_of": None, "op_id": f"validation:{label}", **overrides}
         return validation.validation_register(cls.world.profile, market_profile=cls.world.market,
                                               tsa_roots=cls.authority.roots, **arguments)
@@ -191,26 +196,29 @@ class ValidationTests(unittest.TestCase):
             function(*args, **kwargs)
         return caught.exception.code
 
-    def market_inputs(self, start=None, end=None) -> dict:
-        start, end = start or self.start, end or self.end
+    def market_inputs(self, start, end) -> dict:
         window = {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)}
         return registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window, {"universe": True}, None,
                                                  True)
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
-             identity: dict | None = None, start=None, end=None, checkout_root=None) -> int:
+             identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None) -> int:
+        """Open a validation trial whose start receipt records `inputs` and the effective configuration
+        of `inspection`, bound to the registration `label`."""
         data = data if data is not None else source("root")
-        start, end = start or self.start, end or self.end
+        window = self.windows.get(label, self.windows["bound"])
+        start, end = start or window[0], end or window[1]
         inputs = inputs or self.market_inputs(start, end)
         inspection = inspection or {"effective_config": config(symbols=inputs["symbols"])}
         self.binds += 1
         binder = validation.validation_binder(
-            self.registered[label]["registration_id"] if label in self.registered else label, sha(data), inputs,
-            identity or dict(IDENTITY), inspection, market=self.world.market,
-            checkout=checkout_root or self.checkout, tsa_roots=self.authority.roots)
+            self.registered[label]["registration_id"] if label in self.registered else label,
+            sha(binder_source if binder_source is not None else data), identity or dict(IDENTITY), inspection,
+            market=self.world.market, checkout=checkout_root or self.checkout, tsa_roots=self.authority.roots)
+        coverage = coverage_bytes(inspection["effective_config"], inputs["receipts"])
         with seams.use(require_main_build=lambda identity, inspection: "a" * 40):
             return trials.open_trial(self.conn, "validation", sha(data), RUNTIME,
-                                     {"identity": inputs["identity"], "input_coverage": b'{"format": "coverage"}'},
+                                     {"identity": inputs["identity"], "input_coverage": coverage},
                                      {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)},
                                      context(data, f"/tmp/validation-{self.id()}-{self.binds}"), binder)["trial_id"]
 
@@ -221,10 +229,10 @@ class ValidationTests(unittest.TestCase):
         return code
 
     def test_a_registration_is_witnessed_and_its_one_replay_binds_it(self):
-        registered = self.registered["bound"]
+        registered, start = self.registered["bound"], self.windows["bound"][0]
         self.assertEqual(registered["witness"]["status"], "stamped")
-        self.assertLess(registered["witness"]["stamped_at"], self.start)
-        self.assertLess(registered["created_at"], self.start.replace(tzinfo=None))
+        self.assertLess(registered["witness"]["stamped_at"], start)
+        self.assertLess(registered["created_at"], start.replace(tzinfo=None))
         again = self.register("bound")
         self.assertEqual((again["registration_id"], again["replayed"], again["witness"]["status"]),
                          (registered["registration_id"], True, "stamped"))
@@ -268,9 +276,10 @@ class ValidationTests(unittest.TestCase):
         original = self.registered["consumed"]
         trial_id = self.bind("consumed")
         self.world.seal_run(trial_id, "invalid")
-        retry = self.register("retry", retry_of=original["registration_id"])
+        start, end = self.windows["consumed"]
+        retry = self.register("retry", retry_of=original["registration_id"], window_start=start, window_end=end)
         self.assertEqual(retry["witness"]["status"], "stamped")
-        self.registered["retry"] = retry
+        self.registered["retry"], self.windows["retry"] = retry, (start, end)
         self.bind("retry")
 
     def test_the_replay_must_match_the_registration_in_every_identity(self):
@@ -281,17 +290,22 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("checks", checkout_root=dirty), "STALE_CHECKOUT")
         with seams.use(require_main_build=lambda identity, inspection: (_ for _ in ()).throw(
                 Refusal("RUNTIME_NOT_MAIN", "not a main build", write_status="not_written"))):
-            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, 1, sha(root), {}, IDENTITY, {},
+            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, 1, sha(root), IDENTITY, {},
                                        market=self.world.market, checkout=self.checkout), "RUNTIME_NOT_MAIN")
         other_image = {**IDENTITY, "image_digest": "sha256:" + "c" * 64}
         self.assertEqual(self.refused_bind("checks", identity=other_image), "RUNTIME_NOT_MAIN")
         self.assertEqual(self.refused_bind(999_999), "REGISTRATION_UNKNOWN")
         self.assertEqual(self.refused_bind("checks", data=self.unrun["source"]), "SOURCE_MISMATCH")
-        inputs = self.market_inputs()
+        self.assertEqual(self.refused_bind("checks", data=self.unrun["source"], binder_source=root), "SOURCE_MISMATCH")
+        start, end = self.windows["checks"]
+        inputs = self.market_inputs(start, end)
         changed = {**inputs, "identity": {**inputs["identity"], "universe_rule": "pool-v2"}}
         self.assertEqual(self.refused_bind("checks", inputs=changed), "MEMBERSHIP_CHANGED")
-        self.assertEqual(self.refused_bind("checks", start=self.start - timedelta(seconds=1)), "WINDOW_MISMATCH")
-        self.assertEqual(self.refused_bind("checks", start=self.start + timedelta(seconds=1)), "WINDOW_MISMATCH")
+        wider = {**inputs, "identity": {**inputs["identity"], "membership": {
+            **inputs["identity"]["membership"], "CCCUSDT": inputs["identity"]["membership"]["AAAUSDT"]}}}
+        self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
+        self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
+        self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")
         uncovered = {**inputs, "receipts": {SYMBOLS[0]: inputs["receipts"][SYMBOLS[0]]}}
         self.assertEqual(self.refused_bind("checks", inputs=uncovered), "COVERAGE_INCOMPLETE")
         other_account = {"effective_config": config(account={"balance_usdt": "5000"})}

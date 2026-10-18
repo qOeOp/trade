@@ -33,7 +33,7 @@ def _utc(ns: int) -> datetime:
 
 def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runtime_identity: Mapping,
                inputs: Mapping, window: Mapping, start_context: Mapping, binder: Binder | None = None) -> dict:
-    """Write the trial row, its binding and its start receipt as one write; returns the trial ID.
+    """Write the trial row, its start receipt and its binding as one write; returns the trial ID.
 
     `runtime_identity`: image_ref, image_digest, platform, runtime_contract and `inspection`
     (the probe report). `inputs`: `identity` (market_commit, universe_rule, symbols,
@@ -92,13 +92,13 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
                (purpose, source_sha256, identity["image_ref"], db.canonical_json(symbols), _utc(window["start"]),
                 _utc(window["trade_start"]), _utc(window["end"]), op_id))
         (trial_id,), = c.rows("SELECT LAST_INSERT_ID()")
-        if binder is not None:
-            binder(c, trial_id)
         receipt = execution.start_receipt(c, trial_id, {
             "source_sha256": source_sha256, "runtime_identity": identity, "workdir": start_context.get("workdir"),
             "argv": start_context.get("argv"), "mounts": start_context.get("mounts"),
             "input_identity": input_identity, "source_bytes": source, "input_coverage": inputs["input_coverage"]},
             op_id)
+        if binder is not None:
+            binder(c, trial_id)
         return {"trial_id": trial_id, "execution_bundle": receipt["bundle"]}
 
     def replay(c, row):

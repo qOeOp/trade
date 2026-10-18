@@ -4,15 +4,21 @@ point in the trial's own transaction, and the line-record gates before the next 
 from __future__ import annotations
 
 import copy
+import json
 import threading
 import unittest
 from unittest.mock import patch
 
 from ledger import db, evidence, judgments, strategies, trials
 from ledger.errors import Refusal
-from registration import register
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, RUNTIME, SKIP, context, sha, source
-from tests.registration.world import LINE_WINDOW, RUNNER_ARGV, World, coverage_bytes, product_write
+from registration import register, seams
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
+                               source)
+from tests.registration.world import (DAY, FEB, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, coverage_bytes,
+                                      product_write)
+
+OTHER_DIGEST = "sha256:" + "c" * 64
+OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@" + OTHER_DIGEST, "image_digest": OTHER_DIGEST}
 
 
 def refused(function, *args, **kwargs) -> Refusal:
@@ -241,7 +247,7 @@ class BindTests(unittest.TestCase):
             conn = db.connect(self.world.profile, "writer")
             try:
                 def binder(c, trial_id):
-                    register.bind(c, {"bundle": bundle, "execution": execution}, sha(data), trial_id)
+                    register.bind(c, bundle, sha(data), trial_id)
                     barrier.wait()
                 trials.open_trial(conn, "research", sha(data), RUNTIME,
                                   {"identity": execution["input_identity"],
@@ -266,11 +272,10 @@ class BindTests(unittest.TestCase):
         bundle, data = self.registration()
         plan = self.world.service.sql(self.world.profile, "SELECT content FROM evidence WHERE bundle = %s",
                                       (bundle,))[0][0]
-        execution = self.world.plan(bundle)["execution"]
 
         def late(conn, trial_id):
             evidence.write_files(conn, f"{bundle}-late", {"research-plan.json": bytes(plan)}, f"late:{trial_id}")
-            register.bind(conn, {"bundle": f"{bundle}-late", "execution": execution}, sha(data), trial_id)
+            register.bind(conn, f"{bundle}-late", sha(data), trial_id)
 
         self.assertEqual(self.refused_trial(bundle, data, binder=late).code, "REGISTRATION_TOO_LATE")
         self.world.research_trial(bundle, data)
@@ -282,25 +287,57 @@ class BindTests(unittest.TestCase):
         execution = copy.deepcopy(self.world.plan(bundle)["execution"])
         execution["input_identity"]["symbols"] = ["AAAUSDT"]
         exc = self.refused_trial(bundle, data, execution=execution)
-        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("input_identity",)))
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("instruments", "input_identity")))
         execution = copy.deepcopy(self.world.plan(bundle)["execution"])
         execution["effective_config"]["account"] = {"balance_usdt": "1"}
         exc = self.refused_trial(bundle, data, execution=execution)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("effective_configuration",)))
-        execution = {**self.world.plan(bundle)["execution"], "image_digest": "sha256:" + "c" * 64}
-        exc = self.refused_trial(bundle, data, execution=execution)
+        exc = self.refused_trial(bundle, data, runtime=OTHER_RUNTIME)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_image",)))
+        exc = self.refused_trial(bundle, data, runtime={**RUNTIME, "runtime_contract": "r1-native-v6"})
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_contract",)))
         self.world.research_trial(bundle, data)
+
+    def test_the_trial_row_and_receipt_are_checked_not_a_caller_supplied_execution(self):
+        bundle, data = self.registration()
+        registered = self.world.plan(bundle)["execution"]
+        shifted = {"start": LINE_WINDOW["start"], "trade_start": JAN + 10 * DAY, "end": FEB}
+        exc = self.refused_trial(bundle, data, window=shifted)
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("window",)))
+        narrower = copy.deepcopy(registered)
+        narrower["input_identity"]["symbols"] = ["AAAUSDT"]
+        narrower["effective_config"]["symbols"] = ["AAAUSDT"]
+        exc = self.refused_trial(bundle, data, execution=narrower, window=shifted)
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("window", "instruments",
+                                                                          "effective_configuration", "input_identity")))
+        seq = self.world.seq()
+        exc = refused(trials.open_trial, self.world.conn, "validation", sha(data), RUNTIME,
+                      {"identity": registered["input_identity"],
+                       "input_coverage": coverage_bytes(registered["effective_config"])},
+                      LINE_WINDOW, context(data, "/tmp/bind-as-validation"), register.binder(bundle, sha(data)))
+        self.assertEqual((exc.code, exc.missing, self.world.seq()), ("EXECUTION_MISMATCH", ("purpose",), seq))
+        self.world.research_trial(bundle, data)
+
+    def test_a_bundle_outside_the_registration_namespace_cannot_bind(self):
+        bundle, data = self.registration()
+        other = self.world.publish("forged plan", parent=None)
+        review = self.world.prechecked(other["source"])
+        plan = self.world.plan(bundle)
+        plan["body"] = self.world.body([other["candidate"]], {other["candidate"]: review})
+        path = self.world.tmp / "research-plan.json"
+        path.write_text(json.dumps(plan))
+        evidence.add_bundle(self.world.conn, "my-plan", [path])  # the public writer of Agent evidence
+        exc = self.refused_trial("my-plan", other["source"], execution=plan["execution"],
+                                 binder=register.binder("my-plan", sha(other["source"])))
+        self.assertEqual(exc.code, "REGISTRATION_INVALID")
 
     def test_a_missing_or_damaged_registration_bundle_cannot_bind(self):
         bundle, data = self.registration()
-        execution = self.world.plan(bundle)["execution"]
         product_write(self.world.conn, "damaged_plan", "registration-damaged", {"research-plan.json": b"{not json"})
         for name, expected in (("registration-ghost", "REGISTRATION_INVALID"),
                                ("registration-damaged", "LEDGER_CORRUPT")):
             with self.subTest(name=name):
-                exc = self.refused_trial(bundle, data, binder=register.binder({"bundle": name, "execution": execution},
-                                                                              sha(data)))
+                exc = self.refused_trial(bundle, data, binder=register.binder(name, sha(data)))
                 self.assertEqual(exc.code, expected)
 
 
@@ -377,11 +414,11 @@ class LineRecordTests(unittest.TestCase):
         review = world.prechecked(blank["source"])
         world.register("registration-blank", world.body([blank["candidate"]], {blank["candidate"]: review}))
         execution = world.plan("registration-blank")["execution"]
+        # A stand-in binder: registration.bind refuses a trial whose receipt lacks the configuration.
         trial_id = trials.open_trial(world.conn, "research", sha(blank["source"]), RUNTIME,
                                      {"identity": execution["input_identity"], "input_coverage": b'{"format": "x"}'},
                                      LINE_WINDOW, context(blank["source"], "/tmp/blank"),
-                                     register.binder({"bundle": "registration-blank", "execution": execution},
-                                                     sha(blank["source"])))["trial_id"]
+                                     attempt_binder("registration-blank", sha(blank["source"])))["trial_id"]
         blank_run = world.seal_run(trial_id)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
         self.assertEqual(self.code(self.derived(control_run=blank_run)), "IDENTITY_MALFORMED")

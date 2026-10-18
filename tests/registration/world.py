@@ -38,10 +38,11 @@ OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, cha
             "loss": "lower priority", "zero_activity": "check the volume cap", "invalid": "fix and retry"}
 
 
-def config(symbols=SYMBOLS, window_start="2025-12-31T00:00:00Z", trade_start="2026-01-01T00:00:00Z",
-           window_end="2026-02-01T00:00:00Z", account=ACCOUNT, root="/tmp/export-somewhere") -> dict:
-    return {"runtime_contract": IDENTITY["runtime_contract"], "execution_bar_minutes": 1, "window_start": window_start,
-            "window_end": window_end, "trade_start": trade_start, "symbols": list(symbols), "account": dict(account),
+def config(symbols=SYMBOLS, start="2025-12-31T00:00:00Z", trade_start="2026-01-01T00:00:00Z",
+           end="2026-02-01T00:00:00Z", account=ACCOUNT, root="/tmp/export-somewhere") -> dict:
+    """An effective configuration with the engine's window keys (start, trade_start, end)."""
+    return {"runtime_contract": IDENTITY["runtime_contract"], "execution_bar_minutes": 1, "start": start,
+            "end": end, "trade_start": trade_start, "symbols": list(symbols), "account": dict(account),
             "market_root": root, "universe_path": root + "/membership.json"}
 
 
@@ -152,8 +153,10 @@ def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck",
     return f"trial-{trial_id}-execution"
 
 
-def coverage_bytes(effective_config: dict) -> bytes:
-    return json.dumps({"format": "execution-input-coverage-v1", "effective_config": effective_config}).encode()
+def coverage_bytes(effective_config: dict, receipts: dict | None = None) -> bytes:
+    """input-coverage.json: the effective configuration and the export receipts by symbol."""
+    return json.dumps({"format": "execution-input-coverage-v1", "effective_config": effective_config,
+                       "export_receipts": receipts or {}}).encode()
 
 
 class World:
@@ -209,8 +212,8 @@ class World:
                       runtime: dict | None = None) -> int:
         identity = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64, **(identity_overrides or {})}
-        effective = effective_config or config(symbols=["AAAUSDT"], window_start="2026-01-05T00:00:00Z",
-                                               trade_start="2026-01-06T00:00:00Z", window_end="2026-01-08T00:00:00Z")
+        effective = effective_config or config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z",
+                                               trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z")
         return trials.open_trial(self.conn, "precheck", sha(data), runtime or RUNTIME,
                                  {"identity": identity, "input_coverage": coverage_bytes(effective)},
                                  {"start": JAN + 4 * DAY, "trade_start": JAN + 5 * DAY, "end": JAN + 7 * DAY},
@@ -253,16 +256,14 @@ class World:
         return register.load_plan(self.conn, bundle)[0]
 
     def research_trial(self, bundle: str, data: bytes, execution: dict | None = None, window: dict | None = None,
-                       binder=None) -> int:
-        """Open a research trial bound through registration.bind; returns its trial ID."""
-        registered = self.plan(bundle)["execution"]
-        actual = execution or registered
-        effective = actual["effective_config"]
+                       binder=None, runtime: dict | None = None) -> int:
+        """Open a research trial bound through registration.bind, recording `execution` (default: the
+        registered one) in its start receipt; returns its trial ID."""
+        actual = execution or self.plan(bundle)["execution"]
         return trials.open_trial(
-            self.conn, "research", sha(data), RUNTIME,
-            {"identity": actual["input_identity"], "input_coverage": coverage_bytes(effective)},
-            window or LINE_WINDOW, context(data, self.workdir()),
-            binder or register.binder({"bundle": bundle, "execution": actual}, sha(data)))["trial_id"]
+            self.conn, "research", sha(data), runtime or RUNTIME,
+            {"identity": actual["input_identity"], "input_coverage": coverage_bytes(actual["effective_config"])},
+            window or LINE_WINDOW, context(data, self.workdir()), binder or register.binder(bundle, sha(data)))["trial_id"]
 
     def seal_run(self, trial_id: int, status: str = "passed") -> int:
         def insert(conn, op):

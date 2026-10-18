@@ -163,8 +163,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "again.",)),
     "LINEAGE_MISMATCH": ("The grid source's parent or difference no longer matches the registration.",
                          ("Register the grid again from the published candidates.",)),
-    "EXECUTION_MISMATCH": ("The runtime, effective configuration or input identity differs from the "
-                           "registration.",
+    "EXECUTION_MISMATCH": ("What the trial records (purpose, windows, instruments, runtime image and contract, "
+                           "effective configuration, input identity) differs from the registration.",
                            ("Replay with the registered execution identity, or register again.",)),
     "SOURCE_PRECHECK_REQUIRED": ("The grid source lacks a matching native precheck or independent review.",
                                  ("Run `replay precheck` and record `source review` for the source.",)),
@@ -205,7 +205,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "DUPLICATE_BUNDLE": ("A bundle of that name already exists with another research-plan.json.",
                          ("Register under a new bundle name; registrations are never replaced.",)),
     "REGISTRATION_INVALID": ("The registration body does not have the required shape, or a record it cites (source "
-                             "bundle, retry_of registration, parent, grid candidate) is not in the ledger.",
+                             "bundle, retry_of registration, parent, grid candidate) is not in the ledger; a "
+                             "registration is only a registration-* bundle.",
                              ("Fix the field the message names (its description is quoted), then run "
                               "`registration add` again.",)),
     "SOURCES_REQUIRED": ("The rationale cites external work without a source original, or a cited source bundle "

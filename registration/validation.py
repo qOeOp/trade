@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
 import subprocess
 
-from ledger import db, strategies, witness
+from ledger import db, execution, strategies, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, register, seams
@@ -220,13 +221,17 @@ def _origin(conn: db.LedgerConnection, registration: dict) -> dict:
 
 
 def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: int, source_sha256: str,
-                    inputs: Mapping, identity: Mapping, inspection: Mapping, *, market, checkout: Path | None = None,
+                    identity: Mapping, inspection: Mapping, *, market, checkout: Path | None = None,
                     remote: str = "origin", tsa_roots: Path | None = None) -> None:
-    """Inside the validation trial's write: check everything against the registration, then bind it once."""
+    """Inside the validation trial's write: check everything against the registration, then bind it once.
+
+    The trial's inputs are read from what it records: its row (source, instruments, windows) and its
+    start receipt (input identity in execution.json; export receipts and effective configuration in
+    input-coverage.json). `market` is the market profile the membership is reread from AS OF."""
     require_fresh(checkout, remote)
     seams.current.require_main_build(dict(identity), dict(inspection))
-    trial = conn.one("SELECT trial_id, image_digest, input_start, trade_start, trade_end, op_id, created_at FROM trial "
-                     "WHERE trial_id = %s", (trial_id,))
+    trial = conn.one("SELECT trial_id, source_sha256, image_digest, instruments, input_start, trade_start, trade_end, "
+                     "op_id, created_at FROM trial WHERE trial_id = %s", (trial_id,))
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} in this transaction", missing=(str(trial_id),))
     if trial["image_digest"] != identity.get("image_digest"):
@@ -237,18 +242,27 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
         raise refuse("REGISTRATION_UNKNOWN", f"no validation registration {registration_id!r}",
                      missing=(str(registration_id),))
     candidate = strategies.read_candidate(conn, f"{registration['strategy_id']}@{registration['revision']}")
-    if candidate["source_sha256"] != source_sha256:
-        raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not the registered candidate's",
-                     missing=(str(source_sha256),))
-    membership_unchanged(market, registration, inputs)
+    if candidate["source_sha256"] != source_sha256 or trial["source_sha256"] != source_sha256:
+        raise refuse("SOURCE_MISMATCH", f"source {trial['source_sha256']} is not the registered candidate's",
+                     missing=(str(trial["source_sha256"]),))
+    recorded = execution.read_capture(conn, trial_id)
+    coverage = recorded["input_coverage"] if isinstance(recorded["input_coverage"], Mapping) else {}
+    started = recorded["start"].get("input_identity")
+    started = started if isinstance(started, Mapping) else {}
+    instruments = json.loads(trial["instruments"]) if isinstance(trial["instruments"], str) else trial["instruments"]
+    if (not isinstance(instruments, list) or instruments != started.get("symbols")
+            or not isinstance(started.get("membership"), Mapping) or set(started["membership"]) != set(instruments)):
+        raise refuse("MEMBERSHIP_CHANGED", f"trial {trial_id} trades instruments other than its recorded membership",
+                     missing=("instruments",))
+    membership_unchanged(market, registration, {"identity": started})
     start, end = registration["window_start"], registration["window_end"]
     if not (trial["trade_start"] == start and trial["trade_end"] == end and trial["created_at"] > end):
         raise refuse("WINDOW_MISMATCH", f"trial {trial_id} trades [{trial['trade_start']}, {trial['trade_end']}) at "
                                         f"{trial['created_at']}; the registered window is [{start}, {end})",
                      missing=("window",))
-    receipts = inputs.get("receipts") or {}
+    receipts = coverage.get("export_receipts") if isinstance(coverage.get("export_receipts"), Mapping) else {}
     needed = (_ns(trial["input_start"]), _ns(trial["trade_end"]))
-    uncovered = [symbol for symbol in inputs.get("symbols") or () if not isinstance(receipts.get(symbol), Mapping)
+    uncovered = [symbol for symbol in instruments if not isinstance(receipts.get(symbol), Mapping)
                  or not receipts[symbol].get("start_ns", needed[0] + 1) <= needed[0]
                  or not receipts[symbol].get("end_ns", needed[1] - 1) >= needed[1]]
     if uncovered:
@@ -268,7 +282,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
                      missing=("research run",))
     research = register.control_run(conn, latest["run_id"])
     if comparability.config_key(research["effective_config"])["account"] != comparability.config_key(
-            inspection.get("effective_config"))["account"]:
+            coverage.get("effective_config"))["account"]:
         raise refuse("CONFIG_MISMATCH", f"the account terms differ from research run {latest['run_id']}",
                      missing=("account",))
     if conn.rows("SELECT 1 FROM validation_binding WHERE registration_id = %s OR trial_id = %s",
@@ -285,8 +299,8 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
         raise
 
 
-def validation_binder(registration_id: int, source_sha256: str, inputs: Mapping, identity: Mapping,
-                      inspection: Mapping, **options) -> Callable[[db.LedgerConnection, int], None]:
+def validation_binder(registration_id: int, source_sha256: str, identity: Mapping, inspection: Mapping,
+                      **options) -> Callable[[db.LedgerConnection, int], None]:
     """The binder ledger.open_trial calls for a validation replay."""
-    return lambda conn, trial_id: validation_bind(conn, registration_id, trial_id, source_sha256, inputs, identity,
+    return lambda conn, trial_id: validation_bind(conn, registration_id, trial_id, source_sha256, identity,
                                                   inspection, **options)

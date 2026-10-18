@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import copy
+from datetime import date, datetime, time
 import hashlib
 import json
 import math
@@ -472,7 +473,10 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
 
 
 def load_plan(conn: db.LedgerConnection, bundle) -> tuple[dict, object]:
-    """(research-plan record, bundle created_at) of a registration bundle, its hash rechecked."""
+    """(research-plan record, bundle created_at) of a registration bundle, its hash rechecked. Only the
+    registration-* namespace, which only register writes, holds registrations."""
+    if not isinstance(bundle, str) or not REGISTRATION_NAME.fullmatch(bundle):
+        raise _invalid(f"{bundle!r} is not a registration-* bundle", str(bundle))
     try:
         loaded = evidence.load_bundle(conn, bundle)
     except Refusal as exc:
@@ -490,42 +494,79 @@ def load_plan(conn: db.LedgerConnection, bundle) -> tuple[dict, object]:
     return record, loaded["created_at"]
 
 
-def bind(conn: db.LedgerConnection, registration: Mapping, source_sha256: str, trial_id: int) -> None:
+def _instant(value) -> datetime | None:
+    """An ISO-8601 UTC time of the effective configuration as a naive UTC datetime; None if it is not one."""
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return moment.replace(tzinfo=None) if moment.utcoffset() is not None and not moment.utcoffset() else None
+
+
+def _midnight(value) -> datetime | None:
+    try:
+        return datetime.combine(date.fromisoformat(value), time())
+    except (TypeError, ValueError):
+        return None
+
+
+def _same_key(key: Callable[[Mapping], dict], registered, recorded) -> bool:
+    try:
+        return key(registered) == key(recorded)
+    except Refusal as exc:
+        if exc.code == "IDENTITY_MALFORMED":
+            return False
+        raise
+
+
+def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: int) -> None:
     """Inside the trial's write: check the registration again and consume one grid point for the trial.
 
-    `registration` is {bundle, execution}: the bundle name and the trial's actual execution identity
-    (image_digest, runtime_contract, effective_config, input_identity). Writes one
-    registration_attempt row; the caller's transaction commits it with the trial and start receipt.
+    What is compared is what the trial records: its row (purpose, windows, instruments, image) and
+    its start receipt (runtime identity, input identity, the effective configuration of
+    input-coverage.json), both written earlier in this transaction. Writes one registration_attempt
+    row; the caller's transaction commits it with the trial and start receipt.
     """
-    bundle, actual = registration.get("bundle"), registration.get("execution")
-    if not isinstance(actual, Mapping):
-        raise refuse("EXECUTION_MISMATCH", "the trial gives no execution identity", missing=("execution",))
     plan, registered_at = load_plan(conn, bundle)
     body, registered = plan["body"], plan["execution"]
     details = _validate(conn, body, registered, before_replay=True, exclude=(bundle, trial_id))
     grid = {point["source_sha256"]: point for point in details["grid"]}
-    trial = conn.one("SELECT trial_id, source_sha256, image_ref, image_digest, created_at FROM trial WHERE trial_id = %s",
-                     (trial_id,))
+    trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments, input_start, "
+                     "trade_start, trade_end, created_at FROM trial WHERE trial_id = %s", (trial_id,))
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} in this transaction", missing=(str(trial_id),))
     if source_sha256 not in grid or trial["source_sha256"] != source_sha256:
         raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of {bundle}",
                      missing=(str(source_sha256),))
+    recorded = ledger_execution.read_capture(conn, trial_id)
+    started = recorded["start"]
+    runtime = started.get("runtime_identity") or {}
+    coverage = recorded["input_coverage"] if isinstance(recorded["input_coverage"], Mapping) else {}
+    effective = registered.get("effective_config") if isinstance(registered.get("effective_config"), Mapping) else {}
+    instruments = json.loads(trial["instruments"]) if isinstance(trial["instruments"], str) else trial["instruments"]
+    window = (trial["input_start"], trial["trade_start"], trial["trade_end"])
     conflicts = []
-    if registered.get("image_digest") != trial["image_digest"] or actual.get("image_digest", trial["image_digest"]) \
-            != trial["image_digest"]:
+    if trial["purpose"] != "research":
+        conflicts.append("purpose")
+    if (window != tuple(_instant(effective.get(key)) for key in ("start", "trade_start", "end"))
+            or window[1:] != (_midnight(body["window"]["trade_start"]), _midnight(body["window"]["trade_end"]))):
+        conflicts.append("window")
+    if instruments != (registered.get("input_identity") or {}).get("symbols"):
+        conflicts.append("instruments")
+    digest = registered.get("image_digest")
+    if not digest or trial["image_digest"] != digest or runtime.get("image_digest") != digest:
         conflicts.append("runtime_image")
-    if comparability.config_key(registered.get("effective_config")) != comparability.config_key(
-            actual.get("effective_config")):
+    if runtime.get("runtime_contract") != registered.get("runtime_contract"):
+        conflicts.append("runtime_contract")
+    if not _same_key(comparability.config_key, registered.get("effective_config"), coverage.get("effective_config")):
         conflicts.append("effective_configuration")
-    if comparability.input_key(registered.get("input_identity")) != comparability.input_key(
-            actual.get("input_identity")):
+    if not _same_key(comparability.input_key, registered.get("input_identity"), started.get("input_identity")):
         conflicts.append("input_identity")
     if conflicts:
         raise refuse("EXECUTION_MISMATCH", "the trial's execution differs from the registration in "
                      + ", ".join(conflicts), missing=tuple(conflicts))
     precheck.require_precheck(conn, grid[source_sha256]["review_bundle"], source_sha256, trial["image_ref"],
-                              comparability.input_key(actual["input_identity"]))
+                              comparability.input_key(started["input_identity"]))
     if not registered_at < trial["created_at"]:
         raise refuse("REGISTRATION_TOO_LATE", f"{bundle} was recorded at {registered_at}, not before trial "
                                               f"{trial_id} at {trial['created_at']}", missing=(bundle,))
@@ -543,6 +584,6 @@ def bind(conn: db.LedgerConnection, registration: Mapping, source_sha256: str, t
         raise
 
 
-def binder(registration: Mapping, source_sha256: str) -> Callable[[db.LedgerConnection, int], None]:
+def binder(bundle: str, source_sha256: str) -> Callable[[db.LedgerConnection, int], None]:
     """The binder ledger.open_trial calls for a research replay of one grid point."""
-    return lambda conn, trial_id: bind(conn, registration, source_sha256, trial_id)
+    return lambda conn, trial_id: bind(conn, bundle, source_sha256, trial_id)
