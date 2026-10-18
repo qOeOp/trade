@@ -3,9 +3,9 @@
 A sealed run's native reports are a cache: the ledger keeps the run's identity (source, pinned
 image, market commit, instruments, window) and the semantic fingerprint its image computed. To read
 native detail, the run is replayed by that identity into a new temporary directory and the
-directory is handed over only when its fingerprint equals the recorded one. The replay writes one
-trial (purpose explore: the trial table has no reproduce purpose) with its start receipt and
-execution capture; the directory itself is never stored.
+directory is handed over only when the fingerprint its own fingerprint stage sealed equals the
+recorded one. The replay writes one trial (purpose explore: the trial table has no reproduce
+purpose) with its start receipt and execution capture; the directory itself is never stored.
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from ledger import db, metrics, paths, strategies, trials
+from ledger import db, execution, metrics, paths, problems, strategies, trials
 from ledger.refusals import refuse
 from registration import comparability, inputs as registration_inputs
-from replay import entry, seams
+from replay import entry
 
 
 def _ns(moment: datetime) -> int:
@@ -74,9 +74,9 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
             native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
                                                     "explore")
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
+            fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]))
         finally:
             entry._cleanup(exported)
-    fingerprints = seams.current.report_fingerprint(identity, output / entry.REPORTS)
     expected = stored["run"]["fingerprints"]
     if expected is None or fingerprints is None or fingerprints != expected:
         why = ("the run has no recorded semantic fingerprint" if expected is None else
@@ -86,5 +86,5 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
         raise refuse("REPRODUCTION_MISMATCH", f"run {run_id} is not reproduced in {output}: {why} (trial "
                                               f"{opened['trial_id']}, native exit {native_exit}, audit exit "
                                               f"{audit_exit}); the directory is kept", missing=("fingerprints",),
-                     write_status="unknown", operation_id=trial_op)
+                     write_status="written", operation_id=trial_op)
     return {"directory": str(output), "run_id": run_id, "fingerprints_match": True, "trial_id": opened["trial_id"]}

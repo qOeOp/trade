@@ -1,7 +1,8 @@
 """A replay world for the replay and run-storage tests: the registration world (throwaway Dolt service,
 research line, candidates, fake market) plus a stand-in runtime whose "containers" are local Python
-processes acting as runner and auditor on the host side of the mounts. No Docker, never the active
-ledger.
+processes acting as runner, auditor and (when `fingerprint` is set) fingerprint stage on the host
+side of the mounts, and a clean throwaway Git checkout as the product checkout. No Docker, never the
+active ledger.
 
 The stand-in runner writes a small native report set for its --symbols: one closed long cycle on the
 first symbol (buy 1 at 100, sell at 110, 0.1 commission each side), daily returns compounding to the
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import sys
 from unittest.mock import patch
 
@@ -47,6 +49,10 @@ def ns(text):
 
 def iso(value):
     return datetime.fromtimestamp(value // 10**9, timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f+00:00")
+
+if spec["module"] == "fingerprint":
+    Path(mounts["/reports"], "fingerprint.json").write_text(json.dumps(spec["fingerprint"]))
+    sys.exit(0)
 
 if spec["module"] == "audit":
     out = Path(mounts["/reports"])
@@ -100,7 +106,8 @@ def table(name, rows):
 
 table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", positions); table("account.csv", account)
 (out / "returns_series.csv").write_text("ts_event_ns,native_return\n" + "".join(f"{ts},{value!r}\n" for ts, value in returns))
-(out / "exposures.csv.gz").write_bytes(gzip.compress(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n"))
+(out / "exposures.csv.gz").write_bytes(b"not gzip" if scenario.get("corrupt_exposures") else
+                                       gzip.compress(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n"))
 (out / "order_events.jsonl.gz").write_bytes(gzip.compress(b"".join(
     json.dumps({"client_order_id": o["client_order_id"], "type": "OrderInitialized"}).encode() + b"\n" for o in orders)))
 summary = {"strategy_source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
@@ -143,12 +150,14 @@ class ReplayWorld(World):
         try:
             self.market = Market({MARKET_COMMIT: months_rows()})
             self.scenario: dict = {}
-            self.fingerprint = None
+            self.fingerprint = None  # set: the image has a fingerprint entry writing this value
             self.commands: list[dict] = []
-            self._inspect = registration_seams.use(inspect_runtime=inspect)
+            self.stopped: list[str] = []
+            self.checkout = clean_checkout(self.service.root / "checkout")
+            self._inspect = registration_seams.use(inspect_runtime=inspect, checkout=lambda: self.checkout)
             self._inspect.__enter__()
             self._replay = seams.use(container_command=self.command, build_revision=lambda identity: BUILD_REVISION,
-                                     report_fingerprint=lambda identity, reports: self.fingerprint)
+                                     layout=self.layout, stop=self.stopped.append)
             self._replay.__enter__()
             self._root = patch.object(entry, "WORK_ROOT", str(self.tmp))
             self._root.start()
@@ -165,12 +174,16 @@ class ReplayWorld(World):
                 getattr(self, name).__exit__(None, None, None)
         super().close()
 
-    def command(self, identity, mounts, module, argv):
-        kind = "audit" if module.endswith("audit") else "runner"
+    def layout(self, runtime_contract: str) -> dict:
+        found = seams.DEFAULT.layout(runtime_contract)
+        return {**found, "fingerprint_module": "fingerprint" if self.fingerprint is not None else None}
+
+    def command(self, identity, mounts, module, argv, name):
+        kind = "audit" if module.endswith("audit") else "fingerprint" if module == "fingerprint" else "runner"
         spec = {"module": kind, "mounts": {target: str(host) for host, target, _ in mounts}, "argv": list(argv),
-                "scenario": self.scenario}
+                "scenario": self.scenario, "fingerprint": self.fingerprint, "name": name}
         self.commands.append(spec)
-        return [sys.executable, "-c", RUNNER, json.dumps(spec)]
+        return [sys.executable, "-c", RUNNER, json.dumps(spec), *argv]
 
     def output(self, name: str) -> Path:
         return self.tmp / name
@@ -179,6 +192,18 @@ class ReplayWorld(World):
         path = self.tmp / name
         path.write_bytes(data)
         return path
+
+
+def clean_checkout(root: Path) -> Path:
+    """A Git work tree with one commit and nothing uncommitted: the product checkout of a sealed run."""
+    root.mkdir()
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null",
+           "GIT_CONFIG_SYSTEM": "/dev/null",
+           "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+    for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "product"]):
+        subprocess.run(["git", *argv], cwd=root, env=env, check=True, capture_output=True)
+    return root
 
 
 def registered_grid(world: World, tags: list[str], bundle: str = "registration-grid") -> list[str]:

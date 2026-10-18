@@ -4,10 +4,12 @@
 Every replay goes the same way: resolve the pinned runtime image, export the market inputs of one
 market commit and compute their identity, probe the image for its effective configuration, write the
 coverage receipt, then write the trial, its binding and its start receipt in one transaction; only
-after that commit does the runner start, followed by the independent auditor in the same image, and
-the execution capture is sealed whatever the outcome. Explorations and prechecks keep their reports
-in a new temporary directory; research and validation replays are stored as runs and their working
-directory deleted (kept, and printed, when anything fails).
+after that commit does the runner start, followed by the independent auditor and the semantic
+fingerprint in the same image (each its own named container), and the execution capture is sealed
+whatever the outcome. Explorations and prechecks keep their reports in a new temporary directory;
+research and validation replays are stored as runs, invalid whenever the runner's output cannot be
+read, and their working directory deleted (kept, and printed, when anything fails after a container
+started).
 """
 
 from __future__ import annotations
@@ -17,11 +19,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 
-from ledger import db, execution, paths, strategies, trials
+from ledger import db, execution, metrics, paths, problems, strategies, trials
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, inputs as registration_inputs, register, seams as registration_seams
@@ -31,12 +36,11 @@ from replay import seams
 
 COVERAGE_FORMAT = "execution-input-coverage-v1"
 COVERAGE = execution.COVERAGE
-REPORTS, AUDIT, SOURCE = "reports", "audit", "source"
+REPORTS, AUDIT, SOURCE, FINGERPRINT = "reports", "audit", "source", "fingerprint"
 STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native"
 COVERAGE_MOUNT = "/inputs/" + COVERAGE
 INSPECTION = "runtime-inspection.json"
 HOST_ERROR = execution.HOST_ERROR
-FAILURE_FIELDS = ("stage", "exception_type")
 WORK_ROOT = "/tmp"  # sealed replays work in a new directory here (docker shares it by default)
 PRECHECK_SCOPE = "engineering evidence only; interface, causality, activity and readiness are an independent Agent's review"
 
@@ -92,9 +96,10 @@ def _export(market, at: str | None, runner_argv: list[str], fresh: bool, researc
 
 
 def _prepare(workdir: Path, source: bytes, inspection: Mapping, inputs: Mapping) -> bytes:
-    """Create source/, reports/ and audit/ with the source bytes, the inspection and the coverage receipt."""
+    """Create source/, reports/, audit/ and fingerprint/ with the source bytes, the inspection and the
+    coverage receipt."""
     workdir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for name in (SOURCE, REPORTS, AUDIT):
+    for name in (SOURCE, REPORTS, AUDIT, FINGERPRINT):
         (workdir / name).mkdir(mode=0o700, exist_ok=True)
     (workdir / SOURCE / "strategy.py").write_bytes(source)
     _write_json(workdir / INSPECTION, inspection)
@@ -137,77 +142,24 @@ def input_coverage(workdir: Path, inputs: Mapping, inspection: Mapping) -> Path:
     return path
 
 
-def audit_problems(workdir: Path, native_exit: int, audit_exit: int | None) -> tuple[list[dict], dict | None]:
-    """Invalidity reasons from the exit codes, the audit result and the structured runtime failures."""
+def _regular(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes() if path.is_file() and not path.is_symlink() else None
+    except OSError:
+        return None
+
+
+def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | None) -> tuple[list[dict], dict | None]:
+    """Invalidity reasons from the exit codes, the audit result and the structured runtime failures
+    of a working directory (ledger.audit_problems on its regular files)."""
     workdir = Path(workdir)
-    reasons = []
-
-    def reason(code, message, locator=None):
-        reasons.append({"code": code, "message": message, "locator": locator})
-
-    if native_exit:
-        reason("NATIVE_EXIT_NONZERO", f"the native runner exited {native_exit}", "native")
-    if audit_exit is None:
-        reason("AUDIT_NOT_RUN", "the independent audit did not run", "audit")
-    elif audit_exit:
-        reason("AUDIT_EXIT_NONZERO", f"the independent audit exited {audit_exit}", "audit")
-    path, audit = workdir / execution.AUDIT_RESULT, None
-    if not path.is_file():
-        reason("AUDIT_RESULT_MISSING", "the audit result is missing", execution.AUDIT_RESULT)
-    else:
-        try:
-            audit = json.loads(path.read_bytes().decode("utf-8"))
-            if not isinstance(audit, dict):
-                raise ValueError("the audit result is not a JSON object")
-        except (OSError, UnicodeDecodeError, ValueError) as exc:
-            audit = None
-            reason("AUDIT_RESULT_UNREADABLE", f"the audit result is unreadable: {exc}", execution.AUDIT_RESULT)
-        else:
-            findings = audit.get("findings") if isinstance(audit.get("findings"), list) else []
-            for finding in findings:
-                reason("AUDIT_FINDINGS", "the independent audit found a problem", finding)
-            if audit.get("passed") is not True and not findings:
-                reason("AUDIT_FINDINGS", "the independent audit did not pass", execution.AUDIT_RESULT)
-    failures = workdir / execution.RUNTIME_ERRORS
-    if failures.is_file():
-        try:
-            lines = [json.loads(line) for line in failures.read_bytes().decode("utf-8").splitlines() if line.strip()]
-        except (OSError, UnicodeDecodeError, ValueError) as exc:
-            reason("RUNTIME_FAILURE_UNREADABLE", f"the runtime failure receipts are unreadable: {exc}",
-                   execution.RUNTIME_ERRORS)
-        else:
-            if any(not isinstance(item, dict) or any(not isinstance(item.get(key), str) for key in FAILURE_FIELDS)
-                   for item in lines):
-                reason("RUNTIME_FAILURE_MALFORMED", "a runtime failure receipt is not structured",
-                       execution.RUNTIME_ERRORS)
-            else:
-                for item in lines:
-                    reason("RUNTIME_FAILURE_RECORDED", f"{item['exception_type']} in {item['stage']}",
-                           f"{item['stage']}:{item.get('instrument_id') or 'unconstructed'}")
-    return reasons, audit
+    return problems.audit_problems(native_exit, audit_exit, _regular(workdir / execution.AUDIT_RESULT),
+                                   _regular(workdir / execution.RUNTIME_ERRORS))
 
 
 def summary_problems(summary: Mapping | None, source_sha256: str, identity: Mapping, config_sha256: str) -> list[dict]:
     """The native summary checked against the trial's identity: source, runtime, configuration, integrity."""
-    if summary is None:
-        return [{"code": "SUMMARY_MISSING", "message": "the native summary is missing", "locator": "reports/summary.json"}]
-    reasons = []
-    if summary.get("source_sha256") != source_sha256:
-        reasons.append({"code": "SOURCE_MISMATCH", "message": "the native summary names another source",
-                        "locator": "source_sha256"})
-    recorded = summary.get("runtime_identity")
-    if not isinstance(recorded, Mapping) or dict(recorded) != dict(identity):
-        fields = sorted(key for key in set(identity) | set(recorded or {})
-                        if not isinstance(recorded, Mapping) or recorded.get(key) != identity.get(key))
-        reasons.append({"code": "RUNTIME_MISMATCH", "message": "the native summary names another runtime identity",
-                        "locator": ",".join(fields) or "runtime_identity"})
-    if summary.get("effective_config_sha256") != config_sha256:
-        reasons.append({"code": "CONFIG_MISMATCH", "message": "the native summary names another effective "
-                                                              "configuration", "locator": "effective_config_sha256"})
-    if summary.get("integrity_passed") is not True:
-        reasons.append({"code": "RUNNER_INTEGRITY_FAILED", "message": "the runner's integrity checks failed",
-                        "locator": "; ".join(str(item) for item in summary.get("integrity_findings") or ()) or None})
-    return reasons
+    return problems.summary_problems(summary, source_sha256, identity, config_sha256)
 
 
 def _reports_complete(workdir: Path) -> bool:
@@ -215,12 +167,36 @@ def _reports_complete(workdir: Path) -> bool:
                for name in execution.NATIVE_REPORTS)
 
 
+class ReplayTimeout(Exception):
+    """The replay's timeout expired; the replay ends as interrupted."""
+
+
+def container_name(ledger: db.LedgerProfile, trial_id: int, stage: str) -> str:
+    """The container name of one stage of one trial (stopped by this name on an interrupt)."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "-", f"replay-{ledger.database}-trial-{trial_id}-{stage}")
+
+
+def _stop(name: str) -> None:
+    try:
+        seams.current.stop(name)
+    except Exception as exc:  # the interrupt or failure that called this is what the caller must see
+        print(f"container {name} could not be stopped: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
 def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: list[tuple[Path, str, bool]],
-            workdir: Path, runner_args: list[str], conn: db.LedgerConnection | None, purpose: str) -> tuple:
-    """Run the runner, then (with every report present) the auditor, in one image; seal whatever happened."""
+            workdir: Path, runner_args: list[str], conn: db.LedgerConnection | None, purpose: str,
+            timeout: float | None = None) -> tuple:
+    """Run the runner, then (with every report present) the auditor and the fingerprint, each in its
+    own named container of one image; seal whatever happened.
+
+    An interrupt, or `timeout` seconds passing (ReplayTimeout), stops the running container and is
+    sealed as interrupted. A research or validation capture refused for size is stored as an invalid
+    run with its recovery material before the refusal is raised.
+    """
     workdir = Path(workdir)
     layout = seams.current.layout(identity["runtime_contract"])
-    stages: dict = {"native": None, "audit": None}
+    deadline = None if timeout is None else time.monotonic() + timeout
+    stages: dict = {"native": None, "audit": None, "fingerprint": None}
     process = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
     outcome = {"kind": "completed", "detail": None}
     native_exit, audit_exit = None, None
@@ -228,32 +204,55 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     def record():
         _write_json(workdir / execution.PROCESS, process)
 
-    def run(name: str, command: list[str]) -> int:
+    def remaining(name: str) -> float | None:
+        if deadline is None:
+            return None
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s before stage {name}")
+        return left
+
+    def run(name: str, module: str, stage_mounts: list, argv: list[str]) -> int:
+        left = remaining(name)
+        container = container_name(ledger, trial_id, name)
+        command = seams.current.container_command(identity, stage_mounts, module, list(argv), container)
         process["commands"][name] = command
         stages[name] = {"state": "started", "exit_code": None}
         record()
         with (workdir / f"{name}.stdout.txt").open("wb") as out, (workdir / f"{name}.stderr.txt").open("wb") as err:
             try:
-                code = seams.current.run(command, out, err)
+                code = seams.current.run(command, out, err, left)
             except OSError as exc:
                 err.write(str(exc).encode("utf-8", errors="replace"))
                 code = 127
+            except subprocess.TimeoutExpired as exc:
+                _stop(container)
+                raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
+            except BaseException:
+                _stop(container)
+                raise
         stages[name] = {"state": "exited", "exit_code": code}
         record()
         return code
 
     failed = False
     try:
-        native_exit = run("native", seams.current.container_command(identity, mounts, layout["runner_module"],
-                                                                     list(runner_args)))
+        native_exit = run("native", layout["runner_module"], mounts, list(runner_args))
         if _reports_complete(workdir):
-            audit_mounts = [(workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, COVERAGE_MOUNT, True),
-                            (workdir / AUDIT, REPORTS_MOUNT, False)]
-            audit_exit = run("audit", seams.current.container_command(identity, audit_mounts, layout["audit_module"], [
-                "--run", NATIVE_MOUNT, *layout["audit_args"], "--output", f"{REPORTS_MOUNT}/audit.json"]))
+            audit_exit = run("audit", layout["audit_module"], [
+                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, COVERAGE_MOUNT, True),
+                (workdir / AUDIT, REPORTS_MOUNT, False)],
+                ["--run", NATIVE_MOUNT, *layout["audit_args"], "--output", f"{REPORTS_MOUNT}/audit.json"])
+            if layout.get("fingerprint_module"):
+                run("fingerprint", layout["fingerprint_module"], [
+                    (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / FINGERPRINT, REPORTS_MOUNT, False)],
+                    ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/fingerprint.json"])
+            else:
+                stages["fingerprint"] = {"state": execution.NOT_AVAILABLE, "exit_code": None}
+                record()
     except BaseException as exc:
         failed = True
-        interrupted = isinstance(exc, (KeyboardInterrupt, SystemExit))
+        interrupted = isinstance(exc, (KeyboardInterrupt, SystemExit, ReplayTimeout))
         outcome = {"kind": "interrupted" if interrupted else "host_failure", "detail": f"{type(exc).__name__}: {exc}"}
         raise
     finally:
@@ -262,11 +261,22 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         except Refusal as refusal:
             if refusal.code == "EXECUTION_CAPTURE_LIMIT":
                 _write_json(workdir / HOST_ERROR, refusal.as_dict())
+                if purpose in trials.RUN_PURPOSES:
+                    _store_capture_refusal(ledger, conn, trial_id, workdir, refusal)
             if not failed:
                 raise
             print(f"execution capture of trial {trial_id} was refused ({refusal.code}): {refusal.message}",
                   file=sys.stderr)
     return native_exit, audit_exit
+
+
+def _store_capture_refusal(ledger: db.LedgerProfile, conn: db.LedgerConnection | None, trial_id: int, workdir: Path,
+                           refusal: Refusal) -> None:
+    if conn is None:
+        with db.connect(ledger, "writer") as own:
+            trials.ingest_capture_refusal(own, trial_id, workdir, refusal.as_dict())
+        return
+    trials.ingest_capture_refusal(conn, trial_id, workdir, refusal.as_dict())
 
 
 # Explorations and prechecks
@@ -369,12 +379,19 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
 
 
 def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping, runtime: str | None, inputs: Mapping,
-         runner_argv: list[str], hypothesis: str | None, validation: int | None, *, market=None) -> dict:
-    """Bind, execute, check and store one sealed replay; the working directory is deleted once stored."""
+         runner_argv: list[str], hypothesis: str | None, validation: int | None, *, market=None,
+         timeout: float | None = None) -> dict:
+    """Bind, execute and store one sealed replay; the working directory is deleted once stored.
+
+    The ledger derives the run's status from the sealed capture (ledger.ingest_run); this entry adds
+    only what the host saw outside it (inputs changed during the replay).
+    """
     if (hypothesis is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a registration bundle or a validation registration",
                      expected="hypothesis xor validation")
     head = db.head_commit(conn)
+    checkout = registration_seams.current.checkout()
+    metrics.metrics_revision(checkout)  # a passed run records it: refuse before any trial, not after the replay
     identity = _resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
@@ -414,28 +431,26 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
                                    {"identity": inputs["identity"], "input_coverage": coverage}, runner["window"],
                                    _start_context(workdir, argv, mounts, revision["source"]), binder)
         trial_id = opened["trial_id"]
-        native_exit, audit_exit = execute(ledger, trial_id, identity, mounts, workdir, argv, conn, purpose)
-        reasons = []
+        try:
+            execute(ledger, trial_id, identity, mounts, workdir, argv, conn, purpose, timeout)
+        except Refusal as exc:
+            stored = conn.one("SELECT run_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))
+            if exc.code != "EXECUTION_CAPTURE_LIMIT" or stored is None:
+                raise
+            print(f"replay directory kept for diagnosis (capture refused for size): {workdir}", file=sys.stderr)
+            return {"trial_id": trial_id, "image_ref": identity["image_ref"], **trials.run_record(stored)}
+        host = []
         if registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"] != raw_before:
-            reasons.append({"code": "INPUTS_CHANGED", "message": "exported inputs changed during the replay",
-                            "locator": "export_content_sha256"})
-        summary_path = workdir / REPORTS / "summary.json"
-        summary = _read_json(summary_path)
-        if summary_path.is_file() and not isinstance(summary, dict):
-            reasons.append({"code": "NATIVE_REPORT_UNREADABLE", "message": "the native summary is unreadable",
-                            "locator": "reports/summary.json"})
-            summary = None
-        reasons += summary_problems(seams.current.native_summary(summary), source_sha256, _identity4(identity),
-                                    inspection.get("effective_config_sha256"))
-        reasons += audit_problems(workdir, native_exit, audit_exit)[0]
-        unique = list({(item["code"], json.dumps(item["locator"], sort_keys=True, default=str)): item
-                       for item in reasons}.values())
-        fingerprints = seams.current.report_fingerprint(identity, workdir / REPORTS) if not unique else None
-        stored = trials.ingest_run(conn, trial_id, workdir, unique, inspection, effective, inputs["identity"],
-                                   fingerprints)
+            host.append(problems.reason("INPUTS_CHANGED", "exported inputs changed during the replay",
+                                        "export_content_sha256"))
+        stored = trials.ingest_run(conn, trial_id, workdir, inspection, effective, inputs["identity"],
+                                   host_reasons=host, checkout=checkout)
     except BaseException:
-        print(f"replay directory kept for diagnosis: {workdir}", file=sys.stderr)
+        if (workdir / execution.PROCESS).exists():
+            print(f"replay directory kept for diagnosis: {workdir}", file=sys.stderr)
+        else:  # no container started: nothing in it to diagnose
+            shutil.rmtree(workdir, ignore_errors=True)
         raise
     shutil.rmtree(workdir, ignore_errors=True)
-    return {"trial_id": trial_id, "run_id": stored["run_id"], "status": stored["status"], "failure_reasons": unique,
-            "image_ref": identity["image_ref"]}
+    return {"trial_id": trial_id, "run_id": stored["run_id"], "status": stored["status"],
+            "failure_reasons": stored["failure_reasons"], "image_ref": identity["image_ref"]}
