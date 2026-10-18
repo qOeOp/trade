@@ -180,6 +180,79 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                ("Fix the source, publish it and precheck it again.",)),
     "GRID_ALREADY_ATTEMPTED": ("This grid point (or validation registration) was already consumed.",
                                ("Register a new grid point; consumed attempts stay counted.",)),
+    # Execution captures (ledger/execution.py)
+    "EXECUTION_START_MISSING": ("The trial has no trial row or no execution start receipt, so nothing is sealed.",
+                                ("Replay through `replay run`, `replay precheck` or `replay explore`, which write the "
+                                 "trial and its start receipt before the container starts.",)),
+    "EXECUTION_CAPTURE_LIMIT": ("The execution capture exceeds the capacity limit of its purpose (or one file the "
+                                "per-file limit); nothing was written and the working directory is kept.",
+                                ("Rerun with a shorter window or fewer instruments; for a precheck, append the kept "
+                                 "bytes with `replay recover-capture` (they stay recovery material, not the "
+                                 "capture).",)),
+    "RECOVERY_NOT_APPLICABLE": ("Recovery applies only to a precheck whose original capture is missing, from the "
+                                "working directory its start receipt records, with no run and no registration "
+                                "attempt.",
+                                ("Read the trial's capture with `research status`; replay again instead of "
+                                 "recovering.",)),
+    "RECOVERY_INCOMPLETE": ("The kept directory lacks valid stage facts or an original the stages require, or the "
+                            "host error is not the capture-limit refusal.",
+                            ("Pass the kept working directory unchanged and the capture-limit refusal it wrote.",)),
+    # Coverage at ingest (ledger/coverage.py)
+    "CAPTURE_INCOMPLETE": ("The trial's original capture is missing or lacks its start receipt, stages, coverage "
+                           "receipt or native summary.",
+                           ("The run cannot be stored from this trial; replay the grid point again under a "
+                            "retry registration.",)),
+    "PHASE_FAILED": ("A stage of the original capture (runner or auditor) did not exit 0.",
+                     ("Store the replay as invalid with its reasons; diagnose it from the capture.",)),
+    "INPUT_IDENTITY_MISMATCH": ("The sealed coverage receipt names other inputs than the stored input identity.",
+                                ("Replay through `replay run`, which writes both from one export.",)),
+    "COVERAGE_RECEIPT_INVALID": ("The coverage receipt is not execution-input-coverage-v1, lacks the market commit "
+                                 "or instruments, or an instrument has no export receipt.",
+                                 ("Export the market inputs again and replay through the product entry.",)),
+    "COVERAGE_MISMATCH": ("The coverage receipt and the native summary differ in instruments, market commit or input "
+                          "interval (or a given window).",
+                          ("Replay with the inputs the receipt names; report the runner if it read others.",)),
+    "LIFECYCLE_NATIVE_COUNT_INVALID": ("A native lifecycle count is not a nonnegative integer, or an instance repeats.",
+                                       ("Report the runner defect; the run cannot be stored.",)),
+    "LIFECYCLE_BUNDLE_MISSING": ("The native summary has lifecycle events but the inputs name no lifecycle bundle.",
+                                 ("Replay with the lifecycle bundle of the market commit (`--lifecycle-bundle`).",)),
+    # Runs (ledger/trials.py, ledger/metrics.py)
+    "TRIAL_PURPOSE_INVALID": ("Only research and validation trials become runs; explorations and prechecks stay "
+                              "working copies.",
+                              ("Read the exploration or precheck from its directory; register to store a run.",)),
+    "RUN_ALREADY_INGESTED": ("The trial already has a run.",
+                             ("Read it with `research status`; a trial is stored once.",)),
+    "AUDIT_RESULT_INCONSISTENT": ("No failure reason was given, but the audit result is missing, unreadable or not "
+                                  "passed, or the native summary is missing.",
+                                  ("Store the replay as invalid with the audit reasons (the replay entry does this).",)),
+    "REPORT_MISSING": ("A passed run lacks or cannot parse a native report it is stored from.",
+                       ("Store it as invalid; replay again once the runner writes every report.",)),
+    "NOT_A_CHECKOUT": ("The metrics code is not in a Git checkout, so no metrics revision can be recorded.",
+                       ("Run the product from its Git checkout.",)),
+    "UNKNOWN_RUN": ("The ledger version read holds no run of that ID.",
+                    ("List runs with `research status`.",)),
+    "REPORT_UNREADABLE": ("A native report file exists but is not UTF-8 CSV, JSON or gzip as the runner writes it.",
+                          ("Replay again into a new directory; report the runner if it persists.",)),
+    # Replays (replay/)
+    "RUNNER_OPTION_RESERVED": ("The runner arguments name an option the replay entry writes itself (strategy file, "
+                               "class or hash, bindings, output, market inputs).",
+                               ("Pass only the window and the instrument scope; the entry adds the rest.",)),
+    "RUNTIME_NOT_CI_BUILT": ("The runtime image has no build source revision label, so it is no CI build.",
+                             ("Use a runtime image built by CI (`--runtime ghcr.io/qoeop/trade-runtime:main`).",)),
+    "RUNTIME_CONTRACT_MISMATCH": ("The candidate's runtime contract differs from the runtime image's.",
+                                  ("Replay on an image of the candidate's contract, or publish the source for the "
+                                   "image's contract.",)),
+    "REGISTRATION_REQUIRED": ("A sealed replay needs exactly one of a registration bundle (research) or a validation "
+                              "registration.",
+                              ("Pass --hypothesis registration-<name> or --validation <id>, not both.",)),
+    "EXPORT_CHANGED_BEFORE_EXECUTION": ("The exported inputs no longer have the content hash their input identity "
+                                        "records; nothing was started.",
+                                        ("Export the inputs again (rerun the same command).",)),
+    "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
+                              "run (or no fingerprint exists on either side to compare); the directory is kept for "
+                              "diagnosis.",
+                              ("Diagnose the kept directory; reproduce on the run's own image, and do not read the "
+                               "directory as the run's reports.",)),
     # Judgments
     "COMMIT_NOT_ANCESTOR": ("The judgment's based_on_commit is not an ancestor of the ledger head.",
                             ("Pass the commit you read, as shown by `research state`.",)),
