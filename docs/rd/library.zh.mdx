@@ -204,7 +204,7 @@
 
 1. 登记（<Ref id="registration.register" />）：父版本为空，对照为空，网格只放这个根，窗口等于当前研究路线的开发窗口，附上预检和审查的引用。
 2. 核对（<Ref id="registration.validate" />）：根带了对照，就拒绝登记。
-3. 回放（<Ref id="registration" />）：写试验记录（用途为研究）的同一事务里，由 <Ref id="registration.bind" /> 把试验绑定到这个登记点，然后在钉死的运行环境里回放。
+3. 回放（<Ref id="replay.run" />）：写试验记录（用途为研究）的同一事务里，由 <Ref id="registration.bind" /> 把试验绑定到这个登记点，然后在钉死的运行环境里回放。
 4. 审计和封存：<Ref id="replay.audit_problems" /> 汇总无效原因；运行和原生报告完整封存，包括引擎原样的输出、错误输出和退出码。
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.2.2.1">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
