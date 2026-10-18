@@ -53,6 +53,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "operation.",)),
     "COMMIT_CHECK_FAILED": ("A commit verification test (dolt_tests, group commit) failed; nothing was written.",
                             ("Supply the missing records the failed test names, then rerun the same command.",)),
+    "COMMIT_CHECKS_DISABLED": ("The service-wide commit verification setting is not the ledger's group 'commit'. "
+                               "Any account can switch it on Dolt 2.4.2, so the write stops rather than commit "
+                               "unchecked.",
+                               ("Restore it with the administrator session: SET PERSIST "
+                                "dolt_commit_verification_groups = 'commit'; then rerun the same command.",)),
     "CONCURRENT_WRITE": ("Another write landed first; this transaction was rolled back.",
                          ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
                           "is idempotent.",)),

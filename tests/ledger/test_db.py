@@ -336,5 +336,44 @@ class LedgerBaseTests(unittest.TestCase):
             self.assertEqual(kinds, {"added"}, table)
 
 
+@unittest.skipUnless(BINARY, SKIP)
+class CommitChecksGuardTests(unittest.TestCase):
+    """Its own service: the verification group is service-wide."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
+        cls.profile = cls.service.ledger("guard")
+
+    def head(self) -> tuple:
+        return (self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0],
+                self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_log")[0][0])
+
+    def test_a_switched_off_verification_group_stops_writes_and_connections(self):
+        writer = db.connect(self.profile, "writer")
+        self.addCleanup(writer.close)
+        restore = "SET PERSIST dolt_commit_verification_groups = 'commit'"
+        self.addCleanup(self.service.sql, self.profile, restore)
+        with db.connect(self.profile, "reader") as reader:
+            reader.rows("SET PERSIST dolt_commit_verification_groups = ''")
+        before = self.head()
+        with self.assertRaises(Refusal) as caught:
+            db.write(writer, "probe", {"bundle": "unchecked"}, "evidence_bundle", bundle_insert("unchecked"))
+        self.assertEqual((caught.exception.code, caught.exception.write_status),
+                         ("COMMIT_CHECKS_DISABLED", "not_written"))
+        self.assertEqual(self.head(), before)
+        self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_status"), [(0,)])
+        for role in ("writer", "reader"):
+            with self.subTest(role=role), self.assertRaises(Refusal) as caught:
+                db.connect(self.profile, role)
+            self.assertEqual(caught.exception.code, "COMMIT_CHECKS_DISABLED")
+        self.service.sql(self.profile, restore)
+        written = db.write(writer, "probe", {"bundle": "checked"}, "evidence_bundle", bundle_insert("checked"))
+        self.assertEqual(written["write_status"], "written")
+        with db.connect(self.profile, "writer") as fresh:
+            self.assertEqual(fresh.role, "writer")
+
+
 if __name__ == "__main__":
     unittest.main()

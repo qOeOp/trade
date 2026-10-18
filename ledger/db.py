@@ -472,7 +472,25 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: s
         conn.close()
         raise
     conn._schema_version = version
+    try:
+        require_commit_checks(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
+
+
+def require_commit_checks(conn: LedgerConnection) -> None:
+    """Refuse unless the service-wide commit verification group is the ledger's.
+
+    Any account can SET PERSIST it on Dolt 2.4.2. DOLT_COMMIT reads the GLOBAL value; a session's
+    @@ copy is taken when it connects and goes stale (measured), so only the GLOBAL value counts.
+    """
+    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
+    if groups != COMMIT_TESTS:
+        raise refuse("COMMIT_CHECKS_DISABLED", "the service's commit verification group is not "
+                                               f"{COMMIT_TESTS!r}; nothing is committed unchecked",
+                     expected=COMMIT_TESTS)
 
 
 def _schema_version(conn: LedgerConnection) -> int | None:
@@ -615,6 +633,7 @@ def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                                                   "written")
             record = insert(conn, op)
             conn.rows("UPDATE ledger_head SET seq = seq + 1, op_id = %s WHERE singleton = 1", (op,))
+            require_commit_checks(conn)
             try:
                 with raw.cursor() as cursor:
                     cursor.execute("CALL DOLT_COMMIT('-a', '-m', %s)", (f"{kind}:{op}",))
