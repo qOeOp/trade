@@ -13,6 +13,7 @@
   <File name="export.py" />
   <File name="instrument.py" />
   <File name="lifecycle.py" />
+  <File name="read.py" />
   <File name="series.py" />
   <File name="sources.py" />
   <File name="store.py" />
@@ -613,6 +614,49 @@ def write_lifecycle_events(
 <div className="rd-meta">
 
 **关联章节**　<Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="W.3.2.3">W.3.2.3</Ref>
+
+</div>
+
+## `market/read.py` [#def-mod-market-read-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.daily_returns">daily_returns</Ref> | 按市场提交读 BTC 永续与共同可交易范围等权篮子的 UTC 日收益，供市场暴露一栏使用 |
+
+### `daily_returns` [#def-market-daily_returns]
+
+按市场提交读 BTC 永续与共同可交易范围等权篮子的 UTC 日收益，供市场暴露一栏使用
+
+```python
+def daily_returns(
+    commit: str,
+    universe_rule: str,
+    start: datetime,
+    end: datetime,
+) -> dict
+```
+
+<TypeTable type={{ "commit": { type: "str", description: "运行输入身份里的市场提交" }, "universe_rule": { type: "str", description: "共同可交易范围规则" }, "start": { type: "datetime", description: "交易窗口起点" }, "end": { type: "datetime", description: "交易窗口终点" } }} />
+
+**返回**　dict：\{btc: [日收益], basket: [日收益], members_per_day: [个数], days\}
+
+**期望行为**
+
+1. 日收益取相邻两个 UTC 日末标记价之比减一。
+2. 等权篮子按日等权：当天在范围内、有交易的合约；退出范围或下架的当天按其最后一个日收益计入后移出。
+3. 只读市场库，不知道账本与策略。
+
+**使用**　<Ref id="market.connect" />、<Ref id="table:v_universe" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="P.1.2.5">P.1.2.5</Ref>
+
+**依据**
+
+- [Treynor & Mazuy 1966, Harvard Business Review（重印于 Treynor on Institutional Investing, Wiley 2012）](https://doi.org/10.1002/9781119196679.ch11)　论文
+- [Dimson 1979, Journal of Financial Economics](https://doi.org/10.1016/0304-405X(79)90013-8)　论文
+- [Newey & West 1987, Econometrica；滞后阶数按 Newey & West 1994, Review of Economic Studies](https://doi.org/10.2307/1913610)　论文
 
 </div>
 

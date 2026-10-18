@@ -1,0 +1,328 @@
+# P　绩效归因：一次比较出结果后，把两套结果的差拆到钱从哪来、多大规模、在哪里、何时、靠哪些交易，再落到 27 项职责，指向下一个假设。
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+V 章回答差是否可信，本章回答差从哪来。对比报告与单运行报告共用 R 章的报告模板。代码只算 Agent 不该自评的部分：账户利润来源桥、每个切面的几个标量，以及登记预测与实测的对照。逐合约、逐月这些明细由 Agent 按 skill 自算并交复算。两处改动的交互要在登记时声明。读完报告，Agent 按职责写解释，交给 F 章排优先级。
+
+<Mermaid chart={"flowchart LR\n  subgraph P-1[\"P.1 归因报告：账户利润桥与切面标量\"]\n    direction TB\n    P-1-1[\"P.1.1 报告的边界\"]\n    P-1-2[\"P.1.2 切面目录\"]\n  end\n  subgraph P-2[\"P.2 机制预测：登记时写在切面标量上\"]\n    direction TB\n    P-2-1[\"P.2.1 预测的写法与核对\"]\n    P-2-2[\"P.2.2 读法\"]\n  end\n  subgraph P-3[\"P.3 交互：两处改动是否相互影响\"]\n    direction TB\n    P-3-1[\"P.3.1 消融与交互读数\"]\n  end\n  subgraph P-4[\"P.4 从归因到下一个假设\"]\n    direction TB\n    P-4-1[\"P.4.1 读报告与写指向\"]\n  end\n  P-1 --> P-2\n  P-2 --> P-3\n  P-3 --> P-4"} />
+
+## P.1　归因报告：账户利润桥与切面标量 [#P-1]
+
+<Steps>
+
+<Step>
+
+比较入口给出检验结果后，归因入口对同一对运行算利润来源桥和每个切面的标量。
+
+</Step>
+
+<Step>
+
+切面目录固定，每个切面都输出；算不出的置空并写原因。
+
+</Step>
+
+<Step>
+
+明细表由 Agent 自算，驱动决定的数交复算。
+
+</Step>
+
+</Steps>
+
+### P.1.1　报告的边界 [#P-1-1]
+
+归因只解释已检验的差；切面与标量由代码固定。
+
+<Cap id="P.1.1.1" kind="code" tier="unverified" tierLabel="待验证" title="归因只解释已检验的配对差，不改检验结果">
+
+- 输入是一份检验结果绑定的候选与对照，身份沿用比较入口。
+- 比较被拒绝时归因也拒绝，原码透传。
+- 输出各切面两侧标量与差，与检验结果并列，不重新检验。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref> <Ref id="report.compare">compare</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.1.2" kind="code" tier="unverified" tierLabel="待验证" title="切面与标量目录固定、全部输出，不按结果挑选">
+
+- 目录与 27 项职责表放在一起，登记核对和归因报告共用。
+- 每个切面都出现在报告里；算不出时置空并写原因，不省略。
+- 目录变化随指标计算版本升版。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.attribution_catalogue">attribution_catalogue</Ref></span></div>
+
+</Cap>
+
+### P.1.2　切面目录 [#P-1-2]
+
+九个切面，各给几个标量，各自指向几项职责；明细由 Agent 自算。
+
+<Cap id="P.1.2.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="利润来源桥（profit_bridge）：指向 B1、H1、G1">
+
+- 账户净值差拆成价格盈亏、手续费、资金费与期末未平浮动四项之差，四项相加等于账户净值差。
+- 总体是账户整体：价格项含全部已实现，手续费含全部成交，资金费含未平仓，浮动取引擎期末快照。
+- 前三项沿用封存时对过账的利润来源拆分，容差同 <Ref id="R.1.1.2" />；对不上时整个切面置空。
+- 标量：price、fee、funding、open_mark、account。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="规模与仓位择时（capital_scaled）：指向 E1、E2、E3、E4、G3、H2、A3">
+
+- 逐日盈亏写成当日平均名义敞口乘当日单位敞口收益；没有敞口的日子单列。
+- 全窗口合计拆成两份：平均敞口乘平均单位收益是水平项，敞口与单位收益的协方差是仓位择时项，两份相加等于合计。
+- 按等权篮子的月收益正负分出涨月与跌月，各给平均敞口与单位敞口收益；仓位管理得好，涨月敞口大、跌月敞口小，择时项为正。
+- 品质看与规模无关的量：单位敞口收益、夏普、年化与最大回撤之比；账户差照算，按回撤与年化目标读，与 <Ref id="P.1.2.9" /> 并列。
+- 标量：mean_notional、unit_return、level_term、timing_term、up_month_notional、down_month_notional、return_over_drawdown。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.3" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="费用压力（fee_stress）：指向 G1、G2、C2">
+
+- 给盈亏平衡费率倍数：两侧手续费同乘多少倍时账户净值差归零。
+- 费用净额已含挂单返佣；候选少付费用且差为正时写不会归零，不设阈值。
+- 标量：breakeven_fee_multiple。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.4" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="品种与方向（by_instrument）：指向 A1、A2、E2、F3">
+
+- 给差最大的五个合约占全部绝对差的比例，以及只在一侧交易过的合约个数。
+- 多头与空头周期分列闭仓净盈亏之差。
+- 逐合约明细由 Agent 自算，见 <Ref id="P.1.2.10" />。
+- 标量：top5_abs_share、one_side_instruments、long_net、short_net。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.5" kind="code" tier="unverified" tierLabel="待验证" title="市场暴露（market_exposure）：指向 E2、D2、A3">
+
+- 账户日收益分别对等权篮子和 BTC 永续的日收益做两次单因素回归，各加一项前一天的市场收益，斜率取两项之和。
+- 等权篮子是当天在共同可交易范围内、有交易的合约按日等权；合约退出范围或下架的当天按其最后一个日收益计入后移出。
+- 截距按日给，附异方差与自相关稳健的标准误，滞后阶数按样本长度自动选；不设显著性阈值。
+- 对比时用逐日收益差对市场回归，直接给斜率之差与截距之差。
+- 标量：beta_basket、alpha_basket、beta_btc、alpha_btc。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.6" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="时期（by_period）：指向 A3、B2">
+
+- 给候选胜出的月份占比，以及去掉差最大五天后剩余的日对数收益差。
+- 剩余差与总差反号，说明差靠少数几天。
+- 标量：months_won_share、residual_after_top5_days。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.7" kind="code" tier="unverified" tierLabel="待验证" title="交易结构（trade_structure）：指向 A3、C1、C2、F1、F2、F3、F4、F5、I1、I2">
+
+- 两侧各自统计闭仓周期数、胜率、平均赢、平均亏、每笔期望与持仓时长中位数，再给差。
+- 每笔期望之差拆成胜率变化与盈亏比变化两份，取两种顺序的平均，两份相加等于总差。
+- 按平仓单类型或标签前缀分出场类别，两侧各给净盈亏；给差最大的出场类别占全部绝对差的比例。
+- 两侧各自统计后再比，不跨运行配对单笔交易（<Ref id="V.2.2.3" />）。
+- 标量：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.8" kind="code" tier="unverified" tierLabel="待验证" title="交易配对（trade_pairs）：指向 A3、C1、C2、F3、F4、G1">
+
+- 按固定算法把两侧持仓周期配成一一对应、拆并、只在对照、只在候选四类，算法见 <Ref id="report.pair_trades" />。
+- 先给覆盖：配上的周期占比，以及配上的周期占全部绝对闭仓净盈亏的比例。
+- 只在对照的是改动删掉的交易，只在候选的是新增的交易，各给闭仓净盈亏；配上的给同一机会的盈亏差、开仓时刻偏移与赢亏翻转。
+- 配对只作描述，不进检验；Agent 不自行按时间或编号配对。
+- 标量：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.9" kind="code" tier="unverified" tierLabel="待验证" title="回撤（drawdown）：指向 E2、E3、F3">
+
+- 给两侧标记价最大回撤之差与回撤持续天数之差。
+- 给候选最大回撤区间内亏损最多的合约所占比例。
+- 标量：max_drawdown、drawdown_days、top_instrument_share_in_drawdown。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<ul className="rd-rules">
+<li id="P-1-2-10"><span className="rd-rule-id">P.1.2.10</span> 逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <Ref id="rule:P.1.2.10">research-round · references/attribution.md</Ref></li>
+</ul>
+
+## P.2　机制预测：登记时写在切面标量上 [#P-2]
+
+<Steps>
+
+<Step>
+
+登记时，每个改动职责至少写一项预测：切面标量的变化方向。
+
+</Step>
+
+<Step>
+
+回放后，报告把每项预测与实测并列，只标是否同号。
+
+</Step>
+
+<Step>
+
+机制是否成立看预测，不看账户差。
+
+</Step>
+
+</Steps>
+
+### P.2.1　预测的写法与核对 [#P-2-1]
+
+预测是登记体里的结构化子项，登记时锁定。
+
+<Cap id="P.2.1.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="评测用例 prediction-on-slices 检查预测写在改动职责的切面标量上。" title="预测写成切面标量的方向，登记时核对并锁定">
+
+- prediction.mechanism 每项写切面、标量、方向（升或降）、职责编号与一句理由；没有切面的职责写空切面和理由。
+- prediction.outcomes 写五类结果各自的后续动作（<Ref id="H.3.1.2" />）。
+- 登记时核：职责在 changed_duties 里，每个改动职责至少一项，切面与标量在目录里；不符即拒绝，拒绝码 PREDICTION_INVALID。
+- 预测随登记证据包锁定，回放后不改。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="registration.plan_schema">plan_schema</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.2.1.2" kind="code" tier="unverified" tierLabel="待验证" title="报告把预测与实测并列，只标是否同号">
+
+- 逐项给预测方向、实测差值与是否同号。
+- 标量置空或切面为空的项标为无法核对，并写原因。
+- 报告不据此给裁决；落空的预测同样是证据。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+### P.2.2　读法 [#P-2-2]
+
+<ul className="rd-rules">
+<li id="P-2-2-1"><span className="rd-rule-id">P.2.2.1</span> 账户差为正而预测的切面反号，只写账户差，不写机制成立 <Ref id="rule:P.2.2.1">research-round · references/attribution.md</Ref></li>
+</ul>
+
+## P.3　交互：两处改动是否相互影响 [#P-3]
+
+<Steps>
+
+<Step>
+
+一处改动的比较本身就是对那项职责的消融。
+
+</Step>
+
+<Step>
+
+要读交互，在补最后一个角的登记里声明四个角。
+
+</Step>
+
+<Step>
+
+交互只作归因，不作改善证据。
+
+</Step>
+
+</Steps>
+
+### P.3.1　消融与交互读数 [#P-3-1]
+
+四个角由绑定的源码审查确认形状，交互用配对检验的权重算。
+
+<ul className="rd-rules">
+<li id="P-3-1-1"><span className="rd-rule-id">P.3.1.1</span> 一处改动的比较就是该职责的消融，不为归因另跑回放 <Ref id="rule:P.3.1.1">research-round · references/attribution.md</Ref></li>
+</ul>
+
+<Cap id="P.3.1.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：资金费过滤在单笔预算 100 时日对数收益差合计约 0.0002，在 500 时约 0.0065；这组四个角的形状尚未经源码审查确认。" title="声明过的二乘二：给交互项、两种顺序的平均贡献与未校正区间">
+
+- 四个角：两处都没改、只改甲、只改乙、两处都改；绑定的源码审查确认每个角的源码等于基础版本加声明的改动。
+- 在账户日对数收益上算：交互项＝两处都改−只改甲−只改乙＋都没改；甲的贡献是两种加入顺序下甲的边际效应的平均，两份贡献相加等于总差。
+- 区间用配对检验的块自助，对四条日序列的加权和重抽，标为未校正，不给 p。
+- 涉及仓位或容量的改动，另给按平均名义敞口归一后的交互项。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref> <Ref id="report.paired">paired</Ref></span></div>
+
+</Cap>
+
+<ul className="rd-rules">
+<li id="P-3-1-3"><span className="rd-rule-id">P.3.1.3</span> 要读交互，在补最后一个角的登记里声明四个角；交互只作归因，不作改善证据 <Ref id="rule:P.3.1.3">research-round · references/attribution.md</Ref></li>
+<li id="P-3-1-4"><span className="rd-rule-id">P.3.1.4</span> 沿谱系逐段相加的差依赖先后顺序，不写成各改动的独立效应 <Ref id="rule:P.3.1.4">research-round · references/attribution.md</Ref></li>
+</ul>
+
+## P.4　从归因到下一个假设 [#P-4]
+
+<Steps>
+
+<Step>
+
+只引用结论所依据的切面，并逐项核对每一项预测。
+
+</Step>
+
+<Step>
+
+把切面信号按对照表落到职责。
+
+</Step>
+
+<Step>
+
+写成解释判断，交 F 章排优先级。
+
+</Step>
+
+</Steps>
+
+### P.4.1　读报告与写指向 [#P-4-1]
+
+对照表放在 skill 的归因参考文件里。
+
+<Cap id="P.4.1.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="切面信号与职责的对照表">
+
+- 资金费差主导，价格差为负：看 profit_bridge，指向 H1、B1，常见的下一假设是把资金费写成显式收益来源，或单独检验价格腿。
+- 规模放大后单位敞口收益下降：看 capital_scaled，指向 G3、E1，常见的下一假设是按流动性定数量，或改容量上限。
+- 两侧都亏，候选少亏但单位敞口收益不变或更差：看 capital_scaled，指向 B1、A3，常见的下一假设是少亏来自少暴露，不是品质；回到信号或条件过滤。
+- 择时项为正：涨月敞口大、跌月敞口小：看 capital_scaled，指向 E3、A3，常见的下一假设是保留并细化仓位随行情调整的规则。
+- 择时项为负或接近零：看 capital_scaled，指向 E3、A3，常见的下一假设是加入随行情或波动调整仓位的规则。
+- 盈亏平衡费率倍数接近一：看 fee_stress，指向 G1、C2，常见的下一假设是换执行方式，或加不交易带。
+- 差集中在少数合约，同一批合约在多个版本里持续亏损：看 by_instrument，指向 A1、A2、F3，常见的下一假设是改资格或选择，或加保护边界。
+- 截距差接近零，斜率差解释大部分差：看 market_exposure，指向 E2、D2，常见的下一假设是控制组合净方向或同向持仓数，或加对冲。
+- 去掉最好五天后剩余差反号，胜出月份少：看 by_period，指向 A3、B2，常见的下一假设是加条件过滤，或改预测期限。
+- 胜率升而每笔期望降，平均赢变小：看 trade_structure，指向 F3、F4、C1，常见的下一假设是改退出或保护边界，或改触发。
+- 删掉的交易净盈利为正：看 trade_pairs，指向 C1、A3，常见的下一假设是放宽触发或过滤，或只对亏损来源过滤。
+- 配上的交易开仓普遍推迟且盈亏变差：看 trade_pairs，指向 G1、C1，常见的下一假设是换执行方式或触发价。
+- 差集中在某个出场类别：看 trade_structure，指向 F3、F4、F5、I1，常见的下一假设是改保护边界、退出或存量处置规则。
+- 候选回撤区间被一个合约主导：看 drawdown，指向 E2、F3，常见的下一假设是限制单合约敞口，或加保护边界。
+
+<div className="rd-foot"><span className="rd-guard">skill</span></div>
+
+</Cap>
+
+<ul className="rd-rules">
+<li id="P-4-1-2"><span className="rd-rule-id">P.4.1.2</span> 解释只引用结论所依据的切面，并逐项写每一项预测是否落空 <Ref id="rule:P.4.1.2">research-round · references/attribution.md</Ref></li>
+<li id="P-4-1-3"><span className="rd-rule-id">P.4.1.3</span> 解释判断里的指向写职责编号与对照表的信号行 <Ref id="rule:P.4.1.3">research-round · references/attribution.md</Ref></li>
+</ul>
+
+## 待定事项 [#P-pending]
+
+- **已获用户同意（10-18）**　登记体 prediction 由一段文本改为结构化子项，登记时核切面、标量与职责：收紧登记核对，新增 PREDICTION_INVALID；不新增表，prediction 本是登记体必有键，结构化后是登记体内由代码读取的子字段
+- **已由用户定（10-18）**　跨运行逐笔配对交易：按固定算法配对，只作描述、先报覆盖，不进检验；配对检验仍只用账户日收益（V.2.2.3 随之改写）
+- **已由用户定（10-18）**　市场暴露进固定目录：等权篮子为主、BTC 永续为参照，两次单因素回归加滞后一天的市场项，截距附稳健标准误，不设阈值
+- **已由用户定（10-18）**　仓位带来的收益怎么算：仓位是策略的一部分，账户差照算；品质另看与规模无关的量；仓位择时单独量出；两侧都亏时少亏若来自小敞口，不算品质更好（V.4.2.4 随之改写）

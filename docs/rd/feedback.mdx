@@ -5,7 +5,7 @@
 
 本章承接 V 章的检验结果：一个运行入账后，Agent 怎样读反馈、排下一步的研究优先级，到了节奏怎样复盘并给综合推荐。代码只给只读事实，判断由 skill 指导，逐条写成判断记录入账。
 
-<Mermaid chart={"flowchart LR\n  subgraph F-1[\"F.1 读取反馈：先定资格，再拆到职责\"]\n    direction TB\n    F-1-1[\"F.1.1 反馈资格\"]\n    F-1-2[\"F.1.2 绩效指标的读法\"]\n    F-1-3[\"F.1.3 诊断顺序\"]\n  end\n  subgraph F-2[\"F.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"F.2.1 优先级的依据与边界\"]\n  end\n  subgraph F-3[\"F.3 复盘与推荐：节奏触发，研究默认继续\"]\n    direction TB\n    F-3-1[\"F.3.1 复盘的触发与计数\"]\n    F-3-2[\"F.3.2 复盘的内容\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
+<Mermaid chart={"flowchart LR\n  subgraph F-1[\"F.1 读取反馈：先定资格，再拆到职责\"]\n    direction TB\n    F-1-1[\"F.1.1 反馈资格\"]\n    F-1-2[\"F.1.2 绩效指标的读法\"]\n  end\n  subgraph F-2[\"F.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"F.2.1 优先级的依据与边界\"]\n  end\n  subgraph F-3[\"F.3 复盘与推荐：节奏触发，研究默认继续\"]\n    direction TB\n    F-3-1[\"F.3.1 复盘的触发与计数\"]\n    F-3-2[\"F.3.2 复盘的内容\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
 
 ## F.1　读取反馈：先定资格，再拆到职责 [#F-1]
 
@@ -37,7 +37,7 @@
 
 <Step>
 
-按五步诊断，把事实、解释和拟改的策略职责分开写成判断记录。
+登记带了比较对照的，读完归因报告再写解释（P 章）。
 
 </Step>
 
@@ -58,14 +58,6 @@
 
 <ul className="rd-rules">
 <li id="F-1-2-2"><span className="rd-rule-id">F.1.2.2</span> 出场原因只读平仓单的标签或类型，不按盈亏推断，未平仓单列 <Ref id="rule:F.1.2.2">nautilus-report-analysis · references/exit-reasons.md</Ref></li>
-</ul>
-
-### F.1.3　诊断顺序 [#F-1-3]
-
-诊断由 skill 指导，按固定顺序走完再提假设，结论写成判断记录。
-
-<ul className="rd-rules">
-<li id="F-1-3-1"><span className="rd-rule-id">F.1.3.1</span> 先按资格、钱从哪来、过程、稳定性、机制五步诊断，再提假设 <Ref id="rule:F.1.3.1">research-round · references/diagnosis.md</Ref></li>
 </ul>
 
 ## F.2　更新研究优先级：决定下一步改什么 [#F-2]

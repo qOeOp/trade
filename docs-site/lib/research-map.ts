@@ -32,7 +32,7 @@ export const LABEL_H = 34;
 // Where each chapter's column sits: row 0 is the research loop, row 1 replay and evidence, row 2 the
 // ledger and runtime (its functions laid out side by side).
 export const grid: Record<string, { row: 0 | 1 | 2; col: number }> = {
-  L: { row: 0, col: 0 }, T: { row: 0, col: 1 }, E: { row: 0, col: 2 }, H: { row: 0, col: 3 }, V: { row: 0, col: 4 }, F: { row: 0, col: 5 }, X: { row: 0, col: 6 },
+  L: { row: 0, col: 0 }, T: { row: 0, col: 1 }, E: { row: 0, col: 2 }, H: { row: 0, col: 3 }, V: { row: 0, col: 4 }, P: { row: 0, col: 5 }, F: { row: 0, col: 6 }, X: { row: 0, col: 7 },
   A: { row: 1, col: 0 }, C: { row: 1, col: 2 }, W: { row: 1, col: 3 }, G: { row: 1, col: 4 }, R: { row: 1, col: 5 },
   J: { row: 2, col: 1 },
 };
@@ -45,7 +45,8 @@ export const flowEdges: FlowEdge[] = [
   { source: 'T.2', target: 'E.1', label: c('候选清单', 'candidate list'), kind: 'flow' },
   { source: 'E.4', target: 'H.1', label: c('选定路线', 'line chosen'), kind: 'loop' },
   { source: 'H.4', target: 'V.1', label: c('登记锁定网格', 'locked grid'), kind: 'loop' },
-  { source: 'V.4', target: 'F.1', label: c('检验结果', 'test result'), kind: 'loop' },
+  { source: 'V.4', target: 'P.1', label: c('检验结果', 'test result'), kind: 'loop' },
+  { source: 'P.4', target: 'F.2', label: c('按职责的解释', 'findings by duty'), kind: 'loop' },
   { source: 'F.2', target: 'H.1', label: c('下一假设', 'next hypothesis'), kind: 'loop', from: 't', to: 't' },
   { source: 'F.3', target: 'E.3', label: c('推荐与换路线', 'recommend, change line'), kind: 'loop', from: 't', to: 't' },
   { source: 'F.3', target: 'X.1', label: c('用户认可后发起', 'user starts it'), kind: 'flow' },
@@ -70,7 +71,8 @@ export const flows: Flow[] = [
   { id: 'start', title: c('起步', 'Getting started'), functions: ['L.1', 'L.2', 'T.1', 'T.2', 'E.1', 'E.3', 'E.4'] },
   { id: 'register', title: c('提假设与登记', 'Hypothesis and registration'), functions: ['H.1', 'H.2', 'H.3', 'H.4', 'C.1', 'C.6'] },
   { id: 'replay', title: c('回放与证据', 'Replay and evidence'), functions: ['V.1', 'W.4', 'W.5', 'G.1', 'G.2', 'G.3', 'G.4', 'R.1', 'R.2'] },
-  { id: 'compare', title: c('比较与反馈', 'Comparison and feedback'), functions: ['V.2', 'V.3', 'V.4', 'F.1', 'F.2', 'F.3', 'E.2'] },
+  { id: 'compare', title: c('比较与归因', 'Comparison and attribution'), functions: ['V.2', 'V.3', 'V.4', 'P.1', 'P.2', 'P.3'] },
+  { id: 'feedback', title: c('反馈与下一假设', 'Feedback and next hypothesis'), functions: ['P.4', 'F.1', 'F.2', 'F.3', 'E.2'] },
   { id: 'validation', title: c('样本外验证', 'Out-of-sample'), functions: ['F.3', 'X.1', 'X.2'] },
   { id: 'strategy', title: c('策略文件与数据', 'Strategy file and data'), functions: ['C.1', 'C.2', 'C.3', 'C.4', 'C.5', 'W.1', 'W.2', 'W.3'] },
   { id: 'ledger', title: c('账本与运行环境', 'Ledger and runtime'), functions: ['J.1', 'J.2', 'J.3', 'J.4', 'J.5', 'J.6'] },
