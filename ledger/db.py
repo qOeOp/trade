@@ -54,6 +54,7 @@ REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
+VERIFICATION_FAILED = "commit verification failed"
 
 
 # Profiles
@@ -345,10 +346,15 @@ def _create_database(cursor, config: dict, database: str, branch: str, accounts:
     cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
     cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
     # Least privilege: no UPDATE or DELETE except the concurrency row, no database-wide EXECUTE (it
-    # would allow reset, tagging, branching and amend), only DOLT_COMMIT by name.
+    # would allow reset, tagging and branching), only DOLT_COMMIT by name. Known limit (measured on
+    # Dolt 2.4.2): DOLT_COMMIT itself still accepts --amend and --date from the writer; review finds it.
     cursor.execute(f"GRANT SELECT, INSERT ON `{database}`.* TO '{writer}'@'%'")
     cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer}'@'%'")
     cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
+    # dolt_branch_control matches database, branch and user as LIKE patterns, so `_` in them is a
+    # wildcard (a research branch res_1 also grants resx1, measured). Dolt 2.4.2 does not honour
+    # backslash escapes there: an escaped row stops matching the literal name, so names stay as given.
+    # A lookalike branch can only come from the administrator; SQL grants are per literal database.
     cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, %s, %s, '%%', 'write')", (database, branch, writer))
     cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
     return commit
@@ -539,13 +545,17 @@ def derive_op_id(kind: str, payload: Mapping) -> str:
     return f"{kind}:{digest}"
 
 
-def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None) -> Refusal:
+def _error_text(exc: pymysql.MySQLError) -> str:
+    return str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+
+
+def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_names: tuple[str, ...] = ()) -> Refusal:
     code = exc.args[0] if exc.args else None
-    text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+    text = _error_text(exc)
     if code == 1213:
         return refuse("CONCURRENT_WRITE", "another write landed first; this transaction was rolled back")
-    if text.startswith("commit verification failed"):
-        failed = tuple(sorted(name for name in _test_names() if name in text))
+    if text.startswith(VERIFICATION_FAILED):
+        failed = tuple(sorted(name for name in test_names if name in text))
         return refuse("COMMIT_CHECK_FAILED", "commit verification failed: " + ", ".join(failed or ("unknown",)),
                       missing=failed)
     if code in (1142, 1143, 1370) or (code == 1105 and "permission" in text.lower()):
@@ -554,10 +564,6 @@ def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None) -> Refu
         return refuse("DOLT_SQL_ERROR", "the connection was lost while committing; rerun with the same operation",
                       write_status="unknown", operation_id=operation_id)
     return refuse("DOLT_SQL_ERROR", f"the ledger refused the statement (MySQL error {code})")
-
-
-def _test_names() -> set[str]:
-    return set(re.findall(r"\('([a-z_]+)', 'commit',", SCHEMA.read_text(encoding="utf-8")))
 
 
 def _commit_of(conn: LedgerConnection, table: str, op_id: str) -> str | None:
@@ -615,7 +621,11 @@ def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                     (commit,), = cursor.fetchall()
                 raw.commit()
             except pymysql.MySQLError as exc:
-                raise _sql_error(exc, operation_id=op) from exc
+                names: tuple[str, ...] = ()
+                if _error_text(exc).startswith(VERIFICATION_FAILED):
+                    raw.rollback()
+                    names = tuple(name for (name,) in conn.rows("SELECT test_name FROM dolt_tests"))
+                raise _sql_error(exc, operation_id=op, test_names=names) from exc
         except BaseException:
             try:
                 raw.rollback()

@@ -103,7 +103,8 @@ CREATE TABLE run (
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
-  CHECK ((status = 'invalid' AND failure_reasons IS NOT NULL) OR (status = 'passed' AND failure_reasons IS NULL))
+  CHECK ((status = 'invalid' AND failure_reasons IS NOT NULL) OR (status = 'passed' AND failure_reasons IS NULL)),
+  CHECK (status = 'passed' OR fingerprints IS NULL)
 );
 
 CREATE TABLE run_sealed (
@@ -136,13 +137,15 @@ CREATE TABLE run_cycle (
   realized_pnl DECIMAL(24,8) NULL,
   commissions DECIMAL(24,8) NOT NULL,
   funding DECIMAL(24,8) NOT NULL,
-  price_pnl DECIMAL(24,8) AS (IF(ts_closed_ns IS NULL, NULL, realized_pnl + commissions - funding)) VIRTUAL,
+  -- STORED, not VIRTUAL: Dolt 2.4.2 silently drops every CHECK of a table with a VIRTUAL column.
+  price_pnl DECIMAL(24,8) AS (IF(ts_closed_ns IS NULL, NULL, realized_pnl + commissions - funding)) STORED,
   open_unrealized DECIMAL(24,8) NULL,
   plan_tag VARCHAR(160) NULL,
   closing_order_type VARCHAR(40) NULL,
   closing_order_tag VARCHAR(160) NULL,
   PRIMARY KEY (run_id, seq),
-  FOREIGN KEY (run_id) REFERENCES run (run_id)
+  FOREIGN KEY (run_id) REFERENCES run (run_id),
+  CHECK (ts_closed_ns IS NULL OR open_unrealized IS NULL)
 );
 
 CREATE TABLE validation_registration (
@@ -279,14 +282,14 @@ INSERT INTO dolt_tests VALUES
    'SELECT COUNT(*) FROM validation_registration WHERE retry_of IS NULL AND window_start <= created_at',
    'expected_single_value', '==', '0'),
   ('validation_runs_match_their_registration', 'commit',
-   'SELECT COUNT(*) FROM run r JOIN validation_binding b ON b.trial_id = r.trial_id JOIN trial t ON t.trial_id = r.trial_id JOIN validation_registration g ON g.registration_id = b.registration_id JOIN candidate c ON c.strategy_id = g.strategy_id AND c.revision = g.revision WHERE t.source_sha256 <> c.source_sha256 OR t.trade_start <> g.window_start OR t.trade_end <> g.window_end',
+   'SELECT COUNT(*) FROM validation_binding b JOIN trial t ON t.trial_id = b.trial_id JOIN validation_registration g ON g.registration_id = b.registration_id JOIN candidate c ON c.strategy_id = g.strategy_id AND c.revision = g.revision WHERE t.source_sha256 <> c.source_sha256 OR t.trade_start <> g.window_start OR t.trade_end <> g.window_end',
    'expected_single_value', '==', '0'),
   ('validation_retries_keep_candidate_and_window', 'commit',
-   'SELECT COUNT(*) FROM validation_registration g JOIN validation_registration o ON o.registration_id = g.retry_of WHERE g.strategy_id <> o.strategy_id OR g.revision <> o.revision OR g.window_start <> o.window_start OR g.window_end <> o.window_end',
+   'SELECT COUNT(*) FROM validation_registration g JOIN validation_registration o ON o.registration_id = g.retry_of WHERE g.strategy_id <> o.strategy_id OR g.revision <> o.revision OR g.universe_rule <> o.universe_rule OR g.window_start <> o.window_start OR g.window_end <> o.window_end',
    'expected_single_value', '==', '0'),
   ('witnesses_stamp_validation_registrations', 'commit',
    'SELECT COUNT(*) FROM witness w WHERE NOT EXISTS (SELECT 1 FROM dolt_diff_validation_registration d WHERE d.to_commit = w.commit_hash AND d.diff_type = ''added'')',
    'expected_single_value', '==', '0'),
   ('research_trials_follow_their_registration', 'commit',
-   'SELECT COUNT(*) FROM registration_attempt a JOIN trial t ON t.trial_id = a.trial_id JOIN evidence_bundle b ON b.bundle = a.registration_bundle WHERE b.created_at >= t.created_at',
+   'SELECT COUNT(*) FROM trial t WHERE t.purpose = ''research'' AND ((SELECT COUNT(*) FROM registration_attempt a WHERE a.trial_id = t.trial_id) <> 1 OR EXISTS (SELECT 1 FROM registration_attempt a JOIN evidence_bundle b ON b.bundle = a.registration_bundle WHERE a.trial_id = t.trial_id AND b.created_at >= t.created_at))',
    'expected_single_value', '==', '0');

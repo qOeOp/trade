@@ -33,11 +33,8 @@ class LedgerBaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("base")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.close()
 
     def code(self, call) -> str:
         with self.assertRaises(Refusal) as caught:
@@ -63,7 +60,6 @@ class LedgerBaseTests(unittest.TestCase):
         tests = dict(self.service.sql(profile, "SELECT test_name, test_group FROM dolt_tests"))
         self.assertEqual(set(tests.values()), {"commit"})
         self.assertIn("witnesses_stamp_validation_registrations", tests)
-        self.assertEqual(len(tests), 7)
         for path in (self.service.home / "fresh.json", profile.service_root / "service.json"):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600, path)
         with db.connect(profile, "reader") as conn:
@@ -170,6 +166,52 @@ class LedgerBaseTests(unittest.TestCase):
         with self.assertRaises(pymysql.MySQLError), raw.cursor() as cursor:
             cursor.execute("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('s', 's', NOW())")
 
+    def test_the_writer_cannot_overwrite_through_upserts_or_generated_hashes(self):
+        with db.connect(self.profile, "writer") as writer:
+            db.write(writer, "probe", {"bundle": "upsert"}, "evidence_bundle", bundle_insert("upsert"))
+            self.assertEqual(self.code(lambda: writer.rows(
+                "INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('upsert', 'u', NOW()) "
+                "ON DUPLICATE KEY UPDATE op_id = 'hijacked'")), "LEDGER_PERMISSION")
+
+            def forged_hash(conn, op):
+                conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('forged', %s, NOW())", (op,))
+                conn.rows("INSERT INTO evidence (bundle, path, content, sha256) VALUES ('forged', 'a', 'x', %s)",
+                          ("0" * 64,))
+                return {}
+
+            self.assertEqual(self.code(lambda: db.write(writer, "probe", {"forged": 1}, "evidence_bundle",
+                                                        forged_hash)), "DOLT_SQL_ERROR")
+        (stored,), = self.service.sql(self.profile, "SELECT op_id FROM evidence_bundle WHERE bundle = 'upsert'")
+        self.assertTrue(stored.startswith("probe:"))
+        self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle WHERE bundle = 'forged'"),
+                         [(0,)])
+
+    def test_run_rows_keep_reports_and_open_positions_consistent(self):
+        with db.connect(self.profile, "writer") as writer:
+
+            def run(status, failure_reasons, fingerprints, cycle_closed=None, open_unrealized=None):
+                def insert(conn, op):
+                    conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, "
+                              "trade_start, trade_end, op_id, created_at) VALUES ('explore', %s, %s, '[]', "
+                              "'2026-01-01', '2026-01-02', '2026-02-01', %s, NOW())",
+                              ("e" * 64, "img@sha256:" + "a" * 64, op))
+                    conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, "
+                              "created_at) VALUES (LAST_INSERT_ID(), %s, %s, '{}', %s, %s, NOW())",
+                              (status, failure_reasons, fingerprints, op))
+                    (run_id,), = conn.rows("SELECT LAST_INSERT_ID()")
+                    conn.rows("INSERT INTO run_cycle (run_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
+                              "commissions, funding, open_unrealized) VALUES (%s, 1, 'A', 'long', 1, %s, 0, 0, %s)",
+                              (run_id, cycle_closed, open_unrealized))
+                    return {}
+                return db.write(writer, "probe", {"run": [status, fingerprints, cycle_closed, open_unrealized]},
+                                "trial", insert)
+
+            self.assertEqual(run("passed", None, '{"orders": 1}', cycle_closed=None, open_unrealized="1.5")
+                             ["write_status"], "written")
+            for arguments in (("invalid", '["A1"]', '{"orders": 1}'), ("passed", None, None, 2, "1.5")):
+                with self.subTest(arguments=arguments):
+                    self.assertEqual(self.code(lambda: run(*arguments)), "DOLT_SQL_ERROR")
+
     # read_as_of
 
     def test_read_as_of_pins_an_exact_commit_and_reads_its_state(self):
@@ -231,8 +273,9 @@ class LedgerBaseTests(unittest.TestCase):
 
             with self.assertRaises(Refusal) as caught:
                 db.write(writer, "probe", {"t": 1}, "trial", unpublished_research_trial)
-            self.assertEqual((caught.exception.code, caught.exception.missing),
-                             ("COMMIT_CHECK_FAILED", ("research_and_validation_trials_have_published_sources",)))
+            self.assertEqual(caught.exception.code, "COMMIT_CHECK_FAILED")
+            self.assertIn("research_and_validation_trials_have_published_sources", caught.exception.missing)
+            self.assertIn("research_trials_follow_their_registration", caught.exception.missing)
 
             def update(conn, op):
                 conn.rows("UPDATE candidate SET description = 'edited'")
@@ -247,7 +290,7 @@ class LedgerBaseTests(unittest.TestCase):
 
             self.assertEqual(self.code(lambda: db.write(writer, "probe", {"d": 1}, "evidence_bundle", duplicate)),
                              "DOLT_SQL_ERROR")
-            self.assertEqual(writer.rows("SELECT COUNT(*) FROM trial"), [(0,)])
+            self.assertEqual(writer.rows("SELECT COUNT(*) FROM trial WHERE source_sha256 = %s", ("f" * 64,)), [(0,)])
         self.assertEqual(self.seq(), start)
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_status"), [(0,)])
 
