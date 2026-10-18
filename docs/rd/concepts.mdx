@@ -101,7 +101,7 @@
 
 **机制预测**（mechanism prediction）　登记时写在某个切面标量上的变化方向，回放后与实测并列，可被否定。　[P 绩效归因](/zh/docs/attribution/)
 
-**交互读数**（interaction reading）　登记时声明的四个角给出的两处改动的交互项与平均贡献，只作归因。　[P 绩效归因](/zh/docs/attribution/)
+**交互效应**（interaction reading）　登记时声明的四个角给出的两处改动的交互项与平均贡献，只作归因。　[P 绩效归因](/zh/docs/attribution/)
 
 **仓位择时**（exposure timing）　敞口与单位敞口收益的协方差：涨的时候敞口大、跌的时候敞口小，这一项为正。　[P 绩效归因](/zh/docs/attribution/)
 
@@ -110,3 +110,9 @@
 **交易配对**（trade pairing）　按固定算法把两次运行的持仓周期对应起来，拆出删掉、新增与同一机会的差；只作描述，先报覆盖。　[P 绩效归因](/zh/docs/attribution/)
 
 **研究目标**（research targets）　你定的最大回撤上限和最低年化。它是 Agent 迭代努力的方向和读报告的参照，不筛选候选；胜率等是报告里的分析维度。　[A 总则](/zh/docs/principles/)
+
+**单运行报告**（single-run report）　一次运行的报告：封存时存下推不出的指标，其余读时从持仓周期和逐日序列算出。　[R 报告](/zh/docs/report/)
+
+**度量目录**（measure catalogue）　两种报告共用的全部度量及其口径，带版本；登记预测与报告只能引用其中的名字。　[R 报告](/zh/docs/report/)
+
+**语义指纹**（semantic fingerprint）　在运行镜像里按规范化内容算的原生报告哈希，随机编号重编、按全部非随机列排序；重放出的报告与它一致，才算复现了当时那次回放。　[R 报告](/zh/docs/report/)

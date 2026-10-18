@@ -7,6 +7,7 @@
 <Files>
 <Folder name="cli" defaultOpen>
   <File name="main.py" />
+  <File name="replay.py" />
 </Folder>
 </Files>
 
@@ -1263,5 +1264,33 @@ def validation_report(
 <div className="rd-meta">
 
 **关联章节**　<Ref id="X.2.1.1">X.2.1.1</Ref>
+
+</div>
+
+## `cli/replay.py` [#def-mod-cli-replay-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="cli.replay_reproduce">replay_reproduce</Ref> | 命令 replay reproduce：把已封存的运行重放到临时目录并核指纹，输出 JSON |
+
+### `replay_reproduce` [#def-cli-replay_reproduce]
+
+命令 replay reproduce：把已封存的运行重放到临时目录并核指纹，输出 JSON
+
+```python
+def replay_reproduce() -> JSON
+```
+
+**返回**　JSON
+
+**期望行为**
+
+1. 调用 replay.reproduce。
+
+**使用**　<Ref id="replay.reproduce" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.5">R.3.1.5</Ref>
 
 </div>

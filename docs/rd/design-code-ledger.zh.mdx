@@ -27,11 +27,11 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.export_history">export_history</Ref> | 以读账号按精确版本导出账本全史备份与自描述复现清单，使无产品工作树的主机只凭账本、镜像注册表与市场提交即可重放 |
+| <Ref id="ledger.export_history">export_history</Ref> | 以读账号按精确版本导出账本全史备份与复现清单：候选源码、运行行、单运行报告、逐日序列、持仓周期、登记与判断，以及每个运行的重放身份 |
 
 ### `export_history` [#def-ledger-export_history]
 
-以读账号按精确版本导出账本全史备份与自描述复现清单，使无产品工作树的主机只凭账本、镜像注册表与市场提交即可重放
+以读账号按精确版本导出账本全史备份与复现清单：候选源码、运行行、单运行报告、逐日序列、持仓周期、登记与判断，以及每个运行的重放身份
 
 ```python
 def export_history(
@@ -49,12 +49,9 @@ def export_history(
 
 **期望行为**
 
-1. ledger.connect 以读账号连接，ledger.read_as_of 把 at 解析为提交；账号有写权限、版本不存在或 destination 位置不合即拒绝
-2. with_backup 时用 Dolt dolt_backup 把全部提交与标签增量同步到 destination/backup（即 <Ref id="J.3.5.1">dolt_backup 全史备份</Ref>）；同步失败或同步后备份头不等于账本头即整笔拒绝，不写部分清单
-3. 按该版本经 ledger.read_candidate 读每个入选候选的源码字节并重算哈希，每个候选写成一个 UTF-8 源码文件
-4. 对每个入选运行经 ledger.load_run 与 ledger.read_capture 读 trial/run 行、原生报告行与执行封存并核验哈希；写出有效配置、runtime.resolve 解析的运行环境摘要、输入身份（市场提交、范围规则、成员路径、导出内容哈希）与 ledger.load_bundle 读回的登记证据包
-5. 写 reproduce/manifest.json：每个运行一条，列镜像摘要、源码哈希、有效配置、输入身份、市场提交与窗口，以及镜像内比较入口 engine.compare_reports；不含产品工作树路径、Git 提交号或镜像文件
-6. 任一封存读回不符时该运行标 unavailable，照常写其引用与哈希，不中断导出；返回清单摘要与内容哈希
+1. with_backup 时用 dolt_backup 同步全部提交与标签；失败即整笔拒绝。
+2. 按该版本读候选源码并核哈希，每个候选写成一个源码文件。
+3. 写复现清单：每个运行列镜像摘要、源码哈希、登记的执行身份、市场提交与窗口，以及报告指纹；按清单重放即可经 engine.compare_reports 复核。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -64,7 +61,7 @@ def export_history(
 | `DOLT_BACKUP` | 全史同步失败，或同步后备份头与账本头不一致 |
 | `RUN_NOT_FOUND` | run_ids 中有运行在该版本不存在或尚未封存 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="runtime.resolve" />、<Ref id="market.resolve_commit" />、<Ref id="engine.compare_reports" />、<Ref id="table:ledger_head" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run_order_event" />、<Ref id="table:run_cost_basis" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:witness" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="runtime.resolve" />、<Ref id="market.resolve_commit" />、<Ref id="engine.compare_reports" />、<Ref id="table:ledger_head" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:witness" />、<Ref id="table:run_cycle" />
 
 <div className="rd-meta">
 
@@ -850,9 +847,9 @@ def select_line(
 | <Ref id="ledger.daily_returns">daily_returns</Ref> | 只取交易窗口内按 UTC 日历日排列的账户日收益，核无缺无重、相邻恰隔一天、复利到期末权益；任一不满足即该序列不可用（返回 None 并写局限），配对比较据此拒绝 |
 | <Ref id="ledger.economics">economics</Ref> | 逐持仓周期核「价格盈亏−手续费＋资金费＝已实现」，合计与审计账户经济数对账，不符即整体不给；输出闭仓拆分、按平仓年拆分、账户整体资金费与手续费（另一总体，并列不相加）、未实现残差 |
 | <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref> | 引擎因下架结算自行生成的无标签只减仓市价平仓单，在订单事件、成交、持仓事件、InstrumentClose 结算时刻与结算价互相一致且唯一对应一个已关闭周期时只读归属到该周期的计划；任何歧义不归属，留给 plan_metrics 按不合规处理 |
-| <Ref id="ledger.load_run">load_run</Ref> | 读一次运行的原生行组成类型化报表；封存运行先核原始执行捕获的执行身份与逐文件哈希，不符即拒绝不读，由资格视图标不可用 |
+| <Ref id="ledger.load_run">load_run</Ref> | 读一次运行：运行行、单运行报告、逐日序列与持仓周期；原生报告不在账本里，经 replay.reproduce 取得 |
 | <Ref id="ledger.mark_drawdown">mark_drawdown</Ref> | 逐 K 线标记价权益（账户 total＋敞口按标记价的未实现盈亏）相对运行峰值的最大跌幅比例，峰值从初始权益起；附价源与采样周期，K 线内路径列为局限 |
-| <Ref id="ledger.metrics">metrics</Ref> | 绩效指标的唯一入口：账户年化、标记价最大回撤、计划胜率、对账后的利润来源拆分；每个绩效指标注明总体与样本量；对账失败只置空对应绩效指标并记入局限，不改写原生值、不判运行无效 |
+| <Ref id="ledger.metrics">metrics</Ref> | 单运行报告的封存部分：只算存储数据推不出的指标，即资格事实、标记价回撤及其区间、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗与计划统计是否成立 |
 | <Ref id="ledger.metrics_revision">metrics_revision</Ref> | 指标计算代码的版本（所在 Git 检出的 HEAD 提交），随运行行与资格检查身份存出，使每个绩效指标与资格判定都能定位到产生它的代码；重算用该版本的同一函数重跑比对 |
 | <Ref id="ledger.plan_metrics">plan_metrics</Ref> | 从订单报告的标签读出计划并与持仓周期一一对应后算计划胜率：每张订单恰一个全回放唯一的计划标签，计划限一个合约；赢＝周期已平且实现盈亏（含手续费与资金费）大于零，期末未平算非赢；任何不合规抛出具名原因 |
 | <Ref id="ledger.unreconciled">unreconciled</Ref> | 原生事实超出支持范围或对账失败的具名原因（码＋细节）；metrics 捕获后把对应绩效指标置空并把原因写入绩效指标局限，运行本身不判无效 |
@@ -1017,7 +1014,7 @@ def expiry_plan_owners(
 
 ### `load_run` [#def-ledger-load_run]
 
-读一次运行的原生行组成类型化报表；封存运行先核原始执行捕获的执行身份与逐文件哈希，不符即拒绝不读，由资格视图标不可用
+读一次运行：运行行、单运行报告、逐日序列与持仓周期；原生报告不在账本里，经 replay.reproduce 取得
 
 ```python
 def load_run(
@@ -1035,12 +1032,9 @@ def load_run(
 
 **期望行为**
 
-1. 目录路径：逐文件读原生报表，缺失的表给空列表、摘要缺失给 None；覆盖回执存在时经 engine.lifecycle_events 生成生命周期事件，否则为空元组；文件存在但不可解析即拒绝
-2. 账本路径：按 run_id 读 table:run 行（状态、summary、audit、trial_id、input_identity、exposures），不存在即拒绝
-3. 按 seq 从 run_order、run_fill、run_position、run_account、run_order_event、run_return 原样重建行，逐行等于封存时的原生行
-4. 状态为通过的运行：ledger.read_capture 核试验、源码哈希、运行环境身份与逐文件哈希，再经 ledger.original_coverage 取覆盖回执生成生命周期事件；捕获缺失保持 missing 并给空事件，不用恢复材料替代
-5. 身份或哈希不符即拒绝且不返回任何行；调用方 qualification.assess 把拒绝转为该运行不可用，不改写存储的审计结论
-6. 读取成功只说明字节可恢复，不说明策略好；不对值做任何改写
+1. 按 run_id 读运行行，不存在即拒绝；读逐日序列与持仓周期。
+2. 通过的运行核执行封存与报告指纹在位；缺失或哈希不符即拒绝，由资格视图标不可用。
+3. 不返回原生报告行；调用方需要时经 replay.reproduce 重放并核指纹。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1049,7 +1043,7 @@ def load_run(
 | `LEDGER_CORRUPT` | 封存文件的内容哈希与清单不符 |
 | `REPORT_UNREADABLE` | 目录中的原生报表或压缩文件存在但无法解析（非 UTF-8、非合法 CSV/JSON/gzip） |
 
-**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="table:run" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run_order_event" />
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:run_cycle" />
 
 <div className="rd-meta">
 
@@ -1069,7 +1063,7 @@ def mark_drawdown(
 ) -> dict
 ```
 
-<TypeTable type={{ "summary": { type: "dict", description: "原生摘要：data_interval_minutes、period_start_utc、period_end_utc、starting_balance_usdt" }, "account": { type: "list[dict]", description: "账户状态报告原生行（ts_event、total），来自 table:run_account 或报告目录" }, "exposures": { type: "list[dict] | None", description: "engine.capital_observer 产出的敞口行（ts_event_ns、unrealized_pnl），已类型化；None 表示敞口表缺失" } }} />
+<TypeTable type={{ "summary": { type: "dict", description: "原生摘要：data_interval_minutes、period_start_utc、period_end_utc、starting_balance_usdt" }, "account": { type: "list[dict]", description: "账户状态报告原生行（ts_event、total），来自封存时工作目录里的原生报告" }, "exposures": { type: "list[dict] | None", description: "engine.capital_observer 产出的敞口行（ts_event_ns、unrealized_pnl），已类型化；None 表示敞口表缺失" } }} />
 
 **返回**　dict：max_drawdown（峰谷比例，float）、price_source="mark"、sampling="bar_close"、bars（采样根数）、limitations（含 K 线内路径不可见）
 
@@ -1102,7 +1096,7 @@ def mark_drawdown(
 
 ### `metrics` [#def-ledger-metrics]
 
-绩效指标的唯一入口：账户年化、标记价最大回撤、计划胜率、对账后的利润来源拆分；每个绩效指标注明总体与样本量；对账失败只置空对应绩效指标并记入局限，不改写原生值、不判运行无效
+单运行报告的封存部分：只算存储数据推不出的指标，即资格事实、标记价回撤及其区间、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗与计划统计是否成立
 
 ```python
 def metrics(reports: Reports) -> dict
@@ -1114,18 +1108,17 @@ def metrics(reports: Reports) -> dict
 
 **期望行为**
 
-1. 以原生摘要声明的撮合与条款局限和审计覆盖局限为起始局限清单；无原生摘要时全部绩效指标置 None、写「无原生摘要」并返回
-2. 经 engine.lifecycle_findings 核生命周期事件与订单、成交、持仓互相覆盖；有发现则经济类绩效指标全部置 None 并逐条写入局限
-3. 年化取原生摘要值，按 (期末权益÷初始权益)^(365÷交易窗口天数)−1 复核（分母为初始权益，不含预热段），不符置 None 写原因；经 ledger.daily_returns 核日收益序列完整并记局限
-4. 经 ledger.cycles 重建持仓周期，经 ledger.economics 得拆分与按年拆分；捕获 ledger.unreconciled 即 economics 置 None 并写原因
-5. 经 ledger.plan_metrics 得计划统计，捕获具名原因即 plans 置 None，账户绩效指标照常；无敞口表则回撤置 None 写原因，否则经 ledger.mark_drawdown 计算
-6. 附每个绩效指标的总体与样本量、价源与采样周期、ledger.metrics_revision；不算夏普（由原生摘要提供），不写账本；不拒绝任何运行：绩效指标算不出只置 None 并写原因，refusals 为空
+1. 资格事实逐项核：真实成交、成交与订单一一对应、持仓周期覆盖全部成交、日收益复利到期末权益、账户首末相符；每项记是否通过、原因码与计数。
+2. 从逐分钟敞口与账户状态算标记价最大回撤、峰谷时刻、持续天数与回撤区间内亏损最多的合约占比；算资金使用峰值、在市时间与锁定保证金峰值，并给逐日序列写当日平均名义敞口（当日全部 K 线标签上名义绝对值之和的平均，空仓计零，不含预热段，最后不满一天按实际根数）。
+3. 按流动性方向汇总手续费与成交额；数订单漏斗；核计划标签与周期一一对应，记计划统计是否成立。
+4. 每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因；局限只记本运行特有的。
+5. 能从持仓周期与逐日序列算出的量不在这里算，由 report.derive_measures 读时算。
 
 **使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.plan_metrics" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.mark_drawdown" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.summary_statistics" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="C.5.1.1">C.5.1.1</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.1.3.4">R.1.3.4</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref>
+**关联章节**　<Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="C.5.1.1">C.5.1.1</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.1.3.4">R.1.3.4</Ref> <Ref id="R.3.1.3">R.3.1.3</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref>
 
 </div>
 
@@ -1438,12 +1431,12 @@ def read_candidate(conn: Connection, ref: str) -> dict
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.ingest_run">ingest_run</Ref> | 把一次封存回放的判定落成运行行：有效运行写原生报表行与绩效指标；无效运行写状态、逐条原因、原生摘要与审计结果，绩效指标列为空。只回答这次回放是否有效及原因，不评价策略好坏。 |
+| <Ref id="ledger.ingest_run">ingest_run</Ref> | 把一次封存回放落成运行：通过的运行写运行行（审计与指纹）、一行封存结果、逐日序列与持仓周期；无效运行只写状态、原因与审计。原生报告不入账。 |
 | <Ref id="ledger.open_trial">open_trial</Ref> | 在调用方的写事务里依次写试验行、绑定行（经注入的绑定器）与执行开始回执；任一失败整笔回滚，调用方不启动容器。 |
 
 ### `ingest_run` [#def-ledger-ingest_run]
 
-把一次封存回放的判定落成运行行：有效运行写原生报表行与绩效指标；无效运行写状态、逐条原因、原生摘要与审计结果，绩效指标列为空。只回答这次回放是否有效及原因，不评价策略好坏。
+把一次封存回放落成运行：通过的运行写运行行（审计与指纹）、一行封存结果、逐日序列与持仓周期；无效运行只写状态、原因与审计。原生报告不入账。
 
 ```python
 def ingest_run(
@@ -1463,12 +1456,11 @@ def ingest_run(
 
 **期望行为**
 
-1. 核对试验存在（TRIAL_NOT_FOUND）、purpose ∈ research | validation（TRIAL_PURPOSE_INVALID）、尚无运行行（RUN_ALREADY_INGESTED）；从 workdir 原样读入原生摘要与审计结果，缺失即为空，不造占位。
-2. failure_reasons 非空即 invalid；为空时须审计结果存在且自报通过、原生摘要存在，否则拒 AUDIT_RESULT_INCONSISTENT。
-3. invalid：写 run 行 status、failure_reasons、原生摘要与审计结果原样、runtime_inspection、effective_config、input_identity、指标计算版本与镜像构建版本（取不到写空并记入绩效指标局限）；绩效指标列全部为空，不写报表行；试验行与网格点消耗不变。
-4. passed：经 ledger.verify_coverage 核覆盖回执与原生摘要一致（EXECUTION_IDENTITY）；摘要含生命周期事件时用 engine.lifecycle_events 重算，并与 ledger.original_coverage 从原始执行捕获读出的回执比较，须完全相等（LIFECYCLE_MISMATCH），不降级为无事件。
-5. passed：任一报表缺失或不可解析拒 REPORT_MISSING；否则六张报表逐行写入 run_order / run_fill / run_position / run_account / run_return / run_order_event，每行存原始行并派生类型化列，不聚合不改写；逐分钟敞口压缩后随 run 行存。
-6. passed：经 ledger.metrics 从刚写入的行算一次绩效指标与绩效指标局限，ledger.unreconciled 捕获的问题只置空对应绩效指标；连同 ledger.metrics_revision 写成 run 行的列，此后只读；返回 run_id 与 status。
+1. 核对试验存在、用途为 research 或 validation、尚无运行行；从工作目录读原生报告与审计结果，缺失即为空。
+2. failure_reasons 非空即 invalid：写状态、引用审计发现的原因与审计，不写封存结果与指纹。
+3. passed：经 ledger.metrics 从工作目录的原生报告算出单运行报告；在镜像内经 engine.report_fingerprint 算语义指纹。
+4. 在一个写事务里写运行行、封存结果（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
+5. 原生报告留在工作目录，随后清理；需要时经 replay.reproduce 重放复现。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1481,11 +1473,11 @@ def ingest_run(
 | `LIFECYCLE_MISMATCH` | 本地重算的生命周期事件与原始执行捕获中的回执不完全相等，或逐实例状态与关闭事件计数与原生摘要不符 |
 | `CONCURRENT_WRITE` | 由 ledger.write 在提交时上抛：并发写入同格不同值，后到者回滚 |
 
-**使用**　<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_order" />、<Ref id="table:run_fill" />、<Ref id="table:run_position" />、<Ref id="table:run_account" />、<Ref id="table:run_return" />、<Ref id="table:run_order_event" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="ledger.metrics" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="ledger.write" />、<Ref id="ledger.refusal" />
+**使用**　<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="ledger.metrics" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="table:run_cycle" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.2.2.2">G.2.2.2</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.2.2.2">G.2.2.2</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="R.3.1.3">R.3.1.3</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
 
 </div>
 

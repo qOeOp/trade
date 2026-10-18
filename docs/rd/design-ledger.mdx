@@ -77,7 +77,7 @@ LEFT JOIN run r ON r.trial_id = t.trial_id
 
 运行的身份、审计结论与存储的绩效指标；指标在读取入口里按资格遮蔽后才流出
 
-<TypeTable type={{ "run_id": { type: "BIGINT", description: "运行", required: false }, "trial_id": { type: "BIGINT", description: "所属试验", required: false }, "status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "failure_reasons": { type: "JSON", description: "无效原因", required: false }, "image_revision": { type: "VARCHAR(64)", description: "运行环境版本", required: false }, "runtime_contract": { type: "VARCHAR(40)", description: "运行契约", required: false }, "effective_config": { type: "JSON", description: "生效配置身份", required: false }, "input_identity": { type: "JSON", description: "输入身份", required: false }, "metrics_revision": { type: "VARCHAR(64)", description: "指标计算版本", required: false }, "audit": { type: "JSON", description: "审计结论", required: false }, "annual_return": { type: "DOUBLE", description: "年化（未遮蔽）", required: false }, "max_drawdown": { type: "DOUBLE", description: "标记价最大回撤（未遮蔽）", required: false }, "plan_win_rate": { type: "DOUBLE", description: "计划胜率（未遮蔽）", required: false }, "metric_limitations": { type: "JSON", description: "指标局限", required: false }, "created_at": { type: "DATETIME(6)", description: "入账时间", required: false } }} />
+<TypeTable type={{ "run_id": { type: "BIGINT", description: "运行", required: false }, "trial_id": { type: "BIGINT", description: "所属试验", required: false }, "status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "failure_reasons": { type: "JSON", description: "无效原因", required: false }, "audit": { type: "JSON", description: "审计结论", required: false }, "created_at": { type: "DATETIME(6)", description: "入账时间", required: false } }} />
 
 **Dolt 能力**
 
@@ -85,9 +85,7 @@ LEFT JOIN run r ON r.trial_id = t.trial_id
 
 ```sql
 CREATE VIEW v_runs AS
-SELECT run_id, trial_id, status, failure_reasons, image_revision, runtime_contract,
-       effective_config, input_identity, metrics_revision, audit,
-       annual_return, max_drawdown, plan_win_rate, metric_limitations, created_at
+SELECT run_id, trial_id, status, failure_reasons, audit, created_at
 FROM run
 ```
 
@@ -204,7 +202,7 @@ FROM universe_month
 
 ## 库 `ledger`
 
-<Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n    BIGINT byte_length\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment {\n    BIGINT judgment_id PK\n    VARCHAR_32_ kind\n    VARCHAR_200_ line_bundle FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    INT cadence_trials\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK\n    INT seq PK\n    VARCHAR_16_ role\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    BIGINT trial_id FK\n    VARCHAR_200_ registration_bundle FK\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT run_id PK\n    INT trial_id FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    CHAR_40_ image_revision\n    JSON runtime_inspection\n    VARCHAR_40_ runtime_contract\n    VARCHAR_40_ engine_version\n    CHAR_64_ dependency_lock_sha256\n    JSON effective_config\n    JSON input_identity\n    CHAR_40_ metrics_revision\n    JSON summary\n    JSON audit\n  }\n  run_account {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    DECIMAL_38_18_ total\n    DECIMAL_38_18_ locked\n    DECIMAL_38_18_ free\n  }\n  run_cost_basis {\n    INT run_id PK\n    VARCHAR_16_ liquidity_side PK\n    INT fills\n    DECIMAL_38_18_ commissions_usdt\n    DECIMAL_38_18_ notional_usdt\n    DECIMAL_38_18_ fee_rate\n  }\n  run_fill {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    BIGINT ts_event_ns\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ order_side\n    VARCHAR_16_ liquidity_side\n    DECIMAL_38_18_ last_qty\n    DECIMAL_38_18_ last_px\n    DECIMAL_38_18_ commission_usdt\n    VARCHAR_160_ position_id\n  }\n  run_order {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_100_ client_order_id\n    VARCHAR_64_ instrument_id\n    VARCHAR_8_ side\n    VARCHAR_32_ order_type\n    VARCHAR_32_ status\n    DECIMAL_38_18_ quantity\n    DECIMAL_38_18_ filled_qty\n    DECIMAL_38_18_ price\n    DECIMAL_38_18_ avg_px\n    BIGINT ts_init\n    BIGINT ts_last\n  }\n  run_order_event {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_64_ event_id\n    VARCHAR_100_ client_order_id\n    VARCHAR_48_ event_type\n    BIGINT ts_event_ns\n  }\n  run_position {\n    INT run_id PK\n    INT seq PK\n    JSON raw\n    VARCHAR_200_ position_id\n    VARCHAR_64_ instrument_id\n    TINYINT is_snapshot\n    TINYINT closed\n    BIGINT ts_closed_ns\n    DECIMAL_38_18_ realized_pnl_usdt\n  }\n  run_return {\n    INT run_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    CHAR_71_ image_digest\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    CHAR_32_ market_commit\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_bundle ||--o{ judgment : \"line_bundle\"\n  judgment ||--o{ judgment : \"supersedes\"\n  judgment ||--o{ judgment_subject : \"judgment_id\"\n  candidate ||--o{ judgment_subject : \"strategy_id_revision\"\n  trial ||--o{ judgment_subject : \"trial_id\"\n  evidence_bundle ||--o{ judgment_subject : \"registration_bundle\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o{ run : \"trial_id\"\n  run ||--o{ run_account : \"run_id\"\n  run_fill ||--o{ run_cost_basis : \"run_id\"\n  run ||--o{ run_fill : \"run_id\"\n  run ||--o{ run_order : \"run_id\"\n  run ||--o{ run_order_event : \"run_id\"\n  run ||--o{ run_position : \"run_id\"\n  run ||--o{ run_return : \"run_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
+<Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n    BIGINT byte_length\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment {\n    BIGINT judgment_id PK\n    VARCHAR_32_ kind\n    VARCHAR_200_ line_bundle FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    INT cadence_trials\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK\n    INT seq PK\n    VARCHAR_16_ role\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    BIGINT trial_id FK\n    VARCHAR_200_ registration_bundle FK\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT run_id PK\n    INT trial_id FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    JSON audit\n    JSON fingerprints\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  run_cycle {\n    INT run_id PK\n    INT seq PK\n    VARCHAR_64_ instrument_id\n    ENUM__long___short__ side\n    BIGINT ts_opened_ns\n    BIGINT ts_closed_ns\n    DECIMAL_24_8_ realized_pnl\n    DECIMAL_24_8_ commissions\n    DECIMAL_24_8_ funding\n    DECIMAL_24_8_ price_pnl\n    DECIMAL_24_8_ open_unrealized\n    VARCHAR_160_ plan_tag\n    VARCHAR_40_ closing_order_type\n    VARCHAR_160_ closing_order_tag\n  }\n  run_return {\n    INT run_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n    DECIMAL_24_8_ mean_gross_notional\n  }\n  run_sealed {\n    INT run_id PK\n    CHAR_40_ metrics_revision PK\n    JSON report\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    CHAR_71_ image_digest\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    CHAR_32_ market_commit\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_bundle ||--o{ judgment : \"line_bundle\"\n  judgment ||--o{ judgment : \"supersedes\"\n  judgment ||--o{ judgment_subject : \"judgment_id\"\n  candidate ||--o{ judgment_subject : \"strategy_id_revision\"\n  trial ||--o{ judgment_subject : \"trial_id\"\n  evidence_bundle ||--o{ judgment_subject : \"registration_bundle\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o{ run : \"trial_id\"\n  run ||--o{ run_cycle : \"run_id\"\n  run ||--o{ run_return : \"run_id\"\n  run ||--o{ run_sealed : \"run_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
 
 | 表 | 用途 |
 |---|---|
@@ -218,14 +216,10 @@ FROM universe_month
 | <Ref id="table:ledger_head">ledger_head</Ref> | 写入头指针单行：每次写入 +1 并记本次操作 ID，是并发写冲突的碰撞点与幂等重放的索引 |
 | <Ref id="table:ledger_schema">ledger_schema</Ref> | 账本模式代数单行；初始化与模式迁移时写 |
 | <Ref id="table:registration_attempt">registration_attempt</Ref> | 登记尝试：登记包 × 网格点源码 → 消耗它的试验；一点只消耗一次，无效与中断同样算消耗；只追加 |
-| <Ref id="table:run">run</Ref> | 运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、指标计算版本、绩效指标、原生摘要与审计原样 |
-| <Ref id="table:run_account">run_account</Ref> | 引擎账户状态报告逐行 |
-| <Ref id="table:run_cost_basis">run_cost_basis</Ref> | 视图：按运行与流动性方向汇总成交，给出观察到的实际费率（手续费÷成交名义），不是配置声明 |
-| <Ref id="table:run_fill">run_fill</Ref> | 引擎成交报告逐行 |
-| <Ref id="table:run_order">run_order</Ref> | 引擎订单报告逐行 |
-| <Ref id="table:run_order_event">run_order_event</Ref> | 引擎订单事件史逐行；保护单覆盖重建与事件-订单-成交对账的依据 |
-| <Ref id="table:run_position">run_position</Ref> | 引擎持仓报告逐行（含快照行） |
-| <Ref id="table:run_return">run_return</Ref> | 引擎日收益序列（UTC 日钟），配对比较与样本外区间的唯一配对单位 |
+| <Ref id="table:run">run</Ref> | 运行：一次研究或样本外封存回放的结论、审计发现、单运行报告与原生报告指纹；执行身份不在此重复，按试验与登记包读 |
+| <Ref id="table:run_cycle">run_cycle</Ref> | 持仓周期：每个原生持仓周期一行的紧凑记录，供交易结构、交易配对、出场类别与逐合约逐月下钻 |
+| <Ref id="table:run_return">run_return</Ref> | 逐日序列：UTC 日收益与当日平均总名义敞口；配对比较的唯一配对单位，也是资金使用与仓位择时的依据 |
+| <Ref id="table:run_sealed">run_sealed</Ref> | 封存结果：一个运行在某个代码版本下的单运行报告；只追加，口径升版时追加新行，不改旧行 |
 | <Ref id="table:trial">trial</Ref> | 试验 trial：每次回放一行，在子进程启动前写下用途、被执行源码身份、钉死运行环境、合约集与窗口；无效与中断同样有行 |
 | <Ref id="table:validation_binding">validation_binding</Ref> | 一次样本外登记绑定一次回放：以登记为主键，第二次绑定主键冲突即拒绝；中断或无效的试验同样留行 |
 | <Ref id="table:validation_registration">validation_registration</Ref> | 样本外登记（预登记）：被验候选、共同可交易范围身份、窗口与声明的检验条件；其账本提交取 RFC 3161 凭证 |
@@ -561,9 +555,9 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 ### `run` [#def-table-run]
 
-运行 run：一次研究封存或样本外回放的结论与身份——有效/无效及原因、运行环境检视、有效配置、输入身份、指标计算版本、绩效指标、原生摘要与审计原样
+运行：一次研究或样本外封存回放的结论、审计发现、单运行报告与原生报告指纹；执行身份不在此重复，按试验与登记包读
 
-<TypeTable type={{ "run_id": { type: "INT AUTO_INCREMENT", description: "运行主键，自增", required: true }, "trial_id": { type: "INT", description: "一试验至多一运行；UNIQUE", required: true }, "status": { type: "ENUM('passed','invalid')", description: "完整性审计结论：有效 passed / 无效 invalid；从不编辑", required: true }, "failure_reasons": { type: "JSON", description: "invalid 必有、passed 必空：运行器非零退出、审计未运行/缺失/有发现、身份不一致、构造或回调异常、基础设施错误原样", required: false }, "image_revision": { type: "CHAR(40)", description: "镜像构建源码版本（只从镜像标签读出）；validation 运行须在 main 上（[[runtime.require_main_build]]）；探针读不到时为空并进入局限", required: false }, "runtime_inspection": { type: "JSON", description: "镜像内探针报告：运行契约、引擎版本、Python 版本、依赖锁哈希、运行器与审计器源码哈希", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.runtime_contract", required: true }, "engine_version": { type: "VARCHAR(40)", description: "生成列 ← runtime_inspection.$.engine_version", required: true }, "dependency_lock_sha256": { type: "CHAR(64)", description: "生成列 ← runtime_inspection.$.dependency_lock_sha256", required: true }, "effective_config": { type: "JSON", description: "运行器在镜像内读出的有效配置：窗口、本金与账户条款、费率与资金费口径、合约集、撮合开关及其哈希", required: true }, "input_identity": { type: "JSON", description: "输入身份：市场库名、market_commit、universe_rule、合约集与成员时间路径、导出内容哈希、导出器源码哈希、lifecycle 证据包名", required: true }, "metrics_revision": { type: "CHAR(40)", description: "指标计算版本", required: true }, "summary": { type: "JSON", description: "原生摘要原样（含运行器写入的年化、夏普、期末权益、源码哈希、配置哈希）", required: false }, "audit": { type: "JSON", description: "独立审计器结果原样（含审计边界与覆盖局限）", required: false }, "final_equity_usdt": { type: "DECIMAL(24,8)", description: "生成列 ← summary.$.final_equity_usdt", required: false }, "annual_return": { type: "DOUBLE", description: "生成列 ← summary.$.annual_return；口径见 [[R.2.1.1]]", required: false }, "max_drawdown": { type: "DOUBLE", description: "标记价权益逐 K 线最大峰谷比例；非 passed 为空", required: false }, "plans_closed": { type: "INT", description: "已平计划数；计划标签不合规时为空", required: false }, "plans_won": { type: "INT", description: "赢的计划数", required: false }, "plans_open": { type: "INT", description: "期末未平计划数（算非赢）", required: false }, "plan_win_rate": { type: "DOUBLE", description: "生成列 plans_won / NULLIF(plans_closed + plans_open, 0)", required: false }, "closed_positions": { type: "INT", description: "已平持仓周期数（闭仓总体样本量）", required: false }, "open_positions": { type: "INT", description: "期末未平持仓数", required: false }, "realized_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓已实现合计", required: false }, "price_pnl_usdt": { type: "DECIMAL(24,8)", description: "闭仓价格盈亏", required: false }, "commissions_usdt": { type: "DECIMAL(24,8)", description: "闭仓手续费", required: false }, "funding_usdt": { type: "DECIMAL(24,8)", description: "闭仓资金费；恒等式 price_pnl − commissions + funding = realized 对账不符则四列整体留空", required: false }, "unrealized_usdt": { type: "DECIMAL(24,8)", description: "未实现残差＝期末权益 − 审计期末余额", required: false }, "metric_limitations": { type: "JSON", description: "合并后的局限清单：撮合与条款局限、审计覆盖局限、绩效指标局限、留空原因", required: true }, "exposures": { type: "LONGBLOB", description: "逐分钟标记价敞口估值压缩原件，资金使用率由此算；非 passed 为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "固定为 run:trial-<trial_id>；第二次写入返回原记录", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器归 J.4.1.1）", required: true } }} />
+<TypeTable type={{ "run_id": { type: "INT AUTO_INCREMENT", description: "运行", required: true }, "trial_id": { type: "INT", description: "所属试验，唯一", required: true }, "status": { type: "ENUM('passed','invalid')", description: "审计结论", required: true }, "failure_reasons": { type: "JSON", description: "无效原因，只引用审计发现的编号；通过为空", required: false }, "audit": { type: "JSON", description: "{ran, findings}：审计是否跑完与发现清单；审计边界属审计器版本，不存", required: true }, "fingerprints": { type: "JSON", description: "原生报告的语义指纹：由该运行镜像内的指纹入口计算，覆盖订单、成交、持仓、账户、日收益、订单事件与敞口；每表行数、整表哈希与逐 UTC 日哈希；逐字节稳定的账户、日收益、敞口另记字节哈希；无效运行为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
 
 **键与约束**
 
@@ -597,179 +591,30 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 </div>
 
-### `run_account` [#def-table-run_account]
+### `run_cycle` [#def-table-run_cycle]
 
-引擎账户状态报告逐行
+持仓周期：每个原生持仓周期一行的紧凑记录，供交易结构、交易配对、出场类别与逐合约逐月下钻
 
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "ts_event_ns": { type: "BIGINT", description: "生成列，引擎纳秒", required: true }, "total": { type: "DECIMAL(38,18)", description: "生成列；total = locked + free 由审计对账", required: true }, "locked": { type: "DECIMAL(38,18)", description: "生成列：锁定保证金", required: true }, "free": { type: "DECIMAL(38,18)", description: "生成列", required: true } }} />
-
-**键与约束**
-
-- 主键　`run_id`, `seq`
-- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
-- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
-
-**Dolt 能力**
-
-- **J.3.2.1**　与 run 行同一事务同一提交
-- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
-
-**写入方**　<Ref id="ledger.ingest_run" />
-
-**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
-
-</div>
-
-### `run_cost_basis` [#def-table-run_cost_basis]
-
-视图：按运行与流动性方向汇总成交，给出观察到的实际费率（手续费÷成交名义），不是配置声明
-
-<TypeTable type={{ "run_id": { type: "INT", description: "运行，取自 run_fill.run_id", required: true }, "liquidity_side": { type: "VARCHAR(16)", description: "MAKER 或 TAKER，取自成交行", required: true }, "fills": { type: "INT", description: "该方向成交笔数，COUNT(*)", required: true }, "commissions_usdt": { type: "DECIMAL(38,18)", description: "手续费合计，SUM(commission_usdt)", required: false }, "notional_usdt": { type: "DECIMAL(38,18)", description: "成交名义合计，SUM(last_qty × last_px)", required: false }, "fee_rate": { type: "DECIMAL(38,18)", description: "观察费率，commissions_usdt / NULLIF(notional_usdt, 0)；名义为零时为 NULL", required: false } }} />
-
-**键与约束**
-
-- 主键　`run_id`, `liquidity_side`
-- 外键　`run_id` → <Ref id="table:run_fill">run_fill</Ref> `run_id`
-- 生成列　`整表为 CREATE VIEW … FROM run_fill GROUP BY run_id, liquidity_side；不存数、无外键，主键是视图分组键`
-- 生成列　`无写入方：底表 run_fill 由 ledger.ingest_run 在封存时写入`
-
-**Dolt 能力**
-
-- **J.3.1.3**　视图随 AS OF 在任一历史账本版本上重算费率，报告引用的费率可按提交复现
-
-**写入方**　`无（视图，从 run_fill 派生；底表由 ledger.ingest_run 写入）`
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.1.3.3">R.1.3.3</Ref> <Ref id="J.3.3.1">J.3.3.1</Ref>
-
-</div>
-
-### `run_fill` [#def-table-run_fill]
-
-引擎成交报告逐行
-
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "ts_event_ns": { type: "BIGINT", description: "生成列 ← raw.$.ts_event，引擎纳秒", required: true }, "event_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "client_order_id": { type: "VARCHAR(100)", description: "生成列", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "order_side": { type: "VARCHAR(8)", description: "生成列", required: true }, "liquidity_side": { type: "VARCHAR(16)", description: "生成列：MAKER/TAKER，费率口径按此分组", required: true }, "last_qty": { type: "DECIMAL(38,18)", description: "生成列", required: true }, "last_px": { type: "DECIMAL(38,18)", description: "生成列", required: true }, "commission_usdt": { type: "DECIMAL(38,18)", description: "生成列 ← raw.$.commission 数值部分", required: false }, "position_id": { type: "VARCHAR(160)", description: "生成列", required: false } }} />
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "周期序号", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "合约", required: true }, "side": { type: "ENUM('long','short')", description: "方向", required: true }, "ts_opened_ns": { type: "BIGINT", description: "开仓时刻", required: true }, "ts_closed_ns": { type: "BIGINT", description: "平仓时刻；期末未平为空", required: false }, "realized_pnl": { type: "DECIMAL(24,8)", description: "原生已实现盈亏（含手续费与资金费）；未平为空", required: false }, "commissions": { type: "DECIMAL(24,8)", description: "周期内手续费", required: true }, "funding": { type: "DECIMAL(24,8)", description: "周期内资金费", required: true }, "price_pnl": { type: "DECIMAL(24,8)", description: "虚拟生成列：已平周期为已实现盈亏加手续费减资金费；未平为空", required: false }, "open_unrealized": { type: "DECIMAL(24,8)", description: "期末未平的浮动盈亏；已平必须为空", required: false }, "plan_tag": { type: "VARCHAR(160)", description: "入场计划标签；标签不合规为空", required: false }, "closing_order_type": { type: "VARCHAR(40)", description: "最后一张平仓单的原生类型，含引擎下架结算单的来源标识；未平为空", required: false }, "closing_order_tag": { type: "VARCHAR(160)", description: "最后一张平仓单的非计划标签", required: false } }} />
 
 **键与约束**
 
 - 主键　`run_id`, `seq`
 - 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
-- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
-
-**Dolt 能力**
-
-- **J.3.2.1**　与 run 行同一事务同一提交
-- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
-- **R.1.3.2**　run_cost_basis 视图按 (run_id, liquidity_side) 汇总本表，可 AS OF 重算任一版本
 
 **写入方**　<Ref id="ledger.ingest_run" />
 
-**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
-
 <div className="rd-meta">
 
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
-
-</div>
-
-### `run_order` [#def-table-run_order]
-
-引擎订单报告逐行
-
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "client_order_id": { type: "VARCHAR(100)", description: "生成列 ← raw.$.client_order_id", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "生成列 ← raw.$.instrument_id", required: true }, "side": { type: "VARCHAR(8)", description: "生成列", required: true }, "order_type": { type: "VARCHAR(32)", description: "生成列 ← raw.$.type", required: true }, "status": { type: "VARCHAR(32)", description: "生成列", required: true }, "quantity": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "filled_qty": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "price": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "avg_px": { type: "DECIMAL(38,18)", description: "生成列", required: false }, "ts_init": { type: "BIGINT", description: "生成列，引擎纳秒", required: false }, "ts_last": { type: "BIGINT", description: "生成列，引擎纳秒", required: false }, "parent_order_id": { type: "VARCHAR(100)", description: "生成列；括号单子单指向母单", required: false }, "tags": { type: "JSON", description: "生成列 ← raw.$.tags；计划标签读取（[[C.5.1.1]]）由此取", required: false } }} />
-
-**键与约束**
-
-- 主键　`run_id`, `seq`
-- 唯一　`run_id, client_order_id`
-- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
-- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
-
-**Dolt 能力**
-
-- **J.3.2.1**　与 run 行同一事务同一提交
-- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
-- **J.3.5.1**　随 dolt_backup 整份备份
-
-**写入方**　<Ref id="ledger.ingest_run" />
-
-**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
-
-</div>
-
-### `run_order_event` [#def-table-run_order_event]
-
-引擎订单事件史逐行；保护单覆盖重建与事件-订单-成交对账的依据
-
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "event_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "client_order_id": { type: "VARCHAR(100)", description: "生成列", required: true }, "event_type": { type: "VARCHAR(48)", description: "生成列 ← raw.$.type", required: true }, "ts_event_ns": { type: "BIGINT", description: "生成列", required: true } }} />
-
-**键与约束**
-
-- 主键　`run_id`, `seq`
-- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
-- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
-
-**Dolt 能力**
-
-- **J.3.2.1**　与 run 行同一事务同一提交
-- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
-
-**写入方**　<Ref id="ledger.ingest_run" />
-
-**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
-
-</div>
-
-### `run_position` [#def-table-run_position]
-
-引擎持仓报告逐行（含快照行）
-
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "报告行序", required: true }, "raw": { type: "JSON", description: "引擎原生报告行原样，不改写、不聚合", required: true }, "position_id": { type: "VARCHAR(200)", description: "生成列", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "生成列", required: true }, "is_snapshot": { type: "TINYINT", description: "生成列", required: true }, "closed": { type: "TINYINT", description: "生成列：ts_closed 非空", required: true }, "ts_closed_ns": { type: "BIGINT", description: "生成列；按平仓年拆分用", required: false }, "realized_pnl_usdt": { type: "DECIMAL(38,18)", description: "生成列", required: false } }} />
-
-**键与约束**
-
-- 主键　`run_id`, `seq`
-- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
-- 生成列　`全部类型化列 ← JSON_EXTRACT(raw) STORED`
-
-**Dolt 能力**
-
-- **J.3.2.1**　与 run 行同一事务同一提交
-- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
-- **J.3.5.2**　类型化列全由 raw 派生，只读账号的整体复核按 raw 重算绩效指标核对
-
-**写入方**　<Ref id="ledger.ingest_run" />
-
-**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
+**关联章节**　<Ref id="R.3.1.3">R.3.1.3</Ref>
 
 </div>
 
 ### `run_return` [#def-table-run_return]
 
-引擎日收益序列（UTC 日钟），配对比较与样本外区间的唯一配对单位
+逐日序列：UTC 日收益与当日平均总名义敞口；配对比较的唯一配对单位，也是资金使用与仓位择时的依据
 
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "ts_event_ns": { type: "BIGINT", description: "UTC 日钟时刻，引擎纳秒", required: true }, "native_return": { type: "DOUBLE", description: "引擎原生日收益；须复利到期末权益，否则该侧序列不可用（[[ledger.daily_returns]]）", required: true } }} />
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "ts_event_ns": { type: "BIGINT", description: "UTC 日钟时刻，引擎纳秒", required: true }, "native_return": { type: "DOUBLE", description: "引擎原生日收益；须复利到期末权益，否则该侧序列不可用（[[ledger.daily_returns]]）", required: true }, "mean_gross_notional": { type: "DECIMAL(24,8)", description: "当日平均总名义敞口（逐分钟采样，含空仓分钟）", required: false } }} />
 
 **键与约束**
 
@@ -789,6 +634,25 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 <div className="rd-meta">
 
 **关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
+
+</div>
+
+### `run_sealed` [#def-table-run_sealed]
+
+封存结果：一个运行在某个代码版本下的单运行报告；只追加，口径升版时追加新行，不改旧行
+
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "metrics_revision": { type: "CHAR(40)", description: "算这份封存结果的代码提交", required: true }, "report": { type: "JSON", description: "单运行报告：只含存储数据推不出的指标，即资格事实（每项是否通过、原因码与计数）、标记价回撤及其区间与主导合约、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗计数、计划统计是否成立、本运行特有的局限；每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
+
+**键与约束**
+
+- 主键　`run_id`, `metrics_revision`
+- 外键　`run_id` → <Ref id="table:run">run</Ref> `run_id`
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.3">R.3.1.3</Ref>
 
 </div>
 

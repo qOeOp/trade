@@ -10,6 +10,7 @@
 <Files>
 <Folder name="replay" defaultOpen>
   <File name="entry.py" />
+  <File name="reproduce.py" />
 </Folder>
 </Files>
 
@@ -343,5 +344,42 @@ def summary_problems(
 **依据**
 
 - [OCI image-spec — descriptor（digest 字段）](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)　官方文档
+
+</div>
+
+## `replay/reproduce.py` [#def-mod-replay-reproduce-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="replay.reproduce">reproduce</Ref> | 把一个已封存的运行按它的身份重放到 /tmp，核语义指纹一致后交出原生报告目录；只写一条用途为 reproduce 的试验行 |
+
+### `reproduce` [#def-replay-reproduce]
+
+把一个已封存的运行按它的身份重放到 /tmp，核语义指纹一致后交出原生报告目录；只写一条用途为 reproduce 的试验行
+
+```python
+def reproduce(run_id: int, output: Path) -> dict
+```
+
+<TypeTable type={{ "run_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" } }} />
+
+**返回**　dict：\{directory, run_id, fingerprints_match\}
+
+**期望行为**
+
+1. 读运行、试验与登记包，取源码、镜像摘要、市场提交、合约集与窗口。
+2. 按同一身份导出输入并在钉死的运行环境里重放。
+3. 经 engine.report_fingerprint 算指纹，与运行行记录的逐文件比较；不一致即拒绝 REPRODUCTION_MISMATCH 并保留目录供诊断。
+4. 目录不入账，用完由调用方清理。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REPRODUCTION_MISMATCH` | 重放出的原生报告与封存时记录的语义指纹不一致 |
+
+**使用**　<Ref id="ledger.load_run" />、<Ref id="replay.execute" />、<Ref id="engine.report_fingerprint" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.5">R.3.1.5</Ref>
 
 </div>
