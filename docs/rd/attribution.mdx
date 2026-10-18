@@ -3,7 +3,7 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不该自评的部分：账户利润来源桥、每个切面的几个标量，以及登记预测与实测的对照。逐合约、逐月这些明细由 Agent 按 skill 自算并交复算。两处改动的交互要在登记时声明。读完报告，Agent 按职责写解释，交给 F 章排优先级。
+V 章回答差是否可信，本章回答差从哪来。对比报告与单运行报告共用 R 章的报告模板。代码只算 Agent 不该自评的部分：账户利润来源桥、每个切面的几个标量，以及登记预测与实测的对照。逐合约、逐月这些明细由 Agent 按 skill 自算并交复算。两处改动的交互要在登记时声明。读完报告，Agent 按职责写解释，交给 F 章排优先级。
 
 <Mermaid chart={"flowchart LR\n  subgraph P-1[\"P.1 归因报告：账户利润桥与切面标量\"]\n    direction TB\n    P-1-1[\"P.1.1 报告的边界\"]\n    P-1-2[\"P.1.2 切面目录\"]\n  end\n  subgraph P-2[\"P.2 机制预测：登记时写在切面标量上\"]\n    direction TB\n    P-2-1[\"P.2.1 预测的写法与核对\"]\n    P-2-2[\"P.2.2 读法\"]\n  end\n  subgraph P-3[\"P.3 交互：两处改动是否相互影响\"]\n    direction TB\n    P-3-1[\"P.3.1 消融与交互读数\"]\n  end\n  subgraph P-4[\"P.4 从归因到下一个假设\"]\n    direction TB\n    P-4-1[\"P.4.1 读报告与写指向\"]\n  end\n  P-1 --> P-2\n  P-2 --> P-3\n  P-3 --> P-4"} />
 
@@ -57,7 +57,7 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 
 ### P.1.2　切面目录 [#P-1-2]
 
-七个切面，各给几个标量，各自指向几项职责；明细由 Agent 自算。
+八个切面，各给几个标量，各自指向几项职责；明细由 Agent 自算。
 
 <Cap id="P.1.2.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="利润来源桥（profit_bridge）：指向 B1、H1、G1">
 
@@ -73,7 +73,7 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 <Cap id="P.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。" title="规模归一（capital_scaled）：指向 E1、E2、E3、E4、G3、H2">
 
 - 给两侧平均总名义敞口之比，以及每单位平均名义敞口的净收益之差。
-- 单位敞口收益说明规则本身变没变；规模带来的差按回撤与年化目标读，与 <Ref id="P.1.2.7" /> 并列。
+- 单位敞口收益说明规则本身变没变；规模带来的差按回撤与年化目标读，与 <Ref id="P.1.2.8" /> 并列。
 - 标量：notional_ratio、net_per_notional。
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
@@ -94,7 +94,7 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 
 - 给差最大的五个合约占全部绝对差的比例，以及只在一侧交易过的合约个数。
 - 多头与空头周期分列闭仓净盈亏之差。
-- 逐合约明细由 Agent 自算，见 <Ref id="P.1.2.8" />。
+- 逐合约明细由 Agent 自算，见 <Ref id="P.1.2.9" />。
 - 标量：top5_abs_share、one_side_instruments、long_net、short_net。
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
@@ -123,7 +123,19 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 
 </Cap>
 
-<Cap id="P.1.2.7" kind="code" tier="unverified" tierLabel="待验证" title="回撤（drawdown）：指向 E2、E3、F3">
+<Cap id="P.1.2.7" kind="code" tier="unverified" tierLabel="待验证" title="交易配对（trade_pairs）：指向 A3、C1、C2、F3、F4、G1">
+
+- 按固定算法把两侧持仓周期配成一一对应、拆并、只在对照、只在候选四类，算法见 <Ref id="report.pair_trades" />。
+- 先给覆盖：配上的周期占比，以及配上的周期占全部绝对闭仓净盈亏的比例。
+- 只在对照的是改动删掉的交易，只在候选的是新增的交易，各给闭仓净盈亏；配上的给同一机会的盈亏差、开仓时刻偏移与赢亏翻转。
+- 配对只作描述，不进检验；Agent 不自行按时间或编号配对。
+- 标量：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span></div>
+
+</Cap>
+
+<Cap id="P.1.2.8" kind="code" tier="unverified" tierLabel="待验证" title="回撤（drawdown）：指向 E2、E3、F3">
 
 - 给两侧标记价最大回撤之差与回撤持续天数之差。
 - 给候选最大回撤区间内亏损最多的合约所占比例。
@@ -134,7 +146,7 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 </Cap>
 
 <ul className="rd-rules">
-<li id="P-1-2-8"><span className="rd-rule-id">P.1.2.8</span> 逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <Ref id="rule:P.1.2.8">research-round · references/attribution.md</Ref></li>
+<li id="P-1-2-9"><span className="rd-rule-id">P.1.2.9</span> 逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <Ref id="rule:P.1.2.9">research-round · references/attribution.md</Ref></li>
 </ul>
 
 ## P.2　机制预测：登记时写在切面标量上 [#P-2]
@@ -276,6 +288,8 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 - 差集中在少数合约，同一批合约在多个版本里持续亏损：看 by_instrument，指向 A1、A2、F3，常见的下一假设是改资格或选择，或加保护边界。
 - 去掉最好五天后剩余差反号，胜出月份少：看 by_period，指向 A3、B2，常见的下一假设是加条件过滤，或改预测期限。
 - 胜率升而每笔期望降，平均赢变小：看 trade_structure，指向 F3、F4、C1，常见的下一假设是改退出或保护边界，或改触发。
+- 删掉的交易净盈利为正：看 trade_pairs，指向 C1、A3，常见的下一假设是放宽触发或过滤，或只对亏损来源过滤。
+- 配上的交易开仓普遍推迟且盈亏变差：看 trade_pairs，指向 G1、C1，常见的下一假设是换执行方式或触发价。
 - 差集中在某个出场类别：看 trade_structure，指向 F3、F4、F5、I1，常见的下一假设是改保护边界、退出或存量处置规则。
 - 候选回撤区间被一个合约主导：看 drawdown，指向 E2、F3，常见的下一假设是限制单合约敞口，或加保护边界。
 
@@ -292,8 +306,8 @@ V 章回答差是否可信，本章回答差从哪来。代码只算 Agent 不�
 
 **待用户定**
 
-- **是否允许跨运行逐笔配对交易（同合约、同方向、持仓区间重叠），以拆出删掉与新增的交易**　现行规则 V.2.2.3 与 nautilus-report-analysis 的评测用例禁止跨运行配对单笔交易；放宽它需要用户授权。定之前交易结构只做两侧各自统计
 - **市场暴露（对 BTC 永续或等权篮子的斜率与截距）是否进固定目录**　与 R 章待定的行情归因是同一件事；定之前不进目录，Agent 可按 skill 自算并注明口径
 - **V.4.2.4「放大仓位带来的账户差不是规则改善」与 AGENTS.md「仓位是 Agent 的设计变量」的措辞关系**　本章的规模归一只说明规则本身变没变，规模带来的差按回撤与年化目标读
 
 - **已获用户同意（10-18）**　登记体 prediction 由一段文本改为结构化子项，登记时核切面、标量与职责：收紧登记核对，新增 PREDICTION_INVALID；不新增表，prediction 本是登记体必有键，结构化后是登记体内由代码读取的子字段
+- **已由用户定（10-18）**　跨运行逐笔配对交易：按固定算法配对，只作描述、先报覆盖，不进检验；配对检验仍只用账户日收益（V.2.2.3 随之改写）

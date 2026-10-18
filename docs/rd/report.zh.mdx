@@ -1,8 +1,8 @@
 # R　报告：一次运行有哪些绩效指标、由谁算、按什么口径呈现而不裁决。
 
-本章回答一次运行有哪些绩效指标、由谁算、按什么口径，包括年化、夏普、胜率、回撤、利润来源和资金使用率。它承接 G 章：只有通过完整性审计、具备经济证据资格的运行才有绩效指标。报告只呈现，不裁决。
+本章回答一次运行有哪些绩效指标、由谁算、按什么口径，包括年化、夏普、胜率、回撤、利润来源和资金使用率。它承接 G 章：只有通过完整性审计、具备经济证据资格的运行才有绩效指标。报告只呈现，不裁决。单运行报告与 P 章的对比报告共用一套栏目（R.3）。
 
-<Mermaid chart={"flowchart LR\n  subgraph R-1[\"R.1 绩效指标分工：谁算、怎么保证可信\"]\n    direction TB\n    R-1-1[\"R.1.1 产品算的绩效指标\"]\n    R-1-2[\"R.1.2 Agent 自算的描述统计\"]\n    R-1-3[\"R.1.3 每个绩效指标附带什么\"]\n  end\n  subgraph R-2[\"R.2 年化、夏普、胜率、回撤与利润来源的口径\"]\n    direction TB\n    R-2-1[\"R.2.1 年化、夏普与计划胜率\"]\n    R-2-2[\"R.2.2 最大回撤\"]\n    R-2-3[\"R.2.3 资金使用率\"]\n  end\n  R-1 --> R-2"} />
+<Mermaid chart={"flowchart LR\n  subgraph R-1[\"R.1 绩效指标分工：谁算、怎么保证可信\"]\n    direction TB\n    R-1-1[\"R.1.1 产品算的绩效指标\"]\n    R-1-2[\"R.1.2 Agent 自算的描述统计\"]\n    R-1-3[\"R.1.3 每个绩效指标附带什么\"]\n  end\n  subgraph R-2[\"R.2 年化、夏普、胜率、回撤与利润来源的口径\"]\n    direction TB\n    R-2-1[\"R.2.1 年化、夏普与计划胜率\"]\n    R-2-2[\"R.2.2 最大回撤\"]\n    R-2-3[\"R.2.3 资金使用率\"]\n  end\n  subgraph R-3[\"R.3 报告模板：单运行与对比共用一套栏目\"]\n    direction TB\n    R-3-1[\"R.3.1 栏目与用法\"]\n  end\n  R-1 --> R-2\n  R-2 --> R-3"} />
 
 ## R.1　绩效指标分工：谁算、怎么保证可信 [#R-1]
 
@@ -218,6 +218,58 @@ skill 规定资金使用率怎么算、怎样和回撤一起读；输入可信�
 <ul className="rd-rules">
 <li id="R-2-3-1"><span className="rd-rule-id">R.2.3.1</span> 资金使用四项只经读取入口从敞口与账户数据算，缺敞口不答 <Ref id="rule:R.2.3.1">nautilus-report-analysis · references/capital.md</Ref></li>
 <li id="R-2-3-2"><span className="rd-rule-id">R.2.3.2</span> 回撤用产品值不重算，与同运行资金使用率并列读 <Ref id="rule:R.2.3.2">nautilus-report-analysis · SKILL.md</Ref></li>
+</ul>
+
+## R.3　报告模板：单运行与对比共用一套栏目 [#R-3]
+
+<Steps>
+
+<Step>
+
+单运行报告和对比报告按同一组栏目、同一顺序输出。
+
+</Step>
+
+<Step>
+
+单运行给本运行的值，对比给两侧的值与差，并多出检验结果、交易配对与预测对照三栏。
+
+</Step>
+
+<Step>
+
+Agent 的明细表和解释挂在对应栏目下。
+
+</Step>
+
+</Steps>
+
+### R.3.1　栏目与用法 [#R-3-1]
+
+栏目来自归因切面目录；模板放在 skill 的模板目录里。
+
+<Cap id="R.3.1.1" kind="code" tier="unverified" tierLabel="待验证" title="单运行与对比报告按同一组栏目输出">
+
+- 身份与资格：单运行给运行身份、经济证据资格与原因；对比给两侧身份、可比资格。
+- 检验结果：只在对比报告里，给效应、区间、p 与检验条件（<Ref id="V.4.1.1" />）。
+- 绩效指标：单运行给年化、标记价最大回撤、计划胜率、夏普；对比给两侧并列与差。
+- 利润来源：单运行给价格、手续费、资金费、期末浮动；对比给四项之差（<Ref id="P.1.2.1" />）。
+- 规模：单运行给平均与峰值名义敞口、单位敞口净收益；对比给敞口之比、单位敞口收益之差（<Ref id="P.1.2.2" />）。
+- 费用：单运行给吃单占比、盈亏平衡费率倍数；对比给盈亏平衡费率倍数（<Ref id="P.1.2.3" />）。
+- 品种与方向：单运行给前五合约占绝对盈亏比例、多空分列；对比给同左之差（<Ref id="P.1.2.4" />）。
+- 时期：单运行给盈利月份占比、去掉最好五天后的剩余；对比给胜出月份占比、剩余差（<Ref id="P.1.2.5" />）。
+- 交易结构：单运行给周期数、胜率、平均赢亏、每笔期望、持仓时长、出场类别；对比给同左之差与期望差的拆分（<Ref id="P.1.2.6" />）。
+- 交易配对：只在对比报告里，给覆盖、删掉与新增的交易、同一机会的差（<Ref id="P.1.2.7" />）。
+- 回撤：单运行给最大回撤、持续天数、回撤区间内的主导合约；对比给同左之差（<Ref id="P.1.2.8" />）。
+- 预测对照：只在对比报告里，给每项登记预测是否同号；声明了交互时附交互读数（<Ref id="P.2.1.2" />、<Ref id="P.3.1.2" />）。
+- 局限：单运行给合并去重的局限清单；对比给两侧局限合并去重。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="report.attribution">attribution</Ref> <Ref id="registration.attribution_catalogue">attribution_catalogue</Ref></span></div>
+
+</Cap>
+
+<ul className="rd-rules">
+<li id="R-3-1-2"><span className="rd-rule-id">R.3.1.2</span> 写运行或比较的报告时按模板栏目顺序写，置空的栏写原因，不删栏 <Ref id="rule:R.3.1.2">research-round · templates/report.md</Ref></li>
 </ul>
 
 ## 待定事项 [#R-pending]

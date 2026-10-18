@@ -18,6 +18,7 @@
   <File name="references/changes.md" />
   <File name="references/restore.md" />
   <File name="templates/strategy-header.md" />
+  <File name="templates/report.md" />
   <File name="references/duty-directory.md" />
   <File name="templates/workdir-agents.md" />
 </Folder>
@@ -104,11 +105,13 @@
 | 差集中在少数合约，同一批合约在多个版本里持续亏损 | by_instrument | A1、A2、F3 | 改资格或选择，或加保护边界 |
 | 去掉最好五天后剩余差反号，胜出月份少 | by_period | A3、B2 | 加条件过滤，或改预测期限 |
 | 胜率升而每笔期望降，平均赢变小 | trade_structure | F3、F4、C1 | 改退出或保护边界，或改触发 |
+| 删掉的交易净盈利为正 | trade_pairs | C1、A3 | 放宽触发或过滤，或只对亏损来源过滤 |
+| 配上的交易开仓普遍推迟且盈亏变差 | trade_pairs | G1、C1 | 换执行方式或触发价 |
 | 差集中在某个出场类别 | trade_structure | F3、F4、F5、I1 | 改保护边界、退出或存量处置规则 |
 | 候选回撤区间被一个合约主导 | drawdown | E2、F3 | 限制单合约敞口，或加保护边界 |
 
 <ol className="rd-skill-rules">
-<li id="def-rule-P-1-2-8">逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <span className="rd-rule-links"><Ref id="P.1.2.8">P.1.2.8</Ref></span><span className="rd-eval">eval <code>attribution-detail-recomputed</code>：引用的逐合约、逐月或出场原因明细来自报告表，合计与报告的切面标量一致；驱动下一假设的数附独立复算</span></li>
+<li id="def-rule-P-1-2-9">逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <span className="rd-rule-links"><Ref id="P.1.2.9">P.1.2.9</Ref></span><span className="rd-eval">eval <code>attribution-detail-recomputed</code>：引用的逐合约、逐月或出场原因明细来自报告表，合计与报告的切面标量一致；驱动下一假设的数附独立复算</span></li>
 <li id="def-rule-P-2-2-1">账户差为正而预测的切面反号，只写账户差，不写机制成立 <span className="rd-rule-links"><Ref id="P.2.2.1">P.2.2.1</Ref></span><span className="rd-eval">eval <code>mechanism-before-account</code>：报告中预测与实测反号时，解释判断写明预测落空，未称机制成立</span></li>
 <li id="def-rule-P-3-1-1">一处改动的比较就是该职责的消融，不为归因另跑回放 <span className="rd-rule-links"><Ref id="P.3.1.1">P.3.1.1</Ref></span><span className="rd-eval">eval <code>single-change-is-ablation</code>：单一改动的归因只读该比较的归因报告，未另开为归因而设的回放</span></li>
 <li id="def-rule-P-3-1-3">要读交互，在补最后一个角的登记里声明四个角；交互只作归因，不作改善证据 <span className="rd-rule-links"><Ref id="P.3.1.3">P.3.1.3</Ref></span><span className="rd-eval">eval <code>interaction-declared</code>：交互读数来自登记时声明的四个角；解释里未把交互当作改善证据，也未事后从账本里挑二乘二</span></li>
@@ -243,6 +246,32 @@ I2 退出可行性与未来资源：<立场> | <理由> | <来源>
 
 <ol className="rd-skill-rules">
 <li id="def-rule-C-1-4-1">文件头按模板逐行写 27 项职责的立场、理由与来源，硬契约行不得写不适用 <span className="rd-rule-links"><Ref id="C.1.4.1">C.1.4.1</Ref></span><span className="rd-eval">eval <code>header-27-duties</code>：文件头恰有 27 行职责，编号与模板一致，每行立场属于采用/缺省/不适用且有理由与来源；E1、E4、F5、H2 四行不是不适用</span></li>
+</ol>
+
+## `templates/report.md` [#def-file-research-round-templates-report-md]
+
+**触发**　写单个运行的报告或两次运行的比较报告时
+
+报告的固定栏目：单运行与对比共用，对比多出检验结果、交易配对与预测对照
+
+| 栏目 | 单运行报告 | 对比报告 |
+|---|---|---|
+| 身份与资格 | 运行身份、经济证据资格与原因 | 两侧身份、可比资格 |
+| 检验结果 | — | 效应、区间、p 与检验条件（[[V.4.1.1]]） |
+| 绩效指标 | 年化、标记价最大回撤、计划胜率、夏普 | 两侧并列与差 |
+| 利润来源 | 价格、手续费、资金费、期末浮动 | 四项之差（[[P.1.2.1]]） |
+| 规模 | 平均与峰值名义敞口、单位敞口净收益 | 敞口之比、单位敞口收益之差（[[P.1.2.2]]） |
+| 费用 | 吃单占比、盈亏平衡费率倍数 | 盈亏平衡费率倍数（[[P.1.2.3]]） |
+| 品种与方向 | 前五合约占绝对盈亏比例、多空分列 | 同左之差（[[P.1.2.4]]） |
+| 时期 | 盈利月份占比、去掉最好五天后的剩余 | 胜出月份占比、剩余差（[[P.1.2.5]]） |
+| 交易结构 | 周期数、胜率、平均赢亏、每笔期望、持仓时长、出场类别 | 同左之差与期望差的拆分（[[P.1.2.6]]） |
+| 交易配对 | — | 覆盖、删掉与新增的交易、同一机会的差（[[P.1.2.7]]） |
+| 回撤 | 最大回撤、持续天数、回撤区间内的主导合约 | 同左之差（[[P.1.2.8]]） |
+| 预测对照 | — | 每项登记预测是否同号；声明了交互时附交互读数（[[P.2.1.2]]、[[P.3.1.2]]） |
+| 局限 | 合并去重的局限清单 | 两侧局限合并去重 |
+
+<ol className="rd-skill-rules">
+<li id="def-rule-R-3-1-2">写运行或比较的报告时按模板栏目顺序写，置空的栏写原因，不删栏 <span className="rd-rule-links"><Ref id="R.3.1.2">R.3.1.2</Ref></span><span className="rd-eval">eval <code>report-follows-template</code>：运行或比较的报告包含模板全部栏目、顺序一致，置空的栏写了原因；明细表挂在对应栏目下</span></li>
 </ol>
 
 ## `references/duty-directory.md` [#def-file-research-round-references-duty-directory-md]
