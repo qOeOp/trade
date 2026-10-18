@@ -130,10 +130,20 @@ class RegisterTests(unittest.TestCase):
                 self.assertEqual(self.code("registration-shape", body), "PREDICTION_INVALID")
         two = self.derived(changed_duties=["G3", "E1"])
         self.assertEqual(self.code("registration-shape", two), "PREDICTION_INVALID")
+        root = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
+        root["prediction"]["mechanism"] = [{"slice": "made_up", "measure": "unit_return", "direction": "up",
+                                            "duty": "B1", "reason": "r"}]
+        self.assertEqual(self.code("registration-shape", root), "PREDICTION_INVALID")
         without_slice = self.derived()
         without_slice["prediction"]["mechanism"] = [{"slice": None, "measure": None, "direction": "down",
                                                      "duty": "G3", "reason": "no slice measures queue position"}]
         self.world.register("registration-no-slice", without_slice)
+
+    def test_a_root_may_predict_mechanisms_on_any_duty(self):
+        root = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
+        root["prediction"]["mechanism"] = [{"slice": "by_period", "measure": "months_won_share", "direction": "up",
+                                            "duty": "B1", "reason": "the mispricing persists across months"}]
+        self.assertFalse(self.world.register("registration-root-predicted", root)["replayed"])
 
     def test_lineage_grid_and_references_are_checked_against_the_ledger(self):
         cases = {
@@ -146,6 +156,7 @@ class RegisterTests(unittest.TestCase):
             "unknown grid candidate": self.derived(grid=[{"candidate": "rsi@99", "params": {}}]),
             "repeated grid source": self.derived(grid=[{"candidate": self.child["candidate"], "params": {}}] * 2),
             "unknown retry_of": self.derived(retry_of="registration-ghost"),
+            "retry_of outside the registration namespace": self.derived(retry_of="research-line-1"),
         }
         for label, body in cases.items():
             with self.subTest(label=label):
@@ -178,6 +189,22 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(self.code("registration-exposed", body), "SOURCE_ALREADY_EXPOSED")
         self.assertEqual(self.code("registration-exposed", {**body, "retry_of": "registration-root"}),
                          "SOURCE_ALREADY_EXPOSED")
+
+    def test_only_the_cited_precheck_of_at_most_seven_days_leaves_the_source_unexposed(self):
+        long = self.world.publish("prechecked for eight days")
+        review = self.world.prechecked(long["source"], days=8)
+        body = self.derived(grid=[{"candidate": long["candidate"], "params": {}}], prechecks={long["candidate"]: review})
+        self.assertEqual(self.code("registration-long-precheck", body), "SOURCE_ALREADY_EXPOSED")
+        week = self.world.publish("prechecked for seven days")
+        review = self.world.prechecked(week["source"], days=7)
+        self.world.register("registration-week-precheck", self.derived(
+            grid=[{"candidate": week["candidate"], "params": {}}], prechecks={week["candidate"]: review}))
+        twice = self.world.publish("prechecked twice")
+        self.world.prechecked(twice["source"])
+        review = self.world.prechecked(twice["source"])
+        self.assertEqual(self.code("registration-second-precheck", self.derived(
+            grid=[{"candidate": twice["candidate"], "params": {}}], prechecks={twice["candidate"]: review})),
+            "SOURCE_ALREADY_EXPOSED")
 
     def test_registration_needs_a_research_line(self):
         body = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
@@ -422,6 +449,56 @@ class LineRecordTests(unittest.TestCase):
         blank_run = world.seal_run(trial_id)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
         self.assertEqual(self.code(self.derived(control_run=blank_run)), "IDENTITY_MALFORMED")
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class RetryTests(unittest.TestCase):
+    """research retries along the retry_of chain of root registrations of rsi@1."""
+
+    def setUp(self):
+        self.world = World("retry")
+        self.addCleanup(self.world.close)
+        self.world.judge("review_cadence", cadence=50)
+        self.body = self.world.body(["rsi@1"], {"rsi@1": self.world.prechecked(source("root"))})
+
+    def attempt(self, bundle: str, retry_of: str | None, outcome: str | None) -> int:
+        """Register, bind and finish one attempt: a run status, an original capture outcome or nothing."""
+        self.world.register(bundle, {**self.body, "retry_of": retry_of} if retry_of else self.body)
+        trial_id = self.world.research_trial(bundle, source("root"))
+        if outcome in ("passed", "invalid"):
+            self.world.seal_run(trial_id, outcome)
+            self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
+        elif outcome is not None:
+            capture(self.world.conn, trial_id, source("root"), purpose="research", outcome=outcome)
+        return trial_id
+
+    def code(self, bundle: str, retry_of: str) -> str:
+        return refused(self.world.register, bundle, {**self.body, "retry_of": retry_of}).code
+
+    def test_a_retry_follows_the_chain_of_invalid_and_interrupted_attempts(self):
+        self.attempt("registration-r1", None, "invalid")
+        self.attempt("registration-r2", "registration-r1", "interrupted")
+        self.attempt("registration-r3", "registration-r2", "host_failure")
+        self.assertFalse(self.world.register("registration-r4", {**self.body, "retry_of": "registration-r3"})[
+            "replayed"])
+
+    def test_a_retry_of_a_passed_or_unfinished_attempt_is_refused(self):
+        self.attempt("registration-r1", None, "invalid")
+        unfinished = self.attempt("registration-r2", "registration-r1", None)
+        self.assertEqual(self.code("registration-r3", "registration-r2"), "RETRY_NOT_ALLOWED")
+        capture(self.world.conn, unfinished, source("root"), purpose="research", outcome="completed")
+        self.assertEqual(self.code("registration-r3", "registration-r2"), "RETRY_NOT_ALLOWED")
+
+    def test_a_passed_run_admits_a_retry_only_without_economic_evidence(self):
+        trial_id = self.attempt("registration-r1", None, "passed")
+        self.assertEqual(self.code("registration-r2", "registration-r1"), "RETRY_NOT_ALLOWED")
+        run_id = self.world.service.sql(self.world.profile, "SELECT run_id FROM run WHERE trial_id = %s",
+                                        (trial_id,))[0][0]
+        self.world.qualification.unavailable.add(run_id)
+        self.world.register("registration-r2", {**self.body, "retry_of": "registration-r1"})
+        self.world.qualification.unavailable.clear()
+        with seams.use(qualification_assess=seams.DEFAULT.qualification_assess):  # no qualification package
+            self.assertEqual(self.code("registration-r3", "registration-r1"), "RETRY_NOT_ALLOWED")
 
 
 if __name__ == "__main__":

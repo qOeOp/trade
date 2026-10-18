@@ -209,14 +209,15 @@ class World:
         return f"/tmp/replay-{self.counter}"
 
     def open_precheck(self, data: bytes, identity_overrides: dict | None = None, effective_config: dict | None = None,
-                      runtime: dict | None = None) -> int:
+                      runtime: dict | None = None, days: int = 2) -> int:
+        """A precheck trading `days` days from 2026-01-06."""
         identity = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64, **(identity_overrides or {})}
         effective = effective_config or config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z",
                                                trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z")
         return trials.open_trial(self.conn, "precheck", sha(data), runtime or RUNTIME,
                                  {"identity": identity, "input_coverage": coverage_bytes(effective)},
-                                 {"start": JAN + 4 * DAY, "trade_start": JAN + 5 * DAY, "end": JAN + 7 * DAY},
+                                 {"start": JAN + 4 * DAY, "trade_start": JAN + 5 * DAY, "end": JAN + (5 + days) * DAY},
                                  context(data, self.workdir()))["trial_id"]
 
     def review_body(self, trial_id: int, verdict: str = "passed", **items) -> dict:
@@ -225,9 +226,9 @@ class World:
             body[item] = items.get(item, {"status": "passed", "note": f"{item} checked against the capture"})
         return body
 
-    def prechecked(self, data: bytes, **capture_options) -> str:
+    def prechecked(self, data: bytes, days: int = 2, **capture_options) -> str:
         """Precheck, seal and review a source; returns the review bundle."""
-        trial_id = self.open_precheck(data)
+        trial_id = self.open_precheck(data, days=days)
         capture(self.conn, trial_id, data, **capture_options)
         return precheck.record_review(self.profile, self.review_body(trial_id), "reviewer-b")["bundle"]
 

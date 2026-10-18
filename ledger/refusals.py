@@ -166,9 +166,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "EXECUTION_MISMATCH": ("What the trial records (purpose, windows, instruments, runtime image and contract, "
                            "effective configuration, input identity) differs from the registration.",
                            ("Replay with the registered execution identity, or register again.",)),
-    "SOURCE_PRECHECK_REQUIRED": ("The grid source lacks a matching native precheck or independent review.",
+    "SOURCE_PRECHECK_REQUIRED": ("The grid source lacks a matching native precheck or independent review, or the "
+                                 "precheck's capture is malformed.",
                                  ("Run `replay precheck` and record `source review` for the source.",)),
-    "SOURCE_PRECHECK_FAILED": ("The precheck or independent review of the grid source did not pass.",
+    "SOURCE_PRECHECK_FAILED": ("The precheck or independent review of the grid source did not pass, or another "
+                               "review of the same precheck failed it.",
                                ("Fix the source, publish it and precheck it again.",)),
     "GRID_ALREADY_ATTEMPTED": ("This grid point (or validation registration) was already consumed.",
                                ("Register a new grid point; consumed attempts stay counted.",)),
@@ -226,8 +228,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "account terms differ from the candidate's latest valid research run (or it has none).",
                         ("Publish the grid for the probed runtime contract; replay the candidate's research run "
                          "under the validation's runtime first.",)),
-    "SOURCE_ALREADY_EXPOSED": ("A grid source was already run by a replay that is not an exempt precheck, and the "
-                               "registration names no retry_of that consumed it.",
+    "SOURCE_ALREADY_EXPOSED": ("A grid source was already run by a replay that is not the cited precheck (of at "
+                               "most seven trading days), and no registration on the retry_of chain consumed it.",
                                ("Register a new source, or set retry_of to the registration that consumed this "
                                 "source.",)),
     "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
@@ -273,7 +275,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Write the lifecycle bundle for this market commit again with the market command.",)),
     # Prechecks and source reviews (registration/precheck.py)
     "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
-                       "enumeration, has an empty note or contradicts its verdict.",
+                       "enumeration, has an empty note, or its verdict is not passed exactly when no item is "
+                       "failed or unresolved.",
                        ("Write trial_id, verdict and the four items api, causal, activity, readiness, each with a "
                         "status and a note.",)),
     "PRECHECK_CAPTURE_MISSING": ("The trial has no original precheck capture (only recovery material, or another "
@@ -285,10 +288,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "DESIGN_INVALID": ("The declared test design lacks or adds a field or holds an illegal value.",
                        ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
                         "design_reason.",)),
-    "RETRY_NOT_ALLOWED": ("The retried registration does not exist, differs in candidate, window or universe "
-                          "rule, was never bound, or produced a valid run with economic evidence.",
-                          ("Retry only a bound registration whose replay was interrupted, invalid or without "
-                           "economic evidence.",)),
+    "RETRY_NOT_ALLOWED": ("A consumed attempt on the retry_of chain of a research registration, or the bound "
+                          "replay of a retried validation registration, was neither interrupted (by its original "
+                          "capture) nor invalid and has economic evidence; or the retried validation registration "
+                          "does not exist, differs in candidate, window or universe rule, or was never bound.",
+                          ("Retry only attempts whose replay was interrupted, invalid or without economic "
+                           "evidence; a poor result is no reason to retry.",)),
     "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
                              ("List validation registrations with `research status`.",)),
     "REGISTRATION_CONSUMED": ("The validation registration was already bound, or the trial is bound to another "

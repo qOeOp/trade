@@ -112,7 +112,8 @@ class PrecheckTests(unittest.TestCase):
                      {**body, "trial_id": True}, {**body, "verdict": "maybe"},
                      {**body, "api": {"status": "fine", "note": "n"}}, {**body, "api": {"status": "passed", "note": " "}},
                      {**body, "api": {"status": "passed", "note": "n", "score": 1}},
-                     {**body, "causal": {"status": "unresolved", "note": "lookahead unclear"}}, "not a body"]
+                     {**body, "causal": {"status": "unresolved", "note": "lookahead unclear"}},
+                     {**body, "verdict": "failed"}, "not a body"]
         seq = self.world.seq()
         for value in malformed:
             with self.subTest(value=value):
@@ -165,6 +166,25 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(self.code(precheck.require_precheck, self.conn, "source-review-forged", sha(self.data),
                                    IDENTITY["image_ref"], None), "TRIAL_NOT_FOUND")
 
+    def test_lifecycle_inputs_are_compared_both_ways(self):
+        trial_id = self.sealed(identity={"lifecycle_bundle": "lifecycle-" + MARKET_COMMIT})
+        bundle = self.review(trial_id)
+        _, declared = self.keys()
+        self.assertEqual(self.code(precheck.require_precheck, self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
+                                   declared), "SOURCE_PRECHECK_REQUIRED")
+        _, with_lifecycle = self.keys(lifecycle_bundle="lifecycle-" + MARKET_COMMIT)
+        self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
+                                                   with_lifecycle), trial_id)
+
+    def test_any_failed_review_of_the_precheck_fails_admission(self):
+        trial_id = self.sealed()
+        passed = self.review(trial_id)
+        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(self.data), IDENTITY["image_ref"], None),
+                         trial_id)
+        self.review(trial_id, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
+        self.assertEqual(self.code(precheck.require_precheck, self.conn, passed, sha(self.data), IDENTITY["image_ref"],
+                                   None), "SOURCE_PRECHECK_FAILED")
+
     def test_a_failed_precheck_or_review_item_fails_admission(self):
         cases = [{"native_exit": 1}, {"audit_exit": 2}, {"audit_exit": None}, {"outcome": "interrupted"},
                  {"runtime_errors": b'{"callback": "on_bar", "error": "KeyError"}\n'}]
@@ -209,6 +229,21 @@ class PrecheckTests(unittest.TestCase):
                       {"execution.json": json.dumps(manifest).encode(), "native.stdout.txt": b"ran"})
         self.assertEqual(self.code(precheck.exposure_exempt, self.conn, damaged, sha(self.data), IDENTITY["image_ref"],
                                    declared_config, declared_inputs), "LEDGER_CORRUPT")
+        malformed = self.world.open_precheck(self.data)
+        product_write(self.conn, "malformed_capture", f"trial-{malformed}-execution",
+                      {"execution.json": json.dumps({**manifest, "trial_id": malformed, "files": {}}).encode(),
+                       "native.stdout.txt": b"ran"})
+        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, malformed, sha(self.data),
+                                   IDENTITY["image_ref"], declared_config, declared_inputs), "SOURCE_PRECHECK_REQUIRED")
+
+    def test_a_precheck_longer_than_seven_trading_days_is_not_exempt(self):
+        declared_config, declared_inputs = self.keys()
+        for days, exempt in ((precheck.PRECHECK_MAX_DAYS, True), (precheck.PRECHECK_MAX_DAYS + 1, False)):
+            trial_id = self.world.open_precheck(self.data, days=days)
+            capture(self.conn, trial_id, self.data)
+            with self.subTest(days=days):
+                self.assertIs(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), IDENTITY["image_ref"],
+                                                       declared_config, declared_inputs), exempt)
 
 
 if __name__ == "__main__":

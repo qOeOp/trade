@@ -282,6 +282,14 @@ class ValidationTests(unittest.TestCase):
         self.registered["retry"], self.windows["retry"] = retry, (start, end)
         self.bind("retry")
 
+    def test_a_bound_registration_without_a_run_is_retried_only_after_an_interrupted_capture(self):
+        original = self.registered["interrupted"]
+        start, end = self.windows["interrupted"]
+        trial_id = self.bind("interrupted")
+        retry = {"retry_of": original["registration_id"], "window_start": start, "window_end": end}
+        self.assertEqual(self.code(self.register, "interrupted-retry", **retry), "RETRY_NOT_ALLOWED")
+        capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
+        self.assertEqual(self.register("interrupted-retry", **retry)["witness"]["status"], "stamped")
     def test_the_replay_must_match_the_registration_in_every_identity(self):
         root = source("root")
         dirty = self.git_root / "dirty"

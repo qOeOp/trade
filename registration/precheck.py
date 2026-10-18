@@ -2,15 +2,17 @@
 `registration.require_precheck`, `registration.record_review`).
 
 A precheck is a replay declared as such before it starts (trial purpose precheck), on the runtime
-image and inputs the registration will use; it never consumes a grid point and does not expose the
-source. An Agent that did not write the source reviews the sealed precheck capture under four items;
-the review is appended as a product bundle bound to the source hash, the image digest and the
-precheck capture. Passing says the source runs, not that it is economic evidence.
+image and inputs the registration will use; it never consumes a grid point, and the one precheck a
+registration cites does not expose the source when its trading window is short. An Agent that did
+not write the source reviews the sealed precheck capture under four items; the review is appended
+as a product bundle bound to the source hash, the image digest and the precheck capture. Passing
+says the source runs, not that it is economic evidence; any failed review of the precheck fails it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import timedelta
 import hashlib
 import json
 
@@ -30,7 +32,10 @@ NOTE_LIMIT = 8000  # uncalibrated example value
 WINDOW_KEYS = ("start", "trade_start", "end")
 # Input facts a precheck's start receipt must share with the registration (input_key keys).
 EXEMPT_INPUT_KEYS = ("market_database", "market_commit", "universe_rule", "lifecycle_bundle")
-PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle", "window")
+PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle")
+# The longest trading window a precheck may replay and stay exempt from exposure; an uncalibrated
+# example value. A longer precheck has seen enough of the window to count as a replay of it.
+PRECHECK_MAX_DAYS = 7
 
 
 def digest_of(image_ref: str) -> str | None:
@@ -38,22 +43,37 @@ def digest_of(image_ref: str) -> str | None:
 
 
 def _trial(conn: db.LedgerConnection, trial_id) -> dict:
-    row = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments FROM trial "
-                   "WHERE trial_id = %s", (trial_id,)) if isinstance(trial_id, int) else None
+    row = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments, trade_start, "
+                   "trade_end FROM trial WHERE trial_id = %s", (trial_id,)) if isinstance(trial_id, int) else None
     if row is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id!r}", missing=(str(trial_id),))
     return row
 
 
+def _capture(conn: db.LedgerConnection, trial_id: int) -> dict:
+    """The original capture of a precheck; a malformed one is no precheck the registration can rely on."""
+    try:
+        return execution.read_capture(conn, trial_id)
+    except Refusal as exc:
+        if exc.code == "EXECUTION_IDENTITY":
+            raise refuse("SOURCE_PRECHECK_REQUIRED", f"the capture of precheck trial {trial_id} is malformed: "
+                         + exc.message, missing=(f"trial-{trial_id}-execution",)) from exc
+        raise
+
+
 def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str, image_ref: str, config_key: dict,
                     input_key: dict) -> bool:
-    """True when the trial is a declared native precheck matching the registration's identity."""
+    """True when the trial is a declared native precheck matching the registration's identity whose
+    trading window is at most PRECHECK_MAX_DAYS long. (Only the precheck the registration cites is
+    asked; register._check_exposure decides that.)"""
     trial = _trial(conn, trial_id)
     if trial["purpose"] != "precheck":
         return False
     if trial["source_sha256"] != source_sha256 or trial["image_digest"] != digest_of(image_ref):
         return False
-    capture = execution.read_capture(conn, trial_id)
+    if trial["trade_end"] - trial["trade_start"] > timedelta(days=PRECHECK_MAX_DAYS):
+        return False
+    capture = _capture(conn, trial_id)
     if capture["status"] != "captured" or capture["purpose"] != "precheck" or capture["start"].get("purpose") != "precheck":
         return False
     started = capture["start"].get("input_identity")
@@ -117,7 +137,7 @@ def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha25
             or record.get("image_digest") != digest):
         raise refuse("SOURCE_PRECHECK_REQUIRED", f"{review_bundle} does not review a precheck of this source on "
                                                  f"{digest}", missing=(str(review_bundle),))
-    capture = execution.read_capture(conn, trial["trial_id"])
+    capture = _capture(conn, trial["trial_id"])
     stages = capture.get("stages") if isinstance(capture.get("stages"), Mapping) else {}
     outcome = capture.get("outcome") if isinstance(capture.get("outcome"), Mapping) else {}
     if (capture["status"] != "captured" or not _stage_ok(stages.get("native")) or not _stage_ok(stages.get("audit"))
@@ -126,15 +146,28 @@ def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha25
                      missing=(f"trial-{trial['trial_id']}-execution",))
     if input_key is not None:
         started = capture["start"].get("input_identity") or {}
-        differs = [key for key in PRECHECK_INPUT_KEYS if key in input_key and started.get(key) != input_key[key]]
+        differs = [key for key in PRECHECK_INPUT_KEYS if started.get(key) != input_key.get(key)]
         if differs:
             raise refuse("SOURCE_PRECHECK_REQUIRED", f"precheck trial {trial['trial_id']} used other inputs: "
                                                      + ", ".join(differs), missing=tuple(differs))
     failing = [item for item in ITEMS if (record.get(item) or {}).get("status") not in PASSING]
+    if record.get("verdict") != "passed":
+        failing.insert(0, "verdict")
     if failing:
         raise refuse("SOURCE_PRECHECK_FAILED", f"{review_bundle} did not pass: " + ", ".join(failing),
                      missing=tuple(failing))
+    failed = [bundle for bundle in _reviews_of(conn, trial["trial_id"])
+              if _review(conn, bundle).get("verdict") == "failed"]
+    if failed:
+        raise refuse("SOURCE_PRECHECK_FAILED", f"precheck trial {trial['trial_id']} also has failed reviews: "
+                     + ", ".join(failed), missing=tuple(failed))
     return trial["trial_id"]
+
+
+def _reviews_of(conn: db.LedgerConnection, trial_id: int) -> list[str]:
+    """Every source-review bundle record_review wrote for one precheck trial."""
+    return [bundle for (bundle,) in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE %s ORDER BY bundle",
+                                              (f"source-review-{trial_id}-%",))]
 
 
 def _check_body(body) -> None:
@@ -154,8 +187,8 @@ def _check_body(body) -> None:
         if (not isinstance(value, Mapping) or set(value) != {"status", "note"} or value["status"] not in ITEM_STATUSES
                 or not isinstance(value["note"], str) or not value["note"].strip() or len(value["note"]) > NOTE_LIMIT):
             raise invalid(f"{item} must be {{status, note}} with a status of {ITEM_STATUSES} and a nonempty note", item)
-    if body["verdict"] == "passed" and any(body[item]["status"] in ("failed", "unresolved") for item in ITEMS):
-        raise invalid("a passed verdict cannot hold a failed or unresolved item", "verdict")
+    if (body["verdict"] == "passed") == any(body[item]["status"] in ("failed", "unresolved") for item in ITEMS):
+        raise invalid("the verdict is passed exactly when no item is failed or unresolved", "verdict")
 
 
 def record_review(ledger: db.LedgerProfile, body: Mapping, reviewer: str) -> dict:

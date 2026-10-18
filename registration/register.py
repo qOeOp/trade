@@ -214,10 +214,11 @@ def _check_prediction(body: Mapping) -> None:
     catalogue = duties.slice_measures()
     every = frozenset().union(*catalogue.values())
     changed = set(body["changed_duties"])
+    allowed = changed if body["parent"] is not None else set(duties.DUTIES)  # a root changes no duty, predicts any
     predicted = set()
     for index, item in enumerate(body["prediction"]["mechanism"]):
         where = f"prediction.mechanism[{index}]"
-        if item["duty"] not in changed:
+        if item["duty"] not in allowed:
             raise refuse("PREDICTION_INVALID", f"{where} predicts duty {item['duty']}, which changed_duties does not "
                                                "name", missing=(where,))
         if item["slice"] is None:
@@ -299,11 +300,47 @@ def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) ->
     return points
 
 
-def _check_exposure(conn: db.LedgerConnection, body: Mapping, execution: Mapping, points: list[dict],
+def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
+    """Whether a consumed attempt may be tried again: it was interrupted (no run, and its original
+    capture records an interrupted or host-failure outcome), its run is invalid, or qualification
+    finds no economic evidence in it (with no qualification package, only the first two)."""
+    run = conn.one("SELECT r.run_id, r.trial_id, r.status, t.source_sha256, t.image_digest FROM run r JOIN trial t "
+                   "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
+    if run is None:
+        capture = ledger_execution.read_capture(conn, trial_id)
+        outcome = capture.get("outcome") if isinstance(capture.get("outcome"), Mapping) else {}
+        return capture["status"] == "captured" and outcome.get("kind") in ("interrupted", "host_failure")
+    if run["status"] == "invalid":
+        return True
+    try:
+        return not seams.current.qualification_assess(conn, run)["economic_evidence_available"]
+    except NotImplementedError:
+        return False
+
+
+def _retry_chain(conn: db.LedgerConnection, retry_of) -> list[str]:
+    """The registrations retry_of reaches, nearest first."""
+    chain = []
+    while retry_of is not None and retry_of not in chain:
+        chain.append(retry_of)
+        retry_of = load_plan(conn, retry_of)[0]["body"].get("retry_of")
+    return chain
+
+
+def _check_retry(conn: db.LedgerConnection, chain: list[str], points: list[dict]) -> None:
+    sources = {point["source_sha256"] for point in points}
+    for bundle in chain:
+        for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM registration_attempt WHERE "
+                                          "registration_bundle = %s ORDER BY trial_id", (bundle,)):
+            if source in sources and not retryable(conn, trial_id):
+                raise refuse("RETRY_NOT_ALLOWED", f"trial {trial_id} of {bundle} was neither interrupted nor invalid "
+                                                  "and has economic evidence", missing=(bundle, f"trial {trial_id}"))
+
+
+def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[str],
                     exclude: tuple[str, int] | None) -> None:
     declared_config = comparability.config_key(execution.get("effective_config"))
     declared_inputs = comparability.input_key(execution.get("input_identity"))
-    retry_of = body.get("retry_of")
     for point in points:
         found = conn.rows("SELECT t.trial_id, a.registration_bundle FROM trial t LEFT JOIN registration_attempt a "
                           "ON a.trial_id = t.trial_id WHERE t.source_sha256 = %s ORDER BY t.trial_id",
@@ -311,10 +348,11 @@ def _check_exposure(conn: db.LedgerConnection, body: Mapping, execution: Mapping
         for trial_id, attempted in found:
             if exclude is not None and (trial_id == exclude[1] or attempted == exclude[0]):
                 continue
-            if retry_of is not None and attempted == retry_of:
+            if attempted is not None and attempted in chain:
                 continue
-            if precheck.exposure_exempt(conn, trial_id, point["source_sha256"], execution.get("image_ref"),
-                                        declared_config, declared_inputs):
+            if trial_id == point["precheck_trial"] and precheck.exposure_exempt(
+                    conn, trial_id, point["source_sha256"], execution.get("image_ref"), declared_config,
+                    declared_inputs):
                 continue
             raise refuse("SOURCE_ALREADY_EXPOSED", f"grid source of {point['candidate']} already ran in trial "
                                                    f"{trial_id}", missing=(point["candidate"],))
@@ -330,14 +368,12 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     absent = [bundle for bundle in body["sources"] if not _bundle_exists(conn, bundle)]
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
-    if body.get("retry_of") is not None and not _bundle_exists(conn, body["retry_of"]):
-        raise _invalid(f"retry_of {body['retry_of']} is not in the ledger", "retry_of")
+    chain = _retry_chain(conn, body.get("retry_of"))
     _check_duties(body)
     _check_prediction(body)
     _check_lineage(conn, body, execution)
     line = _check_window(conn, body)
     points = _check_grid(conn, body, execution)
-    _check_exposure(conn, body, execution, points, exclude)
     reviews = body.get("prechecks") or {}
     declared_inputs = comparability.input_key(execution.get("input_identity"))
     for point in points:
@@ -348,6 +384,8 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
         point["review_bundle"] = review
         point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"],
                                                             execution.get("image_ref"), declared_inputs)
+    _check_retry(conn, chain, points)
+    _check_exposure(conn, execution, points, chain, exclude)
     return {"grid": points, "line": line}
 
 

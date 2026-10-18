@@ -134,13 +134,15 @@ def _birth_commit(conn: db.LedgerConnection, registration_id: int) -> str | None
 def _retry_allowed(conn: db.LedgerConnection, original: dict) -> bool:
     bound = conn.one("SELECT trial_id FROM validation_binding WHERE registration_id = %s",
                      (original["registration_id"],))
-    if bound is None:
-        return False
-    run = conn.one("SELECT r.run_id, r.trial_id, r.status, t.source_sha256, t.image_digest FROM run r JOIN trial t "
-                   "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (bound["trial_id"],))
-    if run is None or run["status"] == "invalid":
-        return True
-    return not seams.current.qualification_assess(conn, run)["economic_evidence_available"]
+    return bound is not None and register.retryable(conn, bound["trial_id"])
+
+
+def _same_registration(prior: Mapping, payload: Mapping) -> bool:
+    design = json.loads(prior["design"]) if isinstance(prior["design"], str) else prior["design"]
+    return ({"candidate": f"{prior['strategy_id']}@{prior['revision']}", "market_commit": prior["market_commit"],
+             "universe_rule": prior["universe_rule"], "window_start": prior["window_start"].isoformat(),
+             "window_end": prior["window_end"].isoformat(), "design": design, "retry_of": prior["retry_of"]}
+            == dict(payload))
 
 
 def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: datetime, window_end: datetime,
