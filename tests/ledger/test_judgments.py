@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 import json
-from pathlib import Path
-import tempfile
 import unittest
 
-from ledger import db, evidence, judgments, lines, strategies, trials
+from ledger import db, judgments, lines, strategies, trials
 from ledger.errors import Refusal
-from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, attempt_binder, context, inputs, market, sha, source,
-                               window)
+from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, attempt_binder, context, inputs, market,
+                               product_bundle, sha, source, window)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -19,25 +17,19 @@ class JudgmentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("judgments")
         strategies.publish_candidate(cls.profile, source("a"), "a", "Fixture", "root")
-        cls.work = Path(tempfile.mkdtemp(prefix="lj-", dir="/tmp"))
-        (cls.work / "research-plan.json").write_text(json.dumps({"grid": "a"}))
         with db.connect(cls.profile, "writer") as conn:
             cls.before_line = db.head_commit(conn)
             cls.line = lines.select_line(conn, "market", "main", date(2026, 1, 2), date(2026, 2, 1), "a@1",
                                          market=market())["bundle"]
-            evidence.add_bundle(conn, "registration-a", [cls.work / "research-plan.json"])
-            evidence.add_bundle(conn, "registration-unused", [cls.work / "research-plan.json"],
-                                op_id="evidence:unused")
+            plan = {"research-plan.json": json.dumps({"grid": "a"}).encode()}
+            product_bundle(conn, "registration-a", plan)
+            product_bundle(conn, "registration-unused", plan)
             cls.trial = trials.open_trial(conn, "research", sha(source("a")), RUNTIME, inputs(), window(),
                                           context(source("a")), attempt_binder("registration-a", sha(source("a"))))
             cls.head = db.head_commit(conn)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.close()
-        __import__("shutil").rmtree(cls.work, ignore_errors=True)
 
     def add(self, kind="interpretation", **overrides):
         arguments = {"kind": kind, "line_bundle": self.line, "based_on_commit": self.head, "body": "see trial",

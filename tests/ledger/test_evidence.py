@@ -37,7 +37,8 @@ class EvidenceShapeTests(unittest.TestCase):
         for name in ("", "-x", "a" * 161, "a/b", "a b"):
             with self.subTest(name=name):
                 self.assertEqual(self.code(name, [good]), "INVALID_BUNDLE_NAME")
-        for name in ("trial-3-execution", "trial-3-execution-start", "trial-3-recovery", "trial-3-recovery-1"):
+        for name in ("trial-3-execution", "trial-3-execution-start", "trial-3-recovery", "trial-3-recovery-1",
+                     "registration-grid", "source-review-1", "research-line-2", "lifecycle-" + "m" * 32):
             with self.subTest(name=name):
                 self.assertEqual(self.code(name, [good]), "RESERVED_BUNDLE")
 
@@ -66,11 +67,8 @@ class EvidenceLedgerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("evidence")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.close()
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="le-", dir="/tmp"))
@@ -107,6 +105,37 @@ class EvidenceLedgerTests(unittest.TestCase):
             evidence.add_bundle(self.conn, "taken", [self.directory("two", **{"a.txt": b"two"})])
         self.assertEqual((caught.exception.code, caught.exception.write_status), ("BUNDLE_EXISTS", "not_written"))
         self.assertEqual(self.service.sql(self.profile, "SELECT seq FROM ledger_head"), seq)
+
+    def test_an_operation_id_never_returns_another_bundle(self):
+        first = evidence.add_bundle(self.conn, "mine", [self.directory("mine", **{"a.txt": b"mine"})],
+                                    op_id="evidence:x")
+        for bundle, content in (("theirs", b"mine"), ("mine", b"changed")):
+            with self.subTest(bundle=bundle), self.assertRaises(Refusal) as caught:
+                evidence.add_bundle(self.conn, bundle, [self.directory(bundle + "-src", **{"a.txt": content})],
+                                    op_id="evidence:x")
+            self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
+        again = evidence.add_bundle(self.conn, "mine", [self.directory("mine", **{"a.txt": b"mine"})],
+                                    op_id="evidence:x")
+        self.assertEqual((again["write_status"], again["files"]), ("replayed", first["files"]))
+
+    def test_product_code_writes_its_namespaces_with_write_files(self):
+        with self.assertRaises(ValueError):
+            evidence.write_files(self.conn, "registration-solo", {"a": b"a"}, "op")
+
+        def write(files):
+            return db.write(self.conn, "product", {"files": evidence.digests(files)}, "evidence_bundle",
+                            lambda c, op: evidence.write_files(c, "registration-p", files, op))
+
+        write({"research-plan.json": b"{}"})
+        self.assertEqual(write({"research-plan.json": b"{}"})["write_status"], "replayed")
+        with self.assertRaises(Refusal) as caught:
+            write({"research-plan.json": b"{\"other\": 1}"})
+        self.assertEqual(caught.exception.code, "BUNDLE_EXISTS")
+        for files, code in (({"../a": b"a"}, "INVALID_EVIDENCE_PATH"), ({"a": b""}, "EMPTY_EVIDENCE")):
+            with self.subTest(files=files), self.assertRaises(Refusal) as caught:
+                db.write(self.conn, "product", {"bad": list(files)}, "evidence_bundle",
+                         lambda c, op: evidence.write_files(c, "registration-bad", files, op))
+            self.assertEqual(caught.exception.code, code)
 
     def test_load_reads_an_exact_version_and_refuses_unknown_or_corrupt_bundles(self):
         before = db.head_commit(self.conn)

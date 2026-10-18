@@ -13,7 +13,7 @@ from ledger import db, evidence, lines, strategies, trials
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from tests.ledger.dolt import (BINARY, JAN, DAY, MARKET_COMMIT, RUNTIME, SKIP, Service, attempt_binder, context,
-                               inputs, market, sha, source)
+                               inputs, market, product_bundle, sha, source)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -72,16 +72,24 @@ class ResearchLineTests(unittest.TestCase):
         with patch.object(lines, "current_line", return_value=None):
             self.assertEqual(self.code(note="another choice"), "LINE_CONFLICT")
 
-    def test_records_that_are_not_research_lines_are_refused_on_read(self):
+    def test_an_agent_cannot_forge_a_research_line(self):
+        line = self.select()
         work = Path(tempfile.mkdtemp(prefix="ll-", dir="/tmp"))
         self.addCleanup(__import__("shutil").rmtree, work, ignore_errors=True)
-        (work / "other.json").write_text("{}")
-        evidence.add_bundle(self.conn, "research-line-7", [work / "other.json"])
+        (work / "research-line.json").write_text(json.dumps({"format": "research-line-v1", "line_no": 7,
+                                                             "start": "forged@1"}))
+        for name in ("research-line-7", "research-line-07"):
+            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
+                evidence.add_bundle(self.conn, name, [work / "research-line.json"])
+            self.assertEqual(caught.exception.code, "RESERVED_BUNDLE")
+        self.assertEqual(lines.current_line(self.conn)["bundle"], line["bundle"])
+
+    def test_damaged_line_records_are_refused_on_read(self):
+        product_bundle(self.conn, "research-line-7", {"other.json": b"{}"})
         with self.assertRaises(Refusal) as caught:
             lines.current_line(self.conn)
         self.assertEqual(caught.exception.code, "LINE_CORRUPT")
-        (work / "research-line.json").write_text(json.dumps({"format": "research-line-v0"}))
-        evidence.add_bundle(self.conn, "research-line-8", [work / "research-line.json"])
+        product_bundle(self.conn, "research-line-8", {"research-line.json": json.dumps({"format": "v0"}).encode()})
         with self.assertRaises(Refusal) as caught:
             lines.current_line(self.conn)
         self.assertEqual(caught.exception.code, "LINE_FORMAT_UNSUPPORTED")
@@ -94,6 +102,28 @@ class ResearchLineTests(unittest.TestCase):
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
             lines.current_line(self.conn)
         self.assertEqual(caught.exception.code, "LINE_CORRUPT")
+
+    def test_a_research_trial_without_a_readable_start_receipt_is_ledger_damage(self):
+        line = self.select()
+        registration = self.registration()
+        start_sha = sha(source("start"))
+
+        def receiptless(conn, op):
+            conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, trade_start, "
+                      "trade_end, op_id, created_at) VALUES ('research', %s, %s, '[]', '2026-01-01', '2026-01-02', "
+                      "'2026-02-01', %s, NOW())", (start_sha, RUNTIME["image_ref"], op))
+            (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")
+            attempt_binder(registration, start_sha)(conn, trial_id)
+            return {"trial_id": trial_id}
+
+        trial_id = db.write(self.conn, "damage", {"receipt": None}, "trial", receiptless)["record"]["trial_id"]
+        with self.assertRaises(Refusal) as caught:
+            lines.line_trials(self.conn, line["bundle"])
+        self.assertEqual(caught.exception.code, "LEDGER_CORRUPT")
+        product_bundle(self.conn, f"trial-{trial_id}-execution-start", {"execution.json": b"not json"})
+        with self.assertRaises(Refusal) as caught:
+            lines.line_trials(self.conn, line["bundle"])
+        self.assertEqual(caught.exception.code, "LEDGER_CORRUPT")
 
     def test_line_trials_count_research_trials_on_the_lines_market_and_window(self):
         line = self.select()
@@ -125,10 +155,7 @@ class ResearchLineTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "LINE_UNKNOWN")
 
     def registration(self, name="registration-1") -> str:
-        work = Path(tempfile.mkdtemp(prefix="lr-", dir="/tmp"))
-        self.addCleanup(__import__("shutil").rmtree, work, ignore_errors=True)
-        (work / "research-plan.json").write_text(json.dumps({"grid": name}))
-        evidence.add_bundle(self.conn, name, [work / "research-plan.json"])
+        product_bundle(self.conn, name, {"research-plan.json": json.dumps({"grid": name}).encode()})
         return name
 
     def publish_and_register_other(self):

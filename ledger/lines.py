@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 
-from ledger import db, evidence, strategies
+from ledger import db, evidence, execution, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 
@@ -110,7 +110,9 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     content_sha256 = hashlib.sha256(content).hexdigest()
     op = db.derive_op_id("select_line", {"bundle": bundle, "content_sha256": content_sha256})
     try:
-        written = evidence.write_files(conn, "select_line", bundle, {FILE: content}, op)
+        written = db.write(conn, "select_line", {"bundle": bundle, "content_sha256": content_sha256},
+                           "evidence_bundle", lambda c, operation: evidence.write_files(c, bundle, {FILE: content},
+                                                                                        operation), op_id=op)
     except Refusal as exc:
         if exc.code == "BUNDLE_EXISTS":
             raise refuse("LINE_CONFLICT", f"{bundle} already exists with other content", missing=(bundle,)) from exc
@@ -126,8 +128,9 @@ def _encode(record: dict) -> bytes:
 
 def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str | None = None,
                 at: str | None = None) -> dict:
-    """Research trials of a line (its market commit and development window), invalid and interrupted
-    ones included; with `since_commit`, only those added after it."""
+    """Research trials of a line, invalid and interrupted ones included: the market commit of each
+    start receipt and the trial's trading window must equal the line's. With `since_commit`, only
+    trials added after it. (The start receipt carries no window, so the trial row's is read.)"""
     commit, clause = db.as_of(conn, at)
     if (not isinstance(line_bundle, str) or not LINE.fullmatch(line_bundle)
             or not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (line_bundle,))):
@@ -135,26 +138,34 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
     line = _read_line(conn, line_bundle, at)
     window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
               datetime.combine(date.fromisoformat(line["window_end"]), time()))
-    found = [trial_id for (trial_id,) in conn.rows(
-        f"SELECT trial_id FROM trial{clause} WHERE purpose = 'research' AND trade_start = %s AND trade_end = %s "
-        "ORDER BY trial_id", window)]
+    found = [trial_id for trial_id, start, end in conn.rows(
+        f"SELECT trial_id, trade_start, trade_end FROM trial{clause} WHERE purpose = 'research' ORDER BY trial_id")
+        if _market_commit(conn, trial_id, clause) == line["market_commit"] and (start, end) == window]
     if since_commit is not None:
         since = db.resolve_commit(conn, since_commit)
         added = {trial_id for (trial_id,) in conn.rows(
             "SELECT to_trial_id FROM dolt_diff(%s, %s, 'trial') WHERE diff_type = 'added'",
             (since, commit if at is not None else "WORKING"))}
         found = [trial_id for trial_id in found if trial_id in added]
-    trials = [trial_id for trial_id in found if _market_commit(conn, trial_id, at) == line["market_commit"]]
-    return {"trials": trials, "count": len(trials)}
+    return {"trials": found, "count": len(found)}
 
 
-def _market_commit(conn: db.LedgerConnection, trial_id: int, at: str | None) -> str | None:
-    """The market commit of a trial's input identity, from its execution start receipt."""
+def _market_commit(conn: db.LedgerConnection, trial_id: int, clause: str) -> str:
+    """The market commit of a research trial's input identity, read from execution.json of its start
+    receipt (written in the trial's own commit, so a missing or unreadable one is ledger damage)."""
+    bundle = f"trial-{trial_id}-execution-start"
+    found = conn.rows(f"SELECT content, sha256 FROM evidence{clause} WHERE bundle = %s AND path = %s",
+                      (bundle, execution.MANIFEST))
     try:
-        receipt = evidence.load_bundle(conn, f"trial-{trial_id}-execution-start", at)
-        manifest = json.loads(receipt["files"]["execution.json"].decode("utf-8"))
-        return manifest["input_identity"]["market_commit"]
-    except (Refusal, KeyError, ValueError, TypeError) as exc:
-        if isinstance(exc, Refusal) and exc.code != "UNKNOWN_BUNDLE":
-            raise
-        return None
+        (content, stored), = found
+        content = bytes(content)
+        if hashlib.sha256(content).hexdigest() != stored:
+            raise ValueError("hash mismatch")
+        market_commit = json.loads(content.decode("utf-8"))["input_identity"]["market_commit"]
+        if not isinstance(market_commit, str):
+            raise TypeError("market commit is not text")
+        return market_commit
+    except (ValueError, KeyError, TypeError) as exc:
+        raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no readable start receipt",
+                     missing=(f"{bundle}/{execution.MANIFEST}",)) from exc
+

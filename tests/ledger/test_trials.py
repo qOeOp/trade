@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-import tempfile
 import unittest
 
 from ledger import db, evidence, execution, strategies, trials
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from tests.ledger.dolt import (BINARY, IDENTITY, RUNTIME, SKIP, Service, attempt_binder, context, inputs, sha,
-                               source, window)
+from tests.ledger.dolt import (BINARY, IDENTITY, RUNTIME, SKIP, Service, attempt_binder, context, inputs,
+                               product_bundle, sha, source, window)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -19,20 +17,14 @@ class OpenTrialTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("trials")
         strategies.publish_candidate(cls.profile, source("published"), "published", "Fixture", "root")
         cls.published = sha(source("published"))
-        cls.work = Path(tempfile.mkdtemp(prefix="lt-", dir="/tmp"))
-        (cls.work / "research-plan.json").write_text(json.dumps({"grid": "fixture"}))
         with db.connect(cls.profile, "writer") as conn:
             for index in range(1, 6):
-                evidence.add_bundle(conn, f"registration-{index}", [cls.work / "research-plan.json"],
-                                    op_id=f"evidence:registration-{index}")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.close()
-        __import__("shutil").rmtree(cls.work, ignore_errors=True)
+                plan = {"research-plan.json": json.dumps({"grid": index}).encode()}
+                product_bundle(conn, f"registration-{index}", plan)
 
     def setUp(self):
         self.conn = db.connect(self.profile, "writer")
@@ -121,6 +113,11 @@ class OpenTrialTests(unittest.TestCase):
                 self.assertEqual(self.code(inputs=incomplete), "TRIAL_INPUT_INCOMPLETE")
         self.assertEqual(self.code(inputs={**inputs(), "input_coverage": b""}), "TRIAL_INPUT_INCOMPLETE")
         self.assertEqual(self.code(window={"start": 0, "end": 1}), "TRIAL_INPUT_INCOMPLETE")
+        late = window()
+        for broken in ({**late, "start": late["trade_start"] + 1}, {**late, "end": late["trade_start"]},
+                       {**late, "start": late["start"] + 1_000_000_000}):
+            with self.subTest(window=broken):
+                self.assertEqual(self.code(window=broken), "WINDOW_INVALID")
 
     def test_any_refusal_inside_the_transaction_rolls_everything_back(self):
         trials_before = self.service.sql(self.profile, "SELECT COUNT(*) FROM trial")

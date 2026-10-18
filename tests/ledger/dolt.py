@@ -122,3 +122,10 @@ def attempt_binder(registration_bundle: str, source_sha256: str):
         conn.rows("INSERT INTO registration_attempt (registration_bundle, source_sha256, trial_id) VALUES (%s, %s, %s)",
                   (registration_bundle, source_sha256, trial_id))
     return bind
+
+
+def product_bundle(conn, bundle: str, files: dict[str, bytes]) -> dict:
+    """Write a product-namespace bundle the way product code does (registration is phase 2)."""
+    from ledger import evidence
+    return db.write(conn, "product_bundle", {"bundle": bundle, "files": evidence.digests(files)}, "evidence_bundle",
+                    lambda c, op: evidence.write_files(c, bundle, files, op))

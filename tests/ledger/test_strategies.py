@@ -62,11 +62,8 @@ class PublishTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.addClassCleanup(cls.service.close)
         cls.profile = cls.service.ledger("candidates")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.close()
 
     def publish(self, data, strategy_id="rsi", **kwargs):
         description = kwargs.pop("description", "rule")
@@ -109,6 +106,14 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.code(b"", "x"), "SOURCE_SIZE")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM candidate WHERE strategy_id = 'x'"),
                          [(0,)])
+
+    def test_an_operation_id_never_returns_another_candidate(self):
+        first = self.publish(source("op owner"), "owner", op_id="publish:fixed")
+        with self.assertRaises(Refusal) as caught:
+            self.publish(source("op thief"), "thief", op_id="publish:fixed")
+        self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
+        again = self.publish(source("op owner"), "owner", op_id="publish:fixed")
+        self.assertEqual((again["candidate"], again["replayed"]), (first["candidate"], True))
 
     def test_reads_follow_the_version_of_the_connection(self):
         with db.connect(self.profile, "reader") as reader:

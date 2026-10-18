@@ -75,6 +75,6 @@ def start_receipt(conn: db.LedgerConnection, trial_id: int, context: Mapping, op
                 "mounts": list(context.get("mounts") or ()), "input_identity": context.get("input_identity")}
     encoded = db.canonical_json(manifest).encode("utf-8")
     bundle = f"trial-{trial_id}-execution-start"
-    evidence.write_files(conn, "start_receipt", bundle, {MANIFEST: encoded, SOURCE: source, COVERAGE: coverage},
+    evidence.write_files(conn, bundle, {MANIFEST: encoded, SOURCE: source, COVERAGE: coverage},
                          f"execution_start:{op_id}")
     return {"bundle": bundle, "path": MANIFEST, "sha256": hashlib.sha256(encoded).hexdigest()}

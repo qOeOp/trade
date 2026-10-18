@@ -66,9 +66,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Evidence
     "INVALID_BUNDLE_NAME": ("The bundle name is not of the form [A-Za-z0-9][A-Za-z0-9_.-]{0,159}.",
                             ("Rename the bundle within the allowed characters and length.",)),
-    "RESERVED_BUNDLE": ("The bundle name lies in the product's sealed namespace (trial-<id>-execution, "
-                        "trial-<id>-execution-start, trial-<id>-recovery-*).",
-                        ("Choose your own bundle name, for example a correction-* or source-review-* name.",)),
+    "RESERVED_BUNDLE": ("The bundle name lies in a product namespace (trial-<id>-execution(-start), "
+                        "trial-<id>-recovery(-*), registration-*, source-review-*, research-line-<n>, "
+                        "lifecycle-<market_commit>), written only by its product command.",
+                        ("Write those through their commands (`registration add`, `source review`, `line select`); "
+                         "name your own evidence otherwise, for example correction-*.",)),
     "INVALID_EVIDENCE_PATH": ("An evidence source is a symbolic link, or a path in the bundle is absolute, "
                               "contains .. or repeats another.",
                               ("Copy the files into a plain directory without links or duplicate names.",)),
@@ -112,8 +114,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Publish the start with `candidate publish`, then select the line again.",)),
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
                                  ("Pass a market commit, tag or branch shown by `market coverage`.",)),
-    "WINDOW_INVALID": ("The development window does not start before it ends.",
-                       ("Pass window_start earlier than window_end.",)),
+    "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
+                       "start or not on a whole UTC minute.",
+                       ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
+                        "start no later than the trading start).",)),
     "WINDOW_OUT_OF_COVERAGE": ("The development window ends after the market commit's latest complete day.",
                                ("End the window at most one day after the latest complete day, or pin a newer "
                                 "market commit.",)),

@@ -105,6 +105,12 @@ def publish_candidate(profile: db.LedgerProfile, source: bytes, strategy_id: str
         return {"candidate": f"{strategy_id}@{revision}", "source_sha256": sha, "runtime_contract": RUNTIME_CONTRACT}
 
     def replay(conn, row):
+        stored_parent = (f"{row['parent_strategy_id']}@{row['parent_revision']}"
+                         if row["parent_strategy_id"] is not None else None)
+        if (row["strategy_id"], row["source_sha256"], row["entry_class"], stored_parent) != (
+                strategy_id, sha, entry_class, parent):
+            raise refuse("OP_ID_CONFLICT", f"operation {row['op_id']} already names another candidate",
+                         missing=(row["op_id"],))
         return {"candidate": f"{row['strategy_id']}@{row['revision']}", "source_sha256": row["source_sha256"],
                 "runtime_contract": row["runtime_contract"]}
 

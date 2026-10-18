@@ -20,6 +20,7 @@ from ledger.refusals import refuse
 PURPOSES = ("explore", "precheck", "research", "validation")
 UNBOUND = ("explore", "precheck")
 EPOCH = datetime(1970, 1, 1)
+MINUTE_NS = 60 * 10**9
 INPUT_FIELDS = ("market_commit", "universe_rule", "symbols", "export_content_sha256")
 WINDOW_FIELDS = ("start", "trade_start", "end")
 
@@ -64,6 +65,10 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
         missing.append("inputs.identity.symbols")
     if missing:
         raise refuse("TRIAL_INPUT_INCOMPLETE", "the input identity or window is incomplete", missing=tuple(missing))
+    if not window["start"] <= window["trade_start"] < window["end"] or window["start"] % MINUTE_NS:
+        raise refuse("WINDOW_INVALID", "the trial window must satisfy input_start <= trade_start < trade_end with "
+                                       "input_start on a whole UTC minute",
+                     expected="start <= trade_start < end, start % 60 s == 0")
     source = start_context.get("source_bytes")
     payload = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
                "instruments": symbols, "window": {field: window[field] for field in WINDOW_FIELDS},
