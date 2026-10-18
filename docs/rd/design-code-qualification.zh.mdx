@@ -17,7 +17,7 @@
 | <Ref id="qualification.assess">assess</Ref> | 经济证据资格：读取时按当前判据，对单运行报告里的活动事实、审计结论、执行封存与源码审查算出，附检查身份；不读原生报告、不写账本 |
 | <Ref id="qualification.check_identity">check_identity</Ref> | 资格检查身份：检查名、指标计算版本与检查器源码哈希，随每份资格结论输出 |
 | <Ref id="qualification.mask">mask</Ref> | 绩效指标流出前的唯一遮蔽点：不可用运行的绩效指标整体置空并附资格原因 |
-| <Ref id="qualification.native_reasons">native_reasons</Ref> | 资格的原生事实：读运行读数里封存时记下的资格事实，逐项给出是否通过与原因码；不读原生报告 |
+| <Ref id="qualification.native_reasons">native_reasons</Ref> | 资格的原生事实：读封存结果里封存时记下的资格事实，逐项给出是否通过与原因码；不读原生报告 |
 | <Ref id="qualification.require">require</Ref> | 比较、对照登记与描述统计读口之前的硬门：资格不可用即拒绝并返回原因 |
 | <Ref id="qualification.source_reviews">source_reviews</Ref> | 只认源码哈希与镜像摘要都匹配本运行的独立审查记录；内容哈希不符拒绝；记录身份按其写入时的账本提交核对 |
 
@@ -107,7 +107,7 @@ def mask(output: dict, value: dict) -> dict
 
 ### `native_reasons` [#def-qualification-native_reasons]
 
-资格的原生事实：读运行读数里封存时记下的资格事实，逐项给出是否通过与原因码；不读原生报告
+资格的原生事实：读封存结果里封存时记下的资格事实，逐项给出是否通过与原因码；不读原生报告
 
 ```python
 def native_reasons(reports: NativeReports) -> list[str]
@@ -119,7 +119,7 @@ def native_reasons(reports: NativeReports) -> list[str]
 
 **期望行为**
 
-1. 读最新运行读数的资格事实一节与执行封存的阶段、退出码、异常回执。
+1. 读最新封存结果的资格事实一节与执行封存的阶段、退出码、异常回执。
 2. 逐项给出是否通过、原因码与计数；新判据需要封存时没记下的事实时，该项标为未评估并写进局限，不静默通过也不静默失格。
 
 **使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.unreconciled" />、<Ref id="engine.lifecycle_findings" />

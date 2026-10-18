@@ -852,7 +852,7 @@ def select_line(
 | <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref> | 引擎因下架结算自行生成的无标签只减仓市价平仓单，在订单事件、成交、持仓事件、InstrumentClose 结算时刻与结算价互相一致且唯一对应一个已关闭周期时只读归属到该周期的计划；任何歧义不归属，留给 plan_metrics 按不合规处理 |
 | <Ref id="ledger.load_run">load_run</Ref> | 读一次运行：运行行、单运行报告、逐日序列与持仓周期；原生报告不在账本里，经 replay.reproduce 取得 |
 | <Ref id="ledger.mark_drawdown">mark_drawdown</Ref> | 逐 K 线标记价权益（账户 total＋敞口按标记价的未实现盈亏）相对运行峰值的最大跌幅比例，峰值从初始权益起；附价源与采样周期，K 线内路径列为局限 |
-| <Ref id="ledger.metrics">metrics</Ref> | 单运行报告的封存部分：只算存储数据推不出的读数，即资格事实、标记价回撤及其区间、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗与计划统计是否成立 |
+| <Ref id="ledger.metrics">metrics</Ref> | 单运行报告的封存部分：只算存储数据推不出的指标，即资格事实、标记价回撤及其区间、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗与计划统计是否成立 |
 | <Ref id="ledger.metrics_revision">metrics_revision</Ref> | 指标计算代码的版本（所在 Git 检出的 HEAD 提交），随运行行与资格检查身份存出，使每个绩效指标与资格判定都能定位到产生它的代码；重算用该版本的同一函数重跑比对 |
 | <Ref id="ledger.plan_metrics">plan_metrics</Ref> | 从订单报告的标签读出计划并与持仓周期一一对应后算计划胜率：每张订单恰一个全回放唯一的计划标签，计划限一个合约；赢＝周期已平且实现盈亏（含手续费与资金费）大于零，期末未平算非赢；任何不合规抛出具名原因 |
 | <Ref id="ledger.unreconciled">unreconciled</Ref> | 原生事实超出支持范围或对账失败的具名原因（码＋细节）；metrics 捕获后把对应绩效指标置空并把原因写入绩效指标局限，运行本身不判无效 |
@@ -1099,7 +1099,7 @@ def mark_drawdown(
 
 ### `metrics` [#def-ledger-metrics]
 
-单运行报告的封存部分：只算存储数据推不出的读数，即资格事实、标记价回撤及其区间、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗与计划统计是否成立
+单运行报告的封存部分：只算存储数据推不出的指标，即资格事实、标记价回撤及其区间、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗与计划统计是否成立
 
 ```python
 def metrics(reports: Reports) -> dict
@@ -1114,7 +1114,7 @@ def metrics(reports: Reports) -> dict
 1. 资格事实逐项核：真实成交、成交与订单一一对应、持仓周期覆盖全部成交、日收益复利到期末权益、账户首末相符；每项记是否通过、原因码与计数。
 2. 从逐分钟敞口与账户状态算标记价最大回撤、峰谷时刻、持续天数与回撤区间内亏损最多的合约占比；算资金使用峰值、在市时间与锁定保证金峰值，并给逐日序列写当日平均名义敞口（当日全部 K 线标签上名义绝对值之和的平均，空仓计零，不含预热段，最后不满一天按实际根数）。
 3. 按流动性方向汇总手续费与成交额；数订单漏斗；核计划标签与周期一一对应，记计划统计是否成立。
-4. 每个读数以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因；局限只记本运行特有的。
+4. 每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因；局限只记本运行特有的。
 5. 能从持仓周期与逐日序列算出的量不在这里算，由 report.derive_measures 读时算。
 
 **使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.plan_metrics" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.mark_drawdown" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.summary_statistics" />
@@ -1434,12 +1434,12 @@ def read_candidate(conn: Connection, ref: str) -> dict
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.ingest_run">ingest_run</Ref> | 把一次封存回放落成运行：通过的运行写运行行（审计与指纹）、一行运行读数、逐日序列与持仓周期；无效运行只写状态、原因与审计。原生报告不入账。 |
+| <Ref id="ledger.ingest_run">ingest_run</Ref> | 把一次封存回放落成运行：通过的运行写运行行（审计与指纹）、一行封存结果、逐日序列与持仓周期；无效运行只写状态、原因与审计。原生报告不入账。 |
 | <Ref id="ledger.open_trial">open_trial</Ref> | 在调用方的写事务里依次写试验行、绑定行（经注入的绑定器）与执行开始回执；任一失败整笔回滚，调用方不启动容器。 |
 
 ### `ingest_run` [#def-ledger-ingest_run]
 
-把一次封存回放落成运行：通过的运行写运行行（审计与指纹）、一行运行读数、逐日序列与持仓周期；无效运行只写状态、原因与审计。原生报告不入账。
+把一次封存回放落成运行：通过的运行写运行行（审计与指纹）、一行封存结果、逐日序列与持仓周期；无效运行只写状态、原因与审计。原生报告不入账。
 
 ```python
 def ingest_run(
@@ -1460,9 +1460,9 @@ def ingest_run(
 **期望行为**
 
 1. 核对试验存在、用途为 research 或 validation、尚无运行行；从工作目录读原生报告与审计结果，缺失即为空。
-2. failure_reasons 非空即 invalid：写状态、引用审计发现的原因与审计，不写读数与指纹。
+2. failure_reasons 非空即 invalid：写状态、引用审计发现的原因与审计，不写封存结果与指纹。
 3. passed：经 ledger.metrics 从工作目录的原生报告算出单运行报告；在镜像内经 engine.report_fingerprint 算语义指纹。
-4. 在一个写事务里写运行行、运行读数（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
+4. 在一个写事务里写运行行、封存结果（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
 5. 原生报告留在工作目录，随后清理；需要时经 replay.reproduce 重放复现。
 
 | 拒绝码 | 条件 |

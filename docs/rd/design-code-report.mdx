@@ -24,12 +24,12 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="report.attribution">attribution</Ref> | 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互读数；没有单独的命令 |
+| <Ref id="report.attribution">attribution</Ref> | 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令 |
 | <Ref id="report.pair_trades">pair_trades</Ref> | 跨运行交易配对的唯一算法：把两侧持仓周期配成一一对应、拆并、只在对照、只在候选四类；只作描述，不进检验 |
 
 ### `attribution` [#def-report-attribution]
 
-对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互读数；没有单独的命令
+对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令
 
 ```python
 def attribution(
@@ -149,7 +149,7 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="report.compare">compare</Ref> | 对比报告的唯一入口：读时按度量目录现算，一次给出可比资格、配对检验、两侧读数与差、交易配对、预测对照与交互读数；不存 |
+| <Ref id="report.compare">compare</Ref> | 对比报告的唯一入口：读时按度量目录现算，一次给出可比资格、配对检验、两侧指标与差、交易配对、预测对照与交互效应；不存 |
 | <Ref id="report.holm">holm</Ref> | 同一样本外窗口登记族（窗口起止与 universe_rule 相同）的 Holm 逐步校正 p：排序后取 p_(k)·(m−k+1) 的逐步最大值并截到 1，按原顺序返回；族成员由调用方从账本登记行取得 |
 | <Ref id="report.paired">paired</Ref> | 配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨效应与固定局限句；不返回任何裁决字段 |
 | <Ref id="registration_id">registration_id</Ref> | 样本外报告：从绑定的封存运行读与开发报告同口径的绩效指标并经同一经济证据资格视图遮蔽；单序列区间与 p；同窗口登记族的 Holm 校正；列出登记内容、凭证时间、绑定试验与审计状态、同一候选的全部样本外登记；无裁决字段；资金使用率由 Agent 从封存敞口表自算，报告只给其读口位置 |
@@ -158,7 +158,7 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 
 ### `compare` [#def-report-compare]
 
-对比报告的唯一入口：读时按度量目录现算，一次给出可比资格、配对检验、两侧读数与差、交易配对、预测对照与交互读数；不存
+对比报告的唯一入口：读时按度量目录现算，一次给出可比资格、配对检验、两侧指标与差、交易配对、预测对照与交互效应；不存
 
 ```python
 def compare(
@@ -178,7 +178,7 @@ def compare(
 1. 读登记包，取对照、网格、检验条件与预测；核候选运行属于本登记网格。
 2. 两侧核可比资格（身份取自登记包与试验行）与经济证据资格；任一不过即拒绝，只留诊断。
 3. 两侧取逐日序列，核日钟一致，调用 report.paired 得效应、区间与 p。
-4. 调用 report.attribution，用两侧单运行报告、持仓周期、逐日序列与市场日收益算各切面的差、交易配对、预测对照与交互读数。
+4. 调用 report.attribution，用两侧单运行报告、持仓周期、逐日序列与市场日收益算各切面的差、交易配对、预测对照与交互效应。
 5. 附完整身份与度量目录版本返回；不写账本，同样的输入任何时候重算都一样。
 
 | 拒绝码 | 条件 |
@@ -248,7 +248,7 @@ def paired(
 ) -> dict
 ```
 
-<TypeTable type={{ "left": { type: "Sequence[float]", description: "对照侧交易窗口账户日简单收益，按 UTC 日历日排列" }, "right": { type: "Sequence[float]", description: "候选侧账户日简单收益，与 left 日钟逐日对应、等长" }, "design": { type: "dict", description: "登记锁定的检验条件：method（paired-circular-log-mean-v1）、block_days、resamples、inner_resamples、seed、alpha、minimum_effect（年化收益比例，仅描述）、design_reason；数值为未校准示例值" }, "grid_points": { type: "int", description: "本次登记网格点数（≥1），用于 Bonferroni 校正与区间覆盖调整" }, "weights": { type: "Sequence[float] | None", description: "可选：多条日序列的对比权重；给出时 left、right 换成对齐的序列列表，检验对象是加权和（交互读数用 +1, −1, −1, +1）" } }} />
+<TypeTable type={{ "left": { type: "Sequence[float]", description: "对照侧交易窗口账户日简单收益，按 UTC 日历日排列" }, "right": { type: "Sequence[float]", description: "候选侧账户日简单收益，与 left 日钟逐日对应、等长" }, "design": { type: "dict", description: "登记锁定的检验条件：method（paired-circular-log-mean-v1）、block_days、resamples、inner_resamples、seed、alpha、minimum_effect（年化收益比例，仅描述）、design_reason；数值为未校准示例值" }, "grid_points": { type: "int", description: "本次登记网格点数（≥1），用于 Bonferroni 校正与区间覆盖调整" }, "weights": { type: "Sequence[float] | None", description: "可选：多条日序列的对比权重；给出时 left、right 换成对齐的序列列表，检验对象是加权和（交互效应用 +1, −1, −1, +1）" } }} />
 
 **返回**　dict：\{method, days, mean_daily_log_difference, mean_log_basic_interval, mean_log_studentized_interval | None, annual_return_difference, annual_return_difference_interval, interval_coverage_grid_adjusted, p_one_sided | None, p_bonferroni | None, predeclared_alpha, predeclared_minimum_effect, detectable_mean_log_difference_80pct_normal_approx, top_five_absolute_difference_share, block_sensitivity[\{block_days, available, mean_log_interval?, p_one_sided?\}], degenerate_nested_samples, design, limitations[]\}；无任何裁决、采纳或排序字段
 
@@ -533,7 +533,7 @@ def review_all(
 |---|---|
 | <Ref id="report.directory_report">directory_report</Ref> | 未封存探索目录的只读报告：与封存运行同一指标计算函数与实质活动判据，注明来源未核验，不作证据 |
 | <Ref id="report.load_directory">load_directory</Ref> | 把探索目录内运行器写出的原生报表解析为与 ledger.load_run 同形的类型化报表；不核来源 |
-| <Ref id="report.run_report">run_report</Ref> | 单运行报告的读口：读最新的运行读数，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出 |
+| <Ref id="report.run_report">run_report</Ref> | 单运行报告的读口：读最新的封存结果，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出 |
 | <Ref id="report.tables">tables</Ref> | Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原生明细时读 replay.reproduce 的重放目录，先核语义指纹 |
 
 ### `directory_report` [#def-report-directory_report]
@@ -606,7 +606,7 @@ def load_directory(directory: Path) -> NativeReports
 
 ### `run_report` [#def-report-run_report]
 
-单运行报告的读口：读最新的运行读数，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出
+单运行报告的读口：读最新的封存结果，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出
 
 ```python
 def run_report(ledger: str | None, run_id: int, at: str | None) -> dict
@@ -618,10 +618,10 @@ def run_report(ledger: str | None, run_id: int, at: str | None) -> dict
 
 **期望行为**
 
-1. 读运行行与最新一行运行读数；status 非 passed 只给原因与审计。
+1. 读运行行与最新一行封存结果；status 非 passed 只给原因与审计。
 2. 经 report.derive_measures 算年化、计划胜率、利润来源、交易结构、品种与方向、时期、夏普等可派生量。
 3. 经 qualification.assess 判资格，不可用即把经济栏整体置空并附原因。
-4. 按度量目录的栏目顺序输出，附读数的代码版本、目录版本、资格检查身份与局限；不写账本。
+4. 按度量目录的栏目顺序输出，附封存结果的代码版本、目录版本、资格检查身份与局限；不写账本。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -629,7 +629,7 @@ def run_report(ledger: str | None, run_id: int, at: str | None) -> dict
 | `AS_OF_UNKNOWN` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | run 行与其 trial、evidence_bundle 的引用或存储内容哈希不一致，读取时核验失败 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.metrics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="registration.measure_catalogue" />、<Ref id="report.derive_measures" />、<Ref id="table:run_reading" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.metrics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="registration.measure_catalogue" />、<Ref id="report.derive_measures" />、<Ref id="table:run_sealed" />
 
 <div className="rd-meta">
 
