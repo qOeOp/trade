@@ -24,6 +24,8 @@ V 章的配对检验给出效应、区间与 p，F 章再按五步诊断读单�
 | Perold 1988, JPM, [10.3905/jpm.1988.409150](https://doi.org/10.3905/jpm.1988.409150) | 执行落差，对应费用翻倍与吃单占比 |
 | Treynor & Mazuy 1966, HBR，重印 [10.1002/9781119196679.ch11](https://doi.org/10.1002/9781119196679.ch11) | 收益对市场回归，截距与斜率分读 |
 | Henriksson & Merton 1981, J. Business, [10.1086/296144](https://doi.org/10.1086/296144) | 择时与选择分开估计 |
+| Dimson 1979, JFE, [10.1016/0304-405X(79)90013-8](https://doi.org/10.1016/0304-405X(79)90013-8) | 小币价格反应滞后，回归加前一天的市场项 |
+| Newey & West 1987, Econometrica, [10.2307/1913610](https://doi.org/10.2307/1913610)；1994, REStud, [10.2307/2297912](https://doi.org/10.2307/2297912) | 截距的稳健标准误与滞后阶数 |
 | Shapley 1953, [10.1515/9781400881970-018](https://doi.org/10.1515/9781400881970-018)；Shorrocks 2013, JEI, [10.1007/s10888-011-9214-z](https://doi.org/10.1007/s10888-011-9214-z) | 交互读数里两种顺序取平均 |
 | BCBS d457 (2019), [bis.org/bcbs/publ/d457.htm](https://www.bis.org/bcbs/publ/d457.htm) | 损益归因检验：解释不了的部分单独度量 |
 | Bacon 2023, Wiley, [10.1002/9781119831976](https://doi.org/10.1002/9781119831976) | 多期衔接与口径事先固定 |
@@ -38,6 +40,7 @@ V 章的配对检验给出效应、区间与 p，F 章再按五步诊断读单�
 | OpenAlex title.search | On Market Timing and Investment Performance | 22 |
 | OpenAlex title.search | A Value for n-Person Games | 24 |
 | OpenAlex title_and_abstract | ("performance attribution" OR "return attribution" OR "P&L attribution") AND (strategy OR trading OR hedge OR backtest) | 259 |
+| Crossref DOI | Dimson 1979；Newey & West 1987、1994 | 各 1 |
 | Crossref bibliographic | Brinson Fachler 1985；Treynor Mazuy 1966；Perold 1988；Shorrocks Shapley；Carino 多期衔接；回测损益拆解 | 各取前 4 |
 | Semantic Scholar search | decomposing trading strategy performance difference attribution ablation | 408，前 8 条无相关 |
 
@@ -85,7 +88,7 @@ V 章的配对检验给出效应、区间与 p，F 章再按五步诊断读单�
 
 ## 报告模板与交易配对
 
-用户 10-18 定：报告要有统一模板，交易配对作为模板的一栏来设计。
+用户 10-18 定：报告要有统一模板，交易配对作为模板的一栏来设计；市场暴露也进模板。
 
 原因是：之前的设计里没有报告模板。报告入口只返回四类绩效指标和身份信息，另一个读口只给原始报表，其余怎么拆、拆成什么样，由 Agent 每次临场决定，所以每轮归因深浅不一。现在单运行报告和对比报告共用一组固定栏目（R.3）。对比报告给两侧的值与差，并多出检验结果、交易配对与预测对照三栏。栏目就是 P 章的切面，登记预测、解释判断与复盘推荐都引用同一组标量。
 
@@ -121,7 +124,7 @@ V 章的配对检验给出效应、区间与 p，F 章再按五步诊断读单�
 | 预测核对与职责覆盖矛盾，代码核对形同虚设（阻断） | 每个改动职责至少一项预测；职责须在 changed_duties 里，标量须在目录里；没有切面的职责写空切面与理由 |
 | 明细切面进代码越过信任边界，与 R.1.2 冲突 | 代码只算利润桥、切面标量与预测对照；明细交 Agent 自算并复算 |
 | 利润桥与封存时的利润来源拆分重复，总体未写清 | 沿用已对账的拆分，只补期末浮动；写明账户总体 |
-| 市场暴露在 R 章仍是待用户定 | 移出固定目录，列为待用户定 |
+| 市场暴露在 R 章仍是待用户定 | 先移出目录并报用户；用户 10-18 定进模板：等权篮子为主、BTC 永续为参照，两次单因素回归加滞后一天的市场项，截距附稳健标准误 |
 | 费用翻倍对返佣和对数尺度不成立 | 改为盈亏平衡费率倍数 |
 | 前五占总差在总差接近零时不可读 | 改为占全部绝对差的比例，以及去掉前五天后的剩余差 |
 | 交互形状按父指针判断不可靠，事后挑二乘二是未计数的比较 | 在补最后一个角的登记里声明；形状由绑定的源码审查确认；不给 p，区间标未校正；复用配对检验加权重 |

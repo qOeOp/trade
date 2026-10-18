@@ -49,20 +49,21 @@ def attribution(
 2. 利润来源桥读两侧封存的利润来源拆分（ledger.economics），只补期末未平浮动；四项之和不等于账户净值差时置空。
 3. 其余标量按 registration.attribution_catalogue 的顺序经 ledger.load_run 读原生报表算出；算不出的标 available=false 并写原因，切面仍在结果里。
 4. 交易配对切面调用 report.pair_trades，配对结果只进描述标量，不交给 report.paired。
-5. 逐项读登记 prediction.mechanism，取对应标量，标是否同号；slice 为空的项标为无切面并原样带出理由。
-6. 登记 prediction.interaction 声明了四个角时，核绑定的源码审查确认了形状，四个运行两两可比、都有经济证据资格且日钟一致，再以权重 (+1, −1, −1, +1) 调用 report.paired 得交互项与区间，并给两种加入顺序的平均贡献；区间标为未校正，不给 p。涉及 E1、E3、G3、H2 的改动另给按平均名义敞口归一后的交互项。
-7. 全程不写账本；目录变化随 metrics_revision 升版。
+5. 市场暴露切面经 market.daily_returns 按两侧运行输入身份里的市场提交读等权篮子与 BTC 永续的日收益。
+6. 逐项读登记 prediction.mechanism，取对应标量，标是否同号；slice 为空的项标为无切面并原样带出理由。
+7. 登记 prediction.interaction 声明了四个角时，核绑定的源码审查确认了形状，四个运行两两可比、都有经济证据资格且日钟一致，再以权重 (+1, −1, −1, +1) 调用 report.paired 得交互项与区间，并给两种加入顺序的平均贡献；区间标为未校正，不给 p。涉及 E1、E3、G3、H2 的改动另给按平均名义敞口归一后的交互项。
+8. 全程不写账本；目录变化随 metrics_revision 升版。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `（比较拒绝，见 [[report.compare]]）` | 无对照、运行不在网格、不可比、任一侧无经济证据资格或日钟不一致 |
 | `INTERACTION_UNATTESTED` | 登记声明了交互，但绑定的源码审查没有确认四个角的形状，或某个角不可比、无资格 |
 
-**使用**　<Ref id="report.compare" />、<Ref id="report.paired" />、<Ref id="ledger.load_run" />、<Ref id="ledger.economics" />、<Ref id="registration.attribution_catalogue" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.pair_trades" />
+**使用**　<Ref id="report.compare" />、<Ref id="report.paired" />、<Ref id="ledger.load_run" />、<Ref id="ledger.economics" />、<Ref id="registration.attribution_catalogue" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.pair_trades" />、<Ref id="market.daily_returns" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="P.1.1.1">P.1.1.1</Ref> <Ref id="R.3.1.1">R.3.1.1</Ref> <Ref id="P.1.2.1">P.1.2.1</Ref> <Ref id="P.1.2.2">P.1.2.2</Ref> <Ref id="P.1.2.3">P.1.2.3</Ref> <Ref id="P.1.2.4">P.1.2.4</Ref> <Ref id="P.1.2.5">P.1.2.5</Ref> <Ref id="P.1.2.6">P.1.2.6</Ref> <Ref id="P.1.2.7">P.1.2.7</Ref> <Ref id="P.1.2.8">P.1.2.8</Ref> <Ref id="P.2.1.2">P.2.1.2</Ref> <Ref id="P.3.1.2">P.3.1.2</Ref>
+**关联章节**　<Ref id="P.1.1.1">P.1.1.1</Ref> <Ref id="R.3.1.1">R.3.1.1</Ref> <Ref id="P.1.2.1">P.1.2.1</Ref> <Ref id="P.1.2.2">P.1.2.2</Ref> <Ref id="P.1.2.3">P.1.2.3</Ref> <Ref id="P.1.2.4">P.1.2.4</Ref> <Ref id="P.1.2.5">P.1.2.5</Ref> <Ref id="P.1.2.6">P.1.2.6</Ref> <Ref id="P.1.2.7">P.1.2.7</Ref> <Ref id="P.1.2.8">P.1.2.8</Ref> <Ref id="P.1.2.9">P.1.2.9</Ref> <Ref id="P.2.1.2">P.2.1.2</Ref> <Ref id="P.3.1.2">P.3.1.2</Ref>
 
 **依据**
 
@@ -98,7 +99,7 @@ def pair_trades(
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="P.1.2.7">P.1.2.7</Ref>
+**关联章节**　<Ref id="P.1.2.8">P.1.2.8</Ref>
 
 </div>
 

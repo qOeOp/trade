@@ -146,7 +146,7 @@ def attribution_catalogue() -> dict
 
 **期望行为**
 
-1. 目录固定为：profit_bridge（利润来源桥）：price、fee、funding、open_mark、account；capital_scaled（规模归一）：notional_ratio、net_per_notional；fee_stress（费用压力）：breakeven_fee_multiple；by_instrument（品种与方向）：top5_abs_share、one_side_instruments、long_net、short_net；by_period（时期）：months_won_share、residual_after_top5_days；trade_structure（交易结构）：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share；trade_pairs（交易配对）：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes；drawdown（回撤）：max_drawdown、drawdown_days、top_instrument_share_in_drawdown。
+1. 目录固定为：profit_bridge（利润来源桥）：price、fee、funding、open_mark、account；capital_scaled（规模归一）：notional_ratio、net_per_notional；fee_stress（费用压力）：breakeven_fee_multiple；by_instrument（品种与方向）：top5_abs_share、one_side_instruments、long_net、short_net；market_exposure（市场暴露）：beta_basket、alpha_basket、beta_btc、alpha_btc；by_period（时期）：months_won_share、residual_after_top5_days；trade_structure（交易结构）：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share；trade_pairs（交易配对）：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes；drawdown（回撤）：max_drawdown、drawdown_days、top_instrument_share_in_drawdown。
 2. 改目录即升 metrics_revision；旧报告按旧版本复读。
 
 <div className="rd-meta">
