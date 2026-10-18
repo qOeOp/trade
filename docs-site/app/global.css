@@ -681,3 +681,7 @@ aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
 .dark .docs-scenario-tabs button:hover { color: #eef2f5; background: rgb(255 255 255 / 8%); }
 .dark .docs-scenario-tabs button.is-active { background: #f3f4f6; color: #171717; }
 @media (max-width: 640px) { .docs-scenario-tabs button { min-width: 3.35rem; padding-inline: 0.5rem; } }
+/* Bento tiles in the overview, chapter chips on function headers. */
+.rd-tile { width: 100%; height: 100%; border-radius: 0.9rem; background: color-mix(in srgb, var(--rd-node-muted) 6%, transparent); border: 1px solid color-mix(in srgb, var(--rd-node-muted) 14%, transparent); }
+.rd-tile-head { height: auto; padding: 0.55rem 0.8rem 0; }
+.rd-chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.65rem; font-weight: 600; padding: 0 0.35rem; border-radius: 0.35rem; color: var(--rd-stage-edge); background: color-mix(in srgb, var(--rd-stage-edge) 12%, transparent); }

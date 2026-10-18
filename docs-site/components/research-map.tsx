@@ -15,13 +15,14 @@ import {
 import '@xyflow/react/dist/style.css';
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Locale } from '@/lib/i18n';
 import {
   CAP_GAP, CAP_H, CAP_W, COL_GAP, COMP_GAP, COMP_HEAD, COMP_PAD, FN_GAP, FN_HEAD, FN_PAD, FN_W, LABEL_H, ROW_GAP,
   data, flowEdges, flows, grid, mapCopy,
   type MapCapability, type MapChapter, type MapComponent, type MapFunction, type Side,
 } from '@/lib/research-map';
+import { packSkyline, packToAspect } from '@/lib/bento';
 
 const sides: Record<Side, Position> = { t: Position.Top, r: Position.Right, b: Position.Bottom, l: Position.Left };
 const SIDE_KEYS = Object.keys(sides) as Side[];
@@ -44,7 +45,7 @@ for (const ch of data.chapters) for (const fn of ch.functions) {
 }
 
 type LabelData = { chapter: MapChapter; locale: Locale };
-type FnData = { fn: MapFunction; slug: string; locale: Locale; state: string; outside?: number; compact?: boolean };
+type FnData = { fn: MapFunction; slug: string; locale: Locale; state: string; outside?: number; compact?: boolean; chapter?: string };
 type CompData = { comp: MapComponent };
 type CapData = { cap: MapCapability; slug: string; locale: Locale; state: string };
 
@@ -62,6 +63,7 @@ function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
     <div className={`rd-func rd-func-${d.state} ${d.compact ? 'rd-func-compact' : ''}`}>
       <Handles />
       <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.fn.path)}`} className="rd-func-head">
+        {d.chapter ? <span className="rd-chip">{d.chapter}</span> : null}
         <span className="rd-box-id">{d.fn.path}</span>
         <span className="rd-func-title">{d.fn.title}</span>
       </Link>
@@ -88,68 +90,127 @@ function CapabilityNode({ data: d }: NodeProps<Node<CapData>>) {
   );
 }
 
-const nodeTypes = { label: ChapterLabelNode, func: FunctionNode, comp: ComponentNode, cap: CapabilityNode };
-
-const compHeight = (comp: MapComponent) => COMP_HEAD + comp.caps.length * CAP_H + (comp.caps.length - 1) * CAP_GAP + COMP_PAD;
-const fnHeight = (fn: MapFunction) => FN_HEAD + fn.components.reduce((h, c) => h + compHeight(c), 0) + (fn.components.length - 1) * COMP_GAP + FN_PAD;
-const COMPACT_H = 52;
-const base = { draggable: false, selectable: false } as const;
-
-// Overview: every function as a compact card in its chapter column, with the main flow edges.
-function overviewNodes(locale: Locale): Node[] {
-  const nodes: Node[] = [];
-  const colX = (col: number) => col * (FN_W + COL_GAP);
-  const height = (ch: MapChapter) => LABEL_H + ch.functions.length * (COMPACT_H + FN_GAP);
-  const chapters = data.chapters.filter((ch) => grid[ch.prefix]);
-  const rowTop = [0, 0, 0];
-  rowTop[1] = Math.max(...chapters.filter((ch) => grid[ch.prefix].row === 0).map(height)) + ROW_GAP / 2;
-  rowTop[2] = rowTop[1] + Math.max(...chapters.filter((ch) => grid[ch.prefix].row === 1).map(height)) + ROW_GAP / 2;
-  for (const ch of chapters) {
-    const { row, col } = grid[ch.prefix];
-    let y = rowTop[row];
-    nodes.push({ id: `label-${ch.prefix}`, type: 'label', position: { x: colX(col), y }, data: { chapter: ch, locale }, style: { width: FN_W, height: LABEL_H - 6 }, ...base });
-    y += LABEL_H;
-    ch.functions.forEach((fn, i) => {
-      const pos = row === 2 ? { x: colX(col) + i * (FN_W + COL_GAP / 2), y } : { x: colX(col), y: y + i * (COMPACT_H + FN_GAP) };
-      nodes.push({ id: fn.path, type: 'func', position: pos, data: { fn, slug: ch.slug, locale, state: 'idle', compact: true }, style: { width: FN_W, height: COMPACT_H }, width: FN_W, height: COMPACT_H, ...base });
-    });
-  }
-  return nodes;
+function TileNode({ data: d }: NodeProps<Node<LabelData>>) {
+  return (
+    <div className="rd-tile">
+      <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label rd-tile-head">
+        <span className="rd-box-id">{d.chapter.prefix}</span>
+        <span>{d.chapter.title}</span>
+      </Link>
+    </div>
+  );
 }
 
-// A flow: its functions side by side, each expanded to components and capabilities.
-function flowNodes(fnPaths: string[], locale: Locale, outside: Map<string, number>): Node[] {
+const nodeTypes = { label: ChapterLabelNode, tile: TileNode, func: FunctionNode, comp: ComponentNode, cap: CapabilityNode };
+
+const COMPACT_H = 48;
+const OUTER_GAP = 26;
+const TILE_PAD = 12;
+const base = { draggable: false, selectable: false } as const;
+type Rect = { x: number; y: number; w: number; h: number };
+
+function capsOf(fn: MapFunction) {
+  return fn.components.reduce((n, c) => n + c.caps.length, 0);
+}
+const compHeight = (comp: MapComponent) => COMP_HEAD + comp.caps.length * CAP_H + (comp.caps.length - 1) * CAP_GAP + COMP_PAD;
+
+// Inner bento: a function's components packed into one or two columns.
+function functionLayout(fn: MapFunction, width: number, units: number) {
+  const colW = (width - 2 * FN_PAD - (units - 1) * COMP_GAP) / units;
+  const packed = packSkyline(fn.components.map((c) => ({ id: c.path, units: 1, height: compHeight(c) })), units, colW, COMP_GAP);
+  return { colW, packed, height: FN_HEAD + packed.height + FN_PAD };
+}
+
+function unitsFor(fn: MapFunction) {
+  return capsOf(fn) > 7 && fn.components.length > 1 ? 2 : 1;
+}
+
+// Overview: each chapter is a tile holding compact function cards in one or two columns.
+function overviewLayout(locale: Locale, aspect: number) {
+  const chapters = data.chapters;
+  const cols = (ch: MapChapter) => (ch.functions.length > 3 ? 2 : 1);
+  const tileH = (ch: MapChapter) => LABEL_H + Math.ceil(ch.functions.length / cols(ch)) * (COMPACT_H + FN_GAP / 2) + TILE_PAD;
+  const board = packToAspect(chapters.map((ch) => ({ id: ch.prefix, units: cols(ch), height: tileH(ch) })), FN_W, OUTER_GAP, aspect);
   const nodes: Node[] = [];
-  fnPaths.forEach((path, i) => {
-    const entry = fnIndex.get(path);
-    if (!entry) return;
-    const { fn, chapter } = entry;
-    const h = fnHeight(fn);
-    nodes.push({ id: `label-${fn.path}`, type: 'label', position: { x: i * (FN_W + COL_GAP), y: 0 }, data: { chapter, locale }, style: { width: FN_W, height: LABEL_H - 6 }, ...base });
-    nodes.push({ id: fn.path, type: 'func', position: { x: i * (FN_W + COL_GAP), y: LABEL_H }, data: { fn, slug: chapter.slug, locale, state: 'idle', outside: outside.get(fn.path) }, style: { width: FN_W, height: h }, width: FN_W, height: h, zIndex: 0, ...base });
-    let cy = FN_HEAD;
-    for (const comp of fn.components) {
-      const ch2 = compHeight(comp);
-      nodes.push({ id: `comp-${comp.path}`, type: 'comp', parentId: fn.path, extent: 'parent', position: { x: FN_PAD, y: cy }, data: { comp }, style: { width: FN_W - 2 * FN_PAD, height: ch2 }, width: FN_W - 2 * FN_PAD, height: ch2, zIndex: 1, ...base });
-      comp.caps.forEach((cap, k) => {
-        nodes.push({ id: cap.path, type: 'cap', parentId: `comp-${comp.path}`, extent: 'parent', position: { x: COMP_PAD, y: COMP_HEAD + k * (CAP_H + CAP_GAP) }, data: { cap, slug: chapter.slug, locale, state: 'idle' }, style: { width: CAP_W, height: CAP_H }, width: CAP_W, height: CAP_H, zIndex: 2, ...base });
-      });
-      cy += ch2 + COMP_GAP;
-    }
+  const rects = new Map<string, Rect>();
+  for (const p of board.placed) {
+    const ch = chapters.find((c) => c.prefix === p.id)!;
+    nodes.push({ id: `tile-${ch.prefix}`, type: 'tile', position: { x: p.x, y: p.y }, data: { chapter: ch, locale }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: 0, ...base });
+    const k = cols(ch);
+    const cardW = (p.width - 2 * TILE_PAD - (k - 1) * TILE_PAD) / k;
+    ch.functions.forEach((fn, i) => {
+      const x = TILE_PAD + (i % k) * (cardW + TILE_PAD);
+      const y = LABEL_H + Math.floor(i / k) * (COMPACT_H + FN_GAP / 2);
+      nodes.push({ id: fn.path, type: 'func', parentId: `tile-${ch.prefix}`, extent: 'parent', position: { x, y }, data: { fn, slug: ch.slug, locale, state: 'idle', compact: true }, style: { width: cardW, height: COMPACT_H }, width: cardW, height: COMPACT_H, zIndex: 1, ...base });
+      rects.set(fn.path, { x: p.x + x, y: p.y + y, w: cardW, h: COMPACT_H });
+    });
+  }
+  return { nodes, rects };
+}
+
+// A flow: its functions as bento tiles; big functions take two columns and lay their components out side by side.
+function flowLayout(fnPaths: string[], locale: Locale, outside: Map<string, number>, aspect: number) {
+  const entries = fnPaths.map((p) => fnIndex.get(p)).filter(Boolean) as { fn: MapFunction; chapter: MapChapter }[];
+  const sized = entries.map(({ fn }) => {
+    const units = unitsFor(fn);
+    const width = units * FN_W + (units - 1) * OUTER_GAP;
+    return { fn, units, width, inner: functionLayout(fn, width, units) };
   });
-  return nodes;
+  const board = packToAspect(sized.map((s) => ({ id: s.fn.path, units: s.units, height: s.inner.height })), FN_W, OUTER_GAP, aspect);
+  const nodes: Node[] = [];
+  const rects = new Map<string, Rect>();
+  for (const p of board.placed) {
+    const s = sized.find((x) => x.fn.path === p.id)!;
+    const { chapter } = fnIndex.get(p.id)!;
+    nodes.push({ id: s.fn.path, type: 'func', position: { x: p.x, y: p.y }, data: { fn: s.fn, slug: chapter.slug, chapter: chapter.prefix, locale, state: 'idle', outside: outside.get(s.fn.path) }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: 0, ...base });
+    rects.set(s.fn.path, { x: p.x, y: p.y, w: p.width, h: p.height });
+    for (const cp of s.inner.packed.placed) {
+      const comp = s.fn.components.find((c) => c.path === cp.id)!;
+      const cx = FN_PAD + cp.x, cy = FN_HEAD + cp.y;
+      nodes.push({ id: `comp-${comp.path}`, type: 'comp', parentId: s.fn.path, extent: 'parent', position: { x: cx, y: cy }, data: { comp }, style: { width: cp.width, height: cp.height }, width: cp.width, height: cp.height, zIndex: 1, ...base });
+      comp.caps.forEach((cap, k) => {
+        const capW = cp.width - 2 * COMP_PAD;
+        const y = COMP_HEAD + k * (CAP_H + CAP_GAP);
+        nodes.push({ id: cap.path, type: 'cap', parentId: `comp-${comp.path}`, extent: 'parent', position: { x: COMP_PAD, y }, data: { cap, slug: chapter.slug, locale, state: 'idle' }, style: { width: capW, height: CAP_H }, width: capW, height: CAP_H, zIndex: 2, ...base });
+        rects.set(cap.path, { x: p.x + cx + COMP_PAD, y: p.y + cy + y, w: capW, h: CAP_H });
+      });
+    }
+  }
+  return { nodes, rects };
+}
+
+// Pick the handle pair that faces the other end, so curves leave and enter on the near sides.
+function facing(a: Rect, b: Rect): { from: Side; to: Side } {
+  const dx = b.x + b.w / 2 - (a.x + a.w / 2);
+  const dy = b.y + b.h / 2 - (a.y + a.h / 2);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? { from: 'r', to: 'l' } : { from: 'l', to: 'r' };
+  return dy >= 0 ? { from: 'b', to: 't' } : { from: 't', to: 'b' };
 }
 
 export function ResearchMap({ locale }: { locale: Locale }) {
   const { resolvedTheme } = useTheme();
   const [tab, setTab] = useState<string>('overview');
   const [hovered, setHovered] = useState<string | null>(null);
+  const [aspect, setAspect] = useState(1.8);
+  const box = useRef<HTMLDivElement>(null);
   const flow = flows.find((f) => f.id === tab);
 
-  const { baseNodes, links } = useMemo(() => {
-    if (!flow) return { baseNodes: overviewNodes(locale), links: [] as [string, string][] };
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const update = () => { if (el.clientHeight > 0) setAspect(Math.max(0.5, Math.min(3, el.clientWidth / el.clientHeight))); };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const { baseNodes, rects, links } = useMemo(() => {
+    if (!flow) {
+      const o = overviewLayout(locale, aspect);
+      return { baseNodes: o.nodes, rects: o.rects, links: [] as [string, string][] };
+    }
     const inFlow = new Set(flow.functions);
-    const order = new Map(flow.functions.map((p, i) => [p, i]));
     const inside: [string, string][] = [];
     const outside = new Map<string, number>();
     for (const [a, b] of data.links) {
@@ -158,9 +219,9 @@ export function ResearchMap({ locale }: { locale: Locale }) {
       else if (inFlow.has(fa)) outside.set(fa, (outside.get(fa) ?? 0) + 1);
       else if (inFlow.has(fb)) outside.set(fb, (outside.get(fb) ?? 0) + 1);
     }
-    inside.sort((x, y) => (order.get(capFn.get(x[0])!)! - order.get(capFn.get(y[0])!)!));
-    return { baseNodes: flowNodes(flow.functions, locale, outside), links: inside };
-  }, [flow, locale]);
+    const l = flowLayout(flow.functions, locale, outside, aspect);
+    return { baseNodes: l.nodes, rects: l.rects, links: inside };
+  }, [flow, locale, aspect]);
 
   const lit = useMemo(() => {
     if (!hovered) return null;
@@ -181,40 +242,40 @@ export function ResearchMap({ locale }: { locale: Locale }) {
   }), [baseNodes, lit, hovered]);
 
   const edges = useMemo<Edge[]>(() => {
-    const present = new Set(baseNodes.map((n) => n.id));
     const out: Edge[] = [];
-    for (const e of flowEdges) {
-      if (!present.has(e.source) || !present.has(e.target) || flow) continue;
-      const loop = e.kind === 'loop';
-      const on = !hovered || e.source === hovered || e.target === hovered;
-      out.push({
-        id: `flow-${e.source}-${e.target}`, source: e.source, target: e.target, sourceHandle: `s-${e.from ?? 'r'}`, targetHandle: `t-${e.to ?? 'l'}`,
-        type: 'smoothstep', className: loop ? 'rd-edge-loop' : 'rd-edge-flow', label: e.label[locale], zIndex: 3,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: loop ? 'var(--rd-stage-edge)' : 'var(--rd-edge)' },
-        style: { opacity: on ? 1 : 0.12 }, labelStyle: { opacity: on ? 1 : 0.12 }, labelBgPadding: [5, 2] as [number, number], labelBgBorderRadius: 4,
-      });
-    }
-    if (flow) {
-      const order = new Map(flow.functions.map((p, i) => [p, i]));
+    const curve = (id: string, a: string, b: string, cls: string, color: string, on: boolean, label?: string): Edge | null => {
+      const ra = rects.get(a), rb = rects.get(b);
+      if (!ra || !rb) return null;
+      const f = facing(ra, rb);
+      return {
+        id, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'default', className: cls, zIndex: 4,
+        // labels only for the edges of what is hovered; at rest the curves stay quiet
+        label: hovered && on ? label : undefined, markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color },
+        style: { opacity: !hovered ? 0.45 : on ? 1 : 0.06 }, labelBgPadding: [5, 2] as [number, number], labelBgBorderRadius: 4,
+      };
+    };
+    if (!flow) {
+      for (const e of flowEdges) {
+        const loop = e.kind === 'loop';
+        const on = !hovered || e.source === hovered || e.target === hovered;
+        const edge = curve(`flow-${e.source}-${e.target}`, e.source, e.target, loop ? 'rd-edge-loop' : 'rd-edge-flow', loop ? 'var(--rd-stage-edge)' : 'var(--rd-edge)', on, e.label[locale]);
+        if (edge) out.push(edge);
+      }
+    } else {
       for (const [a, b] of links) {
-        const forward = order.get(capFn.get(b)!)! > order.get(capFn.get(a)!)!;
         const on = !lit || (lit.has(a) && lit.has(b));
-        out.push({
-          id: `link-${a}-${b}`, source: a, target: b, sourceHandle: forward ? 's-r' : 's-l', targetHandle: forward ? 't-l' : 't-r',
-          type: 'smoothstep', className: 'rd-edge-flow', zIndex: 4,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: 'var(--rd-edge)' },
-          style: { opacity: on ? 0.9 : 0.06 },
-        });
+        const edge = curve(`link-${a}-${b}`, a, b, 'rd-edge-flow', 'var(--rd-edge)', on);
+        if (edge) out.push(edge);
       }
     }
     return out;
-  }, [baseNodes, flow, links, hovered, lit, locale]);
+  }, [flow, links, rects, hovered, lit, locale]);
 
   return (
     <div className="rd-map flex h-full w-full flex-col">
-      <div className="min-h-0 flex-1">
+      <div ref={box} className="min-h-0 flex-1">
       <ReactFlow
-        key={tab}
+        key={`${tab}-${Math.round(aspect * 4)}`}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
