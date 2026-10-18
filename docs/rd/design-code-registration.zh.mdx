@@ -346,7 +346,7 @@ def record_review(
 1. 校验 body：恰为六键，四项各有合法 status 与非空 note，trial_id 为整数；verdict = passed 时四项不得为 failed 或 unresolved；否则拒绝 REVIEW_INVALID。不解释 note、不汇总为分数。
 2. 读 trial 行（不存在拒绝 TRIAL_NOT_FOUND），经 ledger.read_capture 读原始捕获：须为 purpose = precheck 的原件，缺失或只有恢复材料拒绝 PRECHECK_CAPTURE_MISSING。
 3. 从 trial 行取 source_sha256、image_digest，从捕获取执行封存包名，连同 format = source-review-v1、verdict、四项与 authority 组成 source-review.json。
-4. 包名由产品按 trial_id 与内容哈希派生（Agent 不能取产品保留名）；经 ledger.add_bundle 写 evidence_bundle 与 evidence，同内容重试返回原记录，只追加不改写。
+4. 包名由产品按 trial_id 与内容哈希派生（Agent 不能取产品保留名）；经 ledger.write_files 写 evidence_bundle 与 evidence，同内容重试返回原记录，只追加不改写。
 5. 返回记录身份；不写 run 表，资格由读取时的资格视图判定。
 
 | 拒绝码 | 条件 |
@@ -357,7 +357,7 @@ def record_review(
 | `CONCURRENT_WRITE` | 提交时账本头已被他人推进（ledger.add_bundle 传出） |
 | `LEDGER_CORRUPT` | 读取捕获时文件哈希与 evidence.sha256 不符 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.add_bundle" />、<Ref id="ledger.read_capture" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.write_files" />、<Ref id="ledger.read_capture" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -519,7 +519,7 @@ def register(
 3. 调用 registration.require_line_records：解释、复盘与节奏三道前置门任一不满足即拒绝，拒绝信息给出要补的判断与命令。
 4. runtime.resolve 解析唯一清单摘要，runtime.inspect_runtime 在镜像内探针读出运行契约、依赖锁哈希与生效配置；registration.market_inputs 按研究路线的市场提交导出 1 分钟输入并经 registration.export_fingerprint 算内容身份；三者合成 execution，宿主路径不进身份。
 5. 组装 research-plan.json：body 全部字段、execution、每格审查引用与登记时的运行环境引用；算内容哈希，op_id 由包名与内容哈希派生。
-6. 在 ledger.write 的事务里调 registration.validate(conn, body, execution, before_replay=False)（含窗口、预检、暴露与 retry_of 核对）；同名包已存在且哈希相同即幂等返回，哈希不同即 DUPLICATE_BUNDLE；否则经 ledger.add_bundle 写 evidence_bundle 一行与 evidence 一行，created_at 由服务器触发器写。
+6. 在 ledger.write 的事务里调 registration.validate(conn, body, execution, before_replay=False)（含窗口、预检、暴露与 retry_of 核对）；同名包已存在且哈希相同即幂等返回，哈希不同即 DUPLICATE_BUNDLE；否则经 ledger.write_files 写 evidence_bundle 一行与 evidence 一行，created_at 由服务器触发器写。
 7. 事务内任一步失败整笔回滚、不留半截；validate、运行环境与导出的拒绝码原样透传。
 8. 返回包名、哈希、执行身份与账本提交；探测与导出的工作副本留在临时目录，账本不存导出数据与镜像。
 
@@ -532,10 +532,10 @@ def register(
 | `SOURCE_PRECHECK_REQUIRED` | 网格源码缺通过的预检与审查（由 require_precheck 抛出） |
 | `SOURCE_ALREADY_EXPOSED` | 网格源码已暴露且无合法 retry_of（由 validate 抛出） |
 | `CONCURRENT_WRITE` | 提交时写入头指针被另一写入抢先，后到者回滚 |
-| `DIRTY_WORKSET` | 写前发现账本有未提交的 SQL 改动 |
+| `DIRTY_WORKING_SET` | 写前发现账本有未提交的 SQL 改动 |
 | `SOURCES_REQUIRED` | rationale.external 非空而没有来源原件，或 sources 引用的包不存在 |
 
-**使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.add_bundle" />、<Ref id="table:v_evidence" />、<Ref id="table:ledger_head" />、<Ref id="registration.require_line_records" />、<Ref id="registration.plan_schema" />
+**使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.write_files" />、<Ref id="table:v_evidence" />、<Ref id="table:ledger_head" />、<Ref id="registration.require_line_records" />、<Ref id="registration.plan_schema" />
 
 <div className="rd-meta">
 
