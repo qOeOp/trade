@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger.errors import Refusal
-from registration import seams
+from registration import comparability, seams
 
 
 class SeamTests(unittest.TestCase):
@@ -22,6 +22,14 @@ class SeamTests(unittest.TestCase):
         self.assertEqual((universe["selection"], universe["lifecycle_bundle"]), ({"universe": True}, "lifecycle-x"))
         with self.assertRaises(ValueError):
             seams.current.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
+
+    def test_todays_runner_configuration_is_comparable_under_the_engine_design_keys(self):
+        from types import SimpleNamespace
+        from backtest import run
+        args = SimpleNamespace(market_root="/x/market", market_commit="a" * 32, pool=None, symbols=["AAAUSDT"],
+                               start="2025-12-31T00:00:00Z", end="2026-02-01T00:00:00Z", trade_start="2026-01-01T00:00:00Z")
+        key = comparability.config_key(seams.design_config(run.effective_configuration(args)))
+        self.assertEqual((key["symbols"], key["account"]), (["AAAUSDT"], run.ACCOUNT_CONTRACT))
 
     def test_member_months_merge_into_half_open_paths(self):
         paths = seams.membership_from_months([("2025-12", "A"), ("2026-01", "A"), ("2026-03", "A"), ("2025-12", "B")])

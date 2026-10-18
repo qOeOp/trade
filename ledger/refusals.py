@@ -135,8 +135,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LINE_UNKNOWN": ("The research line bundle does not exist or is not a research-line-* bundle.",
                      ("Read the current line with `research state`; select one with `line select`.",)),
     # Trials
-    "BINDING_NOT_ALLOWED": ("An exploration or precheck replay was given a registration binder.",
-                            ("Run explorations and prechecks without a registration.",)),
+    "BINDING_NOT_ALLOWED": ("The binder does not fit the replay's purpose: an exploration or precheck was given "
+                            "a registration binder, or a non-validation trial a validation binder.",
+                            ("Run explorations and prechecks without a registration; bind a validation registration "
+                             "only to a validation replay.",)),
     "BINDING_REQUIRED": ("A research or validation replay has no registration binder.",
                          ("Register first (`registration add` or `validation registration`), then replay.",)),
     "SOURCE_NOT_PUBLISHED": ("The executed source is not a published candidate.",

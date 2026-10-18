@@ -239,10 +239,12 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
     input-coverage.json). `market` is the market profile the membership is reread from AS OF."""
     require_fresh(checkout, remote)
     seams.current.require_main_build(dict(identity), dict(inspection))
-    trial = conn.one("SELECT trial_id, source_sha256, image_digest, instruments, input_start, trade_start, trade_end, "
+    trial = conn.one("SELECT trial_id, purpose, source_sha256, image_digest, instruments, input_start, trade_start, trade_end, "
                      "op_id, created_at FROM trial WHERE trial_id = %s", (trial_id,))
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} in this transaction", missing=(str(trial_id),))
+    if trial["purpose"] != "validation":
+        raise refuse("BINDING_NOT_ALLOWED", f"a {trial['purpose']} trial takes no validation binder")
     if trial["image_digest"] != identity.get("image_digest"):
         raise refuse("RUNTIME_NOT_MAIN", f"trial {trial_id} ran {trial['image_digest']}, not the checked main build",
                      missing=("image_digest",))

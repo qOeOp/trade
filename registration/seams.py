@@ -46,9 +46,21 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     argv = [*runner_argv, "--market-root", str(inputs["root"]), "--market-commit",
             inputs["identity"]["market_commit"], "--pool", str(inputs["membership_file"])]
     try:
-        return runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
+        inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
     except RecordError as exc:
         raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
+    return {**inspection, "effective_config": design_config(inspection.get("effective_config"))}
+
+
+# Today's runner names the account terms `native_account`; the engine design calls them `account`.
+# Renamed here until the engine package replaces the runner.
+CURRENT_RUNNER_KEYS = {"native_account": "account"}
+
+
+def design_config(value):
+    if not isinstance(value, Mapping):
+        return value
+    return {CURRENT_RUNNER_KEYS.get(key, key): item for key, item in value.items()}
 
 
 def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:

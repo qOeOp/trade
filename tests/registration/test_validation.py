@@ -205,7 +205,8 @@ class ValidationTests(unittest.TestCase):
                                                  True)
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
-             identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None) -> int:
+             identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None,
+             purpose: str = "validation") -> int:
         """Open a validation trial whose start receipt records `inputs` and the effective configuration
         of `inspection`, bound to the registration `label`."""
         data = data if data is not None else source("root")
@@ -220,7 +221,7 @@ class ValidationTests(unittest.TestCase):
             market=self.world.market, checkout=checkout_root or self.checkout, tsa_roots=self.authority.roots)
         coverage = coverage_bytes(inspection["effective_config"], inputs["receipts"])
         with seams.use(require_main_build=lambda identity, inspection: "a" * 40):
-            return trials.open_trial(self.conn, "validation", sha(data), RUNTIME,
+            return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
                                      {"identity": inputs["identity"], "input_coverage": coverage},
                                      {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)},
                                      context(data, f"/tmp/validation-{self.id()}-{self.binds}"), binder)["trial_id"]
@@ -351,6 +352,7 @@ class ValidationTests(unittest.TestCase):
         other_image = {**IDENTITY, "image_digest": "sha256:" + "c" * 64}
         self.assertEqual(self.refused_bind("checks", identity=other_image), "RUNTIME_NOT_MAIN")
         self.assertEqual(self.refused_bind(999_999), "REGISTRATION_UNKNOWN")
+        self.assertEqual(self.refused_bind("checks", purpose="research"), "BINDING_NOT_ALLOWED")
         self.assertEqual(self.refused_bind("checks", data=self.unrun["source"]), "SOURCE_MISMATCH")
         self.assertEqual(self.refused_bind("checks", data=self.unrun["source"], binder_source=root), "SOURCE_MISMATCH")
         start, end = self.windows["checks"]
