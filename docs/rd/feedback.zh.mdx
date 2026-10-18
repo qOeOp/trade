@@ -1,10 +1,10 @@
-# F　反馈与研究优先级：一个运行封存之后，Agent 怎样读反馈、决定下一步改什么，何时复盘并给出推荐。
+# 11　反馈与研究优先级：一个运行封存之后，Agent 怎样读反馈、决定下一步改什么，何时复盘并给出推荐。
 
-本章承接 V 章的检验结果：一个运行入账后，Agent 怎样读反馈、排下一步的研究优先级，到了节奏怎样复盘并给综合推荐。代码只给只读事实，判断由 skill 指导，逐条写成判断记录入账。
+本章承接第 9 章的检验结果：一个运行入账后，Agent 怎样读反馈、排下一步的研究优先级，到了节奏怎样复盘并给综合推荐。代码只给只读事实，判断由 skill 指导，逐条写成判断记录入账。
 
-<Mermaid chart={"flowchart LR\n  subgraph F-1[\"F.1 读取反馈：先定资格，再拆到职责\"]\n    direction TB\n    F-1-1[\"F.1.1 反馈资格\"]\n    F-1-2[\"F.1.2 绩效指标的读法\"]\n  end\n  subgraph F-2[\"F.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"F.2.1 优先级的依据与边界\"]\n  end\n  subgraph F-3[\"F.3 复盘与推荐：节奏触发，研究默认继续\"]\n    direction TB\n    F-3-1[\"F.3.1 复盘的触发与计数\"]\n    F-3-2[\"F.3.2 复盘的内容\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
+<Mermaid chart={"flowchart LR\n  subgraph F-1[\"11.1 读取反馈：先定资格，再拆到职责\"]\n    direction TB\n    F-1-1[\"反馈资格\"]\n    F-1-2[\"绩效指标的读法\"]\n  end\n  subgraph F-2[\"11.2 更新研究优先级：决定下一步改什么\"]\n    direction TB\n    F-2-1[\"优先级的依据与边界\"]\n  end\n  subgraph F-3[\"11.3 复盘与推荐：节奏触发，研究默认继续\"]\n    direction TB\n    F-3-1[\"复盘的触发与计数\"]\n    F-3-2[\"复盘的内容\"]\n  end\n  F-1 --> F-2\n  F-2 --> F-3"} />
 
-## F.1　读取反馈：先定资格，再拆到职责 [#F-1]
+## 11.1　读取反馈：先定资格，再拆到职责 [#F-1]
 
 <Steps>
 
@@ -34,30 +34,41 @@
 
 <Step>
 
-登记带了比较对照的，读完归因报告再写解释（P 章）。
+登记带了比较对照的，读完归因报告再写解释（第 10 章）。
 
 </Step>
 
 </Steps>
 
-### F.1.1　反馈资格 [#F-1-1]
+### 反馈资格 [#F-1-1]
 
 先看运行有没有经济证据资格，没有的按成因分诊断与修复两路。
 
-<ul className="rd-rules">
-<li id="F-1-1-1"><span className="rd-rule-id">F.1.1.1</span> 先读经济证据资格；零成交运行只作诊断，不与亏损运行比优劣 <Ref id="rule:F.1.1.1">research-round · references/diagnosis.md</Ref></li>
-<li id="F-1-1-2"><span className="rd-rule-id">F.1.1.2</span> 运行无效、未完成或预检未过只修复，不当反馈，修好另行登记 <Ref id="rule:F.1.1.2">research-round · references/diagnosis.md</Ref></li>
-</ul>
+#### 读任何反馈前先读资格视图，零成交运行只做诊断 [#F-1-1-1]
 
-### F.1.2　绩效指标的读法 [#F-1-2]
+先读经济证据资格；零成交运行只作诊断，不与亏损运行比优劣
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.1.1.1">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 无效、未完成或预检未过的运行只留修复轨迹，修复后另行登记 [#F-1-1-2]
+
+运行无效、未完成或预检未过只修复，不当反馈，修好另行登记
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.1.1.2">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 绩效指标的读法 [#F-1-2]
 
 绩效指标的口径前面已讲，这里只讲怎样读出场原因。
 
-<ul className="rd-rules">
-<li id="F-1-2-2"><span className="rd-rule-id">F.1.2.2</span> 出场原因只读平仓单的标签或类型，不按盈亏推断，未平仓单列 <Ref id="rule:F.1.2.2">nautilus-report-analysis · references/exit-reasons.md</Ref></li>
-</ul>
+<a id="F-1-2-2" />
 
-## F.2　更新研究优先级：决定下一步改什么 [#F-2]
+**按入场计划标签 × 出场原因拆贡献，出场原因只读原生记录**
+
+出场原因只读平仓单的标签或类型，不按盈亏推断，未平仓单列
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.1.2.2">nautilus-report-analysis · references/exit-reasons.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+## 11.2　更新研究优先级：决定下一步改什么 [#F-2]
 
 <Steps>
 
@@ -93,15 +104,19 @@
 
 </Steps>
 
-### F.2.1　优先级的依据与边界 [#F-2-1]
+<a id="F-2-1" />
 
 排下一研究动作的依据，以及哪些结果不构成排除某个方向。
 
-<ul className="rd-rules">
-<li id="F-2-1-1"><span className="rd-rule-id">F.2.1.1</span> 按效应、不确定性、机制、覆盖、信息价值和成本排序，不排除方向 <Ref id="rule:F.2.1.1">research-round · references/feedback.md</Ref></li>
-</ul>
+<a id="F-2-1-1" />
 
-## F.3　复盘与推荐：节奏触发，研究默认继续 [#F-3]
+**Agent 按六项依据给下一项具体研究动作排序，代码不排序**
+
+按效应、不确定性、机制、覆盖、信息价值和成本排序，不排除方向
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.2.1.1">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+## 11.3　复盘与推荐：节奏触发，研究默认继续 [#F-3]
 
 <Steps>
 
@@ -137,32 +152,43 @@
 
 </Steps>
 
-### F.3.1　复盘的触发与计数 [#F-3-1]
+### 复盘的触发与计数 [#F-3-1]
 
 复盘何时触发由 Agent 自定节奏，次数从账本读。
 
-<ul className="rd-rules">
-<li id="F-3-1-1"><span className="rd-rule-id">F.3.1.1</span> 复盘用的次数只读账本计数，可比候选数取有经济证据资格的 <Ref id="rule:F.3.1.1">research-round · references/review.md</Ref></li>
-<li id="F-3-1-2"><span className="rd-rule-id">F.3.1.2</span> 复盘节奏只触发复盘，不因次数多少停止研究或判方向无效 <Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></li>
-</ul>
+#### 复盘所用次数一律读代码给出的研究计数，不自数 [#F-3-1-1]
 
-### F.3.2　复盘的内容 [#F-3-2]
+复盘用的次数只读账本计数，可比候选数取有经济证据资格的
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 次数节奏只触发复盘，复盘完继续研究，没有停止规则 [#F-3-1-2]
+
+复盘节奏只触发复盘，不因次数多少停止研究或判方向无效
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 复盘的内容 [#F-3-2]
 
 在全部有经济证据资格的候选上综合推荐，与下一实验的父版本分开定。
 
-<ul className="rd-rules">
-<li id="F-3-2-1"><span className="rd-rule-id">F.3.2.1</span> 推荐前在全部有经济证据资格的候选（含旧的）上多维比较 <Ref id="rule:F.3.2.1">research-round · references/review.md</Ref></li>
-</ul>
+<a id="F-3-2-1" />
+
+**在截至当时全部经济证据可用的候选上多维综合推荐**
+
+推荐前在全部有经济证据资格的候选（含旧的）上多维比较
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.2.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#F-pending]
 
 **待用户定**
 
 - **诊断判据看绝对绩效指标还是配对差**　建议默认：部件判据读候选自身绝对绩效指标（R 口径，注明总体）；相对比较对照的改善只读检验结果（V 口径）；两者并列不混用
-- **三篇 Agent 自评预印本是否够格作依据**　F.3.1.1 的依据按演练证据写，不引这些预印本；用户认可后再补
+- **三篇 Agent 自评预印本是否够格作依据**　<Ref id="F.3.1.1" /> 的依据按演练证据写，不引这些预印本；用户认可后再补
 
-- **不进文档**　具体排序算法（Thompson sampling、贝叶斯优化、BOCS／COMBO）：用户已定不设优化器或推荐分数；F.2.1.1 只写排序依据，Snoek 2012 只作排序原则依据
+- **不进文档**　具体排序算法（Thompson sampling、贝叶斯优化、BOCS／COMBO）：用户已定不设优化器或推荐分数；<Ref id="F.2.1.1" /> 只写排序依据，Snoek 2012 只作排序原则依据
 - **不进文档**　复盘触发次数的具体值：复盘节奏是 Agent 以 review_cadence 判断声明的方法示例值，不是产品常数，正文不写数
 - **不进文档**　诊断看网格哪个点：归 V：比较对每个运行各给绩效指标，F 可读全部点；是否选代表点由 V 定
 - **不进文档**　部件判据的文献依据（AFML 第 14 章、Kaminski & Lo 2014）：Kaminski & Lo 2014 只覆盖尾部→止损出场一项，AFML DOI 未解析；F.1.3.2 与 F.2.2.1 保持待验证
-- **不进文档**　交互实验（缺失组合与单规则改进共同比较信息价值与完整成本）：只在 H 章留一句并标待验证，F 不收
+- **不进文档**　交互实验（缺失组合与单规则改进共同比较信息价值与完整成本）：只在第 5 章留一句并标待验证，F 不收

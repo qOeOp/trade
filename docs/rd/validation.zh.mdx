@@ -1,10 +1,10 @@
-# X　样本外验证：用户发起的一次性检验：样本外验证由谁发起，怎样登记与准入，怎样一次性回放并照实报告。
+# 12　样本外验证：用户发起的一次性检验：样本外验证由谁发起，怎样登记与准入，怎样一次性回放并照实报告。
 
-本章讲用户认可一个候选之后，怎样在登记之后才开始的新窗口上只回放一次，并照实报告。它沿用 H 章的登记和 R 章的绩效指标，但不属于研究循环。登记、窗口先后、一次性和一致性由代码与账本锁住，用语由 skill 指导。
+本章讲用户认可一个候选之后，怎样在登记之后才开始的新窗口上只回放一次，并照实报告。它沿用第 5 章的登记和第 8 章的绩效指标，但不属于研究循环。登记、窗口先后、一次性和一致性由代码与账本锁住，用语由 skill 指导。
 
-<Mermaid chart={"flowchart LR\n  subgraph X-1[\"X.1 发起、登记与准入\"]\n    direction TB\n    X-1-1[\"X.1.1 发起与选择\"]\n    X-1-2[\"X.1.2 登记与窗口准入\"]\n    X-1-3[\"X.1.3 一次性与一致性\"]\n  end\n  subgraph X-2[\"X.2 报告结果\"]\n    direction TB\n    X-2-1[\"X.2.1 绩效指标\"]\n    X-2-2[\"X.2.2 读结果的边界与用语\"]\n  end\n  X-1 --> X-2"} />
+<Mermaid chart={"flowchart LR\n  subgraph X-1[\"12.1 发起、登记与准入\"]\n    direction TB\n    X-1-1[\"发起与选择\"]\n    X-1-2[\"登记与窗口准入\"]\n    X-1-3[\"一次性与一致性\"]\n  end\n  subgraph X-2[\"12.2 报告结果\"]\n    direction TB\n    X-2-1[\"绩效指标\"]\n    X-2-2[\"读结果的边界与用语\"]\n  end\n  X-1 --> X-2"} />
 
-## X.1　发起、登记与准入 [#X-1]
+## 12.1　发起、登记与准入 [#X-1]
 
 <Steps>
 
@@ -40,68 +40,77 @@
 
 </Steps>
 
-### X.1.1　发起与选择 [#X-1-1]
+### 发起与选择 [#X-1-1]
 
 由谁发起、建议什么窗口，由 skill 指导。
 
-<ul className="rd-rules">
-<li id="X-1-1-1"><span className="rd-rule-id">X.1.1.1</span> 样本外验证只在用户指定后登记，Agent 不自行发起 <Ref id="rule:X.1.1.1">research-round · SKILL.md</Ref></li>
-<li id="X-1-1-2"><span className="rd-rule-id">X.1.1.2</span> 建议样本外窗口前，先告诉用户盈亏是否集中在少数交易、资金用了多少 <Ref id="rule:X.1.1.2">research-round · references/validation.md</Ref></li>
-</ul>
+#### 样本外验证只由用户发起，产品和研发循环都不自动触发 [#X-1-1-1]
 
-### X.1.2　登记与窗口准入 [#X-1-2]
+样本外验证只在用户指定后登记，Agent 不自行发起
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.1.1.1">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺一次由用户发起并走完登记、回放、报告的演练记录。</p>
+
+#### 被验候选、窗口和范围由用户指定；Agent 先披露集中度与资金使用率，再建议窗口长度 [#X-1-1-2]
+
+建议样本外窗口前，先告诉用户盈亏是否集中在少数交易、资金用了多少
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.1.1.2">research-round · references/validation.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺窗口长度建议与事后区间分辨力的对照记录。</p>
+
+### 登记与窗口准入 [#X-1-2]
 
 登记锁住被验对象，窗口必须在登记之后才开始。
 
-<Cap id="X.1.2.1" kind="database" tier="verified" tierLabel="已验证" title="样本外回放前先登记入账，并取公共时间戳凭证">
+#### 样本外回放前先登记入账，并取公共时间戳凭证 [#X-1-2-1]
 
 - 登记锁定四样：被验候选、共同可交易范围、窗口和检验条件。
 - 登记入账后，把它所在账本版本的哈希交给公共时间戳机构，换回凭证。
 - 凭证证明这份计划在某一时刻已经存在，但不证明它是唯一的计划。
 - 登记只追加不改；取凭证失败时登记仍在，须在窗口开始前补取。
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_validations">v_validations</Ref> <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.witness">witness</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_validations">v_validations</Ref> <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.witness">witness</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="X.1.2.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺这类拒绝的实际执行记录。" title="样本外窗口必须在登记凭证时间之后才开始">
+#### 样本外窗口必须在登记凭证时间之后才开始 [#X-1-2-2]
 
 - 登记时，窗口起点不晚于登记时间就拒绝。
 - 回放前再核一次：没有凭证，或凭证时间不早于窗口起点，就拒绝。
 - 窗口在登记之后才开始，所以登记时窗口内的数据还不存在。
 - 这一条同时排除了窗口与开发数据重叠、旧运行冒充和窗口重复使用。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.stamped_at">stamped_at</Ref> <Ref id="cli.validation_registration">validation_registration</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.stamped_at">stamped_at</Ref> <Ref id="cli.validation_registration">validation_registration</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
+<p className="rd-note">缺这类拒绝的实际执行记录。</p>
 
-### X.1.3　一次性与一致性 [#X-1-3]
+### 一次性与一致性 [#X-1-3]
 
 一次登记只换一次回放，回放必须与登记逐项相同。
 
-<Cap id="X.1.3.1" kind="database" tier="unverified" tierLabel="待验证" tierNote="缺一登记一回放与重试条件在账本上的实际拒绝记录。" title="一次登记只能绑定一次回放，绑定即消耗">
+#### 一次登记只能绑定一次回放，绑定即消耗 [#X-1-3-1]
 
 - 登记和这次回放的试验在同一笔写入里绑定，第二次绑定被拒绝。
 - 回放中断、运行无效或没有实质活动时，登记同样已经消耗。
 - 只有中断且无运行、运行无效、无经济证据资格三种情况，才可另行登记重试。
 - 重试的候选、窗口和范围须与原登记相同；结果不好看不是重试理由。
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_validations">v_validations</Ref> <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_validations">v_validations</Ref> <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
+<p className="rd-note">缺一登记一回放与重试条件在账本上的实际拒绝记录。</p>
 
-<Cap id="X.1.3.2" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺跨市场提交核对成员路径与一次完整样本外回放的执行记录。" title="样本外回放须与登记逐项一致，否则撤回、不启动">
+#### 样本外回放须与登记逐项一致，否则撤回、不启动 [#X-1-3-2]
 
 - 运行环境须是正式自动构建、按摘要钉死的；源码须是登记的那一版。
 - 范围规则与登记前各月的成员名单不变，窗口内的成员不得被剔除。
 - 交易落在登记窗口内，回放在窗口结束后发起，各合约输入覆盖齐全。
 - 账户配置与这个候选最近一次有效的研究回放相同。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="replay.seal">seal</Ref> <Ref id="registration.membership_unchanged">membership_unchanged</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="replay.seal">seal</Ref> <Ref id="registration.membership_unchanged">membership_unchanged</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
+<p className="rd-note">缺跨市场提交核对成员路径与一次完整样本外回放的执行记录。</p>
 
-## X.2　报告结果 [#X-2]
+## 12.2　报告结果 [#X-2]
 
 <Steps>
 
@@ -137,55 +146,62 @@ Agent 立即把报告交给用户，由用户判断认不认可。
 
 </Steps>
 
-### X.2.1　绩效指标 [#X-2-1]
+### 绩效指标 [#X-2-1]
 
 代码只读账本，算绩效指标、区间和校正，不下裁决。
 
-<Cap id="X.2.1.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。" title="样本外报告与开发报告同口径，无资格即置空，不下裁决">
+#### 样本外报告与开发报告同口径，无资格即置空，不下裁决 [#X-2-1-1]
 
 - 绩效指标从绑定的封存运行读出，口径与开发报告相同。
 - 没有经济证据资格时，绩效指标置空，只留原因和诊断。
 - 报告列出登记内容、凭证时间、审计状态和这个候选的全部样本外登记。
 - 报告不写账本，也没有通过、裁决或推荐。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.validation_report">validation_report</Ref> <Ref id="cli.validation_report">validation_report</Ref> <Ref id="qualification.mask">mask</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.validation_report">report.validation_report</Ref> <Ref id="cli.validation_report">cli.validation_report</Ref> <Ref id="qualification.mask">mask</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
+<p className="rd-note">缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。</p>
 
-<Cap id="X.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="窗口内日收益给出均值与夏普的区间和 p">
+#### 窗口内日收益给出均值与夏普的区间和 p [#X-2-1-2]
 
 - 序列是窗口内交易段的账户日收益，按日历日计，无缺无重；不可用就置空。
 - 报告给均值和年化夏普的观测值、区间、单侧 p，以及换块长后的变化。
 - 显著性水平、块长等数值取自登记的检验条件，并标明未校准。
 - p 是策略若无效、仍碰巧这么好的概率，不是策略有效的概率。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.single">single</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.single">single</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="X.2.1.3" kind="code" tier="verified" tierLabel="已验证" title="同窗口登记多个候选时，按候选个数校正 p">
+#### 同窗口登记多个候选时，按候选个数校正 p [#X-2-1-3]
 
 - 同一窗口试多个候选，总有一个碰巧好看，所以要按候选个数把 p 调大。
 - 窗口和范围规则都相同的样本外登记，一起计入校正的个数。
 - 计入哪些只由账本里的登记决定，事后不能增减。
 - 报告并列原始 p 和校正后的 p，区间也按个数放宽，不判通过。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.holm">holm</Ref> <Ref id="report.validation_report">validation_report</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.holm">holm</Ref> <Ref id="report.validation_report">validation_report</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
+#### 样本外结果照实报告并立即找用户，由用户判断认可与上线 [#X-2-1-4]
 
-<ul className="rd-rules">
-<li id="X-2-1-4"><span className="rd-rule-id">X.2.1.4</span> 样本外结果立即照实报给用户，不利也不换窗口或范围重登记 <Ref id="rule:X.2.1.4">research-round · references/validation.md</Ref></li>
-</ul>
+样本外结果立即照实报给用户，不利也不换窗口或范围重登记
 
-### X.2.2　读结果的边界与用语 [#X-2-2]
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.2.1.4">research-round · references/validation.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺结果不利时 Agent 如实报告并找用户的演练记录。</p>
+
+### 读结果的边界与用语 [#X-2-2]
 
 skill 规定结论段要写明的边界和措辞。
 
-<ul className="rd-rules">
-<li id="X-2-2-1"><span className="rd-rule-id">X.2.2.1</span> 样本外结论写明绩效只是实盘上限 <Ref id="rule:X.2.2.1">research-round · references/validation.md</Ref></li>
-<li id="X-2-2-2"><span className="rd-rule-id">X.2.2.2</span> 只有凭证之后窗口的回放称样本外，其余只说改善或未被反驳 <Ref id="rule:X.2.2.2">research-round · SKILL.md</Ref></li>
-</ul>
+#### 样本外绩效指标只是实盘上限，短窗口只能否定明显失败 [#X-2-2-1]
+
+样本外结论写明绩效只是实盘上限
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.2.2.1">research-round · references/validation.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 开发窗口结果只叫改善，只有凭证后窗口的回放可称样本外 [#X-2-2-2]
+
+只有凭证之后窗口的回放称样本外，其余只说改善或未被反驳
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.2.2.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#X-pending]
 

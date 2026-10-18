@@ -14,6 +14,7 @@ type Entry = {
   slug: string;
   anchor: string;
   owner?: string;
+  where?: string;
 };
 
 const data = index as Record<string, Record<string, Entry>>;
@@ -39,7 +40,8 @@ function withInlineCode(text: string): ReactNode[] {
 /** Cross-reference: a link to the definition with a hover preview (no focus trap, so it never re-opens itself). */
 export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; children?: ReactNode }) {
   const entry = data[lang]?.[id] ?? data.zh?.[id];
-  const label = children ?? (entry ? (entry.kind === 'capability' || entry.kind === 'node' ? `${id} ${entry.title}` : entry.title) : id);
+  // sections and capabilities read as their numbered section; the preview shows the exact capability
+  const label = children ?? (entry ? ((entry.kind === 'capability' || entry.kind === 'node') && entry.where ? entry.where.split('：')[0] : entry.title) : id);
 
   if (!entry) {
     return <span className="rounded border border-dashed border-fd-border px-1 font-mono text-xs text-fd-muted-foreground">{label}</span>;
@@ -71,7 +73,7 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
               <>
                 <div className="mb-1 flex items-center gap-2 text-xs text-fd-muted-foreground">
                   <span className="rounded bg-fd-muted px-1.5 py-0.5 font-mono">{KIND_LABEL[lang]?.[entry.kind] ?? entry.kind}</span>
-                  <span className="font-mono">{id}</span>
+                  <span className={entry.where ? '' : 'font-mono'}>{entry.where ?? id}</span>
                   {entry.owner ? <span>{lang === 'zh' ? '定义于' : 'defined in'} {entry.owner}</span> : null}
                 </div>
                 <div className="font-medium text-fd-foreground">{entry.title}</div>

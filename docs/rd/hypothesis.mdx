@@ -1,13 +1,13 @@
-# H　提假设：一次回放之前，Agent 要界定、查证、写下并锁定什么，其中哪些由代码强制。
+# 5　提假设：一次回放之前，Agent 要界定、查证、写下并锁定什么，其中哪些由代码强制。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章回答回放之前要界定、查证、写下并锁定什么。承接 T 章的谱系和 C 章的预检与审查：先选父版本和对照，把改动收束成一处规则；再查来源，写下理由、预测、比较方式和网格；最后登记锁定，回放开始时由代码核对。
+本章回答回放之前要界定、查证、写下并锁定什么。承接第 3 章的谱系和第 4 章的预检与审查：先选父版本和对照，把改动收束成一处规则；再查来源，写下理由、预测、比较方式和网格；最后登记锁定，回放开始时由代码核对。
 
-<Mermaid chart={"flowchart LR\n  subgraph H-1[\"H.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"H.1.1 研发父版本、比较对照与改动粒度\"]\n  end\n  subgraph H-2[\"H.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"H.2.1 检索\"]\n    H-2-2[\"H.2.2 理由三分类与来源的作用\"]\n    H-2-3[\"H.2.3 留存来源原件\"]\n  end\n  subgraph H-3[\"H.3 写下五样\"]\n    direction TB\n    H-3-1[\"H.3.1 经济理由与预测\"]\n    H-3-2[\"H.3.2 比较维度与检验条件\"]\n    H-3-3[\"H.3.3 网格与适用条件\"]\n  end\n  subgraph H-4[\"H.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"H.4.1 登记身份与先后顺序\"]\n    H-4-2[\"H.4.2 网格点消耗与已跑源码\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph H-1[\"5.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"研发父版本、比较对照与改动粒度\"]\n  end\n  subgraph H-2[\"5.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"检索\"]\n    H-2-2[\"理由三分类与来源的作用\"]\n    H-2-3[\"留存来源原件\"]\n  end\n  subgraph H-3[\"5.3 写下五样\"]\n    direction TB\n    H-3-1[\"经济理由与预测\"]\n    H-3-2[\"比较维度与检验条件\"]\n    H-3-3[\"网格与适用条件\"]\n  end\n  subgraph H-4[\"5.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"登记身份与先后顺序\"]\n    H-4-2[\"网格点消耗与已跑源码\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
 
-## H.1　界定一个假设 [#H-1]
+## 5.1　界定一个假设 [#H-1]
 
 <Steps>
 
@@ -37,31 +37,38 @@
 
 </Steps>
 
-### H.1.1　研发父版本、比较对照与改动粒度 [#H-1-1]
+<a id="H-1-1" />
 
 从谱系里定下父版本、对照和改动范围。
 
-<ul className="rd-rules">
-<li id="H-1-1-1"><span className="rd-rule-id">H.1.1.1</span> 父版本可取任一已发布候选，亏损或不显著也可派生 <Ref id="rule:H.1.1.1">research-round · references/hypothesis.md</Ref></li>
-</ul>
+### 研发父版本可取候选谱系中任一完整候选，不看推荐与绩效指标 [#H-1-1-1]
 
-<Cap id="H.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="对照与父版本分开选，对照须通过、已封存、有经济证据资格且可比">
+父版本可取任一已发布候选，亏损或不显著也可派生
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.1.1.1">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 对照与父版本分开选，对照须通过、已封存、有经济证据资格且可比 [#H-1-1-2]
 
 - 对照是一个已有运行，不必是父版本的运行。
 - 对照须状态为通过、已封存，并有经济证据资格。
 - 对照须与本次回放可比：运行环境、账户配置、输入数据都相同。
 - 根不带对照；父版本故障或零成交时可暂无对照，但须引用该诊断。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="qualification.require">require</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="qualification.require">require</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
+### 一个假设只含一处实际规则改动，与候选改动说明逐字一致 [#H-1-1-3]
 
-<ul className="rd-rules">
-<li id="H-1-1-3"><span className="rd-rule-id">H.1.1.3</span> 一个假设只改一处规则，选币、仓位、联动出入场都算一处 <Ref id="rule:H.1.1.3">research-round · references/hypothesis.md</Ref></li>
-<li id="H-1-1-4"><span className="rd-rule-id">H.1.1.4</span> 下一假设从缺省、不适用或归因指向的职责里选，写明职责编号 <Ref id="rule:H.1.1.4">research-round · references/hypothesis.md</Ref></li>
-</ul>
+一个假设只改一处规则，选币、仓位、联动出入场都算一处
 
-## H.2　先查来源并留存 [#H-2]
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.1.1.3">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 下一假设从缺省、不适用或归因指向的职责里提，写明职责编号 [#H-1-1-4]
+
+下一假设从缺省、不适用或归因指向的职责里选，写明职责编号
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.1.1.4">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+## 5.2　先查来源并留存 [#H-2]
 
 <Steps>
 
@@ -97,44 +104,58 @@
 
 </Steps>
 
-### H.2.1　检索 [#H-2-1]
+### 检索 [#H-2-1]
 
 把拟改动的机制变成检索记录和候选来源清单。
 
-<ul className="rd-rules">
-<li id="H-2-1-1"><span className="rd-rule-id">H.2.1.1</span> 提假设前先读已留存来源，有缺口再检索补充 <Ref id="rule:H.2.1.1">research-round · references/hypothesis.md</Ref></li>
-<li id="H-2-1-2"><span className="rd-rule-id">H.2.1.2</span> 检索逐次记查询与日期；没找到只限这些查询，访问失败不算没有 <Ref id="rule:H.2.1.2">research-sources · SKILL.md</Ref></li>
-</ul>
+#### 提经济假设前先读已留存来源，再按 research-sources 补检缺口 [#H-2-1-1]
 
-### H.2.2　理由三分类与来源的作用 [#H-2-2]
+提假设前先读已留存来源，有缺口再检索补充
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.2.1.1">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 每次检索记一行范围、读取程度与访问限制，否定断言只写按这些查询没找到 [#H-2-1-2]
+
+检索逐次记查询与日期；没找到只限这些查询，访问失败不算没有
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.2.1.2">research-sources · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 理由三分类与来源的作用 [#H-2-2]
 
 分类只是写在登记里的文字，代码不解析，只影响研究优先级。
 
-<ul className="rd-rules">
-<li id="H-2-2-1"><span className="rd-rule-id">H.2.2.1</span> 理由逐条标为外部依据、本地诊断或推测，写支持范围与所引运行 <Ref id="rule:H.2.2.1">research-round · references/hypothesis.md</Ref></li>
-<li id="H-2-2-3"><span className="rd-rule-id">H.2.2.3</span> 出处记版本或抓取日期，只有登记前已可见的版本算事前依据 <Ref id="rule:H.2.2.3">research-sources · SKILL.md</Ref></li>
-</ul>
+#### 经济理由逐条标为外部依据、本地诊断或自身推测 [#H-2-2-1]
 
-### H.2.3　留存来源原件 [#H-2-3]
+理由逐条标为外部依据、本地诊断或推测，写支持范围与所引运行
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.2.2.1">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 来源只影响研究优先级，不证明本市场有效，回放后材料只追加不倒填 [#H-2-2-3]
+
+出处记版本或抓取日期，只有登记前已可见的版本算事前依据
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.2.2.3">research-sources · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 留存来源原件 [#H-2-3]
 
 代码保证所引证据包在账本里，包里放什么由 skill 规定。
 
-<Cap id="H.2.3.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="来源原件须在登记前入账成证据包，所引的包缺失即拒绝登记">
+#### 来源原件须在登记前入账成证据包，所引的包缺失即拒绝登记 [#H-2-3-1]
 
 - 入账的是原件副本、摘录和检索记录，不只是链接。
 - 证据包只增不改，后来补到的材料另开新包。
 - 登记时逐个核对所引包名都已在账本里。
 - 账本的提交历史给出来源和登记的先后，可据此核对事前依据。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="registration.validate">validate</Ref> <Ref id="cli.evidence_add">evidence_add</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="registration.validate">validate</Ref> <Ref id="cli.evidence_add">evidence_add</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
+#### 每份来源记状态与条件，撤稿不算来源，复述不算独立来源 [#H-2-3-2]
 
-<ul className="rd-rules">
-<li id="H-2-3-2"><span className="rd-rule-id">H.2.3.2</span> 每份来源记状态、窗口、频率、样本外与成本；剔撤稿，复述不算独立 <Ref id="rule:H.2.3.2">research-sources · SKILL.md</Ref></li>
-</ul>
+每份来源记状态、窗口、频率、样本外与成本；剔撤稿，复述不算独立
 
-## H.3　写下五样 [#H-3]
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.2.3.2">research-sources · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+## 5.3　写下五样 [#H-3]
 
 <Steps>
 
@@ -146,7 +167,7 @@
 
 <Step>
 
-引用 H.2 已入账的来源证据包。
+引用 <Ref id="H.2" /> 已入账的来源证据包。
 
 </Step>
 
@@ -170,46 +191,53 @@
 
 </Steps>
 
-### H.3.1　经济理由与预测 [#H-3-1]
+### 经济理由与预测 [#H-3-1]
 
 理由和预测写进登记，随登记锁定。
 
-<ul className="rd-rules">
-<li id="H-3-1-1"><span className="rd-rule-id">H.3.1.1</span> 理由写机制、谁在付钱和代理局限，预测须能被回放否定 <Ref id="rule:H.3.1.1">research-round · references/hypothesis.md</Ref></li>
-<li id="H-3-1-2"><span className="rd-rule-id">H.3.1.2</span> 登记前在预测里写定各种结果的后续动作，事后只在判断里补充 <Ref id="rule:H.3.1.2">research-round · references/hypothesis.md</Ref></li>
-</ul>
+#### 理由写明机制、付钱方与代理，预测必须能被回放结果否定 [#H-3-1-1]
 
-### H.3.2　比较维度与检验条件 [#H-3-2]
+理由写机制、谁在付钱和代理局限，预测须能被回放否定
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.3.1.1">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 回放前在预测里写定五类结果各自的后续动作，事后不改写 [#H-3-1-2]
+
+登记前在预测里写定各种结果的后续动作，事后只在判断里补充
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:H.3.1.2">research-round · references/hypothesis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 比较维度与检验条件 [#H-3-2]
 
 检验数值由 Agent 声明并写设计理由，随登记锁定。
 
-<Cap id="H.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="检验条件随登记声明并锁定，数值是未校准的示例值">
+<a id="H-3-2-2" />
+
+**检验条件随登记声明并锁定，数值是未校准的示例值**
 
 - 声明检验方法、显著性、最小改进、块长、重抽次数和随机种子。
 - 另写设计理由：误判与漏检怎么权衡、样本多长、块长怎么选。
 - 数值由 Agent 按情境选，不是产品常数，登记后不改。
 - 代码只查各项齐全、类型和范围，不评价数值是否合理。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate_design">validate_design</Ref> <Ref id="registration.validate">validate</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate_design">validate_design</Ref> <Ref id="registration.validate">validate</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-### H.3.3　网格与适用条件 [#H-3-3]
+### 网格与适用条件 [#H-3-3]
 
 网格定试什么，适用条件定结论在什么范围成立。
 
-<Cap id="H.3.3.1" kind="code" tier="verified" tierLabel="已验证" title="网格一次写定一到五点，每点是已发布、谱系一致的候选">
+<a id="H-3-3-1" />
+
+**网格一次写定一到五点，每点是已发布、谱系一致的候选**
 
 - 每点是账本里的一个候选，附全部参数的文字说明。
 - 每点的父版本和改动说明须与登记一致；根登记时都没有父版本。
 - 每点要求的运行环境须与登记时探测的一致，同一源码不得出现两次。
 - 每个试过的配置都要写进网格，点数计入试验次数。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="ledger.publish_candidate">publish_candidate</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="ledger.publish_candidate">publish_candidate</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-## H.4　登记先于回放并锁定 [#H-4]
+## 5.4　登记先于回放并锁定 [#H-4]
 
 <Steps>
 
@@ -245,22 +273,20 @@
 
 </Steps>
 
-### H.4.1　登记身份与先后顺序 [#H-4-1]
+### 登记身份与先后顺序 [#H-4-1]
 
 登记写定内容和执行身份，回放开始时核对先后和一致。
 
-<Cap id="H.4.1.1" kind="code" tier="verified" tierLabel="已验证" title="登记把假设的全部内容锁进一个不可变的登记证据包">
+#### 登记把假设的全部内容锁进一个不可变的登记证据包 [#H-4-1-1]
 
 - 内容含假设各项、检验条件、对照，以及网格各点的审查引用。
 - 网格源码须已在该运行环境下通过预检和审查。
 - 写明改动涉及的职责编号：根为空，派生至少一项。
 - 包写入后不改，每次读回都核对内容哈希，更正另立新包。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="cli.registration_add">registration_add</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="cli.registration_add">registration_add</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="H.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="执行身份在登记时由代码探测合成，不能手填">
+#### 执行身份在登记时由代码探测合成，不能手填 [#H-4-1-2]
 
 1. 读当前研究路线：开发窗口、钉住的市场提交和范围规则。
 2. 把运行环境解析为唯一摘要，在隔离容器里探测它的要求和配置。
@@ -268,11 +294,9 @@
 4. 合成执行身份随登记写入。
 5. 登记的窗口须等于路线的开发窗口。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="H.4.1.3" kind="code" tier="verified" tierLabel="已验证" title="回放启动引擎前，须在开试验的同一事务里绑定登记">
+#### 回放启动引擎前，须在开试验的同一事务里绑定登记 [#H-4-1-3]
 
 1. 开试验时先写试验记录，同一事务里读回登记并重新校验。
 2. 核对所跑源码在网格内，执行身份与登记逐项一致。
@@ -280,54 +304,44 @@
 4. 全部通过才记下这次消耗，和试验一起提交。
 5. 提交成功才启动引擎；任一不符就整笔回滚，不留试验。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="H.4.1.4" kind="code" tier="unverified" tierLabel="待验证" title="登记内容按字段说明校验，失败时附上该字段的含义">
+#### 登记内容按字段说明校验，失败时附上该字段的含义 [#H-4-1-4]
 
 - 每个字段都带说明，Agent 不必靠 skill 记住字段含义。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.plan_schema">plan_schema</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.plan_schema">plan_schema</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
-
-<Cap id="H.4.1.5" kind="code" tier="unverified" tierLabel="待验证" title="下一次登记前，须补齐解释、到期的复盘和复盘节奏">
+#### 下一次登记前，须补齐解释、到期的复盘和复盘节奏 [#H-4-1-5]
 
 - 每个已完成的试验都要有一条解释判断。
 - 未复盘的试验达到节奏时，须先写新的综合推荐。
 - 派生登记前须声明复盘节奏，之后只能改得更频繁。
 - 研究状态会预先列出下一次登记还缺什么。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.require_line_records">require_line_records</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="report.research_state">research_state</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.require_line_records">require_line_records</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="report.research_state">research_state</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
-
-### H.4.2　网格点消耗与已跑源码 [#H-4-2]
+### 网格点消耗与已跑源码 [#H-4-2]
 
 每个网格点只用一次，已经回放过的源码不能当新登记。
 
-<Cap id="H.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="每个网格点只消耗一次，同一源码再试须另登记并指明前次">
+#### 每个网格点只消耗一次，同一源码再试须另登记并指明前次 [#H-4-2-1]
 
 - 绑定成功就记下一次消耗，和试验同时成立、同时撤销。
 - 之后回放无效或中断，照样算一次消耗。
 - 同一源码再试须另行登记，并指明实际消耗过它的那次登记。
 - 重复尝试连成一串，不算独立证据。
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref> <Ref id="registration.bind">bind</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref> <Ref id="registration.bind">bind</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="H.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="回放过的源码不能当新登记，只有事前声明的预检例外">
+#### 回放过的源码不能当新登记，只有事前声明的预检例外 [#H-4-2-2]
 
 - 登记时按内容哈希查试验记录，跑过的源码不能当新候选登记。
 - 未登记就跑过的回放，不能事后补登为登记结果。
 - 预检例外须事前声明用途、同源码同环境、未绑定任何登记。
 - 跑过的源码只能按再试规则另行登记。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="registration.validate">validate</Ref></span></div>
-
-</Cap>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="registration.validate">validate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#H-pending]
 

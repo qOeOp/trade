@@ -1,13 +1,13 @@
-# T　候选谱系：什么算一个候选，候选之间怎样经父版本和改动说明连成树和森林。
+# 3　候选谱系：什么算一个候选，候选之间怎样经父版本和改动说明连成树和森林。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章承接 A 章的研究循环，回答什么算一个候选：它以源码字节的内容哈希为身份，经父版本和改动说明连成树与森林，任一候选都能再派生；运行结果和推荐都不改变身份与谱系。
+本章承接第 14 章的研究循环，回答什么算一个候选：它以源码字节的内容哈希为身份，经父版本和改动说明连成树与森林，任一候选都能再派生；运行结果和推荐都不改变身份与谱系。
 
-<Mermaid chart={"flowchart LR\n  subgraph T-1[\"T.1 认定候选：什么算一个候选\"]\n    direction TB\n    T-1-1[\"T.1.1 候选的身份与根\"]\n  end\n  subgraph T-2[\"T.2 连成谱系：父、对照与分枝\"]\n    direction TB\n    T-2-2[\"T.2.2 树、森林与候选清单\"]\n  end\n  T-1 --> T-2"} />
+<Mermaid chart={"flowchart LR\n  subgraph T-1[\"3.1 认定候选：什么算一个候选\"]\n    direction TB\n    T-1-1[\"候选的身份与根\"]\n  end\n  subgraph T-2[\"3.2 连成谱系：父、对照与分枝\"]\n    direction TB\n    T-2-2[\"树、森林与候选清单\"]\n  end\n  T-1 --> T-2"} />
 
-## T.1　认定候选：什么算一个候选 [#T-1]
+## 3.1　认定候选：什么算一个候选 [#T-1]
 
 <Steps>
 
@@ -37,22 +37,24 @@ Agent 写完一份完整策略文件，决定它是根，还是带父版本和�
 
 </Steps>
 
-### T.1.1　候选的身份与根 [#T-1-1]
+<a id="T-1-1" />
 
 候选的身份怎样确定。
 
-<Cap id="T.1.1.1" kind="database" tier="verified" tierLabel="已验证" tierNote="演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。" title="候选以内容哈希为身份，相同字节不能再发布">
+<a id="T-1-1-1" />
+
+**候选以内容哈希为身份，相同字节不能再发布**
 
 - 候选的身份是账本按源码字节算出的内容哈希，Agent 不能填写或改写。
 - 名字和版本号只是引用名；改名、复制或只改注释，字节变了就是另一个候选。
 - 同样的字节再次发布会被拒绝，并指回已有的那个候选。
 - 候选只增不改，每次读出都重算哈希核对，不符即视为账本损坏。
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_candidates">v_candidates</Ref> <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_candidates">v_candidates</Ref> <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
+<p className="rd-note">演练中，每个假设的网格点都以已发布版本的内容哈希登记并绑定执行，报告与比较都指向精确源码。</p>
 
-## T.2　连成谱系：父、对照与分枝 [#T-2]
+## 3.2　连成谱系：父、对照与分枝 [#T-2]
 
 <Steps>
 
@@ -88,24 +90,24 @@ Agent 选一个已有候选作父版本，写一句改动说明后发布新候�
 
 </Steps>
 
-### T.2.2　树、森林与候选清单 [#T-2-2]
+<a id="T-2-2" />
 
 每个候选指向父版本，直接连成森林，候选清单把它原样读出。
 
-<Cap id="T.2.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="候选清单列出全部候选与谱系，不带分数或推荐">
+<a id="T-2-2-3" />
+
+**候选清单列出全部候选与谱系，不带分数或推荐**
 
 - 清单列出每个候选的身份、父版本和改动说明。
 - 每个候选附上已被试验用掉的网格点，及对应运行是通过、无效还是未完成。
 - 每个网格点附读取时判定的经济证据资格和原因；不可用的不附绩效指标，也不改写已存结果。
 - 清单不含分数、排序或推荐；综合推荐由 Agent 另写判断记录。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_list">candidate_list</Ref> <Ref id="report.candidates">candidates</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
-
-</Cap>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_list">candidate_list</Ref> <Ref id="report.candidates">candidates</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#T-pending]
 
 - **不进文档**　两份源码怎么合成一份：属 Agent 工作，无产品规则；T.2.2.2 只定登记与来源证据的写法。
-- **不进文档**　推荐的排序算法或推荐分数：不存在推荐分数；候选清单不带分数或资格列，推荐理由只写在研究状态证据包里（E、F 章）。
-- **不进文档**　推荐多久更新一次、复盘触发次数的声明：归 F 章，由 Agent 以 review_cadence 判断声明节奏与理由；本章只保证推荐随时可做且不改谱系。
-- **不进文档**　非劣集视图纳入哪些维度：归 R、F 章；本章不列维度清单。
+- **不进文档**　推荐的排序算法或推荐分数：不存在推荐分数；候选清单不带分数或资格列，推荐理由只写在研究状态证据包里（第 1、11 章）。
+- **不进文档**　推荐多久更新一次、复盘触发次数的声明：归第 11 章，由 Agent 以 review_cadence 判断声明节奏与理由；本章只保证推荐随时可做且不改谱系。
+- **不进文档**　非劣集视图纳入哪些维度：归第 8、11 章；本章不列维度清单。

@@ -1,13 +1,13 @@
-# L　策略库：候选谱系的根从哪来，怎样入账并得到第一份可比较的报告。
+# 2　策略库：候选谱系的根从哪来，怎样入账并得到第一份可比较的报告。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
 本章回答谱系的根从哪来、怎样得到第一份报告。根有两种：有公认一手出处的策略库模板，和用户提供信息源的人造根。转写守策略文件规则，出处只说明来源、不为参数背书；回放走同样的登记，只是不带父版本和对照。
 
-<Mermaid chart={"flowchart LR\n  subgraph L-1[\"L.1 从出处或用户信息源转写成根文件\"]\n    direction TB\n    L-1-1[\"L.1.1 收录\"]\n    L-1-2[\"L.1.2 核实\"]\n    L-1-3[\"L.1.3 重写与文件头\"]\n    L-1-4[\"L.1.4 发起与转写（人造根）\"]\n  end\n  subgraph L-2[\"L.2 发布为根并出首份报告\"]\n    direction TB\n    L-2-2[\"L.2.2 首次回放\"]\n  end\n  L-1 --> L-2"} />
+<Mermaid chart={"flowchart LR\n  subgraph L-1[\"2.1 从出处或用户信息源转写成根文件\"]\n    direction TB\n    L-1-1[\"收录\"]\n    L-1-2[\"核实\"]\n    L-1-3[\"重写与文件头\"]\n    L-1-4[\"发起与转写（人造根）\"]\n  end\n  subgraph L-2[\"2.2 发布为根并出首份报告\"]\n    direction TB\n    L-2-2[\"首次回放\"]\n  end\n  L-1 --> L-2"} />
 
-## L.1　从出处或用户信息源转写成根文件 [#L-1]
+## 2.1　从出处或用户信息源转写成根文件 [#L-1]
 
 <Steps>
 
@@ -43,40 +43,67 @@
 
 </Steps>
 
-### L.1.1　收录 [#L-1-1]
+### 收录 [#L-1-1]
 
 判定一个原版策略能不能收进策略库。
 
-<ul className="rd-rules">
-<li id="L-1-1-2"><span className="rd-rule-id">L.1.1.2</span> 只转写首批名单内 12 个单品种策略，核实不了换候补不放宽 <Ref id="rule:L.1.1.2">research-round · references/template.md</Ref></li>
-</ul>
+<a id="L-1-1-2" />
 
-### L.1.2　核实 [#L-1-2]
+**首批收 12 个单品种形态，每个仍须逐个过收录、核实与重写**
+
+只转写首批名单内 12 个单品种策略，核实不了换候补不放宽
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.1.1.2">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：这批模板逐个完成转写、发布与首份封存回放的执行证据。</p>
+
+### 核实 [#L-1-2]
 
 确认每个默认参数都出自出处原件。
 
-<ul className="rd-rules">
-<li id="L-1-2-1"><span className="rd-rule-id">L.1.2.1</span> 每个默认参数都要在出处原件里找到位置，找不到就弃用该模板 <Ref id="rule:L.1.2.1">research-round · references/template.md</Ref></li>
-</ul>
+<a id="L-1-2-1" />
 
-### L.1.3　重写与文件头 [#L-1-3]
+**每个默认参数须定位到一手出处，任一定位不了即弃该模板**
+
+每个默认参数都要在出处原件里找到位置，找不到就弃用该模板
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.1.2.1">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 重写与文件头 [#L-1-3]
 
 照出处写成策略文件，并在文件头写明出处与职责立场。
 
-<ul className="rd-rules">
-<li id="L-1-3-1"><span className="rd-rule-id">L.1.3.1</span> 照出处从头重写，不加无出处的规则或参数，必需的补选须列明 <Ref id="rule:L.1.3.1">research-round · references/template.md</Ref></li>
-<li id="L-1-3-3"><span className="rd-rule-id">L.1.3.3</span> 文件头写明出处和 27 项职责立场，用到原版以外的品种或周期须注明 <Ref id="rule:L.1.3.3">research-round · references/template.md</Ref></li>
-</ul>
+#### 照出处从头重写单文件，不加无出处内容，实现者选择逐项列明 [#L-1-3-1]
 
-### L.1.4　发起与转写（人造根） [#L-1-4]
+照出处从头重写，不加无出处的规则或参数，必需的补选须列明
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.1.3.1">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：模板按出处重写的实例与对照出处的独立复核记录。</p>
+
+#### 文件头先写可定位出处行，九组立场各一行并标来源 [#L-1-3-3]
+
+文件头写明出处和 27 项职责立场，用到原版以外的品种或周期须注明
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.1.3.3">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：按模板写全 27 项立场并标来源的模板实例。</p>
+
+### 发起与转写（人造根） [#L-1-4]
 
 用户提供信息源时，按同样的规则转写人造根。
 
-<ul className="rd-rules">
-<li id="L-1-4-2"><span className="rd-rule-id">L.1.4.2</span> 人造根信息源缺的参数可补默认值并注明，不弃用也不冒充出处 <Ref id="rule:L.1.4.2">research-round · references/template.md</Ref></li>
-</ul>
+<a id="L-1-4-2" />
 
-## L.2　发布为根并出首份报告 [#L-2]
+**用户信息源按模板同一套规则转写，经同一入口发布为根**
+
+人造根信息源缺的参数可补默认值并注明，不弃用也不冒充出处
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.1.4.2">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：人造根按模板规则转写与首份封存回放的执行记录。</p>
+
+## 2.2　发布为根并出首份报告 [#L-2]
 
 <Steps>
 
@@ -112,13 +139,17 @@
 
 </Steps>
 
-### L.2.2　首次回放 [#L-2-2]
+<a id="L-2-2" />
 
 根的首份报告计入试验次数、没有检验结果，之后可作派生候选的比较对照。
 
-<ul className="rd-rules">
-<li id="L-2-2-1"><span className="rd-rule-id">L.2.2.1</span> 新根不带对照登记并回放一次，未登记的回放不能当首份报告 <Ref id="rule:L.2.2.1">research-round · references/template.md</Ref></li>
-</ul>
+<a id="L-2-2-1" />
+
+**每个根在当前开发窗口以无父、无对照登记并回放一次**
+
+新根不带对照登记并回放一次，未登记的回放不能当首份报告
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:L.2.2.1">research-round · references/template.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#L-pending]
 

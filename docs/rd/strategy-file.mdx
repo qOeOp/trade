@@ -1,13 +1,13 @@
-# C　策略文件：一份策略文件从写成到可以登记，必须守哪些规则
+# 4　策略文件：一份策略文件从写成到可以登记，必须守哪些规则
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章接着 T 章的候选身份往下讲，说明一份策略文件要守哪些规则：单文件，参数只写在源码里，交易事实交给引擎，只用已发生的信息，持仓有止损，订单切成计划，以及登记前要做原生预检和独立源码审查。
+本章接着第 3 章的候选身份往下讲，说明一份策略文件要守哪些规则：单文件，参数只写在源码里，交易事实交给引擎，只用已发生的信息，持仓有止损，订单切成计划，以及登记前要做原生预检和独立源码审查。
 
-<Mermaid chart={"flowchart LR\n  subgraph C-1[\"C.1 写成一份可登记的单文件\"]\n    direction TB\n    C-1-1[\"C.1.1 单文件、入口与身份一致\"]\n    C-1-2[\"C.1.2 规则与参数的归属\"]\n    C-1-3[\"C.1.3 加载时检查：依赖边界与自带钩子\"]\n    C-1-4[\"C.1.4 文件头的立场与硬契约\"]\n    C-1-5[\"C.1.5 工作副本与脚手架\"]\n  end\n  subgraph C-2[\"C.2 把交易事实交给引擎\"]\n    direction TB\n    C-2-1[\"C.2.1 引擎独占的事实\"]\n  end\n  subgraph C-3[\"C.3 只用已发生的信息决策\"]\n    direction TB\n    C-3-1[\"C.3.1 决策能用的信息与成交时钟\"]\n  end\n  subgraph C-4[\"C.4 给每个持仓挂保护单\"]\n    direction TB\n    C-4-1[\"C.4.1 止损声明与覆盖\"]\n  end\n  subgraph C-5[\"C.5 把交易切成可计数的计划\"]\n    direction TB\n    C-5-1[\"C.5.1 计划的定义与标签\"]\n    C-5-2[\"C.5.2 不合规与原生平仓单\"]\n  end\n  subgraph C-6[\"C.6 登记前的原生预检与独立审查\"]\n    direction TB\n    C-6-1[\"C.6.1 原生预检\"]\n    C-6-2[\"C.6.2 独立源码审查\"]\n  end\n  C-1 --> C-2\n  C-2 --> C-3\n  C-3 --> C-4\n  C-4 --> C-5\n  C-5 --> C-6"} />
+<Mermaid chart={"flowchart LR\n  subgraph C-1[\"4.1 写成一份可登记的单文件\"]\n    direction TB\n    C-1-1[\"单文件、入口与身份一致\"]\n    C-1-2[\"规则与参数的归属\"]\n    C-1-3[\"加载时检查：依赖边界与自带钩子\"]\n    C-1-4[\"文件头的立场与硬契约\"]\n    C-1-5[\"工作副本与脚手架\"]\n  end\n  subgraph C-2[\"4.2 把交易事实交给引擎\"]\n    direction TB\n    C-2-1[\"引擎独占的事实\"]\n  end\n  subgraph C-3[\"4.3 只用已发生的信息决策\"]\n    direction TB\n    C-3-1[\"决策能用的信息与成交时钟\"]\n  end\n  subgraph C-4[\"4.4 给每个持仓挂保护单\"]\n    direction TB\n    C-4-1[\"止损声明与覆盖\"]\n  end\n  subgraph C-5[\"4.5 把交易切成可计数的计划\"]\n    direction TB\n    C-5-1[\"计划的定义与标签\"]\n    C-5-2[\"不合规与原生平仓单\"]\n  end\n  subgraph C-6[\"4.6 登记前的原生预检与独立审查\"]\n    direction TB\n    C-6-1[\"原生预检\"]\n    C-6-2[\"独立源码审查\"]\n  end\n  C-1 --> C-2\n  C-2 --> C-3\n  C-3 --> C-4\n  C-4 --> C-5\n  C-5 --> C-6"} />
 
-## C.1　写成一份可登记的单文件 [#C-1]
+## 4.1　写成一份可登记的单文件 [#C-1]
 
 <Steps>
 
@@ -43,107 +43,109 @@ Agent 按 skill 写单文件源码：一个入口类，开头带职责文件头�
 
 </Steps>
 
-### C.1.1　单文件、入口与身份一致 [#C-1-1]
+### 单文件、入口与身份一致 [#C-1-1]
 
 发布记下内容哈希，执行按同一哈希核对，两头都由代码强制。
 
-<Cap id="C.1.1.1" kind="code" tier="verified" tierLabel="已验证" title="策略是单个文件，只有一个引擎策略入口类">
+#### 策略是单个文件，只有一个引擎策略入口类 [#C-1-1-1]
 
 - 一个策略是一份完整的 UTF-8 单文件，含全部交易规则与参数。
 - 文件里恰有一个与声明同名的顶层入口类，继承引擎的策略基类。
 - 回放只实例化这个入口类。
 - 根、策略库模板和派生候选走同一检查，没有第二种入口形态。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.check_source">check_source</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.check_source">check_source</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="C.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="执行的字节必须等于发布时记下的内容哈希">
+#### 执行的字节必须等于发布时记下的内容哈希 [#C-1-1-2]
 
 - 发布只检查形态、不执行源码，不证明规则正确。
 - 每次读出和装载都重算哈希，与发布时的记录比对。
 - 装载时不一致就拒绝执行；读出时不一致记为账本损坏。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### C.1.2　规则与参数的归属 [#C-1-2]
+### 规则与参数的归属 [#C-1-2]
 
 回放不收策略参数，规则和参数只在源码里。
 
-<Cap id="C.1.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="规则与参数只写在源码里，回放不收策略参数">
+<a id="C-1-2-1" />
+
+**规则与参数只写在源码里，回放不收策略参数**
 
 - 回放只接受策略引用、输入数据、窗口和输出位置。
 - 周期、预热、仓位、风险上限和杠杆用法都写在源码。
 - 构造策略时只传入合约、交易起点和预热数据这类回放输入。
 - 换一组参数就是改源码，也就是一个新候选。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.build_parser">build_parser</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref> <Ref id="engine.configure_strategy">configure_strategy</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.build_parser">build_parser</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref> <Ref id="engine.configure_strategy">configure_strategy</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### C.1.3　加载时检查：依赖边界与自带钩子 [#C-1-3]
+### 加载时检查：依赖边界与自带钩子 [#C-1-3]
 
 源码在隔离容器里加载，入口类须带齐两个钩子。
 
-<Cap id="C.1.3.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="源码只依赖锁定的库，在断网只读的容器里加载">
+#### 源码只依赖锁定的库，在断网只读的容器里加载 [#C-1-3-1]
 
 - 源码只能导入标准库、引擎和运行环境锁定的依赖。
 - 回放容器无网络、文件系统只读，只有报告目录可写。
 - 除引擎喂入的数据外，源码没有其他输入。
 - 加载只核对身份与形态，执行的安全边界由容器提供。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="runtime.container_command">container_command</Ref> <Ref id="runtime.build_image">build_image</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="runtime.container_command">container_command</Ref> <Ref id="runtime.build_image">build_image</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="C.1.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="入口类必带诊断和自检两个钩子">
+#### 入口类必带诊断和自检两个钩子 [#C-1-3-2]
 
 - 诊断钩子给出策略自报的计数，只写进摘要，不进审计和绩效指标。
 - 自报诊断不能冒用原生报告里交易事实的名字。
 - 自检钩子报出的问题和被拒订单都使运行无效。
 - 策略构造或回调出错时，运行非零退出并记为无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.diagnostics">diagnostics</Ref> <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.diagnostics">diagnostics</Ref> <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### C.1.4　文件头的立场与硬契约 [#C-1-4]
+### 文件头的立场与硬契约 [#C-1-4]
 
 文件头按模板写职责立场，由 skill 指导，独立源码审查核对。
 
-<ul className="rd-rules">
-<li id="C-1-4-1"><span className="rd-rule-id">C.1.4.1</span> 文件头逐项写 27 项职责立场与来源，必选项不能写不适用 <Ref id="rule:C.1.4.1">research-round · templates/strategy-header.md</Ref></li>
-<li id="C-1-4-2"><span className="rd-rule-id">C.1.4.2</span> 先读父版本文件头，只改涉及的职责行，登记时列出 <Ref id="rule:C.1.4.2">research-round · SKILL.md</Ref></li>
-<li id="C-1-4-4"><span className="rd-rule-id">C.1.4.4</span> 源码写明资金预算和本金分配，退出单只减仓，不靠回调顺序 <Ref id="rule:C.1.4.4">research-round · SKILL.md</Ref></li>
-</ul>
+#### 文件头按模板逐行写 27 项职责的立场、理由与来源，硬契约行不得写不适用 [#C-1-4-1]
 
-### C.1.5　工作副本与脚手架 [#C-1-5]
+文件头逐项写 27 项职责立场与来源，必选项不能写不适用
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:C.1.4.1">research-round · templates/strategy-header.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+#### 改源码前先读父版本文件头，改动后只改涉及职责的行，并在登记体写 changed_duties [#C-1-4-2]
+
+先读父版本文件头，只改涉及的职责行，登记时列出
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:C.1.4.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+#### 硬契约三：同账户共享资本时，联合分配与落选处置写在源码 [#C-1-4-4]
+
+源码写明资金预算和本金分配，退出单只减仓，不靠回调顺序
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:C.1.4.4">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺的证据：尚无把联合分配规则写入源码并在同账户多合约回放中读出分配结果的候选。</p>
+
+### 工作副本与脚手架 [#C-1-5]
 
 源码离开账本到工作目录时，改它要守的规则随文件带上。
 
-<Cap id="C.1.5.1" kind="code" tier="unverified" tierLabel="待验证" title="导出工作副本时，改文件要守的规则随文件写出">
+#### 导出工作副本时，改文件要守的规则随文件写出 [#C-1-5-1]
 
 - 工作目录里附上一份说明和文件头模板。
 - 说明只写改这个文件要守的几条规则和下一步。
 - 这些规则不在 skill 里重复。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_export">candidate_export</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_export">candidate_export</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
-
-<Cap id="C.1.5.2" kind="code" tier="unverified" tierLabel="待验证" title="新策略从脚手架起步，生成时不写账本">
+#### 新策略从脚手架起步，生成时不写账本 [#C-1-5-2]
 
 - 脚手架生成的源码带文件头模板、入口类和两个空钩子。
 - 同时生成工作目录说明。
 - 生成时不写账本，发布后才成为候选。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_new">candidate_new</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.candidate_new">candidate_new</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-</Cap>
-
-## C.2　把交易事实交给引擎 [#C-2]
+## 4.2　把交易事实交给引擎 [#C-2]
 
 <Steps>
 
@@ -179,22 +181,22 @@ Agent 按 skill 写单文件源码：一个入口类，开头带职责文件头�
 
 </Steps>
 
-### C.2.1　引擎独占的事实 [#C-2-1]
+<a id="C-2-1" />
 
 交易事实只有引擎一个来源，回放只做配置和原样写出。
 
-<Cap id="C.2.1.1" kind="code" tier="verified" tierLabel="已验证" title="交易事实只由引擎产生，回放原样写出报告">
+<a id="C-2-1-1" />
+
+**交易事实只由引擎产生，回放原样写出报告**
 
 - 成交、费用、资金费、持仓、余额与订单状态只由引擎产生。
 - 所有候选共用同一套固定的账户与撮合条款。
 - 回放只配置和写出，不计算、不修改、不补造交易事实。
 - 写出时缺少必需的引擎事实，运行非零退出并记为无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.write_native_reports">write_native_reports</Ref> <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.replay">replay</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.write_native_reports">write_native_reports</Ref> <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.replay">replay</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-## C.3　只用已发生的信息决策 [#C-3]
+## 4.3　只用已发生的信息决策 [#C-3]
 
 <Steps>
 
@@ -230,15 +232,19 @@ Agent 只按已收盘 K 线和已发生的事件写决策逻辑。
 
 </Steps>
 
-### C.3.1　决策能用的信息与成交时钟 [#C-3-1]
+<a id="C-3-1" />
 
 限定决策能读的信息，以及成交必须落在决策之后。
 
-<ul className="rd-rules">
-<li id="C-3-1-2"><span className="rd-rule-id">C.3.1.2</span> 成交须晚于决策 K 线收盘；同时刻成交要撤回结论并修复 <Ref id="rule:C.3.1.2">research-round · references/diagnosis.md</Ref></li>
-</ul>
+<a id="C-3-1-2" />
 
-## C.4　给每个持仓挂保护单 [#C-4]
+**成交时刻必须严格晚于决策 K 线的收盘时刻**
+
+成交须晚于决策 K 线收盘；同时刻成交要撤回结论并修复
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:C.3.1.2">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+## 4.4　给每个持仓挂保护单 [#C-4]
 
 <Steps>
 
@@ -274,22 +280,22 @@ Agent 只按已收盘 K 线和已发生的事件写决策逻辑。
 
 </Steps>
 
-### C.4.1　止损声明与覆盖 [#C-4-1]
+<a id="C-4-1" />
 
 声明由代码检查并记下，裸仓后果由完整性审计按声明判定。
 
-<Cap id="C.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="止损声明缺省为设；声明不设时裸仓只报告，不判无效">
+<a id="C-4-1-1" />
+
+**止损声明缺省为设；声明不设时裸仓只报告，不判无效**
 
 - 源码在入口类上声明是否设止损，不写即为设。
 - 声明必须是「是」或「否」，否则不加载，也不产生运行。
 - 声明写进执行身份随运行入账，要改只能发布新候选。
 - 不设止损的理由写在文件头立场里。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.strategy_metadata">strategy_metadata</Ref> <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="engine.protection">protection</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.strategy_metadata">strategy_metadata</Ref> <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="engine.protection">protection</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-## C.5　把交易切成可计数的计划 [#C-5]
+## 4.5　把交易切成可计数的计划 [#C-5]
 
 <Steps>
 
@@ -325,59 +331,51 @@ Agent 只按已收盘 K 线和已发生的事件写决策逻辑。
 
 </Steps>
 
-### C.5.1　计划的定义与标签 [#C-5-1]
+### 计划的定义与标签 [#C-5-1]
 
 策略下单时写计划标签，代码据此把订单归成计划。
 
-<Cap id="C.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="每张订单带一个计划标签，计划胜率按计划计数">
+#### 每张订单带一个计划标签，计划胜率按计划计数 [#C-5-1-1]
 
 - 一个计划是一个信号的全部订单：入场、止损止盈、改仓和平仓。
 - 每张订单恰带一个回放内唯一的标签，补挂的保护单也要带。
 - 赢指已平且含费用与资金费的实现盈亏大于零。
 - 计划胜率 = 赢数 ÷（已平计划数 + 期末未平计划数）。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.plan_metrics">plan_metrics</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.plan_metrics">plan_metrics</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="C.5.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="计划与持仓周期一一对应，同一合约同时只有一个计划">
+#### 计划与持仓周期一一对应，同一合约同时只有一个计划 [#C-5-1-2]
 
 - 持仓周期指一个合约从开仓到持仓归零的一段。
 - 每笔成交恰属一个周期，一个周期只装一个计划的成交。
 - 前一计划持仓归零、订单全部终止前，同合约不开新计划。
 - 持仓归零时策略撤掉剩余订单；分批加仓仍算同一计划。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.cycles">cycles</Ref> <Ref id="ledger.plan_metrics">plan_metrics</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.cycles">cycles</Ref> <Ref id="ledger.plan_metrics">plan_metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### C.5.2　不合规与原生平仓单 [#C-5-2]
+### 不合规与原生平仓单 [#C-5-2]
 
 计划违例不影响运行有效性；引擎自动平仓单只在无歧义时归入计划。
 
-<Cap id="C.5.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="计划不合规只置空计划统计，不判运行无效">
+#### 计划不合规只置空计划统计，不判运行无效 [#C-5-2-1]
 
 - 计划规则是计划统计的前提，不是账户事实。
 - 违例时只置空相关绩效指标，并写明原因和可定位的细节。
 - 完整性审计与经济证据资格不受影响，其余指标照常。
 - 空值不当零，也不能手工填补。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.unreconciled">unreconciled</Ref> <Ref id="ledger.metrics">metrics</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.unreconciled">unreconciled</Ref> <Ref id="ledger.metrics">metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="C.5.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="下架结算的无标签平仓单，唯一对应时才归入计划">
+#### 下架结算的无标签平仓单，唯一对应时才归入计划 [#C-5-2-2]
 
 - 合约下架时，引擎自动生成一张无标签的只减仓平仓单。
 - 它与结算事件、所在周期和计划逐项唯一对应时才归属。
 - 有任何歧义就不归属，按缺标签计为违例。
 - 归属只读不改报告；策略仿造此类单由独立源码审查排查。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-## C.6　登记前的原生预检与独立审查 [#C-6]
+## 4.6　登记前的原生预检与独立审查 [#C-6]
 
 <Steps>
 
@@ -413,35 +411,35 @@ Agent 核对封存原件，分开无交易机会与实现故障，有故障就�
 
 </Steps>
 
-### C.6.1　原生预检 [#C-6-1]
+### 原生预检 [#C-6-1]
 
 预检的用途事前声明、运行环境与登记一致、原件完整封存，都由代码强制。
 
-<Cap id="C.6.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="预检须用与登记相同的运行环境，事前声明用途并完整封存">
+<a id="C-6-1-1" />
+
+**预检须用与登记相同的运行环境，事前声明用途并完整封存**
 
 - 运行环境必须是自动构建、与随后登记同一摘要的镜像。
 - 用途在回放前写进试验，事后不能改，其他用途的回放不能改称预检。
 - 只跑覆盖改动所需的最短窗口与最少合约，不消耗网格点。
 - 结束时（含中断）把原生输出、退出码和审计原样封存。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.precheck">precheck</Ref> <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="cli.replay_precheck">replay_precheck</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.precheck">precheck</Ref> <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="cli.replay_precheck">replay_precheck</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### C.6.2　独立源码审查 [#C-6-2]
+### 独立源码审查 [#C-6-2]
 
 审查是独立 Agent 的具名证据，账本只追加保存，代码只核对绑定与通过条件。
 
-<Cap id="C.6.2.1" kind="database" tier="verified" tierLabel="已验证" title="独立 Agent 按四项审查预检原件，全部通过才能登记">
+<a id="C-6-2-1" />
+
+**独立 Agent 按四项审查预检原件，全部通过才能登记**
 
 - 审查者须是未参与编写的 Agent，读预检的封存原件。
 - 接口、因果、活动、就绪四项各给结论和观察，并核对文件头立场。
 - 结论作为证据包只追加入账，绑定源码与运行环境。
 - 登记和回放时四项须都通过或无交易机会，否则拒绝。
 
-<div className="rd-foot"><span className="rd-guard">独立审查</span> <span className="rd-impl">实现 <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="registration.record_review">record_review</Ref> <Ref id="cli.source_review">source_review</Ref></span></div>
-
-</Cap>
+<div className="rd-foot"><span className="rd-guard">独立审查</span> <span className="rd-impl">实现 <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="registration.record_review">record_review</Ref> <Ref id="cli.source_review">source_review</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#C-pending]
 

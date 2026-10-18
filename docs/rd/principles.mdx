@@ -1,13 +1,13 @@
-# A　总则：研究循环怎么转，用户、Agent 与代码各决定什么。
+# 14　总则：研究循环怎么转，用户、Agent 与代码各决定什么。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
 本章是全书第一章，接在核心概念表之后，回答两件事：研究循环怎么转，用户、Agent 和代码各自决定什么。各步骤的具体做法在后面各章展开。
 
-<Mermaid chart={"flowchart LR\n  subgraph A-1[\"A.1 说清循环怎么转\"]\n    direction TB\n    A-1-1[\"A.1.1 循环的步骤\"]\n  end\n  subgraph A-2[\"A.2 划清谁决定什么\"]\n    direction TB\n    A-2-2[\"A.2.2 Agent 决定的\"]\n    A-2-3[\"A.2.3 用户决定的\"]\n  end\n  A-1 --> A-2"} />
+<Mermaid chart={"flowchart LR\n  subgraph A-1[\"14.1 说清循环怎么转\"]\n    direction TB\n    A-1-1[\"循环的步骤\"]\n  end\n  subgraph A-2[\"14.2 划清谁决定什么\"]\n    direction TB\n    A-2-2[\"Agent 决定的\"]\n    A-2-3[\"用户决定的\"]\n  end\n  A-1 --> A-2"} />
 
-## A.1　说清循环怎么转 [#A-1]
+## 14.1　说清循环怎么转 [#A-1]
 
 <Steps>
 
@@ -43,15 +43,19 @@
 
 </Steps>
 
-### A.1.1　循环的步骤 [#A-1-1]
+<a id="A-1-1" />
 
 迭代里的每一步都是 skill 指导的 Agent 行为，代码只在步骤之间做检查，不决定下一步。
 
-<ul className="rd-rules">
-<li id="A-1-1-2"><span className="rd-rule-id">A.1.1.2</span> 路线内提假设、写候选、原生预检、独立源码审查、登记、回放，步间不请批 <Ref id="rule:A.1.1.2">research-round · SKILL.md</Ref></li>
-</ul>
+<a id="A-1-1-2" />
 
-## A.2　划清谁决定什么 [#A-2]
+**路线内迭代按固定顺序从查来源推进到反馈与优先级，不逐步请批**
+
+路线内提假设、写候选、原生预检、独立源码审查、登记、回放，步间不请批
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.1.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+## 14.2　划清谁决定什么 [#A-2]
 
 <Steps>
 
@@ -87,28 +91,40 @@ Agent 读研究状态，追加研究优先级等判断，按节奏复盘并给�
 
 </Steps>
 
-### A.2.2　Agent 决定的 [#A-2-2]
+### Agent 决定的 [#A-2-2]
 
 Agent 读研究状态，产出源码、登记和判断；代码只给绩效指标和计数，不做裁决。
 
-<ul className="rd-rules">
-<li id="A-2-2-1"><span className="rd-rule-id">A.2.2.1</span> 仓位与风险上限由 Agent 自定，无需授权，也不算用户约束 <Ref id="rule:A.2.2.1">research-round · SKILL.md</Ref></li>
-</ul>
+<a id="A-2-2-1" />
 
-### A.2.3　用户决定的 [#A-2-3]
+**路线内研究动作由 Agent 自主决定；仓位与风险上限是设计变量而非用户约束**
+
+仓位与风险上限由 Agent 自定，无需授权，也不算用户约束
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.2.2.1">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+<p className="rd-note">演练中 Agent 自行决定父版本与对照并在源码中改仓位规则，没有请求授权；所选父版本与当时的推荐候选不同。</p>
+
+### 用户决定的 [#A-2-3]
 
 用户的决定在产品之外做出，账本不存这类状态；skill 规定 Agent 遇到这些事项要停下。
 
-<ul className="rd-rules">
-<li id="A-2-3-3"><span className="rd-rule-id">A.2.3.3</span> 实盘、删改已存记录、改检查或改回撤年化胜率要求前，须停下等用户授权 <Ref id="rule:A.2.3.3">research-round · SKILL.md</Ref></li>
-</ul>
+<a id="A-2-3-3" />
+
+**实盘、破坏性写、改检查与改研究目标，Agent 一律停下等用户授权**
+
+实盘、删改已存记录、改检查或改回撤年化胜率要求前，须停下等用户授权
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.2.3.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+<p className="rd-note">演练中遇到的阻断都通过修复代码并发布新运行环境或新源码后重新登记解决，未放宽任何拒绝或审计检查。</p>
 
 ## 待定事项 [#A-pending]
 
 **待用户定**
 
 - **『每条规则须能在账本审计或案例重放中观察到，观察不到就删』是否作为 skill 规则**　仍属用户偏好；A.4.3.2 只写 skill 靠 eval 与独立前向检查验证；演练中未按此判据删过规则
-- **用户研究目标的条目（是否仍含胜率）及其在循环中的地位**　A.2.3.3 只写改研究目标需用户授权；目标是报告参照而非代码门槛；eval own-sizing-not-user-constraint 提示词随之修订
+- **用户研究目标的条目（是否仍含胜率）及其在循环中的地位**　<Ref id="A.2.3.3" /> 只写改研究目标需用户授权；目标是报告参照而非代码门槛；eval own-sizing-not-user-constraint 提示词随之修订
 
-- **不进文档**　Agent 提下一个假设按什么改、研究优先级怎么排：归 F 章研究优先级；A.2.2.1 只写决定权归 Agent
-- **不进文档**　整套流程提高研发效率或成功率的主张：无同条件对照证据，属待验证；A 章能力只写分工、时机与边界，不以此为依据
+- **不进文档**　Agent 提下一个假设按什么改、研究优先级怎么排：归第 11 章研究优先级；<Ref id="A.2.2.1" /> 只写决定权归 Agent
+- **不进文档**　整套流程提高研发效率或成功率的主张：无同条件对照证据，属待验证；第 14 章能力只写分工、时机与边界，不以此为依据

@@ -1,13 +1,19 @@
-# E　入口：每次开始或中断后，Agent 如何从账本恢复研究状态、汇总候选给出综合推荐，并由用户选定研究路线。
+# 1　入口：每次开始研究，或者中断后回来，都从这里进门：读回研究做到哪了，看推荐，选路线。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章回答研究从哪里开始、中断后从哪里接着做：从账本读回研究状态与研究计数并核对环境就绪，把判断逐条记进账本，汇总各候选给出综合推荐与路线选项，再由用户选定研究路线。它承接 F 章的复盘与推荐。
+研究不是一次性的任务，而是一条不停的循环。入口是每次进入这条循环的门：第一次开始时从这里选路线，中途断了（会话结束、机器重启、运行出错）也从这里接着做。
 
-<Mermaid chart={"flowchart LR\n  subgraph E-1[\"E.1 恢复研究状态\"]\n    direction TB\n    E-1-1[\"E.1.1 时机与从账本读的材料\"]\n    E-1-2[\"E.1.2 核对环境就绪\"]\n  end\n  subgraph E-2[\"E.2 记录研究判断\"]\n    direction TB\n    E-2-1[\"E.2.1 内容\"]\n    E-2-2[\"E.2.2 存法与读回\"]\n  end\n  subgraph E-3[\"E.3 给出综合推荐与路线选项\"]\n    direction TB\n    E-3-1[\"E.3.1 候选范围\"]\n    E-3-2[\"E.3.2 选项材料与呈现\"]\n    E-3-3[\"E.3.3 跨候选汇总\"]\n  end\n  subgraph E-4[\"E.4 用户选定研究路线\"]\n    direction TB\n    E-4-1[\"E.4.1 选择权\"]\n  end\n  E-1 --> E-2\n  E-2 --> E-3\n  E-3 --> E-4"} />
+入口做四件事。先从账本读回研究做到哪了；再把每次读完结果后的想法写成判断，存进账本；然后把所有能用的候选汇总成一份推荐，连同几条可选的路线交给你；你选定路线后，Agent 就在路线里自己往下做。
 
-## E.1　恢复研究状态 [#E-1]
+举个例子：全池 RSI 路线做到第六个假设时会话断了。重新开始时，Agent 不靠记忆，而是读账本：路线记录还在，说明你已经选过路线，不用再问；最近一次推荐之后又多了一个有效运行，所以先补一次复盘，再接着提下一个假设。
+
+<Mermaid chart={"flowchart LR\n  subgraph E-1[\"1.1 恢复研究状态\"]\n    direction TB\n    E-1-1[\"时机与从账本读的材料\"]\n    E-1-2[\"核对环境就绪\"]\n  end\n  subgraph E-2[\"1.2 记录研究判断\"]\n    direction TB\n    E-2-1[\"内容\"]\n    E-2-2[\"存法与读回\"]\n  end\n  subgraph E-3[\"1.3 给出综合推荐与路线选项\"]\n    direction TB\n    E-3-1[\"候选范围\"]\n    E-3-2[\"选项材料与呈现\"]\n    E-3-3[\"跨候选汇总\"]\n  end\n  subgraph E-4[\"1.4 用户选定研究路线\"]\n    direction TB\n    E-4-1[\"选择权\"]\n  end\n  E-1 --> E-2\n  E-2 --> E-3\n  E-3 --> E-4"} />
+
+## 1.1　恢复研究状态 [#E-1]
+
+研究做到哪了，只看账本里记着的，不看会话里记得的。
 
 <Steps>
 
@@ -43,66 +49,101 @@
 
 </Steps>
 
-### E.1.1　时机与从账本读的材料 [#E-1-1]
+### 时机与从账本读的材料 [#E-1-1]
 
-研究状态和研究计数只从账本读出，不靠会话记忆。
+恢复时读什么、从哪读。
 
-<ul className="rd-rules">
-<li id="E-1-1-1"><span className="rd-rule-id">E.1.1.1</span> 开始或恢复先读账本；有路线就续做，不重问用户 <Ref id="rule:E.1.1.1">research-start · SKILL.md</Ref></li>
-</ul>
+#### 每次开始或中断后先读账本，已选路线就直接续做 [#E-1-1-1]
 
-<Cap id="E.1.1.3" kind="skill" tier="rehearsal" tierLabel="演练证据" title="研究状态在读取时拼出，本身不另存">
+每次开始，或者中断后回来，Agent 第一件事是读账本：服务能不能用、有哪些候选、研究计数、研究状态、当前路线。账本里有路线记录，就说明你已经选过路线，Agent 直接接着做，不再问你一遍。
 
-- 只取当前有效的判断。
-- 判断涉及的候选和试验，附上读取时的经济证据资格和绩效指标。
-- 未复盘的试验是上次推荐之后新增、属于本路线的试验。
-- 任何一个账本版本都能读出当时的研究状态。
+会话会结束，记忆会丢，交接文件可能过时。只有入了账本的东西经过核对，可以信。所以没写进账本的结论，哪怕上一次会话里说过，也当作不存在。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.research_state">research_state</Ref> <Ref id="cli.research_state">research_state</Ref> unreviewed-trials-from-commit-diff</span></div>
+<div className="rd-example">
 
-</Cap>
+比如上次会话里 Agent 说过「H06 放大预算没用」，但这句话没有作为判断入账。恢复后，它不能拿这句话当依据去选下一个假设：要么重新读结果，要么先把它写成判断入账。
 
-<Cap id="E.1.1.4" kind="code" tier="unverified" tierLabel="待验证" title="路线内全部研究试验都计入试验次数">
+</div>
 
-- 路线内用途为研究的试验都计入，含无效和中断的。
-- 这个数由账本派生，不靠 Agent 记录。
-- 把全部试验都当作看过，是一个保守的上界。
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.1.1.1">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.line_trials">line_trials</Ref> <Ref id="report.research_state">research_state</Ref></span></div>
+#### 研究状态在读的时候当场拼出来，不另存一份 [#E-1-1-3]
 
-</Cap>
+研究状态不是一份单独保存的文件，而是每次读的时候，从账本里现有的判断、候选和试验当场拼出来的。
 
-### E.1.2　核对环境就绪 [#E-1-2]
+单独存一份，就有两个地方要保持同步，哪次忘了更新，两边就对不上。当场拼出来，它永远和账本一致。
 
-入口只读出数据事实并报告就绪或阻断，不裁决数据够不够用。
+<div className="rd-example">
 
-<Cap id="E.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="一条路线钉住一个市场提交，路线内回放共用它">
+研究状态包含三样：当前有效的判断，比如最新的推荐；这些判断涉及的候选眼下的资格和绩效指标；上次推荐之后新增、还没复盘过的试验。想看三天前的研究状态，按三天前的账本版本读就行。
 
-- 用户选定路线时，市场提交和开发窗口一起写进路线记录。
-- 同一市场提交上的回放才可比。
-- 市场数据出现新月份时只报告可扩展的范围，不自动换提交。
-- 换市场提交就是换路线，由用户选择。
+</div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.current_line">current_line</Ref> <Ref id="market.freshness">freshness</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.research_state">report.research_state</Ref> <Ref id="cli.research_state">cli.research_state</Ref> unreviewed-trials-from-commit-diff</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
+#### 路线里每一次研究试验都计入试验次数，失败的也算 [#E-1-1-4]
 
-<Cap id="E.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="逐合约覆盖只列事实，入口不删币、不缩窗、不补数">
+一条路线里跑过的每一次研究试验都算数，包括审计判无效的和中途中断的。这个数由账本统计，不靠 Agent 自己数。
 
-- 按钉住的市场提交，逐合约列出缺口、零成交分钟和资金费记录。
-- 上市、下架等成员变化按账本里留存的原件核对后列出。
-- 首末数据只是数据起止，不等于上市或下架。
-- 缺口原样报告，不据此判经济失败，也不替策略判就绪。
+试验次数用来校正「试得多，总会碰上一个好看的结果」这种运气。只数成功的，就会少算试过的次数，把结果看得比实际更可信。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.market_coverage">market_coverage</Ref> <Ref id="market.diagnose_coverage">diagnose_coverage</Ref> <Ref id="registration.load_lifecycle">load_lifecycle</Ref></span></div>
+<div className="rd-example">
 
-</Cap>
+比如一条路线登记了 12 次研究试验，其中 2 次因为数据缺口中断、1 次审计判无效。做多重比较校正时仍按 12 次算，不是 9 次。
 
-<ul className="rd-rules">
-<li id="E-1-2-3"><span className="rd-rule-id">E.1.2.3</span> 回放前核对运行环境、数据月份和逐合约覆盖，缺则报阻断再提问 <Ref id="rule:E.1.2.3">research-start · references/readiness.md</Ref></li>
-</ul>
+</div>
 
-## E.2　记录研究判断 [#E-2]
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.line_trials">line_trials</Ref> <Ref id="report.research_state">research_state</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+### 核对环境就绪 [#E-1-2]
+
+回放之前先确认环境和数据齐不齐；入口只报告事实，不替你决定数据够不够用。
+
+#### 一条路线钉住一份市场数据，路线里的回放都用它 [#E-1-2-1]
+
+你选定路线时，市场数据的版本（市场提交）和开发窗口一起写进路线记录。这条路线里所有回放都用这一份数据。
+
+两次回放只有用同一份数据，比较才公平。数据中途换了，前后结果就分不清是策略变了还是数据变了。
+
+<div className="rd-example">
+
+比如路线的窗口是 2025-10-09 到 2026-10-07。之后 10 月的新数据到了，入口只会告诉你「现在可以把窗口再延长一段」，不会自己换数据。要换，就是开一条新路线，由你来选。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.current_line">current_line</Ref> <Ref id="market.freshness">freshness</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 逐个合约列出数据覆盖，入口不删币、不缩窗、不补数 [#E-1-2-2]
+
+入口按路线的数据版本，逐个合约列出数据缺口、零成交的分钟和资金费记录，以及上市、下架这类变化。
+
+数据有缺口是事实，怎么应对是策略和你的事。入口要是自己删币或缩短窗口，等于悄悄改了研究范围。
+
+<div className="rd-example">
+
+全池 RSI 路线涉及 210 个合约：其中两个在窗口开始前就下架了，还有一个下架后重新上市，分成了两段。入口把这些原样列出来。某个币前几天没数据，只说明数据从那天开始有，不等于它那天才上市。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.market_coverage">market_coverage</Ref> <Ref id="market.diagnose_coverage">diagnose_coverage</Ref> <Ref id="registration.load_lifecycle">load_lifecycle</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+#### 缺环境或数据时，报清楚缺什么、哪些还能跑，改范围由你选 [#E-1-2-3]
+
+回放前核对三样：运行环境能找到唯一的镜像；市场库里有开发窗口涉及的全部月份；每个合约的覆盖都能读出来。缺任何一样，Agent 报告具体缺什么、影响哪段窗口和哪些合约，以及眼下还能跑的范围。
+
+缺数据不是策略失败，不该记进研究结果，也不该让 Agent 自己缩小范围凑合着跑。
+
+<div className="rd-example">
+
+比如运行环境的镜像还没构建好，Agent 会说「缺镜像，所有回放暂停；已有的登记和没跑的网格点都保留」，然后等着。如果只有缩小合约范围才能继续，它列出几个选项让你挑，而不是自己挑。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.1.2.3">research-start · references/readiness.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+## 1.2　记录研究判断 [#E-2]
+
+Agent 每次读完结果的想法，都写成一条判断存进账本，下次恢复时才能接着用。
 
 <Steps>
 
@@ -138,35 +179,73 @@
 
 </Steps>
 
-### E.2.1　内容 [#E-2-1]
+### 内容 [#E-2-1]
 
-规定每类决定记成哪种判断、写什么；代码的判定都不读判断正文。
+判断分几种，各写什么。代码只管存，不读判断的正文。
 
-<ul className="rd-rules">
-<li id="E-2-1-1"><span className="rd-rule-id">E.2.1.1</span> 复盘写推荐与优先级；复盘节奏按试验次数记，只能调小 <Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></li>
-<li id="E-2-1-2"><span className="rd-rule-id">E.2.1.2</span> 每次登记至少写一条解释：带适用与重评条件，结论限于登记条件 <Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></li>
-</ul>
+#### 推荐、下一步做什么、多久复盘一次，分开写成三种判断 [#E-2-1-1]
 
-### E.2.2　存法与读回 [#E-2-2]
+复盘时 Agent 写三种判断：推荐哪一版；下一步做什么、按什么顺序做；隔多少次试验再复盘一次。三种分开写，谁也推不出谁。
 
-判断只追加存进账本，任一账本版本都能读回。
+推荐的版本不一定是下一个实验的起点。推荐的可能是眼下收益最好的一版，而最值得改进的可能是另一版。写在一起，就容易把「推荐它」误当成「接下来就改它」。
 
-<Cap id="E.2.2.1" kind="database" tier="verified" tierLabel="已验证" title="判断只追加入账；改判断就追加一条，取代旧的">
+<div className="rd-example">
 
-- 每条判断属于一条研究路线，挂上涉及的候选、试验或登记。
-- 推荐、父版本、对照这几种角色只能指向候选。
-- 改判断写新一条取代旧的，旧的保留，每条只能被取代一次。
-- 任一账本版本都能读回当时的判断。
+全池 RSI 路线里，第三个假设是从 H02 改出来的，而当时收益最好、被推荐的是 H01；最后推荐的是 H09，不是最新的 H10。复盘节奏只能调密，不能调疏：原来每 10 次试验复盘一次，可以改成每 5 次，不能改成每 20 次。
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_judgments">v_judgments</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="cli.judgment_add">judgment_add</Ref></span></div>
+</div>
 
-</Cap>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<ul className="rd-rules">
-<li id="E-2-2-2"><span className="rd-rule-id">E.2.2.2</span> 自写脚本算过的视角要记成判断；产品读出的试验已自动计数 <Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></li>
-</ul>
+#### 每条解释写明在什么条件下成立、什么时候重新评估 [#E-2-1-2]
 
-## E.3　给出综合推荐与路线选项 [#E-3]
+每次登记新假设之前，Agent 至少给上一次结果写一条解释：结论是在什么条件下得出的，什么情况下应该重新评估。
+
+一次亏损只说明在那次的数据、参数和环境下不行，不代表这个方向永远不行。不写条件，旧结论就容易变成谁也不敢再碰的禁区。
+
+<div className="rd-example">
+
+全池 RSI 路线里，H06 把单笔预算从 100 提到 500，结果比 H05 差。解释写成：「在这个窗口和这组 RSI 参数下，单纯放大预算没有改善，可能受到成交量上限的限制；改了容量规则后重新评估。」后来的 H07 和 H09 照样在仓位这个方向上继续做。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 存法与读回 [#E-2-2]
+
+判断怎么存、怎么改、怎么读回。
+
+#### 判断只追加不修改，改主意就追加一条新的取代旧的 [#E-2-2-1]
+
+判断写进账本后不能改，只能追加。要改，就写一条新判断，声明它取代哪一条；旧的那条保留。
+
+这样任何时候都能查到当时是怎么想的，后来又为什么改了。
+
+<div className="rd-example">
+
+比如第一次复盘推荐 H05，后来出现了 H09，第二次复盘就写一条新推荐取代旧的。按第一次复盘时的账本版本读，看到的仍是推荐 H05。每条判断都挂在它所说的对象上，推荐、父版本和对照只能指向候选。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_judgments">v_judgments</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="cli.judgment_add">judgment_add</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 自己写脚本额外看过的角度，也要记下来 [#E-2-2-2]
+
+产品读出来的试验会自动计数；但 Agent 自己写脚本额外看过的角度，比如按月拆、按合约拆，要记成一条判断。
+
+看的角度越多，碰巧看到一个好看数字的机会就越大。把看过的角度记下来，之后估计结果有多可信时才不会漏算。
+
+<div className="rd-example">
+
+比如为了解释 H09，Agent 又按合约、按月份、按多空各拆了一遍，就记一条判断，写明看过这三个角度，以及读的是哪个账本版本。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+## 1.3　给出综合推荐与路线选项 [#E-3]
+
+把所有能用的候选摆在一起，给你一份推荐和几条可选的路线。
 
 <Steps>
 
@@ -202,33 +281,93 @@
 
 </Steps>
 
-### E.3.1　候选范围 [#E-3-1]
+### 候选范围 [#E-3-1]
 
-划定推荐选项从哪来。
+推荐从哪些候选里选。
 
-<ul className="rd-rules">
-<li id="E-3-1-1"><span className="rd-rule-id">E.3.1.1</span> 入口先读最新推荐；没有推荐或有未复盘的有效运行就重做推荐 <Ref id="rule:E.3.1.1">research-start · references/recommendation.md</Ref></li>
-<li id="E-3-1-2"><span className="rd-rule-id">E.3.1.2</span> 只在没有候选或用户离开全部路线时提出模板根 <Ref id="rule:E.3.1.2">research-start · SKILL.md</Ref></li>
-</ul>
+#### 入口先拿出最新推荐；推荐过时了就先重做 [#E-3-1-1]
 
-### E.3.2　选项材料与呈现 [#E-3-2]
+入口先拿出最近一次的推荐。还没有推荐，或者推荐之后又出了新的有效运行，就先重做一次推荐。
 
-规定每个选项附哪些材料，只定呈现，不定判据。
+推荐过时了还拿来用，等于让你在不完整的信息上选路线。
 
-<ul className="rd-rules">
-<li id="E-3-2-1"><span className="rd-rule-id">E.3.2.1</span> 每个选项列同一组绩效指标，缺项留空并写原因 <Ref id="rule:E.3.2.1">research-start · references/recommendation.md</Ref></li>
-<li id="E-3-2-3"><span className="rd-rule-id">E.3.2.3</span> 推荐写明版本、依据与取舍；下一实验的父版本和对照另给理由 <Ref id="rule:E.3.2.3">research-start · references/recommendation.md</Ref></li>
-</ul>
+<div className="rd-example">
 
-### E.3.3　跨候选汇总 [#E-3-3]
+推荐的范围是谱系里所有有经济证据资格的候选，包括很早以前的版本，也包括别的路线上的版本。只能诊断、判为无效或没跑完的版本另列一栏，不和有效候选放在一起比。
 
-代码给出候选清单与计数事实，不含分数或排序；skill 规定汇总口径。
+</div>
 
-<ul className="rd-rules">
-<li id="E-3-3-1"><span className="rd-rule-id">E.3.3.1</span> 只在同窗口同范围的可用运行上，按四项指标求未被全面压过的候选 <Ref id="rule:E.3.3.1">research-round · references/review.md</Ref></li>
-</ul>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.1.1">research-start · references/recommendation.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-## E.4　用户选定研究路线 [#E-4]
+#### 只有没有候选，或者你说要离开所有路线时，才从策略库模板起步 [#E-3-1-2]
+
+只有两种情况会把策略库里的模板列为起点：账本里一个候选都没有；或者你明确说要离开所有现有路线。
+
+亏损、不显著、跑得慢都不是换起点的理由，它们只影响下一步先做什么。轻易换起点，前面积累的研究就白费了。
+
+<div className="rd-example">
+
+每个模板选项附上它在当前开发窗口的第一份报告，比如年化、回撤和胜率，让你知道它大概是什么水平；还没回放过的模板也列出来，但标明「未回放」。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.1.2">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 选项材料与呈现 [#E-3-2]
+
+每个选项附什么材料，推荐说明写什么。
+
+#### 每个选项列同一组指标，算不出的留空并写原因 [#E-3-2-1]
+
+每个候选选项都列同一组数：年化、最大回撤、夏普、计划胜率、成本、资金使用率、利润来源，以及和对照相比的不确定性。算不出的项留空，写明原因，不估也不补。
+
+只看一个指标会被误导。回撤小的版本可能只是资金几乎没用上，收益高的版本可能主要靠资金费。
+
+<div className="rd-example">
+
+全池 RSI 的 H08 最大回撤只有 0.62%，看起来很稳；但它平均只用了初始资金的 0.39%。不把资金使用率一起列出来，就会把「仓位小」误读成「风险控制好」。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.2.1">research-start · references/recommendation.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 推荐写清是哪一版、凭什么、放弃了什么 [#E-3-2-3]
+
+推荐说明写清四件事：推荐哪一版；依据哪些指标；取舍是什么；它和下一个实验的起点是不是同一版，不是的话为什么。
+
+你要据此选路线，取舍不写清楚，就看不出推荐背后的代价。推荐也不等于样本外验证或上线，那要你看完报告再决定。
+
+<div className="rd-example">
+
+比如：「推荐 H09：年化 4.24%，高于其他候选；代价是回撤升到 8.44%，而且闭仓收益里将近一半来自资金费。下一个实验从 H09 出发，对照用 H08。」
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.2.3">research-start · references/recommendation.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 跨候选汇总 [#E-3-3]
+
+候选很多时，先筛掉明显不如别人的。
+
+<a id="E-3-3-1" />
+
+**在同一窗口、同一范围的候选里，找出没被全面压过的那些**
+
+Agent 在同一开发窗口、同一可交易范围的候选里，按年化、回撤、夏普、胜率四项，找出没被别人四项全面压过的候选，这叫非劣候选集。
+
+四项都不如别人的候选没有理由推荐；剩下的各有长短，留给推荐说明去权衡。
+
+<div className="rd-example">
+
+A 年化高、回撤也大，B 年化低、回撤也小，两个谁也没全面压过谁，都在集合里。C 四项都不如 A，就不在。推荐可以落在集合外面，但要说明理由。集合是从很多候选里挑出来的，看的时候要记得有挑选带来的乐观偏差。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.3.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+## 1.4　用户选定研究路线 [#E-4]
+
+选哪条路线由你决定；选定之后，路线里的事由 Agent 自己推进。
 
 <Steps>
 
@@ -264,14 +403,37 @@ Agent 呈现推荐与路线选项，以提问结束并等待。
 
 </Steps>
 
-### E.4.1　选择权 [#E-4-1]
+<a id="E-4-1" />
 
-Agent 提选项，用户选路线，选定前 Agent 只等待。
+谁提选项，谁做决定。
 
-<ul className="rd-rules">
-<li id="E-4-1-1"><span className="rd-rule-id">E.4.1.1</span> 给出路线选项后以提问结束；选定前不登记、不回放、不写路线 <Ref id="rule:E.4.1.1">research-start · SKILL.md</Ref></li>
-<li id="E-4-1-2"><span className="rd-rule-id">E.4.1.2</span> 用户的想法当普通假设登记；选根的授权给一次就够 <Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></li>
-</ul>
+### Agent 给出选项后就停下来问你，你选之前它什么都不动 [#E-4-1-1]
+
+Agent 给出路线选项后以提问结束，然后等你选。你选之前，它不登记、不回放、不发布新候选，也不把推荐第一名当作你已经选了。
+
+选哪条路线是研究方向的决定，属于你。Agent 能做的是把选项和材料准备好。
+
+<div className="rd-example">
+
+路线里遇到亏损、不显著或运行故障，Agent 都不会自己换路线。确实需要换的时候，它回到入口，给出诊断和选项，再问你。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.1">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+
+### 你附带的想法照常登记；选模板的授权给一次就够 [#E-4-1-2]
+
+选路线时你可以附上想法或资料。想法会变成路线里一个普通的假设，和其他假设一样先查来源、写预测、登记，再回放；资料会被转写成一个新的起点策略。
+
+想法来自你，也要过同样的检验，不然分不清是想法好还是运气好。
+
+<div className="rd-example">
+
+比如你说「试试资金费为正时不做多」，Agent 会把它写成一个假设，找相关文献，写下预计会影响哪些交易，登记后再跑。你说「就用这个模板开始」，这一次授权就够了，后面的发布、路线记录和首份报告不用再问你。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#E-pending]
 
@@ -279,7 +441,7 @@ Agent 提选项，用户选路线，选定前 Agent 只等待。
 
 - **是否允许同时推进两条用户选定的研究路线**　演练中只走过单路线，研究路线记录按一次一条设计（E.4.2.1）；是否放宽由用户定
 
-- **不进文档**　研究优先级排序算法与调度方法（贝叶斯优化、Thompson sampling 等）：不建优化器、推荐分数或调度器；Agent 把排序依据记为 priority 判断（F.2.1.1）
+- **不进文档**　研究优先级排序算法与调度方法（贝叶斯优化、Thompson sampling 等）：不建优化器、推荐分数或调度器；Agent 把排序依据记为 priority 判断（<Ref id="F.2.1.1" />）
 - **不进文档**　整套入口流程是否提高研发效率或成功率：缺同条件新旧流程对照，属待验证主张，不作任何能力的依据
 - **不进文档**　入口的产品形态：归 A.4.3.1：研究流程是按需加载的 skill，产品不加交互代码
-- **不进文档**　入口是否另列授权事项清单：归 A.2.3.3；入口只在需要授权时停下，不另列清单
+- **不进文档**　入口是否另列授权事项清单：归 <Ref id="A.2.3.3" />；入口只在需要授权时停下，不另列清单

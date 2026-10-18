@@ -52,7 +52,7 @@ type CapData = { cap: MapCapability; slug: string; locale: Locale; state: string
 function ChapterLabelNode({ data: d }: NodeProps<Node<LabelData>>) {
   return (
     <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label">
-      <span className="rd-box-id">{d.chapter.prefix}</span>
+      <span className="rd-box-id">{d.chapter.num}</span>
       <span>{d.chapter.title}</span>
     </Link>
   );
@@ -64,7 +64,7 @@ function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
       <Handles />
       <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.fn.path)}`} className="rd-func-head">
         {d.chapter ? <span className="rd-chip">{d.chapter}</span> : null}
-        <span className="rd-box-id">{d.fn.path}</span>
+        <span className="rd-box-id">{d.fn.label}</span>
         <span className="rd-func-title">{d.fn.title}</span>
       </Link>
       {d.outside ? <span className="rd-func-out">{mapCopy.outside[d.locale]} {d.outside}</span> : null}
@@ -75,7 +75,7 @@ function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
 function ComponentNode({ data: d }: NodeProps<Node<CompData>>) {
   return (
     <div className="rd-comp">
-      <div className="rd-comp-head"><span className="rd-fn-id">{d.comp.path}</span><span>{d.comp.title}</span></div>
+      <div className="rd-comp-head"><span>{d.comp.title}</span></div>
     </div>
   );
 }
@@ -84,7 +84,6 @@ function CapabilityNode({ data: d }: NodeProps<Node<CapData>>) {
   return (
     <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.cap.path)}`} className={`rd-cap-card rd-cap-${d.cap.kind} rd-fn-${d.state}`} title={d.cap.title}>
       <Handles />
-      <span className="rd-fn-id">{d.cap.path}</span>
       <span className="rd-cap-title">{d.cap.title}</span>
     </Link>
   );
@@ -94,7 +93,7 @@ function TileNode({ data: d }: NodeProps<Node<LabelData>>) {
   return (
     <div className="rd-tile">
       <Link href={`/${d.locale}/docs/${d.chapter.slug}/`} className="rd-col-label rd-tile-head">
-        <span className="rd-box-id">{d.chapter.prefix}</span>
+        <span className="rd-box-id">{d.chapter.num}</span>
         <span>{d.chapter.title}</span>
       </Link>
     </div>

@@ -9,7 +9,10 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '.
 export const entries = JSON.parse(readFileSync(join(repositoryRoot, 'docs', 'rd', 'entries.json'), 'utf8'));
 export const sourceBySlug = new Map(entries.map(([slug, source]) => [slug, source]));
 export const groups = [
-  ['chapters', 'Chapters', '章节'],
-  ['design', 'Design', '设计'],
+  ['start', 'Start', '开始'],
+  ['begin', 'I. How research starts', '一、研究怎样开始'],
+  ['iterate', 'II. One iteration', '二、一轮迭代'],
+  ['close', 'III. Wrap-up and foundation', '三、收尾与底座'],
+  ['design', 'Reference', '参考'],
   ['appendices', 'Appendices', '附录'],
 ];

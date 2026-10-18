@@ -1,147 +1,127 @@
-# G　完整性审计与证据资格：一次回放什么时候算有效，有效之后什么时候才能作经济证据。
+# 7　完整性审计与证据资格：一次回放什么时候算有效，有效之后什么时候才能作经济证据。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章回答回放之后的两道资格：完整性审计判一次回放是否有效，经济证据资格判有效运行能否作比较证据。它承接 W 章的回放环境，以及 C 章的止损声明、原生预检和独立源码审查；两道资格都由代码对所有策略统一强制。
+本章回答回放之后的两道资格：完整性审计判一次回放是否有效，经济证据资格判有效运行能否作比较证据。它承接第 6 章的回放环境，以及第 4 章的止损声明、原生预检和独立源码审查；两道资格都由代码对所有策略统一强制。
 
-<Mermaid chart={"flowchart LR\n  subgraph G-1[\"G.1 判定回放是否有效\"]\n    direction TB\n    G-1-1[\"G.1.1 无效的判定\"]\n    G-1-2[\"G.1.2 无效后的处置\"]\n  end\n  subgraph G-2[\"G.2 核对输入与消费\"]\n    direction TB\n    G-2-1[\"G.2.1 输入身份与消费量\"]\n    G-2-2[\"G.2.2 覆盖与生命周期回执\"]\n  end\n  subgraph G-3[\"G.3 回放后独立审计\"]\n    direction TB\n    G-3-1[\"G.3.1 审计的独立性与边界\"]\n    G-3-2[\"G.3.2 各表对账\"]\n    G-3-3[\"G.3.3 持仓保护与终止检查\"]\n  end\n  subgraph G-4[\"G.4 判定经济证据资格\"]\n    direction TB\n    G-4-1[\"G.4.1 实质活动\"]\n    G-4-2[\"G.4.2 资格的来源与呈现\"]\n  end\n  G-1 --> G-2\n  G-2 --> G-3\n  G-3 --> G-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph G-1[\"7.1 判定回放是否有效\"]\n    direction TB\n    G-1-1[\"无效的判定\"]\n    G-1-2[\"无效后的处置\"]\n  end\n  subgraph G-2[\"7.2 核对输入与消费\"]\n    direction TB\n    G-2-1[\"输入身份与消费量\"]\n    G-2-2[\"覆盖与生命周期回执\"]\n  end\n  subgraph G-3[\"7.3 回放后独立审计\"]\n    direction TB\n    G-3-1[\"审计的独立性与边界\"]\n    G-3-2[\"各表对账\"]\n    G-3-3[\"持仓保护与终止检查\"]\n  end\n  subgraph G-4[\"7.4 判定经济证据资格\"]\n    direction TB\n    G-4-1[\"实质活动\"]\n    G-4-2[\"资格的来源与呈现\"]\n  end\n  G-1 --> G-2\n  G-2 --> G-3\n  G-3 --> G-4"} />
 
-## G.1　判定回放是否有效 [#G-1]
+## 7.1　判定回放是否有效 [#G-1]
 
 回放跑完后，代码在运行环境外汇总退出码、异常记录、执行身份与审计结果；任一不符即判运行无效，只留原因，仍计入试验次数。
 
-### G.1.1　无效的判定 [#G-1-1]
+### 无效的判定 [#G-1-1]
 
 判定全部由运行环境外的代码完成，不靠 skill 判断。
 
-<Cap id="G.1.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计只判回放有效与否；无效运行只留原因与原件">
+#### 审计只判回放有效与否；无效运行只留原因与原件 [#G-1-1-1]
 
 - 完整性审计只回答这次回放是否有效及原因，不评价策略好坏。
 - 无效运行只存原因与封存原件，绩效指标置空。
 - 有效运行写入原生报告明细，并算一次绩效指标。
 - 只有研究与样本外回放入账；原生预检只留工作副本。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="table:v_runs">v_runs</Ref> <Ref id="ledger.metrics">metrics</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="table:v_runs">v_runs</Ref> <Ref id="ledger.metrics">metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行或审计失败、有发现或有异常记录，即判无效">
+#### 运行或审计失败、有发现或有异常记录，即判无效 [#G-1-1-2]
 
 - 运行器非零退出、审计未运行或非零退出，各记一条原因。
 - 审计结果缺失、不可读、自报未通过或有发现，各记一条。
 - 只按退出码、文件与结构化记录判定，不匹配日志文本。
 - 基础设施故障也记为无效原因，不另设状态、不改称证据不足。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.audit_problems">audit_problems</Ref> <Ref id="replay.seal">seal</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.audit_problems">audit_problems</Ref> <Ref id="replay.seal">seal</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.1.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="策略构造或回调抛异常即无效，干净退出也不掩盖">
+#### 策略构造或回调抛异常即无效，干净退出也不掩盖 [#G-1-1-3]
 
 - 策略构造或任一回调抛异常，都写下一条结构化异常记录。
 - 引擎已捕获异常并干净收尾，也照样判为无效。
 - 原生报告先于判定写出，无效回放也留下原件。
 - 有异常记录时，空交易报告是故障，不当作没有交易。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.guard_callback">guard_callback</Ref> <Ref id="engine.execution_failure">execution_failure</Ref> <Ref id="engine.main">main</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.guard_callback">guard_callback</Ref> <Ref id="engine.execution_failure">execution_failure</Ref> <Ref id="engine.main">main</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.1.1.4" kind="code" tier="verified" tierLabel="已验证" title="原生报告摘要的执行身份须与试验一致，否则无效">
+#### 原生报告摘要的执行身份须与试验一致，否则无效 [#G-1-1-4]
 
 - 在运行环境外，逐项核对摘要与试验记录上的执行身份。
 - 核对源码内容哈希、运行环境摘要、账户与撮合配置。
 - 摘要缺失、身份不符或自报未通过，各记一条无效原因。
 - 这里只核身份；报告之间的对账另由独立审计做。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.summary_problems">summary_problems</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.summary_problems">summary_problems</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-### G.1.2　无效后的处置 [#G-1-2]
+### 无效后的处置 [#G-1-2]
 
 无效运行怎样计数、原因怎样记录，让 Agent 不重跑也能定位修复。
 
-<Cap id="G.1.2.1" kind="code" tier="verified" tierLabel="已验证" title="无效运行不进任何比较，但仍计入试验次数">
+#### 无效运行不进任何比较，但仍计入试验次数 [#G-1-2-1]
 
 - 比较前先核两侧都有效且已封存，否则拒绝并指明哪一侧。
 - 被拒时不给检验结果。
 - 无效、未完成的试验及其消耗的网格点不删除、不重算。
 - 研究状态把有效、可作证据、仅诊断、无效、未完成分列计数。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="report.research_status">research_status</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="report.research_status">research_status</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="G.1.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="每条无效原因带定位，能找到时间、品种、数量和订单">
+#### 每条无效原因带定位，能找到时间、品种、数量和订单 [#G-1-2-2]
 
 - 每条无效原因含原因码、说明与定位三部分。
 - 订单类、持仓类发现分别定位到订单号或持仓号。
 - 止损覆盖缺口定位到品种、策略、数量、起止时间与相关订单。
 - 定位由独立审计给出，入账时原样转抄，不重新解释。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.protection">protection</Ref> <Ref id="table:v_runs">v_runs</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.protection">protection</Ref> <Ref id="table:v_runs">v_runs</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-## G.2　核对输入与消费 [#G-2]
+## 7.2　核对输入与消费 [#G-2]
 
 回放前后核对导出的市场数据没有变动、引擎确实读完了它，并核对覆盖记录与生命周期事件；入账时再按封存原件重算一次。
 
-### G.2.1　输入身份与消费量 [#G-2-1]
+### 输入身份与消费量 [#G-2-1]
 
 导出数据在执行前后不变，引擎消费的条数与导出一致。
 
-<Cap id="G.2.1.1" kind="code" tier="verified" tierLabel="已验证" title="导出数据须与登记一致且执行前后不变，否则不回放或无效">
+#### 导出数据须与登记一致且执行前后不变，否则不回放或无效 [#G-2-1-1]
 
 1. 写试验前，导出内容的身份须等于登记锁定的输入数据身份。
 2. 不等即拒绝回放，也不写试验。
 3. 执行开始前，记下导出文件的全部字节。
 4. 执行结束后，导出文件的全部字节须不变，否则运行无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.seal">seal</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.seal">seal</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="G.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="引擎消费的 K 线条数与估值次数须等于导出所含">
+#### 引擎消费的 K 线条数与估值次数须等于导出所含 [#G-2-1-2]
 
 - 引擎迭代数须等于全部合约导出的 K 线条数之和。
 - 迭代数不等时运行器非零退出，回放判为无效。
 - 持仓估值次数须等于标记价时间戳去重数，不等即审计失败。
 - 期望值直接读导出文件，不用任何自报计数。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.mark_timestamps">mark_timestamps</Ref> <Ref id="engine.capital_findings">capital_findings</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.mark_timestamps">mark_timestamps</Ref> <Ref id="engine.capital_findings">capital_findings</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-### G.2.2　覆盖与生命周期回执 [#G-2-2]
+### 覆盖与生命周期回执 [#G-2-2]
 
 同一套核对做两次：审计时一次，入账时只按封存原件再做一次。
 
-<Cap id="G.2.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="覆盖记录须与原生报告摘要一致；覆盖事实不判无效">
+#### 覆盖记录须与原生报告摘要一致；覆盖事实不判无效 [#G-2-2-1]
 
 - 回放前写出覆盖记录，汇总各合约导出、输入身份与配置。
 - 核对它的输入起止、市场提交、合约集合与开发窗口起止。
 - 任一不符，即为该运行的一条无效原因。
 - 缺口、零成交量分钟等覆盖事实只原样透传，不判无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.verify_coverage">verify_coverage</Ref> <Ref id="replay.audit_problems">audit_problems</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.verify_coverage">verify_coverage</Ref> <Ref id="replay.audit_problems">audit_problems</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.2.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="生命周期事件须与原生计数相符，入账时只信封存原件">
+#### 生命周期事件须与原生计数相符，入账时只信封存原件 [#G-2-2-2]
 
 - 每个合约的状态与关闭事件数，须等于覆盖记录里的计数。
 - 事件须在窗口内，到期关闭须带正的关闭价。
 - 缺少事件供给按拒绝处理，不当作没有事件。
 - 入账时不信工作目录或调用方的副本，只按封存原件重算。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_events">lifecycle_events</Ref> <Ref id="ledger.original_coverage">original_coverage</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_events">lifecycle_events</Ref> <Ref id="ledger.original_coverage">original_coverage</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-## G.3　回放后独立审计 [#G-3]
+## 7.3　回放后独立审计 [#G-3]
 
 <Steps>
 
@@ -177,85 +157,73 @@
 
 </Steps>
 
-### G.3.1　审计的独立性与边界 [#G-3-1]
+### 审计的独立性与边界 [#G-3-1]
 
 审计进程与运行器分开，只读报告，并随结果写明查什么、不查什么。
 
-<Cap id="G.3.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计是独立进程，对所有策略执行同一套只读检查">
+#### 审计是独立进程，对所有策略执行同一套只读检查 [#G-3-1-1]
 
 - 审计与运行器用同一运行环境，但在单独的容器里跑。
 - 不挂载策略源码，审计因此不能导入或执行策略。
 - 无网络、输入只读、不读账本，不按策略区别对待。
 - 报告不全、未运行、非零退出或有发现，回放即无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.execute">execute</Ref> <Ref id="engine.audit_main">audit_main</Ref> <Ref id="engine.audit">audit</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.execute">execute</Ref> <Ref id="engine.audit_main">audit_main</Ref> <Ref id="engine.audit">audit</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.3.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计不查信号与止损价格，检查边界随每次结果写出">
+#### 审计不查信号与止损价格，检查边界随每次结果写出 [#G-3-1-2]
 
 - 审计只证明引擎记录自洽、止损覆盖与下架处置成立。
 - 不重建信号，不比止损价格，不重算成交、盈亏或资金费。
 - 每次结果写明检查范围与边界，并附各报告哈希与计数。
 - 因果与前视偏差由原生预检和独立源码审查负责。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_result">generic_result</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_result">generic_result</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### G.3.2　各表对账 [#G-3-2]
+### 各表对账 [#G-3-2]
 
 只在引擎自己的记录之间对账，输出带定位的发现。
 
-<Cap id="G.3.2.1" kind="code" tier="verified" tierLabel="已验证" title="订单事件史须与订单、成交报告完全一致">
+#### 订单事件史须与订单、成交报告完全一致 [#G-3-2-1]
 
 - 事件史与订单报告持有同一组订单。
 - 每个订单以唯一的初始化事件开头，时间不倒序。
 - 终态、数量、方向、类型与订单报告一致，成交逐笔相等。
 - 只有对账通过的事件史，才用于止损覆盖与下架检查。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.event_report_findings">event_report_findings</Ref> <Ref id="engine.write_order_events">write_order_events</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.event_report_findings">event_report_findings</Ref> <Ref id="engine.write_order_events">write_order_events</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="G.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="订单、成交、持仓、费用与账户互相对账，只对账不重算">
+#### 订单、成交、持仓、费用与账户互相对账，只对账不重算 [#G-3-2-2]
 
 - 每笔成交对应唯一订单，订单已成交量等于其成交之和。
 - 持仓恰好覆盖全部成交一次，数量与手续费一致。
 - 资金费调整逐时刻等于账户总额变动，账户各行自洽。
 - 期初余额、已实现盈亏与闭仓计数与摘要一致。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="G.3.2.3" kind="code" tier="verified" tierLabel="已验证" title="成交与资金费同刻不对账资金费，期末有仓不对账权益">
+#### 成交与资金费同刻不对账资金费，期末有仓不对账权益 [#G-3-2-3]
 
 - 成交与资金费同一时刻时总额变动无法拆分，跳过该时刻。
 - 跳过的时刻数照实记入结果。
 - 期末仍有持仓时权益含未实现盈亏，只对账余额。
 - 两条边界固定写入结果，不用放宽容差代替。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.generic_result">generic_result</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.generic_result">generic_result</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="G.3.2.4" kind="code" tier="verified" tierLabel="已验证" title="被否决、被拒绝的订单与估值缺口，都判审计失败">
+#### 被否决、被拒绝的订单与估值缺口，都判审计失败 [#G-3-2-4]
 
 - 被否来自引擎风险检查，被拒来自模拟交易所。
 - 它们与策略自检发现、估值缺口一起写入原生摘要。
 - 摘要有任一发现，运行器即非零退出，审计也计为失败。
 - 只记事实，不区分被拒原因，不重算估值。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.capital_findings">capital_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.capital_findings">capital_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-### G.3.3　持仓保护与终止检查 [#G-3-3]
+### 持仓保护与终止检查 [#G-3-3]
 
 用对账通过的订单事件史逐刻重建持仓，检查止损覆盖与下架前的清仓。
 
-<Cap id="G.3.3.1" kind="code" tier="verified" tierLabel="已验证" title="止损未覆盖持仓超过一分钟即为裸仓，运行无效">
+#### 止损未覆盖持仓超过一分钟即为裸仓，运行无效 [#G-3-3-1]
 
 1. 按时间戳逐批重放事件史，同一纳秒的事件一起应用。
 2. 重建每个策略、每个合约的净持仓。
@@ -263,22 +231,18 @@
 4. 净持仓超出止损量且持续超过一分钟，即为裸仓区间。
 5. 声明设止损时，每个裸仓区间计一条发现。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.uncovered_intervals">uncovered_intervals</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.uncovered_intervals">uncovered_intervals</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-<Cap id="G.3.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="声明不设止损的策略，裸仓只报告、不判无效">
+#### 声明不设止损的策略，裸仓只报告、不判无效 [#G-3-3-2]
 
 - 策略源码用一个开关声明是否设止损，载入时校验。
 - 声明不设止损时，裸仓区间只写进结果，不计发现。
 - 声明缺失或格式不对，一律按设止损处理。
 - 不设止损是可声明的研究选择，不是审计豁免。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.3.3.3" kind="code" tier="verified" tierLabel="已验证" title="无结算价下架前须清仓撤单，之后的订单事件算迟到">
+#### 无结算价下架前须清仓撤单，之后的订单事件算迟到 [#G-3-3-3]
 
 1. 从覆盖记录与摘要认出无结算价的下架时刻。
 2. 沿事件史重放到该时刻之前。
@@ -286,11 +250,9 @@
 4. 该时刻及之后该合约的任何订单事件都计为迟到。
 5. 未清仓即判无效，产品不代为补结算价。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> <Ref id="engine.lifecycle_events">lifecycle_events</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> <Ref id="engine.lifecycle_events">lifecycle_events</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-</Cap>
-
-## G.4　判定经济证据资格 [#G-4]
+## 7.4　判定经济证据资格 [#G-4]
 
 <Steps>
 
@@ -326,68 +288,58 @@
 
 </Steps>
 
-### G.4.1　实质活动 [#G-4-1]
+### 实质活动 [#G-4-1]
 
 有效运行还须确实发生交易，才有经济证据资格。
 
-<Cap id="G.4.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="审计通过不等于经济证据，须有真实成交且记录相互匹配">
+#### 审计通过不等于经济证据，须有真实成交且记录相互匹配 [#G-4-1-1]
 
 - 须有真实原生成交，每笔成交对应唯一订单。
 - 持仓周期恰好覆盖全部成交，闭仓收益拆分与审计数对账。
 - 日收益能复合到期末权益，账户首末行与余额相符。
 - 不设费用、频率、样本量或收益门槛，所有策略同一判据。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.native_reasons">native_reasons</Ref> <Ref id="qualification.assess">assess</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.native_reasons">native_reasons</Ref> <Ref id="qualification.assess">assess</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="不可用运行只留诊断，比较与对照登记都拒绝它">
+#### 不可用运行只留诊断，比较与对照登记都拒绝它 [#G-4-1-2]
 
 - 资格不可用时全部绩效指标置空，只留活动计数等诊断。
 - 比较和登记比较对照之前都先核资格，不可用即拒绝。
 - 拒绝时列出全部原因，不给检验结果。
 - 零成交运行没亏钱，也不能因此胜过亏损的对照。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.mask">mask</Ref> <Ref id="qualification.require">require</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.mask">mask</Ref> <Ref id="qualification.require">require</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-### G.4.2　资格的来源与呈现 [#G-4-2]
+### 资格的来源与呈现 [#G-4-2]
 
 封存原件、源码审查与审计结论各自核验，资格结论附判据版本。
 
-<Cap id="G.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="封存原件记有异常、未完成或非零退出，即不作证据">
+#### 封存原件记有异常、未完成或非零退出，即不作证据 [#G-4-2-1]
 
 - 读取时核对封存原件的试验、源码、运行环境与逐文件哈希。
 - 记有异常、未正常完成或任一阶段非零退出，即不可用。
 - 没有封存原件即记为缺失，并作为局限写出。
 - 事后探针或从工作目录恢复的字节，都不能补证。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="ledger.recover_capture">recover_capture</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="ledger.recover_capture">recover_capture</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="绑定本运行的独立源码审查为失败，即不作证据">
+#### 绑定本运行的独立源码审查为失败，即不作证据 [#G-4-2-2]
 
 - 审查绑定源码与运行环境，身份从账本读，不信调用方。
 - 只计源码和运行环境都与本运行相同的审查。
 - 任一绑定审查为失败，运行即不可用，候选不删除。
 - 审查与审计分别呈现，二者不能互相替代。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.source_reviews">source_reviews</Ref> <Ref id="registration.record_review">record_review</Ref></span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.source_reviews">source_reviews</Ref> <Ref id="registration.record_review">record_review</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-</Cap>
-
-<Cap id="G.4.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="资格在读取时按当前判据算出，不改写审计结论">
+#### 资格在读取时按当前判据算出，不改写审计结论 [#G-4-2-3]
 
 - 每份资格结论附检查身份：判据版本与检查器版本。
 - 判据变了旧运行按新判据重评，历史结论原样保留。
 - 运行报告、候选清单、比较与研究状态共用同一视图。
 - 未封存的探索目录只给只读视图，注明不作证据。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.check_identity">check_identity</Ref> <Ref id="qualification.assess">assess</Ref> <Ref id="report.directory_report">directory_report</Ref></span></div>
-
-</Cap>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.check_identity">check_identity</Ref> <Ref id="qualification.assess">assess</Ref> <Ref id="report.directory_report">directory_report</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#G-pending]
 
@@ -395,6 +347,6 @@
 
 - **审计是否核验成员禁新仓后无新开仓**　成员禁新仓后不开新仓属策略文件契约；加为审计项是收紧审计检查，需用户授权。引擎 PRE_CLOSE 状态是否自动拒绝非只减仓单尚未经原生试验确认。
 
-- **不进文档**　前视检查：因果时钟与前视偏差由原生预检和独立源码审查承担（C、H 章）；本章只在 G.4.2.2 读其留存结论，不另设审计项。
-- **不进文档**　回放中途被打断的半成品的处置：归 J 章封存契约：开始回执保留，最终捕获标未完成或缺失；本章只在 G.4.2.1 读其结局，未完成即无经济证据资格。
-- **不进文档**　裸仓容忍长度的改动：容忍长度为一根执行 K 线，已写进 G.3.3.1；改动属放宽或收紧审计检查，需用户授权，不另设节点。
+- **不进文档**　前视检查：因果时钟与前视偏差由原生预检和独立源码审查承担（第 4、5 章）；本章只在 <Ref id="G.4.2.2" /> 读其留存结论，不另设审计项。
+- **不进文档**　回放中途被打断的半成品的处置：归第 13 章封存契约：开始回执保留，最终捕获标未完成或缺失；本章只在 <Ref id="G.4.2.1" /> 读其结局，未完成即无经济证据资格。
+- **不进文档**　裸仓容忍长度的改动：容忍长度为一根执行 K 线，已写进 <Ref id="G.3.3.1" />；改动属放宽或收紧审计检查，需用户授权，不另设节点。
