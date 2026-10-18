@@ -19,13 +19,13 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="registration.check_comparable">check_comparable</Ref> | 比较前核一侧运行的可比资格：先拒非通过或非封存的运行，再逐项比较运行环境摘要、有效配置与输入内容身份，拒绝时列出全部冲突项；只读不写 |
+| <Ref id="registration.check_comparable">check_comparable</Ref> | 可比资格：两侧的执行身份逐项比较，身份取自试验行（镜像摘要、合约集、窗口）与开始回执或登记包里的执行身份；不读运行行 |
 | <Ref id="registration.config_key">config_key</Ref> | 有效配置的内容身份：只含影响回放经济的键 |
 | <Ref id="registration.input_key">input_key</Ref> | 输入的内容身份：导出字节与成员路径一致即同一输入 |
 
 ### `check_comparable` [#def-registration-check_comparable]
 
-比较前核一侧运行的可比资格：先拒非通过或非封存的运行，再逐项比较运行环境摘要、有效配置与输入内容身份，拒绝时列出全部冲突项；只读不写
+可比资格：两侧的执行身份逐项比较，身份取自试验行（镜像摘要、合约集、窗口）与开始回执或登记包里的执行身份；不读运行行
 
 ```python
 def check_comparable(run: Mapping, execution: Mapping) -> None
@@ -37,12 +37,10 @@ def check_comparable(run: Mapping, execution: Mapping) -> None
 
 **期望行为**
 
-1. 核运行资格：run.status 不是 passed，或 run.purpose 不在 \{research, validation\}，立即以 RUN_NOT_PASSED 拒绝，不再比较身份（无效运行、探索与预检回放没有经济反馈）
-2. 核运行环境：比较 run.image_digest 与 execution.runtime.image_digest，只比内容地址摘要、不比标签；不同则记冲突项 runtime_image
-3. 核有效配置：两侧 effective_config 各经 config_key 后逐键相等才算一致；不同则记冲突项 effective_configuration（涵盖开发窗口、账户条款、费率与资金费口径、合约集）
-4. 核输入身份：两侧 input_identity 各经 input_key 后逐键相等才算一致（市场提交、范围规则、成员时间路径、导出内容哈希、导出器哈希、生命周期证据包）；不同则记冲突项 input_identity
-5. 有冲突项即以 COMPARABILITY_MISMATCH 拒绝，消息列出全部冲突项；无冲突返回 None
-6. 策略实际交易的合约子集不参与核对：共享同一范围与成员时间路径即可比
+1. 运行环境：两侧镜像摘要相同；引擎版本与依赖锁按镜像摘要从开始回执的运行环境身份读。
+2. 有效配置：两侧登记包或开始回执里的有效配置经 config_key 规范化后逐键相等。
+3. 输入身份：两侧输入身份经 input_key 规范化后逐键相等。
+4. 任一项不同即记冲突项并拒绝，列出全部冲突。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -132,14 +130,14 @@ def input_key(value: Mapping) -> dict
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="registration.attribution_catalogue">attribution_catalogue</Ref> | 归因切面目录：切面、所属职责与可被预测引用的标量名；与 27 项职责表放在同一模块，登记核对与归因报告共用 |
+| <Ref id="registration.measure_catalogue">measure_catalogue</Ref> | 度量目录：单运行报告与对比报告共用的全部度量（绩效指标与各切面标量）、所属栏目、职责与口径；版本即度量目录版本，登记预测与两种报告都只能引用其中的名字 |
 
-### `attribution_catalogue` [#def-registration-attribution_catalogue]
+### `measure_catalogue` [#def-registration-measure_catalogue]
 
-归因切面目录：切面、所属职责与可被预测引用的标量名；与 27 项职责表放在同一模块，登记核对与归因报告共用
+度量目录：单运行报告与对比报告共用的全部度量（绩效指标与各切面标量）、所属栏目、职责与口径；版本即度量目录版本，登记预测与两种报告都只能引用其中的名字
 
 ```python
-def attribution_catalogue() -> dict
+def measure_catalogue() -> dict
 ```
 
 **返回**　dict：\{slices: [\{id, title, duties, measures\}]\}
@@ -485,7 +483,7 @@ def plan_schema() -> dict
 **期望行为**
 
 1. 定义十二项必有键（含 prediction 与 changed_duties）与可选键的类型与说明。
-2. prediction 是 \{mechanism: [\{slice, measure, direction, duty, reason\}], outcomes: \{improved, not_significant, loss, zero_activity, invalid\}, interaction?: \{base, a, b\}\}；direction 只取升或降；slice 与 measure 取自 registration.attribution_catalogue，slice 可为空。
+2. prediction 是 \{mechanism: [\{slice, measure, direction, duty, reason\}], outcomes: \{improved, not_significant, loss, zero_activity, invalid\}, interaction?: \{base, a, b\}\}；direction 只取升或降；slice 与 measure 取自 registration.measure_catalogue，slice 可为空。
 3. registration.validate 先按它校验形态；失败时拒绝码 REGISTRATION_INVALID，missing 列出字段，message 附该字段 description。
 
 <div className="rd-meta">
@@ -633,7 +631,7 @@ def validate(
 | `DUTY_UNKNOWN` | changed_duties 含 27 项之外的编号，或根登记非空、派生登记为空 |
 | `PREDICTION_INVALID` | 预测的职责不在 changed_duties 里、切面或标量不在目录里，或某个改动职责没有预测 |
 
-**使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_evidence" />、<Ref id="table:v_candidates" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="registration.attribution_catalogue" />
+**使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_evidence" />、<Ref id="table:v_candidates" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="registration.measure_catalogue" />
 
 <div className="rd-meta">
 

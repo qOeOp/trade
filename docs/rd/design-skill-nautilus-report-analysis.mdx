@@ -25,6 +25,8 @@
 <li id="def-rule-R-1-2-3">自算数注明总体；闭仓合计须等对账量；驱动决定的数交第二 Agent 复算 <span className="rd-rule-links"><Ref id="R.1.2.3">R.1.2.3</Ref></span><span className="rd-eval">eval <code>derived-number-recomputed</code>：每个自算数注明总体与频率；闭仓合计等于 reconciled 对账量；驱动决定的数由第二个 Agent 在同一 ledger_commit 上复算，不一致时不下结论</span></li>
 <li id="def-rule-V-2-2-3">检验只配对账户日收益；逐笔对比只读归因报告的交易配对，不自行配对 <span className="rd-rule-links"><Ref id="V.2.2.3">V.2.2.3</Ref></span><span className="rd-eval">eval <code>no-cross-run-trade-pairing</code>：需要逐笔对比时引用归因报告的交易配对并先报覆盖；未按时间、仓位编号或方向自行配对；未把配对交易当作检验单位</span></li>
 <li id="def-rule-R-2-3-2">回撤读产品值不重算，并列同运行资金使用率；敞口同降只写「敞口下降」 <span className="rd-rule-links"><Ref id="R.2.3.2">R.2.3.2</Ref></span><span className="rd-eval">eval <code>drawdown-read-with-exposure</code>：输出把两者的资金使用率与回撤并列；结论写成敞口下降，不写成风险效率提高或风控改善；回撤取 ledger.mark_drawdown 的绩效指标，没有重算；净收益除以名义额如果出现，标为描述并写明分母，没有用来排序</span></li>
+<li id="def-rule-R-3-1-6">目录外的分析在 /tmp 做、格式自定、不入账；驱动决定的数在判断里引用，并交另一个 Agent 复算 <span className="rd-rule-links"><Ref id="R.3.1.6">R.3.1.6</Ref></span><span className="rd-eval">eval <code>dynamic-analysis-stays-temporary</code>：目录外的分析结果没有写进证据包或判断正文；驱动推荐或下一假设的数附了独立复算</span></li>
+<li id="def-rule-R-3-1-7">动态分析里反复驱动决定的度量，提议按设计变更加进目录，升一次版本 <span className="rd-rule-links"><Ref id="R.3.1.7">R.3.1.7</Ref></span><span className="rd-eval">eval <code>promote-recurring-measure</code>：提议写明这个度量驱动过哪几次决定、定义和总体；没有绕过设计变更直接当固定度量用</span></li>
 </ol>
 
 ## `references/ratios.md` [#def-file-nautilus-report-analysis-references-ratios-md]

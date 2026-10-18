@@ -10,6 +10,7 @@
 <Files>
 <Folder name="engine" defaultOpen>
   <File name="audit.py" />
+  <File name="compare.py" />
   <File name="compare_reports.py" />
   <File name="config.py" />
   <File name="load.py" />
@@ -337,6 +338,39 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]
 **依据**
 
 - [NautilusTrader — Orders](https://nautilustrader.io/docs/latest/concepts/orders/)　官方文档
+
+</div>
+
+## `engine/compare.py` [#def-mod-engine-compare-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="engine.report_fingerprint">report_fingerprint</Ref> | 原生报告的语义指纹：在运行镜像内计算，身份即镜像摘要；与 engine.compare_reports 共用规范化，覆盖订单、成交、持仓、账户、日收益、订单事件与敞口 |
+
+### `report_fingerprint` [#def-engine-report_fingerprint]
+
+原生报告的语义指纹：在运行镜像内计算，身份即镜像摘要；与 engine.compare_reports 共用规范化，覆盖订单、成交、持仓、账户、日收益、订单事件与敞口
+
+```python
+def report_fingerprint(directory: Path) -> dict
+```
+
+<TypeTable type={{ "directory": { type: "Path", description: "原生报告目录" } }} />
+
+**返回**　dict：\{表: \{rows, sha256, by_utc_day: \{日期: sha256\}\}\}，逐字节稳定的账户、日收益、敞口另附字节哈希
+
+**期望行为**
+
+1. 随机编号（订单、成交、持仓、事件编号）按首次出现的顺序重编，保住成交到持仓、事件到订单的关系。
+2. 每表按全部非随机列规范化排序，避免同刻同价同量的行换序误报；资金费调整逐条参与。
+3. 给每表行数、整表哈希与逐 UTC 日哈希，失配时能定位到哪天哪张表。
+4. 只读，不写任何东西。
+
+**使用**　<Ref id="engine.compare_reports" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.5">R.3.1.5</Ref>
 
 </div>
 
