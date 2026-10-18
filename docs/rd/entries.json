@@ -7,6 +7,13 @@
   ""
  ],
  [
+  "concepts",
+  "rd/concepts",
+  "Core Concepts",
+  "核心概念",
+  "chapters"
+ ],
+ [
   "principles",
   "rd/principles",
   "A Principles",
@@ -14,52 +21,10 @@
   "chapters"
  ],
  [
-  "entry",
-  "rd/entry",
-  "E Entry",
-  "E 入口",
-  "chapters"
- ],
- [
-  "library",
-  "rd/library",
-  "L Strategy Library",
-  "L 策略库",
-  "chapters"
- ],
- [
   "lineage",
   "rd/lineage",
   "T Candidate Lineage",
   "T 候选谱系",
-  "chapters"
- ],
- [
-  "hypothesis",
-  "rd/hypothesis",
-  "H Hypothesis",
-  "H 提假设",
-  "chapters"
- ],
- [
-  "comparison",
-  "rd/comparison",
-  "V Comparison Evidence",
-  "V 比较证据",
-  "chapters"
- ],
- [
-  "feedback",
-  "rd/feedback",
-  "F Feedback and Priority",
-  "F 反馈与研究优先级",
-  "chapters"
- ],
- [
-  "validation",
-  "rd/validation",
-  "X Out-of-Sample Validation",
-  "X 样本外验证：用户发起的一次性检验",
   "chapters"
  ],
  [
@@ -91,10 +56,45 @@
   "chapters"
  ],
  [
-  "ledger-runtime",
-  "rd/ledger-runtime",
-  "J Ledger and Runtime",
-  "J 账本与运行环境",
+  "hypothesis",
+  "rd/hypothesis",
+  "H Hypothesis",
+  "H 提假设",
+  "chapters"
+ ],
+ [
+  "comparison",
+  "rd/comparison",
+  "V Comparison Evidence",
+  "V 比较证据",
+  "chapters"
+ ],
+ [
+  "feedback",
+  "rd/feedback",
+  "F Feedback and Priority",
+  "F 反馈与研究优先级",
+  "chapters"
+ ],
+ [
+  "entry",
+  "rd/entry",
+  "E Entry",
+  "E 入口",
+  "chapters"
+ ],
+ [
+  "library",
+  "rd/library",
+  "L Strategy Library",
+  "L 策略库",
+  "chapters"
+ ],
+ [
+  "validation",
+  "rd/validation",
+  "X Out-of-Sample Validation",
+  "X 样本外验证：用户发起的一次性检验",
   "chapters"
  ],
  [
@@ -102,6 +102,13 @@
   "rd/changes",
   "D After Changes",
   "D 变化之后",
+  "chapters"
+ ],
+ [
+  "ledger-runtime",
+  "rd/ledger-runtime",
+  "J Ledger and Runtime",
+  "J 账本与运行环境",
   "chapters"
  ],
  [

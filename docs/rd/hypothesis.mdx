@@ -3,9 +3,9 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义回放前的四步。第一步界定一个假设（hypothesis）：从候选谱系（lineage）里分别选研发父版本（parent）和比较对照（control），把改动收束为一处规则。第二步先查来源，并把原件留存为证据包（evidence bundle）。第三步写下五样，并声明检验条件。第四步是登记（registration），它先于回放并锁定内容。前三步由 skill 指导，代码只校验形态、范围与引用。登记以及回放时的绑定是代码强制的信任边界，在账本（ledger）事务里执行。候选身份与父子关系归 T 章，可比性与检验结果归 V 章，研究优先级归 F 章，运行环境与执行身份的底层归 J 章。
+本章回答回放之前要界定、查证、写下并锁定什么。承接 T 章的谱系和 C 章的预检与审查：先选父版本和对照，把改动收束成一处规则；再查来源，写下理由、预测、比较方式和网格；最后登记锁定，回放开始时由代码核对。
 
-<Mermaid chart={"flowchart LR\n  subgraph H-1[\"H.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"H.1.1 研发父版本、比较对照与改动粒度\"]\n  end\n  subgraph H-2[\"H.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"H.2.1 检索\"]\n    H-2-2[\"H.2.2 理由三分类与来源的作用\"]\n    H-2-3[\"H.2.3 留存来源原件\"]\n  end\n  subgraph H-3[\"H.3 写下五样\"]\n    direction TB\n    H-3-1[\"H.3.1 经济理由与预测\"]\n    H-3-2[\"H.3.2 比较维度与检验条件\"]\n    H-3-3[\"H.3.3 网格与适用条件\"]\n  end\n  subgraph H-4[\"H.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"H.4.1 登记身份与先后顺序\"]\n    H-4-2[\"H.4.2 网格点消耗与源码暴露\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph H-1[\"H.1 界定一个假设\"]\n    direction TB\n    H-1-1[\"H.1.1 研发父版本、比较对照与改动粒度\"]\n  end\n  subgraph H-2[\"H.2 先查来源并留存\"]\n    direction TB\n    H-2-1[\"H.2.1 检索\"]\n    H-2-2[\"H.2.2 理由三分类与来源的作用\"]\n    H-2-3[\"H.2.3 留存来源原件\"]\n  end\n  subgraph H-3[\"H.3 写下五样\"]\n    direction TB\n    H-3-1[\"H.3.1 经济理由与预测\"]\n    H-3-2[\"H.3.2 比较维度与检验条件\"]\n    H-3-3[\"H.3.3 网格与适用条件\"]\n  end\n  subgraph H-4[\"H.4 登记先于回放并锁定\"]\n    direction TB\n    H-4-1[\"H.4.1 登记身份与先后顺序\"]\n    H-4-2[\"H.4.2 网格点消耗与已跑源码\"]\n  end\n  H-1 --> H-2\n  H-2 --> H-3\n  H-3 --> H-4"} />
 
 ## H.1　界定一个假设 [#H-1]
 
@@ -13,37 +13,25 @@
 
 <Step>
 
-读候选清单（<Ref id="T.2.2.3" />）与 <Ref id="report.research_state" /> 给出的当前 priority 判断（<Ref id="F.2.1.1" />），定下研究路线内下一步要改进的方向。
+读候选清单和当前研究优先级，定下路线内要改进的方向。
 
 </Step>
 
 <Step>
 
-汇总本路线候选文件头的 27 项立场，列出仍为缺省或不适用的职责，与诊断结合选改动职责。
+对照文件头的职责立场和已有运行的原生报告，找出值得改的职责。
 
 </Step>
 
 <Step>
 
-比较缺失组合与单规则改进的信息价值与完整原生运行成本，选出下一小批假设。
+为每个假设选父版本，另选一个可比、有经济证据资格的对照。
 
 </Step>
 
 <Step>
 
-对每个假设选父版本并写理由，另选一个经济证据可用且可比的运行作对照。
-
-</Step>
-
-<Step>
-
-把改动收束为一处实际规则改动，写明机制与比较维度的雏形。
-
-</Step>
-
-<Step>
-
-假设草案（parent、control_run、change 与候选网格点）交给 <Ref id="H.2.1.1">来源检索</Ref> 与 <Ref id="H.3.1.1">五样写作</Ref>，登记时由 <Ref id="registration.register" /> 核对。
+把改动收束成一处规则，写明机制和比较维度的雏形。
 
 </Step>
 
@@ -51,42 +39,26 @@
 
 ### H.1.1　研发父版本、比较对照与改动粒度 [#H-1-1]
 
-从候选谱系定下一个假设的父、对照与改动范围。
+从谱系里定下父版本、对照和改动范围。
 
 <ul className="rd-rules">
-<li id="H-1-1-1"><span className="rd-rule-id">H.1.1.1</span> 父可取任一已发布候选，亏损或不显著也照样派生，不请许可 <Ref id="rule:H.1.1.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-1-1-1"><span className="rd-rule-id">H.1.1.1</span> 父版本可取任一已发布候选，亏损或不显著也可派生 <Ref id="rule:H.1.1.1">research-round · references/hypothesis.md</Ref></li>
 </ul>
 
-<Cap id="H.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="对照与父版本分别声明，对照须已通过封存、有经济证据且可比">
+<Cap id="H.1.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="对照与父版本分开选，对照须通过、已封存、有经济证据资格且可比">
 
-- 登记体分别声明 parent（strategy_id@revision 或空）与 control_run（run_id 或空）。
-- 对照是一个运行（run），不必是父版本的运行。
-- 对照须是状态为通过且已封存的研究回放。
-- 对照须按当前检查身份具有经济证据资格，即有真实原生成交及匹配记录（<Ref id="G.4.1.1" />）。
-- 对照须与本次执行身份可比：运行环境摘要、有效配置身份、输入身份三类逐项一致。
-- 根登记（parent 为空）不得带对照与改动。
-- 非根登记在父版本故障或零活动时可暂无对照。
-- 此时 rationale.local 须引用父运行的故障或零活动诊断。
-- 检验结果置空，直到后续登记选到可用对照。
+- 对照是一个已有运行，不必是父版本的运行。
+- 对照须状态为通过、已封存，并有经济证据资格。
+- 对照须与本次回放可比：运行环境、账户配置、输入数据都相同。
+- 根不带对照；父版本故障或零成交时可暂无对照，但须引用该诊断。
 
-**输入**　登记体的 parent、control_run 与 rationale，以及账本中对照运行的状态、经济证据资格与三类身份。
-
-**输出**　通过，或带拒绝码的拒绝；只读，不写账本。
-
-**强制**　代码强制：<Ref id="registration.validate" /> 调用 <Ref id="qualification.require" /> 与 <Ref id="registration.check_comparable" />，登记时执行，并在 <Ref id="registration.bind" /> 前按当前指标计算版本重算一次。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUN_NOT_PASSED` | 对照非通过或未封存。 |
-| `COMPARABILITY_MISMATCH` | 三类身份有冲突，消息指明冲突项。 |
-| `ECONOMIC_EVIDENCE_UNAVAILABLE` | 对照无经济证据资格，附原因。 |
-| `REGISTRATION_INVALID` | 根登记带对照或改动、非根登记缺父，或无对照而无故障诊断。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="qualification.require">require</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="H-1-1-3"><span className="rd-rule-id">H.1.1.3</span> 一个假设只登一处改动，选币、仓位、联动出入场都算；方向模糊先收束 <Ref id="rule:H.1.1.3">research-round · references/hypothesis.md</Ref></li>
-<li id="H-1-1-4"><span className="rd-rule-id">H.1.1.4</span> 下一假设从路线上仍为缺省或不适用、且诊断指向的职责里提，写明职责编号 <Ref id="rule:H.1.1.4">research-round · references/hypothesis.md</Ref></li>
+<li id="H-1-1-3"><span className="rd-rule-id">H.1.1.3</span> 一个假设只改一处规则，选币、仓位、联动出入场都算一处 <Ref id="rule:H.1.1.3">research-round · references/hypothesis.md</Ref></li>
+<li id="H-1-1-4"><span className="rd-rule-id">H.1.1.4</span> 下一假设从缺省或不适用的职责里选，写明职责编号 <Ref id="rule:H.1.1.4">research-round · references/hypothesis.md</Ref></li>
 </ul>
 
 ## H.2　先查来源并留存 [#H-2]
@@ -95,37 +67,31 @@
 
 <Step>
 
-读账本中已留存的来源证据包，判断机制与条件是否仍适用，列出机制缺口。
+先读账本里已留存的来源，列出机制上的缺口。
 
 </Step>
 
 <Step>
 
-按 research-sources 针对缺口检索（至少三种表述、两个索引），每次检索写一行检索记录。
+针对缺口检索，每次检索记一行。
 
 </Step>
 
 <Step>
 
-逐份阅读来源，记状态与条件，剔除撤稿，合并同一工作的多个版本。
+逐份读来源，记状态和条件，剔除撤稿，合并同一工作的多个版本。
 
 </Step>
 
 <Step>
 
-按 research-round 把经济理由逐条标为外部依据、本地诊断或自身推测，写进登记体 rationale 与 sources 说明。
+把每条经济理由标为外部依据、本地诊断或推测。
 
 </Step>
 
 <Step>
 
-经 evidence add 把原件副本、摘录与检索记录入账为证据包；登记以包名引用，包不在账本即被代码拒绝。
-
-</Step>
-
-<Step>
-
-回放后补到的来源另开新包追加（见 <Ref id="H.2.2.3" />）。
+把原件、摘录和检索记录作为证据包入账，登记时按包名引用。
 
 </Step>
 
@@ -133,55 +99,39 @@
 
 ### H.2.1　检索 [#H-2-1]
 
-由 research-round 与 research-sources 指导，把拟改动的机制变成检索记录与候选来源清单，交给 H.2.2 分类、H.2.3 留存；代码不检查。
+把拟改动的机制变成检索记录和候选来源清单。
 
 <ul className="rd-rules">
-<li id="H-2-1-1"><span className="rd-rule-id">H.2.1.1</span> 提经济假设前先读已留存来源，缺口再按 research-sources 补检 <Ref id="rule:H.2.1.1">research-round · references/hypothesis.md</Ref></li>
-<li id="H-2-1-2"><span className="rd-rule-id">H.2.1.2</span> 检索逐次记查询、日期与读取程度；否定断言只写按这些查询没找到，访问失败不算没有 <Ref id="rule:H.2.1.2">research-sources · SKILL.md</Ref></li>
+<li id="H-2-1-1"><span className="rd-rule-id">H.2.1.1</span> 提假设前先读已留存来源，有缺口再检索补充 <Ref id="rule:H.2.1.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-2-1-2"><span className="rd-rule-id">H.2.1.2</span> 检索逐次记查询与日期；没找到只限这些查询，访问失败不算没有 <Ref id="rule:H.2.1.2">research-sources · SKILL.md</Ref></li>
 </ul>
 
 ### H.2.2　理由三分类与来源的作用 [#H-2-2]
 
-分类只是登记体 rationale 与 sources 说明里的文字，不设字段、不打分，代码不解析，来源的作用只到研究优先级。
+分类只是写在登记里的文字，代码不解析，只影响研究优先级。
 
 <ul className="rd-rules">
-<li id="H-2-2-1"><span className="rd-rule-id">H.2.2.1</span> 理由逐条标外部依据、本地诊断或推测，写支持范围与所引运行 <Ref id="rule:H.2.2.1">research-round · references/hypothesis.md</Ref></li>
-<li id="H-2-2-3"><span className="rd-rule-id">H.2.2.3</span> 出处记版本号或抓取日期；只把登记前首次可见的版本当事前依据 <Ref id="rule:H.2.2.3">research-sources · SKILL.md</Ref></li>
+<li id="H-2-2-1"><span className="rd-rule-id">H.2.2.1</span> 理由逐条标为外部依据、本地诊断或推测，写支持范围与所引运行 <Ref id="rule:H.2.2.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-2-2-3"><span className="rd-rule-id">H.2.2.3</span> 出处记版本或抓取日期，只有登记前已可见的版本算事前依据 <Ref id="rule:H.2.2.3">research-sources · SKILL.md</Ref></li>
 </ul>
 
 ### H.2.3　留存来源原件 [#H-2-3]
 
-证据包的存在性由代码在入账与登记时强制，包里放什么由 skill 规定。
+代码保证所引证据包在账本里，包里放什么由 skill 规定。
 
-<Cap id="H.2.3.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="登记前原件、摘录与检索记录须入账成证据包，登记引用的包缺失即拒绝">
+<Cap id="H.2.3.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="来源原件须在登记前入账成证据包，所引的包缺失即拒绝登记">
 
-- 登记之前，来源原件副本（不只记链接）、摘录与检索记录经 <Ref id="cli.evidence_add" /> 调 <Ref id="ledger.add_bundle" /> 入账为一个证据包。
-- 包头写入 <Ref id="table:evidence_bundle" />，每个文件写入 <Ref id="table:evidence" />，内容哈希（content hash）由字节派生。
-- 证据包只追加不改。
-- 同内容重试幂等。
-- 后来的材料另开新包。
-- 视频经 video-evidence skill 处理，只入账地址、媒体 SHA-256 与派生证据（完整转写、带真实时间戳的帧、身份回执）；媒体文件与空文件不入账。
-- 登记时 <Ref id="registration.validate" /> 核对登记体 sources 列出的每个包名都在账本。
-- Dolt 每次入账是一次提交，提交历史给出来源包与登记的先后，可据此核对事前依据。
-- 只追加使原件不能被事后替换。
+- 入账的是原件副本、摘录和检索记录，不只是链接。
+- 证据包只增不改，后来补到的材料另开新包。
+- 登记时逐个核对所引包名都已在账本里。
+- 账本的提交历史给出来源和登记的先后，可据此核对事前依据。
 
-**输入**　原件副本、摘录、检索记录及包名。
-
-**输出**　账本中的来源证据包（包头与逐文件内容哈希）。
-
-**强制**　代码与账本强制：ledger.add_bundle 只追加并校验包名与内容，registration.validate 在登记时核对 sources 引用。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `BUNDLE_EXISTS` | 同名证据包已存在且内容不同。 |
-| `EMPTY_BUNDLE` | 证据包既没有文件也没有文本。 |
-| `RESERVED_BUNDLE` | 包名占用产品保留命名空间。 |
-| `REGISTRATION_INVALID` | 登记体 sources 列出的任一证据包不在账本。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="registration.validate">validate</Ref> <Ref id="cli.evidence_add">evidence_add</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="H-2-3-2"><span className="rd-rule-id">H.2.3.2</span> 每份来源记状态、市场窗口、频率、样本外、成本与出处；标仅摘要，剔撤稿，复述不独立 <Ref id="rule:H.2.3.2">research-sources · SKILL.md</Ref></li>
+<li id="H-2-3-2"><span className="rd-rule-id">H.2.3.2</span> 每份来源记状态、窗口、频率、样本外与成本；剔撤稿，复述不算独立 <Ref id="rule:H.2.3.2">research-sources · SKILL.md</Ref></li>
 </ul>
 
 ## H.3　写下五样 [#H-3]
@@ -190,37 +140,31 @@
 
 <Step>
 
-Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以及五类结果各自对应的后续动作。
+写经济理由、可被否定的预测，以及各种结果对应的下一步。
 
 </Step>
 
 <Step>
 
-在 sources 中引用 H.2 已入账本的来源证据包。
+引用 H.2 已入账的来源证据包。
 
 </Step>
 
 <Step>
 
-选定唯一的比较维度 metric，声明检验条件 comparison 并写设计理由。
+选唯一比较维度，声明检验条件并写设计理由。
 
 </Step>
 
 <Step>
 
-把每个网格点的源码作为候选发布进账本，再在 grid 中写定一到五个 strategy_id@revision 及其完整参数说明。
+把每个网格点发布为候选，写定一到五个点和参数说明。
 
 </Step>
 
 <Step>
 
-在 conditions 里写本次试验的适用条件；重试时写明先前的尝试及其局限。
-
-</Step>
-
-<Step>
-
-五样组成登记体 research-plan.json 交 H.4 登记：registration.validate 在登记写事务内完成全部核对，任一项不合整份登记都不写入；登记后锁定不改，要改就另行登记。
+写本次试验的适用条件，整份交给登记锁定。
 
 </Step>
 
@@ -228,73 +172,40 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 
 ### H.3.1　经济理由与预测 [#H-3-1]
 
-两样都写进 rationale 与 prediction，结果到行动的映射写在 prediction 里一并锁定。
+理由和预测写进登记，随登记锁定。
 
 <ul className="rd-rules">
-<li id="H-3-1-1"><span className="rd-rule-id">H.3.1.1</span> 理由写机制、付钱方与代理局限，预测须能被回放结果否定 <Ref id="rule:H.3.1.1">research-round · references/hypothesis.md</Ref></li>
-<li id="H-3-1-2"><span className="rd-rule-id">H.3.1.2</span> 登记前在预测里写定五类结果的后续动作，事后只在判断里补充 <Ref id="rule:H.3.1.2">research-round · references/hypothesis.md</Ref></li>
+<li id="H-3-1-1"><span className="rd-rule-id">H.3.1.1</span> 理由写机制、谁在付钱和代理局限，预测须能被回放否定 <Ref id="rule:H.3.1.1">research-round · references/hypothesis.md</Ref></li>
+<li id="H-3-1-2"><span className="rd-rule-id">H.3.1.2</span> 登记前在预测里写定各种结果的后续动作，事后只在判断里补充 <Ref id="rule:H.3.1.2">research-round · references/hypothesis.md</Ref></li>
 </ul>
 
 ### H.3.2　比较维度与检验条件 [#H-3-2]
 
-检验条件的数值由 Agent 声明并写明设计理由，随登记锁定。
+检验数值由 Agent 声明并写设计理由，随登记锁定。
 
-<Cap id="H.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="检验条件八项在登记时声明并锁定，数值是未校准的方法示例值">
+<Cap id="H.3.2.2" kind="code" tier="verified" tierLabel="已验证" title="检验条件随登记声明并锁定，数值是未校准的示例值">
 
-- comparison 恰含八项：method、alpha、minimum_effect、block_days、resamples、inner_resamples、seed、design_reason。
-- method 是检验方法名，必须是 <Ref id="report.paired" /> 所用的配对循环块自助检验（paired block bootstrap）paired-circular-log-mean-v1。
-- alpha 是显著性水平；网格有多个点时按点数做 Bonferroni 校正（<Ref id="V.3.2.3" />）。
-- minimum_effect 是最小关心改进，用年化收益差的小数表示。
-- minimum_effect 只作描述性对照，因为 p 检验的是差值为零。
-- block_days 是块长，单位为日。
-- resamples 与 inner_resamples 分别是外层和嵌套学生化的重抽次数。
-- seed 是随机种子。
-- design_reason 写误判与漏检怎么权衡、样本有多少天、收益的时间依赖与块长怎么选、预计效应与可分辨效应相比如何。
-- 数值由 Agent 按研究情境选择，是方法示例值、未校准，不是产品常数；数值随登记锁定，事后不改。
-- 报告把这些数值与效应、区间、p 并列呈现，并标「方法示例值，未校准」（`research-round/references/feedback.md#p-and-threshold`）。
-- 样本外登记也用 registration.validate_design 校验检验条件（<Ref id="registration.validation_register" />）。
+- 声明检验方法、显著性、最小改进、块长、重抽次数和随机种子。
+- 另写设计理由：误判与漏检怎么权衡、样本多长、块长怎么选。
+- 数值由 Agent 按情境选，不是产品常数，登记后不改。
+- 代码只查各项齐全、类型和范围，不评价数值是否合理。
 
-**输入**　登记体的 comparison 字段。
-
-**输出**　随登记锁定的检验条件，供比较与报告读取。
-
-**强制**　代码：<Ref id="registration.validate" /> 调用 registration.validate_design，只校验字段集合以及各字段的类型与范围，不评价数值是否合理。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_INVALID` | comparison 的字段不恰为这八项，或某字段的类型、范围不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate_design">validate_design</Ref> <Ref id="registration.validate">validate</Ref></span></div>
 
 </Cap>
 
 ### H.3.3　网格与适用条件 [#H-3-3]
 
-网格定试什么，适用条件定结果在什么范围成立。
+网格定试什么，适用条件定结论在什么范围成立。
 
-<Cap id="H.3.3.1" kind="code" tier="verified" tierLabel="已验证" title="网格一次写定一到五点，每点是已发布、谱系与运行契约一致的源码版本">
+<Cap id="H.3.3.1" kind="code" tier="verified" tierLabel="已验证" title="网格一次写定一到五点，每点是已发布、谱系一致的候选">
 
-- grid 字段一次写定一到五个网格点，上限五是未校准示例值。
-- 每个点写成 \{strategy, parameters\}。
-- strategy 是经 <Ref id="ledger.publish_candidate" /> 发布进 <Ref id="table:candidate" /> 的精确源码版本 strategy_id@revision。
-- parameters 是这个点全部规则参数的完整文字说明，必须是非空的有限长度文本。
-- 候选必须存在，其研发父版本（parent）等于登记的 parent、改动说明等于登记的 change。
-- 根登记时每个点都没有父版本。
-- 候选声明的运行契约必须等于登记时探测到的运行环境契约。
-- 同一源码内容哈希（content hash）不得在网格里出现两次。
-- 网格随登记锁定：登记后要加点、改意图或改源码，都必须另行登记，原登记不改。
-- 每个点只被一次试验消耗（<Ref id="H.4.2.1" />）。
-- 网格点数进入比较时的多重检验校正（<Ref id="V.3.2.3" />），所以每个试过的配置都必须写进网格、计入点数。
+- 每点是账本里的一个候选，附全部参数的文字说明。
+- 每点的父版本和改动说明须与登记一致；根登记时都没有父版本。
+- 每点要求的运行环境须与登记时探测的一致，同一源码不得出现两次。
+- 每个试过的配置都要写进网格，点数计入试验次数。
 
-**输入**　已发布进账本的各网格点候选，以及登记时探测到的运行环境契约。
-
-**输出**　登记体的 grid 字段。
-
-**强制**　代码：<Ref id="registration.validate" /> 在登记写事务内逐点对照账本候选与探测到的运行环境核对。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LINEAGE_MISMATCH` | 候选不存在，或候选的 parent、改动说明与登记的 parent、change 不一致（根登记时点带有父版本）。 |
-| `CONFIG_MISMATCH` | 候选声明的运行契约不等于登记时探测到的运行环境契约。 |
-| `REGISTRATION_INVALID` | 同一源码内容哈希在网格里出现两次，点数不在一到五之间，或点的格式不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="ledger.publish_candidate">publish_candidate</Ref></span></div>
 
 </Cap>
 
@@ -304,37 +215,31 @@ Agent 在 rationale 与 prediction 里写经济理由、可反驳的预测，以
 
 <Step>
 
-Agent 发布网格内每个候选（candidate），对每个源码完成原生预检（native precheck）与独立源码审查并入账，然后才登记（`eval:research-round/precheck-before-register`）。
+网格里每个候选先完成原生预检和独立源码审查，并入账。
 
 </Step>
 
 <Step>
 
-<Ref id="cli.registration_add" /> 调 <Ref id="registration.register" />：读当前研究路线，探测运行环境，导出市场输入，读生效配置，合成执行身份。
+登记时代码读当前研究路线、探测运行环境、导出市场数据，合成执行身份。
 
 </Step>
 
 <Step>
 
-同一账本事务内 <Ref id="registration.validate" /> 校验登记体与执行身份，通过后写登记证据包 research-plan.json；任一拒绝整笔回滚。
+同一账本事务里校验登记内容和执行身份，通过才写入，否则整份不写。
 
 </Step>
 
 <Step>
 
-<Ref id="cli.replay_run" /> 开试验：<Ref id="ledger.open_trial" /> 插入试验行后调 <Ref id="registration.bind" /> 重验登记、比对执行身份与先后时间、写 <Ref id="table:registration_attempt" /> 一行，再写执行开始回执并提交。
+回放开试验时，同一事务里重验登记并绑定一个网格点。
 
 </Step>
 
 <Step>
 
-提交成功才启动引擎（engine）子进程；绑定任一拒绝则事务回滚，不留试验行，不启动子进程。
-
-</Step>
-
-<Step>
-
-V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需的网格点与试验。
+绑定提交成功才启动引擎；任一不符就回滚，不留试验。
 
 </Step>
 
@@ -342,165 +247,85 @@ V 章按 <Ref id="table:registration_attempt" /> 与登记包读出比较所需�
 
 ### H.4.1　登记身份与先后顺序 [#H-4-1]
 
-输入登记体、运行环境引用与运行器参数；输出登记证据包、其中的执行身份，以及绑定后的消耗行。
+登记写定内容和执行身份，回放开始时核对先后和一致。
 
-<Cap id="H.4.1.1" kind="code" tier="verified" tierLabel="已验证" title="登记把五样、检验条件与引用锁进不可变证据包 research-plan.json">
+<Cap id="H.4.1.1" kind="code" tier="verified" tierLabel="已验证" title="登记把假设的全部内容锁进一个不可变的登记证据包">
 
-- 登记把一次假设（hypothesis）回放前要写下的全部内容锁进一份不可变登记证据包（evidence bundle），包内唯一文件为 research-plan.json。
-- 内容哈希（content hash）由文件字节派生，存入 <Ref id="table:evidence" />。
-- 任何读回都经 <Ref id="ledger.load_bundle" /> 重算内容哈希比对。
-- 登记包写入后不可改，更正只能是新包。
-- 同内容重试幂等返回原记录。
-- 登记体含 changed_duties：本次改动涉及的职责编号（A1 至 I2，见职责目录）；根登记为空，派生登记至少一项。
-- 来源原件随登记一起入账：`registration add --source …` 在同一事务里写来源证据包；引了外部依据而没有原件即拒绝（SOURCES_REQUIRED）。
+- 内容含假设各项、检验条件、对照，以及网格各点的审查引用。
+- 网格源码须已在该运行环境下通过预检和审查。
+- 写明改动涉及的职责编号：根为空，派生至少一项。
+- 包写入后不改，每次读回都核对内容哈希，更正另立新包。
 
-**输入**　登记体（五样：经济理由与预测、来源证据包引用、一个比较维度、完整网格、本次试验的适用条件；检验条件；比较对照 control 的运行引用；网格每点的候选引用 strategy_id@revision 与配置；每点的源码审查引用；可选 retry_of）、运行环境引用、运行器参数。
-
-**输出**　包名、research-plan.json 的内容哈希、执行身份与账本提交。
-
-**强制**　代码在登记写事务内强制；Agent 只能经 <Ref id="cli.registration_add" /> 写入。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_INVALID` | 字段缺一或多余，或来源证据包、审查引用不在账本。 |
-| `SOURCE_PRECHECK_REQUIRED` | 网格源码在该运行环境下没有通过的预检与审查。 |
-| `RESERVED_BUNDLE_NAME` | 包名落在产品保留命名空间。 |
-| `DUPLICATE_BUNDLE` | 同名包内容不同。 |
-| `LEDGER_CORRUPT` | 读回时重算的内容哈希与存储值不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="cli.registration_add">registration_add</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref></span></div>
 
 </Cap>
 
-<Cap id="H.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="执行身份在登记时由探测运行环境与导出不可变输入合成写定">
+<Cap id="H.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="执行身份在登记时由代码探测合成，不能手填">
 
-1. 经 <Ref id="ledger.current_line" /> 读最新研究路线（research line）：开发窗口（development window）、钉住的市场提交、范围规则。
-2. 经 <Ref id="runtime.resolve" /> 把运行环境引用解析为唯一清单摘要，缺省为镜像注册表（registry）的 main 标签。
-3. 经 <Ref id="runtime.inspect_runtime" /> 在隔离容器内运行身份探针，读出运行契约、依赖锁哈希与生效配置。
-4. 经 <Ref id="registration.market_inputs" /> 按研究路线的市场提交新鲜导出不可变市场输入，并算导出内容身份。
-5. 合成执行身份 \{image_digest, runtime_contract, effective_config, input_identity\}，随登记体一起写入 research-plan.json。
+1. 读当前研究路线：开发窗口、钉住的市场提交和范围规则。
+2. 把运行环境解析为唯一摘要，在隔离容器里探测它的要求和配置。
+3. 按路线钉住的市场提交导出不可变的输入，算出内容身份。
+4. 合成执行身份随登记写入。
+5. 登记的窗口须等于路线的开发窗口。
 
-- 执行身份在登记时写定，使回放前的绑定有可核对的对象。
-- 执行身份不能手写；宿主路径不进身份。
-- 登记的交易窗口必须等于研究路线的开发窗口。
-- 运行环境与导出的拒绝码由其定义处给出，并原样透传。
-- 导出与探测的工作副本只留在临时目录，账本不存导出数据与镜像。
-
-**输入**　运行环境引用与当前研究路线。
-
-**输出**　写入 research-plan.json 的执行身份。
-
-**强制**　代码在登记入口 <Ref id="registration.register" /> 内强制。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NO_RESEARCH_LINE` | 没有研究路线。 |
-| `WINDOW_MISMATCH` | 登记的交易窗口不等于研究路线的开发窗口。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span></div>
 
 </Cap>
 
-<Cap id="H.4.1.3" kind="code" tier="verified" tierLabel="已验证" title="研究回放启动引擎前，须在开试验同一事务里绑定已登记网格点">
+<Cap id="H.4.1.3" kind="code" tier="verified" tierLabel="已验证" title="回放启动引擎前，须在开试验的同一事务里绑定登记">
 
-1. <Ref id="ledger.open_trial" /> 插入试验行后，在同一数据库事务里调 <Ref id="registration.bind" />。
-2. 读回登记包并重验内容哈希，重跑登记校验。
-3. 核对被执行源码在锁定网格内。
-4. 核对运行环境摘要、生效配置、输入身份与登记逐项一致。
-5. 核对预检与审查仍有效。
-6. 核对登记的服务器时间严格早于试验的服务器时间。
-7. 核对该网格点未被消耗（见 H.4.2.1）。
-8. 全部通过才写消耗行，与试验行、执行开始回执在同一账本提交落账；提交成功后才启动引擎子进程。
+1. 开试验时先写试验记录，同一事务里读回登记并重新校验。
+2. 核对所跑源码在网格内，执行身份与登记逐项一致。
+3. 核对预检和审查仍有效、登记早于试验、该网格点没用过。
+4. 全部通过才记下这次消耗，和试验一起提交。
+5. 提交成功才启动引擎；任一不符就整笔回滚，不留试验。
 
-- 适用于每次研究封存（seal）回放，即试验 purpose = research。
-- 任一不符即抛拒绝、事务整笔回滚、不留试验行、不启动子进程。
-- 登记晚于回放的试验不成为候选证据。
-- 时间由服务器触发器写（<Ref id="J.4.1.1" />），完整核对清单见 <Ref id="J.4.2.1" />；本能力只规定顺序与原子性。
-
-**输入**　登记包名、本次试验实际的执行身份、被执行源码的内容哈希、刚插入的试验主键。
-
-**输出**　与试验行同事务提交的消耗行，或整笔回滚的拒绝。
-
-**强制**　代码在 <Ref id="ledger.open_trial" /> 的试验写事务内调 <Ref id="registration.bind" /> 强制。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_CORRUPT` | 读回的登记包内容哈希不符。 |
-| `REGISTRATION_INVALID` | 重跑登记校验不通过。 |
-| `LINEAGE_MISMATCH` | 重跑登记校验发现谱系不符。 |
-| `SOURCE_MISMATCH` | 被执行源码不在锁定网格内。 |
-| `EXECUTION_MISMATCH` | 运行环境摘要、生效配置或输入身份与登记不一致，并指明冲突项。 |
-| `SOURCE_PRECHECK_REQUIRED` | 预检或审查已不再有效。 |
-| `SOURCE_PRECHECK_FAILED` | 预检失败。 |
-| `REGISTRATION_TOO_LATE` | 登记的服务器时间不早于试验的服务器时间。 |
-| `GRID_ALREADY_ATTEMPTED` | 该网格点已被消耗。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span></div>
 
 </Cap>
 
-<Cap id="H.4.1.4" kind="code" tier="unverified" tierLabel="待验证" title="登记体按 JSON Schema 校验，失败时返回字段说明">
+<Cap id="H.4.1.4" kind="code" tier="unverified" tierLabel="待验证" title="登记内容按字段说明校验，失败时附上该字段的含义">
 
-- <Ref id="registration.plan_schema" /> 给每个字段写 description；校验失败的拒绝信息附该字段说明，Agent 不必从 skill 里记字段含义。
+- 每个字段都带说明，Agent 不必靠 skill 记住字段含义。
 
-**强制**　代码：登记校验。
-
-</Cap>
-
-<Cap id="H.4.1.5" kind="code" tier="unverified" tierLabel="待验证" title="同一路线的下一次登记，须先补齐解释、到期的复盘与复盘节奏">
-
-- <Ref id="registration.require_line_records" /> 在登记写事务内核三件事：已完成的试验都有 interpretation 判断；复盘到期时已有新的 recommendation；派生登记前已有 review_cadence。
-- 复盘节奏写成 cadence_trials（每 N 个研究试验），由 <Ref id="ledger.add_judgment" /> 校验，只能调低。
-- <Ref id="report.research_state" /> 的 gates 预先列出下一次登记还缺什么。
-
-**强制**　代码：登记写事务内的前置门；持久化与流程绑定，不靠 skill 提醒。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `INTERPRETATION_REQUIRED` | 有已完成的研究试验没有解释判断 |
-| `REVIEW_DUE` | 复盘到期尚未写推荐 |
-| `REVIEW_CADENCE_REQUIRED` | 派生登记前未声明复盘节奏 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.plan_schema">plan_schema</Ref></span></div>
 
 </Cap>
 
-### H.4.2　网格点消耗与源码暴露 [#H-4-2]
+<Cap id="H.4.1.5" kind="code" tier="unverified" tierLabel="待验证" title="下一次登记前，须补齐解释、到期的复盘和复盘节奏">
 
-输入登记体里的网格与 retry_of 以及绑定请求；输出允许或拒绝登记、允许或拒绝绑定。
+- 每个已完成的试验都要有一条解释判断。
+- 未复盘的试验达到节奏时，须先写新的综合推荐。
+- 派生登记前须声明复盘节奏，之后只能改得更频繁。
+- 研究状态会预先列出下一次登记还缺什么。
 
-<Cap id="H.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="每个网格点只消耗一次，同源码再试须另登记并写 retry_of">
-
-- 网格点是（登记包 × 网格源码），只被消耗一次。
-- 绑定成功即在 <Ref id="table:registration_attempt" /> 写入（登记包，源码哈希）→ 试验的映射，主键为（登记包，源码哈希）。
-- 消耗行与试验行同生同灭；之后无效或中断的尝试照样保留消耗行并算作消耗。
-- 同一源码再试须另登记，并在登记体 retry_of 写明在 registration_attempt 中实际消耗过该源码的先前登记包。
-- 缺 retry_of 或 retry_of 指向未消耗该源码的登记，由登记校验拒绝。
-- 相同条件的重复不算独立证据：retry_of 把它们连成同一网格点的重复尝试，绩效指标侧据此识别。
-
-**输入**　登记体里的网格与 retry_of，以及绑定请求。
-
-**输出**　允许或拒绝登记、允许或拒绝绑定；绑定成功时写一行消耗记录。
-
-**强制**　代码（<Ref id="registration.bind" /> 与 <Ref id="registration.validate" />）与账本主键共同强制。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `GRID_ALREADY_ATTEMPTED` | 再次绑定同一网格点，主键冲突。 |
-| `CONCURRENT_WRITE` | 并发同时绑定同一点，提交时冲突，后到者回滚，不会出现双消耗。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.require_line_records">require_line_records</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="report.research_state">research_state</Ref></span></div>
 
 </Cap>
 
-<Cap id="H.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="已暴露的源码不能当新登记，仅事前声明的原生预检豁免">
+### H.4.2　网格点消耗与已跑源码 [#H-4-2]
 
-- 登记时，网格中每个源码按内容哈希查 <Ref id="table:trial" />，只要已被任一 explore 或 research 试验执行过即视为已暴露。
-- 已暴露的源码不能作为新登记，未登记的探索也不能事后补登为登记结果。
-- 唯一豁免由 <Ref id="registration.exposure_exempt" /> 判定，对象是原生预检。
-- 豁免条件：purpose = precheck、事前声明用途、同源码同运行环境、未绑定任何登记、原件完整。
-- 失败或重复的预检不成为登记尝试。
-- 已暴露的源码只能以 retry_of 另登记（规则见 H.4.2.1）。
+每个网格点只用一次，已经回放过的源码不能当新登记。
 
-**输入**　登记体里的网格源码内容哈希与 retry_of。
+<Cap id="H.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="每个网格点只消耗一次，同一源码再试须另登记并指明前次">
 
-**输出**　允许或拒绝登记。
+- 绑定成功就记下一次消耗，和试验同时成立、同时撤销。
+- 之后回放无效或中断，照样算一次消耗。
+- 同一源码再试须另行登记，并指明实际消耗过它的那次登记。
+- 重复尝试连成一串，不算独立证据。
 
-**强制**　代码在登记校验 <Ref id="registration.validate" /> 中按试验记录强制，不依赖 Agent 自述。
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:registration_attempt">registration_attempt</Ref> <Ref id="registration.bind">bind</Ref></span></div>
 
-| 拒绝码 | 条件 |
-|---|---|
-| `SOURCE_ALREADY_EXPOSED` | 源码已暴露、不在豁免内且未以 retry_of 另登记。 |
+</Cap>
+
+<Cap id="H.4.2.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="回放过的源码不能当新登记，只有事前声明的预检例外">
+
+- 登记时按内容哈希查试验记录，跑过的源码不能当新候选登记。
+- 未登记就跑过的回放，不能事后补登为登记结果。
+- 预检例外须事前声明用途、同源码同环境、未绑定任何登记。
+- 跑过的源码只能按再试规则另行登记。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="registration.validate">validate</Ref></span></div>
 
 </Cap>
 

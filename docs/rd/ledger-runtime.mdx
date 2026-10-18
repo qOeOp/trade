@@ -1,9 +1,9 @@
-# J　账本与运行环境：研究证据存在哪里、谁能写、怎么证明没被改、怎么证明登记在先，以及回放在什么环境里跑、凭什么能重放。
+# J　账本与运行环境：研究证据存在哪、谁能写、怎么证明没被改、怎么证明登记在先，以及回放在什么环境里跑、凭什么能重放。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章定义研究记录唯一的持久存储账本 ledger，以及回放所在的运行环境 runtime image，回答六个问题：账本装什么、谁能写、怎么证明没被改、怎么证明登记 registration 先于回放、回放在什么里跑、怎么复现。入账形态、只追加、原子幂等写入、内容哈希 content hash 核验、时间与先后、钉死与隔离都由代码和账本强制。该不该入账、恢复演练怎么做由 skill 指导。这里的保证是留痕而非不可改，篡改由整体复核事后发现。市场数据与回放配置归 W 章，回放有效性判定归 G 章，样本外登记的内容归 X 章。
+本章回答研究记录存在哪、谁能写、怎么证明没被改、怎么证明登记先于回放，以及回放在什么环境里跑、凭什么能重放。它承接 W 章的市场提交、G 章的封存与完整性审计、X 章的样本外验证，讲清这些背后的存储与环境保证。
 
 <Mermaid chart={"flowchart LR\n  subgraph J-1[\"J.1 唯一来源：持久研究记录只存账本\"]\n    direction TB\n    J-1-1[\"J.1.1 账本及其备份\"]\n    J-1-2[\"J.1.2 账本之外的去向\"]\n  end\n  subgraph J-2[\"J.2 记录：账本装什么、谁能写什么\"]\n    direction TB\n    J-2-1[\"J.2.1 研究对象的记录\"]\n    J-2-2[\"J.2.2 回放的记录\"]\n    J-2-3[\"J.2.3 失败、无效与中断回放的去向\"]\n    J-2-4[\"J.2.4 写入分工\"]\n  end\n  subgraph J-3[\"J.3 写入保护：怎么证明没被改\"]\n    direction TB\n    J-3-1[\"J.3.1 只追加\"]\n    J-3-2[\"J.3.2 写入事务\"]\n    J-3-3[\"J.3.3 账号与写入口\"]\n    J-3-4[\"J.3.4 封存产物的保护\"]\n    J-3-5[\"J.3.5 备份与整体复核\"]\n  end\n  subgraph J-4[\"J.4 登记先于回放：先后顺序怎么证明\"]\n    direction TB\n    J-4-1[\"J.4.1 时间的来源\"]\n    J-4-2[\"J.4.2 锁定与先后的核对\"]\n  end\n  subgraph J-5[\"J.5 运行环境钉死：回放在什么里跑\"]\n    direction TB\n    J-5-1[\"J.5.1 来源与身份\"]\n    J-5-2[\"J.5.2 内容、隔离与统一入口\"]\n  end\n  subgraph J-6[\"J.6 回放身份与复现：每次回放留下什么、怎么重跑\"]\n    direction TB\n    J-6-1[\"J.6.1 一次回放绑定的身份\"]\n    J-6-2[\"J.6.2 复现合同\"]\n  end\n  J-1 --> J-2\n  J-2 --> J-3\n  J-3 --> J-4\n  J-4 --> J-5\n  J-5 --> J-6"} />
 
@@ -13,37 +13,31 @@
 
 <Step>
 
-Agent 在平台临时根下的新目录里编写策略文件与探索脚本；回放输出目录与测试账本目录使用前经 <Ref id="ledger.temporary_path" /> 核对。
+Agent 在临时目录里编写策略文件和探索脚本，回放输出也写在临时目录。
 
 </Step>
 
 <Step>
 
-非登记探索与原生预检（<Ref id="replay.explore" />、<Ref id="replay.precheck" />）把报告写入新建的临时目录，账本只收试验记录与执行封存。
+策略发布为候选，来源原件和审查结论入账为证据包，判断逐条入账。
 
 </Step>
 
 <Step>
 
-策略经 <Ref id="ledger.publish_candidate" /> 发布为候选 candidate；来源原件、审查结论与备注经 <Ref id="ledger.add_bundle" /> 入账为证据包；Agent 的判断经 <Ref id="ledger.add_judgment" /> 逐条入账。
+研究回放的原生报告和日志随试验封存入账，临时工作目录随后删除。
 
 </Step>
 
 <Step>
 
-研究封存回放的引擎原生报告与日志随试验入账；工作目录入账后删除，失败时保留供诊断。
+结论只引用已入账的记录。
 
 </Step>
 
 <Step>
 
-引用结论前先确认材料已入账（<Ref id="J.1.1.1" />）。
-
-</Step>
-
-<Step>
-
-账本全史同步到服务目录之外的备份（<Ref id="J.3.5.1" />）；派生报告与导出目录按需从账本与运行环境重建（J.6.2.1）。
+账本全史同步到备份；派生报告需要时从账本和运行环境重建。
 
 </Step>
 
@@ -51,44 +45,29 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 ### J.1.1　账本及其备份 [#J-1-1]
 
-先定账本收哪些记录、怎么引用，再定哪些产物不入账。
+结论只引用账本里的记录。
 
 <ul className="rd-rules">
-<li id="J-1-1-1"><span className="rd-rule-id">J.1.1.1</span> 判断与结论只引用已入账记录（包名、编号、账本提交），不抄数值 <Ref id="rule:J.1.1.1">research-round · SKILL.md</Ref></li>
+<li id="J-1-1-1"><span className="rd-rule-id">J.1.1.1</span> 判断与结论只引用已入账记录，不抄数字 <Ref id="rule:J.1.1.1">research-round · SKILL.md</Ref></li>
 </ul>
 
 ### J.1.2　账本之外的去向 [#J-1-2]
 
-工作副本、测试账本与运行环境各自的位置与核对方式。
+账本之外都是临时工作副本，测试只写隔离账本。
 
-<Cap id="J.1.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="工作副本只放平台临时根下的新目录，测试只写隔离账本">
+<Cap id="J.1.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="工作副本只放临时目录，测试只写隔离账本">
 
-1. 起容器或起服务之前，对要用的目录调用 <Ref id="ledger.temporary_path" />。
-2. 解析路径；不在任何临时根之下或恰为临时根本身，拒绝。
-3. 路径已存在（含文件与悬空链接），拒绝。
-4. 该函数只核对，不创建目录。
+- 未发布的策略、探索脚本、回放输出和派生报告都是临时工作副本。
+- 回放前核对输出目录：须在临时目录下且是新目录，否则拒绝。
+- 研究回放的工作目录在报告入账后删除，失败时保留供诊断。
+- 测试与演练只写隔离账本，与活动账本不共享任何路径。
 
-- 未发布的策略文件、探索脚本、回放输出与派生报告是工作副本，只放平台临时根之下。
-- 核对对象：非登记探索（purpose=explore，<Ref id="replay.explore" />）与原生预检（purpose=precheck，<Ref id="replay.precheck" />）的输出目录、研究封存回放（<Ref id="replay.execute" />）的工作目录、测试账本的服务目录。
-- 研究封存回放的工作目录在原生报告入账后删除；失败时保留供诊断，并在标准错误打印位置。
-- 活动账本反向使用同一判定：服务目录或备份目录落在临时根之下即拒绝（<Ref id="ledger.init" />）。
-- 测试、演练与工程试验只写 <Ref id="cli.ledger_temp" /> 起的隔离账本，与活动账本不共享任何路径。
-
-**输入**　待使用的输出目录、工作目录或服务目录路径。
-
-**输出**　核对通过的路径，或拒绝码。
-
-**强制**　代码强制：<Ref id="ledger.temporary_path" /> 在起容器或起服务前核对工作目录与测试账本目录，<Ref id="ledger.init" /> 对活动账本做反向核对。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NOT_TEMPORARY_PATH` | 解析后的路径不在任何临时根之下，或恰为临时根本身。 |
-| `PATH_EXISTS` | 路径已存在，包括文件与悬空链接。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.temporary_path">temporary_path</Ref> <Ref id="cli.ledger_temp">ledger_temp</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="J-1-2-2"><span className="rd-rule-id">J.1.2.2</span> 策略、登记与回执不进 Git，在 /tmp 改候选再发布 <Ref id="rule:J.1.2.2">research-round · SKILL.md</Ref></li>
+<li id="J-1-2-2"><span className="rd-rule-id">J.1.2.2</span> 策略与登记不进代码仓库，在临时目录改好再发布 <Ref id="rule:J.1.2.2">research-round · SKILL.md</Ref></li>
 </ul>
 
 ## J.2　记录：账本装什么、谁能写什么 [#J-2]
@@ -97,43 +76,31 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 <Step>
 
-发布：<Ref id="ledger.publish_candidate" /> 核形态后写一行 <Ref id="table:candidate" />。
+发布：策略源码核对形态后成为一个候选。
 
 </Step>
 
 <Step>
 
-登记：<Ref id="registration.register" /> 探测执行身份，核对后锁成 registration-* 证据包。
+登记：回放前把假设、网格和执行身份锁成一个证据包。
 
 </Step>
 
 <Step>
 
-开试验：<Ref id="ledger.open_trial" /> 在同一事务写 <Ref id="table:trial" />、网格点或样本外绑定与开始回执，之后才启动容器。
+回放：启动前写一条试验，结束后有效和无效的运行都入账。
 
 </Step>
 
 <Step>
 
-执行与封存：<Ref id="replay.execute" /> 先跑运行器再跑审计器，finally 中由 <Ref id="ledger.seal_capture" /> 封存原生日志与退出码；中断时最终封存读为 missing。
+判断：Agent 逐条追加判断，正文只引用账本记录。
 
 </Step>
 
 <Step>
 
-入账：research 与 validation 由 <Ref id="ledger.ingest_run" /> 一次写 <Ref id="table:run" /> 与六张原生报告表，失败与无效同样入账；explore 与 precheck 不写运行行。
-
-</Step>
-
-<Step>
-
-判断：Agent 经 <Ref id="cli.judgment_add" /> → <Ref id="ledger.add_judgment" /> 逐条追加推荐、优先级、复盘节奏、解释与搜索暴露到 <Ref id="table:judgment" />，正文只引用候选、试验、登记包与账本提交。
-
-</Step>
-
-<Step>
-
-读：<Ref id="report.research_status" />、<Ref id="report.candidates" />、<Ref id="report.compare" /> 读时按资格视图给计数与绩效指标；<Ref id="report.research_state" /> 把当前判断与这些读时事实拼成研究状态视图，不存裁决。
+读取：资格、计数和研究状态在读取时算出，不另存。
 
 </Step>
 
@@ -141,205 +108,116 @@ Agent 在平台临时根下的新目录里编写策略文件与探索脚本；�
 
 ### J.2.1　研究对象的记录 [#J-2-1]
 
-候选与登记由代码校验后写成带库内内容哈希的只追加行；改什么、为什么改由 skill 指导。
+候选和登记由代码核对后只追加入账。
 
-<Cap id="J.2.1.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="候选是单文件策略源码原字节加库内哈希与谱系，一提交一行">
+<Cap id="J.2.1.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="候选是一份单文件源码的原字节，带内容哈希和谱系">
 
-1. <Ref id="ledger.check_source" /> 只解析不执行，核源码非空、在容量上限内（未校准示例值）、可解析为 UTF-8 Python、恰有一个与声明同名的顶层类。
-2. 相同字节已是候选则拒绝，并返回原候选。
-3. 核谱系：派生候选须同时给父版本与改动说明且父已在账本中，根两者皆空，只给其一即拒绝。
-4. 经 <Ref id="ledger.write" /> 单事务写一行 <Ref id="table:candidate" />。
+- 记下源码原字节、入口类、说明、父版本和改动说明。
+- 内容哈希由账本从字节算出，相同字节不能再发布。
+- 派生候选须同时给父版本和改动说明，根两者都不给。
+- 账本只证明单文件形态与谱系，不证明规则对。
 
-- 记录内容：完整单文件策略源码的原字节、库内派生的内容哈希 content hash、顶层入口类名、运行契约、说明、研发父版本 parent 与改动说明。
-- 引用名为 strategy_id@revision，一行一个提交。
-- 账本只证明单文件形态与谱系，不证明规则正确。
-- 亏损或不显著的候选照样可作父版本继续派生（<Ref id="H.1.1.1" />）。
-
-**输入**　Agent 给的源码文件与入口类名、运行契约、说明、父版本、改动说明。
-
-**输出**　<Ref id="table:candidate" /> 中一行候选。
-
-**强制**　代码：全部校验与写入在 <Ref id="ledger.publish_candidate" /> 内完成。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.check_source">check_source</Ref> <Ref id="table:candidate">candidate</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.2.1.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="登记是回放前锁定的不可变证据包，改动只能另起新登记">
+<Cap id="J.2.1.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="登记在回放前锁成不可变证据包，要改只能另行登记">
 
-- 包名在 Agent 命名空间 registration-*，主文件为 research-plan.json。
-- 谱系与改动：研发父版本、比较对照 control、一处改动。
-- 依据：三类理由（外部依据 / 本地诊断 / 自身推测）与来源证据包引用。
-- 检验设计：比较维度、网格、适用条件、声明的检验条件、每个网格源码的预检与审查引用。
-- 还含登记时探测到的执行身份：运行环境、输入、有效配置。
-- 每个文件存原字节，内容哈希与长度是库内生成列，调用方不能填写。
-- 同载荷重试返回原包。
-- 包头时间由服务器触发器写（<Ref id="J.4.1.1" />）。
-- 改意图、改网格或改源码只能另起新登记，旧包不改不删（<Ref id="J.3.1.1" />）。
-- <Ref id="table:evidence_bundle" /> 与 <Ref id="table:evidence" /> 同时承载源码审查、执行封存、生命周期事实、研究路线与更正。
-- 产品保留命名空间（trial-*、lifecycle-*）只由代码写。
+- 登记锁住父版本、对照、一处改动、理由来源、网格和检验条件。
+- 还锁住登记时探测到的执行身份。
+- 内容哈希和登记时间由账本写，调用方不能填。
+- 改意图、网格或源码只能另行登记，旧包不改不删。
 
-**输入**　Agent 给的登记 JSON。
-
-**输出**　写入 <Ref id="table:evidence_bundle" /> 与 <Ref id="table:evidence" /> 的 registration-* 不可变证据包。
-
-**强制**　代码：<Ref id="registration.register" /> 在一个写事务里经 <Ref id="registration.validate" /> 全部核对后经 <Ref id="ledger.add_bundle" /> 写入，哈希与长度由库内生成列保证。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `BUNDLE_EXISTS` | 同名证据包第二次写入（载荷不同）。 |
-| `LEDGER_CORRUPT` | 读回时经 <Ref id="ledger.load_bundle" /> 重算哈希与存储不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="table:evidence_bundle">evidence_bundle</Ref></span></div>
 
 </Cap>
 
 ### J.2.2　回放的记录 [#J-2-2]
 
-试验行在启动容器前写，research 与 validation 的运行行与原生报告在结束后一次写入，全部由代码写，Agent 不能直接写这些表。
+试验在回放前写，运行和原生报告在回放后由代码一次写入。
 
-<Cap id="J.2.2.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="每次回放在启动容器前写恰一行试验，含绑定与开始回执，从不改写">
+<Cap id="J.2.2.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="每次回放启动前恰写一条试验，之后从不改写">
 
-1. <Ref id="ledger.open_trial" /> 开一个事务，写 <Ref id="table:trial" /> 行。
-2. research 经 <Ref id="registration.bind" /> 消耗一个登记网格点（<Ref id="table:registration_attempt" />）；validation 经 <Ref id="registration.validation_bind" /> 写一对一绑定（<Ref id="table:validation_binding" />）。
-3. 写执行开始回执（<Ref id="ledger.start_receipt" />）。
-4. 任一步失败则整笔不写、不启动容器；全部成功后才启动子进程。
+- 试验记下用途、源码哈希、运行环境、合约集和窗口。
+- 研究回放消耗一个网格点，样本外回放绑定一次样本外登记。
+- 研究与样本外回放的源码须是已发布的候选。
+- 无效、中断的回放也有试验，并计入试验次数。
 
-- 用途 purpose ∈ explore | precheck | research | validation、被执行源码的内容哈希、按摘要钉死的运行环境 runtime image 引用（摘要为生成列）。
-- 合约集、预热起点、交易窗口 [trade_start, trade_end) 与服务器时间。
-- research 与 validation 的源码哈希须等于已发布候选，否则拒绝。
-- CHECK 保证 input_start ≤ trade_start \< trade_end。
-- 每次回放恰一行；无效、中断与宿主失败的回放同样有行并计入试验次数。
-- 试验行从不改写。
-
-**输入**　一次回放的用途、源码、运行环境引用、合约集与窗口，及 research 的网格点或 validation 的样本外登记。
-
-**输出**　一行试验、对应绑定与开始回执。
-
-**强制**　代码与账本：<Ref id="ledger.open_trial" /> 单事务写入，账本 CHECK 约束窗口次序。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.open_trial">open_trial</Ref> <Ref id="table:trial">trial</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.2.2.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="运行行记 research/validation 回放的结论与身份，一试验至多一行">
+<Cap id="J.2.2.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="研究与样本外回放各入账一个运行，记结论与身份">
 
-- 完整性审计结论 passed 或 invalid 及逐条原因。
-- 镜像内探针给出的运行环境检视与运行器读出的有效配置。
-- 输入身份：市场提交、universe_rule、合约集与成员时间路径、导出与导出器哈希、生命周期证据包。
-- 另含指标计算版本、绩效指标与绩效指标局限、原生摘要与审计结果原样，以及逐分钟敞口估值压缩原件。
-- 入账前经 <Ref id="ledger.original_coverage" /> 核原始捕获。
-- 绩效指标由 <Ref id="ledger.metrics" /> 从原生行算出；对账失败只置空对应绩效指标，不判运行无效、不改写原生值。
-- CHECK：invalid 必有原因、passed 必无原因；非 passed 时绩效指标与敞口列全空。
-- 运行契约、引擎版本、依赖锁哈希、年化、期末权益与计划胜率是生成列，调用方不能填写。
-- op_id 固定为 run:trial-\<trial_id>，重复写入返回原行。
-- status 与绩效指标从不改写，重评与更正只作新证据包（<Ref id="J.3.1.2" />）。
+- 运行记下审计结论（通过或无效及原因）和执行身份。
+- 绩效指标由代码从原生报告算出，对账失败只置空该项。
+- 无效运行不带绩效指标，通过的运行没有无效原因。
+- 运行的状态和绩效指标从不改写，重评只追加更正。
 
-**输入**　一条 research 或 validation 试验的审计结论、探针、有效配置、输入身份与原生报告。
-
-**输出**　<Ref id="table:run" /> 中一行。
-
-**强制**　代码与账本：只由 <Ref id="ledger.ingest_run" /> 写，CHECK 与生成列约束状态、原因与派生字段。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.metrics">metrics</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.2.2.3" kind="database" tier="rehearsal" tierLabel="演练证据" title="passed 的 research 与 validation 回放把六张原生报告整份按行原样入账">
+<Cap id="J.2.2.3" kind="database" tier="rehearsal" tierLabel="演练证据" title="通过的回放把原生报告按行原样入账">
 
-- 六张表：订单 <Ref id="table:run_order" />、成交 <Ref id="table:run_fill" />、持仓 <Ref id="table:run_position" />、账户 <Ref id="table:run_account" />、日收益 <Ref id="table:run_return" />、订单事件史 <Ref id="table:run_order_event" />。
-- 每行存引擎 engine 原生 raw JSON 原样，类型化列全部是从 raw 派生的生成列。
-- 不改写、不聚合、不丢行。
-- 只在运行 passed 时与运行行同一事务写入；invalid 运行没有报告行。
-- 日收益按 UTC 日钟排列，是配对比较与样本外区间的唯一配对单位。
-- explore 与 precheck 的报告只留在临时工作副本目录，账本只有其试验行与执行封存。
-- 整体复核按 raw 重算绩效指标并与运行行核对（<Ref id="J.3.5.2" />）。
+- 订单、成交、持仓、账户、日收益和订单事件六类报表整份入账。
+- 每行保留引擎原文，不改写、不聚合、不丢行。
+- 只有通过的运行有报告行，与运行同时写入。
+- 日收益按 UTC 日排列，是配对比较的唯一单位。
 
-**输入**　research 或 validation 回放的引擎原生报告。
-
-**输出**　六张原生报告表中的行。
-
-**强制**　代码与账本：只由 <Ref id="ledger.ingest_run" /> 写，类型化列为库内生成列。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="table:run_return">run_return</Ref> <Ref id="table:run_order">run_order</Ref></span></div>
 
 </Cap>
 
 ### J.2.3　失败、无效与中断回放的去向 [#J-2-3]
 
-失败、无效与中断是记录而非缺口，由同一回放入口的代码写，Agent 不能补写或替换。
+失败、无效和中断都留下记录，Agent 不能补写或替换。
 
-<Cap id="J.2.3.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="失败或无效的回放照样写运行行，标 invalid 并逐条列原因">
+<Cap id="J.2.3.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="失败或无效的回放照样入账，标无效并逐条列原因">
 
-- research 与 validation 的失败或无效回放写 <Ref id="table:run" /> 并标 invalid，不得标 passed。
-- 只留逐条原因、原生摘要与审计结果原样，不留绩效指标、敞口与报告行，由 CHECK 保证。
-- 原因由代码汇总，逐条列出、互不覆盖。
-- <Ref id="replay.audit_problems" /> 给出：运行器或审计器非零退出、审计缺失或有发现、结构化异常回执非空；基础设施错误原样保留，不改写成证据不足。
-- <Ref id="replay.summary_problems" /> 给出：原生摘要与试验的源码、运行环境、有效配置身份不符。
-- 运行器为策略构造或回调异常写出的结构化回执非空，即记为无效原因（<Ref id="G.1.1.3" />）。
-- 判定不看日志文本，退出码为零也不能掩盖。
-- 无效尝试同样消耗其网格点（<Ref id="table:registration_attempt" />）并计入试验次数，但不参与比较，不给改善、区间与 p（<Ref id="G.1.2.1" />）。
+- 无效运行只留原因、原生摘要和审计结果，不留绩效指标。
+- 原因由代码逐条汇总，不看日志文本，退出码为零也掩盖不了。
+- 原生摘要与试验的源码、环境、配置身份不符即无效。
+- 无效尝试照样消耗网格点、计入试验次数，但不进比较。
 
-**输入**　回放的退出码、审计结果、结构化异常回执与原生摘要。
-
-**输出**　标 invalid 并带原因的运行行。
-
-**强制**　代码与账本：<Ref id="ledger.ingest_run" /> 汇总两类问题写入，CHECK 保证 invalid 行无绩效指标、敞口与报告行。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="replay.audit_problems">audit_problems</Ref> <Ref id="replay.summary_problems">summary_problems</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.2.3.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="每次回放在 finally 中封存原生日志、命令、退出码、源码与回执">
+<Cap id="J.2.3.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="每次回放无论成败都封存原生日志、退出码和源码">
 
-- 四种用途的回放都封存。
-- <Ref id="ledger.seal_capture" /> 写产品保留命名空间证据包 trial-\<trial_id>-execution。
-- 内容：各阶段命令与退出码、运行器与审计器的原生 stdout 与 stderr、被执行源码字节、输入覆盖回执与结构化异常回执。
-- 每个文件存原字节，长度与内容哈希由库内派生（<Ref id="table:evidence" />）。
-- 空文件标 captured-empty、文件缺失标 missing、阶段未开始标 not-started，不写占位内容。
-- 完成、中断与宿主失败都封存。
-- 策略构造或回调异常由运行器写成结构化回执（<Ref id="engine.execution_failure" />）并以非零退出，不被干净退出掩盖。
-- 普通回放原件有容量上限，预检大原件分块保全（<Ref id="J.3.4.2" />）。
-- 封存被拒或进程被杀时没有最终封存，该试验执行捕获读为 missing；事后恢复只能另起证据包追加，不替代原日志（<Ref id="J.2.3.3" />）。
+- 完成、中断和宿主失败的回放都封存，Agent 不能写这类包。
+- 内容含各阶段命令与退出码、原生输出、源码字节和启动记录。
+- 空文件、缺失和未开始各自如实标注，不写占位内容。
+- 封存被拒或进程被杀时没有最终封存，读为缺失。
 
-**输入**　一次回放各阶段的命令、退出码、原生输出、源码字节与回执。
-
-**输出**　trial-\<trial_id>-execution 证据包。
-
-**强制**　代码：<Ref id="replay.execute" /> 在 finally 中调用 <Ref id="ledger.seal_capture" />；Agent 经 <Ref id="ledger.add_bundle" /> 写保留命名空间即拒绝。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.seal_capture">seal_capture</Ref> <Ref id="replay.execute">execute</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.2.3.3" kind="database" tier="rehearsal" tierLabel="演练证据" title="中断的回放读为 missing，恢复只能另起标记的证据包追加">
+<Cap id="J.2.3.3" kind="database" tier="rehearsal" tierLabel="演练证据" title="中断的回放读为缺失，恢复只能另起证据包追加">
 
-- 中断或被杀的回放保留试验行与开始回执 trial-\<trial_id>-execution-start，工作目录保留供诊断。
-- 最终封存缺失，<Ref id="ledger.read_capture" /> 读为 missing，不用其他材料替代。
-- 事后恢复只能经 <Ref id="ledger.recover_capture" /> 以另标的 trial-\<trial_id>-recovery-* 证据包追加。
-- 恢复须与开始回执的用途、源码、运行环境、输入一致，并写明导致缺失的原因，否则拒绝。
-- 恢复材料不替代原日志，也不使该运行成为经济证据（<Ref id="G.4.2.1" />）。
-- 没有开始回执的历史临时回放不追认。
+- 中断的回放保留试验和启动时写下的记录，工作目录留作诊断。
+- 缺少最终封存时读为缺失，不用其他材料替代。
+- 恢复须与启动记录的用途、源码、环境和输入一致并写明原因。
+- 恢复材料不替代原日志，也不让运行成为经济证据。
 
-**输入**　中断试验的开始回执与事后恢复材料。
-
-**输出**　missing 绩效指标，或追加的 trial-\<trial_id>-recovery-* 证据包。
-
-**强制**　代码：<Ref id="ledger.read_capture" /> 与 <Ref id="ledger.recover_capture" /> 按开始回执核对。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="ledger.recover_capture">recover_capture</Ref> <Ref id="ledger.start_receipt">start_receipt</Ref></span></div>
 
 </Cap>
 
 ### J.2.4　写入分工 [#J-2-4]
 
-Agent 只追加自由文本证据包与判断行，结构化事实与样本外入账由代码写，资格与计数不存、读时算。
+Agent 只追加证据包和判断，结构化事实由代码写，资格与计数读时算。
 
-<Cap id="J.2.4.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="Agent 只追加自由文本、证据原件与判断行，不承载分数或裁决">
+<Cap id="J.2.4.1" kind="database" tier="rehearsal" tierLabel="演练证据" title="Agent 只追加文字、原件和判断，不写分数或裁决">
 
-- Agent 写证据包：登记正文、改动说明、理由、来源、源码审查结论、备注与更正 correction。
-- 证据包只追加入账（<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />），不是产品字段，也不承载分数或裁决。
-- 登记经 <Ref id="registration.register" /> 校验后写入，其余经 <Ref id="cli.evidence_add" /> → <Ref id="ledger.add_bundle" />。
-- 包名占用产品保留命名空间（trial-*、lifecycle-*）即拒绝。
-- 空文件与媒体文件拒绝；单文件有容量上限（未校准示例值）。
-- 同载荷重试返回原包。
-- 改写只能另起新包并引用旧包；读回经 <Ref id="ledger.load_bundle" /> 重验哈希。
-- Agent 的判断（推荐 recommendation、研究优先级 priority、复盘节奏 review_cadence、解释 interpretation、搜索暴露 search_exposure）经 <Ref id="cli.judgment_add" /> → <Ref id="ledger.add_judgment" /> 逐条只追加到 <Ref id="table:judgment" /> 与 <Ref id="table:judgment_subject" />；改判断写新一条并以 supersedes 指向旧的。
-- 判断正文只引用候选 strategy_id@revision、trial_id、登记包名与账本提交，不存结果类别、绩效指标、计数或资格；这些由 <Ref id="report.research_state" /> 读时取（`research-round/references/judgments.md#body-references-only`）。
+- Agent 写登记、理由、来源、审查结论、备注和更正证据包。
+- 判断逐条追加，改判断就写新一条并指向旧的。
+- 判断正文只引用候选、试验、登记和账本版本，不抄数字。
+- 绩效指标、计数和资格在读取研究状态时取出。
 
-**输入**　Agent 给的包名与文本文件；或一条判断的种类、研究路线、所读账本提交、正文与主体。
-
-**输出**　一个只追加证据包，或一行判断及其主体。
-
-**强制**　代码管证据包的形态与命名（<Ref id="ledger.add_bundle" />）与判断的路线、提交、主体与取代关系（<Ref id="ledger.add_judgment" />）；包内与判断正文写什么由 skill 指导。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `BUNDLE_EXISTS` | 同名证据包再次写入（载荷不同）。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="table:judgment">judgment</Ref></span></div>
 
 </Cap>
 
@@ -369,220 +247,140 @@ Agent 只追加自由文本证据包与判断行，结构化事实与样本外�
 
 ## J.3　写入保护：怎么证明没被改 [#J-3]
 
-五个组件沿写入路径排列：写入只经命令行接口以写账号进入（J.3.3），每次写入是一个原子幂等的事务（J.3.2），只产生插入行与一个 Dolt 提交（J.3.1）；封存内容的哈希由库内派生、读时核验（J.3.4）；全史同步到备份，整体复核由读账号按精确版本事后核对全部不变量（J.3.5）。强制分三处：账号权限与提交校验在账本层，写协议与哈希核验在代码层，复核只报发现、不写记录。保证是留痕而非不可改：同一系统用户以管理账号连接或直接改数据目录不能阻止，只能由差异系统表与整体复核事后发现（<Ref id="J.3.1.4" />）。
+写入只经命令行接口进入，每次是一个整笔成败的事务，只追加不改；封存内容读出时重算哈希，事后由只读的整体复核检查全部规则。保证是留痕而非不可改：用管理权限绕过的改动拦不住，只能事后发现。
 
 ### J.3.1　只追加 [#J-3-1]
 
-账本层保证正常路径只有插入，改口靠更正，读历史按精确版本。
+正常写入只有新增，改口靠追加更正。
 
-<Cap id="J.3.1.1" kind="database" tier="verified" tierLabel="已验证" title="业务表只插入、不改不删，写入的审计结论不可编辑">
+<Cap id="J.3.1.1" kind="database" tier="verified" tierLabel="已验证" title="账本记录只增不改，审计结论写入后不可编辑">
 
-- 写账号对业务表只有 INSERT；唯一可 UPDATE 的是写入头指针单行 <Ref id="table:ledger_head" />。
-- 模式代数单行 <Ref id="table:ledger_schema" /> 只由管理账号在初始化与模式迁移时写。
-- 账号与权限由 <Ref id="ledger.init" /> 建立（见 <Ref id="J.3.3.1" />）。
-- 每次写入产生一个 Dolt 提交。
-- 任一行的插入、修改或删除都落进该表的 dolt_diff_\<table> 与 dolt_history_\<table>。
-- 本能力定义这一读取面。
-- 审计结论、绩效指标、登记与候选源码一经写入不可编辑，改口只能追加更正（<Ref id="J.3.1.2" />）。
-- 正常路径之外出现的修改或删除写时不拒绝，由 <Ref id="report.review_all" /> 逐表读差异表报为发现。
+- 写账号只能新增记录。
+- 每次写入产生一个账本版本，任何增改删都留在差异历史里。
+- 审计结论、绩效指标、登记和候选写入后只能追加更正。
+- 正常路径外的改动写时不拦，由整体复核事后报出。
 
-**输出**　每张业务表的 dolt_diff_\<table> 与 dolt_history_\<table> 读取面。
-
-**强制**　账本层：写账号权限只授 INSERT，每次写入一个 Dolt 提交并由差异系统表留痕；违规由 <Ref id="report.review_all" /> 事后报出。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `APPEND_VIOLATION` | 整体复核在差异表中读到正常路径之外的修改或删除（发现码，写时不拒绝）。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_system_tables">dolt_diff_\<table> / dolt_history_\<table></Ref> <Ref id="report.review_all">review_all</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="J-3-1-2"><span className="rd-rule-id">J.3.1.2</span> 写错时追加 correction 包，写明被更正对象、所在提交与理由 <Ref id="rule:J.3.1.2">research-round · SKILL.md</Ref></li>
+<li id="J-3-1-2"><span className="rd-rule-id">J.3.1.2</span> 写错时追加更正，写明更正对象、所在版本和理由 <Ref id="rule:J.3.1.2">research-round · SKILL.md</Ref></li>
 </ul>
 
-<Cap id="J.3.1.4" kind="database" tier="verified" tierLabel="已验证" title="改与删可查但不能阻止：保证是留痕而非不可改">
+<Cap id="J.3.1.4" kind="database" tier="verified" tierLabel="已验证" title="改与删能查到但拦不住：保证是留痕">
 
-- <Ref id="table:dolt_tests" /> 中验证组 commit 的跨表测试在每次 dolt_commit 前运行。
-- 判断两表 <Ref id="table:judgment" /> 与 <Ref id="table:judgment_subject" /> 的提交测试核对其 dolt_diff 只出现 added。
-- 任一返回非零即整笔回滚，拦住正常路径上的错误。
-- 提交前校验不是信任边界：Dolt 的 --skip-verification 与管理账号都能绕过。
-- 行级留痕：每行的插入提交可从 dolt_diff_\<table>.to_commit 查到，修改或删除留下 diff_type 为 modified 或 removed 的行。
-- 事后发现：<Ref id="report.review_all" /> 重跑提交测试并逐表查差异表，把绕过校验的写入、改与删报为发现。
-- 同一系统用户能读到服务配置、以管理账号连接或直接改数据目录，这不能阻止，只能被发现（<Ref id="J.3.1.4" />）。
-- 本能力定义 dolt_tests 的必备测试行。
+- 每次提交前自动跑校验，失败整笔回滚，拦住正常路径的错误。
+- 提交前校验能被管理权限跳过，所以它不是信任边界。
+- 每行的新增版本可查，修改或删除会留下差异记录。
+- 绕过校验的写入和改删，由整体复核事后报为发现。
 
-**强制**　账本层的 dolt_tests 提交校验与差异系统表；代码层 <Ref id="ledger.write" /> 转为拒绝码；绕过者由 <Ref id="report.review_all" /> 事后发现。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `COMMIT_CHECK_FAILED` | 提交测试任一返回非零，<Ref id="ledger.write" /> 整笔回滚并拒绝。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_tests">dolt_tests</Ref> <Ref id="report.review_all">review_all</Ref></span></div>
 
 </Cap>
 
 ### J.3.2　写入事务 [#J-3-2]
 
-代码层 <Ref id="ledger.write" /> 把每次写入做成一条连接上的一个事务。
+每次写入是一条连接上的一个整笔事务。
 
-<Cap id="J.3.2.1" kind="database" tier="verified" tierLabel="已验证" title="一次写入在一个事务里整笔成或整笔不成">
+<Cap id="J.3.2.1" kind="database" tier="verified" tierLabel="已验证" title="一次写入在一个事务里整笔成，或整笔不成">
 
-1. 在一条写账号连接上开一个事务；连接不是写角色或不在固定研究 branch 上即拒绝。
-2. 按 op_id 查重放（<Ref id="J.3.2.2" />）。
-3. 查 dolt_status，有未提交的 SQL 改动（脏工作集）即拒绝，免得把别人的半截改动一起提交。
-4. 插入对象行、关系行、回执行，更新头指针。
-5. dolt_commit，使以上各项同时生效。
+1. 在写账号连接上开一个事务，不是写账号即拒绝。
+2. 同一操作已写过，则返回原记录。
+3. 有别人未提交的半截改动，即拒绝。
+4. 写入对象、关系和回执，更新写入进度。
+5. 提交成一个账本版本，各项同时生效；任一步失败整笔回滚。
 
-- 任何一步失败整笔回滚，不留半截记录，拒绝带写入状态 not_written（<Ref id="ledger.refusal" />）。
-- 本能力定义两张单行表：<Ref id="table:ledger_head" />（每次写入 seq 加一并记 op_id）与 <Ref id="table:ledger_schema" />（模式代数）。
-
-**强制**　代码层 <Ref id="ledger.write" /> 的单事务写协议，失败时由 Dolt 事务整笔回滚。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `READ_ONLY_CONNECTION` | 连接不是写角色或不在固定研究 branch 上。 |
-| `DIRTY_WORKING_SET` | 写前 dolt_status 显示有未提交的 SQL 改动。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.write">write</Ref> <Ref id="table:ledger_head">ledger_head</Ref> <Ref id="ledger.refusal">refusal</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.3.2.2" kind="database" tier="verified" tierLabel="已验证" title="同一操作重放返回原记录，并发同格冲突时后到者被拒">
+<Cap id="J.3.2.2" kind="database" tier="verified" tierLabel="已验证" title="同一操作重试返回原记录，并发冲突时后到者被拒">
 
-- 操作 ID op_id 由写入种类与规范化载荷的哈希派生，写在记录行与 <Ref id="table:ledger_head" /> 上。
-- 重放：<Ref id="ledger.write" /> 在事务开头按 op_id 命中原记录时回滚不写，返回原记录与原提交，写入状态 replayed。
-- 每次写入都把头指针单行改成本次的 op_id。
-- 两个事务同时写时 Dolt 提交时三方合并，同格不同值即冲突，后到者回滚，不静默合并。
-- 被拒的调用方重跑同一命令，或命中胜者的 op_id 成为重放，或重新写入。
-- Dolt 会合并同格相同值，所以不同写入的 op_id 必须不同。
+- 操作身份由写入种类和规范化内容的哈希派生。
+- 重试命中已有操作时不写，返回原记录与原版本。
+- 两个写入同时改写入进度，后到者回滚，不静默合并。
+- 被拒者重跑同一命令即可，结果是重试或重新写入。
 
-**输入**　写入种类与规范化载荷。
-
-**输出**　新写入的记录与提交，或重放时的原记录与原提交（写入状态 replayed）。
-
-**强制**　代码层 <Ref id="ledger.write" /> 按 op_id 查重放；账本层 Dolt 提交时三方合并对头指针同格不同值报冲突。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `CONCURRENT_WRITE` | 两个事务同时改头指针单行，提交时同格不同值冲突，后到者回滚。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.write">write</Ref> <Ref id="table:ledger_head">ledger_head</Ref></span></div>
 
 </Cap>
 
 ### J.3.3　账号与写入口 [#J-3-3]
 
-账本层用账号权限决定谁能写，代码层用 <Ref id="cli.main" /> 决定从哪写，保留命名空间的占用与绕过接口的改动被拒。
+账号权限决定谁能写，命令行接口决定从哪里写。
 
-<Cap id="J.3.3.1" kind="database" tier="verified" tierLabel="已验证" title="每个账本数据库分写账号与读账号，各只授最小权限">
+<Cap id="J.3.3.1" kind="database" tier="verified" tierLabel="已验证" title="每个账本分写账号与读账号，各只授最小权限">
 
-- 每个账本数据库（研究账本与市场库）两个日常账号，由 <Ref id="ledger.init" /> 建立。
-- 写账号有 SELECT 与对业务表的 INSERT。
-- 写账号对单行表（研究账本的 <Ref id="table:ledger_head" />，市场库的 <Ref id="table:market_schema" />）有 UPDATE，对 dolt_commit 过程有 EXECUTE。
-- 写账号不能 UPDATE 其他表、DELETE、重置、打标签、建或改 branch、改视图。
-- 读账号只有 SELECT。
-- branch 写权由 Dolt 的 dolt_branch_control 表只授写账号的固定研究 branch，只对带账号密码的 sql-server 连接生效。
-- 管理账号只用于初始化、备份、模式迁移（写 <Ref id="table:ledger_schema" />）与写 <Ref id="table:dolt_tests" />。
-- 隔离与临时账本（<Ref id="cli.ledger_temp" />）不得使用活跃账本的数据库名。
-- 活跃账本的服务目录与备份目录不在代码仓库与临时目录内。
+- 写账号只能读和新增，不能改、删、重置或改分支。
+- 读账号只能读；管理账号只用于初始化、备份和迁移。
+- 隔离账本不得使用活动账本的名字。
+- 活动账本的服务和备份目录不在代码仓库和临时目录内。
 
-**强制**　账本层：数据库账号授权与 dolt_branch_control；代码层 <Ref id="ledger.write" /> 把越权错误转为拒绝码。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_PERMISSION` | 越权语句被数据库拒绝，由 <Ref id="ledger.write" /> 转出。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="ledger.init">init</Ref> <Ref id="ledger.write">write</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.3.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="写入只经声明的命令行接口，封存命名空间只由回放封存写">
+<Cap id="J.3.3.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="写入只经命令行接口，Agent 不直接写库">
 
-- <Ref id="cli.main" /> 的名词为 ledger、strategy、evidence、line、hypothesis、candidate、research、judgment、source-review、execution-recover、validation、replay、market，动词子命令按分派表决定连接角色。
-- 每条命令一条连接、一份结果 JSON；拒绝在标准错误写 \{code, message, next_actions, write_status\}。
-- Agent 不做直接 SQL 写入，只读查询经读账号。
-- 绕过接口留下的半截改动在下一次写入时由脏工作集检查拒绝（<Ref id="J.3.2.1" />）。
-- Agent 的判断只经 <Ref id="cli.judgment_add" /> 到 <Ref id="ledger.add_judgment" /> 入账；其余自由文本与原件只经 <Ref id="cli.evidence_add" /> 到 <Ref id="ledger.add_bundle" /> 入账。
-- 产品封存命名空间 trial-\<id>-execution(-start) 与 trial-\<id>-recovery-* 只由回放封存（<Ref id="replay.seal" />、<Ref id="ledger.seal_capture" />、<Ref id="ledger.recover_capture" />）写。
-- 证据导出经 <Ref id="cli.evidence_export" /> 核验哈希后写到临时目录。
-- 账本服务由 <Ref id="cli.ledger_service" /> 起停。
-- 每个拒绝码在 <Ref id="ledger.refusal_catalogue" /> 有一条修法，拒绝信息的 next_actions 由它给出；拒绝信息因此就是违反那一刻的提示。
-- 账本每张表与每个字段带 COMMENT，内容取自表结构设计里的字段说明；Agent 查结构时直接读到字段含义。
+- 每条命令一条连接、一份结果，读写角色由命令决定。
+- Agent 不直接写数据库，只读查询用读账号。
+- 回放封存类证据包只由回放代码写，Agent 占用即拒绝。
+- 每种拒绝附一条修法，拒绝信息就是当时的提示。
 
-**输入**　名词、动词子命令与参数。
-
-**输出**　一份结果 JSON，或标准错误上的拒绝 \{code, message, next_actions, write_status\}。
-
-**强制**　代码层：<Ref id="cli.main" /> 分派表决定连接角色，<Ref id="ledger.add_bundle" /> 检查保留命名空间；账本层账号权限兜底。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RESERVED_BUNDLE` | 经 <Ref id="cli.evidence_add" /> 提交的包名落入产品封存命名空间 trial-\<id>-execution(-start) 或 trial-\<id>-recovery-*。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.main">main</Ref> <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="ledger.refusal_catalogue">refusal_catalogue</Ref></span></div>
 
 </Cap>
 
 ### J.3.4　封存产物的保护 [#J-3-4]
 
-账本层以生成列派生内容哈希并按唯一身份拒绝重复写，代码层每次读出重算核对；超出容量上限的原件另有处理。
+内容哈希由账本算出，每次读出重算核对。
 
-<Cap id="J.3.4.1" kind="database" tier="verified" tierLabel="已验证" title="封存哈希由库内派生，读出必核验，同一身份不可重写">
+<Cap id="J.3.4.1" kind="database" tier="verified" tierLabel="已验证" title="封存哈希由账本算出，读出必核验，同一身份不可重写">
 
-- 候选源码、证据文件、执行捕获与登记都以内容哈希封存。
-- 哈希由数据库从字节派生为生成列（<Ref id="table:candidate" />、<Ref id="table:evidence" />），写入方不能另填。
-- 读出核验：<Ref id="ledger.load_bundle" /> 逐文件核对；<Ref id="ledger.read_capture" /> 按试验、源码哈希、运行环境身份与逐文件哈希核对；<Ref id="cli.evidence_export" /> 在写出前核对。
-- 对同一身份的第二次写入被拒：相同源码字节再次发布、同名异内容的证据包、同一试验的第二次最终封存、同一登记包。
-- 同内容重试按 op_id 是重放，不算第二次写入。
+- 候选源码、证据文件、执行封存和登记都以内容哈希封存。
+- 哈希由账本从字节算出，写入方不能另填。
+- 每次读出或导出前重算核对，不符即拒绝且不返回内容。
+- 同一身份换内容的第二次写入被拒，同内容重试只算重试。
 
-**强制**　账本层：生成列派生哈希与唯一身份约束；代码层：读路径重算核对。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_CORRUPT` | 读出时重算的哈希与库内不符；不返回内容、不写出文件。 |
-| `BUNDLE_EXISTS` | 写入与已有证据包同名而内容不同。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence">evidence</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref> <Ref id="ledger.read_capture">read_capture</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.3.4.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="普通回放封存有容量上限，工程预检大原件分块保全">
+<Cap id="J.3.4.2" kind="database" tier="rehearsal" tierLabel="演练证据" title="普通回放封存有容量上限，预检大原件分块保全">
 
-- 普通回放的执行封存总量上限为 64 MiB（未校准示例值）。
-- 超限时 <Ref id="ledger.seal_capture" /> 拒绝封存，保留原工作目录与开始回执，原始捕获保持缺失，该运行不能作经济证据（<Ref id="G.4.2.1" />）。
-- 事后从工作目录恢复的字节只能经 <Ref id="ledger.recover_capture" /> 另记为恢复包，不替代原始捕获。
-- 预检（purpose = precheck）的大原件按固定块分块保全：单文件上限 4 GiB、块长 16 MiB（均为未校准示例值）。
-- <Ref id="table:evidence" /> 每块一行、逐块哈希，逻辑文件的名字、长度与整体哈希保持精确。
-- 读取时整体重组并核验。
+- 普通回放的封存总量有上限，超限即拒绝封存。
+- 超限的运行缺少原始封存，不能当经济证据。
+- 原生预检的大原件分块保存，逐块核哈希，读取时重组核验。
+- 从工作目录事后恢复的字节只能另记为恢复包。
 
-**强制**　代码层：<Ref id="ledger.seal_capture" /> 检查容量上限，读路径重组并核验；账本层：<Ref id="table:evidence" /> 逐块哈希。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.seal_capture">seal_capture</Ref> <Ref id="table:evidence">evidence</Ref></span></div>
 
 </Cap>
 
 ### J.3.5　备份与整体复核 [#J-3-5]
 
-备份由管理账号同步到服务目录之外；整体复核事后核对、下一步由 Agent 处理。
+备份同步到服务目录之外；整体复核事后核对，只报发现。
 
-<Cap id="J.3.5.1" kind="database" tier="verified" tierLabel="已验证" title="账本全史由管理账号增量同步到服务目录之外的备份">
+<Cap id="J.3.5.1" kind="database" tier="verified" tierLabel="已验证" title="账本全史由管理账号增量备份到服务目录之外">
 
-- 账本全史（所有 branch、标签、提交）由管理账号用 dolt_backup 增量同步到备份目录（<Ref id="ledger.export_history" />，命令 <Ref id="cli.ledger_export" />）。
-- 备份目录在服务目录之外，且不在代码仓库与临时目录内。
-- 恢复到新服务后，账号、branch 授权与提交校验组按 <Ref id="ledger.init" /> 的权限步骤另建，再以读账号读 <Ref id="table:ledger_head" /> 核对恢复到的提交。
-- 恢复演练见 <Ref id="J.6.2.2" />。
-- 被结论引用的封存不自动到期，不运行 dolt_gc 释放容量。
+- 全部历史版本由管理账号增量同步到备份目录。
+- 备份目录不在服务目录、代码仓库和临时目录内。
+- 恢复后另建账号与权限，再核对恢复到的版本。
+- 被结论引用的封存不到期，不做释放空间的清理。
 
-**输出**　服务目录之外的全史增量备份。
-
-**强制**　代码层 <Ref id="ledger.export_history" /> 以管理账号调 dolt_backup；恢复演练由 skill 指导。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.export_history">export_history</Ref> <Ref id="cli.ledger_export">ledger_export</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.3.5.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="整体复核以读账号钉到精确提交，核对全部不变量只报发现">
+<Cap id="J.3.5.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="整体复核用读账号钉到一个版本，核对全部规则只报发现">
 
-- <Ref id="cli.ledger_review" /> 调 <Ref id="report.review_all" />，只用读账号、钉到一个精确提交运行，全程不开写事务。
-- 核对提交测试全部为零。
-- 核对每张业务表的差异表只有 added（头指针单行除外）。
-- 核对已存绩效指标与按原生行重算一致。
-- 核对登记提交早于试验插入提交，且源码哈希在登记锁定的网格内。
-- 核对通过的运行与其登记可比。
-- 核对每次试验的执行封存身份与试验、运行行一致。
-- 核对每条样本外登记的凭证在位且早于窗口起点，并恰绑定一次回放。
-- 差异以发现码报出，不改任何记录；有发现时命令退出码为 1。
-- 只在连接持写权限、版本不存在或账本不可读时拒绝。
+- 只用读账号、钉在一个精确版本上运行，不开写事务。
+- 核对只增不改、绩效指标可重算、登记早于试验等规则。
+- 也核对封存身份一致、样本外登记早于窗口且只绑一次。
+- 差异报为发现，不改任何记录。
 
-**输入**　一个精确提交。
-
-**输出**　发现码列表与退出码（有发现时为 1）。
-
-**强制**　代码层 <Ref id="report.review_all" /> 执行核对；只用读账号连接，复核不能写记录。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.review_all">review_all</Ref> <Ref id="cli.ledger_review">ledger_review</Ref></span></div>
 
 </Cap>
 
@@ -592,37 +390,31 @@ Agent 只追加自由文本证据包与判断行，结构化事实与样本外�
 
 <Step>
 
-登记行插入时由触发器写 created_at；样本外登记提交后经 <Ref id="ledger.witness" /> 取时间戳凭证。
+登记入账时由账本写下时间；样本外登记另请外部时间戳机构出一份凭证。
 
 </Step>
 
 <Step>
 
-回放入口经 <Ref id="ledger.write" /> 打开写事务，由 <Ref id="ledger.open_trial" /> 插试验行，触发器写 created_at。
+回放入口开一个写事务，写下试验，账本记下试验时间。
 
 </Step>
 
 <Step>
 
-注入的绑定器（<Ref id="registration.bind" /> 或 <Ref id="registration.validation_bind" />）核对先后与身份，写消耗行或样本外绑定行。
+同一事务里核对登记早于试验、身份一致，记下网格点或样本外绑定。
 
 </Step>
 
 <Step>
 
-<Ref id="ledger.start_receipt" /> 在同一事务写执行开始回执。
+提交时账本再核一次先后，失败整笔回滚，不启动回放。
 
 </Step>
 
 <Step>
 
-提交时 <Ref id="table:dolt_tests" /> 复核登记早于试验，任一失败整笔回滚、不启动容器。
-
-</Step>
-
-<Step>
-
-提交成功后才启动容器；事后由只读整体复核 <Ref id="cli.ledger_review" /> 按精确版本重核先后。
+提交成功后才启动回放；事后整体复核按版本重核。
 
 </Step>
 
@@ -630,274 +422,123 @@ Agent 只追加自由文本证据包与判断行，结构化事实与样本外�
 
 ### J.4.1　时间的来源 [#J-4-1]
 
-时间只由账本给，所以试验时间晚于登记、早于任何输出。
+时间只由账本给，调用方不能提供。
 
-<Cap id="J.4.1.1" kind="database" tier="verified" tierLabel="已验证" title="登记与试验时间只由服务器触发器写 UTC，调用方给的值被覆盖">
+<Cap id="J.4.1.1" kind="database" tier="verified" tierLabel="已验证" title="登记与试验的时间只由账本写，调用方给的值被覆盖">
 
-- 需证明先后的表各有 created_at DATETIME(6) 列：<Ref id="table:candidate" />、<Ref id="table:evidence_bundle" />、<Ref id="table:trial" />、<Ref id="table:validation_registration" />。
-- 登记包、源码审查、执行开始回执都以证据包入账，因此都带 created_at。
-- created_at 由 BEFORE INSERT 触发器写服务器 UTC_TIMESTAMP(6)，调用方给出的值一律被覆盖。
-- 命令行与 Agent 都不提供时间参数。
-- Dolt 提交日期可由 DOLT_COMMIT --date 指定，不作先后证据。
-- 登记先于试验的判据是两行 created_at 严格先后。
-- 每次提交前，提交校验 registration_precedes_trial 复核 <Ref id="table:registration_attempt" /> 与 <Ref id="table:validation_binding" /> 的每一行。
-- 每行所绑登记的 created_at 须早于所绑试验的 created_at，不满足即拒绝提交。
-- 提交校验可被跳过参数绕过，所以它是留痕保证，事后由只读账号的整体复核 <Ref id="cli.ledger_review" /> 按精确账本版本重核。
+- 需证明先后的记录在插入时由账本写下 UTC 微秒时间。
+- 命令和 Agent 都不提供时间，给了也被覆盖。
+- 登记先于试验的判据是两条记录的时间严格先后。
+- 每次提交前账本复核每个绑定的先后，不满足即拒绝提交。
 
-**输入**　登记、候选、证据包与试验行的插入。
-
-**输出**　每行由服务器写下的 created_at（UTC，微秒精度）。
-
-**强制**　账本强制：BEFORE INSERT 触发器写时间，<Ref id="table:dolt_tests" /> 的提交校验 registration_precedes_trial 拒提交，整体复核事后重核。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_TOO_LATE` | 绑定时登记的 created_at 不严格早于试验的 created_at，由绑定器拒绝（<Ref id="J.4.2.1" />） |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:trial">trial</Ref> <Ref id="table:dolt_tests">dolt_tests</Ref> <Ref id="cli.ledger_review">ledger_review</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="试验行、绑定行与开始回执同一事务提交成功后才启动容器">
+<Cap id="J.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="试验、绑定和启动记录同笔提交后才启动回放">
 
-1. 回放入口 <Ref id="replay.explore" />、<Ref id="replay.precheck" /> 或 <Ref id="replay.seal" /> 经 <Ref id="ledger.write" /> 打开一个写事务，调用 <Ref id="ledger.open_trial" />。
-2. 插入试验行。
-3. 注入的绑定器写网格点消耗行（research）或样本外绑定行（validation）。
-4. 经 <Ref id="ledger.start_receipt" /> 写执行开始回执证据包。
-5. 三者与一个 Dolt 提交同笔成或同笔不成。
-6. 提交成功返回后，回放入口才启动容器子进程。
+1. 回放入口开一个写事务，写入试验。
+2. 研究回放记下网格点消耗，样本外回放记下样本外绑定。
+3. 写下执行的启动记录。
+4. 三者与一个账本版本同笔成，任一被拒整笔回滚。
+5. 提交成功后，才启动回放容器。
 
-- 适用于每次回放，用途 purpose ∈ explore | precheck | research | validation。
-- 任一项被拒即整笔回滚，不留试验行，不启动容器。
-- 账本里每次尝试先有身份后有输出。
-- 之后中断或无效的尝试仍留着试验行与已消耗的网格点，原生输出由 <Ref id="ledger.seal_capture" /> 事后封存。
-
-**输入**　回放用途 purpose，以及 research / validation 用途注入的绑定器。
-
-**输出**　同一 Dolt 提交里的试验行、绑定行与执行开始回执证据包。
-
-**强制**　代码强制（账本层函数与单一写事务）；网格点一次性由 <Ref id="table:registration_attempt" /> 的唯一约束兜底。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `BINDING_NOT_ALLOWED` | explore 或 precheck 用途却传入绑定器 |
-| `BINDING_REQUIRED` | research 或 validation 用途却没有对应绑定器 |
-| `SOURCE_NOT_PUBLISHED` | research 或 validation 用途而被执行源码在账本中无已发布候选 |
-| `RUNTIME_NOT_PINNED` | 运行环境镜像引用不含内容地址摘要，或探针检视缺失 |
-| `TRIAL_INPUT_INCOMPLETE` | 输入身份缺市场提交、范围规则、合约集或导出内容哈希，或窗口缺预热起点、起止之一 |
-| `CONCURRENT_WRITE` | 提交时并发写入同格不同值，后到者回滚 |
-| 绑定器上抛的码 | 绑定器在同一事务内拒绝（见 <Ref id="J.4.2.1" /> 与 <Ref id="J.4.2.2" />） |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.open_trial">open_trial</Ref> <Ref id="ledger.start_receipt">start_receipt</Ref> <Ref id="ledger.write">write</Ref></span></div>
 
 </Cap>
 
 ### J.4.2　锁定与先后的核对 [#J-4-2]
 
-研究回放的绑定器在开始事务里核对时间、源码、谱系、执行身份与预检，样本外登记另取公共时间戳凭证离线验证，均由代码拒绝、唯一性由账本约束兜底。
+研究绑定在开始事务里逐项核对，样本外登记另取外部时间戳凭证。
 
-<Cap id="J.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="研究绑定须登记早于试验、源码在网格内、身份一致且预检通过">
+<Cap id="J.4.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="研究回放须登记在先、源码在网格内、身份一致且预检通过">
 
-1. 经 <Ref id="ledger.load_bundle" /> 读回登记包，逐文件重验内容哈希。
-2. 按 <Ref id="registration.validate" /> 以回放前口径重验登记体。
-3. 核对登记包 created_at 严格早于本试验 created_at。
-4. 核对被执行源码是登记锁定网格（一到五点）中的一点。
-5. 核对每个网格源码的研发父版本 parent 与改动说明等于登记所写。
-6. 核对运行环境 runtime image 身份、有效配置身份与输入身份与登记逐字相同。
-7. 经 <Ref id="registration.require_precheck" /> 核对每个网格源码有同源码、同运行环境、同生命周期输入且通过的原生预检 native precheck 与独立源码审查。
-8. 核对该点未被任何试验消耗（含无效与中断的尝试）。
-9. 写一行 <Ref id="table:registration_attempt" />。
+1. 读回登记，重验内容哈希和登记内容。
+2. 核对登记时间严格早于本次试验。
+3. 核对源码是网格中的一点，父版本和改动说明与登记一致。
+4. 核对执行身份与登记逐字相同，且源码有通过的预检和审查。
+5. 核对该点未被用过，再记下这次消耗。
 
-- research 用途的绑定器 <Ref id="registration.bind" /> 在 <Ref id="ledger.open_trial" /> 的同一事务里运行。
-- 任一拒绝使整笔事务回滚、不启动容器。
-- 登记晚于回放的试验不能成为候选证据。
-- 重试同一点须另登记并写 retry_of（<Ref id="H.4.2.1" />）。
-
-**输入**　(连接, 试验编号)。
-
-**输出**　一行 registration_attempt 网格点消耗记录。
-
-**强制**　代码强制（绑定器逐项拒绝并使事务回滚）；网格点唯一性由账本中 registration_attempt 的唯一约束兜底。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_TOO_LATE` | 登记包 created_at 不严格早于本试验 created_at |
-| `SOURCE_MISMATCH` | 被执行源码不在登记锁定的网格内 |
-| `LINEAGE_MISMATCH` | 某个网格源码的研发父版本 parent 或改动说明与登记所写不同 |
-| `EXECUTION_MISMATCH` | 运行环境身份、有效配置身份或输入身份与登记不逐字相同 |
-| `SOURCE_PRECHECK_REQUIRED` | 某个网格源码缺同源码、同运行环境、同生命周期输入的原生预检或独立源码审查 |
-| `SOURCE_PRECHECK_FAILED` | 该原生预检或独立源码审查未通过 |
-| `GRID_ALREADY_ATTEMPTED` | 该网格点已被任何试验消耗（含无效与中断的尝试），由 registration_attempt 的唯一约束兜底 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.4.2.2" kind="code" tier="verified" tierLabel="已验证" title="样本外登记提交后取 RFC 3161 凭证，绑定时须凭证早于窗口起点">
+<Cap id="J.4.2.2" kind="code" tier="verified" tierLabel="已验证" title="样本外登记后取公共时间戳凭证，须早于窗口起点">
 
-1. <Ref id="registration.validation_register" /> 写入 <Ref id="table:validation_registration" /> 并提交。
-2. 调用 <Ref id="ledger.witness" />，算该账本提交哈希的 SHA-256 摘要。
-3. 把摘要送公共时间戳机构（https 端点），取 RFC 3161 时间戳凭证。
-4. 按随产品代码发布、按内容哈希钉死的根证书离线验证响应（<Ref id="ledger.token_time" />）。
-5. 验证通过后写一行 <Ref id="table:witness" />，按提交幂等。
-6. 样本外绑定 <Ref id="registration.validation_bind" /> 经 <Ref id="ledger.stamped_at" /> 读验证后的 genTime，核对它早于窗口起点。
+1. 样本外登记入账后，算出该账本版本的摘要。
+2. 把摘要送公共时间戳机构，取回时间戳凭证。
+3. 用随产品发布的根证书离线验证凭证，再入账。
+4. 样本外绑定时，核对凭证时间早于窗口起点。
 
-- 只有摘要与随机数离开本机。
-- 凭证只证明该登记在 genTime 之前已存在，不证明唯一；唯一性靠全部试验计入兜底。
-- 取凭证失败时登记记录保留，用 <Ref id="cli.ledger_witness" /> 补取。
-- 因凭证时间被拒绑定时，须另登记一个更晚的窗口。
-- 提交校验 witness_stamps_validation_registration 核每份凭证都指向一次样本外登记的诞生提交。
-
-**输入**　样本外登记诞生提交的哈希。
-
-**输出**　一行 witness 凭证记录，其验证后的 genTime 供样本外绑定读取。
-
-**强制**　代码强制取证、离线验证与绑定核对；账本以只追加与 <Ref id="table:dolt_tests" /> 的提交校验 witness_stamps_validation_registration 强制。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `WITNESS_UNAVAILABLE` | 向时间戳机构取凭证失败；登记记录保留，可补取 |
-| `WITNESS_INVALID` | 凭证按钉死根证书离线验证不通过；不写入 witness |
-| `REGISTRATION_TOO_LATE` | 样本外绑定时无凭证，或 genTime 不早于窗口起点 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.witness">witness</Ref> <Ref id="ledger.stamped_at">stamped_at</Ref> <Ref id="table:witness">witness</Ref></span></div>
 
 </Cap>
 
 ## J.5　运行环境钉死：回放在什么里跑 [#J-5]
 
-镜像由源码托管平台的自动构建产出，回放只经命令行入口在按清单摘要钉死、隔离的容器内运行。
+运行环境只由自动构建产出；回放只经统一入口，在按摘要钉死、隔离的容器里运行。
 
 ### J.5.1　来源与身份 [#J-5-1]
 
-构建工作流是镜像唯一来源并写下身份标签，宿主只拉取、解析摘要、读标签并统一核对形态，产出供试验、登记与运行记录使用的摘要身份。
+运行环境只由自动构建产出，身份从镜像本身读出。
 
-<Cap id="J.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="运行环境只由源码托管平台自动构建产出，本机不构建">
+<Cap id="J.5.1.1" kind="code" tier="verified" tierLabel="已验证" title="运行环境只由自动构建产出，本机不构建">
 
-- 本机没有构建路径；运行环境（runtime image）只由 <Ref id="runtime.build_image" /> 产出并推送到镜像注册表（registry）。
-- 推送到主干 main 时构建，并移动 main 标签。
-- 本项目内发起的拉取请求触发构建，打 review-\<编号> 标签。
-- 手动重建只打 sha 标签。
-- 每个镜像都带 sha-\<revision> 标签、构建源码版本标签 org.opencontainers.image.revision 与运行契约标签 trade.runtime.contract。
-- 契约值取自 <Ref id="runtime.layout" />，不在工作流里手写。
-- 只有运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流本身的改动触发构建。
-- 这些改动只能经新的清单摘要到达回放，其他改动不改变摘要。
-- 失败时不留任何标签。
+- 本机没有构建路径，镜像只由源码托管平台自动构建推送。
+- 每个镜像标明构建它的源码版本和它遵守的运行约定版本。
+- 只有运行器、审计器、依赖锁等环境内容的改动会改变摘要。
 - 构建不写账本、不跑回放、不判镜像行为。
 
-**输入**　触发事件对应的源码版本与契约布局声明。
-
-**输出**　推送到镜像注册表的单平台镜像，带 sha、构建源码版本与运行契约标签。
-
-**强制**　代码强制：构建工作流是唯一构建路径，触发条件与标签由工作流写定。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `FORK_PULL_REQUEST` | 拉取请求来自外部 fork。 |
-| `CONTRACT_UNDECLARED` | 布局未声明当前契约。 |
-| `IMAGE_BUILD_FAILED` | 镜像构建失败。 |
-| `REGISTRY_PUSH_FAILED` | 推送到镜像注册表失败。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.build_image">build_image</Ref> <Ref id="runtime.layout">layout</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.5.1.2" kind="code" tier="verified" tierLabel="已验证" title="回放按清单摘要钉死运行环境，身份从镜像本身读出">
+<Cap id="J.5.1.2" kind="code" tier="verified" tierLabel="已验证" title="回放按摘要钉死运行环境，身份从镜像本身读出">
 
-- 回放、登记、比较与样本外绑定只认按清单摘要钉死的运行环境。
-- <Ref id="runtime.resolve" /> 把标签或摘要引用解析为该镜像名下唯一的清单摘要；缺省为镜像注册表中的 main 标签。
-- image_ref 改写为 \<镜像名>@sha256:\<摘要>。
-- 身份 \{image_ref, image_digest, platform, runtime_contract, build_revision\} 从镜像清单与标签读出，调用方不能手写或改写。
-- 所有接收身份的入口经同一个形态核对 <Ref id="runtime.validate_identity" />。
-- 摘要是内容地址，相同摘要即相同字节，所以试验与登记记录只存摘要引用，不存标签。
+- 回放、登记、比较和样本外绑定只认按摘要钉死的环境。
+- 标签引用先解析为唯一摘要，缺省取主干构建。
+- 身份从镜像清单和标签读出，调用方不能手写。
+- 相同摘要即相同字节，所以记录只存摘要不存标签。
 
-**输入**　标签或摘要形式的运行环境引用（缺省为 main 标签）。
-
-**输出**　摘要钉死的身份 \{image_ref, image_digest, platform, runtime_contract, build_revision\}。
-
-**强制**　代码强制：解析与形态核对由同一组函数完成，身份只从镜像读出。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUNTIME_UNAVAILABLE` | 拉取或检视失败。 |
-| `RUNTIME_DIGEST_AMBIGUOUS` | 该镜像名下不是恰好一个摘要。 |
-| `RUNTIME_IDENTITY_INVALID` | 缺契约标签或身份形态不合。 |
-| `RUNTIME_UNSUPPORTED` | 平台或契约不受支持。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.resolve">resolve</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref></span></div>
 
 </Cap>
 
 ### J.5.2　内容、隔离与统一入口 [#J-5-2]
 
-契约布局约束镜像内容、探针与可运行模块，容器参数由单一函数生成，命令行入口串起解析、检视、导出、试验记录、执行与封存，账本只经入口写入。
+镜像内容受布局约束，容器隔离，所有回放走同一入口。
 
-<Cap id="J.5.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="镜像只含引擎、运行器、审计器、探针与锁定依赖">
+<Cap id="J.5.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="镜像只含引擎、运行器、审计器与锁定依赖">
 
-- 镜像只含引擎与按依赖锁冻结安装（uv sync --frozen）的依赖、运行器、报告写出、审计器与身份探针源码。
-- 策略源码、账本配置、研究记录与市场数据都不进镜像，只在回放时以只读挂载进入。
-- <Ref id="runtime.layout" /> 以模块常量声明每个运行契约版本在镜像内的布局：运行器模块、审计器模块与参数、探针模块、运行器各源码路径、审计器源码路径、依赖锁路径。
-- 布局只能追加新契约条目，不能改写已声明的条目；受支持契约集就是布局的键。
-- 身份探针 <Ref id="runtime.inspect_runtime" /> 按布局核对镜像内源码路径与哈希。
-- main 构建核对 <Ref id="runtime.require_main_build" /> 按布局比较镜像内字节与项目源码同版本字节。
+- 依赖按依赖锁冻结安装，与引擎一起进入镜像。
+- 策略源码、账本和市场数据不进镜像，回放时只读挂载。
+- 每个运行约定版本的镜像布局只能追加，不能改写。
+- 之后对镜像内容的核对都以这份布局为准。
 
-**输入**　所请求的运行契约版本。
-
-**输出**　该契约在镜像内的布局声明。
-
-**强制**　代码强制：布局为模块常量，探针与 main 构建核对按它比对镜像内容。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUNTIME_UNSUPPORTED` | 请求的契约未在布局中声明。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.layout">layout</Ref> <Ref id="runtime.inspect_runtime">inspect_runtime</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.5.2.2" kind="code" tier="verified" tierLabel="已验证" title="容器无网络、只读、去特权，只挂声明的只读输入与报告目录">
+<Cap id="J.5.2.2" kind="code" tier="verified" tierLabel="已验证" title="容器无网络、只读、去特权，只挂声明的目录">
 
-- 运行器、审计器与身份探针的容器命令只由 <Ref id="runtime.container_command" /> 生成。
-- 按摘要引用镜像且不拉取（--pull never）。
-- 无网络（--network none），根文件系统只读。
-- 去除全部能力，禁止提权（no-new-privileges），限制进程数。
-- 以当前用户 uid:gid 运行，/tmp 为内存文件系统。
-- 不传环境变量、端口、设备或额外能力。
-- 挂载只用显式声明的 bind 挂载。
-- 源码、导出数据目录、共同可交易范围（universe）成员文件与覆盖回执一律只读。
-- 唯一可写挂载是报告目录 /reports。
-- 只能运行 <Ref id="runtime.layout" /> 为该契约声明的模块。
-- 相同输入得到相同命令行；拒绝时不返回部分命令。
-- 回放因此碰不到网络、交易凭据与宿主其他文件。
+- 容器命令只由一处代码生成，相同输入得相同命令。
+- 无网络、根文件系统只读、去除特权并限制进程数。
+- 输入一律只读挂载，唯一可写的是报告目录。
+- 回放因此碰不到网络、交易凭据和宿主其他文件。
 
-**输入**　已核对的运行环境身份、要运行的模块、参数与声明的挂载。
-
-**输出**　确定性的容器命令行。
-
-**强制**　代码强制：容器命令只由这一个函数生成，隔离参数固定写在函数内。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUNTIME_IDENTITY_INVALID` | 身份未过 <Ref id="runtime.validate_identity" />（形态不合）。 |
-| `RUNTIME_UNSUPPORTED` | 身份未过 <Ref id="runtime.validate_identity" />（平台或契约不受支持）。 |
-| `MODULE_NOT_IN_LAYOUT` | 模块不在该契约的布局中。 |
-| `MOUNT_HOST_PATH_INVALID` | 挂载的宿主路径无效。 |
-| `MOUNT_TARGET_INVALID` | 挂载目标路径无效。 |
-| `MOUNT_WRITABLE_NOT_REPORTS` | 可写挂载不是报告目录 /reports。 |
-| `REPORTS_MOUNT_MISSING` | 缺少报告目录挂载。 |
-| `ARGV_INVALID` | 命令参数无效。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.container_command">container_command</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.5.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="所有回放经命令行入口在钉死环境中运行，先写试验记录">
+<Cap id="J.5.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="所有回放经统一入口在钉死环境中运行，先写试验">
 
-1. 解析钉死身份（<Ref id="runtime.resolve" />）。
-2. 在隔离容器内跑身份探针，核对布局与有效配置（<Ref id="runtime.inspect_runtime" />）。
-3. 按钉住的市场提交导出输入并算输入身份（<Ref id="registration.market_inputs" />）。
-4. 子进程启动前，在同一事务写试验行、登记绑定与开始回执（<Ref id="ledger.open_trial" />）；任一失败整笔不写、不起容器。
-5. 在 <Ref id="runtime.container_command" /> 的隔离容器内先运行器后独立审计器（<Ref id="replay.execute" />）。
-6. 不论完成、中断还是宿主失败，都以 <Ref id="ledger.seal_capture" /> 封存执行捕获。
+1. 解析钉死的运行环境，在隔离容器里跑探针核对镜像内容。
+2. 按钉住的市场提交导出输入，算出输入身份。
+3. 启动前在同一事务写下试验、绑定和启动记录。
+4. 在隔离容器里先跑运行器，再跑独立审计器。
+5. 无论成败都封存执行记录；研究与样本外回放再入账运行。
 
-- 四种用途的试验（trial，purpose ∈ explore | precheck | research | validation）都经命令行入口起回放，不得直接起容器或运行器。
-- 探索走 <Ref id="cli.replay_explore" />。
-- 原生预检走 <Ref id="cli.replay_precheck" />。
-- 研究封存与样本外验证走 <Ref id="cli.replay_run" />，主体为函数 run（<Ref id="registration" />）。
-- 入口顺序固定，按步骤执行。
-- 研究与样本外回放在临时目录完成，经 <Ref id="ledger.ingest_run" /> 一次写入账本后删除目录；失败保留目录供诊断。
-- 探索不登记，报告只留在临时目录，账本只有试验行与执行封存，绩效指标注明来源未核验。
-- 探索过的源码此后不能作为新登记（<Ref id="registration.validate" /> 拒绝）。
-
-**输入**　试验用途、策略源码、运行环境引用与钉住的市场提交。
-
-**输出**　账本中的试验行、登记绑定、开始回执与执行封存；研究与样本外还有一次入账的运行记录。
-
-**强制**　代码强制：命令行入口是唯一回放路径，固定顺序与先写试验记录由入口与账本事务保证；各入口的拒绝码在其定义中。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.execute">execute</Ref> <Ref id="cli.replay_run">replay_run</Ref> <Ref id="replay.explore">explore</Ref></span></div>
 
 </Cap>
 
@@ -907,37 +548,31 @@ Agent 只追加自由文本证据包与判断行，结构化事实与样本外�
 
 <Step>
 
-登记时 registration.market_inputs 按市场提交导出输入并组装输入身份，runtime.inspect_runtime 核对运行环境身份，二者锁进登记。
+登记时导出输入、检视运行环境，把两者的身份锁进登记。
 
 </Step>
 
 <Step>
 
-回放入口 replay.seal 重新导出，核对导出指纹与运行契约，在工作目录写源码、binding.json、execution.json 与 input-coverage.json。
+回放时重新导出，核对与登记逐字相同，把源码与绑定只读交给容器。
 
 </Step>
 
 <Step>
 
-同一事务写试验行、登记绑定与开始回执，任一拒绝不启动容器；容器内运行器核对源码哈希、入口类与执行绑定。
+容器内运行器核对源码哈希和入口类，执行后重算输入指纹。
 
 </Step>
 
 <Step>
 
-执行后重算原始导出指纹并汇总无效原因，ledger.ingest_run 入账，执行捕获随之封存。
+读取运行时核验身份与哈希，不符即标为不可用。
 
 </Step>
 
 <Step>
 
-读取时 ledger.load_run 核验身份与哈希，不符即拒绝，资格视图标该运行不可用。
-
-</Step>
-
-<Step>
-
-复现时 ledger.export_history 导出备份与复现清单，按摘要拉回运行环境、同提交重导出、重放并与原生行逐条比较。
+复现时按摘要拉回环境，用同一市场提交重放，逐条比对原生报告。
 
 </Step>
 
@@ -945,136 +580,68 @@ Agent 只追加自由文本证据包与判断行，结构化事实与样本外�
 
 ### J.6.1　一次回放绑定的身份 [#J-6-1]
 
-源码、运行环境、输入三类身份与覆盖回执全部由代码写入试验、运行与执行封存，Agent 不能手填。
+源码、运行环境和输入三类身份都由代码写入，Agent 不能手填。
 
-<Cap id="J.6.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="被执行源码的 SHA-256 必须等于账本候选记录的源码哈希">
+<Cap id="J.6.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="被执行源码的哈希须等于账本候选的源码哈希">
 
-1. <Ref id="replay.seal" /> 经 <Ref id="ledger.read_candidate" /> 按 strategy_id@revision 取候选字节，存储字节哈希不符即拒绝。
-2. 在工作目录写 source/strategy.py 与 binding.json（账本库名、账本提交、strategy_id@revision、源码哈希、入口类、运行契约），只读挂入容器。
-3. 容器内运行器经 <Ref id="engine.load_strategy" /> 装载时逐字节重算哈希并核对入口类，不符即拒绝装载。
-4. 原生摘要写回实际执行的源码哈希。
-5. 入账时 <Ref id="replay.summary_problems" /> 把它与试验身份比对，不符即判无效（<Ref id="G.1.1.4" />）。
+1. 回放入口从账本取候选字节，哈希不符即拒绝。
+2. 把源码和绑定信息只读交给容器。
+3. 运行器装载时重算哈希并核对入口类，不符拒绝装载。
+4. 原生摘要写回实际执行的源码哈希，入账时比对，不符即无效。
 
-- 源码身份是被执行源码字节的 SHA-256 内容哈希（content hash），必须等于候选 <Ref id="table:candidate" /> 记录的源码哈希。
-- 研究与样本外回放都由 <Ref id="replay.seal" /> 执行。
-- Agent 不能手填源码身份。
-- 源码身份连同账本提交写入试验与运行记录，回答「跑的是哪份源码」。
-
-**输入**　账本中 strategy_id@revision 对应的候选源码字节。
-
-**输出**　只读挂入容器的 source/strategy.py 与 binding.json，以及写入试验与运行记录的源码哈希和账本提交。
-
-**强制**　代码强制：回放入口、容器内运行器装载与入账比对三处各重算一次源码哈希。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_CORRUPT` | 按 strategy_id@revision 读出的候选存储字节哈希与记录不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.seal">seal</Ref> <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.6.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行环境身份须由清单身份与镜像内探针报告核对一致">
+<Cap id="J.6.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="运行环境身份须由镜像清单和镜像内探针核对一致">
 
-1. 登记与每次回放前，宿主经 <Ref id="runtime.inspect_runtime" /> 确认本地镜像带该摘要与平台。
-2. 在 <Ref id="runtime.container_command" /> 构造的无网络、只读、去特权容器里运行探针。
-3. 核对探针报告字段齐全、契约等于清单契约、源码路径等于 <Ref id="runtime.layout" />、有效配置哈希自洽。
-4. 检视结果写入运行记录 <Ref id="table:run" />。
+- 清单身份含摘要、平台、运行约定和构建源码版本，不能手写。
+- 镜像内探针报告引擎版本、依赖锁和运行器、审计器源码哈希。
+- 登记与每次回放前在隔离容器里跑探针，与清单和布局核对。
+- 宿主给的执行配置与容器内解析的配置逐字比对，不符即无效。
 
-- 清单身份含引用、清单摘要、平台、运行契约、构建源码版本。
-- 清单身份由 <Ref id="runtime.resolve" /> 从镜像清单与标签读出，经 <Ref id="runtime.validate_identity" /> 核对形态。
-- 清单身份不能手写。
-- 探针报告由镜像内探针 <Ref id="engine.describe" /> 读出：运行契约、引擎版本、Python 版本、依赖锁哈希。
-- 探针报告还含运行器与审计器源码哈希及其镜像内路径、有效配置及其哈希。
-- 有效配置由 <Ref id="engine.effective_configuration" /> 生成，哈希去掉宿主路径。
-- 宿主写出的执行绑定 execution.json 与容器内运行器解析的配置逐字比对，不符即判无效。
-
-**输入**　镜像清单与标签读出的清单身份，以及镜像内探针报告。
-
-**输出**　写入运行记录的运行环境检视结果，以及可逐字比对的 execution.json。
-
-**强制**　代码强制：宿主经 runtime.inspect_runtime 在登记与每次回放前检视镜像并在隔离容器内跑探针核对，不符即拒绝，拒绝码为 RUNTIME_MISMATCH、RUNTIME_PROBE_INVALID、RUNTIME_UNAVAILABLE。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> <Ref id="engine.describe">describe</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.6.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="输入身份由市场提交与导出内容构成，登记与回放须逐字相等">
+<Cap id="J.6.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="输入身份由市场提交和导出内容构成，登记与回放须相等">
 
-1. <Ref id="registration.market_inputs" /> 按钉住的市场提交 AS OF 导出到不可变目录并组装输入身份。
-2. 登记时调用一次（<Ref id="H.4.1.2" />），每次回放再调用一次。
-3. <Ref id="registration.bind" /> 要求两次组装的身份逐字相等。
-4. <Ref id="registration.export_fingerprint" /> 的原始模式在执行前后各算一次，不等即判无效（<Ref id="G.2.1.1" />）。
+- 输入身份含市场提交、范围规则、合约集和导出内容哈希。
+- 登记时导出一次，每次回放再导出一次，两次须逐字相等。
+- 执行前后各算一次原始导出指纹，不等即无效。
+- 导出不删合约、不缩窗、不补数，筛选归策略源码。
 
-- 输入身份 identity 含市场库名、市场提交（market commit）、范围规则版本 universe_rule、合约选择与合约集。
-- 输入身份还含导出内容哈希、导出器实现哈希、生命周期证据包名。
-- 导出内容哈希由 <Ref id="registration.export_fingerprint" /> 的语义模式给出，含成员文件与回执语义，只排除导出用时。
-- 成员时间路径写在随导出生成的成员文件里，并计入导出内容哈希。
-- 导出不删合约、不缩窗、不补数。
-- 共同可交易范围 universe 内合约按事前规则全收，排名与筛选归策略源码。
-
-**输入**　钉住的市场提交、范围规则版本、合约选择与生命周期证据包。
-
-**输出**　不可变导出目录与锁进登记、试验的输入身份。
-
-**强制**　代码强制：导出器组装身份，登记绑定逐字比对，执行前后比原始指纹。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `SYMBOL_SELECTION_INVALID` | 合约选择无效。 |
-| `UNIVERSE_EMPTY` | 范围内没有合约。 |
-| `LIFECYCLE_INPUT` | 生命周期输入不可用。 |
-| `EXPORT_TIMEFRAME` | 导出周期不合规。 |
-| `MARKET_COMMIT_UNRESOLVED` | 市场提交无法解析。 |
-| `EXPORT_CONTENT_INVALID` | 导出内容无效。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.market_inputs">market_inputs</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref></span></div>
 
 </Cap>
 
-<Cap id="J.6.1.4" kind="code" tier="rehearsal" tierLabel="演练证据" title="覆盖回执须在写试验行与启动容器前落盘，并随执行封存">
+<Cap id="J.6.1.4" kind="code" tier="rehearsal" tierLabel="演练证据" title="输入数据的覆盖情况在启动前记下，并随执行封存">
 
-1. 写试验行与启动容器之前，<Ref id="replay.input_coverage" /> 把全部合约的导出回执、输入身份、有效配置与成员文件原文写成 input-coverage.json 落盘。
-2. 文件只读挂入容器，供审计器与生命周期事件核对。
-3. 回放结束（含中断与宿主失败）由 <Ref id="ledger.seal_capture" /> 随执行封存到 trial-\<trial_id>-execution 证据包。
-4. 入账与读取时只认 <Ref id="ledger.original_coverage" /> 从原始执行捕获取出的回执。
+1. 写试验和启动容器前，把每个合约的数据覆盖情况写成记录。
+2. 覆盖记录只读交给容器，供审计器核对。
+3. 回放结束（含中断）时，覆盖记录随执行一起封存。
+4. 入账和读取只认原始执行封存里的覆盖记录。
 
-- 导出回执由 <Ref id="market.coverage_facts" /> 在固定市场提交上产出：成员月份、成交价与标记价缺口、零量分钟、时刻对齐、资金费时刻与条数（<Ref id="W.3.3.1" />）。
-- 某合约回执缺失记 status=missing，不伪造。
-- 原始回执须满足：捕获完整封存、各阶段退出码为零、身份与账本一致、回执输入身份等于存储身份，否则拒绝。
-- 缺口与零量作为事实记录（<Ref id="W.3.3.2" />），本身不构成无效（<Ref id="G.2.2.1" />）。
-
-**输入**　固定市场提交上全部合约的导出回执、输入身份、有效配置与成员文件原文。
-
-**输出**　input-coverage.json，封存在 trial-\<trial_id>-execution 证据包中。
-
-**强制**　代码强制：启动前写盘、执行后封存，入账与读取只认原始执行捕获里的回执。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.input_coverage">input_coverage</Ref> <Ref id="ledger.original_coverage">original_coverage</Ref> <Ref id="market.coverage_facts">coverage_facts</Ref></span></div>
 
 </Cap>
 
 ### J.6.2　复现合同 [#J-6-2]
 
-复现只依赖账本、镜像注册表与同一市场提交；代码负责导出、重跑比对与读取核验，恢复演练由 skill 指导。
+复现只依赖账本、镜像注册表和同一市场提交。
 
 <ul className="rd-rules">
-<li id="J-6-2-2"><span className="rd-rule-id">J.6.2.2</span> 恢复演练只在临时账本做，按固定版本逐字节核哈希并记证据包 <Ref id="rule:J.6.2.2">research-round · references/restore.md</Ref></li>
+<li id="J-6-2-2"><span className="rd-rule-id">J.6.2.2</span> 恢复演练只在临时账本做，按固定版本逐字核哈希并入账 <Ref id="rule:J.6.2.2">research-round · references/restore.md</Ref></li>
 </ul>
 
-<Cap id="J.6.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="封存产物读取即核验，缺失或哈希不符的运行标不可用">
+<Cap id="J.6.2.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="封存产物读取即核验，缺失或不符的运行标为不可用">
 
-- 源码、登记、证据包与执行封存一律读取即核验。
-- <Ref id="ledger.read_candidate" /> 与 <Ref id="ledger.load_bundle" /> 读取时重算内容哈希。
-- <Ref id="ledger.read_capture" /> 按试验、源码哈希、运行环境身份与逐文件哈希核验原始执行捕获。
-- 最终封存缺失返回 missing，不用事后恢复材料替代（<Ref id="G.4.2.1" />）。
-- <Ref id="ledger.load_run" /> 读封存运行时先做上述核验，任一不符即拒绝且不返回任何行。
-- 资格视图 <Ref id="qualification.assess" /> 把该运行标为不可用（<Ref id="G.4.2.3" />），不改写存储的审计结论，账本保留原引用与哈希。
-- 不可用的回放不当作可逐事件复核，不进入比较与推荐。
-- 封存成功与报告可读只说明字节可恢复，不说明策略好。
+- 源码、登记、证据包和执行封存每次读取都重算哈希。
+- 最终封存缺失即读为缺失，不用事后恢复材料替代。
+- 核验不符时不返回任何行，该运行失去经济证据资格。
+- 封存完整只说明字节可恢复，不说明策略好。
 
-**输入**　账本中的源码、登记、证据包与执行封存及其记录的哈希。
-
-**输出**　核验通过的运行行，或拒绝并在资格视图中标为不可用。
-
-**强制**　代码强制：账本读取函数在返回任何行前重算哈希核验，资格视图据此标不可用。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_CORRUPT` | 候选源码或证据包重算的内容哈希与记录不符。 |
-| `EXECUTION_IDENTITY` | 原始执行捕获的试验、源码哈希、运行环境身份或逐文件哈希不符。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.load_run">load_run</Ref> <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="qualification.assess">assess</Ref></span></div>
 
 </Cap>
 
