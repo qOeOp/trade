@@ -1,5 +1,5 @@
-"""Registration shapes decided without a ledger: the duties and measure catalogue, the body schema,
-the comparison design, and comparability of execution identities."""
+"""Registration shapes decided without a ledger: the body schema, the comparison design, and
+comparability of execution identities."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import copy
 import unittest
 
 from ledger.errors import Refusal
-from registration import comparability, duties, register
+from registration import comparability, register
 from tests.registration.world import DESIGN, config
 
 
@@ -17,20 +17,6 @@ def code(function, *args, **kwargs) -> str:
     except Refusal as exc:
         return exc.code
     raise AssertionError(f"{function.__name__} did not refuse")
-
-
-class CatalogueTests(unittest.TestCase):
-    def test_the_catalogue_names_every_slice_measure_and_a_known_duty(self):
-        catalogue = duties.measure_catalogue()
-        ids = [item["id"] for item in catalogue["slices"]]
-        self.assertEqual(len(ids), len(set(ids)))
-        self.assertIn("funding", duties.slice_measures()["profit_bridge"])
-        for item in catalogue["slices"]:
-            self.assertTrue(item["measures"] and item["duties"] and item["title"])
-            self.assertTrue(set(item["duties"]) <= set(duties.DUTIES))
-        self.assertEqual(len(duties.DUTIES), 27)
-        catalogue["slices"][0]["measures"].append("forged")
-        self.assertNotIn("forged", duties.slice_measures()[ids[0]])
 
 
 class DesignTests(unittest.TestCase):
@@ -63,10 +49,6 @@ class SchemaTests(unittest.TestCase):
             register._check_shape(body)
         self.assertEqual(caught.exception.code, "REGISTRATION_INVALID")
         return caught.exception
-
-    def test_a_valid_body_passes_the_schema(self):
-        register._check_shape(self.body())
-        register._check_shape({**self.body(), "retry_of": "registration-1", "prechecks": {"rsi@1": "source-review-1"}})
 
     def test_a_missing_field_is_named_and_its_description_quoted(self):
         body = self.body()

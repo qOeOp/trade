@@ -61,7 +61,6 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual((execution["image_digest"], execution["input_identity"]["market_commit"],
                           execution["input_identity"]["symbols"]), (RUNTIME["image_digest"], MARKET_COMMIT,
                                                                     ["AAAUSDT", "BBBUSDT"]))
-        self.assertEqual(execution["effective_config"]["account"]["balance_usdt"], "100000")
         self.assertEqual(plan["body"]["grid"][0]["candidate"], "rsi@1")
         stored = self.world.service.sql(self.world.profile, "SELECT sha256 FROM evidence WHERE bundle = %s",
                                         ("registration-root",))

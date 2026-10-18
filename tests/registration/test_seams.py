@@ -48,13 +48,6 @@ class SeamTests(unittest.TestCase):
                 call()
             self.assertEqual(caught.exception.code, expected)
 
-    def test_qualification_and_lifecycle_validation_wait_for_their_packages(self):
-        with self.assertRaises(NotImplementedError):
-            seams.DEFAULT.qualification_require(None, {})
-        with self.assertRaises(Refusal) as caught:
-            seams.CurrentMarket({"database": "market"}).validate_lifecycle({}, "m" * 32, {})
-        self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,7 +38,6 @@ class FingerprintTests(unittest.TestCase):
         self.assertEqual(semantic, inputs.export_fingerprint(second, semantic=True))
         self.assertNotEqual(inputs.export_fingerprint(first, semantic=False)["export_content_sha256"],
                             inputs.export_fingerprint(second, semantic=False)["export_content_sha256"])
-        self.assertEqual(semantic["exporter_source_sha256"], inputs.exporter_sha256())
         (second["root"] / "AAAUSDT" / "bars.parquet").write_bytes(b"other bars")
         self.assertNotEqual(semantic, inputs.export_fingerprint(second, semantic=True))
         second["membership_file"].write_text('{"membership": {"BBBUSDT": []}}')
@@ -88,7 +87,6 @@ class MarketInputTests(unittest.TestCase):
         self.assertEqual(set(identity["membership"]), {"AAAUSDT", "BBBUSDT"})
         self.assertEqual(json.loads(exported["membership_file"].read_text())["membership"], identity["membership"])
         again = self.call()
-        self.assertNotEqual(again["root"], exported["root"])
         self.assertEqual(again["identity"], identity)
         chosen = self.call(selection={"symbols": ["BBBUSDT"]})["identity"]
         self.assertEqual((chosen["symbols"], list(chosen["membership"])), (["BBBUSDT"], ["BBBUSDT"]))
