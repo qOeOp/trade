@@ -44,6 +44,7 @@ def check_comparable(run: Mapping, execution: Mapping) -> None
 2. 有效配置：两侧登记包或开始回执里的有效配置经 config_key 规范化后逐键相等。
 3. 输入身份：两侧输入身份经 input_key 规范化后逐键相等。
 4. 任一项不同即记冲突项并拒绝，列出全部冲突。
+5. 对照运行的身份读自它的开始回执 trial-\<id>-execution-start：输入身份取 execution.json，有效配置取 input-coverage.json；run 表不存这两项，缺回执或缺键即 IDENTITY_MALFORMED。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -77,14 +78,14 @@ def config_key(value: Mapping) -> dict
 
 **期望行为**
 
-1. 核形态：value 不是映射，或缺运行契约、开发窗口起止、交易起点、合约集、账户条款任一键，以 IDENTITY_MALFORMED 拒绝，不得把两个空壳比成相等
+1. 核形态：value 不是映射，或缺 runtime_contract、start、trade_start、end、symbols、account 任一键（键名与 engine.effective_configuration 输出一致），以 IDENTITY_MALFORMED 拒绝，不得把两个空壳比成相等
 2. 按排除法去键：删除仅描述宿主位置的键（市场导出根、成员文件路径、日线预热根、标记价根及其他 *_root / *_path 类键），其余键一律保留，配置里出现的其他经济键也自动进入身份
 3. 不改写、不舍入、不折叠任何保留键的值；嵌套的账户条款、费率与资金费口径原样保留供逐键比较
 4. 返回新字典，不修改入参
 
 | 拒绝码 | 条件 |
 |---|---|
-| `IDENTITY_MALFORMED` | value 不是映射，或缺 runtime_contract、window_start、window_end、trade_start、symbols、account 任一键 |
+| `IDENTITY_MALFORMED` | value 不是映射，或缺 runtime_contract、start、trade_start、end、symbols、account 任一键 |
 
 **使用**　<Ref id="engine.effective_configuration" />、<Ref id="ledger.refusal" />
 
@@ -148,7 +149,8 @@ def measure_catalogue() -> dict
 **期望行为**
 
 1. 目录固定为：profit_bridge（利润来源桥）：price、fee、funding、open_mark、account；capital_scaled（规模与仓位择时）：mean_notional、unit_return、level_term、timing_term、up_month_notional、down_month_notional、return_over_drawdown；fee_stress（费用压力）：breakeven_fee_multiple；by_instrument（品种与方向）：top5_abs_share、one_side_instruments、long_net、short_net；market_exposure（市场暴露）：beta_basket、alpha_basket、beta_btc、alpha_btc；by_period（时期）：months_won_share、residual_after_top5_days；trade_structure（交易结构）：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share；trade_pairs（交易配对）：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes；drawdown（回撤）：max_drawdown、drawdown_days、top_instrument_share_in_drawdown。
-2. 改目录即升 metrics_revision；旧报告按旧版本复读。
+2. 每个切面同时列出它能解释的职责：取第 9 章归因表（<Ref id="P.4.1.1" />）中该切面对应职责的并集；登记的预测按此核对切面与职责是否相配。
+3. 改目录即升 metrics_revision；旧报告按旧版本复读。
 
 <div className="rd-meta">
 
@@ -261,6 +263,7 @@ def market_inputs(
 4. 给出 lifecycle_bundle 时经 registration.load_lifecycle 读证据包，其市场提交须等于本次提交；拒绝原样透传
 5. market.export_catalogs 按提交、合约集与完整输入区间 [start, end) 以 1 分钟周期导出 Catalog、逐合约回执与生命周期原件，任一回执周期不是 1 分钟即拒绝；把 \{commit, universe_rule, membership\} 写成只含本次合约集的成员文件
 6. registration.export_fingerprint 语义模式算导出内容哈希与导出器哈希写入 identity 并返回（其拒绝原样透传）；不写账本、不删合约、不缩窗、不补数
+7. 返回值另含每合约覆盖回执 receipts；输入身份含 membership（每合约成员时间路径），与 registration.input_key 的保留键一致。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -346,10 +349,10 @@ def record_review(
 
 **期望行为**
 
-1. 校验 body：恰为六键，四项各有合法 status 与非空 note，trial_id 为整数；verdict = passed 时四项不得为 failed 或 unresolved；否则拒绝 REVIEW_INVALID。不解释 note、不汇总为分数。
+1. 校验 body：恰为六键，四项各有合法 status 与非空 note，trial_id 为整数；verdict 须与逐项一致：四项无 failed 与 unresolved 时为 passed，否则为 failed；否则拒绝 REVIEW_INVALID。不解释 note、不汇总为分数。
 2. 读 trial 行（不存在拒绝 TRIAL_NOT_FOUND），经 ledger.read_capture 读原始捕获：须为 purpose = precheck 的原件，缺失或只有恢复材料拒绝 PRECHECK_CAPTURE_MISSING。
 3. 从 trial 行取 source_sha256、image_digest，从捕获取执行封存包名，连同 format = source-review-v1、verdict、四项与 authority 组成 source-review.json。
-4. 包名由产品按 trial_id 与内容哈希派生（Agent 不能取产品保留名）；经 ledger.write_files 写 evidence_bundle 与 evidence，同内容重试返回原记录，只追加不改写。
+4. 包名为 source-review-\<trial_id>-\<内容哈希前 16 位>，由产品派生；该命名空间 Agent 写不进；经 ledger.write_files 写 evidence_bundle 与 evidence，同内容重试返回原记录，只追加不改写。
 5. 返回记录身份；不写 run 表，资格由读取时的资格视图判定。
 
 | 拒绝码 | 条件 |
@@ -378,22 +381,23 @@ def require_precheck(
     review_bundle: str,
     source_sha256: str (CHAR(64)),
     image_ref: str,
-    input_key: str | None,
+    input_key: dict | None,
 ) -> int
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读使用；由 registration.register 与 registration.bind 在各自写事务内调用" }, "review_bundle": { type: "str", description: "登记正文 prechecks 映射里该网格源码引用的审查证据包名" }, "source_sha256": { type: "str (CHAR(64))", description: "该网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记或本次绑定的运行环境引用，含 @sha256 摘要" }, "input_key": { type: "str | None", description: "输入身份（市场提交、合约生命周期包、窗口）；登记时为声明值，绑定时为实际导出值；None 只用于导出输入前的静态核对，跳过输入比对" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读使用；由 registration.register 与 registration.bind 在各自写事务内调用" }, "review_bundle": { type: "str", description: "登记正文 prechecks 映射里该网格源码引用的审查证据包名" }, "source_sha256": { type: "str (CHAR(64))", description: "该网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记或本次绑定的运行环境引用，含 @sha256 摘要" }, "input_key": { type: "dict | None", description: "输入身份（市场提交、合约生命周期包、窗口）；登记时为声明值，绑定时为实际导出值；None 只用于导出输入前的静态核对，跳过输入比对；预检窗口按设计较短，只在 input_key 带窗口时比窗口" } }} />
 
 **返回**　int：通过核对的预检 trial_id；任一不符抛拒绝，不返回部分结论
 
 **期望行为**
 
-1. 经 ledger.load_bundle 读 review_bundle 内 source-review.json：包或文件不存在、format 不是 source-review-v1 即 SOURCE_PRECHECK_REQUIRED；内容哈希不符即 LEDGER_CORRUPT
-2. 按审查记录的 trial_id 读试验行：不存在 TRIAL_NOT_FOUND；trial.purpose 须为 precheck，trial.source_sha256 与 image_ref 摘要须同时等于审查记录与传入值，否则 SOURCE_PRECHECK_REQUIRED
-3. 经 ledger.read_capture 读该试验的原始执行捕获（不接受恢复材料）：运行器与审计器退出码为零、无回调异常、无中断或未完成标记，否则 SOURCE_PRECHECK_FAILED
-4. input_key 非 None 时，原件记录的市场提交、生命周期包与窗口须与之逐字相同，否则 SOURCE_PRECHECK_REQUIRED
-5. 审查四项 api、causal、activity、readiness 的 status 须均为 passed 或 no_opportunity，出现 failed 或 unresolved 即 SOURCE_PRECHECK_FAILED
-6. 返回预检 trial_id；通过不替代完整性审计，也不授予经济证据资格
+1. review_bundle 须在 source-review-* 命名空间（只由 registration.record_review 写），否则 SOURCE_PRECHECK_REQUIRED。
+2. 经 ledger.load_bundle 读 review_bundle 内 source-review.json：包或文件不存在、format 不是 source-review-v1 即 SOURCE_PRECHECK_REQUIRED；内容哈希不符即 LEDGER_CORRUPT
+3. 按审查记录的 trial_id 读试验行：不存在 TRIAL_NOT_FOUND；trial.purpose 须为 precheck，trial.source_sha256 与 image_ref 摘要须同时等于审查记录与传入值，否则 SOURCE_PRECHECK_REQUIRED
+4. 经 ledger.read_capture 读该试验的原始执行捕获（不接受恢复材料）：运行器与审计器退出码为零、无回调异常、无中断或未完成标记，否则 SOURCE_PRECHECK_FAILED
+5. input_key 非 None 时，原件记录的市场提交、生命周期包与窗口须与之逐字相同，否则 SOURCE_PRECHECK_REQUIRED
+6. 审查结论 verdict 须为 passed，且四项 api、causal、activity、readiness 的 status 均为 passed 或 no_opportunity；任一 failed 或 unresolved，或 verdict 为 failed，即 SOURCE_PRECHECK_FAILED
+7. 返回预检 trial_id；通过不替代完整性审计，也不授予经济证据资格
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -511,24 +515,23 @@ def register(
 ) -> dict {bundle
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名；不得落在产品保留命名空间（trial-*、knowledge-*、research-line-*、source-review-*、lifecycle-*）" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取研究路线记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名，须形如 registration-<假设名>：该命名空间只由本函数写，Agent 经 evidence add 写不进" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取研究路线记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" } }} />
 
 **返回**　dict \{bundle, sha256（research-plan.json 内容哈希）, execution（写入的执行身份）, ledger_commit, replayed（同内容重试为 True）\}
 
 **期望行为**
 
-1. 核包名不在保留命名空间（RESERVED_BUNDLE_NAME）；ledger.connect 打开写连接，ledger.current_line 读研究路线（市场提交、范围规则、开发窗口），没有即透传 NO_RESEARCH_LINE。
+1. 核包名形如 registration-*（REGISTRATION_BUNDLE_NAME）；ledger.connect 打开写连接，ledger.current_line 读研究路线（市场提交、范围规则、开发窗口），没有即 RESEARCH_LINE_REQUIRED。
 2. 在登记的同一写事务里，把每份 source_files 写成来源证据包（包名由内容哈希派生），并把包名写进登记体 sources；理由里引了外部依据却没有来源原件即拒绝。
 3. 调用 registration.require_line_records：解释、复盘与节奏三道前置门任一不满足即拒绝，拒绝信息给出要补的判断与命令。
 4. runtime.resolve 解析唯一清单摘要，runtime.inspect_runtime 在镜像内探针读出运行契约、依赖锁哈希与生效配置；registration.market_inputs 按研究路线的市场提交导出 1 分钟输入并经 registration.export_fingerprint 算内容身份；三者合成 execution，宿主路径不进身份。
-5. 组装 research-plan.json：body 全部字段、execution、每格审查引用与登记时的运行环境引用；算内容哈希，op_id 由包名与内容哈希派生。
+5. 组装 research-plan.json：\{format, body, execution, runtime_ref\}；每格审查引用留在 body.prechecks，execution.effective_config 存 registration.config_key 去宿主路径后的结果（宿主路径不进身份，幂等重试也因此稳定）；算内容哈希，op_id 由包名与内容哈希派生。
 6. 在 ledger.write 的事务里调 registration.validate(conn, body, execution, before_replay=False)（含窗口、预检、暴露与 retry_of 核对）；同名包已存在且哈希相同即幂等返回，哈希不同即 DUPLICATE_BUNDLE；否则经 ledger.write_files 写 evidence_bundle 一行与 evidence 一行，created_at 由服务器触发器写。
 7. 事务内任一步失败整笔回滚、不留半截；validate、运行环境与导出的拒绝码原样透传。
 8. 返回包名、哈希、执行身份与账本提交；探测与导出的工作副本留在临时目录，账本不存导出数据与镜像。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RESERVED_BUNDLE_NAME` | 包名落在产品保留命名空间 |
 | `DUPLICATE_BUNDLE` | 同名登记包已存在且 research-plan.json 内容哈希不同（同哈希为幂等重放，不拒） |
 | `REGISTRATION_INVALID` | body 不是对象或不可序列化，或 validate 报出任一结构性不符 |
 | `WINDOW_MISMATCH` | 登记交易段不等于研究路线开发窗口（由 validate 抛出） |
@@ -537,6 +540,8 @@ def register(
 | `CONCURRENT_WRITE` | 提交时写入头指针被另一写入抢先，后到者回滚 |
 | `DIRTY_WORKING_SET` | 写前发现账本有未提交的 SQL 改动 |
 | `SOURCES_REQUIRED` | rationale.external 非空而没有来源原件，或 sources 引用的包不存在 |
+| `REGISTRATION_BUNDLE_NAME` | 包名不形如 registration-* |
+| `RESEARCH_LINE_REQUIRED` | 账本里没有当前研究路线记录 |
 
 **使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.write_files" />、<Ref id="table:v_evidence" />、<Ref id="table:ledger_head" />、<Ref id="registration.require_line_records" />、<Ref id="registration.plan_schema" />
 
@@ -602,20 +607,25 @@ def validate(
 ) -> set[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十二项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（每格 source-review 证据包名）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十二项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
 
 **返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
 
 **期望行为**
 
 1. 核字段集合恰等于十二项必有键（含 prediction 与 changed_duties）加可选键，多一键少一键即拒；metric 不是唯一具有推断定义的比较维度即拒；comparison 交 validate_design；sources 每个包名须在 evidence_bundle 存在
-2. 核 changed_duties：每项须是 27 项职责编号之一；根登记必须为空，派生登记至少一项。
-3. 核 prediction：mechanism 每项的职责在 changed_duties 里，切面与标量在归因目录里（切面为空时须有理由）；changed_duties 每项至少一项预测；根登记的 mechanism 可为空。
-4. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
-5. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
-6. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
-7. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
-8. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
+2. 比较维度取值：metric 只接受 annual_return（年化收益，唯一有推断定义的维度）；预测的方向 direction 取 up 或 down。
+3. 核 changed_duties：每项须是 27 项职责编号之一；根登记必须为空，派生登记至少一项。
+4. 切面与职责：某切面可解释哪些职责，取 registration.measure_catalogue 的切面—职责表；预测的切面为空时须写理由，measure 非空时仍须是目录里某个切面的标量。
+5. 核 prediction：mechanism 每项的职责在 changed_duties 里，切面与标量在归因目录里（切面为空时须有理由）；changed_duties 每项至少一项预测；根登记的 mechanism 可为空。
+6. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
+7. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
+8. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
+9. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
+10. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
+11. prechecks 是映射 \{网格候选 strategy_id@revision: source-review-* 审查包名\}；某格缺项，或所指包名不在 source-review-* 命名空间，即 SOURCE_PRECHECK_REQUIRED。该命名空间只由 registration.record_review 写，Agent 另起名字放的审查文件不被采信。
+12. before_replay=True（绑定前重验）时，暴露核对跳过正被绑定的试验和同一登记先前的尝试：它们的消耗由 GRID_ALREADY_ATTEMPTED 判定，不算源码暴露。
+13. 无对照的派生登记：代码只核 rationale.local 非空；它是否确实引用了父运行的故障或零活动，由开题审阅判断。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -684,48 +694,10 @@ def validate_design(value: dict) -> None
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="MEMBERSHIP_CHANGED">MEMBERSHIP_CHANGED</Ref> | 范围规则相同；登记前各月成员在登记提交与本次提交下逐行相同；窗口月份存在且未剔除成员 |
 | <Ref id="registration.membership_unchanged">membership_unchanged</Ref> | 核对本次回放的共同可交易范围与登记一致：范围规则相同；登记前各月成员在登记提交与本次提交下逐行相同；窗口月份存在且交给策略的成员路径未剔除成员；不一致抛 MEMBERSHIP_CHANGED |
 | <Ref id="registration.require_fresh">require_fresh</Ref> | 核产品工作树干净且含远端 main 最新提交；只由样本外绑定调用 |
 | <Ref id="registration.validation_bind">validation_bind</Ref> | 样本外回放启动前，在试验写事务内核对源码、范围、窗口与覆盖、凭证、账户条款与运行环境都与登记一致，并写 validation_binding；第二次绑定拒绝 |
 | <Ref id="registration.validation_register">validation_register</Ref> | 唯一写入 validation_registration：核候选、检验条件、窗口与重试条件，一事务一提交写登记，提交后对该提交取凭证；凭证失败时登记仍在 |
-
-### `MEMBERSHIP_CHANGED` [#def-MEMBERSHIP_CHANGED]
-
-范围规则相同；登记前各月成员在登记提交与本次提交下逐行相同；窗口月份存在且未剔除成员
-
-```python
-def MEMBERSHIP_CHANGED(
-    conn: LedgerConnection,
-    market: MarketConnection,
-    registration: OosRegistration,
-    inputs: MarketInputs,
-) -> None
-```
-
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接，只读 validation_registration 的登记市场身份" }, "market": { type: "MarketConnection", description: "市场库连接，支持按提交 AS OF 读 universe_month" }, "registration": { type: "OosRegistration", description: "登记行：market_commit、universe_rule、window_start、window_end、created_at" }, "inputs": { type: "MarketInputs", description: "本次回放的市场输入身份：market_commit、universe_rule、交给策略的成员时间路径" } }} />
-
-**返回**　None；不一致时抛 UNIVERSE_CHANGED 并在原因里给出首个不同的月份与合约
-
-**期望行为**
-
-1. 规则：inputs.universe_rule 不等于 registration.universe_rule 即 UNIVERSE_CHANGED。
-2. 登记前各月：对登记月份之前的每个月，market.monthly_universe 分别按 AS OF registration.market_commit 与 AS OF inputs.market_commit 读 universe_month，成员行（合约、上下架事实）逐行比较，任一行不同即 UNIVERSE_CHANGED；成员路径随市场提交，不另存快照。
-3. 窗口月份：窗口 [window_start, window_end) 覆盖的每个月在 AS OF inputs.market_commit 下须存在，缺月即 UNIVERSE_CHANGED（环境尚未按规则产出该月，不能用登记时提交补）。
-4. 未剔除：market.membership_path 按 inputs.market_commit 从 universe_month 推出成员时间路径，与 inputs 交给策略的路径逐合约逐区间比较；任一成员被去掉或区间缩短即 UNIVERSE_CHANGED。窗口内下架是生命周期事件，不是剔除，由引擎按回放环境规则结算。
-5. 不写任何表；只读，可在绑定事务内重复调用。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `UNIVERSE_CHANGED` | 范围规则不同；登记前任一月份成员在两个市场提交下不逐行相同；窗口内任一月份不存在；交给策略的成员路径少于按本次提交推出的路径 |
-
-**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="ledger.refusal" />、<Ref id="table:v_universe" />、<Ref id="table:v_validations" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="X.1.3.2">X.1.3.2</Ref>
-
-</div>
 
 ### `membership_unchanged` [#def-registration-membership_unchanged]
 
@@ -808,10 +780,14 @@ def validation_bind(
     inputs: MarketInputs,
     identity: RuntimeIdentity,
     inspection: RuntimeInspection,
+    market: MarketProfile,
+    checkout: Path,
+    remote: str,
+    tsa_roots: Path,
 ) -> None
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：市场提交、范围规则、成员路径、合约集、交易窗口、覆盖回执" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：市场提交、范围规则、成员路径、合约集、交易窗口、覆盖回执" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场库档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品工作树，供 require_fresh 核对" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
 
 **返回**　None；全部核对通过后在同事务写 validation_binding 一行；任一项不一致抛拒绝，由调用方回滚整个试验事务且不启动容器
 
@@ -820,7 +796,7 @@ def validation_bind(
 1. 运行环境与产品代码：registration.require_fresh（STALE_CHECKOUT）；runtime.require_main_build(identity, inspection)（RUNTIME_NOT_MAIN）；trial.image_digest 须等于 identity 摘要。
 2. 登记与源码：读 validation_registration，不存在即 REGISTRATION_UNKNOWN；ledger.read_candidate 取登记候选的源码内容哈希，不等于 source_sha256 即 SOURCE_MISMATCH。
 3. 范围：调用 registration.membership_unchanged，不一致即 MEMBERSHIP_CHANGED；窗口内下架由 market.validate_lifecycle 校验的引擎原生事件结算并出回执。
-4. 窗口与覆盖：trial.trade_start ≥ window_start、trial.trade_end ≤ window_end、trial.created_at > window_end，否则 WINDOW_MISMATCH；replay.input_coverage 的回执须覆盖每个成员合约的预热与交易区间，否则 COVERAGE_INCOMPLETE。
+4. 窗口与覆盖：trial.trade_start 与 trial.trade_end 须分别等于登记的 window_start 与 window_end，且 trial.created_at > window_end，否则 WINDOW_MISMATCH（与提交校验 validation_runs_match_their_registration 一致）；replay.input_coverage 的回执须覆盖每个成员合约的预热与交易区间，否则 COVERAGE_INCOMPLETE。
 5. 凭证与账户条款：ledger.stamped_at 读登记提交（重试沿 retry_of 链取最初登记提交）的 genTime，无凭证或不早于 window_start 即 REGISTRATION_TOO_LATE；取该候选最近一次有效的研究回放运行，经 registration.config_key 比较其有效配置与 inspection 中影响经济的账户条款（engine.account_contract 规定的账户与撮合常量、保证金、手续费、资金费、标记价来源），不等或无此运行即 CONFIG_MISMATCH。
 6. 写绑定：插入 validation_binding(registration_id, trial_id, op_id)；主键或唯一键冲突即 REGISTRATION_CONSUMED。登记一经绑定即消耗，回放中断、审计无效或无实质活动也不释放。
 
@@ -831,7 +807,7 @@ def validation_bind(
 | `REGISTRATION_UNKNOWN` | registration_id 不存在 |
 | `SOURCE_MISMATCH` | 即将执行的源码哈希不等于登记候选的源码哈希 |
 | `MEMBERSHIP_CHANGED` | 范围规则不同、登记前各月成员在两个市场提交下不逐行相同、窗口月份缺失或成员被剔除 |
-| `WINDOW_MISMATCH` | 交易窗口不在登记窗口内，或试验时间不晚于窗口结束 |
+| `WINDOW_MISMATCH` | 交易窗口不等于登记窗口，或试验时间不晚于窗口结束 |
 | `COVERAGE_INCOMPLETE` | 任一成员合约的输入区间缺覆盖回执 |
 | `REGISTRATION_TOO_LATE` | 登记提交无凭证，或凭证 genTime 不早于 window_start |
 | `CONFIG_MISMATCH` | 账户条款与该候选最近一次有效的研究回放运行不同，或该候选没有有效的研究回放运行 |
@@ -861,10 +837,11 @@ def validation_register(
     design: dict,
     retry_of: int | None,
     op_id: str,
+    market_profile: MarketProfile,
 ) -> dict {registration_id
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本连接档案，经 ledger.connect 开写事务" }, "candidate": { type: "str", description: "被验候选引用 strategy_id@revision" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开；须晚于 window_start" }, "universe_rule": { type: "str", description: "共同可交易范围规则版本" }, "market": { type: "str | None", description: "市场提交引用；经 market.resolve_commit 解析成 market_commit" }, "design": { type: "dict", description: "声明的检验条件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "修复环境缺陷后再登记时指向的原登记" }, "op_id": { type: "str", description: "幂等 ID；相同 op_id 返回已存在的登记，不再写入" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本连接档案，经 ledger.connect 开写事务" }, "candidate": { type: "str", description: "被验候选引用 strategy_id@revision" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开；须晚于 window_start" }, "universe_rule": { type: "str", description: "共同可交易范围规则版本" }, "market": { type: "str | None", description: "市场提交引用；经 market.resolve_commit 解析成 market_commit" }, "design": { type: "dict", description: "声明的检验条件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "修复环境缺陷后再登记时指向的原登记" }, "op_id": { type: "str", description: "幂等 ID；相同 op_id 且载荷相同返回已存在的登记，载荷不同即 OP_ID_CONFLICT" }, "market_profile": { type: "MarketProfile", description: "市场库档案，用来把 market 引用解析成提交" } }} />
 
 **返回**　dict \{registration_id, ledger_commit, created_at, witness: \{status: stamped|failed, stamped_at | None, error | None\}\}：登记 ID、登记提交、服务器登记时间（读自登记行）与凭证结果
 
@@ -873,7 +850,7 @@ def validation_register(
 1. 核输入：ledger.read_candidate 解析 candidate，不存在或未发布即 CANDIDATE_UNKNOWN；registration.validate_design 校验 design，不合即 DESIGN_INVALID；时间非 UTC 或 window_start 不早于 window_end 即 WINDOW_INVALID。
 2. 定范围身份：market.resolve_commit 把 market 解析成唯一市场提交，与 universe_rule 一并写入登记行；窗口内月份此时不存在，不在此刻核对。
 3. 重试核对（给了 retry_of）：原登记须同候选、同窗口、同 universe_rule，且已被 validation_binding 绑定，其试验中断无运行、运行无效，或 qualification.assess 判为无经济证据资格；否则 RETRY_NOT_ALLOWED。
-4. 写登记：ledger.write 一事务插入一行并提交，事务内读回服务器写入的 created_at；非重试且 window_start 不晚于 created_at 即回滚并 REGISTRATION_TOO_LATE；同 op_id 已存在直接返回原行。
+4. 写登记：ledger.write 一事务插入一行并提交，事务内读回服务器写入的 created_at；非重试且 window_start 不晚于 created_at 即回滚并 REGISTRATION_TOO_LATE；同 op_id 已存在且载荷相同返回原行，载荷不同即 OP_ID_CONFLICT。
 5. 取凭证：由 dolt_diff_validation_registration 中该行 added 的 to_commit 定位登记提交，ledger.witness 对它取 RFC 3161 凭证写入 witness，只发送哈希、按提交幂等。
 6. 凭证失败不回滚登记：返回 status=failed 与 error，由 cli.ledger_witness 在窗口起点前补取；绑定时按 genTime 早于窗口起点准入（重试沿 retry_of 链取最初登记的凭证）。
 
@@ -885,6 +862,7 @@ def validation_register(
 | `RETRY_NOT_ALLOWED` | retry_of 指向的登记不存在、候选／窗口／范围规则不同、尚未绑定回放，或其运行有效且有经济证据资格（结果不好看不是重试理由） |
 | `REGISTRATION_TOO_LATE` | 非重试登记的 window_start 不晚于服务器写入的 created_at |
 | `CONCURRENT_WRITE` | 写事务与另一事务改同格为不同值，后到者回滚 |
+| `OP_ID_CONFLICT` | op_id 已存在而载荷不同 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="registration.validate_design" />、<Ref id="market.resolve_commit" />、<Ref id="qualification.assess" />、<Ref id="ledger.write" />、<Ref id="ledger.witness" />、<Ref id="ledger.refusal" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:candidate" />、<Ref id="table:witness" />、<Ref id="table:dolt_system_tables" />
 
