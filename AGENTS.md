@@ -13,8 +13,8 @@ Stop and ask before any of these:
   records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
 - Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
-  skill, or any of the user's three research targets (maximum drawdown, minimum annual return,
-  minimum win rate), including to get past a failing check.
+  skill, or either of the user's two research targets (maximum drawdown and minimum annual
+  return), including to get past a failing check. Win rate is a report dimension, not a target.
 
 Position size, per-plan risk and notional limits are the Agent's design variables, set in strategy
 source. Changing them needs no authority and never turns them into user constraints.
