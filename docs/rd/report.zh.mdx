@@ -1,8 +1,8 @@
-# R　报告：一次运行有哪些绩效指标、由谁算、按什么口径，检验结果、试验次数与跨候选汇总怎样呈现而不裁决。
+# R　报告：一次运行有哪些绩效指标、由谁算、按什么口径呈现而不裁决。
 
-本章回答一次运行的绩效指标有哪些、谁来算、按什么口径，以及检验结果、试验次数和跨候选汇总怎样呈现。它承接 G 章：只有通过完整性审计、具备经济证据资格的运行才有绩效指标。报告只呈现，不裁决。
+本章回答一次运行有哪些绩效指标、由谁算、按什么口径，包括年化、夏普、胜率、回撤、利润来源和资金使用率。它承接 G 章：只有通过完整性审计、具备经济证据资格的运行才有绩效指标。报告只呈现，不裁决。
 
-<Mermaid chart={"flowchart LR\n  subgraph R-1[\"R.1 绩效指标分工：谁算、怎么保证可信\"]\n    direction TB\n    R-1-1[\"R.1.1 产品算的绩效指标\"]\n    R-1-2[\"R.1.2 Agent 自算的描述统计\"]\n    R-1-3[\"R.1.3 每个绩效指标附带什么\"]\n  end\n  subgraph R-2[\"R.2 年化、夏普、胜率、回撤与利润来源的口径\"]\n    direction TB\n    R-2-1[\"R.2.1 年化、夏普与计划胜率\"]\n    R-2-2[\"R.2.2 最大回撤\"]\n  end\n  subgraph R-3[\"R.3 资金使用率、持仓结构与容量\"]\n    direction TB\n    R-3-1[\"R.3.1 资金使用率\"]\n  end\n  subgraph R-4[\"R.4 检验结果与试验次数的呈现\"]\n    direction TB\n    R-4-1[\"R.4.1 检验结果的呈现\"]\n    R-4-2[\"R.4.2 试验次数与选择效应\"]\n  end\n  subgraph R-5[\"R.5 呈现：跨候选汇总与可读摘要\"]\n    direction TB\n    R-5-1[\"R.5.1 跨候选汇总\"]\n  end\n  R-1 --> R-2\n  R-2 --> R-3\n  R-3 --> R-4\n  R-4 --> R-5"} />
+<Mermaid chart={"flowchart LR\n  subgraph R-1[\"R.1 绩效指标分工：谁算、怎么保证可信\"]\n    direction TB\n    R-1-1[\"R.1.1 产品算的绩效指标\"]\n    R-1-2[\"R.1.2 Agent 自算的描述统计\"]\n    R-1-3[\"R.1.3 每个绩效指标附带什么\"]\n  end\n  subgraph R-2[\"R.2 年化、夏普、胜率、回撤与利润来源的口径\"]\n    direction TB\n    R-2-1[\"R.2.1 年化、夏普与计划胜率\"]\n    R-2-2[\"R.2.2 最大回撤\"]\n    R-2-3[\"R.2.3 资金使用率\"]\n  end\n  R-1 --> R-2"} />
 
 ## R.1　绩效指标分工：谁算、怎么保证可信 [#R-1]
 
@@ -136,25 +136,25 @@
 
 <Step>
 
-回放结束，引擎从组合日收益算出年化和夏普，写入摘要。
+回放结束，引擎从开发窗口的组合日收益算出年化和夏普，写入摘要。
 
 </Step>
 
 <Step>
 
-封存时，代码逐个重建已平计划，算计划胜率、回撤和利润拆分。
+封存时，代码逐个重建已平计划，算计划胜率、标记价回撤和利润拆分，某项对账失败只置空该项并写进局限。
 
 </Step>
 
 <Step>
 
-某项对账失败只置空该项并写进局限，不改原生值、不判无效。
+资金使用率由 Agent 按 skill 经读取入口从敞口与账户数据算，与同运行的回撤并列读。
 
 </Step>
 
 <Step>
 
-报告呈现时附总体、样本量和合并去重的局限。
+报告呈现时附总体、样本量、价源与采样周期和合并去重的局限。
 
 </Step>
 
@@ -211,163 +211,13 @@
 
 </Cap>
 
-## R.3　资金使用率、持仓结构与容量 [#R-3]
-
-<Steps>
-
-<Step>
-
-回放把每根 K 线的持仓敞口随运行封存，估值缺口使审计不通过。
-
-</Step>
-
-<Step>
-
-Agent 经读取入口取敞口和账户数据，敞口与持仓对不上即拒绝。
-
-</Step>
-
-<Step>
-
-Agent 按 skill 算资金使用率：平均名义额、峰值、锁定保证金、在市时间。
-
-</Step>
-
-<Step>
-
-回撤取产品值，与资金使用率并列读；按需算持仓结构与容量。
-
-</Step>
-
-<Step>
-
-驱动决定的数先自检、经第二个 Agent 复算，才写进判断记录。
-
-</Step>
-
-</Steps>
-
-### R.3.1　资金使用率 [#R-3-1]
+### R.2.3　资金使用率 [#R-2-3]
 
 skill 规定资金使用率怎么算、怎样和回撤一起读；输入可信由代码保证。
 
 <ul className="rd-rules">
-<li id="R-3-1-1"><span className="rd-rule-id">R.3.1.1</span> 资金使用四项只经读取入口从敞口与账户数据算，缺敞口不答 <Ref id="rule:R.3.1.1">nautilus-report-analysis · references/capital.md</Ref></li>
-<li id="R-3-1-2"><span className="rd-rule-id">R.3.1.2</span> 回撤用产品值不重算，与同运行资金使用率并列读 <Ref id="rule:R.3.1.2">nautilus-report-analysis · SKILL.md</Ref></li>
-</ul>
-
-## R.4　检验结果与试验次数的呈现 [#R-4]
-
-<Steps>
-
-<Step>
-
-Agent 对登记的网格点请求比较，代码核可比资格，不符即拒绝。
-
-</Step>
-
-<Step>
-
-代码给出检验结果和固定局限，只读，不写账本、不裁决。
-
-</Step>
-
-<Step>
-
-Agent 读取研究状态，代码按账本版本统计全部试验和去重版本。
-
-</Step>
-
-<Step>
-
-Agent 以两种试验计数为两端，自算按试验次数折扣的夏普范围。
-
-</Step>
-
-<Step>
-
-Agent 写推荐判断时说明选择效应，只引用证据，不抄数字。
-
-</Step>
-
-</Steps>
-
-### R.4.1　检验结果的呈现 [#R-4-1]
-
-检验结果只读，不带通过、失败或资格结论。
-
-<Cap id="R.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="每份检验结果固定附检验对象、原假设和局限">
-
-- 检验对象：同日配对的候选与对照账户日收益对数差。
-- 原假设：平均日对数差不大于零（单侧）。
-- 局限：p 不是策略有效的概率；开发窗口内比较不是独立验证。
-- 局限：多重校正只覆盖本次登记网格，不覆盖跨登记搜索。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span></div>
-
-</Cap>
-
-### R.4.2　试验次数与选择效应 [#R-4-2]
-
-试验越多，最好成绩越可能来自运气，所以夏普要按试验次数打折扣，折扣只用代码给出的试验计数。
-
-<Cap id="R.4.2.1" kind="database" tier="verified" tierLabel="已验证" title="试验计数由代码读取时从账本统计，Agent 不自数">
-
-- 全部试验都计，含失败、中断、未完成和无效的。
-- 另按源码内容哈希去重计版本数，两者按开发窗口分列。
-- 登记的网格点按结果分为未完成、无效、经济可用、仅诊断。
-- 可按任一账本版本复读；输出不含停止标志、分数或排序。
-
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_status">research_status</Ref> <Ref id="table:trial">trial</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
-
-</Cap>
-
-<ul className="rd-rules">
-<li id="R-4-2-2"><span className="rd-rule-id">R.4.2.2</span> 按试验次数折扣的夏普以去重版本数和全部试验数各算一端 <Ref id="rule:R.4.2.2">nautilus-report-analysis · references/ratios.md</Ref></li>
-</ul>
-
-## R.5　呈现：跨候选汇总与可读摘要 [#R-5]
-
-<Steps>
-
-<Step>
-
-在同一账本版本上读候选清单和研究计数。
-
-</Step>
-
-<Step>
-
-有经济证据资格的候选进入比较，其余分列。
-
-</Step>
-
-<Step>
-
-按窗口和可交易范围，找出没被别的候选全面压过的候选。
-
-</Step>
-
-<Step>
-
-读研究状态，作为可读摘要。
-
-</Step>
-
-<Step>
-
-更正以新证据包追加，依赖它的判断以新判断取代。
-
-</Step>
-
-</Steps>
-
-### R.5.1　跨候选汇总 [#R-5-1]
-
-代码给出候选清单与计数事实，不含分数或排序；skill 规定汇总口径。
-
-<ul className="rd-rules">
-<li id="R-5-1-1"><span className="rd-rule-id">R.5.1.1</span> 只在同窗口同范围的可用运行上，按四项指标求未被全面压过的候选 <Ref id="rule:R.5.1.1">research-round · references/review.md</Ref></li>
+<li id="R-2-3-1"><span className="rd-rule-id">R.2.3.1</span> 资金使用四项只经读取入口从敞口与账户数据算，缺敞口不答 <Ref id="rule:R.2.3.1">nautilus-report-analysis · references/capital.md</Ref></li>
+<li id="R-2-3-2"><span className="rd-rule-id">R.2.3.2</span> 回撤用产品值不重算，与同运行资金使用率并列读 <Ref id="rule:R.2.3.2">nautilus-report-analysis · SKILL.md</Ref></li>
 </ul>
 
 ## 待定事项 [#R-pending]

@@ -24,7 +24,7 @@
 <li id="def-rule-R-1-2-1">只从 tables() 取数并引用 ledger_commit，不重解析原生文件 <span className="rd-rule-links"><Ref id="R.1.2.1">R.1.2.1</Ref></span><span className="rd-eval">eval <code>reads-through-tables</code>：所有自算数来自 tables() 并引用 ledger_commit；没有读原生文件，也没有直接查表；持仓时长用 duration_ns，出场用 closing_order_tags；没有覆盖或补填任何绩效指标</span></li>
 <li id="def-rule-R-1-2-3">自算数注明总体；闭仓合计须等对账量；驱动决定的数交第二 Agent 复算 <span className="rd-rule-links"><Ref id="R.1.2.3">R.1.2.3</Ref></span><span className="rd-eval">eval <code>derived-number-recomputed</code>：每个自算数注明总体与频率；闭仓合计等于 reconciled 对账量；驱动决定的数由第二个 Agent 在同一 ledger_commit 上复算，不一致时不下结论</span></li>
 <li id="def-rule-V-2-2-3">跨运行只配对账户日收益，不按时间或仓位编号配对单笔交易 <span className="rd-rule-links"><Ref id="V.2.2.3">V.2.2.3</Ref></span><span className="rd-eval">eval <code>no-cross-run-trade-pairing</code>：被要求逐笔对比两次运行时，说明两次运行的持仓周期没有一一对应，改为账户日收益配对与各自分布描述，不输出跨运行逐笔差值</span></li>
-<li id="def-rule-R-3-1-2">回撤读产品值不重算，并列同运行资金使用率；敞口同降只写「敞口下降」 <span className="rd-rule-links"><Ref id="R.3.1.2">R.3.1.2</Ref></span><span className="rd-eval">eval <code>drawdown-read-with-exposure</code>：输出把两者的资金使用率与回撤并列；结论写成敞口下降，不写成风险效率提高或风控改善；回撤取 ledger.mark_drawdown 的绩效指标，没有重算；净收益除以名义额如果出现，标为描述并写明分母，没有用来排序</span></li>
+<li id="def-rule-R-2-3-2">回撤读产品值不重算，并列同运行资金使用率；敞口同降只写「敞口下降」 <span className="rd-rule-links"><Ref id="R.2.3.2">R.2.3.2</Ref></span><span className="rd-eval">eval <code>drawdown-read-with-exposure</code>：输出把两者的资金使用率与回撤并列；结论写成敞口下降，不写成风险效率提高或风控改善；回撤取 ledger.mark_drawdown 的绩效指标，没有重算；净收益除以名义额如果出现，标为描述并写明分母，没有用来排序</span></li>
 </ol>
 
 ## `references/ratios.md` [#def-file-nautilus-report-analysis-references-ratios-md]
@@ -35,7 +35,7 @@
 
 <ol className="rd-skill-rules">
 <li id="def-rule-R-1-2-2">比率用引擎统计类对交易窗口日收益算，按 365 天年化，不引第三方库 <span className="rd-rule-links"><Ref id="R.1.2.2">R.1.2.2</Ref></span><span className="rd-eval">eval <code>native-stats-and-tearsheet</code>：比率由引擎统计类对交易窗口日收益按 365 天年化得出；没有引入其他分析依赖；全程夏普与原生摘要一致，或说明了口径差异</span></li>
-<li id="def-rule-R-4-2-2">折扣夏普取研究状态同窗口去重版本数与全部试验数各算一端，报范围并列次数 <span className="rd-rule-links"><Ref id="R.4.2.2">R.4.2.2</Ref></span><span className="rd-eval">eval <code>dsr-uses-ledger-counts</code>：从 research status 读同一开发窗口的去重版本数与全部试验数，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交</span></li>
+<li id="def-rule-V-4-4-2">折扣夏普取研究状态同窗口去重版本数与全部试验数各算一端，报范围并列次数 <span className="rd-rule-links"><Ref id="V.4.4.2">V.4.4.2</Ref></span><span className="rd-eval">eval <code>dsr-uses-ledger-counts</code>：从 research status 读同一开发窗口的去重版本数与全部试验数，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交</span></li>
 </ol>
 
 ## `references/capital.md` [#def-file-nautilus-report-analysis-references-capital-md]
@@ -45,7 +45,7 @@
 从 tables(exposures=True, account=True) 算四项资金使用率（时间加权名义额及其占权益比例、按 K 线采样的峰值、锁定保证金、在市时间），没有敞口表时写进局限；这四项是读回撤与持仓结构的语境
 
 <ol className="rd-skill-rules">
-<li id="def-rule-R-3-1-1">资金使用四项只从 tables 敞口与账户行算，先于回撤读；无敞口表不答资金问题 <span className="rd-rule-links"><Ref id="R.3.1.1">R.3.1.1</Ref></span><span className="rd-eval">eval <code>capital-use-four-readings</code>：给出四项：时间加权平均名义额（交易窗口全部 K 线，空仓根计零）及其占同刻权益的比例、标明按 K 线采样的峰值、取自账户行的锁定保证金、在市根数占比；没有重新估值仓位，也没有只凭账户报告推算；exposures 为空时不回答资金问题并写入局限。任一项缺失或口径不符即不通过</span></li>
+<li id="def-rule-R-2-3-1">资金使用四项只从 tables 敞口与账户行算，先于回撤读；无敞口表不答资金问题 <span className="rd-rule-links"><Ref id="R.2.3.1">R.2.3.1</Ref></span><span className="rd-eval">eval <code>capital-use-four-readings</code>：给出四项：时间加权平均名义额（交易窗口全部 K 线，空仓根计零）及其占同刻权益的比例、标明按 K 线采样的峰值、取自账户行的锁定保证金、在市根数占比；没有重新估值仓位，也没有只凭账户报告推算；exposures 为空时不回答资金问题并写入局限。任一项缺失或口径不符即不通过</span></li>
 </ol>
 
 ## `references/exit-reasons.md` [#def-file-nautilus-report-analysis-references-exit-reasons-md]

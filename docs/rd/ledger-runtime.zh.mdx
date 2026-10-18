@@ -1,8 +1,8 @@
-# J　账本与运行环境：研究证据存在哪、谁能写、怎么证明没被改、怎么证明登记在先，以及回放在什么环境里跑、凭什么能重放。
+# J　账本与运行环境：研究证据存在哪、谁能写、怎么证明没被改和登记在先，以及回放在什么环境里跑、变化怎么认定、凭什么能重放。
 
-本章回答研究记录存在哪、谁能写、怎么证明没被改、怎么证明登记先于回放，以及回放在什么环境里跑、凭什么能重放。它承接 W 章的市场提交、G 章的封存与完整性审计、X 章的样本外验证，讲清这些背后的存储与环境保证。
+本章回答研究记录存在哪、谁能写、怎么证明没被改和登记在先，以及回放在什么环境里跑、环境或数据变了怎么认定、凭什么能重放。它承接 W 章的市场提交、G 章的封存与完整性审计、X 章的样本外验证，讲清背后的存储与环境保证。
 
-<Mermaid chart={"flowchart LR\n  subgraph J-1[\"J.1 唯一来源：持久研究记录只存账本\"]\n    direction TB\n    J-1-1[\"J.1.1 账本及其备份\"]\n    J-1-2[\"J.1.2 账本之外的去向\"]\n  end\n  subgraph J-2[\"J.2 记录：账本装什么、谁能写什么\"]\n    direction TB\n    J-2-1[\"J.2.1 研究对象的记录\"]\n    J-2-2[\"J.2.2 回放的记录\"]\n    J-2-3[\"J.2.3 失败、无效与中断回放的去向\"]\n    J-2-4[\"J.2.4 写入分工\"]\n  end\n  subgraph J-3[\"J.3 写入保护：怎么证明没被改\"]\n    direction TB\n    J-3-1[\"J.3.1 只追加\"]\n    J-3-2[\"J.3.2 写入事务\"]\n    J-3-3[\"J.3.3 账号与写入口\"]\n    J-3-4[\"J.3.4 封存产物的保护\"]\n    J-3-5[\"J.3.5 备份与整体复核\"]\n  end\n  subgraph J-4[\"J.4 登记先于回放：先后顺序怎么证明\"]\n    direction TB\n    J-4-1[\"J.4.1 时间的来源\"]\n    J-4-2[\"J.4.2 锁定与先后的核对\"]\n  end\n  subgraph J-5[\"J.5 运行环境钉死：回放在什么里跑\"]\n    direction TB\n    J-5-1[\"J.5.1 来源与身份\"]\n    J-5-2[\"J.5.2 内容、隔离与统一入口\"]\n  end\n  subgraph J-6[\"J.6 回放身份与复现：每次回放留下什么、怎么重跑\"]\n    direction TB\n    J-6-1[\"J.6.1 一次回放绑定的身份\"]\n    J-6-2[\"J.6.2 复现合同\"]\n  end\n  J-1 --> J-2\n  J-2 --> J-3\n  J-3 --> J-4\n  J-4 --> J-5\n  J-5 --> J-6"} />
+<Mermaid chart={"flowchart LR\n  subgraph J-1[\"J.1 唯一来源：持久研究记录只存账本\"]\n    direction TB\n    J-1-1[\"J.1.1 账本及其备份\"]\n    J-1-2[\"J.1.2 账本之外的去向\"]\n  end\n  subgraph J-2[\"J.2 记录：账本装什么、谁能写什么\"]\n    direction TB\n    J-2-1[\"J.2.1 研究对象的记录\"]\n    J-2-2[\"J.2.2 回放的记录\"]\n    J-2-3[\"J.2.3 失败、无效与中断回放的去向\"]\n    J-2-4[\"J.2.4 写入分工\"]\n  end\n  subgraph J-3[\"J.3 写入保护：怎么证明没被改\"]\n    direction TB\n    J-3-1[\"J.3.1 只追加\"]\n    J-3-2[\"J.3.2 写入事务\"]\n    J-3-3[\"J.3.3 账号与写入口\"]\n    J-3-4[\"J.3.4 封存产物的保护\"]\n    J-3-5[\"J.3.5 备份与整体复核\"]\n  end\n  subgraph J-4[\"J.4 登记先于回放：先后顺序怎么证明\"]\n    direction TB\n    J-4-1[\"J.4.1 时间的来源\"]\n    J-4-2[\"J.4.2 锁定与先后的核对\"]\n  end\n  subgraph J-5[\"J.5 运行环境钉死：回放在什么里跑\"]\n    direction TB\n    J-5-1[\"J.5.1 来源与身份\"]\n    J-5-2[\"J.5.2 内容、隔离与统一入口\"]\n    J-5-3[\"J.5.3 旧、新运行环境配对重放\"]\n    J-5-4[\"J.5.4 有意变更或证明不了时\"]\n  end\n  subgraph J-6[\"J.6 回放身份与复现：每次回放留下什么、怎么重跑\"]\n    direction TB\n    J-6-1[\"J.6.1 一次回放绑定的身份\"]\n    J-6-2[\"J.6.2 复现合同\"]\n    J-6-3[\"J.6.3 变化的种类\"]\n  end\n  J-1 --> J-2\n  J-2 --> J-3\n  J-3 --> J-4\n  J-4 --> J-5\n  J-5 --> J-6"} />
 
 ## J.1　唯一来源：持久研究记录只存账本 [#J-1]
 
@@ -473,7 +473,7 @@ Agent 只追加证据包和判断，结构化事实由代码写，资格与计�
 
 ## J.5　运行环境钉死：回放在什么里跑 [#J-5]
 
-运行环境只由自动构建产出；回放只经统一入口，在按摘要钉死、隔离的容器里运行。
+运行环境只由自动构建产出，回放只经统一入口，在按摘要钉死、隔离的容器里运行。换运行环境时，旧、新环境配对重放并由代码比对原生报告；有意变更或不一致时旧运行原样可读回，受影响运行由 V.2 恢复可比资格。
 
 ### J.5.1　来源与身份 [#J-5-1]
 
@@ -539,6 +539,40 @@ Agent 只追加证据包和判断，结构化事实由代码写，资格与计�
 
 </Cap>
 
+### J.5.3　旧、新运行环境配对重放 [#J-5-3]
+
+同一源码、输入、窗口和账户在两个运行环境各跑一次，由代码比对两份原生报告。
+
+<Cap id="J.5.3.1" kind="code" tier="verified" tierLabel="已验证" title="两份原生报告逐项一致，才算引擎行为没变">
+
+- 订单、成交、持仓、账户、日收益五张报表，除引擎随机编号列外逐字段相等。
+- 资金费调整逐条相等，不留容差；账户汇总指标在小容差内相等。
+- 程序正常退出、报告能读或测试通过，都不算一致。
+- 比较只读、不写账本，也不产生绩效指标。
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.compare_reports">compare_reports</Ref> <Ref id="report.compare_runs">compare_runs</Ref></span></div>
+
+</Cap>
+
+<ul className="rd-rules">
+<li id="J-5-3-2"><span className="rd-rule-id">J.5.3.2</span> 配对通过只说明引擎行为未变，不算经济改善 <Ref id="rule:J.5.3.2">research-round · references/changes.md</Ref></li>
+</ul>
+
+### J.5.4　有意变更或证明不了时 [#J-5-4]
+
+旧身份下的记录永久可读回；受影响运行只读查出，由 V.2 恢复可比资格。
+
+<Cap id="J.5.4.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="有意变更或配对不一致时，旧运行原样保留、永远可读回">
+
+- 适用于有意改变引擎行为，或配对重放不一致、无法进行时。
+- 旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。
+- 旧运行环境按摘要保留，读回时仍能核对；删除它须用户授权。
+- 受影响范围按新身份只读查出，不排序，也不打标记。
+
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.affected_runs">affected_runs</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span></div>
+
+</Cap>
+
 ## J.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 
 <Steps>
@@ -551,13 +585,7 @@ Agent 只追加证据包和判断，结构化事实由代码写，资格与计�
 
 <Step>
 
-回放时重新导出，核对与登记逐字相同，把源码与绑定只读交给容器。
-
-</Step>
-
-<Step>
-
-容器内运行器核对源码哈希和入口类，执行后重算输入指纹。
+回放时重新导出并核对与登记逐字相同；容器内运行器核对源码哈希和入口类，执行后重算输入指纹。
 
 </Step>
 
@@ -570,6 +598,12 @@ Agent 只追加证据包和判断，结构化事实由代码写，资格与计�
 <Step>
 
 复现时按摘要拉回环境，用同一市场提交重放，逐条比对原生报告。
+
+</Step>
+
+<Step>
+
+交易所数据或运行环境变了，由代码自动认定变化种类；新月份只报可扩展范围，开发窗口由用户选。
 
 </Step>
 
@@ -641,6 +675,14 @@ Agent 只追加证据包和判断，结构化事实由代码写，资格与计�
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.load_run">load_run</Ref> <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="qualification.assess">assess</Ref></span></div>
 
 </Cap>
+
+### J.6.3　变化的种类 [#J-6-3]
+
+交易所数据和运行环境的变化由代码自动区分，开发窗口扩展由用户选。
+
+<ul className="rd-rules">
+<li id="J-6-3-1"><span className="rd-rule-id">J.6.3.1</span> 新月份只报可扩展范围和受阻原因，窗口由用户选 <Ref id="rule:J.6.3.1">research-start · references/readiness.md</Ref></li>
+</ul>
 
 ## 待定事项 [#J-pending]
 

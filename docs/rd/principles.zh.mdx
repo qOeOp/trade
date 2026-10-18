@@ -1,8 +1,8 @@
-# A　总则：研究循环怎么转、用户与 Agent 各决定什么、产品代码管到哪里。
+# A　总则：研究循环怎么转，用户、Agent 与代码各决定什么。
 
-本章是全书第一章，接在最前面的核心概念表之后，回答三件事：研究循环怎么转，用户、Agent 和代码各自决定什么，产品代码只管到哪里。各步骤的具体做法在后面各章展开。
+本章是全书第一章，接在核心概念表之后，回答两件事：研究循环怎么转，用户、Agent 和代码各自决定什么。各步骤的具体做法在后面各章展开。
 
-<Mermaid chart={"flowchart LR\n  subgraph A-1[\"A.1 说清循环怎么转\"]\n    direction TB\n    A-1-1[\"A.1.1 循环的步骤\"]\n  end\n  subgraph A-2[\"A.2 划清谁决定什么\"]\n    direction TB\n    A-2-2[\"A.2.2 Agent 决定的\"]\n    A-2-3[\"A.2.3 用户决定的\"]\n  end\n  subgraph A-4[\"A.4 划定产品代码的范围\"]\n    direction TB\n    A-4-1[\"A.4.1 代码只放什么\"]\n  end\n  A-1 --> A-2\n  A-2 --> A-4"} />
+<Mermaid chart={"flowchart LR\n  subgraph A-1[\"A.1 说清循环怎么转\"]\n    direction TB\n    A-1-1[\"A.1.1 循环的步骤\"]\n  end\n  subgraph A-2[\"A.2 划清谁决定什么\"]\n    direction TB\n    A-2-2[\"A.2.2 Agent 决定的\"]\n    A-2-3[\"A.2.3 用户决定的\"]\n  end\n  A-1 --> A-2"} />
 
 ## A.1　说清循环怎么转 [#A-1]
 
@@ -99,57 +99,6 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 <ul className="rd-rules">
 <li id="A-2-3-3"><span className="rd-rule-id">A.2.3.3</span> 实盘、删改已存记录、改检查或改回撤年化胜率要求前，须停下等用户授权 <Ref id="rule:A.2.3.3">research-round · SKILL.md</Ref></li>
 </ul>
-
-## A.4　划定产品代码的范围 [#A-4]
-
-<Steps>
-
-<Step>
-
-想支持一项行为时，先写明谁用它、要解决什么阻断。
-
-</Step>
-
-<Step>
-
-属于信任边界，或 Agent 做不到的事（原子写、并发、权限），写进代码。
-
-</Step>
-
-<Step>
-
-订单、成交、结算、风控和账户归引擎，代码只做配置和读取，不另建平行系统。
-
-</Step>
-
-<Step>
-
-其余写成 skill；skill 不在账本里产生裁决，代码也不设通过门槛。
-
-</Step>
-
-<Step>
-
-加代码前先验证它确有价值。
-
-</Step>
-
-</Steps>
-
-### A.4.1　代码只放什么 [#A-4-1]
-
-代码只放信任边界，以及 Agent 做不到的账本写入保证。
-
-<Cap id="A.4.1.2" kind="code" tier="verified" tierLabel="已验证" title="账本写入的完整性、重试、并发和权限由代码保证">
-
-- 每次写入放在一个事务里提交，要么全部成功，要么全部不生效。
-- 同样内容重试，只返回原来那条记录，不会重复写入。
-- 两个写入同时发生、互相碰撞时，后一方回滚并被拒绝。
-- 写账号只能追加，读账号只能读；绕过写入入口直接改库会被拒绝。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.write">write</Ref> <Ref id="ledger.init">init</Ref> <Ref id="ledger.connect">connect</Ref></span></div>
-
-</Cap>
 
 ## 待定事项 [#A-pending]
 
