@@ -153,10 +153,14 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "or is malformed.",
                            ("Replay through `replay run`, `replay precheck` or `replay explore`, which write both "
                             "together.",)),
-    "REGISTRATION_TOO_LATE": ("The registration was not recorded strictly before the trial.",
-                              ("Register a new grid point, then replay it.",)),
-    "SOURCE_MISMATCH": ("The executed source is not in the registration's locked grid.",
-                        ("Replay a source of the registered grid, or register a new grid.",)),
+    "REGISTRATION_TOO_LATE": ("The registration was not recorded strictly before the trial, or a validation "
+                              "registration's time witness is missing or not before its window starts.",
+                              ("Register a new grid point, then replay it; for a validation, stamp it with "
+                               "`ledger witness` before the window starts or register a later window.",)),
+    "SOURCE_MISMATCH": ("The executed source is not in the registration's locked grid, or not the source of the "
+                        "registered validation candidate.",
+                        ("Replay a source of the registered grid (or the registered candidate), or register "
+                         "again.",)),
     "LINEAGE_MISMATCH": ("The grid source's parent or difference no longer matches the registration.",
                          ("Register the grid again from the published candidates.",)),
     "EXECUTION_MISMATCH": ("The runtime, effective configuration or input identity differs from the "
@@ -194,6 +198,117 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Run `ledger witness` again to request a new token.",)),
     "WITNESS_UNAVAILABLE": ("The timestamp authority was unreachable, timed out or did not grant a token.",
                             ("Run `ledger witness` again before the validation window starts.",)),
+    # Registration (registration/register.py)
+    "RESERVED_BUNDLE_NAME": ("The registration bundle name lies in a product namespace (trial-*, knowledge-*, "
+                             "research-line-*, source-review-*, lifecycle-*).",
+                             ("Choose another registration bundle name, for example registration-<hypothesis>.",)),
+    "DUPLICATE_BUNDLE": ("A bundle of that name already exists with another research-plan.json.",
+                         ("Register under a new bundle name; registrations are never replaced.",)),
+    "REGISTRATION_INVALID": ("The registration body does not have the required shape, or a record it cites (source "
+                             "bundle, retry_of registration, parent, grid candidate) is not in the ledger.",
+                             ("Fix the field the message names (its description is quoted), then run "
+                              "`registration add` again.",)),
+    "SOURCES_REQUIRED": ("The rationale cites external work without a source original, or a cited source bundle "
+                         "does not exist.",
+                         ("Pass the originals with `registration add --source`, or add them with `evidence add` "
+                          "and cite their bundle names.",)),
+    "METRIC_UNSUPPORTED": ("The comparison metric has no defined paired inference; only annual_return has one.",
+                           ("Register metric annual_return.",)),
+    "RESEARCH_LINE_REQUIRED": ("The ledger has no research line record, so the window cannot be checked.",
+                               ("Select a research line with `line select`, then register.",)),
+    "WINDOW_MISMATCH": ("The registered window differs from the research line's development window, or a "
+                        "validation trial's window is not inside its registered window or does not start after "
+                        "it ends.",
+                        ("Register the research line's window exactly (read it with `research state`); replay a "
+                         "validation only inside its registered window after it has ended.",)),
+    "CONFIG_MISMATCH": ("A grid point's runtime contract differs from the execution identity, or a validation's "
+                        "account terms differ from the candidate's latest valid research run (or it has none).",
+                        ("Publish the grid for the probed runtime contract; replay the candidate's research run "
+                         "under the validation's runtime first.",)),
+    "SOURCE_ALREADY_EXPOSED": ("A grid source was already run by a replay that is not an exempt precheck, and the "
+                               "registration names no retry_of that consumed it.",
+                               ("Register a new source, or set retry_of to the registration that consumed this "
+                                "source.",)),
+    "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
+                     "registration.",
+                     ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",)),
+    "PREDICTION_INVALID": ("A prediction names a duty outside changed_duties or a slice or measure outside the "
+                           "measure catalogue, has an empty slice without a reason, or a changed duty has no "
+                           "prediction.",
+                           ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
+                            "empty slice with a reason).",)),
+    "INTERPRETATION_REQUIRED": ("A completed research trial of the line has no interpretation judgment.",
+                                ("Add an interpretation with `judgment add --kind interpretation` about the trials "
+                                 "the message lists.",)),
+    "REVIEW_DUE": ("The research trials since the last recommendation reached the review cadence.",
+                   ("Review the line and add a recommendation with `judgment add --kind recommendation`.",)),
+    "REVIEW_CADENCE_REQUIRED": ("A derived registration needs a review cadence on the line first.",
+                                ("Declare one with `judgment add --kind review_cadence --cadence-trials N`.",)),
+    # Comparability (registration/comparability.py)
+    "RUN_NOT_PASSED": ("The run is not a passed sealed research or validation run.",
+                       ("Choose a passed research or validation run as the control.",)),
+    "COMPARABILITY_MISMATCH": ("The two sides differ in runtime image, effective configuration or input identity.",
+                               ("Choose a comparable control, or replay the control under the new execution "
+                                "identity first.",)),
+    "IDENTITY_MALFORMED": ("An effective configuration or input identity is not a mapping or lacks a required key.",
+                           ("Replay through the product entry points, which record complete identities.",)),
+    "ECONOMIC_EVIDENCE_UNAVAILABLE": ("The run has no economic evidence (no fills, unmatched records, failed "
+                                      "capture or failed source review).",
+                                      ("Choose a control with economic evidence, or diagnose and fix the run "
+                                       "first.",)),
+    # Inputs (registration/inputs.py)
+    "SYMBOL_SELECTION_INVALID": ("The selection does not give exactly one of universe or symbols, or repeats a "
+                                 "symbol.",
+                                 ("Pass {\"universe\": true} or {\"symbols\": [...]} without repeats.",)),
+    "UNIVERSE_EMPTY": ("The market commit has no universe members, or none intersects the trading window.",
+                       ("Pin a market commit whose universe covers the window, or choose another window.",)),
+    "EXPORT_TIMEFRAME": ("An export receipt is not of 1-minute bars.",
+                         ("Export the market inputs again with the product entry point.",)),
+    "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, or the membership file "
+                               "is missing.",
+                               ("Export the market inputs again into a new directory.",)),
+    "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is missing, lacks lifecycle.json, fails its hash check or "
+                        "does not validate against the pinned market commit.",
+                        ("Write the lifecycle bundle for this market commit again with the market command.",)),
+    # Prechecks and source reviews (registration/precheck.py)
+    "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
+                       "enumeration, has an empty note or contradicts its verdict.",
+                       ("Write trial_id, verdict and the four items api, causal, activity, readiness, each with a "
+                        "status and a note.",)),
+    "PRECHECK_CAPTURE_MISSING": ("The trial has no original precheck capture (only recovery material, or another "
+                                 "purpose).",
+                                 ("Run `replay precheck` for the source and review that trial.",)),
+    # Validation (registration/validation.py)
+    "CANDIDATE_UNKNOWN": ("The validated candidate is not a published candidate.",
+                          ("Pass a candidate shown by `candidate list` as strategy_id@revision.",)),
+    "DESIGN_INVALID": ("The declared test design lacks or adds a field or holds an illegal value.",
+                       ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
+                        "design_reason.",)),
+    "RETRY_NOT_ALLOWED": ("The retried registration does not exist, differs in candidate, window or universe "
+                          "rule, was never bound, or produced a valid run with economic evidence.",
+                          ("Retry only a bound registration whose replay was interrupted, invalid or without "
+                           "economic evidence.",)),
+    "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
+                             ("List validation registrations with `research status`.",)),
+    "REGISTRATION_CONSUMED": ("The validation registration was already bound, or the trial is bound to another "
+                              "registration.",
+                              ("Register a new validation; a bound registration stays consumed.",)),
+    "STALE_CHECKOUT": ("The product checkout is dirty, lacks the latest main commit, or cannot prove either.",
+                       ("Commit or remove local changes and update to origin/main, then rerun.",)),
+    "RUNTIME_NOT_MAIN": ("The runtime image is not a main build of the product image source, or its code differs "
+                         "from that revision, or the trial ran another image.",
+                         ("Merge first, then rerun with the main runtime image.",)),
+    "MEMBERSHIP_CHANGED": ("The universe rule differs, a month before registration changed between the two market "
+                           "commits, a window month is missing, or a member was removed from the strategy's path.",
+                           ("Replay with the registered universe rule on a market commit that keeps the registered "
+                            "months and covers the window.",)),
+    "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",
+                            ("Export the market inputs for the whole warm-up and trading interval again.",)),
+    # Runtime (the registration seam to research/records/runtime.py)
+    "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
+                            ("Check the image reference and the container runtime, then rerun.",)),
+    "RUNTIME_PROBE_INVALID": ("The runtime identity probe failed or returned an incomplete report.",
+                              ("Use a runtime image built by CI for a supported runtime contract.",)),
 }
 
 
