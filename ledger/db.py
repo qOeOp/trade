@@ -1,0 +1,633 @@
+"""The research ledger's service, accounts, connections and its single write protocol.
+
+A service is one local `dolt sql-server` with its own directory, unix socket and accounts; it may
+hold several databases. A profile names one research database on one service, its fixed research
+branch and its kind (`active`, `isolated` or `temporary`). Each database has a writer account
+(SELECT, INSERT, UPDATE of `ledger_head`, EXECUTE of `dolt_commit`, branch write on the research
+branch only) and a reader account (SELECT). Administration stays inside `init`.
+
+Every write is one transaction on one writer connection: look the operation up by `op_id` (a
+retry returns the original record), refuse a dirty working set, insert, bump the single
+`ledger_head` row and `dolt_commit`, which runs the commit verification group. Two concurrent
+writers both change `ledger_head`, so Dolt refuses the later one (error 1213) instead of merging.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import time
+from typing import Literal
+
+import pymysql
+import pymysql.cursors
+
+from ledger.errors import Refusal
+from ledger.paths import temporary_path
+from ledger.refusals import refuse
+
+
+SCHEMA_VERSION = 1
+READABLE_VERSIONS = frozenset({1})
+DOLT_VERSION = "2.4.2"
+KINDS = ("active", "isolated", "temporary")
+ROLES = ("writer", "reader")
+SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
+COMMIT_TESTS = "commit"
+SCHEMA = Path(__file__).with_name("schema.sql")
+REPOSITORY = Path(__file__).resolve().parents[1]
+DEFAULT_HOME = Path.home() / ".local/share/trade/ledgers"
+NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+DATABASE = re.compile(r"[A-Za-z0-9_]{1,64}\Z")
+REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
+COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
+IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
+OP_ID_LIMIT = 160
+
+
+# Profiles
+
+@dataclass(frozen=True)
+class LedgerProfile:
+    """A named research database on one service; `kind` is its lifecycle, `holds` its content."""
+
+    name: str
+    database: str
+    service_root: Path
+    research_branch: str = "main"
+    kind: str = "isolated"
+    backup_root: Path | None = None
+    holds: str = "research"
+
+    def as_json(self) -> dict:
+        return {"name": self.name, "holds": self.holds, "kind": self.kind, "database": self.database,
+                "service": str(self.service_root), "research_branch": self.research_branch,
+                "backup": str(self.backup_root) if self.backup_root else None}
+
+    @classmethod
+    def from_json(cls, value: dict) -> LedgerProfile:
+        kind, holds = value.get("kind"), value.get("holds")
+        if holds is None and kind in ("research", "market"):
+            # A profile written by research/records: `kind` held the content and `role` the lifecycle.
+            holds, kind = kind, value.get("role")
+        return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
+                   research_branch=value.get("research_branch") or "main", kind=kind,
+                   backup_root=Path(value["backup"]) if value.get("backup") else None, holds=holds or "research")
+
+
+def home() -> Path:
+    """The profile directory; `TRADE_LEDGER_HOME` overrides it for tests and rehearsals."""
+    return Path(os.environ.get("TRADE_LEDGER_HOME", DEFAULT_HOME)).expanduser()
+
+
+def profiles() -> dict[str, LedgerProfile]:
+    directory = home()
+    if not directory.is_dir():
+        return {}
+    found = {}
+    for path in sorted(directory.glob("*.json")):
+        try:
+            found[path.stem] = LedgerProfile.from_json(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return found
+
+
+def load_profile(name: str) -> LedgerProfile:
+    found = profiles().get(name)
+    if found is None:
+        raise refuse("LEDGER_UNKNOWN", f"there is no ledger profile named {name!r}", missing=(name,))
+    return found
+
+
+def _private_write(path: Path, value: dict) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
+    with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as stream:
+        json.dump(value, stream, indent=2, ensure_ascii=False)
+        stream.write("\n")
+    os.replace(temporary, path)
+
+
+def _service(root: Path) -> dict | None:
+    try:
+        return json.loads((Path(root) / "service.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+# Service lifecycle (ported from research/records/ledger.py)
+
+def _binary(given: Path | str | None) -> str:
+    candidate = given or os.environ.get("RESEARCH_DOLT_BINARY") or shutil.which("dolt")
+    if not candidate:
+        raise refuse("DOLT_BINARY", "no Dolt executable given, in RESEARCH_DOLT_BINARY or on PATH",
+                     expected=f"dolt version {DOLT_VERSION}")
+    binary = Path(candidate).expanduser().resolve()
+    try:
+        checked = subprocess.run([str(binary), "version"], capture_output=True, text=True, check=False, timeout=30)
+    except OSError:
+        checked = None
+    if checked is None or checked.returncode or not checked.stdout.startswith(f"dolt version {DOLT_VERSION}"):
+        raise refuse("DOLT_BINARY", f"{binary} is not a Dolt {DOLT_VERSION} executable",
+                     expected=f"dolt version {DOLT_VERSION}")
+    return str(binary)
+
+
+def _pid(root: Path) -> int | None:
+    pid_file = root / "server.pid"
+    if not pid_file.exists():
+        return None
+    pid = int(pid_file.read_text())
+    owner = subprocess.run(["ps", "-ww", "-p", str(pid), "-o", "args="], capture_output=True, text=True, check=False)
+    if owner.returncode or "sql-server" not in owner.stdout or str(root / "config.yaml") not in owner.stdout:
+        pid_file.unlink()
+        return None
+    return pid
+
+
+def _admin(config: dict, password: str | None = None, database: str | None = None):
+    return pymysql.connect(unix_socket=config["socket"], user="root",
+                           password=config["root_password"] if password is None else password,
+                           database=database, autocommit=True, connect_timeout=5, max_allowed_packet=1 << 30)
+
+
+def start_service(root: Path) -> dict:
+    """Start the service of `root` unless it runs; wait until it accepts connections."""
+    root = Path(root)
+    config = _service(root)
+    if config is None:
+        raise refuse("LEDGER_UNKNOWN", f"{root} is not a ledger service directory")
+    pid = _pid(root)
+    if pid is None:
+        environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
+        with (root / "server.log").open("ab") as log:
+            process = subprocess.Popen([config["binary"], "sql-server", "--config", str(root / "config.yaml")],
+                                       cwd=root, stdout=log, stderr=log, start_new_session=True, env=environment)
+        (root / "server.pid").write_text(str(process.pid))
+        pid = process.pid
+    for _ in range(150):
+        try:
+            _admin(config).close()
+            return {"running": True, "pid": pid, "service": str(root)}
+        except pymysql.MySQLError:
+            if _pid(root) is None:
+                break
+            time.sleep(0.1)
+    print(f"ledger service log: {root / 'server.log'}", file=sys.stderr)
+    raise refuse("LEDGER_START", "the Dolt service did not accept connections in time or exited")
+
+
+def stop_service(root: Path) -> dict:
+    root = Path(root)
+    pid = _pid(root)
+    if pid is None:
+        return {"running": False, "service": str(root)}
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(150):
+        try:
+            reaped, _ = os.waitpid(pid, os.WNOHANG)
+            if reaped == pid:
+                break
+        except ChildProcessError:
+            pass
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError(f"Dolt server {pid} did not stop")
+    (root / "server.pid").unlink(missing_ok=True)
+    return {"running": False, "pid": pid, "service": str(root)}
+
+
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _create_service(root: Path, binary: str) -> dict:
+    socket_path = root / "mysql.sock"
+    if len(str(socket_path)) > SOCKET_LIMIT:
+        raise refuse("LEDGER_START", f"the service socket path would exceed {SOCKET_LIMIT} bytes",
+                     expected="a shorter service directory")
+    root.mkdir(mode=0o700, parents=True, exist_ok=False)
+    for name in ("data", "cfg", "home"):
+        (root / name).mkdir(mode=0o700)
+    port = _free_port()
+    (root / "config.yaml").write_text(
+        "log_level: warning\n"
+        "behavior:\n  autocommit: true\n"
+        f"listener:\n  host: 127.0.0.1\n  port: {port}\n  socket: {socket_path}\n"
+        f"data_dir: {root / 'data'}\ncfg_dir: {root / 'cfg'}\n"
+        f"privilege_file: {root / 'cfg' / 'privileges.db'}\n"
+        f"branch_control_file: {root / 'cfg' / 'branch_control.db'}\n", encoding="utf-8")
+    environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
+    for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
+        subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
+                       capture_output=True)
+    config = {"binary": binary, "socket": str(socket_path), "port": port,
+              "root_password": secrets.token_urlsafe(24), "databases": {}, "secured": False}
+    _private_write(root / "service.json", {**config, "root_password": ""})
+    start_service(root)
+    conn = _admin(config, password="")
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("ALTER USER 'root'@'localhost' IDENTIFIED BY %s", (config["root_password"],))
+    finally:
+        conn.close()
+    _private_write(root / "service.json", config)
+    return config
+
+
+def _statements(text: str) -> list[str]:
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("--")]
+    return [part.strip().rstrip(";") for part in "\n".join(lines).split(";\n") if part.strip().rstrip(";")]
+
+
+def _inside(path: Path, root: Path) -> bool:
+    return Path(path).expanduser().resolve().is_relative_to(root.resolve())
+
+
+def init(name: str, database: str, service_root: Path, kind: Literal["active", "isolated", "temporary"],
+         research_branch: str = "main", backup_root: Path | None = None, dolt_binary: Path | None = None) -> dict:
+    """Create the database, its schema and accounts on a (new or running) service; write the profile."""
+    if (not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(database, str)
+            or not DATABASE.fullmatch(database) or kind not in KINDS
+            or not isinstance(research_branch, str) or not REF.fullmatch(research_branch) or ".." in research_branch):
+        raise refuse("INVALID_NAME", "the profile name, database name, kind or research branch is malformed",
+                     expected="name [A-Za-z0-9_-], database [A-Za-z0-9_], kind active|isolated|temporary")
+    found = profiles()
+    if name in found:
+        raise refuse("LEDGER_EXISTS", f"a ledger profile named {name} already exists; nothing is replaced")
+    actives = [value for value in found.values() if value.kind == "active"]
+    if kind == "active" and any(value.holds == "research" for value in actives):
+        raise refuse("LEDGER_EXISTS", "an active research ledger already exists; there is only one")
+    if kind != "active" and any(value.database == database for value in actives):
+        raise refuse("ISOLATION_BREACH", f"database {database} is an active ledger's name; use another")
+    service_root = Path(service_root).expanduser().absolute()
+    if kind == "active":
+        if backup_root is None:
+            raise refuse("ISOLATION_BREACH", "an active ledger needs a backup directory outside its service",
+                         missing=("backup_root",))
+        for path in (service_root, Path(backup_root)):
+            if _inside(path, REPOSITORY) or _is_temporary(path):
+                raise refuse("ISOLATION_BREACH", "an active ledger keeps its service and backup outside the "
+                                                 "source checkout and temporary roots")
+    binary = _binary(dolt_binary)
+    config = _service(service_root) if (service_root / "service.json").exists() else _create_service(service_root,
+                                                                                                    binary)
+    start_service(service_root)
+    if database in config["databases"]:
+        raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
+    conn = _admin(config)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SHOW DATABASES")
+            if database in {row[0] for row in cursor.fetchall()}:
+                raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
+            accounts = {role: {"user": f"{database}_{role}", "password": secrets.token_urlsafe(24)}
+                        for role in ROLES}
+            commit = _create_database(cursor, config, database, research_branch, accounts)
+    finally:
+        conn.close()
+    config["secured"] = True
+    config["databases"][database] = accounts
+    _private_write(service_root / "service.json", config)
+    profile = LedgerProfile(name=name, database=database, service_root=service_root, research_branch=research_branch,
+                            kind=kind, backup_root=Path(backup_root).expanduser().absolute() if backup_root else None)
+    _private_write(home() / f"{name}.json", profile.as_json())
+    return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": research_branch,
+            "schema_version": SCHEMA_VERSION, "commit": commit}
+
+
+def _is_temporary(path: Path) -> bool:
+    try:
+        temporary_path(path, require_new=False)
+    except Refusal:
+        return False
+    return True
+
+
+def _create_database(cursor, config: dict, database: str, branch: str, accounts: dict) -> str:
+    cursor.execute(f"CREATE DATABASE `{database}`")
+    cursor.execute(f"USE `{database}`")
+    if not config.get("secured"):
+        # Once per service, with a database selected: branch writes need an explicit grant; root keeps
+        # admin everywhere (deleting the wildcard row alone would also remove root's write).
+        cursor.execute("INSERT INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
+        cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = '%' AND branch = '%' "
+                       "AND user = '%' AND host = '%'")
+        # Service-wide: every database on this service needs at least one test in this group.
+        cursor.execute(f"SET PERSIST dolt_commit_verification_groups = '{COMMIT_TESTS}'")
+    for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
+        cursor.execute(statement)
+    cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (SCHEMA_VERSION,))
+    cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
+    cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{SCHEMA_VERSION}",))
+    (commit,), = cursor.fetchall()
+    if branch != "main":
+        cursor.execute("CALL DOLT_BRANCH(%s, 'main')", (branch,))
+    writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
+    cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
+    cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
+    # Least privilege: no UPDATE or DELETE except the concurrency row, no database-wide EXECUTE (it
+    # would allow reset, tagging, branching and amend), only DOLT_COMMIT by name.
+    cursor.execute(f"GRANT SELECT, INSERT ON `{database}`.* TO '{writer}'@'%'")
+    cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer}'@'%'")
+    cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
+    cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, %s, %s, '%%', 'write')", (database, branch, writer))
+    cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
+    return commit
+
+
+# Connections
+
+class LedgerConnection:
+    """One command's connection to one database/branch, with its account role."""
+
+    def __init__(self, raw, profile: LedgerProfile, role: str, branch: str, schema_version: int):
+        self.raw, self._profile, self._role, self._branch = raw, profile, role, branch
+        self._schema_version = schema_version
+        self.in_write = False
+
+    profile = property(lambda self: self._profile)
+    role = property(lambda self: self._role)
+    database = property(lambda self: self._profile.database)
+    branch = property(lambda self: self._branch)
+    schema_version = property(lambda self: self._schema_version)
+
+    def rows(self, statement: str, params=None) -> list[tuple]:
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.execute(statement, params)
+                result = list(cursor.fetchall())
+                while cursor.nextset():
+                    cursor.fetchall()
+                return result
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def dicts(self, statement: str, params=None) -> list[dict]:
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.execute(statement, params)
+                names = [column[0] for column in cursor.description or ()]
+                return [dict(zip(names, row)) for row in cursor.fetchall()]
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def one(self, statement: str, params=None) -> dict | None:
+        found = self.dicts(statement, params)
+        return found[0] if found else None
+
+    def many(self, statement: str, rows: list[tuple]) -> None:
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.executemany(statement, rows)
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def close(self) -> None:
+        try:
+            self.raw.close()
+        except pymysql.MySQLError:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+class ReadConnection(LedgerConnection):
+    """A reader connection pinned on the revision database of one exact commit."""
+
+    def __init__(self, raw, profile, branch, schema_version, resolved_commit: str, ref: str):
+        super().__init__(raw, profile, "reader", branch, schema_version)
+        self.resolved_commit, self.ref = resolved_commit, ref
+
+
+def _connection_error(exc: pymysql.MySQLError) -> Refusal:
+    code = exc.args[0] if exc.args else None
+    if code in (1044, 1045, 1227):
+        return refuse("LEDGER_PERMISSION", "the ledger service refused this account")
+    if code == 1049:
+        return refuse("UNKNOWN_REF", "the ledger has no such branch")
+    return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections")
+
+
+def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: str | None = None, *,
+            _streaming: bool = False) -> LedgerConnection:
+    """Open a writer or reader connection on `branch` (the fixed research branch by default)."""
+    if role not in ROLES:
+        raise refuse("INVALID_ROLE", f"role must be writer or reader, got {role!r}", expected="writer | reader")
+    if profile.holds != "research":
+        raise refuse("LEDGER_KIND", f"profile {profile.name} holds {profile.holds} data, not a research ledger")
+    branch = branch or profile.research_branch
+    if role == "writer" and branch != profile.research_branch:
+        raise refuse("BRANCH_FORBIDDEN", f"the writer writes only the research branch {profile.research_branch}",
+                     expected=profile.research_branch)
+    if not REF.fullmatch(branch) or ".." in branch:
+        raise refuse("INVALID_REF", f"invalid branch name {branch!r}")
+    config = _service(profile.service_root)
+    accounts = (config or {}).get("databases", {}).get(profile.database)
+    if accounts is None or role not in accounts:
+        raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
+    try:
+        raw = pymysql.connect(unix_socket=config["socket"], user=accounts[role]["user"],
+                              password=accounts[role]["password"], database=f"{profile.database}/{branch}",
+                              charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
+                              write_timeout=600, max_allowed_packet=1 << 30,
+                              cursorclass=pymysql.cursors.SSCursor if _streaming else pymysql.cursors.Cursor)
+    except pymysql.MySQLError as exc:
+        raise _connection_error(exc) from exc
+    conn = LedgerConnection(raw, profile, role, branch, 0)
+    try:
+        version = _schema_version(conn)
+        if version != SCHEMA_VERSION:
+            raise refuse("SCHEMA_MISMATCH", f"ledger schema version {version}, this code expects {SCHEMA_VERSION}",
+                         expected=str(SCHEMA_VERSION))
+    except BaseException:
+        conn.close()
+        raise
+    conn._schema_version = version
+    return conn
+
+
+def _schema_version(conn: LedgerConnection) -> int | None:
+    found = conn.rows("SELECT version FROM ledger_schema WHERE singleton = 1")
+    return found[0][0] if found else None
+
+
+def check_ref(ref) -> str:
+    if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
+        raise refuse("INVALID_REF", f"invalid ledger reference {ref!r}",
+                     expected="a commit hash, tag or branch name ([A-Za-z0-9_./-])")
+    return ref
+
+
+def resolve_commit(conn: LedgerConnection, ref: str) -> str:
+    """The commit hash a branch, tag or commit hash names on this database."""
+    check_ref(ref)
+    for statement in ("SELECT hash FROM dolt_branches WHERE name = %s",
+                      "SELECT tag_hash FROM dolt_tags WHERE tag_name = %s"):
+        found = conn.rows(statement, (ref,))
+        if found:
+            return found[0][0]
+    if COMMIT_HASH.fullmatch(ref) and conn.rows("SELECT 1 FROM dolt_commits WHERE commit_hash = %s", (ref,)):
+        return ref
+    raise refuse("UNKNOWN_REF", f"{ref!r} is no commit, tag or branch of this ledger", missing=(ref,))
+
+
+def read_as_of(profile: LedgerProfile, at: str | None = None, readonly_sql: bool = True) -> ReadConnection:
+    """A reader connection on `database/<commit>` for the exact commit `at` names (default: research head)."""
+    ref = profile.research_branch if at is None else check_ref(at)
+    base = connect(profile, "reader", _streaming=not readonly_sql)
+    try:
+        commit = resolve_commit(base, ref)
+        base.rows(f"USE `{profile.database}/{commit}`")
+        version = _schema_version(base)
+        if version not in READABLE_VERSIONS:
+            raise refuse("SCHEMA_MISMATCH", f"ledger schema version {version} at {commit} is not readable here",
+                         expected=", ".join(str(item) for item in sorted(READABLE_VERSIONS)))
+    except BaseException:
+        base.close()
+        raise
+    return ReadConnection(base.raw, profile, profile.research_branch, version, commit, ref)
+
+
+def head_commit(conn: LedgerConnection) -> str:
+    """The commit a connection reads: its pinned commit, else its branch head."""
+    if isinstance(conn, ReadConnection):
+        return conn.resolved_commit
+    return conn.rows("SELECT DOLT_HASHOF('HEAD')")[0][0]
+
+
+def as_of(conn: LedgerConnection, at: str | None) -> tuple[str, str]:
+    """`(commit, clause)` for reading tables at `at` on this connection; `at=None` reads what the
+    connection sees now (inside a write, its own uncommitted rows too) and names its head commit."""
+    if at is None:
+        return head_commit(conn), ""
+    commit = resolve_commit(conn, at)
+    return commit, f" AS OF '{commit}'"
+
+
+# Writes
+
+def canonical_json(payload) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def derive_op_id(kind: str, payload: Mapping) -> str:
+    """`kind:sha256(kind ‖ canonical_json(payload))`; the same payload gives the same ID."""
+    digest = hashlib.sha256(kind.encode() + b"\x00" + canonical_json(payload).encode()).hexdigest()
+    return f"{kind}:{digest}"
+
+
+def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None) -> Refusal:
+    code = exc.args[0] if exc.args else None
+    text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+    if code == 1213:
+        return refuse("CONCURRENT_WRITE", "another write landed first; this transaction was rolled back")
+    if text.startswith("commit verification failed"):
+        failed = tuple(sorted(name for name in _test_names() if name in text))
+        return refuse("COMMIT_CHECK_FAILED", "commit verification failed: " + ", ".join(failed or ("unknown",)),
+                      missing=failed)
+    if code in (1142, 1143, 1370) or (code == 1105 and "permission" in text.lower()):
+        return refuse("LEDGER_PERMISSION", "the ledger account may not run this statement")
+    if code in (2006, 2013) and operation_id:
+        return refuse("DOLT_SQL_ERROR", "the connection was lost while committing; rerun with the same operation",
+                      write_status="unknown", operation_id=operation_id)
+    return refuse("DOLT_SQL_ERROR", f"the ledger refused the statement (MySQL error {code})")
+
+
+def _test_names() -> set[str]:
+    return set(re.findall(r"\('([a-z_]+)', 'commit',", SCHEMA.read_text(encoding="utf-8")))
+
+
+def _commit_of(conn: LedgerConnection, table: str, op_id: str) -> str | None:
+    found = conn.rows(f"SELECT to_commit FROM `dolt_diff_{table}` WHERE to_op_id = %s AND diff_type = 'added' "
+                      "LIMIT 1", (op_id,))
+    return found[0][0] if found else None
+
+
+def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
+          insert: Callable[[LedgerConnection, str], Mapping],
+          replay: Callable[[LedgerConnection, Mapping], Mapping] | None = None, *, op_id: str | None = None) -> dict:
+    """Run `insert(conn, op_id)` as one idempotent transaction and one Dolt commit.
+
+    `table` holds the record's `op_id`; a prior row with that ID is returned through
+    `replay(conn, row)` (default: the row) without writing. `op_id` overrides the ID derived
+    from `kind` and `payload` where a function defines its own. Called while `conn` is already
+    inside a write, the insert joins that transaction and the outer write commits it.
+    """
+    if (conn.role != "writer" or isinstance(conn, ReadConnection)
+            or conn.branch != conn.profile.research_branch):
+        raise refuse("READ_ONLY_CONNECTION", "writes need the writer connection on the research branch")
+    if not IDENTIFIER.fullmatch(table):
+        raise ValueError(f"invalid table name {table!r}")
+    op = op_id or derive_op_id(kind, payload)
+    if len(op) > OP_ID_LIMIT:
+        raise ValueError(f"operation ID longer than {OP_ID_LIMIT} characters")
+    if conn.in_write:
+        prior = conn.one(f"SELECT * FROM `{table}` WHERE op_id = %s", (op,))
+        if prior is not None:
+            return {"record": replay(conn, prior) if replay else prior, "op_id": op, "commit": None,
+                    "replayed": True, "write_status": "replayed"}
+        return {"record": insert(conn, op), "op_id": op, "commit": None, "replayed": False,
+                "write_status": "written"}
+    raw = conn.raw
+    try:
+        raw.autocommit(False)
+        raw.begin()
+        conn.in_write = True
+        try:
+            prior = conn.one(f"SELECT * FROM `{table}` WHERE op_id = %s", (op,))
+            if prior is not None:
+                raw.rollback()
+                conn.in_write = False
+                record = replay(conn, prior) if replay else prior
+                return {"record": record, "op_id": op, "commit": _commit_of(conn, table, op), "replayed": True,
+                        "write_status": "replayed"}
+            if conn.rows("SELECT table_name FROM dolt_status"):
+                raise refuse("DIRTY_WORKING_SET", "the research branch has uncommitted SQL changes; nothing was "
+                                                  "written")
+            record = insert(conn, op)
+            conn.rows("UPDATE ledger_head SET seq = seq + 1, op_id = %s WHERE singleton = 1", (op,))
+            try:
+                with raw.cursor() as cursor:
+                    cursor.execute("CALL DOLT_COMMIT('-a', '-m', %s)", (f"{kind}:{op}",))
+                    (commit,), = cursor.fetchall()
+                raw.commit()
+            except pymysql.MySQLError as exc:
+                raise _sql_error(exc, operation_id=op) from exc
+        except BaseException:
+            try:
+                raw.rollback()
+            except pymysql.MySQLError:
+                pass
+            raise
+        finally:
+            conn.in_write = False
+            try:
+                raw.autocommit(True)
+            except pymysql.MySQLError:
+                pass
+    except pymysql.MySQLError as exc:
+        raise _sql_error(exc, operation_id=op) from exc
+    return {"record": record, "op_id": op, "commit": commit, "replayed": False, "write_status": "written"}
