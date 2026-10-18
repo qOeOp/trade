@@ -7,7 +7,7 @@ import hashlib
 import json
 import unittest
 
-from ledger import execution, trials
+from ledger import evidence, execution, trials
 from ledger.errors import Refusal
 from registration import comparability, precheck
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, sha
@@ -149,7 +149,8 @@ class PrecheckTests(unittest.TestCase):
     def test_a_review_of_another_source_runtime_or_input_is_required_again(self):
         bundle = self.review(self.sealed())
         other = self.world.publish("other source")
-        product_write(self.conn, "agent_review", "my-review", {"source-review.json": b'{"format": "mine"}'})
+        copied = evidence.load_bundle(self.conn, bundle)["files"]  # a passing review copied outside the namespace
+        product_write(self.conn, "agent_review", "my-review", copied)
         _, moved = self.keys(market_commit="n" * 32)
         cases = [("source-review-missing", sha(self.data), IDENTITY["image_ref"], None),
                  ("my-review", sha(self.data), IDENTITY["image_ref"], None),

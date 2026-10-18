@@ -40,7 +40,7 @@ GRID_LIMIT = 5
 REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources", "metric",
             "comparison", "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
-RESERVED_NAME = re.compile(r"(trial-|knowledge-|research-line-|source-review-|lifecycle-)")
+REGISTRATION_NAME = re.compile(r"registration-.+")
 OUTCOMES = ("improved", "not_significant", "loss", "zero_activity", "invalid")
 
 _TEXT = {"type": "string", "pattern": r"\S", "maxLength": TEXT_LIMIT}
@@ -421,8 +421,8 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
     """Probe the runtime, export the inputs, compose the execution identity and lock the registration
     as research-plan.json in one write; the same content again is an idempotent replay."""
     evidence.check_name(bundle)
-    if RESERVED_NAME.match(bundle):
-        raise refuse("RESERVED_BUNDLE_NAME", f"{bundle} lies in a product namespace", missing=(bundle,))
+    if not REGISTRATION_NAME.fullmatch(bundle):
+        raise refuse("REGISTRATION_BUNDLE_NAME", f"{bundle} is not named registration-*", missing=(bundle,))
     _check_shape(body)
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])

@@ -79,6 +79,10 @@ def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str
 
 
 def _review(conn: db.LedgerConnection, review_bundle) -> dict:
+    if not (isinstance(review_bundle, str) and review_bundle.startswith("source-review-")):
+        # Only record_review writes this namespace; a review under another name is an Agent's own file.
+        raise refuse("SOURCE_PRECHECK_REQUIRED", f"{review_bundle!r} is not a source-review-* bundle",
+                     missing=(str(review_bundle),))
     try:
         loaded = evidence.load_bundle(conn, review_bundle)
     except Refusal as exc:

@@ -199,9 +199,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "WITNESS_UNAVAILABLE": ("The timestamp authority was unreachable, timed out or did not grant a token.",
                             ("Run `ledger witness` again before the validation window starts.",)),
     # Registration (registration/register.py)
-    "RESERVED_BUNDLE_NAME": ("The registration bundle name lies in a product namespace (trial-*, knowledge-*, "
-                             "research-line-*, source-review-*, lifecycle-*).",
-                             ("Choose another registration bundle name, for example registration-<hypothesis>.",)),
+    "REGISTRATION_BUNDLE_NAME": ("A registration bundle is named registration-*, the namespace only the "
+                                 "registration command writes.",
+                                 ("Register under registration-<hypothesis>.",)),
     "DUPLICATE_BUNDLE": ("A bundle of that name already exists with another research-plan.json.",
                          ("Register under a new bundle name; registrations are never replaced.",)),
     "REGISTRATION_INVALID": ("The registration body does not have the required shape, or a record it cites (source "

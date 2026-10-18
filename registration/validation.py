@@ -242,7 +242,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
                      missing=(str(source_sha256),))
     membership_unchanged(market, registration, inputs)
     start, end = registration["window_start"], registration["window_end"]
-    if not (trial["trade_start"] >= start and trial["trade_end"] <= end and trial["created_at"] > end):
+    if not (trial["trade_start"] == start and trial["trade_end"] == end and trial["created_at"] > end):
         raise refuse("WINDOW_MISMATCH", f"trial {trial_id} trades [{trial['trade_start']}, {trial['trade_end']}) at "
                                         f"{trial['created_at']}; the registered window is [{start}, {end})",
                      missing=("window",))

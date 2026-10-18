@@ -291,6 +291,7 @@ class ValidationTests(unittest.TestCase):
         changed = {**inputs, "identity": {**inputs["identity"], "universe_rule": "pool-v2"}}
         self.assertEqual(self.refused_bind("checks", inputs=changed), "MEMBERSHIP_CHANGED")
         self.assertEqual(self.refused_bind("checks", start=self.start - timedelta(seconds=1)), "WINDOW_MISMATCH")
+        self.assertEqual(self.refused_bind("checks", start=self.start + timedelta(seconds=1)), "WINDOW_MISMATCH")
         uncovered = {**inputs, "receipts": {SYMBOLS[0]: inputs["receipts"][SYMBOLS[0]]}}
         self.assertEqual(self.refused_bind("checks", inputs=uncovered), "COVERAGE_INCOMPLETE")
         other_account = {"effective_config": config(account={"balance_usdt": "5000"})}

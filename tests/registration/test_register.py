@@ -94,9 +94,9 @@ class RegisterTests(unittest.TestCase):
                          "SOURCES_REQUIRED")
 
     def test_names_shapes_metric_window_duties_and_predictions_are_checked_before_writing(self):
-        for name in ("trial-9-execution", "knowledge-1", "research-line-2", "source-review-x", "lifecycle-x"):
+        for name in ("trial-9-execution", "research-line-2", "source-review-x", "plan-x", "registration-"):
             with self.subTest(name=name):
-                self.assertEqual(self.code(name, self.derived()), "RESERVED_BUNDLE_NAME")
+                self.assertEqual(self.code(name, self.derived()), "REGISTRATION_BUNDLE_NAME")
         self.assertEqual(self.code("bad name", self.derived()), "INVALID_BUNDLE_NAME")
         body = self.derived()
         del body["conditions"]
