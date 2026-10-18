@@ -1,0 +1,127 @@
+"""Judgments: cited subjects, an exact basis commit on the line, single supersession, lowered cadence."""
+
+from __future__ import annotations
+
+from datetime import date
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from ledger import db, evidence, judgments, lines, strategies, trials
+from ledger.errors import Refusal
+from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, attempt_binder, context, inputs, market, sha, source,
+                               window)
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class JudgmentTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.service = Service()
+        cls.profile = cls.service.ledger("judgments")
+        strategies.publish_candidate(cls.profile, source("a"), "a", "Fixture", "root")
+        cls.work = Path(tempfile.mkdtemp(prefix="lj-", dir="/tmp"))
+        (cls.work / "research-plan.json").write_text(json.dumps({"grid": "a"}))
+        with db.connect(cls.profile, "writer") as conn:
+            cls.before_line = db.head_commit(conn)
+            cls.line = lines.select_line(conn, "market", "main", date(2026, 1, 2), date(2026, 2, 1), "a@1",
+                                         market=market())["bundle"]
+            evidence.add_bundle(conn, "registration-a", [cls.work / "research-plan.json"])
+            evidence.add_bundle(conn, "registration-unused", [cls.work / "research-plan.json"],
+                                op_id="evidence:unused")
+            cls.trial = trials.open_trial(conn, "research", sha(source("a")), RUNTIME, inputs(), window(),
+                                          context(source("a")), attempt_binder("registration-a", sha(source("a"))))
+            cls.head = db.head_commit(conn)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.service.close()
+        __import__("shutil").rmtree(cls.work, ignore_errors=True)
+
+    def add(self, kind="interpretation", **overrides):
+        arguments = {"kind": kind, "line_bundle": self.line, "based_on_commit": self.head, "body": "see trial",
+                     "subjects": [{"role": "about", "trial_id": self.trial["trial_id"]}], **overrides}
+        return judgments.add_judgment(self.profile, **arguments)
+
+    def code(self, **overrides) -> str:
+        with self.assertRaises(Refusal) as caught:
+            self.add(**overrides)
+        return caught.exception.code
+
+    def test_a_judgment_cites_its_subjects_and_a_retry_is_a_replay(self):
+        subjects = [{"role": "recommended", "candidate": "a@1"}, {"role": "about", "trial_id": self.trial["trial_id"]},
+                    {"role": "about", "registration_bundle": "registration-a"}]
+        first = self.add("recommendation", subjects=subjects, body="a@1 is the line's best so far")
+        again = self.add("recommendation", subjects=subjects, body="a@1 is the line's best so far")
+        self.assertEqual((again["judgment_id"], again["replayed"], again["ledger_commit"]),
+                         (first["judgment_id"], True, first["ledger_commit"]))
+        rows = self.service.sql(self.profile, "SELECT role, strategy_id, revision, trial_id, registration_bundle "
+                                              "FROM judgment_subject WHERE judgment_id = %s ORDER BY seq",
+                                (first["judgment_id"],))
+        self.assertEqual(rows, [("recommended", "a", 1, None, None),
+                                ("about", None, None, self.trial["trial_id"], None),
+                                ("about", None, None, None, "registration-a")])
+        (op_id,), = self.service.sql(self.profile, "SELECT op_id FROM judgment WHERE judgment_id = %s",
+                                     (first["judgment_id"],))
+        self.assertEqual(self.code(kind="recommendation", subjects=subjects, body="other text", op_id=op_id),
+                         "OP_ID_CONFLICT")
+        (stored,), = self.service.sql(self.profile, "SELECT based_on_commit FROM judgment WHERE judgment_id = %s",
+                                      (first["judgment_id"],))
+        self.assertEqual(stored, self.head)
+        self.assertEqual(self.add(based_on_commit="main", body="by branch")["replayed"], False)
+
+    def test_basis_and_line_refusals(self):
+        self.assertEqual(self.code(line_bundle="research-line-99"), "LINE_UNKNOWN")
+        self.assertEqual(self.code(line_bundle="registration-a"), "LINE_UNKNOWN")
+        self.assertEqual(self.code(based_on_commit=self.before_line), "COMMIT_BEFORE_LINE")
+        self.assertEqual(self.code(based_on_commit="0" * 32), "COMMIT_NOT_ANCESTOR")
+        self.service.sql(self.profile, "CALL DOLT_BRANCH('aside', 'main')")
+        admin = self.service.admin(self.profile, branch="aside")
+        try:
+            with admin.cursor() as cursor:
+                cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'aside', '--skip-verification')")
+                (aside,), = cursor.fetchall()
+        finally:
+            admin.close()
+        self.assertEqual(self.code(based_on_commit=aside), "COMMIT_NOT_ANCESTOR")
+
+    def test_subject_refusals(self):
+        for subject, code in (({"role": "about", "candidate": "a@9"}, "SUBJECT_UNKNOWN"),
+                              ({"role": "about", "candidate": "nonsense"}, "SUBJECT_UNKNOWN"),
+                              ({"role": "about", "trial_id": 999_999}, "SUBJECT_UNKNOWN"),
+                              ({"role": "about", "registration_bundle": "registration-unused"}, "SUBJECT_UNKNOWN"),
+                              ({"role": "about"}, "SUBJECT_UNKNOWN"),
+                              ({"role": "about", "candidate": "a@1", "trial_id": 1}, "SUBJECT_UNKNOWN"),
+                              ({"role": "recommended", "trial_id": self.trial["trial_id"]}, "SUBJECT_ROLE_MISMATCH"),
+                              ({"role": "control", "registration_bundle": "registration-a"}, "SUBJECT_ROLE_MISMATCH"),
+                              ({"role": "boss", "candidate": "a@1"}, "SUBJECT_ROLE_MISMATCH")):
+            with self.subTest(subject=subject):
+                self.assertEqual(self.code(subjects=[subject]), code)
+
+    def test_supersession_and_cadence(self):
+        first = self.add("priority", body="first")
+        second = self.add("priority", body="second", supersedes=first["judgment_id"])
+        self.assertEqual(self.code(kind="priority", body="third", supersedes=first["judgment_id"]),
+                         "SUPERSEDES_INVALID")
+        self.assertEqual(self.code(kind="search_exposure", body="x", supersedes=second["judgment_id"]),
+                         "SUPERSEDES_INVALID")
+        self.assertEqual(self.code(kind="priority", body="x", supersedes=10**9), "SUPERSEDES_INVALID")
+        current = {row[0] for row in self.service.sql(self.profile, "SELECT judgment_id FROM v_judgments "
+                                                                    "WHERE kind = 'priority'")}
+        self.assertEqual(current, {second["judgment_id"]})
+        self.assertEqual(self.code(kind="review_cadence"), "CADENCE_REQUIRED")
+        self.assertEqual(self.code(kind="review_cadence", cadence_trials=0), "CADENCE_REQUIRED")
+        self.assertEqual(self.code(kind="priority", cadence_trials=5), "CADENCE_REQUIRED")
+        cadence = self.add("review_cadence", cadence_trials=10, body="review every 10")
+        self.assertEqual(self.code(kind="review_cadence", cadence_trials=12, body="slower",
+                                   supersedes=cadence["judgment_id"]), "REVIEW_CADENCE_RAISED")
+        lowered = self.add("review_cadence", cadence_trials=5, body="faster", supersedes=cadence["judgment_id"])
+        self.assertFalse(lowered["replayed"])
+        with self.assertRaises(Refusal) as caught:
+            self.add("verdict", body="not a judgment kind")
+        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+
+
+if __name__ == "__main__":
+    unittest.main()
