@@ -52,7 +52,7 @@ def check_comparable(run: Mapping, execution: Mapping) -> None
 | `COMPARABILITY_MISMATCH` | runtime_image、effective_configuration、input_identity 中任一项两侧不等；消息列出所有不等的项 |
 | `IDENTITY_MALFORMED` | 任一侧的 effective_config 或 input_identity 不是映射或缺必备键（由 config_key / input_key 抛出并原样上抛） |
 
-**使用**　<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="ledger.load_run" />、<Ref id="ledger.refusal" />、<Ref id="table:run" />、<Ref id="table:trial" />
+**使用**　<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="ledger.load_run" />、<Ref id="ledger.refusal" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 
@@ -195,7 +195,7 @@ def load_lifecycle(profile: str, bundle: str, commit: str) -> None
 | `LIFECYCLE_INPUT` | 证据包不存在、包内没有 lifecycle.json，或包内文件哈希重验不符 |
 | `LIFECYCLE_INPUT` | market.validate_lifecycle 的任一拒绝原样上抛（提交不符、来源原件缺失、事件非原生、时钟不单调） |
 
-**使用**　<Ref id="ledger.load_bundle" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -241,7 +241,7 @@ def market_inputs(
 | `MARKET_COMMIT_UNRESOLVED` | at 不能解析成唯一市场提交（由 market.resolve_commit 透传） |
 | `EXPORT_CONTENT_INVALID` | 导出根或成员文件中存在符号链接，或成员文件缺失（由 registration.export_fingerprint 透传） |
 
-**使用**　<Ref id="engine.parse_window" />、<Ref id="ledger.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
+**使用**　<Ref id="engine.parse_window" />、<Ref id="ledger.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:v_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
 
 <div className="rd-meta">
 
@@ -290,7 +290,7 @@ def exposure_exempt(
 | `TRIAL_NOT_FOUND` | trial_id 在 trial 表中不存在 |
 | `LEDGER_CORRUPT` | ledger.read_capture 发现捕获文件内容哈希与 evidence.sha256 生成列不符（属篡改发现，不返回 False） |
 
-**使用**　<Ref id="ledger.read_capture" />、<Ref id="table:trial" />、<Ref id="table:evidence" />、<Ref id="table:evidence_bundle" />、<Ref id="table:registration_attempt" />
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -330,7 +330,7 @@ def record_review(
 | `CONCURRENT_WRITE` | 提交时账本头已被他人推进（ledger.add_bundle 传出） |
 | `LEDGER_CORRUPT` | 读取捕获时文件哈希与 evidence.sha256 不符 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.add_bundle" />、<Ref id="ledger.read_capture" />、<Ref id="table:trial" />、<Ref id="table:evidence" />、<Ref id="table:evidence_bundle" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.add_bundle" />、<Ref id="ledger.read_capture" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -372,7 +372,7 @@ def require_precheck(
 | `TRIAL_NOT_FOUND` | 审查记录引用的 trial_id 不在 trial 表 |
 | `LEDGER_CORRUPT` | 审查文件或捕获文件的内容哈希与 evidence.sha256 不符 |
 
-**使用**　<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_capture" />、<Ref id="registration.record_review" />、<Ref id="table:evidence" />、<Ref id="table:evidence_bundle" />、<Ref id="table:trial" />
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_capture" />、<Ref id="registration.record_review" />、<Ref id="table:v_evidence" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 
@@ -507,7 +507,7 @@ def register(
 | `DIRTY_WORKSET` | 写前发现账本有未提交的 SQL 改动 |
 | `SOURCES_REQUIRED` | rationale.external 非空而没有来源原件，或 sources 引用的包不存在 |
 
-**使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.add_bundle" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:ledger_head" />、<Ref id="registration.require_line_records" />、<Ref id="registration.plan_schema" />
+**使用**　<Ref id="registration.validate" />、<Ref id="registration.require_precheck" />、<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.connect" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write" />、<Ref id="ledger.add_bundle" />、<Ref id="table:v_evidence" />、<Ref id="table:ledger_head" />、<Ref id="registration.require_line_records" />、<Ref id="registration.plan_schema" />
 
 <div className="rd-meta">
 
@@ -550,7 +550,7 @@ def require_line_records(
 | `REVIEW_DUE` | 上次推荐以来的研究试验数已达到复盘节奏，尚未写新的 recommendation |
 | `REVIEW_CADENCE_REQUIRED` | 派生登记时路线上还没有 review_cadence 判断 |
 
-**使用**　<Ref id="ledger.line_trials" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:run" />、<Ref id="table:trial" />
+**使用**　<Ref id="ledger.line_trials" />、<Ref id="table:v_judgments" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 
@@ -601,7 +601,7 @@ def validate(
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 对照运行按当前检查身份没有经济证据资格（零成交、缺匹配记录、执行捕获失败或源码审查失败） |
 | `DUTY_UNKNOWN` | changed_duties 含 27 项之外的编号，或根登记非空、派生登记为空 |
 
-**使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:evidence_bundle" />、<Ref id="table:candidate" />、<Ref id="table:run" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />
+**使用**　<Ref id="registration.validate_design" />、<Ref id="registration.check_comparable" />、<Ref id="registration.exposure_exempt" />、<Ref id="registration.require_precheck" />、<Ref id="qualification.require" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_candidate" />、<Ref id="table:v_evidence" />、<Ref id="table:v_candidates" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 
@@ -686,7 +686,7 @@ def MEMBERSHIP_CHANGED(
 |---|---|
 | `UNIVERSE_CHANGED` | 范围规则不同；登记前任一月份成员在两个市场提交下不逐行相同；窗口内任一月份不存在；交给策略的成员路径少于按本次提交推出的路径 |
 
-**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="ledger.refusal" />、<Ref id="table:universe_month" />、<Ref id="table:validation_registration" />
+**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="ledger.refusal" />、<Ref id="table:v_universe" />、<Ref id="table:v_validations" />
 
 <div className="rd-meta">
 
@@ -722,7 +722,7 @@ def membership_unchanged(
 |---|---|
 | `MEMBERSHIP_CHANGED` | 范围规则不同；登记前任一月份成员在两个市场提交下不逐行相同；窗口内任一月份不存在；交给策略的成员路径少于按本次提交推出的路径 |
 
-**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.market_inputs" />、<Ref id="ledger.refusal" />、<Ref id="table:universe_month" />、<Ref id="table:validation_registration" />
+**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.market_inputs" />、<Ref id="ledger.refusal" />、<Ref id="table:v_universe" />、<Ref id="table:v_validations" />
 
 <div className="rd-meta">
 
@@ -805,7 +805,7 @@ def validation_bind(
 | `REGISTRATION_CONSUMED` | 该登记已绑定过回放，或该试验已绑定别的登记 |
 | `CONCURRENT_WRITE` | 两事务改同格为不同值，后到者回滚 |
 
-**使用**　<Ref id="registration.require_fresh" />、<Ref id="runtime.require_main_build" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.read_candidate" />、<Ref id="registration.membership_unchanged" />、<Ref id="registration.market_inputs" />、<Ref id="replay.input_coverage" />、<Ref id="market.validate_lifecycle" />、<Ref id="ledger.stamped_at" />、<Ref id="registration.config_key" />、<Ref id="engine.account_contract" />、<Ref id="ledger.refusal" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:candidate" />、<Ref id="table:witness" />
+**使用**　<Ref id="registration.require_fresh" />、<Ref id="runtime.require_main_build" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="ledger.read_candidate" />、<Ref id="registration.membership_unchanged" />、<Ref id="registration.market_inputs" />、<Ref id="replay.input_coverage" />、<Ref id="market.validate_lifecycle" />、<Ref id="ledger.stamped_at" />、<Ref id="registration.config_key" />、<Ref id="engine.account_contract" />、<Ref id="ledger.refusal" />、<Ref id="table:v_validations" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_candidates" />、<Ref id="table:witness" />
 
 <div className="rd-meta">
 

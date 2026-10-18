@@ -64,7 +64,7 @@ def coverage_facts(
 | `UNKNOWN_SYMBOL` | 该提交 AS OF 下 instrument 表无此合约（合约从不存在于市场库，区别于有合约无 K 线） |
 | `SOURCE_SHAPE` | last_bars 或 mark_bars 的 ts_open 不是整分钟、无序或重复 |
 
-**使用**　<Ref id="market.missing_intervals" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:universe_month" />
+**使用**　<Ref id="market.missing_intervals" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:v_universe" />
 
 <div className="rd-meta">
 
@@ -1066,7 +1066,7 @@ def freshness(profile: MarketProfile, ref: str) -> dict {commit
 | `AMBIGUOUS_REF` | 由 market.resolve_commit 传出 |
 | `NOT_A_COMMIT` | 由 market.resolve_commit 传出 |
 
-**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="table:bar" />
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:v_universe" />、<Ref id="table:bar" />
 
 <div className="rd-meta">
 
@@ -1246,7 +1246,7 @@ def membership_path(
 | `UNIVERSE_EMPTY_AT_COMMIT` | AS OF 该提交的 universe_month 没有任何月份 |
 | `UNIVERSE_NOT_COVERING_WINDOW` | 该提交下最后一个已产出月份的下月初早于 window_end，窗口尾部的成员资格当时未知 |
 
-**使用**　<Ref id="market.resolve_commit" />、<Ref id="table:universe_month" />、<Ref id="table:market_schema" />
+**使用**　<Ref id="market.resolve_commit" />、<Ref id="table:v_universe" />、<Ref id="table:market_schema" />
 
 <div className="rd-meta">
 
