@@ -23,7 +23,7 @@ flowchart LR
   S --> R
   G[Git 共享工具与镜像构建输入] --> I[CI 构建的 OCI 镜像 digest 与平台]
   I --> R
-  D[历史 Catalog 与输入身份] --> R
+  D[市场库 commit，每次回放导出] --> R
   R --> T[每次回放一行试验]
   R --> N[发布版 Nautilus: Data / Risk / Execution / Portfolio]
   N --> E[原生订单、成交、账户与指标报告]
@@ -50,9 +50,9 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 ## 当前可运行切片
 
-所有原生回放都走 `research.records.artifacts run`：`--explore` 把草稿的报告写进新的 `/tmp` 目录，封存的运行存进台账，两者都写一行试验。它在 CI 构建的镜像里执行 `python -m backtest.run` 和审计器；镜像只构建 `linux/arm64`，推到 `ghcr.io/qoeop/trade-runtime`，标签里带源码 commit。不传 `--runtime` 时拉取 `main` 标签并记录 digest；冻结与确认只接受由 origin/main 上的 commit 构建的镜像。运行器使用锁定在 `nautilus_trader==2.0.0rc3` 的原生 `BacktestNode`，只接收四样东西：策略引用、输入、窗口和固定账户。当前 `r1-native-v4` 加载一个完整源码文件；策略文件负责信号、仓位、下单、退出和自身诊断，运行器没有任何策略参数，变体就是新的修订。现行代码只认 `r1-native-v4` 的布局，不再读取 `v1` 到 `v3` 的封存。资金费率直接从现有 Catalog 加载，由 Nautilus 结算。`backtest/load.py` 将已有 MARK K 线收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对，并校验资金费覆盖；`backtest/run.py` 构建 Node，`backtest/report.py` 写报告。运行方式和配对验收见 `backtest/README.md`，历史证据见 `docs/plans/nautilus-upstream-poc.zh.md`。
+所有原生回放都走 `research.records.artifacts run`：`--explore` 把草稿的报告写进新的 `/tmp` 目录，封存的运行存进台账，两者都写一行试验。它在 CI 构建的镜像里执行 `python -m backtest.run` 和审计器；镜像只构建 `linux/arm64`，推到 `ghcr.io/qoeop/trade-runtime`，标签里带源码 commit。不传 `--runtime` 时拉取 `main` 标签并记录 digest；冻结与确认只接受由 origin/main 上的 commit 构建的镜像。运行器使用锁定在 `nautilus_trader==2.0.0rc3` 的原生 `BacktestNode`，只接收四样东西：策略引用、输入、窗口和固定账户。当前 `r1-native-v5` 加载一个完整源码文件；策略文件负责信号、仓位、下单、退出和自身诊断，运行器没有任何策略参数，变体就是新的修订。现行代码只认 `r1-native-v5` 的布局，不再读取 `v1` 到 `v3` 的封存。输入是市场库的一个 commit（`research/market`：自 2020-01 起、每月前 50 币池进入过的全部合约的 1 分钟 LAST 和 MARK、资金费和合约条款，来自币安公开归档和 REST）；`artifacts run` 把它导出成每个合约一个 Catalog，各周期都由 1 分钟派生，每个策略实例拿到自己合约的币池成员资格。K 线、MARK 更新和资金费由 Nautilus 加载并结算；`backtest/load.py` 核对每个导出与 commit 和窗口一致，`backtest/run.py` 构建 Node，`backtest/report.py` 写报告。运行方式和配对验收见 `backtest/README.md`，历史证据见 `docs/plans/nautilus-upstream-poc.zh.md`。
 
-固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。历史研究数据留在外部 Catalog，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
+固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。市场数据存在它的 Dolt 库里，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
 
 ## 扩展边界
 
@@ -60,4 +60,4 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 研究台账承载真实研究记录：清空、重置或改写它、它的轮次或备份，都需要用户明确授权。2026-10-11 重写之前的旧台账、封存目录和备份不再被现行代码读取，由 WS7 删除；早先各轮暴露过什么，见[新库启用记录](plans/ws2-ledger-enablement.zh.md)。
 
-完整回放恢复需要台账（它的 `dolt_backup` 副本含全部分支和标签，源码、配置、输入身份和原生报告都在里面）、精确的 OCI 镜像（按 digest 从 GHCR 拉取）和规范输入。本机第二目录的备份不代表独立故障域灾备，异机恢复尚待验收。Nautilus 继续负责交易事实；实盘连接是后续独立交付，须另行取得用户授权并验收边界。
+完整回放恢复需要台账（它的 `dolt_backup` 副本含全部分支和标签，源码、配置、输入身份和原生报告都在里面）、精确的 OCI 镜像（按 digest 从 GHCR 拉取）和市场库里那个 commit（重新导出即得同样的 Catalog）。本机第二目录的备份不代表独立故障域灾备，异机恢复尚待验收。Nautilus 继续负责交易事实；实盘连接是后续独立交付，须另行取得用户授权并验收边界。

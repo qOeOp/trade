@@ -12,7 +12,7 @@ already exists is not new; name the window by its start, not by a calendar perio
    from the frozen run's plan frequency so that it can hold at least 100 closed plans.
 2. **Wait** until the window has passed.
 3. **Build inputs** for that window and run the frozen revision once, sealed, on a main image, with
-   the frozen run's coins and account ([runs.md](runs.md)).
+   the frozen run's contracts and account ([runs.md](runs.md)).
 4. **Judge** with `confirm verdict`. The product checks that the run uses the frozen source inside
    the window, that the plan was timestamped before the window began, and judges it against the
    user's three targets at the full drawdown budget with at least 100 closed plans.

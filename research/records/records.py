@@ -35,7 +35,7 @@ MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".mp3", ".wav", ".aac", ".opus", ".flac"}
 MIN_PLANS = 100
 DRAWDOWN_MARGIN = Decimal(2) / Decimal(3)
-CURRENT_CONTRACT = "r1-native-v4"
+CURRENT_CONTRACT = "r1-native-v5"
 
 
 def _refuse(message, code="RECORD_REFUSED", **extra):
@@ -506,7 +506,7 @@ def confirm_verdict(profile: dict, *, plan_id: int, run_id: int, failed_part: st
             raise _refuse(f"run {run_id} is not a sealed run of the frozen source", "NOT_FROZEN_SOURCE")
         if run["trade_start"] < plan["window_start"] or run["trade_end"] > plan["window_end"]:
             raise _refuse(f"run {run_id} trades outside the preregistered window", "WINDOW_MISMATCH")
-        same = ("coins", "native_account")
+        same = ("symbols", "native_account")
         left, right = json.loads(run["effective_config"]), json.loads(frozen["effective_config"])
         if any(left.get(key) != right.get(key) for key in same):
             raise _refuse(f"run {run_id} changes {[k for k in same if left.get(k) != right.get(k)]} from the freeze",
@@ -604,7 +604,8 @@ def run_report(profile: dict, run_id: int, at: str | None = None) -> dict:
         development = (run["trade_start"], run["trade_end"]) == (goal["window_start"], goal["window_end"])
         output["gates"] = {"development_window": development, **gates(goal, run, development=development)}
     output.update(strategy=f"{strategy_row['strategy_id']}@{strategy_row['revision']}" if strategy_row else None,
-                  coins=json.loads(run["coins"]), failure_reasons=json.loads(run["failure_reasons"] or "null"),
+                  coins=json.loads(run["coins"]), market=json.loads(run["input_identity"]),
+                  failure_reasons=json.loads(run["failure_reasons"] or "null"),
                   closed_by_year=by_year,
                   reading_limitations=json.loads(run["reading_limitations"]) + by_year_limitations,
                   cost_basis={"native_account": json.loads(run["effective_config"]).get("native_account"),

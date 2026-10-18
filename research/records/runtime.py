@@ -17,7 +17,7 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
 # Where the image keeps its runner, audit and identity probe.
 LAYOUTS = {
-    "r1-native-v4": {"runner": "backtest.run", "audit": "backtest.checks.audit", "audit_args": [],
+    "r1-native-v5": {"runner": "backtest.run", "audit": "backtest.checks.audit", "audit_args": [],
                      "probe": "backtest.run",
                      "source_paths": {"runner_source_sha256": "backtest/run.py",
                                       "load_source_sha256": "backtest/load.py",
