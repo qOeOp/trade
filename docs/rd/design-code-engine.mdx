@@ -931,7 +931,7 @@ def summary_statistics(
 3. 过滤日收益：只留 ts_event_ns ∈ [trade_start_ns, end_ns)，预热段不计；记录进入统计的日数
 4. 年化＝(final_equity÷starting_balance)^(365÷trading_window_days)−1，Decimal 运算后写出
 5. 夏普用引擎统计类按 365 天年化对过滤后的日收益调用 calculate_from_returns；非有限值写 null 并在 statistics_notes 说明，不自行替代计算
-6. 不算回撤、胜率或拆分：它们由账本绩效指标从原生报表行算，摘要不占这些名字
+6. 不算回撤、胜率或拆分：它们由账本绩效指标从原生报告文件算，摘要不占这些名字
 
 | 拒绝码 | 条件 |
 |---|---|

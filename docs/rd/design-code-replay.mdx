@@ -298,7 +298,7 @@ def seal(
 3. 新建临时工作目录，写 source/strategy.py、binding.json（账本库名、账本提交、strategy_id@revision、源码哈希、入口类、运行契约）、execution.json（运行环境身份、有效配置及其哈希）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
 5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、replay.summary_problems、replay.audit_problems，逐条去重互不覆盖
-6. ledger.ingest_run 入账（有效含绩效指标与原生报表行，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
+6. ledger.ingest_run 入账（有效含封存结果、逐日序列与持仓周期，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
 7. 内容原因导致的入账失败（原生报表缺失或不可读、摘要缺键、覆盖身份不符、绩效指标计算出错）都作为失败原因存成 invalid 运行（NATIVE_REPORT_UNREADABLE 等）；只有账本不可用、并发写这类基础设施错误才让试验暂时没有运行。容器启动前就被拒绝时删除工作目录。
 
 | 拒绝码 | 条件 |

@@ -1092,6 +1092,7 @@ def load_run(
 2. 通过的运行核执行封存与报告指纹在位；缺失或哈希不符即拒绝，由资格视图标不可用。
 3. 不返回原生报告行；调用方需要时经 replay.reproduce 重放并核指纹。
 4. 通过的运行缺原始执行封存或缺指纹时如实报告缺项；覆盖身份与运行记下的输入身份核对，不符即 COVERAGE_MISMATCH。
+5. 缺项不拒绝：缺原始执行封存或缺指纹的通过运行照常可读，缺项列在返回值 evidence.unavailable 里（现行镜像不产生指纹）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1506,10 +1507,12 @@ def ingest_run(
     trial_id: int,
     workdir: Path,
     input_identity: dict,
+    runtime_inspection: dict,
+    host_reasons: list[dict],
 ) -> {run_id
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "由 ledger.write 打开的写事务连接" }, "trial_id": { type: "int", description: "试验编号；试验须 purpose ∈ research | validation 且尚无运行行" }, "workdir": { type: "Path", description: "回放工作目录；须等于开始回执记下的工作目录，其中每个原生报告、摘要与审计结果的哈希与长度须等于执行封存清单所记" }, "input_identity": { type: "dict", description: "本次回放的输入身份，须与试验行一致，含覆盖回执哈希" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "由 ledger.write 打开的写事务连接" }, "trial_id": { type: "int", description: "试验编号；试验须 purpose ∈ research | validation 且尚无运行行" }, "workdir": { type: "Path", description: "回放工作目录；须等于开始回执记下的工作目录，其中每个原生报告、摘要与审计结果的哈希与长度须等于执行封存清单所记" }, "input_identity": { type: "dict", description: "本次回放的输入身份，须与试验行一致，含覆盖回执哈希" }, "runtime_inspection": { type: "dict", description: "运行环境探针报告；其有效配置须等于开始回执记下的，运行契约与依赖锁哈希由它派生" }, "host_reasons": { type: "list[dict]", description: "宿主观察到而封存里没有的原因（如导出输入前后变化 INPUTS_CHANGED）；只能追加失败原因，不能消去" } }} />
 
 **返回**　\{run_id: int, status: 'passed' | 'invalid'\}；拒绝时抛带码拒绝、事务回滚、工作目录保留
 
@@ -1523,14 +1526,13 @@ def ingest_run(
 6. 在一个写事务里写运行行、封存结果（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
 7. 原生报告留在工作目录，随后清理；需要时经 replay.reproduce 重放复现。
 8. 运行契约、引擎版本、依赖锁与有效配置已在开始回执与执行封存里，运行行不重复存。
+9. 内容原因（NATIVE_REPORT_MISSING、NATIVE_REPORT_UNREADABLE、SUMMARY_INCOMPLETE、METRICS_UNREADABLE、覆盖与生命周期不符）在本函数内转成失败原因、存为 invalid；计划标签超过列宽时计划有效性记失败与局限 PLAN_TAG_TOO_LONG，不报原始 SQL 错误。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `TRIAL_NOT_FOUND` | trial_id 在账本中不存在 |
 | `TRIAL_PURPOSE_INVALID` | 试验 purpose 为 explore 或 precheck：其报告只留工作副本，不入账 |
 | `RUN_ALREADY_INGESTED` | 同一试验的运行行已存在 |
-| `AUDIT_RESULT_INCONSISTENT` | failure_reasons 为空，但审计结果缺失、不可读或自报未通过，或原生摘要缺失 |
-| `REPORT_MISSING` | 状态为 passed 而订单、成交、持仓、账户、日收益、订单事件史或敞口原件任一缺失或不可解析 |
 | `EXECUTION_IDENTITY` | 覆盖回执与原生摘要不一致；或原始执行捕获不完整、任一阶段退出码非零、试验／源码／运行环境身份或回执输入身份与存储身份不符（由 ledger.original_coverage 上抛） |
 | `LIFECYCLE_MISMATCH` | 本地重算的生命周期事件与原始执行捕获中的回执不完全相等，或逐实例状态与关闭事件计数与原生摘要不符 |
 | `CONCURRENT_WRITE` | 由 ledger.write 在提交时上抛：并发写入同格不同值，后到者回滚 |
