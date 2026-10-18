@@ -58,6 +58,7 @@ await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: 'Á†îÂè
 await mkdir(join(siteRoot, 'lib', 'generated'), { recursive: true });
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'rd-index.json'), join(siteRoot, 'lib', 'generated', 'rd-index.json'));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot, 'lib', 'generated', 'rd-entries.json'));
+await copyFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), join(siteRoot, 'lib', 'generated', 'rd-map.json'));
 await copyFile(join(repositoryRoot, 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'icon.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
 console.log(`Prepared ${entries.length} bilingual chapters.`);
