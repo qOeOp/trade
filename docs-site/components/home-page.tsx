@@ -1,5 +1,5 @@
 import type { Locale } from '@/lib/i18n';
-import { ResearchMap, ResearchMapHeader } from '@/components/research-map';
+import { ResearchMap } from '@/components/research-map';
 
 export const homeDescription: Record<Locale, string> = {
   en: 'The research chain: a continuous loop of registered hypotheses on a candidate lineage, with trust boundaries enforced in code.',
@@ -10,11 +10,8 @@ export const homeDescription: Record<Locale, string> = {
 export function HomePageContent({ locale }: { locale: Locale }) {
   return (
     <main className="relative flex flex-1 flex-col">
-      <div className="flex h-[calc(100dvh-3.5rem)] min-h-[560px] w-full flex-col">
-        <ResearchMapHeader locale={locale} />
-        <div className="min-h-0 flex-1">
-          <ResearchMap locale={locale} />
-        </div>
+      <div className="h-[calc(100dvh-3.5rem)] min-h-[560px] w-full">
+        <ResearchMap locale={locale} />
       </div>
     </main>
   );
