@@ -661,17 +661,23 @@ aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
 .rd-func-head:hover .rd-func-title { color: var(--rd-edge); }
 .rd-func-title { font-size: 0.82rem; font-weight: 600; line-height: 1.25; }
 .rd-func-dim { opacity: 0.4; }
-.rd-comp { width: 100%; height: 100%; border: 1px solid color-mix(in srgb, var(--rd-stage-edge) 22%, transparent); border-radius: 0.6rem; background: color-mix(in srgb, var(--rd-stage-edge) 4%, transparent); }
+.rd-comp { width: 100%; height: 100%; border: 1px dashed rgb(148 163 184 / 34%); border-radius: 0.6rem; background: var(--rd-box-fill); }
 .rd-comp-head { display: flex; gap: 0.35rem; align-items: baseline; padding: 0.3rem 0.55rem 0; font-size: 0.7rem; color: var(--rd-box-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rd-cap-card { display: flex; align-items: center; gap: 0.4rem; width: 100%; height: 100%; padding: 0 0.55rem; border: 1px solid color-mix(in srgb, var(--rd-node-muted) 24%, transparent); border-radius: 0.5rem; background: var(--rd-node); box-shadow: 0 4px 12px rgb(15 23 42 / 7%); color: var(--rd-node-text); text-decoration: none; transition: border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease; }
 .rd-cap-rule { border-style: dashed; box-shadow: none; }
 .rd-cap-card:hover, .rd-cap-card.rd-fn-on { border-color: rgb(45 212 191 / 60%); box-shadow: 0 0 0 1px rgb(45 212 191 / 16%), 0 0 16px rgb(45 212 191 / 12%); }
 .rd-cap-title { font-size: 0.7rem; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rd-map .rd-edge-link .react-flow__edge-path { stroke: var(--rd-link); stroke-width: 1.4; }
-.rd-map-hint { position: absolute; left: 1rem; bottom: 0.75rem; margin: 0; font-size: 0.75rem; color: var(--rd-node-muted); pointer-events: none; }
+.rd-map-hint { position: absolute; left: 1rem; bottom: 4.2rem; margin: 0; font-size: 0.75rem; color: var(--rd-node-muted); pointer-events: none; }
 .rd-func-compact .rd-func-head { padding-top: 0; height: 100%; align-items: center; }
 .rd-func-out { position: absolute; right: 0.6rem; top: 0.55rem; font-size: 0.65rem; color: var(--rd-node-muted); }
-.rd-tabs { position: absolute; top: 0.75rem; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; gap: 0.125rem; max-width: calc(100% - 2rem); overflow-x: auto; padding: 0.25rem; border: 1px solid rgb(148 163 184 / 30%); border-radius: 9999px; background: color-mix(in srgb, var(--rd-node) 75%, transparent); backdrop-filter: blur(4px); scrollbar-width: none; }
-.rd-tabs::-webkit-scrollbar { display: none; }
-.rd-tabs button { flex: 0 0 auto; padding: 0.3rem 0.85rem; border-radius: 9999px; font-size: 0.8rem; color: var(--rd-node-muted); white-space: nowrap; }
-.rd-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--rd-edge) 12%, transparent); color: var(--rd-edge); font-weight: 600; }
+.docs-scenario-tabs { position: relative; z-index: 6; display: flex; width: max-content; gap: 0.125rem; max-width: calc(100% - 2rem); overflow-x: auto; flex: 0 0 auto; margin: 0.65rem auto 0.75rem; padding: 0.25rem; border: 1px solid rgb(255 255 255 / 40%); border-radius: 9999px; background: oklch(1 0 0 / 60%); box-shadow: 0 6px 20px rgb(0 0 0 / 6%); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); scrollbar-width: none; }
+.dark .docs-scenario-tabs { border-color: rgb(255 255 255 / 12%); background: oklch(0.18 0.01 250 / 62%); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); }
+.docs-scenario-tabs::-webkit-scrollbar { display: none; }
+.docs-scenario-tabs button { flex: 0 0 auto; min-width: 3.8rem; padding: 0.4rem 0.9rem; border: 0; border-radius: 9999px; color: #5a5a5a; font-size: 0.7rem; font-weight: 600; white-space: nowrap; transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+.docs-scenario-tabs button:hover { color: #1a1a1a; background: rgb(255 255 255 / 50%); }
+.docs-scenario-tabs button.is-active { background: #2d2d2d; color: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 12%); }
+.dark .docs-scenario-tabs button { color: #a7adb3; }
+.dark .docs-scenario-tabs button:hover { color: #eef2f5; background: rgb(255 255 255 / 8%); }
+.dark .docs-scenario-tabs button.is-active { background: #f3f4f6; color: #171717; }
+@media (max-width: 640px) { .docs-scenario-tabs button { min-width: 3.35rem; padding-inline: 0.5rem; } }
