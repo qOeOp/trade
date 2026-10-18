@@ -694,3 +694,13 @@ aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
 .rd-note { margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-fd-muted-foreground); }
 .rd-example { margin: 0.5rem 0 0.75rem; padding: 0.6rem 0.9rem; border-left: 3px solid var(--color-fd-primary); border-radius: 0.375rem; background: color-mix(in srgb, var(--color-fd-primary) 6%, transparent); }
 .rd-example > p { margin: 0; }
+
+/* chapter map: static in the page, full screen on demand */
+.rd-chapter-map { margin: 1rem 0 1.5rem; }
+.rd-chapter-map-frame { position: relative; height: 22rem; border: 1px solid var(--color-fd-border); border-radius: 0.75rem; overflow: hidden; background: var(--rd-canvas, var(--color-fd-card)); }
+@media (max-width: 640px) { .rd-chapter-map-frame { height: 16rem; } }
+.rd-chapter-map-open { position: absolute; right: 0.6rem; bottom: 0.6rem; z-index: 5; padding: 0.3rem 0.8rem; border-radius: 999px; border: 1px solid var(--color-fd-border); background: var(--color-fd-background); color: var(--color-fd-foreground); font-size: 0.8rem; box-shadow: 0 2px 8px rgb(15 23 42 / 10%); }
+.rd-chapter-map-full { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--color-fd-background); padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+.rd-chapter-map-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--color-fd-border); font-size: 0.8rem; color: var(--color-fd-muted-foreground); }
+.rd-chapter-map-bar button { padding: 0.3rem 0.9rem; border-radius: 999px; border: 1px solid var(--color-fd-border); color: var(--color-fd-foreground); }
+.rd-chapter-map-canvas { flex: 1; min-height: 0; }

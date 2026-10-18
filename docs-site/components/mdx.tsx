@@ -9,6 +9,7 @@ import type { MDXComponents } from 'mdx/types';
 import { Mermaid } from './mdx/mermaid';
 import { Ref } from './mdx/ref';
 import { Cap, Tier, Kind } from './mdx/cap';
+import { ChapterMap } from './mdx/chapter-map';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
@@ -16,6 +17,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Accordion,
     Accordions,
     Cap,
+    ChapterMap,
     File,
     Files,
     Folder,

@@ -63,7 +63,6 @@ function FunctionNode({ data: d }: NodeProps<Node<FnData>>) {
     <div className={`rd-func rd-func-${d.state} ${d.compact ? 'rd-func-compact' : ''}`}>
       <Handles />
       <Link href={`/${d.locale}/docs/${d.slug}/#${anchorOf(d.fn.path)}`} className="rd-func-head">
-        {d.chapter ? <span className="rd-chip">{d.chapter}</span> : null}
         <span className="rd-box-id">{d.fn.label}</span>
         <span className="rd-func-title">{d.fn.title}</span>
       </Link>
@@ -186,13 +185,18 @@ function facing(a: Rect, b: Rect): { from: Side; to: Side } {
   return dy >= 0 ? { from: 'b', to: 't' } : { from: 't', to: 'b' };
 }
 
-export function ResearchMap({ locale }: { locale: Locale }) {
+// `chapter` draws one chapter's sections only (chapter pages); `interactive` enables pan and zoom.
+export function ResearchMap({ locale, chapter, interactive = true }: { locale: Locale; chapter?: string; interactive?: boolean }) {
   const { resolvedTheme } = useTheme();
-  const [tab, setTab] = useState<string>('overview');
+  const [tab, setTab] = useState<string>(chapter ? 'chapter' : 'overview');
   const [hovered, setHovered] = useState<string | null>(null);
   const [aspect, setAspect] = useState(1.8);
   const box = useRef<HTMLDivElement>(null);
-  const flow = flows.find((f) => f.id === tab);
+  const chapterFlow = useMemo(() => {
+    const ch = chapter ? data.chapters.find((c) => c.prefix === chapter) : undefined;
+    return ch ? { id: 'chapter', title: { zh: ch.title, en: ch.title }, functions: ch.functions.map((f) => f.path) } : undefined;
+  }, [chapter]);
+  const flow = chapterFlow ?? flows.find((f) => f.id === tab);
 
   useEffect(() => {
     const el = box.current;
@@ -287,13 +291,19 @@ export function ResearchMap({ locale }: { locale: Locale }) {
         nodesConnectable={false}
         elementsSelectable={false}
         proOptions={{ hideAttribution: true }}
+        panOnDrag={interactive}
+        zoomOnScroll={interactive}
+        zoomOnPinch={interactive}
+        zoomOnDoubleClick={interactive}
+        preventScrolling={interactive}
         onNodeMouseEnter={(_, node) => (node.type === 'cap' || node.type === 'func') && setHovered(node.id)}
         onNodeMouseLeave={(_, node) => (node.type === 'cap' || node.type === 'func') && setHovered(null)}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
-        <Controls showInteractive={false} position="bottom-right" />
+        {interactive ? <Controls showInteractive={false} position="bottom-right" /> : null}
       </ReactFlow>
       </div>
+      {chapter ? null : <>
       <div className="docs-scenario-tabs" role="tablist" aria-label={mapCopy.overview[locale]}>
         {[{ id: 'overview', title: mapCopy.overview }, ...flows].map((f) => (
           <button key={f.id} type="button" role="tab" aria-selected={tab === f.id} className={tab === f.id ? 'is-active' : ''} onClick={() => { setTab(f.id); setHovered(null); }}>
@@ -302,6 +312,7 @@ export function ResearchMap({ locale }: { locale: Locale }) {
         ))}
       </div>
       <p className="rd-map-hint">{mapCopy.hover[locale]}</p>
+      </>}
     </div>
   );
 }
