@@ -117,8 +117,9 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertEqual(again["exported"], 1)
 
 
+@unittest.skipUnless(BINARY, SKIP)
 class LifecycleExportTests(unittest.TestCase):
-    """A delisting episode bounds the export and its events reach BacktestNode natively."""
+    """A delisting episode bounds the export and its events reach the engine natively."""
 
     @classmethod
     def setUpClass(cls):
