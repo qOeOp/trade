@@ -118,17 +118,13 @@ def report_fingerprint(directory: Path) -> dict:
     return result
 
 
-def main(argv: list[str] | None = None) -> None:
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--run", type=Path, required=True, help="the native report directory (read only)")
     parser.add_argument("--output", type=Path, required=True, help="the fingerprint JSON file to write")
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
     fingerprint = report_fingerprint(args.run)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as stream:
         json.dump(fingerprint, stream, sort_keys=True, indent=2)
         stream.write("\n")
-
-
-if __name__ == "__main__":
-    main()

@@ -10,7 +10,7 @@ import numpy as np
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 
-from engine import audit, config, load, report
+from engine import audit, config, load, report, run
 from market import export, instrument
 
 
@@ -96,7 +96,6 @@ class LoadRefusalTests(unittest.TestCase):
 
     def test_a_contract_starts_when_its_warm_up_first_holds_and_none_starts_without_it(self):
         from types import SimpleNamespace
-        from engine import run
         window = config.parse_window(config.utc_text(START * 10**6), None, config.utc_text((START + 30 * DAY) * 10**6))
         ready = {**catalog(self.root, np.arange(3), days=250, symbol="AAAUSDT"), "episode": None}
         later = {**catalog(self.root, np.arange(3), days=180, symbol="BBBUSDT"), "episode": None}
@@ -119,15 +118,15 @@ class LoadRefusalTests(unittest.TestCase):
 
     def test_mark_timestamps_count_distinct_stamps_and_refuse_a_missing_file(self):
         rows = [catalog(self.root, np.arange(0, 30)), catalog(self.root, np.arange(20, 50), symbol="BBBUSDT")]
-        self.assertEqual(load.mark_timestamps(rows), 50)
-        self.assertEqual(load.mark_timestamps([]), 0)
+        self.assertEqual(run.mark_timestamps(rows), 50)
+        self.assertEqual(run.mark_timestamps([]), 0)
         empty = self.root / "CCCUSDT"
         empty.mkdir()
-        self.assertEqual(self.code(load.mark_timestamps, [{"symbol": "CCCUSDT", "catalog_path": empty,
+        self.assertEqual(self.code(run.mark_timestamps, [{"symbol": "CCCUSDT", "catalog_path": empty,
                                                            "counts": {"mark": 3}}]), "EXPORT_MARKS_UNREADABLE")
         broken = next((rows[0]["catalog_path"] / "data" / "mark_prices").rglob("*.parquet"))
         broken.write_bytes(b"not parquet")
-        self.assertEqual(self.code(load.mark_timestamps, rows), "EXPORT_MARKS_UNREADABLE")
+        self.assertEqual(self.code(run.mark_timestamps, rows), "EXPORT_MARKS_UNREADABLE")
 
     def test_diagnostics_are_a_json_dict_apart_from_the_native_facts(self):
         class Source:
@@ -136,11 +135,53 @@ class LoadRefusalTests(unittest.TestCase):
 
             def replay_diagnostics(self):
                 return self.value
-        self.assertEqual(report.diagnostics(Source({"signals": 3})), {"signals": 3})
+        self.assertEqual(load.diagnostics(Source({"signals": 3})), {"signals": 3})
         for value, code in (([], "DIAGNOSTICS_NOT_DICT"), ({"positions": 1}, "DIAGNOSTICS_RESERVED_KEY"),
                             ({"when": object()}, "DIAGNOSTICS_NOT_JSON")):
             with self.subTest(code=code):
-                self.assertEqual(self.code(report.diagnostics, Source(value)), code)
+                self.assertEqual(self.code(load.diagnostics, Source(value)), code)
+
+
+class ReportRefusalTests(unittest.TestCase):
+    def code(self, call, *args):
+        with self.assertRaises(config.Refusal) as caught:
+            call(*args)
+        return caught.exception.code
+
+    def test_order_events_and_statistics_refuse_what_they_cannot_hold(self):
+        from decimal import Decimal
+        from types import SimpleNamespace
+
+        def order(identity, *values):
+            return SimpleNamespace(client_order_id=identity,
+                                   events=lambda: [SimpleNamespace(to_dict=lambda value=value: value) for value in values])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "order_events.jsonl.gz"
+            self.assertEqual(self.code(report.write_order_events, [order("O-2", {"a": 1}), order("O-1")], path),
+                             "ORDER_WITHOUT_EVENTS")
+            self.assertEqual(self.code(report.write_order_events, [order("O-1", {"px": float("nan")})], path),
+                             "NON_FINITE_EVENT_FIELD")
+        day = 86_400 * 10**9
+        self.assertEqual(self.code(report.summary_statistics, {}, day, day, Decimal(100000), Decimal(100000)),
+                         "TRADING_WINDOW_EMPTY")
+        self.assertEqual(self.code(report.summary_statistics, {}, 0, day, Decimal(0), Decimal(100000)),
+                         "STARTING_BALANCE_NOT_POSITIVE")
+
+
+    def test_statistics_cover_the_trading_window_and_note_what_cannot_be_computed(self):
+        from decimal import Decimal
+        day = 86_400 * 10**9
+        start, end = 10 * day, 14 * day  # four trading days
+        returns = {9 * day: 0.5, 10 * day: 0.01, 11 * day: -0.02, 12 * day: 0.015, 13 * day: 0.0, 14 * day: 0.9}
+        found = report.summary_statistics(returns, start, end, Decimal(100000), Decimal(110000))
+        self.assertEqual(found["trading_day_count"], 4)  # the warm-up and the return stamped at the end left out
+        self.assertEqual((found["trading_window_days"], found["period_return"]), ("4", "0.1"))
+        self.assertAlmostEqual(float(found["annual_return"]), 1.1 ** (365 / 4) - 1, places=6)
+        self.assertEqual(found["period_end_utc"], "1970-01-15T00:00:00Z")
+        self.assertEqual(found["statistics_notes"], [])
+        blown = report.summary_statistics({}, start, end, Decimal(100000), Decimal(0))
+        self.assertEqual((blown["period_return"], blown["annual_return"], blown["sharpe_365"]), (None, None, None))
+        self.assertEqual(len(blown["statistics_notes"]), 2)
 
 
 if __name__ == "__main__":

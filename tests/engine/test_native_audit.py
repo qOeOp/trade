@@ -314,29 +314,37 @@ class NativeAuditTests(unittest.TestCase):
                 (lambda events: events[1].update(ts_event=events[1]["ts_event"] - 1), {"EVENT_OUT_OF_ORDER"}),
                 (lambda events: events[1].update(strategy_id="R1-ETH"), {"EVENT_SCOPE_CHANGED"}),
                 (lambda events: events.append({**events[-1], "type": "OrderMystery", "event_id": "odd"}),
-                 {"EVENT_PAYLOAD_INVALID"})):
+                 {"REPORT_PAYLOAD_INVALID"})):
             with self.subTest(expected=expected):
                 values = reports()
                 values["events"] = order_events(values)
                 change(values["events"])
-                self.assertLessEqual(expected, codes(self.check(values)))
+                found = self.check(values)
+                self.assertLessEqual(expected, codes(found))
+                if expected == {"REPORT_PAYLOAD_INVALID"}:
+                    self.assertTrue(any("EVENT_PAYLOAD_INVALID: unknown native order event type OrderMystery" in item
+                                        for item in found["findings"]), found["findings"])
 
     def test_the_auditor_runs_only_on_complete_reports_and_lifecycle_counts_need_the_coverage_receipt(self):
         self.root = Path(self.directory.name) / "reports"
         self.root.mkdir()
         output = Path(self.directory.name) / "audit" / "audit.json"
         self.check(reports())
-        self.assertEqual(audit_main(self.root, output), 0)
+        self.assertIsNone(audit_main(self.root, output))
         values = reports()
         values["summary"]["per_coin"] = [{"instrument": SCOPE["instrument_id"], "counts": {"instrument_close": 1}}]
         self.check(values)
-        self.assertEqual(audit_main(self.root, output), 1)
+        self.assertEqual(self.exit_code(output), 1)
         self.assertTrue(json.loads(output.read_text())["findings"][0].startswith("LIFECYCLE_COVERAGE_MISSING"))
         output.unlink()
         (self.root / "order_events.jsonl.gz").unlink()
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(audit_main(self.root, output), 2)
+        self.assertEqual(self.exit_code(output), 2)
         self.assertFalse(output.exists())
+
+    def exit_code(self, output: Path) -> int:
+        with self.assertRaises(SystemExit) as caught, contextlib.redirect_stderr(io.StringIO()):
+            audit_main(self.root, output)
+        return caught.exception.code
 
 
 def codes(value) -> set[str]:

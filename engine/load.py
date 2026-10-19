@@ -1,5 +1,6 @@
-"""Load what one replay needs: the verified strategy source, the exported market inputs, universe
-membership and daily warm-up, and the lifecycle events checked against the coverage receipt."""
+"""Load what one replay needs: the verified strategy source and its run identity, the exported market
+inputs, universe membership and daily warm-up, the source's self-reported diagnostics, and the
+lifecycle events checked against the coverage receipt."""
 
 from __future__ import annotations
 
@@ -34,30 +35,12 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 @dataclass(frozen=True)
 class LoadedStrategy:
     source_path: Path
-    source_sha256: str
+    content_hash: str
     entry_class: str
     strategy_class: type[Strategy]
     binding: dict | None
     uses_stop_loss: bool = True
     daily_warmup: bool = False
-
-    def metadata(self) -> dict:
-        """engine.strategy_metadata: the run identity of the verified source and its two declarations."""
-        identity = {
-            "source_sha256": self.source_sha256,
-            "strategy_entry_class": self.entry_class,
-            "strategy_runtime_contract": RUNTIME_CONTRACT,
-            "strategy_uses_stop_loss": self.uses_stop_loss,
-            "strategy_daily_warmup": self.daily_warmup,
-            "strategy_source": {
-                "path": str(self.source_path),
-                "sha256": self.source_sha256,
-                "entry_class": self.entry_class,
-            },
-        }
-        if self.binding is not None:
-            identity["strategy_binding"] = self.binding.copy()
-        return identity
 
 
 def read_regular_file(path: Path) -> bytes:
@@ -75,7 +58,7 @@ def read_regular_file(path: Path) -> bytes:
         return stream.read()
 
 
-def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | None:
+def _binding(path: Path | None, content_hash: str, entry_class: str) -> dict | None:
     if path is None:
         return None
     try:
@@ -83,7 +66,7 @@ def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | 
     except (UnicodeDecodeError, json.JSONDecodeError, Refusal) as error:
         raise Refusal("BINDING_MISMATCH", f"strategy binding is not valid JSON: {path}") from error
     required = {
-        "database", "commit", "strategy_id", "revision", "source_sha256",
+        "database", "commit", "strategy_id", "revision", "content_hash",
         "entry_class", "runtime_contract",
     }
     if not isinstance(value, dict) or set(value) != required:
@@ -93,8 +76,8 @@ def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | 
             raise Refusal("BINDING_MISMATCH", f"strategy binding has no valid {field}")
     if type(value["revision"]) is not int or value["revision"] < 1:
         raise Refusal("BINDING_MISMATCH", "strategy binding revision must be a positive integer")
-    if value["source_sha256"] != source_sha256:
-        raise Refusal("BINDING_MISMATCH", "strategy binding source hash differs from verified bytes")
+    if value["content_hash"] != content_hash:
+        raise Refusal("BINDING_MISMATCH", "strategy binding content hash differs from verified bytes")
     if value["entry_class"] != entry_class:
         raise Refusal("BINDING_MISMATCH", "strategy binding entry class differs from selected class")
     if value["runtime_contract"] != RUNTIME_CONTRACT:
@@ -103,27 +86,27 @@ def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | 
 
 
 def load_strategy(
-    path: Path,
+    source_path: Path,
     entry_class: str,
-    expected_sha256: str,
+    expected_content_hash: str,
     binding_path: Path | None = None,
 ) -> LoadedStrategy:
-    """Execute exactly hash-checked source bytes and resolve a native class.
+    """engine.load_strategy: execute exactly hash-checked source bytes and resolve a native class.
 
     This verifies identity, not safety of arbitrary Python. The invoking sandbox
     or fixed runtime image supplies the execution boundary.
     """
-    if not isinstance(expected_sha256, str) or not _SHA256.fullmatch(expected_sha256):
+    if not isinstance(expected_content_hash, str) or not _SHA256.fullmatch(expected_content_hash):
         raise Refusal("CONTENT_HASH_INVALID", "strategy SHA-256 must be 64 lowercase hexadecimal characters")
     if not isinstance(entry_class, str) or not entry_class.isidentifier():
         raise Refusal("ENTRY_CLASS_INVALID", "strategy class must be one Python class name")
-    source = read_regular_file(path)
+    source = read_regular_file(source_path)
     actual_sha256 = hashlib.sha256(source).hexdigest()
-    if actual_sha256 != expected_sha256:
+    if actual_sha256 != expected_content_hash:
         raise Refusal("CONTENT_HASH_MISMATCH", "strategy SHA-256 differs from the published source")
     binding = _binding(binding_path, actual_sha256, entry_class)
-    source_path = path.resolve()
-    module_name = f"_trade_strategy_{actual_sha256}"
+    source_path = source_path.resolve()
+    module_name = f"_strategy_{actual_sha256}"
     module = sys.modules.get(module_name)
     if module is None:
         module = ModuleType(module_name)
@@ -158,6 +141,43 @@ def load_strategy(
                           getattr(strategy_class, "USES_STOP_LOSS", True), getattr(strategy_class, "DAILY_WARMUP", False))
 
 
+def strategy_metadata(loaded: LoadedStrategy) -> dict:
+    """engine.strategy_metadata: the run identity of the verified source and its two declarations."""
+    identity = {
+        "source_sha256": loaded.content_hash,
+        "strategy_entry_class": loaded.entry_class,
+        "strategy_runtime_contract": RUNTIME_CONTRACT,
+        "strategy_uses_stop_loss": loaded.uses_stop_loss,
+        "strategy_daily_warmup": loaded.daily_warmup,
+        "strategy_source": {
+            "path": str(loaded.source_path),
+            "content_hash": loaded.content_hash,
+            "entry_class": loaded.entry_class,
+        },
+    }
+    if loaded.binding is not None:
+        identity["strategy_binding"] = loaded.binding.copy()
+    return identity
+
+
+RESERVED_DIAGNOSTICS = {"coin", "instrument", "quantity", "counts", "positions"}
+
+
+def diagnostics(strategy: Strategy) -> dict:
+    """engine.diagnostics: the source's own counters, kept apart from the native report facts."""
+    value = strategy.replay_diagnostics()
+    if not isinstance(value, dict):
+        raise Refusal("DIAGNOSTICS_NOT_DICT", f"strategy diagnostics are a {type(value).__name__}, not a dict")
+    if RESERVED_DIAGNOSTICS.intersection(value):
+        raise Refusal("DIAGNOSTICS_RESERVED_KEY", "strategy diagnostics must not replace native report facts: "
+                      + ", ".join(sorted(RESERVED_DIAGNOSTICS.intersection(value))))
+    try:
+        json.dumps(value, allow_nan=True)
+    except (TypeError, ValueError) as exc:
+        raise Refusal("DIAGNOSTICS_NOT_JSON", f"strategy diagnostics are not JSON: {exc}") from exc
+    return value
+
+
 # Inputs: a market commit exported as one Catalog per contract (market/export.py)
 
 def coin(symbol: str, episode: int | None = None) -> str:
@@ -175,12 +195,12 @@ def strategy_id(symbol: str, episode: int | None = None) -> str:
     return f"R1-{name}" + (f"_E{episode}" if episode is not None else "")
 
 
-def read_universe(path: Path | None, symbols: list[str]) -> dict[str, tuple[tuple[int, int], ...]]:
+def read_universe(universe_path: Path | None, symbols: list[str]) -> dict[str, tuple[tuple[int, int], ...]]:
     """engine.read_universe: each contract's membership as [start_ns, end_ns) intervals (empty without a file)."""
-    if path is None:
+    if universe_path is None:
         return {symbol: () for symbol in symbols}
     try:
-        value = json.loads(read_regular_file(path))
+        value = json.loads(read_regular_file(universe_path))
         if not isinstance(value, dict) or not isinstance(value.get("membership"), dict):
             raise ValueError("the file holds no membership object")
         found = {}
@@ -193,21 +213,21 @@ def read_universe(path: Path | None, symbols: list[str]) -> dict[str, tuple[tupl
             found[symbol] = tuple((a, b) for a, b in intervals)
         return found
     except (ValueError, UnicodeDecodeError) as exc:
-        raise Refusal("UNIVERSE_FILE_INVALID", f"{path}: {exc}") from exc
+        raise Refusal("UNIVERSE_FILE_INVALID", f"{universe_path}: {exc}") from exc
 
 
-def read_market(root: Path, symbols: list[str], commit: str, start: int, end: int):
+def read_market(market_root: Path, symbols: list[str], market_commit: str, start_ns: int, end_ns: int) -> list[dict]:
     """engine.read_market: each contract's export receipt checked against the commit, the window and the
     one-minute timeframe, and one row per exported piece (the contract, or each lifecycle episode of a
     reused ticker) with its Catalog's one instrument."""
     rows = []
     for symbol in symbols:
-        path = root / symbol
+        path = market_root / symbol
         receipt = json.loads((path / "export.json").read_text(encoding="utf-8"))
         if ((receipt.get("commit"), receipt.get("start_ns"), receipt.get("end_ns"), receipt.get("timeframe"))
-                != (commit, start, end, TIMEFRAME)):
-            raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not commit {commit} over the replay "
-                                                     f"window in {TIMEFRAME} bars")
+                != (market_commit, start_ns, end_ns, TIMEFRAME)):
+            raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not commit {market_commit} over the "
+                                                     f"replay window in {TIMEFRAME} bars")
         if receipt.get("historical_terms") != "CURRENT_SNAPSHOT_APPROXIMATION":
             raise Refusal("TERMS_APPROXIMATION_MISSING", f"{symbol}: the receipt has no historical-terms mark")
         pieces = receipt.get("pieces")
@@ -261,10 +281,10 @@ def _daily_bars(catalog_path: Path, instrument_id: InstrumentId, before: int | N
                   key=lambda bar: bar.ts_event)
 
 
-def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start: int):
-    """engine.warmup_daily_bars: the unbroken run of daily LAST bars ending 1 ms before `start`; at least 200."""
-    bars = _daily_bars(catalog_path, instrument_id, start)
-    if not bars or bars[-1].ts_event != start - 1_000_000:
+def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start_ns: int) -> list:
+    """engine.warmup_daily_bars: the unbroken run of daily LAST bars ending 1 ms before `start_ns`; at least 200."""
+    bars = _daily_bars(catalog_path, instrument_id, start_ns)
+    if not bars or bars[-1].ts_event != start_ns - 1_000_000:
         raise Refusal("WARMUP_NOT_ADJACENT", f"{instrument_id}: no daily bar closes 1 ms before the input start")
     first = len(bars) - 1
     while first > 0 and bars[first].ts_event - bars[first - 1].ts_event == DAY_NS:
@@ -287,42 +307,6 @@ def warmup_start(catalog_path: Path, instrument_id: InstrumentId, earliest: int,
         if run >= WARMUP_DAYS and earliest <= moment < end:
             return moment
     return None
-
-
-def mark_timestamps(rows: list[dict]) -> int:
-    """engine.mark_timestamps: distinct MARK update times over every contract, from the exported Parquet
-    files' ts_event column. Updates stamped on a minute close (the export's) fill one bitmap over the
-    files' minute range; any other stamp is counted exactly on its own."""
-    import numpy as np
-    import pyarrow.parquet as parquet
-    paths = []
-    for row in rows:
-        found = sorted((Path(row["catalog_path"]) / "data").glob("mark_prices/**/*.parquet"))
-        if not found and (row.get("counts") or {}).get("mark"):
-            raise Refusal("EXPORT_MARKS_UNREADABLE", f"{row.get('symbol')}: the receipt counts MARK updates but "
-                                                     "no MARK file exists")
-        paths += found
-    columns, low, high = [], None, None
-    for path in paths:
-        try:
-            values = parquet.read_table(path, columns=["ts_event"])["ts_event"].to_numpy().astype(np.int64)
-        except Exception as exc:
-            raise Refusal("EXPORT_MARKS_UNREADABLE", f"{path}: {type(exc).__name__}: {exc}") from exc
-        columns.append(values)
-        if len(values):
-            low = values.min() if low is None else min(low, values.min())
-            high = values.max() if high is None else max(high, values.max())
-    if low is None:
-        return 0
-    base = low - low % MINUTE_NS
-    seen = np.zeros((high - base) // MINUTE_NS + 1, dtype=bool)
-    other = []
-    for values in columns:
-        closes = (values + 1_000_000) % MINUTE_NS == 0
-        seen[(values[closes] - base) // MINUTE_NS] = True
-        if not closes.all():
-            other.append(np.unique(values[~closes]))
-    return int(seen.sum()) + (len(np.unique(np.concatenate(other))) if other else 0)
 
 
 # Lifecycle (engine.lifecycle_events): the native InstrumentStatus and InstrumentClose events of a replay,

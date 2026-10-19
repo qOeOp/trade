@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from engine.report import EXPOSURE_COLUMNS, capital_findings, write_exposures
+from engine.report import EXPOSURE_COLUMNS, ExposureWriter
+from engine.run import capital_findings
 
 
 ROWS = [(1_767_225_899_999_000_000, "AAAUSDT-PERP.BINANCE-R1-AAA", "100.00000000 USDT", "-1.00000000 USDT")]
@@ -18,8 +19,11 @@ class CapitalExposureTests(unittest.TestCase):
     def test_exposure_report_bytes_repeat_and_read_back(self):
         with tempfile.TemporaryDirectory() as temp:
             first, second = Path(temp) / "a.csv.gz", Path(temp) / "b.csv.gz"
-            write_exposures(ROWS, first)
-            write_exposures(ROWS, second)
+            for path in (first, second):
+                writer = ExposureWriter(path)
+                for row in ROWS:
+                    writer.write(row)
+                writer.close()
             self.assertEqual(first.read_bytes(), second.read_bytes())
             rows = list(csv.reader(io.StringIO(gzip.decompress(first.read_bytes()).decode())))
         self.assertEqual(rows, [list(EXPOSURE_COLUMNS), [str(value) for value in ROWS[0]]])

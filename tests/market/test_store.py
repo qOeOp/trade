@@ -206,7 +206,7 @@ class ImportTests(unittest.TestCase):
 
     def test_an_export_loads_whole_into_the_engine_stream(self):
         from engine import run
-        from engine.load import mark_timestamps, read_market
+        from engine.load import read_market
         start, end = ns(MAR), ns(date(2025, 3, 3))
         root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
         self.addCleanup(shutil.rmtree, root, True)
@@ -234,7 +234,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual([type(event).__name__ for event in streamed].count("FundingRateUpdate"), 6)
         first_mark = next(event for event in streamed if type(event).__name__ == "MarkPriceUpdate")
         self.assertEqual(str(first_mark.value), f"{100 + (day_ms(MAR) // MINUTE) % 997 / 100:.2f}345678")
-        self.assertEqual(mark_timestamps(rows), 2880)
+        self.assertEqual(run.mark_timestamps(rows), 2880)
         self.assertRaises(MarketError, export.export_catalogs, self.profile, None, ["BTCUSDT"], start + 1, end)
         for code, args in (("EXPORT_WINDOW", (["BTCUSDT"], end, start)), ("EXPORT_SCOPE", (["BTCUSDT", "BTCUSDT"], start,
                                                                                             end))):

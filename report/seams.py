@@ -55,8 +55,8 @@ def _reproduce(run_id: int, output: Path, ledger: db.LedgerProfile) -> dict:
 
 
 def _compare_reports(reference: Path, candidate: Path) -> dict:
-    from engine import compare_reports
-    return compare_reports.compare(Path(reference), Path(candidate))
+    from engine.compare_reports import compare_reports
+    return compare_reports(Path(reference), Path(candidate))
 
 
 @dataclass(frozen=True)
