@@ -61,7 +61,8 @@ def backup_path(profile: db.LedgerProfile, destination: Path | None = None) -> P
 
 def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = None) -> str | None:
     """The research branch head of a dolt_backup copy, read from a restore in a new temporary
-    directory (deleted afterwards); None when there is no backup."""
+    directory (deleted afterwards); None when there is no backup. A restore or listing that fails,
+    times out or returns no readable branch list is DOLT_BACKUP."""
     backup = Path(backup)
     if not backup.is_dir():
         return None
@@ -75,16 +76,27 @@ def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = No
         (work / "home").mkdir()
         for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
             subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
-                           capture_output=True)
+                           capture_output=True, timeout=60)
         restored = subprocess.run([binary, "backup", "restore", backup.resolve().as_uri(), "restored"], cwd=work,
                                   env=environment, capture_output=True, text=True, timeout=600)
         if restored.returncode:
             raise refuse("DOLT_BACKUP", f"the backup at {backup} cannot be restored", missing=(str(backup),))
         listed = subprocess.run([binary, "sql", "-r", "json", "-q", "SELECT name, hash FROM dolt_branches"],
                                 cwd=work / "restored", env=environment, capture_output=True, text=True, timeout=600)
-        rows = json.loads(listed.stdout or "{}").get("rows", []) if not listed.returncode else []
+        if listed.returncode:
+            raise refuse("DOLT_BACKUP", f"the branches of the backup at {backup} cannot be listed",
+                         missing=(str(backup),))
+        value = json.loads(listed.stdout or "{}")
+        rows = value.get("rows", []) if isinstance(value, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(row, dict) and "name" in row and "hash" in row
+                                                 for row in rows):
+            raise refuse("DOLT_BACKUP", f"the backup at {backup} returned no readable branch list",
+                         missing=(str(backup),))
         heads = {row["name"]: row["hash"] for row in rows}
         return heads.get(branch or profile.research_branch)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
+        raise refuse("DOLT_BACKUP", f"the head of the backup at {backup} cannot be read ({type(exc).__name__})",
+                     missing=(str(backup),)) from exc
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -226,9 +238,18 @@ def export_history(profile, destination: Path, at: str | None = None, run_ids: l
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     final = destination / REPRODUCE
+    retired = destination / f".{REPRODUCE}.old.{os.getpid()}"
+    shutil.rmtree(retired, ignore_errors=True)
     if final.exists():
-        shutil.rmtree(final)
-    staging.rename(final)
+        final.rename(retired)  # the old export moves aside, the new one moves in, then the old one goes
+    try:
+        staging.rename(final)
+    except OSError:
+        if retired.exists() and not final.exists():
+            retired.rename(final)  # the earlier export stays in place
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    shutil.rmtree(retired, ignore_errors=True)
     return {"at": at, "commit": commit, "ledger_name": profile.name, "backup_path": str(backup) if backup else None,
             "candidates": len(listed), "runs": len(records), "images": images, "market_commits": market_commits,
             "manifest_path": str(final / MANIFEST), "content_hash": hashlib.sha256(encoded).hexdigest(),

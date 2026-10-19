@@ -4,24 +4,27 @@ the review exists to find. Never the active ledger."""
 
 from __future__ import annotations
 
+import ast
 from dataclasses import replace
 from datetime import UTC, datetime
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from ledger import admin, db, trials, witness
 from ledger.errors import Refusal
-from registration import validation
+from ledger.refusals import refuse
+from registration import seams as registration_seams, validation
 from replay import entry
 from report import comparison, reproduce, review, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, LINE_WINDOW, RUNNER_ARGV, World
-from tests.replay.world import ReplayWorld, registered_grid
+from tests.replay.world import ReplayWorld, clean_checkout, registered_grid
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}}
@@ -48,6 +51,10 @@ class TamperTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = world = World("tamper")
         cls.addClassCleanup(world.close)
+        checkout = clean_checkout(world.service.root / "checkout")
+        cls.checkout = registration_seams.use(checkout=lambda: checkout)  # the readers' clean product checkout
+        cls.checkout.__enter__()
+        cls.addClassCleanup(cls.checkout.__exit__, None, None, None)
         cls.authority = LocalAuthority()
         cls.addClassCleanup(cls.authority.close)
         roots = patch.object(witness, "_roots", lambda tsa_roots: cls.authority.roots)
@@ -96,6 +103,7 @@ class TamperTests(unittest.TestCase):
         with self.reader() as conn:
             found = review.review_all(conn)
         self.assertEqual(found["history"]["status"], "no_backup")
+        self.assertEqual(found["limitations"], [review.HISTORY_UNCHECKED])
         self.assertEqual(codes(found), ["CAPTURE_MISSING", "FINGERPRINT_MISSING", "SEALED_RESULT_MISSING",
                                         "SOURCE_NOT_IN_GRID", "WITNESS_MISSING"])
         self.assertTrue(found["tests_run"] >= 7)
@@ -111,7 +119,8 @@ class TamperTests(unittest.TestCase):
         self.assertTrue((Path(exported["backup_path"])).is_dir())
         self.assertTrue((self.profile.backup_root / "reproduce" / "candidates" / "rsi@1.py").is_file())
         with self.reader() as conn:
-            self.assertEqual(review.review_all(conn)["history"]["status"], "ancestor")
+            backed = review.review_all(conn)
+        self.assertEqual((backed["history"]["status"], backed["limitations"]), ("ancestor", []))
         again = admin.export_history(self.profile, self.profile.backup_root, run_ids=[self.fixture_run],
                                      with_backup=False)
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
@@ -172,6 +181,122 @@ class TamperTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class SealedTamperTests(unittest.TestCase):
+    """Two passed, fingerprinted runs through the replay entry, then the administrator's edits of what
+    the sealed result does not hold itself: a cycle amended into the ingest commit, the commit tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = world = ReplayWorld("sealed-tamper")
+        cls.addClassCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        (control,) = registered_grid(world, ["control"], "registration-control")
+        cls.control = entry.run(world.profile, world.market, MARKET_COMMIT, control, None, RUNNER_ARGV,
+                                hypothesis="registration-control")
+        world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
+        (late,) = registered_grid(world, ["late"], "registration-late")
+        cls.late = entry.run(world.profile, world.market, MARKET_COMMIT, late, None, RUNNER_ARGV,
+                             hypothesis="registration-late")
+        cls.backups = Path(tempfile.mkdtemp(prefix="sealed-backups-", dir="/tmp"))
+        cls.addClassCleanup(shutil.rmtree, cls.backups, True)
+
+    def setUp(self):
+        self.world = self.__class__.world
+
+    def review(self, profile=None) -> dict:
+        with db.connect(profile or self.world.profile, "reader") as conn:
+            return review.review_all(conn)
+
+    def admin_sql(self, *statements, params=None) -> None:
+        conn = self.world.service.admin(self.world.profile)
+        try:
+            with conn.cursor() as cursor:
+                for statement in statements:
+                    cursor.execute(statement, params if "%s" in statement else None)
+        finally:
+            conn.close()
+
+    def test_1_a_clean_ledger_without_a_backup_says_rewritten_history_was_not_checked(self):
+        found = self.review()
+        self.assertEqual((found["findings"], found["runs_checked"]), ([], 2))
+        self.assertEqual((found["history"]["status"], found["limitations"]), ("no_backup", [review.HISTORY_UNCHECKED]))
+
+    def test_2_an_unreadable_backup_is_a_finding_not_an_exception(self):
+        profile = replace(self.world.profile, backup_root=self.backups / "broken")
+        (profile.backup_root / "backup").mkdir(parents=True)
+        (profile.backup_root / "backup" / "garbage").write_text("not a dolt backup")
+        listing = subprocess.CompletedProcess([], 0, stdout="not json", stderr="")
+        for label, effect in (("restore fails", None), ("timeout", subprocess.TimeoutExpired("dolt", 600)),
+                              ("listing is no JSON", lambda *args, **kwargs: listing)):
+            with self.subTest(case=label):
+                if effect is None:
+                    found = self.review(profile)
+                else:
+                    with patch.object(admin.subprocess, "run", side_effect=effect):
+                        found = self.review(profile)
+                self.assertEqual(codes(found), ["BACKUP_UNREADABLE"])
+                self.assertEqual((found["history"]["status"], found["limitations"]),
+                                 ("unreadable", [review.HISTORY_UNCHECKED]))
+
+    def test_3_an_export_replaced_while_failing_keeps_the_earlier_one(self):
+        destination = self.backups / "export"
+        first = admin.export_history(self.world.profile, destination, with_backup=False)
+        original = Path.rename
+
+        def failing(self_path, target):
+            if self_path.name.startswith(".reproduce.") and not self_path.name.startswith(".reproduce.old."):
+                raise OSError("disk full")
+            return original(self_path, target)
+
+        with patch.object(Path, "rename", failing), self.assertRaises(OSError):
+            admin.export_history(self.world.profile, destination, with_backup=False)
+        manifest = json.loads((destination / "reproduce" / "manifest.json").read_text())
+        self.assertEqual(manifest["commit"], first["commit"], "the earlier export is still in place")
+        again = admin.export_history(self.world.profile, destination, with_backup=False)
+        self.assertEqual(sorted(path.name for path in destination.iterdir()), ["reproduce"])
+        self.assertEqual(again["runs"], 2)
+
+    def test_4_a_cycle_amended_into_the_ingest_commit_is_found(self):
+        (message,), = self.world.service.sql(self.world.profile, "SELECT message FROM dolt_log LIMIT 1")
+        self.assertTrue(message.startswith("ingest_run:"), "the late run's ingest is the head commit")
+        self.admin_sql(f"UPDATE run_cycle SET realized_pnl = realized_pnl + 5 WHERE run_id = {self.late['run_id']}",
+                       "CALL DOLT_COMMIT('-a', '--amend', '-m', %s)", params=(message,))
+        found = self.review()
+        changed = [(item["code"], item["table"], item["record_id"]) for item in found["findings"]]
+        self.assertEqual(changed, [("READING_MISMATCH", "run_cycle", str(self.late["run_id"]))],
+                         "the profit bridge no longer adds up to the sealed equity change")
+        self.assertIn("is 14.80000000, the sealed equity change is 9.80000000", found["findings"][0]["detail"])
+
+    def test_5_a_deleted_changed_or_added_commit_test_is_found(self):
+        self.admin_sql("DELETE FROM dolt_tests WHERE test_name = 'research_trials_follow_their_registration'",
+                       "UPDATE dolt_tests SET test_query = 'SELECT 0' WHERE test_name = 'validation_trials_are_bound'",
+                       "INSERT INTO dolt_tests VALUES ('always_passes', 'commit', 'SELECT 0', 'expected_single_value', "
+                       "'==', '0')",
+                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: the commit tests')")
+        found = self.review()
+        altered = {item["record_id"]: item["detail"] for item in found["findings"]
+                   if item["code"] == "COMMIT_TEST_ALTERED"}
+        self.assertEqual(sorted(altered), ["always_passes", "research_trials_follow_their_registration",
+                                           "validation_trials_are_bound"])
+        self.assertIn("missing", altered["research_trials_follow_their_registration"])
+        self.assertIn("test_query", altered["validation_trials_are_bound"])
+        self.assertIn("added", altered["always_passes"])
+
+
+class FindingCatalogueTests(unittest.TestCase):
+    def test_every_finding_the_review_gives_has_a_meaning(self):
+        tree = ast.parse(Path(review.__file__).read_text(encoding="utf-8"))
+        given = {node.args[0].value for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "_finding" and node.args
+                 and isinstance(node.args[0], ast.Constant)}
+        self.assertTrue(given)
+        for code in sorted(given):
+            with self.subTest(code=code):
+                self.assertTrue(review.FINDINGS[code].strip())
+        self.assertTrue({"COMMIT_TEST_ALTERED", "BACKUP_UNREADABLE"} <= given)
+
+
+@unittest.skipUnless(BINARY, SKIP)
 class CrossImageTests(unittest.TestCase):
     """Two passed runs of one source on the same inputs: a retry of an attempt without economic evidence."""
 
@@ -220,6 +345,26 @@ class CrossImageTests(unittest.TestCase):
         with seams.use(reproduce=self.fake_reproduce(False)):
             self.assertEqual(refused(reproduce.compare_runs, self.world.profile, self.first["run_id"],
                                      self.second["run_id"]).code, "EXPORT_INCOMPLETE")
+
+    def test_the_working_directory_goes_unless_a_reproduction_mismatched(self):
+        work = Path(tempfile.mkdtemp(prefix="compare-work-"))
+        self.addCleanup(shutil.rmtree, work, True)
+        with seams.use(reproduce=self.fake_reproduce(True), compare_reports=lambda left, right: {"passed": True}):
+            reproduce.compare_runs(self.world.profile, self.first["run_id"], self.second["run_id"], work_dir=work)
+        self.assertEqual(list(work.iterdir()), [], "the directory it created under work_dir is removed")
+
+        def mismatched(run_id, output, ledger):
+            output.mkdir(parents=True)
+            raise refuse("REPRODUCTION_MISMATCH", f"run {run_id} is not reproduced in {output}; the directory is kept",
+                         missing=("fingerprints",))
+
+        with seams.use(reproduce=mismatched):
+            exc = refused(reproduce.compare_runs, self.world.profile, self.first["run_id"], self.second["run_id"],
+                          work_dir=work)
+        (kept,) = list(work.iterdir())
+        self.assertEqual(exc.code, "REPRODUCTION_MISMATCH")
+        self.assertIn(f"{kept.resolve()} is kept", exc.message)
+        self.assertTrue((kept / "reference").is_dir())
 
     def test_the_cross_image_comparison_needs_two_passed_runs_of_the_same_inputs(self):
         profile = self.world.profile

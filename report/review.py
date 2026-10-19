@@ -1,9 +1,11 @@
 """The whole-ledger review (`report.review_all`): with the reader account at one exact version, rerun
-the commit checks, read every business table's history for changed or removed rows, check that the
-latest backup's head is still an ancestor of the research head, recompute what the stored cycles and
-daily series determine against each passed run's sealed result, and check fingerprints, captures,
-registration order, grid membership, witnesses and the one-to-one out-of-sample bindings. Every
-difference is a finding; nothing is written and no write transaction is opened.
+the commit checks and compare them byte for byte with the product's definitions, read every business
+table's history for changed or removed rows, check that the latest backup's head is still an
+ancestor of the research head (without a backup, say that this was not checked), recompute what the
+stored cycles and daily series determine against each passed run's sealed result, and check
+fingerprints, captures, registration order, grid membership, witnesses and the one-to-one
+out-of-sample bindings. Every difference is a finding; nothing is written and no write transaction
+is opened.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from collections.abc import Mapping
 from decimal import Decimal
 import json
 import math
+import re
 
 from ledger import admin, db, execution, metrics, witness
 from ledger.errors import Refusal
@@ -22,10 +25,16 @@ from registration import register
 # Finding codes and their meaning (findings are reported, never stored).
 FINDINGS = {
     "COMMIT_TEST_FAILED": "A commit verification test (dolt_tests) fails at this version.",
+    "COMMIT_TEST_ALTERED": "A commit verification test (dolt_tests) is missing, added or differs byte for byte from the "
+                           "product's definition in ledger/schema.sql.",
     "ROW_CHANGED": "A row of an append-only table was modified or removed in the ledger history.",
     "HISTORY_REWRITTEN": "The latest backup's head commit is no ancestor of the research head: a commit was rewritten "
                          "(the writer account can amend its last commit).",
-    "READING_MISMATCH": "A value the stored cycles or daily series determine differs from the run's sealed result.",
+    "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
+                         "returned no readable branch list); rewritten history was not checked.",
+    "READING_MISMATCH": "A value the stored cycles or daily series determine (counts, compounding, the profit "
+                        "bridge, plan tags, the whole-day series behind the monthly figures) differs from the run's "
+                        "sealed result.",
     "SEALED_RESULT_MISSING": "A passed run has no sealed result row.",
     "FINGERPRINT_MISSING": "A passed run has no semantic fingerprint, so it cannot be reproduced.",
     "CAPTURE_MISSING": "A run's trial has no original execution capture.",
@@ -40,6 +49,10 @@ FINDINGS = {
 }
 UNCHECKED = ("ledger_head",)
 EQUITY_TOLERANCE = metrics.EQUITY_TOLERANCE
+HISTORY_UNCHECKED = ("HISTORY_UNCHECKED: no readable backup, so whether a commit was rewritten (an amended last "
+                     "commit) was not checked")
+COMMIT_TESTS_INSERT = "INSERT INTO dolt_tests VALUES"
+TEST_COLUMNS = ("test_name", "test_group", "test_query", "assertion_type", "assertion_comparator", "assertion_value")
 
 
 def _finding(code: str, table: str | None, record_id, commit: str | None, detail: str) -> dict:
@@ -58,22 +71,128 @@ def _primary_key(conn: db.LedgerConnection, table: str) -> list[str]:
         "AND constraint_name = 'PRIMARY' ORDER BY ordinal_position", (table,))]
 
 
-def _history(profile: db.LedgerProfile, head: str) -> tuple[dict, list[dict]]:
-    """(the backup check, its findings): HISTORY_REWRITTEN when the latest backup's head commit is
-    no ancestor of the research head."""
+def _history(profile: db.LedgerProfile, head: str) -> tuple[dict, list[dict], list[str]]:
+    """(the backup check, its findings, its limitations): HISTORY_REWRITTEN when the latest backup's
+    head commit is no ancestor of the research head, BACKUP_UNREADABLE when the backup's head cannot
+    be read, and without a backup the limitation that rewritten history was not checked."""
     backup = admin.backup_path(profile)
     if backup is None or not backup.is_dir():
-        return {"backup": None if backup is None else str(backup), "head": None, "status": "no_backup"}, []
-    backed = admin.backup_head(profile, backup)
+        return ({"backup": None if backup is None else str(backup), "head": None, "status": "no_backup"}, [],
+                [HISTORY_UNCHECKED])
+    try:
+        backed = admin.backup_head(profile, backup)
+    except Refusal as exc:
+        return ({"backup": str(backup), "head": None, "status": "unreadable"},
+                [_finding("BACKUP_UNREADABLE", None, None, None, f"{exc.code}: {exc.message}")], [HISTORY_UNCHECKED])
     if backed is None:
         return {"backup": str(backup), "head": None, "status": "no_branch"}, [_finding(
-            "HISTORY_REWRITTEN", None, None, None, f"the backup at {backup} has no {profile.research_branch} branch")]
+            "HISTORY_REWRITTEN", None, None, None,
+            f"the backup at {backup} has no {profile.research_branch} branch")], []
     with db.connect(profile, "reader") as branch:
         (count,), = branch.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (backed,))
     if count:
-        return {"backup": str(backup), "head": backed, "status": "ancestor", "research_head": head}, []
+        return {"backup": str(backup), "head": backed, "status": "ancestor", "research_head": head}, [], []
     return {"backup": str(backup), "head": backed, "status": "not_ancestor", "research_head": head}, [_finding(
-        "HISTORY_REWRITTEN", None, None, backed, f"the backup head {backed} is no ancestor of the research head {head}")]
+        "HISTORY_REWRITTEN", None, None, backed,
+        f"the backup head {backed} is no ancestor of the research head {head}")], []
+
+
+def product_commit_tests() -> dict[str, tuple[str, ...]]:
+    """The commit verification tests the product defines (the one INSERT INTO dolt_tests statement of
+    ledger/schema.sql), by name: (test_name, test_group, test_query, assertion_type,
+    assertion_comparator, assertion_value)."""
+    statement = next(part for part in db._statements(db.SCHEMA.read_text(encoding="utf-8"))
+                     if part.startswith(COMMIT_TESTS_INSERT))
+    values = [item.replace("''", "'") for item in re.findall(r"'((?:[^']|'')*)'", statement[len(COMMIT_TESTS_INSERT):])]
+    rows = [tuple(values[index:index + len(TEST_COLUMNS)]) for index in range(0, len(values), len(TEST_COLUMNS))]
+    return {row[0]: row for row in rows}
+
+
+def _commit_test_findings(conn: db.LedgerConnection, commit: str) -> list[dict]:
+    """COMMIT_TEST_ALTERED for every dolt_tests row missing from, added to or differing (byte for byte)
+    from the product's definitions."""
+    expected = product_commit_tests()
+    stored = {str(row[0]): tuple(str(item) if item is not None else None for item in row)
+              for row in conn.rows(f"SELECT {', '.join(TEST_COLUMNS)} FROM dolt_tests ORDER BY test_name")}
+    found = []
+    for name in sorted(set(expected) | set(stored)):
+        if name not in stored:
+            detail = "the product's commit test is missing"
+        elif name not in expected:
+            detail = "a commit test the product does not define was added"
+        elif [item.encode("utf-8") if item is not None else None for item in stored[name]] != [
+                item.encode("utf-8") for item in expected[name]]:
+            differs = [column for column, left, right in zip(TEST_COLUMNS, stored[name], expected[name])
+                       if left != right]
+            detail = "the commit test differs from the product's definition in " + ", ".join(differs)
+        else:
+            continue
+        found.append(_finding("COMMIT_TEST_ALTERED", "dolt_tests", name, commit, detail))
+    return found
+
+
+def _json_value(value):
+    return value if isinstance(value, Mapping) or value is None else json.loads(value)
+
+
+def _ns(moment) -> int:
+    return metrics.utc_ns(moment.replace(tzinfo=None).isoformat() + "Z")
+
+
+def _sealed_rows_findings(conn: db.LedgerConnection, run_id: int, commit: str, report: Mapping,
+                          starting) -> list[dict]:
+    """What the stored cycles and daily series determine against the sealed result: the counts, the
+    compounding, the profit bridge, the plan tags and the whole-day (monthly) series."""
+    found = []
+
+    def mismatch(table: str, detail: str) -> None:
+        found.append(_finding("READING_MISMATCH", table, run_id, commit, detail))
+
+    cycles = conn.dicts("SELECT ts_closed_ns, realized_pnl, commissions, funding, price_pnl, open_unrealized, plan_tag "
+                        "FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
+    returns = conn.rows("SELECT ts_event_ns, native_return FROM run_return WHERE run_id = %s ORDER BY ts_event_ns",
+                        (run_id,))
+    populations = report.get("populations") or {}
+    activity = report.get("activity") or {}
+    checks = [("populations.cycles", populations.get("cycles"), len(cycles)),
+              ("populations.days", populations.get("days"), len(returns))]
+    if (activity.get("cycles_cover_fills@1") or {}).get("passed"):
+        checks.append(("activity.cycles_cover_fills@1.count", activity["cycles_cover_fills@1"].get("count"),
+                       len(cycles)))
+    for name, stored, counted in checks:
+        if stored is not None and stored != counted:
+            mismatch("run_sealed", f"{name} is {stored}, the stored rows give {counted}")
+    compounding = activity.get("returns_compound_to_equity@1") or {}
+    final = compounding.get("final_equity")
+    if compounding.get("passed") and compounding.get("compounded") is not None and starting is not None:
+        recomputed = Decimal(str(starting)) * Decimal(repr(math.prod(1 + value for _, value in returns)))
+        if abs(recomputed - Decimal(compounding["compounded"])) > EQUITY_TOLERANCE:
+            mismatch("run_return", f"the daily series compounds to {recomputed:.2f}, the sealed result records "
+                                   f"{compounding['compounded']}")
+    if compounding.get("passed") and final is not None and starting is not None:
+        trial = conn.one("SELECT t.trade_start, t.trade_end FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
+                         "r.run_id = %s", (run_id,))
+        limitations: list[str] = []
+        summary = {"period_start_utc": str(_ns(trial["trade_start"])), "period_end_utc": str(_ns(trial["trade_end"])),
+                   "starting_balance_usdt": str(starting), "final_equity_usdt": str(final)}
+        if metrics.daily_returns([(int(ts), float(value)) for ts, value in returns], summary, limitations) is None:
+            mismatch("run_return", "the monthly figures have no whole daily series: " + "; ".join(limitations))
+    reconciled = (activity.get("cycles_reconcile_audit@1") or {}).get("passed") is True
+    open_marks = [cycle["open_unrealized"] for cycle in cycles if cycle["ts_closed_ns"] is None]
+    if reconciled and final is not None and starting is not None and None not in open_marks:
+        price = sum((Decimal(cycle["price_pnl"]) for cycle in cycles if cycle["ts_closed_ns"] is not None), Decimal(0))
+        fees = sum((Decimal(cycle["commissions"]) for cycle in cycles), Decimal(0))
+        funding = sum((Decimal(cycle["funding"]) for cycle in cycles), Decimal(0))
+        bridge = price - fees + funding + sum((Decimal(mark) for mark in open_marks), Decimal(0))
+        change = Decimal(str(final)) - Decimal(str(starting))
+        if abs(bridge - change) > EQUITY_TOLERANCE:
+            mismatch("run_cycle", f"price - fees + funding + open mark is {metrics.money(bridge)}, the sealed equity "
+                                  f"change is {metrics.money(change)}")
+    if (report.get("plans_valid@1") or {}).get("passed"):
+        untagged = sum(1 for cycle in cycles if cycle["plan_tag"] is None)
+        if untagged:
+            mismatch("run_cycle", f"the sealed plan contract holds, but {untagged} stored cycles carry no plan tag")
+    return found
 
 
 def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> tuple[list[dict], bool]:
@@ -89,33 +208,15 @@ def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> tuple
         return found, True
     if run["fingerprints"] is None:
         found.append(_finding("FINGERPRINT_MISSING", "run", run_id, commit, "the passed run has no semantic fingerprint"))
-    sealed_rows = conn.rows("SELECT report FROM run_sealed WHERE run_id = %s ORDER BY created_at DESC LIMIT 1", (run_id,))
-    if not sealed_rows:
+    sealed = {revision: _json_value(report) for revision, report in conn.rows(
+        "SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s", (run_id,))}
+    report = metrics.latest_sealed(conn, run_id, sealed)
+    if not report:
         found.append(_finding("SEALED_RESULT_MISSING", "run_sealed", run_id, commit, "no sealed result"))
         return found, True
-    report = sealed_rows[0][0]
-    report = report if isinstance(report, Mapping) else json.loads(report)
-    (cycles,), = conn.rows("SELECT COUNT(*) FROM run_cycle WHERE run_id = %s", (run_id,))
-    returns = conn.rows("SELECT native_return FROM run_return WHERE run_id = %s ORDER BY ts_event_ns", (run_id,))
-    populations = report.get("populations") or {}
-    activity = report.get("activity") or {}
-    checks = [("populations.cycles", populations.get("cycles"), cycles),
-              ("populations.days", populations.get("days"), len(returns))]
-    if (activity.get("cycles_cover_fills@1") or {}).get("passed"):
-        checks.append(("activity.cycles_cover_fills@1.count", activity["cycles_cover_fills@1"].get("count"), cycles))
-    for name, stored, counted in checks:
-        if stored is not None and stored != counted:
-            found.append(_finding("READING_MISMATCH", "run_sealed", run_id, commit,
-                                  f"{name} is {stored}, the stored rows give {counted}"))
-    compounding = activity.get("returns_compound_to_equity@1") or {}
     coverage = capture.get("input_coverage") if isinstance(capture.get("input_coverage"), Mapping) else {}
     starting = ((coverage.get("effective_config") or {}).get("account") or {}).get("starting_balance_usdt")
-    if compounding.get("passed") and compounding.get("compounded") is not None and starting is not None:
-        recomputed = Decimal(str(starting)) * Decimal(repr(math.prod(1 + value for (value,) in returns)))
-        if abs(recomputed - Decimal(compounding["compounded"])) > EQUITY_TOLERANCE:
-            found.append(_finding("READING_MISMATCH", "run_return", run_id, commit,
-                                  f"the daily series compounds to {recomputed:.2f}, the sealed result records "
-                                  f"{compounding['compounded']}"))
+    found += _sealed_rows_findings(conn, run_id, commit, report, starting)
     return found, True
 
 
@@ -190,6 +291,7 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
         for name, status, message in tests:
             if str(status).upper() != "PASS":
                 findings.append(_finding("COMMIT_TEST_FAILED", "dolt_tests", name, commit, str(message or status)))
+        findings += _commit_test_findings(pinned, commit)
         checked = list(tables) if tables is not None else _tables(pinned)
         for table in checked:
             if not db.IDENTIFIER.fullmatch(table):
@@ -205,7 +307,7 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
                 findings.append(_finding("ROW_CHANGED", table, "/".join(str(item) for item in key), to_commit,
                                          f"a {table} row was {diff_type}"))
         head = db.resolve_commit(pinned, conn.profile.research_branch)
-        history, found = _history(conn.profile, head)
+        history, found, limitations = _history(conn.profile, head)
         findings += found
         wanted = None if run_ids is None else {int(item) for item in run_ids}
         runs = [row for row in pinned.dicts("SELECT run_id, trial_id, status, fingerprints FROM run ORDER BY run_id")
@@ -223,4 +325,4 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
         findings += found
     return {"at": at, "commit": commit, "tests_run": len(tests), "tables_checked": checked, "runs_checked": len(runs),
             "captures_checked": captures, "registrations_checked": registrations, "validations_checked": validations,
-            "history": history, "ok": not findings, "findings": findings}
+            "history": history, "ok": not findings, "findings": findings, "limitations": limitations}

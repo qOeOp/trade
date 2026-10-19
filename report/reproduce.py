@@ -1,7 +1,9 @@
 """Cross-image engineering consistency (`report.compare_runs`): both runs are replayed by their own
 identity through replay.reproduce, each directory handed over only when its semantic fingerprint
 equals the recorded one, and the two native report sets go to engine.compare_reports. Read only;
-the reproductions' own explore trials are the only ledger rows the replays write.
+the reproductions' own explore trials are the only ledger rows the replays write. The working
+directory is a new temporary path (ledger.temporary_path); it is removed afterwards, except after a
+REPRODUCTION_MISMATCH, when it is kept for diagnosis and the refusal names it.
 """
 
 from __future__ import annotations
@@ -9,8 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import tempfile
+import uuid
 
 from ledger import db, execution, metrics, paths
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, register
 from report import runs, seams
@@ -33,7 +37,9 @@ def _side(conn: db.LedgerConnection, run_id: int) -> dict:
 def compare_runs(profile, reference_run_id: int, candidate_run_id: int, at: str | None = None,
                  work_dir: Path | None = None) -> dict:
     """engine.compare_reports of two reproduced runs of the same source, inputs and configuration
-    (the reference on its original image), with both identities and the ledger commit read."""
+    (the reference on its original image), with both identities and the ledger commit read. The
+    reproductions go into a new directory under `work_dir` (default: the temporary root), removed
+    afterwards unless a reproduction mismatched."""
     if reference_run_id == candidate_run_id:
         raise refuse("SAME_RUN", "the reference and the candidate are the same run", missing=(str(reference_run_id),))
     profile = runs.profile_of(profile)
@@ -43,17 +49,23 @@ def compare_runs(profile, reference_run_id: int, candidate_run_id: int, at: str 
     differs = [name for name in ("source_sha256", "input_key", "config_key") if reference[name] != candidate[name]]
     if differs:
         raise refuse("PAIR_INPUT_MISMATCH", "the two runs differ in " + ", ".join(differs), missing=tuple(differs))
-    owned = work_dir is None
-    if owned:
-        root = Path(tempfile.mkdtemp(prefix=f"compare-runs-{reference_run_id}-{candidate_run_id}-"))
-    else:
-        root = paths.temporary_path(work_dir)
-        root.mkdir(parents=True)
+    parent = Path(tempfile.gettempdir()) if work_dir is None else Path(work_dir)
+    root = paths.temporary_path(parent / f"compare-runs-{reference_run_id}-{candidate_run_id}-{uuid.uuid4().hex[:12]}")
+    root.mkdir(parents=True)
+    keep = False
     try:
         directories = {}
         for name, side in (("reference", reference), ("candidate", candidate)):
             target = root / name
-            seams.current.reproduce(side["run_id"], target, profile)  # REPRODUCTION_MISMATCH
+            try:
+                seams.current.reproduce(side["run_id"], target, profile)
+            except Refusal as exc:
+                if exc.code != "REPRODUCTION_MISMATCH":
+                    raise
+                keep = True
+                raise refuse("REPRODUCTION_MISMATCH", f"{exc.message}; the comparison's working directory {root} is "
+                                                      "kept for diagnosis", missing=exc.missing,
+                             write_status=exc.write_status, operation_id=exc.operation_id) from exc
             reports = target / "reports"
             absent = [report for report in execution.NATIVE_REPORTS if not (reports / report).is_file()]
             if absent:
@@ -62,7 +74,7 @@ def compare_runs(profile, reference_run_id: int, candidate_run_id: int, at: str 
             directories[name] = reports
         compared = seams.current.compare_reports(directories["reference"], directories["candidate"])
     finally:
-        if owned:
+        if not keep:
             shutil.rmtree(root, ignore_errors=True)
     identity = ("run_id", "image_ref", "runtime_contract", "build_revision")
     return {**compared, "reference": {key: reference[key] for key in identity},
