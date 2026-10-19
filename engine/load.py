@@ -58,7 +58,7 @@ def read_regular_file(path: Path) -> bytes:
         return stream.read()
 
 
-def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | None:
+def _binding(path: Path | None, content_hash: str, entry_class: str) -> dict | None:
     if path is None:
         return None
     try:
@@ -66,7 +66,7 @@ def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | 
     except (UnicodeDecodeError, json.JSONDecodeError, Refusal) as error:
         raise Refusal("BINDING_MISMATCH", f"strategy binding is not valid JSON: {path}") from error
     required = {
-        "database", "commit", "strategy_id", "revision", "source_sha256",
+        "database", "commit", "strategy_id", "revision", "content_hash",
         "entry_class", "runtime_contract",
     }
     if not isinstance(value, dict) or set(value) != required:
@@ -76,8 +76,8 @@ def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | 
             raise Refusal("BINDING_MISMATCH", f"strategy binding has no valid {field}")
     if type(value["revision"]) is not int or value["revision"] < 1:
         raise Refusal("BINDING_MISMATCH", "strategy binding revision must be a positive integer")
-    if value["source_sha256"] != source_sha256:
-        raise Refusal("BINDING_MISMATCH", "strategy binding source hash differs from verified bytes")
+    if value["content_hash"] != content_hash:
+        raise Refusal("BINDING_MISMATCH", "strategy binding content hash differs from verified bytes")
     if value["entry_class"] != entry_class:
         raise Refusal("BINDING_MISMATCH", "strategy binding entry class differs from selected class")
     if value["runtime_contract"] != RUNTIME_CONTRACT:
@@ -151,7 +151,7 @@ def strategy_metadata(loaded: LoadedStrategy) -> dict:
         "strategy_daily_warmup": loaded.daily_warmup,
         "strategy_source": {
             "path": str(loaded.source_path),
-            "sha256": loaded.content_hash,
+            "content_hash": loaded.content_hash,
             "entry_class": loaded.entry_class,
         },
     }

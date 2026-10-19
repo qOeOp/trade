@@ -63,7 +63,7 @@ class StrategyLoaderTests(unittest.TestCase):
             "commit": "sldp6n46ejbmghcinbltf88mv53q1koq",
             "strategy_id": "R1-H19a",
             "revision": 1,
-            "source_sha256": self.digest,
+            "content_hash": self.digest,
             "entry_class": "ProbeStrategy",
             "runtime_contract": RUNTIME_CONTRACT,
         }
@@ -109,7 +109,7 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_reject_binding_mismatches_before_source_execution(self):
         for field, value in (
-            ("source_sha256", "0" * 64), ("entry_class", "OtherStrategy"),
+            ("content_hash", "0" * 64), ("entry_class", "OtherStrategy"),
             ("runtime_contract", "other"), ("revision", True), ("database", ""),
         ):
             with self.subTest(field=field), self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: "):
