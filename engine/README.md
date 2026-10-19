@@ -8,10 +8,10 @@ with `docker run` or `python -m engine.run` directly.
 
 | Path | Role |
 |---|---|
-| `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, `--describe` and the runner's refusal codes |
-| `load.py` | The hash-checked strategy source, the exported market Catalogs, universe membership, daily warm-up and the lifecycle events rebuilt from the coverage receipt |
-| `run.py` | The streamed `BacktestEngine` run, lifecycle episodes, the capital observer and the execution binding check |
-| `report.py` | Native reports, `order_events.jsonl.gz`, `exposures.csv.gz` and `summary.json` |
+| `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, the runtime source identity, `--describe` and the runner's refusal codes |
+| `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics and the lifecycle events rebuilt from the coverage receipt |
+| `run.py` | The streamed `BacktestEngine` run, strategy construction and guarded callbacks, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
+| `report.py` | Native reports, `order_events.jsonl.gz`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
 | `audit.py` | Independent audit of every run's native reports, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
 | `compare_reports.py` | Engineering parity between two runs |

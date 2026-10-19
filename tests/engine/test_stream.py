@@ -287,7 +287,7 @@ def node_replay(rows, window, loaded, universe, output, chunk):
     planned, _ = run.plan_instances(rows, window, loaded)
     for row, input_start, trade_start in planned:
         node.add_strategy_from_config(config.id, ImportableStrategyConfig(
-            strategy_path=run.importable_strategy(loaded), config_path="engine.run:StrategyInputs",
+            strategy_path=f"engine.run:{run._runner_class(loaded).__name__}", config_path="engine.run:StrategyInputs",
             config={"instrument_id": str(row["instrument_id"]), "trade_start_ns": trade_start,
                     "input_start_ns": input_start, "strategy_id": row["strategy_id"],
                     "catalog_path": str(row["catalog_path"]),

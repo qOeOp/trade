@@ -164,8 +164,8 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
         window = parse_window(utc_text(start_ns), None, utc_text(start_ns + BARS * BAR_NS))
         rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}}]
         with contextlib.redirect_stdout(io.StringIO()):
-            report.write(output, finished, {"AAA": strategy}, rows, {"strategy_uses_stop_loss": True}, window,
-                         account, BARS)
+            report.write_native_reports(output, finished, {"AAA": strategy}, rows, {"strategy_uses_stop_loss": True},
+                                        window, account, [], BARS)
     finally:
         engine.dispose()
     return audit(output)

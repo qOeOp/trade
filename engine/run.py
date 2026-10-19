@@ -24,8 +24,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.common import DataActor, ImportableActorConfig, LoggerConfig, LogLevel
-from nautilus_trader.config import ImportableStrategyConfig
+from nautilus_trader.common import DataActor, LoggerConfig, LogLevel
 from nautilus_trader.data import DataEngineConfig
 from nautilus_trader.model import (
     AccountType,
@@ -54,6 +53,7 @@ from engine import report
 from engine.config import (
     ACCOUNT_CONTRACT,
     EXECUTION_BAR_MINUTES,
+    MINUTE_NS,
     RUNTIME_CONTRACT,
     Refusal,
     Window,
@@ -61,16 +61,17 @@ from engine.config import (
     utc_text,
     effective_configuration,
     parse_configuration,
+    runtime_source_metadata,
 )
 from engine.load import (
     BAR_INTERVAL_NS,
     LIFECYCLE_COUNTS,
     LoadedStrategy,
     load_strategy,
-    mark_timestamps,
     read_market,
     read_regular_file,
     read_universe,
+    strategy_metadata,
     terms_approximations,
     warmup_daily_bars,
     warmup_start,
@@ -101,8 +102,9 @@ def execution_metadata(config) -> dict:
     return {"runtime_identity": identity, "effective_config_sha256": effective.digest}
 
 
-# Engine components. The engine builds strategies and actors from importable paths, so the
-# instances it creates register themselves here for the report to read.
+# Engine components. Each strategy instance and the capital observer register themselves here, for
+# the report to read, however they were built (engine.configure_strategy and engine.capital_observer
+# build them; their classes stay importable for a BacktestNode configuration).
 
 STRATEGIES: dict[str, Strategy] = {}
 OBSERVERS: list = []
@@ -126,23 +128,19 @@ class _Configured:
         return Strategy.__new__(cls)
 
     def __init__(self, config: StrategyInputs):
-        try:
-            instrument_id = InstrumentId.from_str(config.instrument_id)
-            super().__init__(
-                instrument_id,
-                BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
-                trade_start_ns=config.trade_start_ns,
-                historical_daily_bars=(
-                    warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
-                    if getattr(type(self), "DAILY_WARMUP", False) else []
-                ),
-                execution_bar_minutes=EXECUTION_BAR_MINUTES,
-                strategy_id=StrategyId(config.strategy_id),
-                universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
-            )
-        except Exception as exc:
-            execution_failure("constructor", exc, None)
-            raise
+        instrument_id = InstrumentId.from_str(config.instrument_id)
+        super().__init__(
+            instrument_id,
+            BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
+            trade_start_ns=config.trade_start_ns,
+            historical_daily_bars=(
+                warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
+                if getattr(type(self), "DAILY_WARMUP", False) else []
+            ),
+            execution_bar_minutes=EXECUTION_BAR_MINUTES,
+            strategy_id=StrategyId(config.strategy_id),
+            universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
+        )
         self._replay_input_start_ns = config.input_start_ns
         STRATEGIES[config.instrument_id] = self
 
@@ -259,13 +257,24 @@ def guarded_callbacks(strategy_class: type) -> dict:
     return found
 
 
-def importable_strategy(loaded: LoadedStrategy) -> str:
-    """Give ImportableStrategyConfig a path resolving inside this exact process."""
-    name = f"NodeExternal_{loaded.source_sha256}_{loaded.entry_class}"
+def _runner_class(loaded: LoadedStrategy) -> type:
+    """The runner's class around the source's entry class, made once per process under a name holding the
+    content hash and entry class, so `engine.run:<name>` resolves inside this exact process."""
+    name = f"NodeExternal_{loaded.content_hash}_{loaded.entry_class}"
     if name not in globals():
         globals()[name] = type(name, (_Configured, loaded.strategy_class),
                                {"__module__": __name__, **guarded_callbacks(loaded.strategy_class)})
-    return f"{__name__}:{name}"
+    return globals()[name]
+
+
+def configure_strategy(strategy: LoadedStrategy, inputs: StrategyInputs) -> Strategy:
+    """engine.configure_strategy: the source's entry class constructed from the runner's inputs alone,
+    registered by contract; a constructor that raises leaves a receipt and refuses the replay."""
+    try:
+        return _runner_class(strategy)(inputs)
+    except Exception as exc:
+        execution_failure("constructor", exc, None)
+        raise Refusal("STRATEGY_CONSTRUCTION_FAILED", f"{inputs.instrument_id}: {type(exc).__name__}: {exc}") from exc
 
 
 # Lifecycle episodes (engine.episode_active, engine.episode_membership)
@@ -462,6 +471,58 @@ class CapitalObserver(DataActor):
             gap["to_ns"], gap["labels"] = ts, gap["labels"] + 1
         for instrument in [key for key in self._gaps if key not in unvalued]:
             self._close_gap(instrument)
+
+
+def capital_observer(instrument_ids: tuple[str, ...], exposure_path: Path,
+                     lifecycle_ids: tuple[str, ...] = ()) -> CapitalObserver:
+    """engine.capital_observer: the one observer valuing every open position at each input bar timestamp
+    into the exposure table, and counting the lifecycle events of `lifecycle_ids`."""
+    return CapitalObserver(CapitalObserverConfig(tuple(instrument_ids), str(exposure_path), tuple(lifecycle_ids)))
+
+
+def capital_findings(observer: CapitalObserver, expected_timestamps: int) -> list[str]:
+    """engine.capital_findings: the observation valued every input timestamp and every open position in it."""
+    findings = list(dict.fromkeys(observer.findings))
+    if observer.timestamps != expected_timestamps:
+        findings.append(f"CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued {observer.timestamps} of "
+                        f"{expected_timestamps} input timestamps")
+    return findings
+
+
+def mark_timestamps(rows: list[dict]) -> int:
+    """engine.mark_timestamps: distinct MARK update times over every contract, from the exported Parquet
+    files' ts_event column. Updates stamped on a minute close (the export's) fill one bitmap over the
+    files' minute range; any other stamp is counted exactly on its own."""
+    import numpy as np
+    import pyarrow.parquet as parquet
+    paths = []
+    for row in rows:
+        found = sorted((Path(row["catalog_path"]) / "data").glob("mark_prices/**/*.parquet"))
+        if not found and (row.get("counts") or {}).get("mark"):
+            raise Refusal("EXPORT_MARKS_UNREADABLE", f"{row.get('symbol')}: the receipt counts MARK updates but "
+                                                     "no MARK file exists")
+        paths += found
+    columns, low, high = [], None, None
+    for path in paths:
+        try:
+            values = parquet.read_table(path, columns=["ts_event"])["ts_event"].to_numpy().astype(np.int64)
+        except Exception as exc:
+            raise Refusal("EXPORT_MARKS_UNREADABLE", f"{path}: {type(exc).__name__}: {exc}") from exc
+        columns.append(values)
+        if len(values):
+            low = values.min() if low is None else min(low, values.min())
+            high = values.max() if high is None else max(high, values.max())
+    if low is None:
+        return 0
+    base = low - low % MINUTE_NS
+    seen = np.zeros((high - base) // MINUTE_NS + 1, dtype=bool)
+    other = []
+    for values in columns:
+        closes = (values + 1_000_000) % MINUTE_NS == 0
+        seen[(values[closes] - base) // MINUTE_NS] = True
+        if not closes.all():
+            other.append(np.unique(values[~closes]))
+    return int(seen.sum()) + (len(np.unique(np.concatenate(other))) if other else 0)
 
 
 class Replay:
@@ -670,7 +731,7 @@ def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy) -
     return planned, limitations
 
 
-def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe: dict, output_dir: Path):
+def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path):
     """engine.replay: one venue and engine, each contract's one-minute bars, MARK and funding updates and
     lifecycle events streamed in time order, one strategy instance per contract whose lifecycle (and
     daily warm-up) holds in the window, and exactly one capital observer; afterwards the native result
@@ -701,29 +762,18 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe:
     STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
-    strategy_path = importable_strategy(strategy)
     for row, input_start, trade_start in planned:
-        engine.add_strategy_from_config(ImportableStrategyConfig(
-            strategy_path=strategy_path,
-            config_path=f"{__name__}:StrategyInputs",
-            config={
-                "instrument_id": str(row["instrument_id"]),
-                "trade_start_ns": trade_start,
-                "input_start_ns": input_start,
-                "strategy_id": row["strategy_id"],
-                "catalog_path": str(row["catalog_path"]),
-                "universe_membership": [[max(low, input_start), high] for low, high in
-                                        episode_membership(universe[row["symbol"]], row["episode"])
-                                        if high > input_start],
-            },
-        ))
-    engine.add_actor_from_config(ImportableActorConfig(
-        actor_path=f"{__name__}:CapitalObserver",
-        config_path=f"{__name__}:CapitalObserverConfig",
-        config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows),
-                "exposure_path": str(output_dir / report.EXPOSURES),
-                "lifecycle_ids": tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)},
-    ))
+        engine.add_strategy(configure_strategy(strategy, StrategyInputs(
+            instrument_id=str(row["instrument_id"]),
+            trade_start_ns=trade_start,
+            input_start_ns=input_start,
+            strategy_id=row["strategy_id"],
+            catalog_path=str(row["catalog_path"]),
+            universe_membership=[[max(low, input_start), high] for low, high in
+                                 episode_membership(pool[row["symbol"]], row["episode"]) if high > input_start],
+        )))
+    engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
+                                      tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
     stream(engine, market_events(rows, window.start_ns, window.end_ns), account["chunk_size"])
     result = engine.get_result()
     expected_iterations = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
@@ -757,14 +807,14 @@ def main(argv: list[str] | None = None) -> None:
     config.output.mkdir(parents=True, exist_ok=True)
     finished, strategies, limitations = replay(rows, window, strategy, universe, config.output)
     identity = {
-        **strategy.metadata(), **report.runtime_source_metadata(), **executed,
+        **strategy_metadata(strategy), **runtime_source_metadata(), **executed,
         "effective_config_sha256": effective.digest,
         "engine_version": importlib.metadata.version("nautilus_trader"),
         "market_commit": config.market_commit,
         "strategy": strategy.binding["strategy_id"] if strategy.binding else strategy.entry_class,
     }
-    _, findings = report.write(config.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
-                               mark_timestamps(rows), limitations)
+    _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,
+                                              ACCOUNT_CONTRACT, limitations, mark_timestamps(rows))
     if FAILURES:
         raise Refusal("NATIVE_EXECUTION_FAILED", "; ".join(
             f"{item['exception_type']} in {item['stage']} ({item['instrument_id']})" for item in FAILURES))

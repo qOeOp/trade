@@ -19,13 +19,15 @@ from nautilus_trader.trading import Strategy
 import dataclasses
 
 from engine.config import Refusal
-from engine.load import RUNTIME_CONTRACT, load_strategy
-from engine.report import diagnostics, runtime_source_metadata
+from engine.config import runtime_source_metadata
+from engine.load import RUNTIME_CONTRACT, diagnostics, load_strategy, strategy_metadata
 from engine import run
-from engine.run import (
-    STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, importable_strategy,
-    parse_configuration,
-)
+from engine.run import STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, parse_configuration
+
+
+def importable(loaded) -> str:
+    """The node's path to the runner class around a loaded source."""
+    return f"engine.run:{run._runner_class(loaded).__name__}"
 
 
 SOURCE = '''from dataclasses import dataclass
@@ -81,8 +83,8 @@ class StrategyLoaderTests(unittest.TestCase):
             importlib.import_module(loaded.strategy_class.__module__).ProbeStrategy,
             loaded.strategy_class,
         )
-        self.assertEqual(loaded.metadata()["strategy_binding"], self.binding)
-        self.assertEqual(loaded.metadata()["strategy_source"]["path"], str(self.source.resolve()))
+        self.assertEqual(strategy_metadata(loaded)["strategy_binding"], self.binding)
+        self.assertEqual(strategy_metadata(loaded)["strategy_source"]["path"], str(self.source.resolve()))
 
     def test_hash_rejection_happens_before_source_execution(self):
         marker = self.root / "executed"
@@ -133,7 +135,7 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
         loaded = self.load(binding_path=self.binding_path)
-        metadata = {**loaded.metadata(), **runtime_source_metadata()}
+        metadata = {**strategy_metadata(loaded), **runtime_source_metadata()}
         self.assertNotIn("source_commit", metadata)
         self.assertEqual(metadata["source_sha256"], self.digest)
         repo = Path(__file__).resolve().parents[2]
@@ -230,11 +232,11 @@ class StrategyLoaderTests(unittest.TestCase):
                 self.load(digest=digest)
 
     def test_stop_loss_declaration_reaches_the_summary_identity(self):
-        self.assertIs(self.load().metadata()["strategy_uses_stop_loss"], True)
+        self.assertIs(strategy_metadata(self.load())["strategy_uses_stop_loss"], True)
         self.source.write_text(SOURCE.replace("class ProbeStrategy(Strategy):\n",
                                               "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = False\n"))
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        self.assertIs(loaded.metadata()["strategy_uses_stop_loss"], False)
+        self.assertIs(strategy_metadata(loaded)["strategy_uses_stop_loss"], False)
 
     def test_runner_takes_no_strategy_parameter(self):
         # A variant is a new source revision; the runner cannot be configured into another strategy.
@@ -255,7 +257,7 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_pinned_native_node_importable_bridge(self):
         loaded = self.load()
-        path = importable_strategy(loaded)
+        path = importable(loaded)
         config = StrategyInputs(
             instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
             catalog_path="/unused", universe_membership=[[100, 200]],
@@ -286,7 +288,7 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_native_bridge_loads_daily_warmup_the_source_declares(self):
         self.source.write_text(SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    DAILY_WARMUP = True\n"))
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        wrapper_path = importable_strategy(loaded)
+        wrapper_path = importable(loaded)
         module_name, class_name = wrapper_path.split(":")
         wrapper = getattr(importlib.import_module(module_name), class_name)
         config = StrategyInputs(
@@ -313,12 +315,12 @@ class StrategyLoaderTests(unittest.TestCase):
         config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
                   "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
         engine.add_strategy_from_config(ImportableStrategyConfig(
-            strategy_path=importable_strategy(loaded), config_path="engine.run:StrategyInputs", config=config))
+            strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "boom"):
             engine.run()
-        wrapper = getattr(run, importable_strategy(loaded).split(":")[1])
-        with self.assertRaises(ValueError):
-            wrapper(StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
+        with self.assertRaises(Refusal) as caught:
+            run.configure_strategy(loaded, StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
+        self.assertEqual(caught.exception.code, "STRATEGY_CONSTRUCTION_FAILED")
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
         self.assertEqual(written, run.FAILURES)
         self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"]) for item in written],

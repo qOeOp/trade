@@ -20,14 +20,23 @@ import sys
 from pathlib import Path
 from types import MappingProxyType
 
-from engine import report
-
 
 # r1-native-v6: one-minute execution bars and the constructor's `universe_membership` (v5: five-minute
 # bars and `pool_membership`). A source written for another contract is refused, not run on these inputs.
 RUNTIME_CONTRACT = "r1-native-v6"
-EXECUTION_BAR_MINUTES = report.EXECUTION_BAR_MINUTES  # design constant: one-minute bars, matched as such
+EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
+
+# The runtime source files hashed into the identity (runtime.image.LAYOUTS names the same paths).
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_SOURCE_PATHS = {
+    "config_source_sha256": "engine/config.py",
+    "runner_source_sha256": "engine/run.py",
+    "load_source_sha256": "engine/load.py",
+    "report_source_sha256": "engine/report.py",
+    "fingerprint_source_sha256": "engine/compare.py",
+}
+AUDIT_PATH = "engine/audit.py"
 
 
 ACCOUNT_CONTRACT = {
@@ -104,7 +113,9 @@ REFUSALS: dict[str, str] = {
     "WARMUP_NOT_ADJACENT": "No daily bar closes 1 ms before the input start.",
     "WARMUP_INSUFFICIENT": "Too few contiguous daily bars end at the input start (no contract can start).",
     "EXPORT_MARKS_UNREADABLE": "An exported MARK file is missing, damaged or has no ts_event column.",
-    # engine.write_native_reports and engine.diagnostics
+    # engine.configure_strategy
+    "STRATEGY_CONSTRUCTION_FAILED": "The source's entry class raised while it was constructed.",
+    # engine.write_native_reports, engine.write_order_events, engine.summary_statistics and engine.diagnostics
     "NATIVE_ACCOUNT_MISSING": "The portfolio holds no account of the venue.",
     "EQUITY_SNAPSHOT_UNAVAILABLE": "The final equity snapshot is missing, stale, unpriced or not in USDT.",
     "GTD_DEADLINE_MISSING": "A GTD order has no expiry time in the cache, or the cache lacks the order.",
@@ -112,6 +123,10 @@ REFUSALS: dict[str, str] = {
     "DIAGNOSTICS_NOT_DICT": "replay_diagnostics returned something other than a dict.",
     "DIAGNOSTICS_RESERVED_KEY": "replay_diagnostics used a native report fact's key.",
     "DIAGNOSTICS_NOT_JSON": "replay_diagnostics returned a value JSON cannot hold.",
+    "ORDER_WITHOUT_EVENTS": "A cached order has no native event.",
+    "NON_FINITE_EVENT_FIELD": "A native order event holds NaN or infinity, which JSON cannot hold unchanged.",
+    "TRADING_WINDOW_EMPTY": "The trading window does not end after it starts.",
+    "STARTING_BALANCE_NOT_POSITIVE": "The starting balance is not positive.",
     # engine.main
     "NATIVE_EXECUTION_FAILED": "A strategy constructor or callback raised during the replay.",
     "INTEGRITY_FINDINGS": "The summary's integrity findings are not empty.",
@@ -309,20 +324,27 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
     return EffectiveConfiguration(values, config_sha256(values))
 
 
+def runtime_source_metadata() -> dict:
+    """The runtime source files' hashes, independent of any strategy revision."""
+    return {
+        **{field: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for field, path in RUNTIME_SOURCE_PATHS.items()},
+        "source_file_paths": RUNTIME_SOURCE_PATHS.copy(),
+    }
+
+
 def describe(config: RunnerConfiguration) -> dict:
     """engine.describe: the executing image's runtime code and the configuration it would resolve."""
     try:
         engine_version = importlib.metadata.version("nautilus_trader")
     except importlib.metadata.PackageNotFoundError as exc:
         raise Refusal("ENGINE_VERSION_UNAVAILABLE", "no nautilus_trader distribution metadata") from exc
-    lock = report.ROOT / "uv.lock"
+    lock = ROOT / "uv.lock"
     if not lock.is_file():
         raise Refusal("DEPENDENCY_LOCK_MISSING", f"{lock} is missing")
-    missing = [path for path in (*report.RUNTIME_SOURCE_PATHS.values(), report.AUDIT_PATH)
-               if not (report.ROOT / path).is_file()]
+    missing = [path for path in (*RUNTIME_SOURCE_PATHS.values(), AUDIT_PATH) if not (ROOT / path).is_file()]
     if missing:
         raise Refusal("SOURCE_FILE_MISSING", ", ".join(missing))
-    metadata = report.runtime_source_metadata()
+    metadata = runtime_source_metadata()
     effective = effective_configuration(config)
     return {
         "runtime_contract": RUNTIME_CONTRACT,
@@ -331,7 +353,7 @@ def describe(config: RunnerConfiguration) -> dict:
         "dependency_lock_sha256": hashlib.sha256(lock.read_bytes()).hexdigest(),
         "source_files_sha256": {key: value for key, value in metadata.items() if key.endswith("_source_sha256")},
         "source_file_paths": metadata["source_file_paths"],
-        "audit_source_sha256": hashlib.sha256((report.ROOT / report.AUDIT_PATH).read_bytes()).hexdigest(),
+        "audit_source_sha256": hashlib.sha256((ROOT / AUDIT_PATH).read_bytes()).hexdigest(),
         "effective_config": effective.values,
         "effective_config_sha256": effective.digest,
     }
