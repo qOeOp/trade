@@ -155,6 +155,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 4. 逐项对账（只比引擎产出，不重算）：成交对应唯一同范围订单、filled_qty 等于成交量和、FILLED 满额（ORDER_FILL_MISMATCH）；持仓事件恰好覆盖全部成交一次且买卖量、净量、开平仓订单、佣金一致（POSITION_FILL_COVERAGE_MISMATCH）；资金费只认 FUNDING 类型并在无并发成交的时刻等于账户总额变动（FUNDING_BALANCE_MISMATCH）；账户每行 total = locked + free、币种一致、时间有序、同一账户（ACCOUNT_REPORT_INCONSISTENT）。
 5. 汇总核对：期初余额等于摘要；期末余额减期初等于已实现盈亏；期末无持仓时期末余额等于摘要期末权益；闭仓与盈利计数等于持仓报表统计（SUMMARY_TOTALS_MISMATCH）。
 6. 任何解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID 而不中止；最后交 generic_result 组装结果，并发成交时刻数写入 native_economics。
+7. 事件史格式错误由 engine.protection 记录，本函数不中止，订单、成交、持仓、资金费与账户的对账照常进行。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -229,10 +230,11 @@ def lifecycle_findings(
     fills: list[dict],
     positions: list[dict],
     events: list[dict],
+    coverage: dict,
 ) -> list[str]
 ```
 
-<TypeTable type={{ "lifecycle": { type: "list[dict]", description: "lifecycle_events 从覆盖回执与摘要构造并核对过的事件：{type ∈ InstrumentStatus | InstrumentClose, instrument_id, ts_event, action, close_price}" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "positions": { type: "list[dict]", description: "持仓报表行（events 列为该仓位的成交 event_id 列表）" }, "events": { type: "list[dict]", description: "订单事件史" } }} />
+<TypeTable type={{ "lifecycle": { type: "list[dict]", description: "lifecycle_events 从覆盖回执与摘要构造并核对过的事件：{type ∈ InstrumentStatus | InstrumentClose, instrument_id, ts_event, action, close_price}" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "positions": { type: "list[dict]", description: "持仓报表行（events 列为该仓位的成交 event_id 列表）" }, "events": { type: "list[dict]", description: "订单事件史" }, "coverage": { type: "dict", description: "覆盖回执；窗口结束与每个片段的最后一根 K 线只有它记着，窗口内没有终止事件时数据提前中断的检查也要跑" } }} />
 
 **返回**　list[str]：发现列表，每条带品种与终止时刻，订单项带 client_order_id，持仓项带 position_id
 
@@ -287,6 +289,7 @@ def protection(
 3. 读 strategy_uses_stop_loss：缺失按 True；存在但非布尔记 STOP_LOSS_DECLARATION_INVALID 并按 True 处理。
 4. 以摘要 period_end_utc 为回放结束纳秒，调用 uncovered_intervals 得到裸仓区间。
 5. 声明为 True 时每个区间记一条 UNPROTECTED_POSITION，带品种、策略、持仓量、止损覆盖量、起止时刻、持仓订单号、已结束止损号；为 False 时区间只进入 info，不计发现。
+6. 事件史格式不对（EVENT_PAYLOAD_INVALID）时由本函数记为 REPORT_PAYLOAD_INVALID 发现并带上细码，保留它能给出的对账发现（如 EVENT_OUT_OF_ORDER），审计其余各项照常继续。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -325,6 +328,7 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]
 3. |净持仓| > 覆盖量即裸露：无开区间则开新区间（记起点、当时持仓订单号、本批刚结束的止损号），否则更新区间内最大持仓量；|净持仓| ≤ 覆盖量时关闭开区间。
 4. 关闭的区间时长不超过一根执行 K 线（设计常量：一分钟）则丢弃；回放结束仍开着的区间以 end_ns 关闭并标 open_at_end。
 5. 只比数量，不读止损价格，不重算成交；未知事件类型、非正数量、缺初始化事件或方向非法即 EVENT_PAYLOAD_INVALID 抛出。
+6. 缺初始化事件包括：某个事件早于其订单的初始化事件。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -405,6 +409,8 @@ def compare_reports(
 4. 从账户报告取全部资金费调整条目，按时间戳与合约排序，逐条比较金额与方向，不用容差。
 5. 从 summary 读账户绩效指标逐项按 account_tolerance 判定；一侧缺某绩效指标记为不可比；同时记两份 summary 的内容哈希与两侧引擎版本。
 6. 任一表不一致、资金费不一致、任一绩效指标超容差或不可比时 passed=false，否则为 true；只返回字典，不写账本、不产生研究绩效指标。
+7. 行配对键：先按客户订单号（固定版 Nautilus 里确定性生成），再按时间、数量与价格；时间与价格作键会出现并列。成交编号也比较（确定性派生，能暴露执行先后的变化，与 engine.report_fingerprint 一致）。
+8. 摘要比较的指标：final_equity_usdt、net_change_usdt、period_return、annual_return、sharpe_365，以及 closed_trades、winning_trades；余额序列与未实现盈亏在账户表逐行比较。默认容差 1e-8。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -776,7 +782,7 @@ def read_market(
 
 <TypeTable type={{ "market_root": { type: "Path", description: "导出目录，每个合约一个子目录，内含回执文件与一个或多个片段 Catalog" }, "symbols": { type: "list[str]", description: "本次回放的合约清单，已去重" }, "market_commit": { type: "str", description: "登记锁定的市场提交" }, "start_ns": { type: "int", description: "输入起点（预热段起点），纳秒" }, "end_ns": { type: "int", description: "窗口终点，纳秒，不含" } }} />
 
-**返回**　list[dict]：每个合约片段一行 \{symbol, source_symbol, catalog_path, instrument, instrument_id, receipt, counts\}
+**返回**　list[dict]：每个合约片段一行 \{symbol, coin, strategy_id, catalog_path, receipt, piece, instrument, instrument_id, counts, episode\}
 
 **期望行为**
 
@@ -978,6 +984,7 @@ def write_native_reports(
 4. 汇总完整性发现：订单表存在 DENIED 或 REJECTED 状态即记一条；逐策略调完整性自检钩子（传入是否有被否被拒订单），返回值不是非空字符串列表即拒绝，发现去重并入；并入 engine.capital_findings 的估值缺口发现
 5. 调 engine.summary_statistics 得年化、夏普与交易段计数；每合约一节：导出计数、生命周期逐实例计数、engine.diagnostics 的自报诊断、原生持仓行数（诊断键不得占用合约、数量、计数、持仓等原生事实名）
 6. 写摘要：身份、窗口三界、账户条款、统计、每合约节、integrity_findings、integrity_passed（无发现为真）、limitations（去重）；非有限浮点写为 null；任何拒绝以异常抛出，由运行器非零退出，回放无效
+7. 摘要保留 closed_trades 与 winning_trades 供审计器对账；不含胜率与回撤（它们由账本与报告从封存行算）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1096,10 +1103,11 @@ def capital_findings(
 def capital_observer(
     instrument_ids: tuple[str, ...],
     exposure_path: Path,
+    lifecycle_ids: set[InstrumentId],
 ) -> 引擎数据参与者实例
 ```
 
-<TypeTable type={{ "instrument_ids": { type: "tuple[str, ...]", description: "要订阅标记价的全部合约" }, "exposure_path": { type: "Path", description: "敞口表输出路径（压缩 CSV），位于报告目录内" } }} />
+<TypeTable type={{ "instrument_ids": { type: "tuple[str, ...]", description: "要订阅标记价的全部合约" }, "exposure_path": { type: "Path", description: "敞口表输出路径（压缩 CSV），位于报告目录内" }, "lifecycle_ids": { type: "set[InstrumentId]", description: "有生命周期片段的合约；只为它们计状态与终止事件，摘要的逐合约生命周期计数依此得出" } }} />
 
 **返回**　引擎数据参与者实例；回放后产出敞口表（ts_event_ns、position_id、notional、unrealized_pnl）、估值时间戳计数 timestamps 与发现列表 findings
 
@@ -1370,7 +1378,7 @@ def replay(
 
 <TypeTable type={{ "rows": { type: "list[dict]", description: "每合约一行：合约标识、币种、导出目录路径、导出回执（含各数据类型条数与生命周期片段），来自 engine.read_market" }, "window": { type: "dict", description: "engine.parse_window 的结果：start_ns、trade_start_ns、end_ns，UTC、左闭右开、整分钟对齐" }, "strategy": { type: "LoadedStrategy", description: "engine.load_strategy 的结果：入口类、内容哈希、绑定" }, "pool": { type: "dict[str, tuple[tuple[int, int], ...]]", description: "engine.read_universe 的结果：每合约原成员区间，没有成员文件时为空" }, "output_dir": { type: "Path", description: "敞口表与结构化回执的写入目录" } }} />
 
-**返回**　(Replay, dict[str, Strategy | None])：Replay 持有节点、原生运行结果、缓存与组合、资金观察器；字典按币种给出实例，窗口内不活跃的合约为 None
+**返回**　(Replay, dict[str, Strategy | None], list[str])：Replay 持有节点、原生运行结果、缓存与组合、资金观察器；字典按币种给出实例，窗口内不活跃的合约为 None；第三项是回放产生的局限（推后启动的预热、没有实例的合约、晚于窗口观测的条款），交给 engine.write_native_reports，不走旁路
 
 **期望行为**
 
