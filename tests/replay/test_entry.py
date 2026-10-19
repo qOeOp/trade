@@ -220,7 +220,7 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual((status, json.loads(audit), fingerprints), ("passed", {"ran": True, "findings": []}, None))
         capture = execution.read_capture(self.world.conn, stored["trial_id"])
         self.assertEqual((capture["stages"]["fingerprint"]["state"], capture["statuses"]["reports/fills.csv"]),
-                         ("not_available", "hashed"), "today's image has no fingerprint entry")
+                         ("not_available", "hashed"), "an image without a fingerprint entry")
         (revision, report), = self.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s",
                                         (stored["run_id"],))
         self.assertEqual((json.loads(report)["metrics_revision"], json.loads(report)["populations"]["fills"]),

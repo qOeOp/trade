@@ -15,10 +15,10 @@ from research.records.common import RecordError
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
-# Where the image keeps its runner, audit and identity probe.
+# Where the image keeps its runner, audit, identity probe and semantic fingerprint (engine.report_fingerprint).
 LAYOUTS = {
     "r1-native-v5": {"runner": "engine.run", "audit": "engine.audit", "audit_args": [],
-                     "probe": "engine.run",
+                     "probe": "engine.run", "fingerprint": "engine.compare",
                      "source_paths": {"config_source_sha256": "engine/config.py",
                                       "runner_source_sha256": "engine/run.py",
                                       "load_source_sha256": "engine/load.py",

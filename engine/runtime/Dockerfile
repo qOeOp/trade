@@ -6,7 +6,7 @@ WORKDIR /opt/trade
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache --no-install-project
 COPY engine/__init__.py engine/config.py engine/load.py engine/run.py engine/report.py engine/audit.py \
-     engine/compare_reports.py ./engine/
+     engine/compare.py engine/compare_reports.py ./engine/
 # The image carries only the runtime package; this path entry makes it importable from any
 # directory or script, as the host's editable project install does.
 RUN echo /opt/trade > "$(/opt/trade/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/trade-runtime.pth"

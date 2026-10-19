@@ -129,6 +129,13 @@ The auditor does not prove a source's signal clock, order geometry, staged-exit 
 images before 2026-10-10 also ran budgeted-tier geometry gates for a fixed list of legacy signal
 variants; their sealed `audit.json` keeps those results.
 
+The fingerprint stage (`python -m engine.compare`) reads the reports and writes only
+`fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
+the row count, a whole-table hash and one hash per UTC day, after renumbering the random event, trade
+and snapshot IDs by first appearance and sorting every table by all its columns; the account,
+returns and exposures files also carry their byte hash. Two replays of one run give equal
+fingerprints; a sealed run is reproduced only when they match.
+
 ## Paired acceptance
 
 A change that should preserve behavior (runner, data adaptation, dependency or Nautilus) is

@@ -8,4 +8,5 @@
 !engine/run.py
 !engine/report.py
 !engine/audit.py
+!engine/compare.py
 !engine/compare_reports.py

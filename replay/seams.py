@@ -4,9 +4,9 @@ image and the unverified directory report.
 
 `current` holds the implementations in force; the defaults adapt today's code
 (`research/records/runtime.py`) and the report package's directory report. The engine and runtime
-packages of later phases replace them here. Tests swap them with `use(...)`. Today's image has no in-image semantic fingerprint
-(engine.report_fingerprint): its layout names no fingerprint module, so the fingerprint stage is
-recorded not_available.
+packages of later phases replace them here. Tests swap them with `use(...)`. The fingerprint stage runs the
+in-image semantic fingerprint (engine.report_fingerprint) the layout names; a layout naming none
+records the stage not_available.
 """
 
 from __future__ import annotations
