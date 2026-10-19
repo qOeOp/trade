@@ -97,6 +97,7 @@ def container_command(
 5. 按清单顺序拼 --mount type=bind,src=\<host_path>,dst=\<container_path>,readonly（/reports 省略 readonly），相同输入得到相同命令行。
 6. 追加镜像引用、python -m \<module> 与 argv 后返回；拒绝时抛带拒绝码的异常，不返回部分命令。
 7. 每个阶段的命令都核：模块须在该契约的布局里；输入挂载须是已存在、不在 /tmp 下的绝对路径；该阶段唯一可写的挂载是它自己的输出目录（运行器 /reports、审计器 audit/、指纹阶段 fingerprint/）；不符即拒绝，不启动容器。
+8. 挂载目标先规范化（含开头的 //）再核：拒绝根目录、/tmp 及其下、/opt/trade（镜像自身代码）及其上下、规范化后重复的目标。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -221,7 +222,7 @@ def require_main_build(
 2. 核 image_ref 所在的镜像注册表 registry 与命名空间等于产品镜像注册表。
 3. 取 identity.build_revision；缺失即拒绝（身份只从镜像标签读出，不接受调用方补写）。
 4. 核该版本是产品源码托管远端 main 的祖先：先本地判定，失败则抓取一次远端 main 再判定。
-5. 按 runtime.layout 取运行器各源码、审计器与依赖锁路径，读该版本下每个文件字节算 sha256，逐项等于检视中对应哈希；任一不等即拒绝（防重贴标签的镜像）。
+5. 按 runtime.layout 取运行器各源码、审计器、指纹代码（engine/compare.py）与依赖锁路径，读该版本下每个文件字节算 sha256，逐项等于检视中对应哈希；任一不等即拒绝（防重贴标签的镜像）。
 6. 返回 build_revision；不写账本。
 
 | 拒绝码 | 条件 |
