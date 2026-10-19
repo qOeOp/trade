@@ -19,10 +19,9 @@ from ledger.refusals import refuse
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 MAX_SOURCE_BYTES = 8 * 1024 * 1024  # uncalibrated example value
 NOTE_LIMIT = 2000
-# The runtime contract in force at publication. Seam: the design takes it from
-# engine.account_contract, which a later phase adds; until then it is the contract the runtime
-# images declare (engine/load.py RUNTIME_CONTRACT).
-RUNTIME_CONTRACT = "r1-native-v5"
+# The runtime contract in force at publication: the one the runtime images declare
+# (engine.config.RUNTIME_CONTRACT; the ledger does not import the engine).
+RUNTIME_CONTRACT = "r1-native-v6"
 
 
 def check_source(source: bytes, entry_class: str) -> None:

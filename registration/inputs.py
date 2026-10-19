@@ -27,10 +27,9 @@ MEMBERSHIP = "membership.json"
 RECEIPT = "export.json"
 LIFECYCLE = "lifecycle.json"
 MINUTE = "1m"
-# The exporter's implementation: export, lifecycle, coverage, store and universe modules and the
-# dependency lock. Seam: today's market code has no separate lifecycle or coverage module; the market
-# package of a later phase replaces this list.
-EXPORTER_FILES = ("market/export.py", "market/store.py", "market/universe.py", "uv.lock")
+# The exporter's implementation: export, lifecycle, store and universe modules and the dependency lock.
+# Seam: today's market code has no separate coverage module; the market package of a later phase adds it.
+EXPORTER_FILES = ("market/export.py", "market/lifecycle.py", "market/store.py", "market/universe.py", "uv.lock")
 
 
 def _canonical(value) -> bytes:
@@ -112,9 +111,9 @@ def load_lifecycle(profile, bundle: str, commit: str, *, market=None) -> tuple[d
         body = json.loads(files[LIFECYCLE].decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise refuse("LIFECYCLE_INPUT", f"{bundle}/{LIFECYCLE} is not JSON", missing=(f"{bundle}/{LIFECYCLE}",)) from exc
-    adapter = market if market is not None else seams.current.market(None)
+    validate = market.validate_lifecycle if market is not None else seams.validate_lifecycle
     try:
-        episodes = adapter.validate_lifecycle(body, commit, files)
+        episodes = validate(body, commit, files)
     except Refusal as exc:
         if exc.code == "LIFECYCLE_INPUT":
             raise

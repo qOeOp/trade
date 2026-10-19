@@ -24,7 +24,7 @@ from tests.records.fixtures import reports
 
 SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
 IMAGE = "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64
-INSPECTION = {"runtime_contract": "r1-native-v5", "nautilus_version": "fixture", "dependency_lock_sha256": "c" * 64,
+INSPECTION = {"runtime_contract": "r1-native-v6", "engine_version": "fixture", "dependency_lock_sha256": "c" * 64,
               "platform": "linux/arm64", "source_files_sha256": {}, "source_file_paths": {}}
 
 

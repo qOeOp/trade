@@ -24,11 +24,11 @@ class SeamTests(unittest.TestCase):
             seams.current.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
 
     def test_the_engine_configuration_is_comparable(self):
-        from types import SimpleNamespace
         from engine import config
-        args = SimpleNamespace(market_root="/x/market", market_commit="a" * 32, pool=None, symbols=["AAAUSDT"],
-                               start="2025-12-31T00:00:00Z", end="2026-02-01T00:00:00Z", trade_start="2026-01-01T00:00:00Z")
-        key = comparability.config_key(config.effective_configuration(args))
+        args = config.parse_configuration(["--describe", "--market-root", "/x/market", "--market-commit", "a" * 32,
+                                           "--symbols", "AAAUSDT", "--start", "2025-12-31T00:00:00Z",
+                                           "--end", "2026-02-01T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z"])
+        key = comparability.config_key(config.effective_configuration(args).values)
         self.assertEqual((key["symbols"], key["account"]), (["AAAUSDT"], config.ACCOUNT_CONTRACT))
 
     def test_member_months_merge_into_half_open_paths(self):
@@ -42,7 +42,7 @@ class SeamTests(unittest.TestCase):
         from research.records import runtime
         from research.records.common import RecordError
         identity = {"image_ref": "x@sha256:" + "b" * 64, "image_digest": "sha256:" + "b" * 64, "platform": "linux/arm64",
-                    "runtime_contract": "r1-native-v5", "build_revision": None}
+                    "runtime_contract": "r1-native-v6", "build_revision": None}
         cases = [("resolve", lambda: seams.DEFAULT.resolve_runtime("x:main"), RecordError("no pull"),
                   "RUNTIME_UNAVAILABLE"),
                  ("inspect_runtime", lambda: seams.DEFAULT.inspect_runtime(identity, [], {

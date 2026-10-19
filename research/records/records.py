@@ -35,7 +35,7 @@ MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".mp3", ".wav", ".aac", ".opus", ".flac"}
 MIN_PLANS = 100
 DRAWDOWN_MARGIN = Decimal(2) / Decimal(3)
-CURRENT_CONTRACT = "r1-native-v5"
+CURRENT_CONTRACT = "r1-native-v6"
 
 
 def _refuse(message, code="RECORD_REFUSED", **extra):

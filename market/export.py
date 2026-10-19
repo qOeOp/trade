@@ -1,12 +1,14 @@
 """Export one market commit as Nautilus ParquetDataCatalogs for a replay window.
 
-Per contract, `<root>/<SYMBOL>/` is one Catalog holding the instrument, LAST bars of the replay
-timeframe and MARK price updates over [start, end), funding updates in [start, end), and the
-complete UTC daily LAST bars before `start` (daily warm-up). Every timeframe is derived from the
-stored one-minute bars by one rule (WS8a section 3): open is the first traded minute's open, high
-and low are taken over traded minutes (volume > 0), all minutes only when none traded; close is
-the last minute's close; volume is the sum. Weeks start Monday 00:00 UTC. A bucket holds the
-minutes the source has; a bucket with none does not exist.
+Per contract, `<root>/<SYMBOL>/` is one Catalog holding the instrument, the stored one-minute LAST
+bars and one MARK price update per one-minute MARK bar over [start, end), funding updates in
+[start, end), the complete UTC daily LAST bars before `start` (daily warm-up) and, when a lifecycle
+episode is given, its InstrumentStatus and InstrumentClose events in the window (market.lifecycle).
+An episode bounds the series: only minutes that open at or after its listing and close before its
+termination, and funding settled inside it, are exported. Daily bars are derived from the stored
+one-minute bars by one rule: open is the first traded minute's open, high and low are taken over
+traded minutes (volume > 0), all minutes only when none traded; close is the last minute's close;
+volume is the sum. A bucket holds the minutes the source has; a bucket with none does not exist.
 
 `export.json`, written last, marks a complete export and carries the counts the runner checks
 against what BacktestNode loads. A cache entry is keyed by commit and window; a missing or partial
@@ -18,6 +20,7 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,7 +33,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import store
+from market import lifecycle, store
 
 
 MINUTE = 60_000
@@ -45,6 +48,7 @@ CHUNK = 250_000
 # Account terms Binance does not publish per contract; the same assumption the old Catalog used.
 ASSUMED = {"maker_fee": "0.0002", "taker_fee": "0.0005", "margin_init": "0.1", "margin_maint": "0.1"}
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
+TIMEFRAME = "1m"  # the replay's execution bars (engine.config.EXECUTION_BAR_MINUTES)
 
 
 def _bar_spec(timeframe: str) -> str:
@@ -234,6 +238,31 @@ def write_funding(root: Path, iid: str, rows: list[tuple[int, Decimal]]) -> int:
     return len(rows)
 
 
+# One lifecycle episode
+
+def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray]:
+    return {name: values[keep] for name, values in bars.items()}
+
+
+def episode_series(episode: dict, last, mark, daily_source, rates):
+    """The series inside one episode: minutes opening at or after its listing and closing before its
+    termination, funding settled inside it (market.split_episodes for one episode)."""
+    low = episode["start_ns"] // 1_000_000
+    high = lifecycle.termination(episode)
+    high = high // 1_000_000 if high is not None else None
+
+    def inside(bars):
+        if bars is None:
+            return None
+        opens = bars["ts_open"]
+        keep = opens >= low
+        if high is not None:
+            keep &= opens + MINUTE - 1 < high
+        return _keep(bars, keep)
+    kept = [(at, rate) for at, rate in rates if at >= low and (high is None or at < high)]
+    return inside(last), inside(mark), inside(daily_source), kept
+
+
 # One contract
 
 def export_symbol(job: dict) -> dict:
@@ -242,20 +271,23 @@ def export_symbol(job: dict) -> dict:
     from nautilus_trader.persistence import ParquetDataCatalog
     from research.records import db
     started = time.monotonic()
-    symbol, commit, start, end, timeframe = job["symbol"], job["commit"], job["start"], job["end"], job["timeframe"]
+    symbol, commit, start, end = job["symbol"], job["commit"], job["start"], job["end"]
+    timeframe, step, episode = TIMEFRAME, MINUTE, job.get("episode")
     path = Path(job["path"])
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True)
-    step = STEPS[timeframe]
     conn = db.connect(job["profile"], "reader")
     try:
         row = terms(conn, commit, symbol)
-        last = derive(fetch(conn, commit, symbol, "LAST", start, end), timeframe)
-        mark = derive(fetch(conn, commit, symbol, "MARK", start, end), timeframe)
-        daily = derive(fetch(conn, commit, symbol, "LAST", 0, start - start % DAY), "1d") if job["daily"] else None
+        last = fetch(conn, commit, symbol, "LAST", start, end)
+        mark = fetch(conn, commit, symbol, "MARK", start, end)
+        daily_source = fetch(conn, commit, symbol, "LAST", 0, start - start % DAY) if job["daily"] else None
         rates = funding(conn, commit, symbol, start, end)
     finally:
         conn.close()
+    if episode is not None:
+        last, mark, daily_source, rates = episode_series(episode, last, mark, daily_source, rates)
+    daily = derive(daily_source, "1d") if daily_source is not None else None
     price_scale, volume_scale = job["scales"]
     exchange_precision = decimals(row["price_increment"])
     needed = max([needed_decimals(series[name], price_scale) for series in (last, daily) if series is not None
@@ -275,6 +307,9 @@ def export_symbol(job: dict) -> dict:
         counts["daily"] = write_bars(catalog, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, precision,
                                      max(size_precision, needed_decimals(daily["volume"], volume_scale)),
                                      price_scale, volume_scale)
+    if episode is not None:
+        lifecycle.require_native_price(episode, instrument, start * 1_000_000, end * 1_000_000)
+        counts.update(lifecycle.write_lifecycle_events(path, episode, start * 1_000_000, end * 1_000_000, precision))
     unmatched = int(len(np.setxor1d(last["ts_open"], mark["ts_open"])))
     receipt = {"symbol": symbol, "instrument_id": str(iid), "commit": commit, "timeframe": timeframe,
                "start_ns": start * 1_000_000, "end_ns": end * 1_000_000, "counts": counts,
@@ -285,7 +320,7 @@ def export_symbol(job: dict) -> dict:
                "price_precision": precision, "price_precision_widened": precision != exchange_precision,
                "terms_source": row["terms_source"], "terms_observed_at": row["observed_at"],
                "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "assumed": ASSUMED,
-               "seconds": round(time.monotonic() - started, 1)}
+               "episode": episode, "seconds": round(time.monotonic() - started, 1)}
     (path / "export.json").write_text(json.dumps(receipt, indent=1))
     return receipt
 
@@ -301,13 +336,29 @@ def default_cache() -> Path:
     return Path(tempfile.gettempdir()) / "trade-market-catalog"
 
 
-def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end: int, timeframe: str = "5m",
-           daily: bool = True, root: Path | None = None, workers: int = 4, fresh: bool = False) -> dict:
+def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end: int, daily: bool = True,
+           root: Path | None = None, workers: int = 4, fresh: bool = False, episodes: dict | None = None,
+           lifecycle_files: dict[str, bytes] | None = None) -> dict:
     """Export (or reuse from the cache) each contract's Catalog at one commit for [start, end) ms.
 
-    Returns the window directory and the receipts. `fresh` exports into a new temporary directory
-    and never reuses a cache entry.
+    `episodes` ({symbol: [episode]}, from market.validate_lifecycle) bounds the contracts it names and
+    supplies their lifecycle events; `lifecycle_files` (the bundle's files) are written under
+    `<root>/lifecycle-evidence/`. Returns the window directory and the receipts. `fresh` exports into
+    a new temporary directory and never reuses a cache entry.
     """
+    if start >= end or start % MINUTE or end % MINUTE:
+        raise store._refuse(f"export window [{start}, {end}) is not a positive one-minute interval", "EXPORT_WINDOW")
+    if not symbols or len(set(symbols)) != len(symbols):
+        raise store._refuse("export needs unique symbols", "EXPORT_SCOPE")
+    chosen = {}
+    for symbol, found in (episodes or {}).items():
+        if len(found) != 1:  # market.split_episodes (ticker reuse) is not implemented
+            raise lifecycle.LifecycleInput(f"{symbol} has {len(found)} lifecycle episodes; one episode per contract "
+                                           "is supported")
+        if found[0]["instrument_id"] != instrument_id(symbol):
+            raise lifecycle.LifecycleInput(f"the episode of {symbol} is {found[0]['instrument_id']}, not "
+                                           f"{instrument_id(symbol)}")
+        chosen[symbol] = found[0]
     from research.records import db
     conn = db.connect(profile, "reader")
     try:
@@ -318,14 +369,17 @@ def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end
     if fresh:
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
-        window = Path(root or default_cache()) / commit / f"{start}-{end}-{timeframe}{'-d' if daily else ''}"
+        evidence = hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
+                                              sorted((lifecycle_files or {}).items())}).encode()).hexdigest()[:16]
+        window = Path(root or default_cache()) / commit / (f"{start}-{end}-{TIMEFRAME}{'-d' if daily else ''}"
+                                                           + (f"-l{evidence}" if lifecycle_files else ""))
     receipts, jobs = {}, []
     for symbol in symbols:
         found = None if fresh else complete(window / symbol)
         if found:
             receipts[symbol] = found
         else:
-            jobs.append({"symbol": symbol, "commit": commit, "start": start, "end": end, "timeframe": timeframe,
+            jobs.append({"symbol": symbol, "commit": commit, "start": start, "end": end, "episode": chosen.get(symbol),
                          "daily": daily, "path": str(window / symbol), "profile": profile,
                          "scales": (price_scale, volume_scale)})
     started = time.monotonic()
@@ -333,5 +387,9 @@ def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end
         with ProcessPoolExecutor(min(workers, len(jobs))) as pool:
             for receipt in pool.map(export_symbol, jobs):
                 receipts[receipt["symbol"]] = receipt
+    for name, data in sorted((lifecycle_files or {}).items()):
+        target = window / "lifecycle-evidence" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
     return {"commit": commit, "root": str(window), "exported": len(jobs), "reused": len(symbols) - len(jobs),
             "seconds": round(time.monotonic() - started, 1), "receipts": receipts}

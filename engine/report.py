@@ -8,7 +8,6 @@ import hashlib
 import io
 import json
 import math
-from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -28,7 +27,9 @@ RUNTIME_SOURCE_PATHS = {
 }
 AUDIT_PATH = "engine/audit.py"
 EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl")
+EXPOSURES = "exposures.csv.gz"
 ORDER_EVENTS = "order_events.jsonl.gz"
+LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")
 
 
 def runtime_source_metadata() -> dict:
@@ -84,13 +85,32 @@ def readable_empty_report(report, columns):
     return report.reindex(columns=list(dict.fromkeys([*report.columns, *columns])))
 
 
+class ExposureWriter:
+    """The exposure table as gzip CSV with a fixed header time, written row by row as the observer values."""
+
+    def __init__(self, path: Path):
+        self._raw = path.open("wb")
+        self._packed = gzip.GzipFile(filename="", mode="wb", fileobj=self._raw, mtime=0)
+        self._text = io.TextIOWrapper(self._packed, encoding="utf-8", newline="")
+        self._writer = csv.writer(self._text)
+        self._writer.writerow(EXPOSURE_COLUMNS)
+
+    def write(self, row) -> None:
+        self._writer.writerow(row)
+
+    def close(self) -> None:
+        if not self._raw.closed:
+            self._text.close()
+            self._packed.close()
+            self._raw.close()
+
+
 def write_exposures(rows, path: Path) -> None:
-    """Write the observed open-position valuations as gzip CSV with a fixed header time."""
-    with path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as packed, \
-            io.TextIOWrapper(packed, encoding="utf-8", newline="") as text:
-        writer = csv.writer(text)
-        writer.writerow(EXPOSURE_COLUMNS)
-        writer.writerows(rows)
+    """Write open-position valuations as gzip CSV with a fixed header time (the bytes ExposureWriter writes)."""
+    writer = ExposureWriter(path)
+    for row in rows:
+        writer.write(row)
+    writer.close()
 
 
 def write_order_events(orders, path: Path) -> None:
@@ -111,7 +131,8 @@ def capital_findings(observer, expected_timestamps: int) -> list[str]:
     """The observation valued every input timestamp and every open position in it."""
     findings = list(dict.fromkeys(observer.findings))
     if observer.timestamps != expected_timestamps:
-        findings.append(f"capital observation valued {observer.timestamps} of {expected_timestamps} input timestamps")
+        findings.append(f"CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued {observer.timestamps} of "
+                        f"{expected_timestamps} input timestamps")
     return findings
 
 
@@ -123,15 +144,16 @@ def diagnostics(strategy) -> dict:
     return value
 
 
-def write(output: Path, replay, strategies: dict, rows: list[dict], identity: dict, window: dict,
+def write(output: Path, replay, strategies: dict, rows: list[dict], identity: dict, window,
           account: dict, expected_timestamps: int) -> tuple[dict, list[str]]:
     """Write the native reports and summary; return the summary and its integrity findings.
 
-    ``replay`` exposes the Node's reports, cache, portfolio, result and capital observer;
-    ``identity`` is the strategy and runtime identity the summary carries.
+    ``replay`` exposes the engine's reports, cache, portfolio, result and capital observer (which
+    already wrote the exposure table); ``identity`` is the strategy and runtime identity the summary
+    carries; ``window`` is engine.config.Window. A contract whose lifecycle misses the window has no
+    strategy instance (None).
     """
-    trade_start_dt, end_dt = window["trade_start_dt"], window["end_dt"]
-    trade_start = window["trade_start_ns"]
+    trade_start = window.trade_start_ns
     starting_balance = Decimal(account["starting_balance_usdt"])
     integrity_findings = []
     native_account = replay.portfolio.account(venue=Venue(account["venue"]))
@@ -164,6 +186,8 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
     orders = reports["orders.csv"]
     denied_or_rejected = bool(orders["status"].isin(("DENIED", "REJECTED")).any())
     for native_strategy in strategies.values():
+        if native_strategy is None:
+            continue
         findings = native_strategy.replay_integrity_findings(denied_or_rejected)
         if not isinstance(findings, list) or any(not isinstance(item, str) or not item for item in findings):
             raise ValueError("strategy integrity findings must be nonempty strings")
@@ -172,7 +196,6 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
                 integrity_findings.append(finding)
     if denied_or_rejected and not integrity_findings:
         integrity_findings.append("native orders were denied or rejected")
-    write_exposures(replay.observer.rows, output / "exposures.csv.gz")
     write_order_events(replay.cache.orders(), output / ORDER_EVENTS)
     for finding in capital_findings(replay.observer, expected_timestamps):
         if finding not in integrity_findings:
@@ -182,7 +205,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
     )
     wins = int((pnl > 0).sum())
-    duration_days = Decimal(str((end_dt - trade_start_dt) / timedelta(days=1)))
+    duration_days = Decimal(window.end_ns - window.trade_start_ns) / Decimal(86_400 * 10**9)
     eligible_returns = {
         ts: value for ts, value in result.returns_series.items() if ts >= trade_start
     }
@@ -216,25 +239,29 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
             eligible_returns,
         ),
-        "data_interval_minutes": 5,
-        "input_start_utc": window["start"],
-        "period_start_utc": trade_start_dt.isoformat(),
-        "period_end_utc": window["end"],
+        "execution_bar_minutes": 1,
+        "input_start_utc": window.start,
+        "period_start_utc": window.trade_start,
+        "period_end_utc": window.end,
         "per_coin": [
             {
                 "coin": row["coin"],
                 "instrument": str(row["instrument_id"]),
-                "counts": row["counts"],
-                **diagnostics(strategies[row["coin"]]),
+                "counts": {**{key: value for key, value in row["counts"].items() if key not in LIFECYCLE_COUNTS},
+                           **replay.observer.lifecycle.get(str(row["instrument_id"]), {})},
+                **(diagnostics(strategies[row["coin"]]) if strategies[row["coin"]] is not None else {}),
                 "positions": sum(positions["instrument_id"] == str(row["instrument_id"])),
             }
             for row in rows
         ],
         "limitations": [
-            "Five-minute execution bars cannot resolve every intrabar order sequence",
-            "Current contract terms approximate historical metadata",
-            "Contracts are the ones passed in; pool membership is an input the strategy applies, not a runner rule",
-            "Open-position valuation is sampled after each five-minute bar close; intrabar exposure and drawdown are not observed",
+            "One-minute execution bars cannot resolve every intrabar order sequence; a touch fills, in a fixed "
+            "open-high-low-close order, and stops trigger on the bar's traded prices",
+            "Current contract terms approximate historical metadata; fees and margins are assumed values",
+            "Contracts are the ones passed in; universe membership is an input the strategy applies, not a runner rule",
+            "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
+            "not observed",
+            "Liquidation is not modelled",
         ],
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)

@@ -132,7 +132,7 @@ RUN_PURPOSES = ("research", "validation")
 SEALED_REPORTS = (metrics.SUMMARY, *metrics.REPORT_FILES.values())
 # Refusals of the coverage check that come from what the runner wrote: they make the run invalid.
 CONTENT_REFUSALS = frozenset({"INPUT_IDENTITY_MISMATCH", "COVERAGE_RECEIPT_INVALID", "COVERAGE_MISMATCH",
-                              "LIFECYCLE_NATIVE_COUNT_INVALID", "LIFECYCLE_BUNDLE_MISSING"})
+                              *coverage.LIFECYCLE_REFUSALS})
 METRIC_ERRORS = (ValueError, ArithmeticError, KeyError, TypeError, IndexError)  # Decimal and native value errors
 
 

@@ -17,7 +17,7 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
 # Where the image keeps its runner, audit, identity probe and semantic fingerprint (engine.report_fingerprint).
 LAYOUTS = {
-    "r1-native-v5": {"runner": "engine.run", "audit": "engine.audit", "audit_args": [],
+    "r1-native-v6": {"runner": "engine.run", "audit": "engine.audit", "audit_args": [],
                      "probe": "engine.run", "fingerprint": "engine.compare",
                      "source_paths": {"config_source_sha256": "engine/config.py",
                                       "runner_source_sha256": "engine/run.py",
@@ -152,8 +152,11 @@ def image_revision(identity: dict) -> str | None:
     return revision if isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision) else None
 
 
-def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
-    """Check the local manifest identity and observe code hashes inside that image."""
+def inspect_runtime(identity: dict, runner_args: list[str], mounts: list[tuple[Path, str, bool]] = ()) -> dict:
+    """Check the local manifest identity and observe code hashes inside that image.
+
+    `mounts` are the read-only inputs the probe reads (the universe membership file, whose bytes enter
+    the effective configuration)."""
     identity = validate_identity(identity)
     actual = _image(identity["image_ref"])
     try:
@@ -167,7 +170,7 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
     layout = LAYOUTS[identity["runtime_contract"]]
     probe = (["--describe", *runner_args] if layout["probe"] == layout["runner"]
              else ["--runner-args-json", json.dumps(runner_args, separators=(",", ":"))])
-    command = container_command(identity, [], layout["probe"], probe)
+    command = container_command(identity, list(mounts), layout["probe"], probe)
     observed = subprocess.run(command, capture_output=True, text=True, check=False)
     if observed.returncode:
         raise RecordError(f"runtime identity probe failed: {observed.stderr.strip()}")
@@ -175,7 +178,7 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
         value = json.loads(observed.stdout)
     except (ValueError, TypeError) as exc:
         raise RecordError("runtime identity probe did not return JSON") from exc
-    required = {"runtime_contract", "nautilus_version", "python_version", "dependency_lock_sha256",
+    required = {"runtime_contract", "engine_version", "python_version", "dependency_lock_sha256",
                 "source_files_sha256", "source_file_paths", "effective_config", "effective_config_sha256", "audit_source_sha256"}
     if not isinstance(value, dict) or not required.issubset(value):
         raise RecordError("runtime identity probe omitted execution identities")
@@ -198,7 +201,9 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
         raise RecordError("invalid image audit source digest")
     if not isinstance(value["effective_config"], dict):
         raise RecordError("image probe effective configuration must be an object")
-    encoded = json.dumps(value["effective_config"], sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+    hashed = {key: item for key, item in value["effective_config"].items()
+              if key not in ("market_root", "universe_path")}  # engine.effective_configuration hashes no host path
+    encoded = json.dumps(hashed, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     if hashlib.sha256(encoded).hexdigest() != value["effective_config_sha256"]:
         raise RecordError("image probe effective configuration hash mismatch")
     return {**value, "image_config_digest": actual["Id"], "platform": platform}

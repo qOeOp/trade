@@ -1,7 +1,8 @@
 """Replay one complete strategy over exported market data in one native Nautilus BacktestNode account.
 
 The runner takes four things: the strategy reference, the inputs (one market commit exported per
-contract, the contracts and their pool membership), the window and the account. The account and
+contract, the contracts, their universe membership and lifecycle episodes), the window and the
+account. Execution is on one-minute bars. The account and
 market facts (balance, leverage, fees, funding, matching) are fixed in ``engine.config``; everything
 else, sizing included, is the strategy source. ``--describe`` prints the image's runtime identity
 and the resolved configuration instead of replaying.
@@ -12,8 +13,11 @@ from __future__ import annotations
 import functools
 import json
 import os
+import sys
+import time
 import traceback
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -43,46 +47,49 @@ from nautilus_trader.trading import Strategy
 from engine import report
 from engine.config import (
     ACCOUNT_CONTRACT,
+    EXECUTION_BAR_MINUTES,
     RUNTIME_CONTRACT,
-    config_sha256,
+    Refusal,
+    Window,
     describe,
     effective_configuration,
-    ns,
     parse_configuration,
-    utc_datetime,
 )
 from engine.load import (
     BAR_INTERVAL_NS,
+    LIFECYCLE_COUNTS,
     LoadedStrategy,
     load_strategy,
     mark_timestamps,
     read_market,
-    read_pool,
     read_regular_file,
+    read_universe,
     strategy_id,
     warmup_daily_bars,
 )
 
 
-def execution_metadata(args) -> dict:
-    if args.execution_binding is None:
+def execution_metadata(config) -> dict:
+    """The execution binding checked against the configuration this runner resolves itself."""
+    if config.execution_binding is None:
         return {}
     try:
-        binding = json.loads(read_regular_file(args.execution_binding))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("execution binding is not valid JSON") from error
+        binding = json.loads(read_regular_file(config.execution_binding))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding is not valid JSON") from error
     if not isinstance(binding, dict) or set(binding) != {
         "runtime_identity", "effective_config", "effective_config_sha256",
     }:
-        raise ValueError("execution binding must contain runtime and effective configuration")
-    effective = effective_configuration(args)
-    digest = config_sha256(effective)
-    if binding["effective_config"] != effective or binding["effective_config_sha256"] != digest:
-        raise ValueError("execution binding differs from actual resolved runner configuration")
+        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding must hold the runtime and effective "
+                                                    "configuration")
+    effective = effective_configuration(config)
+    if binding["effective_config"] != effective.values or binding["effective_config_sha256"] != effective.digest:
+        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding differs from the resolved runner "
+                                                    "configuration")
     identity = binding["runtime_identity"]
     if not isinstance(identity, dict) or identity.get("runtime_contract") != RUNTIME_CONTRACT:
-        raise ValueError("execution binding runtime contract is unsupported")
-    return {"runtime_identity": identity, "effective_config_sha256": digest}
+        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding names an unsupported runtime contract")
+    return {"runtime_identity": identity, "effective_config_sha256": effective.digest}
 
 
 # Node components. BacktestNode builds strategies and actors from importable paths, so the
@@ -99,7 +106,7 @@ class StrategyInputs:
     input_start_ns: int
     strategy_id: str
     catalog_path: str
-    pool_membership: list
+    universe_membership: list
 
 
 class _Configured:
@@ -119,9 +126,9 @@ class _Configured:
                     warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
                     if getattr(type(self), "DAILY_WARMUP", False) else []
                 ),
-                execution_bar_minutes=5,
+                execution_bar_minutes=EXECUTION_BAR_MINUTES,
                 strategy_id=StrategyId(config.strategy_id),
-                pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
+                universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
             )
         except Exception as exc:
             execution_failure("constructor", exc, None)
@@ -235,21 +242,72 @@ def importable_strategy(loaded: LoadedStrategy) -> str:
     return f"{__name__}:{name}"
 
 
+# Lifecycle episodes (engine.episode_active, engine.episode_membership)
+
+def _termination(episode: dict) -> int | None:
+    """The earliest CLOSE status or InstrumentClose (delisting settlement) of an episode."""
+    found = [int(event["ts_event"]) for event in episode.get("events") or ()
+             if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
+    return min(found) if found else None
+
+
+def episode_active(episode: dict | None, start_ns: int, end_ns: int) -> bool:
+    """engine.episode_active: a lifecycle that intersects the input window gets an instance; missing
+    bars never matter. PRE_CLOSE is not a termination: positions opened before it still need closing."""
+    if episode is None:
+        return True
+    end = _termination(episode)
+    return episode.get("start_ns", 0) < end_ns and (end is None or end > start_ns)
+
+
+def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | None) -> tuple[tuple[int, int], ...]:
+    """engine.episode_membership: membership cut at the listing and at the first PRE_CLOSE, CLOSE or
+    settlement; empty intervals are dropped."""
+    if episode is None:
+        return tuple(intervals)
+    low = episode.get("start_ns") or 0
+    stops = [int(event["ts_event"]) for event in episode.get("events") or ()
+             if event.get("type") == "InstrumentClose" or event.get("action") in ("PRE_CLOSE", "CLOSE")]
+    high = min(stops) if stops else None
+    found = []
+    for start, end in intervals:
+        start, end = max(start, low), end if high is None else min(end, high)
+        if start < end:
+            found.append((start, end))
+    return tuple(found)
+
+
+def resident_bytes() -> int:
+    """This process's resident memory (Linux /proc; elsewhere the peak from getrusage)."""
+    try:
+        with open("/proc/self/statm") as stream:
+            return int(stream.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError, IndexError):
+        import resource
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return peak if sys.platform == "darwin" else peak * 1024
+
+
 @dataclass
 class CapitalObserverConfig:
     instrument_ids: tuple[str, ...]
+    exposure_path: str
+    lifecycle_ids: tuple[str, ...] = ()
+    progress_seconds: float = 60.0
 
 
 class CapitalObserver(DataActor):
-    """Value the positions held between input bar timestamps.
+    """Value the positions held between input bar timestamps, and count the lifecycle events delivered.
 
     The sample labelled with bar timestamp T holds the positions open after every
     event before the next bar timestamp: T's bars and fills, and any fill, expiry
     or funding stamped between the bars. The first MARK of the next timestamp
     shows that point reached; each open position is then valued with the native
     ``Position.notional_value`` and ``Position.unrealized_pnl`` at T's MARK, the
-    latest MARK. A position already changed at the next timestamp is reported. The
-    runner values the last timestamp with ``finish`` once every component stopped.
+    latest MARK, and written to the exposure table at once. A position already
+    changed at the next timestamp is reported. The runner values the last
+    timestamp with ``finish`` once every component stopped. Every
+    ``progress_seconds`` of wall time it prints one progress line to standard error.
     """
 
     def __new__(cls, config=None):
@@ -258,39 +316,71 @@ class CapitalObserver(DataActor):
     def __init__(self, config: CapitalObserverConfig):
         super().__init__(None)
         self.instrument_ids = [InstrumentId.from_str(value) for value in config.instrument_ids]
-        self.rows, self.timestamps, self.findings = [], 0, []
+        self.lifecycle_ids = [InstrumentId.from_str(value) for value in config.lifecycle_ids]
+        self.timestamps, self.findings, self.marks_seen = 0, [], 0
+        self.lifecycle = {str(value): {key: 0 for key in LIFECYCLE_COUNTS} for value in self.lifecycle_ids}
         self._ts, self._marks = None, {}
+        self._writer = report.ExposureWriter(Path(config.exposure_path))
+        self._progress_seconds, self._started = config.progress_seconds, time.monotonic()
+        self._reported = self._started
         OBSERVERS.append(self)
 
     def on_start(self):
         for instrument_id in self.instrument_ids:
             self.subscribe_mark_prices(instrument_id)
+        for instrument_id in self.lifecycle_ids:
+            self.subscribe_instrument_status(instrument_id)
+            self.subscribe_instrument_close(instrument_id)
+
+    def on_instrument_status(self, status):
+        self.lifecycle[str(status.instrument_id)]["instrument_status"] += 1
+
+    def on_instrument_close(self, close):
+        self.lifecycle[str(close.instrument_id)]["instrument_close"] += 1
 
     def on_mark_price(self, mark):
+        self.marks_seen += 1
         if self._ts is not None and mark.ts_event < self._ts:
             self.findings.append(f"capital observation received MARK {mark.ts_event} after {self._ts}")
             return
         if self._ts is not None and mark.ts_event > self._ts:
             self._value(self._ts, self.cache)
+            self._progress(mark.ts_event)
         if self._ts is None or mark.ts_event > self._ts:
             self._ts, self._marks = mark.ts_event, {}
         self._marks[mark.instrument_id] = mark.value
 
+    def _progress(self, ts: int) -> None:
+        now = time.monotonic()
+        if now - self._reported < self._progress_seconds:
+            return
+        self._reported = now
+        print(json.dumps({"progress": {"sim_time": datetime.fromtimestamp(ts // 10**9, UTC).isoformat(),
+                                       "marks": self.marks_seen, "valued_timestamps": self.timestamps,
+                                       "rss_mb": resident_bytes() // 2**20,
+                                       "elapsed_s": round(now - self._started)}}), file=sys.stderr, flush=True)
+
     def finish(self, cache) -> None:
-        """Value the last timestamp after strategies stopped, including any closing fills."""
+        """Value the last timestamp after strategies stopped, including any closing fills; close the table."""
         if self._ts is not None:
             self._value(self._ts, cache)
             self._ts = None
+        self._writer.close()
 
     def _value(self, ts: int, cache) -> None:
         self.timestamps += 1
         for position in cache.positions_open():
             price = self._marks.get(position.instrument_id)
             if price is None or position.ts_last >= ts + BAR_INTERVAL_NS:
-                self.findings.append(f"capital observation cannot value {position.instrument_id} at {ts}")
+                self.findings.append(f"CAPITAL_VALUATION_GAP: capital observation cannot value "
+                                     f"{position.instrument_id} at {ts}")
                 continue
-            self.rows.append((ts, str(position.id), str(position.notional_value(price)),
-                              str(position.unrealized_pnl(price))))
+            try:
+                self._writer.write((ts, str(position.id), str(position.notional_value(price)),
+                                    str(position.unrealized_pnl(price))))
+            except Exception as exc:
+                self.findings.append(f"EXPOSURE_WRITE_FAILED: {type(exc).__name__}: {exc}")
+                raise
 
 
 class Replay:
@@ -314,7 +404,13 @@ class Replay:
         return self.node.generate_account_report(self.run_id, venue=venue)
 
 
-def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, pool: dict):
+def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe: dict, output_dir: Path):
+    """engine.replay: one venue and node, each contract's one-minute bars, MARK and funding updates and
+    lifecycle events, one strategy instance per contract whose lifecycle intersects the window, and
+    exactly one capital observer; afterwards the native result is checked against the receipts."""
+    active = [row for row in rows if episode_active(row["episode"], window.start_ns, window.end_ns)]
+    if not active:
+        raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the input window")
     data = []
     for row in rows:
         instrument_id = row["instrument_id"]
@@ -324,8 +420,12 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
             BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=str(row["catalog_path"]),
                                instrument_id=instrument_id),
             BacktestDataConfig(data_type="Bar", catalog_path=str(row["catalog_path"]), instrument_id=instrument_id,
-                               bar_types=[f"{instrument_id}-5-MINUTE-LAST-EXTERNAL"]),
+                               bar_types=[f"{instrument_id}-{EXECUTION_BAR_MINUTES}-MINUTE-LAST-EXTERNAL"]),
         ])
+        for key, data_type in (("instrument_status", "InstrumentStatus"), ("instrument_close", "InstrumentClose")):
+            if row["counts"].get(key):
+                data.append(BacktestDataConfig(data_type=data_type, catalog_path=str(row["catalog_path"]),
+                                               instrument_id=instrument_id))
     account = ACCOUNT_CONTRACT
     config = BacktestRunConfig(
         venues=[
@@ -363,7 +463,8 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
     STRATEGIES.clear()
     OBSERVERS.clear()
     strategy_path = importable_strategy(strategy)
-    for row in rows:
+    for row in active:
+        episode = row["episode"]
         node.add_strategy_from_config(
             config.id,
             ImportableStrategyConfig(
@@ -371,11 +472,12 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
                 config_path=f"{__name__}:StrategyInputs",
                 config={
                     "instrument_id": str(row["instrument_id"]),
-                    "trade_start_ns": trade_start,
-                    "input_start_ns": ns(args.start),
+                    "trade_start_ns": window.trade_start_ns,
+                    "input_start_ns": max(window.start_ns, (episode or {}).get("start_ns") or 0),
                     "strategy_id": strategy_id(row["symbol"]),
                     "catalog_path": str(row["catalog_path"]),
-                    "pool_membership": [list(interval) for interval in pool[row["symbol"]]],
+                    "universe_membership": [list(interval) for interval in
+                                            episode_membership(universe[row["symbol"]], episode)],
                 },
             ),
         )
@@ -384,48 +486,49 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
         ImportableActorConfig(
             actor_path=f"{__name__}:CapitalObserver",
             config_path=f"{__name__}:CapitalObserverConfig",
-            config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows)},
+            config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows),
+                    "exposure_path": str(output_dir / report.EXPOSURES),
+                    "lifecycle_ids": tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)},
         ),
     )
     result = node.run()[0]
-    expected_iterations = sum(sum(row["counts"].values()) for row in rows)
+    expected_iterations = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
     if result.iterations != expected_iterations:
-        raise RuntimeError(
-            f"native data count differs from the export receipts: {result.iterations} != {expected_iterations}",
-        )
-    strategies = {row["coin"]: STRATEGIES[str(row["instrument_id"])] for row in rows}
+        raise Refusal("DATA_COUNT_MISMATCH", f"the engine consumed {result.iterations} events, the export receipts "
+                                             f"hold {expected_iterations}")
     if len(OBSERVERS) != 1:
-        raise RuntimeError("native capital observer did not start exactly once")
+        raise Refusal("OBSERVER_COUNT_MISMATCH", "the native capital observer did not start exactly once")
+    strategies = {row["coin"]: STRATEGIES.get(str(row["instrument_id"])) for row in rows}
     finished = Replay(node, config.id, result, OBSERVERS[0])
     finished.observer.finish(finished.cache)
     return finished, strategies
 
 
 def main(argv: list[str] | None = None) -> None:
+    """engine.main: replay the candidate and write the native reports; any failure exits nonzero."""
     global FAILURE_PATH
-    args = parse_configuration(argv)
-    if args.describe:
-        print(json.dumps(describe(args), sort_keys=True))
+    config = parse_configuration(argv)
+    if config.describe:
+        print(json.dumps(describe(config), sort_keys=True))
         return
     FAILURES.clear()
-    FAILURE_PATH = args.output / "runtime_failures.jsonl"
-    executed = execution_metadata(args)
-    strategy = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding)
-    start_dt, end_dt = utc_datetime(args.start), utc_datetime(args.end)
-    trade_start_dt = utc_datetime(args.trade_start) if args.trade_start is not None else start_dt
-    start, end = ns(args.start), ns(args.end)
-    trade_start = ns(trade_start_dt.isoformat())
-    rows = read_market(args.market_root, args.symbols, args.market_commit, start, end)
-    pool = read_pool(args.pool, args.symbols)
-    finished, strategies = replay(rows, args, trade_start, strategy, pool)
+    FAILURE_PATH = config.output / "runtime_failures.jsonl"
+    executed = execution_metadata(config)
+    effective = effective_configuration(config)
+    strategy = load_strategy(config.strategy_file, config.strategy_class, config.strategy_sha256,
+                             config.strategy_binding)
+    window = config.window
+    rows = read_market(config.market_root, list(config.symbols), config.market_commit, window.start_ns, window.end_ns)
+    universe = read_universe(config.universe_path, list(config.symbols))
+    config.output.mkdir(parents=True, exist_ok=True)
+    finished, strategies = replay(rows, window, strategy, universe, config.output)
     identity = {
         **strategy.metadata(), **report.runtime_source_metadata(), **executed,
-        "market_commit": args.market_commit,
+        "effective_config_sha256": effective.digest,
+        "market_commit": config.market_commit,
         "strategy": strategy.binding["strategy_id"] if strategy.binding else strategy.entry_class,
     }
-    window = {"start": args.start, "end": args.end, "trade_start_dt": trade_start_dt, "end_dt": end_dt,
-              "trade_start_ns": trade_start}
-    _, findings = report.write(args.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
+    _, findings = report.write(config.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
                                mark_timestamps(rows))
     if FAILURES:
         raise RuntimeError("NATIVE_EXECUTION_FAILED: " + "; ".join(

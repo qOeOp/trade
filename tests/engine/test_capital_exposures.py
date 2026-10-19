@@ -29,7 +29,8 @@ class CapitalExposureTests(unittest.TestCase):
         self.assertEqual(capital_findings(complete, 3), [])
         missed = SimpleNamespace(timestamps=2, findings=["capital observation cannot value X at 1", "capital observation cannot value X at 1"])
         self.assertEqual(capital_findings(missed, 3), [
-            "capital observation cannot value X at 1", "capital observation valued 2 of 3 input timestamps"])
+            "capital observation cannot value X at 1",
+            "CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued 2 of 3 input timestamps"])
 
 
 if __name__ == "__main__":

@@ -22,12 +22,12 @@ from tests.records.fixtures import reports
 SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
 REAL_RUN = subprocess.run
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64, "image_digest": "sha256:" + "b" * 64,
-            "platform": "linux/arm64", "runtime_contract": "r1-native-v5"}
+            "platform": "linux/arm64", "runtime_contract": "r1-native-v6"}
 
 
 def probe(window: dict) -> dict:
-    paths = LAYOUTS["r1-native-v5"]["source_paths"]
-    return {"runtime_contract": "r1-native-v5", "nautilus_version": "fixture", "python_version": "fixture",
+    paths = LAYOUTS["r1-native-v6"]["source_paths"]
+    return {"runtime_contract": "r1-native-v6", "engine_version": "fixture", "python_version": "fixture",
             "dependency_lock_sha256": "c" * 64, "source_files_sha256": {field: "d" * 64 for field in paths},
             "source_file_paths": dict(paths), "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
             "effective_config": {"symbols": ["AAAUSDT", "BBBUSDT"], "start": window["start"], "trade_start": window["trade_start"],

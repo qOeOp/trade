@@ -50,6 +50,10 @@ REASONS: dict[str, str] = {
     "COVERAGE_MISMATCH": "The coverage receipt and the native summary differ.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "The native lifecycle counts are malformed.",
     "LIFECYCLE_BUNDLE_MISSING": "Instruments have native lifecycle events but the inputs no lifecycle bundle.",
+    "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's window, format or market commit differs from the summary.",
+    "LIFECYCLE_COUNT_MISMATCH": "Receipt, episode and native lifecycle counts disagree.",
+    "LIFECYCLE_EVENT_INVALID": "An exported lifecycle event is not a valid native event.",
+    "LIFECYCLE_DUPLICATE_EVENT": "A lifecycle termination repeats.",
 }
 
 

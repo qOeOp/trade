@@ -119,7 +119,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         existing = self.world.output("exists")
         existing.mkdir()
         cases = [({"runner_argv": ONE + ["--output", "/x"]}, "RUNNER_OPTION_RESERVED"),
-                 ({"runner_argv": ONE + ["--pool=/x"]}, "RUNNER_OPTION_RESERVED"),
+                 ({"runner_argv": ONE + ["--market-root=/x"]}, "RUNNER_OPTION_RESERVED"),
                  ({"output": Path.home() / "not-a-temporary-output"}, "NOT_TEMPORARY_PATH"),
                  ({"output": existing}, "PATH_EXISTS"),
                  ({"strategy_class": "Not A Class"}, "ENTRY_CLASS_INVALID")]

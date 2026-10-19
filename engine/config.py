@@ -8,11 +8,14 @@ included, is the strategy source. Nothing here executes source or opens market d
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
 import importlib.metadata
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 from types import MappingProxyType
@@ -20,7 +23,11 @@ from types import MappingProxyType
 from engine import report
 
 
-RUNTIME_CONTRACT = "r1-native-v5"
+# r1-native-v6: one-minute execution bars and the constructor's `universe_membership` (v5: five-minute
+# bars and `pool_membership`). A source written for another contract is refused, not run on these inputs.
+RUNTIME_CONTRACT = "r1-native-v6"
+EXECUTION_BAR_MINUTES = 1  # design constant: the export holds one-minute bars and they are matched as such
+MINUTE_NS = 60_000_000_000
 
 
 ACCOUNT_CONTRACT = {
@@ -50,27 +57,84 @@ def account_contract() -> MappingProxyType:
     return MappingProxyType(ACCOUNT_CONTRACT)
 
 
+# Refusals. Every code the runner raises (here, in engine.load, engine.run and engine.report) is in
+# REFUSALS; the auditor's finding codes are in engine.audit.FINDINGS.
+
+REFUSALS: dict[str, str] = {
+    "UNKNOWN_OPTION": "The command line holds an option the runner does not define, such as a strategy parameter.",
+    "REPLAY_ARGUMENT_MISSING": "A replay lacks the strategy file, class, hash or output, or an option lacks its value.",
+    "SYMBOL_DUPLICATE": "A contract appears twice in --symbols.",
+    "WINDOW_TIMEZONE_MISSING": "A window boundary has no Z or UTC offset.",
+    "WINDOW_TIMESTAMP_INVALID": "A window boundary is not ISO-8601, has an offset with seconds or more than six "
+                                "fractional digits.",
+    "WINDOW_NOT_ALIGNED": "A window boundary is not on the execution bar grid.",
+    "WINDOW_ORDER_INVALID": "The window does not satisfy start <= trade_start < end.",
+    "UNIVERSE_FILE_UNREADABLE": "The universe membership file is not a readable regular file.",
+    "UNIVERSE_FILE_INVALID": "The universe membership file is not JSON with a membership object of integer pairs.",
+    "ENGINE_VERSION_UNAVAILABLE": "The image holds no engine distribution metadata.",
+    "DEPENDENCY_LOCK_MISSING": "The image holds no dependency lock file.",
+    "SOURCE_FILE_MISSING": "A runtime source file that is hashed into the identity is missing.",
+    "EXECUTION_BINDING_MISMATCH": "The execution binding is not JSON, names another contract or another effective "
+                                  "configuration than the runner resolves.",
+    "MARKET_RECEIPT_MISMATCH": "An export receipt names another market commit, window or bar timeframe.",
+    "TERMS_APPROXIMATION_MISSING": "An export receipt lacks the historical-terms approximation mark.",
+    "INSTRUMENT_NOT_UNIQUE": "An exported Catalog does not hold exactly one USDT instrument of the receipt's ID.",
+    "CONTRACT_NAME_COLLISION": "Two contracts share a short name or strategy identifier.",
+    "NO_ACTIVE_INSTRUMENT": "No contract's lifecycle intersects the input window.",
+    "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
+    "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
+    "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
+    "LIFECYCLE_BUNDLE_MISSING": "The summary counts lifecycle events but the inputs name no lifecycle bundle.",
+    "LIFECYCLE_COVERAGE_MISMATCH": "The coverage receipt's format, window or market commit differs from the summary.",
+    "LIFECYCLE_COUNT_MISMATCH": "Receipt, episode and native lifecycle counts disagree.",
+    "LIFECYCLE_EVENT_INVALID": "A lifecycle event is not a native event, has inconsistent clocks or an invalid close.",
+    "LIFECYCLE_DUPLICATE_EVENT": "A lifecycle event of one type, instance and time appears twice.",
+}
+
+
+class Refusal(ValueError):
+    """A catalogued runner refusal; its text starts with the code."""
+
+    def __init__(self, code: str, message: str):
+        REFUSALS[code]  # an uncatalogued code is a KeyError
+        super().__init__(f"{code}: {message}")
+        self.code = code
+
+
 # Window
+
+@dataclass(frozen=True)
+class Window:
+    """[start, trade_start) warm-up and [trade_start, end) trading, as UTC nanoseconds and Z strings."""
+    start_ns: int
+    trade_start_ns: int
+    end_ns: int
+    start: str
+    trade_start: str
+    end: str
+
 
 def utc_datetime(value: str) -> datetime:
     """Parse an explicit ISO-8601 timezone without consulting the host timezone."""
     try:
         if re.search(r"[+-]\d{2}(?::?\d{2})?(?::?\d{2})?[.,]\d+$", value):
-            raise ValueError("fractional UTC offsets are unsupported")
+            raise Refusal("WINDOW_TIMESTAMP_INVALID", "fractional UTC offsets are unsupported")
         if any(len(fraction) > 6 for fraction in re.findall(r"[.,](\d+)", value)):
-            raise ValueError("time precision must not exceed six fractional digits")
+            raise Refusal("WINDOW_TIMESTAMP_INVALID", "time precision must not exceed six fractional digits")
         parsed = datetime.fromisoformat(value)
+    except Refusal:
+        raise
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "time must be an ISO-8601 datetime with explicit Z or UTC offset, "
-            "at most six fractional digits and no fractional UTC offset"
-        ) from exc
+        raise Refusal("WINDOW_TIMESTAMP_INVALID",
+                      f"{value!r} is not an ISO-8601 datetime with explicit Z or UTC offset") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError("time must include explicit Z or UTC offset")
+        raise Refusal("WINDOW_TIMEZONE_MISSING", f"{value!r} must include explicit Z or UTC offset")
+    if parsed.utcoffset().seconds % 60 or parsed.utcoffset().microseconds:
+        raise Refusal("WINDOW_TIMESTAMP_INVALID", f"{value!r} has an offset with seconds")
     try:
         return parsed.astimezone(UTC)
     except OverflowError as exc:
-        raise ValueError("time is outside the representable UTC datetime range") from exc
+        raise Refusal("WINDOW_TIMESTAMP_INVALID", f"{value!r} is outside the representable UTC range") from exc
 
 
 def ns(value: str) -> int:
@@ -78,10 +142,37 @@ def ns(value: str) -> int:
     return ((elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds) * 1000
 
 
+def utc_text(value_ns: int) -> str:
+    """The Z-terminated text of a whole-second UTC instant."""
+    return datetime.fromtimestamp(value_ns // 1_000_000_000, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_window(start: str, trade_start: str | None, end: str,
+                 execution_bar_minutes: int = EXECUTION_BAR_MINUTES) -> Window:
+    """engine.parse_window: explicit UTC boundaries on the execution bar grid, start <= trade_start < end."""
+    values = {"start": ns(start), "end": ns(end)}
+    values["trade_start"] = ns(trade_start) if trade_start is not None else values["start"]
+    step = execution_bar_minutes * MINUTE_NS
+    for name, value in values.items():
+        if value % step:
+            raise Refusal("WINDOW_NOT_ALIGNED", f"--{name.replace('_', '-')} is not on the "
+                                                f"{execution_bar_minutes}-minute grid")
+    if not values["start"] <= values["trade_start"] < values["end"]:
+        raise Refusal("WINDOW_ORDER_INVALID", "the window needs start <= trade-start < end")
+    return Window(values["start"], values["trade_start"], values["end"], utc_text(values["start"]),
+                  utc_text(values["trade_start"]), utc_text(values["end"]))
+
+
 # Arguments
 
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        code = "UNKNOWN_OPTION" if "unrecognized arguments" in message else "REPLAY_ARGUMENT_MISSING"
+        raise Refusal(code, message)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser = _Parser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--describe", action="store_true", help="print the runtime identity and resolved configuration")
     strategy = parser.add_argument_group("strategy reference")
     strategy.add_argument("--strategy-file", type=Path)
@@ -92,7 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs = parser.add_argument_group("inputs: one market commit exported per contract (market.export)")
     inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
     inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
-    inputs.add_argument("--pool", type=Path, help="pool membership JSON handed to every strategy")
+    inputs.add_argument("--universe", type=Path, help="universe membership JSON handed to every strategy")
     inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
     window = parser.add_argument_group("window")
     window.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
@@ -102,67 +193,109 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_configuration(argv: list[str] | None = None):
-    """Resolve runner defaults without executing source or opening research data."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
+@dataclass(frozen=True)
+class RunnerConfiguration:
+    describe: bool
+    strategy_file: Path | None
+    strategy_class: str | None
+    strategy_sha256: str | None
+    strategy_binding: Path | None
+    execution_binding: Path | None
+    market_root: Path
+    market_commit: str
+    universe_path: Path | None
+    symbols: tuple[str, ...]
+    window: Window
+    output: Path | None
+
+
+def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
+    """engine.parse_configuration: the runner's inputs, without executing source or opening data."""
+    args = build_parser().parse_args(argv)
     if not args.describe:
         missing = [option for option in ("strategy_file", "strategy_class", "strategy_sha256", "output")
                    if getattr(args, option) is None]
         if missing:
-            parser.error("a replay needs " + ", ".join("--" + name.replace("_", "-") for name in missing))
-    times = {}
-    for field in ("start", "end", "trade_start"):
-        value = getattr(args, field)
-        if value is None:
-            continue
-        try:
-            times[field] = utc_datetime(value)
-        except ValueError as exc:
-            parser.error(f"--{field.replace('_', '-')}: {exc}")
-    start, end = times["start"], times["end"]
-    trade_start = times.get("trade_start", start)
-    if (not start < end or not start <= trade_start < end
-            or any(value.minute % 5 or value.second or value.microsecond
-                   for value in (start, end, trade_start))):
-        parser.error("replay needs a positive five-minute-aligned interval with trade-start inside it")
+            raise Refusal("REPLAY_ARGUMENT_MISSING",
+                          "a replay needs " + ", ".join("--" + name.replace("_", "-") for name in missing))
+    window = parse_window(args.start, args.trade_start, args.end)
     if len(args.symbols) != len(set(args.symbols)):
-        parser.error("--symbols must be unique")
-    return args
+        raise Refusal("SYMBOL_DUPLICATE", "--symbols must be unique")
+    return RunnerConfiguration(args.describe, args.strategy_file, args.strategy_class, args.strategy_sha256,
+                               args.strategy_binding, args.execution_binding, args.market_root, args.market_commit,
+                               args.universe, tuple(args.symbols), window, args.output)
 
 
-def effective_configuration(args) -> dict:
-    """Canonical experiment configuration, including native execution defaults."""
-    return {
-        "runtime_contract": RUNTIME_CONTRACT,
-        "market_root": str(args.market_root),
-        "market_commit": args.market_commit,
-        "pool": str(args.pool) if args.pool is not None else None,
-        "symbols": args.symbols,
-        "start": args.start,
-        "end": args.end,
-        "trade_start": args.trade_start if args.trade_start is not None else args.start,
-        "account": ACCOUNT_CONTRACT.copy(),
-    }
+def read_universe_bytes(path: Path) -> bytes:
+    """A regular file's bytes through one descriptor, never following a link."""
+    try:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise OSError("not a regular file")
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as stream:
+            return stream.read()
+    except OSError as exc:
+        raise Refusal("UNIVERSE_FILE_UNREADABLE", f"{path}: {exc}") from exc
 
 
-def config_sha256(value: dict) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+@dataclass(frozen=True)
+class EffectiveConfiguration:
+    values: dict
+    digest: str
+
+
+HOST_PATH_KEYS = ("market_root", "universe_path")
+
+
+def config_sha256(values: dict) -> str:
+    """The digest of the values without their host paths (canonical JSON)."""
+    hashed = {key: value for key, value in values.items() if key not in HOST_PATH_KEYS}
+    encoded = json.dumps(hashed, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
-def describe(args) -> dict:
-    """The executing image's native code and the replay configuration it would resolve."""
+def effective_configuration(config: RunnerConfiguration) -> EffectiveConfiguration:
+    """engine.effective_configuration: what the runner resolves, comparable between host and image."""
+    universe = config.universe_path
+    values = {
+        "runtime_contract": RUNTIME_CONTRACT,
+        "execution_bar_minutes": EXECUTION_BAR_MINUTES,
+        "market_root": str(config.market_root),
+        "market_commit": config.market_commit,
+        "universe_path": str(universe) if universe is not None else None,
+        "universe_sha256": hashlib.sha256(read_universe_bytes(universe)).hexdigest() if universe is not None else None,
+        "symbols": list(config.symbols),
+        "start": config.window.start,
+        "trade_start": config.window.trade_start,
+        "end": config.window.end,
+        "account": ACCOUNT_CONTRACT.copy(),
+    }
+    return EffectiveConfiguration(values, config_sha256(values))
+
+
+def describe(config: RunnerConfiguration) -> dict:
+    """engine.describe: the executing image's runtime code and the configuration it would resolve."""
+    try:
+        engine_version = importlib.metadata.version("nautilus_trader")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise Refusal("ENGINE_VERSION_UNAVAILABLE", "no nautilus_trader distribution metadata") from exc
+    lock = report.ROOT / "uv.lock"
+    if not lock.is_file():
+        raise Refusal("DEPENDENCY_LOCK_MISSING", f"{lock} is missing")
+    missing = [path for path in (*report.RUNTIME_SOURCE_PATHS.values(), report.AUDIT_PATH)
+               if not (report.ROOT / path).is_file()]
+    if missing:
+        raise Refusal("SOURCE_FILE_MISSING", ", ".join(missing))
     metadata = report.runtime_source_metadata()
-    effective = effective_configuration(args)
+    effective = effective_configuration(config)
     return {
         "runtime_contract": RUNTIME_CONTRACT,
-        "nautilus_version": importlib.metadata.version("nautilus_trader"),
+        "engine_version": engine_version,
         "python_version": sys.version.split()[0],
-        "dependency_lock_sha256": hashlib.sha256((report.ROOT / "uv.lock").read_bytes()).hexdigest(),
+        "dependency_lock_sha256": hashlib.sha256(lock.read_bytes()).hexdigest(),
         "source_files_sha256": {key: value for key, value in metadata.items() if key.endswith("_source_sha256")},
         "source_file_paths": metadata["source_file_paths"],
         "audit_source_sha256": hashlib.sha256((report.ROOT / report.AUDIT_PATH).read_bytes()).hexdigest(),
-        "effective_config": effective,
-        "effective_config_sha256": config_sha256(effective),
+        "effective_config": effective.values,
+        "effective_config_sha256": effective.digest,
     }
