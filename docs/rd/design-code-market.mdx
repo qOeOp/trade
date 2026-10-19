@@ -571,10 +571,6 @@ def validate_lifecycle(
 | 拒绝码 | 条件 |
 |---|---|
 | `LIFECYCLE_INPUT` | 清单格式不符或 market_commit 与钉住的市场提交不等 |
-| `LIFECYCLE_INPUT` | 片段缺必填字段，或 sources 为空、含绝对路径、或引用了包内不存在的文件 |
-| `LIFECYCLE_INPUT` | 事件不是 InstrumentStatus / InstrumentClose 的原生字典，或不能构造为引擎原生对象，或 instrument_id 与片段不符 |
-| `LIFECYCLE_INPUT` | 事件时钟早于 start_ns 或非单调；InstrumentClose 的 close_type 非 CONTRACT_EXPIRED 或价格非精确正数 |
-| `LIFECYCLE_INPUT` | 已到期的 instrument_id 被后续片段或事件重用；同一 symbol 的重新上市片段生命周期重叠或顺序与身份映射不符 |
 
 <div className="rd-meta">
 

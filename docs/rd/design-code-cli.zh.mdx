@@ -75,7 +75,7 @@ def candidate_export(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `CANDIDATE_NOT_FOUND` | strategy_id@revision 在该版本不存在 |
+| `UNKNOWN_CANDIDATE` | strategy_id@revision 在该版本不存在 |
 | `PATH_EXISTS` | 目标文件已存在 |
 | `NOT_TEMPORARY_PATH` | 目标不在平台临时根之下 |
 | `LEDGER_CORRUPT` | 存储字节或写出文件的哈希不符 |
@@ -932,9 +932,9 @@ def replay_explore(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `OUTPUT_NOT_TEMPORARY` | output 不在平台临时根之下（转发自 replay.explore） |
-| `OUTPUT_EXISTS` | output 已存在（转发自 replay.explore） |
-| `STRATEGY_CLASS_INVALID` | strategy_class 不是单个 Python 类名 |
+| `NOT_TEMPORARY_PATH` | output 不在平台临时根之下（转发自 replay.explore） |
+| `PATH_EXISTS` | output 已存在（转发自 replay.explore） |
+| `ENTRY_CLASS_INVALID` | strategy_class 不是单个 Python 类名 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项 |
 | `RUNTIME_UNAVAILABLE` | 运行环境引用无法拉取或检视（转发自 runtime.resolve；RUNTIME_DIGEST_AMBIGUOUS、RUNTIME_IDENTITY_INVALID 同样转发） |
 
@@ -975,7 +975,7 @@ def replay_precheck(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNKNOWN_STRATEGY` | 候选不存在（由 ledger.read_candidate 传出） |
+| `UNKNOWN_CANDIDATE` | 候选不存在（由 ledger.read_candidate 传出） |
 | `NOT_TEMPORARY_PATH` | output 不在平台临时根之下 |
 | `PATH_EXISTS` | output 已存在 |
 | `RUNTIME_NOT_CI_BUILT` | 运行环境镜像缺构建源码版本标签 |
@@ -1068,7 +1068,7 @@ def replay_run(
 | `REGISTRATION_MISMATCH` | 候选、运行器参数、运行环境或市场提交与登记不一致（转发自 registration.bind 或 registration.validation_bind） |
 | `WITNESS_MISSING` | 样本外登记无有效时间凭证，或凭证时间不早于窗口起点（转发自 registration.validation_bind） |
 | `SOURCE_HASH_MISMATCH` | 装载的源码字节哈希不等于发布记录（转发自 replay.seal） |
-| `MAIN_BUILD_REQUIRED` | 样本外回放的运行环境不是 main 构建或工作树不含 main 最新提交（转发自函数 run） |
+| `RUNTIME_NOT_MAIN` | 样本外回放的运行环境不是 main 构建或工作树不含 main 最新提交（转发自函数 run） |
 | `RUNTIME_UNAVAILABLE` | 运行环境引用无法拉取或检视（转发自 runtime.resolve；其余运行环境身份拒绝码同样转发） |
 
 **使用**　<Ref id="replay.run" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />
@@ -1170,7 +1170,7 @@ def source_review(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `CANDIDATE_NOT_FOUND` | 候选不存在 |
+| `UNKNOWN_CANDIDATE` | 候选不存在 |
 | `RUNTIME_UNRESOLVED` | 运行环境引用解析不到摘要 |
 | `PRECHECK_NOT_FOUND` | precheck_trial 不是同源码同运行环境的原生预检试验 |
 | `REVIEW_INVALID` | 透传 record_review |

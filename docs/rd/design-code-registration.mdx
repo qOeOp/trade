@@ -226,7 +226,6 @@ def load_lifecycle(profile: str, bundle: str, commit: str) -> None
 | 拒绝码 | 条件 |
 |---|---|
 | `LIFECYCLE_INPUT` | 证据包不存在、包内没有 lifecycle.json，或包内文件哈希重验不符 |
-| `LIFECYCLE_INPUT` | market.validate_lifecycle 的任一拒绝原样上抛（提交不符、来源原件缺失、事件非原生、时钟不单调） |
 
 **使用**　<Ref id="ledger.load_bundle" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:v_evidence" />
 

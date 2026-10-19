@@ -36,7 +36,7 @@ def audit_problems(
 ) -> tuple
 ```
 
-<TypeTable type={{ "workdir": { type: "Path", description: "回放工作目录；读 reports/audit.json 与 reports/runtime_failures.jsonl" }, "native_exit": { type: "int", description: "运行器退出码" }, "audit_exit": { type: "int | None", description: "审计器退出码；空表示审计器未运行" } }} />
+<TypeTable type={{ "workdir": { type: "Path", description: "回放工作目录；读 audit/audit.json 与 reports/runtime_failures.jsonl" }, "native_exit": { type: "int", description: "运行器退出码" }, "audit_exit": { type: "int | None", description: "审计器退出码；空表示审计器未运行" } }} />
 
 **返回**　tuple(reasons: list[dict], audit: dict | None)；reasons 每条 \{code, message, locator\}，audit 为读出的审计结果原件，缺失或不可读为空
 
@@ -44,7 +44,7 @@ def audit_problems(
 
 1. native_exit 非零：追加 NATIVE_EXIT_NONZERO，message 带退出码。
 2. audit_exit 为空：追加 AUDIT_NOT_RUN；非零：追加 AUDIT_EXIT_NONZERO。
-3. reports/audit.json 不存在追加 AUDIT_RESULT_MISSING，不可读追加 AUDIT_RESULT_UNREADABLE（附读取错误原文）；自报未通过或 findings 非空追加 AUDIT_FINDINGS，每条发现的定位原样转为 locator。
+3. audit/audit.json 不存在追加 AUDIT_RESULT_MISSING，不可读追加 AUDIT_RESULT_UNREADABLE（附读取错误原文）；自报未通过或 findings 非空追加 AUDIT_FINDINGS，每条发现的定位原样转为 locator。
 4. reports/runtime_failures.jsonl 非空：每行须是结构化异常回执，全部合规追加 RUNTIME_FAILURE_RECORDED（locator 带阶段与合约标识），否则 RUNTIME_FAILURE_MALFORMED；不可解析追加 RUNTIME_FAILURE_UNREADABLE。
 5. 只按退出码、文件存在性与结构化字段判定，不匹配日志文本；每条独立追加，前一条成立不省略后一条；只读不写。本函数不拒绝：任何缺失、不可读或不合规都写成无效原因返回，不抛出带码拒绝。
 
@@ -85,6 +85,10 @@ def execute(
 4. 无论正常返回、中断或宿主异常，finally 调用 ledger.seal_capture 把阶段记录、stdout/stderr、源码字节、覆盖回执、结构化异常回执与审计结果按试验封存，结局标 completed / interrupted / host_failed。
 5. 中断或宿主失败时原异常继续向上抛出，工作目录保留。
 6. 本函数不拒绝：报表不全、进程无法启动、中断或宿主失败都如实记入阶段记录并封存，由 replay.audit_problems 转成无效原因。
+7. 挂载：运行器只写 reports/（运行期回调失败写 reports/runtime_failures.jsonl）；审计器只写 audit/，结果为 audit/audit.json，原生报告对它只读；运行器因此写不出审计结果。
+8. 入口保留的运行器选项包括输出目录、市场根与提交、成员文件与 --describe；Agent 传入即 RUNNER_OPTION_RESERVED。
+9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态与输出随执行封存，入账只从封存取指纹，调用方给不了。
+10. 容器按试验命名；中断或可选超时到期时按名停止容器再封存，结局记 interrupted。
 
 **使用**　<Ref id="runtime.layout" />、<Ref id="runtime.container_command" />、<Ref id="ledger.seal_capture" />、<Ref id="engine.audit_main" />
 
@@ -117,7 +121,7 @@ def explore(
 
 **期望行为**
 
-1. 经 ledger.temporary_path 核对 output 在临时根之下且不存在（OUTPUT_NOT_TEMPORARY / OUTPUT_EXISTS）；核对 strategy_class 是标识符、runner_argv 不含保留选项；读源码字节算内容哈希。
+1. 经 ledger.temporary_path 核对 output 在临时根之下且不存在（NOT_TEMPORARY_PATH / PATH_EXISTS）；核对 strategy_class 是标识符、runner_argv 不含保留选项；读源码字节算内容哈希。
 2. runtime.resolve 解析运行环境身份；registration.market_inputs 导出输入（不要求新鲜，可用缓存导出），registration.input_key 算输入身份；按挂载改写运行器参数后经 runtime.inspect_runtime 探针检视。
 3. 建 source/ 与 reports/，写入源码、运行环境检视与覆盖回执（replay.input_coverage）。
 4. 容器启动前经 ledger.open_trial 与 ledger.start_receipt 写 purpose=explore 的试验行与开始回执，记源码哈希、运行环境引用、合约集与窗口。
@@ -126,9 +130,9 @@ def explore(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `OUTPUT_NOT_TEMPORARY` | output 不在平台临时根之下 |
-| `OUTPUT_EXISTS` | output 已存在 |
-| `STRATEGY_CLASS_INVALID` | strategy_class 不是单个 Python 类名 |
+| `NOT_TEMPORARY_PATH` | output 不在平台临时根之下 |
+| `PATH_EXISTS` | output 已存在 |
+| `ENTRY_CLASS_INVALID` | strategy_class 不是单个 Python 类名 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项（策略文件、策略类、源码哈希、绑定文件、输出目录） |
 
 **使用**　<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="replay.audit_problems" />、<Ref id="ledger.seal_capture" />、<Ref id="report.directory_report" />
@@ -202,7 +206,7 @@ def precheck(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNKNOWN_STRATEGY` | 候选在账本中不存在 |
+| `UNKNOWN_CANDIDATE` | 候选在账本中不存在 |
 | `NOT_TEMPORARY_PATH` | output 不在临时根之下 |
 | `PATH_EXISTS` | output 已存在 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项 |
@@ -241,18 +245,19 @@ def run(
 **期望行为**
 
 1. 核对 hypothesis 与 validation 恰给一个（REGISTRATION_REQUIRED）；解析 runner_argv，含入口保留选项拒绝 RUNNER_OPTION_RESERVED。
-2. purpose=validation 时先经 runtime.require_main_build 与 registration.require_fresh 核对运行环境来自 main 构建、产品工作树干净且含 main 最新提交，否则拒绝 MAIN_BUILD_REQUIRED。
-3. 经 ledger.connect 打开写会话，ledger.read_candidate 读已发布候选（源码字节、内容哈希、入口类、运行契约）；不存在拒绝 CANDIDATE_NOT_FOUND。
+2. purpose=validation 时先经 runtime.require_main_build 与 registration.require_fresh 核对运行环境来自 main 构建、产品工作树干净且含 main 最新提交，否则 STALE_CHECKOUT（工作树）或 RUNTIME_NOT_MAIN（运行环境）。
+3. 经 ledger.connect 打开写会话，ledger.read_candidate 读已发布候选（源码字节、内容哈希、入口类、运行契约）；不存在拒绝 UNKNOWN_CANDIDATE。
 4. 按 at 解析市场提交，经 registration.market_inputs 新鲜导出到临时导出目录，registration.input_key 算输入身份。
 5. 交 replay.seal 完成同事务绑定、执行、核对与入账（ledger.ingest_run）；finally 删除导出目录。
 6. 成功返回封存结果；replay.seal 的异常原样上抛，工作目录由其保留并在标准错误打印位置。
+7. 封存回放的工作目录在任何失败时都保留供诊断，包括绑定器拒绝；只有入账成功后才删除。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `REGISTRATION_REQUIRED` | hypothesis 与 validation 都未给或同时给出 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口自己写入的选项（策略文件、策略类、源码哈希、绑定文件、输出目录） |
-| `CANDIDATE_NOT_FOUND` | strategy_id@revision 在账本中不存在 |
-| `MAIN_BUILD_REQUIRED` | purpose=validation 但运行环境不是 main 构建或工作树不含 main 最新提交 |
+| `UNKNOWN_CANDIDATE` | strategy_id@revision 在账本中不存在 |
+| `RUNTIME_NOT_MAIN` | purpose=validation 但运行环境不是 main 构建或工作树不含 main 最新提交 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="runtime.require_main_build" />、<Ref id="registration.require_fresh" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.seal" />、<Ref id="ledger.ingest_run" />、<Ref id="table:v_candidates" />
 
@@ -290,11 +295,12 @@ def seal(
 3. 新建临时工作目录，写 source/strategy.py、binding.json（账本库名、账本提交、strategy_id@revision、源码哈希、入口类、运行契约）、execution.json（运行环境身份、有效配置及其哈希）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
 5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、replay.summary_problems、replay.audit_problems，逐条去重互不覆盖
-6. ledger.ingest_run 入账（有效含绩效指标与原生报表行，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
+6. ledger.ingest_run 入账（有效含封存结果、逐日序列与持仓周期，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
+7. 内容原因导致的入账失败（原生报表缺失或不可读、摘要缺键、覆盖身份不符、绩效指标计算出错）都作为失败原因存成 invalid 运行（NATIVE_REPORT_UNREADABLE 等）；只有账本不可用、并发写这类基础设施错误才让试验暂时没有运行。容器启动前就被拒绝时删除工作目录。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `BINDING_TARGET_INVALID` | hypothesis 与 validation 都未给或都给出 |
+| `REGISTRATION_REQUIRED` | hypothesis 与 validation 都未给或都给出 |
 | `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像运行契约不一致 |
 | `EXPORT_CHANGED_BEFORE_EXECUTION` | 执行前导出语义指纹不等于输入身份记录的导出内容哈希 |
 
@@ -355,19 +361,25 @@ def summary_problems(
 把一个已封存的运行按它的身份重放到 /tmp，核语义指纹一致后交出原生报告目录；只写一条用途为 reproduce 的试验行
 
 ```python
-def reproduce(run_id: int, output: Path) -> dict
+def reproduce(
+    run_id: int,
+    output: Path,
+    ledger: LedgerProfile,
+    market: MarketProfile,
+) -> dict
 ```
 
-<TypeTable type={{ "run_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" } }} />
+<TypeTable type={{ "run_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" }, "ledger": { type: "LedgerProfile", description: "研究账本档案（关键字参数）" }, "market": { type: "MarketProfile", description: "市场库档案（关键字参数），按运行记下的市场提交导出" } }} />
 
 **返回**　dict：\{directory, run_id, fingerprints_match\}
 
 **期望行为**
 
 1. 读运行、试验与登记包，取源码、镜像摘要、市场提交、合约集与窗口。
-2. 按同一身份导出输入并在钉死的运行环境里重放。
-3. 经 engine.report_fingerprint 算指纹，与运行行记录的逐文件比较；不一致即拒绝 REPRODUCTION_MISMATCH 并保留目录供诊断。
-4. 目录不入账，用完由调用方清理。
+2. 复现本身开一条 purpose=explore 的试验并照常封存执行（试验用途只有四种）；它不登记、不入运行表，源码早已暴露，不影响任何登记。
+3. 按同一身份导出输入并在钉死的运行环境里重放。
+4. 经 engine.report_fingerprint 算指纹，与运行行记录的逐文件比较；运行没有记下指纹（镜像不提供指纹入口）或不一致，都拒绝 REPRODUCTION_MISMATCH 并保留目录供诊断，拒绝信息说明复现自身的试验与封存已入账。
+5. 目录不入账，用完由调用方清理。
 
 | 拒绝码 | 条件 |
 |---|---|
