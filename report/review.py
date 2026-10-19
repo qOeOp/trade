@@ -5,12 +5,13 @@ ancestor of the research head (without a backup, say that this was not checked),
 stored cycles and daily series determine against each passed run's sealed result, and check
 fingerprints, captures, registration order, grid membership, witnesses and the one-to-one
 out-of-sample bindings. Every difference is a finding; nothing is written and no write transaction
-is opened.
+is opened. The market review (`report.market_review`) runs the same backup check on the market
+database.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 import json
 import math
@@ -28,8 +29,8 @@ FINDINGS = {
     "COMMIT_TEST_ALTERED": "A commit verification test (dolt_tests) is missing, added or differs byte for byte from the "
                            "product's definition in ledger/schema.sql.",
     "ROW_CHANGED": "A row of an append-only table was modified or removed in the ledger history.",
-    "HISTORY_REWRITTEN": "The latest backup's head commit is no ancestor of the research head: a commit was rewritten "
-                         "(the writer account can amend its last commit).",
+    "HISTORY_REWRITTEN": "The latest backup's head commit is no ancestor of the research (or market) head: a commit "
+                         "was rewritten (the writer or import account can amend its last commit).",
     "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
                          "returned no readable branch list); rewritten history was not checked.",
     "READING_MISMATCH": "A value the stored cycles or daily series determine (counts, compounding, the profit "
@@ -71,10 +72,12 @@ def _primary_key(conn: db.LedgerConnection, table: str) -> list[str]:
         "AND constraint_name = 'PRIMARY' ORDER BY ordinal_position", (table,))]
 
 
-def _history(profile: db.LedgerProfile, head: str) -> tuple[dict, list[dict], list[str]]:
+def _history(profile: db.LedgerProfile, head: str,
+             contains: Callable[[str], bool]) -> tuple[dict, list[dict], list[str]]:
     """(the backup check, its findings, its limitations): HISTORY_REWRITTEN when the latest backup's
-    head commit is no ancestor of the research head, BACKUP_UNREADABLE when the backup's head cannot
-    be read, and without a backup the limitation that rewritten history was not checked."""
+    head commit is no ancestor of the head (`contains`: the commit is in the head's history),
+    BACKUP_UNREADABLE when the backup's head cannot be read, and without a backup the limitation that
+    rewritten history was not checked."""
     backup = admin.backup_path(profile)
     if backup is None or not backup.is_dir():
         return ({"backup": None if backup is None else str(backup), "head": None, "status": "no_backup"}, [],
@@ -88,13 +91,35 @@ def _history(profile: db.LedgerProfile, head: str) -> tuple[dict, list[dict], li
         return {"backup": str(backup), "head": None, "status": "no_branch"}, [_finding(
             "HISTORY_REWRITTEN", None, None, None,
             f"the backup at {backup} has no {profile.research_branch} branch")], []
-    with db.connect(profile, "reader") as branch:
-        (count,), = branch.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (backed,))
-    if count:
+    if contains(backed):
         return {"backup": str(backup), "head": backed, "status": "ancestor", "research_head": head}, [], []
     return {"backup": str(backup), "head": backed, "status": "not_ancestor", "research_head": head}, [_finding(
         "HISTORY_REWRITTEN", None, None, backed,
         f"the backup head {backed} is no ancestor of the research head {head}")], []
+
+
+def _in_branch(profile: db.LedgerProfile, commit: str) -> bool:
+    with db.connect(profile, "reader") as branch:
+        (count,), = branch.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (commit,))
+    return bool(count)
+
+
+def market_review(market: Mapping) -> dict:
+    """market review: whether the latest backup's head commit of the market database is still an
+    ancestor of its main head (the import account can amend its last commit, which would drop a
+    pinned market commit from history), read with the reader account; findings only, as in the
+    ledger review: HISTORY_REWRITTEN, BACKUP_UNREADABLE, and without a backup HISTORY_UNCHECKED."""
+    from market import store
+    profile = db.LedgerProfile.from_json(dict(market))
+    with store.connect(dict(market), "reader") as conn:
+        head = store.resolve_commit(conn, "main")
+
+        def contains(commit: str) -> bool:
+            return bool(conn.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (commit,))[0][0])
+
+        history, findings, limitations = _history(profile, head, contains)
+    return {"market": profile.name, "database": profile.database, "commit": head, "history": history,
+            "ok": not findings, "findings": findings, "limitations": limitations}
 
 
 def product_commit_tests() -> dict[str, tuple[str, ...]]:
@@ -307,7 +332,7 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
                 findings.append(_finding("ROW_CHANGED", table, "/".join(str(item) for item in key), to_commit,
                                          f"a {table} row was {diff_type}"))
         head = db.resolve_commit(pinned, conn.profile.research_branch)
-        history, found, limitations = _history(conn.profile, head)
+        history, found, limitations = _history(conn.profile, head, lambda commit: _in_branch(conn.profile, commit))
         findings += found
         wanted = None if run_ids is None else {int(item) for item in run_ids}
         runs = [row for row in pinned.dicts("SELECT run_id, trial_id, status, fingerprints FROM run ORDER BY run_id")

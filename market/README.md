@@ -20,9 +20,17 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 ## The database
 
-`market init --name <name> --kind active|isolated|temporary --service-root <service>` (the
-administrator) creates the database (the name with `-` as `_`), its tables, an import account and a
-reader account, and the profile (`kind: market`, `role: <kind>`) in the profile directory. The import
+`market init --name <name> --kind active|isolated|temporary --service-root <service>
+[--backup-root <directory>]` (the administrator) creates the database (the name with `-` as `_`),
+its tables, an import account and a reader account, and the profile (`kind: market`, `role: <kind>`,
+`backup`) in the profile directory. Like the active ledger, the active market database needs
+`--backup-root`, and its service and backup lie outside the checkout and temporary directories.
+`market backup` syncs the whole history incrementally with dolt_backup to `<backup>/backup` (the
+administrator, holding the import lock; outside the service directory and any Git work tree), and
+refuses to overwrite a backup whose head is no commit of the market history (`BACKUP_DIVERGED`:
+dolt_backup would replace it silently). `market review` reports whether the backup's head is still
+an ancestor of `main` (`HISTORY_REWRITTEN` when not: the import account can amend its last commit,
+which drops a pinned market commit; without a backup, `HISTORY_UNCHECKED`). The import
 account may insert, call `dolt_commit` on `main` and update `market_schema` only to step its import
 sequence by one (a trigger guards the other columns: Dolt 2.4.2 has no column grants); the reader
 only selects. The first `market import` on the empty database writes the

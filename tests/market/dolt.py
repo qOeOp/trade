@@ -26,10 +26,18 @@ class TemporaryMarket:
             self.service.close()
             raise
 
-    def add(self, database: str, kind: str = "isolated") -> dict:
-        made = db.init_market(database.replace("_", "-"), database, self.service.service_root, kind,
-                              dolt_binary=BINARY)
-        return json.loads(Path(made["profile"]).read_text(encoding="utf-8"))
+    def add(self, database: str, kind: str = "isolated", backup_root: Path | None = None) -> dict:
+        """A new market database on the service. `market init` refuses an active one under /tmp, so an
+        "active" fixture is made isolated and its throwaway profile marked active afterwards (the
+        default market of commands without --market)."""
+        made = db.init_market(database.replace("_", "-"), database, self.service.service_root,
+                              "isolated" if kind == "active" else kind, backup_root, dolt_binary=BINARY)
+        path = Path(made["profile"])
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        if kind == "active":
+            profile["role"] = "active"
+            db._private_write(path, profile)
+        return profile
 
     def admin(self, profile: dict, statement: str, params=None) -> list[tuple]:
         conn = db._admin(db._service(Path(profile["service"])), database=profile["database"])

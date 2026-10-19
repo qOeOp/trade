@@ -368,10 +368,12 @@ MARKET_SCHEMA = REPOSITORY / "market" / "schema.sql"
 
 
 def init_market(name: str, database: str, service_root: Path, kind: Literal["active", "isolated", "temporary"],
-                dolt_binary: Path | None = None) -> dict:
+                backup_root: Path | None = None, dolt_binary: Path | None = None) -> dict:
     """Create an empty market database (its tables, committed once by the administrator; no
     market_schema row: the first `market import` writes it and the commit tests), its import and
-    reader accounts and its profile (kind market)."""
+    reader accounts and its profile (kind market, with its backup directory). An active market
+    database, like the active ledger, needs a backup directory, and keeps its service and backup
+    outside the source checkout and temporary roots."""
     if (not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(database, str)
             or not DATABASE.fullmatch(database) or kind not in KINDS):
         raise refuse("INVALID_NAME", "the profile name, database name or kind is malformed",
@@ -385,6 +387,14 @@ def init_market(name: str, database: str, service_root: Path, kind: Literal["act
     if kind != "active" and any(value.database == database for value in actives):
         raise refuse("ISOLATION_BREACH", f"database {database} is an active database's name; use another")
     service_root = Path(service_root).expanduser().absolute()
+    if kind == "active":
+        if backup_root is None:
+            raise refuse("ISOLATION_BREACH", "an active market database needs a backup directory outside its service",
+                         missing=("backup_root",))
+        for path in (service_root, Path(backup_root)):
+            if _inside(path, REPOSITORY) or _is_temporary(path):
+                raise refuse("ISOLATION_BREACH", "an active market database keeps its service and backup outside "
+                                                 "the source checkout and temporary roots")
     binary = _binary(dolt_binary)
     config = _service(service_root) if (service_root / "service.json").exists() else _create_service(service_root,
                                                                                                     binary)
@@ -421,12 +431,13 @@ def init_market(name: str, database: str, service_root: Path, kind: Literal["act
     config["secured"] = True
     config["databases"][database] = accounts
     _private_write(service_root / "service.json", config)
+    backup = str(Path(backup_root).expanduser().absolute()) if backup_root else None
     profile = {"name": name, "kind": "market", "role": kind, "service": str(service_root), "database": database,
-               "backup": None}
+               "backup": backup}
     _private_write(home() / f"{name}.json", profile)
     return {"profile": str(home() / f"{name}.json"), "name": name, "database": database, "kind": kind,
-            "service_root": str(service_root), "accounts": {role: accounts[role]["user"] for role in ROLES},
-            "commit": commit}
+            "service_root": str(service_root), "backup": backup,
+            "accounts": {role: accounts[role]["user"] for role in ROLES}, "commit": commit}
 
 
 # Connections

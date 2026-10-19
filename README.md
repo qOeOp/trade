@@ -54,8 +54,16 @@ binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 Market data (Binance public USD-M perpetual data from 2020-01 and the monthly
 pool) lives in its own Dolt database beside the ledger
 ([`market`](market/README.md)); a replay cites one commit of
-it. Research needs no exchange
-trading credential. Persistent research data lives only in the Dolt research
+it. It is created the same way with its backup directory, synced with `market backup` and checked
+with `market review`:
+
+```bash
+uv run --frozen python -m cli.main market init --name market --kind active \
+  --service-root "$HOME/.local/share/trade/dolt" \
+  --backup-root "$HOME/.local/share/trade/dolt-backups/market"
+```
+
+Research needs no exchange trading credential. Persistent research data lives only in the Dolt research
 ledger and its `dolt_backup` copy; `/tmp` reports are working copies. A stored
 run binds the strategy revision, actual image manifest digest, platform, inputs
 and resolved configuration.
