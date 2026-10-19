@@ -177,9 +177,10 @@ class CurrentRuntimeTests(unittest.TestCase):
 
     def test_relabelled_image_of_other_code_is_refused(self):
         main = {path: path.encode() for path in [*SOURCE_PATHS.values(), AUDIT_PATH, "uv.lock"]}
-        other = self.inspection({**main, SOURCE_PATHS["runner_source_sha256"]: b"changed runner"})
-        with self.assertRaisesRegex(RecordError, "code differs"):
-            self.check(self.image(), inspection=other)
+        for field in ("runner_source_sha256", "fingerprint_source_sha256"):
+            other = self.inspection({**main, SOURCE_PATHS[field]: b"changed code"})
+            with self.subTest(field=field), self.assertRaisesRegex(RecordError, f"code differs from {SOURCE_PATHS[field]}"):
+                self.check(self.image(), inspection=other)
 
 
 if __name__ == "__main__":

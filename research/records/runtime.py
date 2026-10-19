@@ -22,7 +22,8 @@ LAYOUTS = {
                      "source_paths": {"config_source_sha256": "engine/config.py",
                                       "runner_source_sha256": "engine/run.py",
                                       "load_source_sha256": "engine/load.py",
-                                      "report_source_sha256": "engine/report.py"},
+                                      "report_source_sha256": "engine/report.py",
+                                      "fingerprint_source_sha256": "engine/compare.py"},
                      "audit_path": "engine/audit.py"},
 }
 CONTRACTS = set(LAYOUTS)
