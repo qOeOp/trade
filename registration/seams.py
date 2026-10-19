@@ -76,10 +76,7 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 
 
 def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) -> dict:
-    """The probe report for the container arguments of these inputs; `effective_config` under the
-    engine design keys, `native_effective_config` as the image's runner resolves it (its execution
-    binding). Runners of images built before the engine package name the account terms `native_account`;
-    the image's own layout says so."""
+    """The probe report for the container arguments of these inputs."""
     from research.records import runtime
     from research.records.common import RecordError
     argv, _ = container_runner_args(list(runner_argv), inputs)
@@ -87,20 +84,7 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
         inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
     except RecordError as exc:
         raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
-    try:
-        layout = runtime.layout_for(identity["runtime_contract"], inspection.get("source_file_paths"))
-    except RecordError as exc:
-        raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
-    native = inspection.get("effective_config")
-    return {**inspection, "effective_config": design_config(native, layout["config_keys"]),
-            "native_effective_config": native}
-
-
-def design_config(value, renames: Mapping):
-    """An image runner's effective configuration under the engine design's key names."""
-    if not isinstance(value, Mapping):
-        return value
-    return {renames.get(key, key): item for key, item in value.items()}
+    return inspection
 
 
 def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:

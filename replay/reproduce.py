@@ -72,7 +72,7 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
                                        {"identity": exported["identity"], "input_coverage": coverage}, window,
                                        entry._start_context(output, argv, mounts, revision["source"]))
             native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
-                                                    "explore", inspection=inspection)
+                                                    "explore")
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
             fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]))
         finally:

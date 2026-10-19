@@ -11,12 +11,11 @@ from unittest.mock import patch
 
 from research.records.common import RecordError
 from research.records import runtime
-from research.records.runtime import (BACKTEST_LAYOUT, ENGINE_LAYOUT, LAYOUTS, container_command, inspect_runtime,
-                                      layout_for, validate_identity)
+from research.records.runtime import LAYOUTS, container_command, inspect_runtime, validate_identity
 
 
-SOURCE_PATHS = ENGINE_LAYOUT["source_paths"]
-AUDIT_PATH = ENGINE_LAYOUT["audit_path"]
+SOURCE_PATHS = LAYOUTS["r1-native-v5"]["source_paths"]
+AUDIT_PATH = LAYOUTS["r1-native-v5"]["audit_path"]
 
 
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64,
@@ -32,22 +31,18 @@ class RuntimeIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "disagree"):
             validate_identity({**IDENTITY, "image_digest": "sha256:" + "b" * 64})
 
-    def probe(self, layout=ENGINE_LAYOUT, **changes):
-        paths = layout["source_paths"]
+    def probe(self, **changes):
         value = {"runtime_contract": "r1-native-v5", "nautilus_version": "fixture",
                  "python_version": "fixture", "dependency_lock_sha256": "b" * 64,
                  "audit_source_sha256": "c" * 64, "effective_config": {"fixture": True},
-                 "source_files_sha256": {field: "d" * 64 for field in paths},
-                 "source_file_paths": paths.copy(),
+                 "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
+                 "source_file_paths": SOURCE_PATHS.copy(),
                  "effective_config_sha256": hashlib.sha256(b'{"fixture":true}').hexdigest()}
         return {**value, **changes}
 
-    def inspect(self, image=None, probe=None, modules=("engine.run",)):
-        """inspect_runtime against stand-ins: docker image inspect, the layout probe (the image holds
-        `modules`) and the identity probe."""
+    def inspect(self, image=None, probe=None):
         actual = image or {"RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "arm64", "Id": "sha256:" + "e" * 64}
         outputs = [subprocess.CompletedProcess([], 0, json.dumps([actual]), ""),
-                   subprocess.CompletedProcess([], 0, json.dumps(list(modules)), ""),
                    subprocess.CompletedProcess([], 0, json.dumps(probe or self.probe()), "")]
         with patch("research.records.runtime.subprocess.run", side_effect=outputs) as calls:
             result = inspect_runtime(IDENTITY, ["--symbols", "BTCUSDT"])
@@ -56,7 +51,7 @@ class RuntimeIdentityTests(unittest.TestCase):
     def test_probe_observes_code_from_pinned_image_without_host_source_mount(self):
         result, calls = self.inspect()
         self.assertEqual(result["source_files_sha256"], self.probe()["source_files_sha256"])
-        command = calls.call_args_list[2].args[0]
+        command = calls.call_args_list[1].args[0]
         self.assertIn(IDENTITY["image_ref"], command)
         self.assertNotIn("--mount", command)
         self.assertIn("none", command)
@@ -74,30 +69,26 @@ class RuntimeIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "source digest"):
             self.inspect(probe=self.probe(source_files_sha256={field: "x" * 64 for field in SOURCE_PATHS}))
 
-    def test_each_image_runs_the_layout_it_holds(self):
-        # Images built before backtest/ became engine/ keep r1-native-v5; the image, not the caller, says which.
-        self.assertEqual(LAYOUTS["r1-native-v5"], (BACKTEST_LAYOUT, ENGINE_LAYOUT))
-        for layout in (BACKTEST_LAYOUT, ENGINE_LAYOUT):
-            with self.subTest(runner=layout["runner"]):
-                result, calls = self.inspect(probe=self.probe(layout), modules=(layout["probe"],))
-                layout_probe, described = (calls.call_args_list[index].args[0] for index in (1, 2))
-                self.assertEqual(layout_probe[-2:], ["backtest.run", "engine.run"])
-                self.assertEqual(described[-5:], ["-m", layout["probe"], "--describe", "--symbols", "BTCUSDT"])
-                self.assertIs(layout_for("r1-native-v5", result["source_file_paths"]), layout)
-        with self.assertRaisesRegex(RecordError, "layout"):
-            self.inspect(probe=self.probe(BACKTEST_LAYOUT), modules=("engine.run",))
-        with self.assertRaisesRegex(RecordError, "no single"):
-            self.inspect(modules=())
-        with self.assertRaises(RecordError):
-            layout_for("r1-native-v5", {"runner_source_sha256": "elsewhere/run.py"})
+    def test_current_contract_probe_is_the_runner_describing_itself(self):
+        identity = {**IDENTITY, "runtime_contract": "r1-native-v5"}
+        layout = LAYOUTS["r1-native-v5"]
+        probe = self.probe(runtime_contract="r1-native-v5", source_file_paths=layout["source_paths"].copy(),
+                           source_files_sha256={field: "d" * 64 for field in layout["source_paths"]})
+        actual = {"RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "arm64", "Id": "sha256:" + "e" * 64}
+        outputs = [subprocess.CompletedProcess([], 0, json.dumps([actual]), ""),
+                   subprocess.CompletedProcess([], 0, json.dumps(probe), "")]
+        with patch("research.records.runtime.subprocess.run", side_effect=outputs) as calls:
+            inspect_runtime(identity, ["--symbols", "BTCUSDT"])
+        command = calls.call_args_list[1].args[0]
+        self.assertEqual(command[-5:], ["-m", "engine.run", "--describe", "--symbols", "BTCUSDT"])
 
     def test_runner_describes_the_paths_custody_expects(self):
         argv = ["--describe", "--market-root", "/m", "--market-commit", "c" * 32,
                 "--symbols", "BTCUSDT", "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
         described = json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
-        layout = layout_for(described["runtime_contract"], described["source_file_paths"])
-        self.assertIs(layout, ENGINE_LAYOUT)
+        layout = LAYOUTS[described["runtime_contract"]]
+        self.assertEqual(described["runtime_contract"], "r1-native-v5")
         self.assertEqual(described["source_file_paths"], layout["source_paths"])
         root = Path(__file__).resolve().parents[2]
         for field, path in layout["source_paths"].items():

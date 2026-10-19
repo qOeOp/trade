@@ -119,4 +119,4 @@ and refuse to run when the profile directory in use holds an active ledger.
 ## Not here
 
 Old ledgers, sealed artifact directories and their backups are outside this design and are deleted
-in WS7. Only the `r1-native-v5` contract is known, in its `backtest/` and `engine/` image layouts; seals of earlier contracts are not read.
+in WS7. Only the `r1-native-v5` runtime layout is known; seals of earlier contracts are not read.

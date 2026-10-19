@@ -1,15 +1,11 @@
-"""Replay stage containers run the modules of the layout the image reports, with existing read-only inputs and
-one writable /reports."""
+"""Replay stage containers run only the layout's modules, with existing read-only inputs and one writable /reports."""
 
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from ledger.errors import Refusal
-from registration import seams as registration_seams
 from replay import seams
-from research.records.runtime import BACKTEST_LAYOUT, ENGINE_LAYOUT
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
@@ -24,7 +20,7 @@ class StageCommandTests(unittest.TestCase):
         for name in ("reports", "audit"):
             (self.root / name).mkdir()
         (self.root / "coverage.json").write_text("{}")
-        self.layout = seams.current.layout("r1-native-v5", ENGINE_LAYOUT["source_paths"])
+        self.layout = seams.current.layout("r1-native-v5")
 
     def command(self, mounts, module=None, argv=("--run", "/native/reports")):
         return seams.current.container_command(IDENTITY, mounts, module or self.layout["audit_module"], list(argv),
@@ -54,26 +50,6 @@ class StageCommandTests(unittest.TestCase):
             with self.subTest(code=code, mounts=mounts), self.assertRaises(Refusal) as caught:
                 self.command(mounts, **options)
             self.assertEqual(caught.exception.code, code)
-
-    def test_the_image_reported_layout_picks_the_stage_modules_and_the_key_names(self):
-        inputs = {"root": str(self.root / "reports"), "membership_file": str(self.root / "coverage.json"),
-                  "symbols": ["BTCUSDT"], "identity": {"market_commit": "c" * 32}}
-        for layout, runner, fingerprint, account in ((BACKTEST_LAYOUT, "backtest.run", None, "native_account"),
-                                                     (ENGINE_LAYOUT, "engine.run", "engine.compare", "account")):
-            with self.subTest(runner=runner):
-                found = seams.current.layout("r1-native-v5", dict(layout["source_paths"]))
-                self.assertEqual((found["runner_module"], found["fingerprint_module"]), (runner, fingerprint))
-                native = {"symbols": ["BTCUSDT"], account: {"venue": "BINANCE"}}
-                stand_in = {"runtime_contract": "r1-native-v5", "source_file_paths": dict(layout["source_paths"]),
-                            "effective_config": native}
-                with patch("research.records.runtime.inspect_runtime", return_value=stand_in):
-                    inspection = registration_seams.DEFAULT.inspect_runtime(IDENTITY, ["--start", "x"], inputs)
-                self.assertEqual(inspection["effective_config"]["account"], {"venue": "BINANCE"})
-                self.assertEqual(inspection["native_effective_config"], native)
-                self.command([(self.root / "audit", "/reports", False)], module=found["audit_module"])
-        with self.assertRaises(Refusal) as caught:
-            seams.current.layout("r1-native-v5", {"runner_source_sha256": "elsewhere/run.py"})
-        self.assertEqual(caught.exception.code, "RUNTIME_PROBE_INVALID")
 
 
 if __name__ == "__main__":

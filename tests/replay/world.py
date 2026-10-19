@@ -184,9 +184,8 @@ class ReplayWorld(World):
                 getattr(self, name).__exit__(None, None, None)
         super().close()
 
-    def layout(self, runtime_contract: str, source_file_paths) -> dict:
-        from research.records.runtime import ENGINE_LAYOUT
-        found = seams.DEFAULT.layout(runtime_contract, ENGINE_LAYOUT["source_paths"])
+    def layout(self, runtime_contract: str) -> dict:
+        found = seams.DEFAULT.layout(runtime_contract)
         return {**found, "fingerprint_module": "fingerprint" if self.fingerprint is not None else None}
 
     def command(self, identity, mounts, module, argv, name):

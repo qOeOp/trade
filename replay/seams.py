@@ -21,27 +21,15 @@ from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
-def _modules(found: Mapping) -> dict:
+def _layout(runtime_contract: str) -> dict:
+    """runtime.layout: the runner, auditor and probe modules of a runtime contract inside its image."""
+    from research.records.runtime import LAYOUTS
+    found = LAYOUTS.get(runtime_contract)
+    if found is None:
+        raise refuse("RUNTIME_PROBE_INVALID", f"runtime contract {runtime_contract!r} has no image layout",
+                     missing=(str(runtime_contract),))
     return {"runner_module": found["runner"], "audit_module": found["audit"], "audit_args": list(found["audit_args"]),
             "probe_module": found["probe"], "fingerprint_module": found.get("fingerprint")}
-
-
-def _layout(runtime_contract: str, source_file_paths) -> dict:
-    """runtime.layout: the runner, auditor, probe and fingerprint modules of the layout an image reported
-    (the source paths of its runtime inspection), among its contract's layouts."""
-    from research.records.runtime import layout_for
-    from research.records.common import RecordError
-    try:
-        return _modules(layout_for(runtime_contract, source_file_paths))
-    except RecordError as exc:
-        raise refuse("RUNTIME_PROBE_INVALID", str(exc), missing=(str(runtime_contract),)) from exc
-
-
-def contract_modules(runtime_contract: str) -> set[str]:
-    """Every module some layout of the contract declares."""
-    from research.records.runtime import LAYOUTS
-    return {module for found in LAYOUTS.get(runtime_contract, ()) for module in _modules(found).values()
-            if isinstance(module, str)}
 
 
 def _identity(identity: Mapping) -> dict:
@@ -52,7 +40,9 @@ def check_stage(identity: Mapping, mounts: list[tuple[Path, str, bool]], module:
     """runtime.container_command's checks of one replay stage: a module the contract's layout declares,
     existing absolute host paths, distinct absolute targets outside /tmp, and exactly one writable mount,
     /reports."""
-    if module not in contract_modules(identity["runtime_contract"]):
+    layout = current.layout(identity["runtime_contract"])
+    modules = {layout.get(key) for key in ("runner_module", "audit_module", "probe_module", "fingerprint_module")}
+    if module not in modules - {None}:
         raise refuse("MODULE_NOT_IN_LAYOUT", f"{module!r} is not a module the {identity['runtime_contract']} layout "
                                              "declares", missing=(str(module),))
     targets, writable = [], []
@@ -129,7 +119,7 @@ def _directory_report(directory: Path) -> dict:
 
 @dataclass(frozen=True)
 class Seams:
-    layout: Callable[[str, object], dict]
+    layout: Callable[[str], dict]
     container_command: Callable[[Mapping, list, str, list[str], str], list[str]]
     run: Callable[[list[str], object, object, float | None], int]
     stop: Callable[[str], None]
