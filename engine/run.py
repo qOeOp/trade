@@ -303,6 +303,12 @@ def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | N
     return tuple(found)
 
 
+# A one-minute hole in a contract's MARK data is valued at its latest MARK up to this age
+# (uncalibrated example value); an older MARK leaves the position unvalued (CAPITAL_VALUATION_GAP).
+MARK_CARRY_MAX_MINUTES = 60
+MARK_CARRY_MAX_NS = MARK_CARRY_MAX_MINUTES * 60 * 10**9
+
+
 def resident_bytes() -> int:
     """This process's resident memory (Linux /proc; elsewhere the peak from getrusage)."""
     try:
@@ -330,10 +336,15 @@ class CapitalObserver(DataActor):
     or funding stamped between the bars. The first MARK of the next timestamp
     shows that point reached; each open position is then valued with the native
     ``Position.notional_value`` and ``Position.unrealized_pnl`` at T's MARK, the
-    latest MARK, and written to the exposure table at once. A position already
-    changed at the next timestamp is reported. The runner values the last
-    timestamp with ``finish`` once every component stopped. Every
-    ``progress_seconds`` of wall time it prints one progress line to standard error.
+    latest MARK, and written to the exposure table at once. A contract without a
+    MARK at T (a hole in its one-minute data) is valued at its latest MARK while
+    that is at most MARK_CARRY_MAX_MINUTES old; each such hole is kept as one
+    interval in ``carried`` (a coverage fact of the summary). A position that
+    cannot be valued (an older MARK, none, or a position already changed at the
+    next timestamp) is one CAPITAL_VALUATION_GAP finding per contiguous interval.
+    The runner values the last timestamp with ``finish`` once every component
+    stopped. Every ``progress_seconds`` of wall time it prints one progress line
+    to standard error.
     """
 
     def __new__(cls, config=None):
@@ -345,7 +356,10 @@ class CapitalObserver(DataActor):
         self.lifecycle_ids = [InstrumentId.from_str(value) for value in config.lifecycle_ids]
         self.timestamps, self.findings, self.marks_seen = 0, [], 0
         self.lifecycle = {str(value): {key: 0 for key in LIFECYCLE_COUNTS} for value in self.lifecycle_ids}
-        self._ts, self._marks = None, {}
+        self._ts, self._marks, self._latest = None, {}, {}
+        self.carried: list[dict] = []
+        self._carrying: dict[str, dict] = {}  # instrument -> the open carry interval
+        self._gaps: dict[str, dict] = {}  # instrument -> the open valuation-gap interval
         self._writer = report.ExposureWriter(Path(config.exposure_path))
         self._progress_seconds, self._started = config.progress_seconds, time.monotonic()
         self._reported = self._started
@@ -376,6 +390,7 @@ class CapitalObserver(DataActor):
         if self._ts is None or mark.ts_event > self._ts:
             self._ts, self._marks = mark.ts_event, {}
         self._marks[mark.instrument_id] = mark.value
+        self._latest[mark.instrument_id] = (mark.ts_event, mark.value)
 
     def _progress(self, ts: int) -> None:
         now = time.monotonic()
@@ -392,15 +407,38 @@ class CapitalObserver(DataActor):
         if self._ts is not None:
             self._value(self._ts, cache)
             self._ts = None
+        for instrument in list(self._carrying):
+            self._close_carry(instrument)
+        for instrument in list(self._gaps):
+            self._close_gap(instrument)
         self._writer.close()
+
+    def _close_carry(self, instrument: str) -> None:
+        self.carried.append(self._carrying.pop(instrument))
+
+    def _close_gap(self, instrument: str) -> None:
+        gap = self._gaps.pop(instrument)
+        self.findings.append(f"CAPITAL_VALUATION_GAP: capital observation cannot value {instrument} at "
+                             f"{gap['labels']} labels from {gap['from_ns']} to {gap['to_ns']} ({gap['why']})")
 
     def _value(self, ts: int, cache) -> None:
         self.timestamps += 1
+        carried, unvalued = set(), {}
         for position in cache.positions_open():
+            instrument = str(position.instrument_id)
             price = self._marks.get(position.instrument_id)
-            if price is None or position.ts_last >= ts + BAR_INTERVAL_NS:
-                self.findings.append(f"CAPITAL_VALUATION_GAP: capital observation cannot value "
-                                     f"{position.instrument_id} at {ts}")
+            why = None
+            if price is None:
+                latest = self._latest.get(position.instrument_id)
+                if latest is not None and ts - latest[0] <= MARK_CARRY_MAX_NS:
+                    price = latest[1]
+                    carried.add((instrument, latest[0]))
+                else:
+                    why = f"no MARK within {MARK_CARRY_MAX_MINUTES} minutes"
+            if why is None and position.ts_last >= ts + BAR_INTERVAL_NS:
+                why = "the position changed before the next timestamp"
+            if why is not None:
+                unvalued.setdefault(instrument, why)
                 continue
             try:
                 self._writer.write((ts, str(position.id), str(position.notional_value(price)),
@@ -408,6 +446,22 @@ class CapitalObserver(DataActor):
             except Exception as exc:
                 self.findings.append(f"EXPOSURE_WRITE_FAILED: {type(exc).__name__}: {exc}")
                 raise
+        for instrument, mark_ns in carried:
+            found = self._carrying.get(instrument)
+            if found is not None and found["mark_ns"] != mark_ns:
+                self._close_carry(instrument)
+                found = None
+            if found is None:
+                self._carrying[instrument] = found = {"instrument_id": instrument, "mark_ns": mark_ns,
+                                                      "from_ns": ts, "to_ns": ts, "labels": 0}
+            found["to_ns"], found["labels"] = ts, found["labels"] + 1
+        for instrument in [key for key in self._carrying if key not in {name for name, _ in carried}]:
+            self._close_carry(instrument)
+        for instrument, why in unvalued.items():
+            gap = self._gaps.setdefault(instrument, {"from_ns": ts, "to_ns": ts, "labels": 0, "why": why})
+            gap["to_ns"], gap["labels"] = ts, gap["labels"] + 1
+        for instrument in [key for key in self._gaps if key not in unvalued]:
+            self._close_gap(instrument)
 
 
 class Replay:

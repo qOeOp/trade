@@ -360,14 +360,17 @@ class LifecycleAuditTests(unittest.TestCase):
                 "ts_event": pd.Timestamp(at).value, "ts_init": pd.Timestamp(at).value, "reason": None,
                 "trading_event": None, "is_trading": None, "is_quoting": None, "is_short_sell_restricted": None}
 
-    def run_audit(self, events, counts=None, bundle="lifecycle-x", values=None, receipt_counts=None, **coverage):
+    def run_audit(self, events, counts=None, bundle="lifecycle-x", values=None, receipt_counts=None, last_bar=None,
+                  **coverage):
         values = values or reports()
         counted = {"instrument_status": sum(item["type"] == "InstrumentStatus" for item in events),
                    "instrument_close": sum(item["type"] == "InstrumentClose" for item in events)}
         values["summary"].update(input_start_utc="2026-01-01T00:00:00Z", period_end_utc="2026-01-02T00:00:00Z",
                                  market_commit=self.COMMIT,
                                  per_coin=[{"instrument": SCOPE["instrument_id"], "counts": counts or counted}])
-        receipt = {"instrument_id": SCOPE["instrument_id"], "counts": receipt_counts or counted,
+        ends = [item["ts_event"] for item in events if item.get("action") == "CLOSE" or item["type"] == "InstrumentClose"]
+        last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
+        receipt = {"instrument_id": SCOPE["instrument_id"], "counts": receipt_counts or counted, "last_bar_ns": last,
                    "episode": {"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
                                "events": events, "sources": ["notice.txt"]}}
         receipt_file = {"format": "execution-input-coverage-v1",
@@ -417,6 +420,19 @@ class LifecycleAuditTests(unittest.TestCase):
         self.assertTrue(value["passed"], value["findings"])
         unpriced = self.run_audit([self.status("CLOSE", "2026-01-01 00:20:00+00:00")], values=values)
         self.assertIn("LATE_ORDER_EVENT", codes(unpriced))
+
+    def test_bars_that_stop_before_the_window_end_need_a_termination(self):
+        self.assertTrue(self.run_audit([], bundle=None)["passed"])  # bars to the window's end
+        early = self.run_audit([], bundle=None, last_bar="2026-01-01 18:00:00+00:00")
+        self.assertEqual(codes(early), {"DATA_ENDS_WITHOUT_TERMINATION"})
+        self.assertIn("the window end is 2026-01-02T00:00:00+00:00", early["findings"][0])
+        # a trailing hole within the MARK carry limit is a hole, not an end
+        self.assertTrue(self.run_audit([], bundle=None, last_bar="2026-01-01 23:30:00+00:00")["passed"])
+        terminated = [self.status("CLOSE", "2026-01-01 18:20:00+00:00")]
+        self.assertTrue(self.run_audit(terminated, last_bar="2026-01-01 18:00:00+00:00")["passed"])
+        stopped = self.run_audit(terminated, last_bar="2026-01-01 12:00:00+00:00")
+        self.assertEqual(codes(stopped), {"DATA_ENDS_WITHOUT_TERMINATION"})
+        self.assertIn("the termination is 2026-01-01T18:20:00+00:00", stopped["findings"][0])
 
     def close(self, at):
         return {"type": "InstrumentClose", "instrument_id": SCOPE["instrument_id"], "close_price": "105",

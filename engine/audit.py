@@ -80,6 +80,8 @@ FINDINGS: dict[str, str] = {
     "POSITION_OPEN_AT_TERMINATION": "A native position was not flat before an unpriced termination.",
     "ORDER_OPEN_AT_TERMINATION": "An order was not filled or ended, or had an update in flight, before an unpriced "
                                  "termination.",
+    "DATA_ENDS_WITHOUT_TERMINATION": "A contract's bars end more than the MARK carry limit before the window's end "
+                                     "and before its lifecycle termination (or it has none).",
     "LATE_ORDER_EVENT": "An order of a terminated contract was created at or after its termination, or (without "
                         "a settlement price) has events at or after it.",
 }
@@ -439,7 +441,33 @@ def _lifecycle(run: Path, summary: dict, orders, fills, positions, events) -> li
         return [finding(exc.code, str(exc).split(": ", 1)[1])]
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return [finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}")]
-    return lifecycle_findings(lifecycle, orders, fills, positions, events or [])
+    return data_end_findings(coverage) + lifecycle_findings(lifecycle, orders, fills, positions, events or [])
+
+
+DATA_END_TOLERANCE_NS = 60 * 60 * 10**9  # engine.run.MARK_CARRY_MAX_MINUTES: a shorter trailing hole is a hole
+
+
+def data_end_findings(coverage: dict) -> list[str]:
+    """A contract whose bars stop before the window's end without a lifecycle termination there: the
+    replay would hold it unvalued and untradeable without saying why."""
+    from engine.load import parse_window
+    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), dict) else {}
+    window = parse_window(config.get("start"), None, config.get("end"))
+    findings = []
+    for symbol, receipt in sorted((coverage.get("export_receipts") or {}).items()):
+        episode = receipt.get("episode") if isinstance(receipt, dict) else None
+        if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
+            continue  # listed after the window
+        ends = [int(event["ts_event"]) for event in (episode or {}).get("events") or ()
+                if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
+        until = min([window.end_ns, *ends])
+        last = receipt.get("last_bar_ns") if isinstance(receipt, dict) else None
+        if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
+            findings.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
+                                    f"{symbol}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
+                                    f"{'the termination' if ends and until < window.end_ns else 'the window end'} is "
+                                    f"{_ns_utc(until)}"))
+    return findings
 
 
 def _generic_result(run, orders, fills, positions, findings, economics, protection=None):

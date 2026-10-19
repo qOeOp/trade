@@ -142,6 +142,37 @@ class AfterSettle(Strategy):
 '''
 
 
+HOLD = '''
+from decimal import Decimal
+from nautilus_trader.model import BarType, OrderSide
+from nautilus_trader.trading import Strategy, StrategyConfig
+
+
+class Hold(Strategy):
+    """Buys once at trade start and holds."""
+    USES_STOP_LOSS = False
+
+    def __init__(self, instrument_id, daily_bar_type, **kw):
+        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        self.iid, self.trade_start, self.done = instrument_id, kw["trade_start_ns"], False
+
+    def on_start(self):
+        self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
+
+    def on_bar(self, bar):
+        if not self.done and bar.ts_event >= self.trade_start:
+            self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY,
+                                                        self.cache.instrument(self.iid).make_qty(Decimal("3"))))
+            self.done = True
+
+    def replay_diagnostics(self):
+        return {}
+
+    def replay_integrity_findings(self, orders_denied_or_rejected):
+        return []
+'''
+
+
 def series(seed, minutes):
     rng = np.random.default_rng(seed)
     close = 10_000 + np.cumsum(rng.integers(-30, 31, len(minutes)))
@@ -168,6 +199,7 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0):
         counts.update(lifecycle.write_lifecycle_events(path, episode, START * 10**6, END * 10**6, 2))
     receipt = {"symbol": symbol, "instrument_id": str(iid), "commit": "c" * 32, "timeframe": "1m",
                "start_ns": START * 10**6, "end_ns": END * 10**6, "counts": counts,
+               "last_bar_ns": int((bars["ts_open"][-1] + MIN - 1) * 10**6) if len(minutes) else None,
                "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "episode": episode}
     (path / "export.json").write_text(json.dumps(receipt))
 
@@ -335,6 +367,45 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(len(late), 10, result["findings"])  # five round trips, one finding per order
         self.assertTrue(all("created at" in item for item in late))
         self.assertTrue(summary["integrity_findings"][0].startswith("ORDERS_DENIED_OR_REJECTED"))
+
+
+    def holes(self, gap_minutes: int) -> tuple[dict, BaseException | None]:
+        """A held contract whose data lacks `gap_minutes` minutes in the middle of a day, beside one without."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            every = np.arange(DAYS * 1440)
+            contract(root / "market", "AAAUSDT", every, [], seed=1)
+            contract(root / "market", "BBBUSDT", every[(every < 600) | (every >= 600 + gap_minutes)], [], seed=2)
+            source = root / "hold.py"
+            source.write_text(HOLD)
+            argv = ["--market-root", str(root / "market"), "--market-commit", "c" * 32, "--symbols", "AAAUSDT", "BBBUSDT",
+                    "--start", utc_text(START * 10**6), "--end", utc_text(END * 10**6),
+                    "--output", str(root / "reports"), "--strategy-file", str(source), "--strategy-class", "Hold",
+                    "--strategy-sha256", hashlib.sha256(source.read_bytes()).hexdigest()]
+            failure = None
+            try:
+                with __import__("contextlib").redirect_stdout(__import__("io").StringIO()):
+                    run.main(argv)
+            except Exception as exc:
+                failure = exc
+            if not (root / "reports" / "summary.json").exists():
+                raise failure
+            return json.loads((root / "reports" / "summary.json").read_text()), failure
+
+    def test_a_mark_hole_up_to_an_hour_is_carried_and_a_longer_one_is_one_valuation_gap(self):
+        summary, failure = self.holes(30)
+        self.assertIsNone(failure)
+        hole_start = (START + 600 * MIN - 1) * 10**6  # the last MARK before the hole closes there
+        self.assertEqual(summary["mark_carry"], [{"instrument_id": "BBBUSDT-PERP.BINANCE", "mark_ns": hole_start,
+                                                  "from_ns": hole_start + 60 * 10**9,
+                                                  "to_ns": hole_start + 30 * 60 * 10**9, "labels": 30}])
+        self.assertTrue(any("latest MARK, at most 60 minutes old (1 intervals" in item for item in summary["limitations"]))
+        summary, failure = self.holes(90)
+        self.assertEqual(failure.code, "INTEGRITY_FINDINGS")
+        gaps = [item for item in summary["integrity_findings"] if item.startswith("CAPITAL_VALUATION_GAP")]
+        self.assertEqual(len(gaps), 1, gaps)  # one finding for the interval past the carry limit
+        self.assertIn("at 30 labels from", gaps[0])
+        self.assertEqual(summary["mark_carry"][0]["labels"], 60)
 
 
 if __name__ == "__main__":

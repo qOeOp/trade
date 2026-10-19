@@ -49,11 +49,14 @@ The runner takes the strategy reference, the inputs, the window and the account,
   portfolio accounting and reports. No exchange trading credential is needed.
 
 The export holds the stored one-minute LAST bars, one MARK price update per one-minute MARK bar,
-funding updates, the daily LAST bars before `--start` and, with a lifecycle bundle, the window's
+funding updates, every complete daily LAST bar before `--end` and, with a lifecycle bundle, the window's
 native `InstrumentStatus` (PRE_CLOSE, CLOSE) and `InstrumentClose` events. The runner checks that
 the engine consumed exactly the exported counts. A source declaring `DAILY_WARMUP = True` receives
-the unbroken run of daily bars that ends 1 ms before `--start` (at least 200). There is no second
-matching or account engine.
+the unbroken run of daily bars that ends 1 ms before its instance's input start (at least 200). An
+instance starts at the replay's start, its contract's listing, or, when the warm-up does not hold
+yet, the first instant it does; it gets no data stamped earlier and trades from there, and a
+contract where it never holds in the window gets no instance. Both are summary limitations; a run in
+which no contract can start is `WARMUP_INSUFFICIENT`. There is no second matching or account engine.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
@@ -139,8 +142,11 @@ before the next bar timestamp, including fills stamped between bars, valued with
 positions once the first MARK of the next timestamp shows that point reached, and the runner values
 the last timestamp after every component stopped. It adds no timer: in rc3 probes a five-minute
 timer made a run with many resting orders more than ten times slower. Balances and margins are not
-repeated: use the latest account state before the next bar timestamp. A run fails integrity if a
-timestamp or an open position goes unvalued.
+repeated: use the latest account state before the next bar timestamp. A held contract without a
+MARK at a bar (a hole in its one-minute data) is valued at its latest MARK while that is at most 60
+minutes old (`MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such hole is one
+interval in the summary's `mark_carry` and a limitation. A run fails integrity if a timestamp or an
+open position goes unvalued: one `CAPITAL_VALUATION_GAP` finding per unvalued interval.
 
 The auditor checks report identities, links, stop protection throughout the replay and reported
 account economics, the same way for every strategy. It first
@@ -159,9 +165,12 @@ report directory's parent: a summary that counts native lifecycle events without
 finding. With the receipt, `load.lifecycle_events` rebuilds the window's terminations from the
 exported episodes and checks them against the native counts; before each termination without a
 settlement price (a CLOSE status with no `InstrumentClose`) every native position of the contract
-must be flat and every order filled or ended, and order events at or after it are late
-(`POSITION_OPEN_AT_TERMINATION`, `ORDER_OPEN_AT_TERMINATION`, `LATE_ORDER_EVENT`). A settlement price
-is the engine's own settlement and reconciles like any fill. Every finding starts with a code of
+must be flat and every order filled or ended (`POSITION_OPEN_AT_TERMINATION`,
+`ORDER_OPEN_AT_TERMINATION`, one finding per order); an order created at or after any termination is
+`LATE_ORDER_EVENT` (the engine's own `EXPIRATION-` orders at a settlement excepted). A settlement price
+is the engine's own settlement and reconciles like any fill; a CLOSE status at or before it closes
+the market. A contract whose bars stop more than 60 minutes before the window's end and before its
+termination (or without one) is `DATA_ENDS_WITHOUT_TERMINATION`. Every finding starts with a code of
 `audit.FINDINGS` followed by its locating detail; the ledger rebuilds the same events with the same
 function at ingest.
 

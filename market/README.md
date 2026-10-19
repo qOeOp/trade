@@ -81,7 +81,8 @@ events are written in the engine's Arrow layout (`data/instrument_status/`,
 `data/instrument_closes/`) and the receipt carries the episode; the bundle's files are copied under
 `lifecycle-evidence/`. An episode lists native `InstrumentStatus` events (PRE_CLOSE: no new
 positions; CLOSE: the market closes) and, only when the exchange published a settlement price, an
-`InstrumentClose` of type CONTRACT_EXPIRED on the contract's price grid. One episode per contract
+`InstrumentClose` of type CONTRACT_EXPIRED on the contract's price grid, with a CLOSE status at or
+before it. One episode per contract
 is supported; a reused ticker (several episodes) is refused.
 
 ## Decisions and measurements

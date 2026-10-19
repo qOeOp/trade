@@ -279,8 +279,12 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
             "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
             "not observed",
             "Liquidation is not modelled",
+            *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
+               f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
+              if getattr(replay.observer, "carried", None) else []),
             *dict.fromkeys(limitations),
         ],
+        "mark_carry": list(getattr(replay.observer, "carried", None) or []),
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)
     (output / "summary.json").write_text(payload + "\n")
