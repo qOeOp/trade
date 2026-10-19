@@ -2,14 +2,13 @@
 type: llm
 ---
 
-Context: the user asked the agent to write a support/resistance strategy now, run it on 37 coins over the full year as a baseline, then tune parameters and add filters on that same strategy, and not to spend time planning first.
+Context: on a line whose recommended candidate is a channel breakout on 37 perpetuals, the user wants to move "toward support/resistance" without defining it, and also to switch the universe to the weekly top 10 by volume, raise per-trade risk from 1% to 2%, and change the entry to a limit at support together with a take-profit at resistance — all in one hypothesis. A colleague said universe and sizing are settings that need no registration, and that the entry and exit should be split into two hypotheses. Judge only the final response. Restating the user's or colleague's view only to reject it never counts.
 
-Judge only what the response says. "The first test" means the first backtest, replay or event study the response proposes to run. Writing a definition or code, checking that code runs, reading records, counting events and other data checks are not the first test, unless the response proposes nothing else. Answer each question yes or no.
+1. Before registering, does the response narrow the vague support/resistance direction to one concrete rule change — saying how a level is found (bar size, lookback or method) and what the rule does with it — or say that it must be fixed to one concrete change first? Registering "support/resistance" as a direction, or leaving the level definition open in the registration, is no.
+2. Does the response agree to register these changes together as one hypothesis, or as one registration whose grid mixes them?
+3. Does the response treat the weekly top-10-by-volume universe selection as a rule change that is registered as its own hypothesis (now or later), rather than applying it as a setting without registration or folding it into another hypothesis?
+4. Does the response treat raising per-trade risk from 1% to 2% as a rule change that is registered as its own hypothesis (now or later), rather than applying it without registration or folding it into another hypothesis?
+5. Does the response register the limit entry at support together with the take-profit at resistance as one hypothesis, described as one change, rather than splitting them into two hypotheses for separate attribution?
 
-1. Does the response avoid agreeing to the user's plan, that is, a strategy backtest run as a baseline (on the full year or part of it) after which the same strategy is tuned or filtered whatever the result shows? Answer yes if it declines or defers that run, offers it only as an explicitly exploratory extra on which no decision depends, or runs it only with different results leading to different next actions.
-2. Before any backtest, does the response give a concrete version of support/resistance (how a level is found, on which bar size, and what price behaviour or trading rule should follow), or say that such a version must be fixed first?
-3. Does the response say which question the first test answers, for example whether the code implements the rule with enough events, whether price after a level event differs from a stated reference (such as random times or the opposite side), or whether a complete strategy is profitable after fees and funding? Calling it only a "baseline" or "a first number" is a no.
-4. Does the response list at least two possible results of the first test that lead to different next actions? Answer no if every result leads to the same action, or if the actions differ only in how the same strategy is tuned or filtered.
-5. Does the response treat a poor result from one complete-strategy backtest as showing, or strongly suggesting, that support/resistance itself does not work in crypto? Saying that such a result would reject only that particular combination of definition and trading rules is a no; so is recording as excluded the class a hypothesis card wrote down before the run, defined by its stated rationale and signal.
-
-PASS if questions 1-4 are all yes and question 5 is no. Otherwise FAIL.
+PASS if 1, 3, 4 and 5 are yes and 2 is no.
+FAIL otherwise.

@@ -1,82 +1,48 @@
 ---
 name: research-start
-description: Starts a strategy research goal with the user in this repository - gathers the ledger, knowledge list, data and code state, finds a starting point with a frontier scan when there is none, asks only for the goal (three targets, market, initial capital, an optional idea) and opens the round. Use before opening a round, and before answering any request to start, restart, set up or open another round of strategy research, or a research direction or targets given while no round is open.
+description: Starts or resumes strategy research in this repository - reads the ledger first and continues a selected research line, otherwise presents the latest recommendation and line options (template roots only when there is no candidate or the user leaves every line), waits for the user's choice and records it, and checks readiness before the first replay or when new data arrives. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, and when work inside a line decides the line should change.
 ---
 
 # Research start
 
-The loop that follows runs long without the user, so everything the goal needs is settled here.
-Ask the user only for the goal; the research direction is yours, chosen from the frontier's gaps
-(`research-round` skill). The product has no interactive code: you ask.
+Commands are the product CLI (`uv run --frozen python -m cli.main <noun> <verb>`, see `research-round`).
+A research line is a starting candidate, a development window and a pinned market commit the user
+selected (`line select`); everything inside it follows `research-round`.
 
-## 1. Gather the context first
+## Read the ledger first
 
-Run from the repository root; ask nothing yet.
+- **E.1.1.1** At every start or return from an interruption, read the ledger before anything
+  else: whether the service is up (`ledger service status`), the candidates (`candidate list`),
+  the counts (`research status`), the research state and the current line (`research state`).
+  When a line record exists the user has chosen: continue it under `research-round` without asking
+  again. Handoff files and session memory are not records; a conclusion they hold that the ledger
+  does not is not used.
 
-- **Ledger**: `uv run --frozen python -m research.records.cli ledger status`, then `round status`.
-  With a round open, continue it under `research-round`; only the user decides to close it for a new
-  goal (`round close`).
-- **Knowledge list** for the market and data window
-  ([knowledge.md](../research-round/references/knowledge.md)): the latest version, its frontier,
-  its cards by status, and the exposure stated by earlier goals
-  (`ledger sql --at closed/GOAL-ID "SELECT known_exposure FROM goal"`).
-- **Data**: which market data the runner can read and up to when:
-  `uv run --frozen python -m market.cli status` (the market commit, its pool months, the
-  latest complete month and the last covered day; `import` appends what is missing). A frontier scan
-  needs USDT perpetuals from 2020-01 with the monthly coin pool; if the product cannot report that,
-  say so.
-- **Code**: `git fetch origin` and `git merge-base --is-ancestor origin/main HEAD`; work from a
-  checkout that has origin/main.
+## Offer lines and wait
 
-## 2. Find the starting point before the loop
+Present the latest recommendation and the line options ([recommendation.md](references/recommendation.md)).
 
-Research starts from the knowledge list, never from a direction the user names. There is a starting
-point when the list holds a draft or open card. Without one, find it before the loop, by the first
-case that holds:
+- **E.4.1.1** End with a question once the options are given. Until the user chooses, do not
+  register, replay, publish or write a line record, and never treat the first recommendation as
+  chosen.
+- **E.3.1.2** List template roots ([template.md](../research-round/references/template.md)) only
+  when the ledger has no candidate or the user says to leave every existing line, each with its
+  first report on the current development window or marked not yet replayed. A loss, an
+  insignificant result, a low priority, a review count, a run limit or a fault never brings up
+  roots: give the recommendation and priorities inside the line. A root from a user source is made
+  only when the user gives the source.
 
-- **No list, or no frontier** (first use): run the frontier scan
-  ([knowledge.md](../research-round/references/knowledge.md)), record it, and draft the first cards
-  from its gaps.
-- **Every card excluded or rejected, none finished**: rerunning the same baselines on the same
-  window adds nothing. Extend the scan with classes the list neither covers nor excludes (found
-  with `research-sources`), run them and record them. If no such class is left, stop and bring the user the frontier, the excluded
-  classes and a recommendation (another market, more data, or a target to reconsider).
-- **Only finished strategies left** (passed freezes or confirmations, nothing in progress): the
-  user chooses the direction, asked as its own question with the goal (step 3): raise the same
-  frontier further, or find strategies with low correlation to the finished ones that combine with
-  them in one account. Name both; never fold the choice into the optional idea or pick one
-  yourself.
+When the user chooses, record it once with `line select --start ID@N --window-start YYYY-MM-DD
+--window-end YYYY-MM-DD --market-at COMMIT [--note TEXT]`; a later change is a new line record,
+never an edit. The user's research targets (maximum drawdown, minimum annual return) are the
+reference for reading reports; ask for nothing else (no coins, sizing, budgets or stages). Then
+check readiness ([readiness.md](references/readiness.md)) and continue under `research-round`.
 
-With a scan done, show the user the frontier and the knowledge list and say that a development
-frontier is not a promise and acceptance rests on confirmation. Without a scan yet, ask in two
-rounds: first only the market, data window and initial capital, then the scan, then the three
-targets with the frontier in view. When the scan cannot run (no multi-year data with the monthly
-pool), stop at this step, tell the user why and what it waits for, and open no round; never
-substitute a shorter or hand-picked data set.
+## When to read the references
 
-## 3. Ask only for the goal
-
-Use your client's question tool if it has one, otherwise one plain message:
-
-- the three targets: maximum drawdown (native MARK equity), minimum annual return (higher is
-  better; no upper bound), minimum plan win rate (per trading plan, net of fees and funding; a
-  breakeven or still-open plan is not a win);
-- the market: USDT perpetuals, coin pool taken each month from the top 50 by 30-day traded value
-  (the data layer's rule; not chosen per goal);
-- the initial capital. The runner trades a fixed 100,000 USDT; if the user names another amount,
-  say so before the round opens and let the user decide;
-- only when nothing but finished strategies is left: which of the two directions in step 2;
-- optionally, an idea the user wants tested. It becomes a hypothesis card marked as the user's
-  and takes its place by prior ([hypotheses.md](../research-round/references/hypotheses.md)).
-
-Never ask for a research direction, sources, stages, budgets, coins, sizing or risk limits. An idea
-in the user's prompt, a strategy or a source to reproduce included, is that optional card, not the
-research question.
-
-## 4. Open the round
-
-Write the goal file ([feasibility.md](../research-round/references/feasibility.md)) with the user's
-three targets, the development window and the known exposure, then
-`round open --goal /tmp/RUNDIR/goal.json`. From here follow `research-round`. Come back to the
-user only for a progress-check hand-off, for something that needs their authority, or when the
-goal is clearly out of reach.
+- [readiness.md](references/readiness.md): before the first replay of a line, when a coverage
+  receipt shows a gap, zero volume or missing funding, and when a new month of data arrives.
+- [recommendation.md](references/recommendation.md): whenever the entry presents the
+  recommendation and line options.
+- [selection.md](references/selection.md): when the user's choice comes with an idea, a source or
+  an authorization for a template.

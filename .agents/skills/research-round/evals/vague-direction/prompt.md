@@ -1,13 +1,18 @@
 ---
-description: Vague direction — with the skill, a request to write an undefined support/resistance strategy, run it over the full year as a baseline and then keep tuning it, with no planning first, gets a concrete definition, a named test question and a branched outcome-to-action map instead of an immediate baseline run.
+description: Rule check — with the skill, a vague support/resistance direction is narrowed to one concrete rule change before registration, a universe-selection change and a sizing change are each registered as their own hypothesis, and a joint entry and exit change is registered and described as one.
 tags: [method]
 plugins: ["../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在做加密永续策略研究。手上有 37 个 USDT 永续一整年的 5 分钟 K 线和资金费数据，同一个账户、同一套手续费设置，全量原生回放一次大约一分钟。研究台账里还没有任何跟支撑阻力有关的记录。
+我们在研究路线 `brk-perp-pool` 上：37 个 USDT 永续，1 分钟线撮合，同一账户、同一套手续费，开发窗口 2024-07-01 到 2025-06-30。当前推荐候选 `brk-root@2`：通道突破，37 个币全做，每笔风险 1%，突破后收盘市价入场，反向突破出场。
 
-我认为支撑阻力在币圈很有效，这个季度就做这个方向了。支撑阻力怎么画、用什么周期、怎么进场出场，你看着定，我不纠结这些细节。你先写一个支撑阻力策略，37 个币全年跑一遍，把年化、胜率和最大回撤给我当基线，后面就在这个策略上调参数、加过滤，一步步往上优化。回放这么快，先把数字跑出来，别的后面再说。
+我认为支撑阻力在币圈很有效，下一步就往"加入支撑阻力"这个方向改，支撑阻力怎么画、用什么周期你看着定，我不纠结这些细节。另外我还想顺便：
+- 选币改成每周按成交额取前 10 个；
+- 每笔风险从 1% 提到 2%；
+- 入场改成在支撑位挂限价，出场同时改成到上方阻力位止盈。
 
-请给出你的决定、理由和第一步具体做什么。
+同事说选币和仓位只是设置，不算规则改动，直接改了不用登记；入场和出场最好拆成两个假设，各自归因更清楚。我希望这些一起登一个假设，跑一次就知道行不行。
+
+请给出你的决定、理由，以及接下来要登记的假设清单（每条改什么）。
