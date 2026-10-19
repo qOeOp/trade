@@ -275,7 +275,7 @@ class SealedReplayTests(unittest.TestCase):
                          ("STALE_CHECKOUT", before, exports))
 
     def test_a_failed_replay_is_stored_invalid_with_every_reason_and_consumes_its_point(self):
-        self.world.scenario = {"native_exit": 2, "summary": {"strategy_source_sha256": "0" * 64}}
+        self.world.scenario = {"native_exit": 2, "summary": {"source_sha256": "0" * 64}}
         stored = self.run_ref(self.refs[1])
         self.assertEqual(stored["status"], "invalid")
         self.assertEqual(sorted(codes(stored["failure_reasons"])), ["NATIVE_EXIT_NONZERO", "SOURCE_MISMATCH"])

@@ -128,8 +128,8 @@ class StrategyLoaderTests(unittest.TestCase):
         loaded = self.load(binding_path=self.binding_path)
         metadata = {**loaded.metadata(), **runtime_source_metadata()}
         self.assertNotIn("source_commit", metadata)
-        self.assertEqual(metadata["strategy_source_sha256"], self.digest)
-        self.assertNotIn("strategy_source_sha256", metadata["source_file_paths"])
+        self.assertEqual(metadata["source_sha256"], self.digest)
+        self.assertNotIn("source_sha256", metadata["source_file_paths"])
         repo = Path(__file__).resolve().parents[2]
         for field, path in metadata["source_file_paths"].items():
             self.assertEqual(metadata[field], hashlib.sha256((repo / path).read_bytes()).hexdigest())
@@ -151,8 +151,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertNotIn("risk_budget_bps", effective)
         self.assertNotIn("coin_notional_cap_pct", effective)
         self.assertEqual(set(effective), {"runtime_contract", "market_root", "market_commit", "pool", "symbols",
-                                          "start", "end", "trade_start", "native_account"})
-        self.assertEqual(effective["native_account"]["starting_balance_usdt"], "100000")
+                                          "start", "end", "trade_start", "account"})
+        self.assertEqual(effective["account"]["starting_balance_usdt"], "100000")
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
             "image_digest": "sha256:" + "a" * 64,

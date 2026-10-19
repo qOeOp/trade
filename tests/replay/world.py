@@ -120,7 +120,7 @@ table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", p
                                        gzip.compress(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n"))
 (out / "order_events.jsonl.gz").write_bytes(gzip.compress(b"".join(
     json.dumps({"client_order_id": o["client_order_id"], "type": "OrderInitialized"}).encode() + b"\n" for o in orders)))
-summary = {"strategy_source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
+summary = {"source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
            "starting_balance_usdt": "100000", "final_equity_usdt": final, "closed_trades": 1,
            "data_interval_minutes": 1440, "input_start_utc": start, "period_start_utc": trade_start,
            "period_end_utc": end, "market_commit": option("--market-commit"),

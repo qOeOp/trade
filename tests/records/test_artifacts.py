@@ -31,7 +31,7 @@ def probe(window: dict) -> dict:
             "dependency_lock_sha256": "c" * 64, "source_files_sha256": {field: "d" * 64 for field in paths},
             "source_file_paths": dict(paths), "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
             "effective_config": {"symbols": ["AAAUSDT", "BBBUSDT"], "start": window["start"], "trade_start": window["trade_start"],
-                                 "end": window["end"], "native_account": {"venue": "BINANCE"}}}
+                                 "end": window["end"], "account": {"venue": "BINANCE"}}}
 
 
 class Workspace(unittest.TestCase):
@@ -61,7 +61,7 @@ class Workspace(unittest.TestCase):
             if "engine.run" in command and passed:
                 reports.write(out, plans=plans, wins=wins, start=start)
                 summary = json.loads((out / "summary.json").read_text())
-                summary["strategy_source_sha256"] = command[command.index("--strategy-sha256") + 1]
+                summary["source_sha256"] = command[command.index("--strategy-sha256") + 1]
                 (out / "summary.json").write_text(json.dumps(summary))
             if "engine.audit" in command:
                 (out / "audit.json").write_text(json.dumps({"passed": audit_passed,

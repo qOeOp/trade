@@ -208,7 +208,7 @@ def _summary_problems(summary: dict | None, source_sha256: str, identity: dict, 
     if summary is None:
         return ["native summary missing"]
     problems = []
-    if summary.get("strategy_source_sha256") != source_sha256:
+    if summary.get("source_sha256") != source_sha256:
         problems.append("native summary differs from the replayed strategy bytes")
     if summary.get("runtime_identity") not in (None, identity):
         problems.append("native summary differs from the pinned runtime identity")

@@ -398,6 +398,12 @@ def _run_with_trial(conn, run_id: int) -> dict:
     return run
 
 
+def account_terms(config: dict):
+    """The account terms of an effective configuration: `account`, or `native_account` in runs stored
+    from images before the engine package."""
+    return config.get("account", config.get("native_account"))
+
+
 def _require_main_image(run: dict) -> None:
     from research.records.runtime import require_main_build
     inspection = json.loads(run["runtime_inspection"])
@@ -506,11 +512,11 @@ def confirm_verdict(profile: dict, *, plan_id: int, run_id: int, failed_part: st
             raise _refuse(f"run {run_id} is not a sealed run of the frozen source", "NOT_FROZEN_SOURCE")
         if run["trade_start"] < plan["window_start"] or run["trade_end"] > plan["window_end"]:
             raise _refuse(f"run {run_id} trades outside the preregistered window", "WINDOW_MISMATCH")
-        same = ("symbols", "native_account")
         left, right = json.loads(run["effective_config"]), json.loads(frozen["effective_config"])
-        if any(left.get(key) != right.get(key) for key in same):
-            raise _refuse(f"run {run_id} changes {[k for k in same if left.get(k) != right.get(k)]} from the freeze",
-                          "CONFIG_MISMATCH")
+        changed = [key for key, read in (("symbols", lambda value: value.get("symbols")), ("account", account_terms))
+                   if read(left) != read(right)]
+        if changed:
+            raise _refuse(f"run {run_id} changes {changed} from the freeze", "CONFIG_MISMATCH")
         if witnessed is None or witnessed >= plan["window_start"]:
             raise _refuse(f"plan {plan_id} (commit {plan_commit}) was not timestamped before its window started",
                           "NOT_WITNESSED_IN_TIME", expected={"witnessed_at": str(witnessed),
@@ -608,7 +614,7 @@ def run_report(profile: dict, run_id: int, at: str | None = None) -> dict:
                   failure_reasons=json.loads(run["failure_reasons"] or "null"),
                   closed_by_year=by_year,
                   reading_limitations=json.loads(run["reading_limitations"]) + by_year_limitations,
-                  cost_basis={"native_account": json.loads(run["effective_config"]).get("native_account"),
+                  cost_basis={"native_account": account_terms(json.loads(run["effective_config"])),
                               "observed_fee_rates": [{k: _plain(v) for k, v in row.items()} for row in cost]})
     return output
 

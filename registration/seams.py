@@ -76,8 +76,7 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 
 
 def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) -> dict:
-    """The probe report for the container arguments of these inputs; `effective_config` under the
-    engine design keys, `native_effective_config` as today's runner resolves it (its execution binding)."""
+    """The probe report for the container arguments of these inputs."""
     from research.records import runtime
     from research.records.common import RecordError
     argv, _ = container_runner_args(list(runner_argv), inputs)
@@ -85,19 +84,7 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
         inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
     except RecordError as exc:
         raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
-    return {**inspection, "effective_config": design_config(inspection.get("effective_config")),
-            "native_effective_config": inspection.get("effective_config")}
-
-
-# Today's runner names the account terms `native_account`; the engine design calls them `account`.
-# Renamed here until the engine package replaces the runner.
-CURRENT_RUNNER_KEYS = {"native_account": "account"}
-
-
-def design_config(value):
-    if not isinstance(value, Mapping):
-        return value
-    return {CURRENT_RUNNER_KEYS.get(key, key): item for key, item in value.items()}
+    return inspection
 
 
 def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:

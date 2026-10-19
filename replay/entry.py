@@ -413,9 +413,8 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
             "database": ledger.database, "commit": head, "strategy_id": revision["strategy_id"],
             "revision": revision["revision"], "source_sha256": source_sha256, "entry_class": revision["entry_class"],
             "runtime_contract": revision["runtime_contract"]})
-        native = inspection.get("native_effective_config", inspection.get("effective_config"))
         _write_json(workdir / SOURCE / "execution.json", {
-            "runtime_identity": _identity4(identity), "effective_config": native,
+            "runtime_identity": _identity4(identity), "effective_config": inspection.get("effective_config"),
             "effective_config_sha256": inspection.get("effective_config_sha256")})
         argv, mounts = _mounts(workdir, inputs, runner_argv)
         argv += ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", revision["entry_class"],

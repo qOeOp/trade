@@ -64,22 +64,6 @@ def unique(reasons) -> list[dict]:
                  for item in reasons}.values())
 
 
-# Today's runner names the source hash `strategy_source_sha256`; the engine design calls it `source_sha256`.
-# Seam: the engine package of a later phase replaces this mapping.
-CURRENT_SUMMARY_KEYS = {"strategy_source_sha256": "source_sha256"}
-
-
-def native_summary(summary: Mapping | None) -> dict | None:
-    """The native summary under the engine design's key names."""
-    if not isinstance(summary, Mapping):
-        return None
-    found = dict(summary)
-    for current, design in CURRENT_SUMMARY_KEYS.items():
-        if design not in found and current in found:
-            found[design] = found[current]
-    return found
-
-
 def json_object(data: bytes | None):
     try:
         value = json.loads(data.decode("utf-8")) if data is not None else None
@@ -185,7 +169,7 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
     if summary is not None and parsed is None:
         reasons.append(reason("NATIVE_REPORT_UNREADABLE", "the native summary is not a JSON object", SUMMARY))
     else:
-        reasons += summary_problems(native_summary(parsed), source_sha256, identity, config_sha256)
+        reasons += summary_problems(parsed, source_sha256, identity, config_sha256)
     reasons += capture_fingerprint(capture)[1]
     return unique(reasons)
 

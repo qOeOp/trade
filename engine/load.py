@@ -38,7 +38,7 @@ class LoadedStrategy:
 
     def metadata(self) -> dict:
         identity = {
-            "strategy_source_sha256": self.source_sha256,
+            "source_sha256": self.source_sha256,
             "strategy_entry_class": self.entry_class,
             "strategy_runtime_contract": RUNTIME_CONTRACT,
             "strategy_uses_stop_loss": self.uses_stop_loss,

@@ -142,7 +142,7 @@ def effective_configuration(args) -> dict:
         "start": args.start,
         "end": args.end,
         "trade_start": args.trade_start if args.trade_start is not None else args.start,
-        "native_account": ACCOUNT_CONTRACT.copy(),
+        "account": ACCOUNT_CONTRACT.copy(),
     }
 
 
