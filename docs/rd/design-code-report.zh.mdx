@@ -724,7 +724,7 @@ def affected_runs(
 | 拒绝码 | 条件 |
 |---|---|
 | `INVALID_QUERY` | current 为空、含未知维度名或 runtime 含四字段以外的键；或 runtime 给完整身份而 runtime.validate_identity 不通过 |
-| `LEDGER_UNKNOWN_REF` | at 给出的提交或标签在账本中不存在 |
+| `UNKNOWN_REF` | at 给出的提交或标签在账本中不存在 |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `RUN_IDENTITY_MISSING` | 某封存运行行缺 runtime_inspection、effective_config 或 input_identity，或其 trial 行缺 image_digest；列出该 run_id 并拒绝，提示走整体复核 |
 
@@ -799,7 +799,7 @@ def research_status(ledger: LedgerProfile, at: str | None) -> dict
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LEDGER_UNKNOWN_REF` | at 给出的提交、标签或 branch 在账本中不存在 |
+| `UNKNOWN_REF` | at 给出的提交、标签或 branch 在账本中不存在 |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `REFERENTIAL_GAP` | registration_attempt 或 run 引用的 trial 行不存在，或四类计数之和不等于 research_attempts；计数拒绝给出并列出缺口行 |
 
