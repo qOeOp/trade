@@ -66,8 +66,8 @@ def account_contract() -> MappingProxyType:
     return MappingProxyType(ACCOUNT_CONTRACT)
 
 
-# Refusals. Every code the runner raises (here, in engine.load, engine.run and engine.report) is in
-# REFUSALS; the auditor's finding codes are in engine.audit.FINDINGS.
+# Refusals. Every code the runner raises (here, in engine.load, engine.run and engine.report) and
+# engine.compare_reports raises is in REFUSALS; the auditor's finding codes are in engine.audit.FINDINGS.
 
 REFUSALS: dict[str, str] = {
     "UNKNOWN_OPTION": "The command line holds an option the runner does not define, such as a strategy parameter.",
@@ -127,6 +127,12 @@ REFUSALS: dict[str, str] = {
     "NON_FINITE_EVENT_FIELD": "A native order event holds NaN or infinity, which JSON cannot hold unchanged.",
     "TRADING_WINDOW_EMPTY": "The trading window does not end after it starts.",
     "STARTING_BALANCE_NOT_POSITIVE": "The starting balance is not positive.",
+    # engine.compare_reports
+    "REPORT_DIR_MISSING": "A report directory to compare is missing or lacks a table file or summary.json.",
+    "REPORT_TABLE_UNREADABLE": "A table to compare does not parse or lacks its business keys, or a summary lacks the "
+                               "engine version or the account metrics.",
+    "SAME_REPORT_DIRECTORY": "The reference and candidate are the same report directory.",
+    "INVALID_TOLERANCE": "The account tolerance is negative, not finite or not a decimal.",
     # engine.main
     "NATIVE_EXECUTION_FAILED": "A strategy constructor or callback raised during the replay.",
     "INTEGRITY_FINDINGS": "The summary's integrity findings are not empty.",

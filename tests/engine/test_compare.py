@@ -3,9 +3,11 @@
 import json
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
-from engine.compare_reports import compare
+from engine.compare_reports import compare_reports
+from engine.config import Refusal
 
 
 def _replay(root: Path, sharpe) -> Path:
@@ -16,17 +18,38 @@ def _replay(root: Path, sharpe) -> Path:
     (root / "account.csv").write_text("ts_event,total\n2026-01-01,100000\n")
     (root / "returns_series.csv").write_text("ts_event_ns,native_return\n0,0.0\n")
     (root / "summary.json").write_text(json.dumps({
-        "final_equity_usdt": "100000.00000000", "annualized_return_pct": 0.0, "closed_trades": 0,
-        "winning_trades": 0, "native_sharpe_365": sharpe, "native_max_drawdown_daily_close": -0.0}))
+        "engine_version": "2.0.0rc3", "final_equity_usdt": "100000.00000000", "annualized_return_pct": 0.0,
+        "closed_trades": 0, "winning_trades": 0, "native_sharpe_365": sharpe, "native_max_drawdown_daily_close": -0.0}))
     return root
 
 
-class CompareNodeTests(unittest.TestCase):
+class CompareReportsTests(unittest.TestCase):
     def test_zero_trade_replays_with_undefined_sharpe_match(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            self.assertTrue(compare(_replay(root / "a", None), _replay(root / "b", None))["passed"])
-            self.assertFalse(compare(_replay(root / "c", None), _replay(root / "d", 0.5))["passed"])
+            self.assertTrue(compare_reports(_replay(root / "a", None), _replay(root / "b", None))["passed"])
+            found = compare_reports(_replay(root / "c", None), _replay(root / "d", 0.5))
+        self.assertFalse(found["passed"])
+        self.assertEqual(found["metrics"]["native_sharpe_365"],
+                         {"reference": None, "candidate": 0.5, "within_tolerance": False})
+
+    def test_unreadable_directories_and_tolerances_are_refused(self):
+        def code(*args):
+            with self.assertRaises(Refusal) as caught:
+                compare_reports(*args)
+            return caught.exception.code
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            self.assertEqual(code(left, root / "absent"), "REPORT_DIR_MISSING")
+            self.assertEqual(code(left, root / "a" / ".." / "a"), "SAME_REPORT_DIRECTORY")
+            for tolerance in (Decimal(-1), Decimal("NaN"), "x"):
+                with self.subTest(tolerance=tolerance):
+                    self.assertEqual(code(left, right, tolerance), "INVALID_TOLERANCE")
+            (right / "fills.csv").write_text("client_order_id,ts_event\nO-1,0\n")
+            self.assertEqual(code(left, right), "REPORT_TABLE_UNREADABLE")  # no last_qty or last_px to sort by
+            (right / "fills.csv").unlink()
+            self.assertEqual(code(left, right), "REPORT_DIR_MISSING")
 
 
 if __name__ == "__main__":
