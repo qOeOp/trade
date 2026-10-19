@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from research.market import binance
+from market import binance
 
 
 POOL_RULE = "usdt-perp-top50-30d-v1"

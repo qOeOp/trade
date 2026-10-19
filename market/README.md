@@ -2,9 +2,9 @@
 
 Binance USD-M perpetual market data, from public sources only, in its own Dolt database on the
 research ledger's service. A replay cites one commit of it; `export` turns that commit into the
-Nautilus Catalogs the runner reads. Design and measurements: [WS8a](../../docs/plans/market-data-dolt-measurement.zh.md),
-[field review](../../docs/plans/ws8b-market-data-field-review.zh.md),
-[WS8b acceptance](../../docs/plans/ws8b-market-data-acceptance.zh.md).
+Nautilus Catalogs the runner reads. Design and measurements: [WS8a](../docs/plans/market-data-dolt-measurement.zh.md),
+[field review](../docs/plans/ws8b-market-data-field-review.zh.md),
+[WS8b acceptance](../docs/plans/ws8b-market-data-acceptance.zh.md).
 
 | Module | Holds |
 |---|---|
@@ -54,10 +54,10 @@ imports never change what an earlier run read.
 ## Import and freshness
 
 ```bash
-uv run --frozen python -m research.market.cli import                 # through yesterday, one commit
-uv run --frozen python -m research.market.cli import --resume        # after an interruption
-uv run --frozen python -m research.market.cli status                 # pool months, newest day, latest complete month
-uv run --frozen python -m research.market.cli pool --month 2022-05
+uv run --frozen python -m market.cli import                 # through yesterday, one commit
+uv run --frozen python -m market.cli import --resume        # after an interruption
+uv run --frozen python -m market.cli status                 # pool months, newest day, latest complete month
+uv run --frozen python -m market.cli pool --month 2022-05
 ```
 
 `import --through DAY` stops before that UTC day. Archives are working copies under the temp

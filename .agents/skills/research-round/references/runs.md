@@ -21,7 +21,7 @@ Never start a replay or a probe with `docker run` or a direct runner command.
 - Inputs are one commit of the market database: `--market REF` (branch, tag or commit; default
   `main`), and after `--` the contracts, `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`)
   or `--universe pool` (every contract in the monthly pool during the trade window). USDT
-  perpetuals from 2020-01; `uv run --frozen python -m research.market.cli status` gives the newest
+  perpetuals from 2020-01; `uv run --frozen python -m market.cli status` gives the newest
   covered day and the latest complete month, `... pool --month YYYY-MM` the pool. `run` exports the
   commit for the window (an exploration reuses a cache under the temp directory, a seal exports
   afresh) and stores the market database, commit, pool rule and contracts with the run.
@@ -40,7 +40,7 @@ them to steer and to judge a coarse replay ([hypotheses.md](hypotheses.md)), cit
 never cite them in a freeze or a confirmation. They are null with the reason when the replay did
 not pass or its reports are incomplete. For a Nautilus behavior
 probe, run a script from `/tmp` on the host with
-`uv run --frozen --project REPO python /tmp/RUNDIR/probe.py`; it imports `backtest` and `research`.
+`uv run --frozen --project REPO python /tmp/RUNDIR/probe.py`; it imports `engine`, `market` and `research`.
 
 ## Seal
 

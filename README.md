@@ -13,7 +13,7 @@ orders, fills, risk, execution, portfolio accounting and reports.
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/), configure the local
 Dolt store as described in the [research record guide](research/records/README.md)
 and export an exact strategy revision. Every replay runs through
-`artifacts run` in the CI-built image: see [native replay](backtest/README.md)
+`artifacts run` in the CI-built image: see [native replay](engine/README.md)
 for an exploration, or the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) for a
 preregistered sealed run. The current `r1-native-v5` contract runs one
@@ -31,7 +31,7 @@ uv run --frozen python -m research.records.artifacts run --help
 
 Market data (Binance public USD-M perpetual data from 2020-01 and the monthly
 pool) lives in its own Dolt database beside the ledger
-([`research/market`](research/market/README.md)); a replay cites one commit of
+([`market`](market/README.md)); a replay cites one commit of
 it. Research needs no exchange
 trading credential. Persistent research data lives only in the Dolt research
 ledger and its `dolt_backup` copy; `/tmp` reports are working copies. A stored
@@ -47,8 +47,9 @@ export is `docs-site/out`.
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and which skill to use.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval), `nautilus-report-analysis`, `research-sources` and `video-evidence`; `.claude/skills` links here.
-- [`backtest/`](backtest/): the native replay in three modules (`load`, `run`, `report`) and its checks (`checks/audit.py`, `checks/compare.py`).
-- [`backtest/runtime/`](backtest/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
+- [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
+- [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
+- [`market/`](market/): the Binance market database, its monthly pool and the per-commit Catalog export.
 - [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.

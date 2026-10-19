@@ -17,13 +17,18 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
 # Where the image keeps its runner, audit and identity probe.
 LAYOUTS = {
-    "r1-native-v5": {"runner": "backtest.run", "audit": "backtest.checks.audit", "audit_args": [],
-                     "probe": "backtest.run",
-                     "source_paths": {"runner_source_sha256": "backtest/run.py",
-                                      "load_source_sha256": "backtest/load.py",
-                                      "report_source_sha256": "backtest/report.py"},
-                     "audit_path": "backtest/checks/audit.py"},
+    "r1-native-v5": {"runner": "engine.run", "audit": "engine.audit", "audit_args": [],
+                     "probe": "engine.run",
+                     "source_paths": {"config_source_sha256": "engine/config.py",
+                                      "runner_source_sha256": "engine/run.py",
+                                      "load_source_sha256": "engine/load.py",
+                                      "report_source_sha256": "engine/report.py"},
+                     "audit_path": "engine/audit.py"},
 }
+# Images of the same contract built before backtest/ became engine/ cannot be executed by this code;
+# a run stored from one is still checked against its own revision's bytes (require_main_build), with
+# the auditor path of that layout.
+EARLIER_AUDIT_PATHS = {"backtest/run.py": "backtest/checks/audit.py"}
 CONTRACTS = set(LAYOUTS)
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"
@@ -132,7 +137,9 @@ def require_main_build(identity: dict, inspection: dict) -> str:
         raise RecordError(f"runtime image revision {revision} is not on origin/main; merge first, then rerun "
                           "with the main image", code="RUNTIME_NOT_MAIN", write_status="not_written")
     expected = {path: inspection["source_files_sha256"][field] for field, path in inspection["source_file_paths"].items()}
-    expected[LAYOUTS[identity["runtime_contract"]]["audit_path"]] = inspection["audit_source_sha256"]
+    runner = inspection["source_file_paths"].get("runner_source_sha256")
+    audit_path = EARLIER_AUDIT_PATHS.get(runner, LAYOUTS[identity["runtime_contract"]]["audit_path"])
+    expected[audit_path] = inspection["audit_source_sha256"]
     expected["uv.lock"] = inspection["dependency_lock_sha256"]
     for path, digest in expected.items():
         blob = _git("show", f"{revision}:{path}")
@@ -187,7 +194,7 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
         if not field.endswith("_source_sha256") or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise RecordError("invalid runtime source digest")
         path = paths[field]
-        if not isinstance(path, str) or not path.startswith("backtest/") or ".." in Path(path).parts:
+        if not isinstance(path, str) or not path.startswith("engine/") or ".." in Path(path).parts:
             raise RecordError("invalid runtime source path")
     if not re.fullmatch(r"[0-9a-f]{64}", value["dependency_lock_sha256"]):
         raise RecordError("invalid image dependency lock digest")

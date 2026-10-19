@@ -25,9 +25,9 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from backtest import report
-from backtest.checks.audit import audit
-from backtest.run import ACCOUNT_CONTRACT
+from engine import report
+from engine.audit import audit
+from engine.run import ACCOUNT_CONTRACT
 
 
 BAR_NS = 300_000_000_000

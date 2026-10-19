@@ -27,8 +27,8 @@ jobs:
           echo "5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e  $RUNNER_TEMP/dolt.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/dolt.tar.gz" -C "$RUNNER_TEMP"
           echo "RESEARCH_DOLT_BINARY=$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" >> "$GITHUB_ENV"
-      - run: uv run --frozen python -m compileall -q backtest research/records
-      - run: uv run --frozen python -m backtest.run --help > /dev/null
+      - run: uv run --frozen python -m compileall -q engine market research/records
+      - run: uv run --frozen python -m engine.run --help > /dev/null
       - name: Install ffmpeg for the video evidence checker test
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'

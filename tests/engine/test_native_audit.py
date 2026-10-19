@@ -11,7 +11,7 @@ import unittest
 
 import pandas as pd
 
-from backtest.checks.audit import BAR_NS, audit, uncovered_intervals
+from engine.audit import BAR_NS, audit, uncovered_intervals
 
 
 START = "2026-01-01 00:00:00+00:00"

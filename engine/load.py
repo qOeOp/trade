@@ -1,4 +1,4 @@
-"""Load what one replay needs: the verified strategy source, the window and the exported market inputs."""
+"""Load what one replay needs: the verified strategy source and the exported market inputs."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import re
 import stat
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 
@@ -19,38 +18,11 @@ from nautilus_trader.model import BarType, InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
+from engine.config import RUNTIME_CONTRACT
 
-RUNTIME_CONTRACT = "r1-native-v5"
+
 BAR_INTERVAL_NS = 5 * 60_000_000_000
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
-
-
-# Window
-
-def utc_datetime(value: str) -> datetime:
-    """Parse an explicit ISO-8601 timezone without consulting the host timezone."""
-    try:
-        if re.search(r"[+-]\d{2}(?::?\d{2})?(?::?\d{2})?[.,]\d+$", value):
-            raise ValueError("fractional UTC offsets are unsupported")
-        if any(len(fraction) > 6 for fraction in re.findall(r"[.,](\d+)", value)):
-            raise ValueError("time precision must not exceed six fractional digits")
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "time must be an ISO-8601 datetime with explicit Z or UTC offset, "
-            "at most six fractional digits and no fractional UTC offset"
-        ) from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError("time must include explicit Z or UTC offset")
-    try:
-        return parsed.astimezone(UTC)
-    except OverflowError as exc:
-        raise ValueError("time is outside the representable UTC datetime range") from exc
-
-
-def ns(value: str) -> int:
-    elapsed = utc_datetime(value) - datetime(1970, 1, 1, tzinfo=UTC)
-    return ((elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds) * 1000
 
 
 # Strategy
@@ -176,7 +148,7 @@ def load_strategy(
                           getattr(strategy_class, "USES_STOP_LOSS", True))
 
 
-# Inputs: a market commit exported as one Catalog per contract (research/market/export.py)
+# Inputs: a market commit exported as one Catalog per contract (market/export.py)
 
 def coin(symbol: str) -> str:
     """The contract's short name: BTCUSDT -> BTC, 1000PEPEUSDT -> PEPE (a leading 1000 before letters)."""

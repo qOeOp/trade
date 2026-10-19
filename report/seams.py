@@ -3,7 +3,7 @@
 comparison (engine.compare_reports).
 
 `current` holds the implementations in force. The market default reads today's market database
-(`research/market`: the MARK one-minute bar at 23:59 UTC of each day, the ranked monthly pool as the
+(`market`: the MARK one-minute bar at 23:59 UTC of each day, the ranked monthly pool as the
 common tradable range) through the market profile in the ledger profile directory; the market and
 engine packages of a later phase replace it here. Tests swap them with `use(...)`.
 """
@@ -115,8 +115,8 @@ def _reproduce(run_id: int, output: Path, ledger: db.LedgerProfile) -> dict:
 
 
 def _compare_reports(reference: Path, candidate: Path) -> dict:
-    from backtest.checks import compare
-    return compare.compare(Path(reference), Path(candidate))
+    from engine import compare_reports
+    return compare_reports.compare(Path(reference), Path(candidate))
 
 
 @dataclass(frozen=True)

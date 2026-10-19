@@ -31,7 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     init.add_argument("--role", choices=("active", "isolated", "temporary"), default="isolated")
     init.add_argument("--backup-root", type=Path)
     init.add_argument("--kind", choices=("research", "market"), default="research",
-                      help="the research ledger or the market database (see research/market/README.md)")
+                      help="the research ledger or the market database (see market/README.md)")
     for name in ("start", "stop", "backup"):
         ledger.add_parser(name)
     ledger.add_parser("status", help="every ledger profile and whether its service runs")

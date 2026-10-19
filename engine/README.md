@@ -4,16 +4,18 @@ Every native replay goes through `research.records.artifacts run`: `--explore` r
 new `/tmp` directory, and a published revision that a freeze or confirmation cites is sealed and
 stored in the research ledger ([runs
 reference](../.agents/skills/research-round/references/runs.md)). Both execute `python -m
-backtest.run` and the native auditor in the same CI-built image and write one trial row. Never start a
-replay or a probe with `docker run` or `python -m backtest.run` directly.
+engine.run` and the native auditor in the same CI-built image and write one trial row. Never start a
+replay or a probe with `docker run` or `python -m engine.run` directly.
 
 | Path | Role |
 |---|---|
-| `load.py` | Window parsing, the hash-checked strategy source, the exported market Catalogs, pool membership and daily warm-up |
-| `run.py` | Arguments, the fixed account, the `BacktestNode` run and `--describe` |
+| `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration and `--describe` |
+| `load.py` | The hash-checked strategy source, the exported market Catalogs, pool membership and daily warm-up |
+| `run.py` | The `BacktestNode` run, the capital observer and the execution binding check |
 | `report.py` | Native reports, `order_events.jsonl.gz`, `exposures.csv.gz` and `summary.json` |
-| `checks/audit.py` | Independent audit of every run's native reports and stop protection |
-| `checks/compare.py` | Engineering parity between two runs |
+| `audit.py` | Independent audit of every run's native reports and stop protection |
+| `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
+| `compare_reports.py` | Engineering parity between two runs |
 | `runtime/` | Image build inputs |
 
 ## Four inputs
@@ -25,7 +27,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
-- **Inputs.** One commit of the market database ([`research/market`](../research/market/README.md))
+- **Inputs.** One commit of the market database ([`market`](../market/README.md))
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
   (every contract the pool holds in some month of the trade window). `artifacts run` exports the
   commit (`--market`, default `main`) into one Catalog per contract and passes the runner
@@ -36,7 +38,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
 - **Window.** `--start`, `--trade-start` and `--end` need an explicit `Z` or UTC offset, at most six
   fractional digits and no fractional offset, and fall on five-minute boundaries with
   `start <= trade-start < end`; the host timezone is never consulted.
-- **Account.** Fixed in `run.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus `BacktestNode`
+- **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus `BacktestNode`
   margin account shared by every instrument, leverage 1, five-minute bar execution, the exported
   instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. The published `nautilus_trader==2.0.0rc3` owns data replay, orders,
   fills, funding settlement, risk, portfolio accounting and reports. No exchange trading credential
@@ -70,12 +72,12 @@ denied/rejected order fails the run.
 
 ## Runtime image
 
-The image holds Python, Nautilus, the locked dependencies, `backtest` and the auditor; strategy
+The image holds Python, Nautilus, the locked dependencies and `engine` (runner, auditor and fingerprint); strategy
 bodies, Dolt configuration and research records are excluded. The
 [`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on a native arm64
 runner for `linux/arm64` only and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
 commit it was built from (`org.opencontainers.image.revision`), when a runtime input changes
-(`backtest/**/*.py`, the Dockerfile, `pyproject.toml`, `uv.lock`). A main build moves the `main`
+(`engine/**/*.py`, the Dockerfile, `pyproject.toml`, `uv.lock`). A main build moves the `main`
 tag, the current runtime; a pull request build is tagged `pr-N`; every build is tagged
 `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
 hand-written runtime identity.
@@ -83,13 +85,13 @@ hand-written runtime identity.
 `artifacts run` without `--runtime` pulls `main` and records the manifest digest it resolved;
 `--runtime` takes another CI tag or digest reference. The identity (`image_ref` with its
 `@sha256:` digest, `image_digest`, `platform`, `runtime_contract`) is read from the image, and
-`python -m backtest.run --describe` inside it reports its code hashes and the resolved
+`python -m engine.run --describe` inside it reports its code hashes and the resolved
 configuration. Replay and audit run with no network, a read-only root, read-only source and input
 mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
 whose revision is on origin/main and whose observed code equals that commit's bytes.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
-`backtest` and `research` from a script anywhere, and the image imports `backtest` from any
+`engine`, `market` and `research` from a script anywhere, and the image imports `engine` from any
 directory. A Nautilus probe is such a host script; it needs no `PYTHONPATH` and no `docker run`.
 
 ## Reports
@@ -141,7 +143,7 @@ uv run --frozen python -m research.records.artifacts run --explore --runtime ghc
 uv run --frozen python -m research.records.artifacts run --explore --runtime ghcr.io/qoeop/trade-runtime:pr-N \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/candidate" -- RUNNER-ARGS
-uv run --frozen python -m backtest.checks.compare \
+uv run --frozen python -m engine.compare_reports \
   "$STRATEGY_WORKDIR/reference/reports" "$STRATEGY_WORKDIR/candidate/reports"
 ```
 
@@ -159,7 +161,10 @@ images remain until WS7; the v1 and v2 constructors received sizing arguments an
 runners took signal, exit and warmup options that later contracts refuse. `r1-native-v4` read
 prepared minute and daily Catalog directories, identified by their file-tree hashes, and a per-coin
 quantity CSV whose quantity reached the constructor as `trade_size`; `r1-native-v5` reads an
-exported market commit, identified by that commit, and passes no quantity.
+exported market commit, identified by that commit, and passes no quantity. `r1-native-v5` images
+built before the package moved from `backtest/` to `engine/` keep the same strategy contract under
+the old module paths; current code no longer executes them, and a run stored from one is still
+checked against its own revision's bytes (`EARLIER_AUDIT_PATHS`).
 
 The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at

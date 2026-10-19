@@ -6,7 +6,7 @@ import pandas as pd
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 
-from backtest.report import orders_with_native_deadlines, readable_empty_report
+from engine.report import orders_with_native_deadlines, readable_empty_report
 
 
 class EmptyNativeReportsTests(unittest.TestCase):

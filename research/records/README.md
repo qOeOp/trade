@@ -23,7 +23,7 @@ its accounts, the write protocol, backup, tests and what the guarantees are.
 
 One Dolt 2.4.2 `sql-server` per service directory, reachable only through its unix socket (and the
 loopback port Dolt requires). A service can hold several databases: the research ledger and the
-market database ([`research/market`](../market/README.md), profile kind `market`, created with
+market database ([`market`](../../market/README.md), profile kind `market`, created with
 `ledger init --kind market`). A profile names one database on one service; commands select it with
 `--ledger NAME` (default: the research profile whose role is `active`). Profiles are JSON files in
 `~/.local/share/trade/ledgers/`; `TRADE_LEDGER_HOME` points elsewhere for tests and demonstrations.

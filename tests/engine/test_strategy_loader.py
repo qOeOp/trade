@@ -16,9 +16,9 @@ from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
 
-from backtest.load import RUNTIME_CONTRACT, load_strategy
-from backtest.report import diagnostics, runtime_source_metadata
-from backtest.run import (
+from engine.load import RUNTIME_CONTRACT, load_strategy
+from engine.report import diagnostics, runtime_source_metadata
+from engine.run import (
     STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, importable_strategy,
     parse_configuration,
 )
@@ -240,7 +240,7 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path=path,
-                config_path="backtest.run:StrategyInputs",
+                config_path="engine.run:StrategyInputs",
                 config=config.__dict__,
             ),
         )
@@ -265,7 +265,7 @@ class StrategyLoaderTests(unittest.TestCase):
             instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
             catalog_path="/inputs/market/BTCUSDT", pool_membership=[],
         )
-        with patch("backtest.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
+        with patch("engine.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
             strategy = wrapper(config)
         warmup.assert_called_once_with(Path("/inputs/market/BTCUSDT"), InstrumentId.from_str(config.instrument_id), 100)
         self.assertEqual(strategy.received[3]["historical_daily_bars"], ["canonical warmup"])

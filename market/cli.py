@@ -35,7 +35,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def run(args) -> dict:
-    from research.market import store
+    from market import store
     from research.records import ledger
     profile = ledger.profile(args.market, of="market")
     if args.command == "import":

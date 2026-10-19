@@ -2,18 +2,14 @@
 
 The runner takes four things: the strategy reference, the inputs (one market commit exported per
 contract, the contracts and their pool membership), the window and the account. The account and
-market facts (balance, leverage, fees, funding, matching) are fixed here; everything else, sizing
-included, is the strategy source. ``--describe`` prints the image's runtime identity
+market facts (balance, leverage, fees, funding, matching) are fixed in ``engine.config``; everything
+else, sizing included, is the strategy source. ``--describe`` prints the image's runtime identity
 and the resolved configuration instead of replaying.
 """
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import importlib.metadata
 import json
-import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -41,133 +37,28 @@ from nautilus_trader.model import (
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy
 
-from backtest import report
-from backtest.load import (
-    BAR_INTERVAL_NS,
+from engine import report
+from engine.config import (
+    ACCOUNT_CONTRACT,
     RUNTIME_CONTRACT,
+    config_sha256,
+    describe,
+    effective_configuration,
+    ns,
+    parse_configuration,
+    utc_datetime,
+)
+from engine.load import (
+    BAR_INTERVAL_NS,
     LoadedStrategy,
     load_strategy,
     mark_timestamps,
-    ns,
     read_market,
     read_pool,
     read_regular_file,
     strategy_id,
-    utc_datetime,
     warmup_daily_bars,
 )
-
-
-ACCOUNT_CONTRACT = {
-    "venue": "BINANCE",
-    "oms_type": "NETTING",
-    "account_type": "MARGIN",
-    "book_type": "L1_MBP",
-    "base_currency": "USDT",
-    "starting_balance_usdt": "100000",
-    "default_leverage": "1",
-    "support_gtd_orders": True,
-    "support_contingent_orders": True,
-    "reject_stop_orders": False,
-    "bar_execution": True,
-    "bar_adaptive_high_low_ordering": False,
-    "trader_id": "R1-PORTFOLIO-001",
-    "time_bars_timestamp_on_close": True,
-    "time_bars_skip_first_non_full_bar": False,
-    "validate_data_sequence": True,
-    "max_order_submit_rate": "200/00:00:01",
-    "chunk_size": 50_000,
-}
-
-
-# Arguments
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--describe", action="store_true", help="print the runtime identity and resolved configuration")
-    strategy = parser.add_argument_group("strategy reference")
-    strategy.add_argument("--strategy-file", type=Path)
-    strategy.add_argument("--strategy-class")
-    strategy.add_argument("--strategy-sha256")
-    strategy.add_argument("--strategy-binding", type=Path)
-    strategy.add_argument("--execution-binding", type=Path)
-    inputs = parser.add_argument_group("inputs: one market commit exported per contract (research.market.export)")
-    inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
-    inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
-    inputs.add_argument("--pool", type=Path, help="pool membership JSON handed to every strategy")
-    inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
-    window = parser.add_argument_group("window")
-    window.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
-    window.add_argument("--end", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
-    window.add_argument("--trade-start", help="ISO-8601 datetime with explicit Z or UTC offset")
-    parser.add_argument("--output", type=Path)
-    return parser
-
-
-def parse_configuration(argv: list[str] | None = None):
-    """Resolve runner defaults without executing source or opening research data."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if not args.describe:
-        missing = [option for option in ("strategy_file", "strategy_class", "strategy_sha256", "output")
-                   if getattr(args, option) is None]
-        if missing:
-            parser.error("a replay needs " + ", ".join("--" + name.replace("_", "-") for name in missing))
-    times = {}
-    for field in ("start", "end", "trade_start"):
-        value = getattr(args, field)
-        if value is None:
-            continue
-        try:
-            times[field] = utc_datetime(value)
-        except ValueError as exc:
-            parser.error(f"--{field.replace('_', '-')}: {exc}")
-    start, end = times["start"], times["end"]
-    trade_start = times.get("trade_start", start)
-    if (not start < end or not start <= trade_start < end
-            or any(value.minute % 5 or value.second or value.microsecond
-                   for value in (start, end, trade_start))):
-        parser.error("replay needs a positive five-minute-aligned interval with trade-start inside it")
-    if len(args.symbols) != len(set(args.symbols)):
-        parser.error("--symbols must be unique")
-    return args
-
-
-def effective_configuration(args) -> dict:
-    """Canonical experiment configuration, including native execution defaults."""
-    return {
-        "runtime_contract": RUNTIME_CONTRACT,
-        "market_root": str(args.market_root),
-        "market_commit": args.market_commit,
-        "pool": str(args.pool) if args.pool is not None else None,
-        "symbols": args.symbols,
-        "start": args.start,
-        "end": args.end,
-        "trade_start": args.trade_start if args.trade_start is not None else args.start,
-        "native_account": ACCOUNT_CONTRACT.copy(),
-    }
-
-
-def _config_sha(value: dict) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def describe(args) -> dict:
-    """The executing image's native code and the replay configuration it would resolve."""
-    metadata = report.runtime_source_metadata()
-    effective = effective_configuration(args)
-    return {
-        "runtime_contract": RUNTIME_CONTRACT,
-        "nautilus_version": importlib.metadata.version("nautilus_trader"),
-        "python_version": sys.version.split()[0],
-        "dependency_lock_sha256": hashlib.sha256((report.ROOT / "uv.lock").read_bytes()).hexdigest(),
-        "source_files_sha256": {key: value for key, value in metadata.items() if key.endswith("_source_sha256")},
-        "source_file_paths": metadata["source_file_paths"],
-        "audit_source_sha256": hashlib.sha256((report.ROOT / report.AUDIT_PATH).read_bytes()).hexdigest(),
-        "effective_config": effective,
-        "effective_config_sha256": _config_sha(effective),
-    }
 
 
 def execution_metadata(args) -> dict:
@@ -182,7 +73,7 @@ def execution_metadata(args) -> dict:
     }:
         raise ValueError("execution binding must contain runtime and effective configuration")
     effective = effective_configuration(args)
-    digest = _config_sha(effective)
+    digest = config_sha256(effective)
     if binding["effective_config"] != effective or binding["effective_config_sha256"] != digest:
         raise ValueError("execution binding differs from actual resolved runner configuration")
     identity = binding["runtime_identity"]
@@ -434,5 +325,5 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     # Run inside the importable module, so the Node finds this process's strategy and observer registries.
-    from backtest.run import main as run_main
+    from engine.run import main as run_main
     run_main()

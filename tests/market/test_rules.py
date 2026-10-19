@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import pyarrow as pa
 
-from research.market import export, store, universe
+from market import export, store, universe
 from research.records.common import RecordError
 
 
@@ -95,7 +95,7 @@ class ScalingTests(unittest.TestCase):
 
 class ArchiveLookupTests(unittest.TestCase):
     def test_an_append_fetches_known_names_and_skips_missing_months(self):
-        from research.market import binance
+        from market import binance
 
         class Cache:
             def __init__(self):
