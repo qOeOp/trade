@@ -1,8 +1,8 @@
 # Strategy authoring
 
 What a strategy file must satisfy to run in the native replay. Code is the authority:
-`engine/{config,load,run,report}.py` for execution and
-`research/records/strategies.py` for publication.
+`engine/{config,load,run,report}.py` for execution. `candidate new` writes a scaffold with the
+header template, the entry class and the two hooks.
 
 ## One file, one account
 
@@ -161,15 +161,15 @@ def cover_filled_entry(self, client_order_id):
   any later order that changes or closes that position. Give every order exactly one tag
   `plan:PLAN-ID` (`entry_tags`, `sl_tags` and `tp_tags` on a bracket, `tags` otherwise), unique
   within the run, for example the instrument and the signal's bar timestamp. Other tags may sit
-  beside it. The product's plan reading refuses a run with any order lacking a plan tag.
+  beside it. Without a plan tag on every order the report's plan win rate is null with the reason.
 - One instrument has at most one active plan at a time: from its first submitted order until its
   position is flat and none of its orders is open. A plan holds at most one position: when it goes
   flat, cancel its remaining orders rather than let a leftover tier reopen it. Do not submit a new
   plan for that instrument before then. The plan reading refuses overlapping plans, a position
   holding fills of two plans and a plan with fills in two positions.
 - Sizing, per-plan risk, notional limits and leverage use are constants in this file, fixed with
-  its source hash. They are your design variables ([feasibility.md](feasibility.md)): change them
-  as a new revision, never record them as user constraints.
+  its source hash. They are your design variables (SKILL.md, A.2.2.1): change them as a new
+  candidate, never record them as user constraints.
 - Margin and leverage are Nautilus's: the account is `MARGIN` at the leverage in
   `ACCOUNT_CONTRACT`, Nautilus denies an order the account cannot margin, and a denied order fails
   the run. Do not add a separate notional cap to imitate it.
@@ -182,44 +182,26 @@ Use the pinned package (`uv run --frozen python -c "import nautilus_trader;
 print(nautilus_trader.__version__)"`) and read signatures from it; upstream docs are leads until
 checked locally. Test uncertain order or event behavior with a small probe script in a temporary
 directory, run on the host with `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py` (it
-imports `engine`, `market` and `research`; no `PYTHONPATH`, no `docker run`):
+imports `engine` and `market`; no `PYTHONPATH`, no `docker run`):
 `BacktestEngine(BacktestEngineConfig())` plus one added `Strategy()` builds and inspects orders; add
 an instrument and bars to observe fills.
 
-## Publish
+## Publish, precheck and pilot
 
-Publish a revision only to seal it; drafts are explored from their file. Parsing checks one
-top-level entry class without executing the file, which proves nothing about rules, clock or
-safety. A derivation names its parent revision and the difference; a fresh strategy has none.
-IDs use 1 to 100 letters, digits, `.`, `_` or `-`.
+Publish a revision only to precheck and register it; parsing checks one top-level entry class
+without executing the file, which proves nothing about rules, clock or safety. A derivation names
+its parent and the difference; a root has none. IDs use 1 to 100 letters, digits, `.`, `_` or `-`.
 
 ```bash
-uv run --frozen python -m research.records.cli strategy publish --source /tmp/RUNDIR/strategy.py \
-  --strategy-id ID --entry-class ENTRY-CLASS --description "Rule, claims it uses (C<n>) and non-claims." \
+uv run --frozen python -m cli candidate publish --file /tmp/RUNDIR/strategy.py \
+  --strategy-id ID --entry-class ENTRY-CLASS --description "Rule, sources and non-claims." \
   [--parent ID@N --difference "What changed."]
 ```
 
-It returns `ID@N`, which `artifacts run --strategy` takes ([runs.md](runs.md)). Any later source
-change is a new revision. `strategy show ID@N` and `strategy export ID@N --destination FILE` read it
-back ([records.md](records.md)).
-
-## Pilot, then full replay
-
-Run the draft on a pilot of two liquid instruments in `--symbols`, then on the full instrument set
-(`--universe pool`)
-with the same configuration, through `artifacts run --explore` ([runs.md](runs.md)); it runs the
-current main image and writes a trial. A run a freeze or confirmation cites is sealed by
-`artifacts run --strategy ID@N`, which supplies the strategy arguments itself. Never run the replay
-with `docker run` or `python -m engine...` directly.
-
-```bash
-uv run --frozen python -m research.records.artifacts run --explore \
-  --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
-  --symbols BTCUSDT ETHUSDT --start START --trade-start TRADE-START --end END
-```
-
-Times need `Z` or a UTC offset on whole-minute
-boundaries. In the pilot, confirm every entry has its children, every order carries one plan tag
-and plans on one instrument do not overlap, no order precedes trade start, none was denied or
-rejected, and fills, fees, funding and account rows appear in the native reports. A
-clean exit is not evidence.
+It returns `ID@N`, which `replay precheck`, the registration grid and `replay run` take. Any later
+source change is a new candidate. To try a draft before publishing, run it with `replay explore`
+on two liquid instruments; it writes a trial but is never evidence. In the precheck, confirm every
+entry has its children, every order carries one plan tag and plans on one instrument do not
+overlap, no order precedes trade start, none was denied or rejected, and fills, fees, funding and
+account rows appear in the native reports. A clean exit is not evidence. Never run the replay with
+`docker run` or `python -m engine...` directly.
