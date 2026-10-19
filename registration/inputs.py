@@ -28,9 +28,9 @@ MEMBERSHIP = "membership.json"
 RECEIPT = "export.json"
 LIFECYCLE = "lifecycle.json"
 MINUTE = "1m"
-# The exporter's implementation: export, lifecycle, store and universe modules and the dependency lock.
-# Seam: today's market code has no separate coverage module; the market package of a later phase adds it.
-EXPORTER_FILES = ("market/export.py", "market/lifecycle.py", "market/store.py", "market/universe.py", "uv.lock")
+# The exporter's implementation: the market modules an export runs and the dependency lock.
+EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
+                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py", "uv.lock")
 
 
 def _canonical(value) -> bytes:

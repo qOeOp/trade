@@ -5,8 +5,8 @@
 
 A ledger is named by `--ledger`: a profile file path, or a profile name in the ledger profile
 directory (`TRADE_LEDGER_HOME`, default ~/.local/share/trade/ledgers); without it, the active
-research ledger. A market database is named by `--market` the same way; without it, the market
-profile in the profile directory. Runner arguments (window and instrument scope) follow `--`.
+research ledger. A market database is named by `--market` the same way; without it, the active
+market profile in the profile directory. Runner arguments (window and instrument scope) follow `--`.
 """
 
 from __future__ import annotations
@@ -80,12 +80,10 @@ def refusal_json(exc: Refusal) -> dict:
 
 
 def _market_refusal(exc) -> Refusal:
-    """A market package refusal (market.store.MarketError, market.lifecycle.LifecycleInput) as a ledger
-    refusal, its repair commands from the catalogue."""
-    code = getattr(exc, "code", "MARKET_REFUSED")
-    message = getattr(exc, "message", None) or str(exc).split(": ", 1)[-1]
-    return refusal(code, message, missing=tuple(getattr(exc, "missing", ())), write_status="not_written",
-                   next_actions=tuple(CATALOGUE.get(code, ("", tuple(getattr(exc, "next_actions", ()))))[1]))
+    """A market package refusal (market.sources.MarketError) as a ledger refusal, its repair commands
+    from the catalogue."""
+    return refusal(exc.code, exc.message, missing=exc.missing, write_status="not_written",
+                   next_actions=tuple(CATALOGUE[exc.code][1]))
 
 
 # Profiles
@@ -116,7 +114,8 @@ def ledger_profile(value: str | None) -> db.LedgerProfile:
 
 
 def market_profile(value: str | None) -> dict:
-    """The market database a command names: a profile file, a profile name, or the one in the profile directory."""
+    """The market database a command names: a profile file, a profile name, or the active one in the
+    profile directory."""
     if value is not None and _is_path(value):
         found = _read_profile_file(Path(value).expanduser())
     elif value is not None:
@@ -128,11 +127,13 @@ def market_profile(value: str | None) -> dict:
                 candidate = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            if isinstance(candidate, dict) and "market" in (candidate.get("kind"), candidate.get("holds")):
+            if (isinstance(candidate, dict) and "market" in (candidate.get("kind"), candidate.get("holds"))
+                    and candidate.get("role", candidate.get("kind")) == "active"):
                 found = candidate
                 break
         if found is None:
-            raise refuse("LEDGER_UNKNOWN", "no market profile in the ledger profile directory", missing=("--market",))
+            raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory",
+                         missing=("--market",))
     if "market" not in (found.get("kind"), found.get("holds")) or not found.get("database"):
         raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market database", missing=("--market",))
     return found
@@ -704,8 +705,17 @@ def replay_report(profile, run_id: int | None, directory: str | None, at: str | 
 
 # market
 
-def market_import(market: dict, month: str, cache_root: str | None, workers: int) -> dict:
-    """market import: one UTC month of Binance public data as one market commit."""
+def market_init(name: str, kind: str, service_root: Path) -> dict:
+    """market init: an empty market database (tables, import and reader accounts, profile); the first
+    `market import` writes its schema row and commit tests. Administration happens only here."""
+    database = name.replace("-", "_") if isinstance(name, str) else name
+    return db.init_market(name, database, Path(service_root), kind)
+
+
+def market_import(market: dict, month: str, cache_root: str | None, workers: int,
+                  symbols: list[str] | None = None) -> dict:
+    """market import: one UTC month of Binance public data as one market commit; `symbols` is the
+    engineering allowlist of an isolated market database."""
     from market import store
     if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
         raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
@@ -716,7 +726,7 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
     if first > datetime.now(timezone.utc).date():
         raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
     return store.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
-                              log=lambda line: print(line, file=sys.stderr, flush=True))
+                              symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
 def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str],
@@ -736,11 +746,8 @@ def market_coverage(market: dict, at: str | None, symbols: list[str] | None, sta
     if lifecycle_bundle is not None:
         if ledger is None:
             raise UsageError("--lifecycle-bundle needs --ledger")
-        conn = store.connect(market, "reader")
-        try:
+        with store.connect(market, "reader") as conn:
             commit = store.resolve_commit(conn, at)
-        finally:
-            conn.close()
         _, files = inputs.load_lifecycle(ledger_profile(ledger), lifecycle_bundle, commit,
                                          market=seams.current.market(market))
         lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
@@ -972,12 +979,17 @@ def _parser() -> Parser:
     command.add_argument("--run-id", required=True, type=int)
     command.add_argument("--output", required=True)
 
-    market = verbs("market", "market data: import, lifecycle, coverage")
+    market = verbs("market", "market data: init, import, lifecycle, coverage")
+    command = market.add_parser("init", help="create an empty market database and its profile")
+    command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
+    command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"))
+    command.add_argument("--service-root", required=True)
     command = market.add_parser("import", help="import one month as one market commit")
     _market_option(command)
     command.add_argument("--month", required=True)
     command.add_argument("--cache-root")
     command.add_argument("--workers", type=int, default=4)
+    command.add_argument("--symbols", nargs="+", help="engineering allowlist (isolated market databases only)")
     command = market.add_parser("lifecycle", help="write the lifecycle bundle of a market commit")
     _ledger_option(command)
     _market_option(command)
@@ -1010,8 +1022,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return ledger_temp(args.root), 0
     if key == ("candidate", "new"):
         return candidate_new(args.output, args.strategy_id, args.entry_class), 0
+    if key == ("market", "init"):
+        return market_init(args.name, args.kind, args.service_root), 0
     if key == ("market", "import"):
-        return market_import(market_profile(args.market), args.month, args.cache_root, args.workers), 0
+        return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0
@@ -1100,7 +1114,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse `<noun> <verb> [options] [-- runner arguments]`, run it, print one JSON result."""
-    from market import lifecycle as market_lifecycle_module, store
+    from market import store
     argv = list(sys.argv[1:] if argv is None else argv)
     runner_argv: list[str] = []
     if "--" in argv:
@@ -1116,7 +1130,7 @@ def main(argv: list[str] | None = None) -> int:
     except Refusal as exc:
         _print(sys.stderr, refusal_json(exc))
         return 1
-    except (store.MarketError, market_lifecycle_module.LifecycleInput) as exc:
+    except store.MarketError as exc:
         _print(sys.stderr, refusal_json(_market_refusal(exc)))
         return 1
     _print(sys.stdout, result)

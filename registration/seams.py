@@ -8,7 +8,6 @@ markets and qualification). Nothing here is reimplemented.
 from __future__ import annotations
 
 import argparse
-import calendar
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -119,61 +118,59 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
 
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
 
-class CurrentMarket:
-    """The market database (`market.store`, `market.export`) behind the registration interface.
-
-    Its ranked monthly pool stands in for universe_month.
-    """
+class Market:
+    """The market database behind the registration interface: each method one designed market
+    function, its refusals in the registration codes."""
 
     def __init__(self, profile: dict):
         self.profile = profile
         self.database = profile["database"]
 
-    def _read(self, statement: str, params=()):
-        from market import store
-        conn = store.connect(self.profile, "reader")
-        try:
-            return store.rows(conn, statement, params)
-        finally:
-            conn.close()
-
     def resolve_commit(self, at: str | None) -> str:
         from market import store
         try:
-            conn = store.connect(self.profile, "reader")
-        except store.MarketError as exc:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"the market database is not readable ({exc.code})",
-                         missing=(str(at),)) from exc
-        try:
-            return store.resolve_commit(conn, at)
+            with store.connect(self.profile, "reader") as conn:
+                return store.resolve_commit(conn, at)
         except store.MarketError as exc:
             raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
-        finally:
-            conn.close()
 
     def universe_rule(self, commit: str) -> str:
-        from market import universe
-        return universe.POOL_RULE
+        from market import store
+        with store.connect(self.profile, "reader") as conn:
+            (rule,), = conn.rows(f"SELECT universe_rule FROM market_schema AS OF '{ledger_db.check_ref(commit)}'")
+        return rule
 
     def universe_month(self, commit: str) -> list[tuple[str, str]]:
-        found = self._read(f"SELECT month, symbol FROM pool AS OF '{ledger_db.check_ref(commit)}' ORDER BY month, symbol")
+        from market import store, universe
+        with store.connect(self.profile, "reader") as conn:
+            found = universe.months_of(conn, ledger_db.check_ref(commit))
         return [(month.isoformat()[:7], symbol) for month, symbol in found]
 
     def membership_path(self, commit: str, window_end: int) -> dict:
-        return {"universe_rule": self.universe_rule(commit),
-                "membership": membership_from_months(self.universe_month(commit))}
+        from market import store, universe
+        try:
+            with store.connect(self.profile, "reader") as conn:
+                return universe.membership_path(conn, commit, window_end)
+        except store.MarketError as exc:
+            code = "UNIVERSE_EMPTY" if exc.code == "UNIVERSE_EMPTY_AT_COMMIT" else (
+                "MARKET_COMMIT_UNRESOLVED" if exc.code == "MARKET_COMMIT_UNRESOLVED" else None)
+            if code is None:
+                raise
+            raise refuse(code, exc.message, missing=exc.missing) from exc
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool) -> dict:
-        from market import export, lifecycle
+        from market import export, store
         try:
-            done = export.export(self.profile, at=commit, symbols=symbols, start=start_ns // 10**6,
-                                 end=end_ns // 10**6, fresh=fresh, episodes=episodes, lifecycle_files=lifecycle_files)
-        except lifecycle.LifecycleInput as exc:
-            raise refuse("LIFECYCLE_INPUT", str(exc).split(": ", 1)[1]) from exc
+            done = export.export_catalogs(self.profile, commit, symbols, start_ns, end_ns, episodes, lifecycle_files,
+                                          fresh)
+        except store.MarketError as exc:
+            if exc.code == "LIFECYCLE_INPUT":
+                raise refuse("LIFECYCLE_INPUT", exc.message) from exc
+            raise
         return {"commit": done["commit"], "root": Path(done["root"]), "exported": done["exported"],
-                "reused": done["reused"], "seconds": done["seconds"], "receipts": done["receipts"]}
+                "reused": done["cached"], "seconds": done["seconds"], "receipts": done["receipts"]}
 
     def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
         return validate_lifecycle(body, commit, files)
@@ -185,35 +182,11 @@ def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> d
     try:
         return lifecycle.validate_lifecycle(body, commit, files)
     except lifecycle.LifecycleInput as exc:
-        raise refuse("LIFECYCLE_INPUT", str(exc).split(": ", 1)[1]) from exc
+        raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
 
-def month_ns(month: str) -> int:
-    """UTC nanoseconds of the first instant of a YYYY-MM month."""
-    return calendar.timegm((int(month[:4]), int(month[5:7]), 1, 0, 0, 0)) * 10**9
-
-
-def next_month(month: str) -> str:
-    year, number = int(month[:4]), int(month[5:7])
-    return f"{year + number // 12}-{number % 12 + 1:02d}"
-
-
-def membership_from_months(rows: list[tuple[str, str]]) -> dict[str, list[list[int]]]:
-    """market.membership_path's merge: each member month is [month start, next month start); touching
-    intervals merge."""
-    paths: dict[str, list[list[int]]] = {}
-    for month, symbol in sorted(rows):
-        start, end = month_ns(month), month_ns(next_month(month))
-        intervals = paths.setdefault(symbol, [])
-        if intervals and intervals[-1][1] == start:
-            intervals[-1][1] = end
-        else:
-            intervals.append([start, end])
-    return paths
-
-
-def _market(profile) -> CurrentMarket:
-    return profile if hasattr(profile, "export_catalogs") else CurrentMarket(profile)
+def _market(profile) -> Market:
+    return profile if hasattr(profile, "export_catalogs") else Market(profile)
 
 
 # Qualification (qualification.require, qualification.assess); imported late: qualification reads
@@ -262,3 +235,8 @@ def use(**overrides) -> Iterator[Seams]:
 
 def month_of(moment: datetime | date) -> str:
     return f"{moment.year}-{moment.month:02d}"
+
+
+def next_month(month: str) -> str:
+    year, number = int(month[:4]), int(month[5:7])
+    return f"{year + number // 12}-{number % 12 + 1:02d}"

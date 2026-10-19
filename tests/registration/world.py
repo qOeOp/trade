@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from ledger import db, evidence, judgments, lines, strategies, trials
 from ledger.refusals import refuse
+from market import universe
 from registration import precheck, register, seams
 from tests.ledger.dolt import IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, market as line_market, sha, source
 
@@ -67,7 +68,8 @@ class FakeMarket:
         return list(self.commits[commit])
 
     def membership_path(self, commit, window_end):
-        return {"universe_rule": "pool-v1", "membership": seams.membership_from_months(self.commits[commit])}
+        return {"universe_rule": "pool-v1", "membership": universe.merge_months(
+            [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.commits[commit]])}
 
     def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh):
         self.exports += 1

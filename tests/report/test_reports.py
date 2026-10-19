@@ -27,7 +27,7 @@ CANDIDATE_RETURNS = [0.002, -0.001, 0.0015, -0.0005, 0.001]
 DAYS = [(date(2026, 1, 1) + timedelta(days=k)).isoformat() for k in range(31)]
 
 
-def market_returns(commit, universe_rule, start, end) -> dict:
+def market_returns(market_database, commit, universe_rule, start, end) -> dict:
     """A market stand-in: the basket and BTC daily returns over January 2026."""
     return {"days": list(DAYS), "basket": [0.01 * ((k % 4) - 1.5) for k in range(31)],
             "btc": [0.005 * ((k % 3) - 1) for k in range(31)], "members_per_day": [2] * 31}
