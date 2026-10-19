@@ -222,6 +222,39 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
     return len(rows)
 
 
+# The daily warm-up, derived while streaming
+
+DAILY_CHUNK = 20_000  # rows per streamed chunk: about two weeks of minutes
+
+
+def daily_bars(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int,
+               chunk: int = DAILY_CHUNK) -> dict[str, np.ndarray]:
+    """The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after
+    `low_ms` and close before `high_ms`, streamed in chunks: a chunk's last (possibly unfinished) day
+    carries into the next, so memory holds one chunk and the days, never the whole history."""
+    stop = end_ms if high_ms is None else min(end_ms, high_ms)
+    parts, carry = [], np.empty((0, 6), np.int64)
+    for rows in conn.stream(f"SELECT ts_open, open, high, low, close, volume FROM bar AS OF '{commit}' WHERE "
+                            "symbol = %s AND price_type = 'LAST' AND ts_open >= %s AND ts_open < %s ORDER BY ts_open",
+                            (symbol, low_ms, stop), size=chunk):
+        block = np.array(rows, dtype=np.int64)
+        if high_ms is not None:
+            block = block[block[:, 0] + MINUTE - 1 < high_ms]
+        block = np.concatenate([carry, block]) if len(carry) else block
+        if not len(block):
+            continue
+        days = block[:, 0] // DAY
+        cut = int(np.searchsorted(days, days[-1]))
+        if cut:
+            parts.append(series.derive_bars({name: block[:cut, i] for i, name in enumerate(COLUMNS)}, "1d"))
+        carry = block[cut:]
+    if len(carry):
+        parts.append(series.derive_bars({name: carry[:, i] for i, name in enumerate(COLUMNS)}, "1d"))
+    daily = {name: np.concatenate([part[name] for part in parts]) if parts else np.empty(0, np.int64)
+             for name in COLUMNS}
+    return _keep(daily, daily["ts_open"] + DAY <= end_ms)
+
+
 # market.export_episode
 
 def export_episode(job: dict) -> dict:
@@ -239,18 +272,20 @@ def export_episode(job: dict) -> dict:
         terms = instrument.terms(conn, commit, symbol)
         raw = {"last": coverage.read_bars(conn, commit, symbol, "LAST", start, end),
                "mark": coverage.read_bars(conn, commit, symbol, "MARK", start, end),
-               "daily_source": coverage.read_bars(conn, commit, symbol, "LAST", 0, start),
+               "daily_source": {name: np.empty(0, np.int64) for name in COLUMNS},  # streamed per piece below
                "funding": coverage.read_funding(conn, commit, symbol, start, end)}
         facts = coverage.coverage_facts(conn, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
+        split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
+        # Every complete UTC day before the window's end, inside the piece: a contract listed late starts
+        # once its warm-up holds.
+        dailies = [daily_bars(conn, commit, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
+                              piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
+                              else None, end) for piece in split]
     exchange = instrument.decimals(terms["price_increment"])
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
-    for piece in split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns):
+    for piece, daily in zip(split, dailies):
         last, mark = piece["last"], piece["mark"]
-        joined = {name: np.concatenate([piece["daily_source"][name], last[name]]) for name in COLUMNS}
-        daily = series.derive_bars(joined, "1d")
-        # Every complete UTC day before the window's end: a contract listed late starts once its warm-up holds.
-        daily = _keep(daily, daily["ts_open"] + DAY <= end)
         precision = max([exchange] + [needed_decimals(bars[name], price_scale) for bars in (last, daily)
                                       for name in ("open", "high", "low", "close")])
         made, record = instrument.build_instrument(symbol, terms, precision, piece["instrument_id"])
@@ -306,6 +341,19 @@ def default_cache() -> Path:
     return Path(tempfile.gettempdir()) / "trade-market-catalog"
 
 
+ROOT = Path(__file__).resolve().parents[1]
+# The exporter's implementation: the market modules an export runs and the dependency lock.
+EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
+                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py", "uv.lock")
+
+
+def exporter_sha256() -> str:
+    """The total hash of the exporter files, each file's SHA-256 sorted by path; part of the cache key."""
+    digests = {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in EXPORTER_FILES}
+    return hashlib.sha256(json.dumps(dict(sorted(digests.items())), sort_keys=True, separators=(",", ":"))
+                          .encode()).hexdigest()
+
+
 # market.export_catalogs
 
 def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
@@ -331,7 +379,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             Path(root).mkdir(parents=True, exist_ok=True)
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
-        key = f"{start_ns}-{end_ns}"
+        key = f"{start_ns}-{end_ns}-x{exporter_sha256()[:16]}"  # an exporter change never reuses an old export
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]

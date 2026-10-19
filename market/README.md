@@ -23,8 +23,9 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 `market init --name <name> --kind active|isolated|temporary --service-root <service>` (the
 administrator) creates the database (the name with `-` as `_`), its tables, an import account and a
 reader account, and the profile (`kind: market`, `role: <kind>`) in the profile directory. The import
-account may insert, call `dolt_commit` on `main` and update only `market_schema` (its import
-sequence); the reader only selects. The first `market import` on the empty database writes the
+account may insert, call `dolt_commit` on `main` and update `market_schema` only to step its import
+sequence by one (a trigger guards the other columns: Dolt 2.4.2 has no column grants); the reader
+only selects. The first `market import` on the empty database writes the
 `market_schema` row and the commit tests (`dolt_tests`, group `commit`); later imports only run them.
 Commands without `--market` use the active market profile.
 
@@ -35,7 +36,9 @@ Commands without `--market` use the active market profile.
   is a member of month M when it traded (a LAST minute with volume) on the day before M and its
   unbroken run of trading days up to that day is at least 30 days. Not ranked, no top N; a contract
   delisted later stays in the months it qualified for. The first imported month has no members (no
-  history before it is held).
+  history before it is held). A contract is classified by its earliest stored observation: later
+  terms rows (a delisting contract reported SETTLING without a contract type) are recorded and never
+  reclassify it.
 - **Bars.** Only 1-minute LAST and MARK of eligible contracts; prices are integers x 10^8, volumes
   x 10^4 (`market_schema`). Every other timeframe is derived at export (`series.derive_bars`).
 - **Sources, stitched invisibly.** Monthly archives, daily archives for months without one and for
@@ -51,14 +54,27 @@ uv run --frozen python -m cli.main market import --month 2026-09 [--symbols BTCU
 ```
 
 `market import --month` appends one UTC month (the current month through the last closed day) in
-one transaction and one commit: the stitched bars and funding, changed terms, and the universe of
-every month recomputed and compared with the stored months (`UNIVERSE_CHANGED`). Months import in
-order; a complete month is `MONTH_EXISTS`; the current month can be imported again for its new
-tail, and nothing new returns the stored commit. Archives are working copies under `--cache-root`.
+one transaction and one commit, holding the database's import lock (`GET_LOCK('market-import:<db>')`;
+a second import is `CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
+universe of that month. Stored months cannot change (bars are insert-only, months import in order),
+so only the imported month's universe is computed, from its 30-day look-back; importing the current
+month again must give its stored members (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`.
+The current month imported again is stitched whole: its stored part is reread from the sources and
+compared with the stored rows (bars field by field, funding settlement by settlement), any difference
+is `MONTH_EXISTS`, and only the tail after the stored last minute is appended; nothing new returns the
+stored commit. The commit tests run once, in `DOLT_COMMIT`; a failure is `DATA_TESTS_FAILED` naming
+the tests.
+
+Two sources' rows of one minute must agree at the stored scale (`1.50` and `1.5` agree). Funding is
+one settlement per slot: a funding time belongs to its nearest whole UTC hour (Binance settles at most
+hourly, with milliseconds of jitter), two sources in one slot must give one rate (the earlier source's
+time is kept), and one source with two settlements in a slot is `SOURCE_SHAPE`. An archive row outside
+its own month or day, or off the minute grid, is `SOURCE_SHAPE` before anything is trimmed. Archives are working copies under `--cache-root`.
 The derived daily bars of each contract are checked against the exchange's daily klines; findings
 are reported, nothing is changed.
 
-`--symbols` is an engineering allowlist for an isolated market database (refused on an active one):
+`--symbols` is an engineering allowlist, allowed only for a market database of role isolated or
+temporary:
 the universe is computed over those contracts only, every import of the database must give the same
 list, and the list is written in each commit message and reported by `freshness` (`scope`).
 
@@ -86,7 +102,11 @@ written at the precision their prices need (Binance mark prices carry 8 decimals
   import account sets `autocommit = 0` itself so that one import is one transaction.
 - A commit-test bound taken from each row is no index range on Dolt 2.4.2: a range on `ts_open`
   scanned each member's whole history (135 s at four months of 26 contracts, growing). The eve test
-  looks up the 1,440 minutes of every member's eve by full primary key instead (2 s for 433 members).
+  looks up the 1,440 eve minutes of the newest month's members by full primary key instead (earlier
+  months are immutable and were checked by their own commits).
+- The daily warm-up is derived while streaming 20,000-minute chunks (BTCUSDT, 934,560 minutes:
+  18.5 MB of growth instead of 145 MB for the whole history at once, the same 2.5 s). The export
+  cache key includes the exporter's source hash.
 - Exports stream through pymysql server-side cursors and write 250,000 rows per file.
 
 ## Tests

@@ -28,9 +28,6 @@ MEMBERSHIP = "membership.json"
 RECEIPT = "export.json"
 LIFECYCLE = "lifecycle.json"
 MINUTE = "1m"
-# The exporter's implementation: the market modules an export runs and the dependency lock.
-EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
-                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py", "uv.lock")
 
 
 def _canonical(value) -> bytes:
@@ -52,9 +49,9 @@ def _invalid(message: str, item: str) -> Refusal:
 
 
 def exporter_sha256() -> str:
-    """The total hash of the fixed exporter file list, each file's SHA-256 sorted by path."""
-    digests = {path: hashlib.sha256((db.REPOSITORY / path).read_bytes()).hexdigest() for path in EXPORTER_FILES}
-    return hashlib.sha256(_canonical(dict(sorted(digests.items())))).hexdigest()
+    """market.export's exporter hash: the market modules an export runs and the dependency lock."""
+    from market import export
+    return export.exporter_sha256()
 
 
 def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
