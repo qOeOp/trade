@@ -212,7 +212,9 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_runner_takes_no_strategy_parameter(self):
         # A variant is a new source revision; the runner cannot be configured into another strategy.
         for extra in (["--signal-variant", "x"], ["--exit-variant", "x"], ["--daily-warmup"],
-                      ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"]):
+                      ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"],
+                      # abbreviations of the options the replay entry writes itself
+                      ["--exec", "/x.json"], ["--strategy-bin", "/x.json"]):
             with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()) as errors:
                 with self.assertRaises(SystemExit):
                     self.configuration(extra)

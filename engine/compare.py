@@ -119,7 +119,7 @@ def report_fingerprint(directory: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--run", type=Path, required=True, help="the native report directory (read only)")
     parser.add_argument("--output", type=Path, required=True, help="the fingerprint JSON file to write")
     args = parser.parse_args(argv)

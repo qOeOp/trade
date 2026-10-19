@@ -504,7 +504,7 @@ def audit_main(run: Path, output: Path) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--run", type=Path, required=True,
                         help=f"the report directory (read only); its parent may hold {COVERAGE}")
     parser.add_argument("--output", type=Path, required=True)

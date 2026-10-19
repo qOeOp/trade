@@ -81,7 +81,7 @@ def ns(value: str) -> int:
 # Arguments
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--describe", action="store_true", help="print the runtime identity and resolved configuration")
     strategy = parser.add_argument_group("strategy reference")
     strategy.add_argument("--strategy-file", type=Path)
