@@ -162,13 +162,13 @@
 - <Ref id="R.2.1.2" />　统计类经 calculate_from_returns 算；组合收益为按 UTC 日期一日一值的 mark-to-market 权益变化
 - <Ref id="R.2.2.1" />　持仓估值价源顺序以标记价优先（use_mark_prices 默认开）
 
-<p id="ref-63" className="rd-ref-head"><b>[63]</b> [NautilusTrader — MarkPriceUpdate](https://nautilustrader.io/docs/latest/concepts/data/mark_price_update/)</p>
+<p id="ref-64" className="rd-ref-head"><b>[64]</b> [NautilusTrader — MarkPriceUpdate](https://nautilustrader.io/docs/latest/concepts/data/mark_price_update/)</p>
 
 - <Ref id="R.2.2.1" />　衍生品场所以标记价做保证金、强平检查与未实现盈亏
 
-<p id="ref-64" className="rd-ref-head"><b>[64]</b> [BCBS, Minimum capital requirements for market risk（d457, 2019）](https://www.bis.org/bcbs/publ/d457.htm)</p>
+<p id="ref-65" className="rd-ref-head"><b>[65]</b> [BCBS, Minimum capital requirements for market risk（d457, 2019）](https://www.bis.org/bcbs/publ/d457.htm)</p>
 
-- <Ref id="R.3.2.1" />　损益归因检验：模型解释的损益与实际损益逐日对照，解释不了的部分单独度量
+- <Ref id="R.3.2.1" />　FRTB 的损益归因检验（MAR32.34–32.42）：风险模型给出的损益与假设损益逐日比较，用 Spearman 相关与 Kolmogorov–Smirnov 检验判断是否对得上。这里只借用「模型解释的部分要和实际对上」的思路；利润来源桥是精确对账，不是这两项检验
 
 <p id="ref-72" className="rd-ref-head"><b>[72]</b> [OCI image-spec — descriptor：digest 以抗碰撞哈希唯一标识内容，取自不可信来源的内容应按 digest 校验](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
 
@@ -346,30 +346,30 @@
 
 - <Ref id="R.1.2.2" />　夏普估计量的标准误随样本长度收窄与年化换算
 
-<p id="ref-65" className="rd-ref-head"><b>[65]</b> [Brinson, Hood & Beebower 1986, Financial Analysts Journal](https://doi.org/10.2469/faj.v42.n4.39)</p>
+<p id="ref-63" className="rd-ref-head"><b>[63]</b> [Lo 2002, Financial Analysts Journal](https://doi.org/10.2469/faj.v58.n4.2453)</p>
 
-- <Ref id="R.3.2.1" />　把组合与基准的收益差拆成若干项，各项相加等于总差
+- <Ref id="R.2.1.2" />　夏普的标准误；收益有序列相关时按 √q 年化会偏，原文一个对冲基金例子高估达 65%。单运行报告并列给出按序列相关修正后的夏普
+
+<p id="ref-66" className="rd-ref-head"><b>[66]</b> [Brinson, Hood & Beebower 1986, Financial Analysts Journal](https://doi.org/10.2469/faj.v42.n4.39)</p>
+
+- <Ref id="R.3.2.1" />　借用：把组合与基准的收益差拆成若干项，各项相加等于总差（原文拆的是配置与选择，这里拆的是价格、费用、资金费与期末未平）
 - <Ref id="P.1.1.1" />　把组合与基准的收益差拆成若干项，各项相加等于总差
 
-<p id="ref-66" className="rd-ref-head"><b>[66]</b> [Perold 1988, The Journal of Portfolio Management](https://doi.org/10.3905/jpm.1988.409150)</p>
+<p id="ref-67" className="rd-ref-head"><b>[67]</b> [Perold 1988, The Journal of Portfolio Management](https://doi.org/10.3905/jpm.1988.409150)</p>
 
-- <Ref id="R.3.2.3" />　执行落差：纸面组合与实际执行的收益差，由显性费用、价格冲击与未成交机会成本组成
+- <Ref id="R.3.2.3" />　执行落差：纸面组合与实际执行的收益差，由显性费用、价格冲击与未成交机会成本组成。只支持「手续费只是执行成本的一部分」；盈亏平衡费率倍数是本产品的做法，不出自此文
 
-<p id="ref-67" className="rd-ref-head"><b>[67]</b> [Brinson & Fachler 1985, The Journal of Portfolio Management](https://doi.org/10.3905/jpm.1985.409005)</p>
+<p id="ref-68" className="rd-ref-head"><b>[68]</b> [Jensen 1968, The Journal of Finance](https://doi.org/10.1111/j.1540-6261.1968.tb00815.x)</p>
 
-- <Ref id="R.3.2.4" />　按类别拆分相对基准的超额收益，配置与选择分列
-
-<p id="ref-68" className="rd-ref-head"><b>[68]</b> [Treynor & Mazuy 1966, Harvard Business Review（重印于 Treynor on Institutional Investing, Wiley 2012）](https://doi.org/10.1002/9781119196679.ch11)</p>
-
-- <Ref id="R.3.2.5" />　收益对市场收益回归，截距与斜率分开读选择能力与市场暴露
+- <Ref id="R.3.2.5" />　收益对市场收益做线性回归，截距读作扣除市场暴露后的超额收益（Treynor & Mazuy 1966 的二次项择时检验不是这个切面的做法）
 
 <p id="ref-69" className="rd-ref-head"><b>[69]</b> [Dimson 1979, Journal of Financial Economics](https://doi.org/10.1016/0304-405X(79)90013-8)</p>
 
-- <Ref id="R.3.2.5" />　交易不频繁的资产价格反应滞后，回归加入滞后的市场收益，斜率取各项之和
+- <Ref id="R.3.2.5" />　交易不频繁的资产价格反应滞后：原文把当期、超前与滞后的市场收益一起回归、斜率取各项之和；这里只用一阶滞后，是简化，加密市场日频下一阶是否足够尚未检验
 
 <p id="ref-70" className="rd-ref-head"><b>[70]</b> [Newey & West 1987, Econometrica；滞后阶数按 Newey & West 1994, Review of Economic Studies](https://doi.org/10.2307/1913610)</p>
 
-- <Ref id="R.3.2.5" />　异方差与自相关稳健的标准误；1994 年给出按样本自动选滞后阶数的规则
+- <Ref id="R.3.2.5" />　异方差与自相关稳健的标准误；1994 年给出按样本自动选带宽的规则：先用 4(T/100)^(2/9) 作初值估出 γ̂，再取带宽 m=[γ̂·T^(1/3)]（Bartlett 核），初值本身不是滞后阶数
 
 <p id="ref-75" className="rd-ref-head"><b>[75]</b> [Künsch 1989, The Annals of Statistics](https://doi.org/10.1214/aos/1176347265)</p>
 
