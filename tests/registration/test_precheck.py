@@ -214,6 +214,11 @@ class PrecheckTests(unittest.TestCase):
             with self.subTest(trial_id=trial_id):
                 self.assertFalse(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), IDENTITY["image_ref"],
                                                           declared_config, declared_inputs))
+        # The registration's membership file holds its whole contract set, the precheck's a subset of it.
+        self.assertTrue(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
+                                                 {**declared_config, "universe_sha256": "f" * 64}, declared_inputs))
+        self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
+                                                  {**declared_config, "execution_bar_minutes": 5}, declared_inputs))
         other_account = comparability.config_key(config(account={"balance_usdt": "5000"}))
         self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
                                                   other_account, declared_inputs))

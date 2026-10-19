@@ -10,7 +10,7 @@ never make a run invalid. Nothing here writes.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import json
 
 from ledger import db, execution
@@ -19,7 +19,6 @@ from ledger.refusals import refuse
 
 FORMAT = "execution-input-coverage-v1"
 SUMMARY = "reports/summary.json"
-LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")
 
 
 def _instant(value):
@@ -30,33 +29,20 @@ def _instant(value):
         return None
 
 
-def _no_lifecycle(coverage: Mapping, summary: Mapping) -> tuple[dict, ...]:
-    """engine.lifecycle_events for inputs without a lifecycle bundle: every native count must be zero.
-
-    Seam: the engine package of a later phase replaces this (and builds events from a bundle).
-    """
-    seen, nonzero = set(), []
-    for coin in summary.get("per_coin") or ():
-        instrument = coin.get("instrument") if isinstance(coin, Mapping) else None
-        counts = (coin.get("counts") or {}) if isinstance(coin, Mapping) else {}
-        values = [counts.get(key, 0) for key in LIFECYCLE_COUNTS]
-        if instrument in seen or any(not isinstance(value, int) or value < 0 for value in values):
-            raise refuse("LIFECYCLE_NATIVE_COUNT_INVALID", f"the native lifecycle counts of {instrument} are not "
-                                                           "nonnegative integers of one instance",
-                         missing=(str(instrument),))
-        seen.add(instrument)
-        if any(values):
-            nonzero.append(str(instrument))
-    if (coverage.get("input_identity") or {}).get("lifecycle_bundle"):
-        raise NotImplementedError("lifecycle events from a lifecycle bundle arrive with the engine package")
-    if nonzero:
-        raise refuse("LIFECYCLE_BUNDLE_MISSING", "instruments with native lifecycle events but no lifecycle bundle: "
-                     + ", ".join(sorted(nonzero)), missing=tuple(sorted(nonzero)))
-    return ()
+LIFECYCLE_REFUSALS = ("LIFECYCLE_NATIVE_COUNT_INVALID", "LIFECYCLE_BUNDLE_MISSING", "LIFECYCLE_COVERAGE_MISMATCH",
+                      "LIFECYCLE_COUNT_MISMATCH", "LIFECYCLE_EVENT_INVALID", "LIFECYCLE_DUPLICATE_EVENT")
 
 
-# The engine's lifecycle check; replaced (not monkeypatched) when the engine package arrives.
-lifecycle_events: Callable[[Mapping, Mapping], tuple[dict, ...]] = _no_lifecycle
+def lifecycle_events(coverage: Mapping, summary: Mapping) -> tuple[dict, ...]:
+    """engine.lifecycle_events, the same implementation the auditor runs, its refusals as ledger refusals."""
+    from engine.config import Refusal as EngineRefusal
+    from engine.load import lifecycle_events as engine_lifecycle_events
+    try:
+        return engine_lifecycle_events(dict(coverage), dict(summary))
+    except EngineRefusal as exc:
+        if exc.code not in LIFECYCLE_REFUSALS:
+            raise
+        raise refuse(exc.code, str(exc).split(": ", 1)[1]) from exc
 
 
 def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) -> tuple[dict, ...]:

@@ -16,6 +16,9 @@ from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
 
+import dataclasses
+
+from engine.config import Refusal
 from engine.load import RUNTIME_CONTRACT, load_strategy
 from engine.report import diagnostics, runtime_source_metadata
 from engine import run
@@ -84,22 +87,22 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_hash_rejection_happens_before_source_execution(self):
         marker = self.root / "executed"
         self.source.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
-        with self.assertRaisesRegex(ValueError, "SHA-256 differs"):
+        with self.assertRaisesRegex(Refusal, "^CONTENT_HASH_MISMATCH: .*SHA-256 differs"):
             self.load()
         self.assertFalse(marker.exists())
 
     def test_reject_invalid_digest_and_entry_class(self):
         for digest in ("0" * 63, "A" * 64, "../source", None):
-            with self.subTest(digest=digest), self.assertRaises(ValueError):
+            with self.subTest(digest=digest), self.assertRaisesRegex(Refusal, "^CONTENT_HASH_INVALID: "):
                 self.load(digest=digest)
-        with self.assertRaisesRegex(ValueError, "one Python class"):
+        with self.assertRaisesRegex(Refusal, "^ENTRY_CLASS_INVALID: .*one Python class"):
             self.load(entry_class="module.Class")
 
     def test_reject_source_symlink_and_directory(self):
         alias = self.root / "alias.py"
         alias.symlink_to(self.source)
         for path in (alias, self.root):
-            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "regular file"):
+            with self.subTest(path=path), self.assertRaisesRegex(Refusal, "^SOURCE_UNREADABLE: .*regular file"):
                 self.load(path=path)
 
     def test_reject_binding_mismatches_before_source_execution(self):
@@ -107,12 +110,12 @@ class StrategyLoaderTests(unittest.TestCase):
             ("source_sha256", "0" * 64), ("entry_class", "OtherStrategy"),
             ("runtime_contract", "other"), ("revision", True), ("database", ""),
         ):
-            with self.subTest(field=field), self.assertRaises(ValueError):
+            with self.subTest(field=field), self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: "):
                 broken = {**self.binding, field: value}
                 self.binding_path.write_text(json.dumps(broken))
                 self.load(binding_path=self.binding_path)
         self.binding_path.write_text(json.dumps({**self.binding, "unexpected": 1}))
-        with self.assertRaisesRegex(ValueError, "exact Dolt revision"):
+        with self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: .*exact Dolt revision"):
             self.load(binding_path=self.binding_path)
 
     def test_entry_class_must_be_native_and_defined_in_source(self):
@@ -122,8 +125,11 @@ class StrategyLoaderTests(unittest.TestCase):
         ):
             self.source.write_text(source)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
-            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "native Strategy"):
+            with self.subTest(source=source), self.assertRaisesRegex(Refusal, "^ENTRY_CLASS_INVALID: .*native Strategy"):
                 self.load(digest=digest)
+        self.source.write_text("raise KeyError('boom')\n")
+        with self.assertRaisesRegex(Refusal, "^SOURCE_EXECUTION_FAILED: KeyError"):
+            self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
         loaded = self.load(binding_path=self.binding_path)
@@ -134,9 +140,14 @@ class StrategyLoaderTests(unittest.TestCase):
         for field, path in metadata["source_file_paths"].items():
             self.assertEqual(metadata[field], hashlib.sha256((repo / path).read_bytes()).hexdigest())
 
+    def universe(self) -> Path:
+        path = self.root / "membership.json"
+        path.write_text('{"membership": {"BTCUSDT": [[0, 1]]}}')
+        return path
+
     def configuration(self, extra=None):
         argv = [
-            "--market-root", "/inputs/market", "--market-commit", "c" * 32, "--pool", "/inputs/pool.json",
+            "--market-root", "/inputs/market", "--market-commit", "c" * 32, "--universe", str(self.universe()),
             "--symbols", "BTCUSDT", "ETHUSDT",
             "--start", "2025-10-07T00:00:00Z", "--end", "2026-10-07T08:30:00Z",
             "--output", "/reports", "--strategy-file", str(self.source),
@@ -146,29 +157,45 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_execution_binding_checks_resolved_defaults_and_complete_config(self):
         args = self.configuration()
-        effective = effective_configuration(args)
-        self.assertEqual(effective["trade_start"], args.start)
+        resolved = effective_configuration(args)
+        effective = resolved.values
+        self.assertEqual(effective["trade_start"], args.window.start)
         self.assertNotIn("risk_budget_bps", effective)
         self.assertNotIn("coin_notional_cap_pct", effective)
-        self.assertEqual(set(effective), {"runtime_contract", "market_root", "market_commit", "pool", "symbols",
-                                          "start", "end", "trade_start", "account"})
+        self.assertEqual(set(effective), {"runtime_contract", "execution_bar_minutes", "market_root", "market_commit",
+                                          "universe_path", "universe_sha256", "symbols", "start", "end",
+                                          "trade_start", "account"})
+        self.assertEqual((effective["execution_bar_minutes"], effective["universe_sha256"]),
+                         (1, hashlib.sha256(self.universe().read_bytes()).hexdigest()))
         self.assertEqual(effective["account"]["starting_balance_usdt"], "100000")
+        # Host locations are not part of the digest; the universe file's bytes are.
+        moved = dataclasses.replace(args, market_root=Path("/elsewhere"), universe_path=self.universe().rename(
+            self.root / "moved.json"))
+        self.assertEqual(effective_configuration(moved).digest, resolved.digest)
+        (self.root / "moved.json").write_text('{"membership": {}}')
+        self.assertNotEqual(effective_configuration(moved).digest, resolved.digest)
+        missing = dataclasses.replace(args, universe_path=self.root / "absent.json")
+        with self.assertRaises(Refusal) as caught:
+            effective_configuration(missing)
+        self.assertEqual(caught.exception.code, "UNIVERSE_FILE_UNREADABLE")
+        self.universe()
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
             "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/arm64", "runtime_contract": RUNTIME_CONTRACT,
         }
         digest = hashlib.sha256(json.dumps(
-            effective, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
+            {key: value for key, value in effective.items() if key not in ("market_root", "universe_path")},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
         ).encode()).hexdigest()
+        self.assertEqual(digest, resolved.digest)
         execution = self.root / "execution.json"
         binding = {
             "runtime_identity": identity, "effective_config": effective,
             "effective_config_sha256": digest,
         }
         execution.write_text(json.dumps(binding))
-        args.execution_binding = execution
+        args = dataclasses.replace(args, execution_binding=execution)
         self.assertEqual(execution_metadata(args), {
             "runtime_identity": identity, "effective_config_sha256": digest,
         })
@@ -181,25 +208,25 @@ class StrategyLoaderTests(unittest.TestCase):
         execution.write_text(json.dumps({
             **binding, "effective_config": changed, "effective_config_sha256": changed_digest,
         }))
-        with self.assertRaisesRegex(ValueError, "actual resolved runner"):
+        with self.assertRaisesRegex(Refusal, "EXECUTION_BINDING_MISMATCH: .*resolved runner"):
             execution_metadata(args)
         execution.write_text(json.dumps({
             **binding, "runtime_identity": {**identity, "runtime_contract": "other"},
         }))
-        with self.assertRaisesRegex(ValueError, "runtime contract"):
+        with self.assertRaisesRegex(Refusal, "EXECUTION_BINDING_MISMATCH: .*runtime contract"):
             execution_metadata(args)
 
     def test_missing_hooks_or_invalid_warmup_declaration_are_refused_before_inputs_load(self):
-        for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "replay_integrity_findings"),
+        for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "^HOOK_MISSING: .*replay_integrity_findings"),
                               ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "^DECLARATION_NOT_BOOL: .*DAILY_WARMUP"),
                               ("    DAILY_WARMUP = 1\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
                               ("    USES_STOP_LOSS = 0\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "USES_STOP_LOSS")):
             self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
-            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+            with self.subTest(message=message), self.assertRaisesRegex(Refusal, message):
                 self.load(digest=digest)
 
     def test_stop_loss_declaration_reaches_the_summary_identity(self):
@@ -215,16 +242,15 @@ class StrategyLoaderTests(unittest.TestCase):
                       ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"],
                       # abbreviations of the options the replay entry writes itself
                       ["--exec", "/x.json"], ["--strategy-bin", "/x.json"]):
-            with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()) as errors:
-                with self.assertRaises(SystemExit):
-                    self.configuration(extra)
-                self.assertIn("unrecognized arguments", errors.getvalue())
+            with self.subTest(extra=extra), self.assertRaises(Refusal) as caught:
+                self.configuration(extra)
+            self.assertEqual(caught.exception.code, "UNKNOWN_OPTION")
 
     def test_diagnostics_cannot_replace_native_facts(self):
         class InvalidDiagnostics:
             def replay_diagnostics(self):
                 return {"positions": 0}
-        with self.assertRaisesRegex(ValueError, "native report facts"):
+        with self.assertRaisesRegex(Refusal, "^DIAGNOSTICS_RESERVED_KEY: .*native report facts"):
             diagnostics(InvalidDiagnostics())
 
     def test_pinned_native_node_importable_bridge(self):
@@ -232,7 +258,7 @@ class StrategyLoaderTests(unittest.TestCase):
         path = importable_strategy(loaded)
         config = StrategyInputs(
             instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
-            catalog_path="/unused", pool_membership=[[100, 200]],
+            catalog_path="/unused", universe_membership=[[100, 200]],
         )
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
@@ -250,11 +276,11 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertIsInstance(strategy, loaded.strategy_class)
         self.assertEqual(strategy.received[0], InstrumentId.from_str(config.instrument_id))
         self.assertEqual(strategy.received[3]["historical_daily_bars"], [])
-        self.assertEqual(strategy.received[3]["execution_bar_minutes"], 5)
+        self.assertEqual(strategy.received[3]["execution_bar_minutes"], 1)
         self.assertNotIn("risk_budget_fraction", strategy.received[3])
         self.assertNotIn("max_coin_notional_fraction", strategy.received[3])
         self.assertNotIn("signal_variant", strategy.received[3])
-        self.assertEqual(strategy.received[3]["pool_membership"], ((100, 200),))
+        self.assertEqual(strategy.received[3]["universe_membership"], ((100, 200),))
         self.assertEqual(str(strategy.config.strategy_id), "R1-BTC")
 
     def test_native_bridge_loads_daily_warmup_the_source_declares(self):
@@ -265,7 +291,7 @@ class StrategyLoaderTests(unittest.TestCase):
         wrapper = getattr(importlib.import_module(module_name), class_name)
         config = StrategyInputs(
             instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
-            catalog_path="/inputs/market/BTCUSDT", pool_membership=[],
+            catalog_path="/inputs/market/BTCUSDT", universe_membership=[],
         )
         with patch("engine.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
             strategy = wrapper(config)
@@ -285,7 +311,7 @@ class StrategyLoaderTests(unittest.TestCase):
         ))
         self.addCleanup(engine.dispose)
         config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
-                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "pool_membership": []}
+                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable_strategy(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "boom"):

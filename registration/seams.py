@@ -5,7 +5,7 @@ market reads and export, and economic-evidence qualification.
 (`research/records/runtime.py`, `market/{store,export,universe}.py`) and the qualification
 package; the runtime, engine and market packages of later phases replace them here without touching
 the registration modules. Tests swap them with `use(...)`. Nothing here is reimplemented: where no
-current code exists (lifecycle validation), the default refuses.
+current code exists, the default refuses.
 """
 
 from __future__ import annotations
@@ -43,8 +43,10 @@ def _resolve_runtime(reference: str | None) -> dict:
 # market options itself and mounts the inputs at fixed container paths, so registration and every
 # replay probe the same effective configuration (no host path enters it).
 RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding",
-                           "--execution-binding", "--output", "--describe", "--market-root", "--market-commit", "--pool")
-ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")  # read by the entry, not passed to the runner
+                           "--execution-binding", "--output", "--describe", "--market-root", "--market-commit")
+# Read by the entry, not passed to the runner as given: `--universe pool` selects the universe (the entry
+# then passes the runner `--universe` with the membership file it wrote), `--symbols` the contracts.
+ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")
 MARKET_ROOT, MEMBERSHIP = "/inputs/market", "/inputs/membership.json"
 
 
@@ -69,7 +71,8 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
         skipping = False
         argv.append(value)
     symbols = list(inputs.get("symbols") or (inputs.get("identity") or {}).get("symbols") or ())
-    argv += ["--market-root", MARKET_ROOT, "--market-commit", inputs["identity"]["market_commit"], "--pool", MEMBERSHIP]
+    argv += ["--market-root", MARKET_ROOT, "--market-commit", inputs["identity"]["market_commit"],
+             "--universe", MEMBERSHIP]
     if symbols:
         argv += ["--symbols", *symbols]
     return argv, [(Path(inputs["root"]), MARKET_ROOT, True), (Path(inputs["membership_file"]), MEMBERSHIP, True)]
@@ -79,9 +82,11 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     """The probe report for the container arguments of these inputs."""
     from research.records import runtime
     from research.records.common import RecordError
-    argv, _ = container_runner_args(list(runner_argv), inputs)
+    argv, mounts = container_runner_args(list(runner_argv), inputs)
+    membership = [mount for mount in mounts if mount[1] == MEMBERSHIP]  # its bytes enter the configuration
     try:
-        inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
+        inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv,
+                                             membership)
     except RecordError as exc:
         raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
     return inspection
@@ -135,7 +140,7 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
 class CurrentMarket:
     """The market database of today's `market` code behind the registration interface.
 
-    Its ranked monthly pool stands in for universe_month; lifecycle validation has no current code.
+    Its ranked monthly pool stands in for universe_month.
     """
 
     def __init__(self, profile: dict):
@@ -176,16 +181,26 @@ class CurrentMarket:
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool) -> dict:
-        from market import export
-        if lifecycle_files:
-            raise refuse("LIFECYCLE_INPUT", "the current market export cannot carry lifecycle evidence")
-        done = export.export(self.profile, at=commit, symbols=symbols, start=start_ns // 10**6, end=end_ns // 10**6,
-                             timeframe="1m", fresh=fresh)
+        from market import export, lifecycle
+        try:
+            done = export.export(self.profile, at=commit, symbols=symbols, start=start_ns // 10**6,
+                                 end=end_ns // 10**6, fresh=fresh, episodes=episodes, lifecycle_files=lifecycle_files)
+        except lifecycle.LifecycleInput as exc:
+            raise refuse("LIFECYCLE_INPUT", str(exc).split(": ", 1)[1]) from exc
         return {"commit": done["commit"], "root": Path(done["root"]), "exported": done["exported"],
                 "reused": done["reused"], "seconds": done["seconds"], "receipts": done["receipts"]}
 
     def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
-        raise refuse("LIFECYCLE_INPUT", "lifecycle validation arrives with the market package")
+        return validate_lifecycle(body, commit, files)
+
+
+def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
+    """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""
+    from market import lifecycle
+    try:
+        return lifecycle.validate_lifecycle(body, commit, files)
+    except lifecycle.LifecycleInput as exc:
+        raise refuse("LIFECYCLE_INPUT", str(exc).split(": ", 1)[1]) from exc
 
 
 def month_ns(month: str) -> int:

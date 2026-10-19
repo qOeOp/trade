@@ -8,7 +8,6 @@ import hashlib
 import io
 import json
 import math
-from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -19,6 +18,7 @@ from nautilus_trader.model import Venue
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EXECUTION_BAR_MINUTES = 1  # engine.config.EXECUTION_BAR_MINUTES (that module imports this one)
 RUNTIME_SOURCE_PATHS = {
     "config_source_sha256": "engine/config.py",
     "runner_source_sha256": "engine/run.py",
@@ -28,7 +28,14 @@ RUNTIME_SOURCE_PATHS = {
 }
 AUDIT_PATH = "engine/audit.py"
 EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl")
+EXPOSURES = "exposures.csv.gz"
 ORDER_EVENTS = "order_events.jsonl.gz"
+LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")
+
+
+def _refusal(code: str, message: str):
+    from engine.config import Refusal  # engine.config imports this module
+    return Refusal(code, message)
 
 
 def runtime_source_metadata() -> dict:
@@ -54,10 +61,10 @@ def json_safe(value):
 
 def snapshot_equity_usdt(snapshot) -> Decimal:
     if snapshot is None or snapshot.is_stale or snapshot.unpriced_instruments:
-        raise RuntimeError("native portfolio equity snapshot is missing or stale")
+        raise _refusal("EQUITY_SNAPSHOT_UNAVAILABLE", "native portfolio equity snapshot is missing or stale")
     equity = snapshot.base_currency_equity
     if equity is None or equity.currency.code != "USDT":
-        raise RuntimeError("native portfolio snapshot lacks USDT base equity")
+        raise _refusal("EQUITY_SNAPSHOT_UNAVAILABLE", "native portfolio snapshot lacks USDT base equity")
     return equity.as_decimal()
 
 
@@ -68,10 +75,10 @@ def orders_with_native_deadlines(cache, report):
     for order_id in report.index:
         order = cache.order(ClientOrderId.from_str(str(order_id)))
         if order is None:
-            raise RuntimeError("native order missing during GTD deadline export")
+            raise _refusal("GTD_DEADLINE_MISSING", f"native order {order_id} missing during GTD deadline export")
         deadline = getattr(order, "expire_time", None)
         if str(order.time_in_force) == "GTD" and deadline is None:
-            raise RuntimeError("native GTD order has no deadline")
+            raise _refusal("GTD_DEADLINE_MISSING", f"native GTD order {order_id} has no deadline")
         deadlines.append(str(deadline) if deadline is not None else "")
     result["expire_time_ns"] = deadlines
     return result
@@ -84,13 +91,32 @@ def readable_empty_report(report, columns):
     return report.reindex(columns=list(dict.fromkeys([*report.columns, *columns])))
 
 
+class ExposureWriter:
+    """The exposure table as gzip CSV with a fixed header time, written row by row as the observer values."""
+
+    def __init__(self, path: Path):
+        self._raw = path.open("wb")
+        self._packed = gzip.GzipFile(filename="", mode="wb", fileobj=self._raw, mtime=0)
+        self._text = io.TextIOWrapper(self._packed, encoding="utf-8", newline="")
+        self._writer = csv.writer(self._text)
+        self._writer.writerow(EXPOSURE_COLUMNS)
+
+    def write(self, row) -> None:
+        self._writer.writerow(row)
+
+    def close(self) -> None:
+        if not self._raw.closed:
+            self._text.close()
+            self._packed.close()
+            self._raw.close()
+
+
 def write_exposures(rows, path: Path) -> None:
-    """Write the observed open-position valuations as gzip CSV with a fixed header time."""
-    with path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as packed, \
-            io.TextIOWrapper(packed, encoding="utf-8", newline="") as text:
-        writer = csv.writer(text)
-        writer.writerow(EXPOSURE_COLUMNS)
-        writer.writerows(rows)
+    """Write open-position valuations as gzip CSV with a fixed header time (the bytes ExposureWriter writes)."""
+    writer = ExposureWriter(path)
+    for row in rows:
+        writer.write(row)
+    writer.close()
 
 
 def write_order_events(orders, path: Path) -> None:
@@ -111,32 +137,44 @@ def capital_findings(observer, expected_timestamps: int) -> list[str]:
     """The observation valued every input timestamp and every open position in it."""
     findings = list(dict.fromkeys(observer.findings))
     if observer.timestamps != expected_timestamps:
-        findings.append(f"capital observation valued {observer.timestamps} of {expected_timestamps} input timestamps")
+        findings.append(f"CAPITAL_TIMESTAMP_COUNT_MISMATCH: capital observation valued {observer.timestamps} of "
+                        f"{expected_timestamps} input timestamps")
     return findings
 
 
+RESERVED_DIAGNOSTICS = {"coin", "instrument", "quantity", "counts", "positions"}
+
+
 def diagnostics(strategy) -> dict:
+    """engine.diagnostics: the source's own counters, kept apart from the native report facts."""
     value = strategy.replay_diagnostics()
-    reserved = {"coin", "instrument", "quantity", "counts", "positions"}
-    if not isinstance(value, dict) or reserved.intersection(value):
-        raise ValueError("strategy diagnostics must not replace native report facts")
+    if not isinstance(value, dict):
+        raise _refusal("DIAGNOSTICS_NOT_DICT", f"strategy diagnostics are a {type(value).__name__}, not a dict")
+    if RESERVED_DIAGNOSTICS.intersection(value):
+        raise _refusal("DIAGNOSTICS_RESERVED_KEY", "strategy diagnostics must not replace native report facts: "
+                       + ", ".join(sorted(RESERVED_DIAGNOSTICS.intersection(value))))
+    try:
+        json.dumps(value, allow_nan=True)
+    except (TypeError, ValueError) as exc:
+        raise _refusal("DIAGNOSTICS_NOT_JSON", f"strategy diagnostics are not JSON: {exc}") from exc
     return value
 
 
-def write(output: Path, replay, strategies: dict, rows: list[dict], identity: dict, window: dict,
-          account: dict, expected_timestamps: int) -> tuple[dict, list[str]]:
+def write(output: Path, replay, strategies: dict, rows: list[dict], identity: dict, window,
+          account: dict, expected_timestamps: int, limitations: list[str] = ()) -> tuple[dict, list[str]]:
     """Write the native reports and summary; return the summary and its integrity findings.
 
-    ``replay`` exposes the Node's reports, cache, portfolio, result and capital observer;
-    ``identity`` is the strategy and runtime identity the summary carries.
+    ``replay`` exposes the engine's reports, cache, portfolio, result and capital observer (which
+    already wrote the exposure table); ``identity`` is the strategy and runtime identity the summary
+    carries; ``window`` is engine.config.Window. A contract whose lifecycle misses the window has no
+    strategy instance (None).
     """
-    trade_start_dt, end_dt = window["trade_start_dt"], window["end_dt"]
-    trade_start = window["trade_start_ns"]
+    trade_start = window.trade_start_ns
     starting_balance = Decimal(account["starting_balance_usdt"])
     integrity_findings = []
     native_account = replay.portfolio.account(venue=Venue(account["venue"]))
     if native_account is None:
-        raise RuntimeError("native portfolio account missing")
+        raise _refusal("NATIVE_ACCOUNT_MISSING", "native portfolio account missing")
     final_equity = snapshot_equity_usdt(replay.portfolio.build_snapshot(native_account.id))
     result = replay.result
     output.mkdir(parents=True, exist_ok=True)
@@ -164,15 +202,17 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
     orders = reports["orders.csv"]
     denied_or_rejected = bool(orders["status"].isin(("DENIED", "REJECTED")).any())
     for native_strategy in strategies.values():
+        if native_strategy is None:
+            continue
         findings = native_strategy.replay_integrity_findings(denied_or_rejected)
         if not isinstance(findings, list) or any(not isinstance(item, str) or not item for item in findings):
-            raise ValueError("strategy integrity findings must be nonempty strings")
+            raise _refusal("SELF_CHECK_FINDINGS_INVALID", "strategy integrity findings must be nonempty strings")
         for finding in findings:
-            if finding not in integrity_findings:
-                integrity_findings.append(finding)
-    if denied_or_rejected and not integrity_findings:
-        integrity_findings.append("native orders were denied or rejected")
-    write_exposures(replay.observer.rows, output / "exposures.csv.gz")
+            coded = f"SELF_CHECK_FINDING: {finding}"
+            if coded not in integrity_findings:
+                integrity_findings.append(coded)
+    if denied_or_rejected:
+        integrity_findings.insert(0, "ORDERS_DENIED_OR_REJECTED: the orders report holds DENIED or REJECTED orders")
     write_order_events(replay.cache.orders(), output / ORDER_EVENTS)
     for finding in capital_findings(replay.observer, expected_timestamps):
         if finding not in integrity_findings:
@@ -182,7 +222,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
     )
     wins = int((pnl > 0).sum())
-    duration_days = Decimal(str((end_dt - trade_start_dt) / timedelta(days=1)))
+    duration_days = Decimal(window.end_ns - window.trade_start_ns) / Decimal(86_400 * 10**9)
     eligible_returns = {
         ts: value for ts, value in result.returns_series.items() if ts >= trade_start
     }
@@ -190,7 +230,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         **identity,
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
-        "account_model": f"one native BacktestNode margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
+        "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
         "starting_balance_usdt": account["starting_balance_usdt"],
         "native_risk_submit_rate": account["max_order_submit_rate"],
         "sizing": {"mode": "strategy_source"},
@@ -216,26 +256,35 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
             eligible_returns,
         ),
-        "data_interval_minutes": 5,
-        "input_start_utc": window["start"],
-        "period_start_utc": trade_start_dt.isoformat(),
-        "period_end_utc": window["end"],
+        "data_interval_minutes": EXECUTION_BAR_MINUTES,  # the execution bar, under the name the ledger reads
+        "input_start_utc": window.start,
+        "period_start_utc": window.trade_start,
+        "period_end_utc": window.end,
         "per_coin": [
             {
                 "coin": row["coin"],
                 "instrument": str(row["instrument_id"]),
-                "counts": row["counts"],
-                **diagnostics(strategies[row["coin"]]),
+                "counts": {**{key: value for key, value in row["counts"].items() if key not in LIFECYCLE_COUNTS},
+                           **replay.observer.lifecycle.get(str(row["instrument_id"]), {})},
+                **(diagnostics(strategies[row["coin"]]) if strategies[row["coin"]] is not None else {}),
                 "positions": sum(positions["instrument_id"] == str(row["instrument_id"])),
             }
             for row in rows
         ],
         "limitations": [
-            "Five-minute execution bars cannot resolve every intrabar order sequence",
-            "Current contract terms approximate historical metadata",
-            "Contracts are the ones passed in; pool membership is an input the strategy applies, not a runner rule",
-            "Open-position valuation is sampled after each five-minute bar close; intrabar exposure and drawdown are not observed",
+            "One-minute execution bars cannot resolve every intrabar order sequence; a touch fills, in a fixed "
+            "open-high-low-close order, and stops trigger on the bar's traded prices",
+            "Current contract terms approximate historical metadata; fees and margins are assumed values",
+            "Contracts are the ones passed in; universe membership is an input the strategy applies, not a runner rule",
+            "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
+            "not observed",
+            "Liquidation is not modelled",
+            *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
+               f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
+              if getattr(replay.observer, "carried", None) else []),
+            *dict.fromkeys(limitations),
         ],
+        "mark_carry": list(getattr(replay.observer, "carried", None) or []),
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)
     (output / "summary.json").write_text(payload + "\n")

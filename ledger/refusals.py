@@ -221,6 +221,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                        ("Report the runner defect; the run cannot be stored.",)),
     "LIFECYCLE_BUNDLE_MISSING": ("The native summary has lifecycle events but the inputs name no lifecycle bundle.",
                                  ("Replay with the lifecycle bundle of the market commit (`--lifecycle-bundle`).",)),
+    "LIFECYCLE_COVERAGE_MISMATCH": ("The coverage receipt's format, input window or market commit differs from the "
+                                    "native summary's.",
+                                    ("Replay with the inputs the receipt names; report the runner if it read others.",)),
+    "LIFECYCLE_COUNT_MISMATCH": ("The export receipts' lifecycle counts, their episodes and the native counts disagree.",
+                                 ("Export the inputs again with the lifecycle bundle; report the runner if the "
+                                  "engine delivered other events.",)),
+    "LIFECYCLE_EVENT_INVALID": ("A lifecycle event of an exported episode is not a native event, has inconsistent "
+                                "clocks or an invalid close.",
+                                ("Write a corrected lifecycle bundle for the market commit; never edit an export.",)),
+    "LIFECYCLE_DUPLICATE_EVENT": ("A termination of one type, instance and time appears twice in the episodes.",
+                                  ("Write a corrected lifecycle bundle for the market commit.",)),
     # Runs (ledger/trials.py, ledger/metrics.py)
     "TRIAL_PURPOSE_INVALID": ("Only research and validation trials become runs; explorations and prechecks stay "
                               "working copies.",

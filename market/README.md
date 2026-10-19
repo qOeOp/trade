@@ -2,9 +2,8 @@
 
 Binance USD-M perpetual market data, from public sources only, in its own Dolt database on the
 research ledger's service. A replay cites one commit of it; `export` turns that commit into the
-Nautilus Catalogs the runner reads. Design and measurements: [WS8a](../docs/plans/market-data-dolt-measurement.zh.md),
-[field review](../docs/plans/ws8b-market-data-field-review.zh.md),
-[WS8b acceptance](../docs/plans/ws8b-market-data-acceptance.zh.md).
+Nautilus Catalogs the runner reads. The design is the site's market-data code page
+(`docs/rd/design-code-market.zh.mdx`); the decisions and measurements it rests on are below.
 
 | Module | Holds |
 |---|---|
@@ -12,7 +11,8 @@ Nautilus Catalogs the runner reads. Design and measurements: [WS8a](../docs/plan
 | `binance.py` | data.binance.vision listings and archives (each checked against its `.CHECKSUM`), public REST, exchangeInfo; no account or key |
 | `universe.py` | which contracts are eligible, their daily quote volume, and the pool rule |
 | `store.py` | the import (one commit per run, resumable), exact scaling, freshness and pool reads |
-| `export.py` | the derivation of every timeframe from 1-minute bars and the per-contract Catalog export, with its cache |
+| `export.py` | the per-contract Catalog export of 1-minute bars (and the daily warm-up derived from them), with its cache |
+| `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native status and close events written into a Catalog |
 | `cli.py` | `import`, `status`, `pool` |
 
 ## The database
@@ -66,13 +66,46 @@ working set: a new import refuses until `--resume`, which continues from them an
 
 ## Export
 
-`research.records.artifacts run` exports for every replay: the market commit (`--market`, default
-`main`) for the replay window, one Catalog per contract with 5-minute LAST bars, MARK price updates,
-funding updates and the daily LAST bars before the window. An exploration reuses the cache under the
-temp directory (`trade-market-catalog/<commit>/<window>/`, complete when `export.json` exists); a
-sealed run exports afresh into a directory of its own. The derivation (WS8a section 3): open, high
-and low over traded minutes only (all minutes when none traded), close the last minute's, volume
-the sum; weeks start Monday 00:00 UTC.
+The replay entry exports for every replay the pinned market commit for the replay window: one
+Catalog per contract with the stored 1-minute LAST bars, one MARK price update per 1-minute MARK
+bar, funding updates and the daily LAST bars before the window, and `export.json` (timeframe `1m`,
+counts, terms, assumptions) written last. An exploration reuses the cache under the temp directory
+(`trade-market-catalog/<commit>/<window>[-l<evidence>]/`, complete when `export.json` exists); a
+sealed run exports afresh into a directory of its own. Derived daily bars: open, high and low over
+traded minutes only (all minutes when none traded), close the last minute's, volume the sum.
+
+With a lifecycle bundle (`lifecycle-<commit>` in the research ledger: `lifecycle.json` and the
+exchange notices it cites), each listed contract's episode bounds its export (minutes that open at
+or after the listing and close before the termination, funding settled inside it), its window
+events are written in the engine's Arrow layout (`data/instrument_status/`,
+`data/instrument_closes/`) and the receipt carries the episode; the bundle's files are copied under
+`lifecycle-evidence/`. An episode lists native `InstrumentStatus` events (PRE_CLOSE: no new
+positions; CLOSE: the market closes) and, only when the exchange published a settlement price, an
+`InstrumentClose` of type CONTRACT_EXPIRED on the contract's price grid, with a CLOSE status at or
+before it. One episode per contract
+is supported; a reused ticker (several episodes) is refused.
+
+## Decisions and measurements
+
+- Only 1-minute LAST and MARK are stored; every other timeframe would be a second copy that can
+  disagree. Fees, margins, instrument IDs, MARK precision (8 places), 30-day volume and listing
+  dates are not stored: they are exporter assumptions recorded in `export.json` (`assumed`) or are
+  derived. Funding intervals are not stored; the writer leaves `interval` empty and settles at each
+  stored time.
+- Price increments are stored as the exchange's strings (their decimals are the precision). A
+  contract whose history traded finer than today's tick is exported with the precision its data
+  needs and `price_precision_widened: true`, rather than refused.
+- rc3 has no Python writer for `FundingRateUpdate`, `InstrumentStatus` or `InstrumentClose`: the
+  exporter writes the schema the engine's catalog decoder reads, and the runner checks the engine
+  consumed exactly the exported counts. Recheck both on a Nautilus upgrade.
+- Monthly archives can lack days (the June 2026 MARK archive lacks 2026-06-29 for every contract);
+  the import fills them from daily archives and refuses a minute two sources disagree on.
+- Exports stream through pymysql server-side cursors (the Dolt CLI as a remote client turns every
+  column into text and used tens of GB) and write 250,000 rows per file with four workers.
+  Measured on commit `ebg4rg1g…`: 37 contracts, one year of 1-minute bars, 96 s and 4.4 GB client
+  peak (1.2 GB of Catalogs).
+- A full import peaked at 17 GB on the Dolt server (20.5 GB in the following `dolt gc`) and a
+  monthly append of the whole pool takes about four minutes; the user accepted both (2026-10-12).
 
 ## Tests
 

@@ -1,8 +1,8 @@
 """A partially filled bracket entry that expires keeps its filled quantity protected.
 
 The pinned Nautilus cancels a bracket's stop and target when its entry expires or is canceled, even
-after a partial fill. A native BacktestEngine replays the D25 case (0.25 of 16.339 filled, then the
-six-hour GTD expiry) twice: with the bare bracket the audit refuses the run, and with the
+after a partial fill. A native BacktestEngine replays the D25 case on one-minute bars (0.25 of 16.339
+filled, then the GTD expiry 72 bars later) twice: with the bare bracket the audit refuses the run, and with the
 strategy-authoring reference's handler the same replay passes.
 """
 
@@ -27,17 +27,18 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import report
 from engine.audit import audit
+from engine.config import parse_window, utc_text
 from engine.run import ACCOUNT_CONTRACT
 
 
-BAR_NS = 300_000_000_000
+BAR_NS = 60_000_000_000
 INSTRUMENT_ID = InstrumentId(Symbol("AAAUSDT-PERP"), Venue("BINANCE"))
 INSTRUMENT = CryptoPerpetual(
     INSTRUMENT_ID, Symbol("AAAUSDT"), Currency.from_str("BTC"), Currency.from_str("USDT"),
     Currency.from_str("USDT"), False, 2, 3, Price.from_str("0.01"), Quantity.from_str("0.001"), 0, 0,
     maker_fee=Decimal("0.0002"), taker_fee=Decimal("0.0005"), margin_init=Decimal(0), margin_maint=Decimal(0),
 )
-BAR_TYPE = BarType.from_str(f"{INSTRUMENT_ID}-5-MINUTE-LAST-EXTERNAL")
+BAR_TYPE = BarType.from_str(f"{INSTRUMENT_ID}-1-MINUTE-LAST-EXTERNAL")
 START = datetime(2026, 1, 1, tzinfo=UTC)
 ENTRY_BAR, EXPIRY_BAR, STOP_BAR, CLOSE_BAR, BARS = 3, 73, 78, 90, 96
 
@@ -153,16 +154,14 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
         engine.add_strategy(strategy)
         engine.add_data(bars())
         engine.run()
-        end = START.timestamp() + BARS * 300
+        start_ns = int(START.timestamp() * 1e9)
         venue = Venue(account["venue"])
         finished = SimpleNamespace(
             cache=engine.cache, portfolio=engine.portfolio, result=SimpleNamespace(returns_series={}),
-            observer=SimpleNamespace(rows=[], timestamps=BARS, findings=[]),
+            observer=SimpleNamespace(timestamps=BARS, findings=[], lifecycle={}),
             orders=engine.generate_orders_report, fills=engine.generate_fills_report,
             positions=engine.generate_positions_report, account=lambda _: engine.generate_account_report(venue))
-        window = {"start": START.isoformat(), "end": datetime.fromtimestamp(end, UTC).isoformat(),
-                  "trade_start_dt": START, "end_dt": datetime.fromtimestamp(end, UTC),
-                  "trade_start_ns": int(START.timestamp() * 1e9)}
+        window = parse_window(utc_text(start_ns), None, utc_text(start_ns + BARS * BAR_NS))
         rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}}]
         with contextlib.redirect_stdout(io.StringIO()):
             report.write(output, finished, {"AAA": strategy}, rows, {"strategy_uses_stop_loss": True}, window,
@@ -179,7 +178,7 @@ class PartialEntryProtectionTests(unittest.TestCase):
             covered = replay(True, Path(temp) / "covered")
         self.assertFalse(bare["passed"])
         self.assertEqual(len(bare["findings"]), 1, bare["findings"])
-        self.assertIn("unprotected position AAAUSDT-PERP.BINANCE (R1-AAA): 0.250 held with 0 reduce-only stop",
+        self.assertIn("UNPROTECTED_POSITION: AAAUSDT-PERP.BINANCE (R1-AAA): 0.250 held with 0 reduce-only stop",
                       bare["findings"][0])
         interval, = bare["uncovered_intervals"]
         expired = int(START.timestamp() * 1e9) + (EXPIRY_BAR + 1) * BAR_NS - 1_000_000

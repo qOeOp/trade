@@ -95,30 +95,87 @@ class MarketDatabaseTests(unittest.TestCase):
         result = export.export(self.profile, at=None, symbols=["BTCUSDT"], start=START, end=end, fresh=True)
         self.addCleanup(__import__("shutil").rmtree, result["root"], True)
         receipt = result["receipts"]["BTCUSDT"]
-        self.assertEqual(receipt["counts"], {"last": 576, "mark": 576, "funding": 6, "daily": 210})
+        self.assertEqual(receipt["counts"], {"last": 2880, "mark": 2880, "funding": 6, "daily": 212})
+        self.assertEqual((receipt["timeframe"], receipt["episode"]), ("1m", None))
         self.assertEqual((receipt["price_precision"], receipt["price_precision_widened"]), (2, False))
         path = f"{result['root']}/BTCUSDT"
         catalog = ParquetDataCatalog(path)
         bars = catalog.query_bars(["BTCUSDT-PERP.BINANCE"])
-        five = [bar for bar in bars if bar.bar_type.spec.step == 5]
-        # The window's first minute (302,400th of the series) did not trade: open is the next minute's.
-        self.assertEqual((str(five[0].open), str(five[0].low), str(five[0].close)), ("103024.01", "103024.01", "103024.04"))
-        self.assertEqual(str(five[0].volume), "6.000")
-        node = BacktestNode([BacktestRunConfig(
-            venues=[BacktestVenueConfig(name="BINANCE", oms_type=OmsType.NETTING, account_type=AccountType.MARGIN,
-                                        book_type=BookType.L1_MBP, starting_balances=["100000 USDT"],
-                                        base_currency=Currency.from_str("USDT"))],
-            data=[BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=path, instrument_id=iid),
-                  BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=path, instrument_id=iid),
-                  BacktestDataConfig(data_type="Bar", catalog_path=path, instrument_id=iid,
-                                     bar_types=["BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"])],
-            engine=BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR)))])
-        self.assertEqual(node.run()[0].iterations, 576 + 576 + 6)
+        minutes = [bar for bar in bars if str(bar.bar_type) == "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"]
+        # The stored minutes, unchanged: the window's first minute (302,400th of the series) did not trade.
+        self.assertEqual(len(minutes), 2880)
+        self.assertEqual((str(minutes[0].open), str(minutes[0].close), str(minutes[0].volume)),
+                         ("103024.00", "103024.00", "0.000"))
+        self.assertEqual(minutes[0].ts_event, (START + MINUTE - 1) * 1_000_000)
+        from engine import run
+        streamed = list(run.market_events([{"instrument_id": iid, "catalog_path": __import__("pathlib").Path(path)}],
+                                          START * 1_000_000, end * 1_000_000))
+        self.assertEqual([type(event).__name__ for event in streamed].count("FundingRateUpdate"), 6)
+        self.assertEqual(len(streamed), 2880 + 2880 + 6)  # the daily warm-up bars are not replayed
         from engine.load import mark_timestamps
-        self.assertEqual(mark_timestamps([{"catalog_path": __import__("pathlib").Path(path)}]), 576)
+        self.assertEqual(mark_timestamps([{"catalog_path": __import__("pathlib").Path(path)}]), 2880)
         again = export.export(self.profile, at=None, symbols=["BTCUSDT"], start=START, end=end,
                               root=__import__("pathlib").Path(result["root"]).parent)
         self.assertEqual(again["exported"], 1)
+
+
+class LifecycleExportTests(unittest.TestCase):
+    """A delisting episode bounds the export and its events reach BacktestNode natively."""
+
+    @classmethod
+    def setUpClass(cls):
+        MarketDatabaseTests.setUpClass.__func__(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.fixture.close()
+
+    def test_a_delisting_bounds_the_series_and_delivers_its_events(self):
+        from pathlib import Path
+        from nautilus_trader.model import InstrumentId
+        from engine import run
+        from market import lifecycle
+        iid = "BTCUSDT-PERP.BINANCE"
+        closed = (START + DAY) * 1_000_000
+
+        def status(action, at):
+            return {"type": "InstrumentStatus", "instrument_id": iid, "action": action, "ts_event": at, "ts_init": at,
+                    "reason": "delisting", "trading_event": None, "is_trading": None, "is_quoting": None,
+                    "is_short_sell_restricted": None}
+        body = {"format": lifecycle.FORMAT, "market_commit": None, "episodes": [
+            {"symbol": "BTCUSDT", "instrument_id": iid, "start_ns": 0, "sources": ["notice.txt"],
+             "events": [status("PRE_CLOSE", closed - 1_800_000_000_000), status("CLOSE", closed),
+                        {"type": "InstrumentClose", "instrument_id": iid, "close_price": "101234.50",
+                         "close_type": "CONTRACT_EXPIRED", "ts_event": closed, "ts_init": closed}]}]}
+        conn = db.connect(self.profile, "reader")
+        try:
+            body["market_commit"] = store.resolve(conn, None)
+        finally:
+            conn.close()
+        files = {"lifecycle.json": b"{}", "notice.txt": b"the exchange notice"}
+        episodes = lifecycle.validate_lifecycle(body, body["market_commit"], files)
+        result = export.export(self.profile, at=None, symbols=["BTCUSDT"], start=START, end=START + 2 * DAY,
+                               fresh=True, episodes=episodes, lifecycle_files=files)
+        self.addCleanup(__import__("shutil").rmtree, result["root"], True)
+        receipt = result["receipts"]["BTCUSDT"]
+        self.assertEqual(receipt["counts"], {"last": 1440, "mark": 1440, "funding": 3, "daily": 211,
+                                             "instrument_close": 1, "instrument_status": 2})
+        self.assertEqual(receipt["missing_buckets"], 0)
+        self.assertEqual(receipt["episode"]["events"][1]["action"], "CLOSE")
+        self.assertEqual((Path(result["root"]) / "lifecycle-evidence" / "notice.txt").read_bytes(), b"the exchange notice")
+        row = {"instrument_id": InstrumentId.from_str(iid), "catalog_path": Path(result["root"]) / "BTCUSDT"}
+        streamed = list(run.market_events([row], START * 1_000_000, (START + 2 * DAY) * 1_000_000))
+        self.assertEqual(len(streamed), 1440 + 1440 + 3 + 2 + 1)
+        tail = [(type(event).__name__, getattr(event, "action", None) and event.action.name) for event in streamed[-2:]]
+        self.assertEqual(tail, [("InstrumentStatus", "CLOSE"), ("InstrumentClose", None)])
+        self.assertEqual(str(streamed[-1].close_price), "101234.50")
+        for wrong in ({**body, "market_commit": "other"},
+                      {**body, "episodes": [{**body["episodes"][0], "sources": ["absent.txt"]}]},
+                      {**body, "episodes": [{**body["episodes"][0], "events": [status("CLOSE", closed),
+                                                                               status("PRE_CLOSE", closed + 1)]}]},
+                      {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]}):
+            with self.subTest(wrong=wrong), self.assertRaises(lifecycle.LifecycleInput):
+                lifecycle.validate_lifecycle(wrong, body["market_commit"], files)
 
 
 def _table(rows):

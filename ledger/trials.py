@@ -132,7 +132,7 @@ RUN_PURPOSES = ("research", "validation")
 SEALED_REPORTS = (metrics.SUMMARY, *metrics.REPORT_FILES.values())
 # Refusals of the coverage check that come from what the runner wrote: they make the run invalid.
 CONTENT_REFUSALS = frozenset({"INPUT_IDENTITY_MISMATCH", "COVERAGE_RECEIPT_INVALID", "COVERAGE_MISMATCH",
-                              "LIFECYCLE_NATIVE_COUNT_INVALID", "LIFECYCLE_BUNDLE_MISSING"})
+                              *coverage.LIFECYCLE_REFUSALS})
 METRIC_ERRORS = (ValueError, ArithmeticError, KeyError, TypeError, IndexError)  # Decimal and native value errors
 
 
@@ -269,6 +269,12 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, runtime_
                                         runtime_inspection.get("effective_config_sha256"))
     reasons += [problems.reason(item["code"], item.get("message") or item["code"], item.get("locator"))
                 for item in host_reasons or ()]
+    summary = problems.json_object(problems.sealed(capture, problems.SUMMARY))
+    bar = _mapping(runtime_inspection.get("effective_config")).get("execution_bar_minutes")
+    if summary is not None and bar is not None and summary.get("data_interval_minutes") != bar:
+        reasons.append(problems.reason("CONFIG_MISMATCH", f"the summary's bars are {summary.get('data_interval_minutes')}"
+                                                          f" minutes, the configuration's {bar}",
+                                       "data_interval_minutes"))
     fingerprints, _ = problems.capture_fingerprint(capture)
     revision, report, daily, cycle_rows = None, None, [], []
     if not reasons:

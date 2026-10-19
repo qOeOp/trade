@@ -16,7 +16,7 @@ and export an exact strategy revision. Every replay runs through
 `artifacts run` in the CI-built image: see [native replay](engine/README.md)
 for an exploration, or the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) for a
-preregistered sealed run. The current `r1-native-v5` contract runs one
+preregistered sealed run. The current `r1-native-v6` contract runs one
 complete source file whose native `Strategy` entry class supplies
 `replay_diagnostics` and `replay_integrity_findings` and holds every rule,
 sizing included; the runner takes no strategy parameter. Seals of
@@ -49,12 +49,10 @@ export is `docs-site/out`.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval), `nautilus-report-analysis`, `research-sources` and `video-evidence`; `.claude/skills` links here.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
-- [`market/`](market/): the Binance market database, its monthly pool and the per-commit Catalog export.
+- [`market/`](market/): the Binance market database, its monthly pool, lifecycle manifests and the per-commit Catalog export.
 - [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.
-- [`docs/plans/dolt-strategy-oci-migration.zh.md`](docs/plans/dolt-strategy-oci-migration.zh.md): source/runtime migration contract and its history.
-- [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): historical 37-instrument paired replay evidence.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): retained product and process findings.
 
 The vendored Nautilus source and the former backtest, market-data and
