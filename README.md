@@ -82,10 +82,10 @@ export is `docs-site/out`.
 - [`cli/`](cli/): the command line, the one entry Agents use; it holds no product logic.
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
-- [`market/`](market/): the Binance market database, its monthly pool, lifecycle manifests, coverage facts and the per-commit Catalog export.
+- [`market/`](market/): the Binance market database, its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
-- [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.
-- [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): retained product and process findings.
+- [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification.
+- [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
 
 The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/`,
