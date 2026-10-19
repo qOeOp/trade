@@ -149,7 +149,7 @@ class ReportTests(unittest.TestCase):
                          ["10.00000000", "-0.20000000", "0.00000000", "0.00000000", "9.80000000"])
         self.assertEqual([item["id"] for item in report["slices"]],
                          ["profit_bridge", "capital_scaled", "fee_stress", "by_instrument", "market_exposure",
-                          "by_period", "trade_structure", "drawdown"], "trade pairs are comparison only")
+                          "by_period", "by_regime", "trade_structure", "drawdown"], "trade pairs are comparison only")
         exposure = next(item for item in report["slices"] if item["id"] == "market_exposure")["measures"]
         self.assertIsNotNone(exposure["beta_basket@1"]["value"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
