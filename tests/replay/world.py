@@ -18,6 +18,7 @@ import subprocess
 import sys
 from unittest.mock import patch
 
+from engine import config as engine_config
 from registration import seams as registration_seams
 from replay import entry, seams
 from tests.registration.world import FakeMarket, World, inspect_stand_in, months_rows
@@ -26,7 +27,6 @@ from tests.ledger.dolt import MARKET_COMMIT
 
 BUILD_REVISION = "c" * 40
 DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64, "by_utc_day": {}}}
-CONFIG_SHA = "f" * 64
 
 RUNNER = r'''
 import gzip, json, sys
@@ -150,7 +150,9 @@ class Market(FakeMarket):
 
 
 def inspect(identity, runner_argv, inputs):
-    return {**inspect_stand_in(identity, runner_argv, inputs), "effective_config_sha256": CONFIG_SHA}
+    """The stand-in probe, hashing its configuration as the image does (engine.config.config_sha256)."""
+    found = inspect_stand_in(identity, runner_argv, inputs)
+    return {**found, "effective_config_sha256": engine_config.config_sha256(found["effective_config"])}
 
 
 class ReplayWorld(World):

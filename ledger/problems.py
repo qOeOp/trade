@@ -11,7 +11,10 @@ code is in `REASONS`, the failure-reason catalogue.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import json
+
+from ledger import db
 
 
 AUDIT_RESULT = "audit/audit.json"
@@ -19,6 +22,8 @@ RUNTIME_ERRORS = "reports/runtime_failures.jsonl"  # engine.execution_failure
 SUMMARY = "reports/summary.json"
 FINGERPRINT = "fingerprint/fingerprint.json"
 FAILURE_FIELDS = ("stage", "exception_type")
+# engine.config.HOST_PATH_KEYS: the host paths the effective configuration hash leaves out
+HOST_PATH_KEYS = ("market_root", "universe_path")
 
 REASONS: dict[str, str] = {
     "EXECUTION_NOT_COMPLETED": "The replay was interrupted or failed on the host before it completed.",
@@ -61,6 +66,14 @@ def reason(code: str, message: str, locator=None) -> dict:
     """One failure reason {code, message, locator}; an uncatalogued code is a KeyError."""
     REASONS[code]
     return {"code": code, "message": message, "locator": locator}
+
+
+def config_sha256(effective_config: Mapping) -> str:
+    """The effective configuration hash by the engine's rule (engine.config.config_sha256): SHA-256 of the
+    canonical JSON of the configuration without its host paths. The host derives it from the sealed
+    configuration and never takes it from a caller."""
+    hashed = {key: value for key, value in effective_config.items() if key not in HOST_PATH_KEYS}
+    return hashlib.sha256(db.canonical_json(hashed).encode()).hexdigest()
 
 
 def unique(reasons) -> list[dict]:

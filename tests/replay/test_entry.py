@@ -17,7 +17,7 @@ from registration import inputs as registration_inputs, precheck, seams as regis
 from replay import entry, seams
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
-from tests.replay.world import CONFIG_SHA, DEFAULT_FINGERPRINT, ReplayWorld, registered_grid
+from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
 
 
 ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
@@ -193,7 +193,7 @@ class SealedReplayTests(unittest.TestCase):
         cls.refs, cls.bundle_of = [], {}
         for bundle, tags in (("registration-grid", range(1, 6)), ("registration-grid-b", range(6, 11)),
                              ("registration-grid-c", range(11, 14)), ("registration-grid-d", range(14, 15)),
-                             ("registration-grid-e", range(15, 16))):
+                             ("registration-grid-e", range(15, 16)), ("registration-grid-f", range(16, 18))):
             refs = registered_grid(world, [f"g{index}" for index in tags], bundle)
             cls.refs += refs
             cls.bundle_of.update(dict.fromkeys(refs, bundle))
@@ -238,19 +238,15 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(self.kept(), before)
         start = capture["start"]
         with self.assertRaises(Refusal) as caught:
-            trials.ingest_run(self.world.conn, stored["trial_id"], Path(start["workdir"]), self.inspection(capture),
-                              {}, start["input_identity"], checkout=self.world.checkout)
+            trials.ingest_run(self.world.conn, stored["trial_id"], Path(start["workdir"]), start["input_identity"],
+                              checkout=self.world.checkout)
         self.assertEqual(caught.exception.code, "RUN_ALREADY_INGESTED")
-
-    def inspection(self, capture) -> dict:
-        return {"effective_config": capture["input_coverage"]["effective_config"],
-                "effective_config_sha256": CONFIG_SHA}
 
     def ingest(self, trial_id: int, workdir: Path | None = None) -> dict:
         capture = execution.read_capture(self.world.conn, trial_id)
         start = capture["start"]
-        return trials.ingest_run(self.world.conn, trial_id, workdir or Path(start["workdir"]), self.inspection(capture),
-                                 {}, start["input_identity"], checkout=self.world.checkout)
+        return trials.ingest_run(self.world.conn, trial_id, workdir or Path(start["workdir"]), start["input_identity"],
+                                 checkout=self.world.checkout)
 
     def interrupted_before_ingest(self, ref: str) -> tuple[int, Path]:
         """A research replay whose capture is sealed and whose ingest is interrupted: no run, directory kept."""
@@ -340,7 +336,7 @@ class SealedReplayTests(unittest.TestCase):
         again = self.ingest(trial_id)
         self.assertEqual((again["run_id"], again["replayed"]), (stored["run_id"], True))
         precheck_trial = self.rows("SELECT MIN(trial_id) FROM trial WHERE purpose = 'precheck'")[0][0]
-        self.assertEqual(self.refused(lambda: trials.ingest_run(self.world.conn, precheck_trial, workdir, {}, {}, {})),
+        self.assertEqual(self.refused(lambda: trials.ingest_run(self.world.conn, precheck_trial, workdir, {})),
                          "TRIAL_PURPOSE_INVALID")
 
     def refused(self, call) -> str:
@@ -390,13 +386,25 @@ class SealedReplayTests(unittest.TestCase):
                  ({"summary": {"final_equity_usdt": None}}, "SUMMARY_INCOMPLETE"),
                  ({"summary": {"period_start_utc": "the first of January"}}, "METRICS_UNREADABLE"),
                  # the summary's bars are not the effective configuration's execution bars
-                 ({"summary": {"data_interval_minutes": 5}}, "CONFIG_MISMATCH")]
-        for (scenario, code), ref in zip(cases, [*self.refs[8:12], self.refs[14]], strict=True):
+                 ({"summary": {"data_interval_minutes": 5}}, "CONFIG_MISMATCH"),
+                 # the summary's hash is not the hash of the start receipt's configuration
+                 ({"summary": {"effective_config_sha256": "0" * 64}}, "CONFIG_MISMATCH")]
+        for (scenario, code), ref in zip(cases, [*self.refs[8:12], self.refs[14], self.refs[15]], strict=True):
             self.world.scenario = scenario
             with self.subTest(code=code):
                 stored = self.run_ref(ref)
                 self.assertEqual((stored["status"], codes(stored["failure_reasons"])), ("invalid", [code]))
                 self.assertEqual(self.refused(lambda: self.run_ref(ref)), "GRID_ALREADY_ATTEMPTED")
+
+    def test_ingest_takes_the_configuration_hash_from_the_sealed_receipt_not_from_the_probe(self):
+        def misreporting(identity, runner_argv, inputs):
+            found = inspect(identity, runner_argv, inputs)
+            # the runner hashes the configuration itself and writes that into its summary
+            self.world.scenario = {"summary": {"effective_config_sha256": found["effective_config_sha256"]}}
+            return {**found, "effective_config_sha256": "0" * 64}
+        with registration_seams.use(inspect_runtime=misreporting):
+            stored = self.run_ref(self.refs[16])
+        self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
 
     def test_a_timeout_stops_the_container_and_is_sealed_as_interrupted(self):
         def slow(command, stdout, stderr, timeout):

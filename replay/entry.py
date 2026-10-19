@@ -395,7 +395,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
                                                   f"image is {identity['runtime_contract']}",
                      expected=revision["runtime_contract"])
     inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), inputs)
-    effective = comparability.config_key(inspection.get("effective_config"))
+    comparability.config_key(inspection.get("effective_config"))  # a malformed configuration refuses before any trial
     semantic = registration_inputs.export_fingerprint(inputs, semantic=True)["export_content_sha256"]
     if semantic != inputs["identity"].get("export_content_sha256"):
         raise refuse("EXPORT_CHANGED_BEFORE_EXECUTION", "the exported inputs changed after their identity was taken",
@@ -439,8 +439,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         if registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"] != raw_before:
             host.append(problems.reason("INPUTS_CHANGED", "exported inputs changed during the replay",
                                         "export_content_sha256"))
-        stored = trials.ingest_run(conn, trial_id, workdir, inspection, effective, inputs["identity"],
-                                   host_reasons=host, checkout=checkout)
+        stored = trials.ingest_run(conn, trial_id, workdir, inputs["identity"], host_reasons=host, checkout=checkout)
     except BaseException:
         if (workdir / execution.PROCESS).exists():
             print(f"replay directory kept for diagnosis: {workdir}", file=sys.stderr)
