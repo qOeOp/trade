@@ -254,7 +254,7 @@ def _reproduced(directory: Path, account: bool, exposures: bool) -> dict:
     return {"orders": reports.orders,
             "fills": [{**fill, "cycle_position_id": position_of.get(fill.get("event_id"))} for fill in reports.fills],
             "account": reports.account if account else None,
-            "exposures": reports.exposures if exposures else None, "order_events": reports.order_events}
+            "exposures": list(reports.exposures or ()) if exposures else None, "order_events": reports.order_events}
 
 
 def load_directory(directory: Path) -> metrics.Reports:

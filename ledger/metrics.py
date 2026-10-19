@@ -119,7 +119,7 @@ class Reports:
     positions: list[dict]
     account: list[dict]
     returns: list[tuple[int, float]]
-    exposures: list[dict] | None
+    exposures: Iterable[dict] | None  # ExposureRows from a file, or rows
     order_events: list[dict] | None
     lifecycle_events: tuple[dict, ...] = ()
     coverage: dict | None = None
@@ -129,6 +129,21 @@ class Reports:
 def _csv(data: bytes) -> list[dict]:
     csv.field_size_limit(2**31 - 1)  # positions.events holds every fill of a cycle in one cell
     return list(csv.DictReader(io.StringIO(data.decode("utf-8"), newline="")))
+
+
+class ExposureRows:
+    """The exposure report's rows, streamed from its gzip bytes each time they are iterated: a long
+    multi-contract one-minute table is never held as rows."""
+
+    def __init__(self, data: bytes):
+        self.data = data
+        for _ in self:  # read once at load: a file that does not parse is unreadable, not a missing metric
+            pass
+
+    def __iter__(self):
+        csv.field_size_limit(2**31 - 1)
+        with gzip.GzipFile(fileobj=io.BytesIO(self.data)) as packed:
+            yield from csv.DictReader(io.TextIOWrapper(packed, encoding="utf-8", newline=""))
 
 
 def _unreadable(name: str, exc: Exception):
@@ -212,7 +227,7 @@ def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
     account_rows = parsed(REPORT_FILES["account"], _csv) if account else None
     returns = parsed(REPORT_FILES["returns"], lambda data: [(int(row["ts_event_ns"]), float(row["native_return"]))
                                                             for row in _csv(data)])
-    exposure_rows = parsed(REPORT_FILES["exposures"], lambda data: _csv(gzip.decompress(data))) if exposures else None
+    exposure_rows = parsed(REPORT_FILES["exposures"], ExposureRows) if exposures else None
     events = parsed(REPORT_FILES["order_events"], lambda data: [json.loads(line) for line in
                                                                  gzip.decompress(data).splitlines() if line.strip()])
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
@@ -550,28 +565,58 @@ def daily_returns(returns: list[tuple[int, float]], summary: dict, limitations: 
     return window
 
 
-def _typed_exposures(rows: list[dict] | None) -> list[dict] | None:
+class ExposureTable:
+    """The typed exposure rows aggregated per bar label in one pass (open rows, unrealized PnL, gross
+    notional); the rows of one label are read again from the source when asked."""
+
+    def __init__(self, source: Iterable[dict]):
+        self._source = source
+        self.by_label: dict[int, list] = {}
+        for row in self.rows():
+            found = self.by_label.setdefault(row["ts_event_ns"], [0, Decimal(0), Decimal(0)])
+            found[0] += 1
+            found[1] += row["unrealized_pnl"]
+            found[2] += abs(row["notional_value"])
+
+    @staticmethod
+    def _typed(row: dict) -> dict:
+        value = (lambda item: item if isinstance(item, Decimal) else _usdt(item))
+        return {"ts_event_ns": int(row["ts_event_ns"]), "position_id": row["position_id"],
+                "notional_value": value(row["notional_value"]), "unrealized_pnl": value(row["unrealized_pnl"])}
+
+    def rows(self):
+        for row in self._source:
+            yield self._typed(row)
+
+    def rows_at(self, label: int) -> list[dict]:
+        return [row for row in self.rows() if row["ts_event_ns"] == label]
+
+    def __bool__(self) -> bool:
+        return bool(self.by_label)
+
+
+def _typed_exposures(rows) -> ExposureTable | None:
     if rows is None:
         return None
+    if isinstance(rows, ExposureTable):
+        return rows
     try:
-        return [{"ts_event_ns": int(row["ts_event_ns"]), "position_id": row["position_id"],
-                 "notional_value": _usdt(row["notional_value"]), "unrealized_pnl": _usdt(row["unrealized_pnl"])}
-                for row in rows]
-    except (KeyError, ValueError, ArithmeticError) as exc:
+        return ExposureTable(rows)
+    except (KeyError, ValueError, ArithmeticError, TypeError, OSError, EOFError, csv.Error) as exc:
         raise unreconciled("EXPOSURE_REPORT_MISSING", "the exposure report is unreadable") from exc
 
 
-def _labels(summary: dict, exposures: list[dict]) -> tuple[int, list[int]]:
+def _labels(summary: dict, exposures: ExposureTable) -> tuple[int, list[int]]:
     """(bar step, bar labels of the trade window), the label offset taken from the exposure rows."""
     step = int(summary["data_interval_minutes"]) * 60 * 10**9
     start, end = utc_ns(summary["period_start_utc"]), utc_ns(summary["period_end_utc"])
-    offset = min(row["ts_event_ns"] for row in exposures) % step if exposures else step - 1_000_000
+    offset = min(exposures.by_label) % step if exposures else step - 1_000_000
     first = start - start % step + offset
     if first < start:
         first += step
     labels = list(range(first, end, step))
     grid = set(labels)
-    off = sorted({row["ts_event_ns"] for row in exposures if row["ts_event_ns"] not in grid})
+    off = sorted(label for label in exposures.by_label if label not in grid)
     if off:
         raise unreconciled("EXPOSURE_GRID_MISMATCH", f"exposure labels {_sample(off)} are off the trade-window bar grid")
     return step, labels
@@ -584,17 +629,15 @@ def _account_states(account: list[dict], *fields: str) -> list[tuple]:
                   key=lambda state: state[0])
 
 
-def equity_path(summary: dict, account: list[dict], exposures: list[dict] | None) -> list[dict]:
+def equity_path(summary: dict, account: list[dict], exposures) -> list[dict]:
     """Per bar label T: mark equity (the last account total at or before T, never a later row, plus
-    the unrealized PnL of the exposure rows labelled T), gross notional and open rows."""
+    the unrealized PnL of the exposure rows labelled T), gross notional and the number of open rows."""
     if exposures is None:
         raise unreconciled("EXPOSURE_REPORT_MISSING", "the run has no exposure report")
     if not account:
         raise unreconciled("ACCOUNT_STATE_MISSING", "the account report has no rows")
+    exposures = _typed_exposures(exposures)
     _, labels = _labels(summary, exposures)
-    by_label = defaultdict(list)
-    for row in exposures:
-        by_label[row["ts_event_ns"]].append(row)
     try:
         states = _account_states(account, "total")
     except (KeyError, ValueError, ArithmeticError) as exc:
@@ -604,11 +647,9 @@ def equity_path(summary: dict, account: list[dict], exposures: list[dict] | None
     path = []
     for label in labels:
         index = bisect.bisect_right(times, label) - 1
-        rows = by_label.get(label, [])
+        rows, unrealized, gross = exposures.by_label.get(label, (0, Decimal(0), Decimal(0)))
         path.append({"label": label, "rows": rows,
-                     "equity": (states[index][1] if index >= 0 else starting)
-                     + sum((row["unrealized_pnl"] for row in rows), Decimal(0)),
-                     "gross": sum((abs(row["notional_value"]) for row in rows), Decimal(0))})
+                     "equity": (states[index][1] if index >= 0 else starting) + unrealized, "gross": gross})
     return path
 
 
@@ -730,7 +771,7 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
         exposures = _typed_exposures(reports.exposures)
         path = equity_path(summary, reports.account, exposures)
         drawn = mark_drawdown(summary, reports.account, exposures, path)
-        drawdown = _drawdown_section(drawn, path, found, reports.positions)
+        drawdown = _drawdown_section(drawn, path, found, reports.positions, exposures)
         active = sum(1 for point in path if point["rows"])
         busiest = max(path, key=lambda point: point["gross"], default=None)
         capital = {"peak_gross_notional@1": _measure(money(busiest["gross"]) if busiest else None, "bars"),
@@ -802,7 +843,8 @@ def _safe_tags(order: dict) -> list:
         return []
 
 
-def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, positions: list[dict]) -> dict:
+def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, positions: list[dict],
+                      exposures: ExposureTable) -> dict:
     peak, trough = drawn["peak_ns"], drawn["trough_ns"]
     share, top = None, None
     if found is not None and trough is not None:
@@ -812,8 +854,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
         for row, cycle in zip(positions, found, strict=True):
             if cycle["closed"] and low <= cycle["ts_last"] <= trough:
                 loss[row.get("instrument_id")] += cycle["realized"]
-        at_trough = next(point for point in path if point["label"] == trough)
-        for row in at_trough["rows"]:
+        for row in exposures.rows_at(trough):
             loss[instrument_of.get(row["position_id"], row["position_id"])] += row["unrealized_pnl"]
         negative = {name: -value for name, value in loss.items() if value < 0}
         if negative:
@@ -832,13 +873,11 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
     """The run_cycle rows: one per native position row, in report order."""
     orders = {order.get("client_order_id"): order for order in reports.orders}
     last_unrealized: dict[str, Decimal] = {}
-    exposures = _typed_exposures(reports.exposures) or []
+    exposures = _typed_exposures(reports.exposures)
     if exposures:
-        last = max(row["ts_event_ns"] for row in exposures)
-        for row in exposures:
-            if row["ts_event_ns"] == last:
-                last_unrealized[row["position_id"]] = last_unrealized.get(row["position_id"], Decimal(0)) + row[
-                    "unrealized_pnl"]
+        for row in exposures.rows_at(max(exposures.by_label)):
+            last_unrealized[row["position_id"]] = last_unrealized.get(row["position_id"], Decimal(0)) + row[
+                "unrealized_pnl"]
     rows = []
     for seq, (row, cycle) in enumerate(zip(reports.positions, found, strict=True), 1):
         opening = orders.get(row.get("opening_order_id"), {})
