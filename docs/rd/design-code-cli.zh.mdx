@@ -490,7 +490,7 @@ def ledger_init(
 2. 调用 ledger.init 建库、建表、写 ledger_schema 与 ledger_head 单行、建 writer 与 reader 账号、装 branch 写权与提交校验组；其拒绝原样转出。
 3. 以 reader 读回 ledger_schema、ledger_head 与 dolt_tests 行数，与模式文件声明不一致即 LEDGER_CORRUPT。
 4. 以 JSON 输出账号名、写权所在 branch 与初始提交，不打印口令。
-5. 库名由档案名把 - 换成 _ 得到；新的账本代按 research-\<n> 命名，旧代原样保留、只读。
+5. 库名由档案名把 - 换成 _ 得到。只有一个研究账本 research 和一个市场库 market，不按代编号：产品不兼容旧数据，模式或规则变了就用同一个名字重建（用户定 10-20）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -884,12 +884,12 @@ def registration_add(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `NO_RESEARCH_LINE` | 账本没有研究路线记录（透传自 ledger.current_line） |
+| `RESEARCH_LINE_REQUIRED` | 账本没有研究路线记录（透传自 ledger.current_line） |
 | `WINDOW_MISMATCH` | 登记交易段不等于研究路线开发窗口 |
 | `REGISTRATION_INVALID` | 登记体不可解析、字段缺失或多余，或对照运行、来源证据包、审查引用不在账本 |
 | `SOURCE_PRECHECK_REQUIRED` | 网格中某源码在该运行环境下没有通过的预检与审查 |
 | `SOURCE_ALREADY_EXPOSED` | 网格源码已被非豁免回放执行过且未以 retry_of 另登记 |
-| `RESERVED_BUNDLE_NAME` | 包名落在产品保留命名空间 |
+| `REGISTRATION_BUNDLE_NAME` | 包名落在产品保留命名空间 |
 | `DUPLICATE_BUNDLE` | 同名登记包已存在且内容哈希不同 |
 
 **使用**　<Ref id="registration.register" />、<Ref id="cli.main" />、<Ref id="ledger.refusal" />
@@ -1069,8 +1069,8 @@ def replay_run(
 | 拒绝码 | 条件 |
 |---|---|
 | `REGISTRATION_REQUIRED` | hypothesis 与 validation 都未给或都给了 |
-| `GRID_POINT_CONSUMED` | 该登记网格点已被一次试验消耗（转发自 registration.bind） |
-| `REGISTRATION_MISMATCH` | 候选、运行器参数、运行环境或市场提交与登记不一致（转发自 registration.bind 或 registration.validation_bind） |
+| `GRID_ALREADY_ATTEMPTED` | 该登记网格点已被一次试验消耗（转发自 registration.bind） |
+| `EXECUTION_MISMATCH` | 候选、运行器参数、运行环境或市场提交与登记不一致（转发自 registration.bind 或 registration.validation_bind） |
 | `WITNESS_MISSING` | 样本外登记无有效时间凭证，或凭证时间不早于窗口起点（转发自 registration.validation_bind） |
 | `SOURCE_HASH_MISMATCH` | 装载的源码字节哈希不等于发布记录（转发自 replay.seal） |
 | `RUNTIME_NOT_MAIN` | 样本外回放的运行环境不是 main 构建或工作树不含 main 最新提交（转发自函数 run） |
@@ -1133,7 +1133,7 @@ def research_status(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LEDGER_UNKNOWN_REF` | at 解析不到提交、标签或 branch（透传） |
+| `UNKNOWN_REF` | at 解析不到提交、标签或 branch（透传） |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败（透传） |
 | `REFERENTIAL_GAP` | 计数缺口（透传 report.research_status） |
 

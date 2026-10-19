@@ -204,7 +204,7 @@ def export_episode(job: dict) -> dict 合约回执
 |---|---|
 | `NO_TERMS` | 由 terms 抛出：提交上没有该合约的条款行 |
 | `LIFECYCLE_INPUT` | 由 require_native_price 抛出：窗口内结算价不能在导出合约的精度网格上精确表示（不舍入、不改步长绕过） |
-| `DERIVE_OVERFLOW` | 由 derive_bars 抛出：日线聚合成交量超出 BIGINT |
+| `VOLUME_OVERFLOW` | 由 derive_bars 抛出：日线聚合成交量超出 BIGINT |
 | `BARS_UNSORTED` | 由 write_bars 抛出：成交价 K 线或预热日线的时刻无序或重复 |
 | `MARK_INEXACT` | 由 write_marks 抛出：标记价不能在合约价格精度上精确表示 |
 | `FUNDING_UNSORTED` | 由 write_funding 抛出：资金费结算时刻无序 |
@@ -1155,7 +1155,7 @@ def import_month(
 9. 整个导入持有 GET_LOCK('market-import:\<库名>')，第二个并发导入拒绝 CONCURRENT_IMPORT：Dolt 2.4.2 会合并相同值的写入，import_seq 本身挡不住并发。
 10. 提交校验只在 DOLT_COMMIT 里跑一次，失败映射为 DATA_TESTS_FAILED 并给出失败的测试名；服务的提交校验组不是 commit 即拒绝。
 11. 月份须按顺序导入，乱序即拒绝；首个导入月没有名单（缺上市天数的回看）。
-12. 工程期可给合约清单（--symbols），只限隔离或临时市场库：名单只在清单内计算，清单每月相同，写进每次导入的提交信息，freshness 以 scope 报出；正式库不给清单。
+12. 工程期可给合约清单（--symbols），由市场库的首次导入定下（用户定 10-20，正式库也可）：名单只在清单内计算，之后每月必须相同，写进每次导入的提交信息，freshness 以 scope 报出；正式库不给清单。
 13. 导入账号经 market_schema 上的更新触发器只能把 import_seq 加一，改不了范围规则与模式代数（Dolt 2.4.2 不支持列级授权）。
 
 | 拒绝码 | 条件 |
@@ -1172,7 +1172,7 @@ def import_month(
 | `UNIVERSE_CHANGED` | 重算后任一已存月份的范围与 universe_month 已存行不一致 |
 | `DATA_TESTS_FAILED` | 提交前 market.dolt_tests 任一用例失败 |
 | `CONCURRENT_IMPORT` | 另一个导入正持有该市场库的导入锁 |
-| `IMPORT_SCOPE` | 合约清单为空、重复或格式不对，用在正式市场库上，或与之前各月的清单不同 |
+| `IMPORT_SCOPE` | 合约清单为空、重复或格式不对，或与首次导入定下的清单不同 |
 
 **使用**　<Ref id="market.connect" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />、<Ref id="table:market.dolt_tests" />
 
