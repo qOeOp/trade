@@ -1,4 +1,5 @@
-"""The semantic fingerprint is equal for two replays of one run and names the table and day that differ."""
+"""The semantic fingerprint is equal for two replays of one run (fresh UUIDs, other row order) and names the
+table and day that differ."""
 
 import csv
 import gzip
@@ -14,11 +15,12 @@ from engine.compare import report_fingerprint
 DAY1, DAY2 = 1736294400000000000, 1736380800000000000
 
 
-def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.98880") -> None:
+def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.98880",
+                  fill_time: str = "2025-01-08 00:00:00+00:00") -> None:
     """A two-order run whose random IDs come from `ids`; `swap` reverses the file order of rows."""
     root.mkdir(parents=True)
     fills = [{"client_order_id": "O-1", "trade_id": ids["t1"], "event_id": ids["f1"], "last_qty": "5",
-              "last_px": last_px, "ts_event": "2025-01-08 00:00:00+00:00", "position_id": "P"},
+              "last_px": last_px, "ts_event": fill_time, "position_id": "P"},
              {"client_order_id": "O-2", "trade_id": ids["t2"], "event_id": ids["f2"], "last_qty": "5",
               "last_px": "1.01000", "ts_event": "2025-01-09 00:00:00+00:00", "position_id": "P"}]
     orders = [{"client_order_id": "O-1", "init_id": ids["i1"], "last_trade_id": ids["t1"], "ts_init": str(DAY1)},
@@ -50,9 +52,11 @@ def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.9
                 stream.write(json.dumps(event, sort_keys=True) + "\n")
 
 
+TRADES = {"t1": "T-1fd6a51d60d74306-6871", "t2": "T-e8a18c9380fc3dfc-8188"}  # derived, not random
+
+
 def fresh_ids() -> dict:
-    return {**{key: str(uuid.uuid4()) for key in ("f1", "f2", "i1", "i2", "s1", "a1")},
-            **{key: f"T-{uuid.uuid4().hex[:16]}-{index}" for index, key in enumerate(("t1", "t2"))}}
+    return {**{key: str(uuid.uuid4()) for key in ("f1", "f2", "i1", "i2", "s1", "a1")}, **TRADES}
 
 
 class FingerprintTests(unittest.TestCase):
@@ -65,7 +69,7 @@ class FingerprintTests(unittest.TestCase):
         write_reports(self.root / name, options.pop("ids", None) or fresh_ids(), **options)
         return report_fingerprint(self.root / name)
 
-    def test_fresh_random_ids_and_row_order_give_the_same_fingerprint(self):
+    def test_fresh_uuids_and_row_order_give_the_same_fingerprint(self):
         first, second = self.fingerprint("a"), self.fingerprint("b", swap=True)
         self.assertEqual(first, second)
         self.assertEqual({name: value["rows"] for name, value in first.items()},
@@ -88,6 +92,15 @@ class FingerprintTests(unittest.TestCase):
         positions = (self.root / "b" / "positions.csv").read_text().replace(ids["f2"], str(uuid.uuid4()))
         (self.root / "b" / "positions.csv").write_text(positions)
         self.assertNotEqual(report_fingerprint(self.root / "b")["positions"], linked["positions"])
+
+    def test_exchanged_trade_ids_change_the_fingerprint(self):
+        ids = fresh_ids()
+        swapped = self.fingerprint("b", ids={**ids, "t1": TRADES["t2"], "t2": TRADES["t1"]})
+        self.assertNotEqual(self.fingerprint("a", ids=ids)["fills"], swapped["fills"])
+
+    def test_a_time_without_utc_offset_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "no UTC offset"):
+            self.fingerprint("a", fill_time="2025-01-08 00:00:00")
 
 
 if __name__ == "__main__":

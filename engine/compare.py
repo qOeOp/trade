@@ -3,13 +3,14 @@
 It runs inside the runtime image as the replay's fingerprint stage, so the image digest is its
 identity: ``python -m engine.compare --run REPORTS --output FILE`` reads the report directory and
 writes only FILE. Two replays of the same run give the same fingerprint even though Nautilus draws
-fresh UUIDs and trade IDs every run.
+fresh UUIDs every run.
 
-- Random identifiers (event, initialization, trade and position-snapshot IDs, which are UUIDs or
-  ``T-<hex>-<n>`` trade IDs) are renumbered in the order they first appear, walking the order event
-  history first (orders by client order ID, each order's events in engine order), then the other
-  tables. The same identifier gets the same number everywhere, so fills stay linked to positions
-  and events to orders.
+- Random identifiers (event, initialization, position-snapshot and settlement UUIDs) are renumbered
+  in the order they first appear, walking the order event history first (orders by client order ID,
+  each order's events in engine order), then the other tables. The same identifier gets the same
+  number everywhere, so fills stay linked to positions and events to orders. Trade IDs
+  (``T-<hex>-<n>``) are derived from the venue, the order and the execution counter in the pinned
+  Nautilus, so they are kept as they are and an exchange of two executions shows.
 - Every table is then sorted by all its columns, so rows of one timestamp, price and quantity
   cannot swap into a false difference. An order event carries its position in its order's history
   (``seq``), the causal order the auditor reads. Funding adjustments take part row by row inside the
@@ -41,10 +42,9 @@ TABLES = {
     "order_events": ("order_events.jsonl.gz", "ts_event", False),
     "exposures": ("exposures.csv.gz", "ts_event_ns", True),
 }
-# The walk that numbers random identifiers: the event history holds every order, fill and trade ID.
+# The walk that numbers random identifiers: the event history holds every order and fill event.
 NUMBERING_ORDER = ("order_events", "orders", "fills", "positions", "account", "exposures", "returns_series")
-RANDOM = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-                    r"|\bT-[0-9a-f]{16}-[0-9]+\b")
+RANDOM = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
 def _csv_rows(path: Path) -> list[dict]:
@@ -72,13 +72,17 @@ def _text(row: dict) -> str:
 
 
 def _day(value) -> str:
-    """The UTC day of a time cell: integer nanoseconds or an ISO-8601 datetime; '' when empty."""
+    """The UTC day of a time cell: integer nanoseconds or an ISO-8601 datetime with an explicit UTC
+    offset; '' when empty. A datetime without an offset is refused, never read in the host time zone."""
     if value in (None, ""):
         return ""
     text = str(value)
     if text.lstrip("-").isdigit():
         return datetime.fromtimestamp(int(text) // 10**9, UTC).date().isoformat()
-    return datetime.fromisoformat(text).astimezone(UTC).date().isoformat()
+    moment = datetime.fromisoformat(text)
+    if moment.utcoffset() is None:
+        raise ValueError(f"time {text!r} has no UTC offset")
+    return moment.astimezone(UTC).date().isoformat()
 
 
 def _sha(lines: list[str]) -> str:

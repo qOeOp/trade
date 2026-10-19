@@ -142,8 +142,8 @@ variants; their sealed `audit.json` keeps those results.
 
 The fingerprint stage (`python -m engine.compare`) reads the reports and writes only
 `fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
-the row count, a whole-table hash and one hash per UTC day, after renumbering the random event, trade
-and snapshot IDs by first appearance and sorting every table by all its columns; the account,
+the row count, a whole-table hash and one hash per UTC day, after renumbering the random event and
+snapshot UUIDs by first appearance (trade IDs are derived, and kept) and sorting every table by all its columns; the account,
 returns and exposures files also carry their byte hash. Two replays of one run give equal
 fingerprints; a sealed run is reproduced only when they match.
 

@@ -2,7 +2,8 @@
 
 Use it when a change should preserve behavior (runner, image, dependency or Nautilus version):
 both runs use the same strategy source, inputs, window and account. Generated identifiers
-(UUIDs, venue order, trade and position IDs) are excluded; every other report column, every
+(UUIDs, venue order and position IDs) are excluded; trade IDs, which the pinned Nautilus derives
+from the order and its execution counter, are compared; every other report column, every
 funding adjustment and the summary's account metrics must match.
 """
 
@@ -17,14 +18,13 @@ from pathlib import Path
 
 
 VOLATILE = {
-    "orders": {"init_id", "venue_order_id", "last_trade_id"},
-    "fills": {"venue_order_id", "trade_id", "event_id"},
+    "orders": {"init_id", "venue_order_id"},
+    "fills": {"venue_order_id", "event_id"},
     "positions": {
         "position_id",
         "events",
         "adjustments",
         "venue_order_ids",
-        "trade_ids",
     },
     "account": set(),
     "returns_series": set(),
