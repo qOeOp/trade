@@ -43,7 +43,11 @@ The runner takes the strategy reference, the inputs, the window and the account,
   configuration holds them as `...Z` text.
 - **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus margin account
   shared by every instrument, leverage 1, one-minute bar execution (`execution_bar_minutes = 1`),
-  the exported instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. The
+  the exported instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. Fills
+  use the native `DefaultFillModel` (`prob_fill_on_limit` 0: a touched resting limit does not fill, a
+  traded-through one does; `prob_slippage` 0.5: each L1 fill, maker or taker, moves one tick against
+  the order on a seeded draw shared by all contracts in fill order) and adaptive high/low ordering;
+  the values are uncalibrated prototype choices (branch `exp/fill-model`). The
   published `nautilus_trader==2.0.0rc3` owns data replay, orders, fills, funding settlement, risk,
   portfolio accounting and reports. No exchange trading credential is needed.
 

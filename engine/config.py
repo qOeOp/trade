@@ -51,7 +51,20 @@ ACCOUNT_CONTRACT = {
     "support_contingent_orders": True,
     "reject_stop_orders": False,
     "bar_execution": True,
-    "bar_adaptive_high_low_ordering": False,
+    # Fill model (exp/fill-model prototype; Nautilus 2.0.0rc3 facilities only, uncalibrated):
+    # - adaptive ordering visits the extreme nearer the open first, instead of always high first;
+    # - a touched resting limit never fills (prob_fill_on_limit 0), a traded-through one fills at its limit;
+    # - every L1 fill (taker and maker) moves one tick against the order with probability 0.5, about half a
+    #   one-tick spread against the bar close; the seeded draws are shared by all contracts in fill order;
+    # - consumed-liquidity tracking and queue tracking stay off (on bars they reject repeat market orders
+    #   and never fill limits respectively).
+    "bar_adaptive_high_low_ordering": True,
+    "fill_model": "DefaultFillModel",
+    "prob_fill_on_limit": "0.0",
+    "prob_slippage": "0.5",
+    "fill_random_seed": 1,
+    "liquidity_consumption": False,
+    "queue_position": False,
     "trader_id": "R1-PORTFOLIO-001",
     "time_bars_timestamp_on_close": True,
     "time_bars_skip_first_non_full_bar": False,

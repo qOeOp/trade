@@ -19,16 +19,15 @@ from types import SimpleNamespace
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    AccountType, Bar, BarType, BookType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, Money,
-    OmsType, OrderSide, OrderStatus, OrderType, Price, Quantity, StrategyId, Symbol, TimeInForce, TraderId,
-    Venue,
+    Bar, BarType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, OrderSide, OrderStatus, OrderType, Price,
+    Quantity, StrategyId, Symbol, TimeInForce, TraderId, Venue,
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import report
 from engine.audit import audit
 from engine.config import parse_window, utc_text
-from engine.run import ACCOUNT_CONTRACT
+from engine.run import ACCOUNT_CONTRACT, add_venue
 
 
 BAR_NS = 60_000_000_000
@@ -137,17 +136,7 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]), logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
     try:
-        engine.add_venue(
-            Venue(account["venue"]), getattr(OmsType, account["oms_type"]),
-            getattr(AccountType, account["account_type"]),
-            [Money(int(account["starting_balance_usdt"]), Currency.from_str(account["base_currency"]))],
-            base_currency=Currency.from_str(account["base_currency"]),
-            default_leverage=Decimal(account["default_leverage"]),
-            book_type=getattr(BookType, account["book_type"]), reject_stop_orders=account["reject_stop_orders"],
-            support_gtd_orders=account["support_gtd_orders"],
-            support_contingent_orders=account["support_contingent_orders"],
-            bar_execution=account["bar_execution"],
-            bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"])
+        add_venue(engine)
         engine.add_instrument(INSTRUMENT)
         strategy = TieredEntry(cover)
         strategy.tiers = tiers
