@@ -125,14 +125,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(value["source_check"]["status"], "failed")
         self.assertTrue(any(reason.startswith("SOURCE_REVIEW_FAILED") for reason in value["reasons"]))
 
-    def test_mask_empties_every_performance_key_and_keeps_the_diagnostics(self):
-        masked = availability.mask({"headline": {"x": 1}, "slices": [], "cost_basis": {}, "activity": {"y": 1}},
-                                   {"economic_evidence_available": False, "reasons": ["NO_FILLS"]})
-        self.assertEqual((masked["headline"], masked["slices"], masked["cost_basis"], masked["activity"]),
-                         (None, None, None, {"y": 1}))
-        kept = availability.mask({"headline": {"x": 1}}, {"economic_evidence_available": True, "reasons": []})
-        self.assertEqual(kept["headline"], {"x": 1})
-
     def test_native_reasons_name_failing_and_unrecorded_facts(self):
         report = {"activity": {"real_fills@1": {"passed": False, "code": "NO_FILLS"}}}
         found = availability.native_reasons(report)

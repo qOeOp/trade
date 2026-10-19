@@ -101,7 +101,7 @@ class Qualification:
     def __init__(self):
         self.unavailable: set[int] = set()
 
-    def assess(self, conn, run):
+    def assess(self, conn, run, **options):
         available = run["run_id"] not in self.unavailable
         return {"economic_evidence_available": available, "reasons": [] if available else ["zero_fills"]}
 

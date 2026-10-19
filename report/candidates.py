@@ -1,24 +1,44 @@
 """The candidate list (`report.candidates`): every candidate's source identity, parent and change, and
 each registration attempt with its run status and current economic evidence availability, at an
 exact ledger version. No score, eligibility mark or ranking; candidates in (strategy_id, revision)
-order only for a stable output.
+order only for a stable output. A run whose stored records do not verify (LEDGER_CORRUPT,
+EXECUTION_IDENTITY) is listed unavailable with that reason; it does not stop the list.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from ledger import db
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
 from report import runs
+
+
+UNVERIFIED_RECORDS = ("LEDGER_CORRUPT", "EXECUTION_IDENTITY")  # a run's own records fail to verify
+
+
+def assess_listed(conn: db.LedgerConnection, run_id: int, checker: Mapping, records: list) -> dict:
+    """availability.assess of one listed run with the call's checker and review records; a run whose
+    stored records do not verify is unavailable (diagnostic only) with the refusal as its reason."""
+    try:
+        return availability.assess(conn, {"run_id": run_id}, checker=checker, records=records)
+    except Refusal as exc:
+        if exc.code not in UNVERIFIED_RECORDS:
+            raise
+        return {"economic_evidence_available": False, "reasons": [f"{exc.code}: {exc.message}"],
+                "checker": dict(checker), "limitations": [], "unverified_records": True}
 
 
 CANDIDATE_COLUMNS = ("strategy_id", "revision", "source_sha256", "entry_class", "runtime_contract", "description",
                      "parent_strategy_id", "parent_revision", "difference", "created_at")
 
 
-def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
+def attempts_of(conn: db.LedgerConnection, checker: dict, records: list | None = None) -> list[dict]:
     """Every registration attempt with its run and the run's availability now; LEDGER_CORRUPT on a
     dangling reference."""
+    records = availability.review_records(conn) if records is None else records
     dangling = conn.rows("SELECT r.run_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS "
                          "NULL ORDER BY r.run_id LIMIT 1")
     if dangling:
@@ -34,7 +54,7 @@ def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
         if row["run_id"] is None:
             value = {"economic_evidence_available": False, "reasons": ["unfinished"], "checker": checker}
         else:
-            assessed = availability.assess(conn, {"run_id": row["run_id"]})
+            assessed = assess_listed(conn, row["run_id"], checker, records)
             value = {"economic_evidence_available": assessed["economic_evidence_available"],
                      "reasons": assessed["reasons"], "checker": assessed["checker"]}
         found.append({"bundle": row["registration_bundle"], "source_sha256": row["source_sha256"],

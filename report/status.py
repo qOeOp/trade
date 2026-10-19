@@ -3,7 +3,8 @@
 
 Counts are read from the ledger at an exact version, never from what an Agent remembers; the state
 puts the current judgments beside read-time facts and the trials no review has covered yet. Nothing
-carries a stop flag, target, score, ranking or eligibility mark; nothing is written.
+carries a stop flag, target, score, ranking or eligibility mark; nothing is written. A run whose
+stored records do not verify counts as diagnostic only, with its reason; it does not stop a count.
 """
 
 from __future__ import annotations
@@ -28,8 +29,10 @@ RUNTIME_KEYS = ("image_digest", "runtime_contract", "engine_version", "dependenc
 def research_status(ledger, at: str | None = None) -> dict:
     """Research fact counts at a ledger version: trials, versions, registration attempts by outcome and
     out-of-sample registrations; only counts, versions and the checker identity."""
+    checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
+        records = availability.review_records(conn)
         (trials, sources), = conn.rows("SELECT COUNT(*), COUNT(DISTINCT source_sha256) FROM trial")
         windows = [{"trade_start": start, "trade_end": end, "trials": count, "distinct_sources": distinct}
                    for start, end, count, distinct in conn.rows(
@@ -45,6 +48,7 @@ def research_status(ledger, at: str | None = None) -> dict:
             raise refuse("REFERENTIAL_GAP", "references to missing trial rows: " + ", ".join(gaps[:5]),
                          missing=tuple(gaps))
         counted = {"unfinished": 0, "invalid": 0, "passed": 0, "valid": 0, "diagnostic": 0}
+        unverified = []
         for row in attempts:
             if row["run_id"] is None:
                 counted["unfinished"] += 1
@@ -52,8 +56,10 @@ def research_status(ledger, at: str | None = None) -> dict:
                 counted["invalid"] += 1
             else:
                 counted["passed"] += 1
-                available = availability.assess(conn, {"run_id": row["run_id"]})["economic_evidence_available"]
-                counted["valid" if available else "diagnostic"] += 1
+                assessed = report_candidates.assess_listed(conn, row["run_id"], checker, records)
+                if assessed.get("unverified_records"):
+                    unverified.append({"run_id": row["run_id"], "reason": assessed["reasons"][0]})
+                counted["valid" if assessed["economic_evidence_available"] else "diagnostic"] += 1
         if counted["unfinished"] + counted["invalid"] + counted["valid"] + counted["diagnostic"] != len(attempts):
             raise refuse("REFERENTIAL_GAP", "the attempt outcomes do not add up to the attempts",
                          missing=("research_attempts",))
@@ -70,8 +76,8 @@ def research_status(ledger, at: str | None = None) -> dict:
             "invalid_research_runs": counted["invalid"], "unfinished_research_attempts": counted["unfinished"],
             "validation": {"registered": registered, "bound": bound, "unbound": registered - bound,
                            "unwitnessed": unwitnessed},
-            "availability_checker": availability.check_identity(),
-            "metrics_revision": measures.metrics.metrics_revision(clean=False)}
+            "unverified_runs": unverified, "availability_checker": checker,
+            "metrics_revision": checker["metrics_revision"]}
 
 
 def _stamp(conn: db.LedgerConnection, commit: str):
@@ -100,7 +106,7 @@ def _judgments(conn: db.LedgerConnection, line: str) -> dict[str, list[dict]]:
     return found
 
 
-def _subject_facts(conn: db.LedgerConnection, subject: Mapping) -> dict:
+def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping, records: list) -> dict:
     if subject.get("strategy_id") is not None:
         row = conn.one("SELECT strategy_id, revision, source_sha256, parent_strategy_id, parent_revision, difference "
                        "FROM candidate WHERE strategy_id = %s AND revision = %s",
@@ -111,7 +117,7 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping) -> dict:
                          "ON r.trial_id = t.trial_id WHERE t.trial_id = %s", (subject["trial_id"],))
         if trial is None or trial["run_id"] is None:
             return {"trial": trial, "availability": None, "headline": None}
-        value = availability.assess(conn, {"run_id": trial["run_id"]})
+        value = report_candidates.assess_listed(conn, trial["run_id"], checker, records)
         headline = None
         if trial["status"] == "passed" and value["economic_evidence_available"]:
             derived = measures.derive_measures(measures.run_facts(conn, trial["run_id"]),
@@ -124,8 +130,10 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping) -> dict:
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None) -> dict:
     """The current judgments of a research line with read-time facts, the trials since the last
     recommendation, the trial count of the line and the gates the next registration would meet."""
+    checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
+        records = availability.review_records(pinned)
         line = line_bundle or (lines.current_line(pinned) or {}).get("bundle")
         if line is None:
             raise refuse("LINE_UNKNOWN", "the ledger has no research line", missing=("research-line",))
@@ -136,7 +144,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                       if recommendation else on_line["trials"])
         for kind in judged:
             for item in judged[kind]:
-                item["facts"] = [_subject_facts(pinned, subject) for subject in item["subjects"]]
+                item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
         gates = {}
         for name, derived in (("root", False), ("derived", True)):
             try:

@@ -1,5 +1,7 @@
 """Economic evidence availability (`qualification.assess`, `qualification.require`, `qualification.mask`,
-`qualification.native_reasons`, `qualification.source_reviews`, `qualification.check_identity`).
+`qualification.native_reasons`, `qualification.source_reviews`, `qualification.check_identity`), with
+`review_records` (every source review read once per call) and `report_revision` (the clean product
+checkout's revision every read-time report names).
 
 A run is economic evidence when, by the current criterion, it is a passed run whose audit ran, whose
 original execution capture is complete and clean, whose sealed facts show real activity that
@@ -42,7 +44,9 @@ NOT_EVALUATED = ("{fact} was not recorded when the run was sealed; reproduce the
                  "under this criterion")
 # Every performance key a report reader may carry; mask empties all of them for a run without evidence.
 PERFORMANCE_KEYS = ("headline", "measures", "slices", "closed_by_year", "drawdown", "capital", "cost_basis",
-                    "metrics", "single", "exposures_table")
+                    "metrics", "single", "exposures_table", "account")
+# What a masked run keeps of each sealed activity fact: whether it held, why not, and its counts.
+MASKED_FACT_KEYS = ("passed", "code", "count", "rows")
 
 
 @functools.cache
@@ -50,10 +54,17 @@ def _checker_source() -> str:
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
+def report_revision() -> str:
+    """The metrics revision a read-time report computes with: the product checkout's HEAD, refused
+    (STALE_CHECKOUT) while the checkout has uncommitted or untracked changes no commit names. The
+    checkout is the registration seam's (`registration.seams.current.checkout`)."""
+    from registration import seams
+    return metrics.metrics_revision(seams.current.checkout())
+
+
 def check_identity() -> dict:
     """{check, metrics_revision, checker_source_sha256}: the criterion, the metrics code and this checker."""
-    return {"check": CHECK, "metrics_revision": metrics.metrics_revision(clean=False),
-            "checker_source_sha256": _checker_source()}
+    return {"check": CHECK, "metrics_revision": report_revision(), "checker_source_sha256": _checker_source()}
 
 
 def native_reasons(reports: Mapping | None) -> list[str]:
@@ -108,8 +119,12 @@ def _counts(fingerprints, sealed: Mapping | None) -> dict:
             (activity.get("account_endpoints_match@2") or {}).get("rows")}
 
 
-def assess(conn: db.LedgerConnection, run: Mapping) -> dict:
-    """The economic evidence availability of one run under the current criterion; writes nothing."""
+def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None = None, records: list | None = None,
+           review_scope: Mapping | None = None) -> dict:
+    """The economic evidence availability of one run under the current criterion; writes nothing.
+
+    `checker` (check_identity) and `records` (review_records) are what a caller assessing many runs
+    reads once; `review_scope` restricts the source reviews counted (source_reviews)."""
     loaded = metrics.load_run(conn, run["run_id"])
     row, trial, capture = loaded["run"], loaded["trial"], loaded["capture"]
     reasons, limitations = [], [LIMITATION]
@@ -132,7 +147,7 @@ def assess(conn: db.LedgerConnection, run: Mapping) -> dict:
             if item.startswith("NOT_EVALUATED: "):
                 limitations.append(NOT_EVALUATED.format(fact=item.removeprefix("NOT_EVALUATED: ")))
     reviewed = source_reviews(conn, {"run_id": row["run_id"], "source_sha256": trial["source_sha256"],
-                                     "image_digest": trial["image_digest"]})
+                                     "image_digest": trial["image_digest"]}, records=records, scope=review_scope)
     if reviewed["status"] == "failed":
         reasons.append("SOURCE_REVIEW_FAILED: " + ", ".join(item["bundle"] for item in reviewed["reviews"]
                                                             if item["verdict"] == "failed"))
@@ -141,16 +156,17 @@ def assess(conn: db.LedgerConnection, run: Mapping) -> dict:
         reasons.append(f"PURPOSE_NOT_COMPARABLE: a {trial['purpose']} trial is no run")
     return {"economic_evidence_available": not reasons, "reasons": reasons,
             "activity": _counts(row.get("fingerprints"), sealed), "stored_audit_status": row["status"],
-            "source_check": reviewed, "execution_capture": view, "checker": check_identity(),
+            "source_check": reviewed, "execution_capture": view,
+            "checker": dict(checker) if checker is not None else check_identity(),
             "applicability": {"purpose": trial["purpose"], "comparable_purpose": comparable,
                               "sealed_metrics_revision": (sealed or {}).get("metrics_revision")},
             "limitations": list(dict.fromkeys(limitations))}
 
 
-def require(conn: db.LedgerConnection, run: Mapping) -> dict:
+def require(conn: db.LedgerConnection, run: Mapping, **options) -> dict:
     """The availability of a run that has economic evidence; ECONOMIC_EVIDENCE_UNAVAILABLE otherwise.
-    The refusal carries every reason (and the whole view as `availability`)."""
-    value = assess(conn, run)
+    The refusal carries every reason (and the whole view as `availability`); `options` are assess's."""
+    value = assess(conn, run, **options)
     if not value["economic_evidence_available"]:
         exc = refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['run_id']} has no economic evidence: "
                      + "; ".join(value["reasons"]), missing=(str(run["run_id"]), *value["reasons"]))
@@ -160,12 +176,17 @@ def require(conn: db.LedgerConnection, run: Mapping) -> dict:
 
 
 def mask(output: dict, value: dict) -> dict:
-    """Attach the availability; without economic evidence every performance key is emptied."""
+    """Attach the availability; without economic evidence every performance key is emptied and each
+    activity fact is reduced to whether it held, its code and its counts (no money value leaves)."""
     output["availability"] = value
     if not value.get("economic_evidence_available"):
         for key in PERFORMANCE_KEYS:
             if key in output:
                 output[key] = None
+        if isinstance(output.get("activity"), Mapping):
+            output["activity"] = {fact: ({key: item[key] for key in MASKED_FACT_KEYS if key in item}
+                                         if isinstance(item, Mapping) else None)
+                                  for fact, item in output["activity"].items()}
     return output
 
 
@@ -175,17 +196,21 @@ def _added_commit(conn: db.LedgerConnection, bundle: str) -> str | None:
     return found[0][0] if found else None
 
 
-def source_reviews(conn: db.LedgerConnection, run: Mapping) -> dict:
-    """The independent source reviews bound to this run's source hash and image digest."""
-    reviews, ignored = [], []
+def review_records(conn: db.LedgerConnection) -> list[dict]:
+    """Every stored source-review file, read and checked once: {bundle, sha256, record, ledger_commit,
+    ignored}; `ignored` names why a file is no product review of its precheck trial (else None).
+    LEDGER_CORRUPT when a stored file differs from its content hash."""
+    found = []
     for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE path = %s ORDER BY "
                                              "bundle", (REVIEW_FILE,)):
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{REVIEW_FILE} differs from its content hash",
                          missing=(f"{bundle}/{REVIEW_FILE}",))
+        item = {"bundle": bundle, "sha256": stored, "record": None, "ledger_commit": None, "ignored": None}
+        found.append(item)
         if not bundle.startswith("source-review-"):
-            ignored.append({"bundle": bundle, "reason": "not a product source-review bundle"})
+            item["ignored"] = "not a product source-review bundle"
             continue
         try:
             record = json.loads(content.decode("utf-8"))
@@ -193,22 +218,49 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping) -> dict:
             record = None
         if (not isinstance(record, dict) or record.get("format") != REVIEW_FORMAT
                 or any(record.get(field) is None for field in REVIEW_FIELDS)):
-            ignored.append({"bundle": bundle, "reason": f"not a complete {REVIEW_FORMAT} record"})
+            item["ignored"] = f"not a complete {REVIEW_FORMAT} record"
             continue
-        if record["source_sha256"] != run["source_sha256"] or record["image_digest"] != run["image_digest"]:
-            continue  # another candidate's or runtime's review
+        item["record"] = record
         commit = _added_commit(conn, bundle)
+        item["ledger_commit"] = commit
         trial = None
         if commit is not None and isinstance(record["trial_id"], int):
             trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_digest FROM trial AS OF "
                              f"'{db.check_ref(commit)}' WHERE trial_id = %s", (record["trial_id"],))
         if (trial is None or trial["purpose"] != "precheck" or trial["source_sha256"] != record["source_sha256"]
                 or trial["image_digest"] != record["image_digest"]):
-            ignored.append({"bundle": bundle, "reason": "the review's identity differs from its precheck trial at the "
-                                                        "commit that wrote it"})
+            item["ignored"] = "the review's identity differs from its precheck trial at the commit that wrote it"
+    return found
+
+
+def _recorded_by(conn: db.LedgerConnection, bundle: str, commit: str) -> bool:
+    """Whether the bundle was already in the ledger at `commit`."""
+    return bool(conn.rows(f"SELECT 1 FROM evidence_bundle AS OF '{db.check_ref(commit)}' WHERE bundle = %s", (bundle,)))
+
+
+def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | None = None,
+                   scope: Mapping | None = None) -> dict:
+    """The independent source reviews bound to this run's source hash and image digest.
+
+    `records` are review_records already read for this call; `scope` {bundles, recorded_by} counts
+    only the named review bundles that were in the ledger at the commit `recorded_by` (the facts
+    fixed when a run was sealed)."""
+    reviews, ignored = [], []
+    for item in records if records is not None else review_records(conn):
+        record = item["record"]
+        if record is None or item["ignored"] is not None:
+            if record is None or (record["source_sha256"] == run["source_sha256"]
+                                  and record["image_digest"] == run["image_digest"]):
+                ignored.append({"bundle": item["bundle"], "reason": item["ignored"]})
             continue
-        reviews.append({"bundle": bundle, "sha256": stored, "verdict": record["verdict"],
-                        "reviewer": record["authority"], "ledger_commit": commit})
+        if record["source_sha256"] != run["source_sha256"] or record["image_digest"] != run["image_digest"]:
+            continue  # another candidate's or runtime's review
+        if scope is not None and (item["bundle"] not in scope.get("bundles", ()) or scope.get("recorded_by") is None
+                                  or not _recorded_by(conn, item["bundle"], scope["recorded_by"])):
+            ignored.append({"bundle": item["bundle"], "reason": "not a review fixed when the run was sealed"})
+            continue
+        reviews.append({"bundle": item["bundle"], "sha256": item["sha256"], "verdict": record["verdict"],
+                        "reviewer": record["authority"], "ledger_commit": item["ledger_commit"]})
     verdicts = {item["verdict"] for item in reviews}
     status = "failed" if "failed" in verdicts else "passed" if "passed" in verdicts else "unreviewed"
     return {"status": status, "reviews": reviews, "ignored": ignored, "scope": REVIEW_SCOPE}

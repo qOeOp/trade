@@ -300,10 +300,24 @@ def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) ->
     return points
 
 
+def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int, run_id: int) -> dict:
+    """The source reviews fixed when a run was sealed: the precheck reviews its registration cited, as
+    the ledger held them at the commit that ingested the run (a validation run cites none)."""
+    ingested = conn.rows("SELECT to_commit FROM dolt_diff_run WHERE to_run_id = %s AND diff_type = 'added' LIMIT 1",
+                         (run_id,))
+    attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
+    cited = []
+    if attempt is not None:
+        cited = sorted(set((load_plan(conn, attempt["registration_bundle"])[0]["body"].get("prechecks") or {}).values()))
+    return {"bundles": cited, "recorded_by": ingested[0][0] if ingested else None}
+
+
 def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     """Whether a consumed attempt may be tried again: it was interrupted (no run, and its original
     capture records an interrupted or host-failure outcome), its run is invalid, or qualification
-    finds no economic evidence in it."""
+    finds no economic evidence in it by the facts fixed when it was sealed (its sealed facts and the
+    precheck review cited at registration as it stood then): a source review recorded after the run
+    was ingested does not make a passed attempt retryable."""
     run = conn.one("SELECT r.run_id, r.trial_id, r.status, t.source_sha256, t.image_digest FROM run r JOIN trial t "
                    "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if run is None:
@@ -312,7 +326,8 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
         return capture["status"] == "captured" and outcome.get("kind") in ("interrupted", "host_failure")
     if run["status"] == "invalid":
         return True
-    return not seams.current.qualification_assess(conn, run)["economic_evidence_available"]
+    scope = _sealing_review_scope(conn, trial_id, run["run_id"])
+    return not seams.current.qualification_assess(conn, run, review_scope=scope)["economic_evidence_available"]
 
 
 def _retry_chain(conn: db.LedgerConnection, retry_of) -> list[str]:

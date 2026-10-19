@@ -237,9 +237,9 @@ def _qualification_require(conn, run: Mapping) -> dict:
     return availability.require(conn, run)
 
 
-def _qualification_assess(conn, run: Mapping) -> dict:
+def _qualification_assess(conn, run: Mapping, **options) -> dict:
     from qualification import availability
-    return availability.assess(conn, run)
+    return availability.assess(conn, run, **options)
 
 
 @dataclass(frozen=True)
@@ -251,7 +251,7 @@ class Seams:
     runner_inputs: Callable[[list[str]], dict]
     market: Callable[[object], object]
     qualification_require: Callable[[object, Mapping], dict]
-    qualification_assess: Callable[[object, Mapping], dict]
+    qualification_assess: Callable[..., dict]
 
 
 DEFAULT = Seams(resolve_runtime=_resolve_runtime, inspect_runtime=_inspect_runtime,
