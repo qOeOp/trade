@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import unquote
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import DataActor, ImportableActorConfig, LoggerConfig, LogLevel
@@ -481,8 +482,8 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
         bars[bar_type], marks[instrument_id] = base + STREAM_TYPES.index("Bar"), base
         for kind, native in (("Bar", NautilusDataType.Bar), ("MarkPriceUpdate", NautilusDataType.MarkPriceUpdate)):
             for number, path in enumerate(_files(row, kind)):
-                if kind == "Bar" and f"/{bar_type}/" not in path:
-                    continue  # the daily warm-up bars are the strategy's, never replayed
+                if kind == "Bar" and unquote(Path(path).parent.name) != str(bar_type):
+                    continue  # the daily warm-up bars are the strategy's, never replayed (names are %-encoded)
                 column = parquet.read_table(path, columns=["ts_init"])["ts_init"]
                 if len(column):
                     files.append((native, f"{kind.lower()}_{index}_{number}", path, column[0].as_py(),

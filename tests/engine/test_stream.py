@@ -32,6 +32,9 @@ def catalog(root: Path, symbol: str, minutes: np.ndarray, funding: list[int]) ->
     export.write_bars(store, f"{iid}-1-MINUTE-LAST-EXTERNAL", bars, MINUTE, 2, 3, 8, 4)
     export.write_marks(store, iid, bars, MINUTE, 8)
     export.write_funding(path, str(iid), [(at, Decimal("0.0001")) for at in funding])
+    daily = {name: values[:2] for name, values in bars.items()}
+    daily["ts_open"] = np.array([START - 2 * 86_400_000, START - 86_400_000])
+    export.write_bars(store, f"{iid}-1-DAY-LAST-EXTERNAL", daily, 86_400_000, 2, 3, 8, 4)
     return {"symbol": symbol, "instrument_id": iid, "catalog_path": path}
 
 
@@ -39,12 +42,13 @@ class StreamTests(unittest.TestCase):
     def test_events_come_in_the_node_order_across_session_windows(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            # Two contracts sharing minute timestamps, one with a gap of more than a session window;
-            # a funding settlement stamped exactly at a bar close of the second contract.
+            # Two contracts sharing minute timestamps, one with a gap of more than a session window, the
+            # other with a non-ASCII name (its directories are %-encoded) and daily warm-up bars that are
+            # never replayed; a funding settlement stamped exactly at a bar close of the second contract.
             first = np.concatenate([np.arange(0, 30), np.arange(11 * 1440, 11 * 1440 + 30)])
             second = np.arange(0, 20)
             rows = [catalog(root, "AAAUSDT", first, [START + 5 * MINUTE + 7]),
-                    catalog(root, "BBBUSDT", second, [START + 10 * MINUTE - 1])]
+                    catalog(root, "币安USDT", second, [START + 10 * MINUTE - 1])]
             streamed = list(run.market_events(rows, START * 10**6, (START + 12 * 1440 * MINUTE) * 10**6))
             # The node's order: every configuration whole (contract by contract MARK, funding, bars),
             # then one stable sort by ts_init.
