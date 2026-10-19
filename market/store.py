@@ -59,9 +59,9 @@ TESTS = (
      "WHERE month = (SELECT MAX(month) FROM universe_month)) "
      "SELECT (SELECT COUNT(*) FROM members) - COUNT(DISTINCT n.symbol, n.month) FROM members n JOIN m JOIN bar b "
      "ON b.symbol = n.symbol AND b.price_type = 'LAST' AND b.ts_open = n.eve + m.i * 60000 WHERE b.volume > 0"),
-    # Design gap: the design asks for terms observed before the month's end; terms are observed when
-    # the import runs, so a month imported after the fact has none that early. The test holds the
-    # weaker form (the member has terms at the commit) until that is decided.
+    # The user's decision: every member has terms at the commit. A month imported after the fact has
+    # terms observed later than the month; replays then carry the CURRENT_SNAPSHOT_APPROXIMATION
+    # limitation naming the observation (engine.load.terms_approximations).
     ("universe_members_have_terms",
      "SELECT COUNT(*) FROM universe_month u WHERE NOT EXISTS (SELECT 1 FROM instrument i WHERE i.symbol = u.symbol)"),
     ("universe_rule_is_recorded",

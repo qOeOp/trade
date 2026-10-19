@@ -90,6 +90,14 @@ episode is piece n (`SYMBOL-E<n>-PERP.BINANCE`, Catalog in `episode-<n>/`), hold
 complete inside it. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
 written at the precision their prices need (Binance mark prices carry 8 decimals).
 
+Every replay trades on the latest terms observed at its commit (`historical_terms:
+CURRENT_SNAPSHOT_APPROXIMATION` in the receipt). When that observation is later than the replay
+window's end (a market imported after the fact), the runner adds the limitation
+`CURRENT_SNAPSHOT_APPROXIMATION: <symbol> trades on terms observed at <time> (observed_at <ms>)` to
+the run's summary, and so to its reports. The commit test `universe_members_have_terms` checks only
+that every member has terms at the commit (the user's decision); a live month-by-month import observes
+the terms during the month and so meets the stricter form as well.
+
 ## Decisions and measurements
 
 - Only 1-minute LAST and MARK are stored; every other timeframe would be a second copy that can

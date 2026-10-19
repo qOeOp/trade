@@ -19,7 +19,7 @@ from nautilus_trader.model import BarType, InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
-from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window
+from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window, utc_text
 
 
 BAR_INTERVAL_NS = EXECUTION_BAR_MINUTES * MINUTE_NS
@@ -235,6 +235,19 @@ def read_market(root: Path, symbols: list[str], commit: str, start: int, end: in
     if len(set(names)) != len(names) or len({row["strategy_id"] for row in rows}) != len(rows):
         raise Refusal("CONTRACT_NAME_COLLISION", "contracts must have distinct short names and strategy identifiers")
     return rows
+
+
+def terms_approximations(rows: list[dict], end_ns: int) -> list[str]:
+    """CURRENT_SNAPSHOT_APPROXIMATION limitations: each contract whose terms were observed after the
+    window's end (a market imported after the fact), named with its observation time."""
+    found = {}
+    for row in rows:
+        observed = row["receipt"].get("terms_observed_at")
+        if isinstance(observed, int) and observed * 1_000_000 >= end_ns and row["symbol"] not in found:
+            found[row["symbol"]] = (f"CURRENT_SNAPSHOT_APPROXIMATION: {row['symbol']} trades on terms observed at "
+                                    f"{utc_text(observed * 1_000_000)} (observed_at {observed}), after the window end "
+                                    f"{utc_text(end_ns)}")
+    return list(found.values())
 
 
 DAY_NS = 86_400_000_000_000

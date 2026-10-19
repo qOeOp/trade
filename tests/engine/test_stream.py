@@ -185,7 +185,7 @@ def series(seed, minutes):
     return bars
 
 
-def contract(root, symbol, minutes, funding, episode=None, seed=0):
+def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0):
     """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/."""
     index = 1 if episode is not None else None
     path = root / symbol
@@ -206,7 +206,8 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0):
              "last_bar_ns": int((bars["ts_open"][-1] + MIN - 1) * 10**6) if len(minutes) else None, "episode": episode}
     receipt = {"format": "market-coverage-v1", "symbol": symbol, "commit": "c" * 32, "timeframe": "1m",
                "start_ns": START * 10**6, "end_ns": END * 10**6,
-               "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "pieces": [piece]}
+               "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "terms_observed_at": observed_at,
+               "pieces": [piece]}
     (path / "export.json").write_text(json.dumps(receipt))
 
 
@@ -397,7 +398,8 @@ class StreamTests(unittest.TestCase):
             root = Path(temp)
             every = np.arange(DAYS * 1440)
             contract(root / "market", "AAAUSDT", every, [], seed=1)
-            contract(root / "market", "BBBUSDT", every[(every < 600) | (every >= 600 + gap_minutes)], [], seed=2)
+            contract(root / "market", "BBBUSDT", every[(every < 600) | (every >= 600 + gap_minutes)], [], seed=2,
+                     observed_at=END + DAY)  # terms observed after the window, as a backfilled market has them
             source = root / "hold.py"
             source.write_text(HOLD)
             argv = ["--market-root", str(root / "market"), "--market-commit", "c" * 32, "--symbols", "AAAUSDT", "BBBUSDT",
@@ -417,6 +419,10 @@ class StreamTests(unittest.TestCase):
     def test_a_mark_hole_up_to_an_hour_is_carried_and_a_longer_one_is_one_valuation_gap(self):
         summary, failure = self.holes(30)
         self.assertIsNone(failure)
+        approximated = [item for item in summary["limitations"] if item.startswith("CURRENT_SNAPSHOT_APPROXIMATION")]
+        self.assertEqual(approximated, [f"CURRENT_SNAPSHOT_APPROXIMATION: BBBUSDT trades on terms observed at "
+                                        f"{utc_text((END + DAY) * 10**6)} (observed_at {END + DAY}), after the window "
+                                        f"end {utc_text(END * 10**6)}"])  # AAAUSDT's terms predate the window
         hole_start = (START + 600 * MIN - 1) * 10**6  # the last MARK before the hole closes there
         self.assertEqual(summary["mark_carry"], [{"instrument_id": "BBBUSDT-PERP.BINANCE", "mark_ns": hole_start,
                                                   "from_ns": hole_start + 60 * 10**9,

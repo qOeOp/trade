@@ -71,6 +71,7 @@ from engine.load import (
     read_market,
     read_regular_file,
     read_universe,
+    terms_approximations,
     warmup_daily_bars,
     warmup_start,
     WARMUP_DAYS,
@@ -675,6 +676,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe:
     daily warm-up) holds in the window, and exactly one capital observer; afterwards the native result
     is checked against the receipts. Returns (Replay, instances by coin, limitations)."""
     planned, limitations = plan_instances(rows, window, strategy)
+    limitations += terms_approximations(rows, window.end_ns)
     account = ACCOUNT_CONTRACT
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]),
