@@ -80,7 +80,7 @@ class LedgerProfile:
     def from_json(cls, value: dict) -> LedgerProfile:
         kind, holds = value.get("kind"), value.get("holds")
         if holds is None and kind in ("research", "market"):
-            # A profile written by research/records: `kind` held the content and `role` the lifecycle.
+            # The market profile format: `kind` holds the content and `role` the lifecycle.
             holds, kind = kind, value.get("role")
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
                    research_branch=value.get("research_branch") or "main", kind=kind,
@@ -128,7 +128,7 @@ def _service(root: Path) -> dict | None:
         return None
 
 
-# Service lifecycle (ported from research/records/ledger.py)
+# Service lifecycle
 
 def _binary(given: Path | str | None) -> str:
     candidate = given or os.environ.get("RESEARCH_DOLT_BINARY") or shutil.which("dolt")

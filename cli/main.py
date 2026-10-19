@@ -1,0 +1,1127 @@
+"""Noun-verb dispatch (`cli.main`) and every command of the design page except `replay reproduce`
+(`cli/replay.py`).
+
+    uv run --frozen python -m cli.main <noun> <verb> [options] [-- runner arguments]
+
+A ledger is named by `--ledger`: a profile file path, or a profile name in the ledger profile
+directory (`TRADE_LEDGER_HOME`, default ~/.local/share/trade/ledgers); without it, the active
+research ledger. A market database is named by `--market` the same way; without it, the market
+profile in the profile directory. Runner arguments (window and instrument scope) follow `--`.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Callable, Mapping
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import sys
+import tempfile
+
+import pymysql
+
+from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, witness
+from ledger.errors import Refusal, refusal
+from ledger.refusals import CATALOGUE, refuse
+
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+TEMPLATES = REPOSITORY / ".agents" / "skills" / "research-round" / "templates"
+WORKDIR_TEMPLATE, HEADER_TEMPLATE = "workdir-agents.md", "strategy-header.md"
+READ_FIRST = ("SELECT", "SHOW", "DESCRIBE", "WITH")
+WRITE_WORDS = ("INSERT", "UPDATE", "DELETE", "REPLACE", "CALL", "CREATE", "DROP", "ALTER", "GRANT", "REVOKE",
+               "TRUNCATE", "SET", "LOAD", "LOCK", "UNLOCK", "RENAME", "OUTFILE", "DUMPFILE", "HANDLER", "DO",
+               "PREPARE", "EXECUTE", "INTO")
+
+
+# Output
+
+class UsageError(Exception):
+    pass
+
+
+def _jsonable(value):
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return {"bytes": len(value)}
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, float) and value != value:
+        return None
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _print(stream, value) -> None:
+    stream.write(json.dumps(_jsonable(value), ensure_ascii=False, indent=2, sort_keys=False) + "\n")
+    stream.flush()
+
+
+def refusal_json(exc: Refusal) -> dict:
+    """The printed form of a refusal: its fields and its catalogue repair commands."""
+    value = exc.as_dict()
+    value["next_actions"] = list(exc.next_actions) or list(CATALOGUE.get(exc.code, ("", ()))[1])
+    return value
+
+
+def _market_refusal(exc) -> Refusal:
+    """A market package refusal (market.store.MarketError, market.lifecycle.LifecycleInput) as a ledger
+    refusal, its repair commands from the catalogue."""
+    code = getattr(exc, "code", "MARKET_REFUSED")
+    message = getattr(exc, "message", None) or str(exc).split(": ", 1)[-1]
+    return refusal(code, message, missing=tuple(getattr(exc, "missing", ())), write_status="not_written",
+                   next_actions=tuple(CATALOGUE.get(code, ("", tuple(getattr(exc, "next_actions", ()))))[1]))
+
+
+# Profiles
+
+def _read_profile_file(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise refuse("LEDGER_UNKNOWN", f"{path} is not a readable profile file", missing=(str(path),)) from exc
+    if not isinstance(value, dict):
+        raise refuse("LEDGER_UNKNOWN", f"{path} is not a profile", missing=(str(path),))
+    return value
+
+
+def _is_path(value: str) -> bool:
+    return "/" in value or value.endswith(".json")
+
+
+def ledger_profile(value: str | None) -> db.LedgerProfile:
+    """The research ledger a command names: a profile file, a profile name, or the active one."""
+    from report import runs
+    if value is not None and _is_path(value):
+        try:
+            return db.LedgerProfile.from_json(_read_profile_file(Path(value).expanduser()))
+        except (KeyError, TypeError) as exc:
+            raise refuse("LEDGER_UNKNOWN", f"{value} is not a ledger profile", missing=(value,)) from exc
+    return runs.profile_of(value)
+
+
+def market_profile(value: str | None) -> dict:
+    """The market database a command names: a profile file, a profile name, or the one in the profile directory."""
+    if value is not None and _is_path(value):
+        found = _read_profile_file(Path(value).expanduser())
+    elif value is not None:
+        found = _read_profile_file(db.home() / f"{value}.json")
+    else:
+        found = None
+        for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
+            try:
+                candidate = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(candidate, dict) and "market" in (candidate.get("kind"), candidate.get("holds")):
+                found = candidate
+                break
+        if found is None:
+            raise refuse("LEDGER_UNKNOWN", "no market profile in the ledger profile directory", missing=("--market",))
+    if "market" not in (found.get("kind"), found.get("holds")) or not found.get("database"):
+        raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market database", missing=("--market",))
+    return found
+
+
+def _market_facts(profile: dict) -> Callable[[str, str], dict]:
+    """market.resolve_commit and market.freshness for ledger.select_line."""
+    from market import store
+
+    def facts(market_database: str, market_at: str) -> dict:
+        if market_database != profile["database"]:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"{market_database} is not the market profile's database",
+                         missing=(market_database,))
+        try:
+            return store.freshness(profile, market_at)
+        except store.MarketError as exc:
+            raise _market_refusal(exc) from exc
+    return facts
+
+
+# Small argument helpers
+
+def _regular_file(path: str, code: str = "SOURCE_UNREADABLE") -> bytes:
+    found = Path(path)
+    try:
+        if found.is_symlink() or not found.is_file():
+            raise OSError("not a regular file")
+        return found.read_bytes()
+    except OSError as exc:
+        raise refuse(code, f"{path} is not a readable regular file", missing=(str(path),)) from exc
+
+
+def _json_file(path: str, code: str) -> dict:
+    data = _regular_file(path, code)
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise refuse(code, f"{path} is not UTF-8 JSON", missing=(str(path),)) from exc
+    if not isinstance(value, dict):
+        raise refuse(code, f"{path} is not a JSON object", missing=(str(path),))
+    return value
+
+
+def _utc_day(text: str) -> date:
+    if not isinstance(text, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        raise refuse("WINDOW_INVALID", f"{text!r} is not a YYYY-MM-DD UTC day", expected="YYYY-MM-DD")
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise refuse("WINDOW_INVALID", f"{text!r} is not a calendar day", expected="YYYY-MM-DD") from exc
+
+
+def _utc_time(text: str) -> datetime:
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise refuse("WINDOW_INVALID", f"{text!r} is not an ISO-8601 time", expected="UTC, e.g. 2026-01-01T00:00:00Z") from exc
+    if moment.utcoffset() != timedelta(0):
+        raise refuse("WINDOW_INVALID", f"{text!r} is not a UTC time", expected="UTC, e.g. 2026-01-01T00:00:00Z")
+    return moment
+
+
+def _new_temporary(path: str) -> Path:
+    return paths.temporary_path(path, require_new=True)
+
+
+# ledger
+
+def ledger_init(name: str, kind: str, service_root: Path, research_branch: str = "main",
+                backup_root: Path | None = None) -> dict:
+    """ledger init: a new research ledger profile (database = the profile name with - as _), its
+    accounts, branch grant and commit verification group; administration happens only here."""
+    from report import review
+    database = name.replace("-", "_") if isinstance(name, str) else name
+    created = db.init(name, database, Path(service_root), kind, research_branch, backup_root)
+    profile = created["profile"]
+    with db.read_as_of(profile) as conn:
+        version = conn.rows("SELECT version FROM ledger_schema WHERE singleton = 1")
+        head = conn.rows("SELECT seq, op_id FROM ledger_head WHERE singleton = 1")
+        tests = {name for (name,) in conn.rows("SELECT test_name FROM dolt_tests")}
+        commit = conn.resolved_commit
+    if version != [(db.SCHEMA_VERSION,)] or [tuple(row) for row in head] != [(0, "schema")] or tests != set(
+            review.product_commit_tests()):
+        raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
+    accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
+    return {"profile": str(db.home() / f"{name}.json"), "name": name, "database": profile.database,
+            "kind": profile.kind, "service_root": str(profile.service_root),
+            "accounts": {role: accounts.get(role, {}).get("user") for role in db.ROLES},
+            "branch_grant": created["branch_grant"], "schema_version": created["schema_version"],
+            "ledger_commit": commit}
+
+
+def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
+    """ledger service start | stop | status."""
+    config = db._service(profile.service_root)
+    if action == "stop":
+        if config is None:
+            return {"action": action, "running": False}
+        return {"action": action, "running": db.stop_service(profile.service_root)["running"]}
+    if action == "start" and (config is None or profile.database not in config.get("databases", {})):
+        raise refuse("LEDGER_NOT_INITIALIZED", f"{profile.service_root} holds no initialized ledger {profile.database}",
+                     missing=(profile.database,))
+    if action == "start":
+        started = db.start_service(profile.service_root)
+        try:
+            with db.read_as_of(profile) as conn:
+                commit = conn.resolved_commit
+        except Refusal as exc:
+            db.stop_service(profile.service_root)
+            raise refuse("SERVICE_START_FAILED", f"the service started but the ledger is not readable ({exc.code})",
+                         missing=(profile.database,)) from exc
+        return {"action": action, "running": True, "pid": started.get("pid"), "address": (config or {}).get("socket"),
+                "branch": profile.research_branch, "ledger_commit": commit}
+    try:
+        with db.read_as_of(profile) as conn:
+            commit = conn.resolved_commit
+    except Refusal:
+        return {"action": action, "running": False, "address": (config or {}).get("socket")}
+    return {"action": action, "running": True, "pid": db._pid(profile.service_root), "address": config.get("socket"),
+            "branch": profile.research_branch, "ledger_commit": commit}
+
+
+def ledger_temp(root: str | None) -> dict:
+    """ledger temp: an isolated temporary ledger under the temporary root, with its own profile file,
+    database name, port and service; later commands name it with --ledger <profile>."""
+    token = secrets.token_hex(4)
+    given = Path(root) if root else Path(tempfile.gettempdir()) / f"ledger-{token}"
+    root_path = paths.temporary_path(given, require_new=True)
+    name = f"temp-{token}"
+    root_path.mkdir(mode=0o700, parents=True)
+    previous = os.environ.get("TRADE_LEDGER_HOME")
+    os.environ["TRADE_LEDGER_HOME"] = str(root_path)  # the profile file is written into the new root
+    try:
+        created = ledger_init(name, "temporary", root_path / "s")
+    except BaseException:
+        if (root_path / "s" / "service.json").exists():
+            db.stop_service(root_path / "s")
+        shutil.rmtree(root_path, ignore_errors=True)
+        raise
+    finally:
+        if previous is None:
+            os.environ.pop("TRADE_LEDGER_HOME", None)
+        else:
+            os.environ["TRADE_LEDGER_HOME"] = previous
+    profile = ledger_profile(created["profile"])
+    status = ledger_service(profile, "status")
+    return {"profile": created["profile"], "root": str(root_path), "address": status.get("address"),
+            "accounts": created["accounts"], "ledger_commit": status.get("ledger_commit") or created["ledger_commit"]}
+
+
+def _statement_words(query: str) -> list[str]:
+    stripped = re.sub(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`", " ", query)
+    stripped = re.sub(r"--[^\n]*|#[^\n]*|/\*.*?\*/", " ", stripped, flags=re.S)
+    return stripped, re.findall(r"[A-Za-z_]+", stripped.upper())
+
+
+def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
+    """ledger sql: one read-only statement with the reader account, pinned to an exact version."""
+    stripped, words = _statement_words(query or "")
+    body = stripped.strip().rstrip(";").strip()
+    if not words or words[0] not in READ_FIRST or ";" in body or any(word in WRITE_WORDS for word in words):
+        raise refuse("WRITE_VIA_SQL", "only one SELECT, SHOW, DESCRIBE or WITH statement without a write clause is "
+                                      "accepted", expected="a single read-only statement")
+    with db.read_as_of(profile, at) as conn:
+        with conn.raw.cursor() as cursor:
+            try:
+                cursor.execute(query.strip().rstrip(";"))
+            except pymysql.MySQLError as exc:
+                raise db._sql_error(exc) from exc
+            columns = [column[0] for column in cursor.description or ()]
+            found = [list(row) for row in cursor.fetchall()]
+        return {"at": at, "ledger_commit": conn.resolved_commit, "columns": columns, "rows": found}
+
+
+def ledger_witness(conn: db.LedgerConnection, tsa_url: str | None) -> dict:
+    """ledger witness: timestamp every out-of-sample registration commit that has none yet."""
+    synced = witness.sync_witness(conn, tsa_url)
+    registrations = {}
+    for commit, registration_id in conn.rows("SELECT to_commit, to_registration_id FROM dolt_diff_validation_registration "
+                                             "WHERE diff_type = 'added'"):
+        registrations.setdefault(commit, []).append(registration_id)
+    return {"checked": len(synced["witnessed"]) + synced["already"] + len(synced["failed"]),
+            "already": synced["already"],
+            "witnessed": [{"commit": commit, "registration_ids": registrations.get(commit, []),
+                           "stamped_at": witness.stamped_at(conn, commit)} for commit in synced["witnessed"]],
+            "failed": [{**item, "registration_ids": registrations.get(item["commit"], [])} for item in synced["failed"]]}
+
+
+def ledger_review(conn: db.LedgerConnection, at: str | None) -> dict:
+    """ledger review: the whole review at one exact version; findings only."""
+    from report import review
+    return review.review_all(conn, at)
+
+
+def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: str | None,
+                  run_ids: list[int] | None) -> dict:
+    """ledger export: the full-history backup and reproduction manifest into a new directory
+    (reproduce), or the incremental backup sync to the profile's backup directory (backup)."""
+    if kind == "reproduce":
+        if not output:
+            raise UsageError("ledger export --kind reproduce needs --output")
+        target = Path(output).expanduser().absolute()
+        if os.path.lexists(target):
+            raise refuse("PATH_EXISTS", f"{target} already exists", missing=(str(target),))
+    else:
+        if profile.backup_root is None:
+            raise refuse("BACKUP_TARGET_UNSET", f"profile {profile.name} declares no backup directory",
+                         missing=("backup",))
+        target = Path(profile.backup_root)
+    created = not target.exists()
+    exported = admin.export_history(profile, target, at, run_ids, with_backup=True)
+    manifest = Path(exported["manifest_path"])
+    if hashlib.sha256(manifest.read_bytes()).hexdigest() != exported["content_hash"]:
+        if created:
+            shutil.rmtree(target, ignore_errors=True)
+        raise refuse("EXPORT_MISMATCH", f"{manifest} does not reread to the exported content hash",
+                     missing=(str(manifest),))
+    return {"kind": kind, "ledger_commit": exported["commit"], "target": str(target),
+            "backup_path": exported["backup_path"], "manifest_path": str(manifest),
+            "content_hash": exported["content_hash"], "runs": exported["runs"], "candidates": exported["candidates"],
+            "unavailable": exported["unavailable"]}
+
+
+# candidate
+
+def _workdir_notes(directory: Path, candidate: str) -> dict:
+    """AGENTS.md (research-round's workdir template with the candidate filled in) and strategy-header.md
+    (its file header template, verbatim) beside a working copy; a template not present is reported."""
+    written, missing = [], []
+    for name, target in ((WORKDIR_TEMPLATE, "AGENTS.md"), (HEADER_TEMPLATE, HEADER_TEMPLATE)):
+        source = TEMPLATES / name
+        if not source.is_file():
+            missing.append(str(source.relative_to(REPOSITORY)))
+            continue
+        text = source.read_text(encoding="utf-8")
+        if name == WORKDIR_TEMPLATE:
+            text = text.replace("<strategy_id@revision>", candidate)
+        (directory / target).write_text(text, encoding="utf-8")
+        written.append(target)
+    return {"notes": written, "missing_templates": missing}
+
+
+def _require_absent(*targets: Path) -> None:
+    for target in targets:
+        if os.path.lexists(target):
+            raise refuse("PATH_EXISTS", f"{target} already exists; working copies are always new",
+                         missing=(str(target),))
+
+
+def candidate_publish(profile: db.LedgerProfile, file: str, strategy_id: str, entry_class: str, description: str,
+                      parent: str | None, difference: str | None, op: str | None) -> dict:
+    """candidate publish: one single-file UTF-8 source as a candidate, a root without --parent."""
+    source = _regular_file(file)
+    published = strategies.publish_candidate(profile, source, strategy_id, entry_class, description, parent,
+                                             difference, op)
+    return {"candidate": published["candidate"], "source_sha256": published["source_sha256"], "parent": parent,
+            "runtime_contract": published["runtime_contract"], "ledger_commit": published["ledger_commit"],
+            "replayed": published["replayed"]}
+
+
+def _candidate_record(row: Mapping, commit: str) -> dict:
+    parent = f"{row['parent_strategy_id']}@{row['parent_revision']}" if row.get("parent_strategy_id") else None
+    return {"candidate": f"{row['strategy_id']}@{row['revision']}", "strategy_id": row["strategy_id"],
+            "revision": row["revision"], "source_sha256": row["source_sha256"], "entry_class": row["entry_class"],
+            "runtime_contract": row["runtime_contract"], "description": row["description"], "parent": parent,
+            "difference": row["difference"], "created_at": row["created_at"], "ledger_commit": commit}
+
+
+def candidate_show(profile: db.LedgerProfile, candidate: str, at: str | None) -> dict:
+    """candidate show: the candidate record at a ledger version, without its source bytes."""
+    strategies.parse_ref(candidate)
+    with db.read_as_of(profile, at) as conn:
+        return _candidate_record(strategies.read_candidate(conn, candidate), conn.resolved_commit)
+
+
+def candidate_export(profile: db.LedgerProfile, candidate: str, output: str, at: str | None) -> dict:
+    """candidate export: the source bytes to a new file under the temporary root, with the working
+    directory notes beside it."""
+    target = _new_temporary(output)
+    _require_absent(target.parent / "AGENTS.md", target.parent / HEADER_TEMPLATE)
+    with db.read_as_of(profile, at) as conn:
+        row = strategies.read_candidate(conn, candidate)
+        commit = conn.resolved_commit
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
+        stream.write(row["source"])
+    if hashlib.sha256(target.read_bytes()).hexdigest() != row["source_sha256"]:
+        target.unlink(missing_ok=True)
+        raise refuse("LEDGER_CORRUPT", f"{target} does not reread to the source hash of {candidate}",
+                     missing=(candidate,))
+    return {"candidate": candidate, "source_sha256": row["source_sha256"], "path": str(target),
+            "bytes": len(row["source"]), "ledger_commit": commit, **_workdir_notes(target.parent, candidate)}
+
+
+STRATEGY_STUB = '''{header}
+from nautilus_trader.config import StrategyConfig
+from nautilus_trader.trading import Strategy
+
+
+class {entry_class}(Strategy):
+    """The one entry class. Decide only on closed bars; read trading facts (orders, fills,
+    positions, account) from the engine's state, never from counters of your own."""
+
+    def __init__(self, instrument_id, daily_bar_type, *, trade_start_ns, historical_daily_bars,
+                 execution_bar_minutes, strategy_id, pool_membership):
+        super().__init__(StrategyConfig(strategy_id=strategy_id))
+        self.instrument_id = instrument_id
+        self.trade_start_ns = trade_start_ns
+
+    def replay_diagnostics(self):
+        """Diagnostic hook: counts the strategy reports about itself (summary only, never evidence);
+        never a native report fact's name."""
+        return {{}}
+
+    def replay_integrity_findings(self, orders_denied_or_rejected):
+        """Self-check hook: every finding returned, and every denied or rejected order, makes the run invalid."""
+        return []
+'''
+
+
+def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
+    """candidate new: a strategy scaffold in a new temporary directory; writes no ledger."""
+    directory = _new_temporary(output)
+    if not entry_class.isidentifier():
+        raise refuse("ENTRY_CLASS_INVALID", f"{entry_class!r} is not one Python class name")
+    header_template = TEMPLATES / HEADER_TEMPLATE
+    header = header_template.read_text(encoding="utf-8") if header_template.is_file() else ""
+    header = '"""' + (header.replace('"""', "'''").strip() or f"{strategy_id}: the file header goes here.") + '\n"""'
+    directory.mkdir(mode=0o700, parents=True)
+    (directory / "strategy.py").write_text(STRATEGY_STUB.format(header=header, entry_class=entry_class),
+                                           encoding="utf-8")
+    notes = _workdir_notes(directory, f"{strategy_id}@<revision>")
+    return {"output": str(directory), "files": ["strategy.py", *notes["notes"]],
+            "missing_templates": notes["missing_templates"]}
+
+
+def candidate_list(profile: db.LedgerProfile, at: str | None) -> dict:
+    """candidate list: every candidate with its lineage and registration attempts (report.candidates)."""
+    from report import candidates
+    return candidates.candidates(profile, at)
+
+
+# evidence
+
+def evidence_add(conn: db.LedgerConnection, bundle: str, files: list[str], note: str | None, op: str | None) -> dict:
+    """evidence add: an Agent evidence bundle of files and an optional note (note.md)."""
+    if not files and not note:
+        raise refuse("EMPTY_EVIDENCE", "an evidence bundle needs files or a note", missing=("--file", "--note"))
+    work = None
+    sources = [Path(item) for item in files or ()]
+    try:
+        if note:
+            work = Path(tempfile.mkdtemp(prefix="evidence-note-"))
+            (work / "note.md").write_text(note, encoding="utf-8")
+            sources.append(work / "note.md")
+        added = evidence.add_bundle(conn, bundle, sources, op)
+    finally:
+        if work is not None:
+            shutil.rmtree(work, ignore_errors=True)
+    return {"bundle": added["bundle"], "files": added["files"], "write_status": added["write_status"],
+            "ledger_commit": added["ledger_commit"]}
+
+
+def evidence_export(profile: db.LedgerProfile, bundle: str, output: str, at: str | None) -> dict:
+    """evidence export: a bundle's files, each hash recomputed, into a new temporary directory."""
+    target = _new_temporary(output)
+    with db.read_as_of(profile, at) as conn:
+        loaded = evidence.load_bundle(conn, bundle)
+        commit = conn.resolved_commit
+    listed = []
+    for name, data in sorted(loaded["files"].items()):
+        path = target / name
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.write_bytes(data)
+        listed.append({"name": name, "sha256": loaded["digests"][name], "bytes": len(data)})
+    if not listed:
+        target.mkdir(mode=0o700, parents=True)
+    return {"bundle": bundle, "at_commit": commit, "path": str(target), "files": listed}
+
+
+# execution, judgments, lines
+
+def execution_recover(profile: db.LedgerProfile, trial_id: int, workdir: str, failure_receipt: str) -> dict:
+    """execution recover: recovered bytes of a kept precheck directory, marked recovery material."""
+    recovered = execution.recover_capture(profile, trial_id, Path(workdir), Path(failure_receipt))
+    return {"trial_id": trial_id, "recovery_bundle": recovered["bundle"], "original_capture": "missing",
+            "limitation": recovered["limitation"], "ledger_commit": recovered["ledger_commit"]}
+
+
+def _subject(text: str) -> dict:
+    found = {}
+    for part in text.split(","):
+        key, sep, value = part.partition("=")
+        if not sep or not key.strip():
+            raise UsageError(f"--subject {text!r} is not role=…,candidate=ID@N|trial=N|registration=BUNDLE")
+        found[key.strip()] = value.strip()
+    subject = {"role": found.pop("role", None)}
+    for key, target in (("candidate", "candidate"), ("trial", "trial_id"), ("registration", "registration_bundle")):
+        if key in found:
+            value = found.pop(key)
+            if target == "trial_id":
+                if not value.isdigit():
+                    raise UsageError(f"--subject trial={value!r} is not a trial ID")
+                value = int(value)
+            subject[target] = value
+    if found:
+        raise UsageError(f"--subject has unknown keys {sorted(found)}")
+    return subject
+
+
+def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str, body: str, subjects: list[str],
+                 supersedes: int | None, cadence_trials: int | None, op: str | None) -> dict:
+    """judgment add: one judgment (body from a UTF-8 file) and its subjects."""
+    text = _regular_file(body, "JUDGMENT_BODY_UNREADABLE")
+    try:
+        text = text.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise refuse("JUDGMENT_BODY_UNREADABLE", f"{body} is not UTF-8", missing=(body,)) from exc
+    return judgments.add_judgment(profile, kind, line, based_on, text, cadence_trials,
+                                  [_subject(item) for item in subjects or ()], supersedes, op)
+
+
+def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
+                market_at: str | None, note: str | None) -> dict:
+    """line select: the user's research line (start candidate, development window, pinned market commit)."""
+    first, last = _utc_day(window_start), _utc_day(window_end)
+    selected = lines.select_line(conn, market["database"], market_at or "main", first, last, start, note,
+                                 market=_market_facts(market))
+    return {"bundle": selected["bundle"], "line_no": selected["line_no"], "start": start,
+            "window": {"start": first.isoformat(), "end": last.isoformat()},
+            "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
+            "content_sha256": selected["content_sha256"], "created": selected["created"]}
+
+
+# registration, hypothesis
+
+def registration_add(profile: db.LedgerProfile, bundle: str, body: str, runtime: str | None, market: dict,
+                     runner_argv: list[str], source: list[str]) -> dict:
+    """registration add: lock the registration body, test conditions, grid and execution identity."""
+    from registration import register
+    plan = _json_file(body, "REGISTRATION_INVALID")
+    registered = register.register(profile, bundle, plan, runtime, market, list(runner_argv),
+                                   [Path(item) for item in source or ()])
+    with db.read_as_of(profile) as conn:
+        files = evidence.load_bundle(conn, bundle)["digests"]
+    return {"bundle": registered["bundle"], "content_hash": registered["sha256"], "grid_points": len(plan["grid"]),
+            "execution": registered["execution"], "files": [{"name": name, "sha256": digest}
+                                                           for name, digest in sorted(files.items())],
+            "ledger_commit": registered["ledger_commit"], "replayed": registered["replayed"]}
+
+
+def hypothesis_compare(profile: db.LedgerProfile, bundle: str, run_id: int, at: str | None) -> dict:
+    """hypothesis compare: the comparison report of a grid run with its registered control (report.compare)."""
+    from report import comparison
+    return comparison.compare(profile, bundle, run_id, at)
+
+
+# research, source review
+
+def research_status(profile: db.LedgerProfile, at: str | None) -> dict:
+    from report import status
+    return status.research_status(profile, at)
+
+
+def research_state(conn: db.LedgerConnection, line: str | None, at: str | None) -> dict:
+    from report import status
+    return status.research_state(conn, line, at)
+
+
+def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, precheck_trial: int, verdict: str,
+                  items: str, reviewer: str) -> dict:
+    """source review: an independent review of a candidate's native precheck on one runtime image."""
+    from registration import precheck, seams
+    with db.connect(profile, "reader") as conn:
+        row = strategies.read_candidate(conn, candidate)
+        try:
+            identity = seams.current.resolve_runtime(runtime)
+        except Refusal as exc:
+            raise refuse("RUNTIME_UNRESOLVED", f"{runtime} does not resolve to an image digest ({exc.code})",
+                         missing=(str(runtime),)) from exc
+        trial = conn.one("SELECT purpose, source_sha256, image_digest FROM trial WHERE trial_id = %s", (precheck_trial,))
+    if trial is None or (trial["purpose"], trial["source_sha256"], trial["image_digest"]) != (
+            "precheck", row["source_sha256"], identity["image_digest"]):
+        raise refuse("PRECHECK_NOT_FOUND", f"trial {precheck_trial} is no precheck of {candidate} on "
+                                           f"{identity['image_ref']}", missing=(str(precheck_trial),))
+    review_items = _json_file(items, "REVIEW_INVALID")
+    body = {"trial_id": precheck_trial, "verdict": verdict,
+            **{name: review_items.get(name) for name in precheck.ITEMS}}
+    extra = sorted(set(review_items) - set(precheck.ITEMS))
+    if extra:
+        raise refuse("REVIEW_INVALID", "the review items hold unknown fields: " + ", ".join(extra), missing=tuple(extra))
+    recorded = precheck.record_review(profile, body, reviewer)
+    return {"bundle": recorded["bundle"], "candidate": candidate, "source_sha256": recorded["source_sha256"],
+            "image_digest": recorded["image_digest"], "precheck_trial": precheck_trial, "verdict": verdict,
+            "ledger_commit": recorded["ledger_commit"], "replayed": recorded["replayed"]}
+
+
+# validation
+
+def validation_registration(profile: db.LedgerProfile, candidate: str, window_start: str, window_end: str,
+                            universe_rule: str, market_at: str | None, market: dict, design: str,
+                            retry_of: int | None, op: str | None, tsa_url: str | None) -> dict:
+    """validation registration: one out-of-sample registration, then its time witness."""
+    from registration import validation
+    registered = validation.validation_register(profile, candidate, _utc_time(window_start), _utc_time(window_end),
+                                                universe_rule, market_at, _json_file(design, "DESIGN_INVALID"),
+                                                retry_of, op, market_profile=market, tsa_url=tsa_url)
+    stamped = registered["witness"]
+    next_actions = [] if stamped["status"] == "stamped" else [
+        "Run `ledger witness` before the window starts; a registration without a witness older than its window "
+        "start is refused as REGISTRATION_TOO_LATE when a validation replay binds it."]
+    return {"registration_id": registered["registration_id"], "candidate": candidate,
+            "window": {"start": window_start, "end": window_end}, "registered_at": registered["created_at"],
+            "ledger_commit": registered["ledger_commit"], "witness": stamped, "replayed": registered["replayed"],
+            "next_actions": next_actions}
+
+
+def validation_report(profile: db.LedgerProfile, registration_id: int, at: str | None) -> dict:
+    from report import comparison
+    return comparison.validation_report(profile, registration_id, at)
+
+
+# replay
+
+def replay_explore(profile, market, at, strategy_file, strategy_class, output, runtime, runner_argv) -> dict:
+    from replay import entry
+    found = entry.explore(profile, market, at, Path(strategy_file), strategy_class, Path(output), runtime,
+                          list(runner_argv))
+    found["metrics_note"] = "source unverified: for orientation only, never evidence"
+    found["next_actions"] = ["This source is now exposed by an exploration; derive and publish a new candidate to "
+                             "register."]
+    return found
+
+
+def replay_precheck(profile, market, at, candidate, runtime, runner_argv, output) -> dict:
+    from replay import entry
+    return entry.precheck(profile, market, at, candidate, runtime, list(runner_argv), Path(output))
+
+
+def replay_run(profile, market, at, candidate, runtime, runner_argv, hypothesis, validation) -> dict:
+    from replay import entry
+    if (hypothesis is None) == (validation is None):
+        raise refuse("REGISTRATION_REQUIRED", "give exactly one of --hypothesis or --validation",
+                     expected="--hypothesis registration-<name> xor --validation <id>")
+    ran = entry.run(profile, market, at, candidate, runtime, list(runner_argv), hypothesis, validation)
+    with db.read_as_of(profile) as conn:
+        commit = conn.resolved_commit
+    return {**ran, "ledger_commit": commit}
+
+
+def replay_report(profile, run_id: int | None, directory: str | None, at: str | None, tables: bool,
+                  reproduction: str | None, reproduction_trial: int | None, account: bool, exposures: bool) -> dict:
+    """replay report: a sealed run's report (with --tables its drill-down tables, native ones from a
+    verified reproduction), or an unsealed directory's report marked unverified."""
+    from report import runs
+    if (run_id is None) == (directory is None):
+        raise UsageError("give exactly one of --run-id or --directory")
+    if directory is not None:
+        if not Path(directory).is_dir():
+            raise refuse("DIRECTORY_NOT_FOUND", f"{directory} is not a directory", missing=(directory,))
+        return {"source": "directory", **runs.directory_report(Path(directory), account=account)}
+    found = {"source": "sealed", **runs.run_report(profile, run_id, at)}
+    if tables or exposures or account or reproduction:
+        found["tables"] = runs.tables(run_id, profile, at, account=account, exposures=exposures,
+                                      directory=Path(reproduction) if reproduction else None,
+                                      reproduction=reproduction_trial)
+    return found
+
+
+# market
+
+def market_import(market: dict, month: str, cache_root: str | None, workers: int) -> dict:
+    """market import: one UTC month of Binance public data as one market commit."""
+    from market import store
+    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
+    try:
+        first = date.fromisoformat(month + "-01")
+    except ValueError as exc:
+        raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
+    if first > datetime.now(timezone.utc).date():
+        raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
+    return store.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
+                              log=lambda line: print(line, file=sys.stderr, flush=True))
+
+
+def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str],
+                     op: str | None) -> dict:
+    """market lifecycle: the lifecycle evidence bundle lifecycle-<commit> of a market commit, from its
+    manifest and the exchange notices it cites (registration.record_lifecycle)."""
+    from registration import inputs
+    return inputs.record_lifecycle(profile, market, at, Path(manifest), [Path(item) for item in notices or ()], op)
+
+
+def market_coverage(market: dict, at: str | None, symbols: list[str] | None, start: str, end: str,
+                    ledger: str | None, lifecycle_bundle: str | None) -> dict:
+    """market coverage: per-contract coverage facts at a market commit, with lifecycle receipts."""
+    from market import coverage, store
+    from registration import inputs, seams
+    lifecycle = None
+    if lifecycle_bundle is not None:
+        if ledger is None:
+            raise UsageError("--lifecycle-bundle needs --ledger")
+        conn = store.connect(market, "reader")
+        try:
+            commit = store.resolve_commit(conn, at)
+        finally:
+            conn.close()
+        _, files = inputs.load_lifecycle(ledger_profile(ledger), lifecycle_bundle, commit,
+                                         market=seams.current.market(market))
+        lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
+    expanded = symbols is None
+    if expanded:
+        symbols = coverage.universe_members(market, at, start, end)
+    found = coverage.diagnose_coverage(market, at, list(symbols), start, end, lifecycle)
+    found["scope"] = {"symbols": list(symbols), "start": start, "end": end, "expanded": expanded}
+    return found
+
+
+# The dispatch table
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+def _ledger_option(parser, required: bool = False) -> None:
+    parser.add_argument("--ledger", required=required, help="ledger profile file or name (default: the active ledger)")
+
+
+def _market_option(parser) -> None:
+    parser.add_argument("--market", help="market profile file or name (default: the market profile in the "
+                                         "profile directory)")
+
+
+def _at(parser, what: str = "ledger") -> None:
+    parser.add_argument("--at", help=f"{what} commit, tag or branch (default: the head)")
+
+
+def _parser() -> Parser:
+    parser = Parser(prog="python -m cli.main", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    nouns = parser.add_subparsers(dest="noun", required=True, parser_class=Parser)
+
+    def verbs(name: str, help_text: str):
+        noun = nouns.add_parser(name, help=help_text)
+        return noun.add_subparsers(dest="verb", required=True, parser_class=Parser)
+
+    ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export")
+    command = ledger.add_parser("init", help="initialize a new research ledger profile")
+    command.add_argument("--name", required=True)
+    command.add_argument("--kind", required=True, choices=db.KINDS)
+    command.add_argument("--service-root", required=True, type=Path)
+    command.add_argument("--research-branch", default="main")
+    command.add_argument("--backup-root", type=Path)
+    command = ledger.add_parser("service", help="start, stop or read the ledger's database service")
+    command.add_argument("action", choices=("start", "stop", "status"))
+    _ledger_option(command)
+    command = ledger.add_parser("temp", help="an isolated temporary ledger under the temporary root")
+    command.add_argument("--root")
+    command = ledger.add_parser("sql", help="one read-only query with the reader account")
+    _ledger_option(command)
+    command.add_argument("query")
+    _at(command)
+    command = ledger.add_parser("witness", help="timestamp out-of-sample registrations without a witness")
+    _ledger_option(command)
+    command.add_argument("--tsa-url")
+    command = ledger.add_parser("review", help="the whole review at one exact version")
+    _ledger_option(command)
+    _at(command)
+    command = ledger.add_parser("export", help="full-history backup and reproduction manifest")
+    _ledger_option(command)
+    command.add_argument("--kind", required=True, choices=("reproduce", "backup"))
+    command.add_argument("--output")
+    _at(command)
+    command.add_argument("--run-id", type=int, action="append", dest="run_ids")
+
+    candidate = verbs("candidate", "candidates: publish, show, export, new, list")
+    command = candidate.add_parser("publish", help="publish one single-file source as a candidate")
+    _ledger_option(command)
+    command.add_argument("--file", required=True)
+    command.add_argument("--strategy-id", required=True)
+    command.add_argument("--entry-class", required=True)
+    command.add_argument("--description", required=True)
+    command.add_argument("--parent")
+    command.add_argument("--difference")
+    command.add_argument("--op-id")
+    command = candidate.add_parser("show", help="a candidate record without its source")
+    _ledger_option(command)
+    command.add_argument("--candidate", required=True)
+    _at(command)
+    command = candidate.add_parser("export", help="a candidate's source as a temporary working copy")
+    _ledger_option(command)
+    command.add_argument("--candidate", required=True)
+    command.add_argument("--output", required=True)
+    _at(command)
+    command = candidate.add_parser("new", help="a strategy scaffold in a new temporary directory")
+    command.add_argument("--output", required=True)
+    command.add_argument("--strategy-id", required=True)
+    command.add_argument("--entry-class", default="Strategy1")
+    command = candidate.add_parser("list", help="every candidate with its registration attempts")
+    _ledger_option(command)
+    _at(command)
+
+    evidence_noun = verbs("evidence", "Agent evidence bundles: add, export")
+    command = evidence_noun.add_parser("add", help="append an evidence bundle")
+    _ledger_option(command)
+    command.add_argument("--bundle", required=True)
+    command.add_argument("--file", action="append", dest="files", default=[])
+    command.add_argument("--note")
+    command.add_argument("--op-id")
+    command = evidence_noun.add_parser("export", help="a bundle's files into a new temporary directory")
+    _ledger_option(command)
+    command.add_argument("--bundle", required=True)
+    command.add_argument("--output", required=True)
+    _at(command)
+
+    execution_noun = verbs("execution", "execution captures: recover")
+    command = execution_noun.add_parser("recover", help="append recovered bytes of a kept precheck directory")
+    _ledger_option(command)
+    command.add_argument("--trial-id", required=True, type=int)
+    command.add_argument("--workdir", required=True)
+    command.add_argument("--failure-receipt", required=True)
+
+    judgment = verbs("judgment", "Agent judgments: add")
+    command = judgment.add_parser("add", help="append one judgment")
+    _ledger_option(command)
+    command.add_argument("--kind", required=True)
+    command.add_argument("--line", required=True)
+    command.add_argument("--based-on", required=True)
+    command.add_argument("--body", required=True, help="UTF-8 text file")
+    command.add_argument("--subject", action="append", dest="subjects", default=[],
+                         help="role=…,candidate=ID@N | trial=N | registration=BUNDLE")
+    command.add_argument("--supersedes", type=int)
+    command.add_argument("--cadence-trials", type=int)
+    command.add_argument("--op-id")
+
+    line = verbs("line", "research lines: select")
+    command = line.add_parser("select", help="record the user's research line")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--start", required=True)
+    command.add_argument("--window-start", required=True)
+    command.add_argument("--window-end", required=True)
+    command.add_argument("--market-at")
+    command.add_argument("--note")
+
+    registration = verbs("registration", "registrations: add")
+    command = registration.add_parser("add", help="lock a registration")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--bundle", required=True)
+    command.add_argument("--body", required=True)
+    command.add_argument("--runtime")
+    command.add_argument("--source", action="append", default=[])
+
+    hypothesis = verbs("hypothesis", "registered hypotheses: compare")
+    command = hypothesis.add_parser("compare", help="a grid run against its registered control")
+    _ledger_option(command)
+    command.add_argument("--bundle", required=True)
+    command.add_argument("--run-id", required=True, type=int)
+    _at(command)
+
+    research = verbs("research", "research facts: status, state")
+    command = research.add_parser("status", help="research fact counts")
+    _ledger_option(command)
+    _at(command)
+    command = research.add_parser("state", help="the current judgments of a line with read-time facts")
+    _ledger_option(command)
+    command.add_argument("--line")
+    _at(command)
+
+    source = verbs("source", "independent source reviews: review")
+    command = source.add_parser("review", help="record an independent source review of a precheck")
+    _ledger_option(command)
+    command.add_argument("--candidate", required=True)
+    command.add_argument("--runtime", required=True)
+    command.add_argument("--precheck-trial", required=True, type=int)
+    command.add_argument("--verdict", required=True, choices=("passed", "failed"))
+    command.add_argument("--items", required=True, help="JSON file with api, causal, activity and readiness")
+    command.add_argument("--reviewer", required=True)
+
+    validation = verbs("validation", "out-of-sample validations: registration, report")
+    command = validation.add_parser("registration", help="register one out-of-sample validation")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--candidate", required=True)
+    command.add_argument("--window-start", required=True)
+    command.add_argument("--window-end", required=True)
+    command.add_argument("--universe-rule", required=True)
+    command.add_argument("--market-at")
+    command.add_argument("--design", required=True)
+    command.add_argument("--retry-of", type=int)
+    command.add_argument("--op-id")
+    command.add_argument("--tsa-url")
+    command = validation.add_parser("report", help="the out-of-sample report of a registration")
+    _ledger_option(command)
+    command.add_argument("--registration-id", required=True, type=int)
+    _at(command)
+
+    replay = verbs("replay", "replays: explore, precheck, run, report, reproduce")
+    command = replay.add_parser("explore", help="replay an unpublished strategy file (not evidence)")
+    _ledger_option(command)
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--strategy-file", required=True)
+    command.add_argument("--strategy-class", required=True)
+    command.add_argument("--output", required=True)
+    command.add_argument("--runtime")
+    command = replay.add_parser("precheck", help="the declared native precheck of a published candidate")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--at", required=True, help="market commit, tag or branch")
+    command.add_argument("--candidate", required=True)
+    command.add_argument("--runtime", required=True)
+    command.add_argument("--output", required=True)
+    command = replay.add_parser("run", help="a sealed research or validation replay")
+    _ledger_option(command)
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--candidate", required=True)
+    command.add_argument("--runtime")
+    command.add_argument("--hypothesis")
+    command.add_argument("--validation", type=int)
+    command = replay.add_parser("report", help="a sealed run's or an unsealed directory's report")
+    _ledger_option(command)
+    command.add_argument("--run-id", type=int)
+    command.add_argument("--directory")
+    _at(command)
+    command.add_argument("--tables", action="store_true", help="add the drill-down tables")
+    command.add_argument("--reproduction", help="the directory `replay reproduce` wrote")
+    command.add_argument("--reproduction-trial", type=int, help="the trial `replay reproduce` returned")
+    command.add_argument("--account", action="store_true")
+    command.add_argument("--exposures", action="store_true")
+    command = replay.add_parser("reproduce", help="replay a sealed run into a new temporary directory")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--run-id", required=True, type=int)
+    command.add_argument("--output", required=True)
+
+    market = verbs("market", "market data: import, lifecycle, coverage")
+    command = market.add_parser("import", help="import one month as one market commit")
+    _market_option(command)
+    command.add_argument("--month", required=True)
+    command.add_argument("--cache-root")
+    command.add_argument("--workers", type=int, default=4)
+    command = market.add_parser("lifecycle", help="write the lifecycle bundle of a market commit")
+    _ledger_option(command)
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--manifest", required=True, help="lifecycle.json (native-lifecycle-v1)")
+    command.add_argument("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites")
+    command.add_argument("--op-id")
+    command = market.add_parser("coverage", help="per-contract coverage facts at a market commit")
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--symbols", nargs="+")
+    command.add_argument("--start", required=True)
+    command.add_argument("--end", required=True)
+    _ledger_option(command)
+    command.add_argument("--lifecycle-bundle")
+    return parser
+
+
+RUNNER_COMMANDS = {("replay", "explore"), ("replay", "precheck"), ("replay", "run"), ("registration", "add")}
+
+
+def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
+    """(result, exit code) of one parsed command."""
+    key = (args.noun, args.verb)
+    if runner_argv and key not in RUNNER_COMMANDS:
+        raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
+    if key == ("ledger", "init"):
+        return ledger_init(args.name, args.kind, args.service_root, args.research_branch, args.backup_root), 0
+    if key == ("ledger", "temp"):
+        return ledger_temp(args.root), 0
+    if key == ("candidate", "new"):
+        return candidate_new(args.output, args.strategy_id, args.entry_class), 0
+    if key == ("market", "import"):
+        return market_import(market_profile(args.market), args.month, args.cache_root, args.workers), 0
+    if key == ("market", "coverage"):
+        return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
+                               args.lifecycle_bundle), 0
+    if key == ("replay", "reproduce"):
+        from cli import replay as cli_replay
+        return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.run_id,
+                                           args.output), 0
+    profile = ledger_profile(args.ledger)
+    if key == ("ledger", "service"):
+        return ledger_service(profile, args.action), 0
+    if key == ("ledger", "sql"):
+        return ledger_sql(profile, args.query, args.at), 0
+    if key == ("ledger", "export"):
+        return ledger_export(profile, args.kind, args.output, args.at, args.run_ids), 0
+    if key == ("ledger", "witness"):
+        with db.connect(profile, "writer") as conn:
+            found = ledger_witness(conn, args.tsa_url)
+        return found, 1 if found["failed"] else 0
+    if key == ("ledger", "review"):
+        with db.connect(profile, "reader") as conn:
+            found = ledger_review(conn, args.at)
+        return found, 0 if found["ok"] else 1
+    if key == ("candidate", "publish"):
+        return candidate_publish(profile, args.file, args.strategy_id, args.entry_class, args.description, args.parent,
+                                 args.difference, args.op_id), 0
+    if key == ("candidate", "show"):
+        return candidate_show(profile, args.candidate, args.at), 0
+    if key == ("candidate", "export"):
+        return candidate_export(profile, args.candidate, args.output, args.at), 0
+    if key == ("candidate", "list"):
+        return candidate_list(profile, args.at), 0
+    if key == ("evidence", "add"):
+        with db.connect(profile, "writer") as conn:
+            return evidence_add(conn, args.bundle, args.files, args.note, args.op_id), 0
+    if key == ("evidence", "export"):
+        return evidence_export(profile, args.bundle, args.output, args.at), 0
+    if key == ("execution", "recover"):
+        return execution_recover(profile, args.trial_id, args.workdir, args.failure_receipt), 0
+    if key == ("judgment", "add"):
+        return judgment_add(profile, args.kind, args.line, args.based_on, args.body, args.subjects, args.supersedes,
+                            args.cadence_trials, args.op_id), 0
+    if key == ("line", "select"):
+        market = market_profile(args.market)
+        with db.connect(profile, "writer") as conn:
+            return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
+                               args.note), 0
+    if key == ("registration", "add"):
+        return registration_add(profile, args.bundle, args.body, args.runtime, market_profile(args.market),
+                                runner_argv, args.source), 0
+    if key == ("hypothesis", "compare"):
+        return hypothesis_compare(profile, args.bundle, args.run_id, args.at), 0
+    if key == ("research", "status"):
+        return research_status(profile, args.at), 0
+    if key == ("research", "state"):
+        with db.connect(profile, "reader") as conn:
+            return research_state(conn, args.line, args.at), 0
+    if key == ("source", "review"):
+        return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
+                             args.reviewer), 0
+    if key == ("validation", "registration"):
+        return validation_registration(profile, args.candidate, args.window_start, args.window_end, args.universe_rule,
+                                       args.market_at, market_profile(args.market), args.design, args.retry_of,
+                                       args.op_id, args.tsa_url), 0
+    if key == ("validation", "report"):
+        return validation_report(profile, args.registration_id, args.at), 0
+    if key == ("replay", "explore"):
+        found = replay_explore(profile, market_profile(args.market), args.at, args.strategy_file, args.strategy_class,
+                               args.output, args.runtime, runner_argv)
+        return found, 0
+    if key == ("replay", "precheck"):
+        found = replay_precheck(profile, market_profile(args.market), args.at, args.candidate, args.runtime,
+                                runner_argv, args.output)
+        return found, 0 if found["status"] == "passed" else 1
+    if key == ("replay", "run"):
+        found = replay_run(profile, market_profile(args.market), args.at, args.candidate, args.runtime, runner_argv,
+                           args.hypothesis, args.validation)
+        return found, 0 if found.get("status") == "passed" else 1
+    if key == ("replay", "report"):
+        return replay_report(profile, args.run_id, args.directory, args.at, args.tables, args.reproduction,
+                             args.reproduction_trial, args.account, args.exposures), 0
+    if key == ("market", "lifecycle"):
+        return market_lifecycle(profile, market_profile(args.market), args.at, args.manifest, args.notices,
+                                args.op_id), 0
+    raise UsageError(f"unknown command {args.noun} {args.verb}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Parse `<noun> <verb> [options] [-- runner arguments]`, run it, print one JSON result."""
+    from market import lifecycle as market_lifecycle_module, store
+    argv = list(sys.argv[1:] if argv is None else argv)
+    runner_argv: list[str] = []
+    if "--" in argv:
+        split = argv.index("--")
+        argv, runner_argv = argv[:split], argv[split + 1:]
+    try:
+        args = _parser().parse_args(argv)
+        result, code = _dispatch(args, runner_argv)
+    except UsageError as exc:
+        found = refuse("USAGE_ERROR", str(exc))
+        _print(sys.stderr, refusal_json(found))
+        return 1
+    except Refusal as exc:
+        _print(sys.stderr, refusal_json(exc))
+        return 1
+    except (store.MarketError, market_lifecycle_module.LifecycleInput) as exc:
+        _print(sys.stderr, refusal_json(_market_refusal(exc)))
+        return 1
+    _print(sys.stdout, result)
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

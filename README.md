@@ -8,26 +8,49 @@ instruments in one fixed-capital native margin account.
 The published [NautilusTrader](https://nautilustrader.io/) package owns data,
 orders, fills, risk, execution, portfolio accounting and reports.
 
-## Run R1
+## Run a research line
 
-Install Python 3.14 and [uv](https://docs.astral.sh/uv/), configure the local
-Dolt store as described in the [research record guide](research/records/README.md)
-and export an exact strategy revision. Every replay runs through
-`artifacts run` in the CI-built image: see [native replay](engine/README.md)
-for an exploration, or the
-[`research-round` skill](.agents/skills/research-round/SKILL.md) for a
-preregistered sealed run. The current `r1-native-v6` contract runs one
-complete source file whose native `Strategy` entry class supplies
-`replay_diagnostics` and `replay_integrity_findings` and holds every rule,
-sizing included; the runner takes no strategy parameter. Seals of
-`r1-native-v1` to `v3` remain readable.
+Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, the command line
+[`cli/`](cli/) (design page `docs/rd/design-code-cli.zh.mdx`): `<noun> <verb>` commands that each
+print one JSON result, or a coded refusal with its repair commands on standard error and exit 1.
+Every replay runs in the CI-built image; the
+[`research-round` skill](.agents/skills/research-round/SKILL.md) holds the order of the commands
+for a registered, sealed run. The current `r1-native-v6` contract runs one complete source file
+whose native `Strategy` entry class supplies `replay_diagnostics` and `replay_integrity_findings`
+and holds every rule, sizing included; the runner takes no strategy parameter.
 
 ```bash
 uv sync --frozen
-uv run --frozen python -m research.records.cli ledger status
-uv run --frozen python -m research.records.cli round status
-uv run --frozen python -m research.records.artifacts run --help
+uv run --frozen python -m cli.main --help
+uv run --frozen python -m cli.main research status
+uv run --frozen python -m cli.main replay run --help
 ```
+
+`--ledger` names a ledger profile (a file path, or a name in the profile directory
+`~/.local/share/trade/ledgers`, overridden by `TRADE_LEDGER_HOME`; default the active ledger) and
+`--market` the market database profile (default: the market profile in the same directory, which
+the report readers also use). Runner arguments (window and instrument scope) follow `--`.
+
+### The ledger generation
+
+The refactored ledger is a new generation: a new database on the existing Dolt service, created
+once with its own accounts, branch grant, commit verification group and backup directory. The
+earlier active ledger (`research`) and its backups stay as they are, read-only; nothing is migrated.
+Profiles are named `research-<n>` (database `research_<n>`); the first generation of the refactored
+design is `research-2`:
+
+```bash
+uv run --frozen python -m cli.main ledger init --name research-2 --kind active \
+  --service-root "$HOME/.local/share/trade/dolt" \
+  --backup-root "$HOME/.local/share/trade/dolt-backups-research-2"
+```
+
+`ledger init` refuses a profile or database that exists, and an active ledger whose service or
+backup lies in the checkout or a temporary directory. Tests, demos and engineering trials use
+`ledger temp` (a throwaway service and database under the temporary root, its profile file printed
+for `--ledger`) and stop it with `ledger service stop` before deleting the directory. The Dolt
+integration tests start their own throwaway services (`tests/ledger/dolt.py`) with the Dolt 2.4.2
+binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 
 Market data (Binance public USD-M perpetual data from 2020-01 and the monthly
 pool) lives in its own Dolt database beside the ledger
@@ -49,8 +72,10 @@ export is `docs-site/out`.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval), `nautilus-report-analysis`, `research-sources` and `video-evidence`; `.claude/skills` links here.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
-- [`market/`](market/): the Binance market database, its monthly pool, lifecycle manifests and the per-commit Catalog export.
-- [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
+- [`cli/`](cli/): the command line, the one entry Agents use; it holds no product logic.
+- [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
+- [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
+- [`market/`](market/): the Binance market database, its monthly pool, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): retained product and process findings.

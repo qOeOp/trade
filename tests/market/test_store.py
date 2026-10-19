@@ -7,9 +7,7 @@ import numpy as np
 import pyarrow as pa
 
 from market import export, store
-from research.records import db
-from research.records.common import RecordError
-from tests.records.dolt import BINARY, SKIP, TemporaryLedger
+from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 
 
 MINUTE = 60_000
@@ -32,10 +30,10 @@ def minute_rows(price_type: str, start: int, count: int, *, volume: str):
 class MarketDatabaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.fixture = TemporaryLedger("market-test", of="market")
+        cls.fixture = TemporaryMarket()
         cls.profile = cls.fixture.profile
         warmup = START - 210 * DAY
-        conn = db.connect(cls.profile, "writer")
+        conn = store.connect(cls.profile, "import")
         try:
             with conn.cursor() as cursor:
                 cursor.execute("INSERT INTO instrument VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", TERMS)
@@ -59,24 +57,24 @@ class MarketDatabaseTests(unittest.TestCase):
         cls.fixture.close()
 
     def test_the_writer_can_only_insert(self):
-        conn = db.connect(self.profile, "writer")
+        conn = store.connect(self.profile, "import")
         self.addCleanup(conn.close)
         for statement in ("UPDATE bar SET close = 1", "DELETE FROM pool", "CALL DOLT_RESET('--hard', 'HEAD~1')",
                           "DROP TABLE funding"):
-            with self.subTest(statement=statement), self.assertRaises(RecordError):
-                db.rows(conn, statement)
+            with self.subTest(statement=statement), self.assertRaises(store.MarketError):
+                store.rows(conn, statement)
 
     def test_constraints_refuse_impossible_rows(self):
-        conn = db.connect(self.profile, "writer")
+        conn = store.connect(self.profile, "import")
         self.addCleanup(conn.close)
         for statement in ("INSERT INTO bar VALUES ('XUSDT', 'LAST', 0, 2, 1, 1, 1, 0)",
                           "INSERT INTO bar VALUES ('XUSDT', 'MARK', 0, 1, 1, 1, 1, 5)",
                           "INSERT INTO funding VALUES ('XUSDT', 0, 2)",
                           "INSERT INTO pool VALUES ('2025-10-02', 2, 'XUSDT')",
                           "INSERT INTO instrument VALUES ('XUSDT', 0, 'inferred', '0.1', '1', '1', NULL, NULL, NULL, NULL)"):
-            with self.subTest(statement=statement), self.assertRaises(RecordError):
-                db.rows(conn, statement)
-        self.assertEqual(db.rows(conn, "SELECT COUNT(*) FROM dolt_status")[0][0], 0)
+            with self.subTest(statement=statement), self.assertRaises(store.MarketError):
+                store.rows(conn, statement)
+        self.assertEqual(store.rows(conn, "SELECT COUNT(*) FROM dolt_status")[0][0], 0)
 
     def test_freshness_and_pool(self):
         fresh = store.freshness(self.profile)
@@ -147,9 +145,9 @@ class LifecycleExportTests(unittest.TestCase):
              "events": [status("PRE_CLOSE", closed - 1_800_000_000_000), status("CLOSE", closed),
                         {"type": "InstrumentClose", "instrument_id": iid, "close_price": "101234.50",
                          "close_type": "CONTRACT_EXPIRED", "ts_event": closed, "ts_init": closed}]}]}
-        conn = db.connect(self.profile, "reader")
+        conn = store.connect(self.profile, "reader")
         try:
-            body["market_commit"] = store.resolve(conn, None)
+            body["market_commit"] = store.resolve_commit(conn, None)
         finally:
             conn.close()
         files = {"lifecycle.json": b"{}", "notice.txt": b"the exchange notice"}

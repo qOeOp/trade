@@ -1,5 +1,5 @@
 """Input identity (`registration.market_inputs`, `registration.export_fingerprint`,
-`registration.load_lifecycle`).
+`registration.load_lifecycle`, `registration.record_lifecycle`).
 
 A replay's market inputs are exported AS OF one pinned market commit into an immutable directory,
 with a membership file holding only the exported instruments. Their identity is content, not
@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 
 from ledger import db, evidence
@@ -82,6 +83,53 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
         total.update(encoded)
         total.update(hashlib.sha256(data).digest())
     return {"export_content_sha256": total.hexdigest(), "exporter_source_sha256": exporter_sha256()}
+
+
+def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: list[Path], op_id: str | None = None) -> dict:
+    """Write the lifecycle evidence bundle lifecycle-<commit> of one market commit: the manifest
+    (lifecycle.json, native-lifecycle-v1) with the exchange notices it cites as sources, validated
+    by market.validate_lifecycle against the commit before anything is written. The bundle is
+    immutable; a correction is a new market commit's bundle."""
+    adapter = seams.current.market(market)
+    commit = adapter.resolve_commit(at)
+    data = _regular_bytes(Path(manifest), LIFECYCLE)
+    files = {LIFECYCLE: data}
+    for path in notices or ():
+        path = Path(path)
+        if path.name in files:
+            raise refuse("LIFECYCLE_INPUT", f"two sources are named {path.name}", missing=(path.name,))
+        files[path.name] = _regular_bytes(path, path.name)
+    try:
+        body = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise refuse("LIFECYCLE_INPUT", f"{manifest} is not JSON", missing=(LIFECYCLE,)) from exc
+    episodes = adapter.validate_lifecycle(body, commit, files)
+    bundle = f"lifecycle-{commit}"
+    digests = evidence.digests(files)
+    if isinstance(profile, str):
+        profile = db.load_profile(profile)
+    with db.connect(profile, "writer") as conn:
+        written = db.write(conn, "record_lifecycle", {"bundle": bundle, "files": digests}, "evidence_bundle",
+                           lambda c, op: evidence.write_files(c, bundle, files, op), op_id=op_id)
+    return {"bundle": bundle, "market_commit": commit, "files": digests,
+            "episodes": {symbol: len(found) for symbol, found in episodes.items()},
+            "write_status": written["write_status"], "ledger_commit": written["commit"]}
+
+
+def _regular_bytes(path: Path, name: str) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise refuse("LIFECYCLE_INPUT", f"{path} is missing, a link or not a regular file", missing=(name,))
+    return path.read_bytes()
+
+
+def cleanup(inputs: Mapping | None) -> None:
+    """Remove what market_inputs created: the membership directory, and a fresh export root."""
+    if not inputs:
+        return
+    if inputs.get("membership_file"):
+        shutil.rmtree(Path(inputs["membership_file"]).parent, ignore_errors=True)
+    if inputs.get("fresh") and inputs.get("root"):
+        shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
 def load_lifecycle(profile, bundle: str, commit: str, *, market=None) -> tuple[dict, dict[str, bytes]]:
@@ -159,16 +207,22 @@ def market_inputs(market, at: str, window: Mapping, selection: Mapping, lifecycl
         episodes, lifecycle_files = load_lifecycle(research, lifecycle_bundle, commit, market=adapter)
     exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh)
-    receipts = exported["receipts"]
-    for symbol in symbols:
-        if (receipts.get(symbol) or {}).get("timeframe") != MINUTE:
-            raise refuse("EXPORT_TIMEFRAME", f"the export receipt of {symbol} is not of 1-minute bars",
-                         missing=(symbol,), expected=MINUTE)
-    membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
-    membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
-    membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": membership}))
-    inputs = {"root": Path(exported["root"]), "membership_file": membership_file}
-    fingerprint = export_fingerprint(inputs, semantic=True)
+    inputs = {"root": Path(exported["root"]), "fresh": fresh}
+    try:
+        receipts = exported["receipts"]
+        for symbol in symbols:
+            if (receipts.get(symbol) or {}).get("timeframe") != MINUTE:
+                raise refuse("EXPORT_TIMEFRAME", f"the export receipt of {symbol} is not of 1-minute bars",
+                             missing=(symbol,), expected=MINUTE)
+        membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
+        inputs["membership_file"] = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
+        inputs["membership_file"].write_bytes(_canonical({"commit": commit, "universe_rule": rule,
+                                                          "membership": membership}))
+        fingerprint = export_fingerprint(inputs, semantic=True)
+    except BaseException:
+        cleanup(inputs)
+        raise
+    inputs = {"root": inputs["root"], "membership_file": inputs["membership_file"]}
     identity = {"market_database": adapter.database, "market_commit": commit, "universe_rule": rule,
                 "selection": {"universe": True} if universe else {"symbols": list(symbols)}, "symbols": list(symbols),
                 "membership": membership, **fingerprint}

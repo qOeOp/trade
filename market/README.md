@@ -10,21 +10,17 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `schema.sql` | the tables: 1-minute LAST and MARK `bar`, `funding`, `instrument` terms by observation, `daily_volume` and the monthly `pool` |
 | `binance.py` | data.binance.vision listings and archives (each checked against its `.CHECKSUM`), public REST, exchangeInfo; no account or key |
 | `universe.py` | which contracts are eligible, their daily quote volume, and the pool rule |
-| `store.py` | the import (one commit per run, resumable), exact scaling, freshness and pool reads |
+| `store.py` | connections (`connect`, `resolve_commit`), the import (`import_month`: one commit per month, resumable), exact scaling, freshness and pool reads |
+| `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
 | `export.py` | the per-contract Catalog export of 1-minute bars (and the daily warm-up derived from them), with its cache |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native status and close events written into a Catalog |
-| `cli.py` | `import`, `status`, `pool` |
 
 ## The database
 
-A profile of kind `market` on the research ledger's service, created once:
-
-```bash
-uv run --frozen python -m research.records.cli ledger init --kind market --name market --database market \
-  --service-root "$HOME/.local/share/trade/dolt" --binary /absolute/path/to/dolt-2.4.2 \
-  --role active --backup-root "$HOME/.local/share/trade/dolt-backups"
-uv run --frozen python -m research.records.cli --ledger market ledger backup
-```
+A Dolt database of its own on the research ledger's service, with an import account (`writer` in
+the service's private file) and a reader account; its profile (`kind: market`) sits in the ledger
+profile directory beside the ledger profiles, where `--market` and the report readers find it. No
+command creates a market database; the live one exists and is only read and appended to.
 
 The writer may only insert and call `dolt_commit`, on `main` only; the reader only selects. Market
 data appends on `main` month by month and is never rewritten; a run cites a commit hash, so later
@@ -54,15 +50,16 @@ imports never change what an earlier run read.
 ## Import and freshness
 
 ```bash
-uv run --frozen python -m market.cli import                 # through yesterday, one commit
-uv run --frozen python -m market.cli import --resume        # after an interruption
-uv run --frozen python -m market.cli status                 # pool months, newest day, latest complete month
-uv run --frozen python -m market.cli pool --month 2022-05
+uv run --frozen python -m cli.main market import --month 2026-09     # one month, one commit
+uv run --frozen python -m cli.main market coverage --start 2026-09-01T00:00:00Z --end 2026-10-01T00:00:00Z
+uv run --frozen python -m cli.main market lifecycle --manifest lifecycle.json --notice notice.html
 ```
 
-`import --through DAY` stops before that UTC day. Archives are working copies under the temp
-directory (`--cache`); a lost copy is downloaded again. An interrupted import leaves its rows in the
-working set: a new import refuses until `--resume`, which continues from them and commits once.
+`market import --month` appends one UTC month (the current month through the last closed day) and
+refuses a month already stored through its end. Archives are working copies under the temp
+directory (`--cache-root`); a lost copy is downloaded again. `market lifecycle` writes the lifecycle
+bundle `lifecycle-<commit>` of a market commit into the research ledger from its manifest and the
+exchange notices it cites, validated against the commit first.
 
 ## Export
 
@@ -110,5 +107,6 @@ is supported; a reused ticker (several episodes) is refused.
 ## Tests
 
 `tests/market/test_rules.py` needs no Dolt (splicing, scaling, derivation, pool).
-`tests/market/test_store.py` starts a throwaway service (`RESEARCH_DOLT_BINARY`): writer privileges,
+`tests/market/test_store.py` starts a throwaway service (`RESEARCH_DOLT_BINARY`, fixture
+`tests/market/dolt.py`): import privileges,
 constraints, freshness and an export that `BacktestNode` loads whole, funding included.

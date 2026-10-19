@@ -8,7 +8,6 @@ import numpy as np
 import pyarrow as pa
 
 from market import export, store, universe
-from research.records.common import RecordError
 
 
 MINUTE = 60_000
@@ -33,14 +32,14 @@ class SpliceTests(unittest.TestCase):
         merged = store._merge([first, again], 0, 1 << 62, "X")
         self.assertEqual(merged["open_time"].to_pylist(), [T0, T0 + MINUTE])
         conflict = klines([(T0 + MINUTE, "2", "3", "2", "2", "0")])
-        with self.assertRaises(RecordError) as caught:
+        with self.assertRaises(store.MarketError) as caught:
             store._merge([first, conflict], 0, 1 << 62, "X")
         self.assertEqual(caught.exception.code, "SOURCE_CONFLICT")
 
     def test_a_row_that_is_not_a_closed_minute_is_refused(self):
         table = klines([(T0, "1", "1", "1", "1", "1")])
         table = table.set_column(6, "close_time", pa.array([T0 + 5 * MINUTE - 1], pa.int64()))
-        with self.assertRaises(RecordError):
+        with self.assertRaises(store.MarketError):
             store._merge([table], 0, 1 << 62, "X")
 
     def test_missing_runs(self):
@@ -58,7 +57,7 @@ class ScalingTests(unittest.TestCase):
         self.assertEqual(rounded, 0)
 
     def test_extra_price_decimals_are_refused(self):
-        with self.assertRaises(RecordError) as caught:
+        with self.assertRaises(store.MarketError) as caught:
             store.scaled(pa.array(["0.123456789"]), 8, "p")
         self.assertEqual(caught.exception.code, "SCALE_LOSS")
 
@@ -66,11 +65,11 @@ class ScalingTests(unittest.TestCase):
         values, rounded = store.scaled(pa.array(["108824285.69999999", "12.5"]), 4, "v", float_tails=True)
         self.assertEqual(values.tolist(), [1_088_242_857_000, 125_000])
         self.assertEqual(rounded, 1)
-        with self.assertRaises(RecordError):
+        with self.assertRaises(store.MarketError):
             store.scaled(pa.array(["12.34567"]), 4, "v", float_tails=True)
 
     def test_overflow_is_refused(self):
-        with self.assertRaises(RecordError) as caught:
+        with self.assertRaises(store.MarketError) as caught:
             store.scaled(pa.array(["1000000000000000"]), 8, "v")
         self.assertEqual(caught.exception.code, "SCALE_RANGE")
 
@@ -87,9 +86,9 @@ class ScalingTests(unittest.TestCase):
                       statements[0])
 
     def test_inconsistent_bars_and_mark_volume_are_refused(self):
-        with self.assertRaises(RecordError):
+        with self.assertRaises(store.MarketError):
             store.bar_rows(klines([(T0, "2", "1.5", "1", "1.5", "0")]), "X", "LAST")
-        with self.assertRaises(RecordError):
+        with self.assertRaises(store.MarketError):
             store.bar_rows(klines([(T0, "1", "1", "1", "1", "2")]), "X", "MARK")
 
 

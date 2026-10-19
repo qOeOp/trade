@@ -1,5 +1,5 @@
 """External time witness for validation registrations (`ledger.witness`, `ledger.sync_witness`,
-`ledger.token_time`, `ledger.stamped_at`); ported from research/records/witness.py.
+`ledger.token_time`, `ledger.stamped_at`).
 
 After a validation registration's commit lands, the SHA-256 of its 32-character commit hash is
 sent to a public RFC 3161 timestamp authority; only that digest leaves the machine. The returned

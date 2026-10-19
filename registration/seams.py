@@ -1,11 +1,8 @@
-"""The one place registration reaches code of other packages: runtime images, runner arguments,
-market reads and export, and economic-evidence qualification.
+"""The one place registration reaches code of other packages: runtime images (`runtime.image`),
+runner arguments, market reads and export (`market`), and economic-evidence qualification.
 
-`current` holds the implementations in force. The defaults adapt the code that exists today
-(`research/records/runtime.py`, `market/{store,export,universe}.py`) and the qualification
-package; the runtime, engine and market packages of later phases replace them here without touching
-the registration modules. Tests swap them with `use(...)`. Nothing here is reimplemented: where no
-current code exists, the default refuses.
+`current` holds the implementations in force; tests swap them with `use(...)` (stand-in images,
+markets and qualification). Nothing here is reimplemented.
 """
 
 from __future__ import annotations
@@ -19,24 +16,14 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ledger import db as ledger_db
-from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
-# Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_main_build, runtime.layout)
-
-def _record_error(exc: Exception, code: str) -> Refusal:
-    found = getattr(exc, "code", None)
-    return refuse(found if found == "RUNTIME_NOT_MAIN" else code, str(exc))
-
+# Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_main_build)
 
 def _resolve_runtime(reference: str | None) -> dict:
-    from research.records import runtime
-    from research.records.common import RecordError
-    try:
-        return runtime.resolve(reference)
-    except RecordError as exc:
-        raise _record_error(exc, "RUNTIME_UNAVAILABLE") from exc
+    from runtime import image
+    return image.resolve(reference)
 
 
 # Runner arguments inside the container. The replay entry writes the strategy, binding, output and
@@ -80,16 +67,10 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 
 def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) -> dict:
     """The probe report for the container arguments of these inputs."""
-    from research.records import runtime
-    from research.records.common import RecordError
+    from runtime import image
     argv, mounts = container_runner_args(list(runner_argv), inputs)
     membership = [mount for mount in mounts if mount[1] == MEMBERSHIP]  # its bytes enter the configuration
-    try:
-        inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv,
-                                             membership)
-    except RecordError as exc:
-        raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
-    return inspection
+    return image.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv, membership)
 
 
 def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:
@@ -97,13 +78,9 @@ def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:
 
 
 def _require_main_build(identity: dict, inspection: dict) -> str:
-    from research.records import runtime
-    from research.records.common import RecordError
-    try:
-        return runtime.require_main_build({key: identity[key] for key in runtime_identity_fields(identity)},
-                                          inspection)
-    except RecordError as exc:
-        raise _record_error(exc, "RUNTIME_NOT_MAIN") from exc
+    from runtime import image
+    fields = (*runtime_identity_fields(identity), *(("build_revision",) if identity.get("build_revision") else ()))
+    return image.require_main_build({key: identity[key] for key in fields}, inspection)
 
 
 def _checkout() -> Path:
@@ -138,7 +115,7 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
 
 class CurrentMarket:
-    """The market database of today's `market` code behind the registration interface.
+    """The market database (`market.store`, `market.export`) behind the registration interface.
 
     Its ranked monthly pool stands in for universe_month.
     """
@@ -148,21 +125,24 @@ class CurrentMarket:
         self.database = profile["database"]
 
     def _read(self, statement: str, params=()):
-        from research.records import db
-        conn = db.connect(self.profile, "reader")
+        from market import store
+        conn = store.connect(self.profile, "reader")
         try:
-            return db.rows(conn, statement, params)
+            return store.rows(conn, statement, params)
         finally:
             conn.close()
 
     def resolve_commit(self, at: str | None) -> str:
-        from research.records import db
         from market import store
-        conn = db.connect(self.profile, "reader")
         try:
-            return store.resolve(conn, at)
-        except Exception as exc:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve",
+            conn = store.connect(self.profile, "reader")
+        except store.MarketError as exc:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"the market database is not readable ({exc.code})",
+                         missing=(str(at),)) from exc
+        try:
+            return store.resolve_commit(conn, at)
+        except store.MarketError as exc:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
         finally:
             conn.close()
