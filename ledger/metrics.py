@@ -272,6 +272,13 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
                          "unavailable": unavailable}}
 
 
+def latest_sealed(conn: db.LedgerConnection, run_id: int, sealed: dict) -> dict | None:
+    """The run's latest sealed result (by sealing time) among `sealed` (load_run's, by metrics revision)."""
+    found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE run_id = %s ORDER BY created_at DESC, "
+                      "metrics_revision DESC LIMIT 1", (run_id,))
+    return sealed.get(found[0][0]) if found else None
+
+
 def _json_bytes(data: bytes | None):
     try:
         return json.loads(data.decode("utf-8")) if data is not None else None

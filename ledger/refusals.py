@@ -249,10 +249,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                         "records; nothing was started.",
                                         ("Export the inputs again (rerun the same command).",)),
     "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
-                              "run (or no fingerprint exists on either side to compare); the directory is kept for "
-                              "diagnosis.",
-                              ("Diagnose the kept directory; reproduce on the run's own image, and do not read the "
-                               "directory as the run's reports.",)),
+                              "run (or no fingerprint exists on either side to compare), or a directory read as a "
+                              "reproduction is not the one its reproduction trial sealed (another trial, source, "
+                              "image or inputs, or a report file that differs from the trial's capture); the "
+                              "directory is kept for diagnosis.",
+                              ("Diagnose the kept directory; reproduce on the run's own image (replay.reproduce) and "
+                               "read native detail with the directory and the trial ID it returned.",)),
     # Judgments
     "COMMIT_NOT_ANCESTOR": ("The judgment's based_on_commit is not an ancestor of the ledger head.",
                             ("Pass the commit you read, as shown by `research state`.",)),
@@ -391,6 +393,62 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             "months and covers the window.",)),
     "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",
                             ("Export the market inputs for the whole warm-up and trading interval again.",)),
+    # Export and backup (ledger/admin.py)
+    "EXPORT_PATH_INVALID": ("The export destination lies inside the ledger service directory or a Git work tree, or "
+                            "exists and is no export of this ledger.",
+                            ("Choose a new directory outside the service directory and any checkout, or this ledger's "
+                             "earlier export.",)),
+    "DOLT_BACKUP": ("The full-history backup could not be synced or restored, or its head differs from the ledger "
+                    "head after the sync.",
+                    ("Check the backup directory and the ledger service, then export again.",)),
+    # Reports (report/)
+    "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
+                                   "read; only the market measures are empty.",
+                                   ("Make the market database profile available (read only), then read the report "
+                                    "again.",)),
+    "DIRECTORY_NOT_FOUND": ("The replay directory does not exist or is not readable.",
+                            ("Pass the output directory of an exploration or precheck.",)),
+    "NATIVE_SUMMARY_MISSING": ("The directory holds no native summary written by the runner.",
+                               ("Pass a directory the runner finished writing; a failed runner leaves its reason in "
+                                "the capture.",)),
+    "REPORT_PARSE_FAILED": ("A native report file is missing, lacks a column or does not parse in the sealed format.",
+                            ("Replay again with the runner of the runtime contract; reports are never repaired.",)),
+    "NO_CONTROL": ("The registration declares no control run, or the declared control run does not exist.",
+                   ("Register a derived hypothesis with a comparable control run to compare it.",)),
+    "RUN_NOT_IN_GRID": ("The candidate run is not the run of a grid point this registration consumed, or its source "
+                        "differs from the consumed point.",
+                        ("Compare the run under the registration whose grid point produced it.",)),
+    "COMPARISON_UNAVAILABLE": ("A side's trade-window daily returns are empty, invalid or do not compound to its final "
+                               "equity, the series hold fewer than two whole blocks, or the test inputs are malformed.",
+                               ("Use runs whose daily series reconcile and a window of at least two blocks; the series "
+                                "are never repaired.",)),
+    "CLOCK_MISMATCH": ("The two sides' UTC daily clocks are not the same day by day.",
+                       ("Compare runs of the same trading window; days are never filled or resampled.",)),
+    "INTERACTION_UNATTESTED": ("A declared interaction's four corners do not attest it: a and b do not derive from base "
+                               "or ab from a or b, the three-way merge of a and b from base conflicts or is not ab's "
+                               "source, a corner lacks exactly one comparable passed research run with economic "
+                               "evidence, or a corner's run is not older than the declaring registration. The "
+                               "comparison reports it as the interaction's reason and stands.",
+                               ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
+                                "b; read the comparison without the interaction otherwise.",)),
+    "REFERENTIAL_GAP": ("A registration attempt or run names a trial that does not exist, or the attempt outcomes do "
+                        "not add up to the attempts.",
+                        ("Run the whole review (`ledger review`) and report the gap; counts are never partial.",)),
+    "INVALID_QUERY": ("The identity query is empty, names a dimension other than runtime, effective_config and input, "
+                      "or a runtime key outside image_digest, runtime_contract, engine_version and "
+                      "dependency_lock_sha256.",
+                      ("Give at least one of the three dimensions with only their keys.",)),
+    "RUN_IDENTITY_MISSING": ("A sealed run lacks its runtime image, effective configuration or input identity.",
+                             ("Run the whole review (`ledger review`); the run's identity cannot be compared.",)),
+    "SAME_RUN": ("The reference and the candidate are the same run.",
+                 ("Pass two different runs of the same source, inputs and configuration.",)),
+    "RUN_INCOMPLETE": ("A run to compare is not passed or has no sealed result.",
+                       ("Compare passed sealed runs only.",)),
+    "PAIR_INPUT_MISMATCH": ("The two runs differ in source content hash, input identity or effective configuration.",
+                            ("Compare runs of the same source on the same inputs and configuration; only the runtime "
+                             "may differ.",)),
+    "EXPORT_INCOMPLETE": ("A reproduction directory lacks a native report the comparison needs.",
+                          ("Reproduce the run again; a reproduction is handed over only complete.",)),
     # Runtime (the registration seam to research/records/runtime.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
                             ("Check the image reference and the container runtime, then rerun.",)),

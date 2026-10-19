@@ -3,8 +3,8 @@ and isolated container command, running and stopping a named container, the buil
 image and the unverified directory report.
 
 `current` holds the implementations in force; the defaults adapt today's code
-(`research/records/runtime.py`). The engine, runtime and report packages of later phases replace
-them here. Tests swap them with `use(...)`. Today's image has no in-image semantic fingerprint
+(`research/records/runtime.py`) and the report package's directory report. The engine and runtime
+packages of later phases replace them here. Tests swap them with `use(...)`. Today's image has no in-image semantic fingerprint
 (engine.report_fingerprint): its layout names no fingerprint module, so the fingerprint stage is
 recorded not_available.
 """
@@ -74,16 +74,16 @@ def _build_revision(identity: Mapping) -> str | None:
 
 
 def _directory_report(directory: Path) -> dict:
-    """report.directory_report (a later phase): the sealed-run metrics read from an unsealed directory,
-    marked unverified; no qualification masking yet."""
-    from ledger import metrics
+    """report.directory_report: the sealed-run functions and criterion on an unsealed directory, marked
+    unverified; a directory whose reports cannot be read reports why instead of refusing the replay."""
+    from report import runs
     try:
-        values = metrics.metrics(metrics.load_directory(directory))
+        return runs.directory_report(directory, account=False)
     except Refusal as exc:
-        return {"directory": str(directory), "exploration": True, "metrics": None,
-                "availability": ["unsealed, source unverified, not evidence", f"{exc.code}: {exc.message}"]}
-    return {"directory": str(directory), "exploration": True, "metrics": values,
-            "availability": ["unsealed, source unverified, not evidence"]}
+        return {"directory": str(directory), "exploration": True, "headline": None, "slices": None,
+                "availability": {"economic_evidence_available": False, "reasons": [f"{exc.code}: {exc.message}"],
+                                 "unverified": runs.UNVERIFIED},
+                "limitations": [runs.UNVERIFIED]}
 
 
 @dataclass(frozen=True)

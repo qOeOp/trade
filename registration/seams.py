@@ -1,11 +1,11 @@
-"""The one place registration reaches code of later phases: runtime images, runner arguments,
+"""The one place registration reaches code of other packages: runtime images, runner arguments,
 market reads and export, and economic-evidence qualification.
 
 `current` holds the implementations in force. The defaults adapt the code that exists today
-(`research/records/runtime.py`, `research/market/{store,export,universe}.py`); the runtime,
-engine, market and qualification packages of later phases replace them here without touching the
-registration modules. Tests swap them with `use(...)`. Nothing here is reimplemented: where no
-current code exists (lifecycle validation, qualification), the default refuses or raises.
+(`research/records/runtime.py`, `research/market/{store,export,universe}.py`) and the qualification
+package; the runtime, engine and market packages of later phases replace them here without touching
+the registration modules. Tests swap them with `use(...)`. Nothing here is reimplemented: where no
+current code exists (lifecycle validation), the default refuses.
 """
 
 from __future__ import annotations
@@ -229,10 +229,17 @@ def _market(profile) -> CurrentMarket:
     return profile if hasattr(profile, "export_catalogs") else CurrentMarket(profile)
 
 
-# Qualification (qualification.require, qualification.assess)
+# Qualification (qualification.require, qualification.assess); imported late: qualification reads
+# registration's precheck record format.
 
-def _qualification(conn, run: Mapping) -> dict:
-    raise NotImplementedError("economic evidence qualification arrives with the qualification package")
+def _qualification_require(conn, run: Mapping) -> dict:
+    from qualification import availability
+    return availability.require(conn, run)
+
+
+def _qualification_assess(conn, run: Mapping, **options) -> dict:
+    from qualification import availability
+    return availability.assess(conn, run, **options)
 
 
 @dataclass(frozen=True)
@@ -244,12 +251,13 @@ class Seams:
     runner_inputs: Callable[[list[str]], dict]
     market: Callable[[object], object]
     qualification_require: Callable[[object, Mapping], dict]
-    qualification_assess: Callable[[object, Mapping], dict]
+    qualification_assess: Callable[..., dict]
 
 
 DEFAULT = Seams(resolve_runtime=_resolve_runtime, inspect_runtime=_inspect_runtime,
                 require_main_build=_require_main_build, checkout=_checkout, runner_inputs=_runner_inputs,
-                market=_market, qualification_require=_qualification, qualification_assess=_qualification)
+                market=_market, qualification_require=_qualification_require,
+                qualification_assess=_qualification_assess)
 current = DEFAULT
 
 

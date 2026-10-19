@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from ledger import db, evidence, judgments, strategies, trials
 from ledger.errors import Refusal
-from registration import register, seams
+from registration import register
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
                                source)
 from tests.registration.world import (DAY, FEB, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, coverage_bytes,
@@ -497,8 +497,6 @@ class RetryTests(unittest.TestCase):
         self.world.qualification.unavailable.add(run_id)
         self.world.register("registration-r2", {**self.body, "retry_of": "registration-r1"})
         self.world.qualification.unavailable.clear()
-        with seams.use(qualification_assess=seams.DEFAULT.qualification_assess):  # no qualification package
-            self.assertEqual(self.code("registration-r3", "registration-r1"), "RETRY_NOT_ALLOWED")
 
 
 if __name__ == "__main__":
