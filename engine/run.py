@@ -2,18 +2,17 @@
 
 The runner takes four things: the strategy reference, the inputs (one market commit exported per
 contract, the contracts and their pool membership), the window and the account. The account and
-market facts (balance, leverage, fees, funding, matching) are fixed here; everything else, sizing
-included, is the strategy source. ``--describe`` prints the image's runtime identity
+market facts (balance, leverage, fees, funding, matching) are fixed in ``engine.config``; everything
+else, sizing included, is the strategy source. ``--describe`` prints the image's runtime identity
 and the resolved configuration instead of replaying.
 """
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import importlib.metadata
+import functools
 import json
-import sys
+import os
+import traceback
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -41,133 +40,28 @@ from nautilus_trader.model import (
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy
 
-from backtest import report
-from backtest.load import (
-    BAR_INTERVAL_NS,
+from engine import report
+from engine.config import (
+    ACCOUNT_CONTRACT,
     RUNTIME_CONTRACT,
+    config_sha256,
+    describe,
+    effective_configuration,
+    ns,
+    parse_configuration,
+    utc_datetime,
+)
+from engine.load import (
+    BAR_INTERVAL_NS,
     LoadedStrategy,
     load_strategy,
     mark_timestamps,
-    ns,
     read_market,
     read_pool,
     read_regular_file,
     strategy_id,
-    utc_datetime,
     warmup_daily_bars,
 )
-
-
-ACCOUNT_CONTRACT = {
-    "venue": "BINANCE",
-    "oms_type": "NETTING",
-    "account_type": "MARGIN",
-    "book_type": "L1_MBP",
-    "base_currency": "USDT",
-    "starting_balance_usdt": "100000",
-    "default_leverage": "1",
-    "support_gtd_orders": True,
-    "support_contingent_orders": True,
-    "reject_stop_orders": False,
-    "bar_execution": True,
-    "bar_adaptive_high_low_ordering": False,
-    "trader_id": "R1-PORTFOLIO-001",
-    "time_bars_timestamp_on_close": True,
-    "time_bars_skip_first_non_full_bar": False,
-    "validate_data_sequence": True,
-    "max_order_submit_rate": "200/00:00:01",
-    "chunk_size": 50_000,
-}
-
-
-# Arguments
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--describe", action="store_true", help="print the runtime identity and resolved configuration")
-    strategy = parser.add_argument_group("strategy reference")
-    strategy.add_argument("--strategy-file", type=Path)
-    strategy.add_argument("--strategy-class")
-    strategy.add_argument("--strategy-sha256")
-    strategy.add_argument("--strategy-binding", type=Path)
-    strategy.add_argument("--execution-binding", type=Path)
-    inputs = parser.add_argument_group("inputs: one market commit exported per contract (research.market.export)")
-    inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
-    inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
-    inputs.add_argument("--pool", type=Path, help="pool membership JSON handed to every strategy")
-    inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
-    window = parser.add_argument_group("window")
-    window.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
-    window.add_argument("--end", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
-    window.add_argument("--trade-start", help="ISO-8601 datetime with explicit Z or UTC offset")
-    parser.add_argument("--output", type=Path)
-    return parser
-
-
-def parse_configuration(argv: list[str] | None = None):
-    """Resolve runner defaults without executing source or opening research data."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if not args.describe:
-        missing = [option for option in ("strategy_file", "strategy_class", "strategy_sha256", "output")
-                   if getattr(args, option) is None]
-        if missing:
-            parser.error("a replay needs " + ", ".join("--" + name.replace("_", "-") for name in missing))
-    times = {}
-    for field in ("start", "end", "trade_start"):
-        value = getattr(args, field)
-        if value is None:
-            continue
-        try:
-            times[field] = utc_datetime(value)
-        except ValueError as exc:
-            parser.error(f"--{field.replace('_', '-')}: {exc}")
-    start, end = times["start"], times["end"]
-    trade_start = times.get("trade_start", start)
-    if (not start < end or not start <= trade_start < end
-            or any(value.minute % 5 or value.second or value.microsecond
-                   for value in (start, end, trade_start))):
-        parser.error("replay needs a positive five-minute-aligned interval with trade-start inside it")
-    if len(args.symbols) != len(set(args.symbols)):
-        parser.error("--symbols must be unique")
-    return args
-
-
-def effective_configuration(args) -> dict:
-    """Canonical experiment configuration, including native execution defaults."""
-    return {
-        "runtime_contract": RUNTIME_CONTRACT,
-        "market_root": str(args.market_root),
-        "market_commit": args.market_commit,
-        "pool": str(args.pool) if args.pool is not None else None,
-        "symbols": args.symbols,
-        "start": args.start,
-        "end": args.end,
-        "trade_start": args.trade_start if args.trade_start is not None else args.start,
-        "native_account": ACCOUNT_CONTRACT.copy(),
-    }
-
-
-def _config_sha(value: dict) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def describe(args) -> dict:
-    """The executing image's native code and the replay configuration it would resolve."""
-    metadata = report.runtime_source_metadata()
-    effective = effective_configuration(args)
-    return {
-        "runtime_contract": RUNTIME_CONTRACT,
-        "nautilus_version": importlib.metadata.version("nautilus_trader"),
-        "python_version": sys.version.split()[0],
-        "dependency_lock_sha256": hashlib.sha256((report.ROOT / "uv.lock").read_bytes()).hexdigest(),
-        "source_files_sha256": {key: value for key, value in metadata.items() if key.endswith("_source_sha256")},
-        "source_file_paths": metadata["source_file_paths"],
-        "audit_source_sha256": hashlib.sha256((report.ROOT / report.AUDIT_PATH).read_bytes()).hexdigest(),
-        "effective_config": effective,
-        "effective_config_sha256": _config_sha(effective),
-    }
 
 
 def execution_metadata(args) -> dict:
@@ -182,7 +76,7 @@ def execution_metadata(args) -> dict:
     }:
         raise ValueError("execution binding must contain runtime and effective configuration")
     effective = effective_configuration(args)
-    digest = _config_sha(effective)
+    digest = config_sha256(effective)
     if binding["effective_config"] != effective or binding["effective_config_sha256"] != digest:
         raise ValueError("execution binding differs from actual resolved runner configuration")
     identity = binding["runtime_identity"]
@@ -215,27 +109,129 @@ class _Configured:
         return Strategy.__new__(cls)
 
     def __init__(self, config: StrategyInputs):
-        instrument_id = InstrumentId.from_str(config.instrument_id)
-        super().__init__(
-            instrument_id,
-            BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
-            trade_start_ns=config.trade_start_ns,
-            historical_daily_bars=(
-                warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
-                if getattr(type(self), "DAILY_WARMUP", False) else []
-            ),
-            execution_bar_minutes=5,
-            strategy_id=StrategyId(config.strategy_id),
-            pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
-        )
+        try:
+            instrument_id = InstrumentId.from_str(config.instrument_id)
+            super().__init__(
+                instrument_id,
+                BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
+                trade_start_ns=config.trade_start_ns,
+                historical_daily_bars=(
+                    warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
+                    if getattr(type(self), "DAILY_WARMUP", False) else []
+                ),
+                execution_bar_minutes=5,
+                strategy_id=StrategyId(config.strategy_id),
+                pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
+            )
+        except Exception as exc:
+            execution_failure("constructor", exc, None)
+            raise
         STRATEGIES[config.instrument_id] = self
+
+
+# Structured runtime failures (engine.execution_failure): a strategy's constructor or callback that
+# raises leaves a receipt in the process and in <output>/runtime_failures.jsonl before the exception
+# goes on, so a failure the engine catches still fails the run (NATIVE_EXECUTION_FAILED).
+
+FAILURE_FORMAT = "runtime-failure-v1"
+FAILURES: list[dict] = []
+FAILURE_PATH: Path | None = None  # the receipt file of this process's replay, once main set it
+GUARDED_HOOKS = ("replay_diagnostics", "replay_integrity_findings")
+
+
+def execution_failure(stage: str, exc: BaseException, instance) -> None:
+    """Record one constructor or callback exception; never raises itself."""
+    try:
+        instrument = next((key for key, value in STRATEGIES.items() if value is instance), None)
+        receipt = {"format": FAILURE_FORMAT, "stage": stage, "exception_type": type(exc).__name__,
+                   "message": str(exc), "traceback": "".join(traceback.format_exception(exc)),
+                   "instrument_id": instrument or "unconstructed"}
+        FAILURES.append(receipt)
+        if FAILURE_PATH is not None:
+            with FAILURE_PATH.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+    except Exception as error:  # the receipt is evidence; failing to write it must not hide the original
+        FAILURES.append({"format": FAILURE_FORMAT, "stage": stage, "exception_type": type(exc).__name__,
+                         "message": f"{exc} (receipt not written: {error})", "traceback": "",
+                         "instrument_id": "unconstructed"})
+
+
+def guard_callback(name: str, method):
+    """The source's callback, recording any exception it raises before raising it unchanged."""
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:
+            execution_failure(name, exc, self)
+            raise
+    return guarded
+
+
+# Clock APIs that register a callback, with the callback's position among their arguments
+# (nautilus_trader.common.Clock in the pinned version).
+CLOCK_CALLBACK_APIS = {"set_timer": 4, "set_timer_ns": 4, "set_time_alert": 2, "set_time_alert_ns": 2,
+                       "register_default_handler": 0}
+
+
+class GuardedClock:
+    """The strategy's native clock, with every callback the source registers on it guarded."""
+
+    def __init__(self, clock, instance):
+        self._clock, self._instance = clock, instance
+
+    def __getattr__(self, name):
+        found = getattr(self._clock, name)
+        if name not in CLOCK_CALLBACK_APIS:
+            return found
+        index = CLOCK_CALLBACK_APIS[name]
+
+        def register(*args, **kwargs):
+            if kwargs.get("callback") is not None:
+                kwargs["callback"] = self._guard(name, kwargs["callback"])
+            elif len(args) > index and args[index] is not None:
+                args = (*args[:index], self._guard(name, args[index]), *args[index + 1:])
+            return found(*args, **kwargs)
+        return register
+
+    def _guard(self, api: str, callback):
+        instance, stage = self._instance, f"{api}:{getattr(callback, '__name__', 'callback')}"
+
+        @functools.wraps(callback)
+        def guarded(*args, **kwargs):
+            try:
+                return callback(*args, **kwargs)
+            except Exception as exc:
+                execution_failure(stage, exc, instance)
+                raise
+        return guarded
+
+
+def _guarded_clock(self) -> GuardedClock:
+    return GuardedClock(Strategy.clock.__get__(self, type(self)), self)
+
+
+def guarded_callbacks(strategy_class: type) -> dict:
+    """Every on_ callback and report hook the source's classes define, guarded, the most derived winning,
+    and a clock whose registered callbacks are guarded too."""
+    found = {"clock": property(_guarded_clock)}
+    for cls in strategy_class.__mro__:
+        if cls is Strategy:
+            break
+        for name, value in vars(cls).items():
+            if (name.startswith("on_") or name in GUARDED_HOOKS) and callable(value) and name not in found:
+                found[name] = guard_callback(name, value)
+    return found
 
 
 def importable_strategy(loaded: LoadedStrategy) -> str:
     """Give ImportableStrategyConfig a path resolving inside this exact process."""
     name = f"NodeExternal_{loaded.source_sha256}_{loaded.entry_class}"
     if name not in globals():
-        globals()[name] = type(name, (_Configured, loaded.strategy_class), {"__module__": __name__})
+        globals()[name] = type(name, (_Configured, loaded.strategy_class),
+                               {"__module__": __name__, **guarded_callbacks(loaded.strategy_class)})
     return f"{__name__}:{name}"
 
 
@@ -406,10 +402,13 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
 
 
 def main(argv: list[str] | None = None) -> None:
+    global FAILURE_PATH
     args = parse_configuration(argv)
     if args.describe:
         print(json.dumps(describe(args), sort_keys=True))
         return
+    FAILURES.clear()
+    FAILURE_PATH = args.output / "runtime_failures.jsonl"
     executed = execution_metadata(args)
     strategy = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding)
     start_dt, end_dt = utc_datetime(args.start), utc_datetime(args.end)
@@ -428,11 +427,14 @@ def main(argv: list[str] | None = None) -> None:
               "trade_start_ns": trade_start}
     _, findings = report.write(args.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
                                mark_timestamps(rows))
+    if FAILURES:
+        raise RuntimeError("NATIVE_EXECUTION_FAILED: " + "; ".join(
+            f"{item['exception_type']} in {item['stage']} ({item['instrument_id']})" for item in FAILURES))
     if findings:
-        raise RuntimeError("; ".join(findings))
+        raise RuntimeError("INTEGRITY_FINDINGS: " + "; ".join(findings))
 
 
 if __name__ == "__main__":
     # Run inside the importable module, so the Node finds this process's strategy and observer registries.
-    from backtest.run import main as run_main
+    from engine.run import main as run_main
     run_main()

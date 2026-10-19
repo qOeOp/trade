@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 import pyarrow as pa
 
-from research.market import export, store
+from market import export, store
 from research.records import db
 from research.records.common import RecordError
 from tests.records.dolt import BINARY, SKIP, TemporaryLedger
@@ -114,7 +114,7 @@ class MarketDatabaseTests(unittest.TestCase):
                                      bar_types=["BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"])],
             engine=BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR)))])
         self.assertEqual(node.run()[0].iterations, 576 + 576 + 6)
-        from backtest.load import mark_timestamps
+        from engine.load import mark_timestamps
         self.assertEqual(mark_timestamps([{"catalog_path": __import__("pathlib").Path(path)}]), 576)
         again = export.export(self.profile, at=None, symbols=["BTCUSDT"], start=START, end=end,
                               root=__import__("pathlib").Path(result["root"]).parent)

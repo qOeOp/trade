@@ -80,12 +80,12 @@ class RuntimeIdentityTests(unittest.TestCase):
         with patch("research.records.runtime.subprocess.run", side_effect=outputs) as calls:
             inspect_runtime(identity, ["--symbols", "BTCUSDT"])
         command = calls.call_args_list[1].args[0]
-        self.assertEqual(command[-5:], ["-m", "backtest.run", "--describe", "--symbols", "BTCUSDT"])
+        self.assertEqual(command[-5:], ["-m", "engine.run", "--describe", "--symbols", "BTCUSDT"])
 
     def test_runner_describes_the_paths_custody_expects(self):
         argv = ["--describe", "--market-root", "/m", "--market-commit", "c" * 32,
                 "--symbols", "BTCUSDT", "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
-        described = json.loads(subprocess.run([sys.executable, "-m", "backtest.run", *argv], capture_output=True,
+        described = json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
         layout = LAYOUTS[described["runtime_contract"]]
         self.assertEqual(described["runtime_contract"], "r1-native-v5")
@@ -177,9 +177,10 @@ class CurrentRuntimeTests(unittest.TestCase):
 
     def test_relabelled_image_of_other_code_is_refused(self):
         main = {path: path.encode() for path in [*SOURCE_PATHS.values(), AUDIT_PATH, "uv.lock"]}
-        other = self.inspection({**main, SOURCE_PATHS["runner_source_sha256"]: b"changed runner"})
-        with self.assertRaisesRegex(RecordError, "code differs"):
-            self.check(self.image(), inspection=other)
+        for field in ("runner_source_sha256", "fingerprint_source_sha256"):
+            other = self.inspection({**main, SOURCE_PATHS[field]: b"changed code"})
+            with self.subTest(field=field), self.assertRaisesRegex(RecordError, f"code differs from {SOURCE_PATHS[field]}"):
+                self.check(self.image(), inspection=other)
 
 
 if __name__ == "__main__":

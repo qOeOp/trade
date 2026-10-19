@@ -16,9 +16,10 @@ from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
 
-from backtest.load import RUNTIME_CONTRACT, load_strategy
-from backtest.report import diagnostics, runtime_source_metadata
-from backtest.run import (
+from engine.load import RUNTIME_CONTRACT, load_strategy
+from engine.report import diagnostics, runtime_source_metadata
+from engine import run
+from engine.run import (
     STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, importable_strategy,
     parse_configuration,
 )
@@ -128,8 +129,7 @@ class StrategyLoaderTests(unittest.TestCase):
         loaded = self.load(binding_path=self.binding_path)
         metadata = {**loaded.metadata(), **runtime_source_metadata()}
         self.assertNotIn("source_commit", metadata)
-        self.assertEqual(metadata["strategy_source_sha256"], self.digest)
-        self.assertNotIn("strategy_source_sha256", metadata["source_file_paths"])
+        self.assertEqual(metadata["source_sha256"], self.digest)
         repo = Path(__file__).resolve().parents[2]
         for field, path in metadata["source_file_paths"].items():
             self.assertEqual(metadata[field], hashlib.sha256((repo / path).read_bytes()).hexdigest())
@@ -151,8 +151,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertNotIn("risk_budget_bps", effective)
         self.assertNotIn("coin_notional_cap_pct", effective)
         self.assertEqual(set(effective), {"runtime_contract", "market_root", "market_commit", "pool", "symbols",
-                                          "start", "end", "trade_start", "native_account"})
-        self.assertEqual(effective["native_account"]["starting_balance_usdt"], "100000")
+                                          "start", "end", "trade_start", "account"})
+        self.assertEqual(effective["account"]["starting_balance_usdt"], "100000")
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
             "image_digest": "sha256:" + "a" * 64,
@@ -212,7 +212,9 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_runner_takes_no_strategy_parameter(self):
         # A variant is a new source revision; the runner cannot be configured into another strategy.
         for extra in (["--signal-variant", "x"], ["--exit-variant", "x"], ["--daily-warmup"],
-                      ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"]):
+                      ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"],
+                      # abbreviations of the options the replay entry writes itself
+                      ["--exec", "/x.json"], ["--strategy-bin", "/x.json"]):
             with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()) as errors:
                 with self.assertRaises(SystemExit):
                     self.configuration(extra)
@@ -240,7 +242,7 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path=path,
-                config_path="backtest.run:StrategyInputs",
+                config_path="engine.run:StrategyInputs",
                 config=config.__dict__,
             ),
         )
@@ -265,10 +267,74 @@ class StrategyLoaderTests(unittest.TestCase):
             instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
             catalog_path="/inputs/market/BTCUSDT", pool_membership=[],
         )
-        with patch("backtest.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
+        with patch("engine.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
             strategy = wrapper(config)
         warmup.assert_called_once_with(Path("/inputs/market/BTCUSDT"), InstrumentId.from_str(config.instrument_id), 100)
         self.assertEqual(strategy.received[3]["historical_daily_bars"], ["canonical warmup"])
+
+    def test_a_raising_callback_or_constructor_leaves_a_structured_receipt(self):
+        self.source.write_text(SOURCE + "\n    def on_start(self):\n        raise ValueError('boom')\n")
+        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        receipts = self.root / "runtime_failures.jsonl"
+        run.FAILURES.clear()
+        STRATEGIES.clear()
+        self.addCleanup(setattr, run, "FAILURE_PATH", None)
+        run.FAILURE_PATH = receipts
+        engine = BacktestEngine(BacktestEngineConfig(
+            logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
+        ))
+        self.addCleanup(engine.dispose)
+        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
+                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "pool_membership": []}
+        engine.add_strategy_from_config(ImportableStrategyConfig(
+            strategy_path=importable_strategy(loaded), config_path="engine.run:StrategyInputs", config=config))
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            engine.run()
+        wrapper = getattr(run, importable_strategy(loaded).split(":")[1])
+        with self.assertRaises(ValueError):
+            wrapper(StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
+        written = [json.loads(line) for line in receipts.read_text().splitlines()]
+        self.assertEqual(written, run.FAILURES)
+        self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"]) for item in written],
+                         [("on_start", "ValueError", "BTCUSDT-PERP.BINANCE"), ("constructor", "ValueError", "unconstructed")])
+
+    def test_a_raising_clock_callback_leaves_a_receipt_though_the_engine_goes_on(self):
+        from datetime import timedelta
+        from decimal import Decimal
+        from nautilus_trader.model import AccountType, BookType, Currency, Money, OmsType, StrategyId, TraderId, Venue
+        from nautilus_trader.trading import StrategyConfig
+        from tests.engine import test_partial_entry_protection as native
+
+        class Timed(Strategy):
+            def __init__(self):
+                super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+
+            def on_start(self):
+                self.subscribe_bars(native.BAR_TYPE)
+                self.clock.set_timer("tick", timedelta(minutes=5), callback=self.tick)
+                self.clock.set_time_alert_ns("alert", self.clock.timestamp_ns() + 60 * 10**9, self.alert)
+
+            def tick(self, event):
+                raise ValueError("timer failed")
+
+            def alert(self, event):
+                raise KeyError("alert failed")
+
+        run.FAILURES.clear()
+        guarded = type("GuardedTimed", (Timed,), run.guarded_callbacks(Timed))
+        engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
+                                                     logging=LoggerConfig(stdout_level=LogLevel.OFF)))
+        self.addCleanup(engine.dispose)
+        engine.add_venue(Venue("BINANCE"), OmsType.NETTING, AccountType.MARGIN, [Money(100000, Currency.from_str("USDT"))],
+                         base_currency=Currency.from_str("USDT"), default_leverage=Decimal(1), book_type=BookType.L1_MBP,
+                         bar_execution=True)
+        engine.add_instrument(native.INSTRUMENT)
+        engine.add_strategy(guarded())
+        engine.add_data(native.bars())
+        engine.run()  # the engine logs and swallows a time event callback's exception
+        stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in run.FAILURES}
+        self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
+                                  ("set_time_alert_ns:alert", "KeyError", "unconstructed")})
 
 
 if __name__ == "__main__":

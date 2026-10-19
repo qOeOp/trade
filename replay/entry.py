@@ -37,8 +37,9 @@ from replay import seams
 COVERAGE_FORMAT = "execution-input-coverage-v1"
 COVERAGE = execution.COVERAGE
 REPORTS, AUDIT, SOURCE, FINGERPRINT = "reports", "audit", "source", "fingerprint"
-STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native"
+STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native/reports"
 COVERAGE_MOUNT = "/inputs/" + COVERAGE
+AUDIT_COVERAGE_MOUNT = "/native/" + COVERAGE  # the auditor reads the receipt beside the reports (engine.audit_main)
 INSPECTION = "runtime-inspection.json"
 HOST_ERROR = execution.HOST_ERROR
 WORK_ROOT = "/tmp"  # sealed replays work in a new directory here (docker shares it by default)
@@ -240,7 +241,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         native_exit = run("native", layout["runner_module"], mounts, list(runner_args))
         if _reports_complete(workdir):
             audit_exit = run("audit", layout["audit_module"], [
-                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, COVERAGE_MOUNT, True),
+                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, AUDIT_COVERAGE_MOUNT, True),
                 (workdir / AUDIT, REPORTS_MOUNT, False)],
                 ["--run", NATIVE_MOUNT, *layout["audit_args"], "--output", f"{REPORTS_MOUNT}/audit.json"])
             if layout.get("fingerprint_module"):
@@ -413,9 +414,8 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
             "database": ledger.database, "commit": head, "strategy_id": revision["strategy_id"],
             "revision": revision["revision"], "source_sha256": source_sha256, "entry_class": revision["entry_class"],
             "runtime_contract": revision["runtime_contract"]})
-        native = inspection.get("native_effective_config", inspection.get("effective_config"))
         _write_json(workdir / SOURCE / "execution.json", {
-            "runtime_identity": _identity4(identity), "effective_config": native,
+            "runtime_identity": _identity4(identity), "effective_config": inspection.get("effective_config"),
             "effective_config_sha256": inspection.get("effective_config_sha256")})
         argv, mounts = _mounts(workdir, inputs, runner_argv)
         argv += ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", revision["entry_class"],

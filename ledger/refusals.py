@@ -449,6 +449,20 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                              "may differ.",)),
     "EXPORT_INCOMPLETE": ("A reproduction directory lacks a native report the comparison needs.",
                           ("Reproduce the run again; a reproduction is handed over only complete.",)),
+    # Replay stage containers (replay/seams.py, runtime.container_command)
+    "MODULE_NOT_IN_LAYOUT": ("The module is not the runner, auditor, probe or fingerprint the runtime layout declares.",
+                             ("Run only the modules runtime.layout declares for the image's contract.",)),
+    "MOUNT_HOST_PATH_INVALID": ("A mount source is not an existing absolute host path.",
+                                ("Mount only the replay's own working directory and exported inputs.",)),
+    "MOUNT_TARGET_INVALID": ("A mount target is not absolute, repeats, is the root, or lies over or under /tmp or "
+                             "the image's code (/opt/trade).",
+                             ("Give each input its own absolute container path clear of /tmp and /opt/trade.",)),
+    "MOUNT_WRITABLE_NOT_REPORTS": ("A writable mount is not /reports, or more than one mount is writable.",
+                                   ("Mount every input read-only; only the stage's output directory is /reports.",)),
+    "REPORTS_MOUNT_MISSING": ("The stage has no writable /reports mount.",
+                              ("Mount the stage's output directory writable at /reports.",)),
+    "ARGV_INVALID": ("A container argument is not a string.",
+                     ("Pass the runner's arguments as strings.",)),
     # Runtime (the registration seam to research/records/runtime.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
                             ("Check the image reference and the container runtime, then rerun.",)),

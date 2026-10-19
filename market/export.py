@@ -30,7 +30,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from research.market import store
+from market import store
 
 
 MINUTE = 60_000

@@ -8,8 +8,7 @@ import subprocess
 import sys
 import unittest
 
-from backtest.load import ns as _ns, utc_datetime as _utc_datetime
-from backtest.run import effective_configuration, parse_configuration
+from engine.config import effective_configuration, ns as _ns, parse_configuration, utc_datetime as _utc_datetime
 
 
 ARGV = [
@@ -37,8 +36,7 @@ class ReplayTimeTests(unittest.TestCase):
     def test_utc_and_tokyo_hosts_return_identical_start_end_and_trade_start(self):
         script = """
 import json, sys, time
-from backtest.load import ns as _ns
-from backtest.run import effective_configuration, parse_configuration
+from engine.config import effective_configuration, ns as _ns, parse_configuration
 time.tzset()
 config = effective_configuration(parse_configuration(json.loads(sys.argv[1])))
 print(json.dumps({key: [config[key], _ns(config[key])] for key in ('start', 'end', 'trade_start')}, sort_keys=True))

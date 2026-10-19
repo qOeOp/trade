@@ -1,7 +1,7 @@
 # Strategy authoring
 
 What a strategy file must satisfy to run in the native replay. Code is the authority:
-`backtest/{load,run,report}.py` for execution and
+`engine/{config,load,run,report}.py` for execution and
 `research/records/strategies.py` for publication.
 
 ## One file, one account
@@ -107,7 +107,7 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   together get one pair.
 - The pair is not linked, so cancel the plan's remaining orders when the position goes flat (for
   example `self.cancel_all_orders(instrument_id)` in `on_position_closed`).
-- `tests/backtest/test_partial_entry_protection.py` replays this code natively: one tier filled 0.25
+- `tests/engine/test_partial_entry_protection.py` replays this code natively: one tier filled 0.25
   of 16.339 before its GTD expiry, and two tiers ending together. The bare bracket fails the audit;
   this handler passes. Recheck after any Nautilus change.
 
@@ -177,7 +177,7 @@ Use the pinned package (`uv run --frozen python -c "import nautilus_trader;
 print(nautilus_trader.__version__)"`) and read signatures from it; upstream docs are leads until
 checked locally. Test uncertain order or event behavior with a small probe script in a temporary
 directory, run on the host with `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py` (it
-imports `backtest` and `research`; no `PYTHONPATH`, no `docker run`):
+imports `engine`, `market` and `research`; no `PYTHONPATH`, no `docker run`):
 `BacktestEngine(BacktestEngineConfig())` plus one added `Strategy()` builds and inspects orders; add
 an instrument and bars to observe fills.
 
@@ -205,7 +205,7 @@ Run the draft on a pilot of two liquid instruments in `--symbols`, then on the f
 with the same configuration, through `artifacts run --explore` ([runs.md](runs.md)); it runs the
 current main image and writes a trial. A run a freeze or confirmation cites is sealed by
 `artifacts run --strategy ID@N`, which supplies the strategy arguments itself. Never run the replay
-with `docker run` or `python -m backtest...` directly.
+with `docker run` or `python -m engine...` directly.
 
 ```bash
 uv run --frozen python -m research.records.artifacts run --explore \

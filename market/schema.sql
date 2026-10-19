@@ -67,7 +67,7 @@ CREATE TABLE daily_volume (
   CHECK (quote_volume >= 0)
 );
 
--- The monthly pool under market_schema.pool_rule (research/market/universe.py).
+-- The monthly pool under market_schema.pool_rule (market/universe.py).
 CREATE TABLE pool (
   month DATE NOT NULL,
   `rank` TINYINT NOT NULL,

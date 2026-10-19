@@ -21,7 +21,7 @@ MAX_SOURCE_BYTES = 8 * 1024 * 1024  # uncalibrated example value
 NOTE_LIMIT = 2000
 # The runtime contract in force at publication. Seam: the design takes it from
 # engine.account_contract, which a later phase adds; until then it is the contract the runtime
-# images declare (backtest/load.py RUNTIME_CONTRACT).
+# images declare (engine/load.py RUNTIME_CONTRACT).
 RUNTIME_CONTRACT = "r1-native-v5"
 
 

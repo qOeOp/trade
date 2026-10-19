@@ -30,7 +30,7 @@ MINUTE = "1m"
 # The exporter's implementation: export, lifecycle, coverage, store and universe modules and the
 # dependency lock. Seam: today's market code has no separate lifecycle or coverage module; the market
 # package of a later phase replaces this list.
-EXPORTER_FILES = ("research/market/export.py", "research/market/store.py", "research/market/universe.py", "uv.lock")
+EXPORTER_FILES = ("market/export.py", "market/store.py", "market/universe.py", "uv.lock")
 
 
 def _canonical(value) -> bytes:

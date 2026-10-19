@@ -30,7 +30,7 @@ KINDS = ("research", "market")
 SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
 COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
-MARKET_SCHEMA = Path(__file__).parents[1] / "market" / "schema.sql"
+MARKET_SCHEMA = Path(__file__).resolve().parents[2] / "market" / "schema.sql"
 
 
 def _refuse(message, code="LEDGER_REFUSED", **extra):
@@ -280,8 +280,8 @@ def init(*, name: str, database: str, service_root: Path, binary: str, port: int
                 cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (db.SCHEMA_VERSION,))
                 cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
             else:
-                from research.market.store import PRICE_SCALE, VOLUME_SCALE
-                from research.market.universe import POOL_RULE
+                from market.store import PRICE_SCALE, VOLUME_SCALE
+                from market.universe import POOL_RULE
                 cursor.execute("INSERT INTO market_schema VALUES (1, %s, %s, %s, %s)",
                                (db.MARKET_SCHEMA_VERSION, PRICE_SCALE, VOLUME_SCALE, POOL_RULE))
             version = db.SCHEMA_VERSION if of == "research" else db.MARKET_SCHEMA_VERSION
@@ -365,7 +365,7 @@ def status_of(value: dict) -> dict:
     if not result["running"]:
         return result
     if kind(value) == "market":
-        from research.market.store import freshness
+        from market.store import freshness
         return {**result, **freshness(value)}
     conn = db.connect(value, "reader")
     try:

@@ -21,7 +21,7 @@ Run from the repository root; ask nothing yet.
   its cards by status, and the exposure stated by earlier goals
   (`ledger sql --at closed/GOAL-ID "SELECT known_exposure FROM goal"`).
 - **Data**: which market data the runner can read and up to when:
-  `uv run --frozen python -m research.market.cli status` (the market commit, its pool months, the
+  `uv run --frozen python -m market.cli status` (the market commit, its pool months, the
   latest complete month and the last covered day; `import` appends what is missing). A frontier scan
   needs USDT perpetuals from 2020-01 with the monthly coin pool; if the product cannot report that,
   say so.

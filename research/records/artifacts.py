@@ -56,13 +56,13 @@ def _runner_inputs(argv: list[str]) -> argparse.Namespace:
 
 
 def _ms(value: str) -> int:
-    from backtest.load import ns
+    from engine.config import ns
     return ns(value) // 1_000_000
 
 
 def membership(pool_rows: list[tuple], end_month) -> dict[str, list[list[int]]]:
     """Each contract's pool months as merged [start_ns, end_ns) intervals."""
-    from research.market import universe
+    from market import universe
     found: dict[str, list[list[int]]] = {}
     months = sorted({month for month, _ in pool_rows})
     following = {month: (universe.day_ms(nxt) if nxt else universe.day_ms(end_month))
@@ -79,7 +79,7 @@ def membership(pool_rows: list[tuple], end_month) -> dict[str, list[list[int]]]:
 
 def market_inputs(market: dict, at: str | None, replay: argparse.Namespace, *, fresh: bool) -> dict:
     """Export the market commit for the replay window and write its pool membership file."""
-    from research.market import export, store, universe
+    from market import export, store, universe
     from research.records import db
     start, end = _ms(replay.start), _ms(replay.end)
     trade_start = _ms(replay.trade_start) if replay.trade_start else start
@@ -208,7 +208,7 @@ def _summary_problems(summary: dict | None, source_sha256: str, identity: dict, 
     if summary is None:
         return ["native summary missing"]
     problems = []
-    if summary.get("strategy_source_sha256") != source_sha256:
+    if summary.get("source_sha256") != source_sha256:
         problems.append("native summary differs from the replayed strategy bytes")
     if summary.get("runtime_identity") not in (None, identity):
         problems.append("native summary differs from the pinned runtime identity")

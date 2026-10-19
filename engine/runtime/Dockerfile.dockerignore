@@ -1,0 +1,12 @@
+**
+!pyproject.toml
+!uv.lock
+!engine/
+!engine/__init__.py
+!engine/config.py
+!engine/load.py
+!engine/run.py
+!engine/report.py
+!engine/audit.py
+!engine/compare.py
+!engine/compare_reports.py

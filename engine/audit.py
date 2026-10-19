@@ -15,6 +15,7 @@ import csv
 import gzip
 import hashlib
 import json
+import sys
 from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
@@ -22,6 +23,10 @@ from pathlib import Path
 import pandas as pd
 
 
+REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
+           "order_events.jsonl.gz")
+COVERAGE = "input-coverage.json"  # the coverage receipt, in the report directory's parent
+LIFECYCLE_COUNTS = ("instrument_status", "instrument_close")
 TERMINAL = {"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"}
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
 ORDER_EVENTS = "order_events.jsonl.gz"
@@ -232,6 +237,21 @@ def _protection(run: Path, orders: list[dict], fills: list[dict], summary: dict)
                       "uncovered_intervals": intervals}
 
 
+def _lifecycle_findings(run: Path, summary: dict) -> list[str]:
+    """Native lifecycle events need the coverage receipt beside the report directory to be audited.
+
+    This image's runner streams no lifecycle events, so a summary counting any cannot be audited here.
+    """
+    counted = [str(coin.get("instrument")) for coin in summary.get("per_coin") or []
+               if any((coin.get("counts") or {}).get(name) for name in LIFECYCLE_COUNTS)]
+    if not counted:
+        return []
+    if not (run.parent / COVERAGE).is_file():
+        return [f"LIFECYCLE_COVERAGE_MISSING: the summary counts lifecycle events for {counted} but no coverage "
+                f"receipt {COVERAGE} is beside the reports"]
+    return [f"native lifecycle events of {counted} cannot be audited by this image"]
+
+
 def _generic_result(run, orders, fills, positions, findings, economics, protection=None):
     names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
              ORDER_EVENTS)
@@ -289,6 +309,7 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
     try:
         protection_findings, protection = _protection(run, orders, fills, summary)
         findings.extend(protection_findings)
+        findings.extend(_lifecycle_findings(run, summary))
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:
@@ -448,21 +469,47 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
     return _generic_result(run, orders, fills, positions, findings, economics, protection)
 
 
+class AuditNotRun(Exception):
+    """The reports cannot be audited; the auditor exits 2 and writes no result."""
+
+
 def audit(run: Path) -> dict:
     """Reconcile one run's native reports; the result names every finding."""
-    return _generic_audit(run, json.loads((run / "summary.json").read_text()))
+    try:
+        summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise AuditNotRun(f"SUMMARY_UNREADABLE: {run / 'summary.json'}: {exc}") from exc
+    if not isinstance(summary, dict):
+        raise AuditNotRun(f"SUMMARY_UNREADABLE: {run / 'summary.json'} is not a JSON object")
+    return _generic_audit(run, summary)
+
+
+def audit_main(run: Path, output: Path) -> int:
+    """Audit a complete report set into `output`: 0 passed, 1 findings, 2 not audited (no result written)."""
+    missing = [name for name in REPORTS if not (run / name).is_file() or not (run / name).stat().st_size]
+    if missing:
+        print(f"REPORTS_INCOMPLETE: {run} lacks {missing}", file=sys.stderr)
+        return 2
+    try:
+        result = audit(run)
+    except AuditNotRun as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2) + "\n")
+    if not result["passed"]:
+        print(f"AUDIT_FINDINGS: {len(result['findings'])} findings in {output}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run", type=Path, required=True)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--run", type=Path, required=True,
+                        help=f"the report directory (read only); its parent may hold {COVERAGE}")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = audit(args.run)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2) + "\n")
-    if not result["passed"]:
-        raise SystemExit(1)
+    raise SystemExit(audit_main(args.run, args.output))
 
 
 if __name__ == "__main__":

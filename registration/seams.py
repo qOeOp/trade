@@ -2,7 +2,7 @@
 market reads and export, and economic-evidence qualification.
 
 `current` holds the implementations in force. The defaults adapt the code that exists today
-(`research/records/runtime.py`, `research/market/{store,export,universe}.py`) and the qualification
+(`research/records/runtime.py`, `market/{store,export,universe}.py`) and the qualification
 package; the runtime, engine and market packages of later phases replace them here without touching
 the registration modules. Tests swap them with `use(...)`. Nothing here is reimplemented: where no
 current code exists (lifecycle validation), the default refuses.
@@ -76,8 +76,7 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 
 
 def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) -> dict:
-    """The probe report for the container arguments of these inputs; `effective_config` under the
-    engine design keys, `native_effective_config` as today's runner resolves it (its execution binding)."""
+    """The probe report for the container arguments of these inputs."""
     from research.records import runtime
     from research.records.common import RecordError
     argv, _ = container_runner_args(list(runner_argv), inputs)
@@ -85,19 +84,7 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
         inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
     except RecordError as exc:
         raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
-    return {**inspection, "effective_config": design_config(inspection.get("effective_config")),
-            "native_effective_config": inspection.get("effective_config")}
-
-
-# Today's runner names the account terms `native_account`; the engine design calls them `account`.
-# Renamed here until the engine package replaces the runner.
-CURRENT_RUNNER_KEYS = {"native_account": "account"}
-
-
-def design_config(value):
-    if not isinstance(value, Mapping):
-        return value
-    return {CURRENT_RUNNER_KEYS.get(key, key): item for key, item in value.items()}
+    return inspection
 
 
 def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:
@@ -146,7 +133,7 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
 
 class CurrentMarket:
-    """The market database of today's `research/market` code behind the registration interface.
+    """The market database of today's `market` code behind the registration interface.
 
     Its ranked monthly pool stands in for universe_month; lifecycle validation has no current code.
     """
@@ -165,7 +152,7 @@ class CurrentMarket:
 
     def resolve_commit(self, at: str | None) -> str:
         from research.records import db
-        from research.market import store
+        from market import store
         conn = db.connect(self.profile, "reader")
         try:
             return store.resolve(conn, at)
@@ -176,7 +163,7 @@ class CurrentMarket:
             conn.close()
 
     def universe_rule(self, commit: str) -> str:
-        from research.market import universe
+        from market import universe
         return universe.POOL_RULE
 
     def universe_month(self, commit: str) -> list[tuple[str, str]]:
@@ -189,7 +176,7 @@ class CurrentMarket:
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool) -> dict:
-        from research.market import export
+        from market import export
         if lifecycle_files:
             raise refuse("LIFECYCLE_INPUT", "the current market export cannot carry lifecycle evidence")
         done = export.export(self.profile, at=commit, symbols=symbols, start=start_ns // 10**6, end=end_ns // 10**6,

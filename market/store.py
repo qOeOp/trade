@@ -32,7 +32,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pcsv
 
-from research.market import binance, universe
+from market import binance, universe
 from research.records import db
 from research.records.common import RecordError
 

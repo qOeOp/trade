@@ -40,6 +40,7 @@ REASONS: dict[str, str] = {
     "CONFIG_MISMATCH": "The native summary names another effective configuration.",
     "RUNNER_INTEGRITY_FAILED": "The runner's own integrity checks failed.",
     "FINGERPRINT_FAILED": "The in-image semantic fingerprint stage failed or wrote no readable fingerprint.",
+    "FINGERPRINT_MISSING": "The run has no semantic fingerprint: the stage never ran or the image has no fingerprint entry.",
     "NATIVE_REPORT_MISSING": "A native report a passed run needs is missing.",
     "NATIVE_REPORT_UNREADABLE": "A native report exists but does not parse.",
     "METRICS_UNREADABLE": "A native value the sealed report needs cannot be read.",
@@ -62,22 +63,6 @@ def unique(reasons) -> list[dict]:
     """The reasons with repeats (same code and locator) dropped, in order."""
     return list({(item["code"], json.dumps(item.get("locator"), sort_keys=True, default=str)): item
                  for item in reasons}.values())
-
-
-# Today's runner names the source hash `strategy_source_sha256`; the engine design calls it `source_sha256`.
-# Seam: the engine package of a later phase replaces this mapping.
-CURRENT_SUMMARY_KEYS = {"strategy_source_sha256": "source_sha256"}
-
-
-def native_summary(summary: Mapping | None) -> dict | None:
-    """The native summary under the engine design's key names."""
-    if not isinstance(summary, Mapping):
-        return None
-    found = dict(summary)
-    for current, design in CURRENT_SUMMARY_KEYS.items():
-        if design not in found and current in found:
-            found[design] = found[current]
-    return found
 
 
 def json_object(data: bytes | None):
@@ -185,7 +170,7 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
     if summary is not None and parsed is None:
         reasons.append(reason("NATIVE_REPORT_UNREADABLE", "the native summary is not a JSON object", SUMMARY))
     else:
-        reasons += summary_problems(native_summary(parsed), source_sha256, identity, config_sha256)
+        reasons += summary_problems(parsed, source_sha256, identity, config_sha256)
     reasons += capture_fingerprint(capture)[1]
     return unique(reasons)
 
@@ -193,12 +178,14 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
 def capture_fingerprint(capture: Mapping) -> tuple[dict | None, list[dict]]:
     """(the semantic fingerprint the fingerprint stage sealed, its failure reasons).
 
-    An image without a fingerprint entry records the stage not_available: no fingerprint and no
-    reason. A stage that ran must exit 0 and leave a JSON object.
+    A passed run needs its fingerprint: a stage that never ran, or an image without a fingerprint entry
+    (not_available), is FINGERPRINT_MISSING. A stage that ran must exit 0 and leave a JSON object.
     """
     stage = (capture.get("stages") or {}).get("fingerprint") if isinstance(capture.get("stages"), Mapping) else None
     if not isinstance(stage, Mapping) or stage.get("state") == "not_available":
-        return None, []
+        state = stage.get("state") if isinstance(stage, Mapping) else "never started"
+        return None, [reason("FINGERPRINT_MISSING", f"the run has no semantic fingerprint (stage {state})",
+                             "fingerprint")]
     if _exit(stage) != 0:
         return None, [reason("FINGERPRINT_FAILED", f"the fingerprint stage ended {stage.get('state')} with exit "
                                                    f"code {stage.get('exit_code')}", "fingerprint")]

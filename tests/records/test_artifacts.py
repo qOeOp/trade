@@ -31,7 +31,7 @@ def probe(window: dict) -> dict:
             "dependency_lock_sha256": "c" * 64, "source_files_sha256": {field: "d" * 64 for field in paths},
             "source_file_paths": dict(paths), "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
             "effective_config": {"symbols": ["AAAUSDT", "BBBUSDT"], "start": window["start"], "trade_start": window["trade_start"],
-                                 "end": window["end"], "native_account": {"venue": "BINANCE"}}}
+                                 "end": window["end"], "account": {"venue": "BINANCE"}}}
 
 
 class Workspace(unittest.TestCase):
@@ -58,12 +58,12 @@ class Workspace(unittest.TestCase):
             if command[0] != "docker":
                 return REAL_RUN(command, **kwargs)
             out = kwargs["cwd"].parent / "reports"
-            if "backtest.run" in command and passed:
+            if "engine.run" in command and passed:
                 reports.write(out, plans=plans, wins=wins, start=start)
                 summary = json.loads((out / "summary.json").read_text())
-                summary["strategy_source_sha256"] = command[command.index("--strategy-sha256") + 1]
+                summary["source_sha256"] = command[command.index("--strategy-sha256") + 1]
                 (out / "summary.json").write_text(json.dumps(summary))
-            if "backtest.checks.audit" in command:
+            if "engine.audit" in command:
                 (out / "audit.json").write_text(json.dumps({"passed": audit_passed,
                                                             "findings": [] if audit_passed else ["naked position"]}))
             return subprocess.CompletedProcess(command, 0 if passed else 23)

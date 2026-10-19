@@ -25,6 +25,7 @@ from tests.ledger.dolt import MARKET_COMMIT
 
 
 BUILD_REVISION = "c" * 40
+DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64, "by_utc_day": {}}}
 CONFIG_SHA = "f" * 64
 
 RUNNER = r'''
@@ -120,7 +121,7 @@ table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", p
                                        gzip.compress(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n"))
 (out / "order_events.jsonl.gz").write_bytes(gzip.compress(b"".join(
     json.dumps({"client_order_id": o["client_order_id"], "type": "OrderInitialized"}).encode() + b"\n" for o in orders)))
-summary = {"strategy_source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
+summary = {"source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
            "starting_balance_usdt": "100000", "final_equity_usdt": final, "closed_trades": 1,
            "data_interval_minutes": 1440, "input_start_utc": start, "period_start_utc": trade_start,
            "period_end_utc": end, "market_commit": option("--market-commit"),
@@ -160,7 +161,7 @@ class ReplayWorld(World):
         try:
             self.market = Market({MARKET_COMMIT: months_rows()})
             self.scenario: dict = {}
-            self.fingerprint = None  # set: the image has a fingerprint entry writing this value
+            self.fingerprint = DEFAULT_FINGERPRINT  # None: the image has no fingerprint entry
             self.commands: list[dict] = []
             self.stopped: list[str] = []
             self.checkout = clean_checkout(self.service.root / "checkout")

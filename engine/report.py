@@ -20,11 +20,13 @@ from nautilus_trader.model import Venue
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SOURCE_PATHS = {
-    "runner_source_sha256": "backtest/run.py",
-    "load_source_sha256": "backtest/load.py",
-    "report_source_sha256": "backtest/report.py",
+    "config_source_sha256": "engine/config.py",
+    "runner_source_sha256": "engine/run.py",
+    "load_source_sha256": "engine/load.py",
+    "report_source_sha256": "engine/report.py",
+    "fingerprint_source_sha256": "engine/compare.py",
 }
-AUDIT_PATH = "backtest/checks/audit.py"
+AUDIT_PATH = "engine/audit.py"
 EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl")
 ORDER_EVENTS = "order_events.jsonl.gz"
 

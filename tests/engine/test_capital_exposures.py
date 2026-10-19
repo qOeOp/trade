@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from backtest.report import EXPOSURE_COLUMNS, capital_findings, write_exposures
+from engine.report import EXPOSURE_COLUMNS, capital_findings, write_exposures
 
 
 ROWS = [(1_767_225_899_999_000_000, "AAAUSDT-PERP.BINANCE-R1-AAA", "100.00000000 USDT", "-1.00000000 USDT")]
