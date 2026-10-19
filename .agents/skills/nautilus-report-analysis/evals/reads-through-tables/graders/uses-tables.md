@@ -1,4 +1,4 @@
 ---
 type: regex
-pattern: analysis\.tables|tables\(
+pattern: 'tables\('
 ---
