@@ -318,6 +318,7 @@ def exposure_exempt(
 5. 比对开始回执记录的身份：市场库名、市场提交、范围规则版本与生命周期证据包须与 input_key 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
 6. trial_id 出现在 registration_attempt 即返回 False，预检从不消耗网格点。
 7. 以上全过返回 True。是否通过由 registration.require_precheck 判定；同一源码的多次预检逐条独立判定。
+8. 成员文件哈希与合约集同属「合约范围」：预检在登记范围的子集上运行时，二者都按子集核对，不按逐字相等。
 
 | 拒绝码 | 条件 |
 |---|---|

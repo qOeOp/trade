@@ -1172,6 +1172,7 @@ def metrics(reports: Reports) -> dict
 5. 每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因；局限只记本运行特有的。
 6. 能从持仓周期与逐日序列算出的量不在这里算，由 report.derive_measures 读时算。
 7. metrics_revision 取产品代码提交；工作树有未提交改动即拒绝 STALE_CHECKOUT，未提交的计算代码不能盖上干净的版本。按挂单吃单拆分的名义额乘合约乘数，与持仓周期一致。
+8. 敞口报告按 K 线标签流式聚合，不整表读入内存（1 分钟线全池一年整表约 20 GB，流式峰值约 1 GB）。
 
 **使用**　<Ref id="ledger.cycles" />、<Ref id="ledger.economics" />、<Ref id="ledger.plan_metrics" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.mark_drawdown" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.summary_statistics" />
 
