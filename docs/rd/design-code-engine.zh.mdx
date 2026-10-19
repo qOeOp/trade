@@ -358,10 +358,12 @@ def report_fingerprint(directory: Path) -> dict
 
 **期望行为**
 
-1. 随机编号（订单、成交、持仓、事件编号）按首次出现的顺序重编，保住成交到持仓、事件到订单的关系。
-2. 每表按全部非随机列规范化排序，避免同刻同价同量的行换序误报；资金费调整逐条参与。
-3. 给每表行数、整表哈希与逐 UTC 日哈希，失配时能定位到哪天哪张表。
-4. 只读，不写任何东西。
+1. 只有 UUID 形式的随机编号（如事件编号）按首次出现的顺序重编，保住成交到持仓、事件到订单的关系；成交编号由场所、原始编号、时刻与撮合计数确定性派生，原样保留，跨订单的执行先后因此在指纹里。
+2. 订单事件带它在所属订单内的序号（seq）参与哈希，审计依赖的因果先后因此也在指纹里。
+3. 每表按全部非随机列规范化排序，避免同刻同价同量的行换序误报；资金费调整逐条参与。
+4. 给每表行数、整表哈希与逐 UTC 日哈希，失配时能定位到哪天哪张表。
+5. 报告时间须带显式 UTC 偏移，否则拒绝；不按宿主时区解释。
+6. 只读，不写任何东西。
 
 **使用**　<Ref id="engine.compare_reports" />
 
@@ -476,7 +478,8 @@ def build_parser() -> argparse.ArgumentParser
 3. 窗口组：--start、可选 --trade-start、--end，均为带显式 UTC 的 ISO-8601 字符串；另有 --output 与 --describe 探针开关。
 4. 不定义任何策略相关选项，也不留通用键值透传；构造解析器时不读文件、不碰市场数据。
 5. 返回解析器，供 engine.parse_configuration 与 engine.describe 共用同一份定义。
-6. 本函数不拒绝任何输入；未定义选项的拒绝（UNKNOWN_OPTION）由 engine.parse_configuration 在解析时发出。
+6. 关闭参数缩写（allow_abbrev=False）：保留选项的缩写不被解析成保留选项，入口的保留选项名单因此不能绕过。
+7. 本函数不拒绝任何输入；未定义选项的拒绝（UNKNOWN_OPTION）由 engine.parse_configuration 在解析时发出。
 
 <div className="rd-meta">
 
@@ -841,7 +844,7 @@ def strategy_metadata(loaded: LoadedStrategy) -> dict
 
 <TypeTable type={{ "loaded": { type: "LoadedStrategy", description: "[[engine.load_strategy]] 的返回值：已核对的内容哈希、源码路径、入口类、可选的账本绑定、已检查为布尔值的 uses_stop_loss 与 daily_warmup" } }} />
 
-**返回**　dict，包含 strategy_content_hash、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}；有账本绑定时另含 strategy_binding\{database, commit, strategy_id, revision, content_hash, entry_class, runtime_contract\}
+**返回**　dict，包含 source_sha256、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}；有账本绑定时另含 strategy_binding\{database, commit, strategy_id, revision, content_hash, entry_class, runtime_contract\}
 
 **期望行为**
 
@@ -1262,10 +1265,11 @@ def guard_callback(name: str, method: callable) -> 包装后的方法
 
 **期望行为**
 
-1. 调用原方法并返回其结果。
-2. 捕获任何异常后调 engine.execution_failure(name, exc, 实例) 写结构化回执。
-3. 回执写完后原样重新抛出，不换异常类型、不改消息；引擎吞掉异常也已留下证据。
-4. 不读日志、不匹配 stderr 文本。
+1. 守护的范围：策略的 on_* 回调、构造与报告钩子，以及策略经时钟注册的回调（set_timer、set_time_alert 及其纳秒变体）；Nautilus 会吞掉定时回调的异常，只留日志，所以必须在这里留回执。
+2. 调用原方法并返回其结果。
+3. 捕获任何异常后调 engine.execution_failure(name, exc, 实例) 写结构化回执。
+4. 回执写完后原样重新抛出，不换异常类型、不改消息；引擎吞掉异常也已留下证据。
+5. 不读日志、不匹配 stderr 文本。
 
 | 拒绝码 | 条件 |
 |---|---|
