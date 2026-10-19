@@ -12,11 +12,14 @@ price, an InstrumentClose of type CONTRACT_EXPIRED that the engine settles at. N
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from market.sources import MarketError
 
 
 FORMAT = "native-lifecycle-v1"
@@ -25,13 +28,11 @@ NAUTILUS_SCALE = 16
 EPISODE_FIELDS = ("symbol", "instrument_id", "start_ns", "events", "sources")
 
 
-class LifecycleInput(ValueError):
+class LifecycleInput(MarketError):
     """LIFECYCLE_INPUT: the lifecycle evidence does not hold."""
 
-    code = "LIFECYCLE_INPUT"
-
     def __init__(self, message: str):
-        super().__init__(f"LIFECYCLE_INPUT: {message}")
+        super().__init__(message, code="LIFECYCLE_INPUT")
 
 
 def _native(event):
@@ -136,13 +137,17 @@ def require_native_price(episode: Mapping, instrument, start: int = 0, end: int 
                                  f"{increment}; neither the price nor the increment may be changed to fit")
 
 
-def _file_name(first: int, last: int) -> str:
-    from market.export import _ns_name
-    return _ns_name(first, last)
+def file_name(first: int, last: int) -> str:
+    """The engine Catalog's file name for data with ts_init in [first, last]."""
+    def stamp(value: int) -> str:
+        return datetime.fromtimestamp(value // 1_000_000_000, UTC).strftime("%Y-%m-%dT%H-%M-%S") + \
+            f"-{value % 1_000_000_000:09d}Z"
+    return f"{stamp(first)}_{stamp(last)}.parquet"
 
 
 def write_lifecycle_events(root: Path, episode: Mapping, start: int, end: int, price_precision: int) -> dict:
-    """market.write_lifecycle_events: the window's status and close events in the engine's Arrow layout.
+    """market.write_lifecycle_events: the window's status and close events in the engine's Arrow layout
+    (`price_precision`, the exported instrument's, is the close prices' metadata the engine reads).
 
     Returns {"instrument_close": n, "instrument_status": m}; a type without events writes no file.
     """
@@ -161,7 +166,7 @@ def write_lifecycle_events(root: Path, episode: Mapping, start: int, end: int, p
                          schema=pa.schema(fields, metadata={"type": "InstrumentStatus", "instrument_id": instrument_id}))
         directory = root / "data" / "instrument_status" / instrument_id
         directory.mkdir(parents=True, exist_ok=True)
-        pq.write_table(table, directory / _file_name(status[0].ts_event, status[-1].ts_event), compression="snappy")
+        pq.write_table(table, directory / file_name(status[0].ts_event, status[-1].ts_event), compression="snappy")
         counts["instrument_status"] = len(status)
     closes = [_native(event) for event in _window(episode, start, end, "InstrumentClose")]
     if closes:
@@ -179,6 +184,6 @@ def write_lifecycle_events(root: Path, episode: Mapping, start: int, end: int, p
                                                             "price_precision": str(price_precision)}))
         directory = root / "data" / "instrument_closes" / instrument_id
         directory.mkdir(parents=True, exist_ok=True)
-        pq.write_table(table, directory / _file_name(closes[0].ts_event, closes[-1].ts_event), compression="snappy")
+        pq.write_table(table, directory / file_name(closes[0].ts_event, closes[-1].ts_event), compression="snappy")
         counts["instrument_close"] = len(closes)
     return counts
