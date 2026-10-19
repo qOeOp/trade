@@ -84,7 +84,7 @@ class LedgerTests(unittest.TestCase):
                                     image_ref=IMAGE)
         stored = trials.hand_off_run(self.profile, trial_id=trial, reports=load_dir(directory / "reports"),
                                      problems=list(problems), inspection=INSPECTION, image_revision="a" * 40,
-                                     effective_config={"coins": ["AAA", "BBB"], "native_account": {"venue": "X"}},
+                                     effective_config={"coins": ["AAA", "BBB"], "account": {"venue": "X"}},
                                      input_identity={"fixture": True})
         return stored["run_id"]
 

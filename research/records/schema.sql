@@ -304,7 +304,7 @@ CREATE TABLE witness (
 );
 
 -- Observed fee rate per liquidity side on fill notional (quantity x price); the account terms are
--- run.effective_config.native_account. Nothing here is typed by the Agent.
+-- run.effective_config.account. Nothing here is typed by the Agent.
 CREATE VIEW run_cost_basis AS
   SELECT run_id, liquidity_side, COUNT(*) AS fills, SUM(commission_usdt) AS commissions_usdt,
          SUM(last_qty * last_px) AS notional_usdt,

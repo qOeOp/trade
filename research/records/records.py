@@ -399,9 +399,8 @@ def _run_with_trial(conn, run_id: int) -> dict:
 
 
 def account_terms(config: dict):
-    """The account terms of an effective configuration: `account`, or `native_account` in runs stored
-    from images before the engine package."""
-    return config.get("account", config.get("native_account"))
+    """The account terms of an effective configuration."""
+    return config["account"]
 
 
 def _require_main_image(run: dict) -> None:
