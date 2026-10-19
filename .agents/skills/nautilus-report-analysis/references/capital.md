@@ -12,7 +12,7 @@ context for drawdown and for the holding structure: read it first.
   without rows held nothing. Never revalue positions or derive capital use from the account report
   alone. When the run has no exposure readings, it cannot answer capital questions: say so and put
   it in the limitations.
-- **Participation** is yours to compute; the product stores none. Replay the run with `replay
+- **R.2.3.3** Participation is yours to compute; the product stores none. Replay the run with `replay
   reproduce RUN`, take its fills from `tables()`, and divide each fill's quantity by the volume of
   that instrument's one-minute LAST bar at the run's market commit (market database, read only).
   The engine stamps a bar at its close and the market database keys it by its open, so a fill at
