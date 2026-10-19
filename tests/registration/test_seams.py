@@ -1,9 +1,8 @@
-"""The seams to later phases: runner arguments, month paths, and today's runtime code behind them."""
+"""The registration seams: runner arguments and month paths."""
 
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
 
 from ledger.errors import Refusal
 from registration import comparability, seams
@@ -22,6 +21,9 @@ class SeamTests(unittest.TestCase):
         self.assertEqual((universe["selection"], universe["lifecycle_bundle"]), ({"universe": True}, "lifecycle-x"))
         with self.assertRaises(ValueError):
             seams.current.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
+        with self.assertRaises(Refusal) as caught:  # one unsplit string, as an unquoted shell variable gives
+            seams.current.runner_inputs(["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
+        self.assertEqual(caught.exception.code, "USAGE_ERROR")
 
     def test_the_engine_configuration_is_comparable(self):
         from engine import config
@@ -37,24 +39,6 @@ class SeamTests(unittest.TestCase):
                                       [seams.month_ns("2026-03"), seams.month_ns("2026-04")]])
         self.assertEqual(paths["B"], [[seams.month_ns("2025-12"), seams.month_ns("2026-01")]])
         self.assertEqual(seams.month_ns("1970-02"), 31 * 86_400 * 10**9)
-
-    def test_todays_runtime_errors_become_coded_refusals(self):
-        from research.records import runtime
-        from research.records.common import RecordError
-        identity = {"image_ref": "x@sha256:" + "b" * 64, "image_digest": "sha256:" + "b" * 64, "platform": "linux/arm64",
-                    "runtime_contract": "r1-native-v6", "build_revision": None}
-        cases = [("resolve", lambda: seams.DEFAULT.resolve_runtime("x:main"), RecordError("no pull"),
-                  "RUNTIME_UNAVAILABLE"),
-                 ("inspect_runtime", lambda: seams.DEFAULT.inspect_runtime(identity, [], {
-                     "root": "/tmp/r", "membership_file": "/tmp/m", "identity": {"market_commit": "m"}}),
-                  RecordError("probe failed"), "RUNTIME_PROBE_INVALID"),
-                 ("require_main_build", lambda: seams.DEFAULT.require_main_build(identity, {}),
-                  RecordError("not on main", code="RUNTIME_NOT_MAIN"), "RUNTIME_NOT_MAIN")]
-        for name, call, error, expected in cases:
-            with self.subTest(name=name), patch.object(runtime, name, side_effect=error), \
-                    self.assertRaises(Refusal) as caught:
-                call()
-            self.assertEqual(caught.exception.code, expected)
 
 
 if __name__ == "__main__":

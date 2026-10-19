@@ -2,10 +2,10 @@
 (market.daily_returns), reproducing a sealed run (replay.reproduce) and the engine's native report
 comparison (engine.compare_reports).
 
-`current` holds the implementations in force. The market default reads today's market database
-(`market`: the MARK one-minute bar at 23:59 UTC of each day, the ranked monthly pool as the
-common tradable range) through the market profile in the ledger profile directory; the market and
-engine packages of a later phase replace it here. Tests swap them with `use(...)`.
+`current` holds the implementations in force. The market default reads the market database
+(`market.store`: the MARK one-minute bar at 23:59 UTC of each day, the ranked monthly pool as the
+common tradable range) through the market profile in the ledger profile directory. Tests swap them
+with `use(...)`.
 """
 
 from __future__ import annotations
@@ -66,8 +66,8 @@ def daily_returns_from(closes: dict[str, dict[str, int]], members: dict[str, set
 
 
 def _market_returns(commit: str, universe_rule: str, start: datetime, end: datetime) -> dict:
-    """market.daily_returns on today's market database (read only)."""
-    from research.records import db as records_db
+    """market.daily_returns on the market database (read only)."""
+    from market import store
     from registration import seams as registration_seams
     profile = _market_profile()
     market = registration_seams.CurrentMarket(profile)
@@ -93,13 +93,13 @@ def _market_returns(commit: str, universe_rule: str, start: datetime, end: datet
                for day in days]
     ref = db.check_ref(commit)
     closes: dict[str, dict[str, int]] = {}
-    conn = records_db.connect(profile, "reader")
+    conn = store.connect(profile, "reader")
     try:
         marks = ", ".join(["%s"] * len(stamps))
         for symbol in symbols:
-            for ts_open, close in records_db.rows(conn, f"SELECT ts_open, close FROM bar AS OF '{ref}' WHERE symbol = %s "
-                                                        f"AND price_type = 'MARK' AND ts_open IN ({marks})",
-                                                  (symbol, *stamps)):
+            for ts_open, close in store.rows(conn, f"SELECT ts_open, close FROM bar AS OF '{ref}' WHERE symbol = %s "
+                                                  f"AND price_type = 'MARK' AND ts_open IN ({marks})",
+                                             (symbol, *stamps)):
                 day = datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat()
                 closes.setdefault(symbol, {})[day] = close
     finally:

@@ -113,8 +113,7 @@ def fetch(conn, commit: str, symbol: str, price_type: str, start: int, end: int)
 
 def terms(conn, commit: str, symbol: str) -> dict:
     """The latest terms observed at the commit: one Nautilus instrument per replay."""
-    from research.records import db
-    found = db.dicts(
+    found = store.dicts(
         conn, f"SELECT * FROM instrument AS OF '{commit}' WHERE symbol = %s ORDER BY observed_at DESC LIMIT 1",
         (symbol,))
     if not found:
@@ -123,8 +122,7 @@ def terms(conn, commit: str, symbol: str) -> dict:
 
 
 def funding(conn, commit: str, symbol: str, start: int, end: int) -> list[tuple[int, Decimal]]:
-    from research.records import db
-    return db.rows(conn, f"SELECT funding_time, rate FROM funding AS OF '{commit}' WHERE symbol = %s "
+    return store.rows(conn, f"SELECT funding_time, rate FROM funding AS OF '{commit}' WHERE symbol = %s "
                          "AND funding_time >= %s AND funding_time < %s ORDER BY funding_time", (symbol, start, end))
 
 
@@ -272,14 +270,13 @@ def export_symbol(job: dict) -> dict:
     """Write one contract's Catalog for the window into `job['path']`; returns its receipt."""
     from nautilus_trader.model import InstrumentId
     from nautilus_trader.persistence import ParquetDataCatalog
-    from research.records import db
     started = time.monotonic()
     symbol, commit, start, end = job["symbol"], job["commit"], job["start"], job["end"]
     timeframe, step, episode = TIMEFRAME, MINUTE, job.get("episode")
     path = Path(job["path"])
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True)
-    conn = db.connect(job["profile"], "reader")
+    conn = store.connect(job["profile"], "reader")
     try:
         row = terms(conn, commit, symbol)
         last = fetch(conn, commit, symbol, "LAST", start, end)
@@ -372,11 +369,10 @@ def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end
             raise lifecycle.LifecycleInput(f"the episode of {symbol} is {found[0]['instrument_id']}, not "
                                            f"{instrument_id(symbol)}")
         chosen[symbol] = found[0]
-    from research.records import db
-    conn = db.connect(profile, "reader")
+    conn = store.connect(profile, "reader")
     try:
-        commit = store.resolve(conn, at)
-        (price_scale, volume_scale), = db.rows(conn, f"SELECT price_scale, volume_scale FROM market_schema AS OF '{commit}'")
+        commit = store.resolve_commit(conn, at)
+        (price_scale, volume_scale), = store.rows(conn, f"SELECT price_scale, volume_scale FROM market_schema AS OF '{commit}'")
     finally:
         conn.close()
     if fresh:

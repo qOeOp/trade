@@ -191,7 +191,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "research or validation trial is stored as an invalid run with its recovery "
                                 "material.",
                                 ("Rerun with a shorter window or fewer instruments; for a precheck, append the kept "
-                                 "bytes with `replay recover-capture` (they stay recovery material, not the "
+                                 "bytes with `execution recover` (they stay recovery material, not the "
                                  "capture).",)),
     "RECOVERY_NOT_APPLICABLE": ("Recovery applies only to a trial whose original capture is missing, from the "
                                 "working directory its start receipt records: a precheck with no run and no "
@@ -474,11 +474,97 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Mount the stage's output directory writable at /reports.",)),
     "ARGV_INVALID": ("A container argument is not a string.",
                      ("Pass the runner's arguments as strings.",)),
-    # Runtime (the registration seam to research/records/runtime.py)
+    # Runtime (runtime/image.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
                             ("Check the image reference and the container runtime, then rerun.",)),
     "RUNTIME_PROBE_INVALID": ("The runtime identity probe failed or returned an incomplete report.",
                               ("Use a runtime image built by CI for a supported runtime contract.",)),
+    "RUNTIME_IDENTITY_INVALID": ("The runtime identity is malformed: a field is missing or extra, the reference "
+                                 "carries no sha256 digest or disagrees with it, or the image has no contract label.",
+                                 ("Resolve the image with `--runtime <image>:<tag>` or `<image>@sha256:<digest>`; "
+                                  "never write an identity by hand.",)),
+    "RUNTIME_UNSUPPORTED": ("The runtime platform or contract has no layout in this product version.",
+                            ("Use a CI image of a contract runtime.layout declares (`--runtime "
+                             "ghcr.io/qoeop/trade-runtime:main`).",)),
+    "RUNTIME_DIGEST_AMBIGUOUS": ("The local image has no single manifest digest under its image name.",
+                                 ("Pass the image by digest (`<image>@sha256:<digest>`).",)),
+    "RUNTIME_MISMATCH": ("The local image or its probe disagrees with the identity: digest, platform, contract, "
+                         "source layout or configuration hash.",
+                         ("Pull the image by digest again; report the image if the probe still disagrees.",)),
+    # The command line (cli/)
+    "USAGE_ERROR": ("The command, a required option or an option's type is not what the command line declares.",
+                    ("Read `python -m cli.main <noun> <verb> --help` and rerun with the declared options.",)),
+    "SOURCE_UNREADABLE": ("The given file is not a readable regular file (missing, a directory or a link).",
+                          ("Pass the path of the single-file UTF-8 source itself.",)),
+    "WRITE_VIA_SQL": ("`ledger sql` runs exactly one read-only SELECT, SHOW, DESCRIBE or WITH statement.",
+                      ("Write only through the declared commands; read with one SELECT.",)),
+    "PRECHECK_NOT_FOUND": ("The trial is no native precheck of this candidate's source on this runtime image.",
+                           ("Run `replay precheck` for the candidate on the image, then review that trial.",)),
+    "RUNTIME_UNRESOLVED": ("The runtime reference does not resolve to an image digest.",
+                           ("Pass the image the precheck ran on, by tag or digest.",)),
+    "BACKUP_TARGET_UNSET": ("The ledger profile declares no backup directory.",
+                            ("Export with `ledger export --kind reproduce --output <new directory>`.",)),
+    "EXPORT_MISMATCH": ("The written export manifest does not reread to the exported content hash; the "
+                        "incomplete copy was removed.",
+                        ("Rerun the same export; report the disk if it persists.",)),
+    "LEDGER_NOT_INITIALIZED": ("The service directory holds no initialized ledger of this profile.",
+                               ("Initialize it with `ledger init` (or `ledger temp` for a test ledger).",)),
+    "SERVICE_START_FAILED": ("The service started but the ledger did not answer; the service was stopped.",
+                             ("Inspect the service log in the service directory, then rerun `ledger service start`.",)),
+    "JUDGMENT_BODY_UNREADABLE": ("The judgment body is not a readable UTF-8 text file.",
+                                 ("Write the judgment text to a UTF-8 file and pass it with --body.",)),
+    # The market database (market/)
+    "MARKET_REFUSED": ("The market database refused the import or read.",
+                       ("Read the message; fix the input it names and rerun the same command.",)),
+    "ROLE_UNKNOWN": ("The market connection role is neither import nor reader.",
+                     ("Connect with role import to import or reader to read.",)),
+    "MARKET_UNREACHABLE": ("The market database's service is not running, the database does not exist or the account "
+                           "was refused.",
+                           ("Start the service with `ledger service start` and pass the market profile with "
+                            "--market.",)),
+    "SCHEMA_VERSION_MISMATCH": ("The market database's schema generation is not the one this code reads.",
+                                ("Use the product version that matches the market database's schema generation.",)),
+    "MARKET_SCHEMA": ("The market database was written under another schema generation, scale or universe rule.",
+                      ("Import into a market database of this generation and rule.",)),
+    "MARKET_PERMISSION": ("The market account may not run this statement.",
+                          ("Import only through `market import`; read with the reader account.",)),
+    "MARKET_SQL_ERROR": ("The market database refused a statement; nothing was committed.",
+                         ("Rerun the same command; report the statement if it persists.",)),
+    "AMBIGUOUS_REF": ("The hash prefix matches more than one market commit.",
+                      ("Pass more characters of the commit hash.",)),
+    "NOT_A_COMMIT": ("The reference names a working set, not a commit.",
+                     ("Pass a market commit, tag or branch.",)),
+    "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month, or leaves a gap after the stored "
+                      "months.",
+                      ("Import the months in order, one `market import --month YYYY-MM` each.",)),
+    "MONTH_EXISTS": ("The market database already holds that month through its end (or through today).",
+                     ("Import the next month; a stored month is never rewritten.",)),
+    "POOL_CHANGED": ("The universe recomputed from stored volumes differs for a stored month.",
+                     ("Report the month and contracts named; stored months are never rewritten.",)),
+    "SOURCE_CONFLICT": ("Two sources hold the same minute or funding time with different values.",
+                        ("Report the contract, price type and time named; the import stops rather than choose.",)),
+    "SOURCE_SHAPE": ("A source gave a bar off the minute grid or a row that does not parse.",
+                     ("Rerun the import after the cache is refreshed; report the archive if it persists.",)),
+    "SCALE_RANGE": ("A price or volume does not fit the market database's integer scale.",
+                    ("Report the contract named; the scale is fixed for the database's generation.",)),
+    "SCALE_LOSS": ("A price or volume has more decimals than the market database's scale holds.",
+                   ("Report the contract named; values are never rounded on import.",)),
+    "NO_TERMS": ("The market commit holds no exchange terms for the contract.",
+                 ("Export only contracts the commit holds terms for.",)),
+    "EXPORT_WINDOW": ("The export window is not a positive whole-minute interval.",
+                      ("Pass a window whose start and end lie on whole minutes, start before end.",)),
+    "EXPORT_SCOPE": ("The export contract list is empty or repeats a contract.",
+                     ("Pass each contract once.",)),
+    "FUNDING_UNSORTED": ("A contract's funding settlement times are not strictly increasing.",
+                         ("Report the contract named; the market database is inconsistent.",)),
+    "INTERVAL_INVALID": ("The input interval is not explicit UTC on whole minutes with start before end.",
+                         ("Pass --start and --end as UTC times on whole minutes, start before end.",)),
+    "INPUT_SHAPE": ("Bar open times given to a coverage reading are not whole, strictly increasing minutes.",
+                    ("Read the bars from the market database at one commit.",)),
+    "EMPTY_SYMBOLS": ("The contract list is empty or repeats a contract.",
+                      ("Pass each contract once, or none to take the universe of the interval's months.",)),
+    "UNKNOWN_SYMBOL": ("The contract is not an instrument of that market commit.",
+                       ("List the commit's contracts with `market coverage` over the universe.",)),
 }
 
 

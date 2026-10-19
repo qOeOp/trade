@@ -1,11 +1,10 @@
 # Native replay
 
-Every native replay goes through the one replay entry (`replay.entry`: explore, precheck, research
-and validation runs; the command line arrives in phase 6 of the refactor): it exports the market
+Every native replay goes through the one replay entry (`replay.entry`, reached through the command
+line: `replay explore`, `replay precheck`, `replay run`, `replay reproduce`): it exports the market
 inputs, probes the CI-built image, writes the trial and its start receipt, then runs `python -m
-engine.run`, the native auditor and the fingerprint in that image. The old
-`research.records.artifacts run` passes the retired `--pool` and does not run on current images.
-Never start a replay or a probe with `docker run` or `python -m engine.run` directly.
+engine.run`, the native auditor and the fingerprint in that image. Never start a replay or a probe
+with `docker run` or `python -m engine.run` directly.
 
 | Path | Role |
 |---|---|
@@ -86,9 +85,9 @@ valued timestamps, RSS).
 ```bash
 uv sync --frozen
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-draft.XXXXXX)
-uv run --frozen python -m research.records.cli strategy export STRATEGY-ID@N \
-  --destination "$STRATEGY_WORKDIR/strategy.py"
-uv run --frozen python -m research.records.artifacts run --explore \
+uv run --frozen python -m cli.main candidate export --candidate STRATEGY-ID@N \
+  --output "$STRATEGY_WORKDIR/strategy.py"
+uv run --frozen python -m cli.main replay explore \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/pool" -- \
   --universe pool \
@@ -113,16 +112,17 @@ tag, the current runtime; a pull request build is tagged `pr-N`; every build is 
 `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
 hand-written runtime identity.
 
-`artifacts run` without `--runtime` pulls `main` and records the manifest digest it resolved;
+A replay command without `--runtime` pulls `main` and records the manifest digest it resolved;
 `--runtime` takes another CI tag or digest reference. The identity (`image_ref` with its
-`@sha256:` digest, `image_digest`, `platform`, `runtime_contract`) is read from the image, and
+`@sha256:` digest, `image_digest`, `platform`, `runtime_contract`, `build_revision`) is read from the
+image (`runtime.image.resolve`), and
 `python -m engine.run --describe` inside it reports its code hashes and the resolved
 configuration. Replay and audit run with no network, a read-only root, read-only source and input
 mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
 whose revision is on origin/main and whose observed code equals that commit's bytes.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
-`engine`, `market` and `research` from a script anywhere, and the image imports `engine` from any
+the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any
 directory. A Nautilus probe is such a host script; it needs no `PYTHONPATH` and no `docker run`.
 
 ## Reports
@@ -202,10 +202,10 @@ the current main image, the candidate in the pull request's image. Run a BTC/ETH
 affected source, then the full instrument set:
 
 ```bash
-uv run --frozen python -m research.records.artifacts run --explore --runtime ghcr.io/qoeop/trade-runtime:main \
+uv run --frozen python -m cli.main replay explore --runtime ghcr.io/qoeop/trade-runtime:main \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/reference" -- RUNNER-ARGS
-uv run --frozen python -m research.records.artifacts run --explore --runtime ghcr.io/qoeop/trade-runtime:pr-N \
+uv run --frozen python -m cli.main replay explore --runtime ghcr.io/qoeop/trade-runtime:pr-N \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
   --output "$STRATEGY_WORKDIR/candidate" -- RUNNER-ARGS
 uv run --frozen python -m engine.compare_reports \
@@ -213,7 +213,7 @@ uv run --frozen python -m engine.compare_reports \
 ```
 
 When the contract changes, the source must accept both constructors, and the reference runs from a
-checkout of the reference commit, whose `artifacts run` passes that runner its own arguments. Inspect orders, fills, positions, fees, funding
+checkout of the reference commit, whose `replay explore` passes that runner its own arguments. Inspect orders, fills, positions, fees, funding
 adjustments, account rows, returns and per-coin diagnostics, plus each run's audit. A clean exit is
 not parity. The pinned rc3 Strategy activates its native take-profit child before the stop child to
 avoid a synchronous sibling rejection; recheck this before changing Nautilus.
@@ -221,7 +221,7 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 ## History
 
 Seals from the `backtest/r1` layout (`r1-native-v1` to `v3`) are no longer read by current code;
-`research.records.runtime.LAYOUTS` knows only `r1-native-v6`. `r1-native-v5` replayed five-minute
+`runtime.image.LAYOUTS` knows only `r1-native-v6`. `r1-native-v5` replayed five-minute
 bars and passed `pool_membership`; its images and runs are not executed by current code. Their directories and locally built
 images remain until WS7; the v1 and v2 constructors received sizing arguments and the v1 to v3
 runners took signal, exit and warmup options that later contracts refuse. `r1-native-v4` read

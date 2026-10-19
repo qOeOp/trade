@@ -22,6 +22,7 @@ from decimal import Decimal
 import io
 import json
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import time
@@ -32,9 +33,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pcsv
 
+import pymysql
+import pymysql.cursors
+
 from market import binance, universe
-from research.records import db
-from research.records.common import RecordError
 
 
 PRICE_SCALE = 8
@@ -49,8 +51,126 @@ _SCHEMA = pa.schema([("open_time", pa.int64()), *((name, pa.string()) for name i
                      ("close_time", pa.int64())])
 
 
+SCHEMA_VERSION = 1
+ROLES = {"import": "writer", "reader": "reader"}  # design role -> account name in the service's private file
+REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
+HASH_PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
+WORKING_SETS = ("WORKING", "STAGED")
+
+
+class MarketError(Exception):
+    """A coded market refusal; nothing was written by the refused call."""
+
+    def __init__(self, message: str, *, code: str = "MARKET_REFUSED", next_actions=(), missing=(),
+                 write_status: str = "not_written"):
+        super().__init__(message)
+        self.code, self.message = code, str(message)
+        self.next_actions, self.missing = tuple(next_actions), tuple(str(item) for item in missing)
+        self.write_status = write_status
+
+    def as_dict(self) -> dict:
+        return {"code": self.code, "message": self.message, "missing": list(self.missing),
+                "next_actions": list(self.next_actions), "write_status": self.write_status}
+
+
 def _refuse(message, code="MARKET_REFUSED", **extra):
-    return RecordError(message, code=code, write_status="not_written", **extra)
+    return MarketError(message, code=code, **extra)
+
+
+# Connections (market.connect)
+
+def _service(profile: dict) -> dict:
+    try:
+        return json.loads((Path(profile["service"]) / "service.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise _refuse(f"market profile {profile.get('name')!r} names no readable service", "MARKET_UNREACHABLE") from exc
+
+
+def connect(profile: dict, role: str, *, streaming: bool = False):
+    """Open a market database connection as `import` (the import account) or `reader`, with its
+    schema generation checked; an import on a database without market_schema is let through."""
+    if role not in ROLES:
+        raise _refuse(f"role must be import or reader, got {role!r}", "ROLE_UNKNOWN")
+    config = _service(profile)
+    account = ((config.get("databases") or {}).get(profile.get("database")) or {}).get(ROLES[role])
+    if account is None:
+        raise _refuse(f"the service has no {role} account for market database {profile.get('database')}",
+                      "MARKET_UNREACHABLE")
+    try:
+        conn = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
+                               database=profile["database"], charset="utf8mb4", autocommit=True, connect_timeout=5,
+                               read_timeout=3600, write_timeout=3600, max_allowed_packet=1 << 30,
+                               cursorclass=pymysql.cursors.SSCursor if streaming else pymysql.cursors.Cursor)
+    except pymysql.MySQLError as exc:
+        raise _refuse(f"cannot connect to market database {profile.get('database')}: {exc.args[0] if exc.args else exc}",
+                      "MARKET_UNREACHABLE") from exc
+    try:
+        found = rows(conn, "SELECT version FROM market_schema WHERE singleton = 1") if not streaming else None
+    except MarketError:
+        found = []
+    if found is not None and ((found and found[0][0] != SCHEMA_VERSION) or (not found and role == "reader")):
+        conn.close()
+        raise _refuse(f"market schema generation {found[0][0] if found else None}, this code reads {SCHEMA_VERSION}",
+                      "SCHEMA_VERSION_MISMATCH")
+    return conn
+
+
+def _sql_error(exc: pymysql.MySQLError) -> MarketError:
+    code = exc.args[0] if exc.args else None
+    if code == 1213:
+        return _refuse("another write landed first (Dolt 1213); nothing was written", "CONCURRENT_WRITE")
+    text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+    if code in (1142, 1143, 1370) or (code == 1105 and "permission" in text.lower()):
+        return _refuse(f"the market account may not do this: {text}", "MARKET_PERMISSION")
+    return _refuse(f"the market database refused the statement (MySQL error {code}): {text}", "MARKET_SQL_ERROR")
+
+
+def rows(conn, statement: str, params=None) -> list[tuple]:
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(statement, params)
+            result = list(cursor.fetchall())
+            while cursor.nextset():
+                cursor.fetchall()
+            return result
+    except pymysql.MySQLError as exc:
+        raise _sql_error(exc) from exc
+
+
+def dicts(conn, statement: str, params=None) -> list[dict]:
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(statement, params)
+            names = [column[0] for column in cursor.description or ()]
+            return [dict(zip(names, row)) for row in cursor.fetchall()]
+    except pymysql.MySQLError as exc:
+        raise _sql_error(exc) from exc
+
+
+def check_ref(ref) -> str:
+    if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
+        raise _refuse(f"invalid market reference {ref!r}", "UNKNOWN_REF", missing=(str(ref),))
+    return ref
+
+
+def resolve_commit(conn, ref: str | None) -> str:
+    """market.resolve_commit: the one full commit hash a branch, tag, commit hash or unique hash prefix names."""
+    ref = ref or "main"
+    if isinstance(ref, str) and ref.upper() in WORKING_SETS:
+        raise _refuse(f"{ref} is a working set, not a commit", "NOT_A_COMMIT", missing=(ref,))
+    check_ref(ref)
+    if HASH_PREFIX.fullmatch(ref):
+        found = [commit for (commit,) in rows(conn, "SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE %s",
+                                              (ref + "%",))]
+        if len(found) > 1:
+            raise _refuse(f"{ref} is a prefix of {len(found)} market commits", "AMBIGUOUS_REF", missing=(ref,))
+        if found:
+            return found[0]
+    for statement in ("SELECT hash FROM dolt_branches WHERE name = %s", "SELECT tag_hash FROM dolt_tags WHERE tag_name = %s"):
+        found = rows(conn, statement, (ref,))
+        if found:
+            return found[0][0]
+    raise _refuse(f"{ref!r} is no branch, tag or commit of the market database", "UNKNOWN_REF", missing=(ref,))
 
 
 def default_cache() -> Path:
@@ -346,7 +466,7 @@ def funding(cache: binance.Cache, symbol: str, after: int | None, start: int, en
 # The import
 
 def _rows(conn, statement, params=None):
-    return db.rows(conn, statement, params)
+    return rows(conn, statement, params)
 
 
 def _stored_state(conn, symbol: str) -> dict:
@@ -362,7 +482,7 @@ def _stored_state(conn, symbol: str) -> dict:
     found = _rows(conn, "SELECT funding_time FROM funding WHERE symbol = %s ORDER BY funding_time DESC LIMIT 1",
                   (symbol,))
     state["stored_funding"] = found[0][0] if found else None
-    terms = db.dicts(conn, "SELECT * FROM instrument WHERE symbol = %s ORDER BY observed_at DESC LIMIT 1", (symbol,))
+    terms = dicts(conn, "SELECT * FROM instrument WHERE symbol = %s ORDER BY observed_at DESC LIMIT 1", (symbol,))
     state["terms_row"] = terms[0] if terms else None
     return state
 
@@ -377,14 +497,14 @@ def run_import(profile: dict, *, through: date, cache_root: Path, workers: int =
     end = universe.day_ms(through)
     cache = binance.Cache(cache_root)
     work = Path(tempfile.mkdtemp(prefix="market-load-", dir=cache_root.parent if cache_root.parent.exists() else None))
-    conn = db.connect(profile, "writer")
+    conn = connect(profile, "import")
     try:
         if _rows(conn, "SELECT table_name FROM dolt_status") and not resume:
             raise _refuse("the market database has uncommitted rows from an interrupted import",
                           "DIRTY_WORKING_SET", next_actions=["Rerun the same import with --resume."])
         (version, price_scale, volume_scale, rule), = _rows(
             conn, "SELECT version, price_scale, volume_scale, pool_rule FROM market_schema")
-        if (version, price_scale, volume_scale, rule) != (db.MARKET_SCHEMA_VERSION, PRICE_SCALE, VOLUME_SCALE,
+        if (version, price_scale, volume_scale, rule) != (SCHEMA_VERSION, PRICE_SCALE, VOLUME_SCALE,
                                                           universe.POOL_RULE):
             raise _refuse("the market database was written under another schema, scale or pool rule", "MARKET_SCHEMA")
         info = binance.exchange_info()
@@ -502,47 +622,78 @@ def run_import(profile: dict, *, through: date, cache_root: Path, workers: int =
             "pool_contracts": len(members), **totals, "seconds": round(time.monotonic() - started)}
 
 
+def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, *, resume: bool = False,
+                 log=print) -> dict:
+    """market.import_month: append one UTC month (the current month through the last closed day) as
+    one market commit; a complete month already stored is MONTH_EXISTS."""
+    if not isinstance(month, date) or month.day != 1:
+        raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID")
+    today = datetime.now(UTC).date()
+    if month > today:
+        raise _refuse(f"{month:%Y-%m} is after the current UTC month", "MONTH_INVALID")
+    following = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    through = min(following, today)
+    conn = connect(profile, "reader")
+    try:
+        commit = resolve_commit(conn, "main")
+        found = rows(conn, f"SELECT ts_open FROM bar AS OF '{commit}' WHERE price_type = 'LAST' "
+                           "ORDER BY ts_open DESC LIMIT 1")
+    finally:
+        conn.close()
+    covered = universe.ms_day(found[0][0] + MINUTE) if found else None
+    if covered is not None and covered >= through and not resume:
+        raise _refuse(f"the market database already holds {month:%Y-%m} through {covered}", "MONTH_EXISTS",
+                      missing=(f"{month:%Y-%m}",))
+    if covered is not None and covered < month and not resume:
+        raise _refuse(f"the market database ends {covered}, before {month:%Y-%m}; import the months between first",
+                      "MONTH_INVALID", missing=(f"{covered:%Y-%m}",))
+    done = run_import(profile, through=through, cache_root=cache_root, workers=workers, resume=resume, log=log)
+    return {"month": f"{month:%Y-%m}", "market_commit": done["commit"], "universe_rule": universe.POOL_RULE,
+            "through": done["through"], "bar_rows": done["rows"], "funding_rows": done["funding"],
+            "universe_rows": done["pool_rows"], "universe_contracts": done["pool_contracts"], "gaps": done["gaps"],
+            "inferred_terms": done["inferred"], "excluded": done["excluded"], "seconds": done["seconds"]}
+
+
 # Reading
 
-def resolve(conn, at: str | None) -> str:
-    """The commit hash of a branch, tag or commit (default main)."""
-    return _rows(conn, "SELECT DOLT_HASHOF(%s)", (db.check_ref(at or "main"),))[0][0]
-
-
 def freshness(profile: dict, at: str | None = None) -> dict:
-    """What a market commit holds: the pool months, the newest minute and the latest complete month."""
-    conn = db.connect(profile, "reader")
+    """What a market commit holds: the universe rule, the pool months, the newest minute, the latest
+    complete day and the latest complete month."""
+    conn = connect(profile, "reader")
     try:
-        commit = resolve(conn, at)
-        first_month, last_month = _rows(conn, f"SELECT MIN(month), MAX(month) FROM pool AS OF '{commit}'")[0]
+        commit = resolve_commit(conn, at)
+        (rule,), = rows(conn, f"SELECT pool_rule FROM market_schema AS OF '{commit}'")
+        first_month, last_month = rows(conn, f"SELECT MIN(month), MAX(month) FROM pool AS OF '{commit}'")[0]
         newest = None
-        for (symbol,) in _rows(conn, f"SELECT symbol FROM pool AS OF '{commit}' WHERE month = %s", (last_month,)):
-            found = _rows(conn, f"SELECT ts_open FROM bar AS OF '{commit}' WHERE symbol = %s AND price_type = 'LAST' "
-                                "ORDER BY ts_open DESC LIMIT 1", (symbol,))
+        for (symbol,) in rows(conn, f"SELECT symbol FROM pool AS OF '{commit}' WHERE month = %s", (last_month,)):
+            found = rows(conn, f"SELECT ts_open FROM bar AS OF '{commit}' WHERE symbol = %s AND price_type = 'LAST' "
+                               "ORDER BY ts_open DESC LIMIT 1", (symbol,))
             if found and (newest is None or found[0][0] > newest):
                 newest = found[0][0]
     finally:
         conn.close()
     if newest is None:
-        return {"commit": commit, "pool_months": None, "covered_through": None, "latest_complete_month": None}
+        return {"commit": commit, "universe_rule": rule, "pool_months": None, "covered_through": None,
+                "latest_complete_day": None, "latest_complete_month": None, "current_month_through": None}
     covered = universe.ms_day(newest + MINUTE)  # exclusive: imports end at a UTC midnight
-    return {"commit": commit, "pool_months": [first_month.isoformat()[:7], last_month.isoformat()[:7]],
-            "covered_through": covered.isoformat(),
+    return {"commit": commit, "universe_rule": rule,
+            "pool_months": [first_month.isoformat()[:7], last_month.isoformat()[:7]],
+            "covered_through": covered.isoformat(), "latest_complete_day": covered - timedelta(days=1),
             "latest_complete_month": (covered.replace(day=1) - timedelta(days=1)).isoformat()[:7],
             "current_month_through": (covered - timedelta(days=1)).isoformat() if covered.day > 1 else None}
 
 
 def read_pool(profile: dict, at: str | None = None, month: str | None = None) -> dict:
-    """The pool at a commit: {month: [symbol by rank]}, and the membership intervals per contract."""
-    conn = db.connect(profile, "reader")
+    """The pool at a commit: {month: [symbol by rank]}."""
+    conn = connect(profile, "reader")
     try:
-        commit = resolve(conn, at)
+        commit = resolve_commit(conn, at)
         query = f"SELECT month, `rank`, symbol FROM pool AS OF '{commit}'"
         params = ()
         if month:
             query += " WHERE month = %s"
             params = (date.fromisoformat(month + "-01"),)
-        found = _rows(conn, query + " ORDER BY month, `rank`", params)
+        found = rows(conn, query + " ORDER BY month, `rank`", params)
     finally:
         conn.close()
     months: dict[str, list[str]] = {}

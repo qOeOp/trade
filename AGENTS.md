@@ -48,9 +48,9 @@ ledger: publication is append-only.
   fingerprints with the semantic report comparison. Reports already stored stay as they are until
   the ledger is rebuilt against the design. Everything else (drafts, exploratory scripts, replay
   outputs, media, derived reports) is a working copy in `/tmp`.
-- Write to the ledger only through `python -m research.records.cli` and
-  `research.records.artifacts run`, never with direct SQL or another account. No strategy bodies or
-  experiment receipts in Git.
+- Write to the ledger only through the command line `python -m cli.main` (its `replay` commands
+  included), never with direct SQL or another account. No strategy bodies or experiment receipts in
+  Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
   a symlink to it).
 
@@ -79,7 +79,7 @@ ledger: publication is append-only.
 
 - Code changes: `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'` (Dolt
   integration tests start their own throwaway service and skip without a Dolt 2.4.2 binary in
-  `RESEARCH_DOLT_BINARY` or on PATH; see `research/records/README.md`).
+  `RESEARCH_DOLT_BINARY` or on PATH; see `README.md`).
 - PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
   `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
   `.github/pull_request_template.md` and reports only checks actually run.

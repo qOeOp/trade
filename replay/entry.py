@@ -82,11 +82,7 @@ def _resolve(runtime: str | None) -> dict:
 
 
 def _cleanup(inputs: Mapping | None) -> None:
-    if not inputs:
-        return
-    shutil.rmtree(Path(inputs["membership_file"]).parent, ignore_errors=True)
-    if inputs.get("fresh"):
-        shutil.rmtree(inputs["root"], ignore_errors=True)
+    registration_inputs.cleanup(inputs)
 
 
 def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research) -> tuple[dict, dict]:
