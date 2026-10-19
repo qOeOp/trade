@@ -6,7 +6,8 @@ active ledger.
 
 The stand-in runner writes a small native report set for its --symbols: one closed long cycle on the
 first symbol (buy 1 at 100, sell at 110, 0.1 commission each side), daily returns compounding to the
-final equity, an empty exposure table (flat at every bar close) and order events. `scenario` bends it.
+final equity (`scenario["returns"]` sets the trade-window days, cycling), an empty exposure table
+(flat at every bar close) and order events. `scenario` bends it.
 """
 
 from __future__ import annotations
@@ -96,7 +97,16 @@ account = [{"ts_event": iso(ns(start)), "total": "100000.00000000", "locked": "0
            {"ts_event": iso(buy), "total": "99999.90000000", "locked": "100"},
            {"ts_event": iso(sell), "total": "100009.80000000", "locked": "0"}]
 day = 86400 * 10**9
+daily = scenario.get("returns")  # the trade-window daily returns; the final equity compounds them
 returns = [(ts, 0.0 if ts < t0 else (0.000098 if ts == t0 else 0.0)) for ts in range(ns(start), ns(end), day)]
+final = "100009.80000000"
+if daily is not None:
+    trade = [ts for ts, _ in returns if ts >= t0]
+    returns = [(ts, 0.0) for ts, _ in returns if ts < t0] + [(ts, daily[k % len(daily)]) for k, ts in enumerate(trade)]
+    growth = 1.0
+    for _, value in returns:
+        growth *= 1 + value
+    final = "%.8f" % (100000 * growth)
 
 def table(name, rows):
     with (out / name).open("w", newline="") as stream:
@@ -111,7 +121,7 @@ table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", p
 (out / "order_events.jsonl.gz").write_bytes(gzip.compress(b"".join(
     json.dumps({"client_order_id": o["client_order_id"], "type": "OrderInitialized"}).encode() + b"\n" for o in orders)))
 summary = {"strategy_source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
-           "starting_balance_usdt": "100000", "final_equity_usdt": "100009.80000000", "closed_trades": 1,
+           "starting_balance_usdt": "100000", "final_equity_usdt": final, "closed_trades": 1,
            "data_interval_minutes": 1440, "input_start_utc": start, "period_start_utc": trade_start,
            "period_end_utc": end, "market_commit": option("--market-commit"),
            "per_coin": [{"instrument": s + "-PERP.BINANCE", "counts": {"last": 1, "mark": 1, "funding": 0}} for s in symbols]}

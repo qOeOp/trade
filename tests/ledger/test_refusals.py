@@ -13,7 +13,7 @@ from ledger.refusals import CATALOGUE, refusal_catalogue, refuse
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = ("ledger", "registration", "replay")
+PACKAGES = ("ledger", "qualification", "registration", "replay", "report")
 
 
 def literal_codes(names: tuple[str, ...]) -> dict[str, list[str]]:

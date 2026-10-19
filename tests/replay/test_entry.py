@@ -102,7 +102,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         explored = self.explore("draft")
         self.assertEqual((explored["purpose"], explored["status"], explored["problems"]), ("explore", "passed", []))
         self.assertTrue((Path(explored["path"]) / "reports" / "fills.csv").is_file())
-        self.assertEqual(explored["metrics"]["metrics"]["populations"]["fills"], 2)
+        self.assertEqual(explored["metrics"]["populations"]["fills"], 2)
         capture = execution.read_capture(self.world.conn, explored["trial_id"])
         self.assertEqual((capture["status"], capture["purpose"], capture["stages"]["audit"]["exit_code"]),
                          ("captured", "explore", 0))

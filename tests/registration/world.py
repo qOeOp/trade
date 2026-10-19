@@ -31,7 +31,7 @@ RUNNER_ARGV = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T0
                "2026-02-01T00:00:00Z"]
 SYMBOLS = ["AAAUSDT", "BBBUSDT"]
 MONTHS = ["2025-11", "2025-12", "2026-01", "2026-02"]
-ACCOUNT = {"balance_usdt": "100000", "oms_type": "NETTING", "fees": "assumed-v1"}
+ACCOUNT = {"starting_balance_usdt": "100000", "oms_type": "NETTING", "fees": "assumed-v1"}
 DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 5, "resamples": 999, "inner_resamples": 99,
           "seed": 7, "alpha": 0.05, "minimum_effect": 0.01, "design_reason": "five-day blocks for weekly cycles"}
 OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, change control",
@@ -153,10 +153,14 @@ def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck",
     return f"trial-{trial_id}-execution"
 
 
-def coverage_bytes(effective_config: dict, receipts: dict | None = None) -> bytes:
-    """input-coverage.json: the effective configuration and the export receipts by symbol."""
-    return json.dumps({"format": "execution-input-coverage-v1", "effective_config": effective_config,
-                       "export_receipts": receipts or {}}).encode()
+def coverage_bytes(effective_config: dict, receipts: dict | None = None, input_identity: dict | None = None) -> bytes:
+    """input-coverage.json: the effective configuration, the export receipts by symbol and (when
+    given) the input identity, as replay.input_coverage writes them."""
+    value = {"format": "execution-input-coverage-v1", "effective_config": effective_config,
+             "export_receipts": receipts or {}}
+    if input_identity is not None:
+        value["input_identity"] = input_identity
+    return json.dumps(value).encode()
 
 
 class World:
@@ -263,7 +267,8 @@ class World:
         actual = execution or self.plan(bundle)["execution"]
         return trials.open_trial(
             self.conn, "research", sha(data), runtime or RUNTIME,
-            {"identity": actual["input_identity"], "input_coverage": coverage_bytes(actual["effective_config"])},
+            {"identity": actual["input_identity"],
+             "input_coverage": coverage_bytes(actual["effective_config"], input_identity=actual["input_identity"])},
             window or LINE_WINDOW, context(data, self.workdir()), binder or register.binder(bundle, sha(data)))["trial_id"]
 
     def seal_run(self, trial_id: int, status: str = "passed") -> int:
