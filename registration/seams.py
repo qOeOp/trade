@@ -96,9 +96,14 @@ def _ns(text: str) -> int:
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
+class _RunnerParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise refuse("USAGE_ERROR", f"runner arguments: {message}", missing=("--start", "--end"))
+
+
 def _runner_inputs(runner_argv: list[str]) -> dict:
     """{window: {start, trade_start, end} in UTC ns, selection, lifecycle_bundle} from runner flags."""
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = _RunnerParser(add_help=False)
     parser.add_argument("--start", required=True)
     parser.add_argument("--trade-start")
     parser.add_argument("--end", required=True)

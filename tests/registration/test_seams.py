@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from ledger.errors import Refusal
 from registration import comparability, seams
 
 
@@ -20,6 +21,9 @@ class SeamTests(unittest.TestCase):
         self.assertEqual((universe["selection"], universe["lifecycle_bundle"]), ({"universe": True}, "lifecycle-x"))
         with self.assertRaises(ValueError):
             seams.current.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
+        with self.assertRaises(Refusal) as caught:  # one unsplit string, as an unquoted shell variable gives
+            seams.current.runner_inputs(["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
+        self.assertEqual(caught.exception.code, "USAGE_ERROR")
 
     def test_the_engine_configuration_is_comparable(self):
         from engine import config
