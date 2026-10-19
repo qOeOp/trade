@@ -303,7 +303,7 @@ def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) ->
 def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     """Whether a consumed attempt may be tried again: it was interrupted (no run, and its original
     capture records an interrupted or host-failure outcome), its run is invalid, or qualification
-    finds no economic evidence in it (with no qualification package, only the first two)."""
+    finds no economic evidence in it."""
     run = conn.one("SELECT r.run_id, r.trial_id, r.status, t.source_sha256, t.image_digest FROM run r JOIN trial t "
                    "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if run is None:
@@ -312,10 +312,7 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
         return capture["status"] == "captured" and outcome.get("kind") in ("interrupted", "host_failure")
     if run["status"] == "invalid":
         return True
-    try:
-        return not seams.current.qualification_assess(conn, run)["economic_evidence_available"]
-    except NotImplementedError:
-        return False
+    return not seams.current.qualification_assess(conn, run)["economic_evidence_available"]
 
 
 def _retry_chain(conn: db.LedgerConnection, retry_of) -> list[str]:
