@@ -362,9 +362,10 @@ def report_fingerprint(directory: Path) -> dict
 **期望行为**
 
 1. 随机编号（订单、成交、持仓、事件编号）按首次出现的顺序重编，保住成交到持仓、事件到订单的关系。
-2. 每表按全部非随机列规范化排序，避免同刻同价同量的行换序误报；资金费调整逐条参与。
-3. 给每表行数、整表哈希与逐 UTC 日哈希，失配时能定位到哪天哪张表。
-4. 只读，不写任何东西。
+2. 订单事件带它在所属订单内的序号（seq）参与哈希，审计依赖的因果先后因此也在指纹里。
+3. 每表按全部非随机列规范化排序，避免同刻同价同量的行换序误报；资金费调整逐条参与。
+4. 给每表行数、整表哈希与逐 UTC 日哈希，失配时能定位到哪天哪张表。
+5. 只读，不写任何东西。
 
 **使用**　<Ref id="engine.compare_reports" />
 
@@ -844,7 +845,7 @@ def strategy_metadata(loaded: LoadedStrategy) -> dict
 
 <TypeTable type={{ "loaded": { type: "LoadedStrategy", description: "[[engine.load_strategy]] 的返回值：已核对的内容哈希、源码路径、入口类、可选的账本绑定、已检查为布尔值的 uses_stop_loss 与 daily_warmup" } }} />
 
-**返回**　dict，包含 strategy_content_hash、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}；有账本绑定时另含 strategy_binding\{database, commit, strategy_id, revision, content_hash, entry_class, runtime_contract\}
+**返回**　dict，包含 source_sha256、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}；有账本绑定时另含 strategy_binding\{database, commit, strategy_id, revision, content_hash, entry_class, runtime_contract\}
 
 **期望行为**
 

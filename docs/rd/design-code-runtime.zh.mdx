@@ -33,14 +33,14 @@ def build_image(
 ) -> 推送结果
 ```
 
-<TypeTable type={{ "event": { type: "enum{push, pull_request, manual}", description: "触发事件。push 只限主干 main；pull_request 只限本项目内发起（外部 fork 无镜像注册表写权限，跳过）；manual 为手动重建，只打 sha 标签。" }, "revision": { type: "str（40 位十六进制 Git 提交哈希）", description: "被构建的源码版本：push 取当前提交，pull_request 取请求头提交。写入标签 org.opencontainers.image.revision，是 runtime.resolve 的 build_revision 与 runtime.require_main_build 的唯一来源。" }, "request_number": { type: "int | None", description: "拉取请求编号，只在 pull_request 事件有值，用于 review-<request_number> 标签。" }, "build_paths": { type: "list[path]", description: "触发构建的路径集合：运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流文件。其余路径变化不构建，也不改变摘要。" }, "registry": { type: "str", description: "镜像注册表中的镜像名，形如 ghcr.io/<owner>/trade-runtime，owner 小写。推送用平台颁发的短期令牌，项目源码中不存长期凭据。" }, "platform": { type: "str", description: "单一目标平台（如 linux/arm64），须属于 runtime.validate_identity 的受支持平台集合，构建机架构与之一致。" } }} />
+<TypeTable type={{ "event": { type: "enum{push, pull_request, manual}", description: "触发事件。push 只限主干 main；pull_request 只限本项目内发起（外部 fork 无镜像注册表写权限，跳过）；manual 为手动重建，只打 sha 标签。" }, "revision": { type: "str（40 位十六进制 Git 提交哈希）", description: "被构建的源码版本：push 取当前提交，pull_request 取请求头提交。写入标签 org.opencontainers.image.revision，是 runtime.resolve 的 build_revision 与 runtime.require_main_build 的唯一来源。" }, "request_number": { type: "int | None", description: "拉取请求编号，只在 pull_request 事件有值，用于 pr-<request_number> 标签。" }, "build_paths": { type: "list[path]", description: "触发构建的路径集合：运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流文件。其余路径变化不构建，也不改变摘要。" }, "registry": { type: "str", description: "镜像注册表中的镜像名，形如 ghcr.io/<owner>/trade-runtime，owner 小写。推送用平台颁发的短期令牌，项目源码中不存长期凭据。" }, "platform": { type: "str", description: "单一目标平台（如 linux/arm64），须属于 runtime.validate_identity 的受支持平台集合，构建机架构与之一致。" } }} />
 
-**返回**　推送结果：镜像引用 \<registry>@sha256:\<manifest_digest>（单一清单，不生成清单列表）；标签集 \{sha-\<revision>\} 加 main 或 review-\<request_number> 之一；镜像标签 org.opencontainers.image.revision=\<revision>、org.opencontainers.image.source=\<项目源码地址>、trade.runtime.contract=\<运行契约>；写入构建摘要页作为人可读回执。回放侧只按摘要引用它。
+**返回**　推送结果：镜像引用 \<registry>@sha256:\<manifest_digest>（单一清单，不生成清单列表）；标签集 \{sha-\<revision>\} 加 main 或 pr-\<request_number> 之一；镜像标签 org.opencontainers.image.revision=\<revision>、org.opencontainers.image.source=\<项目源码地址>、trade.runtime.contract=\<运行契约>；写入构建摘要页作为人可读回执。回放侧只按摘要引用它。
 
 **期望行为**
 
 1. 核对触发：事件属 main 推送、本项目内发起的拉取请求或手动，且改动落在 build_paths 内；fork 发起的拉取请求拒绝 FORK_PULL_REQUEST。同一引用的并发构建分组，拉取请求取消进行中的旧构建，main 不取消。
-2. 命名：始终打 sha-\<revision>；main 推送追加 main，拉取请求追加 review-\<request_number>，手动只有 sha 标签。
+2. 命名：始终打 sha-\<revision>；main 推送追加 main，拉取请求追加 pr-\<request_number>，手动只有 sha 标签。
 3. 取运行契约：从 runtime.layout 读当前契约版本写入 trade.runtime.contract；取不到或不在受支持集内拒绝 CONTRACT_UNDECLARED。
 4. 构建：以项目源码根目录为上下文、运行环境 Dockerfile 为定义做单平台构建；镜像只装引擎与冻结安装的锁定依赖、运行器、报告写出、审计器与探针源码；关闭 provenance 与 SBOM 附件，保证产出单一清单、摘要唯一。失败拒绝 IMAGE_BUILD_FAILED，不推送任何标签。
 5. 推送：一次推送全部标签与三条镜像标签；失败拒绝 REGISTRY_PUSH_FAILED，不留部分标签。成功后把 \<registry>@\<digest>、revision 与标签集写入构建摘要页。
@@ -96,6 +96,7 @@ def container_command(
 4. 拼固定隔离参数：--rm --pull never --platform \<platform> --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit \<固定上限，未校准示例值> --user \<当前 uid:gid> --tmpfs /tmp；不加环境变量、端口、设备或额外能力。
 5. 按清单顺序拼 --mount type=bind,src=\<host_path>,dst=\<container_path>,readonly（/reports 省略 readonly），相同输入得到相同命令行。
 6. 追加镜像引用、python -m \<module> 与 argv 后返回；拒绝时抛带拒绝码的异常，不返回部分命令。
+7. 每个阶段的命令都核：模块须在所选布局里；输入挂载须是已存在、不在 /tmp 下的绝对路径；该阶段唯一可写的挂载是它自己的输出目录（运行器 /reports、审计器 audit/、指纹阶段 fingerprint/）；不符即拒绝，不启动容器。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -184,10 +185,11 @@ def layout(runtime_contract: str | None) -> layout dict
 
 **期望行为**
 
-1. 布局是模块级常量，按契约版本声明；只能追加新契约条目，不能改写已声明条目。
+1. 布局是模块级常量，按契约版本声明；一个契约可以依次追加多份布局（镜像内模块路径搬迁时，如 backtest.* → engine.*），已声明的布局不改写、不删除。运行契约约定策略接口与账户语义，布局只约定镜像内路径，所以搬路径不升契约，已发布候选照常可用。
 2. 每个契约声明运行器模块、审计器模块与参数、身份探针模块，以及运行器各文件、审计器、依赖锁三类源码路径；不声明策略源码、账本配置或市场数据路径。
-3. 按给定契约查布局；契约未声明拒绝 RUNTIME_UNSUPPORTED。
-4. 受支持契约集合即布局映射的键，供 runtime.validate_identity 与 runtime.build_image 读取。
+3. 选哪份布局由镜像自己决定：读该镜像身份探针报告的源码路径，与各布局逐项相符的那份即是；调用方不能指定；都不符拒绝 RUNTIME_UNSUPPORTED。改名之前构建的镜像因此仍能运行与复现。
+4. 按给定契约查布局；契约未声明拒绝 RUNTIME_UNSUPPORTED。
+5. 受支持契约集合即布局映射的键，供 runtime.validate_identity 与 runtime.build_image 读取。
 
 | 拒绝码 | 条件 |
 |---|---|
