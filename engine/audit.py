@@ -56,9 +56,8 @@ FINDINGS: dict[str, str] = {
     "ACCOUNT_REPORT_INCONSISTENT": "total != locked + free, another currency or account, time disorder or no rows.",
     "SUMMARY_TOTALS_MISMATCH": "Starting balance, realized PnL, flat final equity or closed counts differ from the "
                                "summary.",
-    "REPORT_PAYLOAD_INVALID": "A report field has a wrong type, or reading or arithmetic failed.",
-    "EVENT_PAYLOAD_INVALID": "The order event history cannot be replayed: an unknown event type, a non-positive "
-                             "quantity, an invalid side or an order without its initialization.",
+    "REPORT_PAYLOAD_INVALID": "A report field has a wrong type, reading or arithmetic failed, or the order event "
+                              "history cannot be replayed (EVENT_PAYLOAD_INVALID).",
     "ORDER_EVENT_HISTORY_MISSING": "The report directory has no order event history.",
     "EVENT_ORDER_SET_MISMATCH": "The event history and the orders report hold different orders.",
     "EVENT_NOT_INITIALIZED": "An order's events do not start with exactly one initialization.",
@@ -219,8 +218,25 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
     return findings
 
 
+class EventPayloadInvalid(ValueError):
+    """EVENT_PAYLOAD_INVALID: the order event history cannot be replayed (an unknown event type, a
+    non-positive quantity, an invalid side or an order without its initialization); engine.protection
+    records it as REPORT_PAYLOAD_INVALID."""
+
+    def __init__(self, detail: str):
+        super().__init__(f"EVENT_PAYLOAD_INVALID: {detail}")
+
+
+def _positive(value: str, what: str) -> Decimal:
+    quantity = _quantity(value)
+    if quantity <= 0:
+        raise EventPayloadInvalid(f"{what} {value} is not positive")
+    return quantity
+
+
 def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
-    """Intervals longer than one bar in which a position exceeds its working reduce-only stops.
+    """engine.uncovered_intervals: intervals longer than one bar in which a position exceeds its working
+    reduce-only stops.
 
     Events are applied one timestamp at a time and the state is read after each timestamp, so
     nothing depends on the order of different orders' events within one nanosecond. A stop covers
@@ -242,11 +258,15 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
         for event in timeline[timestamp]:
             kind, identity = event["type"], event["client_order_id"]
             if kind == "OrderInitialized":
+                if event["order_side"] not in ("BUY", "SELL"):
+                    raise EventPayloadInvalid(f"{identity} has side {event['order_side']!r}")
                 orders[identity] = {"scope": (event["strategy_id"], event["instrument_id"]),
                                     "side": event["order_side"], "type": event["order_type"],
                                     "reduce_only": event["reduce_only"] is True,
-                                    "quantity": _quantity(event["quantity"]), "filled": Decimal(0),
-                                    "accepted": False, "ended": False}
+                                    "quantity": _positive(event["quantity"], f"{identity} quantity"),
+                                    "filled": Decimal(0), "accepted": False, "ended": False}
+            if identity not in orders:
+                raise EventPayloadInvalid(f"{identity} has a {kind} before its initialization")
             order = orders[identity]
             scope = order["scope"]
             touched.add(scope)
@@ -254,20 +274,22 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
                 order["accepted"] = True
             elif kind == "OrderUpdated":
                 if event.get("quantity") is not None:
-                    order["quantity"] = _quantity(event["quantity"])
+                    order["quantity"] = _positive(event["quantity"], f"{identity} quantity")
             elif kind == "OrderFilled":
+                if event["order_side"] not in ("BUY", "SELL"):
+                    raise EventPayloadInvalid(f"a fill of {identity} has side {event['order_side']!r}")
                 if position[scope] == 0:
                     position_orders[scope] = []
                 if identity not in position_orders[scope]:
                     position_orders[scope].append(identity)
                 position_ids[scope] = event.get("position_id") or ""
-                quantity = _quantity(event["last_qty"])
+                quantity = _positive(event["last_qty"], f"a fill of {identity}")
                 order["filled"] += quantity
                 position[scope] += quantity if event["order_side"] == "BUY" else -quantity
             elif kind in ENDING_EVENTS:
                 order["ended"] = True
             elif kind not in PASSIVE_EVENTS | {"OrderInitialized"}:
-                raise ValueError(f"unknown native order event type {kind}")
+                raise EventPayloadInvalid(f"unknown native order event type {kind}")
         for scope in sorted(touched):
             held = position[scope]
             closing = "SELL" if held > 0 else "BUY"
@@ -308,8 +330,10 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
     try:
         intervals = uncovered_intervals(events, pd.Timestamp(summary["period_end_utc"]).value)
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
-        findings.append(finding("EVENT_PAYLOAD_INVALID", f"the event history cannot be replayed: "
-                                                         f"{type(exc).__name__}: {exc}"))
+        # REPORT_PAYLOAD_INVALID, as generic_audit records it, but here: the reconciliation findings above
+        # and the audit's remaining checks stay.
+        findings.append(finding("REPORT_PAYLOAD_INVALID", f"the event history cannot be replayed: "
+                                                          f"{type(exc).__name__}: {exc}"))
         intervals = []
     if uses_stop_loss is not False:
         for value in intervals:
@@ -327,18 +351,42 @@ EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settle
 
 
 def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positions: list[dict],
-                       events: list[dict]) -> list[str]:
+                       events: list[dict], coverage: dict) -> list[str]:
     """engine.lifecycle_findings: no order is created at or after a contract's termination (the engine's
     own EXPIRATION orders at a settlement excepted); before a termination without a settlement price
     every native position of the contract is flat and every order filled or ended, and no order has
     events at or after it. A settlement price is the engine's own settlement and reconciles like any
-    fill. One finding per order."""
+    fill. One finding per order. A contract whose bars stop before the window's end (from the coverage
+    receipt) without a termination there is DATA_ENDS_WITHOUT_TERMINATION: the replay would hold it
+    unvalued and untradeable without saying why."""
+    from engine.config import parse_window
+    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), dict) else {}
+    window = parse_window(config.get("start"), None, config.get("end"))
+    found = []
+    for symbol, receipt in sorted((coverage.get("export_receipts") or {}).items()):
+        pieces = receipt.get("pieces") if isinstance(receipt, dict) else None
+        for piece in pieces if isinstance(pieces, list) and pieces else [{}]:
+            episode = piece.get("episode") if isinstance(piece, dict) else None
+            if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
+                continue  # listed after the window
+            ends = [int(event["ts_event"]) for event in (episode or {}).get("events") or ()
+                    if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
+            until = min([window.end_ns, *ends])
+            last = piece.get("last_bar_ns") if isinstance(piece, dict) else None
+            name = piece.get("instrument_id") or symbol if isinstance(piece, dict) else symbol
+            if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
+                found.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
+                                     f"{name}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
+                                     f"{'the termination' if ends and until < window.end_ns else 'the window end'} "
+                                     f"is {_ns_utc(until)}"))
+
+
     priced = {(item["instrument_id"], item["ts_event"]) for item in lifecycle if item["type"] == "InstrumentClose"}
     ended_at: dict[str, int] = {}
     for item in lifecycle:
         ended_at[item["instrument_id"]] = min(item["ts_event"], ended_at.get(item["instrument_id"], item["ts_event"]))
     if not ended_at:
-        return []
+        return found
     findings = []
     reported = {row["event_id"]: row for row in fills}
     for instrument in sorted(ended_at):
@@ -354,7 +402,7 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
             findings.append(finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: positions, event history "
                                                                        "and fills report disagree"))
     if findings:
-        return findings
+        return found + findings
     by_order = defaultdict(list)
     for event in events:
         by_order[event["client_order_id"]].append(event)
@@ -393,16 +441,16 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
                 elif kind == "OrderFilled":
                     quantity = _quantity(event["last_qty"])
                     if quantity <= 0 or event["order_side"] not in ("BUY", "SELL"):
-                        return [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: fill of {identity} is "
-                                                                           "invalid")]
+                        return found + [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: fill of "
+                                                                                   f"{identity} is invalid")]
                     state["filled"] += quantity
                     scope = (event["strategy_id"], event.get("account_id"), event.get("position_id"))
                     held[scope] += quantity if event["order_side"] == "BUY" else -quantity
                 elif kind in ENDING_EVENTS:
                     state["ended"] = True
                 elif kind != "OrderAccepted" and kind not in PASSIVE_EVENTS:
-                    return [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: unknown event type {kind} "
-                                                                       f"of {identity}")]
+                    return found + [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: unknown event "
+                                                                               f"type {kind} of {identity}")]
             complete = state["quantity"] is not None and state["filled"] >= state["quantity"]
             tail = f" ({len(late)} events at or after it: {', '.join(sorted(set(late)))})" if late else ""
             if state["pending"] or not (complete or state["ended"]):
@@ -416,37 +464,10 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
                 findings.append(finding("POSITION_OPEN_AT_TERMINATION", f"{instrument} position {position} "
                                                                         f"({strategy}, {account}) holds {quantity} "
                                                                         f"before {when}"))
-    return findings
+    return found + findings
 
 
 DATA_END_TOLERANCE_NS = 60 * 60 * 10**9  # engine.run.MARK_CARRY_MAX_MINUTES: a shorter trailing hole is a hole
-
-
-def _data_end_findings(coverage: dict) -> list[str]:
-    """A contract whose bars stop before the window's end without a lifecycle termination there: the
-    replay would hold it unvalued and untradeable without saying why (engine.lifecycle_findings step 7,
-    which needs the coverage receipt's window and last bars)."""
-    from engine.load import parse_window
-    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), dict) else {}
-    window = parse_window(config.get("start"), None, config.get("end"))
-    findings = []
-    for symbol, receipt in sorted((coverage.get("export_receipts") or {}).items()):
-        pieces = receipt.get("pieces") if isinstance(receipt, dict) else None
-        for piece in pieces if isinstance(pieces, list) and pieces else [{}]:
-            episode = piece.get("episode") if isinstance(piece, dict) else None
-            if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
-                continue  # listed after the window
-            ends = [int(event["ts_event"]) for event in (episode or {}).get("events") or ()
-                    if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
-            until = min([window.end_ns, *ends])
-            last = piece.get("last_bar_ns") if isinstance(piece, dict) else None
-            name = piece.get("instrument_id") or symbol if isinstance(piece, dict) else symbol
-            if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
-                findings.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
-                                        f"{name}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
-                                        f"{'the termination' if ends and until < window.end_ns else 'the window end'} "
-                                        f"is {_ns_utc(until)}"))
-    return findings
 
 
 def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positions: list[dict], findings: list[str],
@@ -531,8 +552,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
                 findings.append(finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}"))
             else:
                 events = read_order_events(run_dir / ORDER_EVENTS) if (run_dir / ORDER_EVENTS).is_file() else []
-                findings.extend(_data_end_findings(coverage)
-                                + lifecycle_findings(lifecycle, orders, fills, positions, events))
+                findings.extend(lifecycle_findings(lifecycle, orders, fills, positions, events, coverage))
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:

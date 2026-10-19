@@ -314,12 +314,16 @@ class NativeAuditTests(unittest.TestCase):
                 (lambda events: events[1].update(ts_event=events[1]["ts_event"] - 1), {"EVENT_OUT_OF_ORDER"}),
                 (lambda events: events[1].update(strategy_id="R1-ETH"), {"EVENT_SCOPE_CHANGED"}),
                 (lambda events: events.append({**events[-1], "type": "OrderMystery", "event_id": "odd"}),
-                 {"EVENT_PAYLOAD_INVALID"})):
+                 {"REPORT_PAYLOAD_INVALID"})):
             with self.subTest(expected=expected):
                 values = reports()
                 values["events"] = order_events(values)
                 change(values["events"])
-                self.assertLessEqual(expected, codes(self.check(values)))
+                found = self.check(values)
+                self.assertLessEqual(expected, codes(found))
+                if expected == {"REPORT_PAYLOAD_INVALID"}:
+                    self.assertTrue(any("EVENT_PAYLOAD_INVALID: unknown native order event type OrderMystery" in item
+                                        for item in found["findings"]), found["findings"])
 
     def test_the_auditor_runs_only_on_complete_reports_and_lifecycle_counts_need_the_coverage_receipt(self):
         self.root = Path(self.directory.name) / "reports"
