@@ -542,7 +542,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or does "
                       "not follow the stored months in order.",
                       ("Import the months in order, one `market import --month YYYY-MM` each.",)),
-    "MONTH_EXISTS": ("The market database already holds that month through its end.",
+    "MONTH_EXISTS": ("The market database already holds that month through its end, or the sources reread for the "
+                     "month's stored part differ from the stored rows.",
                      ("Import the next month; a stored month is never rewritten.",)),
     "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
@@ -552,8 +553,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       "without an allowlist.",)),
     "UNIVERSE_CHANGED": ("The universe recomputed from the stored data differs from a stored month.",
                          ("Report the month and contracts named; stored months are never rewritten.",)),
-    "DATA_TESTS_FAILED": ("A market commit test (dolt_tests, group commit) failed; the import was rolled back.",
+    "DATA_TESTS_FAILED": ("A market commit test (dolt_tests, group commit) failed at DOLT_COMMIT; the import was "
+                          "rolled back.",
                           ("Report the failed test named; the import stops rather than commit inconsistent data.",)),
+    "CONCURRENT_IMPORT": ("Another import of this market database holds its import lock.",
+                          ("Wait for the running import to finish, then rerun the same `market import`.",)),
     "MARKET_EMPTY": ("The market commit holds no universe month yet (the first imported month has none).",
                      ("Import the next month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",

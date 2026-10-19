@@ -17,6 +17,10 @@ CREATE TABLE market_schema (
   CHECK (import_seq >= 0)
 );
 
+-- The import account may update market_schema only to step import_seq (Dolt 2.4.2 has no column grants):
+-- the generation, scales and universe rule are fixed once written.
+CREATE TRIGGER market_schema_fixed BEFORE UPDATE ON market_schema FOR EACH ROW BEGIN IF NEW.singleton <> OLD.singleton OR NEW.version <> OLD.version OR NEW.price_scale <> OLD.price_scale OR NEW.volume_scale <> OLD.volume_scale OR NEW.universe_rule <> OLD.universe_rule OR NEW.import_seq <> OLD.import_seq + 1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'market_schema: an import only steps import_seq by one'; END IF; END;
+
 -- Exchange terms, one row per observation that differs from the previous one. `exchange_info`
 -- rows are the public exchangeInfo filters verbatim (the decimals of an increment are the
 -- precision) with the contract's classification; `inferred` rows describe a contract that left

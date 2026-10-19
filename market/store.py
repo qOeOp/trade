@@ -37,8 +37,8 @@ from market.sources import MINUTE, MarketError, _refuse
 
 
 SCHEMA_VERSION = 2
-PRICE_SCALE = 8
-VOLUME_SCALE = 4
+PRICE_SCALE = series.PRICE_SCALE
+VOLUME_SCALE = series.VOLUME_SCALE
 DAY = 86_400_000
 ROLES = {"import": "writer", "reader": "reader"}  # design role -> account name in the service's private file
 REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
@@ -46,16 +46,17 @@ HASH_PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 WORKING_SETS = ("WORKING", "STAGED")
 IMPORT = "binance-public"
-ACTIVE = "active"
 
 # The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
 # milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
 # 1,440 minutes of each member's eve by full primary key: a range bound taken from each row is no
 # index range on Dolt 2.4.2 (measured: a scan of the member's whole history), a key lookup is.
 TESTS = (
+    # The newest month's members only: earlier months are immutable and were checked by their commits.
     ("universe_members_traded_on_the_eve",
      "WITH RECURSIVE m(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM m WHERE i < 1439), "
-     "members AS (SELECT symbol, month, DATEDIFF(month, '1970-01-01') * 86400000 - 86400000 AS eve FROM universe_month) "
+     "members AS (SELECT symbol, month, DATEDIFF(month, '1970-01-01') * 86400000 - 86400000 AS eve FROM universe_month "
+     "WHERE month = (SELECT MAX(month) FROM universe_month)) "
      "SELECT (SELECT COUNT(*) FROM members) - COUNT(DISTINCT n.symbol, n.month) FROM members n JOIN m JOIN bar b "
      "ON b.symbol = n.symbol AND b.price_type = 'LAST' AND b.ts_open = n.eve + m.i * 60000 WHERE b.volume > 0"),
     # Design gap: the design asks for terms observed before the month's end; terms are observed when
@@ -192,7 +193,7 @@ def _sql_error(exc: pymysql.MySQLError) -> MarketError:
     text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
     if code == 1213 or "conflict" in text.lower():
         return _refuse("another import landed first; this one was rolled back", "CONCURRENT_WRITE")
-    if code in (1142, 1143, 1370) or (code == 1105 and "permission" in text.lower()):
+    if code in (1142, 1143, 1370, 1644) or (code == 1105 and "permission" in text.lower()):  # 1644: a guard trigger
         return _refuse(f"the market account may not do this: {text}", "MARKET_PERMISSION")
     return _refuse(f"the market database refused the statement (MySQL error {code}): {text}", "MARKET_SQL_ERROR")
 
@@ -285,8 +286,9 @@ def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[dict[str, n
     label = f"{symbol} {price_type}"
     prices = {name: scaled(table[name], PRICE_SCALE, f"{label} {name}")[0] for name in ("open", "high", "low", "close")}
     volume, rounded = scaled(table["volume"], VOLUME_SCALE, f"{label} volume", float_tails=True)
-    if price_type == "MARK":
-        volume = np.zeros(len(volume), np.int64)  # the mark-price archives fill the volume field with zero
+    if price_type == "MARK" and volume.any():
+        at = table["open_time"][int(np.argmax(volume != 0))]
+        raise _refuse(f"{label}: a mark-price kline at {at} carries a volume", "SOURCE_SHAPE", missing=(label,))
     o, h, lo, c = (prices[name] for name in ("open", "high", "low", "close"))
     bad = (lo > np.minimum(o, c)) | (h < np.maximum(o, c)) | (lo <= 0) | (volume < 0)
     if bad.any():
@@ -354,7 +356,8 @@ def _item_of(symbol: str, row: dict | None) -> dict | None:
 # One contract, prepared in a worker process
 
 def prepare(job: dict) -> dict:
-    """Stitch, check and scale one contract's new bars and funding; bars go to statements under `work`."""
+    """Stitch, check and scale one contract's month of bars and funding; the new bars go to statements under
+    `work`, the bars and funding already stored for the month come back for the comparison."""
     try:
         return _prepare(job)
     except MarketError as exc:
@@ -366,30 +369,40 @@ def _prepare(job: dict) -> dict:
     started = time.monotonic()
     symbol, cache, end, trading = job["symbol"], Path(job["cache"]), job["end"], job["trading"]
     report = {"symbol": symbol, "rows": {}, "gaps": {}, "source_rows": {}, "rounded_volumes": 0, "terms": None,
-              "derived_findings": None}
+              "derived_findings": None, "reread": {}}
     path = Path(job["work"]) / f"{symbol.encode().hex()}.sql"
     last = None
     with open(path, "wb") as stream:
         for price_type in ("LAST", "MARK"):
-            start, resumed = job["starts"][price_type]
-            table, gaps, used = series.stitch_series(cache, symbol, price_type, start, end, resumed, trading)
-            report["rows"][price_type], report["gaps"][price_type], report["source_rows"][price_type] = \
-                table.num_rows, gaps, used
+            resumed, stored_through = job["series"][price_type]
+            table, gaps, used = series.stitch_series(cache, symbol, price_type, job["start"], end, resumed, trading)
+            report["gaps"][price_type], report["source_rows"][price_type] = gaps, used
             if price_type == "LAST":
                 last = table
-            if table.num_rows:
-                bars, rounded = bar_rows(table, symbol, price_type)
-                report["rounded_volumes"] += rounded
-                for statement in insert_statements(bars, symbol, price_type):
-                    stream.write(statement + b"\0")
-                if price_type == "LAST":
-                    report["derived_findings"] = _derived_findings(symbol, bars, job, trading)
+            bars, rounded = bar_rows(table, symbol, price_type) if table.num_rows else (_empty_bars(), 0)
+            report["rounded_volumes"] += rounded
+            if price_type == "LAST" and table.num_rows:
+                report["derived_findings"] = _derived_findings(symbol, bars, job, trading)
+            # The month's minutes before the stored last one are reread and compared, never written again.
+            old = bars["ts_open"] < (stored_through or job["start"])
+            report["reread"][price_type] = {name: values[old] for name, values in bars.items()}
+            new = {name: values[~old] for name, values in bars.items()}
+            report["rows"][price_type] = int(len(new["ts_open"]))
+            for statement in insert_statements(new, symbol, price_type):
+                stream.write(statement + b"\0")
     if job["terms"] is None and last is not None and last.num_rows:
         report["terms"] = inferred_terms(last)
     report["statements"] = str(path)
-    report["funding"] = funding(cache, symbol, job["funding_start"], end, trading=trading)
+    found = funding(cache, symbol, job["start"], end, trading=trading)
+    stored_through = job["funding_through"] or job["start"]
+    report["funding_reread"] = [row for row in found if row[0] < stored_through]
+    report["funding"] = [row for row in found if row[0] >= stored_through]
     report["seconds"] = round(time.monotonic() - started, 1)
     return report
+
+
+def _empty_bars() -> dict[str, np.ndarray]:
+    return {name: np.empty(0, np.int64) for name in series.COLUMNS}
 
 
 def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list[dict] | None:
@@ -408,7 +421,7 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
             return None
         raise
     native = bar_rows(sources.rows_table([(*row[:6], row[0] + MINUTE - 1) for row in rows]), symbol, "LAST")[0] \
-        if rows else {name: np.empty(0, np.int64) for name in series.COLUMNS}
+        if rows else _empty_bars()
     terms = job["terms"] or {}
     price = instrument.decimals(terms["price_increment"]) if terms.get("price_increment") else PRICE_SCALE
     size = instrument.decimals(terms["size_increment"]) if terms.get("size_increment") else VOLUME_SCALE
@@ -416,33 +429,51 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
                                 volume_scale=VOLUME_SCALE)
 
 
+HOUR = 3_600_000
+
+
+def funding_slot(time_ms: int) -> int:
+    """The settlement a funding time belongs to: its nearest whole UTC hour. Binance settles at most once
+    an hour (intervals of 1, 4 or 8 hours) and its times carry milliseconds of jitter, so two sources'
+    times in one slot are one settlement; their rates must agree."""
+    return (time_ms + HOUR // 2) // HOUR
+
+
 def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) -> list[tuple[int, str]]:
     """Settlements in [start, end): monthly archives, then public REST for months without one (there
-    are no daily funding archives); one settlement time held by both with different rates refuses."""
+    are no daily funding archives). One settlement per funding slot: a slot held by two sources with
+    different rates refuses SOURCE_CONFLICT (the earlier source's time is kept); one source holding two
+    settlements in a slot refuses SOURCE_SHAPE."""
     if start >= end:
         return []
     months = series._months(start, end)
     monthly = sources.monthly_archives(cache, "fundingRate", symbol, None, months)
-    rows: dict[int, str] = {}
+    slots: dict[int, tuple[int, str]] = {}
 
-    def add(found) -> None:
+    def add(found, label: str) -> None:
+        seen = set()
         for time_ms, rate in found:
-            if time_ms in rows and Decimal(rows[time_ms]) != Decimal(rate):
-                raise _refuse(f"{symbol} funding: sources disagree at {time_ms}", "SOURCE_CONFLICT",
+            slot = funding_slot(time_ms)
+            if slot in seen:
+                raise _refuse(f"{symbol} funding: {label} holds two settlements in the hour of {time_ms}",
+                              "SOURCE_SHAPE", missing=(str(time_ms),))
+            seen.add(slot)
+            if slot in slots and Decimal(slots[slot][1]) != Decimal(rate):
+                raise _refuse(f"{symbol} funding: sources disagree on the settlement at {time_ms}", "SOURCE_CONFLICT",
                               missing=(str(time_ms),))
-            rows.setdefault(time_ms, rate)
+            slots.setdefault(slot, (time_ms, rate))
 
-    for path in monthly.values():
-        add(sources.funding_rows(path))
+    for month in sorted(monthly):
+        add(sources.funding_rows(monthly[month]), f"the {month} archive")
     missing = [month for month in months if month not in monthly]
     if missing:
         low = max(start, series._day_ms(date.fromisoformat(missing[0] + "-01")))
         try:
-            add(sources.rest_funding(symbol, low, end))
+            add(sources.rest_funding(symbol, low, end), "public REST")
         except MarketError as exc:
             if exc.code != "SOURCE_UNKNOWN_SYMBOL" or trading:
                 raise
-    return sorted((time_ms, rate) for time_ms, rate in rows.items() if start <= time_ms < end)
+    return sorted(row for row in slots.values() if start <= row[0] < end)
 
 
 # The import (market.import_month)
@@ -465,13 +496,19 @@ def _month_ms(month: date) -> int:
     return series._day_ms(month)
 
 
-def _scope(symbols) -> list[str] | None:
+ALLOWLIST_KINDS = ("isolated", "temporary")
+
+
+def _scope(symbols, profile: dict) -> list[str] | None:
     if symbols is None:
         return None
     if (not isinstance(symbols, (list, tuple)) or not symbols or len(set(symbols)) != len(symbols)
             or any(not isinstance(item, str) or not sources.SYMBOL.fullmatch(item) for item in symbols)):
         raise _refuse("the engineering symbol allowlist is empty, repeats a contract or names a malformed one",
                       "IMPORT_SCOPE", missing=("--symbols",))
+    if profile.get("role") not in ALLOWLIST_KINDS:
+        raise _refuse(f"an engineering allowlist narrows only an isolated or temporary market database, not role "
+                      f"{profile.get('role')!r}", "IMPORT_SCOPE", missing=("--symbols",))
     return sorted(symbols)
 
 
@@ -480,10 +517,7 @@ def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4,
     """market.import_month: append one UTC month (the current month through the last closed day) as one
     market commit. `symbols` is the engineering allowlist of an isolated market database."""
     started = time.monotonic()
-    scope = _scope(symbols)
-    if scope is not None and profile.get("role", profile.get("kind")) == ACTIVE:
-        raise _refuse("an engineering allowlist narrows only an isolated market database", "IMPORT_SCOPE",
-                      missing=("--symbols",))
+    scope = _scope(symbols, profile)
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     today = datetime.now(UTC).date()
@@ -493,7 +527,8 @@ def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4,
     conn = connect(profile, "import")
     work = Path(tempfile.mkdtemp(prefix="market-load-"))
     try:
-        return _import(conn, profile, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started)
+        lock(conn)
+        return _import(conn, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started)
     except BaseException:
         try:
             conn.raw.rollback()
@@ -501,12 +536,31 @@ def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4,
             pass
         raise
     finally:
-        conn.close()
+        conn.close()  # also releases the import lock
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, end_ms: int, cache: Path,
-            workers: int, scope: list[str] | None, work: Path, log, started: float) -> dict:
+def lock(conn: MarketConnection) -> None:
+    """Hold the database's import lock for this connection's life: one import at a time."""
+    name = f"market-import:{conn.database}"
+    (held,), = conn.rows("SELECT GET_LOCK(%s, 0)", (name,))
+    if held != 1:
+        raise _refuse(f"another import of {conn.database} holds {name}", "CONCURRENT_IMPORT", missing=(name,))
+
+
+def _stored(conn: MarketConnection, symbol: str, price_type: str, low: int, high: int) -> dict[str, np.ndarray]:
+    found = conn.rows("SELECT ts_open, open, high, low, close, volume FROM bar WHERE symbol = %s AND price_type = %s "
+                      "AND ts_open >= %s AND ts_open < %s ORDER BY ts_open", (symbol, price_type, low, high))
+    stacked = np.array(found, dtype=np.int64).reshape(-1, 6)
+    return {name: stacked[:, index] for index, name in enumerate(series.COLUMNS)}
+
+
+def _same_bars(a: dict, b: dict) -> bool:
+    return all(len(a[name]) == len(b[name]) and np.array_equal(a[name], b[name]) for name in series.COLUMNS)
+
+
+def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
+            scope: list[str] | None, work: Path, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
     if not conn.empty and conn.universe_rule != universe.RULE:
         raise _refuse(f"the market database produces {conn.universe_rule}, this code {universe.RULE}",
@@ -515,6 +569,10 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
         raise _refuse("the market database stores other integer scales", "SCHEMA_VERSION_MISMATCH")
     if conn.rows("SELECT table_name FROM dolt_status"):
         raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
+    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
+    if "commit" not in str(groups or "").split(","):
+        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
+                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
     done = imports(conn)
     if done and any(item["scope"] != (scope or "all") for item in done):
         raise _refuse(f"earlier imports cover scope {done[-1]['scope']}, this one {scope or 'all'}", "IMPORT_SCOPE",
@@ -534,10 +592,14 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
     by_symbol = {item["symbol"]: item for item in listed}
     candidates = scope if scope is not None else sorted(
         {item["symbol"] for item in listed} | set(sources.archive_symbols()))
-    classified = {symbol: universe.classify_contract(symbol, by_symbol.get(symbol), universe.RULE)
-                  for symbol in candidates}
-    excluded = {symbol: item["reason"] for symbol, item in classified.items() if not item["eligible"]}
-    eligible = [symbol for symbol, item in classified.items() if item["eligible"]]
+    first_seen = _classification_rows(conn)
+    # A contract keeps the classification of its earliest stored observation (later rows are recorded and
+    # never reclassify it); a contract never seen is classified by today's exchangeInfo.
+    classified = {symbol: universe.classify_contract(
+        symbol, _item_of(symbol, first_seen[symbol]) if symbol in first_seen else by_symbol.get(symbol), universe.RULE)
+        for symbol in candidates}
+    excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
+    eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
     log(f"{label}: {len(eligible)} eligible contracts, {len(excluded)} excluded")
 
     stored_terms = {row["symbol"]: row for row in conn.dicts(
@@ -551,23 +613,28 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
             if not _same_terms(stored_terms.get(symbol), terms):
                 appended_terms.append((symbol, observed, terms))
 
-    jobs = []
+    jobs, stored_through = [], {}
     for symbol in eligible:
         item = by_symbol.get(symbol)
-        starts = {}
+        plan = {}
         for price_type in ("LAST", "MARK"):
             found = conn.rows("SELECT ts_open FROM bar WHERE symbol = %s AND price_type = %s ORDER BY ts_open DESC "
                               "LIMIT 1", (symbol, price_type))
             last_open = found[0][0] if found else None
-            begin = max(start_ms, last_open + MINUTE) if last_open is not None else start_ms
-            starts[price_type] = (begin, last_open is not None and last_open + MINUTE == begin)
-        found = conn.rows("SELECT funding_time FROM funding WHERE symbol = %s ORDER BY funding_time DESC LIMIT 1",
-                          (symbol,))
-        last_funding = found[0][0] if found else None
+            # The month is stitched whole: minutes up to the stored last one are reread and compared.
+            within = last_open + MINUTE if last_open is not None and last_open >= start_ms else None
+            before = conn.rows("SELECT 1 FROM bar WHERE symbol = %s AND price_type = %s AND ts_open = %s",
+                               (symbol, price_type, start_ms - MINUTE))
+            plan[price_type] = (bool(before), within)
+            stored_through[(symbol, price_type)] = within
+        found = conn.rows("SELECT funding_time FROM funding WHERE symbol = %s AND funding_time >= %s "
+                          "ORDER BY funding_time DESC LIMIT 1", (symbol, start_ms))
+        funding_through = found[0][0] + 1 if found else None
+        stored_through[(symbol, "funding")] = funding_through
         terms = listed_terms(item) if item is not None else stored_terms.get(symbol)
-        jobs.append({"symbol": symbol, "cache": str(cache), "work": str(work), "end": end_ms,
-                     "trading": item is not None and item["status"] == "TRADING", "starts": starts,
-                     "funding_start": max(start_ms, last_funding + 1) if last_funding is not None else start_ms,
+        jobs.append({"symbol": symbol, "cache": str(cache), "work": str(work), "start": start_ms, "end": end_ms,
+                     "trading": item is not None and item["status"] == "TRADING", "series": plan,
+                     "funding_through": funding_through,
                      "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None,
                      "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers)})
 
@@ -581,6 +648,7 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
         for count, report in enumerate(reports, start=1):
             symbol = report["symbol"]
             loaded = time.monotonic()
+            _compare_reread(conn, symbol, report, stored_through, start_ms, label)
             statements = Path(report["statements"])
             for statement in statements.read_bytes().split(b"\0"):
                 if statement:
@@ -609,6 +677,7 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
     finally:
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
+    appended_terms.sort(key=lambda row: row[0])
     conn.many("INSERT INTO instrument VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
               [(symbol, at, terms["terms_source"], *(terms[name] for name in instrument.TERMS),
                 json.dumps(terms["classification"], sort_keys=True) if terms["classification"] is not None else None)
@@ -618,9 +687,10 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
     result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
               "through": series._ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
               "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
-              "gaps": totals["gaps"], "source_rows": totals["source_rows"], "excluded": excluded,
-              "inferred_terms": totals["inferred_terms"], "rounded_volumes": totals["rounded_volumes"],
-              "derived_findings": totals["derived_findings"], "per_symbol": totals["per_symbol"]}
+              "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
+              "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
+              "derived_findings": dict(sorted(totals["derived_findings"].items())),
+              "per_symbol": dict(sorted(totals["per_symbol"].items()))}
     if not conn.empty and not (appended_terms or totals["bar_rows"] or totals["funding_rows"] or added):
         conn.raw.rollback()  # the same month with nothing new: the stored commit, no new one
         return {**result, "market_commit": done[-1]["commit"], "seconds": round(time.monotonic() - started)}
@@ -630,59 +700,106 @@ def _import(conn: MarketConnection, profile: dict, month: date, start_ms: int, e
         conn.many("INSERT INTO dolt_tests VALUES (%s, 'commit', %s, 'expected_single_value', '==', '0')", list(TESTS))
     else:
         conn.execute("UPDATE market_schema SET import_seq = import_seq + 1 WHERE singleton = 1")
-    failed = [(name, message) for name, _, _, status, message in conn.rows("SELECT * FROM dolt_test_run('commit')")
-              if status != "PASS"]
-    if failed:
-        raise _refuse("market commit tests failed: " + "; ".join(f"{name} ({message})" for name, message in failed),
-                      "DATA_TESTS_FAILED", missing=tuple(name for name, _ in failed))
     message = json.dumps({"import": IMPORT, "month": label, "through": series._ms_day(end_ms).isoformat(),
                           "universe_rule": universe.RULE, "scope": scope or "all"}, separators=(",", ":"),
                          ensure_ascii=False)
-    (commit,), = conn.rows("CALL DOLT_COMMIT('-A', '-m', %s)", (message,))
-    conn.raw.commit()
+    commit = _commit(conn, message)
     return {**result, "market_commit": commit, "seconds": round(time.monotonic() - started)}
 
 
-def trading_days(conn: MarketConnection, symbols: list[str]) -> dict[str, set[date]]:
-    """Each contract's UTC days with at least one traded one-minute LAST bar (the stored rows plus this
-    import's)."""
+def _commit(conn: MarketConnection, message: str) -> str:
+    """One DOLT_COMMIT, which runs the commit tests (group commit); a failing test is DATA_TESTS_FAILED."""
+    try:
+        with conn.raw.cursor() as cursor:
+            cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (message,))
+            (commit,), = cursor.fetchall()
+    except pymysql.MySQLError as exc:
+        text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+        if "commit verification failed" in text:
+            failed = tuple(name for name, _ in TESTS if name in text)
+            raise _refuse(f"market commit tests failed: {text}", "DATA_TESTS_FAILED", missing=failed) from exc
+        raise _sql_error(exc) from exc
+    conn.raw.commit()
+    return commit
+
+
+def _compare_reread(conn: MarketConnection, symbol: str, report: dict, stored_through: dict, start_ms: int,
+                    label: str) -> None:
+    """The month's bars and funding before the stored last ones, reread from the sources, must equal the
+    stored rows (MONTH_EXISTS otherwise): nothing an earlier source wrote stays unchecked."""
+    for price_type in ("LAST", "MARK"):
+        high = stored_through[(symbol, price_type)]
+        if high is None:
+            continue
+        stored = _stored(conn, symbol, price_type, start_ms, high)
+        if not _same_bars(stored, report["reread"][price_type]):
+            reread = report["reread"][price_type]
+            times = sorted(set(stored["ts_open"].tolist()) ^ set(reread["ts_open"].tolist()))
+            if not times:
+                differs = np.nonzero(np.any([stored[name] != reread[name] for name in series.COLUMNS], axis=0))[0]
+                times = stored["ts_open"][differs].tolist()
+            raise _refuse(f"{symbol} {price_type}: the sources now differ from the stored {label} rows at "
+                          f"{times[:5]}", "MONTH_EXISTS", missing=(label, symbol, *map(str, times[:5])))
+    high = stored_through[(symbol, "funding")]
+    if high is not None:
+        stored = {funding_slot(int(at)): Decimal(rate) for at, rate in conn.rows(
+            "SELECT funding_time, rate FROM funding WHERE symbol = %s AND funding_time >= %s AND funding_time < %s",
+            (symbol, start_ms, high))}
+        reread = {funding_slot(at): Decimal(rate) for at, rate in report["funding_reread"]}
+        if stored != reread:
+            slots = sorted(slot for slot in set(stored) | set(reread) if stored.get(slot) != reread.get(slot))
+            raise _refuse(f"{symbol} funding: the sources now differ from the stored {label} settlements in hours "
+                          f"{slots[:5]}", "MONTH_EXISTS", missing=(label, symbol))
+
+
+def _classification_rows(conn: MarketConnection) -> dict[str, dict]:
+    """Each contract's earliest stored terms row: the observation its universe classification comes from."""
+    return {row["symbol"]: row for row in conn.dicts(
+        "SELECT i.symbol, i.classification FROM instrument i JOIN (SELECT symbol, MIN(observed_at) AS observed_at "
+        "FROM instrument GROUP BY symbol) earliest USING (symbol, observed_at)")}
+
+
+def trading_days(conn: MarketConnection, symbols: list[str], low: date, high: date) -> dict[str, set[date]]:
+    """Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar."""
     found: dict[str, set[date]] = {}
     for symbol in symbols:
         days = conn.rows("SELECT DISTINCT ts_open DIV 86400000 FROM bar WHERE symbol = %s AND price_type = 'LAST' "
-                         "AND volume > 0", (symbol,))
+                         "AND ts_open >= %s AND ts_open < %s AND volume > 0",
+                         (symbol, series._day_ms(low), series._day_ms(high)))
         found[symbol] = {date(1970, 1, 1) + timedelta(days=int(day)) for (day,) in days}
     return found
 
 
 def _universe(conn: MarketConnection, month: date, first_month: date) -> tuple[list[str], int]:
-    """Recompute every month's universe, refuse a change to a stored month, insert this month's rows;
-    (the members of `month`, rows inserted). The first month has none: no history before it is held."""
+    """The universe of `month` alone: (members, rows inserted). Stored months cannot change (bars are
+    insert-only and months import in order), so only the imported month is computed; importing it again
+    must give the stored members (UNIVERSE_CHANGED otherwise). The first month has none: no history before
+    it is held."""
     listed_days = universe.rule(universe.RULE)["listed_days"]
     first = first_month
     while first - timedelta(days=listed_days) < first_month:
         first = universe.next_month(first)
-    stored = {(row[0], row[1]) for row in conn.rows("SELECT month, symbol FROM universe_month WHERE universe_rule = %s",
-                                                    (universe.RULE,))}
+    stored = {symbol for (symbol,) in conn.rows("SELECT symbol FROM universe_month WHERE universe_rule = %s AND "
+                                                "month = %s", (universe.RULE, month))}
     if month < first:
         if stored:
-            raise _refuse("universe months are stored before the second imported month", "UNIVERSE_CHANGED")
+            raise _refuse(f"{month:%Y-%m} has stored members before the second imported month", "UNIVERSE_CHANGED",
+                          missing=(f"{month:%Y-%m}",))
         return [], 0
-    latest = {row["symbol"]: row for row in conn.dicts(
-        "SELECT i.symbol, i.classification FROM instrument i JOIN (SELECT symbol, MAX(observed_at) AS observed_at "
-        "FROM instrument GROUP BY symbol) latest USING (symbol, observed_at)")}
-    classifications = [universe.classify_contract(symbol, _item_of(symbol, latest.get(symbol)), universe.RULE)
-                       for symbol in sorted(latest)]
-    days = trading_days(conn, [item["symbol"] for item in classifications if item["eligible"]])
-    computed = set(universe.monthly_universe(classifications, days, first, month, universe.RULE))
-    changed = sorted({row for row in computed ^ stored if row[0] < month or row in stored})
-    if changed:
-        months = sorted({row[0] for row in changed})
-        raise _refuse(f"the recomputed universe differs from the stored rows in {months[0]:%Y-%m}: "
-                      + ", ".join(sorted({row[1] for row in changed if row[0] == months[0]})), "UNIVERSE_CHANGED",
-                      missing=tuple(f"{row[0]:%Y-%m} {row[1]}" for row in changed[:20]))
-    new = sorted(row for row in computed if row[0] == month and row not in stored)
-    conn.many("INSERT INTO universe_month VALUES (%s, %s, %s)", [(universe.RULE, m, symbol) for m, symbol in new])
-    return sorted(symbol for m, symbol in computed if m == month), len(new)
+    rows = _classification_rows(conn)
+    classifications = [universe.classify_contract(symbol, _item_of(symbol, row), universe.RULE)
+                       for symbol, row in sorted(rows.items())]
+    look_back = month - timedelta(days=listed_days)
+    days = trading_days(conn, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
+    computed = {symbol for _, symbol in universe.monthly_universe(classifications, days, month, month, universe.RULE,
+                                                                   covered=(look_back, month - timedelta(days=1)))}
+    if stored and computed != stored:
+        raise _refuse(f"{month:%Y-%m} recomputes to other members than stored: "
+                      + ", ".join(sorted(computed ^ stored)), "UNIVERSE_CHANGED",
+                      missing=(f"{month:%Y-%m}", *sorted(computed ^ stored)))
+    new = sorted(computed - stored)
+    conn.many("INSERT INTO universe_month VALUES (%s, %s, %s)", [(universe.RULE, month, symbol) for symbol in new])
+    return sorted(computed), len(new)
 
 
 # market.freshness
