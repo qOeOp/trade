@@ -109,7 +109,7 @@ def candidate_list(ledger: path, at: str | None) -> JSON
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LEDGER_REF_NOT_FOUND` | at 解析不到账本里的提交或标签（由 report.candidates 抛出，原样转发） |
+| `UNKNOWN_REF` | at 解析不到账本里的提交或标签（由 report.candidates 抛出，原样转发） |
 | `SCHEMA_MISMATCH` | 所读版本的账本模式版本与当前代码不一致或账本未初始化（转发） |
 | `LEDGER_CORRUPT` | 尝试引用的候选在同版本候选表中缺失，或 run 指向不存在的 trial（转发，指明首个不一致行） |
 
@@ -292,7 +292,7 @@ def evidence_export(
 
 1. 经 ledger.temporary_path 核对 output 不存在且位于临时根之下，否则 PATH_EXISTS 或 NOT_TEMPORARY_PATH。
 2. at 非空时经 ledger.read_as_of 钉到该版本，解析不到即 UNKNOWN_REF。
-3. 调用 ledger.load_bundle 读包与逐文件字节并重算哈希；包不存在 BUNDLE_NOT_FOUND，哈希不符 LEDGER_CORRUPT，两种情况都不写出任何文件。
+3. 调用 ledger.load_bundle 读包与逐文件字节并重算哈希；包不存在 UNKNOWN_BUNDLE，哈希不符 LEDGER_CORRUPT，两种情况都不写出任何文件。
 4. 按包内相对路径写入 output，返回清单与所读提交。
 
 | 拒绝码 | 条件 |
@@ -300,7 +300,7 @@ def evidence_export(
 | `PATH_EXISTS` | 目标目录已存在 |
 | `NOT_TEMPORARY_PATH` | 目标不在平台临时根之下 |
 | `UNKNOWN_REF` | at 解析不到提交、标签或 branch |
-| `BUNDLE_NOT_FOUND` | 包名在该版本不存在 |
+| `UNKNOWN_BUNDLE` | 包名在该版本不存在 |
 | `LEDGER_CORRUPT` | 文件哈希与记录不符 |
 
 **使用**　<Ref id="ledger.temporary_path" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="table:v_evidence" />
@@ -378,7 +378,7 @@ def hypothesis_compare(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `BUNDLE_NOT_FOUND` | 登记证据包不存在 |
+| `UNKNOWN_BUNDLE` | 登记证据包不存在 |
 | `NO_CONTROL` | 登记未声明对照运行或对照运行不存在（透传） |
 | `RUN_NOT_IN_GRID` | run_id 不是本登记某网格点消耗的试验所产运行（透传） |
 | `RUN_NOT_PASSED` | 任一侧是探索或预检回放、无效运行或审计未通过（透传） |
@@ -490,6 +490,7 @@ def ledger_init(
 2. 调用 ledger.init 建库、建表、写 ledger_schema 与 ledger_head 单行、建 writer 与 reader 账号、装 branch 写权与提交校验组；其拒绝原样转出。
 3. 以 reader 读回 ledger_schema、ledger_head 与 dolt_tests 行数，与模式文件声明不一致即 LEDGER_CORRUPT。
 4. 以 JSON 输出账号名、写权所在 branch 与初始提交，不打印口令。
+5. 库名由档案名把 - 换成 _ 得到；新的账本代按 research-\<n> 命名，旧代原样保留、只读。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -528,7 +529,7 @@ def ledger_review(conn: LedgerConnection, at: str | None) -> {at
 
 | 拒绝码 | 条件 |
 |---|---|
-| `VERSION_UNKNOWN` | at 解析不到提交、分支或标签 |
+| `UNKNOWN_REF` | at 解析不到提交、分支或标签 |
 
 **使用**　<Ref id="report.review_all" />、<Ref id="table:dolt_tests" />、<Ref id="table:dolt_system_tables" />
 
@@ -589,14 +590,14 @@ def ledger_sql(ledger: str, query: str, at: str | None) -> JSON
 **期望行为**
 
 1. 静态核对只有一条语句且首词为 SELECT / SHOW / DESCRIBE / WITH，不含写关键字；否则 WRITE_VIA_SQL，不送到服务器。
-2. 经 ledger.read_as_of 取 reader 连接，给定 at 时钉到其解析出的提交，解析不到即 VERSION_UNKNOWN。
+2. 经 ledger.read_as_of 取 reader 连接，给定 at 时钉到其解析出的提交，解析不到即 UNKNOWN_REF。
 3. 执行查询；reader 账号只有 SELECT 权限，是服务端第二道闸。
 4. 原样返回列名、行与所读提交，不加工、不裁决。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `WRITE_VIA_SQL` | 语句不是单条只读查询（多语句、INSERT/UPDATE/DELETE/CALL/DDL 或带写子句的 WITH） |
-| `VERSION_UNKNOWN` | at 解析不到提交、branch 或标签 |
+| `UNKNOWN_REF` | at 解析不到提交、branch 或标签 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />
 
@@ -737,11 +738,12 @@ def main(argv: list[str]) -> int 退出码
 
 **期望行为**
 
-1. 解析名词与动词，查分派表取子命令与连接角色（读命令用读账号，写命令用写账号；replay 与 market 子命令不在此开连接，把档案路径传下去）；未知命令或缺必填参数即 USAGE_ERROR。
-2. 按角色调用 ledger.connect 打开唯一一条连接交给子命令；账本服务不可达即 LEDGER_UNAVAILABLE。
-3. 调用子命令，把返回字典序列化为 JSON 写标准输出，退出 0。
-4. 捕获 ledger.refusal：把拒绝码（含下层的 CONCURRENT_WRITE、DIRTY_WORKING_SET、LEDGER_PERMISSION 等）、说明、下一步动作与写入状态写标准错误，退出 1；事务未提交为 not_written，连接在提交时中断为 unknown。
-5. 子命令结束后关闭连接；main 不重试，也不把多条命令拼成一个事务。
+1. 调用方式：在仓库根目录运行 `uv run --frozen python -m cli.main <名词> <动词> …`；名词与动词取自各子命令定义的函数名，如 registration add、hypothesis compare、source review、execution recover、validation registration、market lifecycle。不设控制台入口。
+2. 解析名词与动词，查分派表取子命令与连接角色（读命令用读账号，写命令用写账号；replay 与 market 子命令不在此开连接，把档案路径传下去）；未知命令或缺必填参数即 USAGE_ERROR。
+3. 按角色调用 ledger.connect 打开唯一一条连接交给子命令；账本服务不可达即 LEDGER_UNAVAILABLE。
+4. 调用子命令，把返回字典序列化为 JSON 写标准输出，退出 0。
+5. 捕获 ledger.refusal：把拒绝码（含下层的 CONCURRENT_WRITE、DIRTY_WORKING_SET、LEDGER_PERMISSION 等）、说明、下一步动作与写入状态写标准错误，退出 1；事务未提交为 not_written，连接在提交时中断为 unknown。
+6. 子命令结束后关闭连接；main 不重试，也不把多条命令拼成一个事务。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1000,11 +1002,14 @@ def replay_report(
     run_id: int | None,
     directory: path | None,
     at: str | None,
-    exposures: bool,
+    tables: bool,
+    reproduction: path | None,
+    reproduction_trial: int | None,
+    account: bool,
 ) -> {source
 ```
 
-<TypeTable type={{ "ledger": { type: "path | None", description: "账本档案路径；以读账号连接；只读目录时可不连账本" }, "run_id": { type: "int | None", description: "封存运行；与 directory 恰给一个" }, "directory": { type: "path | None", description: "探索或预检输出目录；与 run_id 恰给一个" }, "at": { type: "str | None", description: "账本提交或标签" }, "exposures": { type: "bool", description: "是否附封存敞口表供 Agent 自算资金使用率" } }} />
+<TypeTable type={{ "ledger": { type: "path | None", description: "账本档案路径；以读账号连接；只读目录时可不连账本" }, "run_id": { type: "int | None", description: "封存运行；与 directory 恰给一个" }, "directory": { type: "path | None", description: "探索或预检输出目录；与 run_id 恰给一个" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" } }} />
 
 **返回**　\{source: sealed | directory, identity, availability, metrics, tables, limitations\}；directory 时 availability 附「未封存、来源未核验」
 
@@ -1249,13 +1254,13 @@ def validation_report(
 
 **期望行为**
 
-1. 解析参数；给定 at 时经 ledger.read_as_of 解析版本，解析不到即 VERSION_UNKNOWN。
+1. 解析参数；给定 at 时经 ledger.read_as_of 解析版本，解析不到即 UNKNOWN_REF。
 2. 以只读账号打开该版本的连接，调用 validation_report(profile, registration_id, at)。
 3. 把返回字典按 JSON 输出；透传其拒绝码并以非零状态退出。不写账本，不加任何裁决字段。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `VERSION_UNKNOWN` | at 解析不到提交或标签 |
+| `UNKNOWN_REF` | at 解析不到提交或标签 |
 | `REGISTRATION_UNKNOWN` | 由 validation_report 透传：登记在所读版本中不存在 |
 | `LEDGER_CORRUPT` | 由 validation_report 透传：绑定引用缺失或登记内容哈希不符 |
 

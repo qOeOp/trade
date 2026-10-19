@@ -128,7 +128,7 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LEDGER_REF_NOT_FOUND` | at 给出的提交或标签在账本里不存在或不可解析 |
+| `UNKNOWN_REF` | at 给出的提交或标签在账本里不存在或不可解析 |
 | `SCHEMA_MISMATCH` | 所读版本的 ledger_schema 版本与当前代码不一致，或账本未初始化 |
 | `LEDGER_CORRUPT` | registration_attempt 引用的候选源码哈希在同一版本的 candidate 中缺失，或 run.trial_id 指向不存在的 trial；指明首个不一致的行 |
 
@@ -765,7 +765,7 @@ def research_state(
 | 拒绝码 | 条件 |
 |---|---|
 | `LINE_UNKNOWN` | 研究路线不存在 |
-| `VERSION_UNKNOWN` | at 解析不到提交、分支或标签 |
+| `UNKNOWN_REF` | at 解析不到提交、分支或标签 |
 
 **使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />
 
