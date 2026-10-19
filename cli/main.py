@@ -705,11 +705,24 @@ def replay_report(profile, run_id: int | None, directory: str | None, at: str | 
 
 # market
 
-def market_init(name: str, kind: str, service_root: Path) -> dict:
-    """market init: an empty market database (tables, import and reader accounts, profile); the first
-    `market import` writes its schema row and commit tests. Administration happens only here."""
+def market_init(name: str, kind: str, service_root: Path, backup_root: Path | None = None) -> dict:
+    """market init: an empty market database (tables, import and reader accounts, profile with its
+    backup directory, required for the active one); the first `market import` writes its schema row
+    and commit tests. Administration happens only here and in `market backup`."""
     database = name.replace("-", "_") if isinstance(name, str) else name
-    return db.init_market(name, database, Path(service_root), kind)
+    return db.init_market(name, database, Path(service_root), kind, backup_root)
+
+
+def market_backup(market: dict) -> dict:
+    """market backup: the incremental dolt_backup sync of the market database to its profile's backup
+    directory (ledger.market_backup)."""
+    return admin.market_backup(market)
+
+
+def market_review(market: dict) -> dict:
+    """market review: whether the latest market backup's head is still an ancestor of main; findings only."""
+    from report import review
+    return review.market_review(market)
 
 
 def market_import(market: dict, month: str, cache_root: str | None, workers: int,
@@ -979,11 +992,16 @@ def _parser() -> Parser:
     command.add_argument("--run-id", required=True, type=int)
     command.add_argument("--output", required=True)
 
-    market = verbs("market", "market data: init, import, lifecycle, coverage")
+    market = verbs("market", "market data: init, import, lifecycle, coverage, backup, review")
     command = market.add_parser("init", help="create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"))
     command.add_argument("--service-root", required=True)
+    command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
+    command = market.add_parser("backup", help="sync the market database's history to its backup directory")
+    _market_option(command)
+    command = market.add_parser("review", help="check that the market backup's head is an ancestor of main")
+    _market_option(command)
     command = market.add_parser("import", help="import one month as one market commit")
     _market_option(command)
     command.add_argument("--month", required=True)
@@ -1023,7 +1041,12 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("candidate", "new"):
         return candidate_new(args.output, args.strategy_id, args.entry_class), 0
     if key == ("market", "init"):
-        return market_init(args.name, args.kind, args.service_root), 0
+        return market_init(args.name, args.kind, args.service_root, args.backup_root), 0
+    if key == ("market", "backup"):
+        return market_backup(market_profile(args.market)), 0
+    if key == ("market", "review"):
+        found = market_review(market_profile(args.market))
+        return found, 0 if found["ok"] else 1
     if key == ("market", "import"):
         return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
     if key == ("market", "coverage"):

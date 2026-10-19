@@ -343,6 +343,21 @@ class CommandTests(unittest.TestCase):
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "start", "--ledger", "probe-init", env=env)["running"])
 
+    def test_market_init_records_a_backup_that_market_backup_syncs_and_market_review_checks(self):
+        self.refused("BACKUP_TARGET_UNSET", "market", "backup")
+        unchecked = self.ok("market", "review")
+        self.assertEqual((unchecked["history"]["status"], len(unchecked["limitations"])), ("no_backup", 1))
+        created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--service-root",
+                          str(self.market.service.service_root), "--backup-root", str(self.tmp / "market-kept"))
+        self.assertEqual(json.loads(Path(created["profile"]).read_text())["backup"], str(self.tmp / "market-kept"))
+        self.assertNotIn("password", json.dumps(created))
+        copy = self.write("market-backed.json", {**self.market.profile, "role": "isolated",
+                                                 "backup": str(self.tmp / "market-backup")})
+        synced = self.ok("market", "backup", "--market", copy)
+        checked = self.ok("market", "review", "--market", copy)
+        self.assertEqual((checked["ok"], checked["history"]["status"], checked["history"]["head"]),
+                         (True, "ancestor", synced["market_commit"]))
+
     def test_scaffolds_usage_and_refusals_outside_a_ledger(self):
         made = self.ok("candidate", "new", "--output", str(self.tmp / "scaffold"), "--strategy-id", "fresh",
                        "--entry-class", "Fresh")

@@ -33,8 +33,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
     "LEDGER_EXISTS": ("A profile of that name, the active research ledger, or that database already exists.",
                       ("Choose another profile and database name; existing ledgers are never replaced.",)),
-    "ISOLATION_BREACH": ("A test ledger reuses the active database name, or the active ledger would live in the "
-                         "source checkout or a temporary root (or lacks its backup directory).",
+    "ISOLATION_BREACH": ("A test ledger reuses the active database name, or the active ledger or market database "
+                         "would live in the source checkout or a temporary root (or lacks its backup directory).",
                          ("Give an isolated ledger its own database name; keep the active service and backup "
                           "outside Git and temporary directories.",)),
     "DOLT_BINARY": ("No Dolt executable of the pinned version was found.",
@@ -405,13 +405,18 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",
                             ("Export the market inputs for the whole warm-up and trading interval again.",)),
     # Export and backup (ledger/admin.py)
-    "EXPORT_PATH_INVALID": ("The export destination lies inside the ledger service directory or a Git work tree, or "
-                            "exists and is no export of this ledger.",
+    "EXPORT_PATH_INVALID": ("The export or backup destination lies inside the service directory or a Git work tree, "
+                            "exists and is no export of this ledger, or holds a file where the backup goes.",
                             ("Choose a new directory outside the service directory and any checkout, or this ledger's "
                              "earlier export.",)),
     "DOLT_BACKUP": ("The full-history backup could not be synced or restored, or its head differs from the ledger "
-                    "head after the sync.",
-                    ("Check the backup directory and the ledger service, then export again.",)),
+                    "(or market) head after the sync.",
+                    ("Check the backup directory and the service, then rerun the export or `market backup`.",)),
+    "BACKUP_DIVERGED": ("The existing backup's head is no commit of this database's history: it is another "
+                        "database's backup, or a commit was rewritten. A sync would overwrite it, so nothing was "
+                        "synced.",
+                        ("Run `market review` and report the finding; a backup is replaced only with the user's "
+                         "authority.",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
@@ -502,8 +507,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Run `replay precheck` for the candidate on the image, then review that trial.",)),
     "RUNTIME_UNRESOLVED": ("The runtime reference does not resolve to an image digest.",
                            ("Pass the image the precheck ran on, by tag or digest.",)),
-    "BACKUP_TARGET_UNSET": ("The ledger profile declares no backup directory.",
-                            ("Export with `ledger export --kind reproduce --output <new directory>`.",)),
+    "BACKUP_TARGET_UNSET": ("The ledger or market profile declares no backup directory.",
+                            ("Export with `ledger export --kind reproduce --output <new directory>`.",
+                             "For a market database, its profile's `backup` names the directory (`market init "
+                             "--backup-root`); then run `market backup`.")),
     "EXPORT_MISMATCH": ("The written export manifest does not reread to the exported content hash; the "
                         "incomplete copy was removed.",
                         ("Rerun the same export; report the disk if it persists.",)),
