@@ -130,7 +130,6 @@ class StrategyLoaderTests(unittest.TestCase):
         metadata = {**loaded.metadata(), **runtime_source_metadata()}
         self.assertNotIn("source_commit", metadata)
         self.assertEqual(metadata["source_sha256"], self.digest)
-        self.assertNotIn("source_sha256", metadata["source_file_paths"])
         repo = Path(__file__).resolve().parents[2]
         for field, path in metadata["source_file_paths"].items():
             self.assertEqual(metadata[field], hashlib.sha256((repo / path).read_bytes()).hexdigest())

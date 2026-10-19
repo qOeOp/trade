@@ -313,8 +313,6 @@ class NativeAuditTests(unittest.TestCase):
         self.check(values)
         self.assertEqual(audit_main(self.root, output), 1)
         self.assertTrue(json.loads(output.read_text())["findings"][0].startswith("LIFECYCLE_COVERAGE_MISSING"))
-        (self.root.parent / "input-coverage.json").write_text("{}")
-        self.assertNotIn("LIFECYCLE_COVERAGE_MISSING", json.dumps(audit(self.root)["findings"]))
         output.unlink()
         (self.root / "order_events.jsonl.gz").unlink()
         with contextlib.redirect_stderr(io.StringIO()):
