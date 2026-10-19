@@ -73,8 +73,7 @@ its own month or day, or off the minute grid, is `SOURCE_SHAPE` before anything 
 The derived daily bars of each contract are checked against the exchange's daily klines; findings
 are reported, nothing is changed.
 
-`--symbols` is an engineering allowlist, allowed only for a market database of role isolated or
-temporary:
+`--symbols` is an engineering allowlist, set by a market database's first import:
 the universe is computed over those contracts only, every import of the database must give the same
 list, and the list is written in each commit message and reported by `freshness` (`scope`).
 
