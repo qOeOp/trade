@@ -239,7 +239,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
             eligible_returns,
         ),
-        "execution_bar_minutes": 1,
+        "data_interval_minutes": 1,  # the execution bar (engine.config.EXECUTION_BAR_MINUTES), as the ledger reads it
         "input_start_utc": window.start,
         "period_start_utc": window.trade_start,
         "period_end_utc": window.end,
