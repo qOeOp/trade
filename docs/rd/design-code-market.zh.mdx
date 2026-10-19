@@ -564,6 +564,7 @@ def validate_lifecycle(
 3. 逐事件核类型只允许 InstrumentStatus / InstrumentClose，字段能按引擎原生字典规范构造成原生对象，instrument_id 与片段一致，时钟自 start_ns 起单调不减；InstrumentClose 须 close_type 为 CONTRACT_EXPIRED 且价格为精确正数；否则拒绝。
 4. 推导终点：取首个 InstrumentClose 或 InstrumentStatus(CLOSE) 的时钟；同一 instrument_id 出现终点后不得再有后续片段或事件；同一 symbol 重新上市须用新的 instrument_id 且生命周期按时间顺序互不重叠；否则拒绝。
 5. 返回按 symbol 分组、按 start_ns 排序的片段；禁新仓（PRE_CLOSE）与终点只作为事实保留，不在此处裁剪任何窗口。
+6. 每条 InstrumentClose 之前（同一时刻或更早）须有该合约的 CLOSE 状态，否则拒绝。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -594,11 +595,13 @@ def write_lifecycle_events(
 
 **期望行为**
 
-1. 从 episode.events 选出时钟落在 [start, end] 内的事件，窗口外的一律不写（上市前、下架后的事实不进回放）。
-2. 把每条事件按引擎原生字典规范构造为原生对象，再按引擎原生 Arrow 架构（字段名、类型与可空性与引擎一致）分别写出 InstrumentClose 与 InstrumentStatus 两类文件。
-3. 文件路径与命名遵循引擎 Catalog 的原生约定，使回放节点无需适配即可装载；不写入任何私有字段。
-4. 写出前不改时钟、不改价格、不改步长；禁新仓与终止的语义由引擎执行，本函数只供给事件。
-5. 返回两类计数，供导出回执记录并由回放后的事件计数与时钟核对引用。
+1. lifecycle-\<market_commit> 证据包只由本函数写：Agent 提交交易所公告原件（禁新仓时刻、结算时刻、结算价，未给结算价则如实记缺），本函数核结构与市场提交后经 ledger.write_files 写入；上市时刻缺公告时取市场库里首个已存分钟，并标为代理。
+2. 每个带结算价的终止都在同一时刻先写一条 CLOSE 状态，再写 InstrumentClose：没有 CLOSE 状态时引擎在结算后仍保持市场开放，策略能按最后一根 K 线的过时价格继续成交。
+3. 从 episode.events 选出时钟落在 [start, end) 内的事件（与回放窗口同为左闭右开），窗口外的一律不写（上市前、下架后的事实不进回放）。
+4. 把每条事件按引擎原生字典规范构造为原生对象，再按引擎原生 Arrow 架构（字段名、类型与可空性与引擎一致）分别写出 InstrumentClose 与 InstrumentStatus 两类文件。
+5. 文件路径与命名遵循引擎 Catalog 的原生约定，使回放节点无需适配即可装载；不写入任何私有字段。
+6. 写出前不改时钟、不改价格、不改步长；禁新仓与终止的语义由引擎执行，本函数只供给事件。
+7. 返回两类计数，供导出回执记录并由回放后的事件计数与时钟核对引用。
 
 | 拒绝码 | 条件 |
 |---|---|
