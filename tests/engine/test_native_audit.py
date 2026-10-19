@@ -326,17 +326,21 @@ class NativeAuditTests(unittest.TestCase):
         self.root.mkdir()
         output = Path(self.directory.name) / "audit" / "audit.json"
         self.check(reports())
-        self.assertEqual(audit_main(self.root, output), 0)
+        self.assertIsNone(audit_main(self.root, output))
         values = reports()
         values["summary"]["per_coin"] = [{"instrument": SCOPE["instrument_id"], "counts": {"instrument_close": 1}}]
         self.check(values)
-        self.assertEqual(audit_main(self.root, output), 1)
+        self.assertEqual(self.exit_code(output), 1)
         self.assertTrue(json.loads(output.read_text())["findings"][0].startswith("LIFECYCLE_COVERAGE_MISSING"))
         output.unlink()
         (self.root / "order_events.jsonl.gz").unlink()
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(audit_main(self.root, output), 2)
+        self.assertEqual(self.exit_code(output), 2)
         self.assertFalse(output.exists())
+
+    def exit_code(self, output: Path) -> int:
+        with self.assertRaises(SystemExit) as caught, contextlib.redirect_stderr(io.StringIO()):
+            audit_main(self.root, output)
+        return caught.exception.code
 
 
 def codes(value) -> set[str]:

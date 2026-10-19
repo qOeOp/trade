@@ -294,15 +294,13 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
     return sorted(intervals, key=lambda value: (value["instrument_id"], value["strategy_id"], value["start_ns"]))
 
 
-def protection(run: Path, orders: list[dict], fills: list[dict], summary: dict,
-               events: list[dict] | None = None) -> tuple[list[str], dict]:
+def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
     """engine.protection: reconcile the order event history and refuse unprotected positions unless the
     source declares no stop loss."""
-    path = run / ORDER_EVENTS
-    if events is None:
-        if not path.is_file():
-            return [finding("ORDER_EVENT_HISTORY_MISSING", f"{ORDER_EVENTS} is missing")], {}
-        events = read_order_events(path)
+    path = run_dir / ORDER_EVENTS
+    if not path.is_file():
+        return [finding("ORDER_EVENT_HISTORY_MISSING", f"{ORDER_EVENTS} is missing")], {}
+    events = read_order_events(path)
     findings = event_report_findings(events, orders, fills)
     uses_stop_loss = summary.get("strategy_uses_stop_loss", True)
     if type(uses_stop_loss) is not bool:
@@ -421,35 +419,13 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
     return findings
 
 
-def _lifecycle(run: Path, summary: dict, orders, fills, positions, events) -> list[str]:
-    """Lifecycle events rebuilt from the coverage receipt beside the reports (engine.lifecycle_events),
-    then checked against the reports (lifecycle_findings)."""
-    counted = [str(coin.get("instrument")) for coin in summary.get("per_coin") or []
-               if any((coin.get("counts") or {}).get(name) for name in LIFECYCLE_COUNTS)]
-    path = run.parent / COVERAGE
-    if not path.is_file():
-        if counted:
-            return [finding("LIFECYCLE_COVERAGE_MISSING", f"the summary counts lifecycle events for {counted} but no "
-                                                          f"coverage receipt {COVERAGE} is beside the reports")]
-        return []
-    from engine.config import Refusal
-    from engine.load import lifecycle_events
-    try:
-        coverage = json.loads(path.read_text(encoding="utf-8"))
-        lifecycle = lifecycle_events(coverage, summary)
-    except Refusal as exc:
-        return [finding(exc.code, str(exc).split(": ", 1)[1])]
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        return [finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}")]
-    return data_end_findings(coverage) + lifecycle_findings(lifecycle, orders, fills, positions, events or [])
-
-
 DATA_END_TOLERANCE_NS = 60 * 60 * 10**9  # engine.run.MARK_CARRY_MAX_MINUTES: a shorter trailing hole is a hole
 
 
-def data_end_findings(coverage: dict) -> list[str]:
+def _data_end_findings(coverage: dict) -> list[str]:
     """A contract whose bars stop before the window's end without a lifecycle termination there: the
-    replay would hold it unvalued and untradeable without saying why."""
+    replay would hold it unvalued and untradeable without saying why (engine.lifecycle_findings step 7,
+    which needs the coverage receipt's window and last bars)."""
     from engine.load import parse_window
     config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), dict) else {}
     window = parse_window(config.get("start"), None, config.get("end"))
@@ -473,12 +449,15 @@ def data_end_findings(coverage: dict) -> list[str]:
     return findings
 
 
-def _generic_result(run, orders, fills, positions, findings, economics, protection=None):
+def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positions: list[dict], findings: list[str],
+                   economics: dict, protection: dict | None) -> dict:
+    """engine.generic_result: what the audit checks and leaves out, the reports' hashes and counts, and
+    the findings; it adds no finding."""
     names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
              ORDER_EVENTS)
-    return {"run": str(run),
+    return {"run": str(run_dir),
             "scope": "native report identity, links, protection history and reported economics",
-            "file_sha256": {name: _sha(run / name) for name in names if (run / name).is_file()},
+            "file_sha256": {name: _sha(run_dir / name) for name in names if (run_dir / name).is_file()},
             "native_orders": len(orders), "native_fills": len(fills), "native_positions": len(positions),
             "native_economics": economics, **(protection or {}),
             "coverage_limits": ["No strategy signal or target geometry reconstruction",
@@ -492,9 +471,9 @@ def _generic_result(run, orders, fills, positions, findings, economics, protecti
             "findings": findings, "passed": not findings}
 
 
-def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
-    """Reconcile native report facts; never calculate fills or market PnL."""
-    orders, fills, positions, accounts = (_rows(run, name) for name in
+def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
+    """engine.generic_audit: reconcile native report facts; never calculate fills or market PnL."""
+    orders, fills, positions, accounts = (_rows(run_dir, name) for name in
                                          ("orders", "fills", "positions", "account"))
     findings = []
     scope_fields = {"strategy_id", "instrument_id", "account_id"}
@@ -511,7 +490,7 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
         if any(not fields <= row.keys() for row in rows):
             findings.append(finding("REPORT_FIELDS_MISSING", f"the {name} report lacks a required field"))
     if findings:
-        return _generic_result(run, orders, fills, positions, findings, {})
+        return generic_result(run_dir, orders, fills, positions, findings, {}, None)
     by_id = {row["client_order_id"]: row for row in orders}
     if "" in by_id or len(by_id) != len(orders):
         findings.append(finding("IDENTITY_MISSING_OR_DUPLICATED", "a client order ID is empty or repeats"))
@@ -528,10 +507,32 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
         findings.append(finding("DENIED_REJECTED_COUNT_MISMATCH", f"{denied} denied and {rejected} rejected orders, the summary says {summary['denied_orders']} and {summary['rejected_orders']}"))
     economics, protection_info = {}, {}
     try:
-        events = read_order_events(run / ORDER_EVENTS) if (run / ORDER_EVENTS).is_file() else None
-        protection_findings, protection_info = protection(run, orders, fills, summary, events)
+        protection_findings, protection_info = protection(run_dir, orders, fills, summary)
         findings.extend(protection_findings)
-        findings.extend(_lifecycle(run, summary, orders, fills, positions, events))
+        # Lifecycle: rebuilt from the coverage receipt beside the reports (engine.lifecycle_events), then
+        # checked against the reports (engine.lifecycle_findings).
+        counted = [str(coin.get("instrument")) for coin in summary.get("per_coin") or []
+                   if any((coin.get("counts") or {}).get(name) for name in LIFECYCLE_COUNTS)]
+        coverage_path = run_dir.parent / COVERAGE
+        if not coverage_path.is_file():
+            if counted:
+                findings.append(finding("LIFECYCLE_COVERAGE_MISSING", f"the summary counts lifecycle events for "
+                                                                      f"{counted} but no coverage receipt {COVERAGE} "
+                                                                      "is beside the reports"))
+        else:
+            from engine.config import Refusal
+            from engine.load import lifecycle_events
+            try:
+                coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+                lifecycle = lifecycle_events(coverage, summary)
+            except Refusal as exc:
+                findings.append(finding(exc.code, str(exc).split(": ", 1)[1]))
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                findings.append(finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}"))
+            else:
+                events = read_order_events(run_dir / ORDER_EVENTS) if (run_dir / ORDER_EVENTS).is_file() else []
+                findings.extend(_data_end_findings(coverage)
+                                + lifecycle_findings(lifecycle, orders, fills, positions, events))
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:
@@ -688,51 +689,47 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
                          "funding_timestamps_with_concurrent_fills": len(set(funding_by_time) & fill_times)}
     except (KeyError, TypeError, ValueError, ArithmeticError, OSError, EOFError) as error:
         findings.append(finding("REPORT_PAYLOAD_INVALID", f"{type(error).__name__}: {error}"))
-    return _generic_result(run, orders, fills, positions, findings, economics, protection_info)
+    return generic_result(run_dir, orders, fills, positions, findings, economics, protection_info)
 
 
 class AuditNotRun(Exception):
     """The reports cannot be audited; the auditor exits 2 and writes no result."""
 
 
-def audit(run: Path) -> dict:
-    """Reconcile one run's native reports; the result names every finding."""
+def audit(run_dir: Path) -> dict:
+    """engine.audit: reconcile one run's native reports; the result names every finding."""
     try:
-        summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+        summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise AuditNotRun(outcome("SUMMARY_UNREADABLE", f"{run / 'summary.json'}: {exc}")) from exc
+        raise AuditNotRun(outcome("SUMMARY_UNREADABLE", f"{run_dir / 'summary.json'}: {exc}")) from exc
     if not isinstance(summary, dict):
-        raise AuditNotRun(outcome("SUMMARY_UNREADABLE", f"{run / 'summary.json'} is not a JSON object"))
-    return _generic_audit(run, summary)
+        raise AuditNotRun(outcome("SUMMARY_UNREADABLE", f"{run_dir / 'summary.json'} is not a JSON object"))
+    return generic_audit(run_dir, summary)
 
 
-def audit_main(run: Path, output: Path) -> int:
-    """Audit a complete report set into `output`: 0 passed, 1 findings, 2 not audited (no result written)."""
-    missing = [name for name in REPORTS if not (run / name).is_file() or not (run / name).stat().st_size]
+def audit_main(run_dir: Path, output_path: Path) -> None:
+    """engine.audit_main: audit a complete report set into `output_path`. It returns when the run passed
+    and exits 1 with findings (the result written) or 2 without auditing (no result written)."""
+    missing = [name for name in REPORTS if not (run_dir / name).is_file() or not (run_dir / name).stat().st_size]
     if missing:
-        print(outcome("REPORTS_INCOMPLETE", f"{run} lacks {missing}"), file=sys.stderr)
-        return 2
+        print(outcome("REPORTS_INCOMPLETE", f"{run_dir} lacks {missing}"), file=sys.stderr)
+        raise SystemExit(2)
     try:
-        result = audit(run)
+        result = audit(run_dir)
     except AuditNotRun as exc:
         print(exc, file=sys.stderr)
-        return 2
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(result, indent=2) + "\n")
+        raise SystemExit(2) from exc
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(result, indent=2) + "\n")
     if not result["passed"]:
-        print(outcome("AUDIT_FINDINGS", f"{len(result['findings'])} findings in {output}"), file=sys.stderr)
-        return 1
-    return 0
+        print(outcome("AUDIT_FINDINGS", f"{len(result['findings'])} findings in {output_path}"), file=sys.stderr)
+        raise SystemExit(1)
 
 
-def main() -> None:
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--run", type=Path, required=True,
                         help=f"the report directory (read only); its parent may hold {COVERAGE}")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    raise SystemExit(audit_main(args.run, args.output))
-
-
-if __name__ == "__main__":
-    main()
+    audit_main(args.run, args.output)
