@@ -41,10 +41,11 @@ def assess(conn: LedgerConnection, run: Mapping) -> dict
 1. 读运行行、单运行报告的活动一节、执行封存在位情况与绑定的源码审查。
 2. 按当前判据逐项给出实质活动、可比资格、执行捕获、源码审查四项结论与原因。
 3. 新判据要用到封存时没记下的事实时，判为待复核，由调用方经 replay.reproduce 重放后再核。
+4. 用于重试判定时只看封存时已定的事实：封存结果，以及登记引用的预检审查在该运行入账时的状态；入账之后才写的审查不能把一次通过的尝试变成可重试。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RUN_NOT_FOUND` | run_id 在账本中没有封存的运行行（ledger.load_run 透传） |
+| `UNKNOWN_RUN` | run_id 在账本中没有封存的运行行（ledger.load_run 透传） |
 | `LEDGER_CORRUPT` | 源码审查证据或执行捕获文件的存储内容哈希与重算不符（source_reviews、read_capture 透传） |
 | `EXECUTION_IDENTITY` | 执行捕获的试验、源码哈希、运行环境身份或用途与本运行不符（read_capture 透传） |
 
@@ -99,6 +100,7 @@ def mask(output: dict, value: dict) -> dict
 2. economic_evidence_available 为假时把全部绩效指标键置 None：期末权益、年化、最大回撤、收益回撤比、计划已平/赢/未平与胜率、闭仓与持仓计数、已实现盈亏、手续费、资金费、价格盈亏、未实现盈亏、按年拆分、资金使用率；cost_basis 置 None。
 3. 活动计数、原生行数、审计 scope 与 coverage_limits、执行捕获状态、源码审查结论保留为诊断，供 Agent 归因。
 4. 可用时不改任何绩效指标；所有读口都经本函数，不另设遮蔽。
+5. 活动事实只保留 \{passed, code, 计数\}；终值权益、复利权益、账户行等任何金额都不从不可用的运行里漏出。
 
 **使用**　<Ref id="qualification.assess" />
 
@@ -113,10 +115,10 @@ def mask(output: dict, value: dict) -> dict
 资格的原生事实：读封存结果里封存时记下的资格事实，逐项给出是否通过与原因码；不读原生报告
 
 ```python
-def native_reasons(reports: NativeReports) -> list[str]
+def native_reasons(sealed: dict) -> list[str]
 ```
 
-<TypeTable type={{ "reports": { type: "NativeReports", description: "一次运行的类型化原生报表：orders、fills、positions、account、returns、order_events、lifecycle_events、summary（原生摘要）、audit（审计结果，含 passed、native_economics 与留存计数）；来自 ledger.load_run 或 report.load_directory" } }} />
+<TypeTable type={{ "sealed": { type: "dict", description: "运行的封存结果（run_sealed 行）" } }} />
 
 **返回**　list[str]：不可用原因；空列表表示实质活动成立且匹配记录全部对账。只描述事实，不归因
 
@@ -155,7 +157,7 @@ def require(conn: LedgerConnection, run: Mapping) -> dict
 | 拒绝码 | 条件 |
 |---|---|
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | assess 判定不可用：零成交、缺匹配记录、原生不对账、存储审计未通过、执行捕获记失败或未完成、绑定源码审查记失败之一 |
-| `RUN_NOT_FOUND` | 透传 assess |
+| `UNKNOWN_RUN` | 透传 assess |
 | `LEDGER_CORRUPT` | 透传 assess |
 | `EXECUTION_IDENTITY` | 透传 assess |
 

@@ -90,6 +90,7 @@ def pair_trades(
 5. 期末未平的周期区间止于窗口终点，结果里单列。
 6. 覆盖先于明细给出：配上的周期占两侧周期之和的比例，以及配上的周期占全部绝对闭仓净盈亏的比例。
 7. 给配对重合度的分布；重合度低的配对可能是新增交易碰上了被删交易，读明细时单独看。
+8. 候选与对照的周期只与同一合约、同一方向的周期比较。
 
 <div className="rd-meta">
 
@@ -123,11 +124,12 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 4. 对有 run 的尝试经 ledger.load_run 读封存报表，再经 qualification.assess 按 qualification.check_identity 给出的检查身份算当前经济证据可用性（读时视图，不改写存储的 run.status 与审计结论；封存缺失或哈希不符由 assess 标为不可用）；无 run 的尝试 availability = \{economic_evidence_available: false, reasons: ['unfinished'], checker\}。
 5. 按 attempt.source_sha256 = candidate.source_sha256 把尝试挂到候选，valid_evidence = 任一尝试经济证据可用；返回 \{ledger_commit, checker, candidates\}。全程不写账本，不生成分数、资格标记、排序或占位推荐。
 6. 核对一致性：某尝试引用的 source_sha256 在同一版本的 candidate 里不存在，或 run.trial_id 指向不存在的 trial，经 ledger.refusal 以 LEDGER_CORRUPT 拒绝并指明行，而不是静默丢行。
+7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LEDGER_REF_NOT_FOUND` | at 给出的提交或标签在账本里不存在或不可解析 |
-| `LEDGER_SCHEMA_MISMATCH` | 所读版本的 ledger_schema 版本与当前代码不一致，或账本未初始化 |
+| `SCHEMA_MISMATCH` | 所读版本的 ledger_schema 版本与当前代码不一致，或账本未初始化 |
 | `LEDGER_CORRUPT` | registration_attempt 引用的候选源码哈希在同一版本的 candidate 中缺失，或 run.trial_id 指向不存在的 trial；指明首个不一致的行 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.refusal" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:ledger_schema" />、<Ref id="table:v_candidates" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_evidence" />
@@ -177,6 +179,9 @@ def compare(
 3. 两侧取逐日序列，核日钟一致，调用 report.paired 得效应、区间与 p。
 4. 调用 report.attribution，用两侧单运行报告、持仓周期、逐日序列与市场日收益算各切面的差、交易配对、预测对照与交互效应。
 5. 附完整身份与度量目录版本返回；不写账本，同样的输入任何时候重算都一样。
+6. difference 一律为候选减对照；比较自己定义的量（单边合约数、前五绝对差占比、月胜比例、去掉前五天后的残差、首要出场占比、盈亏平衡费率倍数等）放在 pairwise 下；预测按 pairwise 里有定义的量核对，没有才用两次单运行值之差，并注明 observed_as。
+7. 回归窗口太短或矩阵奇异时，该量置空并写原因，不抛异常。
+8. 读取时报告与对比都要求产品工作树干净（report_revision），否则 STALE_CHECKOUT：未提交的计算代码不能盖上干净的版本。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -187,6 +192,7 @@ def compare(
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 任一侧无实质活动或缺匹配记录、执行捕获记有失败、绑定源码审查记为失败（由 qualification.require 抛出并透传，附原因） |
 | `COMPARISON_UNAVAILABLE` | 任一侧交易窗口日收益为空、非法或复利不等于期末权益；或 report.paired 判定天数不足两个完整块 |
 | `CLOCK_MISMATCH` | 两侧 UTC 日钟不逐日一致 |
+| `STALE_CHECKOUT` | 产品工作树有未提交改动 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.paired" />、<Ref id="table:v_evidence" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="report.attribution" />、<Ref id="report.derive_measures" />
 
@@ -297,7 +303,7 @@ def registration_id(
 
 **期望行为**
 
-1. 以 at 打开只读连接，读 validation_registration 行（候选与版本、窗口、范围规则、检验条件、retry_of、服务器登记时间），不存在即 REGISTRATION_NOT_FOUND；经 ledger.stamped_at 读该登记提交的凭证 genTime 并离线验证，无凭证记 None 并写入局限。
+1. 以 at 打开只读连接，读 validation_registration 行（候选与版本、窗口、范围规则、检验条件、retry_of、服务器登记时间），不存在即 REGISTRATION_UNKNOWN；经 ledger.stamped_at 读该登记提交的凭证 genTime 并离线验证，无凭证记 None 并写入局限。
 2. 读 validation_binding 取绑定试验；无绑定则 binding、availability、metrics、single 为 None 并记「未绑定」局限；有绑定则经 ledger.load_run 读 run ⨝ trial 行与审计状态，引用的运行缺失即 LEDGER_CORRUPT。
 3. 有绑定时经 qualification.assess 取资格字典，经 report.run_report 读同口径绩效指标并经 qualification.mask 遮蔽：资格不可用时绩效指标与 cost_basis 置空只留原因，不拒绝；metrics 附封存敞口表读口（report.tables）供 Agent 自算资金使用率。
 4. 资格可用时经 ledger.daily_returns 取窗口内交易段日收益并对账期末权益，调用 report.single；序列不可用或不足两块时 single 置 None 并把原因写入局限。
@@ -306,7 +312,7 @@ def registration_id(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `REGISTRATION_NOT_FOUND` | registration_id 在 validation_registration 中不存在于所读版本 |
+| `REGISTRATION_UNKNOWN` | registration_id 在 validation_registration 中不存在于所读版本 |
 | `LEDGER_CORRUPT` | validation_binding 引用的试验或运行行缺失，或登记证据内容哈希与账本记录不符 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="report.run_report" />、<Ref id="report.tables" />、<Ref id="report.single" />、<Ref id="report.holm" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_candidates" />
@@ -383,10 +389,11 @@ def validation_report(
 1. 读样本外登记与绑定试验；未绑定即只给登记与局限。
 2. 有绑定时经 report.run_report 读同口径的单运行报告（含资金使用），经资格视图遮蔽，不可用只留原因。
 3. 经 report.single 给单序列区间与 p，按同窗口登记族做 Holm 校正；列出登记内容、凭证时间与同一候选的全部样本外登记；不写账本。
+4. 族内每个成员的单序列 p 按它自己登记的检验条件（种子、块长、重抽次数）算，Holm 只在有 p 的成员间校正；已绑定但还没有运行的成员读作 unfinished。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `REGISTRATION_NOT_FOUND` | registration_id 在所读版本的 validation_registration 中不存在 |
+| `REGISTRATION_UNKNOWN` | registration_id 在所读版本的 validation_registration 中不存在 |
 | `LEDGER_CORRUPT` | validation_binding 引用的试验或运行行缺失，或登记内容哈希与账本记录不符 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="report.run_report" />、<Ref id="report.tables" />、<Ref id="report.single" />、<Ref id="report.holm" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_candidates" />
@@ -408,10 +415,10 @@ def validation_report(
 两种报告共用的读时派生：从持仓周期与逐日序列，按度量目录里每个度量的定义版本算出年化、计划胜率、利润来源、交易结构、品种与方向、时期、市场暴露、仓位择时、夏普等
 
 ```python
-def derive_measures(run_id: int, catalogue: dict) -> dict
+def derive_measures(facts: dict, market_returns: dict) -> dict
 ```
 
-<TypeTable type={{ "run_id": { type: "int", description: "运行" }, "catalogue": { type: "dict", description: "度量目录" } }} />
+<TypeTable type={{ "facts": { type: "dict", description: "运行的封存结果、逐日序列与持仓周期（已读出的行）" }, "market_returns": { type: "dict", description: "按运行记下的市场提交读出的篮子与 BTC 日收益" } }} />
 
 **返回**　dict：\{度量名@版本: \{value, population, null_reason\}\}
 
@@ -420,6 +427,8 @@ def derive_measures(run_id: int, catalogue: dict) -> dict
 1. 读持仓周期与逐日序列；市场暴露另经 market.daily_returns 读市场日收益。
 2. 按「度量名@定义版本」逐项计算；同一版本任何时候算出的值相同。
 3. 单运行报告与对比报告都调用它，两边不各算一套；不写账本。
+4. 市场篮子取每个月的币池成员等权，不是该运行实际交易的合约集；Dimson 滞后去掉首日。没有暴露的日子与其盈亏单独列出（<Ref id="R.3.2.2" />）。盈亏平衡费率倍数：候选手续费更低且胜出时为 NEVER_ZERO。
+5. 初始权益取开始回执覆盖回执里 effective_config.account 的初始余额；判据要用而封存没记下的事实使运行不可用，原因 NOT_EVALUATED 并写入局限。
 
 **使用**　<Ref id="table:run_cycle" />、<Ref id="table:run_return" />、<Ref id="market.daily_returns" />、<Ref id="registration.measure_catalogue" />
 
@@ -458,11 +467,12 @@ def compare_runs(
 1. 读两侧运行与试验，取源码、镜像与输入身份。
 2. 参照侧用原镜像重放并核语义指纹，不符即拒绝；候选侧在新镜像上重放。
 3. 两侧目录交 engine.compare_reports 比较；不写账本。
+4. 两侧各在自己记下的镜像上复现；工作目录取临时根下，比对一致即删除，不一致才保留供诊断。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `SAME_RUN` | reference_run_id 与 candidate_run_id 相同 |
-| `RUN_NOT_FOUND` | 任一 run_id 在指定账本版本下不存在 |
+| `UNKNOWN_RUN` | 任一 run_id 在指定账本版本下不存在 |
 | `RUN_INCOMPLETE` | 任一运行缺 summary，或五张原生行表任一无原样行可导出，或 ledger.load_run 核执行身份与文件哈希不符 |
 | `PAIR_INPUT_MISMATCH` | 两运行的源码内容哈希、输入身份或有效配置任一不一致 |
 | `EXPORT_INCOMPLETE` | 导出目录缺表，或某表行数与账本读到的原样行数不符 |
@@ -506,15 +516,16 @@ def review_all(
 **期望行为**
 
 1. 运行提交校验测试，逐表读系统差异表，改写或删除行即记发现。
-2. 核对最近一次备份的头提交仍是当前头的祖先，否则记发现 HISTORY_REWRITTEN：写账号能改写刚做的提交，改写会让原提交从历史里消失。
-3. 对每个通过的运行，用持仓周期与逐日序列重算它们决定的标量（利润来源合计、计划计数、逐月），与单运行报告比较，不符记 READING_MISMATCH。
-4. 核每个通过的运行都有报告指纹与执行封存；深度复核按复现清单经 replay.reproduce 重放并比对指纹。
-5. 核登记先于试验、源码在网格内、凭证在位、样本外一对一；全程不开写事务。
+2. 提交校验测试逐行与产品 ledger/schema.sql 的定义逐字节比较，缺、多、改任一即记发现 COMMIT_TEST_ALTERED；只运行剩下的测试会漏掉被删的校验。
+3. 核对最近一次备份的头提交仍是当前头的祖先，否则记发现 HISTORY_REWRITTEN（备份头由 dolt 命令行把备份还原到临时目录读出，读不了记 BACKUP_UNREADABLE；没有备份时不记发现，但在 limitations 写 HISTORY_UNCHECKED）：写账号能改写刚做的提交，改写会让原提交从历史里消失。
+4. 对每个通过的运行，用封存行重算：利润来源（价格 − 手续费 ＋ 资金费 ＋ 未平标记）须等于期末减期初权益（容差内），持仓周期与逐日数的计数、逐日序列逐 UTC 日恰好一次并复利到终值；封存的计划核对通过时不应有无计划标签的周期；不符记 READING_MISMATCH。
+5. 核每个通过的运行都有报告指纹与执行封存；深度复核按复现清单经 replay.reproduce 重放并比对指纹。
+6. 核登记先于试验、源码在网格内、凭证在位、样本外一对一；全程不开写事务。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LEDGER_PERMISSION` | 连接账号持有 INSERT 或 UPDATE 权限（不是读账号） |
-| `VERSION_NOT_FOUND` | at 不能解析为账本里的提交、标签或 branch |
+| `UNKNOWN_REF` | at 不能解析为账本里的提交、标签或 branch |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达，或 dolt_tests 与 dolt_diff 系统表不可读，复核无法开始 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.metrics" />、<Ref id="ledger.metrics_revision" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_capture" />、<Ref id="ledger.stamped_at" />、<Ref id="registration.validate" />、<Ref id="registration.check_comparable" />、<Ref id="table:dolt_tests" />、<Ref id="table:dolt_system_tables" />、<Ref id="table:ledger_head" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:witness" />、<Ref id="table:run_cycle" />
@@ -553,6 +564,7 @@ def directory_report(directory: Path, account: bool) -> dict
 3. 经 qualification.native_reasons 按同一实质活动判据得原因，附 qualification.check_identity；因无执行捕获与源码审查绑定，固定附「未封存、来源未核验」局限。
 4. 经 qualification.mask 遮蔽无资格的绩效指标；输出标 exploration = True，不作候选清单或比较的输入。
 5. 合并运行器声明的局限与绩效指标局限去重输出；结果只供 Agent 登记前自检。
+6. 目录的审计结果 passed 为 false 时给原因 AUDIT_FAILED 并掩盖数值。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -623,8 +635,8 @@ def run_report(ledger: str | None, run_id: int, at: str | None) -> dict
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RUN_NOT_FOUND` | 账本（或 at 指定版本）中没有该 run_id |
-| `AS_OF_UNKNOWN` | at 指向的提交或标签不存在 |
+| `UNKNOWN_RUN` | 账本（或 at 指定版本）中没有该 run_id |
+| `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | run 行与其 trial、evidence_bundle 的引用或存储内容哈希不一致，读取时核验失败 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.metrics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="registration.measure_catalogue" />、<Ref id="report.derive_measures" />、<Ref id="table:run_sealed" />
@@ -646,10 +658,12 @@ def tables(
     at: str | None,
     account: bool,
     exposures: bool,
+    directory: Path | None,
+    reproduction: int | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "run_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" } }} />
+<TypeTable type={{ "run_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" }, "directory": { type: "Path | None", description: "replay.reproduce 留下的重放目录" }, "reproduction": { type: "int | None", description: "replay.reproduce 返回的复现试验编号；给 directory 时必填" } }} />
 
 **返回**　dict：orders、fills（附 cycle_position_id）、positions（持仓周期含快照行，闭仓行附 funding、price_pnl、ts_closed_ns、closing_order_tags）、account（可选）、daily_returns（不能复合到期末权益时为 None 并写局限）、exposures（可选）、order_events、reconciled（闭仓对账合计，Agent 自算合计须与之相等）、availability（含检查身份）、metrics_revision、ledger_commit、limitations。只做类型化转换，不算统计
 
@@ -657,16 +671,16 @@ def tables(
 
 1. 定位账本版本；读运行行，未通过即拒绝；经 qualification.require 判资格，不可用即拒绝并返回原因。
 2. 返回持仓周期与逐日序列的类型化表，附账本版本与度量目录版本。
-3. 传入重放目录时，核其语义指纹等于运行行记录的指纹，不符即拒绝 REPRODUCTION_MISMATCH；一致才返回订单、成交、账户、订单事件与敞口的类型化表。
+3. 传入重放目录时须同时给复现试验编号：目录里每个报告文件须等于该复现试验执行封存记下的哈希，其指纹阶段输出须等于运行行记录的指纹，否则 REPRODUCTION_MISMATCH；一致才返回订单、成交、账户、订单事件与敞口的类型化表。目录里自带的指纹文件不作数。
 4. 不写账本，不输出排序或裁决。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RUN_NOT_FOUND` | 账本中没有该 run_id |
+| `UNKNOWN_RUN` | 账本中没有该 run_id |
 | `RUN_NOT_PASSED` | run.status 不是 passed |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | qualification.require 判定不可用，返回原因作诊断 |
 | `EXECUTION_IDENTITY` | 封存报表或敞口文件的哈希与执行身份不符 |
-| `AS_OF_UNKNOWN` | at 指向的提交或标签不存在 |
+| `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.economics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.require" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="replay.reproduce" />、<Ref id="engine.report_fingerprint" />
 
@@ -705,11 +719,12 @@ def affected_runs(
 1. 校验查询维度只在运行环境、有效配置与输入之内。
 2. 读全部封存运行的试验行与开始回执，按镜像摘要、规范化后的有效配置与输入身份比较。
 3. 返回受影响的运行与不同的维度；不写账本。
+4. 引擎版本与依赖锁没有入账，列为 unrecorded，不能据此判受影响。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `INVALID_QUERY` | current 为空、含未知维度名或 runtime 含四字段以外的键；或 runtime 给完整身份而 runtime.validate_identity 不通过 |
-| `LEDGER_VERSION_NOT_FOUND` | at 给出的提交或标签在账本中不存在 |
+| `LEDGER_UNKNOWN_REF` | at 给出的提交或标签在账本中不存在 |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `RUN_IDENTITY_MISSING` | 某封存运行行缺 runtime_inspection、effective_config 或 input_identity，或其 trial 行缺 image_digest；列出该 run_id 并拒绝，提示走整体复核 |
 
@@ -745,6 +760,7 @@ def research_state(
 4. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
 5. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。
 6. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出；gates 列出 registration.require_line_records 当前会拒绝的项。
+7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -779,10 +795,11 @@ def research_status(ledger: LedgerProfile, at: str | None) -> dict
 4. 对每个 passed 运行调用 qualification.assess(conn, run ⨝ trial)：economic_evidence_available 为真计 valid_research_runs，否则计 diagnostic_only_research_runs；四类之和恒等于 research_attempts，不等即拒绝，不静默少算。
 5. 样本外：registered = validation_registration 行数；bound = validation_binding 行数；unbound = registered − bound；unwitnessed = 登记所在提交经 ledger.stamped_at 读不到凭证的登记数。
 6. 输出附 qualification.check_identity() 作 availability_checker、ledger.metrics_revision() 作 metrics_revision；不写任何行，不比较任何绩效指标。
+7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LEDGER_VERSION_NOT_FOUND` | at 给出的提交、标签或 branch 在账本中不存在 |
+| `LEDGER_UNKNOWN_REF` | at 给出的提交、标签或 branch 在账本中不存在 |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `REFERENTIAL_GAP` | registration_attempt 或 run 引用的 trial 行不存在，或四类计数之和不等于 research_attempts；计数拒绝给出并列出缺口行 |
 

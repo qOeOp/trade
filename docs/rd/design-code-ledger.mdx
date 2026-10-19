@@ -46,7 +46,7 @@ def export_history(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名；只用读账号连接" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "run_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
+<TypeTable type={{ "profile": { type: "str", description: "账本档案名；读源码与清单用读账号，全史同步用管理账号（dolt_backup 拒绝读账号）" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "run_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
 
 **返回**　dict：\{at, commit, ledger_name, backup_path, candidates, runs, images, market_commits, manifest_path, content_hash, unavailable\}；images 为按摘要列出的运行环境引用，market_commits 为需重新导出的市场提交，content_hash 为清单文件内容哈希
 
@@ -55,14 +55,15 @@ def export_history(
 1. with_backup 时用 dolt_backup 同步全部提交与标签；失败即整笔拒绝。
 2. 按该版本读候选源码并核哈希，每个候选写成一个源码文件。
 3. 写复现清单：每个运行列镜像摘要、源码哈希、登记的执行身份、市场提交与窗口，以及报告指纹；按清单重放即可经 engine.compare_reports 复核。
+4. 替换已有导出时先把旧导出改名移开、新导出改名到位，再删旧的，过程中不出现缺导出的时刻。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LEDGER_PERMISSION` | 连接账号持有 INSERT/UPDATE 权限，不是读账号 |
-| `VERSION_NOT_FOUND` | at 不能解析为账本里的标签或提交 |
+| `UNKNOWN_REF` | at 不能解析为账本里的标签或提交 |
 | `EXPORT_PATH_INVALID` | destination 位于账本服务目录或 Git 工作树内，或已存在且不是本账本的导出 |
 | `DOLT_BACKUP` | 全史同步失败，或同步后备份头与账本头不一致 |
-| `RUN_NOT_FOUND` | run_ids 中有运行在该版本不存在或尚未封存 |
+| `UNKNOWN_RUN` | run_ids 中有运行在该版本不存在或尚未封存 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="runtime.resolve" />、<Ref id="market.resolve_commit" />、<Ref id="engine.compare_reports" />、<Ref id="table:ledger_head" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:witness" />、<Ref id="table:run_cycle" />
 
