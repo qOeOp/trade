@@ -19,7 +19,7 @@ from nautilus_trader.model import BarType, InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
-from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window
+from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window, utc_text
 
 
 BAR_INTERVAL_NS = EXECUTION_BAR_MINUTES * MINUTE_NS
@@ -160,16 +160,19 @@ def load_strategy(
 
 # Inputs: a market commit exported as one Catalog per contract (market/export.py)
 
-def coin(symbol: str) -> str:
-    """The contract's short name: BTCUSDT -> BTC, 1000PEPEUSDT -> PEPE (a leading 1000 before letters)."""
+def coin(symbol: str, episode: int | None = None) -> str:
+    """The contract's short name: BTCUSDT -> BTC, 1000PEPEUSDT -> PEPE (a leading 1000 before letters);
+    a lifecycle episode n of a reused ticker adds _E<n>."""
     base = symbol.removesuffix("USDT")
-    return base[4:] if base.startswith("1000") and base[4:5].isalpha() else base
+    name = base[4:] if base.startswith("1000") and base[4:5].isalpha() else base
+    return name + (f"_E{episode}" if episode is not None else "")
 
 
-def strategy_id(symbol: str) -> str:
+def strategy_id(symbol: str, episode: int | None = None) -> str:
     """Nautilus identifiers are ASCII; a non-ASCII coin is spelled by its UTF-8 bytes."""
     name = coin(symbol)
-    return f"R1-{name}" if name.isascii() else "R1-X" + name.encode().hex().upper()
+    name = name if name.isascii() else "X" + name.encode().hex().upper()
+    return f"R1-{name}" + (f"_E{episode}" if episode is not None else "")
 
 
 def read_universe(path: Path | None, symbols: list[str]) -> dict[str, tuple[tuple[int, int], ...]]:
@@ -195,30 +198,56 @@ def read_universe(path: Path | None, symbols: list[str]) -> dict[str, tuple[tupl
 
 def read_market(root: Path, symbols: list[str], commit: str, start: int, end: int):
     """engine.read_market: each contract's export receipt checked against the commit, the window and the
-    one-minute timeframe, and its Catalog's one instrument."""
+    one-minute timeframe, and one row per exported piece (the contract, or each lifecycle episode of a
+    reused ticker) with its Catalog's one instrument."""
     rows = []
     for symbol in symbols:
         path = root / symbol
-        receipt = json.loads((path / "export.json").read_text())
+        receipt = json.loads((path / "export.json").read_text(encoding="utf-8"))
         if ((receipt.get("commit"), receipt.get("start_ns"), receipt.get("end_ns"), receipt.get("timeframe"))
                 != (commit, start, end, TIMEFRAME)):
             raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not commit {commit} over the replay "
                                                      f"window in {TIMEFRAME} bars")
         if receipt.get("historical_terms") != "CURRENT_SNAPSHOT_APPROXIMATION":
             raise Refusal("TERMS_APPROXIMATION_MISSING", f"{symbol}: the receipt has no historical-terms mark")
-        instrument_id = InstrumentId.from_str(receipt["instrument_id"])
-        instruments = ParquetDataCatalog(str(path)).instruments(instrument_ids=[str(instrument_id)])
-        if len(instruments) != 1 or instruments[0].quote_currency.code != "USDT":
-            raise Refusal("INSTRUMENT_NOT_UNIQUE", f"{symbol}: one Binance USDT instrument is required")
-        counts = {key: receipt["counts"][key] for key in ("last", "mark", "funding")}
-        counts.update({key: receipt["counts"][key] for key in LIFECYCLE_COUNTS if receipt["counts"].get(key)})
-        rows.append({"symbol": symbol, "coin": coin(symbol), "catalog_path": path, "receipt": receipt,
-                     "instrument": instruments[0], "instrument_id": instrument_id, "counts": counts,
-                     "episode": receipt.get("episode")})
+        pieces = receipt.get("pieces")
+        if not isinstance(pieces, list) or not pieces:
+            raise Refusal("EPISODE_MAPPING_MISMATCH", f"{symbol}: the receipt lists no exported piece")
+        for number, piece in enumerate(pieces, start=1):
+            index = piece.get("index") if isinstance(piece, dict) else "invalid"
+            single = index is None and len(pieces) == 1
+            if not single and (index != number or piece.get("catalog_dir") != f"episode-{number}"):
+                raise Refusal("EPISODE_MAPPING_MISMATCH", f"{symbol}: piece {number} is not episode-{number}")
+            if single and piece.get("catalog_dir") != "":
+                raise Refusal("EPISODE_MAPPING_MISMATCH", f"{symbol}: its one piece is not the contract directory")
+            catalog_path = path / piece["catalog_dir"] if piece["catalog_dir"] else path
+            instrument_id = InstrumentId.from_str(piece["instrument_id"])
+            instruments = ParquetDataCatalog(str(catalog_path)).instruments(instrument_ids=[str(instrument_id)])
+            if len(instruments) != 1 or instruments[0].quote_currency.code != "USDT":
+                raise Refusal("INSTRUMENT_NOT_UNIQUE", f"{symbol}: one Binance USDT instrument is required")
+            counts = {key: piece["counts"][key] for key in ("last", "mark", "funding")}
+            counts.update({key: piece["counts"][key] for key in LIFECYCLE_COUNTS if piece["counts"].get(key)})
+            rows.append({"symbol": symbol, "coin": coin(symbol, index), "strategy_id": strategy_id(symbol, index),
+                         "catalog_path": catalog_path, "receipt": receipt, "piece": piece,
+                         "instrument": instruments[0], "instrument_id": instrument_id, "counts": counts,
+                         "episode": piece.get("episode")})
     names = [row["coin"] for row in rows]
-    if len(set(names)) != len(names) or len({strategy_id(symbol) for symbol in symbols}) != len(symbols):
+    if len(set(names)) != len(names) or len({row["strategy_id"] for row in rows}) != len(rows):
         raise Refusal("CONTRACT_NAME_COLLISION", "contracts must have distinct short names and strategy identifiers")
     return rows
+
+
+def terms_approximations(rows: list[dict], end_ns: int) -> list[str]:
+    """CURRENT_SNAPSHOT_APPROXIMATION limitations: each contract whose terms were observed after the
+    window's end (a market imported after the fact), named with its observation time."""
+    found = {}
+    for row in rows:
+        observed = row["receipt"].get("terms_observed_at")
+        if isinstance(observed, int) and observed * 1_000_000 >= end_ns and row["symbol"] not in found:
+            found[row["symbol"]] = (f"CURRENT_SNAPSHOT_APPROXIMATION: {row['symbol']} trades on terms observed at "
+                                    f"{utc_text(observed * 1_000_000)} (observed_at {observed}), after the window end "
+                                    f"{utc_text(end_ns)}")
+    return list(found.values())
 
 
 DAY_NS = 86_400_000_000_000
@@ -358,18 +387,20 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     receipts = coverage.get("export_receipts") if isinstance(coverage.get("export_receipts"), dict) else {}
     represented: dict[str, dict] = {}
     for symbol, receipt in receipts.items():
-        if not isinstance(receipt, dict):
+        if not isinstance(receipt, dict) or not isinstance(receipt.get("pieces"), list):
             raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{symbol} has no export receipt")
-        episode = receipt.get("episode")
-        if episode is None:
-            continue
-        instrument = receipt.get("instrument_id")
-        if not isinstance(episode, dict) or episode.get("instrument_id") != instrument or instrument in represented:
-            raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{symbol}: the episode is not the one instance {instrument}")
-        counted = receipt.get("counts") or {}
-        if any(counted.get(key, 0) != native.get(instrument, {}).get(key, 0) for key in LIFECYCLE_COUNTS):
-            raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{symbol}: receipt lifecycle counts differ from the native counts")
-        represented[instrument] = {"episode": episode, "counts": counted}
+        for piece in receipt["pieces"]:
+            episode = piece.get("episode") if isinstance(piece, dict) else None
+            if episode is None:
+                continue
+            instrument = piece.get("instrument_id")
+            if not isinstance(episode, dict) or episode.get("instrument_id") != instrument or instrument in represented:
+                raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{symbol}: the episode is not the one instance {instrument}")
+            counted = piece.get("counts") or {}
+            if any(counted.get(key, 0) != native.get(instrument, {}).get(key, 0) for key in LIFECYCLE_COUNTS):
+                raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{symbol}: receipt lifecycle counts differ from the native "
+                                                          "counts")
+            represented[instrument] = {"episode": episode, "counts": counted}
     for instrument, values in native.items():
         if any(values.values()) and instrument not in represented:
             raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{instrument} counts lifecycle events but has no episode")

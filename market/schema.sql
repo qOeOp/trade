@@ -1,23 +1,30 @@
--- Market data schema, generation 1. Applied once on main when the market database is created; imports
--- append on main. Decisions and measurements: market/README.md.
+-- Market database tables, generation 2. Created empty by `market init` (the administrator); the
+-- first `market import` on the empty database writes the market_schema row and the commit tests
+-- (market/store.py), every later import only runs them.
 --
--- Rules: insert only; one Dolt commit per import; a run cites one commit. Times are UTC
--- milliseconds as Binance reports them. Prices and volumes are integers at the scales recorded in
--- market_schema. Other timeframes are derived at export.
+-- Rules: insert only (market_schema's import_seq is the one updated cell); one Dolt commit per
+-- import; a run cites one commit. Times are UTC milliseconds as Binance reports them. Prices and
+-- volumes are integers at the scales recorded in market_schema. Other timeframes are derived at export.
 
 CREATE TABLE market_schema (
   singleton TINYINT PRIMARY KEY,
   version INT NOT NULL,
   price_scale TINYINT NOT NULL,
   volume_scale TINYINT NOT NULL,
-  pool_rule VARCHAR(60) NOT NULL,
-  CHECK (singleton = 1)
+  universe_rule VARCHAR(60) NOT NULL,
+  import_seq BIGINT NOT NULL,
+  CHECK (singleton = 1),
+  CHECK (import_seq >= 0)
 );
+
+-- The import account may update market_schema only to step import_seq (Dolt 2.4.2 has no column grants):
+-- the generation, scales and universe rule are fixed once written.
+CREATE TRIGGER market_schema_fixed BEFORE UPDATE ON market_schema FOR EACH ROW BEGIN IF NEW.singleton <> OLD.singleton OR NEW.version <> OLD.version OR NEW.price_scale <> OLD.price_scale OR NEW.volume_scale <> OLD.volume_scale OR NEW.universe_rule <> OLD.universe_rule OR NEW.import_seq <> OLD.import_seq + 1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'market_schema: an import only steps import_seq by one'; END IF; END;
 
 -- Exchange terms, one row per observation that differs from the previous one. `exchange_info`
 -- rows are the public exchangeInfo filters verbatim (the decimals of an increment are the
--- precision); `inferred` rows describe a contract that left exchangeInfo before its first import:
--- increments from the most decimals its trades used, the other terms unknown.
+-- precision) with the contract's classification; `inferred` rows describe a contract that left
+-- exchangeInfo before its first import: increments from the most decimals its trades used.
 CREATE TABLE instrument (
   symbol VARCHAR(40) NOT NULL,
   observed_at BIGINT NOT NULL,
@@ -29,9 +36,10 @@ CREATE TABLE instrument (
   min_notional VARCHAR(40) NULL,
   min_price VARCHAR(40) NULL,
   max_price VARCHAR(40) NULL,
+  classification JSON NULL,
   PRIMARY KEY (symbol, observed_at),
   CHECK ((terms_source = 'inferred') = (min_quantity IS NULL AND max_quantity IS NULL AND min_notional IS NULL
-                                        AND min_price IS NULL AND max_price IS NULL))
+                                        AND min_price IS NULL AND max_price IS NULL AND classification IS NULL))
 );
 
 -- One-minute klines. LAST from `klines`, MARK from `markPriceKlines` (which carry no volume).
@@ -58,31 +66,15 @@ CREATE TABLE funding (
   CHECK (rate > -1 AND rate < 1)
 );
 
--- Quote volume of every closed UTC daily kline of every eligible USDT perpetual: the pool's input.
-CREATE TABLE daily_volume (
-  symbol VARCHAR(40) NOT NULL,
-  day DATE NOT NULL,
-  quote_volume DECIMAL(38,10) NOT NULL,
-  PRIMARY KEY (symbol, day),
-  CHECK (quote_volume >= 0)
-);
-
--- The monthly pool under market_schema.pool_rule (market/universe.py).
-CREATE TABLE pool (
+-- The common tradable range: members at each UTC month start under a versioned rule (market/universe.py).
+CREATE TABLE universe_month (
+  universe_rule VARCHAR(60) NOT NULL,
   month DATE NOT NULL,
-  `rank` TINYINT NOT NULL,
   symbol VARCHAR(40) NOT NULL,
-  PRIMARY KEY (month, symbol),
-  UNIQUE KEY pool_rank (month, `rank`),
-  CHECK (`rank` BETWEEN 1 AND 50),
+  PRIMARY KEY (universe_rule, month, symbol),
   CHECK (DAYOFMONTH(month) = 1)
 );
 
--- Commit verification (group `commit`, service-wide): cheap guards on the normal path only.
-INSERT INTO dolt_tests VALUES
-  ('pool_ranks_are_contiguous', 'commit',
-   'SELECT COUNT(*) FROM (SELECT month FROM pool GROUP BY month HAVING MAX(`rank`) <> COUNT(*)) x',
-   'expected_single_value', '==', '0'),
-  ('pool_members_traded_on_the_eve', 'commit',
-   'SELECT COUNT(*) FROM pool p LEFT JOIN daily_volume d ON d.symbol = p.symbol AND d.day = DATE_SUB(p.month, INTERVAL 1 DAY) WHERE d.symbol IS NULL',
-   'expected_single_value', '==', '0');
+CREATE VIEW v_universe AS
+SELECT universe_rule, month, symbol
+FROM universe_month;

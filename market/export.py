@@ -1,29 +1,23 @@
-"""Export one market commit as Nautilus ParquetDataCatalogs for a replay window.
+"""Export one market commit as Nautilus ParquetDataCatalogs for a replay window (`market.export_catalogs`,
+`market.export_episode`, `market.split_episodes`, `market.native_symbol`, `market.write_bars`,
+`market.write_marks`, `market.write_funding`).
 
-Per contract, `<root>/<SYMBOL>/` is one Catalog holding the instrument, the stored one-minute LAST
-bars and one MARK price update per one-minute MARK bar over [start, end), funding updates in
-[start, end), every complete UTC daily LAST bar before `end` (the daily warm-up of each instance, which
-starts once it holds) and, when a lifecycle
-episode is given, its InstrumentStatus and InstrumentClose events in the window (market.lifecycle).
-An episode bounds the series: only minutes that open at or after its listing and close before its
-termination, and funding settled inside it, are exported. Daily bars are derived from the stored
-one-minute bars by one rule: open is the first traded minute's open, high and low are taken over
-traded minutes (volume > 0), all minutes only when none traded; close is the last minute's close;
-volume is the sum. A bucket holds the minutes the source has; a bucket with none does not exist.
-
-`export.json`, written last, marks a complete export and carries the counts the runner checks
-against what the engine consumes. A cache entry is keyed by commit and window; a missing or partial
-one is exported again.
+Per contract, `<root>/<SYMBOL>/` holds its receipt `export.json` and one Catalog per piece: the whole
+contract when no lifecycle is given (the Catalog sits in the contract directory), one
+`episode-<n>/` per lifecycle episode otherwise (a reused ticker becomes independent native
+contracts). A Catalog holds the instrument, the stored one-minute LAST bars and one MARK price update
+per one-minute MARK bar of the window, funding updates at their settlement times, the complete UTC
+daily LAST bars derived from the minutes before the window's end (the daily warm-up) and the
+episode's window events. `export.json`, written last, marks a complete export; a cache entry is
+keyed by commit, window and lifecycle evidence, and a missing or partial one is exported again.
 """
 
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
-from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -34,103 +28,88 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import lifecycle, store
+from market import coverage, instrument, lifecycle, series, store
+from market.sources import MINUTE, _refuse
 
 
-MINUTE = 60_000
 DAY = 86_400_000
-STEPS = {"1m": MINUTE, "5m": 5 * MINUTE, "15m": 15 * MINUTE, "30m": 30 * MINUTE, "1h": 60 * MINUTE,
-         "2h": 120 * MINUTE, "4h": 240 * MINUTE, "6h": 360 * MINUTE, "8h": 480 * MINUTE, "12h": 720 * MINUTE,
-         "1d": DAY, "1w": 7 * DAY}
-WEEK_OFFSET = 4 * DAY  # 1970-01-01 was a Thursday
 NAUTILUS_SCALE = 16  # Nautilus high-precision raw: value x 10^16, little-endian int128
-MARK_PRECISION = 8
 CHUNK = 250_000
-# Account terms Binance does not publish per contract; the same assumption the old Catalog used.
-ASSUMED = {"maker_fee": "0.0002", "taker_fee": "0.0005", "margin_init": "0.1", "margin_maint": "0.1"}
-COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
 TIMEFRAME = "1m"  # the replay's execution bars (engine.config.EXECUTION_BAR_MINUTES)
+FORMAT = coverage.FORMAT
+COLUMNS = series.COLUMNS
+VENUE = "BINANCE"
 
 
-def _bar_spec(timeframe: str) -> str:
-    unit = {"m": "MINUTE", "h": "HOUR", "d": "DAY", "w": "WEEK"}[timeframe[-1]]
-    return f"{timeframe[:-1]}-{unit}"
+# market.native_symbol
+
+def native_symbol(symbol: str, episode: int | None = None) -> dict:
+    """market.native_symbol: {instrument_id, strategy_tag, short_name} of a public contract name and an
+    optional episode number; a non-ASCII coin is spelled by its UTF-8 bytes."""
+    if not isinstance(symbol, str) or not symbol.endswith("USDT") or symbol == "USDT" or "-" in symbol or "." in symbol:
+        raise _refuse(f"{symbol!r} is no USDT perpetual name the engine can identify", "SYMBOL_SHAPE",
+                      missing=(str(symbol),))
+    if episode is not None and (type(episode) is not int or episode < 1):
+        raise _refuse(f"episode {episode!r} is not a positive integer", "EPISODE_INDEX", missing=(str(episode),))
+    coin = symbol.removesuffix("USDT")
+    ascii_coin = coin if coin.isascii() else "X" + coin.encode().hex().upper()
+    suffix = f"-E{episode}" if episode is not None else ""
+    short = coin[4:] if coin.startswith("1000") and coin[4:5].isalpha() else coin
+    return {"instrument_id": f"{ascii_coin}USDT{suffix}-PERP.{VENUE}",
+            "strategy_tag": ascii_coin + (f"_E{episode}" if episode is not None else ""), "short_name": short}
 
 
-def instrument_id(symbol: str) -> str:
-    return f"{symbol}-PERP.BINANCE"
+# market.split_episodes
+
+def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray]:
+    return {name: values[keep] for name, values in bars.items()}
 
 
-# Derivation
+def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, start_ns: int, end_ns: int) -> list[dict]:
+    """market.split_episodes: the pieces of one contract; with lifecycle episodes, one native contract
+    per episode holding only its complete minutes and the funding settled inside it."""
+    if not episodes:
+        native = native_symbol(symbol)
+        return [{"index": None, "instrument_id": native["instrument_id"], "strategy_tag": native["strategy_tag"],
+                 "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
+    previous_end = None
+    pieces = []
+    for index, episode in enumerate(episodes, start=1):
+        if (not isinstance(episode, dict) or type(episode.get("start_ns")) is not int
+                or not isinstance(episode.get("events"), list)
+                or any(not isinstance(event, dict) or event.get("type") not in lifecycle.EVENT_TYPES
+                       for event in episode["events"])):
+            raise _refuse(f"episode {index} of {symbol} lacks start_ns or native events", "EPISODE_SHAPE",
+                          missing=(symbol,))
+        native = native_symbol(symbol, index)
+        if episode.get("instrument_id") != native["instrument_id"]:
+            raise _refuse(f"episode {index} of {symbol} is {episode.get('instrument_id')}, not "
+                          f"{native['instrument_id']}", "EPISODE_SHAPE", missing=(symbol,))
+        if pieces and (episode["start_ns"] <= pieces[-1]["episode"]["start_ns"] or previous_end is None
+                       or episode["start_ns"] < previous_end):
+            raise _refuse(f"episode {index} of {symbol} does not start after the previous one ended", "EPISODE_ORDER",
+                          missing=(symbol,))
+        low = episode["start_ns"] // 1_000_000
+        ended = lifecycle.termination(episode)
+        high = ended // 1_000_000 if ended is not None else None
+        previous_end = ended
 
-def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray:
-    step = STEPS[timeframe]
-    offset = WEEK_OFFSET if timeframe == "1w" else 0
-    return (ts - offset) // step * step + offset
-
-
-def derive(bars: dict[str, np.ndarray], timeframe: str) -> dict[str, np.ndarray]:
-    """Aggregate sorted one-minute integer bars into `timeframe` buckets (the WS8a rule)."""
-    if timeframe == "1m" or not len(bars["ts_open"]):
-        return bars
-    start = buckets(bars["ts_open"], timeframe)
-    first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
-    o, h, l, c, v = (bars[name] for name in COLUMNS[1:])
-    traded = v > 0
-    any_traded = np.add.reduceat(traded.astype(np.int64), first) > 0
-    big, small = np.iinfo(np.int64).max, np.iinfo(np.int64).min
-    first_traded = np.minimum.reduceat(np.where(traded, np.arange(len(v)), big), first)
-    last = np.concatenate([first[1:], [len(v)]]) - 1
-    if float(np.add.reduceat(v.astype(np.float64), first).max()) >= 2.0 ** 62:
-        raise OverflowError(f"{timeframe} volume would exceed BIGINT")
-    return {
-        "ts_open": start[first],
-        "open": o[np.where(any_traded, first_traded, first)],
-        "high": np.where(any_traded, np.maximum.reduceat(np.where(traded, h, small), first),
-                         np.maximum.reduceat(h, first)),
-        "low": np.where(any_traded, np.minimum.reduceat(np.where(traded, l, big), first),
-                        np.minimum.reduceat(l, first)),
-        "close": c[last],
-        "volume": np.add.reduceat(v, first),
-    }
-
-
-# Reading a commit
-
-def fetch(conn, commit: str, symbol: str, price_type: str, start: int, end: int) -> dict[str, np.ndarray]:
-    """One series' one-minute bars in [start, end) at a commit, streamed into integer arrays."""
-    import pymysql.cursors
-    chunks = []
-    with conn.cursor(pymysql.cursors.SSCursor) as cursor:
-        cursor.execute(f"SELECT ts_open, open, high, low, close, volume FROM bar AS OF '{commit}' "
-                       "WHERE symbol = %s AND price_type = %s AND ts_open >= %s AND ts_open < %s "
-                       "ORDER BY ts_open", (symbol, price_type, start, end))
-        while rows := cursor.fetchmany(200_000):
-            chunks.append(np.array(rows, dtype=np.int64))
-    stacked = np.concatenate(chunks) if chunks else np.empty((0, 6), np.int64)
-    return {name: np.ascontiguousarray(stacked[:, index]) for index, name in enumerate(COLUMNS)}
+        def inside(bars):
+            opens = bars["ts_open"]
+            keep = opens >= low
+            if high is not None:
+                keep &= opens + MINUTE - 1 < high
+            return _keep(bars, keep)
+        pieces.append({"index": index, "instrument_id": native["instrument_id"], "strategy_tag": native["strategy_tag"],
+                       "episode": episode, "low_ns": episode["start_ns"], "high_ns": ended,
+                       "catalog_dir": f"episode-{index}", "last": inside(series_["last"]),
+                       "mark": inside(series_["mark"]), "daily_source": inside(series_["daily_source"]),
+                       "funding": [(at, rate) for at, rate in series_["funding"]
+                                   if at >= low and (high is None or at < high)]})
+    return pieces
 
 
-def terms(conn, commit: str, symbol: str) -> dict:
-    """The latest terms observed at the commit: one Nautilus instrument per replay."""
-    found = store.dicts(
-        conn, f"SELECT * FROM instrument AS OF '{commit}' WHERE symbol = %s ORDER BY observed_at DESC LIMIT 1",
-        (symbol,))
-    if not found:
-        raise store._refuse(f"{symbol}: no terms at {commit}", "NO_TERMS")
-    return found[0]
-
-
-def funding(conn, commit: str, symbol: str, start: int, end: int) -> list[tuple[int, Decimal]]:
-    return store.rows(conn, f"SELECT funding_time, rate FROM funding AS OF '{commit}' WHERE symbol = %s "
-                         "AND funding_time >= %s AND funding_time < %s ORDER BY funding_time", (symbol, start, end))
-
-
-# Writing a Catalog
-
-def decimals(increment: str) -> int:
-    return len(increment.split(".")[1]) if "." in increment else 0
-
+# Writing a Catalog (market.write_bars, market.write_marks, market.write_funding)
 
 def needed_decimals(values: np.ndarray, scale: int) -> int:
     """The fewest decimals that represent every integer at `scale` exactly."""
@@ -138,6 +117,10 @@ def needed_decimals(values: np.ndarray, scale: int) -> int:
         if not len(values) or not np.any(values % 10 ** (scale - places)):
             return places
     return scale
+
+
+def _exact(values: np.ndarray, scale: int, precision: int) -> bool:
+    return precision >= scale or not len(values) or not np.any(values % 10 ** (scale - precision))
 
 
 def nautilus_raw(values: np.ndarray, scale: int) -> pa.Array:
@@ -149,42 +132,30 @@ def nautilus_raw(values: np.ndarray, scale: int) -> pa.Array:
     return pa.Array.from_buffers(pa.binary(16), len(decimal), [None, decimal.buffers()[1]], offset=decimal.offset)
 
 
-def build_instrument(symbol: str, row: dict, price_precision: int):
-    from nautilus_trader.model import CryptoPerpetual, Currency, InstrumentId, Money, Price, Quantity, Symbol
-    usdt = Currency.from_str("USDT")
-    base_currency = Currency.from_str(symbol.removesuffix("USDT"))
-    increment = row["price_increment"] if decimals(row["price_increment"]) == price_precision else format(
-        Decimal(1).scaleb(-price_precision), "f")
-    size = row["size_increment"]
-    optional = lambda key, kind: kind(row[key]) if row[key] is not None else None  # noqa: E731
-    return CryptoPerpetual(
-        instrument_id=InstrumentId.from_str(instrument_id(symbol)), raw_symbol=Symbol(symbol),
-        base_currency=base_currency, quote_currency=usdt, settlement_currency=usdt, is_inverse=False,
-        price_precision=price_precision, size_precision=decimals(size),
-        price_increment=Price.from_str(increment), size_increment=Quantity.from_str(size), ts_event=0, ts_init=0,
-        multiplier=Quantity.from_str("1"), lot_size=Quantity.from_str(size),
-        max_quantity=optional("max_quantity", Quantity.from_str), min_quantity=optional("min_quantity", Quantity.from_str),
-        min_notional=Money(Decimal(row["min_notional"]), usdt) if row["min_notional"] is not None else None,
-        max_price=optional("max_price", Price.from_str), min_price=optional("min_price", Price.from_str),
-        margin_init=Decimal(ASSUMED["margin_init"]), margin_maint=Decimal(ASSUMED["margin_maint"]),
-        maker_fee=Decimal(ASSUMED["maker_fee"]), taker_fee=Decimal(ASSUMED["taker_fee"]))
-
-
-def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step: int, price_precision: int,
+def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int, price_precision: int,
                size_precision: int, price_scale: int, volume_scale: int) -> int:
+    """market.write_bars: integer bars as engine external Bars, each event at its close."""
     from nautilus_trader.persistence import BarDataWrangler
-    ts = ((bars["ts_open"] + step - 1) * 1_000_000).astype(np.uint64)
-    if len(ts) > 1 and not np.all(np.diff(ts.astype(np.int64)) > 0):
-        raise RuntimeError(f"{bar_type}: unsorted export")
+    ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
+    if len(ts) > 1 and not np.all(np.diff(ts) > 0):
+        raise _refuse(f"{bar_type}: bar closes are not strictly increasing", "BARS_UNSORTED", missing=(bar_type,))
+    if not all(_exact(bars[name], price_scale, price_precision) for name in ("open", "high", "low", "close")) or \
+            not _exact(bars["volume"], volume_scale, size_precision):
+        raise _refuse(f"{bar_type}: a price or volume is not exact at precision {price_precision}/{size_precision}",
+                      "BAR_RAW_INEXACT", missing=(bar_type,))
+    if not len(ts):
+        return 0
     wrangler = BarDataWrangler(bar_type, price_precision, size_precision)
+    instrument_id = bar_type.rsplit("-", 4)[0]
     written = 0
     for offset in range(0, len(ts), CHUNK):
         part = slice(offset, offset + CHUNK)
         table = pa.table({**{name: nautilus_raw(bars[name][part], price_scale) for name in ("open", "high", "low", "close")},
                           "volume": nautilus_raw(bars["volume"][part], volume_scale),
-                          "ts_event": pa.array(ts[part]), "ts_init": pa.array(ts[part])}).replace_schema_metadata(
-            {"bar_type": bar_type, "instrument_id": bar_type.split("-")[0] + "-" + bar_type.split("-")[1],
-             "price_precision": str(price_precision), "size_precision": str(size_precision)})
+                          "ts_event": pa.array(ts[part].astype(np.uint64)),
+                          "ts_init": pa.array(ts[part].astype(np.uint64))}).replace_schema_metadata(
+            {"bar_type": bar_type, "instrument_id": instrument_id, "price_precision": str(price_precision),
+             "size_precision": str(size_precision)})
         sink = pa.BufferOutputStream()
         with pa.ipc.new_stream(sink, table.schema) as writer:
             writer.write_table(table)
@@ -194,211 +165,247 @@ def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step: int, p
     return written
 
 
-def write_marks(catalog, iid, bars: dict[str, np.ndarray], step: int, price_scale: int) -> int:
+def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: int, price_precision: int,
+                price_scale: int) -> int:
+    """market.write_marks: one MarkPriceUpdate per MARK minute's close, at that close."""
     from nautilus_trader.model import MarkPriceUpdate, Price
-    ts = (bars["ts_open"] + step - 1) * 1_000_000
-    divisor = 10 ** (price_scale - MARK_PRECISION)
+    ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
+    if len(ts) > 1 and not np.all(np.diff(ts) > 0):
+        raise _refuse(f"{instrument_id}: mark times are not strictly increasing", "MARK_UNSORTED",
+                      missing=(str(instrument_id),))
+    if not _exact(bars["close"], price_scale, price_precision):
+        raise _refuse(f"{instrument_id}: a mark price is not exact at precision {price_precision}", "MARK_INEXACT",
+                      missing=(str(instrument_id),))
+    factor = 10 ** (NAUTILUS_SCALE - price_scale)
     written = 0
     for offset in range(0, len(ts), CHUNK):
         part = slice(offset, offset + CHUNK)
-        updates = [MarkPriceUpdate(instrument_id=iid, value=Price.from_raw(int(close // divisor) * 10 ** (
-            NAUTILUS_SCALE - MARK_PRECISION), MARK_PRECISION), ts_event=int(t), ts_init=int(t))
-            for close, t in zip(bars["close"][part], ts[part])]
+        updates = [MarkPriceUpdate(instrument_id=instrument_id, value=Price.from_raw(int(close) * factor, price_precision),
+                                   ts_event=int(t), ts_init=int(t))
+                   for close, t in zip(bars["close"][part], ts[part])]
         catalog.write_mark_price_updates(updates)
         written += len(updates)
     return written
 
 
-def _ns_name(start: int, end: int) -> str:
-    def stamp(value: int) -> str:
-        return datetime.fromtimestamp(value // 1_000_000_000, UTC).strftime("%Y-%m-%dT%H-%M-%S") + \
-            f"-{value % 1_000_000_000:09d}Z"
-    return f"{stamp(start)}_{stamp(end)}.parquet"
+def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]]) -> int:
+    """market.write_funding: one engine FundingRateUpdate per settlement, settled at its time.
 
-
-def write_funding(root: Path, iid: str, rows: list[tuple[int, Decimal]]) -> int:
-    """rc3 has no Python writer for FundingRateUpdate: the schema BacktestNode's loader reads."""
+    rc3 has no Python writer for FundingRateUpdate: this is the schema BacktestNode's loader reads."""
     if not rows:
         return 0
-    times = np.array([row[0] for row in rows], dtype=np.uint64) * 1_000_000
-    if len(times) > 1 and not np.all(np.diff(times.astype(np.int64)) > 0):
-        raise store._refuse(f"{iid}: funding settlement times are not strictly increasing", "FUNDING_UNSORTED")
-    rates = [format(Decimal(row[1]).normalize(), "f") for row in rows]
+    times = np.array([row[0] for row in rows], dtype=np.int64) * 1_000_000
+    if len(times) > 1 and not np.all(np.diff(times) > 0):
+        raise _refuse(f"{instrument_id}: funding settlement times are not strictly increasing", "FUNDING_UNSORTED",
+                      missing=(instrument_id,))
+    try:
+        rates = [Decimal(str(row[1])) for row in rows]
+    except InvalidOperation as exc:
+        raise _refuse(f"{instrument_id}: a funding rate is no decimal", "FUNDING_RATE_SHAPE",
+                      missing=(instrument_id,)) from exc
+    if not all(rate.is_finite() for rate in rates):
+        raise _refuse(f"{instrument_id}: a funding rate is not finite", "FUNDING_RATE_SHAPE", missing=(instrument_id,))
+    times = times.astype(np.uint64)
     table = pa.table({
-        "instrument_id": pa.array([iid] * len(rows), pa.string()), "rate": pa.array(rates, pa.string()),
+        "instrument_id": pa.array([instrument_id] * len(rows), pa.string()),
+        "rate": pa.array([format(rate.normalize(), "f") for rate in rates], pa.string()),
         "interval": pa.array([None] * len(rows), pa.uint64()), "next_funding_ns": pa.array(times, pa.uint64()),
         "ts_event": pa.array(times, pa.uint64()), "ts_init": pa.array(times, pa.uint64()),
     }, schema=pa.schema([
         pa.field("instrument_id", pa.string(), False), pa.field("rate", pa.string(), False),
         pa.field("interval", pa.uint64()), pa.field("next_funding_ns", pa.uint64()),
         pa.field("ts_event", pa.uint64(), False), pa.field("ts_init", pa.uint64(), False)],
-        metadata={"instrument_id": iid, "type": "FundingRateUpdate"}))
-    directory = root / "data" / "funding_rate_update" / iid
+        metadata={"instrument_id": instrument_id, "type": "FundingRateUpdate"}))
+    directory = Path(root) / "data" / "funding_rate_update" / instrument_id
     directory.mkdir(parents=True, exist_ok=True)
-    pq.write_table(table, directory / _ns_name(int(times[0]), int(times[-1])), compression="snappy")
+    pq.write_table(table, directory / lifecycle.file_name(int(times[0]), int(times[-1])), compression="snappy")
     return len(rows)
 
 
-# One lifecycle episode
+# The daily warm-up, derived while streaming
 
-def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray]:
-    return {name: values[keep] for name, values in bars.items()}
-
-
-def episode_series(episode: dict, last, mark, daily_source, rates):
-    """The series inside one episode: minutes opening at or after its listing and closing before its
-    termination, funding settled inside it (market.split_episodes for one episode)."""
-    low = episode["start_ns"] // 1_000_000
-    high = lifecycle.termination(episode)
-    high = high // 1_000_000 if high is not None else None
-
-    def inside(bars):
-        if bars is None:
-            return None
-        opens = bars["ts_open"]
-        keep = opens >= low
-        if high is not None:
-            keep &= opens + MINUTE - 1 < high
-        return _keep(bars, keep)
-    kept = [(at, rate) for at, rate in rates if at >= low and (high is None or at < high)]
-    return inside(last), inside(mark), inside(daily_source), kept
+DAILY_CHUNK = 20_000  # rows per streamed chunk: about two weeks of minutes
 
 
-# One contract
+def daily_bars(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int,
+               chunk: int = DAILY_CHUNK) -> dict[str, np.ndarray]:
+    """The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after
+    `low_ms` and close before `high_ms`, streamed in chunks: a chunk's last (possibly unfinished) day
+    carries into the next, so memory holds one chunk and the days, never the whole history."""
+    stop = end_ms if high_ms is None else min(end_ms, high_ms)
+    parts, carry = [], np.empty((0, 6), np.int64)
+    for rows in conn.stream(f"SELECT ts_open, open, high, low, close, volume FROM bar AS OF '{commit}' WHERE "
+                            "symbol = %s AND price_type = 'LAST' AND ts_open >= %s AND ts_open < %s ORDER BY ts_open",
+                            (symbol, low_ms, stop), size=chunk):
+        block = np.array(rows, dtype=np.int64)
+        if high_ms is not None:
+            block = block[block[:, 0] + MINUTE - 1 < high_ms]
+        block = np.concatenate([carry, block]) if len(carry) else block
+        if not len(block):
+            continue
+        days = block[:, 0] // DAY
+        cut = int(np.searchsorted(days, days[-1]))
+        if cut:
+            parts.append(series.derive_bars({name: block[:cut, i] for i, name in enumerate(COLUMNS)}, "1d"))
+        carry = block[cut:]
+    if len(carry):
+        parts.append(series.derive_bars({name: carry[:, i] for i, name in enumerate(COLUMNS)}, "1d"))
+    daily = {name: np.concatenate([part[name] for part in parts]) if parts else np.empty(0, np.int64)
+             for name in COLUMNS}
+    return _keep(daily, daily["ts_open"] + DAY <= end_ms)
 
-def export_symbol(job: dict) -> dict:
-    """Write one contract's Catalog for the window into `job['path']`; returns its receipt."""
+
+# market.export_episode
+
+def export_episode(job: dict) -> dict:
+    """market.export_episode: one contract's Catalogs for the window under `job['path']`; returns its receipt."""
     from nautilus_trader.model import InstrumentId
     from nautilus_trader.persistence import ParquetDataCatalog
     started = time.monotonic()
-    symbol, commit, start, end = job["symbol"], job["commit"], job["start"], job["end"]
-    timeframe, step, episode = TIMEFRAME, MINUTE, job.get("episode")
+    symbol, commit, start_ns, end_ns = job["symbol"], job["commit"], job["start_ns"], job["end_ns"]
+    start, end = start_ns // 1_000_000, end_ns // 1_000_000
+    price_scale, volume_scale = job["scales"]
     path = Path(job["path"])
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True)
-    conn = store.connect(job["profile"], "reader")
-    try:
-        row = terms(conn, commit, symbol)
-        last = fetch(conn, commit, symbol, "LAST", start, end)
-        mark = fetch(conn, commit, symbol, "MARK", start, end)
-        daily_source = fetch(conn, commit, symbol, "LAST", 0, start) if job["daily"] else None
-        rates = funding(conn, commit, symbol, start, end)
-    finally:
-        conn.close()
-    if episode is not None:
-        last, mark, daily_source, rates = episode_series(episode, last, mark, daily_source, rates)
-    daily = None
-    if daily_source is not None:
-        # Every complete UTC day before the window's end: a contract listed late starts once its warm-up holds.
-        joined = {name: np.concatenate([daily_source[name], last[name]]) for name in COLUMNS}
-        daily = derive(joined, "1d")
-        daily = _keep(daily, daily["ts_open"] + DAY <= end)
-    price_scale, volume_scale = job["scales"]
-    low, high = start, end  # the episode's part of the window, for the missing-minute count
-    if episode is not None:
-        low = max(start, -(-episode["start_ns"] // 1_000_000 // MINUTE) * MINUTE)
-        ended = lifecycle.termination(episode)
-        high = min(end, ended // 1_000_000 // MINUTE * MINUTE) if ended is not None else end
-    exchange_precision = decimals(row["price_increment"])
-    needed = max([needed_decimals(series[name], price_scale) for series in (last, daily) if series is not None
-                  for name in ("open", "high", "low", "close")], default=0)
-    precision = max(exchange_precision, needed)
-    size_precision = decimals(row["size_increment"])
-    instrument = build_instrument(symbol, row, precision)
-    catalog = ParquetDataCatalog(str(path))
-    catalog.write_instruments([instrument])
-    iid = InstrumentId.from_str(instrument_id(symbol))
-    counts = {"last": write_bars(catalog, f"{iid}-{_bar_spec(timeframe)}-LAST-EXTERNAL", last, step, precision,
-                                 max(size_precision, needed_decimals(last["volume"], volume_scale)),
-                                 price_scale, volume_scale),
-              "mark": write_marks(catalog, iid, mark, step, price_scale),
-              "funding": write_funding(path, str(iid), rates)}
-    if daily is not None:
-        counts["daily"] = write_bars(catalog, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, precision,
-                                     max(size_precision, needed_decimals(daily["volume"], volume_scale)),
-                                     price_scale, volume_scale)
-    if episode is not None:
-        lifecycle.require_native_price(episode, instrument, start * 1_000_000, end * 1_000_000)
-        counts.update(lifecycle.write_lifecycle_events(path, episode, start * 1_000_000, end * 1_000_000, precision))
-    unmatched = int(len(np.setxor1d(last["ts_open"], mark["ts_open"])))
-    receipt = {"symbol": symbol, "instrument_id": str(iid), "commit": commit, "timeframe": timeframe,
-               "start_ns": start * 1_000_000, "end_ns": end * 1_000_000, "counts": counts,
-               "first_bar_ns": int((last["ts_open"][0] + step - 1) * 1_000_000) if len(last["ts_open"]) else None,
-               "last_bar_ns": int((last["ts_open"][-1] + step - 1) * 1_000_000) if len(last["ts_open"]) else None,
-               "missing_buckets": int(max(0, (min(end, high) - max(start, low)) // step) - len(last["ts_open"])),
-               "last_mark_unmatched": unmatched,
-               "price_precision": precision, "price_precision_widened": precision != exchange_precision,
-               "terms_source": row["terms_source"], "terms_observed_at": row["observed_at"],
-               "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "assumed": ASSUMED,
-               "episode": episode, "seconds": round(time.monotonic() - started, 1)}
-    (path / "export.json").write_text(json.dumps(receipt, indent=1))
+    with store.connect(job["profile"], "reader") as conn:
+        terms = instrument.terms(conn, commit, symbol)
+        raw = {"last": coverage.read_bars(conn, commit, symbol, "LAST", start, end),
+               "mark": coverage.read_bars(conn, commit, symbol, "MARK", start, end),
+               "daily_source": {name: np.empty(0, np.int64) for name in COLUMNS},  # streamed per piece below
+               "funding": coverage.read_funding(conn, commit, symbol, start, end)}
+        facts = coverage.coverage_facts(conn, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
+        split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
+        # Every complete UTC day before the window's end, inside the piece: a contract listed late starts
+        # once its warm-up holds.
+        dailies = [daily_bars(conn, commit, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
+                              piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
+                              else None, end) for piece in split]
+    exchange = instrument.decimals(terms["price_increment"])
+    size_increment = instrument.decimals(terms["size_increment"])
+    pieces, record = [], None
+    for piece, daily in zip(split, dailies):
+        last, mark = piece["last"], piece["mark"]
+        precision = max([exchange] + [needed_decimals(bars[name], price_scale) for bars in (last, daily)
+                                      for name in ("open", "high", "low", "close")])
+        made, record = instrument.build_instrument(symbol, terms, precision, piece["instrument_id"])
+        if piece["episode"] is not None:
+            lifecycle.require_native_price(piece["episode"], made, start_ns, end_ns)
+        root = path / piece["catalog_dir"] if piece["catalog_dir"] else path
+        root.mkdir(parents=True, exist_ok=True)
+        catalog = ParquetDataCatalog(str(root))
+        catalog.write_instruments([made])
+        iid = InstrumentId.from_str(piece["instrument_id"])
+        mark_precision = max(precision, needed_decimals(mark["close"], price_scale))
+        counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
+                                     max(size_increment, needed_decimals(last["volume"], volume_scale)),
+                                     price_scale, volume_scale),
+                  "mark": write_marks(catalog, iid, mark, MINUTE, mark_precision, price_scale),
+                  "funding": write_funding(root, str(iid), piece["funding"]),
+                  "daily": write_bars(catalog, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, precision,
+                                      max(size_increment, needed_decimals(daily["volume"], volume_scale)),
+                                      price_scale, volume_scale),
+                  "instrument_close": 0, "instrument_status": 0}
+        if piece["episode"] is not None:
+            counts.update(lifecycle.write_lifecycle_events(root, piece["episode"], start_ns, end_ns, precision))
+        low = max(start, -(-piece["low_ns"] // 1_000_000 // MINUTE) * MINUTE)
+        high = min(end, piece["high_ns"] // 1_000_000 // MINUTE * MINUTE) if piece["high_ns"] is not None else end
+        held = series.missing_intervals(last["ts_open"], low, high, MINUTE) if low < high else {"missing_count": 0}
+        opens = last["ts_open"]
+        pieces.append({"index": piece["index"], "instrument_id": piece["instrument_id"],
+                       "catalog_dir": piece["catalog_dir"], "counts": counts,
+                       "first_bar_ns": int((opens[0] + MINUTE - 1) * 1_000_000) if len(opens) else None,
+                       "last_bar_ns": int((opens[-1] + MINUTE - 1) * 1_000_000) if len(opens) else None,
+                       "missing_minutes": held["missing_count"],
+                       "last_mark_unmatched": int(len(np.setxor1d(opens, mark["ts_open"]))),
+                       "price_precision": precision, "price_precision_widened": precision != exchange,
+                       "mark_precision": mark_precision, "episode": piece["episode"]})
+    receipt = {"format": FORMAT, "symbol": symbol, "commit": commit, "timeframe": TIMEFRAME, "start_ns": start_ns,
+               "end_ns": end_ns, "coverage": facts, "terms_source": record["terms_source"],
+               "terms_observed_at": record["terms_observed_at"], "historical_terms": record["historical_terms"],
+               "assumed": record["assumed"], "pieces": pieces, "seconds": round(time.monotonic() - started, 1)}
+    (path / "export.json").write_text(json.dumps(receipt, indent=1, ensure_ascii=False), encoding="utf-8")
     return receipt
 
 
 def complete(path: Path) -> dict | None:
+    """The receipt of a complete cached export, or None."""
     try:
-        return json.loads((path / "export.json").read_text())
+        found = json.loads((path / "export.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    return found if isinstance(found, dict) and found.get("format") == FORMAT and found.get("pieces") else None
 
 
 def default_cache() -> Path:
     return Path(tempfile.gettempdir()) / "trade-market-catalog"
 
 
-def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end: int, daily: bool = True,
-           root: Path | None = None, workers: int = 4, fresh: bool = False, episodes: dict | None = None,
-           lifecycle_files: dict[str, bytes] | None = None) -> dict:
-    """Export (or reuse from the cache) each contract's Catalog at one commit for [start, end) ms.
+ROOT = Path(__file__).resolve().parents[1]
+# The exporter's implementation: the market modules an export runs and the dependency lock.
+EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
+                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py", "uv.lock")
 
-    `episodes` ({symbol: [episode]}, from market.validate_lifecycle) bounds the contracts it names and
-    supplies their lifecycle events; `lifecycle_files` (the bundle's files) are written under
-    `<root>/lifecycle-evidence/`. Returns the window directory and the receipts. `fresh` exports into
-    a new temporary directory and never reuses a cache entry.
-    """
-    if start >= end or start % MINUTE or end % MINUTE:
-        raise store._refuse(f"export window [{start}, {end}) is not a positive one-minute interval", "EXPORT_WINDOW")
+
+def exporter_sha256() -> str:
+    """The total hash of the exporter files, each file's SHA-256 sorted by path; part of the cache key."""
+    digests = {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in EXPORTER_FILES}
+    return hashlib.sha256(json.dumps(dict(sorted(digests.items())), sort_keys=True, separators=(",", ":"))
+                          .encode()).hexdigest()
+
+
+# market.export_catalogs
+
+def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
+                    episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
+                    fresh: bool = False, root: Path | None = None, workers: int = 4) -> dict:
+    """market.export_catalogs: each contract's Catalogs and receipt at one commit for [start_ns, end_ns),
+    from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/."""
+    step = MINUTE * 1_000_000
+    if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
+        raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "EXPORT_WINDOW",
+                      missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
-        raise store._refuse("export needs unique symbols", "EXPORT_SCOPE")
-    chosen = {}
-    for symbol, found in (episodes or {}).items():
-        if len(found) != 1:  # market.split_episodes (ticker reuse) is not implemented
-            raise lifecycle.LifecycleInput(f"{symbol} has {len(found)} lifecycle episodes; one episode per contract "
-                                           "is supported")
-        if found[0]["instrument_id"] != instrument_id(symbol):
-            raise lifecycle.LifecycleInput(f"the episode of {symbol} is {found[0]['instrument_id']}, not "
-                                           f"{instrument_id(symbol)}")
-        chosen[symbol] = found[0]
-    conn = store.connect(profile, "reader")
-    try:
-        commit = store.resolve_commit(conn, at)
-        (price_scale, volume_scale), = store.rows(conn, f"SELECT price_scale, volume_scale FROM market_schema AS OF '{commit}'")
-    finally:
-        conn.close()
+        raise _refuse("export needs each contract once", "EXPORT_SCOPE", missing=("symbols",))
+    with store.connect(profile, "reader") as conn:
+        try:
+            commit = store.resolve_commit(conn, at)
+        except store.MarketError as exc:
+            raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_COMMIT",
+                          missing=(str(at),)) from exc
+        (price_scale, volume_scale), = conn.rows(f"SELECT price_scale, volume_scale FROM market_schema AS OF '{commit}'")
     if fresh:
+        if root is not None:
+            Path(root).mkdir(parents=True, exist_ok=True)
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
-        evidence = hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
-                                              sorted((lifecycle_files or {}).items())}).encode()).hexdigest()[:16]
-        window = Path(root or default_cache()) / commit / (f"{start}-{end}-{TIMEFRAME}{'-d' if daily else ''}"
-                                                           + (f"-l{evidence}" if lifecycle_files else ""))
+        key = f"{start_ns}-{end_ns}-x{exporter_sha256()[:16]}"  # an exporter change never reuses an old export
+        if lifecycle_files:
+            key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
+                                                     sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
+        window = Path(root or default_cache()) / commit / key
     receipts, jobs = {}, []
     for symbol in symbols:
         found = None if fresh else complete(window / symbol)
         if found:
             receipts[symbol] = found
         else:
-            jobs.append({"symbol": symbol, "commit": commit, "start": start, "end": end, "episode": chosen.get(symbol),
-                         "daily": daily, "path": str(window / symbol), "profile": profile,
-                         "scales": (price_scale, volume_scale)})
+            jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
+                         "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
+                         "episodes": (episodes or {}).get(symbol)})
     started = time.monotonic()
-    if jobs:
-        with ProcessPoolExecutor(min(workers, len(jobs))) as pool:
-            for receipt in pool.map(export_symbol, jobs):
-                receipts[receipt["symbol"]] = receipt
-    for name, data in sorted((lifecycle_files or {}).items()):
-        target = window / "lifecycle-evidence" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-    return {"commit": commit, "root": str(window), "exported": len(jobs), "reused": len(symbols) - len(jobs),
-            "seconds": round(time.monotonic() - started, 1), "receipts": receipts}
+    try:
+        if jobs:
+            with ProcessPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
+                for receipt in pool.map(export_episode, jobs):
+                    receipts[receipt["symbol"]] = receipt
+        for name, data in sorted((lifecycle_files or {}).items()):
+            target = window / "lifecycle-evidence" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    except BaseException:
+        if fresh:  # a failed export leaves no partial directory (a cached one keeps no receipt for the failure)
+            shutil.rmtree(window, ignore_errors=True)
+        raise
+    return {"commit": commit, "root": str(window), "exported": len(jobs), "cached": len(symbols) - len(jobs),
+            "seconds": round(time.monotonic() - started, 1), "receipts": {symbol: receipts[symbol] for symbol in symbols}}

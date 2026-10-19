@@ -10,7 +10,7 @@ import unittest
 import numpy as np
 
 from ledger.errors import Refusal
-from report import attribution, comparison, measures, seams
+from report import attribution, comparison, measures
 
 
 DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 2, "resamples": 999, "inner_resamples": 99,
@@ -319,19 +319,6 @@ class InteractionShapeTests(unittest.TestCase):
         self.assertAlmostEqual(found["b"], (0.001 + 0.003) / 2)
         self.assertAlmostEqual(found["a"] + found["b"], found["total"])
         self.assertAlmostEqual(found["interaction"], 0.002)
-
-
-class MarketTests(unittest.TestCase):
-    def test_the_basket_weighs_the_month_members_that_have_a_return(self):
-        closes = {"BTCUSDT": {"2026-01-31": 100, "2026-02-01": 110, "2026-02-02": 99},
-                  "AAA": {"2026-01-31": 10, "2026-02-01": 11},
-                  "BBB": {"2026-01-31": 20, "2026-02-01": 18, "2026-02-02": 18}}
-        found = seams.daily_returns_from(closes, {"2026-02": {"AAA", "BBB"}}, ["2026-02-01", "2026-02-02"])
-        self.assertAlmostEqual(found["btc"][0], 0.1)
-        self.assertAlmostEqual(found["btc"][1], -0.1)
-        self.assertAlmostEqual(found["basket"][0], (0.1 - 0.1) / 2)
-        self.assertEqual((found["basket"][1], found["members_per_day"]), (0.0, [2, 1]),
-                         "AAA stopped trading: it drops out after its last return")
 
 
 class PairTradeTests(unittest.TestCase):

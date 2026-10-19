@@ -18,9 +18,9 @@ from nautilus_trader.model import (
 from nautilus_trader.persistence import ParquetDataCatalog
 
 from engine import run
-from engine.config import ACCOUNT_CONTRACT, parse_window, utc_text
-from engine.load import load_strategy, read_market, read_universe, strategy_id
-from market import export, lifecycle
+from engine.config import ACCOUNT_CONTRACT, Refusal, parse_window, utc_text
+from engine.load import load_strategy, read_market, read_universe
+from market import export, instrument, lifecycle
 
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -29,7 +29,7 @@ START = 1_767_225_600_000  # 2026-01-01T00:00:00Z, ms
 DAYS = 2
 END = START + DAYS * DAY
 TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": None, "min_quantity": None,
-         "min_notional": None, "max_price": None, "min_price": None}
+         "min_notional": None, "max_price": None, "min_price": None, "terms_source": "inferred", "observed_at": 0}
 PROBE = '''
 from datetime import timedelta
 from decimal import Decimal
@@ -185,22 +185,29 @@ def series(seed, minutes):
     return bars
 
 
-def contract(root, symbol, minutes, funding, episode=None, seed=0):
+def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0):
+    """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/."""
+    index = 1 if episode is not None else None
     path = root / symbol
-    path.mkdir(parents=True)
-    store = ParquetDataCatalog(str(path))
-    store.write_instruments([export.build_instrument(symbol, TERMS, 2)])
-    iid = InstrumentId.from_str(export.instrument_id(symbol))
+    catalog_path = path / "episode-1" if index else path
+    catalog_path.mkdir(parents=True)
+    store = ParquetDataCatalog(str(catalog_path))
+    native = export.native_symbol(symbol, index)["instrument_id"]
+    store.write_instruments([instrument.build_instrument(symbol, TERMS, 2, native)[0]])
+    iid = InstrumentId.from_str(native)
     bars = series(seed, minutes)
     counts = {"last": export.write_bars(store, f"{iid}-1-MINUTE-LAST-EXTERNAL", bars, MIN, 2, 3, 8, 4),
-              "mark": export.write_marks(store, iid, bars, MIN, 8),
-              "funding": export.write_funding(path, str(iid), [(at, Decimal("0.0001")) for at in sorted(funding)])}
+              "mark": export.write_marks(store, iid, bars, MIN, 8, 8),
+              "funding": export.write_funding(catalog_path, str(iid),
+                                              [(at, Decimal("0.0001")) for at in sorted(funding)])}
     if episode is not None:
-        counts.update(lifecycle.write_lifecycle_events(path, episode, START * 10**6, END * 10**6, 2))
-    receipt = {"symbol": symbol, "instrument_id": str(iid), "commit": "c" * 32, "timeframe": "1m",
-               "start_ns": START * 10**6, "end_ns": END * 10**6, "counts": counts,
-               "last_bar_ns": int((bars["ts_open"][-1] + MIN - 1) * 10**6) if len(minutes) else None,
-               "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "episode": episode}
+        counts.update(lifecycle.write_lifecycle_events(catalog_path, episode, START * 10**6, END * 10**6, 2))
+    piece = {"index": index, "instrument_id": str(iid), "catalog_dir": "episode-1" if index else "", "counts": counts,
+             "last_bar_ns": int((bars["ts_open"][-1] + MIN - 1) * 10**6) if len(minutes) else None, "episode": episode}
+    receipt = {"format": "market-coverage-v1", "symbol": symbol, "commit": "c" * 32, "timeframe": "1m",
+               "start_ns": START * 10**6, "end_ns": END * 10**6,
+               "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "terms_observed_at": observed_at,
+               "pieces": [piece]}
     (path / "export.json").write_text(json.dumps(receipt))
 
 
@@ -211,7 +218,7 @@ def market(root: Path) -> list[str]:
     keep = np.random.default_rng(7).random(len(every)) > 0.1
     keep[(every >= 600) & (every < 1500)] = False  # a gap longer than a session window
     contract(root, "币安USDT", every[keep], eight, seed=2)
-    iid = InstrumentId.from_str(export.instrument_id("CCCUSDT"))
+    iid = InstrumentId.from_str(export.native_symbol("CCCUSDT", 1)["instrument_id"])
     pre, settled = (START + DAY + 10 * MIN - 1) * 10**6, (START + DAY + 12 * 3_600_000) * 10**6
     events = [InstrumentStatus(iid, MarketStatusAction.PRE_CLOSE, pre, pre).to_dict(),
               InstrumentStatus(iid, MarketStatusAction.CLOSE, settled, settled).to_dict(),
@@ -282,7 +289,7 @@ def node_replay(rows, window, loaded, universe, output, chunk):
         node.add_strategy_from_config(config.id, ImportableStrategyConfig(
             strategy_path=run.importable_strategy(loaded), config_path="engine.run:StrategyInputs",
             config={"instrument_id": str(row["instrument_id"]), "trade_start_ns": trade_start,
-                    "input_start_ns": input_start, "strategy_id": strategy_id(row["symbol"]),
+                    "input_start_ns": input_start, "strategy_id": row["strategy_id"],
                     "catalog_path": str(row["catalog_path"]),
                     "universe_membership": [list(item) for item in run.episode_membership(universe[row["symbol"]],
                                                                                            row["episode"])]}))
@@ -332,13 +339,29 @@ class StreamTests(unittest.TestCase):
                          for side in ("node", "stream")]
         expected = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
         self.assertEqual((node["iterations"], streamed["iterations"]), (expected, expected))
-        self.assertTrue(node["fills"] and any(item[0] == "close" for item in node["seen"]["CCCUSDT-PERP.BINANCE"]))
+        self.assertTrue(node["fills"] and any(item[0] == "close" for item in node["seen"]["CCCUSDT-E1-PERP.BINANCE"]))
         for key in ("orders", "fills", "positions", "account", "seen", "observer"):
             with self.subTest(key=key):
                 self.assertEqual(streamed[key], node[key])
         strip = [[line.split(",", 2)[0] + "," + line.split(",", 2)[2] for line in table] for table in exposures]
         self.assertEqual(strip[1], strip[0])
 
+
+    def test_each_exported_piece_is_its_numbered_episode_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            symbols = market(root / "market")
+            rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            self.assertEqual([(row["coin"], row["strategy_id"], str(row["instrument_id"])) for row in rows][1:],
+                             [("币安", "R1-XE5B881E5AE89", "XE5B881E5AE89USDT-PERP.BINANCE"),
+                              ("CCC_E1", "R1-CCC_E1", "CCCUSDT-E1-PERP.BINANCE")])
+            path = root / "market" / "CCCUSDT" / "export.json"
+            receipt = json.loads(path.read_text())
+            receipt["pieces"][0]["catalog_dir"] = "episode-2"
+            path.write_text(json.dumps(receipt))
+            with self.assertRaises(Refusal) as caught:
+                read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            self.assertEqual(caught.exception.code, "EPISODE_MAPPING_MISMATCH")
 
     def test_trading_after_a_settlement_is_rejected_by_the_market_and_refused_by_the_audit(self):
         from engine.audit import audit
@@ -375,7 +398,8 @@ class StreamTests(unittest.TestCase):
             root = Path(temp)
             every = np.arange(DAYS * 1440)
             contract(root / "market", "AAAUSDT", every, [], seed=1)
-            contract(root / "market", "BBBUSDT", every[(every < 600) | (every >= 600 + gap_minutes)], [], seed=2)
+            contract(root / "market", "BBBUSDT", every[(every < 600) | (every >= 600 + gap_minutes)], [], seed=2,
+                     observed_at=END + DAY)  # terms observed after the window, as a backfilled market has them
             source = root / "hold.py"
             source.write_text(HOLD)
             argv = ["--market-root", str(root / "market"), "--market-commit", "c" * 32, "--symbols", "AAAUSDT", "BBBUSDT",
@@ -395,6 +419,10 @@ class StreamTests(unittest.TestCase):
     def test_a_mark_hole_up_to_an_hour_is_carried_and_a_longer_one_is_one_valuation_gap(self):
         summary, failure = self.holes(30)
         self.assertIsNone(failure)
+        approximated = [item for item in summary["limitations"] if item.startswith("CURRENT_SNAPSHOT_APPROXIMATION")]
+        self.assertEqual(approximated, [f"CURRENT_SNAPSHOT_APPROXIMATION: BBBUSDT trades on terms observed at "
+                                        f"{utc_text((END + DAY) * 10**6)} (observed_at {END + DAY}), after the window "
+                                        f"end {utc_text(END * 10**6)}"])  # AAAUSDT's terms predate the window
         hole_start = (START + 600 * MIN - 1) * 10**6  # the last MARK before the hole closes there
         self.assertEqual(summary["mark_carry"], [{"instrument_id": "BBBUSDT-PERP.BINANCE", "mark_ns": hole_start,
                                                   "from_ns": hole_start + 60 * 10**9,

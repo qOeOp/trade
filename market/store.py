@@ -1,22 +1,20 @@
-"""Import Binance public data into the market database, and read what it holds.
+"""The market database (`market.connect`, `market.resolve_commit`, `market.import_month`,
+`market.freshness`).
 
-One import is one Dolt commit on main, through a covered-through day (exclusive, UTC):
+One import is one UTC month and one Dolt commit on main: every eligible contract's stitched
+one-minute LAST and MARK bars and funding, terms that changed, and the common tradable range
+recomputed for every month and compared with the stored months. Everything is written in one
+transaction and committed once after the commit tests (dolt_tests, group commit) pass; any refusal
+rolls the whole import back. The first import on an empty database (tables without the
+market_schema row) also writes the schema row and the commit tests.
 
-1. daily quote volume of every eligible USDT perpetual (the pool's input);
-2. the pool for every month whose eve is covered, checked against the months already stored;
-3. for every contract the pool ever held: its terms, its 1-minute LAST and MARK bars and its
-   funding, from where the stored rows end.
-
-Sources are spliced in one order (monthly archive, daily archive, public REST) and the splice is
-invisible above this module: a series is one sorted, duplicate-free run of closed minutes, and a
-minute two sources both hold must agree exactly. Minutes no source holds (trading halts, a
-delisting and relisting) stay missing and are reported. Stored rows are never rewritten. An
-interrupted import keeps its rows in the working set; `--resume` continues from them.
+An engineering symbol allowlist narrows an import of an isolated market database to those contracts;
+the scope is written in every import's commit message and read back by `freshness`.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 import io
@@ -26,276 +24,213 @@ import re
 import shutil
 import tempfile
 import time
-import zipfile
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pcsv
-
 import pymysql
 import pymysql.cursors
 
-from market import binance, universe
+from market import instrument, series, sources, universe
+from market.sources import MINUTE, MarketError, _refuse
 
 
-PRICE_SCALE = 8
-VOLUME_SCALE = 4
-MINUTE = 60_000
+SCHEMA_VERSION = 2
+PRICE_SCALE = series.PRICE_SCALE
+VOLUME_SCALE = series.VOLUME_SCALE
 DAY = 86_400_000
-FIRST_MS = universe.day_ms(universe.ARCHIVES_BEGIN)
-TERMS = ("price_increment", "size_increment", "min_quantity", "max_quantity", "min_notional", "min_price",
-         "max_price")
-_COLUMNS = ("open_time", "open", "high", "low", "close", "volume", "close_time")
-_SCHEMA = pa.schema([("open_time", pa.int64()), *((name, pa.string()) for name in _COLUMNS[1:6]),
-                     ("close_time", pa.int64())])
-
-
-SCHEMA_VERSION = 1
 ROLES = {"import": "writer", "reader": "reader"}  # design role -> account name in the service's private file
 REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 HASH_PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
+COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 WORKING_SETS = ("WORKING", "STAGED")
+IMPORT = "binance-public"
 
-
-class MarketError(Exception):
-    """A coded market refusal; nothing was written by the refused call."""
-
-    def __init__(self, message: str, *, code: str = "MARKET_REFUSED", next_actions=(), missing=(),
-                 write_status: str = "not_written"):
-        super().__init__(message)
-        self.code, self.message = code, str(message)
-        self.next_actions, self.missing = tuple(next_actions), tuple(str(item) for item in missing)
-        self.write_status = write_status
-
-    def as_dict(self) -> dict:
-        return {"code": self.code, "message": self.message, "missing": list(self.missing),
-                "next_actions": list(self.next_actions), "write_status": self.write_status}
-
-
-def _refuse(message, code="MARKET_REFUSED", **extra):
-    return MarketError(message, code=code, **extra)
+# The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
+# milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
+# 1,440 minutes of each member's eve by full primary key: a range bound taken from each row is no
+# index range on Dolt 2.4.2 (measured: a scan of the member's whole history), a key lookup is.
+TESTS = (
+    # The newest month's members only: earlier months are immutable and were checked by their commits.
+    ("universe_members_traded_on_the_eve",
+     "WITH RECURSIVE m(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM m WHERE i < 1439), "
+     "members AS (SELECT symbol, month, DATEDIFF(month, '1970-01-01') * 86400000 - 86400000 AS eve FROM universe_month "
+     "WHERE month = (SELECT MAX(month) FROM universe_month)) "
+     "SELECT (SELECT COUNT(*) FROM members) - COUNT(DISTINCT n.symbol, n.month) FROM members n JOIN m JOIN bar b "
+     "ON b.symbol = n.symbol AND b.price_type = 'LAST' AND b.ts_open = n.eve + m.i * 60000 WHERE b.volume > 0"),
+    # The user's decision: every member has terms at the commit. A month imported after the fact has
+    # terms observed later than the month; replays then carry the CURRENT_SNAPSHOT_APPROXIMATION
+    # limitation naming the observation (engine.load.terms_approximations).
+    ("universe_members_have_terms",
+     "SELECT COUNT(*) FROM universe_month u WHERE NOT EXISTS (SELECT 1 FROM instrument i WHERE i.symbol = u.symbol)"),
+    ("universe_rule_is_recorded",
+     "SELECT COUNT(*) FROM universe_month WHERE month = (SELECT MAX(month) FROM universe_month) "
+     "AND universe_rule <> (SELECT universe_rule FROM market_schema)"),
+)
 
 
 # Connections (market.connect)
+
+class MarketConnection:
+    """One connection to one market database as one role, with its market_schema facts."""
+
+    def __init__(self, raw, profile: dict, role: str, facts: dict | None):
+        self.raw, self.profile, self.role = raw, profile, role
+        self.empty = facts is None
+        facts = facts or {}
+        self.version, self.price_scale = facts.get("version"), facts.get("price_scale")
+        self.volume_scale, self.universe_rule = facts.get("volume_scale"), facts.get("universe_rule")
+        self.import_seq = facts.get("import_seq")
+
+    database = property(lambda self: self.profile.get("database"))
+
+    def rows(self, statement: str, params=None) -> list[tuple]:
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.execute(statement, params)
+                result = list(cursor.fetchall())
+                while cursor.nextset():
+                    cursor.fetchall()
+                return result
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def dicts(self, statement: str, params=None) -> list[dict]:
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.execute(statement, params)
+                names = [column[0] for column in cursor.description or ()]
+                return [dict(zip(names, row)) for row in cursor.fetchall()]
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def stream(self, statement: str, params=None, size: int = 200_000):
+        """Rows in chunks through a server-side cursor (bar reads would not fit in client memory)."""
+        try:
+            with self.raw.cursor(pymysql.cursors.SSCursor) as cursor:
+                cursor.execute(statement, params)
+                while chunk := cursor.fetchmany(size):
+                    yield chunk
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def execute(self, statement, params=None) -> None:
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.execute(statement, params)
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def many(self, statement: str, rows: list[tuple]) -> None:
+        if not rows:
+            return
+        try:
+            with self.raw.cursor() as cursor:
+                cursor.executemany(statement, rows)
+        except pymysql.MySQLError as exc:
+            raise _sql_error(exc) from exc
+
+    def close(self) -> None:
+        try:
+            self.raw.close()
+        except pymysql.MySQLError:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
 
 def _service(profile: dict) -> dict:
     try:
         return json.loads((Path(profile["service"]) / "service.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise _refuse(f"market profile {profile.get('name')!r} names no readable service", "MARKET_UNREACHABLE") from exc
+        raise _refuse(f"market profile {profile.get('name') if isinstance(profile, dict) else profile!r} names no "
+                      "readable service", "MARKET_UNREACHABLE") from exc
 
 
-def connect(profile: dict, role: str, *, streaming: bool = False):
-    """Open a market database connection as `import` (the import account) or `reader`, with its
-    schema generation checked; an import on a database without market_schema is let through."""
+def connect(profile: dict, role: str) -> MarketConnection:
+    """market.connect: the market database as `import` (the import account) or `reader`, its schema
+    generation checked; the import account on an empty database gets the empty-database mark."""
     if role not in ROLES:
-        raise _refuse(f"role must be import or reader, got {role!r}", "ROLE_UNKNOWN")
+        raise _refuse(f"role must be import or reader, got {role!r}", "ROLE_UNKNOWN", missing=(str(role),))
     config = _service(profile)
     account = ((config.get("databases") or {}).get(profile.get("database")) or {}).get(ROLES[role])
     if account is None:
         raise _refuse(f"the service has no {role} account for market database {profile.get('database')}",
-                      "MARKET_UNREACHABLE")
+                      "MARKET_UNREACHABLE", missing=(str(profile.get("database")),))
     try:
-        conn = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
-                               database=profile["database"], charset="utf8mb4", autocommit=True, connect_timeout=5,
-                               read_timeout=3600, write_timeout=3600, max_allowed_packet=1 << 30,
-                               cursorclass=pymysql.cursors.SSCursor if streaming else pymysql.cursors.Cursor)
+        raw = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
+                              database=profile["database"], charset="utf8mb4", autocommit=role == "reader",
+                              connect_timeout=5, read_timeout=7200, write_timeout=7200, max_allowed_packet=1 << 30)
     except pymysql.MySQLError as exc:
-        raise _refuse(f"cannot connect to market database {profile.get('database')}: {exc.args[0] if exc.args else exc}",
-                      "MARKET_UNREACHABLE") from exc
+        raise _refuse(f"cannot connect to market database {profile.get('database')}: "
+                      f"{exc.args[1] if len(exc.args) > 1 else exc}", "MARKET_UNREACHABLE",
+                      missing=(str(profile.get("database")),)) from exc
+    conn = MarketConnection(raw, profile, role, None)
     try:
-        found = rows(conn, "SELECT version FROM market_schema WHERE singleton = 1") if not streaming else None
+        if role == "import":
+            conn.execute("SET autocommit = 0")  # one import, one transaction (pymysql's flag alone is not applied)
+        found = conn.dicts("SELECT version, price_scale, volume_scale, universe_rule, import_seq FROM market_schema "
+                           "WHERE singleton = 1")
+        if role == "import":
+            raw.commit()
     except MarketError:
-        found = []
-    if found is not None and ((found and found[0][0] != SCHEMA_VERSION) or (not found and role == "reader")):
         conn.close()
-        raise _refuse(f"market schema generation {found[0][0] if found else None}, this code reads {SCHEMA_VERSION}",
-                      "SCHEMA_VERSION_MISMATCH")
-    return conn
+        raise
+    if (found and found[0]["version"] != SCHEMA_VERSION) or (not found and role == "reader"):
+        conn.close()
+        raise _refuse(f"market schema generation {found[0]['version'] if found else None}, this code reads "
+                      f"{SCHEMA_VERSION}", "SCHEMA_VERSION_MISMATCH", missing=(str(profile.get("database")),))
+    return MarketConnection(raw, profile, role, found[0] if found else None)
 
 
 def _sql_error(exc: pymysql.MySQLError) -> MarketError:
     code = exc.args[0] if exc.args else None
-    if code == 1213:
-        return _refuse("another write landed first (Dolt 1213); nothing was written", "CONCURRENT_WRITE")
     text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
-    if code in (1142, 1143, 1370) or (code == 1105 and "permission" in text.lower()):
+    if code == 1213 or "conflict" in text.lower():
+        return _refuse("another import landed first; this one was rolled back", "CONCURRENT_WRITE")
+    if code in (1142, 1143, 1370, 1644) or (code == 1105 and "permission" in text.lower()):  # 1644: a guard trigger
         return _refuse(f"the market account may not do this: {text}", "MARKET_PERMISSION")
     return _refuse(f"the market database refused the statement (MySQL error {code}): {text}", "MARKET_SQL_ERROR")
 
 
-def rows(conn, statement: str, params=None) -> list[tuple]:
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(statement, params)
-            result = list(cursor.fetchall())
-            while cursor.nextset():
-                cursor.fetchall()
-            return result
-    except pymysql.MySQLError as exc:
-        raise _sql_error(exc) from exc
+# market.resolve_commit
 
-
-def dicts(conn, statement: str, params=None) -> list[dict]:
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(statement, params)
-            names = [column[0] for column in cursor.description or ()]
-            return [dict(zip(names, row)) for row in cursor.fetchall()]
-    except pymysql.MySQLError as exc:
-        raise _sql_error(exc) from exc
-
-
-def check_ref(ref) -> str:
-    if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
-        raise _refuse(f"invalid market reference {ref!r}", "UNKNOWN_REF", missing=(str(ref),))
-    return ref
-
-
-def resolve_commit(conn, ref: str | None) -> str:
-    """market.resolve_commit: the one full commit hash a branch, tag, commit hash or unique hash prefix names."""
+def resolve_commit(conn: MarketConnection, ref: str | None) -> str:
+    """market.resolve_commit: the one full commit hash a branch, tag, commit hash or unique prefix names."""
     ref = ref or "main"
     if isinstance(ref, str) and ref.upper() in WORKING_SETS:
         raise _refuse(f"{ref} is a working set, not a commit", "NOT_A_COMMIT", missing=(ref,))
-    check_ref(ref)
+    if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
+        raise _refuse(f"invalid market reference {ref!r}", "UNKNOWN_REF", missing=(str(ref),))
     if HASH_PREFIX.fullmatch(ref):
-        found = [commit for (commit,) in rows(conn, "SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE %s",
-                                              (ref + "%",))]
+        found = [commit for (commit,) in conn.rows("SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE %s",
+                                                   (ref + "%",))]
         if len(found) > 1:
             raise _refuse(f"{ref} is a prefix of {len(found)} market commits", "AMBIGUOUS_REF", missing=(ref,))
         if found:
             return found[0]
-    for statement in ("SELECT hash FROM dolt_branches WHERE name = %s", "SELECT tag_hash FROM dolt_tags WHERE tag_name = %s"):
-        found = rows(conn, statement, (ref,))
+    for statement in ("SELECT hash FROM dolt_branches WHERE name = %s",
+                      "SELECT tag_hash FROM dolt_tags WHERE tag_name = %s"):
+        found = conn.rows(statement, (ref,))
         if found:
             return found[0][0]
     raise _refuse(f"{ref!r} is no branch, tag or commit of the market database", "UNKNOWN_REF", missing=(ref,))
 
 
+def check_commit(commit) -> str:
+    if not isinstance(commit, str) or not COMMIT_HASH.fullmatch(commit):
+        raise _refuse(f"{commit!r} is not a resolved market commit hash", "MARKET_COMMIT_INVALID",
+                      missing=(str(commit),))
+    return commit
+
+
 def default_cache() -> Path:
     return Path(tempfile.gettempdir()) / "trade-market-cache"
-
-
-# One series from all sources
-
-def _kline_table(path: Path) -> pa.Table:
-    with zipfile.ZipFile(path) as archive:
-        (name,) = archive.namelist()
-        raw = archive.read(name)
-    header = raw.startswith(b"open_time")
-    table = pcsv.read_csv(io.BytesIO(raw), read_options=pcsv.ReadOptions(
-        column_names=None if header else list(binance.KLINE_COLUMNS)),
-        convert_options=pcsv.ConvertOptions(include_columns=list(_COLUMNS),
-                                            column_types={field.name: field.type for field in _SCHEMA}))
-    return table.select(list(_COLUMNS)).cast(_SCHEMA)
-
-
-def _rest_table(rows: list[tuple]) -> pa.Table:
-    return pa.table([pa.array([row[index] for row in rows], field.type) for index, field in enumerate(_SCHEMA)],
-                    schema=_SCHEMA)
-
-
-def _months(start_ms: int, end_ms: int) -> list[str]:
-    first = universe.ms_day(start_ms).replace(day=1)
-    return [month.strftime("%Y-%m") for month in universe.months(first, universe.ms_day(end_ms - 1))]
-
-
-def missing(times: np.ndarray, start: int, end: int, step: int = MINUTE) -> list[tuple[int, int]]:
-    """Missing [from, to) runs of the step grid in [start, end), given sorted grid times present."""
-    if start >= end:
-        return []
-    edges = np.concatenate([[start - step], times[(times >= start) & (times < end)], [end]])
-    jumps = np.nonzero(np.diff(edges) > step)[0]
-    return [(int(edges[i] + step), int(edges[i + 1])) for i in jumps]
-
-
-def _merge(parts: list[pa.Table], start: int, end: int, label: str) -> pa.Table:
-    """One sorted run without duplicates in [start, end); a minute held twice must agree exactly."""
-    parts = [part for part in parts if part.num_rows]
-    table = pa.concat_tables(parts) if parts else _SCHEMA.empty_table()
-    table = table.filter(pc.and_(pc.greater_equal(table["open_time"], start), pc.less(table["open_time"], end)))
-    table = table.sort_by("open_time")
-    times = table["open_time"].to_numpy()
-    same = np.nonzero(np.diff(times) == 0)[0]
-    if len(same):
-        first, second = table.take(pa.array(same)), table.take(pa.array(same + 1))
-        differs = [int(first["open_time"][i].as_py()) for i in range(len(same))
-                   if first.slice(i, 1).to_pylist() != second.slice(i, 1).to_pylist()]
-        if differs:
-            raise _refuse(f"{label}: sources disagree at open_time {differs[:5]}", "SOURCE_CONFLICT")
-        keep = np.ones(len(times), bool)
-        keep[same + 1] = False
-        table = table.filter(pa.array(keep))
-    if table.num_rows and not pc.all(pc.equal(table["close_time"],
-                                              pc.add(table["open_time"], MINUTE - 1))).as_py():
-        raise _refuse(f"{label}: a row is not a closed one-minute kline", "SOURCE_SHAPE")
-    return table
-
-
-def _rest(fetch, *args, trading: bool):
-    """Public REST rows; a contract no longer trading may be unknown to REST, which then has none."""
-    try:
-        return fetch(*args)
-    except binance.UnknownSymbol:
-        if trading:
-            raise
-        return []
-
-
-def series(cache: binance.Cache, symbol: str, price_type: str, start: int, end: int, *, resumed: bool,
-           trading: bool) -> tuple[pa.Table, list[tuple[int, int]]]:
-    """The 1-minute klines of one series in [start, end) and the minutes no source holds.
-
-    `resumed`: `start` continues stored rows, so missing minutes count from it; otherwise from the
-    first minute any source holds. `trading`: the contract still trades, so minutes up to `end`
-    are expected; otherwise up to the last minute any source holds.
-    """
-    kind, label = binance.KINDS[price_type], f"{symbol} {price_type}"
-    if start >= end:
-        return _SCHEMA.empty_table(), []
-    months = _months(start, end)
-    monthly = binance.monthly_archives(cache, kind, symbol, "1m", months)
-    parts = [_kline_table(path) for path in monthly.values()]
-    daily = {}
-
-    def add_days(days: set[date]) -> None:
-        for stem in sorted({day.strftime("%Y-%m") for day in days}):
-            if stem not in daily:
-                daily[stem] = binance.archive_keys("daily", kind, symbol, "1m", stem)
-        keys = [key for stem in sorted({day.strftime("%Y-%m") for day in days}) for key in daily[stem]
-                if date.fromisoformat(binance.period(key)) in days]
-        parts.extend(_kline_table(path) for path in cache.fetch_all(keys, 4))
-
-    # Months without a monthly archive (the open month, a missing one) come from daily archives.
-    add_days({universe.ms_day(t) for m in months if m not in monthly
-              for t in range(max(start, universe.day_ms(date.fromisoformat(m + "-01"))),
-                             min(end, universe.day_ms(date.fromisoformat(m + "-01")) + 31 * DAY), DAY)
-              if universe.ms_day(t).strftime("%Y-%m") == m})
-    table = _merge(parts, start, end, label)
-    if not table.num_rows and (trading or resumed):
-        # No archive at all (Binance publishes no markPriceKlines for some symbols, e.g. non-ASCII
-        # ones, and none yet for a contract listed this month): public REST for the whole range.
-        parts.append(_rest_table(_rest(binance.rest_klines, price_type, symbol, "1m", start, end, trading=trading)))
-        table = _merge(parts, start, end, label)
-    if not table.num_rows:
-        return table, ([(start, end)] if resumed and trading else [])
-    times = table["open_time"].to_numpy()
-    low = start if resumed else int(times[0])
-    high = end if trading else int(times[-1]) + MINUTE
-    gaps = missing(times, low, high)
-    if gaps:
-        add_days({universe.ms_day(t) for a, b in gaps for t in range(a - a % DAY, b, DAY)})
-        table = _merge(parts, start, end, label)
-        gaps = missing(table["open_time"].to_numpy(), low, high)
-    for a, b in gaps:
-        rows = _rest(binance.rest_klines, price_type, symbol, "1m", a, b, trading=trading)
-        if rows:
-            parts.append(_rest_table(rows))
-    if gaps:
-        table = _merge(parts, start, end, label)
-        gaps = missing(table["open_time"].to_numpy(), low, high)
-    return table, gaps
 
 
 # Exact scaling
@@ -317,8 +252,8 @@ def scaled(column, scale: int, label: str, *, float_tails: bool = False) -> tupl
     """Decimal strings as integers at `scale`, exactly.
 
     With `float_tails`, a value whose extra digits are a binary-float rendering of a value at
-    `scale` (Binance archives hold a few, such as 108824285.69999999) is rounded to it; the count
-    of such values is returned. Any other value with more decimals is refused.
+    `scale` (Binance archives hold a few, such as 108824285.69999999) is rounded to it; the count of
+    such values is returned. Any other value with more decimals is refused.
     """
     wide = _wide(column)
     try:
@@ -339,36 +274,37 @@ def scaled(column, scale: int, label: str, *, float_tails: bool = False) -> tupl
 def significant_decimals(column) -> int:
     """The most decimals any value needs, ignoring trailing zeros."""
     column = column.combine_chunks() if isinstance(column, pa.ChunkedArray) else column
+    if not len(column):
+        return 0
     fraction = pc.extract_regex(column, r"^[^.]*(?:\.(?P<d>\d*))?$").field("d")
     return int(pc.max(pc.utf8_length(pc.utf8_rtrim(pc.fill_null(fraction, ""), "0"))).as_py() or 0)
 
 
-def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[pa.Table, int]:
+def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[dict[str, np.ndarray], int]:
+    """A stitched minute table as integer bar columns {ts_open, open, high, low, close, volume} and the
+    count of float-tail volumes rounded."""
     label = f"{symbol} {price_type}"
     prices = {name: scaled(table[name], PRICE_SCALE, f"{label} {name}")[0] for name in ("open", "high", "low", "close")}
     volume, rounded = scaled(table["volume"], VOLUME_SCALE, f"{label} volume", float_tails=True)
-    o, h, l, c = (prices[name] for name in ("open", "high", "low", "close"))
-    bad = (l > np.minimum(o, c)) | (h < np.maximum(o, c)) | (l <= 0) | (volume < 0)
-    if price_type == "MARK":
-        bad |= volume != 0
+    if price_type == "MARK" and volume.any():
+        at = table["open_time"][int(np.argmax(volume != 0))]
+        raise _refuse(f"{label}: a mark-price kline at {at} carries a volume", "SOURCE_SHAPE", missing=(label,))
+    o, h, lo, c = (prices[name] for name in ("open", "high", "low", "close"))
+    bad = (lo > np.minimum(o, c)) | (h < np.maximum(o, c)) | (lo <= 0) | (volume < 0)
     if bad.any():
         raise _refuse(f"{label}: inconsistent bar at open_time {table['open_time'][int(np.argmax(bad))]}",
-                      "SOURCE_SHAPE")
-    n = table.num_rows
-    return pa.table({"symbol": pa.array([symbol] * n, pa.string()), "price_type": pa.array([price_type] * n),
-                     "ts_open": table["open_time"], **{k: pa.array(v) for k, v in prices.items()},
-                     "volume": pa.array(volume)}), rounded
+                      "SOURCE_SHAPE", missing=(label,))
+    return {"ts_open": table["open_time"].to_numpy().astype(np.int64), **prices, "volume": volume}, rounded
 
 
 INSERT_ROWS = 20_000
 
 
-def insert_statements(rows: pa.Table, symbol: str, price_type: str):
-    """Multi-row INSERT statements of `INSERT_ROWS` bars each (the writer has no FILE privilege)."""
-    if "'" in symbol or "\\" in symbol:
-        raise _refuse(f"unexpected character in symbol {symbol!r}", "SOURCE_SHAPE")
+def insert_statements(bars: dict[str, np.ndarray], symbol: str, price_type: str):
+    """Multi-row INSERT statements of INSERT_ROWS bars each (the import account has no FILE privilege)."""
+    sources.check_symbol(symbol)
     prefix = f"('{symbol}','{price_type}',".encode()
-    numbers = rows.select(["ts_open", "open", "high", "low", "close", "volume"])
+    numbers = pa.table({name: pa.array(bars[name]) for name in series.COLUMNS})
     for offset in range(0, numbers.num_rows, INSERT_ROWS):
         sink = io.BytesIO()
         pcsv.write_csv(numbers.slice(offset, INSERT_ROWS), sink,
@@ -379,15 +315,6 @@ def insert_statements(rows: pa.Table, symbol: str, price_type: str):
 
 # Terms
 
-def listed_terms(item: dict) -> dict:
-    filters = {entry["filterType"]: entry for entry in item["filters"]}
-    price, lot = filters["PRICE_FILTER"], filters["LOT_SIZE"]
-    return {"terms_source": "exchange_info", "price_increment": price["tickSize"], "size_increment": lot["stepSize"],
-            "min_quantity": lot["minQty"], "max_quantity": lot["maxQty"],
-            "min_notional": filters["MIN_NOTIONAL"]["notional"], "min_price": price["minPrice"],
-            "max_price": price["maxPrice"]}
-
-
 def inferred_terms(last: pa.Table) -> dict:
     """Increments of a contract absent from exchangeInfo: the most decimals its trades used."""
     price = max(significant_decimals(last[name]) for name in ("open", "high", "low", "close"))
@@ -395,308 +322,515 @@ def inferred_terms(last: pa.Table) -> dict:
     size = significant_decimals(pc.filter(volume, pc.less(pc.utf8_length(volume), 17)))
     return {"terms_source": "inferred", "price_increment": format(Decimal(1).scaleb(-price), "f"),
             "size_increment": format(Decimal(1).scaleb(-size), "f"),
-            **{name: None for name in TERMS[2:]}}
+            **{name: None for name in instrument.TERMS[2:]}, "classification": None}
+
+
+def listed_terms(item: dict) -> dict:
+    return {"terms_source": "exchange_info", **{name: item[name] for name in instrument.TERMS},
+            "classification": {"contract_type": item["contract_type"], "quote_asset": item["quote_asset"],
+                               "underlying_type": item["underlying_type"],
+                               "underlying_sub_types": item["underlying_sub_types"]}}
+
+
+def _same_terms(stored: dict | None, terms: dict) -> bool:
+    if stored is None:
+        return False
+    stored_class = stored.get("classification")
+    if isinstance(stored_class, str):
+        stored_class = json.loads(stored_class)
+    return (stored["terms_source"] == terms["terms_source"] and stored_class == terms["classification"]
+            and all(str(stored[name]) == str(terms[name]) if terms[name] is not None else stored[name] is None
+                    for name in instrument.TERMS))
+
+
+def _item_of(symbol: str, row: dict | None) -> dict | None:
+    """The classification input of a stored terms row: None for inferred terms (no exchange metadata)."""
+    if row is None or row.get("classification") is None:
+        return None
+    found = row["classification"] if isinstance(row["classification"], dict) else json.loads(row["classification"])
+    quote = found.get("quote_asset") or ""
+    return {"symbol": symbol, "contract_type": found.get("contract_type"), "underlying_type": found.get("underlying_type"),
+            "base_asset": symbol[:-len(quote)] if quote and symbol.endswith(quote) else symbol}
 
 
 # One contract, prepared in a worker process
 
 def prepare(job: dict) -> dict:
-    """Fetch, check and scale one contract's new bars and funding; bars go to statements under `work`."""
+    """Stitch, check and scale one contract's month of bars and funding; the new bars go to statements under
+    `work`, the bars and funding already stored for the month come back for the comparison."""
     try:
         return _prepare(job)
-    except Exception as exc:
-        raise RuntimeError(f"{job['symbol']}: {exc}") from exc
+    except MarketError as exc:
+        raise MarketError(f"{job['symbol']}: {exc.message}", code=exc.code, missing=(job["symbol"], *exc.missing))
 
 
 def _prepare(job: dict) -> dict:
-    binance.REST_INTERVAL, binance.FUNDING_INTERVAL = job["rest_interval"]
+    sources.REST_INTERVAL, sources.FUNDING_INTERVAL = job["rest_interval"]
     started = time.monotonic()
-    symbol, cache, end, trading = job["symbol"], binance.Cache(Path(job["cache"])), job["end"], job["trading"]
-    stored = job["stored"]
-    last, last_gaps = series(cache, symbol, "LAST", stored.get("LAST", job["listed"]), end,
-                             resumed="LAST" in stored, trading=trading)
-    span = (job["first_last"] if "LAST" in stored else (int(last["open_time"][0].as_py()) if last.num_rows else end),
-            int(last["open_time"][-1].as_py()) + MINUTE if last.num_rows else stored.get("LAST", end))
-    mark_from = stored.get("MARK", span[0])
-    mark, mark_gaps = series(cache, symbol, "MARK", mark_from, span[1], resumed=True, trading=True)
-    report = {"symbol": symbol, "rows": {"LAST": last.num_rows, "MARK": mark.num_rows},
-              "gaps": {"LAST": last_gaps, "MARK": mark_gaps}, "rounded_volumes": 0, "terms": None}
-    if job["terms"] is None and last.num_rows and "LAST" not in stored:
-        report["terms"] = inferred_terms(last)
-    if last.num_rows:
-        report["price_decimals"] = max(significant_decimals(last[name]) for name in ("open", "high", "low", "close"))
+    symbol, cache, end, trading = job["symbol"], Path(job["cache"]), job["end"], job["trading"]
+    report = {"symbol": symbol, "rows": {}, "gaps": {}, "source_rows": {}, "rounded_volumes": 0, "terms": None,
+              "derived_findings": None, "reread": {}}
     path = Path(job["work"]) / f"{symbol.encode().hex()}.sql"
+    last = None
     with open(path, "wb") as stream:
-        for price_type, table in (("LAST", last), ("MARK", mark)):
-            if table.num_rows:
-                rows, rounded = bar_rows(table, symbol, price_type)
-                for statement in insert_statements(rows, symbol, price_type):
-                    stream.write(statement + b"\0")
-                report["rounded_volumes"] += rounded
+        for price_type in ("LAST", "MARK"):
+            resumed, stored_through = job["series"][price_type]
+            table, gaps, used = series.stitch_series(cache, symbol, price_type, job["start"], end, resumed, trading)
+            report["gaps"][price_type], report["source_rows"][price_type] = gaps, used
+            if price_type == "LAST":
+                last = table
+            bars, rounded = bar_rows(table, symbol, price_type) if table.num_rows else (_empty_bars(), 0)
+            report["rounded_volumes"] += rounded
+            if price_type == "LAST" and table.num_rows:
+                report["derived_findings"] = _derived_findings(symbol, bars, job, trading)
+            # The month's minutes before the stored last one are reread and compared, never written again.
+            old = bars["ts_open"] < (stored_through or job["start"])
+            report["reread"][price_type] = {name: values[old] for name, values in bars.items()}
+            new = {name: values[~old] for name, values in bars.items()}
+            report["rows"][price_type] = int(len(new["ts_open"]))
+            for statement in insert_statements(new, symbol, price_type):
+                stream.write(statement + b"\0")
+    if job["terms"] is None and last is not None and last.num_rows:
+        report["terms"] = inferred_terms(last)
     report["statements"] = str(path)
-    report["funding"] = funding(cache, symbol, job["stored_funding"], max(span[0], FIRST_MS), end, trading=trading)
+    found = funding(cache, symbol, job["start"], end, trading=trading)
+    stored_through = job["funding_through"] or job["start"]
+    report["funding_reread"] = [row for row in found if row[0] < stored_through]
+    report["funding"] = [row for row in found if row[0] >= stored_through]
     report["seconds"] = round(time.monotonic() - started, 1)
     return report
 
 
-def funding(cache: binance.Cache, symbol: str, after: int | None, start: int, end: int, *,
-            trading: bool) -> list[tuple[int, str]]:
-    """Settlements in (after, end): monthly archives, then public REST (there are no daily archives)."""
-    start = after + 1 if after is not None else start
+def _empty_bars() -> dict[str, np.ndarray]:
+    return {name: np.empty(0, np.int64) for name in series.COLUMNS}
+
+
+def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list[dict] | None:
+    """market.check_derived of the month's derived daily LAST bars against the exchange's native daily
+    klines over the whole days held; None when the exchange no longer serves the contract."""
+    first = -(-int(bars["ts_open"][0]) // DAY) * DAY
+    last = (int(bars["ts_open"][-1]) + MINUTE) // DAY * DAY
+    if first >= last:
+        return []
+    keep = (bars["ts_open"] >= first) & (bars["ts_open"] < last)
+    derived = series.derive_bars({name: values[keep] for name, values in bars.items()}, "1d")
+    try:
+        rows = sources.rest_klines("LAST", symbol, "1d", first, last)
+    except MarketError as exc:
+        if exc.code == "SOURCE_UNKNOWN_SYMBOL" and not trading:
+            return None
+        raise
+    native = bar_rows(sources.rows_table([(*row[:6], row[0] + MINUTE - 1) for row in rows]), symbol, "LAST")[0] \
+        if rows else _empty_bars()
+    terms = job["terms"] or {}
+    price = instrument.decimals(terms["price_increment"]) if terms.get("price_increment") else PRICE_SCALE
+    size = instrument.decimals(terms["size_increment"]) if terms.get("size_increment") else VOLUME_SCALE
+    return series.check_derived(derived, native, "1d", price, size, price_scale=PRICE_SCALE,
+                                volume_scale=VOLUME_SCALE)
+
+
+HOUR = 3_600_000
+
+
+def funding_slot(time_ms: int) -> int:
+    """The settlement a funding time belongs to: its nearest whole UTC hour. Binance settles at most once
+    an hour (intervals of 1, 4 or 8 hours) and its times carry milliseconds of jitter, so two sources'
+    times in one slot are one settlement; their rates must agree."""
+    return (time_ms + HOUR // 2) // HOUR
+
+
+def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) -> list[tuple[int, str]]:
+    """Settlements in [start, end): monthly archives, then public REST for months without one (there
+    are no daily funding archives). One settlement per funding slot: a slot held by two sources with
+    different rates refuses SOURCE_CONFLICT (the earlier source's time is kept); one source holding two
+    settlements in a slot refuses SOURCE_SHAPE."""
     if start >= end:
         return []
-    months = _months(start, end)
-    monthly = binance.monthly_archives(cache, "fundingRate", symbol, None, months)
-    rows: dict[int, str] = {}
+    months = series._months(start, end)
+    monthly = sources.monthly_archives(cache, "fundingRate", symbol, None, months)
+    slots: dict[int, tuple[int, str]] = {}
 
-    def add(found) -> None:
+    def add(found, label: str) -> None:
+        seen = set()
         for time_ms, rate in found:
-            if Decimal(rows.get(time_ms, rate)) != Decimal(rate):
-                raise _refuse(f"{symbol} funding: sources disagree at {time_ms}", "SOURCE_CONFLICT")
-            rows.setdefault(time_ms, rate)
+            slot = funding_slot(time_ms)
+            if slot in seen:
+                raise _refuse(f"{symbol} funding: {label} holds two settlements in the hour of {time_ms}",
+                              "SOURCE_SHAPE", missing=(str(time_ms),))
+            seen.add(slot)
+            if slot in slots and Decimal(slots[slot][1]) != Decimal(rate):
+                raise _refuse(f"{symbol} funding: sources disagree on the settlement at {time_ms}", "SOURCE_CONFLICT",
+                              missing=(str(time_ms),))
+            slots.setdefault(slot, (time_ms, rate))
 
-    for path in monthly.values():
-        add(binance.funding_rows(path))
-    if any(m not in monthly for m in months):  # the open month, which has no archive yet
-        tail = max([time_ms for time_ms in rows if time_ms < end], default=start - 1) + 1
-        add(_rest(binance.rest_funding, symbol, tail, end, trading=trading))
-    return sorted((time_ms, rate) for time_ms, rate in rows.items() if start <= time_ms < end)
-
-
-# The import
-
-def _rows(conn, statement, params=None):
-    return rows(conn, statement, params)
-
-
-def _stored_state(conn, symbol: str) -> dict:
-    state = {"stored": {}, "first_last": None}
-    for price_type in ("LAST", "MARK"):
-        found = _rows(conn, "SELECT ts_open FROM bar WHERE symbol = %s AND price_type = %s "
-                            "ORDER BY ts_open DESC LIMIT 1", (symbol, price_type))
-        if found:
-            state["stored"][price_type] = found[0][0] + MINUTE
-    first = _rows(conn, "SELECT ts_open FROM bar WHERE symbol = %s AND price_type = 'LAST' ORDER BY ts_open LIMIT 1",
-                  (symbol,))
-    state["first_last"] = first[0][0] if first else None
-    found = _rows(conn, "SELECT funding_time FROM funding WHERE symbol = %s ORDER BY funding_time DESC LIMIT 1",
-                  (symbol,))
-    state["stored_funding"] = found[0][0] if found else None
-    terms = dicts(conn, "SELECT * FROM instrument WHERE symbol = %s ORDER BY observed_at DESC LIMIT 1", (symbol,))
-    state["terms_row"] = terms[0] if terms else None
-    return state
-
-
-def run_import(profile: dict, *, through: date, cache_root: Path, workers: int = 4, resume: bool = False,
-               log=print) -> dict:
-    """Append everything up to `through` (exclusive) and commit once on main."""
-    started = time.monotonic()
-    today = datetime.now(UTC).date()
-    if through > today:
-        raise _refuse(f"--through {through} is after today ({today} UTC); only closed days are imported")
-    end = universe.day_ms(through)
-    cache = binance.Cache(cache_root)
-    work = Path(tempfile.mkdtemp(prefix="market-load-", dir=cache_root.parent if cache_root.parent.exists() else None))
-    conn = connect(profile, "import")
-    try:
-        if _rows(conn, "SELECT table_name FROM dolt_status") and not resume:
-            raise _refuse("the market database has uncommitted rows from an interrupted import",
-                          "DIRTY_WORKING_SET", next_actions=["Rerun the same import with --resume."])
-        (version, price_scale, volume_scale, rule), = _rows(
-            conn, "SELECT version, price_scale, volume_scale, pool_rule FROM market_schema")
-        if (version, price_scale, volume_scale, rule) != (SCHEMA_VERSION, PRICE_SCALE, VOLUME_SCALE,
-                                                          universe.POOL_RULE):
-            raise _refuse("the market database was written under another schema, scale or pool rule", "MARKET_SCHEMA")
-        info = binance.exchange_info()
-        observed = int(info["serverTime"])
-        listed = {item["symbol"]: item for item in info["symbols"]}
-        split = universe.classify(binance.archive_symbols(), info)
-        log(f"{len(split['eligible'])} eligible contracts, {len(split['excluded'])} excluded")
-
-        # 1. Daily quote volume.
-        stored_days = dict(_rows(conn, "SELECT symbol, MAX(day) FROM daily_volume GROUP BY symbol"))
-
-        def volumes(symbol):
-            since = stored_days.get(symbol)
-            trading = listed.get(symbol, {}).get("status") == "TRADING"
-            return symbol, universe.daily_volume(cache, symbol, through, trading=trading,
-                                                 since=since + timedelta(days=1) if since else None)
-
-        new_days = 0
-        with ThreadPoolExecutor(8) as pool:
-            for symbol, rows in pool.map(volumes, split["eligible"]):
-                since = stored_days.get(symbol)
-                rows = [(symbol, day, value) for day, value in rows if since is None or day > since]
-                if rows:
-                    with conn.cursor() as cursor:
-                        cursor.executemany("INSERT INTO daily_volume VALUES (%s, %s, %s)", rows)
-                    new_days += len(rows)
-        log(f"daily volume: {new_days} new rows ({time.monotonic() - started:.0f}s)")
-
-        # 2. Pool.
-        by_symbol: dict[str, list] = {}
-        for symbol, day, value in _rows(conn, "SELECT symbol, day, quote_volume FROM daily_volume ORDER BY symbol, day"):
-            by_symbol.setdefault(symbol, []).append((day, value))
-        computed = universe.pool(by_symbol, universe.FIRST_MONTH, through.replace(day=1) if through.day > 1
-                                 else through)
-        stored_pool = {(month, rank, symbol) for month, rank, symbol in _rows(conn, "SELECT month, `rank`, symbol FROM pool")}
-        stored_months = {month for month, _, _ in stored_pool}
-        changed = sorted({row[0] for row in computed if row[0] in stored_months} ^ stored_months) or sorted(
-            {month for month, rank, symbol, _ in computed if month in stored_months
-             and (month, rank, symbol) not in stored_pool})
-        if changed:
-            raise _refuse(f"the pool recomputed from stored volumes differs for {changed[:3]}", "POOL_CHANGED")
-        new_pool = [(month, rank, symbol) for month, rank, symbol, _ in computed if month not in stored_months]
-        if new_pool:
-            with conn.cursor() as cursor:
-                cursor.executemany("INSERT INTO pool VALUES (%s, %s, %s)", new_pool)
-        members = sorted({symbol for _, _, symbol, _ in computed})
-        log(f"pool: {len(new_pool)} new rows; {len(members)} contracts ever in it")
-
-        # 3. Contracts: terms, bars and funding.
-        jobs = []
-        for symbol in members:
-            state = _stored_state(conn, symbol)
-            item = listed.get(symbol)
-            trading = bool(item) and item.get("status") == "TRADING"
-            terms = listed_terms(item) if item else None
-            if terms and (state["terms_row"] is None or any(
-                    str(state["terms_row"][key]) != str(terms[key]) for key in ("terms_source", *TERMS))):
-                with conn.cursor() as cursor:
-                    cursor.execute("INSERT INTO instrument VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                                   (symbol, observed, terms["terms_source"], *(terms[key] for key in TERMS)))
-            listed_day = by_symbol[symbol][0][0]
-            jobs.append({"symbol": symbol, "cache": str(cache_root), "work": str(work), "end": end,
-                         "trading": trading, "terms": terms or state["terms_row"],
-                         "listed": max(FIRST_MS, universe.day_ms(listed_day)), **state,
-                         "rest_interval": (binance.REST_INTERVAL * workers, binance.FUNDING_INTERVAL * workers)})
-        totals = {"rows": 0, "funding": 0, "rounded_volumes": 0, "gaps": {}, "inferred": [], "price_decimals": {}}
-        pool = ProcessPoolExecutor(workers)
-        futures = [pool.submit(prepare, {key: value for key, value in job.items() if key != "terms_row"})
-                   for job in jobs]
+    for month in sorted(monthly):
+        add(sources.funding_rows(monthly[month]), f"the {month} archive")
+    missing = [month for month in months if month not in monthly]
+    if missing:
+        low = max(start, series._day_ms(date.fromisoformat(missing[0] + "-01")))
         try:
-            for done, future in enumerate(as_completed(futures), start=1):
-                report = future.result()
-                symbol = report["symbol"]
-                loaded = time.monotonic()
-                statements = Path(report["statements"])
-                with conn.cursor() as cursor:
-                    for statement in statements.read_bytes().split(b"\0"):
-                        if statement:
-                            cursor.execute(statement)
-                statements.unlink()
-                if report["funding"]:
-                    with conn.cursor() as cursor:
-                        cursor.executemany("INSERT INTO funding VALUES (%s, %s, %s)",
-                                           [(symbol, t, rate) for t, rate in report["funding"]])
-                if report["terms"]:
-                    terms = report["terms"]
-                    with conn.cursor() as cursor:
-                        cursor.execute("INSERT INTO instrument VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                                       (symbol, observed, "inferred", *(terms[key] for key in TERMS)))
-                    totals["inferred"].append(symbol)
-                rows = report["rows"]["LAST"] + report["rows"]["MARK"]
-                totals["rows"] += rows
-                totals["funding"] += len(report["funding"])
-                totals["rounded_volumes"] += report["rounded_volumes"]
-                if report.get("price_decimals") is not None:
-                    totals["price_decimals"][symbol] = report["price_decimals"]
-                gaps = {key: value for key, value in report["gaps"].items() if value}
-                if gaps:
-                    totals["gaps"][symbol] = gaps
-                log(f"[{done}/{len(jobs)}] {symbol}: {rows} bars, {len(report['funding'])} funding, "
-                    f"prepared {report['seconds']}s, loaded {time.monotonic() - loaded:.1f}s")
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
-
-        # 4. One commit.
-        message = json.dumps({"import": "binance-public", "through": through.isoformat(),
-                              "pool_rule": universe.POOL_RULE}, separators=(",", ":"))
-        dirty = _rows(conn, "SELECT table_name FROM dolt_status")
-        commit = _rows(conn, "CALL DOLT_COMMIT('-A', '-m', %s)", (message,))[0][0] if dirty else None
-    finally:
-        conn.close()
-        shutil.rmtree(work, ignore_errors=True)
-    return {"commit": commit, "through": through.isoformat(), "eligible": len(split["eligible"]),
-            "excluded": split["excluded"], "daily_volume_rows": new_days, "pool_rows": len(new_pool),
-            "pool_contracts": len(members), **totals, "seconds": round(time.monotonic() - started)}
+            add(sources.rest_funding(symbol, low, end), "public REST")
+        except MarketError as exc:
+            if exc.code != "SOURCE_UNKNOWN_SYMBOL" or trading:
+                raise
+    return sorted(row for row in slots.values() if start <= row[0] < end)
 
 
-def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, *, resume: bool = False,
+# The import (market.import_month)
+
+def imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
+    """The import commits reachable from `ref`, oldest first: {commit, month, through, universe_rule, scope}."""
+    found = []
+    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
+        try:
+            value = json.loads(message)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("import") == IMPORT:
+            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "universe_rule",
+                                                                               "scope")}})
+    return found[::-1]
+
+
+def _month_ms(month: date) -> int:
+    return series._day_ms(month)
+
+
+ALLOWLIST_KINDS = ("isolated", "temporary")
+
+
+def _scope(symbols, profile: dict) -> list[str] | None:
+    if symbols is None:
+        return None
+    if (not isinstance(symbols, (list, tuple)) or not symbols or len(set(symbols)) != len(symbols)
+            or any(not isinstance(item, str) or not sources.SYMBOL.fullmatch(item) for item in symbols)):
+        raise _refuse("the engineering symbol allowlist is empty, repeats a contract or names a malformed one",
+                      "IMPORT_SCOPE", missing=("--symbols",))
+    if profile.get("role") not in ALLOWLIST_KINDS:
+        raise _refuse(f"an engineering allowlist narrows only an isolated or temporary market database, not role "
+                      f"{profile.get('role')!r}", "IMPORT_SCOPE", missing=("--symbols",))
+    return sorted(symbols)
+
+
+def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
                  log=print) -> dict:
-    """market.import_month: append one UTC month (the current month through the last closed day) as
-    one market commit; a complete month already stored is MONTH_EXISTS."""
-    if not isinstance(month, date) or month.day != 1:
-        raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID")
+    """market.import_month: append one UTC month (the current month through the last closed day) as one
+    market commit. `symbols` is the engineering allowlist of an isolated market database."""
+    started = time.monotonic()
+    scope = _scope(symbols, profile)
+    if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
+        raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     today = datetime.now(UTC).date()
-    if month > today:
-        raise _refuse(f"{month:%Y-%m} is after the current UTC month", "MONTH_INVALID")
-    following = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
-    through = min(following, today)
-    conn = connect(profile, "reader")
+    start_ms, end_ms = _month_ms(month), min(_month_ms(universe.next_month(month)), series._day_ms(today))
+    if start_ms >= end_ms:
+        raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+    conn = connect(profile, "import")
+    work = Path(tempfile.mkdtemp(prefix="market-load-"))
     try:
-        commit = resolve_commit(conn, "main")
-        found = rows(conn, f"SELECT ts_open FROM bar AS OF '{commit}' WHERE price_type = 'LAST' "
-                           "ORDER BY ts_open DESC LIMIT 1")
+        lock(conn)
+        return _import(conn, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started)
+    except BaseException:
+        try:
+            conn.raw.rollback()
+        except pymysql.MySQLError:
+            pass
+        raise
     finally:
-        conn.close()
-    covered = universe.ms_day(found[0][0] + MINUTE) if found else None
-    if covered is not None and covered >= through and not resume:
-        raise _refuse(f"the market database already holds {month:%Y-%m} through {covered}", "MONTH_EXISTS",
-                      missing=(f"{month:%Y-%m}",))
-    if covered is not None and covered < month and not resume:
-        raise _refuse(f"the market database ends {covered}, before {month:%Y-%m}; import the months between first",
-                      "MONTH_INVALID", missing=(f"{covered:%Y-%m}",))
-    done = run_import(profile, through=through, cache_root=cache_root, workers=workers, resume=resume, log=log)
-    return {"month": f"{month:%Y-%m}", "market_commit": done["commit"], "universe_rule": universe.POOL_RULE,
-            "through": done["through"], "bar_rows": done["rows"], "funding_rows": done["funding"],
-            "universe_rows": done["pool_rows"], "universe_contracts": done["pool_contracts"], "gaps": done["gaps"],
-            "inferred_terms": done["inferred"], "excluded": done["excluded"], "seconds": done["seconds"]}
+        conn.close()  # also releases the import lock
+        shutil.rmtree(work, ignore_errors=True)
 
 
-# Reading
+def lock(conn: MarketConnection) -> None:
+    """Hold the database's import lock for this connection's life: one import at a time."""
+    name = f"market-import:{conn.database}"
+    (held,), = conn.rows("SELECT GET_LOCK(%s, 0)", (name,))
+    if held != 1:
+        raise _refuse(f"another import of {conn.database} holds {name}", "CONCURRENT_IMPORT", missing=(name,))
 
-def freshness(profile: dict, at: str | None = None) -> dict:
-    """What a market commit holds: the universe rule, the pool months, the newest minute, the latest
-    complete day and the latest complete month."""
-    conn = connect(profile, "reader")
+
+def _stored(conn: MarketConnection, symbol: str, price_type: str, low: int, high: int) -> dict[str, np.ndarray]:
+    found = conn.rows("SELECT ts_open, open, high, low, close, volume FROM bar WHERE symbol = %s AND price_type = %s "
+                      "AND ts_open >= %s AND ts_open < %s ORDER BY ts_open", (symbol, price_type, low, high))
+    stacked = np.array(found, dtype=np.int64).reshape(-1, 6)
+    return {name: stacked[:, index] for index, name in enumerate(series.COLUMNS)}
+
+
+def _same_bars(a: dict, b: dict) -> bool:
+    return all(len(a[name]) == len(b[name]) and np.array_equal(a[name], b[name]) for name in series.COLUMNS)
+
+
+def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
+            scope: list[str] | None, work: Path, log, started: float) -> dict:
+    label = f"{month:%Y-%m}"
+    if not conn.empty and conn.universe_rule != universe.RULE:
+        raise _refuse(f"the market database produces {conn.universe_rule}, this code {universe.RULE}",
+                      "RULE_VERSION_MISMATCH", missing=(str(conn.universe_rule),))
+    if not conn.empty and (conn.price_scale, conn.volume_scale) != (PRICE_SCALE, VOLUME_SCALE):
+        raise _refuse("the market database stores other integer scales", "SCHEMA_VERSION_MISMATCH")
+    if conn.rows("SELECT table_name FROM dolt_status"):
+        raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
+    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
+    if "commit" not in str(groups or "").split(","):
+        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
+                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
+    done = imports(conn)
+    if done and any(item["scope"] != (scope or "all") for item in done):
+        raise _refuse(f"earlier imports cover scope {done[-1]['scope']}, this one {scope or 'all'}", "IMPORT_SCOPE",
+                      missing=("--symbols",))
+    through = {item["month"]: item["through"] for item in done}
+    if through.get(label) == universe.next_month(month).isoformat():
+        raise _refuse(f"the market database already holds {label} through its end", "MONTH_EXISTS", missing=(label,))
+    if done:
+        last = date.fromisoformat(done[-1]["month"] + "-01")
+        if month not in (last, universe.next_month(last)) or (month == universe.next_month(last) and through[
+                done[-1]["month"]] != month.isoformat()):
+            raise _refuse(f"the stored months end with {done[-1]['month']} through {done[-1]['through']}; import "
+                          f"the months in order", "MONTH_INVALID", missing=(done[-1]["month"],))
+    first_month = date.fromisoformat(done[0]["month"] + "-01") if done else month
+
+    observed, listed = sources.rest_exchange_info()
+    by_symbol = {item["symbol"]: item for item in listed}
+    candidates = scope if scope is not None else sorted(
+        {item["symbol"] for item in listed} | set(sources.archive_symbols()))
+    first_seen = _classification_rows(conn)
+    # A contract keeps the classification of its earliest stored observation (later rows are recorded and
+    # never reclassify it); a contract never seen is classified by today's exchangeInfo.
+    classified = {symbol: universe.classify_contract(
+        symbol, _item_of(symbol, first_seen[symbol]) if symbol in first_seen else by_symbol.get(symbol), universe.RULE)
+        for symbol in candidates}
+    excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
+    eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
+    log(f"{label}: {len(eligible)} eligible contracts, {len(excluded)} excluded")
+
+    stored_terms = {row["symbol"]: row for row in conn.dicts(
+        "SELECT i.* FROM instrument i JOIN (SELECT symbol, MAX(observed_at) AS observed_at FROM instrument "
+        "GROUP BY symbol) latest USING (symbol, observed_at)")}
+    appended_terms = []
+    for symbol in candidates:
+        item = by_symbol.get(symbol)
+        if item is not None and item["symbol"].endswith("USDT"):
+            terms = listed_terms(item)
+            if not _same_terms(stored_terms.get(symbol), terms):
+                appended_terms.append((symbol, observed, terms))
+
+    jobs, stored_through = [], {}
+    for symbol in eligible:
+        item = by_symbol.get(symbol)
+        plan = {}
+        for price_type in ("LAST", "MARK"):
+            found = conn.rows("SELECT ts_open FROM bar WHERE symbol = %s AND price_type = %s ORDER BY ts_open DESC "
+                              "LIMIT 1", (symbol, price_type))
+            last_open = found[0][0] if found else None
+            # The month is stitched whole: minutes up to the stored last one are reread and compared.
+            within = last_open + MINUTE if last_open is not None and last_open >= start_ms else None
+            before = conn.rows("SELECT 1 FROM bar WHERE symbol = %s AND price_type = %s AND ts_open = %s",
+                               (symbol, price_type, start_ms - MINUTE))
+            plan[price_type] = (bool(before), within)
+            stored_through[(symbol, price_type)] = within
+        found = conn.rows("SELECT funding_time FROM funding WHERE symbol = %s AND funding_time >= %s "
+                          "ORDER BY funding_time DESC LIMIT 1", (symbol, start_ms))
+        funding_through = found[0][0] + 1 if found else None
+        stored_through[(symbol, "funding")] = funding_through
+        terms = listed_terms(item) if item is not None else stored_terms.get(symbol)
+        jobs.append({"symbol": symbol, "cache": str(cache), "work": str(work), "start": start_ms, "end": end_ms,
+                     "trading": item is not None and item["status"] == "TRADING", "series": plan,
+                     "funding_through": funding_through,
+                     "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None,
+                     "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers)})
+
+    totals = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
+              "source_rows": {name: 0 for name in series.SOURCES}, "derived_findings": {}, "per_symbol": {}}
+    # One worker prepares in this process; more prepare in a process pool (speed only, same result).
+    pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
     try:
-        commit = resolve_commit(conn, at)
-        (rule,), = rows(conn, f"SELECT pool_rule FROM market_schema AS OF '{commit}'")
-        first_month, last_month = rows(conn, f"SELECT MIN(month), MAX(month) FROM pool AS OF '{commit}'")[0]
+        reports = (future.result() for future in as_completed([pool.submit(prepare, job) for job in jobs])) \
+            if pool is not None else (prepare(job) for job in jobs)
+        for count, report in enumerate(reports, start=1):
+            symbol = report["symbol"]
+            loaded = time.monotonic()
+            _compare_reread(conn, symbol, report, stored_through, start_ms, label)
+            statements = Path(report["statements"])
+            for statement in statements.read_bytes().split(b"\0"):
+                if statement:
+                    conn.execute(statement)
+            statements.unlink()
+            conn.many("INSERT INTO funding VALUES (%s, %s, %s)", [(symbol, at, rate) for at, rate in report["funding"]])
+            if report["terms"]:
+                appended_terms.append((symbol, observed, report["terms"]))
+                totals["inferred_terms"].append(symbol)
+            rows = sum(report["rows"].values())
+            totals["bar_rows"] += rows
+            totals["funding_rows"] += len(report["funding"])
+            totals["rounded_volumes"] += report["rounded_volumes"]
+            for used in report["source_rows"].values():
+                for name, value in used.items():
+                    totals["source_rows"][name] += value
+            gaps = {key: value for key, value in report["gaps"].items() if value}
+            if gaps:
+                totals["gaps"][symbol] = gaps
+            if report["derived_findings"]:
+                totals["derived_findings"][symbol] = report["derived_findings"]
+            totals["per_symbol"][symbol] = {"bars": report["rows"], "funding": len(report["funding"]),
+                                            "source_rows": report["source_rows"]}
+            log(f"[{count}/{len(jobs)}] {symbol}: {rows} bars, {len(report['funding'])} funding, prepared "
+                f"{report['seconds']}s, loaded {time.monotonic() - loaded:.1f}s")
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+    appended_terms.sort(key=lambda row: row[0])
+    conn.many("INSERT INTO instrument VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+              [(symbol, at, terms["terms_source"], *(terms[name] for name in instrument.TERMS),
+                json.dumps(terms["classification"], sort_keys=True) if terms["classification"] is not None else None)
+               for symbol, at, terms in appended_terms])
+
+    members, added = _universe(conn, month, first_month)
+    result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
+              "through": series._ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
+              "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
+              "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
+              "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
+              "derived_findings": dict(sorted(totals["derived_findings"].items())),
+              "per_symbol": dict(sorted(totals["per_symbol"].items()))}
+    if not conn.empty and not (appended_terms or totals["bar_rows"] or totals["funding_rows"] or added):
+        conn.raw.rollback()  # the same month with nothing new: the stored commit, no new one
+        return {**result, "market_commit": done[-1]["commit"], "seconds": round(time.monotonic() - started)}
+    if conn.empty:
+        conn.execute("INSERT INTO market_schema VALUES (1, %s, %s, %s, %s, 1)",
+                     (SCHEMA_VERSION, PRICE_SCALE, VOLUME_SCALE, universe.RULE))
+        conn.many("INSERT INTO dolt_tests VALUES (%s, 'commit', %s, 'expected_single_value', '==', '0')", list(TESTS))
+    else:
+        conn.execute("UPDATE market_schema SET import_seq = import_seq + 1 WHERE singleton = 1")
+    message = json.dumps({"import": IMPORT, "month": label, "through": series._ms_day(end_ms).isoformat(),
+                          "universe_rule": universe.RULE, "scope": scope or "all"}, separators=(",", ":"),
+                         ensure_ascii=False)
+    commit = _commit(conn, message)
+    return {**result, "market_commit": commit, "seconds": round(time.monotonic() - started)}
+
+
+def _commit(conn: MarketConnection, message: str) -> str:
+    """One DOLT_COMMIT, which runs the commit tests (group commit); a failing test is DATA_TESTS_FAILED."""
+    try:
+        with conn.raw.cursor() as cursor:
+            cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (message,))
+            (commit,), = cursor.fetchall()
+    except pymysql.MySQLError as exc:
+        text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+        if "commit verification failed" in text:
+            failed = tuple(name for name, _ in TESTS if name in text)
+            raise _refuse(f"market commit tests failed: {text}", "DATA_TESTS_FAILED", missing=failed) from exc
+        raise _sql_error(exc) from exc
+    conn.raw.commit()
+    return commit
+
+
+def _compare_reread(conn: MarketConnection, symbol: str, report: dict, stored_through: dict, start_ms: int,
+                    label: str) -> None:
+    """The month's bars and funding before the stored last ones, reread from the sources, must equal the
+    stored rows (MONTH_EXISTS otherwise): nothing an earlier source wrote stays unchecked."""
+    for price_type in ("LAST", "MARK"):
+        high = stored_through[(symbol, price_type)]
+        if high is None:
+            continue
+        stored = _stored(conn, symbol, price_type, start_ms, high)
+        if not _same_bars(stored, report["reread"][price_type]):
+            reread = report["reread"][price_type]
+            times = sorted(set(stored["ts_open"].tolist()) ^ set(reread["ts_open"].tolist()))
+            if not times:
+                differs = np.nonzero(np.any([stored[name] != reread[name] for name in series.COLUMNS], axis=0))[0]
+                times = stored["ts_open"][differs].tolist()
+            raise _refuse(f"{symbol} {price_type}: the sources now differ from the stored {label} rows at "
+                          f"{times[:5]}", "MONTH_EXISTS", missing=(label, symbol, *map(str, times[:5])))
+    high = stored_through[(symbol, "funding")]
+    if high is not None:
+        stored = {funding_slot(int(at)): Decimal(rate) for at, rate in conn.rows(
+            "SELECT funding_time, rate FROM funding WHERE symbol = %s AND funding_time >= %s AND funding_time < %s",
+            (symbol, start_ms, high))}
+        reread = {funding_slot(at): Decimal(rate) for at, rate in report["funding_reread"]}
+        if stored != reread:
+            slots = sorted(slot for slot in set(stored) | set(reread) if stored.get(slot) != reread.get(slot))
+            raise _refuse(f"{symbol} funding: the sources now differ from the stored {label} settlements in hours "
+                          f"{slots[:5]}", "MONTH_EXISTS", missing=(label, symbol))
+
+
+def _classification_rows(conn: MarketConnection) -> dict[str, dict]:
+    """Each contract's earliest stored terms row: the observation its universe classification comes from."""
+    return {row["symbol"]: row for row in conn.dicts(
+        "SELECT i.symbol, i.classification FROM instrument i JOIN (SELECT symbol, MIN(observed_at) AS observed_at "
+        "FROM instrument GROUP BY symbol) earliest USING (symbol, observed_at)")}
+
+
+def trading_days(conn: MarketConnection, symbols: list[str], low: date, high: date) -> dict[str, set[date]]:
+    """Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar."""
+    found: dict[str, set[date]] = {}
+    for symbol in symbols:
+        days = conn.rows("SELECT DISTINCT ts_open DIV 86400000 FROM bar WHERE symbol = %s AND price_type = 'LAST' "
+                         "AND ts_open >= %s AND ts_open < %s AND volume > 0",
+                         (symbol, series._day_ms(low), series._day_ms(high)))
+        found[symbol] = {date(1970, 1, 1) + timedelta(days=int(day)) for (day,) in days}
+    return found
+
+
+def _universe(conn: MarketConnection, month: date, first_month: date) -> tuple[list[str], int]:
+    """The universe of `month` alone: (members, rows inserted). Stored months cannot change (bars are
+    insert-only and months import in order), so only the imported month is computed; importing it again
+    must give the stored members (UNIVERSE_CHANGED otherwise). The first month has none: no history before
+    it is held."""
+    listed_days = universe.rule(universe.RULE)["listed_days"]
+    first = first_month
+    while first - timedelta(days=listed_days) < first_month:
+        first = universe.next_month(first)
+    stored = {symbol for (symbol,) in conn.rows("SELECT symbol FROM universe_month WHERE universe_rule = %s AND "
+                                                "month = %s", (universe.RULE, month))}
+    if month < first:
+        if stored:
+            raise _refuse(f"{month:%Y-%m} has stored members before the second imported month", "UNIVERSE_CHANGED",
+                          missing=(f"{month:%Y-%m}",))
+        return [], 0
+    rows = _classification_rows(conn)
+    classifications = [universe.classify_contract(symbol, _item_of(symbol, row), universe.RULE)
+                       for symbol, row in sorted(rows.items())]
+    look_back = month - timedelta(days=listed_days)
+    days = trading_days(conn, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
+    computed = {symbol for _, symbol in universe.monthly_universe(classifications, days, month, month, universe.RULE,
+                                                                   covered=(look_back, month - timedelta(days=1)))}
+    if stored and computed != stored:
+        raise _refuse(f"{month:%Y-%m} recomputes to other members than stored: "
+                      + ", ".join(sorted(computed ^ stored)), "UNIVERSE_CHANGED",
+                      missing=(f"{month:%Y-%m}", *sorted(computed ^ stored)))
+    new = sorted(computed - stored)
+    conn.many("INSERT INTO universe_month VALUES (%s, %s, %s)", [(universe.RULE, month, symbol) for symbol in new])
+    return sorted(computed), len(new)
+
+
+# market.freshness
+
+def freshness(profile: dict, ref: str | None = None) -> dict:
+    """market.freshness: what a market commit holds (universe months and contracts, the newest minute,
+    the latest complete day and month, the import scope)."""
+    with connect(profile, "reader") as conn:
+        commit = resolve_commit(conn, ref)
+        (rule,), = conn.rows(f"SELECT universe_rule FROM market_schema AS OF '{commit}'")
+        months = [value for (value,) in conn.rows(f"SELECT DISTINCT month FROM universe_month AS OF '{commit}' "
+                                                  "WHERE universe_rule = %s ORDER BY month", (rule,))]
+        if not months:
+            raise _refuse(f"market commit {commit} has no universe month", "MARKET_EMPTY", missing=(commit,))
+        (count,), = conn.rows(f"SELECT COUNT(DISTINCT symbol) FROM universe_month AS OF '{commit}' "
+                              "WHERE universe_rule = %s", (rule,))
         newest = None
-        for (symbol,) in rows(conn, f"SELECT symbol FROM pool AS OF '{commit}' WHERE month = %s", (last_month,)):
-            found = rows(conn, f"SELECT ts_open FROM bar AS OF '{commit}' WHERE symbol = %s AND price_type = 'LAST' "
-                               "ORDER BY ts_open DESC LIMIT 1", (symbol,))
+        for (symbol,) in conn.rows(f"SELECT DISTINCT symbol FROM instrument AS OF '{commit}'"):
+            found = conn.rows(f"SELECT ts_open FROM bar AS OF '{commit}' WHERE symbol = %s AND price_type = 'LAST' "
+                              "ORDER BY ts_open DESC LIMIT 1", (symbol,))
             if found and (newest is None or found[0][0] > newest):
                 newest = found[0][0]
-    finally:
-        conn.close()
-    if newest is None:
-        return {"commit": commit, "universe_rule": rule, "pool_months": None, "covered_through": None,
-                "latest_complete_day": None, "latest_complete_month": None, "current_month_through": None}
-    covered = universe.ms_day(newest + MINUTE)  # exclusive: imports end at a UTC midnight
-    return {"commit": commit, "universe_rule": rule,
-            "pool_months": [first_month.isoformat()[:7], last_month.isoformat()[:7]],
-            "covered_through": covered.isoformat(), "latest_complete_day": covered - timedelta(days=1),
-            "latest_complete_month": (covered.replace(day=1) - timedelta(days=1)).isoformat()[:7],
-            "current_month_through": (covered - timedelta(days=1)).isoformat() if covered.day > 1 else None}
-
-
-def read_pool(profile: dict, at: str | None = None, month: str | None = None) -> dict:
-    """The pool at a commit: {month: [symbol by rank]}."""
-    conn = connect(profile, "reader")
-    try:
-        commit = resolve_commit(conn, at)
-        query = f"SELECT month, `rank`, symbol FROM pool AS OF '{commit}'"
-        params = ()
-        if month:
-            query += " WHERE month = %s"
-            params = (date.fromisoformat(month + "-01"),)
-        found = rows(conn, query + " ORDER BY month, `rank`", params)
-    finally:
-        conn.close()
-    months: dict[str, list[str]] = {}
-    for value, _, symbol in found:
-        months.setdefault(value.isoformat()[:7], []).append(symbol)
-    return {"commit": commit, "pool_rule": universe.POOL_RULE, "months": months}
+        done = imports(conn, commit)
+    covered = newest + MINUTE if newest is not None else None
+    day = series._ms_day(covered) if covered is not None else None
+    complete_day = (day - timedelta(days=1)) if day is not None else None
+    month_start = day.replace(day=1) if day is not None else None
+    at_month_start = covered is not None and covered == series._day_ms(month_start)
+    complete_month = (month_start - timedelta(days=1)).strftime("%Y-%m") if month_start is not None else None
+    return {"commit": commit, "universe_rule": rule, "universe_months": [value.strftime("%Y-%m") for value in months],
+            "symbols": int(count), "covered_through": covered, "latest_complete_day": complete_day,
+            "latest_complete_month": complete_month,
+            "current_month_through": None if covered is None or at_month_start else covered,
+            "scope": done[-1]["scope"] if done else None}

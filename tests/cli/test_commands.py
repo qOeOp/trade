@@ -5,7 +5,7 @@ ledger."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -15,11 +15,10 @@ import sys
 import tempfile
 import unittest
 
-import pyarrow as pa
+import numpy as np
 
 from ledger.refusals import refusal_catalogue
-from market import store
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket
+from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
 from tests.replay.world import clean_checkout
 
 
@@ -29,7 +28,6 @@ MINUTE = 60_000
 DAY = 86_400_000
 FIRST = 1_766_534_400_000  # 2025-12-24T00:00:00Z
 END = 1_769_904_000_000  # 2026-02-01T00:00:00Z
-TERMS = ("BTCUSDT", 1, "exchange_info", "0.10", "0.001", "0.001", "1000", "50", "556.80", "4529764")
 RUNNER = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z", "--end", "2026-02-01T00:00:00Z"]
 PRECHECK = ["--start", "2026-01-05T00:00:00Z", "--trade-start", "2026-01-06T00:00:00Z", "--end",
             "2026-01-08T00:00:00Z"]
@@ -42,41 +40,25 @@ SOURCE = ('"""A command line fixture strategy."""\nfrom nautilus_trader.trading 
 CHILD_RETURNS = [0.004, -0.001, 0.002, 0.003, -0.002, 0.001]
 
 
-def _table(rows):
-    return pa.table([pa.array([row[0] for row in rows], pa.int64()),
-                     *(pa.array([row[i] for row in rows], pa.string()) for i in range(1, 6)),
-                     pa.array([row[0] + MINUTE - 1 for row in rows], pa.int64())], schema=store._SCHEMA)
-
-
 def _fill_market(profile: dict) -> None:
-    """BTCUSDT one-minute LAST and MARK bars from 2025-12-24 to 2026-02-01, funding, and the pool months."""
+    """BTCUSDT one-minute LAST and MARK bars from 2025-12-24 to 2026-02-01, funding, and the January universe."""
     count = (END - FIRST) // MINUTE
-    conn = store.connect(profile, "import")
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("INSERT INTO instrument VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", TERMS)
-            for price_type in ("LAST", "MARK"):
-                rows = [(FIRST + i * MINUTE, *((f"{100000 + (i % 997) / 10:.1f}",) * 4),
-                         "1.5" if price_type == "LAST" and i % 5 else "0") for i in range(count)]
-                table, _ = store.bar_rows(_table(rows), "BTCUSDT", price_type)
-                for statement in store.insert_statements(table, "BTCUSDT", price_type):
-                    cursor.execute(statement)
-            cursor.executemany("INSERT INTO funding VALUES ('BTCUSDT', %s, %s)",
-                               [(FIRST + 8 * 3_600_000 * k, "0.0001") for k in range(3 * 39)])
-            cursor.executemany("INSERT INTO daily_volume VALUES ('BTCUSDT', %s, %s)",
-                               [(date(2025, 11, 1) + timedelta(days=d), "1000") for d in range(61)])
-            for month in (date(2025, 12, 1), date(2026, 1, 1)):
-                cursor.execute("INSERT INTO pool VALUES (%s, 1, 'BTCUSDT')", (month,))
-            cursor.execute("CALL DOLT_COMMIT('-A', '-m', 'fixture')")
-    finally:
-        conn.close()
+    i = np.arange(count)
+    price = (100000 + (i % 997) / 10) * 10**8
+    columns = {"ts_open": FIRST + i * MINUTE, **{name: price.astype(np.int64) for name in ("open", "high", "low", "close")}}
+    bars = {("BTCUSDT", "LAST"): {**columns, "volume": np.where(i % 5 != 0, 15_000, 0).astype(np.int64)},
+            ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(count, np.int64)}}
+    seed(profile, month="2026-01", through="2026-02-01", terms=[("BTCUSDT", {"price_increment": "0.10",
+                                                                            "size_increment": "0.001"})],
+         bars=bars, funding={"BTCUSDT": [(FIRST + 8 * 3_600_000 * k, "0.0001") for k in range(3 * 39)]},
+         members=[(date(2026, 1, 1), "BTCUSDT")])  # the commit test: a member traded on its month's eve
 
 
 @unittest.skipUnless(BINARY, SKIP)
 class CommandTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.market = TemporaryMarket()
+        cls.market = TemporaryMarket(kind="active")  # the default market of the commands below
         cls.addClassCleanup(cls.market.close)
         _fill_market(cls.market.profile)
         cls.tmp = Path(tempfile.mkdtemp(prefix="cli-", dir="/tmp"))
@@ -214,7 +196,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(coverage["coverage"][0]["last"]["missing_minutes"], 0)
         self.assertEqual(coverage["coverage"][0]["listing_delisting"]["status"], "unproven")
         manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_commit": commit, "episodes": [
-            {"symbol": "BTCUSDT", "instrument_id": "BTCUSDT-PERP.BINANCE", "start_ns": 0, "sources": ["notice.txt"],
+            {"symbol": "BTCUSDT", "instrument_id": "BTCUSDT-E1-PERP.BINANCE", "start_ns": 0, "sources": ["notice.txt"],
              "events": []}]})
         notice = self.write("notice.txt", "the exchange notice")
         written = self.ok("market", "lifecycle", *ledger, "--manifest", manifest, "--notice", notice)
@@ -226,7 +208,8 @@ class CommandTests(unittest.TestCase):
         self.refused("INTERVAL_INVALID", "market", "coverage", "--symbols", "BTCUSDT", "--start",
                      "2025-12-31T00:00:30Z", "--end", "2026-01-02T00:00:00Z")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
-        self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")
+        self.refused("MONTH_EXISTS", "market", "import", "--month", "2026-01")
+        self.refused("MONTH_INVALID", "market", "import", "--month", "2025-12")
 
         # An exploration
         explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
@@ -318,13 +301,13 @@ class CommandTests(unittest.TestCase):
         self.assertTrue(reproduced["fingerprints_match"])
         validation = self.ok("validation", "registration", *ledger, "--candidate", "fixture@2",
                              "--window-start", "2030-01-01T00:00:00Z", "--window-end", "2030-02-01T00:00:00Z",
-                             "--universe-rule", "usdt-perp-top50-30d-v1", "--design", self.write("design.json", DESIGN),
+                             "--universe-rule", "usdt-perp-listed30d-v1", "--design", self.write("design.json", DESIGN),
                              "--tsa-url", "https://timestamp.example.invalid")
         self.assertEqual(validation["witness"]["status"], "failed")
         self.assertTrue(validation["next_actions"])
         self.refused("WINDOW_INVALID", "validation", "registration", *ledger, "--candidate", "fixture@2",
                      "--window-start", "2030-01-01T00:00:00+01:00", "--window-end", "2030-02-01T00:00:00Z",
-                     "--universe-rule", "usdt-perp-top50-30d-v1", "--design", self.write("design2.json", DESIGN))
+                     "--universe-rule", "usdt-perp-listed30d-v1", "--design", self.write("design2.json", DESIGN))
         reported = self.ok("validation", "report", *ledger, "--registration-id", str(validation["registration_id"]))
         self.assertIsNone(reported["binding"])
         code, witnessed, err = self.call("ledger", "witness", *ledger, "--tsa-url", "https://timestamp.example.invalid")

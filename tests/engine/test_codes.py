@@ -11,14 +11,14 @@ from nautilus_trader.model import InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 
 from engine import audit, config, load, report
-from market import export
+from market import export, instrument
 
 
 ENGINE = Path(__file__).resolve().parents[2] / "engine"
 MINUTE, DAY = 60_000, 86_400_000
 START = 1_767_225_600_000  # 2026-01-01T00:00:00Z, ms
 TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": None, "min_quantity": None,
-         "min_notional": None, "max_price": None, "min_price": None}
+         "min_notional": None, "max_price": None, "min_price": None, "terms_source": "inferred", "observed_at": 0}
 
 
 class CatalogueTests(unittest.TestCase):
@@ -52,13 +52,14 @@ def catalog(root: Path, minutes: np.ndarray, days: int = 0, symbol="AAAUSDT") ->
     path = root / symbol
     path.mkdir()
     store = ParquetDataCatalog(str(path))
-    store.write_instruments([export.build_instrument(symbol, TERMS, 2)])
-    iid = InstrumentId.from_str(export.instrument_id(symbol))
+    native = export.native_symbol(symbol)["instrument_id"]
+    store.write_instruments([instrument.build_instrument(symbol, TERMS, 2, native)[0]])
+    iid = InstrumentId.from_str(native)
     bars = {"ts_open": START + minutes * MINUTE}
     for name in ("open", "high", "low", "close"):
         bars[name] = np.full(len(minutes), 100 * 10**8, dtype=np.int64)
     bars["volume"] = np.full(len(minutes), 10**4, dtype=np.int64)
-    export.write_marks(store, iid, bars, MINUTE, 8)
+    export.write_marks(store, iid, bars, MINUTE, 8, 8)
     if days:
         daily = {name: np.resize(values[:1], days) for name, values in bars.items()}
         daily["ts_open"] = START - DAY * days + DAY * np.arange(days)

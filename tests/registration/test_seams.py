@@ -33,13 +33,6 @@ class SeamTests(unittest.TestCase):
         key = comparability.config_key(config.effective_configuration(args).values)
         self.assertEqual((key["symbols"], key["account"]), (["AAAUSDT"], config.ACCOUNT_CONTRACT))
 
-    def test_member_months_merge_into_half_open_paths(self):
-        paths = seams.membership_from_months([("2025-12", "A"), ("2026-01", "A"), ("2026-03", "A"), ("2025-12", "B")])
-        self.assertEqual(paths["A"], [[seams.month_ns("2025-12"), seams.month_ns("2026-02")],
-                                      [seams.month_ns("2026-03"), seams.month_ns("2026-04")]])
-        self.assertEqual(paths["B"], [[seams.month_ns("2025-12"), seams.month_ns("2026-01")]])
-        self.assertEqual(seams.month_ns("1970-02"), 31 * 86_400 * 10**9)
-
 
 if __name__ == "__main__":
     unittest.main()

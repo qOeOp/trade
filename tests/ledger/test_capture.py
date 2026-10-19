@@ -24,7 +24,7 @@ ARGV = ["--start", "2026-01-01"]
 def coverage_receipt(identity: dict) -> dict:
     return {"format": coverage.FORMAT, "input_identity": identity,
             "effective_config": {"start": "2026-01-01T00:00:00Z", "end": "2026-02-01T00:00:00Z"},
-            "export_receipts": {symbol: {"instrument_id": symbol} for symbol in identity["symbols"]}}
+            "export_receipts": {symbol: {"pieces": [{"instrument_id": symbol}]} for symbol in identity["symbols"]}}
 
 
 COVERAGE = json.dumps(coverage_receipt(inputs()["identity"])).encode()
