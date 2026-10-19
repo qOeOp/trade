@@ -334,6 +334,22 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.2.3.2">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
+#### 成交量占比由 Agent 在复现后自算，只作容量警示 [#R-2-3-3]
+
+成交量占比不存，Agent 在复现之后自己算：每笔成交的数量除以那一分钟的成交量。它用来提醒容量问题，不是实测的成交质量。
+
+实测发现，回测里的市价单不受 K 线成交量限制，一笔大单在成交很少的一分钟里也能几乎按收盘价全部成交；限价单则按成交量分多根 K 线成交。不看占比，就会把成交量撑不住的策略当成可行。
+
+<div className="rd-example">
+
+某分钟成交量只有 4，一笔 10 的市价单照样全部成交，其中 9 只差一个价位；这笔的占比是 2.5，说明回测成交比那一分钟全部成交还多。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/capital.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">文献核查与原生成交实测后加入（10-20）。</p>
+
 ## 8.3　度量目录与两种报告 [#R-3]
 
 一套度量目录，两种报告，其余的分析保持动态。
@@ -592,6 +608,22 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
+
+#### 波动状态：差出在高波动日还是低波动日 [#R-3-2-11]
+
+按事先就能知道的市场状态把日子分成高波动和低波动两组，看候选比对照的差出在哪一组。分组只看前一天及以前的篮子波动，不偷看当天。
+
+很多策略只在某种行情里有效。按当月涨跌来分会把市场方向混进来；按前一天的波动来分只用当时已知的信息，而且只给一种固定切法，避免事后挑一种好看的切法。
+
+<div className="rd-example">
+
+例如候选的优势几乎都在高波动日，低波动日两边差不多，下一步可以考虑按波动加条件过滤或调整仓位。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">文献核查后加入（10-20），尚无演练证据。</p>
 
 #### 交易结构：两侧各自统计再比，不逐笔配对 [#R-3-2-7]
 
