@@ -39,13 +39,16 @@ BUSINESS_KEYS = {
     "account": (),
     "returns_series": (),
 }
+# The summary's account figures (engine.summary_statistics) and the closed and winning counts the
+# auditor reconciles.
 METRICS = (
     "final_equity_usdt",
-    "annualized_return_pct",
+    "net_change_usdt",
+    "period_return",
+    "annual_return",
+    "sharpe_365",
     "closed_trades",
     "winning_trades",
-    "native_sharpe_365",
-    "native_max_drawdown_daily_close",
 )
 ACCOUNT_TOLERANCE = Decimal("0.00000001")  # one hundred-millionth; an uncalibrated example value
 FIRST_MISMATCHES = 3

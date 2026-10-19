@@ -168,5 +168,21 @@ class ReportRefusalTests(unittest.TestCase):
                          "STARTING_BALANCE_NOT_POSITIVE")
 
 
+    def test_statistics_cover_the_trading_window_and_note_what_cannot_be_computed(self):
+        from decimal import Decimal
+        day = 86_400 * 10**9
+        start, end = 10 * day, 14 * day  # four trading days
+        returns = {9 * day: 0.5, 10 * day: 0.01, 11 * day: -0.02, 12 * day: 0.015, 13 * day: 0.0, 14 * day: 0.9}
+        found = report.summary_statistics(returns, start, end, Decimal(100000), Decimal(110000))
+        self.assertEqual(found["trading_day_count"], 4)  # the warm-up and the return stamped at the end left out
+        self.assertEqual((found["trading_window_days"], found["period_return"]), ("4", "0.1"))
+        self.assertAlmostEqual(float(found["annual_return"]), 1.1 ** (365 / 4) - 1, places=6)
+        self.assertEqual(found["period_end_utc"], "1970-01-15T00:00:00Z")
+        self.assertEqual(found["statistics_notes"], [])
+        blown = report.summary_statistics({}, start, end, Decimal(100000), Decimal(0))
+        self.assertEqual((blown["period_return"], blown["annual_return"], blown["sharpe_365"]), (None, None, None))
+        self.assertEqual(len(blown["statistics_notes"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

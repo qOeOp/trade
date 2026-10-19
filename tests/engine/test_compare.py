@@ -18,8 +18,8 @@ def _replay(root: Path, sharpe) -> Path:
     (root / "account.csv").write_text("ts_event,total\n2026-01-01,100000\n")
     (root / "returns_series.csv").write_text("ts_event_ns,native_return\n0,0.0\n")
     (root / "summary.json").write_text(json.dumps({
-        "engine_version": "2.0.0rc3", "final_equity_usdt": "100000.00000000", "annualized_return_pct": 0.0,
-        "closed_trades": 0, "winning_trades": 0, "native_sharpe_365": sharpe, "native_max_drawdown_daily_close": -0.0}))
+        "engine_version": "2.0.0rc3", "final_equity_usdt": "100000.00000000", "net_change_usdt": "0E-8",
+        "period_return": "0E-8", "annual_return": "0E-8", "sharpe_365": sharpe, "closed_trades": 0, "winning_trades": 0}))
     return root
 
 
@@ -30,7 +30,7 @@ class CompareReportsTests(unittest.TestCase):
             self.assertTrue(compare_reports(_replay(root / "a", None), _replay(root / "b", None))["passed"])
             found = compare_reports(_replay(root / "c", None), _replay(root / "d", 0.5))
         self.assertFalse(found["passed"])
-        self.assertEqual(found["metrics"]["native_sharpe_365"],
+        self.assertEqual(found["metrics"]["sharpe_365"],
                          {"reference": None, "candidate": 0.5, "within_tolerance": False})
 
     def test_unreadable_directories_and_tolerances_are_refused(self):

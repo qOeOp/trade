@@ -13,12 +13,11 @@ from collections.abc import Iterable
 from decimal import Decimal
 from pathlib import Path
 
-from nautilus_trader.analysis import MaxDrawdown
 from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
 
-from engine.config import EXECUTION_BAR_MINUTES, Refusal, Window
+from engine.config import EXECUTION_BAR_MINUTES, Refusal, Window, utc_text
 from engine.load import diagnostics
 
 
@@ -116,22 +115,40 @@ def write_order_events(orders: Iterable, path: Path) -> None:
 
 def summary_statistics(returns_series: dict[int, float], trade_start_ns: int, end_ns: int,
                        starting_balance: Decimal, final_equity: Decimal) -> dict:
-    """engine.summary_statistics: the return, annualized return, native Sharpe ratios and drawdown of the
-    trading window (returns stamped from trade_start_ns on), annualized over its exact length in days."""
+    """engine.summary_statistics: the trading window's return and annual return (final equity over the
+    starting balance, annualized over the window's exact length in days) and the native 365-day Sharpe
+    ratio of its daily returns, the warm-up left out. Drawdown and win rate are the ledger's, from the
+    native reports; a figure that cannot be computed is null with its reason in statistics_notes."""
     if end_ns <= trade_start_ns:
         raise Refusal("TRADING_WINDOW_EMPTY", f"the trading window [{trade_start_ns}, {end_ns}) is empty")
     if starting_balance <= 0:
         raise Refusal("STARTING_BALANCE_NOT_POSITIVE", f"the starting balance is {starting_balance}")
-    duration_days = Decimal(end_ns - trade_start_ns) / Decimal(DAY_NS)
-    eligible_returns = {ts: value for ts, value in returns_series.items() if ts >= trade_start_ns}
+    window_days = Decimal(end_ns - trade_start_ns) / Decimal(DAY_NS)
+    trading = {ts: value for ts, value in returns_series.items() if trade_start_ns <= ts < end_ns}
+    notes = []
+    period_return = annual_return = None
+    if final_equity > 0:
+        ratio = final_equity / starting_balance
+        period_return = str(ratio - 1)
+        annual_return = str(ratio ** (Decimal(365) / window_days) - 1)
+    else:
+        notes.append(f"period_return and annual_return: the final equity {final_equity} USDT is not positive")
+    sharpe = SharpeRatio(365).calculate_from_returns(trading)
+    if not isinstance(sharpe, (int, float)) or not math.isfinite(sharpe):
+        notes.append(f"sharpe_365: the native SharpeRatio of {len(trading)} daily returns is {sharpe!r}")
+        sharpe = None
     return {
+        "period_start_utc": utc_text(trade_start_ns),
+        "period_end_utc": utc_text(end_ns),
+        "trading_window_days": str(window_days),
+        "trading_day_count": len(trading),
+        "starting_balance_usdt": str(starting_balance),
         "final_equity_usdt": str(final_equity),
         "net_change_usdt": str(final_equity - starting_balance),
-        "period_return_pct": float((final_equity / starting_balance - 1) * 100),
-        "annualized_return_pct": float(((final_equity / starting_balance) ** (Decimal(365) / duration_days) - 1) * 100),
-        "native_sharpe_252": SharpeRatio(252).calculate_from_returns(eligible_returns),
-        "native_sharpe_365": SharpeRatio(365).calculate_from_returns(eligible_returns),
-        "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(eligible_returns),
+        "period_return": period_return,
+        "annual_return": annual_return,
+        "sharpe_365": float(sharpe) if sharpe is not None else None,
+        "statistics_notes": notes,
     }
 
 
@@ -206,23 +223,15 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
         "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(instruments)} strategies sharing portfolio capital",
-        "starting_balance_usdt": account["starting_balance_usdt"],
         "native_risk_submit_rate": account["max_order_submit_rate"],
         "sizing": {"mode": "strategy_source"},
-        **{key: statistics[key] for key in ("final_equity_usdt", "net_change_usdt", "period_return_pct",
-                                            "annualized_return_pct")},
+        **statistics,
         "closed_trades": len(closed),
         "winning_trades": wins,
-        "closed_trade_win_rate": wins / len(closed) if len(closed) else None,
-        "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
         "denied_orders": int((orders["status"] == "DENIED").sum()),
         "rejected_orders": int((orders["status"] == "REJECTED").sum()),
-        **{key: statistics[key] for key in ("native_sharpe_252", "native_sharpe_365",
-                                            "native_max_drawdown_daily_close")},
         "data_interval_minutes": EXECUTION_BAR_MINUTES,  # the execution bar, under the name the ledger reads
         "input_start_utc": window.start,
-        "period_start_utc": window.trade_start,
-        "period_end_utc": window.end,
         "per_coin": [
             {
                 "coin": row["coin"],
