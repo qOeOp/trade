@@ -269,8 +269,11 @@ class ImportTests(unittest.TestCase):
                 self.refused("LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.commits[MAR], files)
         off_grid = {**body, "episodes": [{**body["episodes"][0], "events": [
             *body["episodes"][0]["events"][:2], {**body["episodes"][0]["events"][2], "close_price": "100.015"}]}]}
+        root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
+        self.addCleanup(shutil.rmtree, root, True)
         self.refused("LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.commits[MAR], ["CCCUSDT"], start, end,
-                     lifecycle.validate_lifecycle(off_grid, self.commits[MAR], files), files, True)
+                     lifecycle.validate_lifecycle(off_grid, self.commits[MAR], files), files, True, root)
+        self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
 
 
 @unittest.skipUnless(BINARY, SKIP)

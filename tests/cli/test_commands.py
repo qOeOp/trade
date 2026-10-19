@@ -41,7 +41,7 @@ CHILD_RETURNS = [0.004, -0.001, 0.002, 0.003, -0.002, 0.001]
 
 
 def _fill_market(profile: dict) -> None:
-    """BTCUSDT one-minute LAST and MARK bars from 2025-12-24 to 2026-02-01, funding, and the universe months."""
+    """BTCUSDT one-minute LAST and MARK bars from 2025-12-24 to 2026-02-01, funding, and the January universe."""
     count = (END - FIRST) // MINUTE
     i = np.arange(count)
     price = (100000 + (i % 997) / 10) * 10**8
@@ -51,7 +51,7 @@ def _fill_market(profile: dict) -> None:
     seed(profile, month="2026-01", through="2026-02-01", terms=[("BTCUSDT", {"price_increment": "0.10",
                                                                             "size_increment": "0.001"})],
          bars=bars, funding={"BTCUSDT": [(FIRST + 8 * 3_600_000 * k, "0.0001") for k in range(3 * 39)]},
-         members=[(date(2025, 12, 1), "BTCUSDT"), (date(2026, 1, 1), "BTCUSDT")])
+         members=[(date(2026, 1, 1), "BTCUSDT")])  # the commit test: a member traded on its month's eve
 
 
 @unittest.skipUnless(BINARY, SKIP)

@@ -346,13 +346,18 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                          "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
                          "episodes": (episodes or {}).get(symbol)})
     started = time.monotonic()
-    if jobs:
-        with ProcessPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
-            for receipt in pool.map(export_episode, jobs):
-                receipts[receipt["symbol"]] = receipt
-    for name, data in sorted((lifecycle_files or {}).items()):
-        target = window / "lifecycle-evidence" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+    try:
+        if jobs:
+            with ProcessPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
+                for receipt in pool.map(export_episode, jobs):
+                    receipts[receipt["symbol"]] = receipt
+        for name, data in sorted((lifecycle_files or {}).items()):
+            target = window / "lifecycle-evidence" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    except BaseException:
+        if fresh:  # a failed export leaves no partial directory (a cached one keeps no receipt for the failure)
+            shutil.rmtree(window, ignore_errors=True)
+        raise
     return {"commit": commit, "root": str(window), "exported": len(jobs), "cached": len(symbols) - len(jobs),
             "seconds": round(time.monotonic() - started, 1), "receipts": {symbol: receipts[symbol] for symbol in symbols}}
