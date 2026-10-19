@@ -298,6 +298,44 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"]) for item in written],
                          [("on_start", "ValueError", "BTCUSDT-PERP.BINANCE"), ("constructor", "ValueError", "unconstructed")])
 
+    def test_a_raising_clock_callback_leaves_a_receipt_though_the_engine_goes_on(self):
+        from datetime import timedelta
+        from decimal import Decimal
+        from nautilus_trader.model import AccountType, BookType, Currency, Money, OmsType, StrategyId, TraderId, Venue
+        from nautilus_trader.trading import StrategyConfig
+        from tests.engine import test_partial_entry_protection as native
+
+        class Timed(Strategy):
+            def __init__(self):
+                super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+
+            def on_start(self):
+                self.subscribe_bars(native.BAR_TYPE)
+                self.clock.set_timer("tick", timedelta(minutes=5), callback=self.tick)
+                self.clock.set_time_alert_ns("alert", self.clock.timestamp_ns() + 60 * 10**9, self.alert)
+
+            def tick(self, event):
+                raise ValueError("timer failed")
+
+            def alert(self, event):
+                raise KeyError("alert failed")
+
+        run.FAILURES.clear()
+        guarded = type("GuardedTimed", (Timed,), run.guarded_callbacks(Timed))
+        engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
+                                                     logging=LoggerConfig(stdout_level=LogLevel.OFF)))
+        self.addCleanup(engine.dispose)
+        engine.add_venue(Venue("BINANCE"), OmsType.NETTING, AccountType.MARGIN, [Money(100000, Currency.from_str("USDT"))],
+                         base_currency=Currency.from_str("USDT"), default_leverage=Decimal(1), book_type=BookType.L1_MBP,
+                         bar_execution=True)
+        engine.add_instrument(native.INSTRUMENT)
+        engine.add_strategy(guarded())
+        engine.add_data(native.bars())
+        engine.run()  # the engine logs and swallows a time event callback's exception
+        stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in run.FAILURES}
+        self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
+                                  ("set_time_alert_ns:alert", "KeyError", "unconstructed")})
+
 
 if __name__ == "__main__":
     unittest.main()

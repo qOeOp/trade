@@ -170,9 +170,53 @@ def guard_callback(name: str, method):
     return guarded
 
 
+# Clock APIs that register a callback, with the callback's position among their arguments
+# (nautilus_trader.common.Clock in the pinned version).
+CLOCK_CALLBACK_APIS = {"set_timer": 4, "set_timer_ns": 4, "set_time_alert": 2, "set_time_alert_ns": 2,
+                       "register_default_handler": 0}
+
+
+class GuardedClock:
+    """The strategy's native clock, with every callback the source registers on it guarded."""
+
+    def __init__(self, clock, instance):
+        self._clock, self._instance = clock, instance
+
+    def __getattr__(self, name):
+        found = getattr(self._clock, name)
+        if name not in CLOCK_CALLBACK_APIS:
+            return found
+        index = CLOCK_CALLBACK_APIS[name]
+
+        def register(*args, **kwargs):
+            if kwargs.get("callback") is not None:
+                kwargs["callback"] = self._guard(name, kwargs["callback"])
+            elif len(args) > index and args[index] is not None:
+                args = (*args[:index], self._guard(name, args[index]), *args[index + 1:])
+            return found(*args, **kwargs)
+        return register
+
+    def _guard(self, api: str, callback):
+        instance, stage = self._instance, f"{api}:{getattr(callback, '__name__', 'callback')}"
+
+        @functools.wraps(callback)
+        def guarded(*args, **kwargs):
+            try:
+                return callback(*args, **kwargs)
+            except Exception as exc:
+                execution_failure(stage, exc, instance)
+                raise
+        return guarded
+
+
+def _guarded_clock(self) -> GuardedClock:
+    return GuardedClock(Strategy.clock.__get__(self, type(self)), self)
+
+
 def guarded_callbacks(strategy_class: type) -> dict:
-    """Every on_ callback and report hook the source's classes define, guarded; the most derived wins."""
-    found = {}
+    """Every on_ callback and report hook the source's classes define, guarded, the most derived winning,
+    and a clock whose registered callbacks are guarded too."""
+    found = {"clock": property(_guarded_clock)}
     for cls in strategy_class.__mro__:
         if cls is Strategy:
             break
