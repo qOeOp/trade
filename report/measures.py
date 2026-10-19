@@ -72,18 +72,12 @@ def _ns(moment: datetime) -> int:
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
-def latest_sealed(conn: db.LedgerConnection, run_id: int, sealed: Mapping) -> dict | None:
-    found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE run_id = %s ORDER BY created_at DESC, "
-                      "metrics_revision DESC LIMIT 1", (run_id,))
-    return sealed.get(found[0][0]) if found else None
-
-
 def run_facts(conn: db.LedgerConnection, run_id: int) -> dict:
     """What derive_measures reads for one run: the run and trial rows, the latest sealed result, the
     daily series and position cycles as stored, the starting balance of the account terms, the final
     equity the sealed facts record, the trading window and the input identity."""
     loaded = metrics.load_run(conn, run_id)
-    sealed = latest_sealed(conn, run_id, loaded["sealed"])
+    sealed = metrics.latest_sealed(conn, run_id, loaded["sealed"])
     capture = loaded["capture"]
     coverage = capture.get("input_coverage") if isinstance(capture.get("input_coverage"), Mapping) else {}
     config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), Mapping) else {}

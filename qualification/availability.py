@@ -92,12 +92,6 @@ def _capture_view(capture: Mapping) -> dict:
             "outcome": (capture.get("outcome") or {}).get("kind")}
 
 
-def _latest_sealed(conn: db.LedgerConnection, run_id: int, sealed: Mapping) -> dict | None:
-    found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE run_id = %s ORDER BY created_at DESC, "
-                      "metrics_revision DESC LIMIT 1", (run_id,))
-    return sealed.get(found[0][0]) if found else None
-
-
 def _counts(fingerprints, sealed: Mapping | None) -> dict:
     """Activity counts for diagnosis: native row counts the fingerprint records, else the sealed facts."""
     rows = {}
@@ -131,7 +125,7 @@ def assess(conn: db.LedgerConnection, run: Mapping) -> dict:
         reasons.append("CAPTURE_FAILED: " + ", ".join(
             [*(f"stage {name}" for name in view["failed_stages"]), *(["runtime failures"] if view["failures"] else []),
              *([f"outcome {view['outcome']}"] if view["outcome"] != "completed" else [])]))
-    sealed = _latest_sealed(conn, row["run_id"], loaded["sealed"]) if row["status"] == "passed" else None
+    sealed = metrics.latest_sealed(conn, row["run_id"], loaded["sealed"]) if row["status"] == "passed" else None
     if row["status"] == "passed":
         for item in native_reasons(sealed):
             reasons.append(item)
