@@ -116,10 +116,11 @@ class Exchange:
         parts = urllib.parse.urlsplit(url)
         query = {key: values[0] for key, values in urllib.parse.parse_qs(parts.query).items()}
         if parts.path == "/fapi/v1/exchangeInfo":
+            self.server_time += 3_600_000  # each observation is a later one, as the exchange's clock runs on
             return json.dumps({"serverTime": self.server_time, "symbols": self.info}).encode()
         symbol = query.get("symbol")
         if symbol not in {item["symbol"] for item in self.info}:
-            raise sources._refuse(f"{url}: HTTP 400", "SOURCE_UNKNOWN_SYMBOL", missing=(url,))
+            raise sources._bad_request(url, b'{"code":-1121,"msg":"Invalid symbol."}')
         low, high = int(query["startTime"]), int(query["endTime"])
         if parts.path == "/fapi/v1/fundingRate":
             return json.dumps([{"symbol": symbol, "fundingTime": at, "fundingRate": rate}

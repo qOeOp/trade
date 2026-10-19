@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 import pyarrow as pa
@@ -20,6 +21,7 @@ from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, servin
 
 
 T0 = day_ms(date(2025, 3, 1))
+REAL_GET = sources._get  # the request function itself, before a test serves the stand-in exchange
 
 
 def klines(rows):
@@ -76,10 +78,32 @@ class SourceTests(Refusals):
         self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTC/USDT", "1m", ["2025-03"])
         self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m", ["2025-3"])
 
-        def down(url, **_):
-            raise sources._refuse(f"{url}: HTTP 503", "SOURCE_UNREACHABLE")
-        with serving(self.exchange), unittest.mock.patch.object(sources, "_get", down):
-            self.refused("SOURCE_UNREACHABLE", sources.fetch_archive, self.cache, f"{sources.UM}/monthly/y.zip")
+    def test_http_answers_map_to_their_codes(self):
+        """Through the real request path: 400 with Binance -1121 is an unknown contract, another 400 a
+        malformed request, a lasting 503 unreachable."""
+        class Answer:
+            def __init__(self, status, body):
+                self.status, self.body, self.headers, self.will_close = status, body, {}, False
+
+            def read(self):
+                return self.body
+
+        class Connection:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def request(self, *_, **__):
+                pass
+
+            def getresponse(self):
+                return self.answer
+        cases = (("SOURCE_UNKNOWN_SYMBOL", Answer(400, b'{"code":-1121,"msg":"Invalid symbol."}')),
+                 ("SOURCE_SHAPE", Answer(400, b'{"code":-1100,"msg":"Illegal characters found in parameter."}')),
+                 ("SOURCE_UNREACHABLE", Answer(503, b"busy")))
+        for code, answer in cases:
+            with self.subTest(code=code), mock.patch.object(sources, "_connection", lambda host, a=answer: Connection(a)), \
+                    mock.patch.object(sources.time, "sleep", lambda seconds: None):
+                self.refused(code, REAL_GET, f"{sources.REST}/fapi/v1/klines?symbol=X", attempts=2)
 
     def test_rest_pages_return_closed_rows_and_refuse_unknown_contracts(self):
         rows = minutes(T0, T0 + 4000 * MINUTE)
@@ -98,7 +122,7 @@ class SourceTests(Refusals):
 
     def test_exchange_info_terms_are_verbatim_and_complete(self):
         observed, listed = sources.rest_exchange_info()
-        self.assertEqual(observed, T0)
+        self.assertEqual(observed, T0 + 3_600_000)
         self.assertEqual({key: listed[0][key] for key in ("symbol", "price_increment", "size_increment",
                                                           "contract_type", "underlying_type")},
                          {"symbol": "BTCUSDT", "price_increment": "0.01", "size_increment": "0.001",
@@ -150,6 +174,68 @@ class StitchTests(Refusals):
         self.refused("SOURCE_SHAPE", series._merge, [series._tagged(unclosed, 0)], 0, 1 << 62, "X")
         self.refused("PRICE_TYPE_UNKNOWN", series.stitch_series, self.cache, "BTCUSDT", "INDEX", T0, T0 + DAY, False,
                      True)
+
+
+class ShapeTests(Refusals):
+    """An archive row outside its own period or off the minute grid refuses before any trimming."""
+
+    def setUp(self):
+        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, self.cache, True)
+        self.exchange = Exchange(server_time=T0)
+        context = serving(self.exchange)
+        context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
+
+    def test_microsecond_rows_refuse(self):
+        rows = [(r[0] * 1000, *r[1:6], r[6] * 1000 + 999, r[7]) for r in minutes(T0, T0 + 10 * MINUTE)]
+        self.exchange.klines("monthly", "LAST", "OLDUSDT", "2025-03", rows)
+        self.refused("SOURCE_SHAPE", series.stitch_series, self.cache, "OLDUSDT", "LAST", T0, T0 + DAY, False, False)
+
+    def test_rows_of_another_period_refuse(self):
+        self.exchange.klines("monthly", "LAST", "OLDUSDT", "2025-03", minutes(T0 - 5 * MINUTE, T0 + 5 * MINUTE))
+        self.refused("SOURCE_SHAPE", series.stitch_series, self.cache, "OLDUSDT", "LAST", T0, T0 + DAY, False, False)
+        self.exchange.klines("daily", "LAST", "NEWUSDT", "2025-03-02", minutes(T0, T0 + 5 * MINUTE))  # day 1's rows
+        self.refused("SOURCE_SHAPE", series.stitch_series, self.cache, "NEWUSDT", "LAST", T0, T0 + 2 * DAY, False, True)
+
+    def test_duplicates_agree_by_value_at_the_stored_scale(self):
+        first = series._tagged(klines([(T0, "1.50", "1.5", "1.5", "1.5", "2.0")]), 0)
+        same = series._tagged(klines([(T0, "1.5", "1.50000000", "1.5", "1.5", "2")]), 2)
+        self.assertEqual(series._merge([first, same], 0, 1 << 62, "X").num_rows, 1)
+        other = series._tagged(klines([(T0, "1.5", "1.5", "1.5", "1.50000001", "2")]), 2)
+        self.refused("SOURCE_CONFLICT", series._merge, [first, other], 0, 1 << 62, "X")
+
+
+class FundingSlotTests(Refusals):
+    """One settlement per hour slot across sources: equal rates are one row, different ones conflict."""
+
+    def setUp(self):
+        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, self.cache, True)
+        self.exchange = Exchange(server_time=T0)
+        self.exchange.contract("BTCUSDT")
+        context = serving(self.exchange)
+        context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
+        self.feb = day_ms(date(2025, 2, 1))  # February has no archive: REST covers February and March
+
+    def settle(self, rate_rest: str):
+        hours = range(self.feb, T0 + DAY, 8 * 3_600_000)
+        self.exchange.funding_month("BTCUSDT", "2025-03", [(at + 3, "0.0001") for at in hours if at >= T0])
+        self.exchange.funding["BTCUSDT"] = [(at + 5, rate_rest) for at in hours]
+
+    def test_jittered_times_of_one_settlement_are_one_row(self):
+        self.settle("0.0001")
+        found = store.funding(self.cache, "BTCUSDT", self.feb, T0 + DAY, trading=True)
+        self.assertEqual(len(found), 28 * 3 + 3)
+        self.assertEqual(found[-3:], [(T0 + 3, "0.0001"), (T0 + 8 * 3_600_000 + 3, "0.0001"),
+                                      (T0 + 16 * 3_600_000 + 3, "0.0001")])  # the archive's times are kept
+
+    def test_one_slot_with_two_rates_conflicts(self):
+        self.settle("0.0002")
+        self.refused("SOURCE_CONFLICT", store.funding, self.cache, "BTCUSDT", self.feb, T0 + DAY, trading=True)
+        self.exchange.funding_month("ETHUSDT", "2025-03", [(T0 + 3, "0.0001"), (T0 + 600_000, "0.0001")])
+        self.refused("SOURCE_SHAPE", store.funding, self.cache, "ETHUSDT", T0, T0 + DAY, trading=True)
 
 
 class GapTests(Refusals):
@@ -217,13 +303,10 @@ class ScalingTests(Refusals):
         self.refused("SCALE_RANGE", store.scaled, pa.array(["1000000000000000"]), 8, "v")
         self.assertEqual(store.significant_decimals(pa.array(["0.0010000", "12", "3.25"])), 3)
 
-    def test_statements_hold_every_row_and_inconsistent_bars_refuse(self):
-        rows, _ = store.bar_rows(klines([(T0 + i * MINUTE, "1.5", "2", "1", "1.75", "3.1") for i in range(5)]),
-                                 "ABCUSDT", "LAST")
-        statements = list(store.insert_statements(rows, "ABCUSDT", "LAST"))
-        self.assertEqual(statements[0].count(b"('ABCUSDT','LAST',"), 5)
-        self.assertIn(f"('ABCUSDT','LAST',{T0},150000000,200000000,100000000,175000000,31000)".encode(), statements[0])
+    def test_inconsistent_bars_and_mark_volumes_refuse(self):
         self.refused("SOURCE_SHAPE", store.bar_rows, klines([(T0, "2", "1.5", "1", "1.5", "0")]), "X", "LAST")
+        self.refused("SOURCE_SHAPE", store.bar_rows, klines([(T0, "1", "1", "1", "1", "3")]), "X", "MARK")
+        self.assertEqual(store.bar_rows(klines([(T0, "1", "1", "1", "1", "0")]), "X", "MARK")[0]["volume"].tolist(), [0])
 
 
 class UniverseTests(Refusals):

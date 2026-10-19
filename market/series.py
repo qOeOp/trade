@@ -11,6 +11,7 @@ never stored.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,22 @@ from market.sources import KLINE_SCHEMA, MINUTE, MarketError, _refuse
 
 DAY = 86_400_000
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
+PRICE_SCALE, VOLUME_SCALE = 8, 4  # the stored integer scales (market_schema); sources agree at these
+_QUANTA = {name: Decimal(1).scaleb(-(VOLUME_SCALE if name == "volume" else PRICE_SCALE))
+           for name in ("open", "high", "low", "close", "volume")}
+
+
+def _same_row(a: dict, b: dict) -> bool:
+    """Two sources' rows of one minute agree: equal times and every value equal at the stored scale (an
+    archive's 1.50 and REST's 1.5 are one value; a binary-float volume tail rounds as the import does)."""
+    if (a["open_time"], a["close_time"]) != (b["open_time"], b["close_time"]):
+        return False
+    try:
+        return all(Decimal(a[name]).quantize(quantum, ROUND_HALF_EVEN) == Decimal(b[name]).quantize(quantum,
+                                                                                                    ROUND_HALF_EVEN)
+                   for name, quantum in _QUANTA.items())
+    except (InvalidOperation, TypeError):
+        return a == b
 PRICE_TYPES = ("LAST", "MARK")
 
 
@@ -96,9 +113,8 @@ def _merge(parts: list[pa.Table], start_ms: int, end_ms: int, label: str) -> pa.
     same = np.nonzero(np.diff(times) == 0)[0]
     if len(same):
         fields = table.drop_columns(["source"])
-        first, second = fields.take(pa.array(same)), fields.take(pa.array(same + 1))
-        differs = [int(times[same[i]]) for i in range(len(same))
-                   if first.slice(i, 1).to_pylist() != second.slice(i, 1).to_pylist()]
+        first, second = fields.take(pa.array(same)).to_pylist(), fields.take(pa.array(same + 1)).to_pylist()
+        differs = [int(times[same[i]]) for i in range(len(same)) if not _same_row(first[i], second[i])]
         if differs:
             raise _refuse(f"{label}: sources disagree at open_time {differs[:5]}", "SOURCE_CONFLICT",
                           missing=tuple(str(item) for item in differs[:5]))
@@ -147,7 +163,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     kind = sources.KIND_OF[price_type]
     months = _months(start_ms, end_ms)
     monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months, workers)
-    parts = [_tagged(sources.kline_table(path), 0) for path in monthly.values()]
+    parts = [_tagged(sources.archive_table(path, period), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
 
     def add_days(days: list[str]) -> None:
@@ -155,7 +171,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         fetched.update(wanted)
         if wanted:
             found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted, workers)
-            parts.extend(_tagged(sources.kline_table(path), 1) for path in found.values())
+            parts.extend(_tagged(sources.archive_table(path, day), 1) for day, path in found.items())
 
     add_days([day for month in months if month not in monthly for day in _days(start_ms, end_ms, month)])
     table = _merge(parts, start_ms, end_ms, label)

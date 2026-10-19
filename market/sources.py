@@ -124,8 +124,7 @@ def _get(url: str, *, attempts: int = ATTEMPTS) -> bytes:
         if status == 404:
             raise _NotPublished(url)
         if status == 400 and url.startswith(REST):
-            raise _refuse(f"{url}: HTTP 400, the public endpoint does not know the contract", "SOURCE_UNKNOWN_SYMBOL",
-                          missing=(url,))
+            raise _bad_request(url, body)
         if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == attempts - 1:
             raise _refuse(f"{url}: HTTP {status}", "SOURCE_UNREACHABLE", missing=(url,))
         # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
@@ -135,6 +134,24 @@ def _get(url: str, *, attempts: int = ATTEMPTS) -> bytes:
         time.sleep(max(delay, wait))
         delay = min(delay * 2, 60)
     raise AssertionError("unreachable")
+
+
+UNKNOWN_SYMBOL_CODE = -1121  # Binance's "Invalid symbol."
+
+
+def _bad_request(url: str, body: bytes) -> MarketError:
+    """HTTP 400 from the public endpoints: SOURCE_UNKNOWN_SYMBOL only for Binance's error -1121 (the
+    contract is unknown); any other rejection is a malformed request, SOURCE_SHAPE."""
+    try:
+        found = json.loads(body)
+    except ValueError:
+        found = None
+    code = found.get("code") if isinstance(found, dict) else None
+    detail = found.get("msg") if isinstance(found, dict) else body[:200]
+    if code == UNKNOWN_SYMBOL_CODE:
+        return _refuse(f"{url}: the public endpoint does not know the contract ({detail})", "SOURCE_UNKNOWN_SYMBOL",
+                       missing=(url,))
+    return _refuse(f"{url}: HTTP 400 {code} {detail}", "SOURCE_SHAPE", missing=(url,))
 
 
 # Archives (market.fetch_archive, market.monthly_archives)
@@ -284,6 +301,29 @@ def kline_table(path: Path) -> pa.Table:
     except pa.ArrowInvalid as exc:
         raise _refuse(f"{path}: rows do not parse as klines ({exc})", "SOURCE_SHAPE", missing=(str(path),)) from exc
     return table.select(list(COLUMNS)).cast(KLINE_SCHEMA)
+
+
+def period_bounds(period: str) -> tuple[int, int]:
+    """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
+    from datetime import UTC, date, datetime, timedelta
+    day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
+    following = (day.replace(day=28) + timedelta(days=4)).replace(day=1) if len(period) == 7 else day + timedelta(days=1)
+    return tuple(int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000) for d in (day, following))
+
+
+def archive_table(path: Path, period: str) -> pa.Table:
+    """An archive's klines, refused SOURCE_SHAPE unless every row is a closed one-minute kline inside the
+    archive's own month or day (checked before any trimming to a window, so a file in other units or of
+    another period is never silently dropped)."""
+    table = kline_table(path)
+    low, high = period_bounds(period)
+    opens, closes = table["open_time"].to_numpy(), table["close_time"].to_numpy()
+    bad = (opens < low) | (opens >= high) | (opens % MINUTE != 0) | (closes != opens + MINUTE - 1)
+    if bad.any():
+        at = int(opens[int(bad.argmax())])
+        raise _refuse(f"{path.name}: the row at {at} is no closed one-minute kline of {period}", "SOURCE_SHAPE",
+                      missing=(str(path.name),))
+    return table
 
 
 def rows_table(rows: list[tuple]) -> pa.Table:
