@@ -1,7 +1,9 @@
 """Corruption rejection for native report reconciliation, without a replay."""
 
+import contextlib
 import copy
 import ast
+import io
 import csv
 import gzip
 import json
@@ -11,7 +13,7 @@ import unittest
 
 import pandas as pd
 
-from engine.audit import BAR_NS, audit, uncovered_intervals
+from engine.audit import BAR_NS, audit, audit_main, uncovered_intervals
 
 
 START = "2026-01-01 00:00:00+00:00"
@@ -299,6 +301,25 @@ class NativeAuditTests(unittest.TestCase):
                 values["events"] = order_events(values)
                 change(values["events"])
                 self.assertFalse(self.check(values)["passed"])
+
+    def test_the_auditor_runs_only_on_complete_reports_and_lifecycle_counts_need_the_coverage_receipt(self):
+        self.root = Path(self.directory.name) / "reports"
+        self.root.mkdir()
+        output = Path(self.directory.name) / "audit" / "audit.json"
+        self.check(reports())
+        self.assertEqual(audit_main(self.root, output), 0)
+        values = reports()
+        values["summary"]["per_coin"] = [{"instrument": SCOPE["instrument_id"], "counts": {"instrument_close": 1}}]
+        self.check(values)
+        self.assertEqual(audit_main(self.root, output), 1)
+        self.assertTrue(json.loads(output.read_text())["findings"][0].startswith("LIFECYCLE_COVERAGE_MISSING"))
+        (self.root.parent / "input-coverage.json").write_text("{}")
+        self.assertNotIn("LIFECYCLE_COVERAGE_MISSING", json.dumps(audit(self.root)["findings"]))
+        output.unlink()
+        (self.root / "order_events.jsonl.gz").unlink()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(audit_main(self.root, output), 2)
+        self.assertFalse(output.exists())
 
 
 def event(kind, identity, at, **fields):

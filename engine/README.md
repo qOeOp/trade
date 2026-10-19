@@ -124,6 +124,17 @@ such interval in `uncovered_intervals` with its start, end, quantities, the orde
 position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS = False` (recorded
 as `strategy_uses_stop_loss` in `summary.json`) gets the same list without the refusal.
 
+The auditor (`python -m engine.audit --run REPORTS --output FILE`) exits 0 when the run passes, 1
+with findings (the result is written) and 2 without auditing when a report or the event history is
+missing or the summary is unreadable. It reads the coverage receipt `input-coverage.json` from the
+report directory's parent: a summary that counts native lifecycle events without that receipt is a
+finding.
+
+A strategy constructor or callback (and `replay_diagnostics` or `replay_integrity_findings`) that
+raises leaves a structured receipt in `runtime_failures.jsonl` (stage, exception type, message,
+traceback, instrument) before the exception goes on; the runner then exits nonzero even when the
+engine caught the exception and finished. Without a failure the file is not written.
+
 The auditor does not prove a source's signal clock, order geometry, staged-exit races or other source-specific invariants: the strategy checks those in
 `replay_integrity_findings`, or a native probe does before the property is claimed. Seals from
 images before 2026-10-10 also ran budgeted-tier geometry gates for a fixed list of legacy signal

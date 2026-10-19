@@ -18,6 +18,7 @@ from nautilus_trader.trading import Strategy
 
 from engine.load import RUNTIME_CONTRACT, load_strategy
 from engine.report import diagnostics, runtime_source_metadata
+from engine import run
 from engine.run import (
     STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, importable_strategy,
     parse_configuration,
@@ -269,6 +270,32 @@ class StrategyLoaderTests(unittest.TestCase):
             strategy = wrapper(config)
         warmup.assert_called_once_with(Path("/inputs/market/BTCUSDT"), InstrumentId.from_str(config.instrument_id), 100)
         self.assertEqual(strategy.received[3]["historical_daily_bars"], ["canonical warmup"])
+
+    def test_a_raising_callback_or_constructor_leaves_a_structured_receipt(self):
+        self.source.write_text(SOURCE + "\n    def on_start(self):\n        raise ValueError('boom')\n")
+        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        receipts = self.root / "runtime_failures.jsonl"
+        run.FAILURES.clear()
+        STRATEGIES.clear()
+        self.addCleanup(setattr, run, "FAILURE_PATH", None)
+        run.FAILURE_PATH = receipts
+        engine = BacktestEngine(BacktestEngineConfig(
+            logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
+        ))
+        self.addCleanup(engine.dispose)
+        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
+                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "pool_membership": []}
+        engine.add_strategy_from_config(ImportableStrategyConfig(
+            strategy_path=importable_strategy(loaded), config_path="engine.run:StrategyInputs", config=config))
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            engine.run()
+        wrapper = getattr(run, importable_strategy(loaded).split(":")[1])
+        with self.assertRaises(ValueError):
+            wrapper(StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
+        written = [json.loads(line) for line in receipts.read_text().splitlines()]
+        self.assertEqual(written, run.FAILURES)
+        self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"]) for item in written],
+                         [("on_start", "ValueError", "BTCUSDT-PERP.BINANCE"), ("constructor", "ValueError", "unconstructed")])
 
 
 if __name__ == "__main__":

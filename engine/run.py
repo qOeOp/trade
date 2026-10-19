@@ -9,7 +9,10 @@ and the resolved configuration instead of replaying.
 
 from __future__ import annotations
 
+import functools
 import json
+import os
+import traceback
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -106,27 +109,85 @@ class _Configured:
         return Strategy.__new__(cls)
 
     def __init__(self, config: StrategyInputs):
-        instrument_id = InstrumentId.from_str(config.instrument_id)
-        super().__init__(
-            instrument_id,
-            BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
-            trade_start_ns=config.trade_start_ns,
-            historical_daily_bars=(
-                warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
-                if getattr(type(self), "DAILY_WARMUP", False) else []
-            ),
-            execution_bar_minutes=5,
-            strategy_id=StrategyId(config.strategy_id),
-            pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
-        )
+        try:
+            instrument_id = InstrumentId.from_str(config.instrument_id)
+            super().__init__(
+                instrument_id,
+                BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
+                trade_start_ns=config.trade_start_ns,
+                historical_daily_bars=(
+                    warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
+                    if getattr(type(self), "DAILY_WARMUP", False) else []
+                ),
+                execution_bar_minutes=5,
+                strategy_id=StrategyId(config.strategy_id),
+                pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
+            )
+        except Exception as exc:
+            execution_failure("constructor", exc, None)
+            raise
         STRATEGIES[config.instrument_id] = self
+
+
+# Structured runtime failures (engine.execution_failure): a strategy's constructor or callback that
+# raises leaves a receipt in the process and in <output>/runtime_failures.jsonl before the exception
+# goes on, so a failure the engine catches still fails the run (NATIVE_EXECUTION_FAILED).
+
+FAILURE_FORMAT = "runtime-failure-v1"
+FAILURES: list[dict] = []
+FAILURE_PATH: Path | None = None  # the receipt file of this process's replay, once main set it
+GUARDED_HOOKS = ("replay_diagnostics", "replay_integrity_findings")
+
+
+def execution_failure(stage: str, exc: BaseException, instance) -> None:
+    """Record one constructor or callback exception; never raises itself."""
+    try:
+        instrument = next((key for key, value in STRATEGIES.items() if value is instance), None)
+        receipt = {"format": FAILURE_FORMAT, "stage": stage, "exception_type": type(exc).__name__,
+                   "message": str(exc), "traceback": "".join(traceback.format_exception(exc)),
+                   "instrument_id": instrument or "unconstructed"}
+        FAILURES.append(receipt)
+        if FAILURE_PATH is not None:
+            with FAILURE_PATH.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+    except Exception as error:  # the receipt is evidence; failing to write it must not hide the original
+        FAILURES.append({"format": FAILURE_FORMAT, "stage": stage, "exception_type": type(exc).__name__,
+                         "message": f"{exc} (receipt not written: {error})", "traceback": "",
+                         "instrument_id": "unconstructed"})
+
+
+def guard_callback(name: str, method):
+    """The source's callback, recording any exception it raises before raising it unchanged."""
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:
+            execution_failure(name, exc, self)
+            raise
+    return guarded
+
+
+def guarded_callbacks(strategy_class: type) -> dict:
+    """Every on_ callback and report hook the source's classes define, guarded; the most derived wins."""
+    found = {}
+    for cls in strategy_class.__mro__:
+        if cls is Strategy:
+            break
+        for name, value in vars(cls).items():
+            if (name.startswith("on_") or name in GUARDED_HOOKS) and callable(value) and name not in found:
+                found[name] = guard_callback(name, value)
+    return found
 
 
 def importable_strategy(loaded: LoadedStrategy) -> str:
     """Give ImportableStrategyConfig a path resolving inside this exact process."""
     name = f"NodeExternal_{loaded.source_sha256}_{loaded.entry_class}"
     if name not in globals():
-        globals()[name] = type(name, (_Configured, loaded.strategy_class), {"__module__": __name__})
+        globals()[name] = type(name, (_Configured, loaded.strategy_class),
+                               {"__module__": __name__, **guarded_callbacks(loaded.strategy_class)})
     return f"{__name__}:{name}"
 
 
@@ -297,10 +358,13 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
 
 
 def main(argv: list[str] | None = None) -> None:
+    global FAILURE_PATH
     args = parse_configuration(argv)
     if args.describe:
         print(json.dumps(describe(args), sort_keys=True))
         return
+    FAILURES.clear()
+    FAILURE_PATH = args.output / "runtime_failures.jsonl"
     executed = execution_metadata(args)
     strategy = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding)
     start_dt, end_dt = utc_datetime(args.start), utc_datetime(args.end)
@@ -319,8 +383,11 @@ def main(argv: list[str] | None = None) -> None:
               "trade_start_ns": trade_start}
     _, findings = report.write(args.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
                                mark_timestamps(rows))
+    if FAILURES:
+        raise RuntimeError("NATIVE_EXECUTION_FAILED: " + "; ".join(
+            f"{item['exception_type']} in {item['stage']} ({item['instrument_id']})" for item in FAILURES))
     if findings:
-        raise RuntimeError("; ".join(findings))
+        raise RuntimeError("INTEGRITY_FINDINGS: " + "; ".join(findings))
 
 
 if __name__ == "__main__":

@@ -37,8 +37,9 @@ from replay import seams
 COVERAGE_FORMAT = "execution-input-coverage-v1"
 COVERAGE = execution.COVERAGE
 REPORTS, AUDIT, SOURCE, FINGERPRINT = "reports", "audit", "source", "fingerprint"
-STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native"
+STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native/reports"
 COVERAGE_MOUNT = "/inputs/" + COVERAGE
+AUDIT_COVERAGE_MOUNT = "/native/" + COVERAGE  # the auditor reads the receipt beside the reports (engine.audit_main)
 INSPECTION = "runtime-inspection.json"
 HOST_ERROR = execution.HOST_ERROR
 WORK_ROOT = "/tmp"  # sealed replays work in a new directory here (docker shares it by default)
@@ -240,7 +241,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         native_exit = run("native", layout["runner_module"], mounts, list(runner_args))
         if _reports_complete(workdir):
             audit_exit = run("audit", layout["audit_module"], [
-                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, COVERAGE_MOUNT, True),
+                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, AUDIT_COVERAGE_MOUNT, True),
                 (workdir / AUDIT, REPORTS_MOUNT, False)],
                 ["--run", NATIVE_MOUNT, *layout["audit_args"], "--output", f"{REPORTS_MOUNT}/audit.json"])
             if layout.get("fingerprint_module"):

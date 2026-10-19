@@ -36,12 +36,43 @@ def _identity(identity: Mapping) -> dict:
     return {key: identity[key] for key in ("image_ref", "image_digest", "platform", "runtime_contract")}
 
 
+def check_stage(identity: Mapping, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str]) -> None:
+    """runtime.container_command's checks of one replay stage: a module the contract's layout declares,
+    existing absolute host paths, distinct absolute targets outside /tmp, and exactly one writable mount,
+    /reports."""
+    layout = current.layout(identity["runtime_contract"])
+    modules = {layout.get(key) for key in ("runner_module", "audit_module", "probe_module", "fingerprint_module")}
+    if module not in modules - {None}:
+        raise refuse("MODULE_NOT_IN_LAYOUT", f"{module!r} is not a module the {identity['runtime_contract']} layout "
+                                             "declares", missing=(str(module),))
+    targets, writable = [], []
+    for host, target, readonly in mounts:
+        if not Path(host).is_absolute() or not Path(host).exists():
+            raise refuse("MOUNT_HOST_PATH_INVALID", f"mount source {host} is not an existing absolute path",
+                         missing=(str(host),))
+        if (not isinstance(target, str) or not target.startswith("/") or target in targets
+                or target == "/tmp" or target.startswith("/tmp/")):
+            raise refuse("MOUNT_TARGET_INVALID", f"mount target {target!r} is not absolute, repeats or covers /tmp",
+                         missing=(str(target),))
+        targets.append(target)
+        if not readonly:
+            writable.append(target)
+    if any(target != "/reports" for target in writable) or len(writable) > 1:
+        raise refuse("MOUNT_WRITABLE_NOT_REPORTS", f"writable mounts {writable}: only /reports may be writable",
+                     missing=tuple(writable))
+    if not writable:
+        raise refuse("REPORTS_MOUNT_MISSING", "the stage has no writable /reports mount", missing=("/reports",))
+    if any(not isinstance(value, str) for value in argv):
+        raise refuse("ARGV_INVALID", "every container argument must be a string")
+
+
 def _container_command(identity: Mapping, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
                        name: str) -> list[str]:
     """runtime.container_command: digest-pinned, no pull, no network, read-only root, one writable /reports;
     the container carries `name` so an interrupt can stop it."""
     from research.records import runtime
     from research.records.common import RecordError
+    check_stage(identity, mounts, module, argv)
     try:
         command = runtime.container_command(_identity(identity), [(Path(host), target, readonly)
                                                                   for host, target, readonly in mounts], module, argv)
