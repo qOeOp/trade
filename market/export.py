@@ -396,13 +396,18 @@ def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end
                          "daily": daily, "path": str(window / symbol), "profile": profile,
                          "scales": (price_scale, volume_scale)})
     started = time.monotonic()
-    if jobs:
-        with ProcessPoolExecutor(min(workers, len(jobs))) as pool:
-            for receipt in pool.map(export_symbol, jobs):
-                receipts[receipt["symbol"]] = receipt
-    for name, data in sorted((lifecycle_files or {}).items()):
-        target = window / "lifecycle-evidence" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+    try:
+        if jobs:
+            with ProcessPoolExecutor(min(workers, len(jobs))) as pool:
+                for receipt in pool.map(export_symbol, jobs):
+                    receipts[receipt["symbol"]] = receipt
+        for name, data in sorted((lifecycle_files or {}).items()):
+            target = window / "lifecycle-evidence" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    except BaseException:
+        if fresh:  # nobody else holds a failed fresh export
+            shutil.rmtree(window, ignore_errors=True)
+        raise
     return {"commit": commit, "root": str(window), "exported": len(jobs), "reused": len(symbols) - len(jobs),
             "seconds": round(time.monotonic() - started, 1), "receipts": receipts}

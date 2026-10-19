@@ -5,17 +5,18 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 import threading
 import unittest
 from unittest.mock import patch
 
 from ledger import db, evidence, judgments, strategies, trials
 from ledger.errors import Refusal
-from registration import register
+from registration import register, seams
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
                                source)
 from tests.registration.world import (DAY, FEB, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, coverage_bytes,
-                                      product_write)
+                                      inspect_stand_in, product_write)
 
 OTHER_DIGEST = "sha256:" + "c" * 64
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@" + OTHER_DIGEST, "image_digest": OTHER_DIGEST}
@@ -205,6 +206,24 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(self.code("registration-second-precheck", self.derived(
             grid=[{"candidate": twice["candidate"], "params": {}}], prechecks={twice["candidate"]: review})),
             "SOURCE_ALREADY_EXPOSED")
+
+    def test_a_registration_leaves_no_temporary_export_or_membership_directory(self):
+        world = self.world
+
+        def leftovers() -> set:
+            return {path.name for pattern in ("export-*", "registration-inputs-*") for path in world.tmp.glob(pattern)}
+        probed = []
+
+        def inspect(identity, runner_argv, inputs):
+            probed.append((Path(inputs["root"]).is_dir(), Path(inputs["membership_file"]).is_file()))
+            return inspect_stand_in(identity, runner_argv, inputs)
+        before = leftovers()
+        with seams.use(inspect_runtime=inspect):
+            world.register("registration-tidy", world.body(["rsi@1"], {"rsi@1": self.root_review}))
+            self.assertEqual(self.code("registration-tidy-refused", self.derived(sources=["source-missing"])),
+                             "SOURCES_REQUIRED")
+        self.assertEqual(probed, [(True, True)] * 2, "the runtime probe reads the exported inputs")
+        self.assertEqual(leftovers(), before)
 
     def test_registration_needs_a_research_line(self):
         body = self.world.body(["rsi@1"], {"rsi@1": self.root_review})

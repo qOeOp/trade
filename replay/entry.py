@@ -81,14 +81,6 @@ def _resolve(runtime: str | None) -> dict:
     return identity
 
 
-def _cleanup(inputs: Mapping | None) -> None:
-    if not inputs:
-        return
-    shutil.rmtree(Path(inputs["membership_file"]).parent, ignore_errors=True)
-    if inputs.get("fresh"):
-        shutil.rmtree(inputs["root"], ignore_errors=True)
-
-
 def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research) -> tuple[dict, dict]:
     """(runner inputs {window, selection, lifecycle_bundle}, exported inputs) of one replay."""
     runner = registration_seams.current.runner_inputs(list(runner_argv))
@@ -313,7 +305,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
                 "trial_id": opened["trial_id"], "image_ref": identity["image_ref"], "market": exported["identity"],
                 "metrics": seams.current.directory_report(output)}
     finally:
-        _cleanup(exported)
+        registration_inputs.cleanup(exported)
 
 
 def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime: str, runner_argv: list[str],
@@ -354,7 +346,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
                 "status": "passed" if not problems else "failed", "problems": problems, "path": str(output),
                 "metrics": seams.current.directory_report(output), "scope": PRECHECK_SCOPE}
     finally:
-        _cleanup(exported)
+        registration_inputs.cleanup(exported)
 
 
 # Sealed research and validation replays
@@ -375,7 +367,7 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
             _, exported = _export(market, at, runner_argv, True, ledger)
             sealed = seal(ledger, conn, revision, runtime, exported, runner_argv, hypothesis, validation, market=market)
         finally:
-            _cleanup(exported)
+            registration_inputs.cleanup(exported)
     return {"purpose": "research" if hypothesis is not None else "validation", "strategy": strategy, **sealed}
 
 

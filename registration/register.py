@@ -485,7 +485,10 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
         runner = seams.current.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, line["market_commit"], runner["window"],
                                                      runner["selection"], runner.get("lifecycle_bundle"), True, profile)
-        inspection = seams.current.inspect_runtime(identity, list(runner_argv), exported)
+        try:
+            inspection = seams.current.inspect_runtime(identity, list(runner_argv), exported)
+        finally:  # the probe is the export's last reader; the registration keeps only its identity
+            registration_inputs.cleanup(exported)
         execution = {"image_ref": identity["image_ref"], "image_digest": identity["image_digest"],
                      "runtime_contract": identity["runtime_contract"],
                      "effective_config": comparability.config_key(inspection.get("effective_config")),

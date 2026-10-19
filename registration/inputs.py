@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 
 from ledger import db, evidence
@@ -159,16 +160,21 @@ def market_inputs(market, at: str, window: Mapping, selection: Mapping, lifecycl
         episodes, lifecycle_files = load_lifecycle(research, lifecycle_bundle, commit, market=adapter)
     exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh)
-    receipts = exported["receipts"]
-    for symbol in symbols:
-        if (receipts.get(symbol) or {}).get("timeframe") != MINUTE:
-            raise refuse("EXPORT_TIMEFRAME", f"the export receipt of {symbol} is not of 1-minute bars",
-                         missing=(symbol,), expected=MINUTE)
-    membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
-    membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
-    membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": membership}))
-    inputs = {"root": Path(exported["root"]), "membership_file": membership_file}
-    fingerprint = export_fingerprint(inputs, semantic=True)
+    inputs = {"root": Path(exported["root"]), "membership_file": None}
+    try:
+        receipts = exported["receipts"]
+        for symbol in symbols:
+            if (receipts.get(symbol) or {}).get("timeframe") != MINUTE:
+                raise refuse("EXPORT_TIMEFRAME", f"the export receipt of {symbol} is not of 1-minute bars",
+                             missing=(symbol,), expected=MINUTE)
+        membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
+        inputs["membership_file"] = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
+        inputs["membership_file"].write_bytes(_canonical({"commit": commit, "universe_rule": rule,
+                                                          "membership": membership}))
+        fingerprint = export_fingerprint(inputs, semantic=True)
+    except BaseException:  # a refused export leaves nothing behind
+        cleanup({**inputs, "fresh": fresh})
+        raise
     identity = {"market_database": adapter.database, "market_commit": commit, "universe_rule": rule,
                 "selection": {"universe": True} if universe else {"symbols": list(symbols)}, "symbols": list(symbols),
                 "membership": membership, **fingerprint}
@@ -176,3 +182,14 @@ def market_inputs(market, at: str, window: Mapping, selection: Mapping, lifecycl
         identity["lifecycle_bundle"] = lifecycle_bundle
     return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,
             "exported": {key: exported.get(key) for key in ("exported", "reused", "seconds")}, "fresh": fresh}
+
+
+def cleanup(inputs: Mapping | None) -> None:
+    """Remove what `market_inputs` created: the membership directory and, for a fresh export, the export
+    root (a cached export stays). Called once the identity is taken and the replay, if any, is done."""
+    if not inputs:
+        return
+    if inputs.get("membership_file") is not None:
+        shutil.rmtree(Path(inputs["membership_file"]).parent, ignore_errors=True)
+    if inputs.get("fresh"):
+        shutil.rmtree(inputs["root"], ignore_errors=True)

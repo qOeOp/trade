@@ -76,7 +76,7 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
             fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]))
         finally:
-            entry._cleanup(exported)
+            registration_inputs.cleanup(exported)
     expected = stored["run"]["fingerprints"]
     if expected is None or fingerprints is None or fingerprints != expected:
         why = ("the run has no recorded semantic fingerprint" if expected is None else

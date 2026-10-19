@@ -103,6 +103,14 @@ class MarketInputTests(unittest.TestCase):
         self.assertEqual(self.code(market=FakeMarket({MARKET_COMMIT: months_rows()}, timeframe="5m")),
                          "EXPORT_TIMEFRAME")
 
+    def test_a_refused_export_and_its_cleanup_leave_no_directory(self):
+        self.assertEqual(self.code(market=FakeMarket({MARKET_COMMIT: months_rows()}, timeframe="5m")),
+                         "EXPORT_TIMEFRAME")
+        self.assertEqual(list(self.root.iterdir()), [], "the refused export is removed")
+        exported = self.call()
+        inputs.cleanup(exported)
+        self.assertEqual(list(self.root.iterdir()), [], "a fresh export and its membership file are removed")
+
 
 @unittest.skipUnless(BINARY, SKIP)
 class LifecycleTests(unittest.TestCase):
