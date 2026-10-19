@@ -6,7 +6,10 @@ measure is given for both sides with their difference (candidate minus control),
 comparison has its own definition (the pair's breakeven fee multiple, the concentration of
 per-instrument and per-day differences, months won, the regression of the daily difference on the
 market, the expectancy split, trade pairing) that pairwise value is given beside it. Registered
-predictions are checked for sign only. Nothing is tested again and nothing is written.
+predictions are checked for sign only, against the pairwise value where the comparison defines one.
+A declared interaction is computed by report.compare (it reads the four corners from the ledger)
+and carried here; its shape is checked with `merge3`. Nothing is tested again and nothing is
+written.
 """
 
 from __future__ import annotations
@@ -15,10 +18,13 @@ from collections import defaultdict
 from collections.abc import Mapping
 from datetime import timezone
 from decimal import Decimal
+import difflib
 import math
 import statistics
 
-from ledger.refusals import refuse
+import numpy as np
+
+from qualification import availability
 from registration import duties
 from report import measures
 
@@ -98,16 +104,18 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
         used_b.add(j)
         pairs.append((i, j, overlap))
 
-    def touches(cycle, others, used) -> bool:
+    def touches(cycle, others, used, members) -> bool:
+        """Whether the cycle intersects a paired cycle of the other side in its own instrument and side."""
         c0, c1 = span(cycle)
-        return any(k in used and others[k]["instrument_id"] == cycle["instrument_id"]
-                   and others[k]["side"] == cycle["side"] and min(c1, span(others[k])[1]) - max(c0, span(others[k])[0]) > 0
-                   for k in range(len(others)))
+        return any(k in used and min(c1, span(others[k])[1]) - max(c0, span(others[k])[0]) > 0 for k in members)
+
+    def group(cycle):
+        return groups[(cycle["instrument_id"], cycle["side"])]
 
     only_a = [i for i in range(len(control)) if i not in used_a]
     only_b = [j for j in range(len(candidate)) if j not in used_b]
-    split_a = [i for i in only_a if touches(control[i], candidate, used_b)]
-    split_b = [j for j in only_b if touches(candidate[j], control, used_a)]
+    split_a = [i for i in only_a if touches(control[i], candidate, used_b, group(control[i])[1])]
+    split_b = [j for j in only_b if touches(candidate[j], control, used_a, group(candidate[j])[0])]
     removed = [control[i] for i in only_a if i not in split_a]
     added = [candidate[j] for j in only_b if j not in split_b]
     closed_pairs = [(i, j, overlap) for i, j, overlap in pairs
@@ -207,7 +215,12 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
             put(beta, None, reason)
             put(alpha, None, reason)
             continue
-        fitted = measures.market_regression(difference, values)
+        try:
+            fitted = measures.market_regression(difference, values)
+        except (ValueError, np.linalg.LinAlgError) as exc:  # a short window or a singular design
+            put(beta, None, f"REGRESSION_UNAVAILABLE: {exc}")
+            put(alpha, None, f"REGRESSION_UNAVAILABLE: {exc}")
+            continue
         put(beta, fitted["beta"])
         put(alpha, fitted["alpha"], standard_error=fitted["alpha_se"], lags=fitted["lags"])
     split = measures.expectancy_split(_trade_inputs(control_measures), _trade_inputs(candidate_measures))
@@ -230,9 +243,11 @@ def _trade_inputs(derived: Mapping) -> dict:
     return {"win_rate": value("win_rate"), "avg_win": value("avg_win"), "avg_loss": value("avg_loss")}
 
 
-def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None) -> dict:
+def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None,
+              interaction: Mapping | None = None) -> dict:
     """{metrics_revision, catalogue, slices, predictions, interaction, trade_pairs} for two runs' facts
-    (report.measures.run_facts) and the registration body that declared the comparison."""
+    (report.measures.run_facts) and the registration body that declared the comparison; `interaction`
+    is report.compare's reading of a declared two-by-two (None without a declaration)."""
     catalogue = duties.measure_catalogue()
     derived_c = measures.derive_measures(candidate, catalogue, market)
     derived_o = measures.derive_measures(control, catalogue, market)
@@ -268,36 +283,94 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                               "available": bool(available),
                               "reason": None if available else next((entry["null_reason"] for entry in found.values()
                                                                      if entry["null_reason"]), None)}
-    if "interaction" in (body.get("prediction") or {}):
-        raise refuse("INTERACTION_UNATTESTED", "the registration declares an interaction, but no source review record "
-                                               "can confirm the shape of its four corners",
-                     missing=("prediction.interaction",))
-    return {"metrics_revision": measures.metrics.metrics_revision(clean=False), "catalogue": measures.CATALOGUE_REVISION,
-            "headline": headline, "slices": slices, "predictions": predictions(body, slices), "interaction": None,
+    declared = (body.get("prediction") or {}).get("interaction")
+    return {"metrics_revision": availability.report_revision(), "catalogue": measures.CATALOGUE_REVISION,
+            "headline": headline, "slices": slices, "predictions": predictions(body, slices),
+            "interaction": (dict(interaction) if interaction is not None else
+                            {"available": False, "declared": dict(declared),
+                             "reason": "INTERACTION_UNATTESTED: the corners were not read"}) if declared else None,
             "trade_pairs": pairs}
 
 
 def predictions(body: Mapping, slices: Mapping) -> list[dict]:
-    """Each registered prediction beside the observed difference, marked only for its sign."""
+    """Each registered prediction beside the observed value, marked only for its sign: the comparison's
+    own value where it defines one (the pairwise value, or a comparison-only measure), else the
+    difference of the two single-run values."""
     found = []
     for item in (body.get("prediction") or {}).get("mechanism") or ():
         entry = {key: item.get(key) for key in ("slice", "measure", "direction", "duty")}
         entry["registered_reason"] = item.get("reason")
         if item.get("slice") is None:
-            found.append({**entry, "observed": None, "same_sign": None,
+            found.append({**entry, "observed": None, "same_sign": None, "observed_as": None,
                           "reason": "NO_SLICE: the registration names no slice measuring this duty"})
             continue
         measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(measures.key(item["measure"])) \
             if item.get("measure") in measures.VERSIONS else None
-        observed = None if measured is None else measured["difference"]
+        pairwise = (measured or {}).get("pairwise")
+        source = pairwise if pairwise is not None else measured
+        observed = None if source is None else source["value" if pairwise is not None else "difference"]
         if observed is None:
-            found.append({**entry, "observed": None, "same_sign": None,
-                          "reason": "UNCHECKABLE: " + ((measured or {}).get("null_reason") or "the measure is empty")})
+            found.append({**entry, "observed": None, "same_sign": None, "observed_as": None,
+                          "reason": "UNCHECKABLE: " + ((source or {}).get("null_reason") or "the measure is empty")})
             continue
         value = float(observed)
         found.append({**entry, "observed": observed, "same_sign": value > 0 if item["direction"] == "up" else value < 0,
-                      "reason": None})
+                      "observed_as": "pairwise" if pairwise is not None else "difference", "reason": None})
     return found
+
+
+# The shape of a declared two-by-two
+
+MERGE_METHOD = "merge3-lines-v1"  # pure-Python diff3: bzr merge3 regions over difflib line matches, autojunk off
+
+
+def _matches(base: list[bytes], other: list[bytes]) -> list[tuple[int, int, int]]:
+    matcher = difflib.SequenceMatcher(None, base, other, autojunk=False)
+    return [(block.a, block.b, block.size) for block in matcher.get_matching_blocks() if block.size]
+
+
+def merge3(base: bytes, a: bytes, b: bytes) -> bytes | None:
+    """The three-way merge of `a` and `b` from their common ancestor `base`, line by line, or None when
+    both change one base region differently (a conflict). Pure Python and deterministic (MERGE_METHOD):
+    the stable regions are the base lines both sides keep (difflib's matching blocks, autojunk off),
+    as in bzr's merge3; between two stable regions a part changed on one side only takes that side,
+    and a part changed alike on both sides is taken once."""
+    lines = [value.splitlines(keepends=True) for value in (base, a, b)]
+    base_lines, a_lines, b_lines = lines
+    left, right = _matches(base_lines, a_lines), _matches(base_lines, b_lines)
+    stable, i, j = [], 0, 0
+    while i < len(left) and j < len(right):
+        a_base, a_at, a_size = left[i]
+        b_base, b_at, b_size = right[j]
+        low, high = max(a_base, b_base), min(a_base + a_size, b_base + b_size)
+        if low < high:
+            stable.append((low, high, a_at + low - a_base, b_at + low - b_base))
+        if a_base + a_size < b_base + b_size:
+            i += 1
+        else:
+            j += 1
+    stable.append((len(base_lines), len(base_lines), len(a_lines), len(b_lines)))
+    merged, at_base, at_a, at_b = [], 0, 0, 0
+    for low, high, a_start, b_start in stable:
+        base_part, a_part, b_part = base_lines[at_base:low], a_lines[at_a:a_start], b_lines[at_b:b_start]
+        if a_part == b_part or b_part == base_part:
+            merged += a_part
+        elif a_part == base_part:
+            merged += b_part
+        else:
+            return None
+        merged += base_lines[low:high]
+        at_base, at_a, at_b = high, a_start + high - low, b_start + high - low
+    return b"".join(merged)
+
+
+def contributions(means: Mapping[str, float]) -> dict:
+    """Each change's contribution to the corner difference (ab minus base) of the mean daily log
+    returns, as the mean of its marginal effect over both orders of adding the two changes."""
+    a = ((means["a"] - means["base"]) + (means["ab"] - means["b"])) / 2
+    b = ((means["b"] - means["base"]) + (means["ab"] - means["a"])) / 2
+    return {"a": a, "b": b, "total": means["ab"] - means["base"],
+            "interaction": means["ab"] - means["a"] - means["b"] + means["base"]}
 
 
 def attribution(profile, bundle: str, run_id: int, at: str | None = None) -> dict:

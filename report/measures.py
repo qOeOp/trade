@@ -147,17 +147,19 @@ def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
 
 
 def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict:
-    """Daily PnL as notional times unit return over the exposed days: the total splits into a level
-    term T * mean(N) * mean(u) and a timing term T * cov(N, u) (population covariance), summing exactly."""
+    """Daily PnL as notional times unit return over the exposed days: their total splits into a level
+    term T * mean(N) * mean(u) and a timing term T * cov(N, u) (population covariance), summing exactly;
+    the days without exposure are counted apart with their PnL (flat_days, flat_pnl)."""
     exposed = [(n, p / n) for n, p in zip(notional, pnl) if n > 0]
+    flat = [p for n, p in zip(notional, pnl) if n <= 0]
     if not exposed:
-        return {"level": None, "timing": None, "exposed_days": 0}
+        return {"level": None, "timing": None, "exposed_days": 0, "flat_days": len(flat), "flat_pnl": sum(flat)}
     count = len(exposed)
     mean_n = sum(n for n, _ in exposed) / count
     mean_u = sum(u for _, u in exposed) / count
     covariance = sum((n - mean_n) * (u - mean_u) for n, u in exposed) / count
     return {"level": count * mean_n * mean_u, "timing": count * covariance, "exposed_days": count,
-            "flat_days": len(notional) - count, "flat_pnl": sum(p for n, p in zip(notional, pnl) if n <= 0)}
+            "flat_days": len(flat), "flat_pnl": sum(flat)}
 
 
 def residual_after_top(values: Sequence[float], top: int = TOP) -> float | None:
@@ -178,9 +180,12 @@ def top_share(values: Sequence, top: int = TOP) -> float | None:
 
 def breakeven_multiple(difference: Decimal, fee_difference: Decimal) -> tuple[float | None, str | None]:
     """The multiple k of both sides' fees at which the account difference reaches zero:
-    difference - (k - 1) * fee_difference = 0 (fees are net of maker rebates)."""
+    difference - (k - 1) * fee_difference = 0 (fees are net of maker rebates). A candidate that pays
+    less in fees and still wins never reaches zero: raising both fees only widens its lead."""
     if fee_difference == 0:
         return None, "NEVER_ZERO: the fees do not differ, so no multiple moves the difference"
+    if fee_difference < 0 and difference > 0:
+        return None, "NEVER_ZERO: the candidate pays less in fees and still wins; higher fees widen its lead"
     multiple = 1 + difference / fee_difference
     if multiple < 0:
         return None, "NEVER_ZERO: no nonnegative fee multiple brings the difference to zero"
@@ -355,6 +360,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
             days, "FLAT: the run held no exposure" if not mean_n else "ACCOUNT_UNKNOWN: no final equity")
         put("level_term", split["level"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
         put("timing_term", split["timing"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
+        for name in ("level_term", "timing_term"):  # the days without exposure are listed apart (R.3.2.2)
+            found[key(name)].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
         months, reason = basket_months(returns, market)
         up = [value for (ts, _, _), value in zip(returns, n) if months and months.get(day_of(ts)[:7], 0) > 0]
         down = [value for (ts, _, _), value in zip(returns, n) if months and months.get(day_of(ts)[:7], 0) <= 0]

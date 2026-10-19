@@ -249,10 +249,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                         "records; nothing was started.",
                                         ("Export the inputs again (rerun the same command).",)),
     "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
-                              "run (or no fingerprint exists on either side to compare); the directory is kept for "
-                              "diagnosis.",
-                              ("Diagnose the kept directory; reproduce on the run's own image, and do not read the "
-                               "directory as the run's reports.",)),
+                              "run (or no fingerprint exists on either side to compare), or a directory read as a "
+                              "reproduction is not the one its reproduction trial sealed (another trial, source, "
+                              "image or inputs, or a report file that differs from the trial's capture); the "
+                              "directory is kept for diagnosis.",
+                              ("Diagnose the kept directory; reproduce on the run's own image (replay.reproduce) and "
+                               "read native detail with the directory and the trial ID it returned.",)),
     # Judgments
     "COMMIT_NOT_ANCESTOR": ("The judgment's based_on_commit is not an ancestor of the ledger head.",
                             ("Pass the commit you read, as shown by `research state`.",)),
@@ -422,10 +424,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "are never repaired.",)),
     "CLOCK_MISMATCH": ("The two sides' UTC daily clocks are not the same day by day.",
                        ("Compare runs of the same trading window; days are never filled or resampled.",)),
-    "INTERACTION_UNATTESTED": ("The registration declares an interaction, but no bound source review confirms the shape "
-                               "of its four corners (the review record holds no such confirmation).",
-                               ("Compare the change without an interaction declaration; reading interactions needs a "
-                                "reviewed four-corner shape.",)),
+    "INTERACTION_UNATTESTED": ("A declared interaction's four corners do not attest it: a and b do not derive from base "
+                               "or ab from a or b, the three-way merge of a and b from base conflicts or is not ab's "
+                               "source, a corner lacks exactly one comparable passed research run with economic "
+                               "evidence, or a corner's run is not older than the declaring registration. The "
+                               "comparison reports it as the interaction's reason and stands.",
+                               ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
+                                "b; read the comparison without the interaction otherwise.",)),
     "REFERENTIAL_GAP": ("A registration attempt or run names a trial that does not exist, or the attempt outcomes do "
                         "not add up to the attempts.",
                         ("Run the whole review (`ledger review`) and report the gap; counts are never partial.",)),

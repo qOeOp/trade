@@ -3,9 +3,11 @@
 
 A sealed run's report is its latest sealed result plus the measures derived at read time from its
 position cycles and daily series, in the catalogue's column order, all behind the qualification
-view. Native detail beyond those two tables is read only from a reproduction directory whose
-semantic fingerprint equals the recorded one. An unsealed directory gets the same functions and the
-same criterion, marked unverified; it is no evidence.
+view. Native detail beyond those two tables is read only from a verified reproduction: the
+directory replay.reproduce wrote, whose every report file matches the sealed capture of the
+reproduction trial it returned and whose fingerprint stage sealed the run's recorded fingerprint.
+An unsealed directory gets the same functions and the same criterion, marked unverified; it is no
+evidence.
 """
 
 from __future__ import annotations
@@ -13,14 +15,14 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 from decimal import Decimal
-import json
+import hashlib
 from pathlib import Path
 
-from ledger import db, execution, metrics
+from ledger import db, execution, metrics, problems
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
-from registration import duties
+from registration import comparability, duties
 from report import measures
 
 
@@ -125,11 +127,13 @@ def _typed_cycles(cycles: list[dict]) -> list[dict]:
 
 
 def tables(run_id: int, ledger=None, at: str | None = None, account: bool = False, exposures: bool = False,
-           directory: Path | None = None) -> dict:
+           directory: Path | None = None, reproduction: int | None = None) -> dict:
     """The drill-down tables of a passed run with economic evidence: its position cycles and daily
-    series from the ledger, and, from a reproduction `directory` whose semantic fingerprint equals
-    the recorded one, its native orders, fills, account, order events and exposures. Typed only."""
-    with db.read_as_of(profile_of(ledger), at) as conn:
+    series from the ledger, and, from a verified reproduction (the `directory` replay.reproduce wrote
+    and the `reproduction` trial ID it returned), its native orders, fills, account, order events and
+    exposures. Typed only."""
+    profile = profile_of(ledger)
+    with db.read_as_of(profile, at) as conn:
         facts = measures.run_facts(conn, run_id)
         run, trial = facts["run"], facts["trial"]
         if run["status"] != "passed":
@@ -156,23 +160,93 @@ def tables(run_id: int, ledger=None, at: str | None = None, account: bool = Fals
                  for ts, value, mean in facts["returns"]],
              "reconciled": {**reconciled, "closed_cycles": len(closed)}, "availability": value,
              "metrics_revision": (facts["sealed"] or {}).get("metrics_revision"), "ledger_commit": commit,
-             "orders": None, "fills": None, "account": None, "exposures": None, "order_events": None}
-    if directory is not None:
-        found.update(_reproduced(Path(directory), run, account, exposures))
+             "orders": None, "fills": None, "account": None, "exposures": None, "order_events": None,
+             "reproduction": None}
+    if directory is not None or reproduction is not None:
+        if directory is None:
+            raise refuse("REPRODUCTION_MISMATCH", "a reproduction trial is read only with its directory",
+                         missing=("directory",))
+        with db.read_as_of(profile) as head:  # the reproduction trial is newer than any earlier version read
+            verify_reproduction(head, Path(directory), facts, reproduction)
+        found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction)
     found["limitations"] = dedupe(limitations)
     return found
 
 
-def _reproduced(directory: Path, run: Mapping, account: bool, exposures: bool) -> dict:
-    recorded = run["fingerprints"]
-    sealed = execution._regular(directory / execution.FINGERPRINT_RESULT)
+def _mismatch(directory: Path, run_id: int, why: str, *missing: str) -> Refusal:
+    return refuse("REPRODUCTION_MISMATCH", f"{directory} is no verified reproduction of run {run_id}: {why}",
+                  missing=missing or ("reproduction",))
+
+
+def _differing_files(directory: Path, listed: Mapping) -> list[str]:
+    """The report, audit and fingerprint files of `directory` that differ from the capture's manifest
+    entries (by SHA-256), are missing although captured or hashed, or exist although not listed."""
+    root, base = (directory, directory / "reports") if (directory / "reports").is_dir() else (directory.parent,
+                                                                                               directory)
+    wanted = {path: entry for path, entry in listed.items()
+              if path.startswith("reports/") or path in (execution.AUDIT_RESULT, execution.FINGERPRINT_RESULT)}
+    differs = []
+    for path, entry in sorted(wanted.items()):
+        data = execution._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
+        status = entry.get("status") if isinstance(entry, Mapping) else None
+        if status in ("captured", "hashed"):
+            same = data is not None and hashlib.sha256(data).hexdigest() == entry.get("sha256")
+        elif status == "captured_empty":
+            same = data == b""
+        else:
+            same = data is None
+        if not same:
+            differs.append(path)
+    if base.is_dir():
+        for path in sorted(base.rglob("*")):
+            name = f"reports/{path.relative_to(base).as_posix()}"
+            if not path.is_dir() and name not in wanted:
+                differs.append(name)
+    return differs
+
+
+def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mapping, reproduction) -> None:
+    """REPRODUCTION_MISMATCH unless `reproduction` is the explore trial replay.reproduce wrote for this
+    run (same source, image digest and inputs), its capture is complete, its fingerprint stage sealed
+    the run's recorded fingerprint, and every report file in `directory` matches that capture."""
+    run, trial = facts["run"], facts["trial"]
+    if not isinstance(reproduction, int) or isinstance(reproduction, bool):
+        raise _mismatch(directory, run["run_id"], "native detail is read only from a verified reproduction; give the "
+                                                  "trial ID replay.reproduce returned", "reproduction")
+    found = conn.one("SELECT trial_id, purpose, source_sha256, image_digest FROM trial WHERE trial_id = %s",
+                     (reproduction,))
+    if found is None:
+        raise _mismatch(directory, run["run_id"], f"no trial {reproduction}", "reproduction")
     try:
-        fingerprint = json.loads(sealed.decode("utf-8")) if sealed is not None else None
-    except (UnicodeDecodeError, ValueError):
-        fingerprint = None
-    if recorded is None or fingerprint is None or fingerprint != recorded:
-        raise refuse("REPRODUCTION_MISMATCH", f"{directory} does not carry the semantic fingerprint recorded for run "
-                                              f"{run['run_id']}", missing=(execution.FINGERPRINT_RESULT,))
+        capture = execution.read_capture(conn, reproduction)
+    except Refusal as exc:
+        raise _mismatch(directory, run["run_id"], f"the capture of trial {reproduction} does not verify "
+                                                  f"({exc.code})", "reproduction") from exc
+    recorded = (facts["capture"].get("start") or {}).get("input_identity")
+    started = (capture.get("start") or {}).get("input_identity")
+    if found["purpose"] != "explore" or found["source_sha256"] != trial["source_sha256"] or (
+            found["image_digest"] != trial["image_digest"]):
+        raise _mismatch(directory, run["run_id"], f"trial {reproduction} is no replay of the run's source on its image",
+                        "reproduction")
+    try:
+        same_inputs = comparability.input_key(started) == comparability.input_key(recorded)
+    except Refusal:
+        same_inputs = False
+    if not same_inputs:
+        raise _mismatch(directory, run["run_id"], f"trial {reproduction} read other inputs", "input_identity")
+    if capture["status"] != "captured":
+        raise _mismatch(directory, run["run_id"], f"trial {reproduction} has no execution capture", "capture")
+    fingerprint, _ = problems.capture_fingerprint(capture)
+    if run["fingerprints"] is None or fingerprint is None or fingerprint != run["fingerprints"]:
+        raise _mismatch(directory, run["run_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
+                                                  "run's recorded fingerprint", execution.FINGERPRINT_RESULT)
+    differs = _differing_files(directory, capture["listed"])
+    if differs:
+        raise _mismatch(directory, run["run_id"], f"files differ from the capture of trial {reproduction}: "
+                        + ", ".join(differs[:5]), *differs)
+
+
+def _reproduced(directory: Path, account: bool, exposures: bool) -> dict:
     reports = load_directory(directory)
     found = metrics.cycles(reports.positions, reports.fills)
     position_of = {event_id: row.get("position_id") for row, cycle in zip(reports.positions, found)
@@ -248,6 +322,8 @@ def directory_report(directory: Path, account: bool = False) -> dict:
     reasons = availability.native_reasons(sealed)
     if reports.audit is None:
         reasons.append("AUDIT_RESULT_MISSING: the directory holds no audit result")
+    elif reports.audit.get("passed") is not True:
+        reasons.append("AUDIT_FAILED: the directory's audit result did not pass")
     value = {"economic_evidence_available": not reasons, "reasons": reasons, "checker": availability.check_identity(),
              "unverified": UNVERIFIED, "limitations": [UNVERIFIED]}
     output = {"directory": str(directory), "exploration": True, "metrics_revision": sealed["metrics_revision"],

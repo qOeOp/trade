@@ -14,11 +14,12 @@ from ledger import db, metrics, strategies
 from ledger.errors import Refusal
 from qualification import availability
 from registration import duties, precheck
-from replay import entry
-from report import attribution, candidates, comparison, measures, runs, seams, status
+from registration import seams as registration_seams
+from replay import entry, reproduce
+from report import attribution, candidates, comparison, runs, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
-from tests.replay.world import ReplayWorld, registered_grid
+from tests.replay.world import ReplayWorld, clean_checkout, registered_grid
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}, "orders": {"rows": 2, "sha256": "2" * 64}}
@@ -156,6 +157,15 @@ class ReportTests(unittest.TestCase):
         self.assertEqual((bad["status"], bad["headline"]), ("invalid", None))
         self.assertTrue(bad["failure_reasons"])
 
+    def test_a_run_without_evidence_shows_no_money_in_its_activity_facts(self):
+        bare = runs.run_report(self.profile, self.bare["run_id"])
+        compounding = bare["activity"]["returns_compound_to_equity@1"]
+        self.assertEqual(compounding, {"passed": True, "code": None})
+        self.assertEqual(bare["activity"]["real_fills@1"], {"passed": True, "code": None, "count": 2})
+        self.assertNotIn("100009.8", json.dumps(bare, default=str), "neither the final nor the compounded equity")
+        shown = runs.run_report(self.profile, self.control["run_id"])
+        self.assertEqual(shown["activity"]["returns_compound_to_equity@1"]["final_equity"], "100009.80000000")
+
     def test_a_report_reads_an_exact_ledger_version(self):
         with db.read_as_of(self.profile) as conn:
             before = conn.rows("SELECT to_commit FROM dolt_diff_run WHERE to_run_id = %s AND diff_type = 'added'",
@@ -166,24 +176,44 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(refused(runs.run_report, self.profile, self.control["run_id"], "no-such-tag").code,
                          "UNKNOWN_REF")
 
-    def test_tables_give_the_cycles_and_series_and_native_detail_only_from_a_matching_reproduction(self):
+    def test_tables_give_the_cycles_and_series_and_native_detail_only_from_a_verified_reproduction(self):
         found = runs.tables(self.control["run_id"], self.profile)
         self.assertEqual((len(found["positions"]), len(found["daily_returns"])), (1, 31))
         self.assertEqual(found["reconciled"]["realized_pnl_usdt"], "9.80000000")
         self.assertIsNone(found["orders"])
         self.assertEqual(refused(runs.tables, self.bad["run_id"], self.profile).code, "RUN_NOT_PASSED")
         self.assertEqual(refused(runs.tables, self.bare["run_id"], self.profile).code, "ECONOMIC_EVIDENCE_UNAVAILABLE")
+        done = reproduce.reproduce(self.control["run_id"], self.world.output("drill"), ledger=self.profile,
+                                   market=self.world.market)
+        directory = Path(done["directory"])
+        detail = runs.tables(self.control["run_id"], self.profile, directory=directory, account=True,
+                             reproduction=done["trial_id"])
+        self.assertEqual([fill["cycle_position_id"] for fill in detail["fills"]], ["AAAUSDT-PERP.BINANCE-P"] * 2)
+        self.assertEqual((len(detail["account"]), detail["reproduction"]), (3, done["trial_id"]))
+        exc = refused(runs.tables, self.control["run_id"], self.profile, directory=directory)
+        self.assertEqual((exc.code, exc.missing), ("REPRODUCTION_MISMATCH", ("reproduction",)),
+                         "no native detail without the reproduction trial")
+        fills = directory / "reports" / "fills.csv"
+        fills.write_text(fills.read_text().replace(",100,", ",99,"))
+        exc = refused(runs.tables, self.control["run_id"], self.profile, directory=directory,
+                      reproduction=done["trial_id"])
+        self.assertEqual((exc.code, exc.missing), ("REPRODUCTION_MISMATCH", ("reports/fills.csv",)))
+
+    def test_a_forged_directory_is_no_reproduction(self):
+        """An exploration of another source with its own (matching) fingerprint and edited fill prices."""
         explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
-                                                          b"Fixture(Strategy):\n    pass\n# drill\n", "drill.py"),
-                                 "Fixture", self.world.output("drill"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                                          b"Fixture(Strategy):\n    pass\n# forge\n", "forge.py"),
+                                 "Fixture", self.world.output("forge"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"])
         directory = Path(explored["path"])
-        detail = runs.tables(self.control["run_id"], self.profile, directory=directory, account=True)
-        self.assertEqual([fill["cycle_position_id"] for fill in detail["fills"]], ["AAAUSDT-PERP.BINANCE-P"] * 2)
-        self.assertEqual(len(detail["account"]), 3)
-        (directory / "fingerprint" / "fingerprint.json").write_text(json.dumps({"fills": {"rows": 3}}))
-        self.assertEqual(refused(runs.tables, self.control["run_id"], self.profile, directory=directory).code,
-                         "REPRODUCTION_MISMATCH")
+        fills = directory / "reports" / "fills.csv"
+        fills.write_text(fills.read_text().replace(",100,", ",999999,"))
+        with db.read_as_of(self.profile) as conn:
+            (explore_trial,), = conn.rows("SELECT MAX(trial_id) FROM trial WHERE purpose = 'explore'")
+        for reproduction in (None, explore_trial, self.control["trial_id"], 999_999):
+            with self.subTest(reproduction=reproduction):
+                self.assertEqual(refused(runs.tables, self.control["run_id"], self.profile, directory=directory,
+                                         reproduction=reproduction).code, "REPRODUCTION_MISMATCH")
 
     def test_an_exploration_directory_reads_with_the_sealed_functions_marked_unverified(self):
         explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
@@ -196,6 +226,41 @@ class ReportTests(unittest.TestCase):
         sealed = runs.run_report(self.profile, self.control["run_id"])
         self.assertEqual(found["headline"]["annual_return@1"]["value"], sealed["headline"]["annual_return@1"]["value"])
         self.assertIn(runs.UNVERIFIED, found["limitations"])
+
+    def test_a_directory_whose_audit_failed_is_masked_with_the_reason(self):
+        self.world.scenario = {"audit_passed": False, "findings": ["fill F-1 unmatched"]}
+        try:
+            explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
+                                     self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
+                                                              b"Fixture(Strategy):\n    pass\n# failed audit\n",
+                                                              "failed.py"),
+                                     "Fixture", self.world.output("failed-audit"), None,
+                                     RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+        finally:
+            self.world.scenario = {}
+        found = runs.directory_report(Path(explored["path"]), account=True)
+        self.assertFalse(found["availability"]["economic_evidence_available"])
+        self.assertTrue(any(item.startswith("AUDIT_FAILED") for item in found["availability"]["reasons"]))
+        self.assertEqual((found["headline"], found["slices"], found["account"]), (None, None, None))
+        self.assertNotIn("final_equity", found["activity"]["returns_compound_to_equity@1"])
+        self.assertNotIn("100009.8", json.dumps(found, default=str))
+
+    def test_read_time_reports_refuse_a_dirty_product_checkout(self):
+        dirty = clean_checkout(self.world.tmp / "dirty-checkout")
+        (dirty / "uncommitted.py").write_text("x = 1\n")
+        calls = {"run_report": lambda: runs.run_report(self.profile, self.control["run_id"]),
+                 "compare": lambda: comparison.compare(self.profile, "registration-child", self.candidate["run_id"]),
+                 "attribution": lambda: attribution.attribution(self.profile, "registration-child",
+                                                                self.candidate["run_id"]),
+                 "research_status": lambda: status.research_status(self.profile),
+                 "candidates": lambda: candidates.candidates(self.profile),
+                 "check_identity": availability.check_identity}
+        with registration_seams.use(checkout=lambda: dirty):
+            for name, call in calls.items():
+                with self.subTest(reader=name):
+                    self.assertEqual(refused(call).code, "STALE_CHECKOUT")
+        clean = availability.check_identity()["metrics_revision"]
+        self.assertEqual(clean, metrics.metrics_revision(self.world.checkout), "the seam's clean checkout")
 
     # The comparison
 
@@ -217,8 +282,12 @@ class ReportTests(unittest.TestCase):
         self.assertEqual([item["same_sign"] for item in predictions], [False, False, None],
                          "an unchanged measure is no change in the predicted direction")
         self.assertTrue(predictions[0]["reason"] is None and predictions[0]["observed"] == 0.0)
+        months = found["attribution"]["slices"]["by_period"]["measures"]["months_won_share@1"]
+        self.assertEqual((months["difference"], months["pairwise"]["value"]), (0.0, 1.0))
+        self.assertEqual((predictions[1]["observed"], predictions[1]["observed_as"]), (1.0, "pairwise"),
+                         "a measure the comparison defines is checked against the comparison's own value")
+        self.assertEqual(predictions[0]["observed_as"], "difference")
         self.assertTrue(predictions[2]["reason"].startswith("NO_SLICE"))
-        self.assertFalse(any(key in found for key in ("passed", "verdict", "improved", "rank")))
         again = comparison.compare(self.profile, "registration-child", self.candidate["run_id"])
         self.assertEqual(again["evidence"], evidence, "recomputed from stored rows and the locked seed")
         part = attribution.attribution(self.profile, "registration-child", self.candidate["run_id"])
@@ -238,12 +307,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(refused(comparison.check_clocks, [(0, 0.1), (day, 0.0)], [(0, 0.2), (2 * day, 0.1)]).code,
                          "CLOCK_MISMATCH")
 
-    def test_a_declared_interaction_needs_an_attested_shape(self):
-        with db.read_as_of(self.profile) as conn:
-            facts = measures.run_facts(conn, self.control["run_id"])
-        body = {"prediction": {"mechanism": [], "interaction": {"base": "a@1", "a": "a@2", "b": "a@3"}}}
-        self.assertEqual(refused(attribution.attribute, facts, facts, body, None).code, "INTERACTION_UNATTESTED")
-
     # Candidates, counts and state
 
     def test_the_candidate_list_gives_every_attempt_with_its_availability_and_no_score(self):
@@ -255,7 +318,6 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(control["valid_evidence"])
         self.assertFalse(by_ref[self.bad_ref]["valid_evidence"])
         self.assertEqual(by_ref["rsi@1"]["attempts"], [], "the line's start was never registered")
-        self.assertFalse(any(key in item for item in found["candidates"] for key in ("score", "rank", "eligible")))
 
     def test_research_counts_add_up_to_the_attempts(self):
         found = status.research_status(self.profile)

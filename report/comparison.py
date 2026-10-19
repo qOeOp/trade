@@ -4,7 +4,9 @@
 The comparison has one entry: it reads the registration, checks both sides' comparability and
 economic evidence, runs the paired circular block bootstrap on the two sides' daily account returns
 and adds the attribution, all at read time from stored rows with the registration's locked seed, so
-any recomputation gives the same numbers; nothing is stored and no field is a verdict.
+any recomputation gives the same numbers; nothing is stored and no field is a verdict. A declared
+interaction is read from its four corners (`interaction_of`); when they do not attest the shape it
+is reported unavailable and the rest of the comparison stands.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from statistics import NormalDist
 
 import numpy as np
 
-from ledger import db, metrics, witness
+from ledger import db, metrics, strategies, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -45,6 +47,14 @@ VALIDATION_LIMITATIONS = (
     "Economic evidence is a read-time view; it rewrites no stored conclusion",
     "Holm's step-down correction corresponds to no single interval; the family interval coverage is Bonferroni")
 POWER = 0.8  # the power of the detectable effect; an uncalibrated example value
+INTERACTION_WEIGHTS = (1.0, -1.0, -1.0, 1.0)  # base, a, b, ab: ab - a - b + base
+INTERACTION_LIMITATIONS = (
+    "The interaction is read on the daily log account returns of four separately run corners; its interval is "
+    "uncorrected for any search and no p is given",
+    "An interaction explains where a difference comes from; it is no evidence of an improvement",
+    "The contributions average each change's marginal effect over both orders of adding the two changes")
+UNCORRECTED_DROPPED = ("p_one_sided", "p_bonferroni", "interval_coverage_grid_adjusted",
+                       "detectable_mean_log_difference_80pct_normal_approx", "observed_account_annual_return_difference")
 
 
 def _source() -> str:
@@ -326,16 +336,18 @@ def compare(profile, bundle: str, run_id: int, at: str | None = None, *, part: s
     """The one comparison entry: comparability and economic evidence of both sides, the paired test,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
     read time from stored rows and the registration, never stored."""
+    revision = availability.report_revision()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
         found = gather(conn, bundle, run_id)
+        interaction = interaction_of(conn, found)
     body, facts = found["body"], found["facts"]
     identity = {"bundle": bundle, "run_id": found["candidate"]["run_id"], "control_run_id": found["control"]["run_id"],
                 "research_parent": body.get("parent"), "ledger_commit": found["ledger_commit"],
-                "registered_at": found["registered_at"], "metrics_revision": metrics.metrics_revision(clean=False),
+                "registered_at": found["registered_at"], "metrics_revision": revision,
                 "catalogue": measures.CATALOGUE_REVISION, "comparison_source_sha256": _source(),
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
-    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market)
+    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
     if part == "attribution":
         return {"comparison": identity, **attributed}
     evidence = paired([value for _, value, _ in found["series"]["control"]],
@@ -346,6 +358,122 @@ def compare(profile, bundle: str, run_id: int, at: str | None = None, *, part: s
             "limitations": runs.dedupe(evidence["limitations"], *(facts[side]["sealed"].get("limitations")
                                                                   for side in ("control", "candidate")),
                                        *(found["availability"][side]["limitations"] for side in ("control", "candidate")))}
+
+
+# A declared interaction
+
+def _unattested(why: str) -> Refusal:
+    return refuse("INTERACTION_UNATTESTED", why, missing=("prediction.interaction",))
+
+
+def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: Mapping, checker: Mapping) -> int:
+    """The one passed research run of a corner's source that is comparable with the registration's
+    execution and has economic evidence; INTERACTION_UNATTESTED unless there is exactly one."""
+    qualified = []
+    for (candidate_run,) in conn.rows("SELECT r.run_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
+                                      "t.source_sha256 = %s AND t.purpose = 'research' AND r.status = 'passed' ORDER BY "
+                                      "r.run_id", (row["source_sha256"],)):
+        try:
+            record = register.control_run(conn, candidate_run)
+            comparability.check_comparable(record, execution)
+            availability.require(conn, record, checker=checker)
+        except Refusal:
+            continue
+        qualified.append(candidate_run)
+    if len(qualified) != 1:
+        raise _unattested(f"corner {name} ({row['strategy_id']}@{row['revision']}) has {len(qualified)} passed research "
+                          "runs comparable with this registration and with economic evidence, not exactly one")
+    return qualified[0]
+
+
+def _corners(conn: db.LedgerConnection, declared: Mapping, candidate: Mapping) -> dict[str, dict]:
+    """The four candidate rows (base, a, b and the compared run's candidate ab), their lineage and
+    shape checked: a and b derive from base, ab from a or b, and the conflict-free three-way merge of
+    a and b from base is byte for byte ab's source."""
+    rows = {}
+    for name in ("base", "a", "b"):
+        try:
+            rows[name] = strategies.read_candidate(conn, declared[name])
+        except Refusal as exc:
+            raise _unattested(f"corner {name} {declared[name]} cannot be read ({exc.code})") from exc
+    found = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s",
+                     (candidate["source_sha256"],))
+    if found is None:
+        raise _unattested("the compared run's source is no published candidate")
+    rows["ab"] = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
+    if len({row["source_sha256"] for row in rows.values()}) != 4:
+        raise _unattested("the four corners are not four different sources")
+
+    def ref(row):
+        return f"{row['strategy_id']}@{row['revision']}"
+
+    def parent(row):
+        return None if row["parent_strategy_id"] is None else f"{row['parent_strategy_id']}@{row['parent_revision']}"
+
+    for name in ("a", "b"):
+        if parent(rows[name]) != ref(rows["base"]):
+            raise _unattested(f"corner {name} {ref(rows[name])} has parent {parent(rows[name])}, not base "
+                              f"{ref(rows['base'])}")
+    if parent(rows["ab"]) not in (ref(rows["a"]), ref(rows["b"])):
+        raise _unattested(f"the compared candidate {ref(rows['ab'])} has parent {parent(rows['ab'])}, neither a nor b")
+    merged = report_attribution.merge3(rows["base"]["source"], rows["a"]["source"], rows["b"]["source"])
+    if merged is None:
+        raise _unattested("a and b change the same lines of base: their three-way merge conflicts")
+    if merged != rows["ab"]["source"]:
+        raise _unattested(f"the three-way merge of a and b from base is not the source of {ref(rows['ab'])}")
+    return rows
+
+
+def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
+    """The declared two-by-two of a comparison (gather's result), or None without a declaration.
+
+    The corners are base, a and b as declared and ab, the compared run's candidate. They attest the
+    interaction when the shape holds (_corners), each corner has exactly one passed research run
+    comparable with this registration's execution and with economic evidence (ab's is the compared
+    run), the other three runs predate the declaring registration, and the four daily clocks agree.
+    Then the weighted contrast ab - a - b + base goes through `paired` (interval uncorrected, no p),
+    with each change's two-order average contribution. Otherwise {available: false, reason:
+    INTERACTION_UNATTESTED: why}; the rest of the comparison is not affected."""
+    declared = (found["body"].get("prediction") or {}).get("interaction")
+    if not declared:
+        return None
+    try:
+        rows = _corners(conn, declared, found["candidate"])
+        execution = found["plan"]["execution"]
+        checker = availability.check_identity()
+        runs_of = {name: _corner_run(conn, name, rows[name], execution, checker) for name in ("base", "a", "b", "ab")}
+        if runs_of["ab"] != found["candidate"]["run_id"]:
+            raise _unattested(f"the qualified run of the compared candidate is run {runs_of['ab']}, not the compared "
+                              f"run {found['candidate']['run_id']}")
+        for name in ("base", "a", "b"):
+            created = conn.one("SELECT created_at FROM run WHERE run_id = %s", (runs_of[name],))["created_at"]
+            if not created < found["registered_at"]:
+                raise _unattested(f"run {runs_of[name]} of corner {name} was stored at {created}, not before the "
+                                  f"declaring registration ({found['registered_at']})")
+        clocks = {name: trade_window_series(measures.run_facts(conn, runs_of[name]), name)
+                  for name in ("base", "a", "b")}
+        clocks["ab"] = found["series"]["candidate"]
+        for name in ("base", "a", "b"):
+            check_clocks(clocks["ab"], clocks[name])
+        series = {name: [value for _, value, _ in clocks[name]] for name in ("base", "a", "b", "ab")}
+        tested = paired([series["base"], series["a"]], [series["b"], series["ab"]], found["body"]["comparison"], 1,
+                        weights=INTERACTION_WEIGHTS)
+    except Refusal as exc:
+        why = exc.message if exc.code == "INTERACTION_UNATTESTED" else f"{exc.code}: {exc.message}"
+        return {"available": False, "declared": dict(declared), "reason": f"INTERACTION_UNATTESTED: {why}"}
+    means = {name: float(np.log1p(np.asarray(values, dtype=float)).mean()) for name, values in series.items()}
+    for item in tested["block_sensitivity"]:
+        item.pop("p_one_sided", None)
+    test = {key: value for key, value in tested.items() if key not in UNCORRECTED_DROPPED}
+    test["limitations"] = [item for item in test["limitations"] if item not in PAIRED_LIMITATIONS]
+    return {"available": True, "declared": dict(declared), "reason": None,
+            "corners": {name: {"candidate": f"{rows[name]['strategy_id']}@{rows[name]['revision']}",
+                               "run_id": runs_of[name]} for name in ("base", "a", "b", "ab")},
+            "shape": {"method": report_attribution.MERGE_METHOD, "merge_equals_ab": True},
+            "weights": dict(zip(("base", "a", "b", "ab"), INTERACTION_WEIGHTS)), "uncorrected": True, "p": None,
+            "interval_coverage_uncorrected": 1 - found["body"]["comparison"]["alpha"],
+            "mean_daily_log": means, "contributions": report_attribution.contributions(means), "test": test,
+            "limitations": list(INTERACTION_LIMITATIONS)}
 
 
 # The out-of-sample report
@@ -411,7 +539,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                           (row["strategy_id"], row["revision"]))
         limitations = list(VALIDATION_LIMITATIONS)
         output = {"registration_id": registration_id, "ledger_commit": db.head_commit(conn),
-                  "metrics_revision": metrics.metrics_revision(clean=False),
+                  "metrics_revision": availability.report_revision(),
                   "registration": {"candidate": f"{row['strategy_id']}@{row['revision']}",
                                    "source_sha256": (source or {}).get("source_sha256"),
                                    "window_start": row["window_start"], "window_end": row["window_end"],
@@ -422,9 +550,9 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         if output["witness"]["stamped_at"] is None:
             limitations.append("UNWITNESSED: the registration commit has no verified timestamp token")
         binding, run = _bound(conn, registration_id)
-        family_rows = conn.dicts("SELECT registration_id, strategy_id, revision FROM validation_registration WHERE "
-                                 "window_start = %s AND window_end = %s AND universe_rule = %s ORDER BY registration_id",
-                                 (row["window_start"], row["window_end"], row["universe_rule"]))
+        family_rows = conn.dicts("SELECT registration_id, strategy_id, revision, design FROM validation_registration "
+                                 "WHERE window_start = %s AND window_end = %s AND universe_rule = %s ORDER BY "
+                                 "registration_id", (row["window_start"], row["window_end"], row["universe_rule"]))
         family_size = len(family_rows)
         if binding is None:
             limitations.append("UNBOUND: no validation replay is bound to the registration")
@@ -441,18 +569,19 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                     "headline": report["headline"], "slices": report["slices"], "cost_basis": report["cost_basis"],
                     "closed_by_year": report["closed_by_year"], "capital": report["capital"],
                     "exposures_table": {"reader": "report.tables", "run_id": run["run_id"], "exposures": True,
-                                        "needs": "a reproduction directory (replay.reproduce) whose fingerprint "
-                                                 "matches"}}
+                                        "needs": "the directory and trial ID replay.reproduce returns (a verified "
+                                                 "reproduction)"}}
                 output["single"], why = _single_of(conn, run, design, family_size)
                 if why:
                     limitations.append(f"NO_SINGLE_TEST: {why}")
         members = []
         for member in family_rows:
             _, member_run = _bound(conn, member["registration_id"])
+            own = member["design"] if isinstance(member["design"], dict) else json.loads(member["design"])
             tested, _ = (output["single"], None) if member["registration_id"] == registration_id else \
-                _single_of(conn, member_run, design, family_size)
+                _single_of(conn, member_run, own, family_size)  # each member's p by its own registered design
             members.append({"registration_id": member["registration_id"],
-                            "candidate": f"{member['strategy_id']}@{member['revision']}",
+                            "candidate": f"{member['strategy_id']}@{member['revision']}", "design": own,
                             "run_id": (member_run or {}).get("run_id"),
                             "p_one_sided": None if tested is None else tested["p_one_sided"], "p_holm": None})
         with_p = [member for member in members if member["p_one_sided"] is not None]

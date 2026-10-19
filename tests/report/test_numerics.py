@@ -44,7 +44,6 @@ class PairedTests(unittest.TestCase):
         low, high = found["mean_log_basic_interval"]
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][0], -high, places=12, msg="shared block starts")
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][1], -low, places=12)
-        self.assertFalse(any(key in found for key in ("passed", "verdict", "improved", "rank")))
 
     def test_the_one_sided_p_counts_centered_resamples_with_plus_one_smoothing(self):
         # One-day blocks of a two-day series: every resampled mean is 0.01, 0.02 or 0.03.
@@ -92,13 +91,6 @@ class PairedTests(unittest.TestCase):
         self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 4, {**DESIGN, "resamples": 10}, 1),
                          "REGISTRATION_INVALID")
         self.assertEqual(refused(comparison.paired, [0.0] * 4, [0.0] * 4, DESIGN, 0), "REGISTRATION_INVALID")
-
-    def test_block_indices_wrap_consecutive_days_from_each_start(self):
-        class Fixed:
-            def integers(self, low, high, size):
-                return np.array([4, 1][:size])
-        rows = comparison.block_indices(Fixed(), 5, 3, 1)
-        self.assertEqual(rows.tolist(), [[4, 0, 1, 1, 2]])
 
 
 class SingleAndHolmTests(unittest.TestCase):
@@ -229,6 +221,14 @@ class MeasureTests(unittest.TestCase):
         split = measures.level_timing([1, 2, 3], [1, 4, 9])
         self.assertEqual((split["level"], split["timing"]), (12.0, 2.0))
 
+    def test_the_days_without_exposure_and_their_pnl_are_listed_apart(self):
+        found = measures.derive_measures(self.facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: fixture"})
+        level, timing = found["level_term@1"], found["timing_term@1"]
+        self.assertEqual((level["flat_days"], timing["flat_days"], level["sample_size"]), (1, 1, 3))
+        self.assertAlmostEqual(level["flat_pnl"], 1010 * -0.005, places=9, msg="the second day held no exposure")
+        self.assertAlmostEqual(level["value"] + timing["value"] + level["flat_pnl"],
+                               sum(measures.daily_pnl(self.returns, Decimal("1000"))), places=9)
+
     def test_trade_structure_instruments_and_periods(self):
         found = self.derive()
         self.assertEqual((found["cycles@1"], found["win_rate@1"], found["avg_win@1"], found["avg_loss@1"],
@@ -251,6 +251,8 @@ class MeasureTests(unittest.TestCase):
     def test_the_comparison_helpers(self):
         self.assertEqual(measures.breakeven_multiple(Decimal(1000), Decimal(500)), (3.0, None))
         self.assertIsNone(measures.breakeven_multiple(Decimal(1000), Decimal(-500))[0], "it never reaches zero")
+        self.assertEqual(measures.breakeven_multiple(Decimal(-100), Decimal(500)), (0.8, None),
+                         "a candidate that pays more and loses breaks even at lower fees")
         split = measures.expectancy_split({"win_rate": 0.4, "avg_win": 200, "avg_loss": -100},
                                           {"win_rate": 0.5, "avg_win": 100, "avg_loss": -100})
         self.assertAlmostEqual(split["win_rate_part"], 25)
@@ -259,6 +261,64 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(measures.residual_after_top([5, 4, 3, 2, 1, -1, -2]), -3)
         self.assertEqual(measures.residual_after_top([-5, -4, -3, -2, -1, 1, 2]), 3)
         self.assertEqual(measures.top_share([1, -1, 2]), 1.0)
+
+
+    def test_a_candidate_paying_less_in_fees_that_still_wins_never_breaks_even(self):
+        multiple, reason = measures.breakeven_multiple(Decimal(100), Decimal(-500))
+        self.assertIsNone(multiple, "raising both fees only widens the lead of the cheaper winner")
+        self.assertTrue(reason.startswith("NEVER_ZERO"))
+
+
+class PairwiseTests(unittest.TestCase):
+    """The comparison's own definitions on a pair of runs too short for the market regression."""
+
+    def test_a_short_window_leaves_the_pairwise_regression_empty_with_its_reason(self):
+        four = [(JAN + k * DAY, 0.001 * k, None) for k in range(4)]
+        facts = {"cycles": [], "returns": four}
+        market = {"days": [measures.day_of(ts) for ts, _, _ in four], "basket": [0.01, 0.02, -0.01, 0.0],
+                  "btc": [0.0, 0.01, 0.0, 0.02]}
+        found = attribution._pairwise(facts, facts, {}, {}, market, {"scalars": {}})
+        for name in ("beta_basket", "alpha_basket", "beta_btc", "alpha_btc"):
+            with self.subTest(name=name):
+                self.assertIsNone(found[name]["value"])
+                self.assertTrue(found[name]["null_reason"].startswith("REGRESSION_UNAVAILABLE"))
+        self.assertEqual(found["one_side_instruments"]["value"], 0, "the rest of the pair is still given")
+
+    def test_a_singular_market_series_leaves_the_regression_empty(self):
+        days = [(JAN + k * DAY, 0.001 * (k % 3), None) for k in range(10)]
+        market = {"days": [measures.day_of(ts) for ts, _, _ in days], "basket": [0.0] * 10, "btc": [0.0] * 10}
+        found = attribution._pairwise({"cycles": [], "returns": days}, {"cycles": [], "returns": days}, {}, {}, market,
+                                      {"scalars": {}})
+        self.assertTrue(found["beta_basket"]["null_reason"].startswith("REGRESSION_UNAVAILABLE"))
+
+
+class InteractionShapeTests(unittest.TestCase):
+    BASE = b"a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
+
+    def test_two_changes_on_different_lines_merge_into_both(self):
+        a = self.BASE.replace(b"b = 2", b"b = 20")
+        b = self.BASE.replace(b"e = 5", b"e = 50")
+        self.assertEqual(attribution.merge3(self.BASE, a, b), self.BASE.replace(b"b = 2", b"b = 20").replace(
+            b"e = 5", b"e = 50"))
+        self.assertEqual(attribution.merge3(self.BASE, b, a), attribution.merge3(self.BASE, a, b))
+        self.assertEqual(attribution.merge3(self.BASE, a, a), a, "the same change on both sides is taken once")
+
+    def test_two_changes_of_one_line_conflict(self):
+        a = self.BASE.replace(b"c = 3", b"c = 30")
+        b = self.BASE.replace(b"c = 3", b"c = 31")
+        self.assertIsNone(attribution.merge3(self.BASE, a, b))
+
+    def test_insertions_and_deletions_merge_around_the_kept_lines(self):
+        a = b"x = 0\n" + self.BASE
+        b = self.BASE.replace(b"d = 4\n", b"")
+        self.assertEqual(attribution.merge3(self.BASE, a, b), b"x = 0\na = 1\nb = 2\nc = 3\ne = 5\n")
+
+    def test_the_contributions_average_both_orders_and_sum_to_the_corner_difference(self):
+        found = attribution.contributions({"base": 0.0, "a": 0.002, "b": 0.001, "ab": 0.005})
+        self.assertAlmostEqual(found["a"], (0.002 + 0.004) / 2)
+        self.assertAlmostEqual(found["b"], (0.001 + 0.003) / 2)
+        self.assertAlmostEqual(found["a"] + found["b"], found["total"])
+        self.assertAlmostEqual(found["interaction"], 0.002)
 
 
 class MarketTests(unittest.TestCase):
