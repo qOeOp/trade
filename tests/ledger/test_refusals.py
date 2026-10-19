@@ -1,4 +1,5 @@
-"""Refusals: their fixed shape, and a catalogue entry for every code the ledger package raises."""
+"""Refusals: their fixed shape, and a catalogue entry for every refusal code the ledger, registration
+and replay packages raise and every failure reason they give."""
 
 from __future__ import annotations
 
@@ -7,33 +8,47 @@ from pathlib import Path
 import unittest
 
 from ledger.errors import Refusal, refusal
+from ledger.problems import REASONS
 from ledger.refusals import CATALOGUE, refusal_catalogue, refuse
 
 
-PACKAGE = Path(__file__).resolve().parents[2] / "ledger"
+ROOT = Path(__file__).resolve().parents[2]
+PACKAGES = ("ledger", "registration", "replay")
 
 
-def raised_codes() -> dict[str, list[str]]:
-    """Every literal code passed to refuse() or refusal() anywhere in the package, with its sites."""
+def literal_codes(names: tuple[str, ...]) -> dict[str, list[str]]:
+    """Every literal code passed to a call named one of `names` (or `module.name`) in the packages, with its sites."""
     found: dict[str, list[str]] = {}
-    for path in sorted(PACKAGE.glob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("refuse", "refusal")
-                    and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
-                found.setdefault(node.args[0].value, []).append(f"{path.name}:{node.lineno}")
+    for package in PACKAGES:
+        for path in sorted((ROOT / package).glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                func = node.func.id if isinstance(node.func, ast.Name) else (
+                    node.func.attr if isinstance(node.func, ast.Attribute) else None)
+                if (func in names and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    found.setdefault(node.args[0].value, []).append(f"{package}/{path.name}:{node.lineno}")
     return found
 
 
 class RefusalTests(unittest.TestCase):
     def test_every_raised_code_has_a_meaning_and_repair_commands(self):
-        codes = raised_codes()
-        self.assertIn("NOT_TEMPORARY_PATH", codes)
+        codes = literal_codes(("refuse", "refusal"))
+        self.assertTrue(codes)
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):
                 self.assertIn(code, CATALOGUE)
                 entry = refusal_catalogue(code)
                 self.assertTrue(entry["message"].strip())
                 self.assertTrue(entry["next_actions"] and all(action.strip() for action in entry["next_actions"]))
+
+    def test_every_failure_reason_given_has_a_meaning(self):
+        codes = literal_codes(("reason",))
+        self.assertTrue(codes)
+        for code, sites in codes.items():
+            with self.subTest(code=code, sites=sites):
+                self.assertTrue(REASONS[code].strip())
 
     def test_a_refusal_has_a_stable_shape_and_the_catalogue_repairs(self):
         raised = refuse("BUNDLE_EXISTS", "bundle x exists", missing=("x",))

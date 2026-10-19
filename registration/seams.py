@@ -39,17 +39,54 @@ def _resolve_runtime(reference: str | None) -> dict:
         raise _record_error(exc, "RUNTIME_UNAVAILABLE") from exc
 
 
+# Runner arguments inside the container. The replay entry writes the strategy, binding, output and
+# market options itself and mounts the inputs at fixed container paths, so registration and every
+# replay probe the same effective configuration (no host path enters it).
+RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding",
+                           "--execution-binding", "--output", "--describe", "--market-root", "--market-commit", "--pool")
+ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")  # read by the entry, not passed to the runner
+MARKET_ROOT, MEMBERSHIP = "/inputs/market", "/inputs/membership.json"
+
+
+def reserved_options(runner_argv: list[str]) -> list[str]:
+    return sorted({value.split("=", 1)[0] for value in runner_argv if value.split("=", 1)[0] in RESERVED_RUNNER_OPTIONS})
+
+
+def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list[str], list[tuple[Path, str, bool]]]:
+    """(runner arguments with the inputs at their container paths, the read-only input mounts)."""
+    reserved = reserved_options(runner_argv)
+    if reserved:
+        raise refuse("RUNNER_OPTION_RESERVED", "the replay entry writes " + ", ".join(reserved) + " itself",
+                     missing=tuple(reserved))
+    argv, skipping = [], False
+    for value in runner_argv:
+        option = value.split("=", 1)[0]
+        if option in ENTRY_OPTIONS:
+            skipping = "=" not in value
+            continue
+        if skipping and not value.startswith("--"):
+            continue
+        skipping = False
+        argv.append(value)
+    symbols = list(inputs.get("symbols") or (inputs.get("identity") or {}).get("symbols") or ())
+    argv += ["--market-root", MARKET_ROOT, "--market-commit", inputs["identity"]["market_commit"], "--pool", MEMBERSHIP]
+    if symbols:
+        argv += ["--symbols", *symbols]
+    return argv, [(Path(inputs["root"]), MARKET_ROOT, True), (Path(inputs["membership_file"]), MEMBERSHIP, True)]
+
+
 def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) -> dict:
-    """The probe report; the runner reads the exported root, commit and membership file."""
+    """The probe report for the container arguments of these inputs; `effective_config` under the
+    engine design keys, `native_effective_config` as today's runner resolves it (its execution binding)."""
     from research.records import runtime
     from research.records.common import RecordError
-    argv = [*runner_argv, "--market-root", str(inputs["root"]), "--market-commit",
-            inputs["identity"]["market_commit"], "--pool", str(inputs["membership_file"])]
+    argv, _ = container_runner_args(list(runner_argv), inputs)
     try:
         inspection = runtime.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv)
     except RecordError as exc:
         raise _record_error(exc, "RUNTIME_PROBE_INVALID") from exc
-    return {**inspection, "effective_config": design_config(inspection.get("effective_config"))}
+    return {**inspection, "effective_config": design_config(inspection.get("effective_config")),
+            "native_effective_config": inspection.get("effective_config")}
 
 
 # Today's runner names the account terms `native_account`; the engine design calls them `account`.

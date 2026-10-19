@@ -13,14 +13,15 @@ from typing import Literal
 
 
 CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
-WRITE_STATUSES = ("not_written", "unknown")
+WRITE_STATUSES = ("not_written", "unknown", "written")
 
 
 class Refusal(Exception):
     """A coded refusal; `as_dict()` is what a command prints before it exits nonzero."""
 
     def __init__(self, code: str, message: str, *, missing: tuple[str, ...] = (),
-                 write_status: Literal["not_written", "unknown"] = "unknown", operation_id: str | None = None,
+                 write_status: Literal["not_written", "unknown", "written"] = "unknown",
+                 operation_id: str | None = None,
                  expected: str | None = None, next_actions: tuple[str, ...] = ()):
         if not isinstance(code, str) or not CODE.fullmatch(code):
             raise ValueError(f"refusal code must be UPPER_SNAKE_CASE, got {code!r}")
@@ -53,7 +54,8 @@ class Refusal(Exception):
 
 
 def refusal(code: str, message: str, missing: tuple[str, ...] = (),
-            write_status: Literal["not_written", "unknown"] = "unknown", operation_id: str | None = None,
+            write_status: Literal["not_written", "unknown", "written"] = "unknown",
+            operation_id: str | None = None,
             expected: str | None = None, next_actions: tuple[str, ...] = ()) -> Refusal:
     """Build (not raise) a refusal; malformed arguments are programming errors (ValueError)."""
     return Refusal(code, message, missing=missing, write_status=write_status, operation_id=operation_id,
