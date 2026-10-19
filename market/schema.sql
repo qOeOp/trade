@@ -1,5 +1,5 @@
 -- Market data schema, generation 1. Applied once on main by `ledger init --kind market`; imports
--- append on main. Field review: docs/plans/ws8b-market-data-field-review.zh.md.
+-- append on main. Decisions and measurements: market/README.md.
 --
 -- Rules: insert only; one Dolt commit per import; a run cites one commit. Times are UTC
 -- milliseconds as Binance reports them. Prices and volumes are integers at the scales recorded in

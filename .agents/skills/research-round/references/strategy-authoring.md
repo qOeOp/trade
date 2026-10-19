@@ -20,17 +20,22 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
   published `--entry-class` and `--strategy-class` of an exploration must agree. Runtime contract:
-  `r1-native-v5`.
+  `r1-native-v6`.
 - The constructor receives `instrument_id` and `daily_bar_type` positionally, then
-  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5), `strategy_id` and
-  `pool_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
+  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (1), `strategy_id` and
+  `universe_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
   `StrategyConfig(strategy_id=strategy_id)` to `Strategy.__init__`.
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL` without an aggregation source; subscribe
-  to it with `@5-MINUTE-EXTERNAL` appended, or no daily bars arrive.
-- `pool_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is in
-  the monthly pool (empty when the replay names contracts the pool never held). The pool rule is
-  that a contract out of the pool takes no new positions and only closes what it holds; apply it in
+  to it with `@1-MINUTE-EXTERNAL` appended, or no daily bars arrive.
+- `universe_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is
+  in the monthly universe (empty when the replay names contracts the universe never held), cut at
+  its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
+  contract out of the universe takes no new positions and only closes what it holds; apply it in
   the file, the runner and the audit do not.
+- With a lifecycle bundle the engine delivers the contract's `InstrumentStatus` (PRE_CLOSE, CLOSE)
+  and, when the exchange published one, its settlement `InstrumentClose`; subscribe with
+  `subscribe_instrument_status`. After CLOSE the market rejects orders, and the audit refuses a
+  position or a working order left at a termination without a settlement price.
 - No quantity arrives: size from the account and price in the file. The runner has no signal,
   exit, warmup or sizing option: every rule and parameter is in the file, and a variant is a new
   revision of it.
@@ -52,9 +57,9 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
 
 ## Causal clock
 
-- Input is 5-minute LAST bars (`{instrument_id}-5-MINUTE-LAST-EXTERNAL`), MARK updates and funding
+- Input is 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and funding
   updates; no quotes, trades or books. Aggregate natively with
-  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@5-MINUTE-EXTERNAL`; aggregated bars are stamped on
+  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; aggregated bars are stamped on
   close.
 - Decide only from completed bars on the engine clock, never host time. When a rule reads a
   prior-bar indicator, update it after the decision.
@@ -65,7 +70,7 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   1 ms before `--start`, at least 200 of them, so `--start` must be 00:00 UTC or the replay fails;
   without it the list is `[]`. The engine does not replay them; seed state
   from the list.
-- Matching uses 5-minute bars and the order inside one bar is unknown. Do not encode an intrabar
+- Matching uses 1-minute bars and the order inside one bar is unknown. Do not encode an intrabar
   path.
 
 ## Orders and accounting
@@ -75,7 +80,7 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   with `expire_time` for an entry lifetime.
 - Throughout the replay, the audit refuses a run in which a position is larger than its accepted
   reduce-only stop orders on the closing side (stop-market, stop-limit or trailing stop) for longer
-  than one five-minute bar, and names the time, instrument, quantity and order IDs. A source with no
+  than one one-minute bar, and names the time, instrument, quantity and order IDs. A source with no
   stop-loss by design sets the class attribute `USES_STOP_LOSS = False` (default `True`, any other
   value is refused); its uncovered intervals are then reported, not refused.
 - The pinned Nautilus lists the stop first in the entry's `linked_order_ids` and activates children
@@ -213,7 +218,7 @@ uv run --frozen python -m research.records.artifacts run --explore \
   --symbols BTCUSDT ETHUSDT --start START --trade-start TRADE-START --end END
 ```
 
-Times need `Z` or a UTC offset on five-minute
+Times need `Z` or a UTC offset on whole-minute
 boundaries. In the pilot, confirm every entry has its children, every order carries one plan tag
 and plans on one instrument do not overlap, no order precedes trade start, none was denied or
 rejected, and fills, fees, funding and account rows appear in the native reports. A

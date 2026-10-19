@@ -51,7 +51,7 @@ uv run --frozen python -m research.records.artifacts run --strategy ID@N [--mark
 
 - Arguments after `--` go to the runner; `run` supplies the strategy file, class, hash, bindings,
   market inputs and output itself and refuses those flags.
-- Times carry `Z` or an explicit UTC offset and fall on five-minute boundaries with
+- Times carry `Z` or an explicit UTC offset and fall on whole-minute boundaries with
   `start <= trade-start < end`; `start` to `trade-start` is warmup. A freeze needs
   `trade-start`/`end` equal to the goal window.
 - `passed` means the native integrity checks and the audit passed, not that the strategy meets the

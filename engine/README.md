@@ -1,19 +1,19 @@
 # Native replay
 
-Every native replay goes through `research.records.artifacts run`: `--explore` runs a draft into a
-new `/tmp` directory, and a published revision that a freeze or confirmation cites is sealed and
-stored in the research ledger ([runs
-reference](../.agents/skills/research-round/references/runs.md)). Both execute `python -m
-engine.run` and the native auditor in the same CI-built image and write one trial row. Never start a
-replay or a probe with `docker run` or `python -m engine.run` directly.
+Every native replay goes through the one replay entry (`replay.entry`: explore, precheck, research
+and validation runs; the command line arrives in phase 6 of the refactor): it exports the market
+inputs, probes the CI-built image, writes the trial and its start receipt, then runs `python -m
+engine.run`, the native auditor and the fingerprint in that image. The old
+`research.records.artifacts run` passes the retired `--pool` and does not run on current images.
+Never start a replay or a probe with `docker run` or `python -m engine.run` directly.
 
 | Path | Role |
 |---|---|
-| `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration and `--describe` |
-| `load.py` | The hash-checked strategy source, the exported market Catalogs, pool membership and daily warm-up |
-| `run.py` | The `BacktestNode` run, the capital observer and the execution binding check |
+| `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, `--describe` and the runner's refusal codes |
+| `load.py` | The hash-checked strategy source, the exported market Catalogs, universe membership, daily warm-up and the lifecycle events rebuilt from the coverage receipt |
+| `run.py` | The streamed `BacktestEngine` run, lifecycle episodes, the capital observer and the execution binding check |
 | `report.py` | Native reports, `order_events.jsonl.gz`, `exposures.csv.gz` and `summary.json` |
-| `audit.py` | Independent audit of every run's native reports and stop protection |
+| `audit.py` | Independent audit of every run's native reports, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
 | `compare_reports.py` | Engineering parity between two runs |
 | `runtime/` | Image build inputs |
@@ -23,32 +23,60 @@ replay or a probe with `docker run` or `python -m engine.run` directly.
 The runner takes the strategy reference, the inputs, the window and the account, nothing else.
 
 - **Strategy.** One complete source file, its entry class and SHA-256 (and, when sealed, its Dolt
-  binding). The `r1-native-v5` contract is in the [strategy-authoring
+  binding). The `r1-native-v6` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
 - **Inputs.** One commit of the market database ([`market`](../market/README.md))
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
-  (every contract the pool holds in some month of the trade window). `artifacts run` exports the
-  commit (`--market`, default `main`) into one Catalog per contract and passes the runner
-  `--market-root`, `--market-commit`, `--pool` and the symbols; the runner checks each Catalog's
-  `export.json` against the commit and window. Every strategy instance receives its contract's pool
-  membership as `pool_membership` ([UTC start, end) nanosecond intervals); the pool rule's "after
-  leaving the pool, only close" is the source's to apply, and no audit judges it.
-- **Window.** `--start`, `--trade-start` and `--end` need an explicit `Z` or UTC offset, at most six
-  fractional digits and no fractional offset, and fall on five-minute boundaries with
-  `start <= trade-start < end`; the host timezone is never consulted.
-- **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus `BacktestNode`
-  margin account shared by every instrument, leverage 1, five-minute bar execution, the exported
-  instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. The published `nautilus_trader==2.0.0rc3` owns data replay, orders,
-  fills, funding settlement, risk, portfolio accounting and reports. No exchange trading credential
-  is needed.
+  (every contract the universe holds in some month of the trade window), and optionally the
+  commit's lifecycle bundle (`--lifecycle-bundle lifecycle-<commit>`). The replay entry exports the
+  commit into one Catalog per contract and passes the runner `--market-root`, `--market-commit`,
+  `--universe` (the membership file it wrote) and the symbols; the runner checks each Catalog's
+  `export.json` against the commit, the window and the one-minute timeframe. Every strategy instance
+  receives its contract's membership as `universe_membership` ([UTC start, end) nanosecond
+  intervals, cut at the listing and at the first PRE_CLOSE or termination of its lifecycle
+  episode); "after leaving the universe, only close" is the source's to apply, and no audit judges
+  it. A contract whose episode does not intersect the window gets no instance.
+- **Window.** `--start`, `--trade-start` and `--end` need an explicit `Z` or UTC offset (whole
+  minutes, at most six fractional digits) and fall on the one-minute grid with
+  `start <= trade-start < end`; the host timezone is never consulted, and the effective
+  configuration holds them as `...Z` text.
+- **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus margin account
+  shared by every instrument, leverage 1, one-minute bar execution (`execution_bar_minutes = 1`),
+  the exported instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. The
+  published `nautilus_trader==2.0.0rc3` owns data replay, orders, fills, funding settlement, risk,
+  portfolio accounting and reports. No exchange trading credential is needed.
 
-The export holds 5-minute LAST bars, MARK price updates (each 5-minute MARK close), funding updates
-and the daily LAST bars before `--start`, all derived from the stored one-minute bars;
-`BacktestNode` loads them directly and the runner checks that it loaded exactly the exported
-counts. A source declaring `DAILY_WARMUP = True` receives the unbroken run of daily bars that ends
-1 ms before `--start` (at least 200). There is no second matching or account engine.
+The export holds the stored one-minute LAST bars, one MARK price update per one-minute MARK bar,
+funding updates, the daily LAST bars before `--start` and, with a lifecycle bundle, the window's
+native `InstrumentStatus` (PRE_CLOSE, CLOSE) and `InstrumentClose` events. The runner checks that
+the engine consumed exactly the exported counts. A source declaring `DAILY_WARMUP = True` receives
+the unbroken run of daily bars that ends 1 ms before `--start` (at least 200). There is no second
+matching or account engine.
+
+The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
+`market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
+`symbols`, `start`, `trade_start`, `end` and `account`; its digest leaves out the two host paths, so
+the registration's probe and the replay compare the same digest. A runner refusal starts with a
+code of `config.REFUSALS`.
+
+## Streaming and memory
+
+`BacktestNode` with one data configuration per contract and type loads every configuration whole
+and merge-sorts them before it streams to its engine, so its memory grows with the window: on
+one-minute bars, 40 contracts took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per
+million events. The runner therefore drives the pinned `BacktestEngine` itself. Bars and MARK
+updates come from the exported Parquet files through Nautilus's `DataBackendSession`, one session per
+seven days holding only that window's files and rows (a session reads ahead in every file it holds);
+funding and lifecycle events are read whole. Events of one `ts_init` keep the node's order (contract
+by contract: MARK, funding, bars, status, close) and the engine gets the node's chunks (50,000
+events, extended to the last event's `ts_init`). On the same inputs this gives the node's reports,
+event history, exposures and fingerprint; the runner adds each instrument once where the node added
+it once per configuration, which renumbers the venue order and trade IDs only. Six months of 40
+contracts take 1.3 GiB. The capital observer writes exposure rows as it values them and prints one
+JSON progress line to standard error every minute of wall time (simulation time, MARK updates,
+valued timestamps, RSS).
 
 ## Explore a source
 
@@ -105,7 +133,7 @@ expiry, which the terminal order rows lack. Orders are grouped by client order I
 event order; line order across orders is not the engine's processing order. The gzip header time
 is zero, so equal histories give equal bytes; event IDs are fresh UUIDs in every run.
 
-In `exposures.csv.gz`, a row labelled with bar timestamp T holds a position open after every event
+In `exposures.csv.gz`, a row labelled with one-minute bar timestamp T holds a position open after every event
 before the next bar timestamp, including fills stamped between bars, valued with the native
 `Position.notional_value` and `Position.unrealized_pnl` at T's MARK. An observer values the
 positions once the first MARK of the next timestamp shows that point reached, and the runner values
@@ -119,7 +147,7 @@ account economics, the same way for every strategy. It first
 reconciles the order event history with the orders and fills reports, then applies each timestamp's
 events together and reads, per strategy and instrument, the position and the unfilled quantity of
 accepted reduce-only stop orders on the closing side (stop-market, stop-limit, trailing). A
-position larger than that for longer than one five-minute bar fails the run; `audit.json` lists each
+position larger than that for longer than one one-minute bar fails the run; `audit.json` lists each
 such interval in `uncovered_intervals` with its start, end, quantities, the orders filled into the
 position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS = False` (recorded
 as `strategy_uses_stop_loss` in `summary.json`) gets the same list without the refusal.
@@ -128,7 +156,14 @@ The auditor (`python -m engine.audit --run REPORTS --output FILE`) exits 0 when 
 with findings (the result is written) and 2 without auditing when a report or the event history is
 missing or the summary is unreadable. It reads the coverage receipt `input-coverage.json` from the
 report directory's parent: a summary that counts native lifecycle events without that receipt is a
-finding.
+finding. With the receipt, `load.lifecycle_events` rebuilds the window's terminations from the
+exported episodes and checks them against the native counts; before each termination without a
+settlement price (a CLOSE status with no `InstrumentClose`) every native position of the contract
+must be flat and every order filled or ended, and order events at or after it are late
+(`POSITION_OPEN_AT_TERMINATION`, `ORDER_OPEN_AT_TERMINATION`, `LATE_ORDER_EVENT`). A settlement price
+is the engine's own settlement and reconciles like any fill. Every finding starts with a code of
+`audit.FINDINGS` followed by its locating detail; the ledger rebuilds the same events with the same
+function at ingest.
 
 A strategy constructor, callback, callback registered on the clock (`set_timer`, `set_timer_ns`,
 `set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
@@ -177,7 +212,8 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 ## History
 
 Seals from the `backtest/r1` layout (`r1-native-v1` to `v3`) are no longer read by current code;
-`research.records.runtime.LAYOUTS` knows only `r1-native-v5`. Their directories and locally built
+`research.records.runtime.LAYOUTS` knows only `r1-native-v6`. `r1-native-v5` replayed five-minute
+bars and passed `pool_membership`; its images and runs are not executed by current code. Their directories and locally built
 images remain until WS7; the v1 and v2 constructors received sizing arguments and the v1 to v3
 runners took signal, exit and warmup options that later contracts refuse. `r1-native-v4` read
 prepared minute and daily Catalog directories, identified by their file-tree hashes, and a per-coin
@@ -199,6 +235,8 @@ A stored run holds the revision's source, resolved configuration, observed runti
 identity (market database, commit, pool rule and contracts) and the native reports, in the research
 ledger and its `dolt_backup` copy. It does not hold the image or the exported Catalogs: full replay
 recovery needs the image (pull its digest from GHCR) and the market commit, which a new export
-turns into the same Catalogs. The first migration's custody locations and
-contract are recorded in the [migration record](../docs/plans/dolt-strategy-oci-migration.zh.md);
-historical local addresses are not product dependency paths.
+turns into the same Catalogs. Historical local custody addresses are not product dependency paths.
+
+Upgrading Nautilus starts with the paired acceptance above: rc6 already changed the Catalog format
+and moved fees into the venue's fee model, and the funding and lifecycle files are written in the
+engine's internal Arrow layout (rc3 has no Python writer for them).
