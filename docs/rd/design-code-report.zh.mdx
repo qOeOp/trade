@@ -726,7 +726,7 @@ def affected_runs(
 | `INVALID_QUERY` | current 为空、含未知维度名或 runtime 含四字段以外的键；或 runtime 给完整身份而 runtime.validate_identity 不通过 |
 | `UNKNOWN_REF` | at 给出的提交或标签在账本中不存在 |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
-| `RUN_IDENTITY_MISSING` | 某封存运行行缺 runtime_inspection、effective_config 或 input_identity，或其 trial 行缺 image_digest；列出该 run_id 并拒绝，提示走整体复核 |
+| `RUN_IDENTITY_MISSING` | 某封存运行缺开始回执里的有效配置或输入身份，或其 trial 行缺 image_digest；列出该 run_id 并拒绝，提示走整体复核 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="runtime.validate_identity" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_validations" />、<Ref id="table:v_evidence" />
 

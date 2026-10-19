@@ -827,6 +827,7 @@ def market_import(
 2. 调用 market.import_month，原样传递其拒绝码与定位信息（合约、价格类型、时刻或月份）
 3. 成功时输出导入事实；提交哈希供 market.resolve_commit 解析、供登记钉住市场数据
 4. 不接受直接 SQL 或其他写入路径；同月同内容重跑返回原提交
+5. 市场库同样有 dolt_backup 备份（用户 10-20 授权）：market init --backup-root 在建库时写入备份目录，正式库必填且不得在仓库或临时目录内；market backup 持导入锁同步，已有备份分叉即 BACKUP_DIVERGED；market review 核备份头仍是市场库 main 的祖先，否则记 HISTORY_REWRITTEN。
 
 | 拒绝码 | 条件 |
 |---|---|
