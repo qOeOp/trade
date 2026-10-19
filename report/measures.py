@@ -1,7 +1,8 @@
 """Read-time measures (`report.derive_measures`), shared by the single-run and the comparison report.
 
 Everything here is computed from what the ledger stores for a sealed run (its position cycles, its
-daily series and its sealed result) plus, for the market exposure, the market's daily returns. Each
+daily series and its sealed result) plus, for the market exposure and the volatility regimes, the
+market's daily returns. Each
 measure is `name@version`; a version computes the same value at any time, and a definition change
 is a new version. A measure that cannot be given is None with a named reason; nothing is guessed.
 `run_facts` reads one run's stored facts; the functions below it are pure.
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import math
 import statistics
@@ -34,19 +35,26 @@ VERSIONS = {"annual_return": 1, "plan_win_rate": 1, "sharpe_365": 1, "mark_max_d
             "down_month_notional": 1, "return_over_drawdown": 1,
             "breakeven_fee_multiple": 1,
             "top5_abs_share": 1, "one_side_instruments": 1, "long_net": 1, "short_net": 1,
-            "beta_basket": 1, "alpha_basket": 1, "beta_btc": 1, "alpha_btc": 1,
-            "months_won_share": 1, "residual_after_top5_days": 1,
+            "daily_turnover": 1,
+            # @2: the standard error's Bartlett bandwidth is Newey-West (1994)'s automatic one
+            "beta_basket": 1, "alpha_basket": 2, "beta_btc": 1, "alpha_btc": 2,
+            "months_won_share": 1, "residual_after_top5_days": 1, "sharpe_lo": 1,
+            "high_vol_days": 1, "high_vol_mean_log": 1, "high_vol_log_sum": 1,
+            "low_vol_days": 1, "low_vol_mean_log": 1, "low_vol_log_sum": 1,
             "cycles": 1, "win_rate": 1, "avg_win": 1, "avg_loss": 1, "expectancy": 1, "median_holding_hours": 1,
             "top_exit_share": 1,
             "matched_share": 1, "matched_net_share": 1, "removed_net": 1, "added_net": 1, "matched_delta_net": 1,
             "win_to_loss": 1, "loss_to_win": 1, "median_entry_shift_minutes": 1,
             "max_drawdown": 2, "drawdown_days": 2, "top_instrument_share_in_drawdown": 2}
-HEADLINE = ("annual_return", "mark_max_drawdown", "plan_win_rate", "sharpe_365")
+HEADLINE = ("annual_return", "mark_max_drawdown", "plan_win_rate", "sharpe_365", "sharpe_lo")
 COMPARISON_ONLY = frozenset({"trade_pairs"})
 SEALED_DRAWDOWN = {"max_drawdown": "mark_max_drawdown@2", "mark_max_drawdown": "mark_max_drawdown@2",
                    "drawdown_days": "duration_days@2",
                    "top_instrument_share_in_drawdown": "top_instrument_share_in_drawdown@2"}
 CATALOGUE_REVISION = metrics.CATALOGUE
+ANNUAL_DAYS = 365
+BARTLETT_GAMMA = 1.1447  # Newey-West (1994) c_gamma of the Bartlett kernel (q = 1)
+REGIME_WINDOW = 30  # days of basket returns before a day that label its volatility regime
 
 
 def key(name: str) -> str:
@@ -111,9 +119,27 @@ def sharpe_365(returns: Sequence[float]) -> float | None:
     return None if deviation == 0 else statistics.fmean(returns) / deviation * math.sqrt(365)
 
 
-def newey_west_lags(observations: int) -> int:
-    """The Newey-West (1994) rule of thumb floor(4 (T / 100) ** (2 / 9))."""
+def lag_selection(observations: int) -> int:
+    """Newey-West (1994)'s lag selection parameter n = floor(4 (T / 100) ** (2 / 9)): where the
+    autocovariance sums that estimate the bandwidth are truncated (not the bandwidth itself)."""
     return int(math.floor(4 * (observations / 100) ** (2 / 9)))
+
+
+def automatic_bandwidth(series: Sequence[float]) -> tuple[int, int]:
+    """Newey-West (1994) automatic bandwidth of the Bartlett kernel for the scalar series w'h_t
+    (eqs. 3-8 to 3-13, without prewhitening): sigma_j = T^-1 sum_{t>j} h_t h_(t-j) for j = 0..n,
+    s0 = sigma_0 + 2 sum sigma_j, s1 = 2 sum j sigma_j, gamma = 1.1447 ((s1 / s0) ** 2) ** (1 / 3),
+    m = floor(gamma T ** (1 / 3)), at most T - 1. Returns (m, n); m is 0 when the series is all zero."""
+    h = np.asarray(series, dtype=float)
+    count = len(h)
+    n = min(lag_selection(count), count - 1)
+    sigma = [float(h[j:] @ h[:count - j]) / count for j in range(n + 1)]
+    s0 = sigma[0] + 2 * sum(sigma[1:])
+    s1 = 2 * sum(j * value for j, value in enumerate(sigma) if j)
+    if s0 == 0:
+        return 0, n
+    gamma = BARTLETT_GAMMA * ((s1 / s0) ** 2) ** (1 / 3)
+    return min(int(math.floor(gamma * count ** (1 / 3))), count - 1), n
 
 
 def ols_newey_west(y: Sequence[float], x: np.ndarray, lags: int) -> tuple[np.ndarray, np.ndarray]:
@@ -133,17 +159,75 @@ def ols_newey_west(y: Sequence[float], x: np.ndarray, lags: int) -> tuple[np.nda
     return beta, bread @ middle @ bread
 
 
+def coefficient_bandwidth(y: Sequence[float], x: np.ndarray, index: int) -> tuple[int, int]:
+    """The automatic bandwidth for the variance of coefficient `index`: the weight vector is
+    w_T = alpha' H_T with alpha selecting that coefficient and H_T = (X'X / T)^-1 (Newey-West 1994,
+    section III, the OLS case), so w'h_t is that coefficient's row of the inverse times x_t e_t."""
+    y = np.asarray(y, dtype=float)
+    x = np.asarray(x, dtype=float)
+    beta, *_ = np.linalg.lstsq(x, y, rcond=None)
+    weight = np.linalg.inv(x.T @ x / len(y))[index]
+    return automatic_bandwidth((x * (y - x @ beta)[:, None]) @ weight)
+
+
 def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
     """y_t = a + b0 m_t + b1 m_(t-1) + e_t from the second day on (Dimson's one-day lag);
-    beta = b0 + b1, alpha = a per day with its Newey-West standard error."""
+    beta = b0 + b1, alpha = a per day with its Newey-West standard error at the automatic bandwidth
+    for the intercept (`lags`; `lag_selection` is the truncation that estimated it)."""
     if len(y) != len(market) or len(y) < 5:
         raise ValueError("the regression needs two aligned series of at least five days")
     m = np.asarray(market, dtype=float)
     x = np.column_stack([np.ones(len(m) - 1), m[1:], m[:-1]])
-    lags = newey_west_lags(len(m) - 1)
-    beta, covariance = ols_newey_west(np.asarray(y, dtype=float)[1:], x, lags)
+    target = np.asarray(y, dtype=float)[1:]
+    lags, selection = coefficient_bandwidth(target, x, 0)
+    beta, covariance = ols_newey_west(target, x, lags)
     return {"beta": float(beta[1] + beta[2]), "alpha": float(beta[0]), "alpha_se": float(math.sqrt(covariance[0, 0])),
-            "lags": lags, "days": len(m) - 1}
+            "lags": lags, "lag_selection": selection, "days": len(m) - 1}
+
+
+def autocorrelations(values: Sequence[float], lags: int) -> list[float]:
+    """Sample autocorrelations rho_1..rho_lags: sum_{t>k} (r_t - mean)(r_(t-k) - mean) over sum (r_t - mean)^2."""
+    r = np.asarray(values, dtype=float) - statistics.fmean(values)
+    total = float(r @ r)
+    return [float(r[k:] @ r[:len(r) - k]) / total for k in range(1, lags + 1)]
+
+
+def sharpe_lo(returns: Sequence[float], periods: int = ANNUAL_DAYS) -> dict | None:
+    """Lo (2002)'s annual Sharpe ratio under serial correlation: the daily Sharpe ratio (mean over
+    sample standard deviation of the simple returns) times eta(q) = q / sqrt(q + 2 sum_k (q - k) rho_k)
+    with q = 365; the autocorrelations beyond `lags` = lag_selection(T) are taken as zero. None when
+    the returns do not vary, the series is shorter than lags + 2, or the bracket is not positive."""
+    lags = lag_selection(len(returns))
+    if len(returns) < lags + 2 or lags < 1 or statistics.stdev(returns) == 0:
+        return None
+    rho = autocorrelations(returns, lags)
+    bracket = periods + 2 * sum((periods - k) * value for k, value in enumerate(rho, 1))
+    if bracket <= 0:
+        return None
+    eta = periods / math.sqrt(bracket)
+    return {"value": statistics.fmean(returns) / statistics.stdev(returns) * eta, "eta": eta, "lags": lags,
+            "autocorrelations": rho}
+
+
+def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str, str | None] | None, str | None]:
+    """Each day's volatility regime from the equal-weight basket's daily returns known before it: "high"
+    when the absolute basket return of the prior day is above the median absolute basket return of
+    the REGIME_WINDOW days ending the prior day, else "low"; None (unlabelled) when one of those days
+    has no basket return."""
+    if market is None:
+        return None, "MARKET_RETURNS_UNAVAILABLE: no market daily returns were read"
+    if isinstance(market.get("error"), str):
+        return None, market["error"]
+    basket = dict(zip(market.get("days") or [], market.get("basket") or []))
+    found: dict[str, str | None] = {}
+    for day in days:
+        moment = datetime.fromisoformat(day)
+        prior = [basket.get((moment - k * timedelta(days=1)).date().isoformat()) for k in range(1, REGIME_WINDOW + 1)]
+        if any(value is None for value in prior):
+            found[day] = None
+            continue
+        found[day] = "high" if abs(prior[0]) > statistics.median(abs(value) for value in prior) else "low"
+    return found, None
 
 
 def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict:
@@ -298,6 +382,13 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
                                                                           "NONPOSITIVE_EQUITY: no annual return"))
     sharpe = sharpe_365([value for _, value, _ in returns]) if series_reason is None else None
     put("sharpe_365", sharpe, "account_days", days, series_reason or "ZERO_VARIANCE: the daily returns do not vary")
+    adjusted = sharpe_lo([value for _, value, _ in returns]) if series_reason is None else None
+    put("sharpe_lo", None if adjusted is None else adjusted["value"], "account_days", days,
+        series_reason or "NOT_COMPUTABLE: the daily returns do not vary, are too few for their lags, or their "
+                         "autocorrelations leave no positive variance")
+    if adjusted is not None:
+        found[key("sharpe_lo")].update(eta=adjusted["eta"], lags=adjusted["lags"],
+                                       autocorrelations=adjusted["autocorrelations"])
     drawdown = sealed.get("drawdown") or {}
     for name, sealed_key in SEALED_DRAWDOWN.items():
         item = drawdown.get(sealed_key) or {}
@@ -383,6 +474,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         put("breakeven_fee_multiple", multiple, "account", len(cycles), reason)
     else:
         put("breakeven_fee_multiple", None, "account", len(cycles), bridge_reason)
+    turnover, fills, reason = daily_turnover(sealed.get("fees_by_liquidity_side@2"), starting, window_days)
+    put("daily_turnover", turnover, "fills", fills, reason)
 
     # by_instrument
     nets = instrument_net(cycles)
@@ -406,7 +499,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         if reason is None:
             put(beta_name, fitted["beta"], "account_days", fitted["days"])
             put(alpha_name, fitted["alpha"], "account_days", fitted["days"])
-            found[key(alpha_name)].update(standard_error=fitted["alpha_se"], lags=fitted["lags"])
+            found[key(alpha_name)].update(standard_error=fitted["alpha_se"], lags=fitted["lags"],
+                                          lag_selection=fitted["lag_selection"])
         else:
             put(beta_name, None, "account_days", days, reason)
             put(alpha_name, None, "account_days", days, reason)
@@ -418,6 +512,21 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     logs = [math.log1p(value) for _, value, _ in returns]
     put("residual_after_top5_days", residual_after_top(logs) if series_reason is None else None, "account_days", days,
         series_reason or "NO_DAY: no daily return")
+
+    # by_regime
+    labels, reason = regime_labels(market, [day_of(ts) for ts, _, _ in returns])
+    reason = series_reason or reason
+    unlabelled = None if labels is None else sum(1 for value in labels.values() if value is None)
+    for regime in ("high", "low"):
+        logs_in = [math.log1p(value) for ts, value, _ in returns if labels and labels.get(day_of(ts)) == regime]
+        empty = reason or (f"NO_{regime.upper()}_VOL_DAY: no labelled day of the window is in this regime "
+                           f"({unlabelled} days unlabelled)")
+        put(f"{regime}_vol_days", len(logs_in) if reason is None else None, "account_days", days, reason)
+        found[key(f"{regime}_vol_days")].update(unlabelled_days=unlabelled)
+        put(f"{regime}_vol_mean_log", sum(logs_in) / len(logs_in) if logs_in and reason is None else None,
+            "regime_days", len(logs_in), empty)
+        put(f"{regime}_vol_log_sum", sum(logs_in) if logs_in and reason is None else None, "regime_days",
+            len(logs_in), empty)
 
     # trade_structure
     wins = [Decimal(cycle["realized_pnl"]) for cycle in closed if Decimal(cycle["realized_pnl"]) > 0]
@@ -441,6 +550,19 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     return {name: value for name, value in found.items() if name in wanted}
 
 
+def daily_turnover(sides: Mapping | None, starting: Decimal | None,
+                   days: float) -> tuple[float | None, int | None, str | None]:
+    """(turnover, fills, reason): the sealed traded notional of every liquidity side over the starting
+    balance, per day of the trading window."""
+    if not isinstance(sides, Mapping):
+        return None, None, "FEES_UNAVAILABLE: the sealed result has no fees by liquidity side"
+    fills = sum(int(item.get("fills") or 0) for item in sides.values())
+    if not starting or days <= 0:
+        return None, fills, "ACCOUNT_UNKNOWN: no starting balance or no trading day"
+    notional = sum((Decimal(item["notional"]) for item in sides.values() if item.get("notional")), Decimal(0))
+    return float(notional / starting) / days, fills, None
+
+
 def closed_by_year(cycles: list[dict]) -> dict:
     """Closed cycles' count, price PnL, commissions and funding by the UTC year of their close."""
     years: dict[str, dict] = {}
@@ -458,15 +580,16 @@ def closed_by_year(cycles: list[dict]) -> dict:
 
 
 def market_for(run: Mapping) -> dict | None:
-    """The market's daily returns over the run's trading window (report.seams.market_returns); a
-    failure becomes {error} so that only the market measures are empty."""
+    """The market's daily returns over the run's trading window and the REGIME_WINDOW days before it
+    (report.seams.market_returns); a failure becomes {error} so that only the market measures are empty."""
     from ledger.errors import Refusal
     from report import seams
     identity = run.get("input_identity") or {}
     try:
         return seams.current.market_returns(identity.get("market_database"), identity.get("market_commit"),
                                             identity.get("universe_rule"),
-                                            datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc),
+                                            datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
+                                            - timedelta(days=REGIME_WINDOW),
                                             datetime.fromtimestamp(run["trade_end_ns"] // 10**9, timezone.utc))
     except Refusal as exc:
         return {"error": f"{exc.code}: {exc.message}"}

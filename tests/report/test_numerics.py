@@ -4,6 +4,7 @@ Holm's correction, the regressions, the read-time measures and the one trade pai
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import date, timedelta
 import math
 import unittest
 
@@ -126,10 +127,20 @@ class RegressionTests(unittest.TestCase):
         self.assertAlmostEqual(found["beta"], 0.7, places=12)
         self.assertAlmostEqual(found["alpha"], 0.001, places=12)
         self.assertAlmostEqual(found["alpha_se"], 0.0, places=10)
-        self.assertEqual((found["days"], found["lags"]), (9, measures.newey_west_lags(9)))
+        self.assertEqual((found["days"], found["lag_selection"]), (9, measures.lag_selection(9)))
 
-    def test_newey_west_lags_follow_the_rule_of_thumb(self):
-        self.assertEqual([measures.newey_west_lags(n) for n in (81, 100, 365)], [3, 4, 5])
+    def test_the_lag_selection_parameter_is_newey_west_1994s_truncation(self):
+        self.assertEqual([measures.lag_selection(n) for n in (81, 100, 365)], [3, 4, 5])
+
+    def test_the_bartlett_bandwidth_is_newey_west_1994s_automatic_rule(self):
+        # T = 100, h_t = (-1)^t: sigma_j = (-1)^j (100 - j) / 100 for j = 0..4 (n = 4), so
+        # s0 = 1 + 2 (-0.99 + 0.98 - 0.97 + 0.96) = 0.96, s1 = 2 (-0.99 + 1.96 - 2.91 + 3.84) = 3.8,
+        # gamma = 1.1447 ((3.8 / 0.96) ** 2) ** (1 / 3) = 2.8649 and m = floor(gamma 100 ** (1 / 3)) = 13.
+        self.assertEqual(measures.automatic_bandwidth([(-1) ** t for t in range(100)]), (13, 4))
+        self.assertEqual(measures.automatic_bandwidth([0.0] * 100), (0, 4), "no variation, no lag")
+        # With a constant only, the weight w_T = (X'X / T)^-1 = 1 and w'h_t is the residual itself.
+        y = [0.5 + (-1) ** t for t in range(100)]
+        self.assertEqual(measures.coefficient_bandwidth(y, np.ones((100, 1)), 0), (13, 4))
 
     def test_with_no_lag_the_covariance_is_whites(self):
         x = np.column_stack([np.ones(4), [1.0, 2.0, 3.0, 5.0]])
@@ -199,6 +210,37 @@ class MeasureTests(unittest.TestCase):
         self.assertAlmostEqual(found["return_over_drawdown@1"], found["annual_return@1"] / 0.05)
         self.assertAlmostEqual(found["breakeven_fee_multiple@1"], 1 + float(Decimal(found["account@1"]) / Decimal("2.5")), places=6)
 
+    def test_turnover_is_the_sealed_traded_notional_over_starting_equity_per_day(self):
+        fees = {"MAKER": {"commissions": "1", "notional": "300", "fills": 2},
+                "TAKER": {"commissions": "1.5", "notional": "500", "fills": 1}}
+        found = measures.derive_measures({**self.facts, "sealed": {**sealed(), "fees_by_liquidity_side@2": fees}})
+        self.assertEqual((found["daily_turnover@1"]["value"], found["daily_turnover@1"]["sample_size"]),
+                         (800 / 1000 / 4, 3))
+        self.assertTrue(self.derive()["_reasons"]["daily_turnover@1"].startswith("FEES_UNAVAILABLE"))
+
+    def test_the_lo_sharpe_stands_beside_the_native_sharpe(self):
+        found = measures.derive_measures(self.facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: fixture"})
+        expected = measures.sharpe_lo([0.01, -0.005, 0.0, 0.02])
+        self.assertEqual(found["sharpe_lo@1"]["value"], expected["value"])
+        self.assertEqual(found["sharpe_lo@1"]["lags"], 1)
+        self.assertIn("sharpe_365@1", found)
+
+    def test_the_days_split_by_the_prior_days_basket_volatility(self):
+        # History of |r| = 0.01 from 2025-12-02 on; a 0.05 move on 2026-01-02 makes 2026-01-03 the one high day.
+        days = [(date(2025, 12, 2) + timedelta(days=k)).isoformat() for k in range(34)]
+        basket = [0.01 if k % 2 else -0.01 for k in range(34)]
+        basket[days.index("2026-01-02")] = 0.05
+        found = measures.derive_measures(self.facts, market={"days": days, "basket": basket, "btc": [0.0] * 34})
+        self.assertEqual((found["high_vol_days@1"]["value"], found["low_vol_days@1"]["value"]), (1, 3))
+        self.assertEqual(found["high_vol_days@1"]["unlabelled_days"], 0)
+        self.assertEqual(found["high_vol_log_sum@1"]["value"], 0.0, "2026-01-03 returned nothing")
+        low = [math.log1p(0.01), math.log1p(-0.005), math.log1p(0.02)]
+        self.assertAlmostEqual(found["low_vol_log_sum@1"]["value"], sum(low), places=15)
+        self.assertAlmostEqual(found["low_vol_mean_log@1"]["value"], sum(low) / 3, places=15)
+        unlabelled = self.derive()
+        self.assertEqual((unlabelled["high_vol_days@1"], unlabelled["low_vol_days@1"]), (0, 0))
+        self.assertTrue(unlabelled["_reasons"]["low_vol_mean_log@1"].startswith("NO_LOW_VOL_DAY"))
+
     def test_an_unreconciled_bridge_is_empty_as_a_whole(self):
         found = self.derive(cycles=[*self.cycles[:2], cycle(3, "X", "long", JAN, None, None, "0.5", unrealized="1")])
         self.assertEqual([found[f"{name}@1"] for name in ("price", "fee", "funding", "open_mark", "account")],
@@ -267,6 +309,44 @@ class MeasureTests(unittest.TestCase):
         multiple, reason = measures.breakeven_multiple(Decimal(100), Decimal(-500))
         self.assertIsNone(multiple, "raising both fees only widens the lead of the cheaper winner")
         self.assertTrue(reason.startswith("NEVER_ZERO"))
+
+
+class SerialCorrelationTests(unittest.TestCase):
+    def test_lo_scales_the_daily_sharpe_by_eta_of_the_truncated_autocorrelations(self):
+        # Ten days alternating 0.03 and 0.01: mean 0.02, rho_1 = -0.9, rho_2 = 0.8, and
+        # lag_selection(10) = floor(4 * 0.1 ** (2 / 9)) = 2; eta = 365 / sqrt(365 + 2 (364 (-0.9) + 363 (0.8))).
+        returns = [0.03, 0.01] * 5
+        found = measures.sharpe_lo(returns)
+        self.assertEqual(found["lags"], 2)
+        np.testing.assert_allclose(found["autocorrelations"], [-0.9, 0.8], rtol=1e-12)
+        self.assertAlmostEqual(found["eta"], 365 / math.sqrt(290.6), places=12)
+        daily = 0.02 / math.sqrt(10 * 0.01 ** 2 / 9)
+        self.assertAlmostEqual(found["value"], daily * 365 / math.sqrt(290.6), places=10)
+        self.assertAlmostEqual(found["value"] / measures.sharpe_365(returns), 365 / math.sqrt(290.6) / math.sqrt(365),
+                               places=12, msg="beside the native Sharpe, only the annualisation differs")
+        self.assertIsNone(measures.sharpe_lo([0.01] * 10), "returns that do not vary have no Sharpe ratio")
+
+    def test_a_bracket_that_is_not_positive_leaves_the_ratio_empty(self):
+        # Four days alternating: lag_selection(4) = 1 and rho_1 = -0.75, so 365 + 2 (364) (-0.75) = -181.
+        self.assertIsNone(measures.sharpe_lo([0.01, 0.03, 0.01, 0.03]))
+
+
+class RegimeTests(unittest.TestCase):
+    def test_a_day_is_high_when_the_prior_days_absolute_basket_return_tops_the_trailing_median(self):
+        days = [(date(2026, 1, 1) + timedelta(days=k)).isoformat() for k in range(32)]
+        # Thirty history days of |r| = 0.01 except 0.02 on even days, then the two days to label.
+        basket = [0.02 if k % 2 == 0 else -0.01 for k in range(30)] + [0.0, 0.0]
+        labels, reason = measures.regime_labels({"days": days, "basket": basket}, days[29:])
+        self.assertIsNone(reason)
+        # Day 29 lacks a full window (the 30 days before it reach 2025-12-31); day 30's prior day is
+        # day 29 (|r| = 0.01, median of days 0..29 is 0.015): low; day 31's prior day is day 30
+        # (|r| = 0), window days 1..30: low as well. A spike the day before makes the day high.
+        self.assertEqual(labels, {days[29]: None, days[30]: "low", days[31]: "low"})
+        spiked = basket[:30] + [0.05, 0.0]
+        labels, _ = measures.regime_labels({"days": days, "basket": spiked}, days[31:])
+        self.assertEqual(labels, {days[31]: "high"})
+        self.assertEqual(measures.regime_labels({"error": "MARKET_RETURNS_UNAVAILABLE: fixture"}, days)[1],
+                         "MARKET_RETURNS_UNAVAILABLE: fixture")
 
 
 class PairwiseTests(unittest.TestCase):

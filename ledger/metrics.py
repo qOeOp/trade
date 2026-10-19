@@ -30,7 +30,7 @@ from ledger import db
 from ledger.refusals import refuse
 
 
-CATALOGUE = "measures@2026-10-19"
+CATALOGUE = "measures@2026-10-20"
 TOLERANCE = Decimal("0.000001")
 EQUITY_TOLERANCE = Decimal("0.01")  # compounding to final equity; an uncalibrated example value
 MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale
