@@ -40,6 +40,7 @@ REASONS: dict[str, str] = {
     "CONFIG_MISMATCH": "The native summary names another effective configuration.",
     "RUNNER_INTEGRITY_FAILED": "The runner's own integrity checks failed.",
     "FINGERPRINT_FAILED": "The in-image semantic fingerprint stage failed or wrote no readable fingerprint.",
+    "FINGERPRINT_MISSING": "The run has no semantic fingerprint: the stage never ran or the image has no fingerprint entry.",
     "NATIVE_REPORT_MISSING": "A native report a passed run needs is missing.",
     "NATIVE_REPORT_UNREADABLE": "A native report exists but does not parse.",
     "METRICS_UNREADABLE": "A native value the sealed report needs cannot be read.",
@@ -177,12 +178,14 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
 def capture_fingerprint(capture: Mapping) -> tuple[dict | None, list[dict]]:
     """(the semantic fingerprint the fingerprint stage sealed, its failure reasons).
 
-    An image without a fingerprint entry records the stage not_available: no fingerprint and no
-    reason. A stage that ran must exit 0 and leave a JSON object.
+    A passed run needs its fingerprint: a stage that never ran, or an image without a fingerprint entry
+    (not_available), is FINGERPRINT_MISSING. A stage that ran must exit 0 and leave a JSON object.
     """
     stage = (capture.get("stages") or {}).get("fingerprint") if isinstance(capture.get("stages"), Mapping) else None
     if not isinstance(stage, Mapping) or stage.get("state") == "not_available":
-        return None, []
+        state = stage.get("state") if isinstance(stage, Mapping) else "never started"
+        return None, [reason("FINGERPRINT_MISSING", f"the run has no semantic fingerprint (stage {state})",
+                             "fingerprint")]
     if _exit(stage) != 0:
         return None, [reason("FINGERPRINT_FAILED", f"the fingerprint stage ended {stage.get('state')} with exit "
                                                    f"code {stage.get('exit_code')}", "fingerprint")]

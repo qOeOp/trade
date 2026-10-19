@@ -25,6 +25,7 @@ from tests.ledger.dolt import MARKET_COMMIT
 
 
 BUILD_REVISION = "c" * 40
+DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64, "by_utc_day": {}}}
 CONFIG_SHA = "f" * 64
 
 RUNNER = r'''
@@ -160,7 +161,7 @@ class ReplayWorld(World):
         try:
             self.market = Market({MARKET_COMMIT: months_rows()})
             self.scenario: dict = {}
-            self.fingerprint = None  # set: the image has a fingerprint entry writing this value
+            self.fingerprint = DEFAULT_FINGERPRINT  # None: the image has no fingerprint entry
             self.commands: list[dict] = []
             self.stopped: list[str] = []
             self.checkout = clean_checkout(self.service.root / "checkout")

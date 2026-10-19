@@ -69,11 +69,16 @@ class ReportTests(unittest.TestCase):
         cls.candidate = cls.replay(cls.child_ref, "registration-child")
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.candidate["trial_id"]}])
         world.scenario = {}
-        world.fingerprint = None
+        # A passed run without economic evidence: a later independent review fails its source.
         (cls.bare_ref,) = registered_grid(world, ["bare"], "registration-bare")
         cls.bare = cls.replay(cls.bare_ref, "registration-bare")
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.bare["trial_id"]}])
-        world.fingerprint = FINGERPRINT
+        with db.read_as_of(world.profile) as conn:
+            source_sha256 = strategies.read_candidate(conn, cls.bare_ref)["source_sha256"]
+            (trial_id,), = conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s",
+                                     (source_sha256,))
+        precheck.record_review(world.profile, world.review_body(trial_id, "failed", api={
+            "status": "failed", "note": "it calls an unknown API"}), "reviewer-b")
         world.scenario = {"audit_passed": False, "findings": ["fill F-1 unmatched"], "audit_exit": 1}
         (cls.bad_ref,) = registered_grid(world, ["bad"], "registration-bad")
         cls.bad = cls.replay(cls.bad_ref, "registration-bad")
@@ -104,10 +109,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual((value["source_check"]["status"], value["execution_capture"]["status"]), ("passed", "captured"))
         self.assertTrue(value["source_check"]["reviews"][0]["ledger_commit"])
 
-    def test_a_run_without_fingerprint_or_with_a_failed_audit_is_not_evidence(self):
+    def test_a_run_of_a_failed_source_or_with_a_failed_audit_is_not_evidence(self):
         bare = self.assess(self.bare["run_id"])
         self.assertFalse(bare["economic_evidence_available"])
-        self.assertTrue(bare["reasons"][0].startswith("FINGERPRINT_MISSING"))
+        self.assertTrue(any(reason.startswith("SOURCE_REVIEW_FAILED") for reason in bare["reasons"]))
         bad = self.assess(self.bad["run_id"])
         self.assertTrue(bad["reasons"][0].startswith("RUN_INVALID: ") and "AUDIT" in bad["reasons"][0])
         with db.read_as_of(self.profile) as conn:

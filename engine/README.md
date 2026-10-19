@@ -130,8 +130,9 @@ missing or the summary is unreadable. It reads the coverage receipt `input-cover
 report directory's parent: a summary that counts native lifecycle events without that receipt is a
 finding.
 
-A strategy constructor or callback (and `replay_diagnostics` or `replay_integrity_findings`) that
-raises leaves a structured receipt in `runtime_failures.jsonl` (stage, exception type, message,
+A strategy constructor, callback, callback registered on the clock (`set_timer`, `set_timer_ns`,
+`set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
+`replay_integrity_findings` that raises leaves a structured receipt in `runtime_failures.jsonl` (stage, exception type, message,
 traceback, instrument) before the exception goes on; the runner then exits nonzero even when the
 engine caught the exception and finished. Without a failure the file is not written.
 
@@ -145,7 +146,9 @@ The fingerprint stage (`python -m engine.compare`) reads the reports and writes 
 the row count, a whole-table hash and one hash per UTC day, after renumbering the random event and
 snapshot UUIDs by first appearance (trade IDs are derived, and kept) and sorting every table by all its columns; the account,
 returns and exposures files also carry their byte hash. Two replays of one run give equal
-fingerprints; a sealed run is reproduced only when they match.
+fingerprints; a run without one is stored invalid (`FINGERPRINT_MISSING`), and a sealed run is
+reproduced only when they match. `engine/compare.py` is part of the runtime identity
+(`fingerprint_source_sha256`), so a freeze or confirmation checks its bytes against the image's revision.
 
 ## Paired acceptance
 

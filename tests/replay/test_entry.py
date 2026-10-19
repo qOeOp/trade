@@ -17,7 +17,7 @@ from registration import inputs as registration_inputs, precheck, seams as regis
 from replay import entry, seams
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
-from tests.replay.world import CONFIG_SHA, ReplayWorld, registered_grid
+from tests.replay.world import CONFIG_SHA, DEFAULT_FINGERPRINT, ReplayWorld, registered_grid
 
 
 ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
@@ -107,9 +107,10 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual((capture["status"], capture["purpose"], capture["stages"]["audit"]["exit_code"]),
                          ("captured", "explore", 0))
         self.assertNotIn("reports/fills.csv", capture["files"], "an exploration's reports stay a working copy")
-        runner = self.world.commands[-2]
+        runner, auditor = (next(spec for spec in reversed(self.world.commands) if spec["module"] == kind)
+                           for kind in ("runner", "audit"))
         self.assertEqual(runner["mounts"]["/reports"], str(Path(explored["path"]) / "reports"))
-        self.assertNotIn("/strategy", self.world.commands[-1]["mounts"], "the auditor never sees the source")
+        self.assertNotIn("/strategy", auditor["mounts"], "the auditor never sees the source")
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM run WHERE trial_id = %s",
                                                 (explored["trial_id"],))[0][0], 0)
 
@@ -191,7 +192,7 @@ class SealedReplayTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         cls.refs, cls.bundle_of = [], {}
         for bundle, tags in (("registration-grid", range(1, 6)), ("registration-grid-b", range(6, 11)),
-                             ("registration-grid-c", range(11, 14))):
+                             ("registration-grid-c", range(11, 14)), ("registration-grid-d", range(14, 15))):
             refs = registered_grid(world, [f"g{index}" for index in tags], bundle)
             cls.refs += refs
             cls.bundle_of.update(dict.fromkeys(refs, bundle))
@@ -217,10 +218,11 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual((stored["purpose"], stored["status"], stored["failure_reasons"]), ("research", "passed", []))
         (status, audit, fingerprints), = self.rows("SELECT status, audit, fingerprints FROM run WHERE run_id = %s",
                                                    (stored["run_id"],))
-        self.assertEqual((status, json.loads(audit), fingerprints), ("passed", {"ran": True, "findings": []}, None))
+        self.assertEqual((status, json.loads(audit), json.loads(fingerprints)),
+                         ("passed", {"ran": True, "findings": []}, DEFAULT_FINGERPRINT))
         capture = execution.read_capture(self.world.conn, stored["trial_id"])
-        self.assertEqual((capture["stages"]["fingerprint"]["state"], capture["statuses"]["reports/fills.csv"]),
-                         ("not_available", "hashed"), "an image without a fingerprint entry")
+        self.assertEqual((capture["stages"]["fingerprint"], capture["statuses"]["reports/fills.csv"]),
+                         ({"state": "exited", "exit_code": 0}, "hashed"))
         (revision, report), = self.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s",
                                         (stored["run_id"],))
         self.assertEqual((json.loads(report)["metrics_revision"], json.loads(report)["populations"]["fills"]),
@@ -273,6 +275,14 @@ class SealedReplayTests(unittest.TestCase):
             self.run_ref(self.refs[4], hypothesis=None, validation=1)
         self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
                          ("STALE_CHECKOUT", before, exports))
+
+    def test_a_replay_without_a_fingerprint_is_stored_invalid(self):
+        self.world.fingerprint = None
+        try:
+            stored = self.run_ref(self.refs[13])
+        finally:
+            self.world.fingerprint = DEFAULT_FINGERPRINT
+        self.assertEqual((stored["status"], codes(stored["failure_reasons"])), ("invalid", ["FINGERPRINT_MISSING"]))
 
     def test_a_failed_replay_is_stored_invalid_with_every_reason_and_consumes_its_point(self):
         self.world.scenario = {"native_exit": 2, "summary": {"source_sha256": "0" * 64}}

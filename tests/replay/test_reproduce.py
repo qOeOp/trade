@@ -49,7 +49,8 @@ class ReproduceTests(unittest.TestCase):
         self.assertEqual((unprinted["capture"]["stages"]["fingerprint"]["state"],
                           unprinted["evidence"]["fingerprints"]),
                          ("not_available", "missing"))
-        self.assertTrue(unprinted["evidence"]["unavailable"][0].startswith("FINGERPRINT_MISSING"))
+        self.assertEqual((unprinted["run"]["status"], [item["code"] for item in unprinted["run"]["failure_reasons"]]),
+                         ("invalid", ["FINGERPRINT_MISSING"]), "a run without a fingerprint is stored invalid")
 
     def forged(self, ref: str, receipt_identity: dict | None = None) -> int:
         """A passed run row stored without any capture, its start coverage receipt naming `receipt_identity`."""
