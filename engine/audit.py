@@ -455,18 +455,21 @@ def data_end_findings(coverage: dict) -> list[str]:
     window = parse_window(config.get("start"), None, config.get("end"))
     findings = []
     for symbol, receipt in sorted((coverage.get("export_receipts") or {}).items()):
-        episode = receipt.get("episode") if isinstance(receipt, dict) else None
-        if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
-            continue  # listed after the window
-        ends = [int(event["ts_event"]) for event in (episode or {}).get("events") or ()
-                if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
-        until = min([window.end_ns, *ends])
-        last = receipt.get("last_bar_ns") if isinstance(receipt, dict) else None
-        if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
-            findings.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
-                                    f"{symbol}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
-                                    f"{'the termination' if ends and until < window.end_ns else 'the window end'} is "
-                                    f"{_ns_utc(until)}"))
+        pieces = receipt.get("pieces") if isinstance(receipt, dict) else None
+        for piece in pieces if isinstance(pieces, list) and pieces else [{}]:
+            episode = piece.get("episode") if isinstance(piece, dict) else None
+            if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
+                continue  # listed after the window
+            ends = [int(event["ts_event"]) for event in (episode or {}).get("events") or ()
+                    if event.get("type") == "InstrumentClose" or event.get("action") == "CLOSE"]
+            until = min([window.end_ns, *ends])
+            last = piece.get("last_bar_ns") if isinstance(piece, dict) else None
+            name = piece.get("instrument_id") or symbol if isinstance(piece, dict) else symbol
+            if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
+                findings.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
+                                        f"{name}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
+                                        f"{'the termination' if ends and until < window.end_ns else 'the window end'} "
+                                        f"is {_ns_utc(until)}"))
     return findings
 
 

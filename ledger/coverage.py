@@ -45,6 +45,15 @@ def lifecycle_events(coverage: Mapping, summary: Mapping) -> tuple[dict, ...]:
         raise refuse(exc.code, str(exc).split(": ", 1)[1]) from exc
 
 
+def _instruments(receipt: Mapping) -> list[str]:
+    """The native instrument IDs of a contract's export receipt: one per exported piece."""
+    pieces = receipt.get("pieces")
+    if not isinstance(pieces, list) or not pieces or any(
+            not isinstance(piece, Mapping) or not isinstance(piece.get("instrument_id"), str) for piece in pieces):
+        return []
+    return [piece["instrument_id"] for piece in pieces]
+
+
 def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) -> tuple[dict, ...]:
     """The lifecycle events of a replay once its coverage receipt agrees with its native summary."""
     identity = coverage.get("input_identity") if isinstance(coverage, Mapping) else None
@@ -54,14 +63,14 @@ def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) ->
             or not identity.get("market_commit") or not isinstance(symbols, list) or not symbols
             or not isinstance(receipts, Mapping)
             or any(not isinstance(receipts.get(symbol), Mapping) or receipts[symbol].get("status") == "missing"
-                   or not receipts[symbol].get("instrument_id") for symbol in symbols)):
+                   or not _instruments(receipts[symbol]) for symbol in symbols)):
         raise refuse("COVERAGE_RECEIPT_INVALID", "the coverage receipt is not an execution-input-coverage-v1 "
                                                  "receipt with a market commit, instruments and a receipt for each",
                      expected=FORMAT)
     if not isinstance(summary, Mapping):
         raise refuse("COVERAGE_MISMATCH", "there is no native summary to check the coverage receipt against",
                      missing=("summary",))
-    covered = {receipts[symbol]["instrument_id"] for symbol in symbols}
+    covered = {instrument for symbol in symbols for instrument in _instruments(receipts[symbol])}
     native = {coin.get("instrument") for coin in summary.get("per_coin") or () if isinstance(coin, Mapping)}
     config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), Mapping) else {}
     receipt_bounds = (_instant(config.get("start")), _instant(config.get("end")))

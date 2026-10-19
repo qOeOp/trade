@@ -139,12 +139,12 @@ sys.exit(scenario.get("native_exit", 0))
 
 
 class Market(FakeMarket):
-    """The fake market with an instrument_id in each export receipt, as today's exporter writes it."""
+    """The fake market with the one exported piece in each receipt, as market.export_episode writes it."""
 
     def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh):
         done = super().export_catalogs(commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh)
         for symbol, receipt in done["receipts"].items():
-            receipt["instrument_id"] = f"{symbol}-PERP.BINANCE"
+            receipt["pieces"] = [{"index": None, "instrument_id": f"{symbol}-PERP.BINANCE", "catalog_dir": ""}]
             (Path(done["root"]) / symbol / "export.json").write_text(json.dumps(receipt))
         return done
 

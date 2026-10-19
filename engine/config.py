@@ -78,6 +78,8 @@ REFUSALS: dict[str, str] = {
                                   "configuration than the runner resolves.",
     "MARKET_RECEIPT_MISMATCH": "An export receipt names another market commit, window or bar timeframe.",
     "TERMS_APPROXIMATION_MISSING": "An export receipt lacks the historical-terms approximation mark.",
+    "EPISODE_MAPPING_MISMATCH": "An export receipt lists no piece, or a piece's number or Catalog directory is not "
+                                "its episode's.",
     "INSTRUMENT_NOT_UNIQUE": "An exported Catalog does not hold exactly one USDT instrument of the receipt's ID.",
     "CONTRACT_NAME_COLLISION": "Two contracts share a short name or strategy identifier.",
     "NO_ACTIVE_INSTRUMENT": "No contract's lifecycle intersects the input window.",

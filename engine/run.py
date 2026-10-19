@@ -71,7 +71,6 @@ from engine.load import (
     read_market,
     read_regular_file,
     read_universe,
-    strategy_id,
     warmup_daily_bars,
     warmup_start,
     WARMUP_DAYS,
@@ -709,7 +708,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe:
                 "instrument_id": str(row["instrument_id"]),
                 "trade_start_ns": trade_start,
                 "input_start_ns": input_start,
-                "strategy_id": strategy_id(row["symbol"]),
+                "strategy_id": row["strategy_id"],
                 "catalog_path": str(row["catalog_path"]),
                 "universe_membership": [[max(low, input_start), high] for low, high in
                                         episode_membership(universe[row["symbol"]], row["episode"])

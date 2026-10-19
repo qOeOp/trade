@@ -370,9 +370,10 @@ class LifecycleAuditTests(unittest.TestCase):
                                  per_coin=[{"instrument": SCOPE["instrument_id"], "counts": counts or counted}])
         ends = [item["ts_event"] for item in events if item.get("action") == "CLOSE" or item["type"] == "InstrumentClose"]
         last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
-        receipt = {"instrument_id": SCOPE["instrument_id"], "counts": receipt_counts or counted, "last_bar_ns": last,
-                   "episode": {"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
-                               "events": events, "sources": ["notice.txt"]}}
+        receipt = {"pieces": [{"index": 1, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "episode-1",
+                               "counts": receipt_counts or counted, "last_bar_ns": last,
+                               "episode": {"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
+                                           "events": events, "sources": ["notice.txt"]}}]}
         receipt_file = {"format": "execution-input-coverage-v1",
                         "effective_config": {"start": "2026-01-01T00:00:00Z", "end": "2026-01-02T00:00:00Z"},
                         "input_identity": {"market_commit": self.COMMIT, "lifecycle_bundle": bundle},
