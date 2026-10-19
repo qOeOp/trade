@@ -65,13 +65,13 @@ def read_regular_file(path: Path) -> bytes:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         if not stat.S_ISREG(path.lstat().st_mode):
-            raise ValueError(f"strategy source must be a regular file: {path}")
+            raise Refusal("SOURCE_UNREADABLE", f"strategy source must be a regular file: {path}")
         descriptor = os.open(path, flags)
     except OSError as error:
-        raise ValueError(f"cannot read strategy source: {path}: {error}") from error
+        raise Refusal("SOURCE_UNREADABLE", f"cannot read strategy source: {path}: {error}") from error
     with os.fdopen(descriptor, "rb") as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError(f"strategy source must be a regular file: {path}")
+            raise Refusal("SOURCE_UNREADABLE", f"strategy source must be a regular file: {path}")
         return stream.read()
 
 
@@ -80,25 +80,25 @@ def _binding(path: Path | None, source_sha256: str, entry_class: str) -> dict | 
         return None
     try:
         value = json.loads(read_regular_file(path))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError(f"strategy binding is not valid JSON: {path}") from error
+    except (UnicodeDecodeError, json.JSONDecodeError, Refusal) as error:
+        raise Refusal("BINDING_MISMATCH", f"strategy binding is not valid JSON: {path}") from error
     required = {
         "database", "commit", "strategy_id", "revision", "source_sha256",
         "entry_class", "runtime_contract",
     }
     if not isinstance(value, dict) or set(value) != required:
-        raise ValueError("strategy binding must contain the exact Dolt revision identity")
+        raise Refusal("BINDING_MISMATCH", "strategy binding must contain the exact Dolt revision identity")
     for field in required - {"revision"}:
         if not isinstance(value[field], str) or not value[field].strip():
-            raise ValueError(f"strategy binding has no valid {field}")
+            raise Refusal("BINDING_MISMATCH", f"strategy binding has no valid {field}")
     if type(value["revision"]) is not int or value["revision"] < 1:
-        raise ValueError("strategy binding revision must be a positive integer")
+        raise Refusal("BINDING_MISMATCH", "strategy binding revision must be a positive integer")
     if value["source_sha256"] != source_sha256:
-        raise ValueError("strategy binding source hash differs from verified bytes")
+        raise Refusal("BINDING_MISMATCH", "strategy binding source hash differs from verified bytes")
     if value["entry_class"] != entry_class:
-        raise ValueError("strategy binding entry class differs from selected class")
+        raise Refusal("BINDING_MISMATCH", "strategy binding entry class differs from selected class")
     if value["runtime_contract"] != RUNTIME_CONTRACT:
-        raise ValueError("strategy binding runtime contract is unsupported")
+        raise Refusal("BINDING_MISMATCH", "strategy binding runtime contract is unsupported")
     return value
 
 
@@ -114,13 +114,13 @@ def load_strategy(
     or fixed runtime image supplies the execution boundary.
     """
     if not isinstance(expected_sha256, str) or not _SHA256.fullmatch(expected_sha256):
-        raise ValueError("strategy SHA-256 must be 64 lowercase hexadecimal characters")
-    if not entry_class.isidentifier():
-        raise ValueError("strategy class must be one Python class name")
+        raise Refusal("CONTENT_HASH_INVALID", "strategy SHA-256 must be 64 lowercase hexadecimal characters")
+    if not isinstance(entry_class, str) or not entry_class.isidentifier():
+        raise Refusal("ENTRY_CLASS_INVALID", "strategy class must be one Python class name")
     source = read_regular_file(path)
     actual_sha256 = hashlib.sha256(source).hexdigest()
     if actual_sha256 != expected_sha256:
-        raise ValueError("strategy SHA-256 differs from the published source")
+        raise Refusal("CONTENT_HASH_MISMATCH", "strategy SHA-256 differs from the published source")
     binding = _binding(binding_path, actual_sha256, entry_class)
     source_path = path.resolve()
     module_name = f"_trade_strategy_{actual_sha256}"
@@ -133,6 +133,9 @@ def load_strategy(
         sys.modules[module_name] = module
         try:
             exec(compile(source, str(source_path), "exec"), module.__dict__)
+        except Exception as exc:
+            sys.modules.pop(module_name, None)
+            raise Refusal("SOURCE_EXECUTION_FAILED", f"{type(exc).__name__}: {exc}") from exc
         except BaseException:
             sys.modules.pop(module_name, None)
             raise
@@ -143,14 +146,14 @@ def load_strategy(
         or not issubclass(strategy_class, Strategy)
         or strategy_class.__module__ != module_name
     ):
-        raise ValueError("strategy entry class must be declared here and extend native Strategy")
+        raise Refusal("ENTRY_CLASS_INVALID", "strategy entry class must be declared here and extend native Strategy")
     for name in ("replay_diagnostics", "replay_integrity_findings"):
         if not callable(getattr(strategy_class, name, None)):
-            raise ValueError(f"{RUNTIME_CONTRACT} strategy requires {name}")
+            raise Refusal("HOOK_MISSING", f"{RUNTIME_CONTRACT} strategy requires {name}")
     if type(getattr(strategy_class, "DAILY_WARMUP", False)) is not bool:
-        raise ValueError("strategy DAILY_WARMUP must be True or False")
+        raise Refusal("DECLARATION_NOT_BOOL", "strategy DAILY_WARMUP must be True or False")
     if type(getattr(strategy_class, "USES_STOP_LOSS", True)) is not bool:
-        raise ValueError("strategy USES_STOP_LOSS must be True or False")
+        raise Refusal("DECLARATION_NOT_BOOL", "strategy USES_STOP_LOSS must be True or False")
     return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, binding,
                           getattr(strategy_class, "USES_STOP_LOSS", True), getattr(strategy_class, "DAILY_WARMUP", False))
 
@@ -218,30 +221,79 @@ def read_market(root: Path, symbols: list[str], commit: str, start: int, end: in
     return rows
 
 
-def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start: int):
-    """The unbroken run of daily LAST bars ending 1 ms before `start`; at least 200."""
+DAY_NS = 86_400_000_000_000
+WARMUP_DAYS = 200  # uncalibrated example value
+
+
+def _daily_bars(catalog_path: Path, instrument_id: InstrumentId, before: int | None = None) -> list:
     bar_type = BarType.from_str(f"{instrument_id}-1-DAY-LAST-EXTERNAL")
-    bars = sorted((bar for bar in ParquetDataCatalog(str(catalog_path)).query_bars([str(bar_type)], end=start - 1)
-                   if bar.bar_type == bar_type and bar.ts_event < start), key=lambda bar: bar.ts_event)
-    first = len(bars)
-    while first > 0 and (first == len(bars) or bars[first].ts_event - bars[first - 1].ts_event == 86_400_000_000_000):
+    found = ParquetDataCatalog(str(catalog_path)).query_bars([str(bar_type)], end=before - 1 if before else None)
+    return sorted((bar for bar in found if bar.bar_type == bar_type and (before is None or bar.ts_event < before)),
+                  key=lambda bar: bar.ts_event)
+
+
+def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start: int):
+    """engine.warmup_daily_bars: the unbroken run of daily LAST bars ending 1 ms before `start`; at least 200."""
+    bars = _daily_bars(catalog_path, instrument_id, start)
+    if not bars or bars[-1].ts_event != start - 1_000_000:
+        raise Refusal("WARMUP_NOT_ADJACENT", f"{instrument_id}: no daily bar closes 1 ms before the input start")
+    first = len(bars) - 1
+    while first > 0 and bars[first].ts_event - bars[first - 1].ts_event == DAY_NS:
         first -= 1
     run = bars[first:]
-    if len(run) < 200 or run[-1].ts_event != start - 1_000_000:
-        raise RuntimeError(f"{instrument_id}: fewer than 200 contiguous daily bars end at the replay start")
+    if len(run) < WARMUP_DAYS:
+        raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: {len(run)} contiguous daily bars end at the input "
+                                             f"start, {WARMUP_DAYS} are needed")
     return run
 
 
+def warmup_start(catalog_path: Path, instrument_id: InstrumentId, earliest: int, end: int) -> int | None:
+    """The first instant at or after `earliest` and before `end` at which the daily warm-up holds (WARMUP_DAYS
+    contiguous daily bars end 1 ms before it); None when it never holds in the window."""
+    run, previous = 0, None
+    for bar in _daily_bars(catalog_path, instrument_id):
+        run = run + 1 if previous is not None and bar.ts_event - previous == DAY_NS else 1
+        previous = bar.ts_event
+        moment = bar.ts_event + 1_000_000
+        if run >= WARMUP_DAYS and earliest <= moment < end:
+            return moment
+    return None
+
+
 def mark_timestamps(rows: list[dict]) -> int:
-    """engine.mark_timestamps: distinct MARK update times over every contract, read file by file from the
-    exported Parquet (only ts_event), so memory stays at one window's timestamps."""
+    """engine.mark_timestamps: distinct MARK update times over every contract, from the exported Parquet
+    files' ts_event column. Updates stamped on a minute close (the export's) fill one bitmap over the
+    files' minute range; any other stamp is counted exactly on its own."""
     import numpy as np
     import pyarrow.parquet as parquet
-    found = np.empty(0, dtype=np.uint64)
+    paths = []
     for row in rows:
-        for path in sorted((Path(row["catalog_path"]) / "data").glob("mark_prices/**/*.parquet")):
-            found = np.union1d(found, parquet.read_table(path, columns=["ts_event"])["ts_event"].to_numpy())
-    return len(found)
+        found = sorted((Path(row["catalog_path"]) / "data").glob("mark_prices/**/*.parquet"))
+        if not found and (row.get("counts") or {}).get("mark"):
+            raise Refusal("EXPORT_MARKS_UNREADABLE", f"{row.get('symbol')}: the receipt counts MARK updates but "
+                                                     "no MARK file exists")
+        paths += found
+    columns, low, high = [], None, None
+    for path in paths:
+        try:
+            values = parquet.read_table(path, columns=["ts_event"])["ts_event"].to_numpy().astype(np.int64)
+        except Exception as exc:
+            raise Refusal("EXPORT_MARKS_UNREADABLE", f"{path}: {type(exc).__name__}: {exc}") from exc
+        columns.append(values)
+        if len(values):
+            low = values.min() if low is None else min(low, values.min())
+            high = values.max() if high is None else max(high, values.max())
+    if low is None:
+        return 0
+    base = low - low % MINUTE_NS
+    seen = np.zeros((high - base) // MINUTE_NS + 1, dtype=bool)
+    other = []
+    for values in columns:
+        closes = (values + 1_000_000) % MINUTE_NS == 0
+        seen[(values[closes] - base) // MINUTE_NS] = True
+        if not closes.all():
+            other.append(np.unique(values[~closes]))
+    return int(seen.sum()) + (len(np.unique(np.concatenate(other))) if other else 0)
 
 
 # Lifecycle (engine.lifecycle_events): the native InstrumentStatus and InstrumentClose events of a replay,

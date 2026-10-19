@@ -2,7 +2,8 @@
 
 Per contract, `<root>/<SYMBOL>/` is one Catalog holding the instrument, the stored one-minute LAST
 bars and one MARK price update per one-minute MARK bar over [start, end), funding updates in
-[start, end), the complete UTC daily LAST bars before `start` (daily warm-up) and, when a lifecycle
+[start, end), every complete UTC daily LAST bar before `end` (the daily warm-up of each instance, which
+starts once it holds) and, when a lifecycle
 episode is given, its InstrumentStatus and InstrumentClose events in the window (market.lifecycle).
 An episode bounds the series: only minutes that open at or after its listing and close before its
 termination, and funding settled inside it, are exported. Daily bars are derived from the stored
@@ -11,7 +12,7 @@ traded minutes (volume > 0), all minutes only when none traded; close is the las
 volume is the sum. A bucket holds the minutes the source has; a bucket with none does not exist.
 
 `export.json`, written last, marks a complete export and carries the counts the runner checks
-against what BacktestNode loads. A cache entry is keyed by commit and window; a missing or partial
+against what the engine consumes. A cache entry is keyed by commit and window; a missing or partial
 one is exported again.
 """
 
@@ -222,6 +223,8 @@ def write_funding(root: Path, iid: str, rows: list[tuple[int, Decimal]]) -> int:
     if not rows:
         return 0
     times = np.array([row[0] for row in rows], dtype=np.uint64) * 1_000_000
+    if len(times) > 1 and not np.all(np.diff(times.astype(np.int64)) > 0):
+        raise store._refuse(f"{iid}: funding settlement times are not strictly increasing", "FUNDING_UNSORTED")
     rates = [format(Decimal(row[1]).normalize(), "f") for row in rows]
     table = pa.table({
         "instrument_id": pa.array([iid] * len(rows), pa.string()), "rate": pa.array(rates, pa.string()),
@@ -281,14 +284,24 @@ def export_symbol(job: dict) -> dict:
         row = terms(conn, commit, symbol)
         last = fetch(conn, commit, symbol, "LAST", start, end)
         mark = fetch(conn, commit, symbol, "MARK", start, end)
-        daily_source = fetch(conn, commit, symbol, "LAST", 0, start - start % DAY) if job["daily"] else None
+        daily_source = fetch(conn, commit, symbol, "LAST", 0, start) if job["daily"] else None
         rates = funding(conn, commit, symbol, start, end)
     finally:
         conn.close()
     if episode is not None:
         last, mark, daily_source, rates = episode_series(episode, last, mark, daily_source, rates)
-    daily = derive(daily_source, "1d") if daily_source is not None else None
+    daily = None
+    if daily_source is not None:
+        # Every complete UTC day before the window's end: a contract listed late starts once its warm-up holds.
+        joined = {name: np.concatenate([daily_source[name], last[name]]) for name in COLUMNS}
+        daily = derive(joined, "1d")
+        daily = _keep(daily, daily["ts_open"] + DAY <= end)
     price_scale, volume_scale = job["scales"]
+    low, high = start, end  # the episode's part of the window, for the missing-minute count
+    if episode is not None:
+        low = max(start, -(-episode["start_ns"] // 1_000_000 // MINUTE) * MINUTE)
+        ended = lifecycle.termination(episode)
+        high = min(end, ended // 1_000_000 // MINUTE * MINUTE) if ended is not None else end
     exchange_precision = decimals(row["price_increment"])
     needed = max([needed_decimals(series[name], price_scale) for series in (last, daily) if series is not None
                   for name in ("open", "high", "low", "close")], default=0)
@@ -315,7 +328,7 @@ def export_symbol(job: dict) -> dict:
                "start_ns": start * 1_000_000, "end_ns": end * 1_000_000, "counts": counts,
                "first_bar_ns": int((last["ts_open"][0] + step - 1) * 1_000_000) if len(last["ts_open"]) else None,
                "last_bar_ns": int((last["ts_open"][-1] + step - 1) * 1_000_000) if len(last["ts_open"]) else None,
-               "missing_buckets": int((end - start) // step - len(last["ts_open"])),
+               "missing_buckets": int(max(0, (min(end, high) - max(start, low)) // step) - len(last["ts_open"])),
                "last_mark_unmatched": unmatched,
                "price_precision": precision, "price_precision_widened": precision != exchange_precision,
                "terms_source": row["terms_source"], "terms_observed_at": row["observed_at"],

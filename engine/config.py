@@ -26,7 +26,7 @@ from engine import report
 # r1-native-v6: one-minute execution bars and the constructor's `universe_membership` (v5: five-minute
 # bars and `pool_membership`). A source written for another contract is refused, not run on these inputs.
 RUNTIME_CONTRACT = "r1-native-v6"
-EXECUTION_BAR_MINUTES = 1  # design constant: the export holds one-minute bars and they are matched as such
+EXECUTION_BAR_MINUTES = report.EXECUTION_BAR_MINUTES  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
 
 
@@ -89,6 +89,40 @@ REFUSALS: dict[str, str] = {
     "LIFECYCLE_COUNT_MISMATCH": "Receipt, episode and native lifecycle counts disagree.",
     "LIFECYCLE_EVENT_INVALID": "A lifecycle event is not a native event, has inconsistent clocks or an invalid close.",
     "LIFECYCLE_DUPLICATE_EVENT": "A lifecycle event of one type, instance and time appears twice.",
+    # engine.load_strategy
+    "SOURCE_UNREADABLE": "The strategy source is not a regular file, is a link or cannot be read.",
+    "CONTENT_HASH_INVALID": "The expected content hash is not 64 lowercase hexadecimal characters.",
+    "CONTENT_HASH_MISMATCH": "The source bytes' SHA-256 differs from the expected content hash.",
+    "BINDING_MISMATCH": "The strategy binding is not JSON, incomplete or names another hash, class or contract.",
+    "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
+    "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
+    "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
+    "DECLARATION_NOT_BOOL": "DAILY_WARMUP or USES_STOP_LOSS is not a bool.",
+    # engine.warmup_daily_bars and engine.mark_timestamps
+    "WARMUP_NOT_ADJACENT": "No daily bar closes 1 ms before the input start.",
+    "WARMUP_INSUFFICIENT": "Too few contiguous daily bars end at the input start (no contract can start).",
+    "EXPORT_MARKS_UNREADABLE": "An exported MARK file is missing, damaged or has no ts_event column.",
+    # engine.write_native_reports and engine.diagnostics
+    "NATIVE_ACCOUNT_MISSING": "The portfolio holds no account of the venue.",
+    "EQUITY_SNAPSHOT_UNAVAILABLE": "The final equity snapshot is missing, stale, unpriced or not in USDT.",
+    "GTD_DEADLINE_MISSING": "A GTD order has no expiry time in the cache, or the cache lacks the order.",
+    "SELF_CHECK_FINDINGS_INVALID": "replay_integrity_findings returned something other than nonempty strings.",
+    "DIAGNOSTICS_NOT_DICT": "replay_diagnostics returned something other than a dict.",
+    "DIAGNOSTICS_RESERVED_KEY": "replay_diagnostics used a native report fact's key.",
+    "DIAGNOSTICS_NOT_JSON": "replay_diagnostics returned a value JSON cannot hold.",
+    # engine.main
+    "NATIVE_EXECUTION_FAILED": "A strategy constructor or callback raised during the replay.",
+    "INTEGRITY_FINDINGS": "The summary's integrity findings are not empty.",
+}
+
+# Integrity findings (summary.json integrity_findings): every finding starts with one of these codes.
+INTEGRITY_CODES: dict[str, str] = {
+    "SELF_CHECK_FINDING": "The source's replay_integrity_findings reported a violated invariant.",
+    "ORDERS_DENIED_OR_REJECTED": "The orders report holds DENIED or REJECTED orders.",
+    "CAPITAL_VALUATION_GAP": "An open position could not be valued at a timestamp, or a MARK arrived out of order.",
+    "CAPITAL_TIMESTAMP_COUNT_MISMATCH": "The observer valued another number of timestamps than the exported MARK "
+                                        "files hold.",
+    "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
 }
 
 

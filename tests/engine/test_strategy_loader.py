@@ -87,22 +87,22 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_hash_rejection_happens_before_source_execution(self):
         marker = self.root / "executed"
         self.source.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
-        with self.assertRaisesRegex(ValueError, "SHA-256 differs"):
+        with self.assertRaisesRegex(Refusal, "^CONTENT_HASH_MISMATCH: .*SHA-256 differs"):
             self.load()
         self.assertFalse(marker.exists())
 
     def test_reject_invalid_digest_and_entry_class(self):
         for digest in ("0" * 63, "A" * 64, "../source", None):
-            with self.subTest(digest=digest), self.assertRaises(ValueError):
+            with self.subTest(digest=digest), self.assertRaisesRegex(Refusal, "^CONTENT_HASH_INVALID: "):
                 self.load(digest=digest)
-        with self.assertRaisesRegex(ValueError, "one Python class"):
+        with self.assertRaisesRegex(Refusal, "^ENTRY_CLASS_INVALID: .*one Python class"):
             self.load(entry_class="module.Class")
 
     def test_reject_source_symlink_and_directory(self):
         alias = self.root / "alias.py"
         alias.symlink_to(self.source)
         for path in (alias, self.root):
-            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "regular file"):
+            with self.subTest(path=path), self.assertRaisesRegex(Refusal, "^SOURCE_UNREADABLE: .*regular file"):
                 self.load(path=path)
 
     def test_reject_binding_mismatches_before_source_execution(self):
@@ -110,12 +110,12 @@ class StrategyLoaderTests(unittest.TestCase):
             ("source_sha256", "0" * 64), ("entry_class", "OtherStrategy"),
             ("runtime_contract", "other"), ("revision", True), ("database", ""),
         ):
-            with self.subTest(field=field), self.assertRaises(ValueError):
+            with self.subTest(field=field), self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: "):
                 broken = {**self.binding, field: value}
                 self.binding_path.write_text(json.dumps(broken))
                 self.load(binding_path=self.binding_path)
         self.binding_path.write_text(json.dumps({**self.binding, "unexpected": 1}))
-        with self.assertRaisesRegex(ValueError, "exact Dolt revision"):
+        with self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: .*exact Dolt revision"):
             self.load(binding_path=self.binding_path)
 
     def test_entry_class_must_be_native_and_defined_in_source(self):
@@ -125,8 +125,11 @@ class StrategyLoaderTests(unittest.TestCase):
         ):
             self.source.write_text(source)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
-            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "native Strategy"):
+            with self.subTest(source=source), self.assertRaisesRegex(Refusal, "^ENTRY_CLASS_INVALID: .*native Strategy"):
                 self.load(digest=digest)
+        self.source.write_text("raise KeyError('boom')\n")
+        with self.assertRaisesRegex(Refusal, "^SOURCE_EXECUTION_FAILED: KeyError"):
+            self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
         loaded = self.load(binding_path=self.binding_path)
@@ -214,16 +217,16 @@ class StrategyLoaderTests(unittest.TestCase):
             execution_metadata(args)
 
     def test_missing_hooks_or_invalid_warmup_declaration_are_refused_before_inputs_load(self):
-        for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "replay_integrity_findings"),
+        for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "^HOOK_MISSING: .*replay_integrity_findings"),
                               ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "^DECLARATION_NOT_BOOL: .*DAILY_WARMUP"),
                               ("    DAILY_WARMUP = 1\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
                               ("    USES_STOP_LOSS = 0\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "USES_STOP_LOSS")):
             self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
-            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+            with self.subTest(message=message), self.assertRaisesRegex(Refusal, message):
                 self.load(digest=digest)
 
     def test_stop_loss_declaration_reaches_the_summary_identity(self):
@@ -247,7 +250,7 @@ class StrategyLoaderTests(unittest.TestCase):
         class InvalidDiagnostics:
             def replay_diagnostics(self):
                 return {"positions": 0}
-        with self.assertRaisesRegex(ValueError, "native report facts"):
+        with self.assertRaisesRegex(Refusal, "^DIAGNOSTICS_RESERVED_KEY: .*native report facts"):
             diagnostics(InvalidDiagnostics())
 
     def test_pinned_native_node_importable_bridge(self):

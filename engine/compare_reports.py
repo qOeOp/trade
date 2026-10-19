@@ -82,7 +82,8 @@ def compare(reference: Path, candidate: Path) -> dict:
     results = {
         "reference": str(reference),
         "candidate": str(candidate),
-        "nautilus_version": version("nautilus_trader"),
+        "engine_version": {"reference": baseline.get("engine_version"), "candidate": node.get("engine_version"),
+                           "comparison": version("nautilus_trader")},
         "reference_summary_sha256": hashlib.sha256(
             (reference / "summary.json").read_bytes(),
         ).hexdigest(),

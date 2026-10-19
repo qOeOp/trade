@@ -1,4 +1,4 @@
-"""Replay one complete strategy over exported market data in one native Nautilus BacktestNode account.
+"""Replay one complete strategy over exported market data in one native Nautilus BacktestEngine account.
 
 The runner takes four things: the strategy reference, the inputs (one market commit exported per
 contract, the contracts, their universe membership and lifecycle episodes), the window and the
@@ -11,6 +11,7 @@ and the resolved configuration instead of replaying.
 from __future__ import annotations
 
 import functools
+import importlib.metadata
 import json
 import os
 import sys
@@ -57,6 +58,7 @@ from engine.config import (
     Refusal,
     Window,
     describe,
+    utc_text,
     effective_configuration,
     parse_configuration,
 )
@@ -71,6 +73,8 @@ from engine.load import (
     read_universe,
     strategy_id,
     warmup_daily_bars,
+    warmup_start,
+    WARMUP_DAYS,
 )
 
 
@@ -97,11 +101,12 @@ def execution_metadata(config) -> dict:
     return {"runtime_identity": identity, "effective_config_sha256": effective.digest}
 
 
-# Node components. BacktestNode builds strategies and actors from importable paths, so the
+# Engine components. The engine builds strategies and actors from importable paths, so the
 # instances it creates register themselves here for the report to read.
 
 STRATEGIES: dict[str, Strategy] = {}
 OBSERVERS: list = []
+SHUTDOWN: list = []  # reasons of ShutdownSystem requests the sources made
 
 
 @dataclass
@@ -138,7 +143,12 @@ class _Configured:
         except Exception as exc:
             execution_failure("constructor", exc, None)
             raise
+        self._replay_input_start_ns = config.input_start_ns
         STRATEGIES[config.instrument_id] = self
+
+    def shutdown_system(self, reason=None):
+        SHUTDOWN.append(reason)  # the streamed run stops feeding, as BacktestNode does
+        return super().shutdown_system(reason)
 
 
 # Structured runtime failures (engine.execution_failure): a strategy's constructor or callback that
@@ -170,10 +180,21 @@ def execution_failure(stage: str, exc: BaseException, instance) -> None:
                          "instrument_id": "unconstructed"})
 
 
+# Data callbacks. An instance whose input starts after the replay's (its daily warm-up first holds
+# later) gets no data stamped before its input start: the instance starts there.
+DATA_CALLBACKS = ("on_bar", "on_mark_price", "on_funding_rate", "on_index_price", "on_quote_tick", "on_trade_tick",
+                  "on_instrument_status", "on_instrument_close", "on_data")
+
+
 def guard_callback(name: str, method):
     """The source's callback, recording any exception it raises before raising it unchanged."""
+    data = name in DATA_CALLBACKS
+
     @functools.wraps(method)
     def guarded(self, *args, **kwargs):
+        if data and args and getattr(args[0], "ts_event", None) is not None and \
+                args[0].ts_event < getattr(self, "_replay_input_start_ns", 0):
+            return None
         try:
             return method(self, *args, **kwargs)
         except Exception as exc:
@@ -346,7 +367,8 @@ class CapitalObserver(DataActor):
     def on_mark_price(self, mark):
         self.marks_seen += 1
         if self._ts is not None and mark.ts_event < self._ts:
-            self.findings.append(f"capital observation received MARK {mark.ts_event} after {self._ts}")
+            self.findings.append(f"CAPITAL_VALUATION_GAP: capital observation received MARK {mark.ts_event} after "
+                                 f"{self._ts}")
             return
         if self._ts is not None and mark.ts_event > self._ts:
             self._value(self._ts, self.cache)
@@ -432,27 +454,30 @@ def _files(row: dict, kind: str) -> list[str]:
     return [str(path) for path in sorted(root.glob("*/*.parquet"))]
 
 
-def _small_events(row: dict, kind: str) -> list:
-    """The funding, status or close events of one contract, built as the catalog stores them."""
+CLOSE_TYPES = {variant.value: variant for variant in (InstrumentCloseType.END_OF_SESSION,
+                                                       InstrumentCloseType.CONTRACT_EXPIRED)}
+
+
+def _small_events(row: dict, kind: str):
+    """The funding, status or close events of one contract, in file order, built one at a time from the
+    columns the catalog stores (the exporter writes InstrumentClose.close_type as its uint8 value)."""
     import pyarrow.parquet as parquet
-    found = []
     for path in _files(row, kind):
         table = parquet.read_table(path)
         metadata = {key.decode(): value.decode() for key, value in (table.schema.metadata or {}).items()}
-        for item in table.to_pylist():
+        columns = {name: table.column(name).to_pylist() for name in table.column_names}
+        for index in range(table.num_rows):
+            item = {name: values[index] for name, values in columns.items()}
             if kind == "FundingRateUpdate":
-                found.append(FundingRateUpdate(InstrumentId.from_str(item["instrument_id"]), Decimal(item["rate"]),
-                                               item["ts_event"], item["ts_init"], item["interval"],
-                                               item["next_funding_ns"]))
+                yield FundingRateUpdate(InstrumentId.from_str(item["instrument_id"]), Decimal(item["rate"]),
+                                        item["ts_event"], item["ts_init"], item["interval"], item["next_funding_ns"])
             elif kind == "InstrumentStatus":
-                found.append(InstrumentStatus.from_dict({"type": "InstrumentStatus", **item}))
+                yield InstrumentStatus.from_dict({"type": "InstrumentStatus", **item})
             else:
                 raw = int.from_bytes(item["close_price"], "little", signed=True)
-                found.append(InstrumentClose(InstrumentId.from_str(metadata["instrument_id"]),
-                                             Price.from_raw(raw, int(metadata["price_precision"])),
-                                             InstrumentCloseType(item["close_type"]), item["ts_event"],
-                                             item["ts_init"]))
-    return found
+                yield InstrumentClose(InstrumentId.from_str(metadata["instrument_id"]),
+                                      Price.from_raw(raw, int(metadata["price_precision"])),
+                                      CLOSE_TYPES[item["close_type"]], item["ts_event"], item["ts_init"])
 
 
 def _windowed(files: list[tuple], start: int, end: int, batch: int):
@@ -470,9 +495,16 @@ def _windowed(files: list[tuple], start: int, end: int, batch: int):
                 yield from chunk
 
 
+def _keyed(events, order: int):
+    """(ts_init, configuration order, sequence, event) of one source, lazily."""
+    for sequence, event in enumerate(events):
+        yield event.ts_init, order, sequence, event
+
+
 def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_BATCH):
     """Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end`
     bound the exported events' ts_init."""
+    import heapq
     import pyarrow.parquet as parquet
     bars, marks, small, files = {}, {}, [], []
     for index, row in enumerate(rows):
@@ -489,20 +521,18 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
                     files.append((native, f"{kind.lower()}_{index}_{number}", path, column[0].as_py(),
                                   column[-1].as_py()))
         for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"):
-            order = base + STREAM_TYPES.index(kind)
-            small.extend((event.ts_init, order, sequence, event)
-                         for sequence, event in enumerate(_small_events(row, kind)))
-    small.sort(key=lambda item: item[:3])
-    pending = 0
+            small.append(_keyed(_small_events(row, kind), base + STREAM_TYPES.index(kind)))
+    pending = heapq.merge(*small, key=lambda item: item[:3])  # each source is in file (ts_init) order
+    following = next(pending, None)
 
     def flush(group, ts):
-        nonlocal pending
-        while pending < len(small) and small[pending][0] < ts:
-            yield small[pending][3]
-            pending += 1
-        while pending < len(small) and small[pending][0] == ts:
-            group.append((small[pending][1], small[pending][3]))
-            pending += 1
+        nonlocal following
+        while following is not None and following[0] < ts:
+            yield following[3]
+            following = next(pending, None)
+        while following is not None and following[0] == ts:
+            group.append((following[1], following[3]))
+            following = next(pending, None)
         group.sort(key=lambda item: item[0])  # stable: one configuration keeps its own order
         for _, event in group:
             yield event
@@ -517,13 +547,14 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
         group.append((bars[event.bar_type] if type(event) is Bar else marks[event.instrument_id], event))
     if group:
         yield from flush(group, ts)
-    while pending < len(small):
-        yield small[pending][3]
-        pending += 1
+    while following is not None:
+        yield following[3]
+        following = next(pending, None)
 
 
 def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
-    """BacktestNode's streaming run: aligned chunks, each run up to its last ts_init, the last to the end."""
+    """BacktestNode's streaming run: aligned chunks, each run up to its last ts_init, the last to the end; a
+    shutdown a source requested during a chunk ends the feed (the engine already ended the run)."""
     iterator, consumed = iter(events), 0
     following = next(iterator, None)
     if following is None:
@@ -544,19 +575,53 @@ def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
         engine.run(start, end, RUN_ID, True)
         engine.clear_data()
         consumed += len(chunk)
+        if SHUTDOWN:
+            return consumed
         start = end
     engine.end()
     return consumed
 
 
+def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy) -> tuple[list[tuple], list[str]]:
+    """[(row, input start, trade start)] of the contracts that get an instance, and the limitations.
+
+    A contract gets an instance when its lifecycle intersects the window; its input starts at the
+    later of the replay start and its listing. A source declaring DAILY_WARMUP starts each instance
+    at the first instant its warm-up holds; a contract where it never holds in the window gets none.
+    """
+    planned, limitations, waiting = [], [], 0
+    for row in rows:
+        episode = row["episode"]
+        if not episode_active(episode, window.start_ns, window.end_ns):
+            continue
+        start = max(window.start_ns, (episode or {}).get("start_ns") or 0)
+        if strategy.daily_warmup:
+            end = min(window.end_ns, _termination(episode) or window.end_ns) if episode else window.end_ns
+            found = warmup_start(Path(row["catalog_path"]), row["instrument_id"], start, end)
+            if found is None:
+                waiting += 1
+                limitations.append(f"{row['symbol']}: its daily warm-up ({WARMUP_DAYS} contiguous days) never holds "
+                                   "in the window; it has no strategy instance")
+                continue
+            if found > start:
+                limitations.append(f"{row['symbol']}: its daily warm-up first holds at {utc_text(found)}; its "
+                                   "strategy instance starts there")
+            start = found
+        planned.append((row, start, max(window.trade_start_ns, start)))
+    if not planned:
+        if waiting:
+            raise Refusal("WARMUP_INSUFFICIENT", f"no contract's daily warm-up of {WARMUP_DAYS} days holds in the "
+                                                 "window")
+        raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the input window")
+    return planned, limitations
+
+
 def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe: dict, output_dir: Path):
     """engine.replay: one venue and engine, each contract's one-minute bars, MARK and funding updates and
-    lifecycle events streamed in time order, one strategy instance per contract whose lifecycle
-    intersects the window, and exactly one capital observer; afterwards the native result is checked
-    against the receipts."""
-    active = [row for row in rows if episode_active(row["episode"], window.start_ns, window.end_ns)]
-    if not active:
-        raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the input window")
+    lifecycle events streamed in time order, one strategy instance per contract whose lifecycle (and
+    daily warm-up) holds in the window, and exactly one capital observer; afterwards the native result
+    is checked against the receipts. Returns (Replay, instances by coin, limitations)."""
+    planned, limitations = plan_instances(rows, window, strategy)
     account = ACCOUNT_CONTRACT
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]),
@@ -580,20 +645,21 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe:
         engine.add_instrument(row["instrument"])
     STRATEGIES.clear()
     OBSERVERS.clear()
+    SHUTDOWN.clear()
     strategy_path = importable_strategy(strategy)
-    for row in active:
-        episode = row["episode"]
+    for row, input_start, trade_start in planned:
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=strategy_path,
             config_path=f"{__name__}:StrategyInputs",
             config={
                 "instrument_id": str(row["instrument_id"]),
-                "trade_start_ns": window.trade_start_ns,
-                "input_start_ns": max(window.start_ns, (episode or {}).get("start_ns") or 0),
+                "trade_start_ns": trade_start,
+                "input_start_ns": input_start,
                 "strategy_id": strategy_id(row["symbol"]),
                 "catalog_path": str(row["catalog_path"]),
-                "universe_membership": [list(interval) for interval in
-                                        episode_membership(universe[row["symbol"]], episode)],
+                "universe_membership": [[max(low, input_start), high] for low, high in
+                                        episode_membership(universe[row["symbol"]], row["episode"])
+                                        if high > input_start],
             },
         ))
     engine.add_actor_from_config(ImportableActorConfig(
@@ -614,7 +680,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe:
     strategies = {row["coin"]: STRATEGIES.get(str(row["instrument_id"])) for row in rows}
     finished = Replay(engine, result, OBSERVERS[0])
     finished.observer.finish(finished.cache)
-    return finished, strategies
+    return finished, strategies, limitations
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -634,20 +700,22 @@ def main(argv: list[str] | None = None) -> None:
     rows = read_market(config.market_root, list(config.symbols), config.market_commit, window.start_ns, window.end_ns)
     universe = read_universe(config.universe_path, list(config.symbols))
     config.output.mkdir(parents=True, exist_ok=True)
-    finished, strategies = replay(rows, window, strategy, universe, config.output)
+    finished, strategies, limitations = replay(rows, window, strategy, universe, config.output)
     identity = {
         **strategy.metadata(), **report.runtime_source_metadata(), **executed,
         "effective_config_sha256": effective.digest,
+        "engine_version": importlib.metadata.version("nautilus_trader"),
         "market_commit": config.market_commit,
         "strategy": strategy.binding["strategy_id"] if strategy.binding else strategy.entry_class,
     }
     _, findings = report.write(config.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
-                               mark_timestamps(rows))
+                               mark_timestamps(rows), limitations)
     if FAILURES:
-        raise RuntimeError("NATIVE_EXECUTION_FAILED: " + "; ".join(
+        raise Refusal("NATIVE_EXECUTION_FAILED", "; ".join(
             f"{item['exception_type']} in {item['stage']} ({item['instrument_id']})" for item in FAILURES))
     if findings:
-        raise RuntimeError("INTEGRITY_FINDINGS: " + "; ".join(findings))
+        raise Refusal("INTEGRITY_FINDINGS", "; ".join(findings[:20]) + (f"; and {len(findings) - 20} more"
+                                                                         if len(findings) > 20 else ""))
 
 
 if __name__ == "__main__":

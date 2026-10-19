@@ -102,10 +102,22 @@ def validate_lifecycle(body: Mapping, commit: str, files: Mapping[str, bytes]) -
             clock = built.ts_event
             if terminated is None and (event["type"] == "InstrumentClose" or built.action.name == "CLOSE"):
                 terminated = built.ts_event
+        _require_close_status(episode, symbol)
         if terminated is not None:
             ended.add(instrument_id)
         grouped.setdefault(symbol, []).append({key: episode[key] for key in EPISODE_FIELDS})
     return grouped
+
+
+def _require_close_status(episode: Mapping, symbol: str) -> None:
+    """A settlement closes the market first: a CLOSE status at or before every InstrumentClose, so the
+    engine rejects any order after the settlement."""
+    closes = [event["ts_event"] for event in episode["events"]
+              if event["type"] == "InstrumentStatus" and event.get("action") == "CLOSE"]
+    for event in episode["events"]:
+        if event["type"] == "InstrumentClose" and not any(at <= event["ts_event"] for at in closes):
+            raise LifecycleInput(f"{symbol}: the InstrumentClose at {event['ts_event']} has no CLOSE status at or "
+                                 "before it")
 
 
 def _window(episode: Mapping, start: int, end: int, kind: str) -> list[dict]:
@@ -135,6 +147,7 @@ def write_lifecycle_events(root: Path, episode: Mapping, start: int, end: int, p
     Returns {"instrument_close": n, "instrument_status": m}; a type without events writes no file.
     """
     instrument_id = episode["instrument_id"]
+    _require_close_status(episode, episode["symbol"])
     counts = {"instrument_close": 0, "instrument_status": 0}
     status = [_native(event) for event in _window(episode, start, end, "InstrumentStatus")]
     if status:

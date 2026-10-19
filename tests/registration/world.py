@@ -40,8 +40,8 @@ OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, cha
 
 def config(symbols=SYMBOLS, start="2025-12-31T00:00:00Z", trade_start="2026-01-01T00:00:00Z",
            end="2026-02-01T00:00:00Z", account=ACCOUNT, root="/tmp/export-somewhere") -> dict:
-    """An effective configuration with the engine's window keys (start, trade_start, end)."""
-    return {"runtime_contract": IDENTITY["runtime_contract"], "execution_bar_minutes": 1, "start": start,
+    """An effective configuration with the engine's window keys; the fixtures replay daily bars."""
+    return {"runtime_contract": IDENTITY["runtime_contract"], "execution_bar_minutes": 1440, "start": start,
             "end": end, "trade_start": trade_start, "symbols": list(symbols), "account": dict(account),
             "market_root": root, "universe_path": root + "/membership.json"}
 

@@ -192,7 +192,8 @@ class SealedReplayTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         cls.refs, cls.bundle_of = [], {}
         for bundle, tags in (("registration-grid", range(1, 6)), ("registration-grid-b", range(6, 11)),
-                             ("registration-grid-c", range(11, 14)), ("registration-grid-d", range(14, 15))):
+                             ("registration-grid-c", range(11, 14)), ("registration-grid-d", range(14, 15)),
+                             ("registration-grid-e", range(15, 16))):
             refs = registered_grid(world, [f"g{index}" for index in tags], bundle)
             cls.refs += refs
             cls.bundle_of.update(dict.fromkeys(refs, bundle))
@@ -387,8 +388,10 @@ class SealedReplayTests(unittest.TestCase):
         cases = [({"summary": {"market_commit": "z" * 32}}, "COVERAGE_MISMATCH"),
                  ({"corrupt_exposures": True}, "NATIVE_REPORT_UNREADABLE"),
                  ({"summary": {"final_equity_usdt": None}}, "SUMMARY_INCOMPLETE"),
-                 ({"summary": {"data_interval_minutes": "daily"}}, "METRICS_UNREADABLE")]
-        for (scenario, code), ref in zip(cases, self.refs[8:12], strict=True):
+                 ({"summary": {"period_start_utc": "the first of January"}}, "METRICS_UNREADABLE"),
+                 # the summary's bars are not the effective configuration's execution bars
+                 ({"summary": {"data_interval_minutes": 5}}, "CONFIG_MISMATCH")]
+        for (scenario, code), ref in zip(cases, [*self.refs[8:12], self.refs[14]], strict=True):
             self.world.scenario = scenario
             with self.subTest(code=code):
                 stored = self.run_ref(ref)

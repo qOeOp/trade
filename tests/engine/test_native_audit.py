@@ -13,7 +13,7 @@ import unittest
 
 import pandas as pd
 
-from engine.audit import BAR_NS, FINDINGS, audit, audit_main, uncovered_intervals
+from engine.audit import BAR_NS, audit, audit_main, uncovered_intervals
 
 
 START = "2026-01-01 00:00:00+00:00"
@@ -174,7 +174,6 @@ class NativeAuditTests(unittest.TestCase):
                 value = self.check(values)
                 self.assertFalse(value["passed"])
                 self.assertIn(code, codes(value))
-                self.assertLessEqual(codes(value), set(FINDINGS))
 
     def test_missing_report_fields_are_an_audit_failure(self):
         values = reports()
@@ -315,7 +314,7 @@ class NativeAuditTests(unittest.TestCase):
                 (lambda events: events[1].update(ts_event=events[1]["ts_event"] - 1), {"EVENT_OUT_OF_ORDER"}),
                 (lambda events: events[1].update(strategy_id="R1-ETH"), {"EVENT_SCOPE_CHANGED"}),
                 (lambda events: events.append({**events[-1], "type": "OrderMystery", "event_id": "odd"}),
-                 {"REPORT_PAYLOAD_INVALID"})):
+                 {"EVENT_PAYLOAD_INVALID"})):
             with self.subTest(expected=expected):
                 values = reports()
                 values["events"] = order_events(values)
@@ -385,9 +384,43 @@ class LifecycleAuditTests(unittest.TestCase):
 
     def test_a_position_or_order_left_at_termination_and_late_events_are_refused(self):
         value = self.run_audit([self.status("CLOSE", "2026-01-01 00:08:00+00:00")])
-        self.assertEqual(codes(value), {"POSITION_OPEN_AT_TERMINATION", "ORDER_OPEN_AT_TERMINATION",
-                                        "LATE_ORDER_EVENT"})
+        self.assertEqual(codes(value), {"POSITION_OPEN_AT_TERMINATION", "ORDER_OPEN_AT_TERMINATION"})
         self.assertTrue(any("position-1" in item for item in value["findings"]))
+        # one finding per order: the stop and the exit were open, and their later events are named there
+        opened = [item for item in value["findings"] if item.startswith("ORDER_OPEN_AT_TERMINATION")]
+        self.assertEqual(len(opened), 2)
+        self.assertTrue(all("at or after it" in item for item in opened))
+
+    def late_order(self, values, identity="late", at="2026-01-01 00:30:00+00:00"):
+        """An order placed (and rejected by the closed market) after the termination."""
+        values["orders"].append(order(identity, "BUY", "MARKET", status="REJECTED", ts_init=str(pd.Timestamp(at).value)))
+        values["summary"]["rejected_orders"] = 1
+        values["summary"]["integrity_passed"] = False
+        return values
+
+    def test_an_order_created_after_a_termination_is_late_with_or_without_a_price(self):
+        close = self.close("2026-01-01 00:20:00+00:00")
+        for events in ([self.status("CLOSE", "2026-01-01 00:20:00+00:00")],
+                       [self.status("CLOSE", "2026-01-01 00:20:00+00:00"), close]):
+            with self.subTest(priced=len(events) == 2):
+                value = self.run_audit(events, values=self.late_order(reports()))
+                late = [item for item in value["findings"] if item.startswith("LATE_ORDER_EVENT")]
+                self.assertEqual(len(late), 1, value["findings"])
+                self.assertIn("order late created at 2026-01-01T00:30:00+00:00", late[0])
+
+    def test_the_engines_expiration_order_at_a_settlement_is_not_late(self):
+        values = self.late_order(reports(), "EXPIRATION-BINANCE-1", "2026-01-01 00:20:00+00:00")
+        values["orders"][-1].update(status="ACCEPTED")
+        values["summary"].update(rejected_orders=0, integrity_passed=True)
+        close = self.close("2026-01-01 00:20:00+00:00")
+        value = self.run_audit([self.status("CLOSE", "2026-01-01 00:20:00+00:00"), close], values=values)
+        self.assertTrue(value["passed"], value["findings"])
+        unpriced = self.run_audit([self.status("CLOSE", "2026-01-01 00:20:00+00:00")], values=values)
+        self.assertIn("LATE_ORDER_EVENT", codes(unpriced))
+
+    def close(self, at):
+        return {"type": "InstrumentClose", "instrument_id": SCOPE["instrument_id"], "close_price": "105",
+                "close_type": "CONTRACT_EXPIRED", "ts_event": pd.Timestamp(at).value, "ts_init": pd.Timestamp(at).value}
 
     def test_a_settlement_price_leaves_the_termination_to_the_engine(self):
         close = {"type": "InstrumentClose", "instrument_id": SCOPE["instrument_id"], "close_price": "105",

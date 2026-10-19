@@ -18,6 +18,7 @@ from nautilus_trader.model import Venue
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EXECUTION_BAR_MINUTES = 1  # engine.config.EXECUTION_BAR_MINUTES (that module imports this one)
 RUNTIME_SOURCE_PATHS = {
     "config_source_sha256": "engine/config.py",
     "runner_source_sha256": "engine/run.py",
@@ -30,6 +31,11 @@ EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_
 EXPOSURES = "exposures.csv.gz"
 ORDER_EVENTS = "order_events.jsonl.gz"
 LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")
+
+
+def _refusal(code: str, message: str):
+    from engine.config import Refusal  # engine.config imports this module
+    return Refusal(code, message)
 
 
 def runtime_source_metadata() -> dict:
@@ -55,10 +61,10 @@ def json_safe(value):
 
 def snapshot_equity_usdt(snapshot) -> Decimal:
     if snapshot is None or snapshot.is_stale or snapshot.unpriced_instruments:
-        raise RuntimeError("native portfolio equity snapshot is missing or stale")
+        raise _refusal("EQUITY_SNAPSHOT_UNAVAILABLE", "native portfolio equity snapshot is missing or stale")
     equity = snapshot.base_currency_equity
     if equity is None or equity.currency.code != "USDT":
-        raise RuntimeError("native portfolio snapshot lacks USDT base equity")
+        raise _refusal("EQUITY_SNAPSHOT_UNAVAILABLE", "native portfolio snapshot lacks USDT base equity")
     return equity.as_decimal()
 
 
@@ -69,10 +75,10 @@ def orders_with_native_deadlines(cache, report):
     for order_id in report.index:
         order = cache.order(ClientOrderId.from_str(str(order_id)))
         if order is None:
-            raise RuntimeError("native order missing during GTD deadline export")
+            raise _refusal("GTD_DEADLINE_MISSING", f"native order {order_id} missing during GTD deadline export")
         deadline = getattr(order, "expire_time", None)
         if str(order.time_in_force) == "GTD" and deadline is None:
-            raise RuntimeError("native GTD order has no deadline")
+            raise _refusal("GTD_DEADLINE_MISSING", f"native GTD order {order_id} has no deadline")
         deadlines.append(str(deadline) if deadline is not None else "")
     result["expire_time_ns"] = deadlines
     return result
@@ -136,16 +142,26 @@ def capital_findings(observer, expected_timestamps: int) -> list[str]:
     return findings
 
 
+RESERVED_DIAGNOSTICS = {"coin", "instrument", "quantity", "counts", "positions"}
+
+
 def diagnostics(strategy) -> dict:
+    """engine.diagnostics: the source's own counters, kept apart from the native report facts."""
     value = strategy.replay_diagnostics()
-    reserved = {"coin", "instrument", "quantity", "counts", "positions"}
-    if not isinstance(value, dict) or reserved.intersection(value):
-        raise ValueError("strategy diagnostics must not replace native report facts")
+    if not isinstance(value, dict):
+        raise _refusal("DIAGNOSTICS_NOT_DICT", f"strategy diagnostics are a {type(value).__name__}, not a dict")
+    if RESERVED_DIAGNOSTICS.intersection(value):
+        raise _refusal("DIAGNOSTICS_RESERVED_KEY", "strategy diagnostics must not replace native report facts: "
+                       + ", ".join(sorted(RESERVED_DIAGNOSTICS.intersection(value))))
+    try:
+        json.dumps(value, allow_nan=True)
+    except (TypeError, ValueError) as exc:
+        raise _refusal("DIAGNOSTICS_NOT_JSON", f"strategy diagnostics are not JSON: {exc}") from exc
     return value
 
 
 def write(output: Path, replay, strategies: dict, rows: list[dict], identity: dict, window,
-          account: dict, expected_timestamps: int) -> tuple[dict, list[str]]:
+          account: dict, expected_timestamps: int, limitations: list[str] = ()) -> tuple[dict, list[str]]:
     """Write the native reports and summary; return the summary and its integrity findings.
 
     ``replay`` exposes the engine's reports, cache, portfolio, result and capital observer (which
@@ -158,7 +174,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
     integrity_findings = []
     native_account = replay.portfolio.account(venue=Venue(account["venue"]))
     if native_account is None:
-        raise RuntimeError("native portfolio account missing")
+        raise _refusal("NATIVE_ACCOUNT_MISSING", "native portfolio account missing")
     final_equity = snapshot_equity_usdt(replay.portfolio.build_snapshot(native_account.id))
     result = replay.result
     output.mkdir(parents=True, exist_ok=True)
@@ -190,12 +206,13 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
             continue
         findings = native_strategy.replay_integrity_findings(denied_or_rejected)
         if not isinstance(findings, list) or any(not isinstance(item, str) or not item for item in findings):
-            raise ValueError("strategy integrity findings must be nonempty strings")
+            raise _refusal("SELF_CHECK_FINDINGS_INVALID", "strategy integrity findings must be nonempty strings")
         for finding in findings:
-            if finding not in integrity_findings:
-                integrity_findings.append(finding)
-    if denied_or_rejected and not integrity_findings:
-        integrity_findings.append("native orders were denied or rejected")
+            coded = f"SELF_CHECK_FINDING: {finding}"
+            if coded not in integrity_findings:
+                integrity_findings.append(coded)
+    if denied_or_rejected:
+        integrity_findings.insert(0, "ORDERS_DENIED_OR_REJECTED: the orders report holds DENIED or REJECTED orders")
     write_order_events(replay.cache.orders(), output / ORDER_EVENTS)
     for finding in capital_findings(replay.observer, expected_timestamps):
         if finding not in integrity_findings:
@@ -213,7 +230,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         **identity,
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
-        "account_model": f"one native BacktestNode margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
+        "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
         "starting_balance_usdt": account["starting_balance_usdt"],
         "native_risk_submit_rate": account["max_order_submit_rate"],
         "sizing": {"mode": "strategy_source"},
@@ -239,7 +256,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
             eligible_returns,
         ),
-        "data_interval_minutes": 1,  # the execution bar (engine.config.EXECUTION_BAR_MINUTES), as the ledger reads it
+        "data_interval_minutes": EXECUTION_BAR_MINUTES,  # the execution bar, under the name the ledger reads
         "input_start_utc": window.start,
         "period_start_utc": window.trade_start,
         "period_end_utc": window.end,
@@ -262,6 +279,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
             "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
             "not observed",
             "Liquidation is not modelled",
+            *dict.fromkeys(limitations),
         ],
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)

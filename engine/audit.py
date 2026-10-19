@@ -57,6 +57,8 @@ FINDINGS: dict[str, str] = {
     "SUMMARY_TOTALS_MISMATCH": "Starting balance, realized PnL, flat final equity or closed counts differ from the "
                                "summary.",
     "REPORT_PAYLOAD_INVALID": "A report field has a wrong type, or reading or arithmetic failed.",
+    "EVENT_PAYLOAD_INVALID": "The order event history cannot be replayed: an unknown event type, a non-positive "
+                             "quantity, an invalid side or an order without its initialization.",
     "ORDER_EVENT_HISTORY_MISSING": "The report directory has no order event history.",
     "EVENT_ORDER_SET_MISMATCH": "The event history and the orders report hold different orders.",
     "EVENT_NOT_INITIALIZED": "An order's events do not start with exactly one initialization.",
@@ -78,8 +80,22 @@ FINDINGS: dict[str, str] = {
     "POSITION_OPEN_AT_TERMINATION": "A native position was not flat before an unpriced termination.",
     "ORDER_OPEN_AT_TERMINATION": "An order was not filled or ended, or had an update in flight, before an unpriced "
                                  "termination.",
-    "LATE_ORDER_EVENT": "An order event of a terminated contract is at or after its termination.",
+    "LATE_ORDER_EVENT": "An order of a terminated contract was created at or after its termination, or (without "
+                        "a settlement price) has events at or after it.",
 }
+
+
+# The auditor's own outcomes (engine.audit_main): exit 2 without a result, or exit 1 with findings.
+AUDIT_REFUSALS: dict[str, str] = {
+    "REPORTS_INCOMPLETE": "A required report or the order event history is missing or empty; nothing is audited.",
+    "SUMMARY_UNREADABLE": "summary.json is missing, unreadable or not a JSON object; nothing is audited.",
+    "AUDIT_FINDINGS": "The audit result holds findings; it was written.",
+}
+
+
+def outcome(code: str, detail: str) -> str:
+    AUDIT_REFUSALS[code]
+    return f"{code}: {detail}"
 
 
 def finding(code: str, detail: str) -> str:
@@ -249,7 +265,7 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
             elif kind in ENDING_EVENTS:
                 order["ended"] = True
             elif kind not in PASSIVE_EVENTS | {"OrderInitialized"}:
-                raise ValueError(f"EVENT_PAYLOAD_INVALID: unknown native order event type {kind}")
+                raise ValueError(f"unknown native order event type {kind}")
         for scope in sorted(touched):
             held = position[scope]
             closing = "SELL" if held > 0 else "BUY"
@@ -291,9 +307,9 @@ def protection(run: Path, orders: list[dict], fills: list[dict], summary: dict,
         findings.append(finding("STOP_LOSS_DECLARATION_INVALID", f"strategy_uses_stop_loss is {uses_stop_loss!r}"))
     try:
         intervals = uncovered_intervals(events, pd.Timestamp(summary["period_end_utc"]).value)
-    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:  # EVENT_PAYLOAD_INVALID
-        findings.append(finding("REPORT_PAYLOAD_INVALID", f"the event history cannot be replayed: "
-                                                          f"{type(exc).__name__}: {exc}"))
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        findings.append(finding("EVENT_PAYLOAD_INVALID", f"the event history cannot be replayed: "
+                                                         f"{type(exc).__name__}: {exc}"))
         intervals = []
     if uses_stop_loss is not False:
         for value in intervals:
@@ -307,19 +323,25 @@ def protection(run: Path, orders: list[dict], fills: list[dict], summary: dict,
                       "uncovered_intervals": intervals}
 
 
+EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settlement (rc3 matching engine)
+
+
 def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positions: list[dict],
                        events: list[dict]) -> list[str]:
-    """engine.lifecycle_findings: before each termination without a settlement price every native
-    position of the contract is flat and every order is filled or ended; order events at or after it
-    are late. A termination with a price is the engine's own settlement and reconciles like any fill."""
+    """engine.lifecycle_findings: no order is created at or after a contract's termination (the engine's
+    own EXPIRATION orders at a settlement excepted); before a termination without a settlement price
+    every native position of the contract is flat and every order filled or ended, and no order has
+    events at or after it. A settlement price is the engine's own settlement and reconciles like any
+    fill. One finding per order."""
     priced = {(item["instrument_id"], item["ts_event"]) for item in lifecycle if item["type"] == "InstrumentClose"}
-    unpriced = sorted({(item["instrument_id"], item["ts_event"]) for item in lifecycle
-                       if item["type"] == "InstrumentStatus" and item.get("action") == "CLOSE"} - priced)
-    if not unpriced:
+    ended_at: dict[str, int] = {}
+    for item in lifecycle:
+        ended_at[item["instrument_id"]] = min(item["ts_event"], ended_at.get(item["instrument_id"], item["ts_event"]))
+    if not ended_at:
         return []
     findings = []
     reported = {row["event_id"]: row for row in fills}
-    for instrument in sorted({instrument for instrument, _ in unpriced}):
+    for instrument in sorted(ended_at):
         own = {row["event_id"] for row in fills if row["instrument_id"] == instrument}
         covered = Counter(event["event_id"] for position in positions if position["instrument_id"] == instrument
                           for event in _list(position["events"]))
@@ -336,17 +358,27 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
     by_order = defaultdict(list)
     for event in events:
         by_order[event["client_order_id"]].append(event)
-    for instrument, ended_at in unpriced:
-        held, states = defaultdict(Decimal), {}
-        for identity, order_events in by_order.items():
+    for instrument, termination in sorted(ended_at.items()):
+        settled = (instrument, termination) in priced
+        when = _ns_utc(termination)
+        held = defaultdict(Decimal)
+        for identity, order_events in sorted(by_order.items()):
             if order_events[0]["instrument_id"] != instrument:
                 continue
+            created = int(order_events[0]["ts_event"])
+            if created >= termination:
+                if not (settled and created == termination and identity.startswith(EXPIRATION_PREFIX)):
+                    findings.append(finding("LATE_ORDER_EVENT", f"{instrument} order {identity} created at "
+                                                                f"{_ns_utc(created)}, termination {when}"))
+                continue
+            if settled:
+                continue  # the engine cancels and closes at the settlement itself
             state = {"quantity": None, "filled": Decimal(0), "ended": False, "pending": False}
+            late = []
             for event in order_events:
                 kind, at = event["type"], int(event["ts_event"])
-                if at >= ended_at:
-                    findings.append(finding("LATE_ORDER_EVENT", f"{instrument} {kind} of {identity} at {_ns_utc(at)}, "
-                                                                f"termination {_ns_utc(ended_at)}"))
+                if at >= termination:
+                    late.append(kind)
                     continue
                 if kind == "OrderInitialized":
                     state["quantity"] = _quantity(event["quantity"])
@@ -358,30 +390,32 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
                     state["pending"] = True
                 elif kind in ("OrderModifyRejected", "OrderCancelRejected"):
                     state["pending"] = False
-                elif kind == "OrderAccepted":
-                    pass
                 elif kind == "OrderFilled":
                     quantity = _quantity(event["last_qty"])
                     if quantity <= 0 or event["order_side"] not in ("BUY", "SELL"):
-                        raise ValueError(f"LIFECYCLE_EVIDENCE_INCONSISTENT: fill of {identity} is invalid")
+                        return [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: fill of {identity} is "
+                                                                           "invalid")]
                     state["filled"] += quantity
                     scope = (event["strategy_id"], event.get("account_id"), event.get("position_id"))
                     held[scope] += quantity if event["order_side"] == "BUY" else -quantity
                 elif kind in ENDING_EVENTS:
                     state["ended"] = True
-                elif kind not in PASSIVE_EVENTS:
-                    raise ValueError(f"LIFECYCLE_EVIDENCE_INCONSISTENT: unknown event type {kind}")
-            states[identity] = state
+                elif kind != "OrderAccepted" and kind not in PASSIVE_EVENTS:
+                    return [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: unknown event type {kind} "
+                                                                       f"of {identity}")]
+            complete = state["quantity"] is not None and state["filled"] >= state["quantity"]
+            tail = f" ({len(late)} events at or after it: {', '.join(sorted(set(late)))})" if late else ""
+            if state["pending"] or not (complete or state["ended"]):
+                findings.append(finding("ORDER_OPEN_AT_TERMINATION", f"{instrument} order {identity} is not "
+                                                                     f"filled or ended before {when}{tail}"))
+            elif late:
+                findings.append(finding("LATE_ORDER_EVENT", f"{instrument} order {identity}{tail}, termination "
+                                                            f"{when}"))
         for (strategy, account, position), quantity in sorted(held.items(), key=str):
             if quantity:
                 findings.append(finding("POSITION_OPEN_AT_TERMINATION", f"{instrument} position {position} "
                                                                         f"({strategy}, {account}) holds {quantity} "
-                                                                        f"before {_ns_utc(ended_at)}"))
-        for identity, state in sorted(states.items()):
-            complete = state["quantity"] is not None and state["filled"] >= state["quantity"]
-            if state["pending"] or not (complete or state["ended"]):
-                findings.append(finding("ORDER_OPEN_AT_TERMINATION", f"{instrument} order {identity} is not filled "
-                                                                     f"or ended before {_ns_utc(ended_at)}"))
+                                                                        f"before {when}"))
     return findings
 
 
@@ -635,9 +669,9 @@ def audit(run: Path) -> dict:
     try:
         summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise AuditNotRun(f"SUMMARY_UNREADABLE: {run / 'summary.json'}: {exc}") from exc
+        raise AuditNotRun(outcome("SUMMARY_UNREADABLE", f"{run / 'summary.json'}: {exc}")) from exc
     if not isinstance(summary, dict):
-        raise AuditNotRun(f"SUMMARY_UNREADABLE: {run / 'summary.json'} is not a JSON object")
+        raise AuditNotRun(outcome("SUMMARY_UNREADABLE", f"{run / 'summary.json'} is not a JSON object"))
     return _generic_audit(run, summary)
 
 
@@ -645,7 +679,7 @@ def audit_main(run: Path, output: Path) -> int:
     """Audit a complete report set into `output`: 0 passed, 1 findings, 2 not audited (no result written)."""
     missing = [name for name in REPORTS if not (run / name).is_file() or not (run / name).stat().st_size]
     if missing:
-        print(f"REPORTS_INCOMPLETE: {run} lacks {missing}", file=sys.stderr)
+        print(outcome("REPORTS_INCOMPLETE", f"{run} lacks {missing}"), file=sys.stderr)
         return 2
     try:
         result = audit(run)
@@ -655,7 +689,7 @@ def audit_main(run: Path, output: Path) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n")
     if not result["passed"]:
-        print(f"AUDIT_FINDINGS: {len(result['findings'])} findings in {output}", file=sys.stderr)
+        print(outcome("AUDIT_FINDINGS", f"{len(result['findings'])} findings in {output}"), file=sys.stderr)
         return 1
     return 0
 
