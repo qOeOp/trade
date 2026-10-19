@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 
+from ledger import problems
 from ledger.refusals import refuse
 
 
@@ -45,8 +46,6 @@ CHECKOUT = Path(__file__).resolve().parents[1]
 PROBE_FIELDS = ("runtime_contract", "engine_version", "python_version", "dependency_lock_sha256",
                 "source_files_sha256", "source_file_paths", "effective_config", "effective_config_sha256",
                 "audit_source_sha256")
-# engine.effective_configuration hashes no host path.
-HOST_PATH_KEYS = ("market_root", "universe_path")
 
 
 def layout(runtime_contract: str | None) -> dict:
@@ -198,9 +197,7 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: list[tuple[P
     if paths != found["source_paths"]:
         raise refuse("RUNTIME_MISMATCH", "the probe's source paths are not the contract's layout",
                      expected=json.dumps(found["source_paths"], sort_keys=True))
-    hashed = {key: item for key, item in value["effective_config"].items() if key not in HOST_PATH_KEYS}
-    encoded = json.dumps(hashed, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
-    if hashlib.sha256(encoded).hexdigest() != value["effective_config_sha256"]:
+    if problems.config_sha256(value["effective_config"]) != value["effective_config_sha256"]:
         raise refuse("RUNTIME_MISMATCH", "the probe's effective configuration does not hash to its recorded hash")
     return {**value, "image_config_digest": actual.get("Id"), "platform": platform}
 

@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from engine import config as engine_config
+from ledger import problems
 from ledger.errors import Refusal
 from runtime import container, image
 
@@ -102,6 +104,31 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(described["source_files_sha256"][field], hashlib.sha256((root / path).read_bytes()).hexdigest())
         self.assertEqual(described["audit_source_sha256"],
                          hashlib.sha256((root / LAYOUT["audit_path"]).read_bytes()).hexdigest())
+
+    def test_the_host_hashes_a_described_configuration_as_the_runner_does(self):
+        def described(*extra):
+            argv = ["--describe", "--market-commit", "c" * 32, "--symbols", "BTCUSDT", "ETHUSDT",
+                    "--start", "2025-01-01T00:00:00Z", "--trade-start", "2025-01-01T12:00:00Z",
+                    "--end", "2025-01-02T00:00:00Z", *extra]
+            return json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,
+                                             text=True, check=True).stdout)
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ("a", "b"):
+                (Path(folder) / name).mkdir()
+                (Path(folder) / name / "universe.json").write_text('{"members": ["BTCUSDT", "ETHUSDT"]}')
+            runs = [described("--market-root", f"{folder}/a"), described("--market-root", f"{folder}/b"),
+                    described("--market-root", f"{folder}/a", "--universe", f"{folder}/a/universe.json"),
+                    described("--market-root", f"{folder}/b", "--universe", f"{folder}/b/universe.json")]
+        for run in runs:  # as the start receipt seals it and ingest reads it back
+            receipt = json.loads(json.dumps({"effective_config": run["effective_config"]}).encode())
+            self.assertEqual(problems.config_sha256(receipt["effective_config"]), run["effective_config_sha256"])
+            self.assertEqual(problems.config_sha256(run["effective_config"]),
+                             engine_config.config_sha256(run["effective_config"]))
+        hashes = [run["effective_config_sha256"] for run in runs]
+        self.assertEqual((hashes[0] == hashes[1], hashes[2] == hashes[3], hashes[0] == hashes[2]), (True, True, False))
+        self.assertEqual(problems.HOST_PATH_KEYS, engine_config.HOST_PATH_KEYS)
+        unicode = {"label": "资金费 ü", "market_root": "/x", "nested": {"b": [1, None, True], "a": "é"}}
+        self.assertEqual(problems.config_sha256(unicode), engine_config.config_sha256(unicode))
 
 
 class ResolveTests(unittest.TestCase):

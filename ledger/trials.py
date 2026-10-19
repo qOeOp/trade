@@ -153,10 +153,6 @@ def _plain(value):
     return json.loads(json.dumps(value, sort_keys=True, default=str))
 
 
-def _mapping(value) -> dict:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
 def _same_dir(recorded, workdir: Path) -> bool:
     return isinstance(recorded, str) and Path(recorded).resolve() == workdir.resolve()
 
@@ -224,9 +220,8 @@ def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str,
     return [], (revision, report, daily, cycle_rows)
 
 
-def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, runtime_inspection: Mapping,
-               effective_config: Mapping, input_identity: Mapping, *, host_reasons: list[dict] | tuple = (),
-               checkout: Path | None = None) -> dict:
+def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_identity: Mapping, *,
+               host_reasons: list[dict] | tuple = (), checkout: Path | None = None) -> dict:
     """Store one sealed replay as a run in one write; returns {run_id, status, failure_reasons}.
 
     Only the trial's original capture decides: its stages, outcome, audit result, runtime failures,
@@ -234,9 +229,9 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, runtime_
     from `workdir` (the start receipt's) only after every file there equals its sealed hash. A
     report the runner wrote that cannot be read makes the run invalid rather than refusing.
     `host_reasons` are what the host saw outside the capture (inputs changed during the replay);
-    they only add reasons. `runtime_inspection` gives the effective configuration hash and must
-    describe the configuration of the start receipt; `effective_config` is not stored. `checkout` is
-    the product checkout whose clean HEAD names the metrics code (default: this repository).
+    they only add reasons. The effective configuration and its hash come from the start receipt's
+    sealed coverage receipt (`problems.config_sha256`), never from the caller. `checkout` is the
+    product checkout whose clean HEAD names the metrics code (default: this repository).
     """
     workdir = Path(workdir)
     trial = _run_trial(conn, trial_id, require_new=False)  # a retry of the same write replays below
@@ -251,12 +246,13 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, runtime_
             raise refuse("EXECUTION_IDENTITY", f"{workdir} is not the working directory the start receipt of trial "
                                                f"{trial_id} records", missing=("workdir",))
         receipt = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
-        if (not isinstance(input_identity, Mapping) or _plain(dict(input_identity)) != start.get("input_identity")
-                or not isinstance(runtime_inspection, Mapping)
-                or _plain(_mapping(runtime_inspection.get("effective_config"))) != receipt.get("effective_config")):
-            raise refuse("EXECUTION_IDENTITY", f"the input identity or runtime inspection differs from the start "
-                                               f"receipt of trial {trial_id}",
-                         missing=("input_identity", "runtime_inspection"))
+        config = receipt.get("effective_config")
+        if not isinstance(config, Mapping):
+            raise refuse("EXECUTION_IDENTITY", f"the start receipt of trial {trial_id} records no effective "
+                                               f"configuration", missing=("effective_config",))
+        if not isinstance(input_identity, Mapping) or _plain(dict(input_identity)) != start.get("input_identity"):
+            raise refuse("EXECUTION_IDENTITY", f"the input identity differs from the start receipt of trial "
+                                               f"{trial_id}", missing=("input_identity",))
         files = _verified_files(capture, trial_id, workdir)
     except Refusal as exc:
         if spent and exc.code in ("CAPTURE_INCOMPLETE", "EXECUTION_IDENTITY"):
@@ -265,12 +261,11 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, runtime_
                          missing=(str(trial_id),)) from exc
         raise
     identity = {field: start["runtime_identity"][field] for field in execution.IDENTITY_FIELDS}
-    reasons = problems.capture_problems(capture, trial["source_sha256"], identity,
-                                        runtime_inspection.get("effective_config_sha256"))
+    reasons = problems.capture_problems(capture, trial["source_sha256"], identity, problems.config_sha256(config))
     reasons += [problems.reason(item["code"], item.get("message") or item["code"], item.get("locator"))
                 for item in host_reasons or ()]
     summary = problems.json_object(problems.sealed(capture, problems.SUMMARY))
-    bar = _mapping(runtime_inspection.get("effective_config")).get("execution_bar_minutes")
+    bar = config.get("execution_bar_minutes")
     if summary is not None and bar is not None and summary.get("data_interval_minutes") != bar:
         reasons.append(problems.reason("CONFIG_MISMATCH", f"the summary's bars are {summary.get('data_interval_minutes')}"
                                                           f" minutes, the configuration's {bar}",
