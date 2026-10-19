@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from research.records import artifacts, ledger, records
 from research.records.artifacts import ArtifactError
-from research.records.runtime import LAYOUTS
+from research.records.runtime import ENGINE_LAYOUT
 from tests.records.dolt import BINARY, SKIP, TemporaryLedger
 from tests.records.fixtures import reports
 
@@ -26,7 +26,7 @@ IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64, "imag
 
 
 def probe(window: dict) -> dict:
-    paths = LAYOUTS["r1-native-v5"]["source_paths"]
+    paths = ENGINE_LAYOUT["source_paths"]
     return {"runtime_contract": "r1-native-v5", "nautilus_version": "fixture", "python_version": "fixture",
             "dependency_lock_sha256": "c" * 64, "source_files_sha256": {field: "d" * 64 for field in paths},
             "source_file_paths": dict(paths), "audit_source_sha256": "e" * 64, "platform": "linux/arm64",

@@ -139,10 +139,12 @@ def _cleanup(inputs: dict) -> None:
         shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
-def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str]) -> tuple[int, int | None]:
-    """Run the native replay, then the independent audit once its reports exist, in one pinned image."""
-    from research.records.runtime import LAYOUTS, container_command
-    layout = LAYOUTS[identity["runtime_contract"]]
+def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str],
+            inspection: dict) -> tuple[int, int | None]:
+    """Run the native replay, then the independent audit once its reports exist, in one pinned image,
+    with the modules of the layout the image's own probe reported."""
+    from research.records.runtime import container_command, layout_for
+    layout = layout_for(identity["runtime_contract"], inspection["source_file_paths"])
     native_command = container_command(identity, mounts, layout["runner"], runner_args)
     with (
         (workdir / "native.stdout.txt").open("wb") as out,
@@ -208,7 +210,8 @@ def _summary_problems(summary: dict | None, source_sha256: str, identity: dict, 
     if summary is None:
         return ["native summary missing"]
     problems = []
-    if summary.get("source_sha256") != source_sha256:
+    # Images built before the engine package name the source hash strategy_source_sha256.
+    if summary.get("source_sha256", summary.get("strategy_source_sha256")) != source_sha256:
         problems.append("native summary differs from the replayed strategy bytes")
     if summary.get("runtime_identity") not in (None, identity):
         problems.append("native summary differs from the pinned runtime identity")
@@ -263,7 +266,7 @@ def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, ou
     native_exit, audit_exit = _replay(identity, mounts, output, [
         *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_class,
         "--strategy-sha256", source_sha256, "--output", "/reports",
-    ])
+    ], inspection)
     problems, _ = _audit_problems(output, native_exit, audit_exit)
     from research.records.analysis import explored
     status = "passed" if not problems else "failed"
@@ -321,7 +324,7 @@ def _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv) -> dic
             *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", revision["entry_class"],
             "--strategy-sha256", revision["source_sha256"], "--strategy-binding", "/strategy/binding.json",
             "--execution-binding", "/strategy/execution.json", "--output", "/reports",
-        ])
+        ], inspection)
         problems = []
         from research.records.analysis import load_dir
         reports = load_dir(workdir / "reports")

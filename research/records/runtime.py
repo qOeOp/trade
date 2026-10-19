@@ -15,26 +15,40 @@ from research.records.common import RecordError
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
-# Where the image keeps its runner, audit, identity probe and semantic fingerprint (engine.report_fingerprint).
-LAYOUTS = {
-    "r1-native-v5": {"runner": "engine.run", "audit": "engine.audit", "audit_args": [],
-                     "probe": "engine.run", "fingerprint": "engine.compare",
-                     "source_paths": {"config_source_sha256": "engine/config.py",
-                                      "runner_source_sha256": "engine/run.py",
-                                      "load_source_sha256": "engine/load.py",
-                                      "report_source_sha256": "engine/report.py"},
-                     "audit_path": "engine/audit.py"},
-}
-# Images of the same contract built before backtest/ became engine/ cannot be executed by this code;
-# a run stored from one is still checked against its own revision's bytes (require_main_build), with
-# the auditor path of that layout.
-EARLIER_AUDIT_PATHS = {"backtest/run.py": "backtest/checks/audit.py"}
+# Where an image keeps its runner, audit, identity probe and semantic fingerprint (engine.report_fingerprint),
+# and the names its runner gives the account terms in the effective configuration. A contract's layouts
+# are only appended: the strategy interface of r1-native-v5 is unchanged, and images built before the
+# package moved from backtest/ to engine/ stay runnable. Each image's layout is read from the image
+# itself (image_layout, then the source paths its probe reports), never from the caller.
+BACKTEST_LAYOUT = {"runner": "backtest.run", "audit": "backtest.checks.audit", "audit_args": [],
+                   "probe": "backtest.run", "fingerprint": None,
+                   "source_paths": {"runner_source_sha256": "backtest/run.py",
+                                    "load_source_sha256": "backtest/load.py",
+                                    "report_source_sha256": "backtest/report.py"},
+                   "audit_path": "backtest/checks/audit.py", "config_keys": {"native_account": "account"}}
+ENGINE_LAYOUT = {"runner": "engine.run", "audit": "engine.audit", "audit_args": [],
+                 "probe": "engine.run", "fingerprint": "engine.compare",
+                 "source_paths": {"config_source_sha256": "engine/config.py",
+                                  "runner_source_sha256": "engine/run.py",
+                                  "load_source_sha256": "engine/load.py",
+                                  "report_source_sha256": "engine/report.py"},
+                 "audit_path": "engine/audit.py", "config_keys": {}}
+LAYOUTS = {"r1-native-v5": (BACKTEST_LAYOUT, ENGINE_LAYOUT)}
 CONTRACTS = set(LAYOUTS)
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"
 CURRENT = REPOSITORY + ":main"
 REVISION_LABEL = "org.opencontainers.image.revision"
 CONTRACT_LABEL = "trade.runtime.contract"
+
+
+def layout_for(contract: str, source_file_paths) -> dict:
+    """The layout of `contract` whose runner source paths an image reported (its probe's source_file_paths)."""
+    found = [layout for layout in LAYOUTS.get(contract, ()) if layout["source_paths"] == source_file_paths]
+    if len(found) != 1:
+        raise RecordError(f"no {contract} image layout has the source paths {source_file_paths}",
+                          code="RUNTIME_PROBE_INVALID", write_status="not_written")
+    return found[0]
 
 
 def validate_identity(value: dict) -> dict:
@@ -137,8 +151,7 @@ def require_main_build(identity: dict, inspection: dict) -> str:
         raise RecordError(f"runtime image revision {revision} is not on origin/main; merge first, then rerun "
                           "with the main image", code="RUNTIME_NOT_MAIN", write_status="not_written")
     expected = {path: inspection["source_files_sha256"][field] for field, path in inspection["source_file_paths"].items()}
-    runner = inspection["source_file_paths"].get("runner_source_sha256")
-    audit_path = EARLIER_AUDIT_PATHS.get(runner, LAYOUTS[identity["runtime_contract"]]["audit_path"])
+    audit_path = layout_for(identity["runtime_contract"], inspection["source_file_paths"])["audit_path"]
     expected[audit_path] = inspection["audit_source_sha256"]
     expected["uv.lock"] = inspection["dependency_lock_sha256"]
     for path, digest in expected.items():
@@ -156,6 +169,30 @@ def image_revision(identity: dict) -> str | None:
     return revision if isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision) else None
 
 
+# Which of the contract's probe modules the image holds; it imports no runtime code.
+_LAYOUT_PROBE = ("import importlib.util, json, sys\n"
+                 "print(json.dumps([m for m in sys.argv[1:] if importlib.util.find_spec(m.split('.')[0]) "
+                 "and importlib.util.find_spec(m)]))")
+
+
+def image_layout(identity: dict) -> dict:
+    """The layout the image itself carries: the one whose probe module exists inside it."""
+    identity = validate_identity(identity)
+    layouts = LAYOUTS[identity["runtime_contract"]]
+    command = [*_isolation(identity), identity["image_ref"], "-c", _LAYOUT_PROBE,
+               *[layout["probe"] for layout in layouts]]
+    observed = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        present = json.loads(observed.stdout) if not observed.returncode else None
+    except (ValueError, TypeError):
+        present = None
+    found = [layout for layout in layouts if isinstance(present, list) and layout["probe"] in present]
+    if len(found) != 1:
+        raise RecordError(f"runtime image {identity['image_ref']} holds no single {identity['runtime_contract']} "
+                          f"layout: {observed.stderr.strip() or observed.stdout.strip()}")
+    return found[0]
+
+
 def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
     """Check the local manifest identity and observe code hashes inside that image."""
     identity = validate_identity(identity)
@@ -168,7 +205,7 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
             raise RecordError("actual image platform differs from runtime identity")
     except (ValueError, KeyError, TypeError) as exc:
         raise RecordError("invalid Docker image inspection") from exc
-    layout = LAYOUTS[identity["runtime_contract"]]
+    layout = image_layout(identity)
     probe = (["--describe", *runner_args] if layout["probe"] == layout["runner"]
              else ["--runner-args-json", json.dumps(runner_args, separators=(",", ":"))])
     command = container_command(identity, [], layout["probe"], probe)
@@ -189,13 +226,10 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
     if not isinstance(hashes, dict) or not hashes or not isinstance(paths, dict) or set(paths) != set(hashes):
         raise RecordError("image probe source paths and hashes disagree")
     if paths != layout["source_paths"]:
-        raise RecordError("image probe must describe all native runtime source paths")
+        raise RecordError("image probe must describe all native runtime source paths of its layout")
     for field, digest in hashes.items():
         if not field.endswith("_source_sha256") or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise RecordError("invalid runtime source digest")
-        path = paths[field]
-        if not isinstance(path, str) or not path.startswith("engine/") or ".." in Path(path).parts:
-            raise RecordError("invalid runtime source path")
     if not re.fullmatch(r"[0-9a-f]{64}", value["dependency_lock_sha256"]):
         raise RecordError("invalid image dependency lock digest")
     if not isinstance(value["audit_source_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", value["audit_source_sha256"]):
@@ -208,16 +242,20 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
     return {**value, "image_config_digest": actual["Id"], "platform": platform}
 
 
+def _isolation(identity: dict) -> list[str]:
+    return ["docker", "run", "--rm", "--pull", "never", "--platform", identity["platform"],
+            "--network", "none", "--read-only", "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges", "--pids-limit", "256",
+            "--user", f"{os.geteuid()}:{os.getegid()}",
+            "--tmpfs", "/tmp:rw,nosuid,noexec,size=1073741824",
+            "--env", "PYTHONDONTWRITEBYTECODE=1", "--entrypoint", "python"]
+
+
 def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str,
                       argv: list[str]) -> list[str]:
     """Only explicit read-only inputs and one writable report mount enter the image."""
     identity = validate_identity(identity)
-    command = ["docker", "run", "--rm", "--pull", "never", "--platform", identity["platform"],
-               "--network", "none", "--read-only", "--cap-drop", "ALL",
-               "--security-opt", "no-new-privileges", "--pids-limit", "256",
-               "--user", f"{os.geteuid()}:{os.getegid()}",
-               "--tmpfs", "/tmp:rw,nosuid,noexec,size=1073741824",
-               "--env", "PYTHONDONTWRITEBYTECODE=1", "--entrypoint", "python"]
+    command = _isolation(identity)
     writable = []
     for source, target, readonly in mounts:
         source = source.resolve()

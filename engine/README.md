@@ -179,10 +179,12 @@ images remain until WS7; the v1 and v2 constructors received sizing arguments an
 runners took signal, exit and warmup options that later contracts refuse. `r1-native-v4` read
 prepared minute and daily Catalog directories, identified by their file-tree hashes, and a per-coin
 quantity CSV whose quantity reached the constructor as `trade_size`; `r1-native-v5` reads an
-exported market commit, identified by that commit, and passes no quantity. `r1-native-v5` images
-built before the package moved from `backtest/` to `engine/` keep the same strategy contract under
-the old module paths; current code no longer executes them, and a run stored from one is still
-checked against its own revision's bytes (`EARLIER_AUDIT_PATHS`).
+exported market commit, identified by that commit, and passes no quantity. `r1-native-v5` has two image
+layouts (`research.records.runtime.LAYOUTS`): images built before the package moved from `backtest/`
+to `engine/` keep the same strategy contract under the old module paths, with no fingerprint stage
+and the earlier key names (`native_account`, `strategy_source_sha256`), and stay runnable. Each
+image's layout is read from the image itself: a probe for the module it holds, then the source paths
+its `--describe` reports.
 
 The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at

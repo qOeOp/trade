@@ -186,7 +186,7 @@ def _stop(name: str) -> None:
 
 def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: list[tuple[Path, str, bool]],
             workdir: Path, runner_args: list[str], conn: db.LedgerConnection | None, purpose: str,
-            timeout: float | None = None) -> tuple:
+            timeout: float | None = None, *, inspection: Mapping) -> tuple:
     """Run the runner, then (with every report present) the auditor and the fingerprint, each in its
     own named container of one image; seal whatever happened.
 
@@ -195,7 +195,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     run with its recovery material before the refusal is raised.
     """
     workdir = Path(workdir)
-    layout = seams.current.layout(identity["runtime_contract"])
+    layout = seams.current.layout(identity["runtime_contract"], inspection.get("source_file_paths"))
     deadline = None if timeout is None else time.monotonic() + timeout
     stages: dict = {"native": None, "audit": None, "fingerprint": None}
     process = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
@@ -306,7 +306,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
                                        {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
                                        _start_context(output, argv, mounts, source))
             native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
-                                              "explore")
+                                              "explore", inspection=inspection)
         problems, _ = audit_problems(output, native_exit, audit_exit)
         status = "passed" if not problems else "invalid"
         return {"purpose": "explore", "status": status, "problems": problems, "path": str(output),
@@ -346,7 +346,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
                                        {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
                                        _start_context(output, argv, mounts, revision["source"]))
             native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
-                                              "precheck")
+                                              "precheck", inspection=inspection)
         problems, _ = audit_problems(output, native_exit, audit_exit)
         return {"purpose": "precheck", "trial_id": opened["trial_id"],
                 "execution_bundle": f"trial-{opened['trial_id']}-execution", "source_sha256": revision["source_sha256"],
@@ -414,8 +414,9 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
             "database": ledger.database, "commit": head, "strategy_id": revision["strategy_id"],
             "revision": revision["revision"], "source_sha256": source_sha256, "entry_class": revision["entry_class"],
             "runtime_contract": revision["runtime_contract"]})
+        native = inspection.get("native_effective_config", inspection.get("effective_config"))
         _write_json(workdir / SOURCE / "execution.json", {
-            "runtime_identity": _identity4(identity), "effective_config": inspection.get("effective_config"),
+            "runtime_identity": _identity4(identity), "effective_config": native,
             "effective_config_sha256": inspection.get("effective_config_sha256")})
         argv, mounts = _mounts(workdir, inputs, runner_argv)
         argv += ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", revision["entry_class"],
@@ -432,7 +433,8 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
                                    _start_context(workdir, argv, mounts, revision["source"]), binder)
         trial_id = opened["trial_id"]
         try:
-            execute(ledger, trial_id, identity, mounts, workdir, argv, conn, purpose, timeout)
+            execute(ledger, trial_id, identity, mounts, workdir, argv, conn, purpose, timeout,
+                    inspection=inspection)
         except Refusal as exc:
             stored = conn.one("SELECT run_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))
             if exc.code != "EXECUTION_CAPTURE_LIMIT" or stored is None:
