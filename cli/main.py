@@ -771,8 +771,8 @@ def _ledger_option(parser, required: bool = False) -> None:
 
 
 def _market_option(parser) -> None:
-    parser.add_argument("--market", help="market profile file or name (default: the market profile in the "
-                                         "profile directory)")
+    parser.add_argument("--market", help="market profile file or name (default: the active market profile in "
+                                         "the profile directory)")
 
 
 def _at(parser, what: str = "ledger") -> None:

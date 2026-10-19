@@ -49,16 +49,15 @@ IMPORT = "binance-public"
 ACTIVE = "active"
 
 # The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
-# milliseconds come from DATEDIFF, independent of the session time zone.
-_NEWEST = "(SELECT DATEDIFF(MAX(month), '1970-01-01') * 86400000 FROM universe_month)"
+# milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
+# 1,440 minutes of each member's eve by full primary key: a range bound taken from each row is no
+# index range on Dolt 2.4.2 (measured: a scan of the member's whole history), a key lookup is.
 TESTS = (
-    # Design gap: the design checks every member; a bound taken from each row is not an index range on
-    # Dolt 2.4.2 (measured: 135 s at four months, growing with the history), so the test checks the
-    # newest month's members, the rows each import adds; earlier months were checked by their commits.
     ("universe_members_traded_on_the_eve",
-     "SELECT COUNT(*) FROM universe_month u WHERE u.month = (SELECT MAX(month) FROM universe_month) AND NOT EXISTS "
-     "(SELECT 1 FROM bar b WHERE b.symbol = u.symbol AND b.price_type = 'LAST' AND b.volume > 0 "
-     f"AND b.ts_open >= {_NEWEST} - 86400000 AND b.ts_open < {_NEWEST})"),
+     "WITH RECURSIVE m(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM m WHERE i < 1439), "
+     "members AS (SELECT symbol, month, DATEDIFF(month, '1970-01-01') * 86400000 - 86400000 AS eve FROM universe_month) "
+     "SELECT (SELECT COUNT(*) FROM members) - COUNT(DISTINCT n.symbol, n.month) FROM members n JOIN m JOIN bar b "
+     "ON b.symbol = n.symbol AND b.price_type = 'LAST' AND b.ts_open = n.eve + m.i * 60000 WHERE b.volume > 0"),
     # Design gap: the design asks for terms observed before the month's end; terms are observed when
     # the import runs, so a month imported after the fact has none that early. The test holds the
     # weaker form (the member has terms at the commit) until that is decided.
@@ -288,8 +287,8 @@ def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[dict[str, n
     volume, rounded = scaled(table["volume"], VOLUME_SCALE, f"{label} volume", float_tails=True)
     if price_type == "MARK":
         volume = np.zeros(len(volume), np.int64)  # the mark-price archives fill the volume field with zero
-    o, h, l, c = (prices[name] for name in ("open", "high", "low", "close"))
-    bad = (l > np.minimum(o, c)) | (h < np.maximum(o, c)) | (l <= 0) | (volume < 0)
+    o, h, lo, c = (prices[name] for name in ("open", "high", "low", "close"))
+    bad = (lo > np.minimum(o, c)) | (h < np.maximum(o, c)) | (lo <= 0) | (volume < 0)
     if bad.any():
         raise _refuse(f"{label}: inconsistent bar at open_time {table['open_time'][int(np.argmax(bad))]}",
                       "SOURCE_SHAPE", missing=(label,))

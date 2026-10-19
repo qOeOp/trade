@@ -215,7 +215,7 @@ def derive_bars(minute_bars: dict[str, np.ndarray], timeframe: str) -> dict[str,
     _check_minutes(minute_bars, "INPUT_UNSORTED")
     start = buckets(np.asarray(minute_bars["ts_open"], dtype=np.int64), timeframe)
     first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
-    o, h, l, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])
+    o, h, lo, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])
     if float(np.add.reduceat(v.astype(np.float64), first).max()) >= 2.0 ** 63 - 1024:
         raise _refuse(f"a {timeframe} volume would exceed BIGINT", "VOLUME_OVERFLOW")
     traded = v > 0
@@ -228,8 +228,8 @@ def derive_bars(minute_bars: dict[str, np.ndarray], timeframe: str) -> dict[str,
         "open": o[np.where(any_traded, first_traded, first)],
         "high": np.where(any_traded, np.maximum.reduceat(np.where(traded, h, small), first),
                          np.maximum.reduceat(h, first)),
-        "low": np.where(any_traded, np.minimum.reduceat(np.where(traded, l, big), first),
-                        np.minimum.reduceat(l, first)),
+        "low": np.where(any_traded, np.minimum.reduceat(np.where(traded, lo, big), first),
+                        np.minimum.reduceat(lo, first)),
         "close": c[last],
         "volume": np.add.reduceat(v, first),
     }

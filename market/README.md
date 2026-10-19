@@ -84,8 +84,9 @@ written at the precision their prices need (Binance mark prices carry 8 decimals
   consumed exactly the exported counts. Recheck both on a Nautilus upgrade.
 - pymysql's `autocommit=False` is not applied on Dolt 2.4.2 (the server reports autocommit off); the
   import account sets `autocommit = 0` itself so that one import is one transaction.
-- A commit test whose bounds come from each row is no index range on Dolt 2.4.2 (135 s at four
-  months of 26 contracts); the eve test checks the newest month's members, the rows each import adds.
+- A commit-test bound taken from each row is no index range on Dolt 2.4.2: a range on `ts_open`
+  scanned each member's whole history (135 s at four months of 26 contracts, growing). The eve test
+  looks up the 1,440 minutes of every member's eve by full primary key instead (2 s for 433 members).
 - Exports stream through pymysql server-side cursors and write 250,000 rows per file.
 
 ## Tests
