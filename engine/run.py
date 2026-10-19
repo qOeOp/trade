@@ -21,26 +21,30 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from nautilus_trader.backtest import (
-    BacktestDataConfig,
-    BacktestEngineConfig,
-    BacktestNode,
-    BacktestRunConfig,
-    BacktestVenueConfig,
-)
+from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import DataActor, ImportableActorConfig, LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.data import DataEngineConfig
 from nautilus_trader.model import (
     AccountType,
+    Bar,
     BarType,
     BookType,
     Currency,
+    FundingRateUpdate,
+    InstrumentClose,
+    InstrumentCloseType,
     InstrumentId,
+    InstrumentStatus,
+    MarkPriceUpdate,
+    Money,
     OmsType,
+    Price,
     StrategyId,
     TraderId,
+    Venue,
 )
+from nautilus_trader.persistence import DataBackendSession, NautilusDataType
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy
 
@@ -384,114 +388,222 @@ class CapitalObserver(DataActor):
 
 
 class Replay:
-    """One finished Node run: its native reports, cache, portfolio, result and observer."""
+    """One finished engine run: its native reports, cache, portfolio, result and observer."""
 
-    def __init__(self, node: BacktestNode, run_id: str, result, observer: CapitalObserver):
-        self.node, self.run_id, self.result, self.observer = node, run_id, result, observer
-        self.cache = node.get_engine_cache(run_id)
-        self.portfolio = node.get_engine_portfolio(run_id)
+    def __init__(self, engine: BacktestEngine, result, observer: CapitalObserver):
+        self.engine, self.result, self.observer = engine, result, observer
+        self.cache = engine.cache
+        self.portfolio = engine.portfolio
 
     def orders(self):
-        return self.node.generate_orders_report(self.run_id)
+        return self.engine.generate_orders_report()
 
     def fills(self):
-        return self.node.generate_fills_report(self.run_id)
+        return self.engine.generate_fills_report()
 
     def positions(self):
-        return self.node.generate_positions_report(self.run_id)
+        return self.engine.generate_positions_report()
 
     def account(self, venue):
-        return self.node.generate_account_report(self.run_id, venue=venue)
+        return self.engine.generate_account_report(venue=venue)
+
+
+# The input stream. BacktestNode, given one data configuration per contract and type, loads every
+# configuration whole and merge-sorts them before streaming chunks to its engine, so its memory grows
+# with the window. The runner streams the same events in the same order straight from the exported
+# Parquet files: bars and MARK updates through Nautilus's DataBackendSession, which merges files by
+# ts_init, one session per SESSION_WINDOW of time with only the files and rows of that window (a
+# session reads ahead in every file it holds); the few funding and lifecycle events read whole. Equal
+# ts_init keep the order of the configurations the node would have had, contract by contract MARK,
+# funding, bars, status, close. The engine gets the node's chunks: chunk_size events, extended to
+# the last event's ts_init, each run up to it.
+
+STREAM_TYPES = ("MarkPriceUpdate", "FundingRateUpdate", "Bar", "InstrumentStatus", "InstrumentClose")
+DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "FundingRateUpdate": "funding_rate_update",
+                    "InstrumentStatus": "instrument_status", "InstrumentClose": "instrument_closes"}
+RUN_ID = "r1-native-replay"
+SESSION_BATCH = 5_000
+SESSION_WINDOW_NS = 7 * 86_400 * 10**9
+
+
+def _files(row: dict, kind: str) -> list[str]:
+    root = Path(row["catalog_path"]) / "data" / DATA_DIRECTORIES[kind]
+    return [str(path) for path in sorted(root.glob("*/*.parquet"))]
+
+
+def _small_events(row: dict, kind: str) -> list:
+    """The funding, status or close events of one contract, built as the catalog stores them."""
+    import pyarrow.parquet as parquet
+    found = []
+    for path in _files(row, kind):
+        table = parquet.read_table(path)
+        metadata = {key.decode(): value.decode() for key, value in (table.schema.metadata or {}).items()}
+        for item in table.to_pylist():
+            if kind == "FundingRateUpdate":
+                found.append(FundingRateUpdate(InstrumentId.from_str(item["instrument_id"]), Decimal(item["rate"]),
+                                               item["ts_event"], item["ts_init"], item["interval"],
+                                               item["next_funding_ns"]))
+            elif kind == "InstrumentStatus":
+                found.append(InstrumentStatus.from_dict({"type": "InstrumentStatus", **item}))
+            else:
+                raw = int.from_bytes(item["close_price"], "little", signed=True)
+                found.append(InstrumentClose(InstrumentId.from_str(metadata["instrument_id"]),
+                                             Price.from_raw(raw, int(metadata["price_precision"])),
+                                             InstrumentCloseType(item["close_type"]), item["ts_event"],
+                                             item["ts_init"]))
+    return found
+
+
+def _windowed(files: list[tuple], start: int, end: int, batch: int):
+    """The bars and MARK updates of [start, end) in ts_init order, one DataBackendSession per window."""
+    for low in range(start - start % SESSION_WINDOW_NS, end, SESSION_WINDOW_NS):
+        high = low + SESSION_WINDOW_NS
+        session, added = DataBackendSession(chunk_size=batch), 0
+        for native, table, path, first, last in files:
+            if first < high and last >= low:
+                session.add_file(native, table, path, f"SELECT * FROM {table} WHERE ts_init >= {low} AND "
+                                                      f"ts_init < {high} ORDER BY ts_init")
+                added += 1
+        if added:
+            for chunk in session.to_query_result():
+                yield from chunk
+
+
+def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_BATCH):
+    """Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end`
+    bound the exported events' ts_init."""
+    import pyarrow.parquet as parquet
+    bars, marks, small, files = {}, {}, [], []
+    for index, row in enumerate(rows):
+        base = index * len(STREAM_TYPES)
+        instrument_id = row["instrument_id"]
+        bar_type = BarType.from_str(f"{instrument_id}-{EXECUTION_BAR_MINUTES}-MINUTE-LAST-EXTERNAL")
+        bars[bar_type], marks[instrument_id] = base + STREAM_TYPES.index("Bar"), base
+        for kind, native in (("Bar", NautilusDataType.Bar), ("MarkPriceUpdate", NautilusDataType.MarkPriceUpdate)):
+            for number, path in enumerate(_files(row, kind)):
+                if kind == "Bar" and f"/{bar_type}/" not in path:
+                    continue  # the daily warm-up bars are the strategy's, never replayed
+                column = parquet.read_table(path, columns=["ts_init"])["ts_init"]
+                if len(column):
+                    files.append((native, f"{kind.lower()}_{index}_{number}", path, column[0].as_py(),
+                                  column[-1].as_py()))
+        for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"):
+            order = base + STREAM_TYPES.index(kind)
+            small.extend((event.ts_init, order, sequence, event)
+                         for sequence, event in enumerate(_small_events(row, kind)))
+    small.sort(key=lambda item: item[:3])
+    pending = 0
+
+    def flush(group, ts):
+        nonlocal pending
+        while pending < len(small) and small[pending][0] < ts:
+            yield small[pending][3]
+            pending += 1
+        while pending < len(small) and small[pending][0] == ts:
+            group.append((small[pending][1], small[pending][3]))
+            pending += 1
+        group.sort(key=lambda item: item[0])  # stable: one configuration keeps its own order
+        for _, event in group:
+            yield event
+
+    group, ts = [], None
+    for event in _windowed(files, start, end, batch):
+        at = event.ts_init
+        if at != ts:
+            if group:
+                yield from flush(group, ts)
+            group, ts = [], at
+        group.append((bars[event.bar_type] if type(event) is Bar else marks[event.instrument_id], event))
+    if group:
+        yield from flush(group, ts)
+    while pending < len(small):
+        yield small[pending][3]
+        pending += 1
+
+
+def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
+    """BacktestNode's streaming run: aligned chunks, each run up to its last ts_init, the last to the end."""
+    iterator, consumed = iter(events), 0
+    following = next(iterator, None)
+    if following is None:
+        engine.end()
+        return 0
+    start = None
+    while following is not None:
+        chunk = [following]
+        following = None
+        for event in iterator:
+            if len(chunk) < chunk_size or event.ts_init == chunk[-1].ts_init:
+                chunk.append(event)
+            else:
+                following = event
+                break
+        end = chunk[-1].ts_init if following is not None else None
+        engine.add_data(chunk, None, False, True)
+        engine.run(start, end, RUN_ID, True)
+        engine.clear_data()
+        consumed += len(chunk)
+        start = end
+    engine.end()
+    return consumed
 
 
 def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe: dict, output_dir: Path):
-    """engine.replay: one venue and node, each contract's one-minute bars, MARK and funding updates and
-    lifecycle events, one strategy instance per contract whose lifecycle intersects the window, and
-    exactly one capital observer; afterwards the native result is checked against the receipts."""
+    """engine.replay: one venue and engine, each contract's one-minute bars, MARK and funding updates and
+    lifecycle events streamed in time order, one strategy instance per contract whose lifecycle
+    intersects the window, and exactly one capital observer; afterwards the native result is checked
+    against the receipts."""
     active = [row for row in rows if episode_active(row["episode"], window.start_ns, window.end_ns)]
     if not active:
         raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the input window")
-    data = []
-    for row in rows:
-        instrument_id = row["instrument_id"]
-        data.extend([
-            BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=str(row["catalog_path"]),
-                               instrument_id=instrument_id),
-            BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=str(row["catalog_path"]),
-                               instrument_id=instrument_id),
-            BacktestDataConfig(data_type="Bar", catalog_path=str(row["catalog_path"]), instrument_id=instrument_id,
-                               bar_types=[f"{instrument_id}-{EXECUTION_BAR_MINUTES}-MINUTE-LAST-EXTERNAL"]),
-        ])
-        for key, data_type in (("instrument_status", "InstrumentStatus"), ("instrument_close", "InstrumentClose")):
-            if row["counts"].get(key):
-                data.append(BacktestDataConfig(data_type=data_type, catalog_path=str(row["catalog_path"]),
-                                               instrument_id=instrument_id))
     account = ACCOUNT_CONTRACT
-    config = BacktestRunConfig(
-        venues=[
-            BacktestVenueConfig(
-                name=account["venue"],
-                oms_type=getattr(OmsType, account["oms_type"]),
-                account_type=getattr(AccountType, account["account_type"]),
-                book_type=getattr(BookType, account["book_type"]),
-                base_currency=Currency.from_str(account["base_currency"]),
-                starting_balances=[f"{account['starting_balance_usdt']} {account['base_currency']}"],
-                default_leverage=Decimal(account["default_leverage"]),
-                support_gtd_orders=account["support_gtd_orders"],
-                support_contingent_orders=account["support_contingent_orders"],
-                reject_stop_orders=account["reject_stop_orders"],
-                bar_execution=account["bar_execution"],
-                bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"],
-            )
-        ],
-        data=data,
-        engine=BacktestEngineConfig(
-            trader_id=TraderId(account["trader_id"]),
-            logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
-            data_engine=DataEngineConfig(
-                time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
-                time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
-                validate_data_sequence=account["validate_data_sequence"],
-            ),
-            risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
+    engine = BacktestEngine(BacktestEngineConfig(
+        trader_id=TraderId(account["trader_id"]),
+        logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
+        data_engine=DataEngineConfig(
+            time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
+            time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
+            validate_data_sequence=account["validate_data_sequence"],
         ),
-        chunk_size=account["chunk_size"],
-        dispose_on_completion=False,
-    )
-    node = BacktestNode([config])
-    node.build()
+        risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
+    ))
+    currency = Currency.from_str(account["base_currency"])
+    engine.add_venue(
+        Venue(account["venue"]), getattr(OmsType, account["oms_type"]), getattr(AccountType, account["account_type"]),
+        [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,
+        default_leverage=Decimal(account["default_leverage"]), book_type=getattr(BookType, account["book_type"]),
+        reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
+        support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
+        bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"])
+    for row in rows:
+        engine.add_instrument(row["instrument"])
     STRATEGIES.clear()
     OBSERVERS.clear()
     strategy_path = importable_strategy(strategy)
     for row in active:
         episode = row["episode"]
-        node.add_strategy_from_config(
-            config.id,
-            ImportableStrategyConfig(
-                strategy_path=strategy_path,
-                config_path=f"{__name__}:StrategyInputs",
-                config={
-                    "instrument_id": str(row["instrument_id"]),
-                    "trade_start_ns": window.trade_start_ns,
-                    "input_start_ns": max(window.start_ns, (episode or {}).get("start_ns") or 0),
-                    "strategy_id": strategy_id(row["symbol"]),
-                    "catalog_path": str(row["catalog_path"]),
-                    "universe_membership": [list(interval) for interval in
-                                            episode_membership(universe[row["symbol"]], episode)],
-                },
-            ),
-        )
-    node.add_actor_from_config(
-        config.id,
-        ImportableActorConfig(
-            actor_path=f"{__name__}:CapitalObserver",
-            config_path=f"{__name__}:CapitalObserverConfig",
-            config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows),
-                    "exposure_path": str(output_dir / report.EXPOSURES),
-                    "lifecycle_ids": tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)},
-        ),
-    )
-    result = node.run()[0]
+        engine.add_strategy_from_config(ImportableStrategyConfig(
+            strategy_path=strategy_path,
+            config_path=f"{__name__}:StrategyInputs",
+            config={
+                "instrument_id": str(row["instrument_id"]),
+                "trade_start_ns": window.trade_start_ns,
+                "input_start_ns": max(window.start_ns, (episode or {}).get("start_ns") or 0),
+                "strategy_id": strategy_id(row["symbol"]),
+                "catalog_path": str(row["catalog_path"]),
+                "universe_membership": [list(interval) for interval in
+                                        episode_membership(universe[row["symbol"]], episode)],
+            },
+        ))
+    engine.add_actor_from_config(ImportableActorConfig(
+        actor_path=f"{__name__}:CapitalObserver",
+        config_path=f"{__name__}:CapitalObserverConfig",
+        config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows),
+                "exposure_path": str(output_dir / report.EXPOSURES),
+                "lifecycle_ids": tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)},
+    ))
+    stream(engine, market_events(rows, window.start_ns, window.end_ns), account["chunk_size"])
+    result = engine.get_result()
     expected_iterations = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
     if result.iterations != expected_iterations:
         raise Refusal("DATA_COUNT_MISMATCH", f"the engine consumed {result.iterations} events, the export receipts "
@@ -499,7 +611,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, universe:
     if len(OBSERVERS) != 1:
         raise Refusal("OBSERVER_COUNT_MISMATCH", "the native capital observer did not start exactly once")
     strategies = {row["coin"]: STRATEGIES.get(str(row["instrument_id"])) for row in rows}
-    finished = Replay(node, config.id, result, OBSERVERS[0])
+    finished = Replay(engine, result, OBSERVERS[0])
     finished.observer.finish(finished.cache)
     return finished, strategies
 
