@@ -193,7 +193,7 @@ without executing the file, which proves nothing about rules, clock or safety. A
 its parent and the difference; a root has none. IDs use 1 to 100 letters, digits, `.`, `_` or `-`.
 
 ```bash
-uv run --frozen python -m cli candidate publish --file /tmp/RUNDIR/strategy.py \
+uv run --frozen python -m cli.main candidate publish --file /tmp/RUNDIR/strategy.py \
   --strategy-id ID --entry-class ENTRY-CLASS --description "Rule, sources and non-claims." \
   [--parent ID@N --difference "What changed."]
 ```

@@ -11,7 +11,7 @@ controls and priorities yourself and keep iterating; nothing ends the loop but t
 
 ## Commands
 
-Every command is `uv run --frozen python -m cli <noun> <verb> ...` from the repository root (`--help`
+Every command is `uv run --frozen python -m cli.main <noun> <verb> ...` from the repository root (`--help`
 lists the options). Output is JSON; a refusal is JSON on stderr with `code`, `message`,
 `next_actions` and `write_status`. Supply what `next_actions` names and rerun; never work around a
 refusal. These commands are the only way to write the ledger.

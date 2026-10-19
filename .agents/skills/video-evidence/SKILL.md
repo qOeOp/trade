@@ -70,8 +70,7 @@ run ASR and downloads in the background and poll for that file.
 - `check.json` reads `"ok": true`, or each failed check is named as a limitation; `ok` means only that what
   is there is consistent, so a usable bundle also shows `stages` media, asr and frames `present`.
 - Kept files hold no signed URL, IP, local path, account ID or cookie (the checker's leak scan); `W` is gone.
-- Before a claim is relied on (outside this repository's research rounds, whose `source-evidence.md` requires only
-  the local checker), a clean-context reviewer reruns the checker from `origin/main` (`checker_git_blob`
+- Before a claim is relied on outside this repository's research, a clean-context reviewer reruns the checker from `origin/main` (`checker_git_blob`
   equals `git rev-parse origin/main:services/video-evidence/check_bundle.py`). If `origin/main` lacks it (no remote,
   or before the first merge), name the commit you ran and report that review as pending, never your own rerun.
 

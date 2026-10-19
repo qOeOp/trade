@@ -5,7 +5,7 @@ description: Starts or resumes strategy research in this repository - reads the 
 
 # Research start
 
-Commands are the product CLI (`uv run --frozen python -m cli <noun> <verb>`, see `research-round`).
+Commands are the product CLI (`uv run --frozen python -m cli.main <noun> <verb>`, see `research-round`).
 A research line is a starting candidate, a development window and a pinned market commit the user
 selected (`line select`); everything inside it follows `research-round`.
 

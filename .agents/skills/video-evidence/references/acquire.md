@@ -20,9 +20,8 @@ every form a source has (IDs and a media file's name stem `STEM`), as fixed stri
 
     for s in "$ID" ${STEM:+"$STEM"}; do ls -d -- "$ROOT"/bundles/*"$s"* 2>/dev/null || true
       grep -l -F -e "$s" -- "$ROOT"/bundles/*/media/receipt.json "$ROOT"/bundles/*/probe/page.json 2>/dev/null || true; done
-    # research, from the repository root: the open round, then each earlier round's closing tag
-    uv run --frozen python -m research.records.cli ledger sql "SELECT DISTINCT bundle FROM evidence WHERE bundle LIKE '%$ID%'"
-    uv run --frozen python -m research.records.cli ledger sql --at closed/GOAL-ID "SELECT DISTINCT bundle FROM evidence WHERE bundle LIKE '%$ID%'"
+    # research, from the repository root: the ledger's evidence bundles
+    uv run --frozen python -m cli.main ledger sql "SELECT bundle FROM evidence_bundle WHERE bundle LIKE '%$ID%'"
 
 A hit means the source is held or was used: reuse its bundle and records. The same bytes, ID or author restating
 it is never independent support. If the ledger cannot be read, report `skipped: <its error line>` and go on; never
