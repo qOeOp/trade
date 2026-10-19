@@ -454,8 +454,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                              ("Run only the modules runtime.layout declares for the image's contract.",)),
     "MOUNT_HOST_PATH_INVALID": ("A mount source is not an existing absolute host path.",
                                 ("Mount only the replay's own working directory and exported inputs.",)),
-    "MOUNT_TARGET_INVALID": ("A mount target is not absolute, repeats, or covers /tmp.",
-                             ("Give each input its own absolute container path outside /tmp.",)),
+    "MOUNT_TARGET_INVALID": ("A mount target is not absolute, repeats, is the root, or lies over or under /tmp or "
+                             "the image's code (/opt/trade).",
+                             ("Give each input its own absolute container path clear of /tmp and /opt/trade.",)),
     "MOUNT_WRITABLE_NOT_REPORTS": ("A writable mount is not /reports, or more than one mount is writable.",
                                    ("Mount every input read-only; only the stage's output directory is /reports.",)),
     "REPORTS_MOUNT_MISSING": ("The stage has no writable /reports mount.",

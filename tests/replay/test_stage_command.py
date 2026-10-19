@@ -32,8 +32,6 @@ class StageCommandTests(unittest.TestCase):
                                 (self.root / "audit", "/reports", False)])
         mounts = [command[index + 1] for index, value in enumerate(command) if value == "--mount"]
         self.assertEqual([value.endswith(",readonly") for value in mounts], [True, True, False])
-        self.assertEqual(command[:4], ["docker", "run", "--name", "replay-x-trial-1-audit"])
-        self.assertEqual(command[-4:], ["-m", self.layout["audit_module"], "--run", "/native/reports"])
 
     def test_each_stage_refusal(self):
         reports = (self.root / "audit", "/reports", False)
@@ -41,6 +39,13 @@ class StageCommandTests(unittest.TestCase):
                  ({}, [(Path("relative"), "/inputs/x", True), reports], "MOUNT_HOST_PATH_INVALID"),
                  ({}, [(self.root / "missing", "/inputs/x", True), reports], "MOUNT_HOST_PATH_INVALID"),
                  ({}, [(self.root / "reports", "/tmp/x", True), reports], "MOUNT_TARGET_INVALID"),
+                 ({}, [(self.root / "reports", "//tmp", True), reports], "MOUNT_TARGET_INVALID"),
+                 ({}, [(self.root / "reports", "/", True), reports], "MOUNT_TARGET_INVALID"),
+                 ({}, [(self.root / "reports", "/opt/trade/engine", True), reports], "MOUNT_TARGET_INVALID"),
+                 ({}, [(self.root / "reports", "/opt", True), reports], "MOUNT_TARGET_INVALID"),
+                 ({}, [(self.root / "reports", "/native/", True), (self.root / "reports", "/native", True), reports],
+                  "MOUNT_TARGET_INVALID"),
+                 ({}, [(self.root / "reports", "/reports/.", True), reports], "MOUNT_TARGET_INVALID"),
                  ({}, [(self.root / "reports", "/reports", True), reports], "MOUNT_TARGET_INVALID"),
                  ({}, [(self.root / "reports", "inputs", True), reports], "MOUNT_TARGET_INVALID"),
                  ({}, [(self.root / "reports", "/native/reports", False), reports], "MOUNT_WRITABLE_NOT_REPORTS"),

@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
+import posixpath
 import subprocess
 
 from ledger.errors import Refusal
@@ -36,10 +37,20 @@ def _identity(identity: Mapping) -> dict:
     return {key: identity[key] for key in ("image_ref", "image_digest", "platform", "runtime_contract")}
 
 
+# A stage mount may not cover the root, the container's scratch space or the image's own code.
+PROTECTED_TARGETS = ("/tmp", "/opt/trade")
+
+
+def _covers(target: str, protected: str) -> bool:
+    """`target` is `protected`, lies under it, or lies over it (an ancestor directory)."""
+    return (target == protected or target.startswith(protected + "/")
+            or protected.startswith(target.rstrip("/") + "/"))
+
+
 def check_stage(identity: Mapping, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str]) -> None:
     """runtime.container_command's checks of one replay stage: a module the contract's layout declares,
-    existing absolute host paths, distinct absolute targets outside /tmp, and exactly one writable mount,
-    /reports."""
+    existing absolute host paths, distinct normalized absolute targets clear of /, /tmp and the image's
+    code (/opt/trade), and exactly one writable mount, /reports."""
     layout = current.layout(identity["runtime_contract"])
     modules = {layout.get(key) for key in ("runner_module", "audit_module", "probe_module", "fingerprint_module")}
     if module not in modules - {None}:
@@ -50,11 +61,14 @@ def check_stage(identity: Mapping, mounts: list[tuple[Path, str, bool]], module:
         if not Path(host).is_absolute() or not Path(host).exists():
             raise refuse("MOUNT_HOST_PATH_INVALID", f"mount source {host} is not an existing absolute path",
                          missing=(str(host),))
-        if (not isinstance(target, str) or not target.startswith("/") or target in targets
-                or target == "/tmp" or target.startswith("/tmp/")):
-            raise refuse("MOUNT_TARGET_INVALID", f"mount target {target!r} is not absolute, repeats or covers /tmp",
-                         missing=(str(target),))
-        targets.append(target)
+        # normpath keeps a leading "//" (POSIX leaves it implementation-defined); Docker reads it as "/".
+        normal = "/" + posixpath.normpath(target).lstrip("/") if isinstance(target, str) else None
+        if (normal is None or not target.startswith("/") or normal in targets or normal == "/"
+                or any(_covers(normal, protected) for protected in PROTECTED_TARGETS)):
+            raise refuse("MOUNT_TARGET_INVALID", f"mount target {target!r} is not absolute, repeats, is the root, or "
+                                                 "lies over or under /tmp or the image's code", missing=(str(target),))
+        targets.append(normal)
+        target = normal
         if not readonly:
             writable.append(target)
     if any(target != "/reports" for target in writable) or len(writable) > 1:
