@@ -91,7 +91,8 @@ def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str
         if exc.code == "IDENTITY_MALFORMED":
             return False
         raise
-    ignored = set(WINDOW_KEYS) | {"symbols"}
+    # The contract-set keys: the symbols and the hash of the membership file, which holds only them.
+    ignored = set(WINDOW_KEYS) | {"symbols", "universe_sha256"}
     if ({key: value for key, value in declared.items() if key not in ignored}
             != {key: value for key, value in config_key.items() if key not in ignored}):
         return False
