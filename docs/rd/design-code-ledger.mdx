@@ -52,7 +52,7 @@ def export_history(
 
 **期望行为**
 
-1. with_backup 时用 dolt_backup 同步全部提交与标签；失败即整笔拒绝。
+1. with_backup 时用 dolt_backup 同步全部提交与标签；失败即整笔拒绝。同步前若目标已有备份，其头提交须在研究 branch 的历史里，否则拒绝 BACKUP_DIVERGED 且不同步：dolt_backup 会无声覆盖改写前的备份，而整体复核靠它发现改写（Dolt 2.4.2 实测；用户定 10-20）。
 2. 按该版本读候选源码并核哈希，每个候选写成一个源码文件。
 3. 写复现清单：每个运行列镜像摘要、源码哈希、登记的执行身份、市场提交与窗口，以及报告指纹；按清单重放即可经 engine.compare_reports 复核。
 4. 替换已有导出时先把旧导出改名移开、新导出改名到位，再删旧的，过程中不出现缺导出的时刻。
@@ -63,6 +63,7 @@ def export_history(
 | `UNKNOWN_REF` | at 不能解析为账本里的标签或提交 |
 | `EXPORT_PATH_INVALID` | destination 位于账本服务目录或 Git 工作树内，或已存在且不是本账本的导出 |
 | `DOLT_BACKUP` | 全史同步失败，或同步后备份头与账本头不一致 |
+| `BACKUP_DIVERGED` | 已有备份的头提交不在账本历史里（提交被改写，或是别的库的备份），同步会覆盖它 |
 | `UNKNOWN_RUN` | run_ids 中有运行在该版本不存在或尚未封存 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="runtime.resolve" />、<Ref id="market.resolve_commit" />、<Ref id="engine.compare_reports" />、<Ref id="table:ledger_head" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:witness" />、<Ref id="table:run_cycle" />

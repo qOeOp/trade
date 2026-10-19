@@ -415,8 +415,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "BACKUP_DIVERGED": ("The existing backup's head is no commit of this database's history: it is another "
                         "database's backup, or a commit was rewritten. A sync would overwrite it, so nothing was "
                         "synced.",
-                        ("Run `market review` and report the finding; a backup is replaced only with the user's "
-                         "authority.",)),
+                        ("Run `ledger review` (or `market review`) and report the finding; a backup is replaced "
+                         "only with the user's authority.",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",

@@ -8,10 +8,10 @@ back from a restored copy in a new temporary directory. The reproduction manifes
 `<destination>/reproduce/`, lists every exported run's replay identity; replaying from it can be
 checked with engine.compare_reports.
 
-The market database is backed up the same way, to `<profile backup>/backup`, holding its import
-lock; a sync that would replace a backup whose head is no commit of the market history (another
-database's backup, or a rewritten market commit) is refused, since dolt_backup overwrites it
-silently (measured on Dolt 2.4.2).
+A sync that would replace a backup whose head is no commit of the history (another database's
+backup, or a rewritten commit) is refused, since dolt_backup overwrites it silently (measured on
+Dolt 2.4.2). The market database is backed up the same way, to `<profile backup>/backup`, holding
+its import lock.
 """
 
 from __future__ import annotations
@@ -136,14 +136,26 @@ def _json(value) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=1, ensure_ascii=False, default=str) + "\n").encode("utf-8")
 
 
-def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
+def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> str | None:
+    """Sync the whole history to `target` and return the head the backup held before. An existing
+    backup whose head is no commit of the branch's history (a rewritten commit, or another
+    database's backup) is BACKUP_DIVERGED: dolt_backup would overwrite it silently."""
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    existing = target.is_dir() and any(target.iterdir())
+    previous = backup_head(profile, target) if existing else None
     try:
         _, admin = _admin(profile)
     except pymysql.MySQLError as exc:
         raise refuse("DOLT_BACKUP", "the service administrator could not connect for the backup") from exc
     try:
         with admin.cursor() as cursor:
+            if existing:
+                cursor.execute("SELECT COUNT(*) FROM dolt_log(%s) WHERE commit_hash = %s",
+                               (profile.research_branch, previous))
+                if previous is None or not cursor.fetchone()[0]:
+                    raise refuse("BACKUP_DIVERGED", f"the backup head {previous} at {target} is no commit of the "
+                                                    f"history of {profile.database}; nothing was synced",
+                                 missing=(str(target),))
             cursor.execute("CALL DOLT_BACKUP('sync-url', %s)", (target.resolve().as_uri(),))
     except pymysql.MySQLError as exc:
         raise refuse("DOLT_BACKUP", f"dolt_backup sync to {target} failed", missing=(str(target),)) from exc
@@ -152,6 +164,7 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
     if backup_head(profile, target) != head:
         raise refuse("DOLT_BACKUP", f"the backup head at {target} differs from the ledger head {head}",
                      missing=(str(target),))
+    return previous
 
 
 def _run_record(conn: db.LedgerConnection, run_id: int) -> dict:
@@ -294,15 +307,7 @@ def market_backup(market: Mapping) -> dict:
                              missing=(lock,))
             cursor.execute("SELECT hash FROM dolt_branches WHERE name = 'main'")
             (head,), = cursor.fetchall()
-            existing = target.is_dir() and any(target.iterdir())
-            previous = backup_head(profile, target) if existing else None
-            if existing:
-                cursor.execute("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (previous,))
-                if previous is None or not cursor.fetchone()[0]:
-                    raise refuse("BACKUP_DIVERGED", f"the backup head {previous} at {target} is no commit of the "
-                                                    f"history of {profile.database}; nothing was synced",
-                                 missing=(str(target),))
-            _sync_backup(profile, target, head)
+            previous = _sync_backup(profile, target, head)
     except pymysql.MySQLError as exc:
         raise refuse("DOLT_BACKUP", f"the market backup to {target} failed", missing=(str(target),)) from exc
     finally:

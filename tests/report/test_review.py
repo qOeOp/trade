@@ -160,7 +160,7 @@ class TamperTests(unittest.TestCase):
     def test_5_tampering_through_the_administrator_is_found(self):
         self.admin_sql("UPDATE candidate SET description = 'rewritten' WHERE strategy_id = 'rsi' AND revision = 1",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: change a row')")
-        admin.export_history(self.profile, self.profile.backup_root, run_ids=[self.fixture_run])  # backs up this head
+        backed = admin.export_history(self.profile, self.profile.backup_root, run_ids=[self.fixture_run])["commit"]
         self.admin_sql("CALL DOLT_COMMIT('--amend', '--allow-empty', '-m', 'tamper: amend the backed-up head')")
         self.admin_sql("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, trade_start, "
                        "trade_end, op_id, created_at) VALUES ('research', REPEAT('9', 64), "
@@ -174,6 +174,13 @@ class TamperTests(unittest.TestCase):
         self.assertEqual((found["history"]["status"], "HISTORY_REWRITTEN" in codes(found)), ("not_ancestor", True))
         changed = next(item for item in found["findings"] if item["code"] == "ROW_CHANGED")
         self.assertEqual((changed["table"], changed["record_id"]), ("candidate", "rsi/1"))
+        # the backup of the amended head is evidence: the next backup sync refuses rather than overwrite it
+        self.assertEqual(refused(admin.export_history, self.profile, self.profile.backup_root,
+                                 run_ids=[self.fixture_run]).code, "BACKUP_DIVERGED")
+        self.assertEqual(admin.backup_head(self.profile, admin.backup_path(self.profile)), backed)
+        with self.reader() as conn:
+            again = review.review_all(conn)
+        self.assertEqual((again["history"]["status"], "HISTORY_REWRITTEN" in codes(again)), ("not_ancestor", True))
         self.admin_sql("SET FOREIGN_KEY_CHECKS = 0",
                        f"INSERT INTO registration_attempt VALUES ('registration-root', '{'8' * 64}', 9999)",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: a dangling attempt', '--skip-verification')")
