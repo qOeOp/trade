@@ -162,6 +162,7 @@ def export_catalogs(
 4. 为每个待导出合约构造作业（profile、commit、symbol、窗口、缩放位、该合约的 episodes），交进程池并行调用 export_episode（片段拆分在其内部完成）；收集回执。
 5. 有 lifecycle_files 时把每份原件按相对路径写入 \<root>/lifecycle-evidence/，使导出目录自含生命周期证据。
 6. 返回提交、导出根、导出与缓存计数和全部回执；回执由上层写入输入身份并随试验封存，本函数不写账本。
+7. 日线预热按 2 万分钟一块流式派生，不整段读入；导出缓存键含导出器源码哈希。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -489,6 +490,7 @@ def terms(
 2. 原样返回 terms_source：exchange_info 为交易所公开快照原文，inferred 为已下架合约从成交推断的步长（其可选边界由表约束保证为空），不补算。
 3. 窗口内只用这一行，不回溯条款的历史变化；这是 CURRENT_SNAPSHOT_APPROXIMATION 近似的来源。
 4. 该提交上没有该 symbol 的任何条款行则拒绝 NO_TERMS，不回退到其他提交、其他合约或默认步长。
+5. 所用条款行的 observed_at 晚于回放窗口结束时，在运行的局限里写 CURRENT_SNAPSHOT_APPROXIMATION，注明合约与观测时刻：交易所不提供历史条款，补导的历史只能用导入时的快照。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -797,11 +799,13 @@ def stitch_series(
 **期望行为**
 
 1. 列出窗口覆盖的月份，经 market.monthly_archives 取已发布月归档作主来源；没有月归档的月份（当月或缺失月）改为按天经 market.fetch_archive 取日归档
-2. 合并各来源：裁到窗口、按 open_time 排序；同一 open_time 出现多行时逐字段比较，任一字段不等即 SOURCE_CONFLICT 并指明时刻，相等则只留一行；close_time ≠ open_time + 1 分钟 − 1 毫秒的行即 SOURCE_SHAPE
-3. 用 market.missing_intervals 在 [low, high) 上求缺口：low 取 start_ms（resumed）或首个持有分钟，high 取 end_ms（trading）或末个持有分钟 + 1 分钟
-4. 对缺口覆盖的日期补取日归档并重新合并；仍缺的区间逐段经 market.rest_klines 从公开接口补取；完全没有归档且 trading 或 resumed 时整窗口经公开接口取；market.rest_klines 的 SOURCE_UNKNOWN_SYMBOL 在 trading 为 false（已下架）时视为无补充、返回空，trading 为 true 时原样上抛
-5. 最终再合并一次并重算缺口，原样返回：不插值、不前值填充、不以标记价代替成交价；表中不记录来源，拼接对运行器与策略不可见
-6. start_ms ≥ end_ms 返回空表与空缺口，不拒绝
+2. 裁到窗口之前先核形状：归档行落在其所属月或日之外、或不在分钟网格上（如微秒时间戳），即 SOURCE_SHAPE，不静默丢弃。
+3. 合并各来源：裁到窗口、按 open_time 排序；同一 open_time 出现多行时逐字段比较，任一字段不等即 SOURCE_CONFLICT 并指明时刻，相等则只留一行；close_time ≠ open_time + 1 分钟 − 1 毫秒的行即 SOURCE_SHAPE
+4. 用 market.missing_intervals 在 [low, high) 上求缺口：low 取 start_ms（resumed）或首个持有分钟，high 取 end_ms（trading）或末个持有分钟 + 1 分钟
+5. 对缺口覆盖的日期补取日归档并重新合并；仍缺的区间逐段经 market.rest_klines 从公开接口补取；完全没有归档且 trading 或 resumed 时整窗口经公开接口取；market.rest_klines 的 SOURCE_UNKNOWN_SYMBOL 在 trading 为 false（已下架）时视为无补充、返回空，trading 为 true 时原样上抛
+6. 最终再合并一次并重算缺口，原样返回：不插值、不前值填充、不以标记价代替成交价；表中不记录来源，拼接对运行器与策略不可见
+7. start_ms ≥ end_ms 返回空表与空缺口，不拒绝
+8. 多来源同一分钟按存储刻度的数值比较；标记价 K 线带成交量即 SOURCE_SHAPE；公开接口只有错误码 -1121 视为未知合约。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1143,9 +1147,16 @@ def import_month(
 1. 经 market.connect 以导入账号打开市场库；连接标记为空库时，在本次事务内先写 market_schema 单行与 market.dolt_tests 用例（模式初始化，此后导入只运行不改）；核对 market_schema.universe_rule 等于代码的范围规则版本（否则 RULE_VERSION_MISMATCH）、工作集干净（否则 DIRTY_WORKING_SET）；该月已完整则 MONTH_EXISTS，未完整只允许追加已存最后一分钟之后的尾段
 2. 取条款：market.rest_exchange_info 的原文连同该月归档里出现的合约交给 market.classify_contract 得到合格合约与逐合约排除原因；条款与 instrument 最新一行不同者按观测时刻追加（exchange_info），已移除、无原文的合约按成交推断步长追加（inferred）；条款状态为交易中的合约以 trading=true 拼接
 3. 拼数据：对每个合格合约、每个价格类型调用 market.stitch_series；资金费由 market.monthly_archives 与 market.rest_funding 按实际结算时刻同法拼接，同一结算时刻两来源不等即 SOURCE_CONFLICT；来源函数与拼接的任何拒绝指明合约、价格类型与时刻并拒绝整次导入；缺失区间记入返回值
-4. 重算范围：按库内加本次的 1 分钟成交 K 线判每合约每日有无成交，对首月到本月的每个月调用 market.monthly_universe；已存月份结果与 universe_month 已存行逐月逐合约比对，任一不等即 UNIVERSE_CHANGED（指明月份与差异合约）；只追加本月成员行
+4. 算范围：只算本次导入的月份。K 线只追加、月份乱序即拒绝，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。同一当月再次导入时，名单须等于已存行，否则 UNIVERSE_CHANGED。
 5. 写入：一个事务里向 universe_month、instrument、bar、funding 只做 INSERT（与已存行主键重叠而字段相等的行跳过），market_schema.import_seq 加 1；运行 market.dolt_tests，任一失败即回滚并 DATA_TESTS_FAILED；全部通过后一次 DOLT_COMMIT，提交信息记月份与范围规则版本
 6. 任何拒绝都在提交前发生并回滚全部追加，市场库停在导入前的提交；并发导入在 import_seq 上冲突时后到者回滚
+7. 再次导入未完整的当月时，整月重新拼接：已存部分逐字段（K 线按存储整数、资金费逐次结算）与来源重读结果比较，任一不同即 MONTH_EXISTS，不让先前从公开接口补的值悄悄留下；只追加最后一根已存分钟之后的尾段。
+8. 资金费跨来源去重：结算时刻归到最近的整点，同一整点里两个来源的费率须相同（保留先到来源的时刻）；同一来源在一个整点里有两次结算即 SOURCE_SHAPE。
+9. 整个导入持有 GET_LOCK('market-import:\<库名>')，第二个并发导入拒绝 CONCURRENT_IMPORT：Dolt 2.4.2 会合并相同值的写入，import_seq 本身挡不住并发。
+10. 提交校验只在 DOLT_COMMIT 里跑一次，失败映射为 DATA_TESTS_FAILED 并给出失败的测试名；服务的提交校验组不是 commit 即拒绝。
+11. 月份须按顺序导入，乱序即拒绝；首个导入月没有名单（缺上市天数的回看）。
+12. 工程期可给合约清单（--symbols），只限隔离或临时市场库：名单只在清单内计算，清单每月相同，写进每次导入的提交信息，freshness 以 scope 报出；正式库不给清单。
+13. 导入账号经 market_schema 上的更新触发器只能把 import_seq 加一，改不了范围规则与模式代数（Dolt 2.4.2 不支持列级授权）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1160,6 +1171,8 @@ def import_month(
 | `PRICE_TYPE_UNKNOWN` | 传给拼接的价格类型不是 LAST 或 MARK（来自 market.stitch_series） |
 | `UNIVERSE_CHANGED` | 重算后任一已存月份的范围与 universe_month 已存行不一致 |
 | `DATA_TESTS_FAILED` | 提交前 market.dolt_tests 任一用例失败 |
+| `CONCURRENT_IMPORT` | 另一个导入正持有该市场库的导入锁 |
+| `IMPORT_SCOPE` | 合约清单为空、重复或格式不对，用在正式市场库上，或与之前各月的清单不同 |
 
 **使用**　<Ref id="market.connect" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />、<Ref id="table:market.dolt_tests" />
 
@@ -1242,6 +1255,8 @@ def classify_contract(
 3. 有元数据条目时核对字段完整且与 symbol 一致，依次判定 underlyingType=INDEX → index、contractType≠PERPETUAL → contract_type、underlyingType≠COIN（含股票类 TRADIFI）→ underlying、baseAsset 在规则版本的稳定币清单 → stablecoin。
 4. 无元数据条目时按规则版本的已下架指数别名清单判 index，按代码去掉 USDT 后缀判稳定币；其余按当时可知信息视为合格。
 5. 返回带原因的分类；不读库、不写库，同一输入在同一规则版本下结果确定。
+6. 选币用每个合约最早存下的那次分类；之后的条款观测照样追加，但不回溯改分类（下架进入结算时交易所可能报空的合约类型）。
+7. 范围规则 usdt-perp-listed30d-v1（用户定）：稳定币清单 USDC、FDUSD、TUSD、USDP、DAI、BUSD；已下架指数别名清单内置于规则版本；上市天数 30。
 
 | 拒绝码 | 条件 |
 |---|---|

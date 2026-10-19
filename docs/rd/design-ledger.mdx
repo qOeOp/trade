@@ -915,8 +915,8 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 **键与约束**
 
 - 主键　`test_name`
-- CHECK　`universe_members_traded_on_the_eve：每个 universe_month 成员在该月前一 UTC 日至少有一根 LAST 且 volume > 0 的 bar 行；违例数须为 0`
-- CHECK　`universe_members_have_terms：每个 universe_month 成员在 instrument 至少有一行 observed_at 早于该月下一月初的条款；违例数须为 0`
+- CHECK　`universe_members_traded_on_the_eve：最新月份的每个 universe_month 成员在该月前一 UTC 日至少有一根 LAST 且 volume > 0 的 bar 行；违例数须为 0`
+- CHECK　`universe_members_have_terms：每个 universe_month 成员在该提交上至少有一行条款；违例数须为 0（用户定 10-20：补导的历史月份只能拿到导入时的条款快照，所以不要求观测早于该月结束；实时逐月导入时观测本就落在当月）`
 - CHECK　`universe_rule_is_recorded：最新月份的 universe_month 行的 universe_rule 等于 market_schema.universe_rule；违例数须为 0`
 - CHECK　`test_group = 'commit'`
 
