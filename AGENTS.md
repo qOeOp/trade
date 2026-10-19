@@ -2,7 +2,7 @@
 
 External Agents choose research questions and methods. This repository supplies the skills, the
 contracts enforced by code (Dolt research ledger, digest-pinned OCI runtime) and published Nautilus.
-Blueprint: `docs/architecture.zh.md` (English twin `docs/architecture.md`).
+Blueprint: the research-chain design site, sources in `docs/rd/` (published at https://qoeop.github.io/trade/).
 
 ## Needs the user's explicit authority
 

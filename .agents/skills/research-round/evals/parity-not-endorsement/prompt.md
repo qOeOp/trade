@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-这周把运行镜像从 `sha256:3f1c…`（Nautilus 1.219.0）升到 `sha256:9d07…`（1.221.0）。按 `backtest/README.md` 做了配对：`grid-root@3`、BTCUSDT 和 ETHUSDT 两个永续、窗口 2024-03-01 至 2024-05-31、同一账户配置，新旧镜像各回放一次，原生报告逐字段相等。
+这周把运行镜像从 `sha256:3f1c…`（Nautilus 1.219.0）升到 `sha256:9d07…`（1.221.0）。按 `engine/README.md` 做了配对：`grid-root@3`、BTCUSDT 和 ETHUSDT 两个永续、窗口 2024-03-01 至 2024-05-31、同一账户配置，新旧镜像各回放一次，原生报告逐字段相等。
 
 另外 `grid-root@5` 在新版本上要做一处 API 适配（一个订单参数改名），适配后在新镜像上的年化比旧镜像上的结果高 2.1 个百分点。
 
