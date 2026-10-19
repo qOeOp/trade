@@ -31,18 +31,17 @@ uv run --frozen python -m cli.main replay run --help
 `--market` the market database profile (default: the market profile in the same directory, which
 the report readers also use). Runner arguments (window and instrument scope) follow `--`.
 
-### The ledger generation
+### The ledger and the market database
 
-The refactored ledger is a new generation: a new database on the existing Dolt service, created
-once with its own accounts, branch grant, commit verification group and backup directory. The
-earlier active ledger (`research`) and its backups stay as they are, read-only; nothing is migrated.
-Profiles are named `research-<n>` (database `research_<n>`); the first generation of the refactored
-design is `research-2`:
+There is one research ledger, `research`, and one market database, `market`, on one Dolt service.
+Neither is versioned by name: the product keeps no compatibility with earlier data, so a schema or
+rule change rebuilds the database under the same name. The ledger is created once with its accounts,
+branch grant, commit verification group and backup directory:
 
 ```bash
-uv run --frozen python -m cli.main ledger init --name research-2 --kind active \
+uv run --frozen python -m cli.main ledger init --name research --kind active \
   --service-root "$HOME/.local/share/trade/dolt" \
-  --backup-root "$HOME/.local/share/trade/dolt-backups-research-2"
+  --backup-root "$HOME/.local/share/trade/dolt-backups/research"
 ```
 
 `ledger init` refuses a profile or database that exists, and an active ledger whose service or

@@ -145,9 +145,6 @@ class ImportTests(unittest.TestCase):
             self.refused("MONTH_INVALID", self.imported, date(2025, 4, 2))
             self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT"])
             self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
-            self.refused("IMPORT_SCOPE", self.imported, APR, {**self.profile, "role": "active"})
-            self.refused("IMPORT_SCOPE", self.imported, APR, {key: value for key, value in self.profile.items()
-                                                              if key != "role"})  # an allow-list of kinds
 
     def test_the_accounts_insert_or_read_only(self):
         with store.connect(self.profile, "import") as conn:

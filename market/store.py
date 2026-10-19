@@ -496,9 +496,6 @@ def _month_ms(month: date) -> int:
     return series._day_ms(month)
 
 
-ALLOWLIST_KINDS = ("isolated", "temporary")
-
-
 def _scope(symbols, profile: dict) -> list[str] | None:
     if symbols is None:
         return None
@@ -506,9 +503,6 @@ def _scope(symbols, profile: dict) -> list[str] | None:
             or any(not isinstance(item, str) or not sources.SYMBOL.fullmatch(item) for item in symbols)):
         raise _refuse("the engineering symbol allowlist is empty, repeats a contract or names a malformed one",
                       "IMPORT_SCOPE", missing=("--symbols",))
-    if profile.get("role") not in ALLOWLIST_KINDS:
-        raise _refuse(f"an engineering allowlist narrows only an isolated or temporary market database, not role "
-                      f"{profile.get('role')!r}", "IMPORT_SCOPE", missing=("--symbols",))
     return sorted(symbols)
 
 

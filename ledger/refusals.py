@@ -548,9 +548,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
     "IMPORT_SCOPE": ("The engineering symbol allowlist is empty, repeats or malforms a contract, differs from the "
-                     "scope of the earlier imports, or was given for an active market database.",
-                     ("Import an isolated market database with the same allowlist every month, or the active one "
-                      "without an allowlist.",)),
+                     "scope of the earlier imports.",
+                     ("Import every month of a market database with the scope its first import set; a different "
+                      "scope is a new market database.",)),
     "UNIVERSE_CHANGED": ("The universe recomputed from the stored data differs from a stored month.",
                          ("Report the month and contracts named; stored months are never rewritten.",)),
     "DATA_TESTS_FAILED": ("A market commit test (dolt_tests, group commit) failed at DOLT_COMMIT; the import was "
