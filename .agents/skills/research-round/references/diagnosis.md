@@ -1,9 +1,11 @@
 # Diagnosing one run
 
-Read when a replay has finished and you read one run's eligibility and report (`replay report RUN`).
+Read when a replay has finished and you read one run's eligibility and report
+(`replay report --run-id RUN`).
 
 Diagnose in this order: eligibility; failure or zero activity; clocks and readiness; capital use
-next to drawdown (`nautilus-report-analysis` capital.md); profit sources and quality.
+next to drawdown (`nautilus-report-analysis` capital.md); profit sources and quality; the signal
+table ([attribution.md](attribution.md)).
 
 ## Eligibility, failure and zero activity
 
@@ -18,7 +20,9 @@ next to drawdown (`nautilus-report-analysis` capital.md); profit sources and qua
   source whose precheck failed get only a repair record: the cause, the reference to the original
   and the repair. Do not read their measures, record a loss against the direction, change a
   priority or use them in a review; their trials still count. After the fix, publish the new
-  source, precheck, review and register again with `retry_of` naming the consumed registration.
+  source (a root before its first report again without a parent, template.md L.2.2.1), precheck,
+  review and register again with `retry_of` naming the consumed registration, if any. A product
+  defect is fixed and merged to main before the retry runs.
 
 ## Clocks
 

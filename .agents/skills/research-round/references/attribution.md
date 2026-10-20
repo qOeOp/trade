@@ -1,12 +1,14 @@
 # Attribution
 
-Read when a comparison has a result: before reading its attribution, writing the interpretation
-judgment and choosing the duty of the next hypothesis.
+Read when a run report or a comparison has a result: before reading its slices or attribution,
+writing the interpretation judgment and choosing the duty of the next hypothesis. A single run's
+report (`replay report --run-id RUN`) has the same slices for its one side, without trade pairing;
+read the rows on its values.
 
-`hypothesis compare BUNDLE RUN` returns the paired test and, beside it, the attribution: for each
-slice the two sides' measures and their difference, the trade pairing (coverage first), each
-registered prediction with its observed sign, and the interaction when one was declared. It does
-not change the test result.
+`hypothesis compare --bundle BUNDLE --run-id RUN` returns the paired test and, beside it, the
+attribution: for each slice the two sides' measures and their difference, the trade pairing
+(coverage first), each registered prediction with its observed sign, and the interaction when one
+was declared. It does not change the test result.
 
 ## Signals to duties
 
@@ -29,7 +31,8 @@ not change the test result.
 | S15 | The drawdown sits in one window while time in market is near one | `drawdown`, `capital` | A3, E1, E3, F3 | Stand aside under a condition filter, scale risk to equity or volatility, or add a protection boundary |
 
 - **P.4.1.1** Map what the slices show to duties with this table and take its next hypothesis as
-  the usual starting point; the code does not enforce it.
+  the usual starting point; the code does not enforce it. Before citing a row, check that its
+  signal holds in the report you cite.
 - **P.4.1.3** Every pointer in an interpretation judgment names the slice, the table row and the
   duty ids.
 

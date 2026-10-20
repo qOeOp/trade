@@ -5,13 +5,13 @@ description: Derives descriptive statistics from a sealed run's stored cycles, d
 
 # Native report analysis
 
-The product's reports (`replay report RUN`, `hypothesis compare BUNDLE RUN`) give the measures of
-the measure catalogue, already masked by eligibility. Everything else you compute yourself from the
-`report` package's `tables(run_id, at=..., account=..., exposures=..., directory=...,
-reproduction=...)`, under these rules. It returns the run's position cycles (snapshot rows kept;
-closed rows with `price_pnl`, `funding`, `ts_closed_ns`, `closing_order_tags`), the trade-window
-daily returns, `reconciled` totals, `availability`, `metrics_revision`, `ledger_commit` and
-`limitations`. It refuses a run that did not pass or has no economic-evidence eligibility.
+The product's reports (`replay report --run-id RUN`, `hypothesis compare --bundle BUNDLE --run-id
+RUN`) give the measures of the measure catalogue, already masked by eligibility. Everything else you
+compute yourself from the `report` package's `tables(run_id, at=..., account=..., exposures=...,
+directory=..., reproduction=...)`, under these rules. It returns the run's position cycles (snapshot
+rows kept; closed rows with `price_pnl`, `funding`, `ts_closed_ns`, `closing_order_tags`), the
+trade-window daily returns, `reconciled` totals, `availability`, `metrics_revision`, `ledger_commit`
+and `limitations`. It refuses a run that did not pass or has no economic-evidence eligibility.
 
 ## Rules
 
@@ -19,8 +19,8 @@ daily returns, `reconciled` totals, `availability`, `metrics_revision`, `ledger_
   files, query ledger tables directly, or override or fill a report measure. Holding time comes
   from `duration_ns`, the exit from `closing_order_tags`. For native detail beyond cycles and daily
   returns (orders, fills, account, order events), first replay the run into /tmp with `replay
-  reproduce RUN` and pass that directory and the reproduction trial to `tables()`, which checks the
-  semantic fingerprint first.
+  reproduce --run-id RUN --output DIR` and pass that directory and the reproduction trial to
+  `tables()`, which checks the semantic fingerprint first.
 - **R.1.2.3** State the population (closed cycles, open rows, account), the weighting and the
   frequency of every derived number. Totals over closed cycles equal `reconciled`; if not, do not
   cite them. A number that drives a recommendation or the next hypothesis is recomputed

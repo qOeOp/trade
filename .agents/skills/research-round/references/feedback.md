@@ -28,8 +28,8 @@ read now and `gates`, which lists what the next registration still lacks.
   conclusion stays inside the registered conditions; an insignificant, losing or zero-fill result
   is never written as an exclusion.
 - **E.2.2.2** Trials the product's commands read are counted by the ledger. Every extra view you
-  computed with your own script (per month, per contract, ...) is recorded as a `search_exposure`
-  judgment.
+  computed with your own script (per month, per contract, participation, ...) is recorded as a
+  `search_exposure` judgment, including views a skill requires.
 - **F.2.1.1** Order the next research actions (each a registered rule change with its grid, not a
   ranking of candidates) on six grounds: expected effect; uncertainty (interval, p, block-length
   sensitivity, power); mechanism support from sources and diagnosis; the directions and conditions

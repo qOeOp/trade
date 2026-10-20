@@ -8,8 +8,8 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 研究路线 `line-mr-1h`：开发窗口 2023-07-01 至 2025-06-30，1 小时线，30 个 USDT 永续。上一个登记 `research-plan-h07`（候选 `mr-root@3`，运行 `run-2b71`；对照运行 `run-2b40`）已经回放完。这一周做过的事：
 
-1. `replay report run-2b71` 和 `replay report run-2b40`，读了两边的单运行报告；
-2. `hypothesis compare research-plan-h07 run-2b71`：年化效应 +3.1%，区间 [−0.8%, +7.0%]，p = 0.11；
+1. `replay report --run-id run-2b71` 和 `replay report --run-id run-2b40`，读了两边的单运行报告；
+2. `hypothesis compare --bundle research-plan-h07 --run-id run-2b71`：年化效应 +3.1%，区间 [−0.8%, +7.0%]，p = 0.11；
 3. 之后在 /tmp 里写脚本，用 `tables()` 读两次运行的逐日序列和持仓周期，又自己看了四个角度：
    - 按月拆的账户收益差（2024 年 4 月以后差值明显变大）；
    - 按合约拆的盈亏差（前 5 个合约占了差值的 70%）；

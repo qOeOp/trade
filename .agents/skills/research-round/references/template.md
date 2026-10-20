@@ -34,7 +34,10 @@ momentum, Pivot Reversal. Each trades one instrument.
 
 ## First report
 
-- **L.2.2.1** Publish the root without a parent (`candidate publish`), register it without parent
-  or control on the line's development window, and replay that point once (`replay run`, purpose
-  research): this run is its first report. An exploration never stands in for it. An invalid or
-  interrupted replay consumes the point; another try is a new registration.
+- **L.2.2.1** Publish the root without a parent (`candidate publish`), precheck and review it. A
+  repair before its first report is published again without `--parent` (the repair in the
+  description), prechecked and reviewed again; the line starts at the revision whose review passed
+  (`line select`). Register it as a root (no parent, no control, empty `changed_duties`) on the
+  line's development window and replay that point once (`replay run`, purpose research): this run
+  is its first report. An exploration never stands in for it. An invalid or interrupted replay
+  consumes the point; another try is a new registration naming it in `retry_of`.

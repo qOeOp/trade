@@ -1,0 +1,45 @@
+{
+  "prediction": {
+    "mechanism": [
+      {
+        "slice": "drawdown",
+        "measure": "max_drawdown",
+        "direction": "down",
+        "duty": "A3",
+        "reason": "Which fills or holdings should show it, and what result would refute it."
+      }
+    ],
+    "outcomes": {
+      "improved": "One sentence: what follows this outcome.",
+      "not_significant": "One sentence: what follows this outcome.",
+      "loss": "One sentence: what follows this outcome.",
+      "zero_activity": "One sentence: what follows this outcome.",
+      "invalid": "Repair record, then a new registration naming this one in retry_of."
+    }
+  },
+  "changed_duties": ["A3"],
+  "parent": "PARENT-ID@1",
+  "control_run": 1,
+  "change": "The one rule change, word for word the --difference of every grid candidate.",
+  "rationale": {
+    "external": "",
+    "local": "The run and ledger commit whose slice points to this duty.",
+    "conjecture": "The mechanism, who pays, and why it should exist in this line's universe and window."
+  },
+  "sources": [],
+  "metric": "annual_return",
+  "comparison": {
+    "method": "paired-circular-log-mean-v1",
+    "block_days": 7,
+    "resamples": 999,
+    "inner_resamples": 99,
+    "seed": 1,
+    "alpha": 0.05,
+    "minimum_effect": 0.0,
+    "design_reason": "Uncalibrated example values, locked with the registration."
+  },
+  "grid": [{"candidate": "CHILD-ID@1", "params": {"name": "value"}}],
+  "conditions": "Universe, window, costs and execution the conclusion applies to.",
+  "window": {"trade_start": "LINE-WINDOW-START", "trade_end": "LINE-WINDOW-END"},
+  "prechecks": {"CHILD-ID@1": "source-review-TRIAL-HASH"}
+}

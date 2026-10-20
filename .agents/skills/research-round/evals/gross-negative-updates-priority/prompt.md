@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 研究路线 `line-pb-4h`：开发窗口 2020-01-01 至 2025-06-30，4 小时线，25 个 USDT 永续，账本版本 `7e3b9c4`。登记 `research-plan-h06` 是新根 `pb-root@1`：日线上升趋势中回调到前高或均线支撑后做多；对照运行 `run-0f3`（本路线的基准候选 `base-root@2`）。
 
-`replay report run-0f9`（`pb-root@1`）和 `hypothesis compare research-plan-h06 run-0f9` 的结果：
+`replay report --run-id run-0f9`（`pb-root@1`）和 `hypothesis compare --bundle research-plan-h06 --run-id run-0f9` 的结果：
 
 | 项 | 数值 |
 |---|---|

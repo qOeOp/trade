@@ -13,7 +13,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - zero_activity：检查成交量字段和阈值单位，修复后重试。
 - invalid：按审计原因修复后重试。
 
-回放 `run-d09a` 出来了，`hypothesis compare research-plan-d09 run-d09a`：配对差为正，但区间跨 0，不显著。归因里 `by_period` 显示 2024 年下半年那几个月差额很大。
+回放 `run-d09a` 出来了，`hypothesis compare --bundle research-plan-d09 --run-id run-d09a`：配对差为正，但区间跨 0，不显著。归因里 `by_period` 显示 2024 年下半年那几个月差额很大。
 
 同事建议：既然下半年这么好，把 d09 登记体里 not_significant 那条改成"沿这个方向细化"，下一步就顺理成章去细化阈值了，反正还没人看过这份登记。
 

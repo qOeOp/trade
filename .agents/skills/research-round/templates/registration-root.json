@@ -1,0 +1,37 @@
+{
+  "prediction": {
+    "mechanism": [],
+    "outcomes": {
+      "improved": "One sentence: what follows this outcome.",
+      "not_significant": "One sentence: what follows this outcome.",
+      "loss": "One sentence: what follows this outcome.",
+      "zero_activity": "One sentence: what follows this outcome.",
+      "invalid": "Repair record, then a new registration naming this one in retry_of."
+    }
+  },
+  "changed_duties": [],
+  "parent": null,
+  "control_run": null,
+  "change": null,
+  "rationale": {
+    "external": "The source bundle: location, market, window, frequency, costs; supports the method, a parameter or the mechanism.",
+    "local": "",
+    "conjecture": "The mechanism, who pays, and why it should exist in this line's universe and window."
+  },
+  "sources": ["source-BUNDLE"],
+  "metric": "annual_return",
+  "comparison": {
+    "method": "paired-circular-log-mean-v1",
+    "block_days": 7,
+    "resamples": 999,
+    "inner_resamples": 99,
+    "seed": 1,
+    "alpha": 0.05,
+    "minimum_effect": 0.0,
+    "design_reason": "Uncalibrated example values, locked with the registration."
+  },
+  "grid": [{"candidate": "ROOT-ID@1", "params": {"name": "value as in the source"}}],
+  "conditions": "Universe, window, costs and execution the conclusion applies to.",
+  "window": {"trade_start": "LINE-WINDOW-START", "trade_end": "LINE-WINDOW-END"},
+  "prechecks": {"ROOT-ID@1": "source-review-TRIAL-HASH"}
+}

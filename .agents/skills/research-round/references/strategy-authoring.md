@@ -40,7 +40,9 @@ header template, the entry class and the two hooks.
   exit, warmup or sizing option: every rule and parameter is in the file, and a variant is a new
   revision of it.
 - Set the class attribute `DAILY_WARMUP = True` if the file needs historical daily bars; it
-  defaults to `False`, and any other value is refused.
+  defaults to `False`, and any other value is refused. A baseline that later comparisons build on
+  takes enough warm-up (daily warm-up for daily indicators) that a variant with a longer indicator
+  is ready as early and needs no other `--start`, which would change the input identity.
 
 ## Required hooks
 
@@ -90,8 +92,10 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
 - Nautilus owns fills, fees, funding, positions and the account. React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger.
-- Size from native state: `self.portfolio.equity(venue=...)`, instrument `multiplier`,
-  `make_price`, `make_qty(value, round_down=True)`, `min_quantity`, `min_notional`.
+- Size from native state: `self.portfolio.equity(venue=...)` (a dict by currency: take
+  `.get(instrument.quote_currency)`), instrument `multiplier`, `make_price`,
+  `make_qty(value, round_down=True)`, `min_quantity`, `min_notional`. `make_qty` raises on a
+  positive value below `size_increment`: compare with `size_increment` and `min_quantity` first.
 
 ## Partial entries and expiry
 
@@ -173,8 +177,10 @@ def cover_filled_entry(self, client_order_id):
 - Margin and leverage are Nautilus's: the account is `MARGIN` at the leverage in
   `ACCOUNT_CONTRACT`, Nautilus denies an order the account cannot margin, and a denied order fails
   the run. Do not add a separate notional cap to imitate it.
-- Set the largest order notional as a share of its bar's traded volume as a constant in the file,
-  and report that limit and the largest observed share in the decision.
+- Set the largest order notional as a share of its bar's traded volume as a constant in the file.
+  Do not drop the excess, which makes the position a random function of one minute's volume: carry
+  the shortfall to later bars, or cap on a longer volume window. Report the limit, the largest
+  observed share, how often the cap bound and the shortfall in the decision.
 
 ## Verify Nautilus behavior
 

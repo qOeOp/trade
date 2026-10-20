@@ -32,11 +32,13 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   roots: give the recommendation and priorities inside the line. A root from a user source is made
   only when the user gives the source.
 
-When the user chooses, record it once with `line select --start ID@N --window-start YYYY-MM-DD
---window-end YYYY-MM-DD --market-at COMMIT [--note TEXT]`; a later change is a new line record,
-never an edit. The user's research targets (maximum drawdown, minimum annual return) are the
-reference for reading reports; ask for nothing else (no coins, sizing, budgets or stages). Then
-check readiness ([readiness.md](references/readiness.md)) and continue under `research-round`.
+When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
+then published, prechecked and reviewed (`research-round` template.md L.2.2.1). Record the choice
+once with `line select --start ID@N --window-start YYYY-MM-DD --window-end YYYY-MM-DD --market-at
+COMMIT [--note TEXT]`, `--start` being the revision whose review passed; a later change is a new
+line record, never an edit. The user's research targets (maximum drawdown, minimum annual return)
+are the reference for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
+Then continue under `research-round`.
 
 - **E.4.1.3** Before continuing into `research-round`, tell the user once that continuous research
   needs the host's goal mode, which only the user can set (Codex `/goal <objective>`, Claude Code

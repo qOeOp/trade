@@ -12,13 +12,30 @@ context for drawdown and for the holding structure: read it first.
   without rows held nothing. Never revalue positions or derive capital use from the account report
   alone. When the run has no exposure readings, it cannot answer capital questions: say so and put
   it in the limitations.
-- **R.2.3.3** Participation is yours to compute; the product stores none. Replay the run with `replay
-  reproduce RUN`, take its fills from `tables()`, and divide each fill's quantity by the volume of
-  that instrument's one-minute LAST bar at the run's market commit (market database, read only).
-  The engine stamps a bar at its close and the market database keys it by its open, so a fill at
-  time T belongs to the bar opening one minute before T. Give the median, a high quantile, the
-  maximum and the number of fills on zero-volume bars, and say whether fills are weighted by count
-  or by quantity.
+- **R.2.3.3** Participation is yours to compute; the product stores none. Replay the run with
+  `replay reproduce --run-id RUN --output DIR`, take its fills from `tables()`, and divide each
+  fill's quantity by the volume of that instrument's one-minute LAST bar at the run's market commit
+  (market database, read only). The engine stamps a bar at its open plus 59.999 s and the market
+  database keys it by its open, so a fill at T belongs to the bar opening at T floored to the
+  minute. Give the median, a high quantile, the maximum and the number of fills on zero-volume bars,
+  and say whether fills are weighted by count or by quantity. It is a `search_exposure` view
+  (research-round feedback.md E.2.2.2).
+
+
+```python
+# uv run --frozen python /tmp/RUNDIR/participation.py, with fill from tables(...)["fills"]
+from decimal import Decimal
+from cli.main import market_profile
+from ledger.metrics import utc_ns
+from market.store import connect
+with connect(market_profile(None), "reader") as market:  # None: the active market profile
+    t_ms = utc_ns(fill["ts_event"]) // 1_000_000
+    (raw,), = market.rows("SELECT volume FROM bar AS OF %s WHERE symbol = %s AND price_type = "
+                          "'LAST' AND ts_open = %s", (MARKET_COMMIT, fill["instrument_id"].split("-")[0],
+                                                      t_ms // 60_000 * 60_000))
+    volume = Decimal(raw) / 10 ** market.volume_scale  # stored integer, scale a power of ten
+```
+
 - Read it against the fill model. Each bar's open, high, low and close each offer a quarter of the
   bar's volume at that price, refreshed on every bar. A resting limit order takes at most that
   quarter for each of the bar's prices it crosses, so it fills in pieces over several bars; a low
