@@ -224,7 +224,7 @@ def require_main_build(
 1. 经 runtime.validate_identity 核身份形态，不过即 RUNTIME_IDENTITY_INVALID。
 2. 核 image_ref 所在的镜像注册表 registry 与命名空间等于产品镜像注册表。
 3. 取 identity.build_revision；缺失即拒绝（身份只从镜像标签读出，不接受调用方补写）。
-4. 核该版本是产品源码托管远端 main 的祖先：先本地判定，失败则抓取一次远端 main 再判定。
+4. 核该版本是产品源码托管远端 main 的祖先：先本地判定，失败则抓取一次远端 main 再判定；每次 git 调用（抓取在内）120 秒内未结束即拒绝 RUNTIME_UNAVAILABLE，与 docker 调用的超时一样。
 5. 按 runtime.layout 取运行器各源码、审计器、指纹代码（engine/compare.py）与依赖锁路径，读该版本下每个文件字节算 sha256，逐项等于检视中对应哈希；任一不等即拒绝（防重贴标签的镜像）。
 6. 返回 build_revision；不写账本。
 
@@ -232,6 +232,7 @@ def require_main_build(
 |---|---|
 | `RUNTIME_NOT_MAIN` | 镜像不在产品镜像注册表、无构建源码版本、版本不在 main 上，或镜像内源码与依赖锁哈希不等于该版本字节 |
 | `RUNTIME_IDENTITY_INVALID` | 身份未通过 runtime.validate_identity |
+| `RUNTIME_UNAVAILABLE` | 一次 git 调用（抓取远端 main 在内）120 秒内未结束 |
 
 **使用**　<Ref id="runtime.validate_identity" />、<Ref id="runtime.layout" />、<Ref id="runtime.inspect_runtime" />、<Ref id="runtime.resolve" />、<Ref id="registration.validation_bind" />
 

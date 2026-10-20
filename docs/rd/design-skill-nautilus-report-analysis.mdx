@@ -44,10 +44,10 @@
 
 **触发**　读资金使用、回撤、持仓结构或容量之前
 
-从 tables(exposures=True, account=True) 算四项资金使用率（时间加权名义额及其占权益比例、按 K 线采样的峰值、锁定保证金、在市时间），没有敞口表时写进局限；这四项是读回撤与持仓结构的语境；成交量占比由 Agent 复现后自算（T 时刻的成交属于 T 取整到分钟的那根 K 线），附一段读取市场库成交量的示例，它是一个 search_exposure 视角
+四项资金使用（时间加权平均名义额及其占权益比例、按 K 线采样的峰值、锁定保证金、在市时间）由代码在封存时算出，Agent 从单运行报告读，不重算；运行没有敞口数据时不答资金问题，写进局限；这四项是读回撤与持仓结构的语境；成交量占比由 Agent 复现后自算（T 时刻的成交属于 T 取整到分钟的那根 K 线），附一段读取市场库成交量的示例，它是一个 search_exposure 视角
 
 <ol className="rd-skill-rules">
-<li id="def-rule-R-2-3-1">资金使用四项只从 tables 敞口与账户行算，先于回撤读；无敞口表不答资金问题 <span className="rd-rule-links"><Ref id="R.2.3.1">R.2.3.1</Ref></span><span className="rd-eval">eval <code>capital-use-four-readings</code>：给出四项：时间加权平均名义额（交易窗口全部 K 线，空仓根计零）及其占同刻权益的比例、标明按 K 线采样的峰值、取自账户行的锁定保证金、在市根数占比；没有重新估值仓位，也没有只凭账户报告推算；exposures 为空时不回答资金问题并写入局限。任一项缺失或口径不符即不通过</span></li>
+<li id="def-rule-R-2-3-1">资金使用四项读报告里封存时由代码算出的值，不重算，先于回撤读；没有敞口数据不答资金问题 <span className="rd-rule-links"><Ref id="R.2.3.1">R.2.3.1</Ref></span><span className="rd-eval">eval <code>capital-use-four-readings</code>：给出四项：时间加权平均名义额（交易窗口全部 K 线，空仓根计零）及其占同刻权益的比例、标明按 K 线采样的峰值、取自账户行的锁定保证金、在市根数占比；没有重新估值仓位，也没有只凭账户报告推算；运行没有敞口数据时不回答资金问题并写入局限。任一项缺失或口径不符即不通过</span></li>
 <li id="def-rule-R-2-3-3">成交量占比复现后自算：T 时刻的成交按 T 取整到分钟找 K 线；只作容量警示，算了记 search_exposure <span className="rd-rule-links"><Ref id="R.2.3.3">R.2.3.3</Ref></span></li>
 </ol>
 

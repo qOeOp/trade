@@ -15,46 +15,12 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="replay.audit_problems">audit_problems</Ref> | 把运行器与审计器的执行结果写成无效原因：退出码、审计是否运行与其结论、结构化异常回执，逐条列出互不覆盖；基础设施错误原样保留为原因，不改写成证据不足 |
 | <Ref id="replay.execute">execute</Ref> | 同一运行环境内先运行器后独立审计器：报表齐全才启动审计器；各阶段命令、状态与退出码分文件落盘；无论结局都封存执行捕获 |
 | <Ref id="replay.explore">explore</Ref> | 非登记探索：把未发布的策略文件装入钉死运行环境回放，试验行 purpose=explore，报告留在新建的临时目录，账本只有试验行、开始回执与执行封存 |
 | <Ref id="replay.input_coverage">input_coverage</Ref> | 启动前把全部合约的导出回执、输入身份、有效配置与成员文件写成 input-coverage.json，只读挂入容器供审计器与生命周期核对，并随执行封存 |
 | <Ref id="replay.precheck">precheck</Ref> | 对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后把原生输出、退出码、审计与报告随试验封存，并返回封存包名 |
 | <Ref id="replay.run">run</Ref> | 研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，失败保留目录供诊断 |
 | <Ref id="replay.seal">seal</Ref> | 研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写执行绑定与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账 |
-| <Ref id="replay.summary_problems">summary_problems</Ref> | 原生摘要与试验身份逐项核对：源码哈希、运行环境身份、有效配置哈希与运行器自报完整性，任一缺失或不符即无效原因 |
-
-### `audit_problems` [#def-replay-audit_problems]
-
-把运行器与审计器的执行结果写成无效原因：退出码、审计是否运行与其结论、结构化异常回执，逐条列出互不覆盖；基础设施错误原样保留为原因，不改写成证据不足
-
-```python
-def audit_problems(
-    workdir: Path,
-    native_exit: int,
-    audit_exit: int | None,
-) -> tuple
-```
-
-<TypeTable type={{ "workdir": { type: "Path", description: "回放工作目录；读 audit/audit.json 与 reports/runtime_failures.jsonl" }, "native_exit": { type: "int", description: "运行器退出码" }, "audit_exit": { type: "int | None", description: "审计器退出码；空表示审计器未运行" } }} />
-
-**返回**　tuple(reasons: list[dict], audit: dict | None)；reasons 每条 \{code, message, locator\}，audit 为读出的审计结果原件，缺失或不可读为空
-
-**期望行为**
-
-1. native_exit 非零：追加 NATIVE_EXIT_NONZERO，message 带退出码。
-2. audit_exit 为空：追加 AUDIT_NOT_RUN；非零：追加 AUDIT_EXIT_NONZERO。
-3. audit/audit.json 不存在追加 AUDIT_RESULT_MISSING，不可读追加 AUDIT_RESULT_UNREADABLE（附读取错误原文）；自报未通过或 findings 非空追加 AUDIT_FINDINGS，每条发现的定位原样转为 locator。
-4. reports/runtime_failures.jsonl 非空：每行须是结构化异常回执，否则 RUNTIME_FAILURE_MALFORMED，不可解析追加 RUNTIME_FAILURE_UNREADABLE；合规时按（异常类型、阶段、合约、消息）合并并累加次数（旧格式一行算一次，count 与 code 可缺），每组一条原因：策略交易之前的阶段（execution_binding、load、inputs）带拒绝码的记 RUNNER_REFUSED（消息为「拒绝码 in 阶段：原文」，截至 300 字符），receipt_overflow 记录记 RUNTIME_FAILURES_NOT_ITEMISED（写明还有多少条没有逐条列出），其余记 RUNTIME_FAILURE_RECORDED（带拒绝码、消息与次数，locator 带阶段与合约标识）。
-5. 只按退出码、文件存在性与结构化字段判定，不匹配日志文本；每条独立追加，前一条成立不省略后一条；RUNNER_REFUSED 排在最前，由它引起的 NATIVE_EXIT_NONZERO 等原因排在后面，不删除；去重比较代码、定位与消息，同一阶段与合约的不同失败分开保留；只读不写。本函数不拒绝：任何缺失、不可读或不合规都写成无效原因返回，不抛出带码拒绝。
-
-**使用**　<Ref id="replay.execute" />、<Ref id="engine.execution_failure" />、<Ref id="engine.audit" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="G.1.1.2">G.1.1.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="G.1.1.3">G.1.1.3</Ref> <Ref id="G.2.2.1">G.2.2.1</Ref> <Ref id="G.3.1.1">G.3.1.1</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref>
-
-</div>
 
 ### `execute` [#def-replay-execute]
 
@@ -80,11 +46,11 @@ def execute(
 **期望行为**
 
 1. 按运行契约取布局常量（runtime.layout），生成运行器容器命令（runtime.container_command），写 process.json 记录阶段 native=started。
-2. 运行器 stdout/stderr 分别写 native.stdout.txt、native.stderr.txt；进程无法启动记退出码 127 并把错误写入 stderr 文件；更新阶段为 exited 与退出码。每个阶段日志超过 768 KiB 加 256 KiB 时只留开头和结尾的整行，中间换成一行，写明省去的字节数和行数：引擎对每次被吞下的回调异常都记一行，而 runtime_failures.jsonl 已按类计数。
+2. 运行器 stdout/stderr 分别写 native.stdout.txt、native.stderr.txt；进程无法启动记退出码 127 并把错误写入 stderr 文件；更新阶段为 exited 与退出码。每个阶段的 stdout、stderr 文件超过 768 KiB 加 256 KiB 时，只留开头 768 KiB 与结尾 256 KiB 以内的整行，中间换成一行，写明省去的字节数和行数：引擎对每次被吞下的回调异常都记一行，而 runtime_failures.jsonl 已按类计数。
 3. 仅当全部必需报表文件齐全时生成审计器命令并运行：同一镜像摘要，reports/ 与覆盖回执只读挂载，唯一可写挂载为 audit/，输出 audit/audit.json，不挂载 source/；stdout/stderr 同样分文件落盘。报表不全则审计阶段留空，不运行。
 4. 无论正常返回、中断或宿主异常，finally 调用 ledger.seal_capture 把阶段记录、stdout/stderr、源码字节、覆盖回执、结构化异常回执与审计结果按试验封存，结局标 completed / interrupted / host_failed。
 5. 中断或宿主失败时原异常继续向上抛出，工作目录保留。
-6. 本函数不拒绝：报表不全、进程无法启动、中断或宿主失败都如实记入阶段记录并封存，由 replay.audit_problems 转成无效原因。
+6. 本函数不拒绝：报表不全、进程无法启动、中断或宿主失败都如实记入阶段记录并封存，由 ledger.audit_problems 转成无效原因。
 7. 挂载：运行器只写 reports/（运行期回调失败写 reports/runtime_failures.jsonl）；审计器只写 audit/，结果为 audit/audit.json，原生报告对它只读；运行器因此写不出审计结果。
 8. 入口保留的运行器选项包括输出目录、市场根与提交、成员文件与 --describe；Agent 传入即 RUNNER_OPTION_RESERVED。
 9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态与输出随执行封存，入账只从封存取指纹，调用方给不了。
@@ -125,7 +91,7 @@ def explore(
 2. runtime.resolve 解析运行环境身份；registration.market_inputs 导出输入（不要求新鲜，可用缓存导出），registration.input_key 算输入身份；按挂载改写运行器参数后经 runtime.inspect_runtime 探针检视。
 3. 建 source/ 与 reports/，写入源码、运行环境检视与覆盖回执（replay.input_coverage），并写 source/execution.json 执行绑定（运行环境身份、探针读出的有效配置及其哈希），与研究封存回放一样以 --execution-binding 交给运行器。
 4. 容器启动前经 ledger.open_trial 与 ledger.start_receipt 写 purpose=explore 的试验行与开始回执，记源码哈希、运行环境引用、合约集与窗口。
-5. 挂入源码、报告目录与覆盖回执调用 replay.execute，结束后由 replay.audit_problems 得出问题清单；执行捕获由 replay.execute 交 ledger.seal_capture 封存。
+5. 挂入源码、报告目录与覆盖回执调用 replay.execute，结束后由 ledger.audit_problems 得出问题清单；执行捕获由 replay.execute 交 ledger.seal_capture 封存。
 6. 目录保留；绩效指标由 report.directory_report 从未核验的临时报告读出，只供导向不作证据；finally 清理导出目录。
 
 | 拒绝码 | 条件 |
@@ -135,7 +101,7 @@ def explore(
 | `ENTRY_CLASS_INVALID` | strategy_class 不是单个 Python 类名 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项（策略文件、策略类、源码哈希、执行绑定、输出目录） |
 
-**使用**　<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="replay.audit_problems" />、<Ref id="ledger.seal_capture" />、<Ref id="report.directory_report" />
+**使用**　<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="ledger.audit_problems" />、<Ref id="ledger.seal_capture" />、<Ref id="report.directory_report" />
 
 <div className="rd-meta">
 
@@ -201,7 +167,7 @@ def precheck(
 2. 按 at 以 registration.market_inputs 新鲜导出输入（与登记同一导出器、同一提交），算 registration.input_key；经 runtime.inspect_runtime 在镜像内读出有效配置，算 registration.config_key。
 3. 建工作目录 source/、reports/，写入源码原字节、运行环境检视结果与 replay.input_coverage 覆盖回执，并与研究封存回放一样写 source/execution.json 执行绑定、以 --execution-binding 交给运行器，使预检与正式回放走同一条加载路径，执行绑定不符在预检即暴露。
 4. 在一个写事务里经 ledger.open_trial 写 purpose=precheck 的试验行（不带登记绑定器），并经 ledger.start_receipt 写开始回执（用途 precheck、源码哈希、运行环境、input_key、config_key）；事务成功后才启动容器。
-5. 调用 replay.execute（标预检用途）：先运行器后审计器，结束时（含中断与宿主失败）由 ledger.seal_capture 封存原件；再由 replay.audit_problems 给出问题清单，report.directory_report 读出工程诊断用绩效指标。
+5. 调用 replay.execute（标预检用途）：先运行器后审计器，结束时（含中断与宿主失败）由 ledger.seal_capture 封存原件；再由 ledger.audit_problems 给出问题清单，report.directory_report 读出工程诊断用绩效指标。
 6. 保留 output，清理导出目录，返回结果。预检不消耗网格点；失败或重复的预检都不成为登记尝试。
 
 | 拒绝码 | 条件 |
@@ -213,7 +179,7 @@ def precheck(
 | `RUNTIME_NOT_CI_BUILT` | 运行环境镜像缺构建源码版本标签，不是 CI 构建 |
 | `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像运行契约不一致 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="registration.config_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="ledger.seal_capture" />、<Ref id="replay.audit_problems" />、<Ref id="report.directory_report" />、<Ref id="table:v_candidates" />、<Ref id="table:v_trials" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="registration.config_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="ledger.seal_capture" />、<Ref id="ledger.audit_problems" />、<Ref id="report.directory_report" />、<Ref id="table:v_candidates" />、<Ref id="table:v_trials" />
 
 <div className="rd-meta">
 
@@ -295,7 +261,7 @@ def seal(
 2. registration.export_fingerprint 语义模式结果须等于 inputs.identity 的导出内容哈希，否则拒绝；同时记下原始模式指纹
 3. 新建临时工作目录，写 source/strategy.py、execution.json（运行环境身份、有效配置及其哈希；与探索、预检、复现同一写法）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
-5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、replay.summary_problems、replay.audit_problems，逐条去重互不覆盖
+5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、ledger.summary_problems、ledger.audit_problems，逐条去重互不覆盖
 6. ledger.ingest_run 入账（有效含封存结果、逐日序列与持仓周期，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
 7. 内容原因导致的入账失败（原生报表缺失或不可读、摘要缺键、覆盖身份不符、绩效指标计算出错）都作为失败原因存成 invalid 运行（NATIVE_REPORT_UNREADABLE 等）；只有账本不可用、并发写这类基础设施错误才让试验暂时没有运行。容器启动前就被拒绝时删除工作目录。
 
@@ -305,49 +271,11 @@ def seal(
 | `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像运行契约不一致 |
 | `EXPORT_CHANGED_BEFORE_EXECUTION` | 执行前导出语义指纹不等于输入身份记录的导出内容哈希 |
 
-**使用**　<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.config_key" />、<Ref id="registration.export_fingerprint" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="registration.bind" />、<Ref id="registration.validation_bind" />、<Ref id="replay.execute" />、<Ref id="replay.summary_problems" />、<Ref id="replay.audit_problems" />、<Ref id="ledger.ingest_run" />、<Ref id="table:ledger_head" />
+**使用**　<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.config_key" />、<Ref id="registration.export_fingerprint" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="registration.bind" />、<Ref id="registration.validation_bind" />、<Ref id="replay.execute" />、<Ref id="ledger.summary_problems" />、<Ref id="ledger.audit_problems" />、<Ref id="ledger.ingest_run" />、<Ref id="table:ledger_head" />
 
 <div className="rd-meta">
 
 **关联章节**　<Ref id="J.6.1.1">J.6.1.1</Ref> <Ref id="C.1.1.2">C.1.1.2</Ref> <Ref id="C.4.1.1">C.4.1.1</Ref> <Ref id="G.1.1.2">G.1.1.2</Ref> <Ref id="G.2.1.1">G.2.1.1</Ref> <Ref id="G.3.1.1">G.3.1.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref>
-
-</div>
-
-### `summary_problems` [#def-replay-summary_problems]
-
-原生摘要与试验身份逐项核对：源码哈希、运行环境身份、有效配置哈希与运行器自报完整性，任一缺失或不符即无效原因
-
-```python
-def summary_problems(
-    summary: dict | None,
-    source_sha256: str,
-    identity: dict,
-    config_sha256: str,
-) -> list[dict]
-```
-
-<TypeTable type={{ "summary": { type: "dict | None", description: "运行器在运行环境内写出的原生摘要；空表示缺失" }, "source_sha256": { type: "str", description: "被回放候选的源码内容哈希（来自试验行）" }, "identity": { type: "dict", description: "按摘要钉死的运行环境身份（来自试验行）" }, "config_sha256": { type: "str", description: "宿主侧探针读出的有效配置哈希" } }} />
-
-**返回**　list[dict]：无效原因 \{code, message, locator\}；空列表表示一致
-
-**期望行为**
-
-1. summary 为空：只返回 SUMMARY_MISSING。
-2. summary.source_sha256 缺失或不等于 source_sha256：追加 SOURCE_MISMATCH。
-3. summary.runtime_identity 缺失或不等于 identity：追加 RUNTIME_MISMATCH，locator 写不符的字段名。
-4. summary.effective_config_sha256 缺失或不等于 config_sha256：追加 CONFIG_MISMATCH。
-5. summary.integrity_passed 不为真：追加 RUNNER_INTEGRITY_FAILED（含策略自检发现、被否被拒订单、估值未覆盖时段）。
-6. 只核对不改写；在运行环境外执行，两端身份取自同一试验行。本函数不拒绝：缺失或不符一律写成无效原因返回。
-
-**使用**　<Ref id="table:v_trials" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="engine.write_native_reports" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="G.1.1.4">G.1.1.4</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
-
-**依据**
-
-- [OCI image-spec — descriptor（digest 字段）](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)　官方文档
 
 </div>
 
