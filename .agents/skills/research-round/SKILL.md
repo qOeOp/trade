@@ -11,8 +11,8 @@ controls and priorities yourself and keep iterating; nothing ends the loop but t
 
 ## Commands
 
-Every command is `uv run --frozen python -m cli.main <noun> <verb> ...` from the repository root (`--help`
-lists the options). Output is JSON; a refusal is JSON on stderr with `code`, `message`,
+Every command is `uv run --frozen python -m cli.main <noun> <verb> ...` from the repository root
+(`--help` lists the options). Output is JSON; a refusal is JSON on stderr with `code`, `message`,
 `next_actions` and `write_status`. Supply what `next_actions` names and rerun; never work around a
 refusal. These commands are the only way to write the ledger.
 
@@ -43,17 +43,15 @@ cli replay reproduce --run-id RUN --output /tmp/RUNDIR/reproduction
 ```
 
 The runner arguments after `--` (`engine/README.md`) are the same for `registration add` and
-`replay run`. A refused `registration add` writes nothing: fix what the refusal names and rerun.
-Typical durations: precheck about 10 s, a one-contract 20-month run about 45 s, reproduce about
-35 s, the full test suite about 3 min; wait for the command instead of polling.
+`replay run`.
 
 Precheck runs the published candidate natively on the shortest window and fewest contracts the
 change needs. The review is done by a fresh sub-agent with no authoring context (on Codex
 `fork_turns: "none"`), given only the candidate id, the sealed precheck bundle and the four items
-(api, causal, activity, readiness); after a repair, by a new one. It does those four checks only,
-recomputes no descriptive statistic, and records its verdict with `source review`. `replay explore`
-runs an unpublished file for engineering only (purpose explore); it writes a trial but is never
-evidence. Any statistic beyond the reports follows `nautilus-report-analysis`.
+(api, causal, activity, readiness); after a repair, by a new one. It does those four checks only
+and records its verdict with `source review`. `replay explore` runs an unpublished file for
+engineering only; it writes a trial but is never evidence. Any statistic beyond the reports follows
+`nautilus-report-analysis`.
 
 Read also: [review.md](references/review.md) when the review cadence is due;
 [template.md](references/template.md) to transcribe a template or a user source into a root;
@@ -65,59 +63,47 @@ changes; [restore.md](references/restore.md) for a backup restore drill;
 
 ## Rules
 
-- **A.1.1.2** Inside the line, run the steps in order: sources, hypothesis, publish, precheck and
-  review, registration, replay, audit and eligibility, comparison, feedback and priority. Never
-  ask the user to approve or confirm the next step; stop only for the authority list below or
-  when the line should change (back to `research-start`).
-- **A.1.1.3** Run the loop inside one turn. A report, an interpretation, a recommendation, a
-  review or a priority judgment never ends your turn: once the priority is recorded, publish,
-  precheck, review, register and replay the next experiment in the same turn. End the turn only
-  for the authority list (A.2.3.3), a line change (back to `research-start`) or the user.
-  `research-start` sets the host's goal before the line starts (E.4.1.3); without one, keep going
-  within the turn.
-- **A.2.2.1** Position size, per-plan risk and notional limits are your design variables: write
-  them in the strategy source and change them as a new candidate without asking; never describe
-  them as user constraints. The user's research targets are only the maximum drawdown and the
-  minimum annual return: the direction of the iteration and the reference for reading reports,
-  never a filter on candidates. Win rate is a report dimension, not a target.
-- **A.2.3.3** Stop, explain and wait for the user before live trading, venue connections or
-  trading credentials; a destructive write (clearing the ledger, rewriting or deleting published
+- Inside the line, run the steps in order and keep the loop going within the turn; never ask the
+  user to approve or confirm the next step. A report, an interpretation, a recommendation, a review
+  or a priority judgment never ends the turn: once the priority is recorded, publish, precheck,
+  review, register and replay the next experiment in the same turn. End the turn only for the
+  authority list below, a line change (back to `research-start`) or the user.
+  `research-start` sets the host's goal before the line starts.
+- Stop, explain and wait for the user before live trading, venue connections or trading
+  credentials; a destructive write (clearing the ledger, rewriting or deleting published
   records); relaxing or tightening any refusal or audit check, in code, tests, configuration or a
-  skill; changing a research target; or killing a host process or changing host configuration
-  (a Docker credential helper, for example). Do not do it and do not work around it.
-- **V.1.2.1** Replay every point of a registered grid once before reading any performance measure
-  or registering the next batch. Do not add points, change parameters or edit source midway: a new
-  grid, source or intent is a new registration, and a consumed point is retried only by a new
-  registration naming it in `retry_of`.
-- **V.1.2.2** Fills, fees, PnL and plan outcomes come only from the product's reports and
-  `tables()`. Never derive them from price touches, signal counts or counterfactual counts, not
-  even as an estimate, bound or scenario, and never fill a masked measure; put the economic
-  question to a registered replay.
-- **F.3.1.2** The review cadence only triggers a review; after the review, research continues. No
-  count of trials, runs or budget stops research or makes a direction invalid.
-- **X.1.1.1** Out-of-sample validation is registered only after the user names it; never start it
-  yourself, and no step of the loop waits for it. When the user accepts a candidate from a report,
-  ask once whether to validate it, say what it tests and what it does not, and wait.
-- **X.2.2.2** Only a replay of a window after the validation registration's timestamp is
-  out-of-sample. Everything else, a later part of the development data or a window a tuning step
-  skipped included, is an improvement or a development observation, at most "not refuted"; never
-  generalized, independent, quasi out-of-sample or "not overfitted".
-- **C.1.4.4** When the instances share one account, the source states the capital budget and its
-  allocation: how one batch of signals shares capital, what happens to an opportunity that gets
-  none (smaller, later or skipped), and that exit orders only reduce. Callback order and engine
-  denials are not an allocation rule. A rule merged from another version is still allocated in the
-  same account and registered as one change.
-- **J.1.1.1** The ledger and its backup are the only research record; session memory, handoff
-  files and working copies do not count. Cite every conclusion and judgment by bundle name, run or
+  skill; or changing a research target. Do not do it and do not work around it.
+- Position size, per-plan risk and notional limits are your design variables: write them in the
+  strategy source and change them as a new candidate without asking; never describe them as user
+  constraints. The user's research targets are only the maximum drawdown and the minimum annual
+  return: the direction of the iteration and the reference for reading reports, never a filter on
+  candidates. Win rate is a report dimension, not a target.
+- No count of trials, runs or budget stops research or makes a direction invalid; the review
+  cadence only triggers a review.
+- Replay every point of a registered grid once before reading any performance measure or
+  registering the next batch. Do not add points, change parameters or edit source midway: a new
+  grid, source or intent is a new registration, and a consumed
+  point is retried only by a new registration naming it in `retry_of`.
+- Fills, fees, PnL and plan outcomes come only from the product's reports and `tables()`. Never
+  derive them from price touches, signal counts or counterfactual counts, not even as an estimate,
+  bound or scenario, and never fill a masked measure; put the economic question to a registered
+  replay.
+- Out-of-sample validation is registered only after the user names it; no step of the loop waits
+  for it. When the user accepts a candidate from a report, ask once whether to validate it, say
+  what it tests and what it does not, and wait. Only a replay of a window after the validation
+  registration's timestamp is out-of-sample; everything else, a later part of the development
+  data or a window a tuning step skipped included, is at most an improvement or a development
+  observation ("not refuted"), never generalized, independent, quasi out-of-sample or "not
+  overfitted".
+- The ledger and its backup are the only research record; session memory, handoff files and
+  working copies do not count. Cite every conclusion and judgment by bundle name, run or
   registration id and ledger commit, without copying measures, counts or eligibility into the
   text; enter material in the ledger before citing it.
-- **J.1.2.2** Strategy source, registrations and receipts never go into Git. Change a candidate by
-  exporting it to /tmp (`candidate export`), editing the copy and publishing it
-  (`candidate publish`).
-- **J.3.1.2** Correct a mistake with a new evidence bundle (`evidence add`) naming the corrected
-  object (run id, registration or bundle name), the ledger commit it sits in, the correction and
-  the reason; never change the original. A summary shows the old statement with its correction
-  bundle.
-- **C.1.4.2** Before editing source, read the parent's file header. Change only the duty lines the
-  change touches, keep every other line byte for byte, and list those duty ids in the
-  registration's `changed_duties`.
+- Correct a mistake with a new evidence bundle (`evidence add`) naming the corrected object, the
+  ledger commit it sits in, the correction and the reason; never change the original. A summary
+  shows the old statement with its correction bundle.
+- Strategy source, registration bodies and receipts never go into Git. Change a candidate by
+  exporting it to /tmp (`candidate export`), editing the copy and publishing it (`candidate
+  publish`). Before editing, read the parent's file header; change only the duty lines the change
+  touches, keep every other line byte for byte, and list those duty ids in the registration's
+  `changed_duties`.

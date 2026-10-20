@@ -7,15 +7,15 @@ retries a missing one); `replay run --validation ID` runs it once; `validation r
 --registration-id ID` reads it with the same measures and masking as development reports,
 intervals, p and the Holm correction over the window's registrations, and no verdict.
 
-- **X.1.1.2** Before suggesting a window, tell the user how concentrated the candidate's
-  development PnL is (one year, a few days, a few contracts) and its capital use, each with the
-  identity of the reading, then suggest a window length from its plan frequency so that one
-  interval can resolve an effect.
-- **X.2.1.4** Report the result as it is and go to the user as soon as it exists. Whatever it
-  shows, do not register another window or universe, do not pick among several validations of one
-  candidate, and never put development measures in place of out-of-sample ones.
-- **X.2.2.1** State that the measures approximate live trading and in which direction: simulated
-  fills, a limit fills only when traded through (conservative), no slippage and market orders not
-  limited by volume (optimistic); name the execution style the result rests on, and give the window
-  length and the effect it could resolve. A
-  short window can refute an obvious failure, never establish a high return.
+- Before suggesting a window, tell the user how concentrated the candidate's development PnL is
+  (one year, a few days, a few contracts) and its capital use, each with the identity of the
+  reading, then suggest a window length from its plan frequency so that one interval can resolve
+  an effect.
+- Report the result as it is and go to the user as soon as it exists. Whatever it shows, do not
+  register another window or universe, do not pick among several validations of one candidate,
+  and never put development measures in place of out-of-sample ones.
+- State that the measures approximate live trading and in which direction: simulated fills, a
+  limit fills only when traded through (conservative), no slippage and market orders not limited
+  by volume (optimistic); name the execution style the result rests on, and give the window length
+  and the effect it could resolve. A short window can refute an obvious failure, never establish a
+  high return.

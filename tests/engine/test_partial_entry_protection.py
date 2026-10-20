@@ -3,7 +3,8 @@
 The pinned Nautilus cancels a bracket's stop and target when its entry expires or is canceled, even
 after a partial fill. A native BacktestEngine replays the D25 case on one-minute bars (0.25 of 16.339
 filled, then the GTD expiry 72 bars later) twice: with the bare bracket the audit refuses the run, and with the
-strategy-authoring reference's handler the same replay passes.
+handler below, which the research-round strategy-authoring reference points strategies to, the same
+replay passes.
 """
 
 import contextlib
@@ -70,7 +71,7 @@ class TieredEntry(Strategy):
     def on_position_closed(self, event):
         self.cancel_all_orders(INSTRUMENT_ID)
 
-    # The strategy-authoring reference's handler, unchanged.
+    # The re-protection handler that the strategy-authoring reference points strategies to.
     def on_order_expired(self, event):
         if self.cover:
             self.cover_filled_entry(event.client_order_id)

@@ -2,7 +2,7 @@
 
 Read before an entry-plan × exit-reason table or splitting contributions by exit.
 
-- **F.1.2.2** Build the table from `tables()` cycles of an eligible run: one row per entry-plan
+- Build the table from `tables()` cycles of an eligible run: one row per entry-plan
   tag, one column per exit category, each cell the closed count and closed net PnL with price PnL,
   commissions and funding apart. The exit category is only the closing order's tag or order type
   (`closing_order_tags`, the order of `closing_order_id`), never the sign of PnL or a price level.
