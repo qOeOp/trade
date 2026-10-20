@@ -22,6 +22,10 @@ RUNTIME_ERRORS = "reports/runtime_failures.jsonl"  # engine.execution_failure
 SUMMARY = "reports/summary.json"
 FINGERPRINT = "fingerprint/fingerprint.json"
 FAILURE_FIELDS = ("stage", "exception_type")
+FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
+# engine.main stages that end before any strategy trades (execution_failure): binding, load, inputs.
+PRE_STRATEGY_STAGES = frozenset({"execution_binding", "load", "inputs"})
+OVERFLOW_STAGE = "receipt_overflow"  # engine.run.OVERFLOW_STAGE: the failures beyond the itemised records
 # engine.config.HOST_PATH_KEYS: the host paths the effective configuration hash leaves out
 HOST_PATH_KEYS = ("market_root", "universe_path")
 
@@ -38,6 +42,8 @@ REASONS: dict[str, str] = {
     "RUNTIME_FAILURE_UNREADABLE": "The runtime failure receipts are not JSON lines.",
     "RUNTIME_FAILURE_MALFORMED": "A runtime failure receipt lacks its stage or exception type.",
     "RUNTIME_FAILURE_RECORDED": "The runner recorded a runtime failure.",
+    "RUNNER_REFUSED": "The runner refused before the strategy traded; its refusal code is the cause.",
+    "RUNTIME_FAILURES_NOT_ITEMISED": "The runner recorded more distinct failures than it itemises.",
     "SUMMARY_MISSING": "The native summary is missing.",
     "SUMMARY_INCOMPLETE": "The native summary lacks a field the sealed report needs.",
     "SOURCE_MISMATCH": "The native summary names another source.",
@@ -77,8 +83,8 @@ def config_sha256(effective_config: Mapping) -> str:
 
 
 def unique(reasons) -> list[dict]:
-    """The reasons with repeats (same code and locator) dropped, in order."""
-    return list({(item["code"], json.dumps(item.get("locator"), sort_keys=True, default=str)): item
+    """The reasons with repeats (same code, locator and message) dropped, in order."""
+    return list({(item["code"], json.dumps(item.get("locator"), sort_keys=True, default=str), item.get("message")): item
                  for item in reasons}.values())
 
 
@@ -128,10 +134,57 @@ def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes
                 reasons.append(reason("RUNTIME_FAILURE_MALFORMED", "a runtime failure receipt is not structured",
                                       RUNTIME_ERRORS))
             else:
-                for item in lines:
-                    reasons.append(reason("RUNTIME_FAILURE_RECORDED", f"{item['exception_type']} in {item['stage']}",
-                                          f"{item['stage']}:{item.get('instrument_id') or 'unconstructed'}"))
-    return reasons, parsed
+                for group in failure_groups(lines):
+                    reasons.append(_failure_reason(group))
+    return cause_first(reasons), parsed
+
+
+def cause_first(reasons: list[dict]) -> list[dict]:
+    """The reasons with a runner refusal before the run first: the exit, audit and summary reasons
+    that follow from it come after, in their order."""
+    return sorted(reasons, key=lambda item: item["code"] != "RUNNER_REFUSED")
+
+
+def _failure_reason(group: Mapping) -> dict:
+    if group["stage"] == OVERFLOW_STAGE:
+        return reason("RUNTIME_FAILURES_NOT_ITEMISED", f"{group['count']} more failures not itemised", OVERFLOW_STAGE)
+    code, message = group["code"], group["message"]
+    if code and group["stage"] in PRE_STRATEGY_STAGES:
+        detail = message.removeprefix(f"{code}: ")[:FAILURE_TEXT_LIMIT]
+        return reason("RUNNER_REFUSED", f"{code} in {group['stage']}" + (f": {detail}" if detail else ""),
+                      f"{group['stage']}:{code}")
+    return reason("RUNTIME_FAILURE_RECORDED", _failure_text(group), f"{group['stage']}:{group['instrument_id']}")
+
+
+def _count(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else 1
+
+
+def failure_groups(items) -> list[dict]:
+    """Runtime failure receipts merged by (exception type, stage, instrument, message), in first-seen
+    order, each with its total count, its refusal code and its first traceback. A receipt is one
+    failure unless it carries a positive `count`; `code` is optional (a runner refusal's code)."""
+    groups: dict[tuple, dict] = {}
+    for item in items:
+        item = item if isinstance(item, Mapping) else {}
+        key = (str(item.get("exception_type")), str(item.get("stage")),
+               str(item.get("instrument_id") or "unconstructed"), str(item.get("message") or ""))
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = {"exception_type": key[0], "stage": key[1], "instrument_id": key[2],
+                                   "message": key[3], "code": None, "count": 0,
+                                   "traceback": str(item.get("traceback") or "")[:FAILURE_TEXT_LIMIT * 10] or None}
+        if group["code"] is None and isinstance(item.get("code"), str) and item["code"]:
+            group["code"] = item["code"]
+        group["count"] += _count(item.get("count"))
+    return list(groups.values())
+
+
+def _failure_text(group: Mapping) -> str:
+    code = f" {group['code']}" if group["code"] and not group["message"].startswith(group["code"]) else ""
+    message = group["message"][:FAILURE_TEXT_LIMIT]
+    times = f" ({group['count']} times)" if group["count"] > 1 else ""
+    return f"{group['exception_type']}{code} in {group['stage']}" + (f": {message}" if message else "") + times
 
 
 def summary_problems(summary: Mapping | None, source_sha256: str, identity: Mapping, config_sha256: str) -> list[dict]:
@@ -189,7 +242,7 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
     else:
         reasons += summary_problems(parsed, source_sha256, identity, config_sha256)
     reasons += capture_fingerprint(capture)[1]
-    return unique(reasons)
+    return cause_first(unique(reasons))
 
 
 def capture_fingerprint(capture: Mapping) -> tuple[dict | None, list[dict]]:

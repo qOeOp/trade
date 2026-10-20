@@ -10,9 +10,11 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import json
+import re
 
-from ledger import db, execution, lines, witness
+from ledger import db, execution, lines, problems, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -24,20 +26,132 @@ SINGLE_KINDS = ("recommendation", "priority", "review_cadence")
 MANY_KINDS = ("interpretation", "search_exposure")
 DIMENSIONS = ("runtime", "effective_config", "input")
 RUNTIME_KEYS = ("image_digest", "runtime_contract", "engine_version", "dependency_lock_sha256")
+TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
+
+
+def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, dict]]:
+    """(start receipt, final capture) execution.json of every trial by trial ID, each hash checked:
+    one primary-key range read of the trial-* namespace, no blob of the captures."""
+    starts, captures = {}, {}
+    for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND "
+                                             "path = %s", ("trial-%", execution.MANIFEST)):
+        found = TRIAL_MANIFEST.fullmatch(bundle)
+        if found is None:
+            continue
+        content = bytes(content)
+        if hashlib.sha256(content).hexdigest() != stored:
+            raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{execution.MANIFEST} differs from its content hash",
+                         missing=(f"{bundle}/{execution.MANIFEST}",))
+        try:
+            value = json.loads(content.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            value = None
+        if isinstance(value, dict):
+            (captures if found.group(2) == "execution" else starts)[int(found.group(1))] = value
+    return starts, captures
+
+
+def failure_stages(data: bytes) -> set[str] | None:
+    """The stages of runtime failure receipt bytes; None when a line is no structured receipt."""
+    stages = set()
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            return None
+        if not isinstance(item, dict) or not isinstance(item.get("stage"), str):
+            return None
+        stages.add(item["stage"])
+    return stages
+
+
+def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> bool:
+    """Whether a sealed capture shows the runner stopped before any strategy result existed: the replay
+    completed on the host, the native runner exited nonzero without writing its summary, and every
+    runtime failure it recorded (if any) is of a stage before the strategy trades (binding, load,
+    inputs: problems.PRE_STRATEGY_STAGES)."""
+    if not isinstance(capture, Mapping):
+        return False
+    files = capture.get("files") if isinstance(capture.get("files"), Mapping) else {}
+    native = (capture.get("stages") or {}).get("native") if isinstance(capture.get("stages"), Mapping) else None
+    exited = (isinstance(native, Mapping) and native.get("state") == "exited" and isinstance(native.get("exit_code"), int)
+              and native["exit_code"] != 0)
+    summary = (files.get("reports/summary.json") or {}).get("status")
+    if not exited or (capture.get("outcome") or {}).get("kind") != "completed" or summary in ("captured", "hashed"):
+        return False
+    stages = failure_stages(failures) if failures else set()
+    return stages is not None and stages <= problems.PRE_STRATEGY_STAGES
+
+
+def _input_key(start: Mapping | None):
+    try:
+        return comparability.input_key((start or {}).get("input_identity"))
+    except Refusal:
+        return None
+
+
+def counted_trials(conn: db.LedgerConnection) -> dict:
+    """The trials that count as tests of a strategy, and the ones that do not (user decision
+    2026-10-20): a reproduction (an explore trial replaying an earlier trial that has a run, with the
+    same source, image digest, windows, instruments and inputs, as replay.reproduce writes) and a
+    trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the
+    stored trial rows and capture manifests; nothing is marked."""
+    trials = conn.dicts("SELECT t.trial_id, t.purpose, t.source_sha256, t.image_digest, t.instruments, t.input_start, "
+                        "t.trade_start, t.trade_end, r.run_id FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
+                        "ORDER BY t.trial_id")
+    starts, captures = _manifests(conn)
+    reproductions, stopped, counted = [], [], []
+    for trial in trials:
+        trial_id = trial["trial_id"]
+        identity = (trial["source_sha256"], trial["image_digest"], str(trial["instruments"]), trial["input_start"],
+                    trial["trade_start"], trial["trade_end"])
+        if trial["purpose"] == "explore" and any(
+                earlier["run_id"] is not None and earlier["trial_id"] < trial_id
+                and (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]),
+                     earlier["input_start"], earlier["trade_start"], earlier["trade_end"]) == identity
+                and _input_key(starts.get(trial_id)) is not None
+                and _input_key(starts.get(earlier["trial_id"])) == _input_key(starts.get(trial_id))
+                for earlier in trials):
+            reproductions.append(trial_id)
+            continue
+        capture = captures.get(trial_id)
+        failures = None
+        if isinstance(capture, Mapping) and ((capture.get("files") or {}).get(execution.RUNTIME_ERRORS) or {}).get(
+                "status") == "captured":
+            found = conn.rows("SELECT content, sha256 FROM evidence WHERE bundle = %s AND path = %s",
+                              (f"trial-{trial_id}-execution", execution.RUNTIME_ERRORS))
+            if found and hashlib.sha256(bytes(found[0][0])).hexdigest() == found[0][1]:
+                failures = bytes(found[0][0])
+            else:
+                capture = None  # unreadable receipts: the trial counts
+        if stopped_before_strategy(capture, failures):
+            stopped.append(trial_id)
+            continue
+        counted.append(trial)
+    return {"counted": counted, "reproductions": reproductions, "stopped_before_strategy": stopped}
 
 
 def research_status(ledger, at: str | None = None) -> dict:
     """Research fact counts at a ledger version: trials, versions, registration attempts by outcome and
-    out-of-sample registrations; only counts, versions and the checker identity."""
+    out-of-sample registrations; only counts, versions and the checker identity. The trial counts
+    (`trials`, `distinct_sources`, `by_development_window`, the multiple-testing counts) leave out
+    reproductions and trials stopped before the strategy ran, listed in `excluded_trials`."""
     checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
         records = availability.review_records(conn)
-        (trials, sources), = conn.rows("SELECT COUNT(*), COUNT(DISTINCT source_sha256) FROM trial")
-        windows = [{"trade_start": start, "trade_end": end, "trials": count, "distinct_sources": distinct}
-                   for start, end, count, distinct in conn.rows(
-                       "SELECT trade_start, trade_end, COUNT(*), COUNT(DISTINCT source_sha256) FROM trial GROUP BY "
-                       "trade_start, trade_end ORDER BY trade_start, trade_end")]
+        found = counted_trials(conn)
+        trials, sources = len(found["counted"]), len({trial["source_sha256"] for trial in found["counted"]})
+        by_window: dict[tuple, list[dict]] = {}
+        for trial in found["counted"]:
+            by_window.setdefault((trial["trade_start"], trial["trade_end"]), []).append(trial)
+        windows = [{"trade_start": start, "trade_end": end, "trials": len(items),
+                    "distinct_sources": len({item["source_sha256"] for item in items})}
+                   for (start, end), items in sorted(by_window.items())]
+        excluded = {"reproductions": found["reproductions"],
+                    "stopped_before_strategy": found["stopped_before_strategy"]}
         gaps = [f"run {run_id}" for (run_id,) in conn.rows(
             "SELECT r.run_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS NULL")]
         attempts = conn.dicts("SELECT a.registration_bundle, a.trial_id, t.trial_id AS found_trial, r.run_id, r.status "
@@ -71,6 +185,7 @@ def research_status(ledger, at: str | None = None) -> dict:
             if _stamp(conn, commit_hash) is None:
                 unwitnessed += count
     return {"ledger_commit": commit, "trials": trials, "distinct_sources": sources, "by_development_window": windows,
+            "excluded_trials": excluded,
             "research_attempts": len(attempts), "audit_passed_research_runs": counted["passed"],
             "valid_research_runs": counted["valid"], "diagnostic_only_research_runs": counted["diagnostic"],
             "invalid_research_runs": counted["invalid"], "unfinished_research_attempts": counted["unfinished"],
@@ -129,14 +244,22 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
 
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None) -> dict:
     """The current judgments of a research line with read-time facts, the trials since the last
-    recommendation, the trial count of the line and the gates the next registration would meet."""
+    recommendation, the trial count of the line and the gates the next registration would meet. On
+    a ledger without a research line: `line` null with the facts and `line select` as the next step."""
     checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
         records = availability.review_records(pinned)
         line = line_bundle or (lines.current_line(pinned) or {}).get("bundle")
-        if line is None:
-            raise refuse("LINE_UNKNOWN", "the ledger has no research line", missing=("research-line",))
+        if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
+            needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
+                       "missing": ["research-line"]}]
+            return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "interpretations": [],
+                    "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
+                    "gates": {"root": needed, "derived": needed},
+                    "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
+                              "counts": research_status(conn.profile, commit)},
+                    "next_actions": ["Select the user's research line with `line select`."]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         judged = _judgments(pinned, line)
         recommendation = (judged["recommendation"] or [None])[-1]

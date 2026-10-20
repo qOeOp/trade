@@ -307,18 +307,24 @@ def _run_row(conn: db.LedgerConnection, run_id: int, side: str) -> dict:
     return found
 
 
-def gather(conn: db.LedgerConnection, bundle: str, run_id: int) -> dict:
-    """Every check of report.compare and both sides' stored facts (read only)."""
-    plan, registered_at = register.load_plan(conn, bundle)
-    body, execution = plan["body"], plan["execution"]
-    if body.get("control_run") is None:
-        raise refuse("NO_CONTROL", f"{bundle} declares no control run", missing=("control_run",))
+def _grid_run(conn: db.LedgerConnection, bundle: str, run_id: int) -> dict:
+    """The run of a grid point the registration consumed; RUN_NOT_IN_GRID otherwise."""
     candidate = _run_row(conn, run_id, "candidate")
     attempt = conn.one("SELECT source_sha256 FROM registration_attempt WHERE registration_bundle = %s AND trial_id = %s",
                        (bundle, candidate["trial_id"]))
     if attempt is None or attempt["source_sha256"] != candidate["source_sha256"]:
         raise refuse("RUN_NOT_IN_GRID", f"run {run_id} is not the run of a grid point of {bundle}",
                      missing=(str(run_id),))
+    return candidate
+
+
+def gather(conn: db.LedgerConnection, bundle: str, run_id: int) -> dict:
+    """Every check of report.compare and both sides' stored facts (read only)."""
+    plan, registered_at = register.load_plan(conn, bundle)
+    body, execution = plan["body"], plan["execution"]
+    if body.get("control_run") is None:
+        raise refuse("NO_CONTROL", f"{bundle} declares no control run", missing=("control_run",))
+    candidate = _grid_run(conn, bundle, run_id)
     control = _run_row(conn, body["control_run"], "control")
     records = {}
     for side, row in (("candidate", candidate), ("control", control)):
@@ -335,9 +341,17 @@ def gather(conn: db.LedgerConnection, bundle: str, run_id: int) -> dict:
 def compare(profile, bundle: str, run_id: int, at: str | None = None, *, part: str = "all") -> dict:
     """The one comparison entry: comparability and economic evidence of both sides, the paired test,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
-    read time from stored rows and the registration, never stored."""
+    read time from stored rows and the registration, never stored. A grid run of a registration
+    without a control gets that answer (no evidence, no attribution) and the single-run report to read."""
     revision = availability.report_revision()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
+        if register.load_plan(conn, bundle)[0]["body"].get("control_run") is None:
+            candidate = _grid_run(conn, bundle, run_id)
+            return {"bundle": bundle, "run_id": candidate["run_id"], "control_run_id": None,
+                    "ledger_commit": db.head_commit(conn), "evidence": None, "attribution": None,
+                    "reason": f"{bundle} declares no control run, so there is nothing to compare run "
+                              f"{candidate['run_id']} with",
+                    "next_actions": [f"Read the run alone with `replay report --run-id {candidate['run_id']}`."]}
         found = gather(conn, bundle, run_id)
         interaction = interaction_of(conn, found)
     body, facts = found["body"], found["facts"]

@@ -52,9 +52,10 @@ preparing the registration body.
 
 `registration add --bundle NAME --body FILE --source FILE ...` locks the body and the execution
 identity in an immutable bundle. The body holds exactly `prediction`, `changed_duties`, `parent`,
-`control_run`, `change`, `rationale`, `sources`, `metric`, `comparison`, `grid` (one to five
+`control_run`, `change`, `rationale`, `sources`, `comparison`, `grid` (one to five
 `{candidate, params}`), `conditions` and `window`, optionally `retry_of` and `prechecks` (each
 grid candidate's `source-review-*` bundle). A root has no parent, no control and empty
 `changed_duties`; a derivation names at least one duty, and every changed duty has a prediction.
-The `comparison` values are uncalibrated method examples, locked with the registration. A refusal
+The `comparison` values are uncalibrated method examples, locked with the registration; without a
+control run `comparison` is null and `hypothesis compare` has nothing to compare. A refusal
 names the missing field and its description.

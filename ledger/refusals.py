@@ -63,6 +63,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "is idempotent.",)),
     "DOLT_SQL_ERROR": ("The ledger refused a statement; the transaction was rolled back.",
                        (_RERUN,)),
+    "SQL_STATEMENT_FAILED": ("The ledger refused a `ledger sql` read statement; the server's error text is in the "
+                             "message.",
+                             ("Fix the statement and rerun; list tables with `ledger sql \"SHOW TABLES\"` and columns "
+                              "with `ledger sql \"DESCRIBE <table>\"`.",)),
     # Paths
     "NOT_TEMPORARY_PATH": ("The path is not strictly under a temporary root.",
                            ("Pass a new directory under /tmp (or the platform temporary directory).",)),
@@ -134,7 +138,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LINE_FORMAT_UNSUPPORTED": ("The research line record is not a research-line-v1 record.",
                                 ("Select a new line with `line select`.",)),
     "LINE_UNKNOWN": ("The research line bundle does not exist or is not a research-line-* bundle.",
-                     ("Read the current line with `research state`; select one with `line select`.",)),
+                     ("Name an existing research-line-<n> bundle, or omit --line to read the current line; "
+                      "select a line with `line select`.",)),
     # Trials
     "BINDING_NOT_ALLOWED": ("The binder does not fit the replay's purpose: an exploration or precheck was given "
                             "a registration binder, or a non-validation trial a validation binder.",
@@ -238,8 +243,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Read the exploration or precheck from its directory; register to store a run.",)),
     "RUN_ALREADY_INGESTED": ("The trial already has a run.",
                              ("Read it with `research status`; a trial is stored once.",)),
-    "NOT_A_CHECKOUT": ("The metrics code is not in a Git checkout, so no metrics revision can be recorded.",
-                       ("Run the product from its Git checkout.",)),
     "UNKNOWN_RUN": ("The ledger version read holds no run of that ID.",
                     ("List runs with `research status`.",)),
     "REPORT_UNREADABLE": ("A native report file exists but is not UTF-8 CSV, JSON or gzip as the runner writes it.",
@@ -307,8 +310,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "does not exist.",
                          ("Pass the originals with `registration add --source`, or add them with `evidence add` "
                           "and cite their bundle names.",)),
-    "METRIC_UNSUPPORTED": ("The comparison metric has no defined paired inference; only annual_return has one.",
-                           ("Register metric annual_return.",)),
     "RESEARCH_LINE_REQUIRED": ("The ledger has no research line record, so the window cannot be checked.",
                                ("Select a research line with `line select`, then register.",)),
     "WINDOW_MISMATCH": ("The registered window differs from the research line's development window, or a "
@@ -332,7 +333,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "prediction.",
                            ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
                             "empty slice with a reason).",)),
-    "INTERPRETATION_REQUIRED": ("A completed research trial of the line has no interpretation judgment.",
+    "INTERPRETATION_REQUIRED": ("A completed research trial of the line has no interpretation judgment (an invalid "
+                                "run whose registration a later registration retries needs none).",
                                 ("Add an interpretation with `judgment add --kind interpretation` about the trials "
                                  "the message lists.",)),
     "REVIEW_DUE": ("The research trials since the last recommendation reached the review cadence.",
@@ -481,7 +483,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Pass the runner's arguments as strings.",)),
     # Runtime (runtime/image.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
-                            ("Check the image reference and the container runtime, then rerun.",)),
+                            ("Check the image reference and the container runtime, then rerun. A pull that never "
+                             "finishes is often a Docker credential helper (credsStore or credHelpers in "
+                             "~/.docker/config.json) that never answers; the public runtime image pulls "
+                             "anonymously without it.",)),
     "RUNTIME_PROBE_INVALID": ("The runtime identity probe failed or returned an incomplete report.",
                               ("Use a runtime image built by CI for a supported runtime contract.",)),
     "RUNTIME_IDENTITY_INVALID": ("The runtime identity is malformed: a field is missing or extra, the reference "
@@ -501,7 +506,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                     ("Read `python -m cli.main <noun> <verb> --help` and rerun with the declared options.",)),
     "SOURCE_UNREADABLE": ("The given file is not a readable regular file (missing, a directory or a link).",
                           ("Pass the path of the single-file UTF-8 source itself.",)),
-    "WRITE_VIA_SQL": ("`ledger sql` runs exactly one read-only SELECT, SHOW, DESCRIBE or WITH statement.",
+    "WRITE_VIA_SQL": ("`ledger sql` runs exactly one read statement (SELECT, SHOW, DESCRIBE, DESC, EXPLAIN, WITH, "
+                      "TABLE or VALUES) with the reader account.",
                       ("Write only through the declared commands; read with one SELECT.",)),
     "PRECHECK_NOT_FOUND": ("The trial is no native precheck of this candidate's source on this runtime image.",
                            ("Run `replay precheck` for the candidate on the image, then review that trial.",)),

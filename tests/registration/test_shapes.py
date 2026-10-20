@@ -41,7 +41,7 @@ class SchemaTests(unittest.TestCase):
         return {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
                 "control_run": None, "change": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a guess"}, "sources": [],
-                "metric": "annual_return", "comparison": dict(DESIGN), "grid": [{"candidate": "rsi@1", "params": {}}],
+                "comparison": dict(DESIGN), "grid": [{"candidate": "rsi@1", "params": {}}],
                 "conditions": "all", "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}}
 
     def refusal(self, body) -> Refusal:

@@ -12,7 +12,6 @@ evidence.
 
 from __future__ import annotations
 
-import ast
 from collections.abc import Mapping
 from decimal import Decimal
 import hashlib
@@ -299,16 +298,6 @@ def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
             "trade_end_ns": metrics.utc_ns(summary["period_end_utc"]), "input_identity": {}}
 
 
-def _runner_limitations(summary: Mapping) -> list[str]:
-    found = summary.get("limitations")
-    if isinstance(found, str):
-        try:
-            found = ast.literal_eval(found)
-        except (SyntaxError, ValueError):
-            found = [found]
-    return [str(item) for item in found] if isinstance(found, list) else []
-
-
 def directory_report(directory: Path, account: bool = False) -> dict:
     """The report of an unsealed exploration or precheck directory with the sealed run's functions and
     criterion, marked unverified; for the Agent's self-check before registering, never evidence."""
@@ -339,5 +328,5 @@ def directory_report(directory: Path, account: bool = False) -> dict:
                       capital=sealed["capital"], cost_basis=cost_basis(facts))
     if account:
         output["account"] = reports.account
-    output["limitations"] = dedupe(_runner_limitations(reports.summary), sealed["limitations"], [UNVERIFIED])
+    output["limitations"] = dedupe(sealed["limitations"], [UNVERIFIED])
     return availability.mask(output, value)

@@ -643,13 +643,19 @@ def derive_op_id(kind: str, payload: Mapping) -> str:
     return f"{kind}:{digest}"
 
 
+ERROR_TEXT_LIMIT = 300  # characters of the server's error text a refusal carries
+
+
 def _error_text(exc: pymysql.MySQLError) -> str:
     return str(exc.args[1]) if len(exc.args) > 1 else str(exc)
 
 
-def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_names: tuple[str, ...] = ()) -> Refusal:
+def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_names: tuple[str, ...] = (),
+               statement: bool = False) -> Refusal:
+    """The refusal of a server error; `statement`: the error of a caller's own read statement (`ledger sql`)."""
     code = exc.args[0] if exc.args else None
     text = _error_text(exc)
+    shown = text if len(text) <= ERROR_TEXT_LIMIT else text[:ERROR_TEXT_LIMIT] + "..."
     if code == 1213:
         return refuse("CONCURRENT_WRITE", "another write landed first; this transaction was rolled back")
     if text.startswith(VERIFICATION_FAILED):
@@ -661,7 +667,9 @@ def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_na
     if code in (2006, 2013) and operation_id:
         return refuse("DOLT_SQL_ERROR", "the connection was lost while committing; rerun with the same operation",
                       write_status="unknown", operation_id=operation_id)
-    return refuse("DOLT_SQL_ERROR", f"the ledger refused the statement (MySQL error {code})")
+    if statement:
+        return refuse("SQL_STATEMENT_FAILED", f"the ledger refused the statement (MySQL error {code}): {shown}")
+    return refuse("DOLT_SQL_ERROR", f"the ledger refused the statement (MySQL error {code}): {shown}")
 
 
 def _commit_of(conn: LedgerConnection, table: str, op_id: str) -> str | None:
