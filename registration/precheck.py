@@ -38,7 +38,7 @@ PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle")
 PRECHECK_MAX_DAYS = 7
 
 
-def digest_of(image_ref: str) -> str | None:
+def digest_of(image_ref: object) -> str | None:
     return image_ref.rsplit("@", 1)[1] if isinstance(image_ref, str) and "@sha256:" in image_ref else None
 
 
@@ -61,8 +61,8 @@ def _capture(conn: db.LedgerConnection, trial_id: int) -> dict:
         raise
 
 
-def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str, image_ref: str, config_key: dict,
-                    input_key: dict) -> bool:
+def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str, image_ref: str | None,
+                    config_key: dict, input_key: dict) -> bool:
     """True when the trial is a declared native precheck matching the registration's identity whose
     trading window is at most PRECHECK_MAX_DAYS long. (Only the precheck the registration cites is
     asked; register._check_exposure decides that.)"""
@@ -126,7 +126,7 @@ def _stage_ok(stage) -> bool:
     return isinstance(stage, Mapping) and stage.get("state") == "exited" and stage.get("exit_code") == 0
 
 
-def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha256: str, image_ref: str,
+def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha256: str, image_ref: str | None,
                      input_key: Mapping | None) -> int:
     """The precheck trial ID when the review and its native capture bind this source, image and
     inputs and both passed; any mismatch is a refusal."""
@@ -139,8 +139,9 @@ def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha25
         raise refuse("SOURCE_PRECHECK_REQUIRED", f"{review_bundle} does not review a precheck of this source on "
                                                  f"{digest}", missing=(str(review_bundle),))
     capture = _capture(conn, trial["trial_id"])
-    stages = capture.get("stages") if isinstance(capture.get("stages"), Mapping) else {}
-    outcome = capture.get("outcome") if isinstance(capture.get("outcome"), Mapping) else {}
+    stages, outcome = capture.get("stages"), capture.get("outcome")
+    stages = stages if isinstance(stages, Mapping) else {}
+    outcome = outcome if isinstance(outcome, Mapping) else {}
     if (capture["status"] != "captured" or not _stage_ok(stages.get("native")) or not _stage_ok(stages.get("audit"))
             or outcome.get("kind") != "completed" or capture["runtime_failures"]):
         raise refuse("SOURCE_PRECHECK_FAILED", f"precheck trial {trial['trial_id']} did not complete cleanly",

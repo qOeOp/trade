@@ -321,7 +321,8 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
                    "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if run is None:
         capture = ledger_execution.read_capture(conn, trial_id)
-        outcome = capture.get("outcome") if isinstance(capture.get("outcome"), Mapping) else {}
+        outcome = capture.get("outcome")
+        outcome = outcome if isinstance(outcome, Mapping) else {}
         return capture["status"] == "captured" and outcome.get("kind") in ("interrupted", "host_failure")
     if run["status"] == "invalid":
         return True

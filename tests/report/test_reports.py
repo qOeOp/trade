@@ -14,7 +14,6 @@ from ledger import db, metrics, strategies
 from ledger.errors import Refusal
 from qualification import availability
 from registration import duties, precheck
-from registration import seams as registration_seams
 from replay import entry, reproduce
 from report import attribution, candidates, comparison, runs, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP

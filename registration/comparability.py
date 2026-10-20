@@ -22,7 +22,7 @@ def _host_location(key: str) -> bool:
     return key.endswith("_root") or key.endswith("_path")
 
 
-def config_key(value: Mapping) -> dict:
+def config_key(value: object) -> dict:
     """The effective configuration without its host-location keys (*_root, *_path); values untouched."""
     if not isinstance(value, Mapping):
         raise refuse("IDENTITY_MALFORMED", "the effective configuration is not a mapping",
@@ -33,7 +33,7 @@ def config_key(value: Mapping) -> dict:
     return {key: copy.deepcopy(item) for key, item in value.items() if not _host_location(str(key))}
 
 
-def input_key(value: Mapping) -> dict:
+def input_key(value: object) -> dict:
     """The input identity without host roots and check times; every content key kept."""
     if not isinstance(value, Mapping):
         raise refuse("IDENTITY_MALFORMED", "the input identity is not a mapping",

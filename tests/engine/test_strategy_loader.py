@@ -2,16 +2,18 @@
 
 import contextlib
 import hashlib
-import io
 import importlib
 import json
+import os
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.common import LoggerConfig, LogLevel
+from nautilus_trader.common import LoggerConfig, LogLevel, logger_flush
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
@@ -23,6 +25,34 @@ from engine.config import runtime_source_metadata
 from engine.load import RUNTIME_CONTRACT, diagnostics, load_strategy, strategy_metadata
 from engine import run
 from engine.run import STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, parse_configuration
+
+
+@contextlib.contextmanager
+def native_log():
+    """Capture what the native logger writes to file descriptors 1 and 2: it is set up once per process
+    by the first engine, so a later engine's LoggerConfig does not decide where (or whether) its ERROR
+    lines go, and it writes from its own thread, so the capture lasts until that thread falls quiet.
+    Yields a list that holds the captured text afterwards."""
+    captured: list[str] = []
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved = {fd: os.dup(fd) for fd in (1, 2)}
+    with tempfile.TemporaryFile() as sink:
+        for fd in saved:
+            os.dup2(sink.fileno(), fd)
+        try:
+            yield captured
+        finally:
+            logger_flush()
+            sizes, deadline = [-1], time.monotonic() + 5
+            while time.monotonic() < deadline and sizes[-3:] != [sizes[-1]] * 3:
+                time.sleep(0.05)
+                sizes.append(os.fstat(sink.fileno()).st_size)
+            for fd, original in saved.items():
+                os.dup2(original, fd)
+                os.close(original)
+            sink.seek(0)
+            captured.append(sink.read().decode("utf-8", "replace"))
 
 
 def importable(loaded) -> str:
@@ -291,8 +321,9 @@ class StrategyLoaderTests(unittest.TestCase):
                   "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
-        with self.assertRaisesRegex(RuntimeError, "boom"):
+        with native_log() as logged, self.assertRaisesRegex(RuntimeError, "boom"):
             engine.run()
+        self.assertIn("on_start failed: ValueError: boom", logged[0])
         with self.assertRaises(Refusal) as caught:
             run.configure_strategy(loaded, StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
         self.assertEqual(caught.exception.code, "STRATEGY_CONSTRUCTION_FAILED")
@@ -387,7 +418,9 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.add_instrument(native.INSTRUMENT)
         engine.add_strategy(guarded())
         engine.add_data(native.bars())
-        engine.run()  # the engine logs and swallows a time event callback's exception
+        with native_log() as logged:
+            engine.run()  # the engine logs and swallows a time event callback's exception
+        self.assertIn("ValueError: timer failed", logged[0])
         stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in run.FAILURES}
         self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
                                   ("set_time_alert_ns:alert", "KeyError", "unconstructed")})

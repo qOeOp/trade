@@ -3,11 +3,13 @@ and the public REST endpoints, served by replacing `market.sources._get` (no net
 
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 import hashlib
 import io
 import json
+import multiprocessing
 import urllib.parse
 from unittest.mock import patch
 import zipfile
@@ -138,3 +140,15 @@ def serving(exchange: Exchange):
     with patch.object(sources, "_get", exchange.get), patch.object(sources, "REST_INTERVAL", 0.0), \
             patch.object(sources, "FUNDING_INTERVAL", 0.0):
         yield exchange
+
+
+def serve_in_worker(exchange: Exchange) -> None:
+    """A pool worker's initializer: the worker serves `exchange` (its copy taken when the pool starts)."""
+    sources._get = exchange.get
+    sources.REST_INTERVAL = sources.FUNDING_INTERVAL = 0.0
+
+
+def worker_pool(max_workers: int) -> ProcessPoolExecutor:
+    """A stand-in for the import's process pool: spawned workers serve the exchange this process serves."""
+    return ProcessPoolExecutor(max_workers, mp_context=multiprocessing.get_context("spawn"),
+                               initializer=serve_in_worker, initargs=(sources._get.__self__,))

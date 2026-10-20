@@ -17,3 +17,31 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime"]
 module-root = ""
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+extend-select = ["B"]
+ignore = [
+  "E731",  # style: a short lambda bound to a local name reads as well as a def here
+  "E741",  # style: o, h, l, c are the bar's open, high, low and close
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Each lambda in a loop is called within the iteration that defines it (assertRaises-style helpers).
+"tests/**" = ["B023"]
+# Standalone skill scripts keep their imports on one line.
+"services/video-evidence/check_bundle.py" = ["E401"]
+".agents/skills/video-evidence/assets/page_record.py" = ["E401"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime"]
+
+[[tool.mypy.overrides]]
+# No type information in the lock: pymysql and pandas ship none (types-PyMySQL and pandas-stubs would
+# need a download), pyarrow 23 has no py.typed marker; all three stay Any.
+module = ["pymysql", "pymysql.*", "pandas", "pandas.*", "pyarrow", "pyarrow.*"]
+ignore_missing_imports = true

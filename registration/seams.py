@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
+from typing import Protocol
 
 from ledger import db as ledger_db
 from ledger.refusals import refuse
@@ -90,7 +91,8 @@ def _checkout() -> Path:
 
 def _ns(text: str) -> int:
     moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    if moment.tzinfo is None or moment.utcoffset().total_seconds() != 0:
+    offset = moment.utcoffset()  # None exactly when the text has no zone
+    if offset is None or offset.total_seconds() != 0:
         raise ValueError(f"{text!r} is not a UTC time")
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
@@ -112,11 +114,30 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
     start = _ns(known.start)
     window = {"start": start, "trade_start": _ns(known.trade_start) if known.trade_start else start,
               "end": _ns(known.end)}
-    selection = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
+    selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle}
 
 
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
+
+class MarketAdapter(Protocol):
+    """What registration reads of a market: Market below, or a test's stand-in."""
+
+    database: str
+
+    def resolve_commit(self, at: str | None) -> str: ...
+
+    def universe_rule(self, commit: str) -> str: ...
+
+    def universe_month(self, commit: str) -> list[tuple[str, str]]: ...
+
+    def membership_path(self, commit: str, window_end: int) -> dict: ...
+
+    def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
+                        fresh: bool) -> dict: ...
+
+    def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict: ...
+
 
 class Market:
     """The market database behind the registration interface: each method one designed market
@@ -185,7 +206,7 @@ def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> d
         raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
 
-def _market(profile) -> Market:
+def _market(profile) -> MarketAdapter:
     return profile if hasattr(profile, "export_catalogs") else Market(profile)
 
 
@@ -209,7 +230,7 @@ class Seams:
     require_main_build: Callable[[dict, dict], str]
     checkout: Callable[[], Path]
     runner_inputs: Callable[[list[str]], dict]
-    market: Callable[[object], object]
+    market: Callable[[object], MarketAdapter]
     qualification_require: Callable[[object, Mapping], dict]
     qualification_assess: Callable[..., dict]
 

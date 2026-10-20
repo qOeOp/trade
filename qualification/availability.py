@@ -83,7 +83,9 @@ def native_reasons(reports: Mapping | None) -> list[str]:
 
 
 def _stage_failures(capture: Mapping) -> list[str]:
-    stages = capture.get("stages") if isinstance(capture.get("stages"), Mapping) else {}
+    stages = capture.get("stages")
+    if not isinstance(stages, Mapping):
+        stages = {}
     failed = []
     for name, stage in sorted(stages.items()):
         if not isinstance(stage, Mapping) or stage.get("state") == "not_available":
@@ -169,7 +171,7 @@ def require(conn: db.LedgerConnection, run: Mapping, **options) -> dict:
     if not value["economic_evidence_available"]:
         exc = refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['run_id']} has no economic evidence: "
                      + "; ".join(value["reasons"]), missing=(str(run["run_id"]), *value["reasons"]))
-        exc.availability = value
+        exc.availability = value  # type: ignore[attr-defined]  # ledger.Refusal declares no view field
         raise exc
     return value
 
@@ -212,7 +214,7 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
     once: {bundle, sha256, record, ledger_commit, ignored}; `ignored` names why a file is no product
     review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its
     content hash. Both reads are primary-key ranges of that namespace."""
-    found = []
+    found: list[dict] = []
     rows = conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND path = %s ORDER BY bundle",
                      (REVIEW_PREFIX + "%", REVIEW_FILE))
     if not rows:
@@ -236,7 +238,8 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
             item["ignored"] = f"not a complete {REVIEW_FORMAT} record"
             continue
         item["record"] = record
-        commit = commits.get(operations.get(bundle))
+        op_id = operations.get(bundle)
+        commit = commits.get(op_id) if op_id is not None else None
         if commit is None or not _recorded_by(conn, bundle, commit):
             commit = _added_commit(conn, bundle)  # not written by record_review: the history says when
         item["ledger_commit"] = commit

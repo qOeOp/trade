@@ -9,6 +9,7 @@ the code and effective configuration a replay would use.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import hashlib
 import json
 import os
@@ -95,6 +96,7 @@ def validate_identity(value) -> dict:
 INSPECT_TIMEOUT = 60
 PULL_TIMEOUT = 300
 PROBE_TIMEOUT = 300
+GIT_TIMEOUT = 120  # one git call, the fetch of origin/main included
 HUNG_PULL = ("a credential helper that never answers (credsStore or credHelpers in the Docker config) blocks a "
              "pull; the public runtime image pulls anonymously")
 
@@ -172,7 +174,7 @@ def _probe_invalid(why: str):
     return refuse("RUNTIME_PROBE_INVALID", f"the runtime identity probe {why}")
 
 
-def inspect_runtime(identity: dict, runner_args: list[str], mounts: list[tuple[Path, str, bool]] = ()) -> dict:
+def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tuple[Path, str, bool]] = ()) -> dict:
     """Check the local image against the identity and run the identity probe inside it.
 
     `mounts` are the read-only inputs the probe reads (the universe membership file, whose bytes
@@ -233,7 +235,12 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: list[tuple[P
 
 
 def _git(*argv: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *argv], cwd=CHECKOUT, capture_output=True, check=False)
+    """One git call in the product checkout; past GIT_TIMEOUT seconds it is killed and the runtime's
+    revision cannot be checked (RUNTIME_UNAVAILABLE)."""
+    try:
+        return subprocess.run(["git", *argv], cwd=CHECKOUT, capture_output=True, check=False, timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise _unavailable(f"git {' '.join(argv)}", GIT_TIMEOUT, "origin/main") from exc
 
 
 def _on_main(revision: str) -> bool:

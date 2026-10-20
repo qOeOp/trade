@@ -4,13 +4,10 @@ coverage, daily returns and a Catalog export the engine streams whole."""
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, timezone
-import functools
 import json
 from pathlib import Path
 import shutil
-import multiprocessing
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,7 +15,7 @@ from unittest.mock import patch
 from market import coverage, export, lifecycle, read, series, store, universe
 from market.sources import MarketError
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
-from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving
+from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 
 
 JAN, FEB, MAR, APR = (date(2025, month, 1) for month in (1, 2, 3, 4))
@@ -492,8 +489,7 @@ class LaterImportTests(unittest.TestCase):
 
     def test_several_workers_give_the_one_worker_result(self):
         scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")
-        forked = functools.partial(ProcessPoolExecutor, mp_context=multiprocessing.get_context("fork"))
-        with patch.object(store, "ProcessPoolExecutor", forked):  # forked workers keep the stand-in exchange
+        with patch.object(store, "ProcessPoolExecutor", worker_pool):  # spawned workers get the stand-in exchange
             _, _, many = self.database(scope=scope, months=(JAN, FEB, MAR), workers=3)
         _, _, one = self.database(scope=scope, months=(JAN, FEB, MAR), workers=1)
         drop = ("market_commit", "seconds")

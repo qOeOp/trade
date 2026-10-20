@@ -171,8 +171,8 @@ def _intersects(intervals, start: int, end: int) -> bool:
     return any(lo < end and start < hi for lo, hi in intervals)
 
 
-def market_inputs(market, at: str, window: Mapping, selection: Mapping, lifecycle_bundle: str | None, fresh: bool,
-                  research=None) -> dict:
+def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, lifecycle_bundle: str | None,
+                  fresh: bool, research=None) -> dict:
     """Export the inputs of one replay AS OF the pinned market commit and assemble their identity.
 
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
@@ -202,6 +202,7 @@ def market_inputs(market, at: str, window: Mapping, selection: Mapping, lifecycl
     episodes, lifecycle_files = None, None
     if lifecycle_bundle is not None:
         episodes, lifecycle_files = load_lifecycle(research, lifecycle_bundle, commit, market=adapter)
+    assert symbols is not None  # the selection check above refused a selection without universe or symbols
     exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh)
     inputs = {"root": Path(exported["root"]), "fresh": fresh}
@@ -212,17 +213,17 @@ def market_inputs(market, at: str, window: Mapping, selection: Mapping, lifecycl
                 raise refuse("EXPORT_TIMEFRAME", f"the export receipt of {symbol} is not of 1-minute bars",
                              missing=(symbol,), expected=MINUTE)
         membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
-        inputs["membership_file"] = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
-        inputs["membership_file"].write_bytes(_canonical({"commit": commit, "universe_rule": rule,
-                                                          "membership": membership}))
+        membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
+        inputs["membership_file"] = membership_file
+        membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": membership}))
         fingerprint = export_fingerprint(inputs, semantic=True)
     except BaseException:
         cleanup(inputs)
         raise
     inputs = {"root": inputs["root"], "membership_file": inputs["membership_file"]}
+    chosen: dict[str, bool | list[str]] = {"universe": True} if universe else {"symbols": list(symbols)}
     identity = {"market_database": adapter.database, "market_commit": commit, "universe_rule": rule,
-                "selection": {"universe": True} if universe else {"symbols": list(symbols)}, "symbols": list(symbols),
-                "membership": membership, **fingerprint}
+                "selection": chosen, "symbols": list(symbols), "membership": membership, **fingerprint}
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle
     return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,

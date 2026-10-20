@@ -33,7 +33,7 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
     def ret(symbol: str, day: str) -> float | None:
         series = closes.get(symbol) or {}
         now, before = series.get(day), series.get(previous[day])
-        return None if now is None or before in (None, 0) else now / before - 1
+        return None if now is None or before is None or before == 0 else now / before - 1
 
     btc, basket, counts = [], [], []
     for day in days:
@@ -44,7 +44,8 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
     return {"days": list(days), "btc": btc, "basket": basket, "members_per_day": counts}
 
 
-def daily_returns(profile: dict, commit: str, universe_rule: str, start: datetime, end: datetime) -> dict:
+def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, start: datetime,
+                  end: datetime) -> dict:
     """market.daily_returns: the BTC perpetual's and the common tradable range's equal-weight UTC daily
     returns over [start, end) at a market commit."""
     first, last = _utc_day(start), _utc_day(end)

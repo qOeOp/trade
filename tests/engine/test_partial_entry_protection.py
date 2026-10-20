@@ -183,7 +183,8 @@ class PartialEntryProtectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             bare = replay(False, Path(temp) / "bare", tiers)
             covered = replay(True, Path(temp) / "covered", tiers)
-            orders = list(csv.DictReader((Path(temp) / "covered" / "orders.csv").open()))
+            with (Path(temp) / "covered" / "orders.csv").open(encoding="utf-8") as stream:
+                orders = list(csv.DictReader(stream))
         interval, = bare["uncovered_intervals"]
         self.assertEqual((interval["position_quantity"], len(interval["ended_stop_order_ids"])), ("0.500", 2))
         self.assertTrue(covered["passed"], covered["findings"])

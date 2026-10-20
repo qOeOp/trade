@@ -229,6 +229,19 @@ class MainBuildTests(unittest.TestCase):
     def test_a_main_build_of_main_code_is_accepted(self):
         self.assertEqual(self.check(), self.REVISION)
 
+    def test_a_fetch_of_main_that_never_finishes_leaves_the_runtime_unavailable(self):
+        def fetch_hangs(command, **kwargs):
+            if command[:2] == ["git", "fetch"]:
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return subprocess.CompletedProcess(command, 1, b"", b"")  # the revision is not known locally yet
+        identity = {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
+                    "platform": "linux/arm64", "runtime_contract": "r1-native-v6", "build_revision": self.REVISION}
+        with patch("runtime.image.subprocess.run", side_effect=fetch_hangs) as calls:
+            refusal = refused(self, "RUNTIME_UNAVAILABLE", image.require_main_build, identity,
+                              self.inspection(self.FILES))
+        self.assertEqual({call.kwargs["timeout"] for call in calls.call_args_list}, {image.GIT_TIMEOUT})
+        self.assertIn(f"git fetch --quiet origin main did not finish within {image.GIT_TIMEOUT} s", refusal.message)
+
     def test_other_builds_are_refused(self):
         for options in ({"on_main": False}, {"repository": "localhost:15000/trade"}, {"revision": None}):
             with self.subTest(options=options), self.assertRaises(Refusal) as caught:

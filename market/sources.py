@@ -147,7 +147,7 @@ def _bad_request(url: str, body: bytes) -> MarketError:
     except ValueError:
         found = None
     code = found.get("code") if isinstance(found, dict) else None
-    detail = found.get("msg") if isinstance(found, dict) else body[:200]
+    detail = found.get("msg") if isinstance(found, dict) else body[:200].decode("utf-8", "replace")
     if code == UNKNOWN_SYMBOL_CODE:
         return _refuse(f"{url}: the public endpoint does not know the contract ({detail})", "SOURCE_UNKNOWN_SYMBOL",
                        missing=(url,))
@@ -254,7 +254,8 @@ def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | N
         listed, _ = _listing(stem, delimiter=None)
         published = {period(key) for key in listed if key.endswith(".zip")}
         wanted = [month for month in months if month in published]
-        return dict(zip(wanted, fetch_all(cache_root, [f"{stem}{month}.zip" for month in wanted], workers)))
+        return dict(zip(wanted, fetch_all(cache_root, [f"{stem}{month}.zip" for month in wanted], workers),
+                        strict=True))
     found = {}
     for month in months:
         try:
@@ -277,7 +278,7 @@ def daily_archives(cache_root: Path, kind: str, symbol: str, interval: str, days
         listed, _ = _listing(stem + month, delimiter=None)
         keys += [key for key in listed if key.endswith(".zip") and period(key) in wanted]
     keys = sorted(set(keys))
-    return dict(zip([period(key) for key in keys], fetch_all(cache_root, keys, workers)))
+    return dict(zip([period(key) for key in keys], fetch_all(cache_root, keys, workers), strict=True))
 
 
 def _csv(path: Path) -> bytes:
@@ -308,7 +309,8 @@ def period_bounds(period: str) -> tuple[int, int]:
     from datetime import UTC, date, datetime, timedelta
     day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
     following = (day.replace(day=28) + timedelta(days=4)).replace(day=1) if len(period) == 7 else day + timedelta(days=1)
-    return tuple(int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000) for d in (day, following))
+    start, end = (int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000) for d in (day, following))
+    return start, end
 
 
 def archive_table(path: Path, period: str) -> pa.Table:

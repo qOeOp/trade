@@ -31,4 +31,14 @@ jobs:
       - run: uv run --frozen python -m engine.run --help > /dev/null
       - name: Install ffmpeg for the video evidence checker test
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'
+      - name: Run the tests; any ResourceWarning (unclosed file, socket or unwaited process) fails them
+        env:
+          PYTHONWARNINGS: always::ResourceWarning
+          PYTHONTRACEMALLOC: "1"
+        run: |
+          set -o pipefail
+          uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py' 2>&1 | tee "$RUNNER_TEMP/tests.log"
+          if grep -n -A3 ResourceWarning "$RUNNER_TEMP/tests.log"; then
+            echo "::error::the tests left a ResourceWarning (see above)"
+            exit 1
+          fi

@@ -24,6 +24,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from typing import overload
 
 import pymysql
 
@@ -54,8 +55,16 @@ def _admin(profile: db.LedgerProfile):
     config = db._service(profile.service_root)
     if config is None:
         raise refuse("LEDGER_UNKNOWN", f"{profile.service_root} is not a ledger service directory")
-    return config, pymysql.connect(unix_socket=config["socket"], user="root", password=config["root_password"],
-                                   database=profile.database, autocommit=True, connect_timeout=5)
+    return config, db.service_connection(config["socket"], user="root", password=config["root_password"],
+                                         database=profile.database, autocommit=True, connect_timeout=5)
+
+
+@overload
+def backup_path(profile: db.LedgerProfile, destination: Path) -> Path: ...
+
+
+@overload
+def backup_path(profile: db.LedgerProfile, destination: None = None) -> Path | None: ...
 
 
 def backup_path(profile: db.LedgerProfile, destination: Path | None = None) -> Path | None:

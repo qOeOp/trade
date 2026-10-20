@@ -226,8 +226,8 @@ def sealed(capture: Mapping, path: str) -> bytes | None:
 def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, config_sha256: str) -> list[dict]:
     """Every invalidity reason the sealed capture of one trial gives: its outcome, stage exits, audit
     result, runtime failures, native summary and fingerprint stage."""
-    stages = capture.get("stages") if isinstance(capture.get("stages"), Mapping) else {}
-    outcome = capture.get("outcome") if isinstance(capture.get("outcome"), Mapping) else {}
+    stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
+    outcome = given if isinstance(given := capture.get("outcome"), Mapping) else {}
     reasons = []
     if outcome.get("kind") != "completed":
         reasons.append(reason("EXECUTION_NOT_COMPLETED", f"the replay ended {outcome.get('kind')}: "

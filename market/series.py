@@ -269,8 +269,8 @@ def check_derived(derived: dict, native: dict, timeframe: str, price_precision: 
     if timeframe not in sources.TIMEFRAMES:
         raise _refuse(f"timeframe {timeframe!r} is unknown", "TIMEFRAME_UNKNOWN", missing=(str(timeframe),))
     for side in (derived, native):
-        ts = np.asarray(side["ts_open"], dtype=np.int64)
-        if len(ts) and (np.any(np.diff(ts) <= 0) or np.any(buckets(ts, timeframe) != ts)):
+        opens = np.asarray(side["ts_open"], dtype=np.int64)
+        if len(opens) and (np.any(np.diff(opens) <= 0) or np.any(buckets(opens, timeframe) != opens)):
             raise _refuse(f"bar open times are not strictly increasing on the {timeframe} grid", "GRID_MISALIGNED")
     index = {int(ts): i for i, ts in enumerate(native["ts_open"])}
     findings, seen = [], set()

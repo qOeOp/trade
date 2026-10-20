@@ -15,7 +15,7 @@ written.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import timezone
 from decimal import Decimal
 import difflib
@@ -55,7 +55,7 @@ def _rank(values: list[float], share: float):
     return values[int(share * (len(values) - 1))] if values else None
 
 
-def _sums(cycles: list[Mapping]) -> dict:
+def _sums(cycles: Sequence[Mapping]) -> dict:
     closed = [cycle for cycle in cycles if cycle["ts_closed_ns"] is not None]
     return {"count": len(cycles), "price": measures.money(sum((Decimal(c["price_pnl"]) for c in closed), Decimal(0))),
             "fee": measures.money(-sum((Decimal(c["commissions"]) for c in cycles), Decimal(0))),
@@ -118,13 +118,13 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
     split_b = [j for j in only_b if touches(candidate[j], control, used_a, group(candidate[j])[0])]
     removed = [control[i] for i in only_a if i not in split_a]
     added = [candidate[j] for j in only_b if j not in split_b]
-    closed_pairs = [(i, j, overlap) for i, j, overlap in pairs
-                    if _net(control[i]) is not None and _net(candidate[j]) is not None]
+    closed_pairs = [(net_a, net_b) for net_a, net_b in ((_net(control[i]), _net(candidate[j])) for i, j, _ in pairs)
+                    if net_a is not None and net_b is not None]
     flips: dict[str, int] = defaultdict(int)
     for i, j, _ in pairs:
         flips[("win" if _value(control[i]) > 0 else "loss") + "_to_" + ("win" if _value(candidate[j]) > 0 else "loss")] += 1
-    closed_abs = sum((abs(_net(cycle)) for cycle in [*control, *candidate] if _net(cycle) is not None), Decimal(0))
-    matched_abs = sum((abs(_net(control[i])) + abs(_net(candidate[j])) for i, j, _ in closed_pairs), Decimal(0))
+    closed_abs = sum((abs(net) for net in map(_net, [*control, *candidate]) if net is not None), Decimal(0))
+    matched_abs = sum((abs(net_a) + abs(net_b) for net_a, net_b in closed_pairs), Decimal(0))
     overlaps = sorted(overlap for _, _, overlap in pairs)
     shifts = [(candidate[j]["ts_opened_ns"] - control[i]["ts_opened_ns"]) / MINUTE_NS for i, j, _ in pairs]
     detail = []
@@ -187,7 +187,7 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
     account_o = (control_measures.get(measures.key("account")) or {}).get("value")
     fee_c = (candidate_measures.get(measures.key("fee")) or {}).get("value")
     fee_o = (control_measures.get(measures.key("fee")) or {}).get("value")
-    if None in (account_c, account_o, fee_c, fee_o):
+    if account_c is None or account_o is None or fee_c is None or fee_o is None:
         put("breakeven_fee_multiple", None, "BRIDGE_UNAVAILABLE: a side's profit bridge is empty")
     else:
         difference = Decimal(account_c) - Decimal(account_o)
@@ -202,13 +202,13 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
     traded_o = {cycle["instrument_id"] for cycle in control["cycles"]}
     put("one_side_instruments", len(traded_c ^ traded_o))
     returns_c, returns_o = candidate["returns"], control["returns"]
-    logs = [math.log1p(c) - math.log1p(o) for (_, c, _), (_, o, _) in zip(returns_c, returns_o)]
+    logs = [math.log1p(c) - math.log1p(o) for (_, c, _), (_, o, _) in zip(returns_c, returns_o, strict=True)]
     put("residual_after_top5_days", measures.residual_after_top(logs), "NO_DAY: no aligned day")
     months_c, months_o = measures.month_logs(returns_c), measures.month_logs(returns_o)
     months = sorted(set(months_c) & set(months_o))
     put("months_won_share", sum(1 for month in months if months_c[month] > months_o[month]) / len(months)
         if months else None, "NO_MONTH: no aligned month")
-    difference = [c - o for (_, c, _), (_, o, _) in zip(returns_c, returns_o)]
+    return_difference = [c - o for (_, c, _), (_, o, _) in zip(returns_c, returns_o, strict=True)]
     for series, beta, alpha in (("basket", "beta_basket", "alpha_basket"), ("btc", "beta_btc", "alpha_btc")):
         values, reason = measures.aligned_market(returns_c, market, series)
         if values is None:
@@ -216,7 +216,7 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
             put(alpha, None, reason)
             continue
         try:
-            fitted = measures.market_regression(difference, values)
+            fitted = measures.market_regression(return_difference, values)
         except (ValueError, np.linalg.LinAlgError) as exc:  # a short window or a singular design
             put(beta, None, f"REGRESSION_UNAVAILABLE: {exc}")
             put(alpha, None, f"REGRESSION_UNAVAILABLE: {exc}")

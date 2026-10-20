@@ -46,8 +46,9 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
         instruments = json.loads(trial["instruments"]) if isinstance(trial["instruments"], str) else trial["instruments"]
         window = {"start": _ns(trial["input_start"]), "trade_start": _ns(trial["trade_start"]),
                   "end": _ns(trial["trade_end"])}
-        selection = recorded.get("selection") if isinstance(recorded.get("selection"), Mapping) else {
-            "symbols": list(instruments)}
+        selection = recorded.get("selection")
+        if not isinstance(selection, Mapping):
+            selection = {"symbols": list(instruments)}
         runner_argv = ["--start", _iso(trial["input_start"]), "--trade-start", _iso(trial["trade_start"]), "--end",
                        _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
         if recorded.get("lifecycle_bundle"):
