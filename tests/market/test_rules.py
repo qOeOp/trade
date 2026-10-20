@@ -78,6 +78,18 @@ class SourceTests(Refusals):
         self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTC/USDT", "1m", ["2025-03"])
         self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m", ["2025-3"])
 
+    def test_a_listing_entry_without_a_key_refuses(self):
+        months = ["2024-12", "2025-01", "2025-02", "2025-03"]  # more than three: found by one listing
+        self.assertEqual(list(sources.monthly_archives(self.cache, "klines", "BTCUSDT", "1m", months)), ["2025-03"])
+        root = '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">{}<IsTruncated>false</IsTruncated>' \
+               "</ListBucketResult>"
+        for entries in ("<Contents><Key></Key></Contents>", "<Contents><Key/></Contents>",
+                        "<CommonPrefixes></CommonPrefixes>", "<CommonPrefixes><Prefix/></CommonPrefixes>"):
+            with self.subTest(entries=entries), mock.patch.object(sources, "_get", lambda url, e=entries, **_:
+                                                                  root.format(e).encode()):
+                self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m", months)
+                self.refused("SOURCE_SHAPE", sources.archive_symbols)
+
     def test_http_answers_map_to_their_codes(self):
         """Through the real request path: 400 with Binance -1121 is an unknown contract, another 400 a
         malformed request, a lasting 503 unreachable."""

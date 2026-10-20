@@ -20,6 +20,10 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - run: uv python install 3.14
       - run: uv sync --frozen
+      - name: Lint with ruff (pyproject configuration)
+        run: uv run --frozen ruff check .
+      - name: Type-check the product packages with mypy (pyproject configuration)
+        run: uv run --frozen mypy cli engine ledger market qualification registration replay report runtime
       - name: Install pinned Dolt for ledger integration tests
         # The tests start and delete their own throwaway Dolt services; nothing runs here.
         run: |

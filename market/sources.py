@@ -194,8 +194,18 @@ def fetch_all(cache_root: Path, keys: list[str], workers: int = 4) -> list[Path]
         return list(pool.map(lambda key: fetch_archive(cache_root, key), keys))
 
 
+def _listed(prefix: str, node: ElementTree.Element | None) -> str:
+    """The text of one listing entry (a Key or a CommonPrefixes Prefix); an entry without text is no key."""
+    if node is None or not node.text:
+        raise _refuse(f"the archive listing {prefix} holds an entry without a key", "SOURCE_SHAPE",
+                      missing=(prefix,))
+    return node.text
+
+
 def _listing(prefix: str, *, delimiter: str | None) -> tuple[list[str], list[str]]:
-    keys, prefixes, marker = [], [], ""
+    keys: list[str] = []
+    prefixes: list[str] = []
+    marker = ""
     while True:
         query = {"prefix": prefix, "marker": marker}
         if delimiter:
@@ -205,8 +215,8 @@ def _listing(prefix: str, *, delimiter: str | None) -> tuple[list[str], list[str
         except _NotPublished as exc:
             raise _refuse(f"the archive listing {prefix} is not reachable", "SOURCE_UNREACHABLE",
                           missing=(prefix,)) from exc
-        keys += [node.text for node in root.iter(f"{_S3}Key")]
-        prefixes += [node.find(f"{_S3}Prefix").text for node in root.iter(f"{_S3}CommonPrefixes")]
+        keys += [_listed(prefix, node) for node in root.iter(f"{_S3}Key")]
+        prefixes += [_listed(prefix, node.find(f"{_S3}Prefix")) for node in root.iter(f"{_S3}CommonPrefixes")]
         if root.findtext(f"{_S3}IsTruncated") != "true":
             return keys, prefixes
         marker = root.findtext(f"{_S3}NextMarker") or (keys or prefixes)[-1]
