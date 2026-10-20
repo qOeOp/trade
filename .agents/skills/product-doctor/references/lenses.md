@@ -105,4 +105,6 @@ another check holds the risk. Keep it when it guards a real risk on its own, eve
 fired. A removal of a refusal or audit check is an `authority` item (SKILL.md, Boundaries).
 
 For a skill file, also ask: is it runtime content the agent needs (no design ids, history or
-evals inside the skill folder), and would a capable agent fail without it?
+evals inside the skill folder), and would a capable agent fail without it? Before removing skill text
+because the product already says it, find where the product's own output says it; if it does
+not, move the fact into that output instead of deleting it.
