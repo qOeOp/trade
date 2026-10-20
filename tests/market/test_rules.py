@@ -89,6 +89,9 @@ class SourceTests(Refusals):
                                                                   root.format(e).encode()):
                 self.refused("SOURCE_SHAPE", sources.monthly_archives, self.cache, "klines", "BTCUSDT", "1m", months)
                 self.refused("SOURCE_SHAPE", sources.archive_symbols)
+        truncated = root.replace("false", "true").format("")
+        with mock.patch.object(sources, "_get", lambda url, **_: truncated.encode()):
+            self.refused("SOURCE_SHAPE", sources.archive_symbols)
 
     def test_http_answers_map_to_their_codes(self):
         """Through the real request path: 400 with Binance -1121 is an unknown contract, another 400 a
