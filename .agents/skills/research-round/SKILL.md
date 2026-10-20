@@ -49,6 +49,11 @@ changes; [restore.md](references/restore.md) for a backup restore drill;
   review, registration, replay, audit and eligibility, comparison, feedback and priority. Never
   ask the user to approve or confirm the next step; stop only for the authority list below or
   when the line should change (back to `research-start`).
+- **A.1.1.3** Run the loop inside one turn. A report, an interpretation, a recommendation, a
+  review or a priority judgment never ends your turn: once the priority is recorded, publish,
+  precheck, review, register and replay the next experiment in the same turn. End the turn only
+  for the authority list (A.2.3.3), a line change (back to `research-start`) or the user. You
+  cannot set the host's goal mode yourself; the user sets it (`research-start`).
 - **A.2.2.1** Position size, per-plan risk and notional limits are your design variables: write
   them in the strategy source and change them as a new candidate without asking; never describe
   them as user constraints. The user's research targets are only the maximum drawdown and the
