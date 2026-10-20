@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import coverage, db, execution, strategies, trials
+from ledger import coverage, db, evidence, execution, strategies, trials
 from ledger.errors import Refusal
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP, Service, inputs, sha, source, window
 
@@ -109,6 +109,29 @@ class CaptureTests(LedgerCase):
         (workdir / "native.stdout.txt").write_bytes(b"rewritten later\n")
         self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE,
                                                                      self.conn)), "BUNDLE_EXISTS")
+
+    def test_the_source_and_the_coverage_receipt_are_stored_once_and_the_capture_hashes_them(self):
+        workdir = self.workdir({"native.stdout.txt": b"ran\n"})
+        trial_id = self.trial(workdir)
+        self.seal(trial_id, workdir)
+        read = execution.read_capture(self.conn, trial_id)
+        self.assertEqual({path: (read["statuses"][path], read["listed"][path]["sha256"])
+                          for path in (execution.CAPTURED_SOURCE, execution.COVERAGE)},
+                         {execution.CAPTURED_SOURCE: ("hashed", sha(self.data)),
+                          execution.COVERAGE: ("hashed", sha(COVERAGE))})
+        self.assertEqual((execution.COVERAGE in read["files"], read["input_coverage_bytes"]), (False, COVERAGE))
+        self.assertNotIn(execution.SOURCE, evidence.load_bundle(self.conn, f"trial-{trial_id}-execution-start")["files"],
+                         "a published source is the candidate's")
+        draft = source("unpublished draft")
+        drafted = self.workdir({execution.CAPTURED_SOURCE: draft})
+        draft_id = trials.open_trial(self.conn, "explore", sha(draft), RUNTIME, {**inputs(), "input_coverage": COVERAGE},
+                                     window(), {"argv": ARGV, "mounts": [], "workdir": str(drafted),
+                                                "source_bytes": draft})["trial_id"]
+        start = evidence.load_bundle(self.conn, f"trial-{draft_id}-execution-start")["files"]
+        self.assertEqual(start[execution.SOURCE], draft, "an unpublished source is kept by its start receipt")
+        (drafted / execution.CAPTURED_SOURCE).write_bytes(self.data)  # the container read another source
+        self.seal(draft_id, drafted)
+        self.assertEqual(self.refused(lambda: execution.read_capture(self.conn, draft_id)), "EXECUTION_IDENTITY")
 
     def test_a_capture_needs_a_start_receipt_and_well_formed_stages(self):
         workdir = self.workdir({})

@@ -252,12 +252,21 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual((status, json.loads(audit), json.loads(fingerprints)),
                          ("passed", {"ran": True, "findings": []}, DEFAULT_FINGERPRINT))
         capture = execution.read_capture(self.world.conn, stored["trial_id"])
-        self.assertEqual((capture["stages"]["fingerprint"], capture["statuses"]["reports/fills.csv"]),
-                         ({"state": "exited", "exit_code": 0}, "hashed"))
+        self.assertEqual(capture["stages"]["fingerprint"], {"state": "exited", "exit_code": 0})
+        # Each fact once: the source is the candidate's, the coverage receipt the start receipt's, the
+        # fingerprint the run row's and the reports a working copy; the capture keeps their hashes.
+        hashed = ("source/strategy.py", "input-coverage.json", "fingerprint/fingerprint.json", "reports/fills.csv")
+        self.assertEqual({path: capture["statuses"][path] for path in hashed}, dict.fromkeys(hashed, "hashed"))
+        self.assertEqual(self.rows("SELECT path FROM evidence WHERE bundle = %s ORDER BY path",
+                                   (f"trial-{stored['trial_id']}-execution-start",)),
+                         [("execution.json",), ("input-coverage.json",)])
         (revision, report), = self.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s",
                                         (stored["run_id"],))
-        self.assertEqual((json.loads(report)["metrics_revision"], json.loads(report)["populations"]["fills"]),
-                         (revision, 2))
+        self.assertEqual(("metrics_revision" in json.loads(report), json.loads(report)["populations"]["fills"]),
+                         (False, 2))
+        loaded = metrics.load_run(self.world.conn, stored["run_id"])
+        self.assertEqual(metrics.latest_sealed(self.world.conn, stored["run_id"], loaded["sealed"])["metrics_revision"],
+                         revision)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run_return WHERE run_id = %s", (stored["run_id"],)),
                          [(31,)])
         self.assertEqual(self.rows("SELECT instrument_id, realized_pnl, price_pnl FROM run_cycle WHERE run_id = %s",

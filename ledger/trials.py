@@ -205,7 +205,7 @@ def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str,
         return [reason(exc.code, exc.message, ",".join(exc.missing) or None)], ()
     revision = metrics.metrics_revision(checkout)
     try:
-        report = metrics.metrics(reports, revision)
+        report = metrics.metrics(reports)
         daily = metrics.daily_rows(reports)
         try:
             cycle_rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
@@ -261,7 +261,8 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
                          missing=(str(trial_id),)) from exc
         raise
     identity = {field: start["runtime_identity"][field] for field in execution.IDENTITY_FIELDS}
-    reasons = problems.capture_problems(capture, trial["source_sha256"], identity, problems.config_sha256(config))
+    reasons = problems.capture_problems(capture, trial["source_sha256"], identity, problems.config_sha256(config),
+                                        files)
     reasons += [problems.reason(item["code"], item.get("message") or item["code"], item.get("locator"))
                 for item in host_reasons or ()]
     summary = problems.json_object(problems.sealed(capture, problems.SUMMARY))
@@ -270,7 +271,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
         reasons.append(problems.reason("CONFIG_MISMATCH", f"the summary's bars are {summary.get('data_interval_minutes')}"
                                                           f" minutes, the configuration's {bar}",
                                        "data_interval_minutes"))
-    fingerprints, _ = problems.capture_fingerprint(capture)
+    fingerprints, _ = problems.capture_fingerprint(capture, files)
     revision, report, daily, cycle_rows = None, None, [], []
     if not reasons:
         reasons, sealed = _sealed_report(conn, trial_id, files, start["input_identity"], checkout)

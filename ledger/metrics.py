@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import gzip
+import hashlib
 import io
 import json
 import math
@@ -262,10 +263,10 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
     capture = execution.read_capture(conn, run["trial_id"])
     stored_identity = capture["start"].get("input_identity")
     receipts = [capture.get("input_coverage")]
-    if capture["status"] == "captured":
-        receipts.append(_json_bytes(capture["files"].get(COVERAGE)))
-        if capture["files"].get(COVERAGE) != capture.get("input_coverage_bytes"):
-            receipts.append(None)
+    started = capture.get("input_coverage_bytes")
+    if capture["status"] == "captured" and (started is None or execution.listed_sha256(capture, COVERAGE)
+                                            != hashlib.sha256(started).hexdigest()):
+        receipts.append(None)  # the receipt the container read is not the start receipt's
     if any(not isinstance(item, dict) or item.get("input_identity") != stored_identity for item in receipts):
         raise refuse("EXECUTION_IDENTITY", f"the coverage receipts of run {run_id} name other inputs than its stored "
                                            "input identity", missing=(COVERAGE,))
@@ -288,17 +289,12 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
 
 
 def latest_sealed(conn: db.LedgerConnection, run_id: int, sealed: dict) -> dict | None:
-    """The run's latest sealed result (by sealing time) among `sealed` (load_run's, by metrics revision)."""
+    """The run's latest sealed result (by sealing time) among `sealed` (load_run's, by metrics revision),
+    with the metrics revision of its row."""
     found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE run_id = %s ORDER BY created_at DESC, "
                       "metrics_revision DESC LIMIT 1", (run_id,))
-    return sealed.get(found[0][0]) if found else None
-
-
-def _json_bytes(data: bytes | None):
-    try:
-        return json.loads(data.decode("utf-8")) if data is not None else None
-    except (UnicodeDecodeError, ValueError):
-        return None
+    report = sealed.get(found[0][0]) if found else None
+    return None if report is None else {**report, "metrics_revision": found[0][0]}
 
 
 # Position cycles and economics
@@ -716,11 +712,10 @@ def _fact(passed: bool, code: str | None, **counts) -> dict:
     return {"passed": passed, "code": None if passed else code, **counts}
 
 
-def metrics(reports: Reports, revision: str | None = None) -> dict:
+def metrics(reports: Reports) -> dict:
     """The sealed single-run report: only what the stored cycles and daily series cannot give back.
 
-    `revision` is the product checkout's metrics_revision for a sealed run; without it the report
-    names this repository's HEAD (an unsealed directory)."""
+    The metrics revision that computed it is not part of it: a sealed run's row records it."""
     summary, audit = reports.summary or {}, reports.audit or {}
     absent = [key for key in SUMMARY_KEYS if summary.get(key) is None]
     if absent:
@@ -810,7 +805,7 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
         except Unreconciled as exc:
             plans = {"passed": False, "code": exc.code, "untagged_orders": untagged}
             limitations.append(str(exc))
-    return {"catalogue": CATALOGUE, "metrics_revision": revision or metrics_revision(),
+    return {"catalogue": CATALOGUE,
             "populations": {"fills": len(fills), "cycles": len(found) if found is not None else None,
                             "bars": len(path) if path is not None else None,
                             "days": len(series) if series is not None else None},

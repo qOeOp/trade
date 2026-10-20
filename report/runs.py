@@ -235,7 +235,8 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
         raise _mismatch(directory, run["run_id"], f"trial {reproduction} read other inputs", "input_identity")
     if capture["status"] != "captured":
         raise _mismatch(directory, run["run_id"], f"trial {reproduction} has no execution capture", "capture")
-    fingerprint, _ = problems.capture_fingerprint(capture)
+    root = directory if (directory / "reports").is_dir() else directory.parent
+    fingerprint, _ = problems.capture_fingerprint(capture, execution.read_files(root, (execution.FINGERPRINT_RESULT,)))
     if run["fingerprints"] is None or fingerprint is None or fingerprint != run["fingerprints"]:
         raise _mismatch(directory, run["run_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
                                                   "run's recorded fingerprint", execution.FINGERPRINT_RESULT)
@@ -316,7 +317,7 @@ def directory_report(directory: Path, account: bool = False) -> dict:
         reasons.append("AUDIT_FAILED: the directory's audit result did not pass")
     value = {"economic_evidence_available": not reasons, "reasons": reasons, "checker": availability.check_identity(),
              "unverified": UNVERIFIED, "limitations": [UNVERIFIED]}
-    output = {"directory": str(directory), "exploration": True, "metrics_revision": sealed["metrics_revision"],
+    output = {"directory": str(directory), "exploration": True, "metrics_revision": metrics.metrics_revision(),
               "catalogue": sealed["catalogue"], "populations": sealed["populations"], "activity": sealed["activity"],
               "order_funnel": sealed["order_funnel@1"], "plans": sealed["plans_valid@1"], "headline": None,
               "slices": None, "drawdown": None, "capital": None, "cost_basis": None}
