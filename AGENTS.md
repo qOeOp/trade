@@ -52,7 +52,8 @@ ledger: publication is append-only.
   included), never with direct SQL or another account. No strategy bodies or experiment receipts in
   Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
-  a symlink to it).
+  a symlink to it), holding runtime content only; their eval suites live in `evals/<skill>/`
+  (`claude plugin eval .`, the root `.claude-plugin/plugin.json`).
 
 ## Skills
 

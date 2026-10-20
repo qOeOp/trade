@@ -11,35 +11,35 @@ compute yourself from the `report` package's `tables(run_id, at=..., account=...
 directory=..., reproduction=...)`, under these rules. It returns the run's position cycles (snapshot
 rows kept; closed rows with `price_pnl`, `funding`, `ts_closed_ns`, `closing_order_tags`), the
 trade-window daily returns, `reconciled` totals, `availability`, `metrics_revision`, `ledger_commit`
-and `limitations`. It refuses a run that did not pass or has no economic-evidence eligibility.
+and `limitations`.
 
 ## Rules
 
-- **R.1.2.1** Take every number from `tables()` and cite its `ledger_commit`; never parse native
+- Take every number from `tables()` and cite its `ledger_commit`; never parse native
   files, query ledger tables directly, or override or fill a report measure. Holding time comes
   from `duration_ns`, the exit from `closing_order_tags`. For native detail beyond cycles and daily
   returns (orders, fills, account, order events), first replay the run into /tmp with `replay
   reproduce --run-id RUN --output DIR` and pass that directory and the reproduction trial to
   `tables()`, which checks the semantic fingerprint first.
-- **R.1.2.3** State the population (closed cycles, open rows, account), the weighting and the
+- State the population (closed cycles, open rows, account), the weighting and the
   frequency of every derived number. Totals over closed cycles equal `reconciled`; if not, do not
   cite them. A number that drives a recommendation or the next hypothesis is recomputed
   independently by a second agent from the same run and `ledger_commit`; when they disagree, draw
   no conclusion.
-- **V.2.2.3** Tests pair only account daily returns, and the product does that
+- Tests pair only account daily returns, and the product does that
   (`hypothesis compare`). For a trade-by-trade comparison read the attribution's trade pairing
   (`trade_pairs`), its coverage first. Never pair trades yourself by time, position id or
   direction, and never use paired trades as a test unit.
-- **R.2.3.2** Drawdown is the report's MARK maximum drawdown; never recompute it. Read it beside the
+- Drawdown is the report's MARK maximum drawdown; never recompute it. Read it beside the
   same run's capital use ([capital.md](references/capital.md)). When drawdown falls together with
   average notional or time in market, write that exposure fell, not that risk efficiency or risk
   control improved. Net return over notional, if shown at all, is labelled descriptive with its
   denominator and never ranks anything.
-- **R.3.1.6** Analysis outside the measure catalogue is done in /tmp, in a format of your choice,
+- Analysis outside the measure catalogue is done in /tmp, in a format of your choice,
   and never entered in the ledger: not in a bundle, not in a judgment's text. A number from it that
   drives a recommendation or the next hypothesis is cited in the judgment by its inputs and ledger
-  commit and recomputed by another agent.
-- **R.3.1.7** When a measure from such analysis drives decisions again and again, propose adding
+  commit.
+- When a measure from such analysis drives decisions again and again, propose adding
   it to the measure catalogue as a design change: its definition, population and the decisions it
   drove; one catalogue version bump. Until then it is not a fixed measure. A new version applies to
   runs sealed after it; an older run gets the number only by reproducing it.
@@ -56,8 +56,6 @@ and `limitations`. It refuses a run that did not pass or has no economic-evidenc
 - Many cancelled orders are contingent children: separate children (`parent_order_id` set) from
   entry parents, then split by the strategy's own tags before reading cancels as lost
   opportunities. Only one order's own event order is causal.
-- Read instrument terms, fee rates and the tag vocabulary from the run; label any reading whose
-  terms differ from what your formula assumes.
 
 ## References
 

@@ -11,44 +11,42 @@ selected (`line select`); everything inside it follows `research-round`.
 
 ## Read the ledger first
 
-- **E.1.1.1** At every start or return from an interruption, read the ledger before anything
-  else: whether the service is up (`ledger service status`), the candidates (`candidate list`),
-  the counts (`research status`), the research state and the current line (`research state`).
-  When a line record exists the user has chosen: continue it under `research-round` without asking
-  again. Handoff files and session memory are not records; a conclusion they hold that the ledger
-  does not is not used.
+- At every start or return from an interruption, read the ledger before anything else: whether
+  the service is up (`ledger service status`), the candidates (`candidate list`), the counts
+  (`research status`), the research state and the current line (`research state`). When a line
+  record exists the user has chosen: continue it under `research-round` without asking again.
+  Handoff files and session memory are not records; a conclusion they hold that the ledger does
+  not is not used.
 
 ## Offer lines and wait
 
 Present the latest recommendation and the line options ([recommendation.md](references/recommendation.md)).
 
-- **E.4.1.1** End with a question once the options are given. Until the user chooses, do not
-  register, replay, publish or write a line record, and never treat the first recommendation as
-  chosen.
-- **E.3.1.2** List template roots ([template.md](../research-round/references/template.md)) only
-  when the ledger has no candidate or the user says to leave every existing line, each with its
-  first report on the current development window or marked not yet replayed. A loss, an
+- End with a question once the options are given. Until the user chooses, do not register,
+  replay, publish or write a line record, and never treat the first recommendation as chosen.
+- List template roots (research-round's [template.md](../research-round/references/template.md))
+  only when the ledger has no candidate or the user says to leave every existing line, each with
+  its first report on the current development window or marked not yet replayed. A loss, an
   insignificant result, a low priority, a review count, a run limit or a fault never brings up
   roots: give the recommendation and priorities inside the line. A root from a user source is made
   only when the user gives the source.
 
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
-then published, prechecked and reviewed (`research-round` template.md L.2.2.1). Record the choice
-once with `line select --start ID@N --window-start YYYY-MM-DD --window-end YYYY-MM-DD --market-at
-COMMIT [--note TEXT]`, `--start` being the revision whose review passed; a later change is a new
-line record, never an edit. The user's research targets (maximum drawdown, minimum annual return)
-are the reference for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
-Then continue under `research-round`.
+then published, prechecked and reviewed (research-round's template.md, First report). Record the
+choice once with `line select --start ID@N --window-start YYYY-MM-DD --window-end YYYY-MM-DD
+--market-at COMMIT [--note TEXT]`, `--start` being the revision whose review passed; a later change
+is a new line record, never an edit. The user's research targets (maximum drawdown, minimum annual
+return) are the reference for reading reports; ask for nothing else (no coins, sizing, budgets or
+stages).
 
-- **E.4.1.3** Before continuing into `research-round`, set the host's goal for this session
-  yourself; the user does not write it. Compose the objective from the ledger: the selected line
-  (bundle and start), the user's two research targets as recorded with the line, and that a report,
-  review or priority never ends the work (A.1.1.3), only the user or a line that cannot continue.
-  If the host gives you a goal tool (Codex `create_goal` with `objective`; no token budget unless
-  the user asked), call it and tell the user in one line. Otherwise ask the user once to approve
-  the goal with the exact command (Codex `/goal <objective>`, Claude Code `/loop <objective>`) and
-  continue without waiting. Keep a goal already active for this line. While the line can continue,
-  never mark the goal complete.
+- Before continuing into `research-round`, set the host's goal for this session yourself; the user
+  does not write it. Compose the objective from the ledger: the selected line (bundle and start),
+  the user's two research targets as recorded with the line, and that a report, review or priority
+  never ends the work, only the user or a line that cannot continue. If the host gives you a goal
+  tool (Codex `create_goal` with `objective`; no token budget unless the user asked), call it and
+  tell the user in one line. Otherwise ask the user once to approve the goal with the exact command
+  (Codex `/goal <objective>`, Claude Code `/loop <objective>`) and continue without waiting. Keep a
+  goal already active for this line. While the line can continue, never mark the goal complete.
 
 ## When to read the references
 

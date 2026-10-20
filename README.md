@@ -76,7 +76,8 @@ export is `docs-site/out`.
 ## Repository map
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and which skill to use.
-- [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval), `nautilus-report-analysis`, `research-sources` and `video-evidence`; `.claude/skills` links here.
+- [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence` and `product-doctor`; `.claude/skills` links here.
+- [`evals/`](evals/): one eval suite per skill (`evals/<skill>/<case>/`), run with `claude plugin eval .` from the repository root, whose [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) loads `.agents/skills` as one plugin; results go to the ignored `evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`cli/`](cli/): the command line, the one entry Agents use; it holds no product logic.

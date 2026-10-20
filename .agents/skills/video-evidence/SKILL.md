@@ -23,8 +23,7 @@ Run each recipe as one `bash <<'SH' … SH` block (zsh breaks them) that starts 
   ask; never borrow another venv, an `mlx_whisper` on `PATH` or another engine, model or device. `MODEL` is
   resolved offline and `VIDEO_EVIDENCE_BACKUP` read as `${VIDEO_EVIDENCE_BACKUP:?}` only where a recipe uses them.
 
-Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg` exit 0 after failing);
-run ASR and downloads in the background and poll for that file.
+Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg` exit 0 after failing).
 
 ## Bundle
 

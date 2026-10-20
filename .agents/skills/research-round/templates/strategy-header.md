@@ -59,7 +59,7 @@ I2 退出可行性与未来资源：<立场> | <理由> | <来源>
 """
 ```
 
-- **C.1.4.1** Write the header line by line from this template: each of the 27 duties with its
-  stance (采用 / 缺省 / 不适用), one reason and its source (出处 / 实现者 / 研究者). The four hard
-  contracts, E1 single-opportunity risk and quantity, E4 allocation across opportunities, F5
-  disposal of holdings when membership changes and H2 margin buffer, are never 不适用.
+Write the header line by line from this template: each of the 27 duties with its stance
+(采用 / 缺省 / 不适用), one reason and its source (出处 / 实现者 / 研究者). The four hard contracts,
+E1 single-opportunity risk and quantity, E4 allocation across opportunities, F5 disposal of holdings
+when membership changes and H2 margin buffer, are never 不适用.

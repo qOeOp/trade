@@ -67,7 +67,7 @@ the server bytes and `-k` keeps the parts. `ulimit -f` (KiB) stops any file at 2
 unknown length (`File too large`: stop). A generic download reads the probed formats, never the page again.
 yt-dlp's retries resume a cut part with `Range` and can join two CDN copies, so a completed download still
 needs custody's decode check. Before any rerun and after an interrupt (`pgrep -fl '[y]t-dlp|[f]fmpeg'`),
-`rm -f source.* *.part *.ytdl` in `W` (yt-dlp reuses a file it holds; `probe.raw.json` stays). Then: [custody.md](custody.md).
+`rm -f source.* *.part *.ytdl` in `W` (yt-dlp reuses a file it holds; `probe.raw.json` stays). Then custody.md.
 
 ## Failures (verbatim line, query strings removed, into `<stage>/FAILED`, a download's into `media/FAILED`; to stop, `rm -rf "$W"`)
 

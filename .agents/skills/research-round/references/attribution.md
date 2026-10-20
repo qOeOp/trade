@@ -30,28 +30,27 @@ was declared. It does not change the test result.
 | S14 | One contract dominates the candidate's drawdown interval | `drawdown` | E2, F3 | Cap single-contract exposure, or add a protection boundary |
 | S15 | The drawdown sits in one window while time in market is near one | `drawdown`, `capital` | A3, E1, E3, F3 | Stand aside under a condition filter, scale risk to equity or volatility, or add a protection boundary |
 
-- **P.4.1.1** Map what the slices show to duties with this table and take its next hypothesis as
-  the usual starting point; the code does not enforce it. Before citing a row, check that its
-  signal holds in the report you cite.
-- **P.4.1.3** Every pointer in an interpretation judgment names the slice, the table row and the
-  duty ids.
+- Map what the slices show to duties with this table and take its next hypothesis as the usual
+  starting point; the code does not enforce it. Before citing a row, check that its signal holds
+  in the report you cite. Every pointer in an interpretation judgment names the slice, the table
+  row and the duty ids.
 
 ## Reading the attribution
 
-- **P.4.1.2** Cite only the slices a conclusion rests on, each with its measure name, and state for
-  every registered prediction whether it held (same sign); an item that cannot be checked gets its
+- Cite only the slices a conclusion rests on, each with its measure name, and state for every
+  registered prediction whether it held (same sign); an item that cannot be checked gets its
   reason.
-- **P.2.2.1** When the account difference is positive but a predicted slice has the opposite sign,
-  write the account difference and that the prediction failed; never say the mechanism held.
-- **P.3.1.1** A single-change comparison is the ablation of that duty. Read its attribution; never
-  run extra replays for attribution.
-- **P.3.1.3** To read an interaction of two changes, declare the four corners (neither, only one,
-  only the other, both) in the registration that adds the last corner. Use the interaction only to
-  explain where a difference comes from, never as evidence of improvement, and never pick a two by
-  two from the ledger afterwards.
-- **P.3.1.4** Differences added up segment by segment along the lineage depend on the order of
-  the changes; never present them as each change's independent effect. An independent effect
-  cites a declared interaction.
-- **R.3.2.10** Per-contract, per-month and exit-reason cross tables are yours to compute from the
-  run's cycles and daily series (`nautilus-report-analysis`); their totals must equal the report's
-  slice measures. A number that drives the next hypothesis is recomputed by another agent.
+- When the account difference is positive but a predicted slice has the opposite sign, write the
+  account difference and that the prediction failed; never say the mechanism held.
+- A single-change comparison is the ablation of that duty. Read its attribution; never run extra
+  replays for attribution.
+- To read an interaction of two changes, declare the four corners (neither, only one, only the
+  other, both) in the registration that adds the last corner. Use the interaction only to explain
+  where a difference comes from, never as evidence of improvement, and never pick a two by two
+  from the ledger afterwards.
+- Differences added up segment by segment along the lineage depend on the order of the changes;
+  never present them as each change's independent effect. An independent effect cites a declared
+  interaction.
+- Per-contract, per-month and exit-reason cross tables are yours to compute from the run's cycles
+  and daily series (`nautilus-report-analysis`); their totals must equal the report's slice
+  measures. A number that drives the next hypothesis is recomputed by another agent.

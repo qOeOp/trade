@@ -1,6 +1,6 @@
 # Custody and receipt
 
-Run after a completed download, with the same `bundle "<KEY>"` as [acquire.md](acquire.md). Identity files
+Run after a completed download, with the same `bundle "<KEY>"` as acquire.md. Identity files
 are the raw server bytes: `source.f<format_id>.*` per part when `format_id` holds `+`, else `source.<ext>`.
 Each must decode without an error (a resumed or cut transfer does not), and the receipt is an allowlist
 projection, never the raw info JSON.
