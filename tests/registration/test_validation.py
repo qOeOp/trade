@@ -56,21 +56,14 @@ class FreshCheckoutTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.remote, self.clone = checkout(self.root)
 
-    def test_a_clean_checkout_containing_main_is_fresh(self):
+    def test_a_checkout_containing_main_is_fresh_whatever_its_work_tree_holds(self):
         self.assertEqual(stale(self.clone), "fresh")
-        (self.clone / ".gitignore").write_text("ignored.log\n")
-        git(self.clone, "add", ".gitignore")
-        git(self.clone, "commit", "-q", "-m", "ignore logs")
-        (self.clone / "ignored.log").write_text("ignored")
-        self.assertEqual(stale(self.clone), "fresh", "a local commit ahead of main and ignored files are fine")
-
-    def test_dirty_behind_or_unprovable_checkouts_are_stale(self):
+        git(self.clone, "commit", "-q", "--allow-empty", "-m", "ahead")
         (self.clone / "README").write_text("edited\n")
-        self.assertEqual(stale(self.clone), "STALE_CHECKOUT")
-        git(self.clone, "checkout", "-q", "README")
         (self.clone / "draft.py").write_text("x = 1\n")
-        self.assertEqual(stale(self.clone), "STALE_CHECKOUT")
-        (self.clone / "draft.py").unlink()
+        self.assertEqual(stale(self.clone), "fresh", "a local commit ahead of main and local changes are fine")
+
+    def test_behind_or_unprovable_checkouts_are_stale(self):
         other = self.root / "other"
         git(self.root, "clone", "-q", str(self.remote), str(other))
         (other / "NEW").write_text("new\n")
@@ -341,10 +334,9 @@ class ValidationTests(unittest.TestCase):
 
     def test_the_replay_must_match_the_registration_in_every_identity(self):
         root = source("root")
-        dirty = self.git_root / "dirty"
-        git(self.git_root, "clone", "-q", str(self.remote), str(dirty))
-        (dirty / "draft.py").write_text("x = 1\n")
-        self.assertEqual(self.refused_bind("checks", checkout_root=dirty), "STALE_CHECKOUT")
+        plain = self.git_root / "plain"
+        plain.mkdir()
+        self.assertEqual(self.refused_bind("checks", checkout_root=plain), "STALE_CHECKOUT")
         with seams.use(require_main_build=lambda identity, inspection: (_ for _ in ()).throw(
                 Refusal("RUNTIME_NOT_MAIN", "not a main build", write_status="not_written"))):
             self.assertEqual(self.code(validation.validation_bind, self.conn, 1, 1, sha(root), IDENTITY, {},

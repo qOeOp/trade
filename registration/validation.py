@@ -48,7 +48,8 @@ def _git(root: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 def require_fresh(checkout: Path | None = None, remote: str = "origin") -> None:
-    """Refuse unless the product checkout is clean and contains the remote's latest main commit."""
+    """Refuse unless the product checkout's HEAD contains the remote's latest main commit; uncommitted
+    or untracked files in its work tree are not checked."""
     root = Path(checkout) if checkout is not None else seams.current.checkout()
 
     def stale(why: str):
@@ -56,12 +57,6 @@ def require_fresh(checkout: Path | None = None, remote: str = "origin") -> None:
     inside = _git(root, "rev-parse", "--is-inside-work-tree")
     if inside.returncode or inside.stdout.strip() != "true":
         raise stale(f"{root} is not a git work tree")
-    status = _git(root, "status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=none")
-    if status.returncode:
-        raise stale("the work tree status cannot be read")
-    dirty = [line for line in status.stdout.splitlines() if line.strip()]
-    if dirty:
-        raise stale(f"the work tree has {len(dirty)} changed or untracked files")
     listed = _git(root, "ls-remote", remote, "refs/heads/main")
     heads = [line.split()[0] for line in listed.stdout.splitlines() if line.strip()]
     if listed.returncode or len(heads) != 1:

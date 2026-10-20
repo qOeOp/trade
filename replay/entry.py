@@ -388,7 +388,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
                      expected="hypothesis xor validation")
     head = db.head_commit(conn)
     checkout = registration_seams.current.checkout()
-    metrics.metrics_revision(checkout)  # a passed run records it: refuse before any trial, not after the replay
+    metrics.metrics_revision(checkout)  # a passed run records it: refuse a non-checkout before any trial
     identity = _resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "

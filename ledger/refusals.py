@@ -392,8 +392,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REGISTRATION_CONSUMED": ("The validation registration was already bound, or the trial is bound to another "
                               "registration.",
                               ("Register a new validation; a bound registration stays consumed.",)),
-    "STALE_CHECKOUT": ("The product checkout is dirty, lacks the latest main commit, or cannot prove either.",
-                       ("Commit or remove local changes and update to origin/main, then rerun.",)),
+    "STALE_CHECKOUT": ("The product checkout's HEAD lacks the latest main commit, or this cannot be proved.",
+                       ("Update the checkout to origin/main, then rerun.",)),
     "RUNTIME_NOT_MAIN": ("The runtime image is not a main build of the product image source, or its code differs "
                          "from that revision, or the trial ran another image.",
                          ("Merge first, then rerun with the main runtime image.",)),

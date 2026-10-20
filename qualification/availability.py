@@ -1,7 +1,7 @@
 """Economic evidence availability (`qualification.assess`, `qualification.require`, `qualification.mask`,
 `qualification.native_reasons`, `qualification.source_reviews`, `qualification.check_identity`), with
-`review_records` (every source review read once per call) and `report_revision` (the clean product
-checkout's revision every read-time report names).
+`review_records` (every source review read once per call) and `report_revision` (the product checkout's
+HEAD revision every read-time report names).
 
 A run is economic evidence when, by the current criterion, it is a passed run whose audit ran, whose
 original execution capture is complete and clean, whose sealed facts show real activity that
@@ -55,9 +55,8 @@ def _checker_source() -> str:
 
 
 def report_revision() -> str:
-    """The metrics revision a read-time report computes with: the product checkout's HEAD, refused
-    (STALE_CHECKOUT) while the checkout has uncommitted or untracked changes no commit names. The
-    checkout is the registration seam's (`registration.seams.current.checkout`)."""
+    """The metrics revision a read-time report computes with: the product checkout's HEAD, whatever
+    its work tree holds. The checkout is the registration seam's (`registration.seams.current.checkout`)."""
     from registration import seams
     return metrics.metrics_revision(seams.current.checkout())
 

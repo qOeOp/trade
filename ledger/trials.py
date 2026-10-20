@@ -231,7 +231,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
     `host_reasons` are what the host saw outside the capture (inputs changed during the replay);
     they only add reasons. The effective configuration and its hash come from the start receipt's
     sealed coverage receipt (`problems.config_sha256`), never from the caller. `checkout` is the
-    product checkout whose clean HEAD names the metrics code (default: this repository).
+    product checkout whose HEAD names the metrics code (default: this repository).
     """
     workdir = Path(workdir)
     trial = _run_trial(conn, trial_id, require_new=False)  # a retry of the same write replays below
