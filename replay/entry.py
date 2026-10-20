@@ -408,7 +408,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         coverage = _prepare(workdir, revision["source"], inspection, inputs)
         _write_json(workdir / SOURCE / "binding.json", {
             "database": ledger.database, "commit": head, "strategy_id": revision["strategy_id"],
-            "revision": revision["revision"], "source_sha256": source_sha256, "entry_class": revision["entry_class"],
+            "revision": revision["revision"], "content_hash": source_sha256, "entry_class": revision["entry_class"],
             "runtime_contract": revision["runtime_contract"]})
         _write_json(workdir / SOURCE / "execution.json", {
             "runtime_identity": _identity4(identity), "effective_config": inspection.get("effective_config"),

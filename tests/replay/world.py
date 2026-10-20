@@ -71,6 +71,13 @@ trade_start = option("--trade-start") or start
 symbols = option("--symbols", many=True)
 execution = Path(mounts.get("/strategy", "/nonexistent")) / "execution.json"
 binding = json.loads(execution.read_text()) if execution.is_file() else {}
+if option("--strategy-binding"):
+    import hashlib
+    from engine.load import _binding
+    strategy_root = Path(mounts["/strategy"])
+    _binding(strategy_root / Path(option("--strategy-binding")).name,
+             hashlib.sha256((strategy_root / "strategy.py").read_bytes()).hexdigest(),
+             option("--strategy-class"))
 if scenario.get("skip_reports"):
     sys.exit(scenario.get("native_exit", 1))
 first, t0 = symbols[0], ns(trade_start)
