@@ -974,7 +974,7 @@ def write_native_reports(
 
 <TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、限价单穿价才成交、高低点按离开盘价远近排序（启发式）、市价单不受成交量限制、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
 
-**返回**　tuple[dict, list[str]]：原生摘要 summary 与完整性发现列表 integrity_findings；摘要同时以 JSON 写入 output/summary.json 并打印到标准输出，供执行捕获封存
+**返回**　tuple[dict, list[str]]：原生摘要 summary 与完整性发现列表 integrity_findings；摘要同时以 JSON 写入 output/summary.json，供执行捕获封存；不再回显到标准输出，标准输出只剩策略打印与写摘要之前的失败
 
 **期望行为**
 
