@@ -10,6 +10,15 @@ dependencies = [
   "pymysql==1.1.2",
 ]
 
+# Static checks only (quality CI); the runtime image installs with --no-dev and never carries them.
+[dependency-groups]
+dev = [
+  "mypy==1.19.1",
+  "ruff==0.15.1",
+  "types-jsonschema==4.26.0.20261006",
+  "types-pymysql==1.1.0.20260518",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13"]
 build-backend = "uv_build"
@@ -41,7 +50,6 @@ python_version = "3.14"
 files = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime"]
 
 [[tool.mypy.overrides]]
-# No type information in the lock: pymysql and pandas ship none (types-PyMySQL and pandas-stubs would
-# need a download), pyarrow 23 has no py.typed marker; all three stay Any.
-module = ["pymysql", "pymysql.*", "pandas", "pandas.*", "pyarrow", "pyarrow.*"]
+# pandas ships no type information and pyarrow 23 has no py.typed marker; both stay Any.
+module = ["pandas", "pandas.*", "pyarrow", "pyarrow.*"]
 ignore_missing_imports = true
