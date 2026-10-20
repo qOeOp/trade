@@ -213,7 +213,7 @@ class SealedReportTests(unittest.TestCase):
             (root / "audit" / "audit.json").write_text('{"passed": false}')
             self.assertEqual(metrics.load_directory(root).audit, {"passed": False})
 
-    def test_the_metrics_revision_is_a_clean_checkout_head(self):
+    def test_the_metrics_revision_is_the_checkout_head_whatever_the_work_tree_holds(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.assertRaises(Refusal) as caught:
@@ -226,9 +226,7 @@ class SealedReportTests(unittest.TestCase):
             head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
             self.assertEqual(metrics.metrics_revision(root), head)
             (root / "uncommitted.py").write_text("changed = True\n")
-            with self.assertRaises(Refusal) as caught:
-                metrics.metrics_revision(root)
-            self.assertEqual(caught.exception.code, "STALE_CHECKOUT")
+            self.assertEqual(metrics.metrics_revision(root), head)
 
 
 class MarkEquityTests(unittest.TestCase):

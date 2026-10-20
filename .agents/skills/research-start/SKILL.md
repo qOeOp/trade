@@ -38,6 +38,12 @@ never an edit. The user's research targets (maximum drawdown, minimum annual ret
 reference for reading reports; ask for nothing else (no coins, sizing, budgets or stages). Then
 check readiness ([readiness.md](references/readiness.md)) and continue under `research-round`.
 
+- **E.4.1.3** Before continuing into `research-round`, tell the user once that continuous research
+  needs the host's goal mode, which only the user can set (Codex `/goal <objective>`, Claude Code
+  `/loop` with the objective as its prompt), and suggest an objective sentence: it names the line
+  and the two research targets as the reference for reading reports, and says not to stop after a
+  report or a review. Then continue; do not wait for it.
+
 ## When to read the references
 
 - [readiness.md](references/readiness.md): before the first replay of a line, when a coverage

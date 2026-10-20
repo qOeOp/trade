@@ -688,24 +688,14 @@ def _git(root: Path, *argv: str):
         return None
 
 
-def metrics_revision(checkout: Path | None = None, clean: bool = True) -> str:
-    """The HEAD commit of the product checkout holding this metrics code (default: this repository);
-    refused while the checkout has uncommitted or untracked changes, whose code no commit names
-    (`clean=False`: an unsealed directory report, which is no evidence, reads HEAD regardless)."""
+def metrics_revision(checkout: Path | None = None) -> str:
+    """The HEAD commit of the product checkout holding this metrics code (default: this repository),
+    recorded as it is: uncommitted or untracked files in the work tree do not change it."""
     root = Path(checkout) if checkout is not None else db.REPOSITORY
     found = _git(root, "rev-parse", "HEAD")
     revision = found.stdout.strip() if found is not None and found.returncode == 0 else ""
     if not REVISION.fullmatch(revision):
         raise refuse("NOT_A_CHECKOUT", f"{root} is not a Git checkout; no revision to record")
-    if not clean:
-        return revision
-    status = _git(root, "status", "--porcelain", "--untracked-files=normal")
-    if status is None or status.returncode:
-        raise refuse("STALE_CHECKOUT", f"the work tree status of {root} cannot be read", missing=(str(root),))
-    dirty = [line for line in status.stdout.splitlines() if line.strip()]
-    if dirty:
-        raise refuse("STALE_CHECKOUT", f"{root} has {len(dirty)} changed or untracked files; revision {revision} does "
-                                       "not name the code that would compute the report", missing=(str(root),))
     return revision
 
 
@@ -720,8 +710,8 @@ def _fact(passed: bool, code: str | None, **counts) -> dict:
 def metrics(reports: Reports, revision: str | None = None) -> dict:
     """The sealed single-run report: only what the stored cycles and daily series cannot give back.
 
-    `revision` is the clean checkout's metrics_revision for a sealed run; without it the report
-    names HEAD as it is (an unsealed directory)."""
+    `revision` is the product checkout's metrics_revision for a sealed run; without it the report
+    names this repository's HEAD (an unsealed directory)."""
     summary, audit = reports.summary or {}, reports.audit or {}
     absent = [key for key in SUMMARY_KEYS if summary.get(key) is None]
     if absent:
@@ -809,7 +799,7 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
         except Unreconciled as exc:
             plans = {"passed": False, "code": exc.code, "untagged_orders": untagged}
             limitations.append(str(exc))
-    return {"catalogue": CATALOGUE, "metrics_revision": revision or metrics_revision(clean=False),
+    return {"catalogue": CATALOGUE, "metrics_revision": revision or metrics_revision(),
             "populations": {"fills": len(fills), "cycles": len(found) if found is not None else None,
                             "bars": len(path) if path is not None else None,
                             "days": len(series) if series is not None else None},

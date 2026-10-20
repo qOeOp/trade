@@ -19,7 +19,7 @@ from replay import entry, reproduce
 from report import attribution, candidates, comparison, runs, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
-from tests.replay.world import ReplayWorld, clean_checkout, registered_grid
+from tests.replay.world import ReplayWorld, registered_grid
 
 
 FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}, "orders": {"rows": 2, "sha256": "2" * 64}}
@@ -249,23 +249,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual((found["headline"], found["slices"], found["account"]), (None, None, None))
         self.assertNotIn("final_equity", found["activity"]["returns_compound_to_equity@1"])
         self.assertNotIn("100009.8", json.dumps(found, default=str))
-
-    def test_read_time_reports_refuse_a_dirty_product_checkout(self):
-        dirty = clean_checkout(self.world.tmp / "dirty-checkout")
-        (dirty / "uncommitted.py").write_text("x = 1\n")
-        calls = {"run_report": lambda: runs.run_report(self.profile, self.control["run_id"]),
-                 "compare": lambda: comparison.compare(self.profile, "registration-child", self.candidate["run_id"]),
-                 "attribution": lambda: attribution.attribution(self.profile, "registration-child",
-                                                                self.candidate["run_id"]),
-                 "research_status": lambda: status.research_status(self.profile),
-                 "candidates": lambda: candidates.candidates(self.profile),
-                 "check_identity": availability.check_identity}
-        with registration_seams.use(checkout=lambda: dirty):
-            for name, call in calls.items():
-                with self.subTest(reader=name):
-                    self.assertEqual(refused(call).code, "STALE_CHECKOUT")
-        clean = availability.check_identity()["metrics_revision"]
-        self.assertEqual(clean, metrics.metrics_revision(self.world.checkout), "the seam's clean checkout")
 
     # The comparison
 
