@@ -17,7 +17,7 @@ from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
 
-from engine.config import EXECUTION_BAR_MINUTES, Refusal, Window, utc_text
+from engine.config import EXECUTION_BAR_MINUTES, AccountContract, Refusal, Window, utc_text
 from engine.load import diagnostics
 
 
@@ -153,7 +153,7 @@ def summary_statistics(returns_series: dict[int, float], trade_start_ns: int, en
 
 
 def write_native_reports(output: Path, replay, strategies: dict, instruments: list[dict], identity: dict,
-                         window: Window, account: dict, limitations: list[str],
+                         window: Window, account: AccountContract, limitations: list[str],
                          expected_timestamps: int) -> tuple[dict, list[str]]:
     """engine.write_native_reports: write the native reports, order events and summary; return the summary
     and its integrity findings.

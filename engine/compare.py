@@ -57,6 +57,7 @@ def _csv_rows(path: Path) -> list[dict]:
 
 def _event_rows(path: Path) -> list[dict]:
     """The event history with each event's position in its own order's history."""
+    seen: dict[str, int]
     rows, seen = [], {}
     with gzip.open(path, "rt", encoding="utf-8") as stream:
         for line in stream:
@@ -106,7 +107,7 @@ def report_fingerprint(directory: Path) -> dict:
     result = {}
     for name, (file, column, stable) in TABLES.items():
         lines = sorted(((_day(row.get(column)), RANDOM.sub(lambda match: numbers[match.group(0)], text))
-                        for row, text in zip(tables[name], texts[name])), key=lambda item: item[1])
+                        for row, text in zip(tables[name], texts[name], strict=True)), key=lambda item: item[1])
         days: dict[str, list[str]] = {}
         for day, line in lines:
             days.setdefault(day, []).append(line)

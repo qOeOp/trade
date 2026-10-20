@@ -19,6 +19,7 @@ import stat
 import sys
 from pathlib import Path
 from types import MappingProxyType
+from typing import TypedDict
 
 
 # r1-native-v6: one-minute execution bars and the constructor's `universe_membership` (v5: five-minute
@@ -39,7 +40,34 @@ RUNTIME_SOURCE_PATHS = {
 AUDIT_PATH = "engine/audit.py"
 
 
-ACCOUNT_CONTRACT = {
+class AccountContract(TypedDict):
+    """The value types of ACCOUNT_CONTRACT's terms."""
+    venue: str
+    oms_type: str
+    account_type: str
+    book_type: str
+    base_currency: str
+    starting_balance_usdt: str
+    default_leverage: str
+    support_gtd_orders: bool
+    support_contingent_orders: bool
+    reject_stop_orders: bool
+    bar_execution: bool
+    bar_adaptive_high_low_ordering: bool
+    fill_model: str
+    prob_fill_on_limit: str
+    prob_slippage: str
+    liquidity_consumption: bool
+    queue_position: bool
+    trader_id: str
+    time_bars_timestamp_on_close: bool
+    time_bars_skip_first_non_full_bar: bool
+    validate_data_sequence: bool
+    max_order_submit_rate: str
+    chunk_size: int
+
+
+ACCOUNT_CONTRACT: AccountContract = {
     "venue": "BINANCE",
     "oms_type": "NETTING",
     "account_type": "MARGIN",
@@ -193,9 +221,10 @@ def utc_datetime(value: str) -> datetime:
     except (TypeError, ValueError) as exc:
         raise Refusal("WINDOW_TIMESTAMP_INVALID",
                       f"{value!r} is not an ISO-8601 datetime with explicit Z or UTC offset") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    offset = parsed.utcoffset()
+    if parsed.tzinfo is None or offset is None:
         raise Refusal("WINDOW_TIMEZONE_MISSING", f"{value!r} must include explicit Z or UTC offset")
-    if parsed.utcoffset().seconds % 60 or parsed.utcoffset().microseconds:
+    if offset.seconds % 60 or offset.microseconds:
         raise Refusal("WINDOW_TIMESTAMP_INVALID", f"{value!r} has an offset with seconds")
     try:
         return parsed.astimezone(UTC)
