@@ -147,7 +147,8 @@ def compare_reports(reference: Path, candidate: Path, account_tolerance: Decimal
     compared = {name: _table(name, left, right) for name, (left, right) in tables.items()}
     funding_mismatches = [{"index": index, "reference": list(a) if a else None, "candidate": list(b) if b else None}
                           for index, (a, b) in enumerate(zip(funding[0] + [None] * (len(funding[1]) - len(funding[0])),
-                                                             funding[1] + [None] * (len(funding[0]) - len(funding[1]))))
+                                                             funding[1] + [None] * (len(funding[0]) - len(funding[1])),
+                                                             strict=True))
                           if a != b]
     metrics = {}
     for metric in METRICS:

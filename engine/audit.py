@@ -21,6 +21,7 @@ import sys
 from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
 
@@ -203,7 +204,7 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
     event_fills = {event["event_id"]: event for event in events if event["type"] == "OrderFilled"}
     reported_fills = {row["event_id"]: row for row in fills}
     for event_id in sorted(set(event_fills) ^ set(reported_fills)):
-        found = event_fills.get(event_id) or reported_fills.get(event_id)
+        found = event_fills.get(event_id) or reported_fills[event_id]  # in exactly one of the two
         findings.append(finding("EVENT_FILL_MISMATCH", f"fill {event_id} (order {found['client_order_id']}, trade "
                                                        f"{found['trade_id']}) is in only one of the event history "
                                                        "and the fills report"))
@@ -242,6 +243,10 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
     nothing depends on the order of different orders' events within one nanosecond. A stop covers
     its unfilled quantity from its acceptance until it is canceled, expired, rejected or filled.
     """
+    position: defaultdict[tuple[str, str], Decimal]
+    position_orders: defaultdict[tuple[str, str], list[str]]
+    previous_stops: defaultdict[tuple[str, str], set[str]]
+    uncovered: dict[tuple[str, str], dict]
     orders, position, position_orders, position_ids = {}, defaultdict(Decimal), defaultdict(list), {}
     previous_stops, uncovered, intervals = defaultdict(set), {}, []
 
@@ -350,6 +355,14 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
 EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settlement (rc3 matching engine)
 
 
+class _OrderState(TypedDict):
+    """An order's state before a termination, from its events (engine.lifecycle_findings)."""
+    quantity: Decimal | None
+    filled: Decimal
+    ended: bool
+    pending: bool
+
+
 def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positions: list[dict],
                        events: list[dict], coverage: dict) -> list[str]:
     """engine.lifecycle_findings: no order is created at or after a contract's termination (the engine's
@@ -360,8 +373,9 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
     receipt) without a termination there is DATA_ENDS_WITHOUT_TERMINATION: the replay would hold it
     unvalued and untradeable without saying why."""
     from engine.config import parse_window
-    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), dict) else {}
-    window = parse_window(config.get("start"), None, config.get("end"))
+    config = coverage["effective_config"] if isinstance(coverage.get("effective_config"), dict) else {}
+    # Unvalidated JSON: a value that is not a string fails parse_window, which generic_audit records.
+    window = parse_window(config.get("start"), None, config.get("end"))  # type: ignore[arg-type]
     found = []
     for symbol, receipt in sorted((coverage.get("export_receipts") or {}).items()):
         pieces = receipt.get("pieces") if isinstance(receipt, dict) else None
@@ -409,7 +423,7 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
     for instrument, termination in sorted(ended_at.items()):
         settled = (instrument, termination) in priced
         when = _ns_utc(termination)
-        held = defaultdict(Decimal)
+        held: defaultdict[tuple, Decimal] = defaultdict(Decimal)
         for identity, order_events in sorted(by_order.items()):
             if order_events[0]["instrument_id"] != instrument:
                 continue
@@ -421,7 +435,7 @@ def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positio
                 continue
             if settled:
                 continue  # the engine cancels and closes at the settlement itself
-            state = {"quantity": None, "filled": Decimal(0), "ended": False, "pending": False}
+            state: _OrderState = {"quantity": None, "filled": Decimal(0), "ended": False, "pending": False}
             late = []
             for event in order_events:
                 kind, at = event["type"], int(event["ts_event"])
@@ -526,6 +540,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
         findings.append(finding("INTEGRITY_REPORTED_FAILED", f"integrity_passed {summary['integrity_passed']}, {denied} denied, {rejected} rejected"))
     if denied != summary["denied_orders"] or rejected != summary["rejected_orders"]:
         findings.append(finding("DENIED_REJECTED_COUNT_MISMATCH", f"{denied} denied and {rejected} rejected orders, the summary says {summary['denied_orders']} and {summary['rejected_orders']}"))
+    protection_info: dict
     economics, protection_info = {}, {}
     try:
         protection_findings, protection_info = protection(run_dir, orders, fills, summary)
@@ -566,6 +581,8 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
                 target = by_id.get(identity)
                 if target is None or identity == row["client_order_id"] or not _order_scope_matches(target, row):
                     findings.append(finding("ORDER_LINK_INVALID", f"invalid contingent link: {row['client_order_id']}"))
+        quantities: defaultdict[str, Decimal]
+        commissions: defaultdict[str, Decimal]
         quantities, commissions = defaultdict(Decimal), defaultdict(Decimal)
         native_fills, fill_times = {}, set()
         for fill in fills:
@@ -592,9 +609,10 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
             order_fees = sum((_money(value) for value in _list(order["commissions"])), Decimal(0))
             if commissions[identity] != order_fees:
                 findings.append(finding("ORDER_FILL_MISMATCH", f"order commission differs from the fills: {identity}"))
+        seen_events: Counter[str]
         seen_events, seen_adjustments = Counter(), set()
         position_fees, realized, funding = Decimal(0), Decimal(0), Decimal(0)
-        funding_by_time = defaultdict(Decimal)
+        funding_by_time: defaultdict[int, Decimal] = defaultdict(Decimal)
         live, closed_pnl = [], []
         for position in positions:
             events = _list(position["events"])
@@ -610,13 +628,13 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
             for event in events:
                 event_id = event["event_id"]
                 seen_events[event_id] += 1
-                fill = native_fills.get(event_id)
-                fields = ("client_order_id", "strategy_id", "instrument_id", "account_id",
-                          "order_side", "order_type", "last_qty", "last_px", "commission", "trade_id")
-                if (event.get("type") != "OrderFilled" or fill is None
+                reported_fill = native_fills.get(event_id)
+                fill_fields = ("client_order_id", "strategy_id", "instrument_id", "account_id",
+                               "order_side", "order_type", "last_qty", "last_px", "commission", "trade_id")
+                if (event.get("type") != "OrderFilled" or reported_fill is None
                         or _scope(event) != _scope(position)
-                        or any(str(event[field]) != fill[field] for field in fields)
-                        or int(event["ts_event"]) != pd.Timestamp(fill["ts_event"]).value):
+                        or any(str(event[field]) != reported_fill[field] for field in fill_fields)
+                        or int(event["ts_event"]) != pd.Timestamp(reported_fill["ts_event"]).value):
                     findings.append(finding("POSITION_FILL_COVERAGE_MISMATCH", f"position event {event_id} differs from its fill: {position['position_id']}"))
                 qty = _quantity(event["last_qty"])
                 if event["order_side"] == "BUY":
@@ -681,7 +699,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
             if any(pd.Timestamp(left["ts_event"]).value > pd.Timestamp(right["ts_event"]).value
                    for left, right in pairwise(accounts)):
                 findings.append(finding("ACCOUNT_REPORT_INCONSISTENT", "the account report is out of time order"))
-            balance_changes = defaultdict(Decimal)
+            balance_changes: defaultdict[int, Decimal] = defaultdict(Decimal)
             for left, right in pairwise(accounts):
                 balance_changes[pd.Timestamp(right["ts_event"]).value] += (
                     _decimal(right["total"]) - _decimal(left["total"]))

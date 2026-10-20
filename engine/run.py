@@ -38,7 +38,6 @@ from nautilus_trader.model import (
     InstrumentCloseType,
     InstrumentId,
     InstrumentStatus,
-    MarkPriceUpdate,
     Money,
     OmsType,
     Price,
@@ -106,8 +105,8 @@ def execution_metadata(config) -> dict:
                                                                            "effective_config_sha256"))
     identity = binding["runtime_identity"]
     if not isinstance(identity, dict) or identity.get("runtime_contract") != RUNTIME_CONTRACT:
-        found = identity.get("runtime_contract") if isinstance(identity, dict) else None
-        raise Refusal("EXECUTION_BINDING_MISMATCH", f"the execution binding names runtime contract {found!r}, the "
+        named = identity.get("runtime_contract") if isinstance(identity, dict) else None
+        raise Refusal("EXECUTION_BINDING_MISMATCH", f"the execution binding names runtime contract {named!r}, the "
                                                     f"runner is {RUNTIME_CONTRACT}")
     return {"runtime_identity": identity, "effective_config_sha256": effective.digest}
 
@@ -139,7 +138,8 @@ class _Configured:
 
     def __init__(self, config: StrategyInputs):
         instrument_id = InstrumentId.from_str(config.instrument_id)
-        super().__init__(
+        # super() is the source's entry class, which _runner_class combines with this one.
+        super().__init__(  # type: ignore[call-arg]
             instrument_id,
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
             trade_start_ns=config.trade_start_ns,
@@ -152,7 +152,7 @@ class _Configured:
             universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
         )
         self._replay_input_start_ns = config.input_start_ns
-        STRATEGIES[config.instrument_id] = self
+        STRATEGIES[config.instrument_id] = self  # type: ignore[assignment]  # self is a combined Strategy subclass
 
     def shutdown_system(self, reason=None):
         SHUTDOWN.append(reason)  # the streamed run stops feeding, as BacktestNode does
@@ -229,9 +229,10 @@ def execution_failure(stage: str, exc: BaseException, instance) -> None:
             "code": exc.code if isinstance(exc, Refusal) else None, "message": _clip(message, MAX_FAILURE_TEXT),
             "traceback": _clip("".join(traceback.format_exception(exc)), 5 * MAX_FAILURE_TEXT)})
     except Exception as error:  # an exception that cannot even be described still fails the run
+        failure = type(error).__name__  # bound here: `error` is unbound once the except clause ends
         receipt = _record((kind, stage, "unconstructed", None), lambda: {
             "stage": stage, "exception_type": kind, "instrument_id": "unconstructed", "code": None,
-            "message": f"the exception could not be described: {type(error).__name__}", "traceback": ""})
+            "message": f"the exception could not be described: {failure}", "traceback": ""})
     if receipt["count"] & (receipt["count"] - 1):
         return
     try:
@@ -425,6 +426,11 @@ class CapitalObserver(DataActor):
     to standard error.
     """
 
+    findings: list[str]
+    _ts: int | None
+    _marks: dict[InstrumentId, Price]
+    _latest: dict[InstrumentId, tuple[int, Price]]
+
     def __new__(cls, config=None):
         return DataActor.__new__(cls)
 
@@ -501,6 +507,7 @@ class CapitalObserver(DataActor):
 
     def _value(self, ts: int, cache) -> None:
         self.timestamps += 1
+        unvalued: dict[str, str]
         carried, unvalued = set(), {}
         for position in cache.positions_open():
             instrument = str(position.instrument_id)
@@ -676,7 +683,7 @@ def _windowed(files: list[tuple], start: int, end: int, batch: int):
                 added += 1
         if added:
             for chunk in session.to_query_result():
-                yield from chunk
+                yield from chunk  # type: ignore[misc]  # stubbed Any | None; iteration ends instead of yielding None
 
 
 def _keyed(events, order: int):
@@ -721,6 +728,7 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
         for _, event in group:
             yield event
 
+    group: list[tuple[int, object]]
     group, ts = [], None
     for event in _windowed(files, start, end, batch):
         at = event.ts_init
@@ -811,7 +819,8 @@ def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
     currency = Currency.from_str(account["base_currency"])
     engine.add_venue(
         Venue(account["venue"]), getattr(OmsType, account["oms_type"]), getattr(AccountType, account["account_type"]),
-        [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,
+        # The pinned Money takes the amount through __float__, as the stub's float says; the value stays a Decimal.
+        [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,  # type: ignore[arg-type]
         default_leverage=Decimal(account["default_leverage"]), book_type=getattr(BookType, account["book_type"]),
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
         support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
@@ -880,6 +889,9 @@ def main(argv: list[str] | None = None) -> None:
     if config.describe:
         print(json.dumps(describe(config), sort_keys=True))
         return
+    # parse_configuration refuses a replay without these (REPLAY_ARGUMENT_MISSING); only --describe omits them.
+    assert config.output is not None and config.strategy_file is not None and config.strategy_class is not None \
+        and config.strategy_sha256 is not None
     clear_failures()
     FAILURE_PATH = config.output / "runtime_failures.jsonl"
     stage = "execution_binding"

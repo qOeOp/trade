@@ -12,9 +12,11 @@ import os
 import re
 import stat
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from nautilus_trader.model import BarType, InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
@@ -132,7 +134,7 @@ RESERVED_DIAGNOSTICS = {"coin", "instrument", "quantity", "counts", "positions"}
 
 def diagnostics(strategy: Strategy) -> dict:
     """engine.diagnostics: the source's own counters, kept apart from the native report facts."""
-    value = strategy.replay_diagnostics()
+    value = strategy.replay_diagnostics()  # type: ignore[attr-defined]  # load_strategy refuses a source without it
     if not isinstance(value, dict):
         raise Refusal("DIAGNOSTICS_NOT_DICT", f"strategy diagnostics are a {type(value).__name__}, not a dict")
     if RESERVED_DIAGNOSTICS.intersection(value):
@@ -201,7 +203,9 @@ def read_market(market_root: Path, symbols: list[str], market_commit: str, start
         if not isinstance(pieces, list) or not pieces:
             raise Refusal("EPISODE_MAPPING_MISMATCH", f"{symbol}: the receipt lists no exported piece")
         for number, piece in enumerate(pieces, start=1):
-            index = piece.get("index") if isinstance(piece, dict) else "invalid"
+            if not isinstance(piece, dict):
+                raise Refusal("EPISODE_MAPPING_MISMATCH", f"{symbol}: piece {number} is not episode-{number}")
+            index = piece.get("index")
             single = index is None and len(pieces) == 1
             if not single and (index != number or piece.get("catalog_dir") != f"episode-{number}"):
                 raise Refusal("EPISODE_MAPPING_MISMATCH", f"{symbol}: piece {number} is not episode-{number}")
@@ -282,11 +286,13 @@ def warmup_start(catalog_path: Path, instrument_id: InstrumentId, earliest: int,
 def _native_lifecycle(event: dict):
     from nautilus_trader.model import InstrumentClose, InstrumentStatus
     kind = event.get("type") if isinstance(event, dict) else None
-    native = {"InstrumentStatus": InstrumentStatus, "InstrumentClose": InstrumentClose}.get(kind)
+    builders: dict[object, Callable[[dict], Any]] = {"InstrumentStatus": InstrumentStatus.from_dict,
+                                                     "InstrumentClose": InstrumentClose.from_dict}
+    native = builders.get(kind)
     if native is None:
         raise Refusal("LIFECYCLE_EVENT_INVALID", f"unknown lifecycle event type {kind!r}")
     try:
-        built = native.from_dict(dict(event))
+        built = native(dict(event))
     except Exception as exc:
         raise Refusal("LIFECYCLE_EVENT_INVALID", f"{kind} cannot be built natively: {exc}") from exc
     if built.ts_event != built.ts_init:
@@ -325,17 +331,17 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
         if nonzero:
             raise Refusal("LIFECYCLE_BUNDLE_MISSING", f"lifecycle events without a lifecycle bundle: {nonzero}")
         return ()
-    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), dict) else {}
-    try:
-        window = parse_window(config.get("start"), None, config.get("end"))
-        stated = parse_window(summary.get("input_start_utc"), None, summary.get("period_end_utc"))
+    config = coverage["effective_config"] if isinstance(coverage.get("effective_config"), dict) else {}
+    try:  # unvalidated JSON: a value that is not a string fails parse_window, as the except below records
+        window = parse_window(config.get("start"), None, config.get("end"))  # type: ignore[arg-type]
+        stated = parse_window(summary.get("input_start_utc"), None, summary.get("period_end_utc"))  # type: ignore[arg-type]
     except (Refusal, TypeError, AttributeError) as exc:
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", f"the receipt or summary window does not parse: {exc}") from exc
     if (coverage.get("format") != COVERAGE_FORMAT or (window.start_ns, window.end_ns) != (stated.start_ns, stated.end_ns)
             or identity.get("market_commit") != summary.get("market_commit")):
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", "the coverage receipt's format, window or market commit differs "
                                                      "from the native summary")
-    receipts = coverage.get("export_receipts") if isinstance(coverage.get("export_receipts"), dict) else {}
+    receipts = coverage["export_receipts"] if isinstance(coverage.get("export_receipts"), dict) else {}
     represented: dict[str, dict] = {}
     for symbol, receipt in receipts.items():
         if not isinstance(receipt, dict) or not isinstance(receipt.get("pieces"), list):
