@@ -810,7 +810,7 @@ def stitch_series(
 | 拒绝码 | 条件 |
 |---|---|
 | `SOURCE_CONFLICT` | 同一 open_time 被两个来源持有且任一字段不等；不以任一来源覆盖另一来源 |
-| `SOURCE_SHAPE` | 某行不是已收盘的整分钟 K 线（close_time 不等于 open_time + 1 分钟 − 1 毫秒），或 symbol 含非法字符 |
+| `SOURCE_SHAPE` | 某行不是已收盘的整分钟 K 线（close_time 不等于 open_time + 1 分钟 − 1 毫秒），或 symbol 含非法字符；或归档目录列举里有条目没有键、某页标为未完却无从续读（来自归档列举，原样上抛） |
 | `PRICE_TYPE_UNKNOWN` | price_type 不是 LAST 或 MARK |
 | `SOURCE_UNKNOWN_SYMBOL` | trading 为 true 而公开接口不识别该合约（来自 market.rest_klines，原样上抛） |
 | `CHECKSUM_MISMATCH` | 某归档校验和不符（来自 market.fetch_archive，原样上抛） |
@@ -896,13 +896,13 @@ def monthly_archives(
 **期望行为**
 
 1. 校验 kind 与 interval 的组合、months 的 YYYY-MM 格式与 symbol 字符集；不合法即拒绝 SOURCE_SHAPE
-2. 按交易所命名规则为每个月份构造月归档键，逐个调用 market.fetch_archive；月份多时先用一次公开目录列举得到已发布键，避免逐月探测
+2. 按交易所命名规则为每个月份构造月归档键，逐个调用 market.fetch_archive；月份多时先用一次公开目录列举得到已发布键，避免逐月探测；列举里任一条目没有键（Key，或 CommonPrefixes 下的 Prefix 缺失或为空），或某页标为未完而既无条目也无 NextMarker、无从续读，即拒绝 SOURCE_SHAPE，不跳过、不当作缺月
 3. fetch_archive 的 ARCHIVE_NOT_PUBLISHED 视为该月尚未发布，从结果省略；CHECKSUM_MISMATCH 与 SOURCE_UNREACHABLE 原样向上抛，不降级为缺月
 4. 返回的路径只是文件，不读行、不判冲突；来源种类不进入任何表
 
 | 拒绝码 | 条件 |
 |---|---|
-| `SOURCE_SHAPE` | kind 不在三种之内、K 线缺 interval 或资金费带 interval、months 不是 YYYY-MM、symbol 含非法字符 |
+| `SOURCE_SHAPE` | kind 不在三种之内、K 线缺 interval 或资金费带 interval、months 不是 YYYY-MM、symbol 含非法字符，或公开目录列举里有条目没有键、某页标为未完却无从续读 |
 | `CHECKSUM_MISMATCH` | 任一月归档校验和不符（来自 market.fetch_archive，不以缺月掩盖） |
 | `SOURCE_UNREACHABLE` | 交易所公开目录或归档不可达（来自 market.fetch_archive） |
 
@@ -974,13 +974,13 @@ def rest_funding(
 1. 校验 start_ms \< end_ms；不满足即拒绝 SOURCE_SHAPE
 2. 按交易所单页上限分页：游标从 start_ms 起，推进到上页末条结算时刻加 1，直到页空或越过 end_ms；请求间按公开接口限速
 3. 只保留 start_ms ≤ funding_time \< end_ms 的条目，结算时刻以交易所返回的实际时刻为准，不按固定周期推算或对齐
-4. 接口对该合约返回 HTTP 400 即拒绝 SOURCE_UNKNOWN_SYMBOL；网络错误或限频重试耗尽即拒绝 SOURCE_UNREACHABLE
+4. 接口返回 HTTP 400 且错误码为 -1121 即拒绝 SOURCE_UNKNOWN_SYMBOL，其余 400 拒绝 SOURCE_SHAPE，错误体不是 JSON 时拒绝消息带解码后的文字；网络错误或限频重试耗尽即拒绝 SOURCE_UNREACHABLE
 5. 不与月归档比较、不去重；同一结算时刻两来源不一致的判定归 market.import_month
 
 | 拒绝码 | 条件 |
 |---|---|
 | `SOURCE_SHAPE` | 时间区间不合法，或返回条目缺结算时刻或费率字段 |
-| `SOURCE_UNKNOWN_SYMBOL` | 公开接口不识别该合约代码（HTTP 400） |
+| `SOURCE_UNKNOWN_SYMBOL` | 公开接口不识别该合约代码（HTTP 400，错误码 -1121） |
 | `SOURCE_UNREACHABLE` | 重试耗尽后公开接口仍不可达或持续限频 |
 
 <div className="rd-meta">
@@ -1017,13 +1017,13 @@ def rest_klines(
 1. 校验 price_type ∈ \{LAST, MARK\}、interval 在固定周期白名单内、start_ms \< end_ms 且均在网格上；不满足即拒绝 SOURCE_SHAPE
 2. 按交易所单页上限分页：从 start_ms 起请求，游标推进到上页末行开盘时刻加 1，直到页空或越过 end_ms；请求间按公开接口权重限速
 3. 丢弃 open_time ≥ end_ms 的行与 close_time 仍在未来的未收盘行；校验每行字段数与开盘时刻在网格上，否则拒绝 SOURCE_SHAPE
-4. 接口对该合约返回 HTTP 400 即拒绝 SOURCE_UNKNOWN_SYMBOL（合约已从交易所移除，公开接口不再识别）；是否视为无补充由 market.stitch_series 决定
+4. 接口返回 HTTP 400 且错误码为 -1121 即拒绝 SOURCE_UNKNOWN_SYMBOL（合约已从交易所移除，公开接口不再识别），其余 400 拒绝 SOURCE_SHAPE；错误体不是 JSON 时，拒绝消息带解码后的文字；是否视为无补充由 market.stitch_series 决定
 5. 网络错误、5xx 或限频重试耗尽即拒绝 SOURCE_UNREACHABLE；不返回部分页冒充完整
 
 | 拒绝码 | 条件 |
 |---|---|
-| `SOURCE_SHAPE` | 参数不合法，或返回行字段数不对、开盘时刻不在网格上 |
-| `SOURCE_UNKNOWN_SYMBOL` | 公开接口不识别该合约代码（HTTP 400） |
+| `SOURCE_SHAPE` | 参数不合法，或返回行字段数不对、开盘时刻不在网格上，或接口以其他错误码返回 HTTP 400 |
+| `SOURCE_UNKNOWN_SYMBOL` | 公开接口不识别该合约代码（HTTP 400，错误码 -1121） |
 | `SOURCE_UNREACHABLE` | 重试耗尽后公开接口仍不可达或持续限频 |
 
 <div className="rd-meta">
@@ -1064,7 +1064,7 @@ def connect(
 **期望行为**
 
 1. role 不在两种之内即拒绝 ROLE_UNKNOWN
-2. 以该角色的账号连接服务并选中市场库；不可达或认证失败即 MARKET_UNREACHABLE
+2. 以该角色的账号连接服务并选中市场库；不可达或认证失败即 MARKET_UNREACHABLE；连接本身失败时套接字也关闭，不泄漏
 3. 读 market_schema 单行：version 与代码的模式代数不等即 SCHEMA_VERSION_MISMATCH；缺行时 reader 角色即 SCHEMA_VERSION_MISMATCH，import 角色返回空库标记，由 market.import_month 完成模式初始化
 4. 返回连接与自述字段；不写任何表
 
@@ -1165,7 +1165,7 @@ def import_month(
 | `MONTH_EXISTS` | 该月已存且已是完整月；或该月未完整但本次数据在已存最后一分钟之前有不同的行 |
 | `CHECKSUM_MISMATCH` | 某归档文件与交易所随文件发布的 SHA-256 不符（由 market.fetch_archive 触发） |
 | `SOURCE_CONFLICT` | 同一分钟或同一资金费结算时刻被两个来源同时持有且字段不等 |
-| `SOURCE_SHAPE` | 来源给出非整分钟对齐的 K 线或无法解析的行（由 market.stitch_series 或来源函数触发） |
+| `SOURCE_SHAPE` | 来源给出非整分钟对齐的 K 线或无法解析的行，或归档目录列举里有条目没有键、某页标为未完却无从续读（由 market.stitch_series 或来源函数触发） |
 | `SOURCE_UNREACHABLE` | 交易所归档或公开接口重试耗尽仍不可达（来自来源函数或 market.stitch_series） |
 | `SOURCE_UNKNOWN_SYMBOL` | 合约仍在交易而公开接口不识别（来自来源函数或 market.stitch_series） |
 | `PRICE_TYPE_UNKNOWN` | 传给拼接的价格类型不是 LAST 或 MARK（来自 market.stitch_series） |

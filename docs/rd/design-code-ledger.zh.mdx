@@ -16,6 +16,7 @@
   <File name="lines.py" />
   <File name="metrics.py" />
   <File name="paths.py" />
+  <File name="problems.py" />
   <File name="refusals.py" />
   <File name="strategies.py" />
   <File name="trials.py" />
@@ -141,7 +142,7 @@ def verify_coverage(
 2. 回执合约集须等于摘要 per_coin 的实例集；给定 window 时，回执与摘要的起止还须等于它。不符拒绝 COVERAGE_MISMATCH。
 3. 调用 engine.lifecycle_events(coverage, summary)，由它核对格式、起止、市场提交与逐实例生命周期；它的 LIFECYCLE_* 拒绝原样传出，不捕获、不降级。
 4. facts 只透传，不参与判定，也不写任何表。
-5. 本函数不读写账本，可以直接在工作目录上运行；replay.audit_problems 与 ledger.original_coverage 调用的是同一份实现。
+5. 本函数不读写账本，可以直接在工作目录上运行；入账时由 ledger.original_coverage 调用。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -186,7 +187,7 @@ def connect(
 
 1. 核对 role 合法；档案不是研究账本、或服务目录下没有该数据库的账号记录即拒绝。
 2. writer 时核对 branch 等于档案的固定研究 branch，不等即拒绝，不尝试连接。
-3. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝。
+3. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝；连接本身失败时套接字也关闭，不泄漏（pymysql 1.1.2 这时不关它），拒绝码不变。
 4. 读 ledger_schema 单行，version 不等于本代码期望的模式版本即关闭连接并拒绝。
 5. 返回带角色属性的连接；ledger.write 据此拒绝只读连接。
 6. 已知限制（Dolt 2.4.2 实测）：分支权限表按 LIKE 匹配库名、分支名与账号名，下划线是通配符且无法转义，所以研究分支名里的下划线会顺带匹配同形的其他分支；只有管理账号能建分支，SQL 授权按库名逐字匹配，暴露面很小。
@@ -648,7 +649,7 @@ def seal_capture(
 4. 逐文件生成清单：存在且非空记 captured（sha256 与长度），存在但为空记 captured_empty（显式空字节证明），不存在记 missing；audit 为 None 时 audit.* 与 audit/audit.json 记 not_started。缺失文件不由后来的探针补哈希。
 5. 总字节超过上限时不写任何行、保留工作目录，拒绝 EXECUTION_CAPTURE_LIMIT，并把拒绝作为宿主错误交回调用方，供 ledger.recover_capture 另标追加。
 6. 组装清单 \{format: execution_capture_v1, trial_id, purpose, source_sha256, runtime_identity, argv, stages, outcome, files\}，经 ledger.write 以 op_id = execution:trial-\<trial_id> 单事务写 evidence_bundle 与 evidence；同 op 同载荷重试返回原记录，载荷不同拒绝 BUNDLE_EXISTS。
-7. 不判成败、不解释日志：是否无效由 replay.audit_problems 与 replay.summary_problems 得出，经济证据资格由 ledger.read_capture 读出。
+7. 不判成败、不解释日志：是否无效由 ledger.audit_problems 与 ledger.summary_problems 得出，经济证据资格由 ledger.read_capture 读出。
 8. 研究或样本外试验因容量超限封存失败是终局：回放入口写恢复材料，并把运行存为 invalid（原因 EXECUTION_CAPTURE_LIMIT），网格点由这次无效运行消耗，不留悬空；恢复材料永远不产生通过的运行或通过的预检。
 
 | 拒绝码 | 条件 |
@@ -1328,6 +1329,86 @@ def temporary_path(
 
 </div>
 
+## `ledger/problems.py` [#def-mod-ledger-problems-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.audit_problems">audit_problems</Ref> | 把运行器与审计器的执行结果写成无效原因：退出码、审计是否运行与其结论、结构化异常回执，逐条列出互不覆盖；基础设施错误原样保留为原因，不改写成证据不足 |
+| <Ref id="ledger.summary_problems">summary_problems</Ref> | 原生摘要与试验身份逐项核对：源码哈希、运行环境身份、有效配置哈希与运行器自报完整性，任一缺失或不符即无效原因 |
+
+### `audit_problems` [#def-ledger-audit_problems]
+
+把运行器与审计器的执行结果写成无效原因：退出码、审计是否运行与其结论、结构化异常回执，逐条列出互不覆盖；基础设施错误原样保留为原因，不改写成证据不足
+
+```python
+def audit_problems(
+    native_exit: int | None,
+    audit_exit: int | None,
+    audit: bytes | None,
+    failures: bytes | None,
+) -> tuple
+```
+
+<TypeTable type={{ "native_exit": { type: "int | None", description: "运行器退出码；空表示运行器没有退出" }, "audit_exit": { type: "int | None", description: "审计器退出码；空表示审计器未运行" }, "audit": { type: "bytes | None", description: "audit/audit.json 的字节；空表示文件缺失" }, "failures": { type: "bytes | None", description: "reports/runtime_failures.jsonl 的字节；空表示文件缺失" } }} />
+
+**返回**　tuple(reasons: list[dict], audit: dict | None)；reasons 每条 \{code, message, locator\}，audit 为读出的审计结果原件，缺失或不可读为空
+
+**期望行为**
+
+1. native_exit 为空：追加 NATIVE_NOT_EXITED；非零：追加 NATIVE_EXIT_NONZERO，message 带退出码。
+2. audit_exit 为空：追加 AUDIT_NOT_RUN；非零：追加 AUDIT_EXIT_NONZERO。
+3. audit 为空（audit/audit.json 缺失）追加 AUDIT_RESULT_MISSING，不是 JSON 对象追加 AUDIT_RESULT_UNREADABLE；自报未通过或 findings 非空追加 AUDIT_FINDINGS，每条发现的定位原样转为 locator。
+4. reports/runtime_failures.jsonl 非空：每行须是结构化异常回执，否则 RUNTIME_FAILURE_MALFORMED，不可解析追加 RUNTIME_FAILURE_UNREADABLE；合规时按（异常类型、阶段、合约、消息）合并并累加次数（旧格式一行算一次，count 与 code 可缺），每组一条原因：策略交易之前的阶段（execution_binding、load、inputs）带拒绝码的记 RUNNER_REFUSED（消息为「拒绝码 in 阶段：原文」，截至 300 字符），receipt_overflow 记录记 RUNTIME_FAILURES_NOT_ITEMISED（写明还有多少条没有逐条列出），其余记 RUNTIME_FAILURE_RECORDED（带拒绝码、消息与次数，locator 带阶段与合约标识）。
+5. 只按退出码、文件存在性与结构化字段判定，不匹配日志文本；每条独立追加，前一条成立不省略后一条；RUNNER_REFUSED 排在最前，由它引起的 NATIVE_EXIT_NONZERO 等原因排在后面，不删除；去重比较代码、定位与消息，同一阶段与合约的不同失败分开保留；只读不写。本函数不拒绝：任何缺失、不可读或不合规都写成无效原因返回，不抛出带码拒绝。
+6. 规则是纯函数，只看传入的字节：replay/entry.py 的同名函数从工作目录读这两个常规文件（不是常规文件按缺失）后调用它，ledger.ingest_run 只用试验的封存捕获调用它，是否通过不由调用方决定。
+
+**使用**　<Ref id="replay.execute" />、<Ref id="engine.execution_failure" />、<Ref id="engine.audit" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="G.1.1.2">G.1.1.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="G.1.1.3">G.1.1.3</Ref> <Ref id="G.2.2.1">G.2.2.1</Ref> <Ref id="G.3.1.1">G.3.1.1</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref>
+
+</div>
+
+### `summary_problems` [#def-ledger-summary_problems]
+
+原生摘要与试验身份逐项核对：源码哈希、运行环境身份、有效配置哈希与运行器自报完整性，任一缺失或不符即无效原因
+
+```python
+def summary_problems(
+    summary: dict | None,
+    source_sha256: str,
+    identity: dict,
+    config_sha256: str,
+) -> list[dict]
+```
+
+<TypeTable type={{ "summary": { type: "dict | None", description: "运行器在运行环境内写出的原生摘要；空表示缺失" }, "source_sha256": { type: "str", description: "被回放候选的源码内容哈希（来自试验行）" }, "identity": { type: "dict", description: "按摘要钉死的运行环境身份（来自试验行）" }, "config_sha256": { type: "str", description: "宿主侧探针读出的有效配置哈希" } }} />
+
+**返回**　list[dict]：无效原因 \{code, message, locator\}；空列表表示一致
+
+**期望行为**
+
+1. summary 为空：只返回 SUMMARY_MISSING。
+2. summary.source_sha256 缺失或不等于 source_sha256：追加 SOURCE_MISMATCH。
+3. summary.runtime_identity 缺失或不等于 identity：追加 RUNTIME_MISMATCH，locator 写不符的字段名。
+4. summary.effective_config_sha256 缺失或不等于 config_sha256：追加 CONFIG_MISMATCH。
+5. summary.integrity_passed 不为真：追加 RUNNER_INTEGRITY_FAILED（含策略自检发现、被否被拒订单、估值未覆盖时段）。
+6. 只核对不改写；在运行环境外执行，两端身份取自同一试验行。本函数不拒绝：缺失或不符一律写成无效原因返回。
+7. replay/entry.py 的同名函数原样转调它；ledger.ingest_run 用封存的原生摘要调用它。
+
+**使用**　<Ref id="table:v_trials" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="engine.write_native_reports" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="G.1.1.4">G.1.1.4</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+
+**依据**
+
+- [OCI image-spec — descriptor（digest 字段）](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)　官方文档
+
+</div>
+
 ## `ledger/refusals.py` [#def-mod-ledger-refusals-py]
 
 | 函数 | 用途 |
@@ -1514,7 +1595,7 @@ def ingest_run(
 
 **期望行为**
 
-1. 失败原因由本函数从原始执行封存算出，不收调用方的原因：各阶段状态与退出码、结局、封存的审计结果 audit/audit.json、封存的运行期失败、封存的原生摘要（含完整性标志），按 replay.audit_problems 与 replay.summary_problems 的同一规则；任一非空即 invalid，只写状态、原因与审计，不写封存结果与指纹。
+1. 失败原因由本函数从原始执行封存算出，不收调用方的原因：各阶段状态与退出码、结局、封存的审计结果 audit/audit.json、封存的运行期失败、封存的原生摘要（含完整性标志），按 ledger.audit_problems 与 ledger.summary_problems 的同一规则；任一非空即 invalid，只写状态、原因与审计，不写封存结果与指纹。
 2. 有效配置哈希由本函数从开始回执封存的有效配置重算（ledger.config_sha256：去掉 market_root、universe_path，规范 JSON 的 SHA-256，与 engine.config_sha256 同一规则），与封存原生摘要的 effective_config_sha256 比对，不符记 CONFIG_MISMATCH；摘要的 K 线分钟数须等于该配置的 execution_bar_minutes，否则同样记 CONFIG_MISMATCH。不收调用方的哈希或配置。
 3. 工作目录须等于开始回执记下的目录；原生报告不入账，但执行封存清单记下每个报告文件的 sha256 与长度，计算封存结果前逐一重算核对，不符即 EXECUTION_IDENTITY；只读常规文件，不跟随符号链接。
 4. 语义指纹只取执行封存里指纹阶段的输出；指纹阶段缺失、不可用或没有结果都是失败原因，运行存为 invalid，通过的运行一定有指纹。
