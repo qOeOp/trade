@@ -166,6 +166,21 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(self.code(precheck.require_precheck, self.conn, "source-review-forged", sha(self.data),
                                    IDENTITY["image_ref"], None), "TRIAL_NOT_FOUND")
 
+    def test_review_records_are_the_product_reviews_with_the_commit_that_wrote_each(self):
+        from qualification import availability
+        trial_id = self.sealed()
+        recorded = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-q")
+        copied = evidence.load_bundle(self.conn, recorded["bundle"])["files"]
+        product_write(self.conn, "agent_review", "copied-review", copied)  # outside the namespace: never read
+        product_write(self.conn, "copied_review", "source-review-copied", copied)  # not written by record_review
+        found = {item["bundle"]: item for item in availability.review_records(self.conn)}
+        self.assertNotIn("copied-review", found)
+        self.assertEqual((found[recorded["bundle"]]["ledger_commit"], found[recorded["bundle"]]["ignored"]),
+                         (recorded["ledger_commit"], None))
+        forged = found["source-review-copied"]
+        self.assertTrue(forged["ledger_commit"] and forged["ledger_commit"] != recorded["ledger_commit"],
+                        "another write's bundle is dated by the history")
+
     def test_lifecycle_inputs_are_compared_both_ways(self):
         trial_id = self.sealed(identity={"lifecycle_bundle": "lifecycle-" + MARKET_COMMIT})
         bundle = self.review(trial_id)

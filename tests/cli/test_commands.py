@@ -117,7 +117,7 @@ class CommandTests(unittest.TestCase):
         body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
                 "control_run": None, "change": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a fixture rule earns its keep"},
-                "sources": [], "metric": "annual_return", "comparison": dict(DESIGN),
+                "sources": [], "comparison": dict(DESIGN),
                 "grid": [{"candidate": ref, "params": {}}], "conditions": "one contract, the development window",
                 "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}, "prechecks": {ref: review}}
         body.update(overrides)
@@ -143,6 +143,13 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((found["columns"], found["rows"]), (["version"], [[1]]))
         self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, "DELETE FROM candidate")
         self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, "SELECT 1; SELECT 2")
+        self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT REPLACE('a-b', '-', '') AS joined")["rows"],
+                         [["ab"]], "a read is never refused for a keyword inside it")
+        failed = self.refused("SQL_STATEMENT_FAILED", "ledger", "sql", *ledger, "SELECT bundle_name FROM evidence_bundles")
+        self.assertIn("evidence_bundles", failed["message"], "the server's own text")
+        state = self.ok("research", "state", *ledger)
+        self.assertEqual((state["line"], state["next_actions"]), (None, ["Select the user's research line with "
+                                                                          "`line select`."]))
 
         # Candidates
         root_file = self.write("root.py", SOURCE)
@@ -361,12 +368,7 @@ class CommandTests(unittest.TestCase):
     def test_scaffolds_usage_and_refusals_outside_a_ledger(self):
         made = self.ok("candidate", "new", "--output", str(self.tmp / "scaffold"), "--strategy-id", "fresh",
                        "--entry-class", "Fresh")
-        source = (self.tmp / "scaffold" / "strategy.py").read_text()
-        self.assertIn("class Fresh(Strategy):", source)
-        self.assertIn("def replay_diagnostics(self):", source)
-        self.assertIn("def replay_integrity_findings(self, orders_denied_or_rejected):", source)
-        compile(source, "strategy.py", "exec")
-        self.assertEqual(made["files"][0], "strategy.py")
+        self.assertEqual(made["files"][0], "strategy.py")  # tests/cli/test_scaffold.py loads it natively
         self.refused("PATH_EXISTS", "candidate", "new", "--output", str(self.tmp / "scaffold"), "--strategy-id", "x")
         self.refused("NOT_TEMPORARY_PATH", "candidate", "new", "--output", str(NOT_TEMPORARY / "scaffold"), "--strategy-id", "x")
         self.refused("USAGE_ERROR", "nothing", "here")

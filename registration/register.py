@@ -2,8 +2,8 @@
 `registration.register`, `registration.bind`, `registration.require_line_records`).
 
 A registration locks one hypothesis before any replay of it: the body (prediction, changed duties,
-parent and control, change, rationale, sources, metric, comparison design, grid, conditions,
-window), the execution identity the product probed (runtime image, effective configuration, input
+parent and control, change, rationale, sources, comparison design (none without a control), grid,
+conditions, window), the execution identity the product probed (runtime image, effective configuration, input
 identity) and each grid point's source review, as the immutable bundle research-plan.json. A
 research replay binds to one grid point in the transaction that writes its trial: the registration
 is checked again, and the grid point is consumed once, whatever the replay's outcome.
@@ -30,7 +30,6 @@ from registration import comparability, duties, inputs as registration_inputs, p
 
 PLAN_FILE = "research-plan.json"
 PLAN_FORMAT = "research-plan-v1"
-METRIC = "annual_return"  # the one comparison metric with a paired inference (report.paired)
 METHOD = "paired-circular-log-mean-v1"
 DESIGN_KEYS = ("method", "block_days", "resamples", "inner_resamples", "seed", "alpha", "minimum_effect",
                "design_reason")
@@ -38,7 +37,7 @@ DESIGN_MINIMA = {"block_days": 1, "resamples": 999, "inner_resamples": 99, "seed
 ALPHA_UPPER = 0.5  # uncalibrated example value
 TEXT_LIMIT = 8000  # uncalibrated example value
 GRID_LIMIT = 5
-REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources", "metric",
+REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources",
             "comparison", "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
 REGISTRATION_NAME = re.compile(r"registration-.+")
@@ -99,11 +98,11 @@ def plan_schema() -> dict:
             "sources": {"description": "Names of evidence bundles holding the source originals the rationale "
                                        "cites; each must already be in the ledger.",
                         "type": "array", "items": _BUNDLE},
-            "metric": {"description": f"The one comparison metric; only {METRIC} has a paired inference.",
-                       "type": "string"},
-            "comparison": {"description": "The declared test design: method, block_days, resamples, inner_resamples, "
-                                          "seed, alpha, minimum_effect and design_reason (values are uncalibrated "
-                                          "examples, locked with the registration).", "type": "object"},
+            "comparison": {"description": "The declared paired test of the annual return against the control: "
+                                          "method, block_days, resamples, inner_resamples, seed, alpha, "
+                                          "minimum_effect and design_reason (values are uncalibrated examples, "
+                                          "locked with the registration); null when control_run is null.",
+                           "type": ["object", "null"]},
             "grid": {"description": "One to five grid points {candidate: strategy_id@revision, params: the "
                                     "parameters described}, each a published candidate whose parent and difference "
                                     "equal parent and change.",
@@ -373,10 +372,8 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
 def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool,
               exclude: tuple[str, int] | None = None) -> dict:
     _check_shape(body)
-    if body["metric"] != METRIC:
-        raise refuse("METRIC_UNSUPPORTED", f"metric {body['metric']!r} has no paired inference", missing=("metric",),
-                     expected=METRIC)
-    validate_design(body["comparison"])
+    if body["control_run"] is not None or body["comparison"] is not None:  # nothing to test without a control
+        validate_design(body["comparison"])
     absent = [bundle for bundle in body["sources"] if not _bundle_exists(conn, bundle)]
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
@@ -409,12 +406,36 @@ def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay:
     return {point["source_sha256"] for point in _validate(conn, body, execution, before_replay, exclude)["grid"]}
 
 
-def require_line_records(conn: db.LedgerConnection, line_bundle: str, is_derived: bool) -> None:
-    """The gates before the next registration: interpretations, a due review and a review cadence."""
+def _retried(conn: db.LedgerConnection) -> set[str]:
+    """The registration bundles a stored registration names in retry_of."""
+    named = set()
+    for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND "
+                                             "path = %s", ("registration-%", PLAN_FILE)):
+        content = bytes(content)
+        if hashlib.sha256(content).hexdigest() != stored:
+            raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{PLAN_FILE} differs from its content hash",
+                         missing=(f"{bundle}/{PLAN_FILE}",))
+        try:
+            retry = json.loads(content.decode("utf-8"))["body"].get("retry_of")
+        except (UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if isinstance(retry, str):
+            named.add(retry)
+    return named
+
+
+def require_line_records(conn: db.LedgerConnection, line_bundle: str, is_derived: bool,
+                         retry_of: str | None = None) -> None:
+    """The gates before the next registration: interpretations, a due review and a review cadence.
+
+    Every completed research trial of the line needs an interpretation, except an invalid run whose
+    registration a registration names in retry_of (stored, or `retry_of` of the one being written):
+    a failure is repaired and retried, not interpreted."""
     trial_ids = lines.line_trials(conn, line_bundle)["trials"]
-    uncovered = []
+    uncovered, retried = [], None
     for trial_id in trial_ids:
-        completed = conn.rows("SELECT 1 FROM run WHERE trial_id = %s", (trial_id,)) or conn.rows(
+        run = conn.one("SELECT status FROM run WHERE trial_id = %s", (trial_id,))
+        completed = run is not None or conn.rows(
             "SELECT 1 FROM evidence_bundle WHERE bundle = %s OR bundle LIKE %s LIMIT 1",
             (f"trial-{trial_id}-recovery", f"trial-{trial_id}-recovery-%"))
         if not completed:
@@ -423,8 +444,15 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, is_derived
             "SELECT 1 FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
             "WHERE j.kind = 'interpretation' AND (s.trial_id = %s OR s.registration_bundle IN "
             "(SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s)) LIMIT 1", (trial_id, trial_id))
-        if not covered:
-            uncovered.append(trial_id)
+        if covered:
+            continue
+        if run is not None and run["status"] == "invalid":
+            if retried is None:
+                retried = _retried(conn) | set(_retry_chain(conn, retry_of))
+            attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
+            if attempt is not None and attempt["registration_bundle"] in retried:
+                continue
+        uncovered.append(trial_id)
     if uncovered:
         raise refuse("INTERPRETATION_REQUIRED", "completed research trials without an interpretation: "
                      + ", ".join(map(str, uncovered)), missing=tuple(f"trial {item}" for item in uncovered))
@@ -511,7 +539,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
                              missing=tuple(absent))
             for name, files in sources:
                 evidence.write_files(c, name, files, f"registration_source:{name}")
-            require_line_records(c, line["bundle"], body["parent"] is not None)
+            require_line_records(c, line["bundle"], body["parent"] is not None, body.get("retry_of"))
             _validate(c, body, execution, before_replay=False)
             evidence.write_files(c, bundle, {PLAN_FILE: content}, op)
             return {"bundle": bundle}

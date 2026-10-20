@@ -109,6 +109,17 @@ class SealedReportTests(unittest.TestCase):
         daily = metrics.daily_rows(native())
         self.assertEqual([mean for _, _, mean in daily], [Decimal(0), Decimal(1100), Decimal(600), Decimal(800)])
 
+    def test_the_sealed_report_keeps_the_runners_limitations(self):
+        listed = native()
+        listed.summary["limitations"] = ["Liquidation is not modelled", "CURRENT_SNAPSHOT_APPROXIMATION: terms"]
+        self.assertEqual(report(listed)["limitations"], listed.summary["limitations"])
+        written = native()  # a list in its text form, beside a limitation of the report's own
+        written.summary["limitations"] = "['Liquidation is not modelled']"
+        written.orders[3]["tags"] = "[]"
+        found = report(written)["limitations"]
+        self.assertEqual(found[0], "Liquidation is not modelled")
+        self.assertTrue(found[1].startswith("PLAN_TAG_MISSING"))
+
     def test_a_failed_reconciliation_empties_only_its_own_metric(self):
         untagged = native()
         untagged.orders[3]["tags"] = "[]"
@@ -216,10 +227,7 @@ class SealedReportTests(unittest.TestCase):
     def test_the_metrics_revision_is_the_checkout_head_whatever_the_work_tree_holds(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.assertRaises(Refusal) as caught:
-                metrics.metrics_revision(root)
-            self.assertEqual(caught.exception.code, "NOT_A_CHECKOUT")
-            env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x.invalid", "GIT_COMMITTER_NAME": "t",
+            env ={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x.invalid", "GIT_COMMITTER_NAME": "t",
                    "GIT_COMMITTER_EMAIL": "t@x.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "PATH": "/usr/bin:/bin"}
             for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "c"]):
                 subprocess.run(["git", *argv], cwd=root, env=env, check=True, capture_output=True)

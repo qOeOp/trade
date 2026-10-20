@@ -47,7 +47,6 @@ SUMMARY_KEYS = ("starting_balance_usdt", "final_equity_usdt", "closed_trades", "
                 "period_start_utc", "period_end_utc")
 AUDIT = "audit/audit.json"
 COVERAGE = "input-coverage.json"
-REVISION = re.compile(r"[0-9a-f]{40}\Z")
 _NANOSECONDS = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]00:?00)?\Z")
 
 
@@ -681,22 +680,24 @@ def daily_notional(summary: dict, path: list[dict]) -> dict[int, Decimal]:
 
 # The sealed single-run report
 
-def _git(root: Path, *argv: str):
-    try:
-        return subprocess.run(["git", *argv], cwd=root, capture_output=True, text=True, check=False, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
 def metrics_revision(checkout: Path | None = None) -> str:
     """The HEAD commit of the product checkout holding this metrics code (default: this repository),
-    recorded as it is: uncommitted or untracked files in the work tree do not change it."""
+    recorded as it is: uncommitted or untracked files in the work tree do not change it. The product
+    runs from its Git checkout; outside one `git rev-parse` fails (CalledProcessError)."""
     root = Path(checkout) if checkout is not None else db.REPOSITORY
-    found = _git(root, "rev-parse", "HEAD")
-    revision = found.stdout.strip() if found is not None and found.returncode == 0 else ""
-    if not REVISION.fullmatch(revision):
-        raise refuse("NOT_A_CHECKOUT", f"{root} is not a Git checkout; no revision to record")
-    return revision
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True,
+                          timeout=30).stdout.strip()
+
+
+def runner_limitations(summary) -> list[str]:
+    """The limitations the runner listed in its native summary (a list, or its text form)."""
+    found = summary.get("limitations") if isinstance(summary, dict) else None
+    if isinstance(found, str):
+        try:
+            found = ast.literal_eval(found)
+        except (SyntaxError, ValueError):
+            found = [found]
+    return [str(item) for item in found] if isinstance(found, list) else []
 
 
 def _measure(value, population: str) -> dict:
@@ -716,7 +717,7 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
     absent = [key for key in SUMMARY_KEYS if summary.get(key) is None]
     if absent:
         raise refuse("REPORT_UNREADABLE", "the native summary lacks " + ", ".join(absent), missing=tuple(absent))
-    limitations: list[str] = []
+    limitations = runner_limitations(summary)  # what the runner did not model or approximated
     fills, orders = reports.fills, reports.orders
     order_ids = {order.get("client_order_id") for order in orders}
     fill_orders = {fill.get("client_order_id") for fill in fills}

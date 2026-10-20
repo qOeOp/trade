@@ -26,7 +26,8 @@ read now and `gates`, which lists what the next registration still lacks.
 - **E.2.1.2** Before registering the next hypothesis, write at least one `interpretation` of the
   previous result: the conditions it was obtained under and when it should be re-evaluated. A
   conclusion stays inside the registered conditions; an insignificant, losing or zero-fill result
-  is never written as an exclusion.
+  is never written as an exclusion. An invalid run that a registration retries (`retry_of`) needs
+  no interpretation, only its repair record (F.1.1.2).
 - **E.2.2.2** Trials the product's commands read are counted by the ledger. Every extra view you
   computed with your own script (per month, per contract, participation, ...) is recorded as a
   `search_exposure` judgment, including views a skill requires.

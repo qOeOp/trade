@@ -2,7 +2,8 @@
 
 A refusal says which code was refused, what is missing, the expected shape, whether this call
 wrote anything, and the commands that supply what is missing. It never carries SQL, service
-paths, credentials or a way around a check, and it is never stored. This module depends on
+paths, credentials or a way around a check (a server error carries only the server's own text,
+truncated), and it is never stored. This module depends on
 nothing else; the commands come from `ledger.refusals`, passed in by the raiser.
 """
 

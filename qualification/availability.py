@@ -20,7 +20,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from ledger import db, metrics
+from ledger import db, metrics, problems
 from ledger.refusals import refuse
 from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 
@@ -98,7 +98,7 @@ def _capture_view(capture: Mapping) -> dict:
         return {"status": capture.get("status"), "purpose": (capture.get("start") or {}).get("purpose"),
                 "failed_stages": [], "failures": [], "original_missing": True}
     return {"status": "captured", "purpose": capture.get("purpose"), "failed_stages": _stage_failures(capture),
-            "failures": list(capture.get("runtime_failures") or []), "original_missing": False,
+            "failures": problems.failure_groups(capture.get("runtime_failures") or []), "original_missing": False,
             "outcome": (capture.get("outcome") or {}).get("kind")}
 
 
@@ -189,28 +189,44 @@ def mask(output: dict, value: dict) -> dict:
     return output
 
 
+REVIEW_PREFIX = "source-review-"  # the namespace only registration.record_review writes
+REVIEW_WRITE = "record_review"  # its ledger.write kind; the commit message is `<kind>:<op_id>`
+
+
 def _added_commit(conn: db.LedgerConnection, bundle: str) -> str | None:
     found = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND diff_type = 'added' "
                       "LIMIT 1", (bundle,))
     return found[0][0] if found else None
 
 
+def _review_commits(conn: db.LedgerConnection) -> dict[str, str]:
+    """The commit of every record_review write by its operation ID, read from the commit log once
+    (ledger.write commits each write as `<kind>:<op_id>`) instead of diffing every commit per review."""
+    return {message[len(REVIEW_WRITE) + 1:]: commit for commit, message in conn.rows(
+        "SELECT commit_hash, message FROM dolt_log WHERE message LIKE %s", (REVIEW_WRITE + ":%",))
+        if message.startswith(REVIEW_WRITE + ":")}
+
+
 def review_records(conn: db.LedgerConnection) -> list[dict]:
-    """Every stored source-review file, read and checked once: {bundle, sha256, record, ledger_commit,
-    ignored}; `ignored` names why a file is no product review of its precheck trial (else None).
-    LEDGER_CORRUPT when a stored file differs from its content hash."""
+    """Every stored source-review file of the product namespace (source-review-*), read and checked
+    once: {bundle, sha256, record, ledger_commit, ignored}; `ignored` names why a file is no product
+    review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its
+    content hash. Both reads are primary-key ranges of that namespace."""
     found = []
-    for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE path = %s ORDER BY "
-                                             "bundle", (REVIEW_FILE,)):
+    rows = conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND path = %s ORDER BY bundle",
+                     (REVIEW_PREFIX + "%", REVIEW_FILE))
+    if not rows:
+        return found
+    operations = dict(conn.rows("SELECT bundle, op_id FROM evidence_bundle WHERE bundle LIKE %s",
+                                (REVIEW_PREFIX + "%",)))
+    commits = _review_commits(conn)
+    for bundle, content, stored in rows:
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{REVIEW_FILE} differs from its content hash",
                          missing=(f"{bundle}/{REVIEW_FILE}",))
         item = {"bundle": bundle, "sha256": stored, "record": None, "ledger_commit": None, "ignored": None}
         found.append(item)
-        if not bundle.startswith("source-review-"):
-            item["ignored"] = "not a product source-review bundle"
-            continue
         try:
             record = json.loads(content.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
@@ -220,7 +236,9 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
             item["ignored"] = f"not a complete {REVIEW_FORMAT} record"
             continue
         item["record"] = record
-        commit = _added_commit(conn, bundle)
+        commit = commits.get(operations.get(bundle))
+        if commit is None or not _recorded_by(conn, bundle, commit):
+            commit = _added_commit(conn, bundle)  # not written by record_review: the history says when
         item["ledger_commit"] = commit
         trial = None
         if commit is not None and isinstance(record["trial_id"], int):

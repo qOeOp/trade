@@ -35,10 +35,10 @@ from ledger.refusals import CATALOGUE, refuse
 REPOSITORY = Path(__file__).resolve().parents[1]
 TEMPLATES = REPOSITORY / ".agents" / "skills" / "research-round" / "templates"
 WORKDIR_TEMPLATE, HEADER_TEMPLATE = "workdir-agents.md", "strategy-header.md"
-READ_FIRST = ("SELECT", "SHOW", "DESCRIBE", "WITH")
-WRITE_WORDS = ("INSERT", "UPDATE", "DELETE", "REPLACE", "CALL", "CREATE", "DROP", "ALTER", "GRANT", "REVOKE",
-               "TRUNCATE", "SET", "LOAD", "LOCK", "UNLOCK", "RENAME", "OUTFILE", "DUMPFILE", "HANDLER", "DO",
-               "PREPARE", "EXECUTE", "INTO")
+# `ledger sql` statement kinds: reads only. The reader account on a pinned revision database is the
+# write boundary; this first-word check keeps statements such as SET PERSIST, which any account may
+# run on Dolt 2.4.2, off the reader path, and nothing inside a read is scanned for keywords.
+READ_FIRST = ("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH", "TABLE", "VALUES")
 
 
 # Output
@@ -291,18 +291,18 @@ def _statement_words(query: str) -> list[str]:
 
 
 def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
-    """ledger sql: one read-only statement with the reader account, pinned to an exact version."""
+    """ledger sql: one read statement with the reader account, pinned to an exact version."""
     stripped, words = _statement_words(query or "")
     body = stripped.strip().rstrip(";").strip()
-    if not words or words[0] not in READ_FIRST or ";" in body or any(word in WRITE_WORDS for word in words):
-        raise refuse("WRITE_VIA_SQL", "only one SELECT, SHOW, DESCRIBE or WITH statement without a write clause is "
-                                      "accepted", expected="a single read-only statement")
+    if not words or words[0] not in READ_FIRST or ";" in body:
+        raise refuse("WRITE_VIA_SQL", "only one " + ", ".join(READ_FIRST) + " statement is accepted",
+                     expected="a single read statement")
     with db.read_as_of(profile, at) as conn:
         with conn.raw.cursor() as cursor:
             try:
                 cursor.execute(query.strip().rstrip(";"))
             except pymysql.MySQLError as exc:
-                raise db._sql_error(exc) from exc
+                raise db._sql_error(exc, statement=True) from exc
             columns = [column[0] for column in cursor.description or ()]
             found = [list(row) for row in cursor.fetchall()]
         return {"at": at, "ledger_commit": conn.resolved_commit, "columns": columns, "rows": found}
@@ -438,7 +438,7 @@ class {entry_class}(Strategy):
     positions, account) from the engine's state, never from counters of your own."""
 
     def __init__(self, instrument_id, daily_bar_type, *, trade_start_ns, historical_daily_bars,
-                 execution_bar_minutes, strategy_id, pool_membership):
+                 execution_bar_minutes, strategy_id, universe_membership):
         super().__init__(StrategyConfig(strategy_id=strategy_id))
         self.instrument_id = instrument_id
         self.trade_start_ns = trade_start_ns

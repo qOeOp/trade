@@ -248,7 +248,7 @@ class World:
                 "changed_duties": list(duties or []), "parent": parent, "control_run": control_run, "change": change,
                 "rationale": {"external": "", "local": "the parent fills large orders late",
                               "conjecture": "capacity limits the edge"},
-                "sources": [], "metric": "annual_return", "comparison": dict(DESIGN),
+                "sources": [], "comparison": dict(DESIGN),
                 "grid": [{"candidate": ref, "params": {"cap": index}} for index, ref in enumerate(grid)],
                 "conditions": "the full pool in the development window",
                 "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}, "prechecks": dict(reviews)}

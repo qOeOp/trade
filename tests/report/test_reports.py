@@ -281,9 +281,16 @@ class ReportTests(unittest.TestCase):
         part = attribution.attribution(self.profile, "registration-child", self.candidate["run_id"])
         self.assertEqual(part["slices"], found["attribution"]["slices"])
 
-    def test_the_comparison_is_refused_without_a_control_outside_the_grid_or_without_evidence(self):
-        cases = [(("registration-root", self.control["run_id"]), "NO_CONTROL"),
-                 (("registration-child", self.control["run_id"]), "RUN_NOT_IN_GRID"),
+    def test_a_registration_without_a_control_has_nothing_to_compare(self):
+        found = comparison.compare(self.profile, "registration-root", self.control["run_id"])
+        self.assertEqual((found["control_run_id"], found["evidence"], found["attribution"]), (None, None, None))
+        self.assertEqual(found["next_actions"], [f"Read the run alone with `replay report --run-id "
+                                                 f"{self.control['run_id']}`."])
+        self.assertEqual(refused(comparison.compare, self.profile, "registration-root", self.candidate["run_id"]).code,
+                         "RUN_NOT_IN_GRID")
+
+    def test_the_comparison_is_refused_outside_the_grid_or_without_evidence(self):
+        cases = [(("registration-child", self.control["run_id"]), "RUN_NOT_IN_GRID"),
                  (("registration-child", 9999), "UNKNOWN_RUN")]
         for arguments, code in cases:
             with self.subTest(code=code):

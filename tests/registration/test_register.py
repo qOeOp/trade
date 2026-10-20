@@ -41,7 +41,8 @@ class RegisterTests(unittest.TestCase):
         cls.child = world.publish("child")
         cls.child_review = world.prechecked(cls.child["source"])
         world.judge("review_cadence", cadence=50)
-        cls.registered = world.register("registration-root", world.body(["rsi@1"], {"rsi@1": cls.root_review}))
+        cls.registered = world.register("registration-root", world.body(["rsi@1"], {"rsi@1": cls.root_review},
+                                                                          comparison=None))
 
     def setUp(self):
         self.world = self.__class__.world
@@ -68,10 +69,12 @@ class RegisterTests(unittest.TestCase):
                           execution["input_identity"]["symbols"]), (RUNTIME["image_digest"], MARKET_COMMIT,
                                                                     ["AAAUSDT", "BBBUSDT"]))
         self.assertEqual(plan["body"]["grid"][0]["candidate"], "rsi@1")
+        self.assertIsNone(plan["body"]["comparison"], "a root has no control and so no comparison design")
         stored = self.world.service.sql(self.world.profile, "SELECT sha256 FROM evidence WHERE bundle = %s",
                                         ("registration-root",))
         self.assertEqual(stored, [(registered["sha256"],)])
-        again = self.world.register("registration-root", self.world.body(["rsi@1"], {"rsi@1": self.root_review}))
+        again = self.world.register("registration-root", self.world.body(["rsi@1"], {"rsi@1": self.root_review},
+                                                                          comparison=None))
         self.assertEqual((again["replayed"], again["ledger_commit"], again["sha256"]),
                          (True, registered["ledger_commit"], registered["sha256"]))
         self.assertEqual(self.code("registration-root", self.world.body(["rsi@1"], {"rsi@1": self.root_review},
@@ -98,7 +101,7 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(self.code("registration-no-file", self.derived(), source_files=[self.world.tmp / "absent"]),
                          "SOURCES_REQUIRED")
 
-    def test_names_shapes_metric_window_duties_and_predictions_are_checked_before_writing(self):
+    def test_names_shapes_window_duties_and_predictions_are_checked_before_writing(self):
         for name in ("trial-9-execution", "research-line-2", "source-review-x", "plan-x", "registration-"):
             with self.subTest(name=name):
                 self.assertEqual(self.code(name, self.derived()), "REGISTRATION_BUNDLE_NAME")
@@ -106,7 +109,8 @@ class RegisterTests(unittest.TestCase):
         body = self.derived()
         del body["conditions"]
         self.assertEqual(self.code("registration-shape", body), "REGISTRATION_INVALID")
-        self.assertEqual(self.code("registration-shape", self.derived(metric="max_drawdown")), "METRIC_UNSUPPORTED")
+        self.assertEqual(self.code("registration-shape", self.derived(control_run=1, comparison=None)),
+                         "REGISTRATION_INVALID", "a control needs the comparison design")
         self.assertEqual(self.code("registration-shape", self.derived(
             comparison={"method": "paired-circular-log-mean-v1"})), "REGISTRATION_INVALID")
         self.assertEqual(self.code("registration-shape", self.derived(
@@ -481,6 +485,21 @@ class RetryTests(unittest.TestCase):
         self.attempt("registration-r3", "registration-r2", "host_failure")
         self.assertFalse(self.world.register("registration-r4", {**self.body, "retry_of": "registration-r3"})[
             "replayed"])
+
+    def test_an_invalid_run_that_a_registration_retries_needs_no_interpretation(self):
+        self.world.register("registration-r1", self.body)
+        failed = self.world.research_trial("registration-r1", source("root"))
+        self.world.seal_run(failed, "invalid")
+        exc = refused(self.world.register, "registration-other", self.body)
+        self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {failed}",)))
+        self.world.register("registration-r2", {**self.body, "retry_of": "registration-r1"})
+        line = self.world.line["bundle"]
+        self.assertIsNone(register.require_line_records(self.world.conn, line, False), "the stored retry exempts it")
+        passed = self.world.research_trial("registration-r2", source("root"))
+        self.world.seal_run(passed, "passed")
+        exc = refused(register.require_line_records, self.world.conn, line, False)
+        self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {passed}",)),
+                         "a valid run still needs its interpretation")
 
     def test_a_retry_of_a_passed_or_unfinished_attempt_is_refused(self):
         self.attempt("registration-r1", None, "invalid")
