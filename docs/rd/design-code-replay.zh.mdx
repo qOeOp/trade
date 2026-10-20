@@ -245,7 +245,7 @@ def run(
 **期望行为**
 
 1. 核对 hypothesis 与 validation 恰给一个（REGISTRATION_REQUIRED）；解析 runner_argv，含入口保留选项拒绝 RUNNER_OPTION_RESERVED。
-2. purpose=validation 时先经 runtime.require_main_build 与 registration.require_fresh 核对运行环境来自 main 构建、产品工作树干净且含 main 最新提交，否则 STALE_CHECKOUT（工作树）或 RUNTIME_NOT_MAIN（运行环境）。
+2. purpose=validation 时先经 runtime.require_main_build 与 registration.require_fresh 核对运行环境来自 main 构建、产品 checkout 的 HEAD 含 main 最新提交，否则 STALE_CHECKOUT（checkout）或 RUNTIME_NOT_MAIN（运行环境）。
 3. 经 ledger.connect 打开写会话，ledger.read_candidate 读已发布候选（源码字节、内容哈希、入口类、运行契约）；不存在拒绝 UNKNOWN_CANDIDATE。
 4. 按 at 解析市场提交，经 registration.market_inputs 新鲜导出到临时导出目录，registration.input_key 算输入身份。
 5. 交 replay.seal 完成同事务绑定、执行、核对与入账（ledger.ingest_run）；finally 删除导出目录。
@@ -257,7 +257,8 @@ def run(
 | `REGISTRATION_REQUIRED` | hypothesis 与 validation 都未给或同时给出 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口自己写入的选项（策略文件、策略类、源码哈希、绑定文件、输出目录） |
 | `UNKNOWN_CANDIDATE` | strategy_id@revision 在账本中不存在 |
-| `RUNTIME_NOT_MAIN` | purpose=validation 但运行环境不是 main 构建或工作树不含 main 最新提交 |
+| `RUNTIME_NOT_MAIN` | purpose=validation 但运行环境不是 main 构建 |
+| `STALE_CHECKOUT` | purpose=validation 但产品 checkout 的 HEAD 不含 main 的最新提交，或无法证明（转发自 registration.require_fresh） |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="runtime.require_main_build" />、<Ref id="registration.require_fresh" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.seal" />、<Ref id="ledger.ingest_run" />、<Ref id="table:v_candidates" />
 

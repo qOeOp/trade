@@ -697,7 +697,7 @@ def validate_design(value: dict) -> None
 | 函数 | 用途 |
 |---|---|
 | <Ref id="registration.membership_unchanged">membership_unchanged</Ref> | 核对本次回放的共同可交易范围与登记一致：范围规则相同；登记前各月成员在登记提交与本次提交下逐行相同；窗口月份存在且交给策略的成员路径未剔除成员；不一致抛 MEMBERSHIP_CHANGED |
-| <Ref id="registration.require_fresh">require_fresh</Ref> | 核产品工作树干净且含远端 main 最新提交；只由样本外绑定调用 |
+| <Ref id="registration.require_fresh">require_fresh</Ref> | 核产品 checkout 的 HEAD 含远端 main 最新提交；工作树里的本地改动不核对；只由样本外绑定调用 |
 | <Ref id="registration.validation_bind">validation_bind</Ref> | 样本外回放启动前，在试验写事务内核对源码、范围、窗口与覆盖、凭证、账户条款与运行环境都与登记一致，并写 validation_binding；第二次绑定拒绝 |
 | <Ref id="registration.validation_register">validation_register</Ref> | 唯一写入 validation_registration：核候选、检验条件、窗口与重试条件，一事务一提交写登记，提交后对该提交取凭证；凭证失败时登记仍在 |
 
@@ -739,7 +739,7 @@ def membership_unchanged(
 
 ### `require_fresh` [#def-registration-require_fresh]
 
-核产品工作树干净且含远端 main 最新提交；只由样本外绑定调用
+核产品 checkout 的 HEAD 含远端 main 最新提交；工作树里的本地改动不核对；只由样本外绑定调用
 
 ```python
 def require_fresh(checkout: Path | None, remote: str) -> None
@@ -747,19 +747,18 @@ def require_fresh(checkout: Path | None, remote: str) -> None
 
 <TypeTable type={{ "checkout": { type: "Path | None", description: "产品代码工作树根；缺省为命令所在的产品 checkout（runtime.layout 给出）" }, "remote": { type: "str", description: "产品源码托管远端名，缺省 origin；main 最新提交从它查询" } }} />
 
-**返回**　None；工作树干净且含 main 最新提交时静默返回，否则抛 STALE_CHECKOUT 并在原因里给出脏文件数或落后的 main 提交
+**返回**　None；HEAD 含 main 最新提交时静默返回，否则抛 STALE_CHECKOUT 并在原因里给出它缺的 main 提交
 
 **期望行为**
 
-1. 干净：工作树无已改、已暂存或未忽略的未跟踪文件（含子模块）；任一存在即 STALE_CHECKOUT。
-2. 含 main：向远端查询 main 最新提交，须是当前 HEAD 的祖先或等于 HEAD；否则 STALE_CHECKOUT。
-3. 可证明：远端不可达、不是 git 工作树或查不到 main 时同样 STALE_CHECKOUT；不能证明就不放行。
-4. 只由 registration.validation_bind 调用；research、precheck 与 explore 不调用，任意工作树照常可用。
-5. 只读：不写任何文件或账本。
+1. 含 main：向远端查询 main 最新提交，须是当前 HEAD 的祖先或等于 HEAD；否则 STALE_CHECKOUT。未提交或未跟踪的文件不核对。
+2. 可证明：远端不可达、不是 git 工作树或查不到 main 时同样 STALE_CHECKOUT；不能证明就不放行。
+3. 只由 registration.validation_bind 调用；research、precheck 与 explore 不调用。
+4. 只读：不写任何文件或账本。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `STALE_CHECKOUT` | 工作树有未提交改动或未忽略的未跟踪文件；HEAD 不含远端 main 最新提交；远端不可达或不是 git 工作树 |
+| `STALE_CHECKOUT` | HEAD 不含远端 main 最新提交；远端不可达或不是 git 工作树 |
 
 **使用**　<Ref id="runtime.layout" />、<Ref id="ledger.refusal" />、<Ref id="registration.validation_bind" />
 
@@ -789,7 +788,7 @@ def validation_bind(
 ) -> None
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：市场提交、范围规则、成员路径、合约集、交易窗口、覆盖回执" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场库档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品工作树，供 require_fresh 核对" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：市场提交、范围规则、成员路径、合约集、交易窗口、覆盖回执" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场库档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品 checkout，供 require_fresh 核对其 HEAD" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
 
 **返回**　None；全部核对通过后在同事务写 validation_binding 一行；任一项不一致抛拒绝，由调用方回滚整个试验事务且不启动容器
 
@@ -805,7 +804,7 @@ def validation_bind(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `STALE_CHECKOUT` | 产品工作树不干净或不含 main 最新提交 |
+| `STALE_CHECKOUT` | 产品 checkout 的 HEAD 不含 main 的最新提交，或无法证明 |
 | `RUNTIME_NOT_MAIN` | 运行环境不是产品镜像源中 main 上的构建，或镜像内源码与依赖锁哈希不等于该版本字节，或试验镜像摘要不符 |
 | `REGISTRATION_UNKNOWN` | registration_id 不存在 |
 | `SOURCE_MISMATCH` | 即将执行的源码哈希不等于登记候选的源码哈希 |
