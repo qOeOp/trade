@@ -3,10 +3,11 @@
 Read when the review cadence is due (`research state`: `review_cadence`, `unreviewed_trials`) and
 when writing a `recommendation` judgment.
 
-- A review writes three separate judgments that do not follow from each other: `recommendation`
-  (which version or batch), `priority` (what next and in which order, feedback.md) and
+- A review writes two separate judgments that do not follow from each other: `recommendation`
+  (which version or batch) and `priority` (what next and in which order, feedback.md). The
   `review_cadence` (after how many trials the next review comes, in `cadence_trials`, with the
-  reason). A later cadence can only be lower.
+  reason) holds until changed: write it before the line's first derived registration, later only
+  to lower it, and never rewrite an unchanged cadence.
 - Take every count from `research status` (trials, research attempts, audit-passed, economically
   available, diagnostic only, invalid, unfinished, validation registrations) with its ledger
   commit; never count trials yourself or from session memory, and never assess progress

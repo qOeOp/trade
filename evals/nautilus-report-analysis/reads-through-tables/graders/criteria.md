@@ -6,8 +6,8 @@ The user wants per-instrument closed net PnL, closed win rate, mean holding time
 
 1. Does the response load the cycles and daily returns through the `report` package's `tables(run_id, at=...)` (for example `tables(3318, at="9f8e7d6")`) and cite its `ledger_commit`, instead of querying ledger tables directly or parsing native or CSV files?
 2. Does the response keep NETTING snapshot rows when counting closed cycles (it does not drop them)?
-3. Does the response take holding time from `duration_ns` (or exact integer nanosecond fields), not from subtracting timestamp strings?
-4. Does the response take the exit reason from `closing_order_tags` (the tags of the closing order), not from the sign of PnL or price levels?
+3. Does the response take holding time as `ts_closed_ns − ts_opened_ns` (the integer nanosecond fields), not from subtracting timestamp strings?
+4. Does the response take the exit reason from `closing_order_tag` or `closing_order_type` (the closing order's tag or type), not from the sign of PnL or price levels?
 5. For the order-event latency, does the response first replay the run into /tmp with `replay reproduce` and pass that directory and the reproduction trial to `tables()` (which checks the semantic fingerprint), rather than reading native files from the seal or the ledger directly?
 6. Does the response agree to replace, override or fill the report's maximum drawdown (or any other report measure) with a self-computed value?
 

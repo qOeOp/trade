@@ -57,13 +57,11 @@ results.
 3. Merge results into works, keeping every source and ID a record came from. One work can carry
    several DOIs (preprint, working-paper series, journal) and slightly different titles: group by
    first author, title and abstract, and by linked IDs ([papers.md](references/papers.md)); an
-   `10.48550/arxiv.` DOI is an arXiv ID. Cite the published version and list the others. Rank by
-   relevance to the question; citation counts lag, and new working papers have none.
+   `10.48550/arxiv.` DOI is an arXiv ID. Cite the published version and list the others.
 
 ## Read
 
-4. Triage on title, abstract, year and venue; get full text only for papers that decide something.
-   Take a number or a claimed effect from the text with its location (section, table or page),
+4. Take a number or a claimed effect from the text with its location (section, table or page),
    never from memory. When the indexes give no open full text for a paper that decides something,
    search the web for a copy its authors, their institution, a repository or a working-paper series
    published (title and author in quotes, `filetype:pdf`); use only copies the rights holder or the

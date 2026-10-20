@@ -1,5 +1,5 @@
 ---
-description: Regression — with the skill, stored run data is read through the report package's tables() with its ledger commit, keeping snapshot cycles, duration_ns and closing-order tags, native detail comes only from a reproduction in /tmp, and no report measure is overridden.
+description: Regression — with the skill, stored run data is read through the report package's tables() with its ledger commit, keeping snapshot cycles, holding time from ts_opened_ns/ts_closed_ns and the closing order's tag or type, native detail comes only from a reproduction in /tmp, and no report measure is overridden.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

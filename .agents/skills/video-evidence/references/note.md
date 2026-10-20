@@ -3,8 +3,6 @@
 Write `note.md` in the bundle, in the language the user asked for (default: the user's language). A
 note reads the bundle; it is never evidence and the checker does not read it.
 
-- **Structure**: a short overview; chapters in time order whose titles come from the content (no
-  fixed categories); concrete details under each; takeaways only where the speaker states them.
 - **Keep** entities, numbers with units, conditions, negations, exceptions and causal links. Do not
   widen a conclusion. Mark an unclear name or number instead of guessing.
 - **Cite** every point with its segments, such as `[E012–E015]`, and never a span the checker flags.

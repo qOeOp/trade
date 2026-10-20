@@ -2,7 +2,7 @@
 
 What a strategy file must satisfy to run in the native replay. Code is the authority:
 `engine/{config,load,run,report}.py` for execution. `candidate new` writes a scaffold with the
-header template, the entry class and the two hooks.
+header template, the entry class, the two hooks and a sizing helper.
 
 ## Contents
 
@@ -30,8 +30,7 @@ header template, the entry class and the two hooks.
 ## Entry class and configuration
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
-  published `--entry-class` and `--strategy-class` of an exploration must agree. Runtime contract:
-  `r1-native-v6`.
+  published `--entry-class` and `--strategy-class` of an exploration must agree.
 - The constructor receives `instrument_id` and `daily_bar_type` positionally, then
   `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (1), `strategy_id` and
   `universe_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
@@ -133,11 +132,10 @@ Any finding or any denied or rejected order fails the run.
 
 ## Verify Nautilus behaviour
 
-Read signatures from the pinned package, not upstream docs. Verify uncertain order or event
-behaviour with a small native probe before relying on it: a script in a temporary directory, run on
-the host with `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py` (it imports `engine` and
-`market`), building a `BacktestEngine(BacktestEngineConfig())` with one `Strategy()`, an instrument
-and bars.
+Verify uncertain order or event behaviour with a small native probe before relying on it: a script
+in a temporary directory, run on the host with `uv run --frozen --project REPO python
+/tmp/RUNDIR/probe.py` (it imports `engine` and `market`), building a
+`BacktestEngine(BacktestEngineConfig())` with one `Strategy()`, an instrument and bars.
 
 ## Publish, precheck and pilot
 

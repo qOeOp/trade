@@ -13,8 +13,9 @@ selected (`line select`); everything inside it follows `research-round`.
 
 - At every start or return from an interruption, read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
-  (`research status`), the research state and the current line (`research state`). When a line
-  record exists the user has chosen: continue it under `research-round` without asking again.
+  (`research status`), the research state and the current line record (`research state`). When a
+  line record exists the user has chosen: continue it under `research-round` without asking again,
+  taking the user's two research targets from its note.
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
 
@@ -34,14 +35,14 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
 then published, prechecked and reviewed (research-round's template.md, First report). Record the
 choice once with `line select --start ID@N --window-start YYYY-MM-DD --window-end YYYY-MM-DD
---market-at COMMIT [--note TEXT]`, `--start` being the revision whose review passed; a later change
-is a new line record, never an edit. The user's research targets (maximum drawdown, minimum annual
-return) are the reference for reading reports; ask for nothing else (no coins, sizing, budgets or
-stages).
+--market-at COMMIT --note TEXT`, `--start` being the revision whose review passed and the note
+stating the user's two research targets (maximum drawdown, minimum annual return); a later change
+is a new line record, never an edit. The targets are the reference for reading reports; ask for
+nothing else (no coins, sizing, budgets or stages).
 
 - Before continuing into `research-round`, set the host's goal for this session yourself; the user
   does not write it. Compose the objective from the ledger: the selected line (bundle and start),
-  the user's two research targets as recorded with the line, and that a report, review or priority
+  the user's two research targets from the line's note, and that a report, review or priority
   never ends the work, only the user or a line that cannot continue. If the host gives you a goal
   tool (Codex `create_goal` with `objective`; no token budget unless the user asked), call it and
   tell the user in one line. Otherwise ask the user once to approve the goal with the exact command

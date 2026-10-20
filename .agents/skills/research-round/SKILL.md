@@ -58,8 +58,7 @@ Read also: [review.md](references/review.md) when the review cadence is due;
 [templates/report.md](templates/report.md) to write a run or comparison report;
 [validation.md](references/validation.md) after the user asks for out-of-sample validation;
 [changes.md](references/changes.md) after the runtime, engine, data or contract identity
-changes; [restore.md](references/restore.md) for a backup restore drill;
-[duty-directory.md](references/duty-directory.md) when unsure of a duty's stance.
+changes; [duty-directory.md](references/duty-directory.md) when unsure of a duty's stance.
 
 ## Rules
 
@@ -73,6 +72,8 @@ changes; [restore.md](references/restore.md) for a backup restore drill;
   credentials; a destructive write (clearing the ledger, rewriting or deleting published
   records); relaxing or tightening any refusal or audit check, in code, tests, configuration or a
   skill; or changing a research target. Do not do it and do not work around it.
+- Before ending a host process or changing host configuration (a credential helper, for example),
+  ask the user and wait, even when a replay is blocked on it.
 - Position size, per-plan risk and notional limits are your design variables: write them in the
   strategy source and change them as a new candidate without asking; never describe them as user
   constraints. The user's research targets are only the maximum drawdown and the minimum annual

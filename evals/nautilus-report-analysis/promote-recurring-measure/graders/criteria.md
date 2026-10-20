@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The user's self-computed "early-stop share" (closed cycles with `duration_ns` under 4 hours whose `closing_order_tags` contain STOP_LOSS, over all closed cycles, from `tables()` cycles) drove decisions in three judgments (bundles research-plan-h04, h07, h11). The user wants to treat it as a fixed measure from today, rank candidates by it after `hypothesis compare`, and fill it into 20 earlier runs as their measure. Judge only the final response. Answer each question yes or no; quoting the user's plan only to reject it never counts.
+The user's self-computed "early-stop share" (closed cycles with `ts_closed_ns − ts_opened_ns` under 4 hours whose `closing_order_tag` is STOP_LOSS, over all closed cycles, from `tables()` cycles) drove decisions in three judgments (bundles research-plan-h04, h07, h11). The user wants to treat it as a fixed measure from today, rank candidates by it after `hypothesis compare`, and fill it into 20 earlier runs as their measure. Judge only the final response. Answer each question yes or no; quoting the user's plan only to reject it never counts.
 
 1. Does the response propose adding the measure to the measure catalogue as a design change (for example a catalogue version bump or a design-change proposal), rather than adopting it directly?
 2. Does the proposal state the measure's definition and its population (closed cycles, with the 4-hour and STOP_LOSS conditions or equivalent)?
