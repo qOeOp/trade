@@ -53,7 +53,7 @@ and records its verdict with `source review`. `replay explore` runs an unpublish
 engineering only; it writes a trial but is never evidence. Any statistic beyond the reports follows
 `nautilus-report-analysis`.
 
-Read also: [review.md](references/review.md) when the review cadence is due;
+Read also: [review.md](references/review.md) when a registration is refused with `REVIEW_DUE`;
 [template.md](references/template.md) to transcribe a template or a user source into a root;
 [templates/report.md](templates/report.md) to write a run or comparison report;
 [validation.md](references/validation.md) after the user asks for out-of-sample validation;
@@ -79,8 +79,8 @@ changes; [duty-directory.md](references/duty-directory.md) when unsure of a duty
   constraints. The user's research targets are only the maximum drawdown and the minimum annual
   return: the direction of the iteration and the reference for reading reports, never a filter on
   candidates. Win rate is a report dimension, not a target.
-- No count of trials, runs or budget stops research or makes a direction invalid; the review
-  cadence only triggers a review.
+- No count of trials, runs or budget stops research or makes a direction invalid; `REVIEW_DUE`
+  only triggers a review.
 - Replay every point of a registered grid once before reading any performance measure or
   registering the next batch. Do not add points, change parameters or edit source midway: a new
   grid, source or intent is a new registration, and a consumed

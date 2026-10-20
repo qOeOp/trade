@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import unittest
+from unittest.mock import patch
 
 from ledger import db, strategies
 from qualification import availability
@@ -42,7 +43,9 @@ class IntegrityTests(unittest.TestCase):
         cls.market.__enter__()
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
-        world.judge("review_cadence", cadence=50)
+        cls.cadence = patch.object(register, "REVIEW_EVERY", 50)  # more research trials than the breaker
+        cls.cadence.start()
+        cls.addClassCleanup(cls.cadence.stop)
         cls.refs, cls.runs = {}, {}
         cls.publish("base", BASE, None, None)
         world.register("registration-base", world.body([cls.refs["base"]], {cls.refs["base"]: world.prechecked(BASE)}))

@@ -191,17 +191,15 @@ class CommandTests(unittest.TestCase):
                      "--window-end", "2026-02-01")
         self.refused("WINDOW_OUT_OF_COVERAGE", "line", "select", *ledger, "--start", "fixture@1",
                      "--window-start", "2026-01-01", "--window-end", "2026-03-01")
-        line = self.ok("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
-                       "--window-end", "2026-02-01", "--note", "the user's choice")
-        self.assertEqual((line["bundle"], line["created"]), ("research-line-1", True))
-        commit = line["market_commit"]
+        selection = ("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
+                     "--window-end", "2026-02-01", "--note", "the user's choice")
+        self.refused("START_REVIEW_REQUIRED", *selection)
 
         # Market facts and the lifecycle bundle
         coverage = self.ok("market", "coverage", "--start", "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
-        self.assertEqual((coverage["commit"], coverage["scope"]["symbols"], coverage["scope"]["expanded"]),
-                         (commit, ["BTCUSDT"], True))
+        commit = coverage["commit"]
+        self.assertEqual((coverage["scope"]["symbols"], coverage["scope"]["expanded"]), (["BTCUSDT"], True))
         self.assertEqual(coverage["coverage"][0]["last"]["missing_minutes"], 0)
-        self.assertEqual(coverage["coverage"][0]["listing_delisting"]["status"], "unproven")
         manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_commit": commit, "episodes": [
             {"symbol": "BTCUSDT", "instrument_id": "BTCUSDT-E1-PERP.BINANCE", "start_ns": 0, "sources": ["notice.txt"],
              "events": []}]})
@@ -231,6 +229,8 @@ class CommandTests(unittest.TestCase):
 
         # The root: precheck, review, registration and the sealed replay
         root_review = self.prechecked("fixture@1", "root")
+        line = self.ok(*selection)
+        self.assertEqual((line["bundle"], line["created"], line["market_commit"]), ("research-line-1", True, commit))
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
                      "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")
@@ -262,10 +262,8 @@ class CommandTests(unittest.TestCase):
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
-        self.ok("judgment", "add", *ledger, "--kind", "review_cadence", "--line", "research-line-1", "--based-on", head,
-                "--body", self.write("cadence.md", "review every ten trials"), "--cadence-trials", "10")
-        self.refused("CADENCE_REQUIRED", "judgment", "add", *ledger, "--kind", "review_cadence", "--line",
-                     "research-line-1", "--based-on", head, "--body", self.write("cadence2.md", "no count"))
+        self.refused("REVIEW_CADENCE_FIXED", "judgment", "add", *ledger, "--kind", "review_cadence", "--line",
+                     "research-line-1", "--based-on", head, "--body", self.write("cadence.md", "review every four"))
 
         # The child, registered against the root run as its control
         child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True"))
@@ -297,7 +295,8 @@ class CommandTests(unittest.TestCase):
         counts = self.ok("research", "status", *ledger)
         self.assertEqual((counts["trials"], counts["research_attempts"]), (5, 2))  # an exploration, two prechecks
         state = self.ok("research", "state", *ledger)
-        self.assertEqual(state["trials_on_line"], 2)
+        self.assertEqual((state["trials_on_line"], state["review_every"]), (2, 5))
+        self.assertIn("fixture@1", counts["comparison"]["candidates"])
         candidates = self.ok("candidate", "list", *ledger)
         self.assertEqual([item["revision"] for item in candidates["candidates"]], [1, 2])
         self.assertEqual(len(candidates["candidates"][1]["attempts"]), 1)

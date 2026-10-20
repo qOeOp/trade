@@ -1,8 +1,8 @@
 """Research lines (`ledger.select_line`, `ledger.current_line`, `ledger.read_line`, `ledger.line_trials`).
 
-A research line is the user's choice of start candidate, development window and pinned market
-commit, stored append-only as the evidence bundle research-line-<n> holding research-line.json.
-The latest line is the one with the largest n; a new choice is a new number, never an edit.
+A research line is the user's choice of start candidate (a revision whose source review passed),
+development window and pinned market commit, stored append-only as the evidence bundle
+research-line-<n> holding research-line.json. The latest line is the one with the largest n; a new choice is a new number, never an edit.
 """
 
 from __future__ import annotations
@@ -67,11 +67,14 @@ def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | Non
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
                 window_end: date, start: str, note: str | None = None, *,
-                market: Callable[[str, str], dict] | None = None) -> dict:
+                market: Callable[[str, str], dict] | None = None,
+                reviews: Callable[[db.LedgerConnection], list[dict]]) -> dict:
     """Append the user's chosen line as research-line-<n+1>; the same choice again is a replay.
 
     `market(market_database, market_at)` returns {commit, universe_rule, latest_complete_day}
-    (market.resolve_commit and market.freshness of the design, a later phase).
+    (market.resolve_commit and market.freshness of the design, a later phase). `reviews(conn)` is
+    qualification.review_records: the start revision needs a passed source review of its source
+    hash and none failed, read at the head this connection sees.
     """
     try:
         candidate = strategies.read_candidate(conn, start)
@@ -94,6 +97,11 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     if latest_day is None or window_end > latest_day + timedelta(days=1):
         raise refuse("WINDOW_OUT_OF_COVERAGE", f"the window ends after {latest_day} plus one day",
                      expected=f"window_end <= {latest_day + timedelta(days=1) if latest_day else 'covered data'}")
+    verdicts = {item["record"]["verdict"] for item in reviews(conn)
+                if item["ignored"] is None and item["record"]["source_sha256"] == candidate["source_sha256"]}
+    if "failed" in verdicts or "passed" not in verdicts:
+        raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
+                                              "source review", missing=(start,))
     choice = {"market_database": market_database, "market_commit": facts["commit"],
               "universe_rule": facts["universe_rule"], "window_start": window_start.isoformat(),
               "window_end": window_end.isoformat(), "start": start, "start_sha256": candidate["source_sha256"],

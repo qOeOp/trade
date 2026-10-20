@@ -1,16 +1,18 @@
-"""Execution captures, independent source reviews, precheck admission and the precheck exposure
-exemption, on a throwaway ledger."""
+"""Execution captures, independent source reviews, precheck admission, the precheck exposure
+exemption and the reviewed start of a research line, on a throwaway ledger."""
 
 from __future__ import annotations
 
+from datetime import date
 import hashlib
 import json
 import unittest
 
-from ledger import evidence, execution, trials
+from ledger import evidence, execution, lines, trials
 from ledger.errors import Refusal
+from qualification import availability
 from registration import comparability, precheck
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, sha
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, market, sha
 from tests.registration.world import World, capture, config, coverage_bytes, product_write
 
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64,
@@ -268,3 +270,33 @@ class PrecheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class LineStartTests(unittest.TestCase):
+    """line select starts a line only at a revision with a passed source review and no failed one."""
+
+    def test_an_unreviewed_or_failed_start_is_refused_and_a_passed_one_selected(self):
+        world = World("line-start")
+        self.addCleanup(world.close)
+
+        def select(ref: str) -> dict:
+            return lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), ref,
+                                     market=market(), reviews=availability.review_records)
+
+        def code(ref: str) -> str:
+            with self.assertRaises(Refusal) as caught:
+                select(ref)
+            return caught.exception.code
+
+        self.assertEqual(code(world.publish("unreviewed")["candidate"]), "START_REVIEW_REQUIRED")
+        failing = world.publish("failing")
+        trial_id = world.open_precheck(failing["source"])
+        capture(world.conn, trial_id, failing["source"])
+        precheck.record_review(world.profile, world.review_body(
+            trial_id, "failed", causal={"status": "failed", "note": "reads the next bar's close"}), "reviewer-b")
+        self.assertEqual(code(failing["candidate"]), "START_REVIEW_REQUIRED")
+        passing = world.publish("passing")
+        world.prechecked(passing["source"])
+        selected = select(passing["candidate"])
+        self.assertEqual((selected["line_no"], selected["created"]), (2, True))

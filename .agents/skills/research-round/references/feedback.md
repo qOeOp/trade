@@ -4,8 +4,8 @@ Read when reading comparison evidence, writing `interpretation`, `search_exposur
 judgments, and ordering the next actions.
 
 Judgments are written with `judgment add --kind KIND --line LINE --based-on COMMIT --body FILE
---subject ...`, where `KIND` is `interpretation`, `search_exposure`, `priority`, `recommendation`
-or `review_cadence` and `--based-on` is the ledger commit you read. They are append-only: to change
+--subject ...`, where `KIND` is `interpretation`, `search_exposure`, `priority` or
+`recommendation` and `--based-on` is the ledger commit you read. They are append-only: to change
 one, add a new one that supersedes it. `research state` shows the current judgments with the facts
 read now and `gates`, which lists what the next registration still lacks.
 
@@ -35,7 +35,7 @@ read now and `gates`, which lists what the next registration still lacks.
   power); mechanism support from sources and diagnosis; the directions and conditions already
   explored; the information the action brings; its cost (precheck and replay time, grid points).
   Write the grounds with the runs, registrations and ledger commit you read in a `priority`
-  judgment, apart from the recommendation and the review cadence. A negative result changes the
+  judgment, apart from the recommendation. A negative result changes the
   order and the re-evaluation condition; it never closes a direction or excludes a candidate.
 - For each action it ranks first, a `priority` judgment names the report measures that motivate
   it (slice or section, measure name and direction, cited by run id and ledger commit without

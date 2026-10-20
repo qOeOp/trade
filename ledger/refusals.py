@@ -122,6 +122,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Research lines
     "START_NOT_FOUND": ("The start candidate of the research line does not exist.",
                         ("Publish the start with `candidate publish`, then select the line again.",)),
+    "START_REVIEW_REQUIRED": ("The start revision has no passed source review, or a source review of it failed.",
+                              ("Run `replay precheck` on the start revision and record its `source review`, then "
+                               "select the line again; after a failed review, fix the source, publish it and start "
+                               "from the new revision.",)),
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
                                  ("Pass a market commit, tag or branch shown by `market coverage`.",)),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
@@ -283,10 +287,15 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Supersede the current judgment of the same kind on the same line.",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
-    "CADENCE_REQUIRED": ("cadence_trials is required exactly for review_cadence judgments.",
-                         ("Give --cadence-trials N for review_cadence and omit it otherwise.",)),
-    "REVIEW_CADENCE_RAISED": ("A review cadence may only be lowered when superseded.",
-                              ("Supersede it with a cadence no larger than the current one.",)),
+    "REVIEW_CADENCE_FIXED": ("The review cadence is fixed by the product (REVIEW_DUE stops registrations after a "
+                             "fixed number of research trials since the line's last recommendation); it is not a "
+                             "judgment.",
+                             ("Write nothing for the cadence; when REVIEW_DUE refuses a registration, review and "
+                              "write the recommendation and priority it asks for.",)),
+    "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line's comparison table "
+                                  "at the commit it is based on.",
+                                  ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "
+                                   "each candidate the message lists.",)),
     # Witness
     "NOT_REGISTRATION_COMMIT": ("The commit added no validation registration.",
                                 ("Pass the commit that added the validation registration (`ledger witness`).",)),
@@ -337,10 +346,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "run whose registration a later registration retries needs none).",
                                 ("Add an interpretation with `judgment add --kind interpretation` about the trials "
                                  "the message lists.",)),
-    "REVIEW_DUE": ("The research trials since the last recommendation reached the review cadence.",
-                   ("Review the line and add a recommendation with `judgment add --kind recommendation`.",)),
-    "REVIEW_CADENCE_REQUIRED": ("A derived registration needs a review cadence on the line first.",
-                                ("Declare one with `judgment add --kind review_cadence --cadence-trials N`.",)),
+    "REVIEW_DUE": ("The line has run the product's fixed number of research trials since its last recommendation; "
+                   "registrations stop until a review.",
+                   ("Run `research status` and read its `comparison` table.",
+                    "Write a `recommendation` judgment naming every candidate in that table (`judgment add --kind "
+                    "recommendation --based-on COMMIT`), and a `priority` judgment for the next steps; the "
+                    "recommendation clears the stop.")),
     # Comparability (registration/comparability.py)
     "RUN_NOT_PASSED": ("The run is not a passed sealed research or validation run.",
                        ("Choose a passed research or validation run as the control.",)),

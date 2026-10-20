@@ -60,7 +60,6 @@ class TamperTests(unittest.TestCase):
         roots = patch.object(witness, "_roots", lambda tsa_roots: cls.authority.roots)
         roots.start()
         cls.addClassCleanup(roots.stop)
-        world.judge("review_cadence", cadence=50)
         world.register("registration-root", world.body(["rsi@1"], {"rsi@1": world.prechecked(source("root"))}))
         cls.fixture_run = world.seal_run(world.research_trial("registration-root", source("root")))
         other = world.publish("other", parent=None)
