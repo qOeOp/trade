@@ -434,7 +434,7 @@ def derive_measures(facts: dict, market_returns: dict) -> dict
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="R.3.1.4">R.3.1.4</Ref>
+**关联章节**　<Ref id="R.3.1.4">R.3.1.4</Ref> <Ref id="E.3.3.1">E.3.3.1</Ref>
 
 </div>
 
@@ -671,7 +671,7 @@ def tables(
 
 1. 定位账本版本；读运行行，未通过即拒绝；经 qualification.require 判资格，不可用即拒绝并返回原因。
 2. 返回持仓周期与逐日序列的类型化表，附账本版本与度量目录版本。
-3. 传入重放目录时须同时给复现试验编号：目录里每个报告文件须等于该复现试验执行封存记下的哈希，其指纹阶段输出须等于运行行记录的指纹，否则 REPRODUCTION_MISMATCH；一致才返回订单、成交、账户、订单事件与敞口的类型化表。目录里自带的指纹文件不作数。
+3. 传入重放目录时须同时给复现试验编号：目录里每个报告文件须等于该复现试验执行封存记下的哈希，目录里的指纹文件须等于该复现试验封存记下的哈希，内容须等于运行行记录的指纹，否则 REPRODUCTION_MISMATCH；一致才返回订单、成交、账户、订单事件与敞口的类型化表。没有按封存哈希核对过的指纹文件不作数。
 4. 不写账本，不输出排序或裁决。
 
 | 拒绝码 | 条件 |
@@ -698,8 +698,10 @@ def tables(
 | 函数 | 用途 |
 |---|---|
 | <Ref id="report.affected_runs">affected_runs</Ref> | 身份变化后受影响的运行：按试验行与开始回执里的执行身份筛出与当前身份不同的封存运行 |
+| <Ref id="report.compared_candidates">compared_candidates</Ref> | 某个账本提交上，一条路线对照表里的全部候选；recommendation 判断必须逐个点名它们 |
+| <Ref id="report.comparison_table">comparison_table</Ref> | 研究路线的对照表：交易段等于该路线开发窗口、范围规则等于该路线的、通过且有经济证据资格的研究运行（旧版本和别的路线上的也在内），每个附单运行报告里的四项度量，并标出它是否被表里别的运行全面压过；不打分、不排序、不入账 |
 | <Ref id="report.research_state">research_state</Ref> | 研究状态视图：当前判断加读时事实，以及尚未复盘的试验；不存储、不落后 |
-| <Ref id="report.research_status">research_status</Ref> | 研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态；无停止标志、目标与分数字段 |
+| <Ref id="report.research_status">research_status</Ref> | 研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表；无停止标志、目标与分数字段 |
 
 ### `affected_runs` [#def-report-affected_runs]
 
@@ -739,6 +741,81 @@ def affected_runs(
 
 </div>
 
+### `compared_candidates` [#def-report-compared_candidates]
+
+某个账本提交上，一条路线对照表里的全部候选；recommendation 判断必须逐个点名它们
+
+```python
+def compared_candidates(
+    profile: LedgerProfile,
+    line_bundle: str,
+    at: str,
+) -> list[str]
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案" }, "line_bundle": { type: "str", description: "研究路线证据包" }, "at": { type: "str", description: "判断所依据的账本提交" } }} />
+
+**返回**　list[str]：strategy_id@revision，去重排序
+
+**期望行为**
+
+1. 按 at 经 ledger.read_as_of 打开只读连接，调 report.comparison_table 取 candidates。
+2. 由 cli.judgment_add 作为 compared 交给 ledger.add_judgment；账本层不反向导入 report。
+
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="report.comparison_table" />、<Ref id="qualification.check_identity" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="F.3.2.1">F.3.2.1</Ref>
+
+**依据**
+
+- [Wiecki, Campbell, Lent & Stauth 2016, https://doi.org/10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)　论文
+
+</div>
+
+### `comparison_table` [#def-report-comparison_table]
+
+研究路线的对照表：交易段等于该路线开发窗口、范围规则等于该路线的、通过且有经济证据资格的研究运行（旧版本和别的路线上的也在内），每个附单运行报告里的四项度量，并标出它是否被表里别的运行全面压过；不打分、不排序、不入账
+
+```python
+def comparison_table(
+    conn: LedgerConnection,
+    line_bundle: str,
+    checker: dict,
+    records: list,
+) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<n>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
+
+**返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, run_id, trial_id, measures, dominated_by: [run_id…], non_dominated\}], candidates（表里的候选，去重排序）\}
+
+**期望行为**
+
+1. 经 ledger.read_line 读路线的开发窗口与范围规则；路线不存在或损坏即拒绝。
+2. 取全部 purpose=research、status=passed 的运行；交易段等于开发窗口、开始回执输入身份里的 universe_rule 等于路线的才进表，再按资格视图（qualification.assess 同一判据）只留有经济证据资格的。
+3. 四项度量由 report.derive_measures 算，与单运行报告的标题指标同一算法；只有回撤是封存时存下的值，其余三项每次从存下的逐日序列与持仓周期算。
+4. 支配：A 在四项上都不差于 B（回撤越小越好，其余越大越好），且至少一项更好。dominated_by 列出压过它的运行；任一项缺值的运行不参与比较，non_dominated 为 null。
+5. 只读，不写账本；表里没有分数、排名或门槛。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LINE_UNKNOWN` | 研究路线证据包不存在（由 ledger.read_line 抛出） |
+| `LINE_CORRUPT` | 路线记录读回哈希不符或缺 research-line.json（由 ledger.read_line 抛出） |
+
+**使用**　<Ref id="ledger.read_line" />、<Ref id="report.derive_measures" />、<Ref id="qualification.assess" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_candidates" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="E.3.3.1">E.3.3.1</Ref>
+
+**依据**
+
+- [Wiecki, Campbell, Lent & Stauth 2016, https://doi.org/10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)　论文
+
+</div>
+
 ### `research_state` [#def-report-research_state]
 
 研究状态视图：当前判断加读时事实，以及尚未复盘的试验；不存储、不落后
@@ -753,13 +830,13 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" } }} />
 
-**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记还缺什么）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记会被拒的项，一个列表）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
 1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line。
 2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
-3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的。
+3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的；review_cadence 旧行不读。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
 5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
 6. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。
@@ -783,15 +860,19 @@ def research_state(
 
 ### `research_status` [#def-report-research_status]
 
-研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态；无停止标志、目标与分数字段
+研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表；无停止标志、目标与分数字段
 
 ```python
-def research_status(ledger: LedgerProfile, at: str | None) -> dict
+def research_status(
+    ledger: LedgerProfile,
+    at: str | None,
+    line_bundle: str | None,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" }, "line_bundle": { type: "str | None", description: "对照表所属的研究路线；缺省取当前路线，没有路线时 comparison 为 null" } }} />
 
-**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, availability_checker, metrics_revision\}；只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
+**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, availability_checker, metrics_revision, comparison\}；comparison 是 report.comparison_table 给出的对照表（没有路线时为 null）。除对照表的四项度量与支配关系外，只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
 
 **期望行为**
 
@@ -800,8 +881,9 @@ def research_status(ledger: LedgerProfile, at: str | None) -> dict
 3. research_attempts = registration_attempt 行数（每个被消耗的网格点一行，无效与中断的尝试同样计）；registration_attempt 左连 trial 再左连 run：无 run 行计 unfinished_research_attempts；run.status='invalid' 计 invalid_research_runs；run.status='passed' 计 audit_passed_research_runs。
 4. 对每个 passed 运行调用 qualification.assess(conn, run ⨝ trial)：economic_evidence_available 为真计 valid_research_runs，否则计 diagnostic_only_research_runs；四类之和恒等于 research_attempts，不等即拒绝，不静默少算。
 5. 样本外：registered = validation_registration 行数；bound = validation_binding 行数；unbound = registered − bound；unwitnessed = 登记所在提交经 ledger.stamped_at 读不到凭证的登记数。
-6. 输出附 qualification.check_identity() 作 availability_checker、ledger.metrics_revision() 作 metrics_revision；不写任何行，不比较任何绩效指标。
+6. 输出附 qualification.check_identity() 作 availability_checker、ledger.metrics_revision() 作 metrics_revision；不写任何行；绩效指标只在对照表里按四项比较支配关系。
 7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
+8. comparison：路线取 line_bundle，缺省取 ledger.current_line；在同一只读连接上经 report.comparison_table 算出，不存。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -809,10 +891,10 @@ def research_status(ledger: LedgerProfile, at: str | None) -> dict
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `REFERENTIAL_GAP` | registration_attempt 或 run 引用的 trial 行不存在，或四类计数之和不等于 research_attempts；计数拒绝给出并列出缺口行 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="report.comparison_table" />
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="V.4.4.2">V.4.4.2</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref>
+**关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.3.3.1">E.3.3.1</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="V.4.4.2">V.4.4.2</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref>
 
 </div>

@@ -51,12 +51,12 @@ def execute(
 1. 按运行契约取布局常量（runtime.layout），生成运行器容器命令（runtime.container_command），写 process.json 记录阶段 native=started。
 2. 运行器 stdout/stderr 分别写 native.stdout.txt、native.stderr.txt；进程无法启动记退出码 127 并把错误写入 stderr 文件；更新阶段为 exited 与退出码。每个阶段的 stdout、stderr 文件超过 768 KiB 加 256 KiB 时，只留开头 768 KiB 与结尾 256 KiB 以内的整行，中间换成一行，写明省去的字节数和行数：引擎对每次被吞下的回调异常都记一行，而 runtime_failures.jsonl 已按类计数。
 3. 仅当全部必需报表文件齐全时生成审计器命令并运行：同一镜像摘要，reports/ 与覆盖回执只读挂载，唯一可写挂载为 audit/，输出 audit/audit.json，不挂载 source/；stdout/stderr 同样分文件落盘。报表不全则审计阶段留空，不运行。
-4. 无论正常返回、中断或宿主异常，finally 调用 ledger.seal_capture 把阶段记录、stdout/stderr、源码字节、覆盖回执、结构化异常回执与审计结果按试验封存，结局标 completed / interrupted / host_failed。
+4. 无论正常返回、中断或宿主异常，finally 调用 ledger.seal_capture 把阶段记录、stdout/stderr、结构化异常回执与审计结果按试验封存（源码与覆盖回执只记哈希），结局标 completed / interrupted / host_failed。
 5. 中断或宿主失败时原异常继续向上抛出，工作目录保留。
 6. 本函数不拒绝：报表不全、进程无法启动、中断或宿主失败都如实记入阶段记录并封存，由 ledger.audit_problems 转成无效原因。
 7. 挂载：运行器只写 reports/（运行期回调失败写 reports/runtime_failures.jsonl）；审计器只写 audit/，结果为 audit/audit.json，原生报告对它只读；运行器因此写不出审计结果。
 8. 入口保留的运行器选项包括输出目录、市场根与提交、成员文件与 --describe；Agent 传入即 RUNNER_OPTION_RESERVED。
-9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态与输出随执行封存，入账只从封存取指纹，调用方给不了。
+9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态随执行封存；预检以外指纹文件只记哈希，入账从工作目录读出并按该哈希核对，调用方给不了。
 10. 容器按试验命名；中断或可选超时到期时按名停止容器再封存，结局记 interrupted。
 
 **使用**　<Ref id="runtime.layout" />、<Ref id="runtime.container_command" />、<Ref id="ledger.seal_capture" />、<Ref id="engine.audit_main" />

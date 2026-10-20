@@ -101,7 +101,7 @@ FROM run
 
 当前生效（未被取代）的判断及其主体，一行一个主体
 
-<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "判断", required: false }, "kind": { type: "VARCHAR(32)", description: "判断种类", required: false }, "line_bundle": { type: "VARCHAR(200)", description: "研究路线", required: false }, "based_on_commit": { type: "CHAR(32)", description: "所依据的账本提交", required: false }, "cadence_trials": { type: "INT", description: "复盘节奏（仅 review_cadence）", required: false }, "body": { type: "TEXT", description: "判断正文", required: false }, "role": { type: "VARCHAR(16)", description: "主体角色", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "候选 ID", required: false }, "revision": { type: "INT", description: "候选版本", required: false }, "trial_id": { type: "BIGINT", description: "试验", required: false }, "registration_bundle": { type: "VARCHAR(200)", description: "登记包", required: false }, "created_at": { type: "DATETIME(6)", description: "写入时间", required: false } }} />
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "判断", required: false }, "kind": { type: "VARCHAR(32)", description: "判断种类", required: false }, "line_bundle": { type: "VARCHAR(200)", description: "研究路线", required: false }, "based_on_commit": { type: "CHAR(32)", description: "所依据的账本提交", required: false }, "cadence_trials": { type: "INT", description: "只有旧的 review_cadence 行有值；没有读者", required: false }, "body": { type: "TEXT", description: "判断正文", required: false }, "role": { type: "VARCHAR(16)", description: "主体角色", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "候选 ID", required: false }, "revision": { type: "INT", description: "候选版本", required: false }, "trial_id": { type: "BIGINT", description: "试验", required: false }, "registration_bundle": { type: "VARCHAR(200)", description: "登记包", required: false }, "created_at": { type: "DATETIME(6)", description: "写入时间", required: false } }} />
 
 **Dolt 能力**
 
@@ -211,7 +211,7 @@ FROM universe_month
 | <Ref id="table:dolt_tests">dolt_tests</Ref> | Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_verification_groups 指定）：每次提交前跑跨表测试，失败拒提交；可被跳过参数绕过，是留痕保证，整体复核再跑一次 |
 | <Ref id="table:evidence">evidence</Ref> | 证据包内文件：原件字节与由字节派生的内容哈希、长度；大原件按固定块分行，逻辑文件由包内清单重组 |
 | <Ref id="table:evidence_bundle">evidence_bundle</Ref> | 证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、更正与 Agent 自由文本都以证据包入账；包名即身份 |
-| <Ref id="table:judgment">judgment</Ref> | Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴露；只追加，正文只引用不抄写事实 |
+| <Ref id="table:judgment">judgment</Ref> | Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加，正文只引用不抄写事实。review_cadence 只剩复盘停点改为产品常数之前写的旧行，没有读者 |
 | <Ref id="table:judgment_subject">judgment_subject</Ref> | 一条判断涉及的候选、试验或登记包，以及它们在判断里的角色 |
 | <Ref id="table:ledger_head">ledger_head</Ref> | 写入头指针单行：每次写入 +1 并记本次操作 ID，是并发写冲突的碰撞点与幂等重放的索引 |
 | <Ref id="table:ledger_schema">ledger_schema</Ref> | 账本模式代数单行；初始化与模式迁移时写 |
@@ -391,9 +391,9 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 ### `judgment` [#def-table-judgment]
 
-Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴露；只追加，正文只引用不抄写事实
+Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加，正文只引用不抄写事实。review_cadence 只剩复盘停点改为产品常数之前写的旧行，没有读者
 
-<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "主键", required: true }, "kind": { type: "VARCHAR(32)", description: "recommendation | priority | review_cadence | interpretation | search_exposure", required: true }, "line_bundle": { type: "VARCHAR(200)", description: "所属研究路线的 research-line-* 证据包", required: true }, "based_on_commit": { type: "CHAR(32)", description: "做判断时读的账本提交哈希；不早于路线包所在提交", required: true }, "body": { type: "TEXT", description: "Agent 的自由文本；只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别", required: true }, "cadence_trials": { type: "INT", description: "仅 review_cadence：每 N 个研究试验必须复盘一次；只能调低", required: false }, "supersedes": { type: "BIGINT", description: "被取代的上一条判断；同 kind、同路线，至多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器写入的服务器时间", required: true } }} />
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "主键", required: true }, "kind": { type: "VARCHAR(32)", description: "recommendation | priority | interpretation | search_exposure；review_cadence 只剩旧行，新写入被 ledger.add_judgment 拒绝", required: true }, "line_bundle": { type: "VARCHAR(200)", description: "所属研究路线的 research-line-* 证据包", required: true }, "based_on_commit": { type: "CHAR(32)", description: "做判断时读的账本提交哈希；不早于路线包所在提交", required: true }, "body": { type: "TEXT", description: "Agent 的自由文本；只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别", required: true }, "cadence_trials": { type: "INT", description: "只有旧的 review_cadence 行有值；新判断恒为 NULL，没有读者（复盘停点是产品常数 REVIEW_EVERY）", required: false }, "supersedes": { type: "BIGINT", description: "被取代的上一条判断；同 kind、同路线，至多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器写入的服务器时间", required: true } }} />
 
 **键与约束**
 
@@ -641,7 +641,7 @@ Agent 的一条判断：推荐、优先级、复盘节奏、解释或搜索暴�
 
 封存结果：一个运行在某个代码版本下的单运行报告；只追加，口径升版时追加新行，不改旧行
 
-<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "metrics_revision": { type: "CHAR(40)", description: "算这份封存结果的代码提交", required: true }, "report": { type: "JSON", description: "单运行报告：只含存储数据推不出的指标，即资格事实（每项是否通过、原因码与计数）、标记价回撤及其区间与主导合约、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗计数、计划统计是否成立、本运行特有的局限；每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
+<TypeTable type={{ "run_id": { type: "INT", description: "所属运行", required: true }, "metrics_revision": { type: "CHAR(40)", description: "算这份封存结果的代码提交；只记在这一列，报告 JSON 里不重复", required: true }, "report": { type: "JSON", description: "单运行报告：只含存储数据推不出的指标，即资格事实（每项是否通过、原因码与计数）、标记价回撤及其区间与主导合约、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗计数、计划统计是否成立、本运行特有的局限；每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；不含 metrics_revision（同一行的列记它）", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
 
 **键与约束**
 

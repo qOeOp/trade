@@ -232,11 +232,11 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.audit_problems">audit_problems</Ref> <Ref id="ledger.summary_problems">summary_problems</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-#### 每次回放不论成败，都封存原生日志、退出码和源码 [#J-2-3-2]
+#### 每次回放不论成败，都封存原生日志和退出码；源码与覆盖回执只记哈希 [#J-2-3-2]
 
-完成、中断和宿主失败的回放都会封存，这类证据包只由回放代码写，Agent 不能写。内容有各阶段的命令和退出码、原生输出、被执行的源码字节和启动记录。空文件、缺失和没开始各自如实标出，不写占位内容。
+完成、中断和宿主失败的回放都会封存，这类证据包只由回放代码写，Agent 不能写。内容有各阶段的命令和退出码、原生输出和异常记录。被执行的源码和覆盖回执已经在候选和启动记录里各存了一份，这里只记哈希；研究回放的原生报告和语义指纹也只记哈希。空文件、缺失和没开始各自如实标出，不写占位内容。
 
-失败的原因常常只在原始输出里，不封存，事后只能猜。封存被拒或进程被杀时没有最终封存，就读为缺失。
+失败的原因常常只在原始输出里，不封存，事后只能猜。封存被拒或进程被杀时没有最终封存，就读为缺失。每件事实只存一份，副本之间就不会对不上，也给封存的容量上限留出空间（评审记录 docs/plans/store-once-review.zh.md）。
 
 <div className="rd-example">
 

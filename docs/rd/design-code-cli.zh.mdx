@@ -42,7 +42,7 @@
 | <Ref id="cli.replay_report">replay_report</Ref> | 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图 |
 | <Ref id="cli.replay_run">replay_run</Ref> | 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration） |
 | <Ref id="cli.research_state">research_state</Ref> | 命令 research state：调用 report.research_state，输出 JSON |
-| <Ref id="cli.research_status">research_status</Ref> | 命令行读研究事实计数：research status [--at \<版本>]，JSON 原样输出 |
+| <Ref id="cli.research_status">research_status</Ref> | 命令行读研究事实计数与一条路线的对照表：research status [--line \<路线>] [--at \<版本>]，JSON 原样输出 |
 | <Ref id="cli.source_review">source_review</Ref> | 命令行入口：追加独立源码审查结论，绑定候选源码与运行环境身份及其原生预检试验 |
 | <Ref id="cli.validation_registration">validation_registration</Ref> | 命令行入口：登记一次样本外验证并取凭证，JSON 输出 |
 | <Ref id="cli.validation_report">validation_report</Ref> | 命令行读样本外报告：薄封装，参数解析后调用 validation_report 并输出 JSON |
@@ -403,7 +403,7 @@ def hypothesis_compare(
 def judgment_add(args: Namespace) -> JSON
 ```
 
-<TypeTable type={{ "args": { type: "Namespace", description: "kind、line、based-on、body 文件、subject（可重复）、supersedes、cadence-trials（只用于 review_cadence）、op-id" } }} />
+<TypeTable type={{ "args": { type: "Namespace", description: "kind（recommendation、priority、interpretation、search_exposure）、line、based-on、body 文件、subject（可重复）、supersedes、op-id" } }} />
 
 **返回**　JSON：judgment_id、ledger_commit、replayed
 
@@ -411,13 +411,15 @@ def judgment_add(args: Namespace) -> JSON
 
 1. 读 body 文件为 UTF-8 文本。
 2. 解析 --subject role=…,candidate=ID@N | trial=… | registration=…。
-3. 调用 ledger.add_judgment 并输出 JSON；拒绝时输出拒绝码与非零退出。
+3. 调用 ledger.add_judgment，并把 report.compared_candidates 作为 compared 传入（写 recommendation 时用）；输出 JSON；拒绝时输出拒绝码与非零退出。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `JUDGMENT_BODY_UNREADABLE` | body 不是可读的普通文件或不是 UTF-8 |
+| `REVIEW_CADENCE_FIXED` | 由 ledger.add_judgment 返回：--kind review_cadence |
+| `RECOMMENDATION_INCOMPLETE` | 由 ledger.add_judgment 返回：推荐漏点名对照表里的候选 |
 
-**使用**　<Ref id="ledger.add_judgment" />
+**使用**　<Ref id="ledger.add_judgment" />、<Ref id="report.compared_candidates" />
 
 <div className="rd-meta">
 
@@ -711,13 +713,14 @@ def line_select(
 
 1. 解析参数：两个日期须为 YYYY-MM-DD 的 UTC 日，格式不符即拒绝 WINDOW_INVALID，不读宿主时区。
 2. 经 ledger.connect 以写账号打开一条账本连接。
-3. 调用 ledger.select_line，起点、窗口、市场提交与备注原样传入，不在命令行层做任何改写。
+3. 调用 ledger.select_line，起点、窗口、市场提交与备注原样传入，并传入 qualification.review_records 供起点审查核对；不在命令行层做任何改写。
 4. 把返回或拒绝码按 cli.main 的统一格式输出为 JSON，并写明是否已写入。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `WINDOW_INVALID` | 日期不是 YYYY-MM-DD 的 UTC 日，或 select_line 判定窗口无效 |
 | `START_NOT_FOUND` | 由 select_line 返回：起点候选不存在 |
+| `START_REVIEW_REQUIRED` | 由 select_line 返回：起点没有通过的源码审查，或有一次审查失败 |
 | `MARKET_COMMIT_UNRESOLVED` | 由 select_line 返回：市场提交引用解析不到 |
 | `WINDOW_OUT_OF_COVERAGE` | 由 select_line 返回：窗口终点晚于钉住提交的最新完整日 |
 | `LINE_CONFLICT` | 由 select_line 返回：并发选路造成同名不同内容 |
@@ -1119,23 +1122,24 @@ def research_state(args: Namespace) -> JSON
 
 ### `research_status` [#def-cli-research_status]
 
-命令行读研究事实计数：research status [--at \<版本>]，JSON 原样输出
+命令行读研究事实计数与一条路线的对照表：research status [--line \<路线>] [--at \<版本>]，JSON 原样输出
 
 ```python
 def research_status(
     ledger: path,
     at: str | None,
+    line: str | None,
 ) -> report.research_status 的返回字典原样序列化为 JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径（连接参数与只读账号）" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径（连接参数与只读账号）" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头" }, "line": { type: "str | None", description: "对照表所属的研究路线证据包，缺省当前路线" } }} />
 
 **返回**　report.research_status 的返回字典原样序列化为 JSON；拒绝时输出拒绝码、缺什么与写入状态（恒为未写入）
 
 **期望行为**
 
 1. 解析参数，不打开写账号。
-2. 调用 report.research_status(ledger, at)。
+2. 调用 report.research_status(ledger, at, line)。
 3. 把返回字典原样输出为 JSON，不增删字段、不加停止标志或建议。
 4. 拒绝时经 ledger.refusal 序列化原拒绝码；本命令从不写账本。
 
@@ -1144,6 +1148,7 @@ def research_status(
 | `UNKNOWN_REF` | at 解析不到提交、标签或 branch（透传） |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败（透传） |
 | `REFERENTIAL_GAP` | 计数缺口（透传 report.research_status） |
+| `LINE_UNKNOWN` | --line 给的研究路线不存在（透传） |
 
 **使用**　<Ref id="report.research_status" />、<Ref id="cli.main" />、<Ref id="ledger.refusal" />
 

@@ -46,7 +46,7 @@ core：先读账本续做已选路线；给路线选项后以提问结束，选�
 先读研究状态最新推荐，无推荐或有未复盘有效运行时现算追加；每个选项列全多维指标，算不出的留空写原因；推荐写明版本、依据、取舍及与下一父版本的区别
 
 <ol className="rd-skill-rules">
-<li id="def-rule-E-3-1-1">入口先读研究状态的最新推荐；无推荐或有未复盘有效运行时现算并追加 <span className="rd-rule-links"><Ref id="E.3.1.1">E.3.1.1</Ref></span><span className="rd-eval">eval <code>unreviewed-trials-from-commit-diff</code>：上次推荐之后新增若干试验时，读 research state 的 unreviewed_trials 决定是否复盘；不重读整个账本手工比对，也不写补记</span></li>
+<li id="def-rule-E-3-1-1">入口先读研究状态的最新推荐；无推荐或有未复盘有效运行时现算并追加 <span className="rd-rule-links"><Ref id="E.3.1.1">E.3.1.1</Ref></span><span className="rd-eval">eval <code>unreviewed-trials-from-commit-diff</code>：上次推荐之后新增若干试验时，按 research state 的 unreviewed_trials 先复盘、写新推荐，再给路线选项，不因产品的复盘停点还没到就沿用旧推荐；不重读整个账本手工比对，也不写补记</span></li>
 <li id="def-rule-E-3-2-1">选项列年化、回撤、夏普、胜率、成本、资金使用率、利润来源、不确定性，缺项留空写因 <span className="rd-rule-links"><Ref id="E.3.2.1">E.3.2.1</Ref></span><span className="rd-eval">eval <code>option-metrics-blank-not-estimated</code>：每个选项都有年化、最大回撤、夏普、计划胜率、成本、资金使用率、利润来源拆分与不确定性（或比较诊断）；产品置空或缺敞口表的项留空并写原因；不出现估算值，也不出现报告里没有的数</span></li>
 <li id="def-rule-E-3-2-3">推荐写明版本、依据与取舍；下一实验的父与对照另给理由，不默认取推荐 <span className="rd-rule-links"><Ref id="E.3.2.3">E.3.2.3</Ref></span><span className="rd-eval">eval <code>recommendation-not-next-parent</code>：推荐候选、下一实验的父与对照分别给理由，没有把推荐候选默认当作父；对照是经济证据可用的运行</span></li>
 </ol>
