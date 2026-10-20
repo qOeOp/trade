@@ -1077,7 +1077,8 @@ def replay_run(
 | `EXECUTION_MISMATCH` | 候选、运行器参数、运行环境或市场提交与登记不一致（转发自 registration.bind 或 registration.validation_bind） |
 | `WITNESS_MISSING` | 样本外登记无有效时间凭证，或凭证时间不早于窗口起点（转发自 registration.validation_bind） |
 | `SOURCE_HASH_MISMATCH` | 装载的源码字节哈希不等于发布记录（转发自 replay.seal） |
-| `RUNTIME_NOT_MAIN` | 样本外回放的运行环境不是 main 构建或工作树不含 main 最新提交（转发自函数 run） |
+| `RUNTIME_NOT_MAIN` | 样本外回放的运行环境不是 main 构建（转发自函数 run） |
+| `STALE_CHECKOUT` | 样本外回放时产品 checkout 的 HEAD 不含 main 的最新提交，或无法证明（转发自 registration.require_fresh） |
 | `RUNTIME_UNAVAILABLE` | 运行环境引用无法拉取或检视（转发自 runtime.resolve；其余运行环境身份拒绝码同样转发） |
 
 **使用**　<Ref id="replay.run" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />

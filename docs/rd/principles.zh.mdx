@@ -50,9 +50,7 @@
 
 迭代里每一步都是 Agent 照 skill（写给 Agent 的书面工作规程）去做的；代码只在步骤之间做检查，不决定下一步。
 
-<a id="A-1-1-2" />
-
-**路线里一次迭代按固定九步走，步与步之间不请你批准**
+### 路线里一次迭代按固定九步走，步与步之间不请你批准 [#A-1-1-2]
 
 在路线里，每次迭代都按同一个顺序走：查来源、写假设、发布候选、预检和独立审查、登记、回放、审计与资格、读比较证据、写反馈并排优先级。顺序和优先级靠 skill 指导；登记、回放、审计与资格、读比较证据这四步的拒绝由代码强制，并写进账本。
 
@@ -75,6 +73,22 @@
 9. 反馈与优先级：结论只在登记的适用条件内成立，写成只追加的证据包。再按预期效应、不确定性、机制佐证、覆盖、信息价值和成本，给接下来的具体研究动作排序；排在后面的保留，以后重新评估。
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.1.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+### 写完报告和优先级不算做完，Agent 在同一回合接着跑下一个实验 [#A-1-1-3]
+
+在路线里，Agent 写完报告、解释、推荐、复盘或优先级，都不算这一回合做完。优先级记进账本后，它在同一回合里接着做下一个实验：发布候选、预检、独立审查、登记、回放。只有三种情况会结束回合：碰到要你授权的事，路线该换了，或者你本人打断。
+
+报告和优先级是循环里的一步，不是交付物。停在这里等你说「继续」，等于每一步都要你批准，研究就断成一段一段。宿主的目标模式能让回合之间也不停，但只有你能开，Agent 开不了；回合内不停，是 Agent 自己能守住的部分。
+
+<div className="rd-example">
+
+比如一条路线的根第一次回放有了经济证据，Agent 写好报告、interpretation 和 priority 后，不问「要不要接着做」，而是直接导出并发布排第一的子候选，跑预检、请另一个 Agent 审源码、登记，再回放。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.1.1.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：评测用例尚未运行。</p>
 
 ## 14.2　划清谁决定什么 [#A-2]
 

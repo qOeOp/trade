@@ -301,6 +301,7 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。这个
 12. 配上的交易开仓普遍推迟且盈亏变差：看 trade_pairs，指向 G1、C1；常见下一假设是换执行方式或触发价。
 13. 差集中在某个出场类别：看 trade_structure，指向 F3、F4、F5、I1；常见下一假设是改保护边界、退出或存量处置规则。
 14. 候选回撤区间被一个合约主导：看 drawdown，指向 E2、F3；常见下一假设是限制单合约敞口，或加保护边界。
+15. 回撤集中在一个窗口，同时在市时间接近一：看 drawdown、capital，指向 A3、E1、E3、F3；常见下一假设是用条件过滤空仓观望，按权益或波动缩放风险，或加保护边界。
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 

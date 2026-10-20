@@ -184,7 +184,7 @@ def compare(
 5. 附完整身份与度量目录版本返回；不写账本，同样的输入任何时候重算都一样。
 6. difference 一律为候选减对照；比较自己定义的量（单边合约数、前五绝对差占比、月胜比例、去掉前五天后的残差、首要出场占比、盈亏平衡费率倍数等）放在 pairwise 下；预测按 pairwise 里有定义的量核对，没有才用两次单运行值之差，并注明 observed_as。
 7. 回归窗口太短或矩阵奇异时，该量置空并写原因，不抛异常。
-8. 读取时报告与对比都要求产品工作树干净（report_revision），否则 STALE_CHECKOUT：未提交的计算代码不能盖上干净的版本。
+8. 报告与对比读取时都记下产品 checkout 的 HEAD（report_revision）；工作树里有本地改动照常读取，不拒绝。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -195,7 +195,6 @@ def compare(
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 任一侧无实质活动或缺匹配记录、执行捕获记有失败、绑定源码审查记为失败（由 qualification.require 抛出并透传，附原因） |
 | `COMPARISON_UNAVAILABLE` | 任一侧交易窗口日收益为空、非法或复利不等于期末权益；或 report.paired 判定天数不足两个完整块 |
 | `CLOCK_MISMATCH` | 两侧 UTC 日钟不逐日一致 |
-| `STALE_CHECKOUT` | 产品工作树有未提交改动 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.paired" />、<Ref id="table:v_evidence" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="report.attribution" />、<Ref id="report.derive_measures" />
 

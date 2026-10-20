@@ -432,6 +432,22 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
+### 开始研究时告诉你一次：要连续研究，得由你开宿主的目标模式 [#E-4-1-3]
+
+进入路线之前，Agent 会告诉你一次：想让研究连续跑下去，需要你在宿主里开目标模式，这只有你能开（Codex 用 `/goal <目标>`，Claude Code 用 `/loop`，把目标当提示词）。它还会给你一句可以直接用的目标。说完它就接着做，不等你开。
+
+一个回合里 Agent 能自己不停（<Ref id="A.1.1.3" />），但回合结束后要不要开下一个回合，由宿主决定；没开目标模式，做完一轮就停了。这件事 Agent 替你做不了，所以说一次；说多了是打扰。
+
+<div className="rd-example">
+
+比如你选了一条日线动量路线，Agent 会说：要连续研究，请开目标模式，目标可以写成「在日线动量路线里持续研究，读报告时参照最大回撤上限和最低年化这两个目标，写完报告或复盘后不要停」。说完它就去核就绪、跑第一次回放。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.3">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：无评测用例，演练中也未见这一步的实际过程。</p>
+
 ## 待定事项 [#E-pending]
 
 **待用户定**
