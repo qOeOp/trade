@@ -152,8 +152,8 @@ def inspect_runtime(
 
 **期望行为**
 
-1. runtime.validate_identity 后检视本地镜像：RepoDigests 须含 identity.image_ref 且平台等于 identity.platform；检视命令失败即 RUNTIME_UNAVAILABLE
-2. 按 runtime.layout(identity.runtime_contract) 取探针模块，用 runtime.container_command 构造无网络、只读、去特权容器执行探针并传 runner_args；退出非零或输出非 JSON 即拒绝
+1. runtime.validate_identity 后检视本地镜像：RepoDigests 须含 identity.image_ref 且平台等于 identity.platform；检视命令失败或 60 秒内未结束即 RUNTIME_UNAVAILABLE
+2. 按 runtime.layout(identity.runtime_contract) 取探针模块，用 runtime.container_command 构造带名字的无网络、只读、去特权容器执行探针并传 runner_args；300 秒内未结束即按名字停掉容器并拒绝 RUNTIME_UNAVAILABLE；退出非零或输出非 JSON 即拒绝
 3. 核对报告字段齐全且各哈希为 sha256 形态，缺一即拒绝
 4. 核对报告 runtime_contract 等于身份契约，source_file_paths 的键与路径逐项等于布局；重算 effective_config 规范 JSON 哈希须等于 effective_config_sha256
 5. 附加 image_config_digest 与 platform 返回；不写账本，由回放与登记路径写入运行记录
@@ -162,7 +162,7 @@ def inspect_runtime(
 |---|---|
 | `RUNTIME_MISMATCH` | 本地镜像不带该摘要、平台不符、报告契约与身份不符、源码路径与布局不符或配置哈希不自洽 |
 | `RUNTIME_PROBE_INVALID` | 探针执行失败、输出非 JSON、字段缺失、哈希形态不合，或挂载含可写项 |
-| `RUNTIME_UNAVAILABLE` | 本地镜像检视失败 |
+| `RUNTIME_UNAVAILABLE` | 本地镜像检视失败，或检视、探针超时 |
 
 **使用**　<Ref id="runtime.validate_identity" />、<Ref id="runtime.layout" />、<Ref id="runtime.container_command" />、<Ref id="engine.describe" />
 
@@ -252,7 +252,7 @@ def resolve(reference: str | None) -> identity dict
 
 **期望行为**
 
-1. 标签引用每次都拉取以取最新清单；摘要引用只在本地缺失时拉取；拉取或检视失败拒绝 RUNTIME_UNAVAILABLE。
+1. 标签引用每次都拉取以取最新清单；摘要引用只在本地缺失时拉取；拉取或检视失败，或检视 60 秒、拉取 300 秒内未结束，拒绝 RUNTIME_UNAVAILABLE；拉取超时的消息指出不应答的凭据助手（Docker 配置的 credsStore 或 credHelpers），并说明公开镜像可匿名拉取。
 2. 读本地镜像的 RepoDigests，只保留与引用同镜像名的项；不是恰好一个拒绝 RUNTIME_DIGEST_AMBIGUOUS；取该摘要并把 image_ref 改写为 \<镜像名>@\<摘要>。
 3. 从镜像配置标签读运行契约与构建源码版本；缺契约标签拒绝 RUNTIME_IDENTITY_INVALID，缺构建源码版本记 None。
 4. 从镜像配置读 os 与 architecture 组成 platform。
@@ -260,7 +260,7 @@ def resolve(reference: str | None) -> identity dict
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RUNTIME_UNAVAILABLE` | 引用无法拉取或本地检视失败 |
+| `RUNTIME_UNAVAILABLE` | 引用无法拉取、本地检视失败，或拉取、检视超时 |
 | `RUNTIME_DIGEST_AMBIGUOUS` | 本地镜像在该镜像名下没有恰好一个清单摘要 |
 | `RUNTIME_IDENTITY_INVALID` | 镜像缺运行契约标签，或组装出的身份未通过 runtime.validate_identity |
 | `RUNTIME_UNSUPPORTED` | 平台或运行契约不受支持（由 runtime.validate_identity 转发） |

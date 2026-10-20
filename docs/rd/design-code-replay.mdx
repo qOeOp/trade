@@ -24,7 +24,7 @@
 | <Ref id="replay.input_coverage">input_coverage</Ref> | 启动前把全部合约的导出回执、输入身份、有效配置与成员文件写成 input-coverage.json，只读挂入容器供审计器与生命周期核对，并随执行封存 |
 | <Ref id="replay.precheck">precheck</Ref> | 对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后把原生输出、退出码、审计与报告随试验封存，并返回封存包名 |
 | <Ref id="replay.run">run</Ref> | 研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，失败保留目录供诊断 |
-| <Ref id="replay.seal">seal</Ref> | 研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写源码绑定、执行身份与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账 |
+| <Ref id="replay.seal">seal</Ref> | 研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写执行绑定与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账 |
 | <Ref id="replay.summary_problems">summary_problems</Ref> | 原生摘要与试验身份逐项核对：源码哈希、运行环境身份、有效配置哈希与运行器自报完整性，任一缺失或不符即无效原因 |
 
 ### `audit_problems` [#def-replay-audit_problems]
@@ -126,7 +126,7 @@ def explore(
 
 1. 经 ledger.temporary_path 核对 output 在临时根之下且不存在（NOT_TEMPORARY_PATH / PATH_EXISTS）；核对 strategy_class 是标识符、runner_argv 不含保留选项；读源码字节算内容哈希。
 2. runtime.resolve 解析运行环境身份；registration.market_inputs 导出输入（不要求新鲜，可用缓存导出），registration.input_key 算输入身份；按挂载改写运行器参数后经 runtime.inspect_runtime 探针检视。
-3. 建 source/ 与 reports/，写入源码、运行环境检视与覆盖回执（replay.input_coverage）。
+3. 建 source/ 与 reports/，写入源码、运行环境检视与覆盖回执（replay.input_coverage），并写 source/execution.json 执行绑定（运行环境身份、探针读出的有效配置及其哈希），与研究封存回放一样以 --execution-binding 交给运行器。
 4. 容器启动前经 ledger.open_trial 与 ledger.start_receipt 写 purpose=explore 的试验行与开始回执，记源码哈希、运行环境引用、合约集与窗口。
 5. 挂入源码、报告目录与覆盖回执调用 replay.execute，结束后由 replay.audit_problems 得出问题清单；执行捕获由 replay.execute 交 ledger.seal_capture 封存。
 6. 目录保留；绩效指标由 report.directory_report 从未核验的临时报告读出，只供导向不作证据；finally 清理导出目录。
@@ -136,7 +136,7 @@ def explore(
 | `NOT_TEMPORARY_PATH` | output 不在平台临时根之下 |
 | `PATH_EXISTS` | output 已存在 |
 | `ENTRY_CLASS_INVALID` | strategy_class 不是单个 Python 类名 |
-| `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项（策略文件、策略类、源码哈希、绑定文件、输出目录） |
+| `RUNNER_OPTION_RESERVED` | runner_argv 含入口保留选项（策略文件、策略类、源码哈希、执行绑定、输出目录） |
 
 **使用**　<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="replay.audit_problems" />、<Ref id="ledger.seal_capture" />、<Ref id="report.directory_report" />
 
@@ -202,7 +202,7 @@ def precheck(
 
 1. 核对：经 ledger.read_candidate 读候选；经 ledger.temporary_path 核对 output；runner_argv 不含保留选项；经 runtime.resolve 解析运行环境，构建源码版本为空即拒绝；候选 runtime_contract 等于镜像运行契约。任一不符即拒绝，不启动任何进程。
 2. 按 at 以 registration.market_inputs 新鲜导出输入（与登记同一导出器、同一提交），算 registration.input_key；经 runtime.inspect_runtime 在镜像内读出有效配置，算 registration.config_key。
-3. 建工作目录 source/、reports/，写入源码原字节、运行环境检视结果与 replay.input_coverage 覆盖回执。
+3. 建工作目录 source/、reports/，写入源码原字节、运行环境检视结果与 replay.input_coverage 覆盖回执，并与研究封存回放一样写 source/execution.json 执行绑定、以 --execution-binding 交给运行器，使预检与正式回放走同一条加载路径，执行绑定不符在预检即暴露。
 4. 在一个写事务里经 ledger.open_trial 写 purpose=precheck 的试验行（不带登记绑定器），并经 ledger.start_receipt 写开始回执（用途 precheck、源码哈希、运行环境、input_key、config_key）；事务成功后才启动容器。
 5. 调用 replay.execute（标预检用途）：先运行器后审计器，结束时（含中断与宿主失败）由 ledger.seal_capture 封存原件；再由 replay.audit_problems 给出问题清单，report.directory_report 读出工程诊断用绩效指标。
 6. 保留 output，清理导出目录，返回结果。预检不消耗网格点；失败或重复的预检都不成为登记尝试。
@@ -258,7 +258,7 @@ def run(
 | 拒绝码 | 条件 |
 |---|---|
 | `REGISTRATION_REQUIRED` | hypothesis 与 validation 都未给或同时给出 |
-| `RUNNER_OPTION_RESERVED` | runner_argv 含入口自己写入的选项（策略文件、策略类、源码哈希、绑定文件、输出目录） |
+| `RUNNER_OPTION_RESERVED` | runner_argv 含入口自己写入的选项（策略文件、策略类、源码哈希、执行绑定、输出目录） |
 | `UNKNOWN_CANDIDATE` | strategy_id@revision 在账本中不存在 |
 | `RUNTIME_NOT_MAIN` | purpose=validation 但运行环境不是 main 构建 |
 | `STALE_CHECKOUT` | purpose=validation 但产品 checkout 的 HEAD 不含 main 的最新提交，或无法证明（转发自 registration.require_fresh） |
@@ -273,7 +273,7 @@ def run(
 
 ### `seal` [#def-replay-seal]
 
-研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写源码绑定、执行身份与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账
+研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写执行绑定与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账
 
 ```python
 def seal(
@@ -296,7 +296,7 @@ def seal(
 
 1. 核对 hypothesis 与 validation 恰给其一；读账本头提交（table:ledger_head）；runtime.resolve 解析身份，候选运行契约不等于镜像契约即拒绝；runtime.inspect_runtime 取有效配置并由 registration.config_key 算配置身份
 2. registration.export_fingerprint 语义模式结果须等于 inputs.identity 的导出内容哈希，否则拒绝；同时记下原始模式指纹
-3. 新建临时工作目录，写 source/strategy.py、binding.json（账本库名、账本提交、strategy_id@revision、源码哈希、入口类、运行契约）、execution.json（运行环境身份、有效配置及其哈希）与 replay.input_coverage 产出的 input-coverage.json
+3. 新建临时工作目录，写 source/strategy.py、execution.json（运行环境身份、有效配置及其哈希；与探索、预检、复现同一写法）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
 5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、replay.summary_problems、replay.audit_problems，逐条去重互不覆盖
 6. ledger.ingest_run 入账（有效含封存结果、逐日序列与持仓周期，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出

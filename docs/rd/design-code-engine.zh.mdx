@@ -481,7 +481,7 @@ def build_parser() -> argparse.ArgumentParser
 
 **期望行为**
 
-1. 策略引用组：--strategy-file、--strategy-class、--strategy-sha256，以及由登记侧产出的可选 --strategy-binding、--execution-binding。
+1. 策略引用组：--strategy-file、--strategy-class、--strategy-sha256，以及回放入口为每次回放（探索、预检、研究封存、复现）同样写出的 --execution-binding。
 2. 输入组：--market-root（每合约一个 Catalog 的目录）、--market-commit（导出所用的市场提交）、可选 --universe（共同可交易范围成员文件）、--symbols（一个或多个合约标识）。
 3. 窗口组：--start、可选 --trade-start、--end，均为带显式 UTC 的 ISO-8601 字符串；另有 --output 与 --describe 探针开关。
 4. 不定义任何策略相关选项，也不留通用键值透传；构造解析器时不读文件、不碰市场数据。
@@ -573,7 +573,7 @@ def parse_configuration(argv: list[str] | None) -> RunnerConfiguration
 
 <TypeTable type={{ "argv": { type: "list[str] | None", description: "命令行参数；None 表示取进程参数" } }} />
 
-**返回**　RunnerConfiguration（冻结数据类）：describe 标志、strategy_file / strategy_class / strategy_sha256 / strategy_binding / execution_binding、market_root / market_commit / universe_path / symbols（保持给定顺序的元组）、window（Window）、output
+**返回**　RunnerConfiguration（冻结数据类）：describe 标志、strategy_file / strategy_class / strategy_sha256 / execution_binding、market_root / market_commit / universe_path / symbols（保持给定顺序的元组）、window（Window）、output
 
 **期望行为**
 
@@ -728,18 +728,17 @@ def load_strategy(
     source_path: Path,
     entry_class: str,
     expected_content_hash: str,
-    binding_path: Path | None,
 ) -> LoadedStrategy
 ```
 
-<TypeTable type={{ "source_path": { type: "Path", description: "策略源码文件；须是普通文件，不跟随符号链接" }, "entry_class": { type: "str", description: "声明的唯一入口类名，须是合法 Python 标识符" }, "expected_content_hash": { type: "str", description: "发布记录的内容哈希（64 位小写十六进制 SHA-256）" }, "binding_path": { type: "Path | None", description: "研究封存回放时由上层挂入的绑定文件；为空表示探索回放，不核对账本身份" } }} />
+<TypeTable type={{ "source_path": { type: "Path", description: "策略源码文件；须是普通文件，不跟随符号链接" }, "entry_class": { type: "str", description: "声明的唯一入口类名，须是合法 Python 标识符" }, "expected_content_hash": { type: "str", description: "发布记录的内容哈希（64 位小写十六进制 SHA-256）" } }} />
 
-**返回**　LoadedStrategy：source_path、content_hash、entry_class、strategy_class、binding（或 None）、daily_warmup、uses_stop_loss
+**返回**　LoadedStrategy：source_path、content_hash、entry_class、strategy_class、daily_warmup、uses_stop_loss
 
 **期望行为**
 
 1. 核对 expected_content_hash 为 64 位小写十六进制、entry_class 为合法标识符；以单个只读描述符读取普通文件的全部字节，不跟随符号链接。
-2. 计算字节 SHA-256，与 expected_content_hash 不等即拒绝；给了 binding_path 时读绑定 JSON，其 content_hash、entry_class、runtime_contract 须与核对结果一致。
+2. 计算字节 SHA-256，与 expected_content_hash 不等即拒绝。
 3. 以 `_strategy_<content_hash>` 为模块名建立无包名、不能相对导入的独立模块并执行源码；执行抛错即移除该模块并拒绝。同一进程内相同哈希已装载时直接返回已装载的模块，不再执行。
 4. 取模块中名为 entry_class 的属性：须是类、在本模块声明、是引擎策略基类的真子类（不是基类本身），否则拒绝。
 5. 核对 replay_diagnostics、replay_integrity_findings 两个钩子均可调用；类属性 DAILY_WARMUP（缺省 False）与 USES_STOP_LOSS（缺省 True）均须为 bool。
@@ -750,7 +749,6 @@ def load_strategy(
 | `SOURCE_UNREADABLE` | 路径不是普通文件、是符号链接或读取失败 |
 | `CONTENT_HASH_INVALID` | expected_content_hash 不是 64 位小写十六进制 |
 | `CONTENT_HASH_MISMATCH` | 源码字节的 SHA-256 不等于 expected_content_hash |
-| `BINDING_MISMATCH` | 绑定文件不是合法 JSON、字段集不完整，或其哈希、入口类、运行契约与核对结果不一致 |
 | `SOURCE_EXECUTION_FAILED` | 独立模块执行源码时抛出异常 |
 | `ENTRY_CLASS_INVALID` | 入口类不存在、不在本模块声明、不是引擎策略基类的真子类 |
 | `HOOK_MISSING` | replay_diagnostics 或 replay_integrity_findings 任一不可调用 |
@@ -850,16 +848,15 @@ def read_universe(
 def strategy_metadata(loaded: LoadedStrategy) -> dict
 ```
 
-<TypeTable type={{ "loaded": { type: "LoadedStrategy", description: "[[engine.load_strategy]] 的返回值：已核对的内容哈希、源码路径、入口类、可选的账本绑定、已检查为布尔值的 uses_stop_loss 与 daily_warmup" } }} />
+<TypeTable type={{ "loaded": { type: "LoadedStrategy", description: "[[engine.load_strategy]] 的返回值：已核对的内容哈希、源码路径、入口类、已检查为布尔值的 uses_stop_loss 与 daily_warmup" } }} />
 
-**返回**　dict，包含 source_sha256、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}；有账本绑定时另含 strategy_binding\{database, commit, strategy_id, revision, content_hash, entry_class, runtime_contract\}
+**返回**　dict，包含 source_sha256、strategy_entry_class、strategy_runtime_contract、strategy_uses_stop_loss（bool）、strategy_daily_warmup（bool）、strategy_source\{path, content_hash, entry_class\}
 
 **期望行为**
 
 1. 从 LoadedStrategy 取已核对的内容哈希、入口类、两个布尔声明，以及运行器的运行契约常量，按固定键名组成运行身份字典。
-2. 有账本绑定时，把绑定原样复制进 strategy_binding，使封存时可以和账本里的候选发布版本 strategy_id@revision 比对。
-3. 字典由运行器并入原生摘要与执行身份，随研究封存入账；审计读 strategy_uses_stop_loss 决定裸仓是使运行无效还是只报告。
-4. 纯函数，不读文件、不执行源码、不做校验；所有加载期拒绝都已在 engine.load_strategy 中发生。
+2. 字典由运行器并入原生摘要与执行身份，随研究封存入账；审计读 strategy_uses_stop_loss 决定裸仓是使运行无效还是只报告。
+3. 纯函数，不读文件、不执行源码、不做校验；所有加载期拒绝都已在 engine.load_strategy 中发生。
 
 **使用**　<Ref id="engine.load_strategy" />、<Ref id="engine.protection" />、<Ref id="replay.seal" />
 
@@ -1051,7 +1048,7 @@ def write_order_events(orders: Iterable[Order], path: Path) -> None
 | <Ref id="engine.configure_strategy">configure_strategy</Ref> | 以运行器输入构造入口类：合约、交易起点、按声明取的预热日线、策略标识、成员区间；不传任何策略参数 |
 | <Ref id="engine.episode_active">episode_active</Ref> | 合法生命周期与输入窗口相交才建实例；缺 K 线不使片段失效 |
 | <Ref id="engine.episode_membership">episode_membership</Ref> | 成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束 |
-| <Ref id="engine.execution_failure">execution_failure</Ref> | 把策略构造或回调异常的阶段、异常类型、消息与回溯写成结构化回执，不依赖日志文本 |
+| <Ref id="engine.execution_failure">execution_failure</Ref> | 把策略构造、回调或运行器某阶段的异常写成结构化回执：同一异常类型、阶段、合约与消息只记一条并计数，留首条回溯，不依赖日志文本 |
 | <Ref id="engine.fill_model">fill_model</Ref> | 按账户合约构造引擎的 DefaultFillModel：prob_fill_on_limit=0、prob_slippage=0，不抽随机数 |
 | <Ref id="engine.guard_callback">guard_callback</Ref> | 包装策略回调：异常先写结构化回执再原样抛出 |
 | <Ref id="engine.main">main</Ref> | 运行器入口：在运行环境内回放候选并写出原生原件；异常与完整性失败一律非零退出 |
@@ -1266,7 +1263,7 @@ def episode_membership(
 
 ### `execution_failure` [#def-engine-execution_failure]
 
-把策略构造或回调异常的阶段、异常类型、消息与回溯写成结构化回执，不依赖日志文本
+把策略构造、回调或运行器某阶段的异常写成结构化回执：同一异常类型、阶段、合约与消息只记一条并计数，留首条回溯，不依赖日志文本
 
 ```python
 def execution_failure(
@@ -1276,16 +1273,16 @@ def execution_failure(
 ) -> None
 ```
 
-<TypeTable type={{ "stage": { type: "str", description: "阶段名：constructor 或回调名" }, "exc": { type: "Exception", description: "抛出的异常" }, "instance": { type: "Strategy | None", description: "抛出异常的策略实例；构造未完成时为空" } }} />
+<TypeTable type={{ "stage": { type: "str", description: "阶段名：constructor、回调名，或 engine.main 的阶段 execution_binding、load、inputs、replay、reports" }, "exc": { type: "Exception", description: "抛出的异常" }, "instance": { type: "Strategy | None", description: "抛出异常的策略实例；构造未完成或运行器阶段异常时为空" } }} />
 
-**返回**　None；进程内失败记录追加一条，输出目录 reports/runtime_failures.jsonl 追加一行
+**返回**　None；该异常的记录计数加一（新签名追加一条），需要时改写输出目录 reports/runtime_failures.jsonl
 
 **期望行为**
 
-1. 组装回执：格式版本、阶段、异常类型名、消息、完整回溯，以及实例的合约标识（未构造时写 unconstructed）。
-2. 追加到进程内失败记录，供 engine.main 判 NATIVE_EXECUTION_FAILED。
-3. 输出目录已设时按 JSON Lines 追加一行并 flush、fsync，进程随后被杀也留下回执。
-4. 只记录 Python 异常事实，不读 stderr、不按文本严重度判错；自身不抛出、每次调用独立追加。
+1. 以（异常类型、阶段、合约、消息）为签名：已有记录只把 count 加一；新签名组装一条 runtime-failure-v2 回执：格式版本、阶段、异常类型名、拒绝码 code（拒绝时，否则为空）、截断后的消息与首条回溯、实例的合约标识（未构造时写 unconstructed）与 count。
+2. 已有 100 条不同记录后，新签名一律计入唯一一条 receipt_overflow 记录；进程内记录供 engine.main 判 NATIVE_EXECUTION_FAILED。
+3. 输出目录已设时，新记录出现或 count 达到 2 的幂即把全部记录写到同目录临时文件、fsync 后改名替换 runtime_failures.jsonl；engine.main 结束时再写一次最终计数。进程中途被杀时每条不同的失败都在，计数不少于实际的一半。
+4. 只记录 Python 异常事实，不读 stderr、不按文本严重度判错；自身不抛出，写入失败只在该记录的消息里注明。
 
 <div className="rd-meta">
 
@@ -1367,8 +1364,8 @@ def main(argv: list[str] | None) -> None。成功时输出目录含原生报表�
 **期望行为**
 
 1. 用 engine.parse_configuration 解析参数；只描述时返回 engine.describe 的结果，不加载源码、不读市场数据。
-2. 清空进程内失败记录并把回执目标定到输出目录；核对执行绑定与 engine.effective_configuration 解析出的有效配置逐字段一致，不一致拒 EXECUTION_BINDING_MISMATCH。
-3. 用 engine.load_strategy 加载源码（engine.strategy_metadata 读声明），用 engine.read_market 读每合约导出与回执，用 engine.read_universe 读成员区间；任一步异常原样抛出。
+2. 清空进程内失败记录并把回执目标定到输出目录；核对执行绑定：字段集须恰为 runtime_identity、effective_config、effective_config_sha256（拒绝时列出缺少与多出的键），有效配置须与 engine.effective_configuration 解析结果逐字段一致（拒绝时列出不同的字段），运行契约须是本运行器的，不符拒 EXECUTION_BINDING_MISMATCH。
+3. 用 engine.load_strategy 加载源码（engine.strategy_metadata 读声明），用 engine.read_market 读每合约导出与回执，用 engine.read_universe 读成员区间；执行绑定、加载、输入、回放与写报告任一阶段的异常先经 engine.execution_failure 记为该阶段（execution_binding、load、inputs、replay、reports）的回执，拒绝带拒绝码，再原样抛出。
 4. 调 engine.replay 运行节点，得到完成的回放与每合约实例表。
 5. 用 engine.write_native_reports 写原生报表与摘要（期望估值数来自 engine.mark_timestamps，估值发现来自 engine.capital_findings），用 engine.write_order_events 写订单事件史；写出先于判定。
 6. 失败记录非空即 NATIVE_EXECUTION_FAILED；摘要完整性发现非空即 INTEGRITY_FINDINGS；均以异常结束，不吞掉、不改写、不按日志文本判错。
