@@ -64,6 +64,8 @@ ledger: publication is append-only.
   repository, or stating what prior work found.
 - `video-evidence`: before probing, downloading, transcribing or citing a video, or writing notes
   from one.
+- `product-doctor`: after a research session, when diagnosing why a session failed, stalled or was
+  slow, and before proposing to add, keep or remove a check, field, command, skill rule or test.
 
 ## Nautilus and parity
 
