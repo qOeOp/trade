@@ -1,10 +1,12 @@
 # skill 设计：research-sources
 
-检索论文、FRED 或 CFTC 数据，陈述前人发现或"没有先前研究"，或引外部依据进研究前使用
+检索论文、FRED 或 CFTC 数据，陈述前人发现或"没有先前研究"，或引外部依据进研究前使用。评测用例在仓库的 `evals/research-sources/<用例名>/`。
 
 <Files>
 <Folder name="research-sources" defaultOpen>
   <File name="SKILL.md" />
+  <File name="references/papers.md" />
+  <File name="references/data.md" />
 </Folder>
 </Files>
 
@@ -12,10 +14,22 @@
 
 **触发**　检索论文、经济序列或持仓数据之前；陈述前人发现或否定断言之前；把外部来源作为假设、方法或参数依据之前
 
-写三条 core 规则：逐次检索记录与否定断言的范围、每份来源的状态与条件、出处版本与事前依据。另附各来源的访问方法（OpenAlex、Crossref、Semantic Scholar、FRED/ALFRED、CFTC），它是机制说明，不是规则。不建 references 文件，因为本 skill 只有三条规则，没有需要拆到分步文件的细则
+按需要选来源（论文索引、FRED/ALFRED、CFTC），用 curl 调官方接口并先用 jq 截取再读；密钥只在用到它的命令里读，不打印、不存。规则分检索、阅读与使用三段：检索前写下问题和至少三种说法，至少在两个索引里查，逐次记检索记录，否定断言只写按这些查询没找到；同一工作的多个版本合并、引发表版；数字与论断带原文位置；决定结论的论文没有开放全文时，先找作者、机构、仓库或工作论文系列公开的副本，不用影子图书馆，找不到才标只读到摘要并向用户要文件；转述方法的二手材料只记为二手；每份来源记状态与条件；出处记版本，只把登记前可见的版本当事前依据。各来源的端点、限额与已知故障在两个 references 文件里
 
 <ol className="rd-skill-rules">
-<li id="def-rule-H-2-1-2">检索逐次记查询、日期与读取程度；否定断言只写按这些查询没找到，访问失败不算没有 <span className="rd-rule-links"><Ref id="H.2.1.2">H.2.1.2</Ref></span><span className="rd-eval">eval <code>negative-claim-scoped-to-queries</code>：否定断言写成「按这些查询没找到」并附查询与日期；访问失败或全文不可读记为检索限制，不写成不存在先前研究。</span></li>
+<li id="def-rule-H-2-1-2">检索逐次记查询、日期与读取程度；否定断言只写按这些查询没找到，访问失败不算没有；无开放全文先找作者或机构公开的副本，转述只算二手 <span className="rd-rule-links"><Ref id="H.2.1.2">H.2.1.2</Ref></span><span className="rd-eval">eval <code>negative-claim-scoped-to-queries</code>：否定断言写成「按这些查询没找到」并附查询与日期；访问失败或全文不可读记为检索限制，不写成不存在先前研究。</span><span className="rd-eval">eval <code>open-copy-before-asking</code>：不用也不建议用影子图书馆下载；先找作者、所在机构、仓库或工作论文系列放出的副本（查作者主页、工作论文版本或按标题搜 PDF），确认没有合法副本才下结论；讲义记为转述方法的二手材料并写明位置，不当作读过原文；找不到合法副本时把该论断标为只读到摘要或题录，并因它决定方法而向用户要文件；网页搜索和其他查询一样写进检索记录（查询、日期、找到什么）</span></li>
 <li id="def-rule-H-2-2-3">出处记版本号或抓取日期；只把登记前首次可见的版本当事前依据 <span className="rd-rule-links"><Ref id="H.2.2.3">H.2.2.3</Ref></span><span className="rd-eval">eval <code>later-source-appended-not-backfilled</code>：出处记版本或日期，只用登记前首次可见版本作事前依据；回放后找到的材料写成带日期的新证据包，原登记与分类不变；无论文的方向仍保留为低优先级。</span></li>
 <li id="def-rule-H-2-3-2">每份来源记状态、市场窗口、频率、样本外、成本与出处；标仅摘要，剔撤稿，复述不独立 <span className="rd-rule-links"><Ref id="H.2.3.2">H.2.3.2</Ref></span><span className="rd-eval">eval <code>source-status-and-conditions</code>：每份来源都有状态、市场、窗口、频率、样本外、扣成本与出处位置；仅摘要已标注；撤稿被剔除；多版本合并为一条并引发表版。</span></li>
 </ol>
+
+## `references/papers.md` [#def-file-research-sources-references-papers-md]
+
+**触发**　调用论文索引或取全文之前
+
+论文索引的端点、密钥与用法：OpenAlex（默认索引，密钥买每日额度）、Crossref、Semantic Scholar（按段落找论断、相似工作、版本关联）；请求里选字段、限条数；全文先试 arXiv，再试 OpenAlex 与 Semantic Scholar 给的 PDF，只对 application/pdf 跑 pdftotext；遇到人机验证、挑战页或登录页就停，不爬 SSRN 或出版社页面
+
+## `references/data.md` [#def-file-research-sources-references-data-md]
+
+**触发**　取经济序列或监管期货持仓数据之前
+
+经济与持仓数据：回测或决策只用当时已发布的值，按发布时刻对齐；FRED/ALFRED 的序列检索与发布时的版本（vintage）；CFTC 持仓报告（无需密钥，持仓截至周二、周五发布）与净持仓的算法

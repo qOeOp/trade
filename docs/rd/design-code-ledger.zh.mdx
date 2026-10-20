@@ -50,7 +50,7 @@ def export_history(
 
 **期望行为**
 
-1. with_backup 时用 dolt_backup 同步全部提交与标签；失败即整笔拒绝。同步前若目标已有备份，其头提交须在研究 branch 的历史里，否则拒绝 BACKUP_DIVERGED 且不同步：dolt_backup 会无声覆盖改写前的备份，而整体复核靠它发现改写（Dolt 2.4.2 实测；用户 10-20 授权）。
+1. with_backup 时用 dolt_backup 同步全部提交与标签；失败即整笔拒绝。同步后把备份还原到新的临时目录，读出研究 branch 的头提交（用完即删），不等于账本头即拒绝 DOLT_BACKUP。同步前若目标已有备份，其头提交须在研究 branch 的历史里，否则拒绝 BACKUP_DIVERGED 且不同步：dolt_backup 会无声覆盖改写前的备份，而整体复核靠它发现改写（Dolt 2.4.2 实测；用户 10-20 授权）。
 2. 按该版本读候选源码并核哈希，每个候选写成一个源码文件。
 3. 写复现清单：每个运行列镜像摘要、源码哈希、登记的执行身份、市场提交与窗口，以及报告指纹；按清单重放即可经 engine.compare_reports 复核。
 4. 替换已有导出时先把旧导出改名移开、新导出改名到位，再删旧的，过程中不出现缺导出的时刻。
@@ -776,6 +776,7 @@ def add_judgment(
 |---|---|
 | <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
 | <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径 |
+| <Ref id="ledger.read_line">read_line</Ref> | 按包名读一条研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交，附包的创建时间与所读提交 |
 | <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成新编号的研究路线证据包；只追加，不改旧路线记录。 |
 
 ### `current_line` [#def-ledger-current_line]
@@ -793,7 +794,7 @@ def current_line(conn: LedgerConnection, at: str | None) -> dict | None
 **期望行为**
 
 1. 在 evidence_bundle 中列出名为 research-line-\<n> 的包，取 n 最大者；没有即返回 None，入口据此进入路线选择而不是自行开始。
-2. 经 ledger.load_bundle 读该包的 research-line.json，核对读回字节的 sha256 与存储哈希一致、format 为 research-line-v1；不一致拒绝 LINE_CORRUPT，format 不识别拒绝 LINE_FORMAT_UNSUPPORTED。
+2. 经 ledger.read_line 读该包的 research-line.json，核对读回字节的 sha256 与存储哈希一致、format 为 research-line-v1；不一致拒绝 LINE_CORRUPT，format 不识别拒绝 LINE_FORMAT_UNSUPPORTED。
 3. 原样返回记录字段并附包的 created_at 与所读账本提交；登记的窗口核对与可比核对读同一来源。
 4. 只读：不连接市场库、不判断新鲜度、不建议换提交；新月份可扩展范围由入口另行报告，改窗口或提交是用户经 ledger.select_line 写新记录。
 
@@ -802,7 +803,7 @@ def current_line(conn: LedgerConnection, at: str | None) -> dict | None
 | `LINE_CORRUPT` | research-line.json 读回哈希与存储哈希不符，或包内缺该文件 |
 | `LINE_FORMAT_UNSUPPORTED` | 记录的 format 不是本代码识别的研究路线格式 |
 
-**使用**　<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_as_of" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_as_of" />、<Ref id="table:v_evidence" />、<Ref id="ledger.read_line" />
 
 <div className="rd-meta">
 
@@ -833,7 +834,7 @@ def line_trials(
 
 **期望行为**
 
-1. 读路线记录的市场提交与开发窗口；列出 purpose=research 的试验（含无效与中断），市场提交取其开始回执里的 execution.json，交易窗口取试验行，两者都与路线相等的才算本路线；开始回执与试验同一提交写入，缺回执即账本损坏，拒绝 LEDGER_CORRUPT。
+1. 经 ledger.read_line 读路线记录的市场提交与开发窗口；列出 purpose=research 的试验（含无效与中断），市场提交取其开始回执里的 execution.json，交易窗口取试验行，两者都与路线相等的才算本路线；开始回执与试验同一提交写入，缺回执即账本损坏，拒绝 LEDGER_CORRUPT。
 2. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
 
 | 拒绝码 | 条件 |
@@ -841,11 +842,53 @@ def line_trials(
 | `LINE_UNKNOWN` | 研究路线不存在 |
 | `LEDGER_CORRUPT` | 某个研究试验没有开始回执或回执不可读 |
 
-**使用**　<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="ledger.read_line" />
 
 <div className="rd-meta">
 
 **关联章节**　<Ref id="E.1.1.4">E.1.1.4</Ref> <Ref id="H.4.1.5">H.4.1.5</Ref>
+
+</div>
+
+### `read_line` [#def-ledger-read_line]
+
+按包名读一条研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交，附包的创建时间与所读提交
+
+```python
+def read_line(
+    conn: LedgerConnection,
+    bundle: str,
+    at: str | None,
+) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "bundle": { type: "str", description: "研究路线证据包名 research-line-<n>" }, "at": { type: "str | None", description: "账本提交或标签；None 读连接所见的版本" } }} />
+
+**返回**　dict：\{bundle, line_no, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希
+
+**期望行为**
+
+1. 经 ledger.load_bundle 按 at 读该包，逐文件重算哈希；读回哈希不符拒绝 LINE_CORRUPT。
+2. 包内缺 research-line.json 拒绝 LINE_CORRUPT；内容不是 JSON 对象或 format 不是 research-line-v1，拒绝 LINE_FORMAT_UNSUPPORTED。
+3. 按记录字段原样返回，附包的 created_at 与所读账本提交；缺的字段为 null。
+4. ledger.current_line、ledger.line_trials 与 report.research_state 都经它读路线记录，口径只有这一份。
+5. 只读：不连接市场库，不判断新鲜度。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_BUNDLE` | 该版本下没有这个包（由 ledger.load_bundle 抛出） |
+| `LINE_CORRUPT` | research-line.json 读回哈希与存储哈希不符，或包内缺该文件 |
+| `LINE_FORMAT_UNSUPPORTED` | 记录不是 JSON 对象，或 format 不是 research-line-v1 |
+
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="table:v_evidence" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.2.1">E.1.2.1</Ref>
+
+**依据**
+
+- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
 
 </div>
 

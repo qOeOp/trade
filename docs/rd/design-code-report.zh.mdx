@@ -532,7 +532,7 @@ def review_all(
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="J.3.1.1">J.3.1.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+**关联章节**　<Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="J.3.1.1">J.3.1.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
 
 </div>
 
@@ -665,7 +665,7 @@ def tables(
 
 <TypeTable type={{ "run_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" }, "directory": { type: "Path | None", description: "replay.reproduce 留下的重放目录" }, "reproduction": { type: "int | None", description: "replay.reproduce 返回的复现试验编号；给 directory 时必填" } }} />
 
-**返回**　dict：orders、fills（附 cycle_position_id）、positions（持仓周期含快照行，闭仓行附 funding、price_pnl、ts_closed_ns、closing_order_tags）、account（可选）、daily_returns（不能复合到期末权益时为 None 并写局限）、exposures（可选）、order_events、reconciled（闭仓对账合计，Agent 自算合计须与之相等）、availability（含检查身份）、metrics_revision、ledger_commit、limitations。只做类型化转换，不算统计
+**返回**　dict：orders、fills（附 cycle_position_id）、positions（持仓周期含快照行，每行含 seq、instrument_id、side、ts_opened_ns、ts_closed_ns、realized_pnl、commissions、funding、price_pnl、open_unrealized、plan_tag、closing_order_type、closing_order_tag；未平周期的 ts_closed_ns、realized_pnl、price_pnl 为 null，带 open_unrealized）、account（可选）、daily_returns（不能复合到期末权益时为 None 并写局限）、exposures（可选）、order_events（orders、fills、account、exposures、order_events 只在给出已核验的重放目录时有值，否则为 None）、reconciled（闭仓对账合计，Agent 自算合计须与之相等）、availability（含检查身份）、metrics_revision、ledger_commit、reproduction（复现试验编号，未给目录时为 None）、limitations。只做类型化转换，不算统计
 
 **期望行为**
 
@@ -679,8 +679,11 @@ def tables(
 | `UNKNOWN_RUN` | 账本中没有该 run_id |
 | `RUN_NOT_PASSED` | run.status 不是 passed |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | qualification.require 判定不可用，返回原因作诊断 |
-| `EXECUTION_IDENTITY` | 封存报表或敞口文件的哈希与执行身份不符 |
+| `EXECUTION_IDENTITY` | 执行开始回执或执行封存与试验行不符、封存源码不是试验源码，或覆盖回执所列输入与存储的输入身份不符（由 ledger.load_run 与 ledger.read_capture 抛出） |
 | `UNKNOWN_REF` | at 指向的提交或标签不存在 |
+| `LEDGER_CORRUPT` | 执行封存里的文件与其清单记录的哈希或长度不符（由 ledger.read_capture 抛出） |
+| `REPRODUCTION_MISMATCH` | 给了复现试验编号却没给目录；或该试验不是本运行同源码、同镜像、同输入的 explore 重放，执行封存不完整，指纹阶段未封存运行行记录的指纹，或目录里的报告文件与该试验的执行封存不符 |
+| `LEDGER_UNKNOWN` | ledger 为 None 而没有活动研究账本档案，或所给档案名不存在 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.economics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.require" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="replay.reproduce" />、<Ref id="engine.report_fingerprint" />
 
@@ -750,11 +753,11 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" } }} />
 
-**返回**　dict：at、line、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记还缺什么）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记还缺什么）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
-1. 按 at 读取（AS OF）。
+1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line。
 2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
 3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
@@ -767,8 +770,10 @@ def research_state(
 |---|---|
 | `LINE_UNKNOWN` | 所给的研究路线证据包不存在 |
 | `UNKNOWN_REF` | at 解析不到提交、分支或标签 |
+| `LINE_CORRUPT` | 路线记录读回哈希与存储哈希不符，或包内缺 research-line.json（由 ledger.read_line 抛出） |
+| `LINE_FORMAT_UNSUPPORTED` | 路线记录的 format 不是 research-line-v1（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />
+**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />
 
 <div className="rd-meta">
 
