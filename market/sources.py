@@ -215,11 +215,17 @@ def _listing(prefix: str, *, delimiter: str | None) -> tuple[list[str], list[str
         except _NotPublished as exc:
             raise _refuse(f"the archive listing {prefix} is not reachable", "SOURCE_UNREACHABLE",
                           missing=(prefix,)) from exc
-        keys += [_listed(prefix, node) for node in root.iter(f"{_S3}Key")]
-        prefixes += [_listed(prefix, node.find(f"{_S3}Prefix")) for node in root.iter(f"{_S3}CommonPrefixes")]
+        page_keys = [_listed(prefix, node) for node in root.iter(f"{_S3}Key")]
+        page_prefixes = [_listed(prefix, node.find(f"{_S3}Prefix")) for node in root.iter(f"{_S3}CommonPrefixes")]
+        keys += page_keys
+        prefixes += page_prefixes
         if root.findtext(f"{_S3}IsTruncated") != "true":
             return keys, prefixes
-        marker = root.findtext(f"{_S3}NextMarker") or (keys or prefixes)[-1]
+        # A truncated page continues after its marker, else after its own last entry; one with neither cannot continue.
+        marker = root.findtext(f"{_S3}NextMarker") or (page_keys or page_prefixes or [""])[-1]
+        if not marker:
+            raise _refuse(f"the archive listing {prefix} is truncated with no entry to continue from",
+                          "SOURCE_SHAPE", missing=(prefix,))
 
 
 def archive_symbols() -> list[str]:
