@@ -28,7 +28,8 @@ was declared. It does not change the test result.
 | S12 | Paired trades open later throughout and their PnL is worse | `trade_pairs` | G1, C1 | Change the execution style or the trigger price |
 | S13 | The difference sits in one exit category | `trade_structure` | F3, F4, F5, I1 | Change the protection boundary, the exit or the disposal of holdings |
 | S14 | One contract dominates the candidate's drawdown interval | `drawdown` | E2, F3 | Cap single-contract exposure, or add a protection boundary |
-| S15 | The drawdown sits in one window while time in market is near one | `drawdown`, `capital` | A3, E1, E3, F3 | Stand aside under a condition filter, scale risk to equity or volatility, or add a protection boundary |
+| S15 | The drawdown sits in one window while time in market (the run report's `capital` section) is near one | `drawdown` | A3, E1, E3, F3 | Stand aside under a condition filter, scale risk to equity or volatility, or add a protection boundary |
+| S16 | The return sits in one volatility regime: high- and low-volatility days differ in sign or in mean log return | `by_regime` | A3, D2 | Trade only in the regime that earns, or hedge the exposure that loses in the other |
 
 - Map what the slices show to duties with this table and take its next hypothesis as the usual
   starting point; the code does not enforce it. Before citing a row, check that its signal holds

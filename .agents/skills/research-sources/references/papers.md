@@ -63,6 +63,6 @@ Select fields and cap results in the request, then cut the response with `jq` be
   `externalIds.ArXiv`), then every OpenAlex `locations[].pdf_url` (more than `best_oa_location`),
   then Semantic Scholar `openAccessPdf`. Many listed links do not return a PDF.
 - Download with `curl -sSL -o FILE -w '%{http_code} %{content_type}'` and run `pdftotext -layout`
-  only on `application/pdf`; read long papers by section, not whole.
+  only on `application/pdf`.
 - A bot check, challenge or login page means stop: never work around it, and never scrape SSRN or
   publisher pages. Ask the user for the PDF of any paper that decides something.

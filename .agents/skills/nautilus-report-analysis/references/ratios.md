@@ -10,7 +10,7 @@ or a rolling window, and before a deflated Sharpe.
   The whole-window Sharpe matches the report's native-summary Sharpe, or you state the difference
   in definition. An HTML tearsheet, only when the user asks for one, is built with
   `nautilus_trader.analysis.create_tearsheet_from_stats` from these trade-window statistics and
-  written under /tmp. Check signatures in the installed package, not online docs.
+  written under /tmp.
 - For a deflated Sharpe, take from `research status` (`by_development_window`, the
   run's window) both the distinct source count and the total trial count, and compute one end of a
   range with each; never count trials yourself. From the run's daily returns take the daily

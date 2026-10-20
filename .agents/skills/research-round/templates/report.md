@@ -15,6 +15,7 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 | Instruments and direction | Top five contracts' share of absolute PnL, long and short apart | Difference of the same |
 | Market exposure | Slope and intercept against the equal-weight basket and the BTC perpetual | Slope difference and intercept difference |
 | Periods | Share of profitable months, remainder without the best five days | Share of months won, remaining difference |
+| Volatility regimes | High- and low-volatility days: count, mean and summed log return | Difference of the same |
 | Trade structure | Cycles, win rate, average win and loss, expectancy per trade, holding time, exit categories | Difference of the same and the split of the expectancy difference |
 | Trade pairing | — | Coverage, removed and added trades, difference on the same opportunity |
 | Drawdown | Maximum drawdown, duration in days, dominant contract in the drawdown interval | Difference of the same |
