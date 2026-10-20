@@ -54,11 +54,13 @@ from engine import report
 from engine.config import (
     ACCOUNT_CONTRACT,
     EXECUTION_BAR_MINUTES,
+    EXECUTION_BINDING_FIELDS,
     MINUTE_NS,
     RUNTIME_CONTRACT,
     Refusal,
     Window,
     describe,
+    key_difference,
     utc_text,
     effective_configuration,
     parse_configuration,
@@ -87,19 +89,26 @@ def execution_metadata(config) -> dict:
     try:
         binding = json.loads(read_regular_file(config.execution_binding))
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding is not valid JSON") from error
-    if not isinstance(binding, dict) or set(binding) != {
-        "runtime_identity", "effective_config", "effective_config_sha256",
-    }:
-        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding must hold the runtime and effective "
-                                                    "configuration")
+        raise Refusal("EXECUTION_BINDING_MISMATCH", f"the execution binding is unreadable or not JSON: {error}") from error
+    if not isinstance(binding, dict) or set(binding) != EXECUTION_BINDING_FIELDS:
+        found = key_difference(binding, EXECUTION_BINDING_FIELDS) if isinstance(binding, dict) else \
+            f"it is a {type(binding).__name__}, not an object"
+        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding must hold exactly the runtime and "
+                                                    f"effective configuration: {found}")
     effective = effective_configuration(config)
-    if binding["effective_config"] != effective.values or binding["effective_config_sha256"] != effective.digest:
+    stated = binding["effective_config"]
+    if stated != effective.values or binding["effective_config_sha256"] != effective.digest:
+        differing = (sorted(key for key in set(stated) | set(effective.values)
+                            if stated.get(key) != effective.values.get(key))
+                     if isinstance(stated, dict) else ["effective_config"])
         raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding differs from the resolved runner "
-                                                    "configuration")
+                                                    "configuration in " + (", ".join(differing) or
+                                                                           "effective_config_sha256"))
     identity = binding["runtime_identity"]
     if not isinstance(identity, dict) or identity.get("runtime_contract") != RUNTIME_CONTRACT:
-        raise Refusal("EXECUTION_BINDING_MISMATCH", "the execution binding names an unsupported runtime contract")
+        found = identity.get("runtime_contract") if isinstance(identity, dict) else None
+        raise Refusal("EXECUTION_BINDING_MISMATCH", f"the execution binding names runtime contract {found!r}, the "
+                                                    f"runner is {RUNTIME_CONTRACT}")
     return {"runtime_identity": identity, "effective_config_sha256": effective.digest}
 
 
@@ -151,32 +160,91 @@ class _Configured:
 
 
 # Structured runtime failures (engine.execution_failure): a strategy's constructor or callback that
-# raises leaves a receipt in the process and in <output>/runtime_failures.jsonl before the exception
-# goes on, so a failure the engine catches still fails the run (NATIVE_EXECUTION_FAILED).
+# raises, and any exception that ends main before its verdict, leaves a receipt in the process and in
+# <output>/runtime_failures.jsonl before the exception goes on, so a failure the engine catches still
+# fails the run (NATIVE_EXECUTION_FAILED). Each distinct (exception type, stage, instance, message) is
+# one record with its count and its first traceback, so a callback failing on every bar stays one line.
 
-FAILURE_FORMAT = "runtime-failure-v1"
-FAILURES: list[dict] = []
+FAILURE_FORMAT = "runtime-failure-v2"
+FAILURES: list[dict] = []  # the records, in order of first occurrence; `count` grows in place
 FAILURE_PATH: Path | None = None  # the receipt file of this process's replay, once main set it
 GUARDED_HOOKS = ("replay_diagnostics", "replay_integrity_findings")
+MAX_FAILURE_RECORDS = 100  # distinct records kept; later new ones are counted in one overflow record
+MAX_FAILURE_TEXT = 4000  # characters of a message, and (x 5) of a traceback, a record keeps
+OVERFLOW_STAGE = "receipt_overflow"
+OVERFLOW_SIGNATURE = (None, OVERFLOW_STAGE, None, None)
+_SIGNATURES: dict[tuple, dict] = {}
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + f"... ({len(text) - limit} more characters)"
+
+
+def _overflow() -> dict:
+    return {"stage": OVERFLOW_STAGE, "exception_type": "various", "instrument_id": "various", "code": None,
+            "message": f"failures beyond the first {MAX_FAILURE_RECORDS} distinct records", "traceback": ""}
+
+
+def _record(signature: tuple, build) -> dict:
+    """The record of `signature` (made by `build` the first time), its count raised by one; once
+    MAX_FAILURE_RECORDS records exist, a new signature counts in the one overflow record instead."""
+    receipt = _SIGNATURES.get(signature)
+    if receipt is None and len(_SIGNATURES) >= MAX_FAILURE_RECORDS:
+        signature, build = OVERFLOW_SIGNATURE, _overflow
+        receipt = _SIGNATURES.get(signature)
+    if receipt is None:
+        receipt = {"format": FAILURE_FORMAT, **build(), "count": 0}
+        _SIGNATURES[signature] = receipt
+        FAILURES.append(receipt)
+    receipt["count"] += 1
+    return receipt
+
+
+def write_failures() -> None:
+    """Replace the receipt file with the current records (written beside it, then renamed into place)."""
+    if FAILURE_PATH is None:
+        return
+    FAILURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    partial = FAILURE_PATH.with_name("." + FAILURE_PATH.name + ".partial")
+    with partial.open("w", encoding="utf-8") as stream:
+        for receipt in FAILURES:
+            stream.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(partial, FAILURE_PATH)
 
 
 def execution_failure(stage: str, exc: BaseException, instance) -> None:
-    """Record one constructor or callback exception; never raises itself."""
+    """Record one constructor, callback or runner-stage exception; never raises itself.
+
+    The file is rewritten when a record is new and when its count reaches a power of two (and once
+    more when main ends), so a runner killed mid-replay leaves every distinct failure and each count
+    at least half its true value."""
+    kind = type(exc).__name__
     try:
-        instrument = next((key for key, value in STRATEGIES.items() if value is instance), None)
-        receipt = {"format": FAILURE_FORMAT, "stage": stage, "exception_type": type(exc).__name__,
-                   "message": str(exc), "traceback": "".join(traceback.format_exception(exc)),
-                   "instrument_id": instrument or "unconstructed"}
-        FAILURES.append(receipt)
-        if FAILURE_PATH is not None:
-            with FAILURE_PATH.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
+        instrument = next((key for key, value in STRATEGIES.items() if value is instance), None) or "unconstructed"
+        message = str(exc)
+        receipt = _record((kind, stage, instrument, message), lambda: {
+            "stage": stage, "exception_type": kind, "instrument_id": instrument,
+            "code": exc.code if isinstance(exc, Refusal) else None, "message": _clip(message, MAX_FAILURE_TEXT),
+            "traceback": _clip("".join(traceback.format_exception(exc)), 5 * MAX_FAILURE_TEXT)})
+    except Exception as error:  # an exception that cannot even be described still fails the run
+        receipt = _record((kind, stage, "unconstructed", None), lambda: {
+            "stage": stage, "exception_type": kind, "instrument_id": "unconstructed", "code": None,
+            "message": f"the exception could not be described: {type(error).__name__}", "traceback": ""})
+    if receipt["count"] & (receipt["count"] - 1):
+        return
+    try:
+        write_failures()
     except Exception as error:  # the receipt is evidence; failing to write it must not hide the original
-        FAILURES.append({"format": FAILURE_FORMAT, "stage": stage, "exception_type": type(exc).__name__,
-                         "message": f"{exc} (receipt not written: {error})", "traceback": "",
-                         "instrument_id": "unconstructed"})
+        note = f" (receipt not written: {error})"
+        if not receipt["message"].endswith(note):
+            receipt["message"] += note
+
+
+def clear_failures() -> None:
+    FAILURES.clear()
+    _SIGNATURES.clear()
 
 
 # Data callbacks. An instance whose input starts after the replay's (its daily warm-up first holds
@@ -802,35 +870,56 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
 
 
 def main(argv: list[str] | None = None) -> None:
-    """engine.main: replay the candidate and write the native reports; any failure exits nonzero."""
+    """engine.main: replay the candidate and write the native reports; any failure exits nonzero.
+
+    An exception that ends a stage before the verdict (the execution binding, loading the strategy,
+    reading the inputs, the replay, the reports) is recorded as a runtime failure of that stage, with
+    its refusal code, before it goes on."""
     global FAILURE_PATH
     config = parse_configuration(argv)
     if config.describe:
         print(json.dumps(describe(config), sort_keys=True))
         return
-    FAILURES.clear()
+    clear_failures()
     FAILURE_PATH = config.output / "runtime_failures.jsonl"
-    executed = execution_metadata(config)
-    effective = effective_configuration(config)
-    strategy = load_strategy(config.strategy_file, config.strategy_class, config.strategy_sha256,
-                             config.strategy_binding)
-    window = config.window
-    rows = read_market(config.market_root, list(config.symbols), config.market_commit, window.start_ns, window.end_ns)
-    universe = read_universe(config.universe_path, list(config.symbols))
-    config.output.mkdir(parents=True, exist_ok=True)
-    finished, strategies, limitations = replay(rows, window, strategy, universe, config.output)
-    identity = {
-        **strategy_metadata(strategy), **runtime_source_metadata(), **executed,
-        "effective_config_sha256": effective.digest,
-        "engine_version": importlib.metadata.version("nautilus_trader"),
-        "market_commit": config.market_commit,
-        "strategy": strategy.binding["strategy_id"] if strategy.binding else strategy.entry_class,
-    }
-    _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,
-                                              ACCOUNT_CONTRACT, limitations, mark_timestamps(rows))
+    stage = "execution_binding"
+    try:
+        executed = execution_metadata(config)
+        effective = effective_configuration(config)
+        stage = "load"
+        strategy = load_strategy(config.strategy_file, config.strategy_class, config.strategy_sha256)
+        stage = "inputs"
+        window = config.window
+        rows = read_market(config.market_root, list(config.symbols), config.market_commit, window.start_ns,
+                           window.end_ns)
+        universe = read_universe(config.universe_path, list(config.symbols))
+        config.output.mkdir(parents=True, exist_ok=True)
+        stage = "replay"
+        finished, strategies, limitations = replay(rows, window, strategy, universe, config.output)
+        stage = "reports"
+        identity = {
+            **strategy_metadata(strategy), **runtime_source_metadata(), **executed,
+            "effective_config_sha256": effective.digest,
+            "engine_version": importlib.metadata.version("nautilus_trader"),
+            "market_commit": config.market_commit,
+            "strategy": strategy.entry_class,
+        }
+        _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,
+                                                  ACCOUNT_CONTRACT, limitations, mark_timestamps(rows))
+    except Exception as exc:
+        execution_failure(stage, exc, None)
+        raise
+    finally:
+        try:
+            if FAILURES:
+                write_failures()  # the final counts
+        except Exception as error:  # the failure that ends the run must stay the one raised
+            print(f"runtime failure receipts not written: {error}", file=sys.stderr)
     if FAILURES:
+        shown = FAILURES[:20]
         raise Refusal("NATIVE_EXECUTION_FAILED", "; ".join(
-            f"{item['exception_type']} in {item['stage']} ({item['instrument_id']})" for item in FAILURES))
+            f"{item['exception_type']} in {item['stage']} ({item['instrument_id']}) x{item['count']}"
+            for item in shown) + (f"; and {len(FAILURES) - 20} more records" if len(FAILURES) > 20 else ""))
     if findings:
         raise Refusal("INTEGRITY_FINDINGS", "; ".join(findings[:20]) + (f"; and {len(findings) - 20} more"
                                                                          if len(findings) > 20 else ""))

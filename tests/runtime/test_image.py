@@ -173,6 +173,31 @@ class ResolveTests(unittest.TestCase):
         with patch("runtime.image.subprocess.run", side_effect=self.docker(twice)):
             refused(self, "RUNTIME_DIGEST_AMBIGUOUS", image.resolve)
 
+    def test_a_hung_docker_call_is_refused_as_unavailable_within_its_timeout(self):
+        def hangs(command, **kwargs):  # a credential helper that never answers
+            if command[1] == "pull":
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return subprocess.CompletedProcess(command, 1, "", "no such image")
+        with patch("runtime.image.subprocess.run", side_effect=hangs) as calls:
+            refusal = refused(self, "RUNTIME_UNAVAILABLE", image.resolve)
+        self.assertEqual([call.kwargs["timeout"] for call in calls.call_args_list], [image.PULL_TIMEOUT])
+        self.assertIn(f"docker pull {image.CURRENT} did not finish within {image.PULL_TIMEOUT} s", refusal.message)
+        self.assertIn("credential helper", refusal.message)
+        killed = []
+
+        def probe_hangs(command, **kwargs):
+            if command[:2] == ["docker", "kill"]:
+                killed.append(command[2])
+                return subprocess.CompletedProcess(command, 0, "", "")
+            if "--describe" in command:
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return subprocess.CompletedProcess(command, 0, json.dumps([{
+                "RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "arm64"}]), "")
+        with patch("runtime.image.subprocess.run", side_effect=probe_hangs) as calls:
+            refused(self, "RUNTIME_UNAVAILABLE", image.inspect_runtime, IDENTITY, ["--symbols", "BTCUSDT"])
+        probe = next(call.args[0] for call in calls.call_args_list if "--describe" in call.args[0])
+        self.assertEqual(killed, [probe[probe.index("--name") + 1]], "the hung probe container is killed by name")
+
 
 class MainBuildTests(unittest.TestCase):
     DIGEST = "sha256:" + "f" * 64

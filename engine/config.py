@@ -114,7 +114,6 @@ REFUSALS: dict[str, str] = {
     "SOURCE_UNREADABLE": "The strategy source is not a regular file, is a link or cannot be read.",
     "CONTENT_HASH_INVALID": "The expected content hash is not 64 lowercase hexadecimal characters.",
     "CONTENT_HASH_MISMATCH": "The source bytes' SHA-256 differs from the expected content hash.",
-    "BINDING_MISMATCH": "The strategy binding is not JSON, incomplete or names another hash, class or contract.",
     "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
@@ -245,7 +244,6 @@ def build_parser() -> argparse.ArgumentParser:
     strategy.add_argument("--strategy-file", type=Path)
     strategy.add_argument("--strategy-class")
     strategy.add_argument("--strategy-sha256")
-    strategy.add_argument("--strategy-binding", type=Path)
     strategy.add_argument("--execution-binding", type=Path)
     inputs = parser.add_argument_group("inputs: one market commit exported per contract (market.export)")
     inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
@@ -266,7 +264,6 @@ class RunnerConfiguration:
     strategy_file: Path | None
     strategy_class: str | None
     strategy_sha256: str | None
-    strategy_binding: Path | None
     execution_binding: Path | None
     market_root: Path
     market_commit: str
@@ -289,7 +286,7 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
     if len(args.symbols) != len(set(args.symbols)):
         raise Refusal("SYMBOL_DUPLICATE", "--symbols must be unique")
     return RunnerConfiguration(args.describe, args.strategy_file, args.strategy_class, args.strategy_sha256,
-                               args.strategy_binding, args.execution_binding, args.market_root, args.market_commit,
+                               args.execution_binding, args.market_root, args.market_commit,
                                args.universe, tuple(args.symbols), window, args.output)
 
 
@@ -312,6 +309,15 @@ class EffectiveConfiguration:
 
 
 HOST_PATH_KEYS = ("market_root", "universe_path")
+# The execution binding the replay entry writes and engine.run.execution_metadata checks.
+EXECUTION_BINDING_FIELDS = frozenset({"runtime_identity", "effective_config", "effective_config_sha256"})
+
+
+def key_difference(found, required) -> str:
+    """'missing a, b; extra c': how a key set differs from the required one."""
+    missing, extra = sorted(set(required) - set(found)), sorted(set(found) - set(required))
+    return "; ".join([*([f"missing {', '.join(missing)}"] if missing else []),
+                      *([f"extra {', '.join(extra)}"] if extra else [])])
 
 
 def config_sha256(values: dict) -> str:

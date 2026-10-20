@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
+import time
 
 from ledger import problems
 from ledger.refusals import refuse
@@ -89,12 +91,31 @@ def validate_identity(value) -> dict:
     return normalized
 
 
-def _docker(*argv: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *argv], capture_output=True, text=True, check=False)
+# Seconds a docker client call may take before the runtime counts as unavailable; uncalibrated example values.
+INSPECT_TIMEOUT = 60
+PULL_TIMEOUT = 300
+PROBE_TIMEOUT = 300
+HUNG_PULL = ("a credential helper that never answers (credsStore or credHelpers in the Docker config) blocks a "
+             "pull; the public runtime image pulls anonymously")
+
+
+def _unavailable(what: str, timeout: float, reference: str, why: str = ""):
+    return refuse("RUNTIME_UNAVAILABLE", f"{what} did not finish within {timeout:g} s" + (f": {why}" if why else ""),
+                  missing=(reference,))
+
+
+def _docker(*argv: str, timeout: float, reference: str) -> subprocess.CompletedProcess:
+    """One docker client call; past `timeout` seconds it is killed and the runtime is unavailable."""
+    try:
+        return subprocess.run(["docker", *argv], capture_output=True, text=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        verb = " ".join(value for value in argv if not value.startswith("-") and value != reference)
+        raise _unavailable(f"docker {verb} {reference}", timeout, reference,
+                           HUNG_PULL if argv[0] == "pull" else "") from exc
 
 
 def _image(reference: str) -> dict:
-    result = _docker("image", "inspect", reference)
+    result = _docker("image", "inspect", reference, timeout=INSPECT_TIMEOUT, reference=reference)
     if result.returncode:
         raise refuse("RUNTIME_UNAVAILABLE", f"runtime image {reference} cannot be inspected: {result.stderr.strip()}",
                      missing=(reference,))
@@ -124,8 +145,9 @@ def resolve(reference: str | None = None) -> dict:
     reference = reference or CURRENT
     if not isinstance(reference, str) or not reference.strip():
         raise refuse("RUNTIME_UNAVAILABLE", "the runtime reference is empty", missing=("runtime",))
-    if "@" not in reference or _docker("image", "inspect", reference).returncode:
-        pulled = _docker("pull", "--quiet", reference)
+    if "@" not in reference or _docker("image", "inspect", reference, timeout=INSPECT_TIMEOUT,
+                                       reference=reference).returncode:
+        pulled = _docker("pull", "--quiet", reference, timeout=PULL_TIMEOUT, reference=reference)
         if pulled.returncode:
             raise refuse("RUNTIME_UNAVAILABLE", f"cannot pull runtime image {reference}: {pulled.stderr.strip()}",
                          missing=(reference,))
@@ -170,8 +192,16 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: list[tuple[P
     found = layout(identity["runtime_contract"])
     probe = (["--describe", *runner_args] if found["probe_module"] == found["runner_module"]
              else ["--runner-args-json", json.dumps(runner_args, separators=(",", ":"))])
-    command = container.command(identity, list(mounts), found["probe_module"], probe)
-    observed = subprocess.run(command, capture_output=True, text=True, check=False)
+    name = f"runtime-probe-{os.getpid()}-{time.time_ns()}"
+    command = container.command(identity, list(mounts), found["probe_module"], probe, name=name)
+    try:
+        observed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        try:  # killing the docker client alone leaves the container running
+            subprocess.run(["docker", "kill", name], capture_output=True, check=False, timeout=INSPECT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            pass
+        raise _unavailable("the runtime identity probe", PROBE_TIMEOUT, identity["image_ref"]) from exc
     if observed.returncode:
         raise _probe_invalid(f"failed: {observed.stderr.strip()[-2000:]}")
     try:

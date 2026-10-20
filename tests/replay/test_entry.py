@@ -78,6 +78,31 @@ class ProblemTests(unittest.TestCase):
         self.assertEqual(reasons[1]["locator"], "image_digest")
 
 
+class ExecutionBindingTests(unittest.TestCase):
+    """The execution binding every replay writes is the one the real runner reads (engine.run)."""
+
+    def test_the_runner_accepts_the_binding_the_entry_writes_from_its_probe(self):
+        from engine import config as engine_config, run as engine_run
+        workdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, workdir, True)
+        (workdir / entry.SOURCE).mkdir()
+        argv = ["--market-root", "/inputs/market", "--market-commit", "c" * 32, "--symbols", "AAAUSDT",
+                "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"]
+        inspection = engine_config.describe(engine_config.parse_configuration(["--describe", *argv]))
+        options = entry._strategy_argv(workdir, IDENTITY, inspection, "Fixture", "a" * 64)
+        binding = options[options.index("--execution-binding") + 1]
+        self.assertEqual(binding, f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}")
+        written = workdir / entry.SOURCE / entry.EXECUTION_BINDING
+        local = [*options[:options.index("--execution-binding")], "--execution-binding", str(written), "--output",
+                 str(workdir / "reports")]
+        config = engine_config.parse_configuration([*argv, *local])
+        self.assertEqual(engine_run.execution_metadata(config)["effective_config_sha256"],
+                         inspection["effective_config_sha256"])
+        other = engine_config.parse_configuration([*argv[:-1], "2026-01-03T00:00:00Z", *local])
+        with self.assertRaisesRegex(Exception, "EXECUTION_BINDING_MISMATCH: .* in end"):
+            engine_run.execution_metadata(other)
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class ExploreAndPrecheckTests(unittest.TestCase):
     @classmethod
@@ -177,6 +202,9 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual((checked["status"], checked["problems"]), ("passed", []))
         capture = execution.read_capture(self.world.conn, checked["trial_id"])
         self.assertIn("reports/fills.csv", capture["files"])
+        runner = next(spec for spec in reversed(self.world.commands) if spec["module"] == "runner")
+        self.assertEqual(runner["argv"][runner["argv"].index("--execution-binding") + 1],
+                         f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}", "a precheck loads as a sealed replay")
         review = precheck.record_review(self.world.profile, self.world.review_body(checked["trial_id"]), "reviewer-b")
         self.assertEqual(precheck.require_precheck(self.world.conn, review["bundle"], published["source_sha256"],
                                                    checked["image_ref"], checked["input_key"]), checked["trial_id"])

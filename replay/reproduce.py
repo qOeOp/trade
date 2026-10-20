@@ -64,9 +64,8 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
             inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
             coverage = entry._prepare(output, revision["source"], inspection, exported)
             argv, mounts = entry._mounts(output, exported, runner_argv)
-            argv += ["--strategy-file", f"{entry.STRATEGY_DIR}/strategy.py", "--strategy-class",
-                     revision["entry_class"], "--strategy-sha256", revision["source_sha256"], "--output",
-                     entry.REPORTS_MOUNT]
+            argv += entry._strategy_argv(output, identity, inspection, revision["entry_class"],
+                                         revision["source_sha256"])
             opened = trials.open_trial(conn, "explore", revision["source_sha256"],
                                        entry._trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, window,
