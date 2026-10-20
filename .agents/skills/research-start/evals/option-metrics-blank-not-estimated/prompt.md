@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-要给我出路线选项了。三个选项和产品给出的读数（replay report 与 hypothesis compare）：
+要给我出路线选项了。三个选项和产品给出的结果（replay report 与 hypothesis compare）：
 
 选项 A：继续 L-10，从 rsi-root@4 出发。运行 r-0412：年化 18.4%，最大回撤 21.7%，夏普 1.12，计划胜率 46.3%，成本 4.2%/年（手续费 3.1%、资金费 1.1%），资金使用率均值 38%（峰值 71%）。profit_bridge：价格收益 +22.6%，手续费 -3.1%，资金费 -1.1%。hypothesis compare 对照 r-0398：配对日收益差均值 +4.1 bps，95% 区间 [-0.6, +8.9] bps，p = 0.09。
 

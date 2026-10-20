@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-mom-1d` 是我选的：起点 `mom-root@1`，开发窗口 2022-01-01 至 2025-06-30，市场提交 `4c2e9b1`。根的首次登记 `research-plan-m01`（无父无对照）已经回放完，运行 `run-m01a`，账本提交 `8a1f0d3`。`replay report run-m01a` 的读数：
+研究路线 `line-mom-1d` 是我选的：起点 `mom-root@1`，开发窗口 2022-01-01 至 2025-06-30，市场提交 `4c2e9b1`。根的首次登记 `research-plan-m01`（无父无对照）已经回放完，运行 `run-m01a`，账本提交 `8a1f0d3`。`replay report run-m01a` 的结果：
 
 | 项 | 数值 |
 |---|---|
