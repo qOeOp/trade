@@ -25,11 +25,11 @@ def _resolve_runtime(reference: str | None) -> dict:
     return image.resolve(reference)
 
 
-# Runner arguments inside the container. The replay entry writes the strategy, binding, output and
-# market options itself and mounts the inputs at fixed container paths, so registration and every
-# replay probe the same effective configuration (no host path enters it).
-RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding",
-                           "--execution-binding", "--output", "--describe", "--market-root", "--market-commit")
+# Runner arguments inside the container. The replay entry writes the strategy, execution binding,
+# output and market options itself and mounts the inputs at fixed container paths, so registration and
+# every replay probe the same effective configuration (no host path enters it).
+RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sha256", "--execution-binding",
+                           "--output", "--describe", "--market-root", "--market-commit")
 # Read by the entry, not passed to the runner as given: `--universe pool` selects the universe (the entry
 # then passes the runner `--universe` with the membership file it wrote), `--symbols` the contracts.
 ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")

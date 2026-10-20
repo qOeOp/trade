@@ -23,6 +23,9 @@ SUMMARY = "reports/summary.json"
 FINGERPRINT = "fingerprint/fingerprint.json"
 FAILURE_FIELDS = ("stage", "exception_type")
 FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
+# engine.main stages that end before any strategy trades (execution_failure): binding, load, inputs.
+PRE_STRATEGY_STAGES = frozenset({"execution_binding", "load", "inputs"})
+OVERFLOW_STAGE = "receipt_overflow"  # engine.run.OVERFLOW_STAGE: the failures beyond the itemised records
 # engine.config.HOST_PATH_KEYS: the host paths the effective configuration hash leaves out
 HOST_PATH_KEYS = ("market_root", "universe_path")
 
@@ -39,6 +42,8 @@ REASONS: dict[str, str] = {
     "RUNTIME_FAILURE_UNREADABLE": "The runtime failure receipts are not JSON lines.",
     "RUNTIME_FAILURE_MALFORMED": "A runtime failure receipt lacks its stage or exception type.",
     "RUNTIME_FAILURE_RECORDED": "The runner recorded a runtime failure.",
+    "RUNNER_REFUSED": "The runner refused before the strategy traded; its refusal code is the cause.",
+    "RUNTIME_FAILURES_NOT_ITEMISED": "The runner recorded more distinct failures than it itemises.",
     "SUMMARY_MISSING": "The native summary is missing.",
     "SUMMARY_INCOMPLETE": "The native summary lacks a field the sealed report needs.",
     "SOURCE_MISMATCH": "The native summary names another source.",
@@ -130,9 +135,25 @@ def audit_problems(native_exit: int | None, audit_exit: int | None, audit: bytes
                                       RUNTIME_ERRORS))
             else:
                 for group in failure_groups(lines):
-                    reasons.append(reason("RUNTIME_FAILURE_RECORDED", _failure_text(group),
-                                          f"{group['stage']}:{group['instrument_id']}"))
-    return reasons, parsed
+                    reasons.append(_failure_reason(group))
+    return cause_first(reasons), parsed
+
+
+def cause_first(reasons: list[dict]) -> list[dict]:
+    """The reasons with a runner refusal before the run first: the exit, audit and summary reasons
+    that follow from it come after, in their order."""
+    return sorted(reasons, key=lambda item: item["code"] != "RUNNER_REFUSED")
+
+
+def _failure_reason(group: Mapping) -> dict:
+    if group["stage"] == OVERFLOW_STAGE:
+        return reason("RUNTIME_FAILURES_NOT_ITEMISED", f"{group['count']} more failures not itemised", OVERFLOW_STAGE)
+    code, message = group["code"], group["message"]
+    if code and group["stage"] in PRE_STRATEGY_STAGES:
+        detail = message.removeprefix(f"{code}: ")[:FAILURE_TEXT_LIMIT]
+        return reason("RUNNER_REFUSED", f"{code} in {group['stage']}" + (f": {detail}" if detail else ""),
+                      f"{group['stage']}:{code}")
+    return reason("RUNTIME_FAILURE_RECORDED", _failure_text(group), f"{group['stage']}:{group['instrument_id']}")
 
 
 def _count(value) -> int:
@@ -221,7 +242,7 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
     else:
         reasons += summary_problems(parsed, source_sha256, identity, config_sha256)
     reasons += capture_fingerprint(capture)[1]
-    return unique(reasons)
+    return cause_first(unique(reasons))
 
 
 def capture_fingerprint(capture: Mapping) -> tuple[dict | None, list[dict]]:

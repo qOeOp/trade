@@ -1,5 +1,6 @@
-"""Runtime failure receipts as failure reasons: one reason per distinct failure with its count and the
-runner's refusal code, for one-row-per-failure receipts and for receipts that already carry a count."""
+"""Runtime failure receipts as failure reasons: one reason per distinct failure with its count, the
+runner's refusal before the strategy as the cause, for one-row-per-failure receipts and for
+runtime-failure-v2 receipts that carry their count, code and overflow record."""
 
 from __future__ import annotations
 
@@ -28,16 +29,28 @@ class RuntimeFailureTests(unittest.TestCase):
         self.assertNotIn("times", found[1]["message"])
         self.assertEqual(len(problems.unique(found)), 2, "different messages at one locator stay apart")
 
-    def test_a_load_stage_refusal_shows_the_runners_code(self):
-        load = {"stage": "load", "exception_type": "Refusal", "code": "BINDING_MISMATCH", "count": 1,
-                "message": "strategy binding must contain the exact Dolt revision identity"}
-        (found,) = reasons(load)
-        self.assertEqual((found["locator"], found["message"]),
-                         ("load:unconstructed", "Refusal BINDING_MISMATCH in load: strategy binding must contain the "
-                                                "exact Dolt revision identity"))
-        (coded,) = reasons({**load, "code": None, "message": "BINDING_MISMATCH: strategy binding is not valid JSON"})
-        self.assertEqual(coded["message"], "Refusal in load: BINDING_MISMATCH: strategy binding is not valid JSON")
+    def test_a_refusal_before_the_strategy_is_the_first_reason_with_its_code(self):
+        load = {"format": "runtime-failure-v2", "stage": "load", "exception_type": "Refusal", "count": 1,
+                "code": "CONTENT_HASH_MISMATCH", "instrument_id": "unconstructed",
+                "message": "CONTENT_HASH_MISMATCH: strategy bytes do not match the expected SHA-256"}
+        data = (json.dumps(load) + "\n").encode()
+        found, _ = problems.audit_problems(1, None, None, data)
+        self.assertEqual([item["code"] for item in found],
+                         ["RUNNER_REFUSED", "NATIVE_EXIT_NONZERO", "AUDIT_NOT_RUN", "AUDIT_RESULT_MISSING"])
+        self.assertEqual((found[0]["locator"], found[0]["message"]),
+                         ("load:CONTENT_HASH_MISMATCH",
+                          "CONTENT_HASH_MISMATCH in load: strategy bytes do not match the expected SHA-256"))
+        replayed = {**load, "stage": "replay", "exception_type": "KeyError", "code": None, "message": "'x'"}
+        (during,) = reasons(replayed)
+        self.assertEqual((during["code"], during["message"]), ("RUNTIME_FAILURE_RECORDED", "KeyError in replay: 'x'"))
 
+    def test_failures_beyond_the_itemised_records_are_counted_not_listed(self):
+        overflow = {"format": "runtime-failure-v2", "stage": "receipt_overflow", "exception_type": "various",
+                    "instrument_id": "various", "code": None, "count": 42, "traceback": "",
+                    "message": "failures beyond the first 100 distinct records"}
+        (found,) = reasons(overflow)
+        self.assertEqual((found["code"], found["message"]),
+                         ("RUNTIME_FAILURES_NOT_ITEMISED", "42 more failures not itemised"))
 
 if __name__ == "__main__":
     unittest.main()

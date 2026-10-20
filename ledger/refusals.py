@@ -483,7 +483,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Pass the runner's arguments as strings.",)),
     # Runtime (runtime/image.py)
     "RUNTIME_UNAVAILABLE": ("The runtime image could not be pulled, inspected or pinned to one digest.",
-                            ("Check the image reference and the container runtime, then rerun.",)),
+                            ("Check the image reference and the container runtime, then rerun. A pull that never "
+                             "finishes is often a Docker credential helper (credsStore or credHelpers in "
+                             "~/.docker/config.json) that never answers; the public runtime image pulls "
+                             "anonymously without it.",)),
     "RUNTIME_PROBE_INVALID": ("The runtime identity probe failed or returned an incomplete report.",
                               ("Use a runtime image built by CI for a supported runtime contract.",)),
     "RUNTIME_IDENTITY_INVALID": ("The runtime identity is malformed: a field is missing or extra, the reference "

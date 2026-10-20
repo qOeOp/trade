@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 
-from ledger import db, execution, lines, witness
+from ledger import db, execution, lines, problems, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -26,8 +26,6 @@ SINGLE_KINDS = ("recommendation", "priority", "review_cadence")
 MANY_KINDS = ("interpretation", "search_exposure")
 DIMENSIONS = ("runtime", "effective_config", "input")
 RUNTIME_KEYS = ("image_digest", "runtime_contract", "engine_version", "dependency_lock_sha256")
-# Runtime failure stages of the runner that end before any strategy code runs (engine.execution_failure).
-PRE_STRATEGY_STAGES = frozenset({"load"})
 TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
 
 
@@ -72,7 +70,8 @@ def failure_stages(data: bytes) -> set[str] | None:
 def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> bool:
     """Whether a sealed capture shows the runner stopped before any strategy result existed: the replay
     completed on the host, the native runner exited nonzero without writing its summary, and every
-    runtime failure it recorded (if any) is of a stage before strategy code runs (the load stage)."""
+    runtime failure it recorded (if any) is of a stage before the strategy trades (binding, load,
+    inputs: problems.PRE_STRATEGY_STAGES)."""
     if not isinstance(capture, Mapping):
         return False
     files = capture.get("files") if isinstance(capture.get("files"), Mapping) else {}
@@ -83,7 +82,7 @@ def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> 
     if not exited or (capture.get("outcome") or {}).get("kind") != "completed" or summary in ("captured", "hashed"):
         return False
     stages = failure_stages(failures) if failures else set()
-    return stages is not None and stages <= PRE_STRATEGY_STAGES
+    return stages is not None and stages <= problems.PRE_STRATEGY_STAGES
 
 
 def _input_key(start: Mapping | None):
