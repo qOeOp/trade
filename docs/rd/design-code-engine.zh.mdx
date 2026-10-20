@@ -989,7 +989,9 @@ def write_native_reports(
 | `EQUITY_SNAPSHOT_UNAVAILABLE` | 期末权益快照缺失、过期、含未定价合约，或基础货币权益不是 USDT |
 | `GTD_DEADLINE_MISSING` | 订单报表中 time_in_force 为 GTD 的订单在引擎缓存里没有到期时间，或缓存里找不到该订单 |
 | `SELF_CHECK_FINDINGS_INVALID` | 策略完整性自检钩子返回的不是字符串列表，或含空字符串 |
-| `DIAGNOSTICS_INVALID` | engine.diagnostics 判定自报诊断非字典或占用原生事实键名（由该函数抛出，此处不吞） |
+| `DIAGNOSTICS_NOT_DICT` | engine.diagnostics 判定自报诊断不是字典（由该函数抛出，此处不吞） |
+| `DIAGNOSTICS_RESERVED_KEY` | engine.diagnostics 判定自报诊断占用原生事实键名（由该函数抛出，此处不吞） |
+| `DIAGNOSTICS_NOT_JSON` | engine.diagnostics 判定自报诊断不能写成 JSON（由该函数抛出，此处不吞） |
 
 **使用**　<Ref id="engine.write_order_events" />、<Ref id="engine.summary_statistics" />、<Ref id="engine.capital_findings" />、<Ref id="engine.diagnostics" />、<Ref id="engine.capital_observer" />、<Ref id="engine.account_contract" />、<Ref id="engine.parse_window" />、<Ref id="engine.mark_timestamps" />、<Ref id="engine.main" />
 
@@ -1331,15 +1333,15 @@ def guard_callback(name: str, method: callable) -> 包装后的方法
 
 **期望行为**
 
-1. 守护的范围：策略的 on_* 回调、构造与报告钩子，以及策略经时钟注册的回调（set_timer、set_time_alert 及其纳秒变体）；Nautilus 会吞掉定时回调的异常，只留日志，所以必须在这里留回执。
-2. 调用原方法并返回其结果。
+1. 守护的范围：策略的 on_* 回调与报告钩子 replay_diagnostics、replay_integrity_findings，以及策略经时钟注册的回调（set_timer、set_time_alert 及其纳秒变体、register_default_handler）；构造异常不经这里，由 engine.configure_strategy 记回执后拒绝 STRATEGY_CONSTRUCTION_FAILED；Nautilus 会吞掉定时回调的异常，只留日志，所以必须在这里留回执。
+2. 调用原方法并返回其结果；数据回调（on_bar、on_mark_price、on_funding_rate 等）收到 ts_event 早于该实例输入起点的数据时不调用原方法，直接返回 None。
 3. 捕获任何异常后调 engine.execution_failure(name, exc, 实例) 写结构化回执。
 4. 回执写完后原样重新抛出，不换异常类型、不改消息；引擎吞掉异常也已留下证据。
 5. 不读日志、不匹配 stderr 文本。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `CALLBACK_EXCEPTION` | 回调抛出任何异常：先写结构化回执再原样抛出，运行最终以 NATIVE_EXECUTION_FAILED 结束 |
+| `NATIVE_EXECUTION_FAILED` | 回调抛出任何异常：本函数写回执后原样抛出，不换异常；回放结束时 engine.main 见到回执即拒绝 NATIVE_EXECUTION_FAILED |
 
 **使用**　<Ref id="engine.execution_failure" />
 
