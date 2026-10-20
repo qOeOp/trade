@@ -14,6 +14,8 @@ over the window's registrations, and no verdict.
 - **X.2.1.4** Report the result as it is and go to the user as soon as it exists. Whatever it
   shows, do not register another window or universe, do not pick among several validations of one
   candidate, and never put development measures in place of out-of-sample ones.
-- **X.2.2.1** State that the measures are an upper bound for live trading (simulated fills, a
-  touched limit fills, no slippage), and give the window length and the effect it could resolve. A
+- **X.2.2.1** State that the measures approximate live trading and in which direction: simulated
+  fills, a limit fills only when traded through (conservative), no slippage and market orders not
+  limited by volume (optimistic); name the execution style the result rests on, and give the window
+  length and the effect it could resolve. A
   short window can refute an obvious failure, never establish a high return.
