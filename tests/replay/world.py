@@ -69,15 +69,16 @@ out = Path(mounts["/reports"])
 start, end = option("--start"), option("--end")
 trade_start = option("--trade-start") or start
 symbols = option("--symbols", many=True)
-execution = Path(mounts.get("/strategy", "/nonexistent")) / "execution.json"
-binding = json.loads(execution.read_text()) if execution.is_file() else {}
-if option("--strategy-binding"):
-    import hashlib
-    from engine.load import _binding
-    strategy_root = Path(mounts["/strategy"])
-    _binding(strategy_root / Path(option("--strategy-binding")).name,
-             hashlib.sha256((strategy_root / "strategy.py").read_bytes()).hexdigest(),
-             option("--strategy-class"))
+# Every replay passes the execution binding; the stand-in reads it with the runner's own field set
+# (engine.run.execution_metadata), so a replay path that omits or misnames it fails here as in the image.
+from engine.config import EXECUTION_BINDING_FIELDS, key_difference
+named = option("--execution-binding")
+execution = Path(mounts["/strategy"]) / Path(named).name if named else None
+binding = json.loads(execution.read_text()) if execution and execution.is_file() else None
+if binding is None or set(binding) != EXECUTION_BINDING_FIELDS:
+    sys.stderr.write("EXECUTION_BINDING_MISMATCH: " + (key_difference(binding, EXECUTION_BINDING_FIELDS)
+                                                       if binding is not None else "no execution binding") + "\n")
+    sys.exit(1)
 if scenario.get("skip_reports"):
     sys.exit(scenario.get("native_exit", 1))
 first, t0 = symbols[0], ns(trade_start)
@@ -133,8 +134,7 @@ summary = {"source_sha256": option("--strategy-sha256"), "integrity_passed": Tru
            "data_interval_minutes": 1440, "input_start_utc": start, "period_start_utc": trade_start,
            "period_end_utc": end, "market_commit": option("--market-commit"),
            "per_coin": [{"instrument": s + "-PERP.BINANCE", "counts": {"last": 1, "mark": 1, "funding": 0}} for s in symbols]}
-if binding:
-    summary.update(runtime_identity=binding["runtime_identity"], effective_config_sha256=binding["effective_config_sha256"])
+summary.update(runtime_identity=binding["runtime_identity"], effective_config_sha256=binding["effective_config_sha256"])
 summary.update(scenario.get("summary", {}))
 (out / "summary.json").write_text(json.dumps(summary))
 if scenario.get("runtime_failures"):

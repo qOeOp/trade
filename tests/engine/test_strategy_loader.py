@@ -58,32 +58,20 @@ class StrategyLoaderTests(unittest.TestCase):
         self.source = self.root / "strategy.py"
         self.source.write_text(SOURCE)
         self.digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
-        self.binding = {
-            "database": "research",
-            "commit": "sldp6n46ejbmghcinbltf88mv53q1koq",
-            "strategy_id": "R1-H19a",
-            "revision": 1,
-            "content_hash": self.digest,
-            "entry_class": "ProbeStrategy",
-            "runtime_contract": RUNTIME_CONTRACT,
-        }
-        self.binding_path = self.root / "strategy.binding.json"
-        self.binding_path.write_text(json.dumps(self.binding))
 
     def load(self, **kwargs):
         return load_strategy(
             kwargs.get("path", self.source), kwargs.get("entry_class", "ProbeStrategy"),
-            kwargs.get("digest", self.digest), kwargs.get("binding_path"),
+            kwargs.get("digest", self.digest),
         )
 
-    def test_verified_binding_and_native_module(self):
-        loaded = self.load(binding_path=self.binding_path)
+    def test_verified_source_and_native_module(self):
+        loaded = self.load()
         self.assertTrue(issubclass(loaded.strategy_class, Strategy))
         self.assertIs(
             importlib.import_module(loaded.strategy_class.__module__).ProbeStrategy,
             loaded.strategy_class,
         )
-        self.assertEqual(strategy_metadata(loaded)["strategy_binding"], self.binding)
         self.assertEqual(strategy_metadata(loaded)["strategy_source"]["path"], str(self.source.resolve()))
 
     def test_hash_rejection_happens_before_source_execution(self):
@@ -107,19 +95,6 @@ class StrategyLoaderTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaisesRegex(Refusal, "^SOURCE_UNREADABLE: .*regular file"):
                 self.load(path=path)
 
-    def test_reject_binding_mismatches_before_source_execution(self):
-        for field, value in (
-            ("content_hash", "0" * 64), ("entry_class", "OtherStrategy"),
-            ("runtime_contract", "other"), ("revision", True), ("database", ""),
-        ):
-            with self.subTest(field=field), self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: "):
-                broken = {**self.binding, field: value}
-                self.binding_path.write_text(json.dumps(broken))
-                self.load(binding_path=self.binding_path)
-        self.binding_path.write_text(json.dumps({**self.binding, "unexpected": 1}))
-        with self.assertRaisesRegex(Refusal, "^BINDING_MISMATCH: .*exact Dolt revision"):
-            self.load(binding_path=self.binding_path)
-
     def test_entry_class_must_be_native_and_defined_in_source(self):
         for source in (
             "class ProbeStrategy: pass\n",
@@ -134,7 +109,7 @@ class StrategyLoaderTests(unittest.TestCase):
             self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
-        loaded = self.load(binding_path=self.binding_path)
+        loaded = self.load()
         metadata = {**strategy_metadata(loaded), **runtime_source_metadata()}
         self.assertNotIn("source_commit", metadata)
         self.assertEqual(metadata["source_sha256"], self.digest)
@@ -242,8 +217,8 @@ class StrategyLoaderTests(unittest.TestCase):
         # A variant is a new source revision; the runner cannot be configured into another strategy.
         for extra in (["--signal-variant", "x"], ["--exit-variant", "x"], ["--daily-warmup"],
                       ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"],
-                      # abbreviations of the options the replay entry writes itself
-                      ["--exec", "/x.json"], ["--strategy-bin", "/x.json"]):
+                      # an abbreviation of an option the replay entry writes itself, and the removed binding
+                      ["--exec", "/x.json"], ["--strategy-binding", "/x.json"]):
             with self.subTest(extra=extra), self.assertRaises(Refusal) as caught:
                 self.configuration(extra)
             self.assertEqual(caught.exception.code, "UNKNOWN_OPTION")
@@ -323,8 +298,61 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "STRATEGY_CONSTRUCTION_FAILED")
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
         self.assertEqual(written, run.FAILURES)
-        self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"]) for item in written],
-                         [("on_start", "ValueError", "BTCUSDT-PERP.BINANCE"), ("constructor", "ValueError", "unconstructed")])
+        self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"], item["count"], item["code"])
+                          for item in written],
+                         [("on_start", "ValueError", "BTCUSDT-PERP.BINANCE", 1, None),
+                          ("constructor", "ValueError", "unconstructed", 1, None)])
+
+    def test_a_failure_repeated_on_every_bar_is_one_record_with_its_count(self):
+        receipts = self.root / "runtime_failures.jsonl"
+        run.clear_failures()
+        self.addCleanup(run.clear_failures)
+        self.addCleanup(setattr, run, "FAILURE_PATH", None)
+        run.FAILURE_PATH = receipts
+        for _ in range(10_087):
+            try:
+                {}["equity"]
+            except KeyError as exc:
+                run.execution_failure("on_bar", exc, None)
+        written = [json.loads(line) for line in receipts.read_text().splitlines()]
+        self.assertEqual(len(written), 1)
+        self.assertEqual((written[0]["count"], written[0]["stage"], written[0]["exception_type"]),
+                         (8192, "on_bar", "KeyError"), "a killed runner leaves at least half the count")
+        self.assertIn("{}[\"equity\"]", written[0]["traceback"])
+        run.write_failures()  # as main does when it ends
+        self.assertEqual(json.loads(receipts.read_text())["count"], 10_087)
+        for number in range(run.MAX_FAILURE_RECORDS + 50):  # messages that differ every time stay bounded
+            run.execution_failure("on_bar", ValueError(f"quantity {number} below the increment"), None)
+        run.write_failures()
+        written = [json.loads(line) for line in receipts.read_text().splitlines()]
+        self.assertEqual(len(written), run.MAX_FAILURE_RECORDS + 1)
+        self.assertEqual((written[-1]["stage"], written[-1]["count"]), (run.OVERFLOW_STAGE, 51))
+        self.assertEqual(sum(item["count"] for item in written), 10_087 + run.MAX_FAILURE_RECORDS + 50)
+
+    def test_a_refusal_before_the_replay_is_a_receipt_with_its_stage_and_code(self):
+        output = self.root / "reports"
+        argv = ["--market-root", str(self.root / "market"), "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
+                "--start", "2025-10-07T00:00:00Z", "--end", "2025-10-08T00:00:00Z", "--output", str(output),
+                "--strategy-file", str(self.source), "--strategy-class", "ProbeStrategy"]
+        self.addCleanup(run.clear_failures)
+        self.addCleanup(setattr, run, "FAILURE_PATH", None)
+
+        def receipts(*extra):
+            with self.assertRaises(Refusal) as caught:
+                run.main(argv + list(extra))
+            return caught.exception, [json.loads(line) for line in
+                                      (output / "runtime_failures.jsonl").read_text().splitlines()]
+
+        refusal, written = receipts("--strategy-sha256", "0" * 64)
+        self.assertEqual(refusal.code, "CONTENT_HASH_MISMATCH")
+        self.assertEqual([(item["stage"], item["exception_type"], item["code"], item["count"]) for item in written],
+                         [("load", "Refusal", "CONTENT_HASH_MISMATCH", 1)])
+        binding = self.root / "execution.json"
+        binding.write_text(json.dumps({"runtime_identity": {}, "effective_config": {}, "strategy_binding": {}}))
+        refusal, written = receipts("--strategy-sha256", self.digest, "--execution-binding", str(binding))
+        self.assertEqual((refusal.code, written[0]["stage"], written[0]["code"]),
+                         ("EXECUTION_BINDING_MISMATCH", "execution_binding", "EXECUTION_BINDING_MISMATCH"))
+        self.assertIn("missing effective_config_sha256; extra strategy_binding", written[0]["message"])
 
     def test_a_raising_clock_callback_leaves_a_receipt_though_the_engine_goes_on(self):
         from datetime import timedelta

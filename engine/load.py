@@ -38,7 +38,6 @@ class LoadedStrategy:
     content_hash: str
     entry_class: str
     strategy_class: type[Strategy]
-    binding: dict | None
     uses_stop_loss: bool = True
     daily_warmup: bool = False
 
@@ -58,38 +57,10 @@ def read_regular_file(path: Path) -> bytes:
         return stream.read()
 
 
-def _binding(path: Path | None, content_hash: str, entry_class: str) -> dict | None:
-    if path is None:
-        return None
-    try:
-        value = json.loads(read_regular_file(path))
-    except (UnicodeDecodeError, json.JSONDecodeError, Refusal) as error:
-        raise Refusal("BINDING_MISMATCH", f"strategy binding is not valid JSON: {path}") from error
-    required = {
-        "database", "commit", "strategy_id", "revision", "content_hash",
-        "entry_class", "runtime_contract",
-    }
-    if not isinstance(value, dict) or set(value) != required:
-        raise Refusal("BINDING_MISMATCH", "strategy binding must contain the exact Dolt revision identity")
-    for field in required - {"revision"}:
-        if not isinstance(value[field], str) or not value[field].strip():
-            raise Refusal("BINDING_MISMATCH", f"strategy binding has no valid {field}")
-    if type(value["revision"]) is not int or value["revision"] < 1:
-        raise Refusal("BINDING_MISMATCH", "strategy binding revision must be a positive integer")
-    if value["content_hash"] != content_hash:
-        raise Refusal("BINDING_MISMATCH", "strategy binding content hash differs from verified bytes")
-    if value["entry_class"] != entry_class:
-        raise Refusal("BINDING_MISMATCH", "strategy binding entry class differs from selected class")
-    if value["runtime_contract"] != RUNTIME_CONTRACT:
-        raise Refusal("BINDING_MISMATCH", "strategy binding runtime contract is unsupported")
-    return value
-
-
 def load_strategy(
     source_path: Path,
     entry_class: str,
     expected_content_hash: str,
-    binding_path: Path | None = None,
 ) -> LoadedStrategy:
     """engine.load_strategy: execute exactly hash-checked source bytes and resolve a native class.
 
@@ -104,7 +75,6 @@ def load_strategy(
     actual_sha256 = hashlib.sha256(source).hexdigest()
     if actual_sha256 != expected_content_hash:
         raise Refusal("CONTENT_HASH_MISMATCH", "strategy SHA-256 differs from the published source")
-    binding = _binding(binding_path, actual_sha256, entry_class)
     source_path = source_path.resolve()
     module_name = f"_strategy_{actual_sha256}"
     module = sys.modules.get(module_name)
@@ -137,13 +107,13 @@ def load_strategy(
         raise Refusal("DECLARATION_NOT_BOOL", "strategy DAILY_WARMUP must be True or False")
     if type(getattr(strategy_class, "USES_STOP_LOSS", True)) is not bool:
         raise Refusal("DECLARATION_NOT_BOOL", "strategy USES_STOP_LOSS must be True or False")
-    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, binding,
+    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class,
                           getattr(strategy_class, "USES_STOP_LOSS", True), getattr(strategy_class, "DAILY_WARMUP", False))
 
 
 def strategy_metadata(loaded: LoadedStrategy) -> dict:
     """engine.strategy_metadata: the run identity of the verified source and its two declarations."""
-    identity = {
+    return {
         "source_sha256": loaded.content_hash,
         "strategy_entry_class": loaded.entry_class,
         "strategy_runtime_contract": RUNTIME_CONTRACT,
@@ -155,9 +125,6 @@ def strategy_metadata(loaded: LoadedStrategy) -> dict:
             "entry_class": loaded.entry_class,
         },
     }
-    if loaded.binding is not None:
-        identity["strategy_binding"] = loaded.binding.copy()
-    return identity
 
 
 RESERVED_DIAGNOSTICS = {"coin", "instrument", "quantity", "counts", "positions"}

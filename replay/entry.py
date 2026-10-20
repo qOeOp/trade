@@ -41,6 +41,7 @@ STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native/re
 COVERAGE_MOUNT = "/inputs/" + COVERAGE
 AUDIT_COVERAGE_MOUNT = "/native/" + COVERAGE  # the auditor reads the receipt beside the reports (engine.audit_main)
 INSPECTION = "runtime-inspection.json"
+EXECUTION_BINDING = "execution.json"  # in source/, mounted read-only at STRATEGY_DIR
 HOST_ERROR = execution.HOST_ERROR
 WORK_ROOT = "/tmp"  # sealed replays work in a new directory here (docker shares it by default)
 PRECHECK_SCOPE = "engineering evidence only; interface, causality, activity and readiness are an independent Agent's review"
@@ -107,6 +108,20 @@ def _mounts(workdir: Path, inputs: Mapping, runner_argv: list[str]) -> tuple[lis
     argv, mounts = registration_seams.container_runner_args(list(runner_argv), inputs)
     return argv, [*mounts, (workdir / COVERAGE, COVERAGE_MOUNT, True), (workdir / SOURCE, STRATEGY_DIR, True),
                   (workdir / REPORTS, REPORTS_MOUNT, False)]
+
+
+def _strategy_argv(workdir: Path, identity: Mapping, inspection: Mapping, entry_class: str,
+                   source_sha256: str) -> list[str]:
+    """The runner's strategy, execution binding and output options, the same for every replay: write
+    source/execution.json (the runtime identity and the effective configuration the probe reported),
+    which the runner checks against the configuration it resolves itself (EXECUTION_BINDING_MISMATCH),
+    so a precheck loads exactly as a sealed replay does."""
+    _write_json(workdir / SOURCE / EXECUTION_BINDING, {
+        "runtime_identity": _identity4(identity), "effective_config": inspection.get("effective_config"),
+        "effective_config_sha256": inspection.get("effective_config_sha256")})
+    return ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", entry_class,
+            "--strategy-sha256", source_sha256, "--execution-binding", f"{STRATEGY_DIR}/{EXECUTION_BINDING}",
+            "--output", REPORTS_MOUNT]
 
 
 def _start_context(workdir: Path, argv: list[str], mounts: list, source: bytes) -> dict:
@@ -295,8 +310,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         coverage = _prepare(output, source, inspection, exported)
         argv, mounts = _mounts(output, exported, runner_argv)
-        argv += ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", strategy_class,
-                 "--strategy-sha256", source_sha256, "--output", REPORTS_MOUNT]
+        argv += _strategy_argv(output, identity, inspection, strategy_class, source_sha256)
         with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, "explore", source_sha256, _trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
@@ -335,8 +349,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
         config_key = comparability.config_key(inspection.get("effective_config"))
         coverage = _prepare(output, revision["source"], inspection, exported)
         argv, mounts = _mounts(output, exported, runner_argv)
-        argv += ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", revision["entry_class"],
-                 "--strategy-sha256", revision["source_sha256"], "--output", REPORTS_MOUNT]
+        argv += _strategy_argv(output, identity, inspection, revision["entry_class"], revision["source_sha256"])
         with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, "precheck", revision["source_sha256"], _trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
@@ -386,7 +399,6 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
     if (hypothesis is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a registration bundle or a validation registration",
                      expected="hypothesis xor validation")
-    head = db.head_commit(conn)
     checkout = registration_seams.current.checkout()
     metrics.metrics_revision(checkout)  # a passed run records it: refuse a non-checkout before any trial
     identity = _resolve(runtime)
@@ -406,17 +418,8 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
     try:
         source_sha256 = revision["source_sha256"]
         coverage = _prepare(workdir, revision["source"], inspection, inputs)
-        _write_json(workdir / SOURCE / "binding.json", {
-            "database": ledger.database, "commit": head, "strategy_id": revision["strategy_id"],
-            "revision": revision["revision"], "content_hash": source_sha256, "entry_class": revision["entry_class"],
-            "runtime_contract": revision["runtime_contract"]})
-        _write_json(workdir / SOURCE / "execution.json", {
-            "runtime_identity": _identity4(identity), "effective_config": inspection.get("effective_config"),
-            "effective_config_sha256": inspection.get("effective_config_sha256")})
         argv, mounts = _mounts(workdir, inputs, runner_argv)
-        argv += ["--strategy-file", f"{STRATEGY_DIR}/strategy.py", "--strategy-class", revision["entry_class"],
-                 "--strategy-sha256", source_sha256, "--strategy-binding", f"{STRATEGY_DIR}/binding.json",
-                 "--execution-binding", f"{STRATEGY_DIR}/execution.json", "--output", REPORTS_MOUNT]
+        argv += _strategy_argv(workdir, identity, inspection, revision["entry_class"], source_sha256)
         if hypothesis is not None:
             purpose, binder = "research", register.binder(hypothesis, source_sha256)
         else:

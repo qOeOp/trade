@@ -21,8 +21,10 @@ with `docker run` or `python -m engine.run` directly.
 
 The runner takes the strategy reference, the inputs, the window and the account, nothing else.
 
-- **Strategy.** One complete source file, its entry class and SHA-256 (and, when sealed, its Dolt
-  binding). The `r1-native-v6` contract is in the [strategy-authoring
+- **Strategy.** One complete source file, its entry class and SHA-256, and the execution binding
+  every replay (exploration, precheck, sealed run, reproduction) passes the same way: the runtime
+  identity and effective configuration the probe reported, refused as `EXECUTION_BINDING_MISMATCH`
+  when they differ from what the runner resolves itself. The `r1-native-v6` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
@@ -182,9 +184,15 @@ function at ingest.
 
 A strategy constructor, callback, callback registered on the clock (`set_timer`, `set_timer_ns`,
 `set_time_alert`, `set_time_alert_ns`, `register_default_handler`), `replay_diagnostics` or
-`replay_integrity_findings` that raises leaves a structured receipt in `runtime_failures.jsonl` (stage, exception type, message,
-traceback, instrument) before the exception goes on; the runner then exits nonzero even when the
-engine caught the exception and finished. Without a failure the file is not written.
+`replay_integrity_findings` that raises leaves a structured receipt in `runtime_failures.jsonl` before
+the exception goes on; the runner then exits nonzero even when the engine caught the exception and
+finished. So does any exception that ends the runner before its verdict, with its stage
+(`execution_binding`, `load`, `inputs`, `replay`, `reports`) and, for a refusal, its code. Each line
+(`runtime-failure-v2`) is one distinct (exception type, stage, instrument, message) with `count` and
+the first `traceback`; message and traceback are clipped, and after 100 distinct records further new
+ones are counted in one `receipt_overflow` record, so a callback failing on every bar stays one line.
+The file is rewritten when a record is new or its count reaches a power of two, and once more when
+the runner ends. Without a failure the file is not written.
 
 The auditor does not prove a source's signal clock, order geometry, staged-exit races or other source-specific invariants: the strategy checks those in
 `replay_integrity_findings`, or a native probe does before the property is claimed. Seals from
