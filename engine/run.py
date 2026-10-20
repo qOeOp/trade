@@ -26,6 +26,7 @@ from urllib.parse import unquote
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import DataActor, LoggerConfig, LogLevel
 from nautilus_trader.data import DataEngineConfig
+from nautilus_trader.execution import DefaultFillModel
 from nautilus_trader.model import (
     AccountType,
     Bar,
@@ -731,6 +732,25 @@ def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy) -
     return planned, limitations
 
 
+def fill_model(account) -> DefaultFillModel:
+    """engine.fill_model: a fresh native fill model per engine; with probabilities 0 it draws nothing."""
+    return DefaultFillModel(prob_fill_on_limit=float(account["prob_fill_on_limit"]),
+                            prob_slippage=float(account["prob_slippage"]))
+
+
+def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
+    """engine.add_venue: the one simulated venue with the account and matching terms."""
+    currency = Currency.from_str(account["base_currency"])
+    engine.add_venue(
+        Venue(account["venue"]), getattr(OmsType, account["oms_type"]), getattr(AccountType, account["account_type"]),
+        [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,
+        default_leverage=Decimal(account["default_leverage"]), book_type=getattr(BookType, account["book_type"]),
+        reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
+        support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
+        bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=fill_model(account),
+        liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"])
+
+
 def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path):
     """engine.replay: one venue and engine, each contract's one-minute bars, MARK and funding updates and
     lifecycle events streamed in time order, one strategy instance per contract whose lifecycle (and
@@ -749,14 +769,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         ),
         risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
     ))
-    currency = Currency.from_str(account["base_currency"])
-    engine.add_venue(
-        Venue(account["venue"]), getattr(OmsType, account["oms_type"]), getattr(AccountType, account["account_type"]),
-        [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,
-        default_leverage=Decimal(account["default_leverage"]), book_type=getattr(BookType, account["book_type"]),
-        reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
-        support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
-        bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"])
+    add_venue(engine, account)
     for row in rows:
         engine.add_instrument(row["instrument"])
     STRATEGIES.clear()

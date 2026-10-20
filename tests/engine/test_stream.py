@@ -271,7 +271,8 @@ def node_replay(rows, window, loaded, universe, output, chunk):
             default_leverage=Decimal(account["default_leverage"]), support_gtd_orders=account["support_gtd_orders"],
             support_contingent_orders=account["support_contingent_orders"], reject_stop_orders=account["reject_stop_orders"],
             bar_execution=account["bar_execution"],
-            bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"])],
+            bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=run.fill_model(account),
+            liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"])],
         data=data,
         engine=BacktestEngineConfig(
             trader_id=TraderId(account["trader_id"]), logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),

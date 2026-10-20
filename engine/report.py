@@ -244,8 +244,9 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
             for row in instruments
         ],
         "limitations": [
-            "One-minute execution bars cannot resolve every intrabar order sequence; a touch fills, in a fixed "
-            "open-high-low-close order, and stops trigger on the bar's traded prices",
+            "One-minute execution bars cannot resolve every intrabar order sequence; a resting limit fills only "
+            "when a bar trades through its price, the bar extreme nearer the open is visited first, and stops "
+            "trigger on the bar's traded prices",
             "Current contract terms approximate historical metadata; fees and margins are assumed values",
             "Contracts are the ones passed in; universe membership is an input the strategy applies, not a runner rule",
             "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
