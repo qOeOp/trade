@@ -401,9 +401,9 @@ class LineRecordTests(unittest.TestCase):
                                           f"revised {kind}", cadence_trials=cadence, supersedes=old)["judgment_id"]
 
         line = world.line["bundle"]
-        self.assertEqual(register.review_cadence(world.conn, line),
-                         {"cadence_trials": register.DEFAULT_REVIEW_CADENCE, "judgment_id": None})
-        with patch.object(register, "DEFAULT_REVIEW_CADENCE", 1):  # without a cadence judgment the default applies
+        self.assertEqual(judgments.review_cadence(world.conn, line),
+                         {"cadence_trials": judgments.DEFAULT_REVIEW_CADENCE, "judgment_id": None})
+        with patch.object(judgments, "DEFAULT_REVIEW_CADENCE", 1):  # without a cadence judgment the default applies
             self.assertEqual(self.code(self.derived()), "REVIEW_DUE")
         cadence = world.judge("review_cadence", cadence=2)
         world.register("registration-unfinished", self.derived())  # the root trial has no run: not completed yet

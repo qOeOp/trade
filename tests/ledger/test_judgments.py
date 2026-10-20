@@ -105,10 +105,16 @@ class JudgmentTests(unittest.TestCase):
         self.assertEqual(self.code(kind="review_cadence"), "CADENCE_REQUIRED")
         self.assertEqual(self.code(kind="review_cadence", cadence_trials=0), "CADENCE_REQUIRED")
         self.assertEqual(self.code(kind="priority", cadence_trials=5), "CADENCE_REQUIRED")
-        cadence = self.add("review_cadence", cadence_trials=10, body="review every 10")
-        self.assertEqual(self.code(kind="review_cadence", cadence_trials=12, body="slower",
+        default = judgments.DEFAULT_REVIEW_CADENCE
+        self.assertEqual(self.code(kind="review_cadence", cadence_trials=default + 1, body="slower than the default"),
+                         "REVIEW_CADENCE_RAISED")
+        cadence = self.add("review_cadence", cadence_trials=default, body="review at the default")
+        self.assertEqual(self.code(kind="review_cadence", cadence_trials=default + 1, body="slower",
                                    supersedes=cadence["judgment_id"]), "REVIEW_CADENCE_RAISED")
-        lowered = self.add("review_cadence", cadence_trials=5, body="faster", supersedes=cadence["judgment_id"])
+        self.assertEqual(self.code(kind="review_cadence", cadence_trials=default + 1, body="slower, not superseding"),
+                         "REVIEW_CADENCE_RAISED")
+        lowered = self.add("review_cadence", cadence_trials=default - 1, body="faster",
+                           supersedes=cadence["judgment_id"])
         self.assertFalse(lowered["replayed"])
         with self.assertRaises(Refusal) as caught:
             self.add("verdict", body="not a judgment kind")

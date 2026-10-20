@@ -289,8 +289,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
     "CADENCE_REQUIRED": ("cadence_trials is required exactly for review_cadence judgments.",
                          ("Give --cadence-trials N for review_cadence and omit it otherwise.",)),
-    "REVIEW_CADENCE_RAISED": ("A review cadence may only be lowered when superseded.",
-                              ("Supersede it with a cadence no larger than the current one.",)),
+    "REVIEW_CADENCE_RAISED": ("A review cadence may only lower the line's current cadence (its review_cadence "
+                              "judgment, else the product default).",
+                              ("Write a cadence no larger than `cadence` in `research state`.",)),
     # Witness
     "NOT_REGISTRATION_COMMIT": ("The commit added no validation registration.",
                                 ("Pass the commit that added the validation registration (`ledger witness`).",)),

@@ -263,7 +263,7 @@ class CommandTests(unittest.TestCase):
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
         self.ok("judgment", "add", *ledger, "--kind", "review_cadence", "--line", "research-line-1", "--based-on", head,
-                "--body", self.write("cadence.md", "review every ten trials"), "--cadence-trials", "10")
+                "--body", self.write("cadence.md", "review every four trials"), "--cadence-trials", "4")
         self.refused("CADENCE_REQUIRED", "judgment", "add", *ledger, "--kind", "review_cadence", "--line",
                      "research-line-1", "--based-on", head, "--body", self.write("cadence2.md", "no count"))
 
@@ -297,7 +297,7 @@ class CommandTests(unittest.TestCase):
         counts = self.ok("research", "status", *ledger)
         self.assertEqual((counts["trials"], counts["research_attempts"]), (5, 2))  # an exploration, two prechecks
         state = self.ok("research", "state", *ledger)
-        self.assertEqual((state["trials_on_line"], state["cadence"]["cadence_trials"]), (2, 10))
+        self.assertEqual((state["trials_on_line"], state["cadence"]["cadence_trials"]), (2, 4))
         candidates = self.ok("candidate", "list", *ledger)
         self.assertEqual([item["revision"] for item in candidates["candidates"]], [1, 2])
         self.assertEqual(len(candidates["candidates"][1]["attempts"]), 1)

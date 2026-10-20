@@ -1,9 +1,10 @@
-"""Agent judgments (`ledger.add_judgment`).
+"""Agent judgments (`ledger.add_judgment`, `ledger.review_cadence`).
 
 A judgment is the Agent's text (recommendation, priority, review cadence, interpretation or search
 exposure) on a research line, based on an exact ledger commit, about named candidates, trials or
 attempted registrations. It cites records and never copies their facts; it is appended, and a
-newer judgment of the same kind on the same line supersedes it at most once.
+newer judgment of the same kind on the same line supersedes it at most once. A line's review
+cadence is its current review_cadence judgment, else the product default; a new one may only lower it.
 """
 
 from __future__ import annotations
@@ -18,6 +19,18 @@ from ledger.refusals import refuse
 CANDIDATE_ROLES = ("recommended", "parent", "control")
 ROLES = CANDIDATE_ROLES + ("about",)
 TARGETS = ("candidate", "trial_id", "registration_bundle")
+# Research trials since the last recommendation after which a review is due, on a line without a
+# review_cadence judgment; an uncalibrated example value.
+DEFAULT_REVIEW_CADENCE = 5
+
+
+def review_cadence(conn: db.LedgerConnection, line_bundle: str) -> dict:
+    """{cadence_trials, judgment_id} of the line: its current review_cadence judgment, else the
+    product default DEFAULT_REVIEW_CADENCE with judgment_id None."""
+    found = conn.one("SELECT judgment_id, cadence_trials FROM judgment j WHERE kind = 'review_cadence' AND "
+                     "line_bundle = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
+                     "ORDER BY judgment_id DESC LIMIT 1", (line_bundle,))
+    return dict(found) if found is not None else {"cadence_trials": DEFAULT_REVIEW_CADENCE, "judgment_id": None}
 
 
 def _subjects(subjects) -> list[dict]:
@@ -101,10 +114,13 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
                         or c.rows("SELECT 1 FROM judgment WHERE supersedes = %s", (supersedes,))):
                     raise refuse("SUPERSEDES_INVALID", f"judgment {supersedes} cannot be superseded by this one",
                                  missing=(str(supersedes),))
-                if kind == "review_cadence" and cadence_trials > old["cadence_trials"]:
-                    raise refuse("REVIEW_CADENCE_RAISED", f"the cadence may only be lowered from "
-                                                          f"{old['cadence_trials']}",
-                                 expected=f"cadence_trials <= {old['cadence_trials']}")
+            if kind == "review_cadence":
+                current = review_cadence(c, line_bundle)["cadence_trials"]
+                if supersedes is not None:
+                    current = min(current, old["cadence_trials"])
+                if cadence_trials > current:
+                    raise refuse("REVIEW_CADENCE_RAISED", f"the cadence may only be lowered from {current}",
+                                 expected=f"cadence_trials <= {current}")
             c.rows("INSERT INTO judgment (kind, line_bundle, based_on_commit, body, cadence_trials, supersedes, op_id, "
                    "created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
                    (kind, line_bundle, commit, body, cadence_trials, supersedes, op))

@@ -1,6 +1,5 @@
 """Registration (`registration.plan_schema`, `registration.validate`, `registration.validate_design`,
-`registration.register`, `registration.bind`, `registration.require_line_records`,
-`registration.review_cadence`).
+`registration.register`, `registration.bind`, `registration.require_line_records`).
 
 A registration locks one hypothesis before any replay of it: the body (prediction, changed duties,
 parent and control, change, rationale, sources, comparison design (none without a control), grid,
@@ -23,7 +22,7 @@ import re
 
 import jsonschema
 
-from ledger import db, evidence, execution as ledger_execution, lines, strategies
+from ledger import db, evidence, execution as ledger_execution, judgments, lines, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, duties, inputs as registration_inputs, precheck, seams
@@ -38,9 +37,6 @@ DESIGN_MINIMA = {"block_days": 1, "resamples": 999, "inner_resamples": 99, "seed
 ALPHA_UPPER = 0.5  # uncalibrated example value
 TEXT_LIMIT = 8000  # uncalibrated example value
 GRID_LIMIT = 5
-# Research trials since the last recommendation after which a review is due, on a line without a
-# review_cadence judgment; an uncalibrated example value.
-DEFAULT_REVIEW_CADENCE = 5
 REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources",
             "comparison", "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
@@ -429,15 +425,6 @@ def _retried(conn: db.LedgerConnection) -> set[str]:
     return named
 
 
-def review_cadence(conn: db.LedgerConnection, line_bundle: str) -> dict:
-    """{cadence_trials, judgment_id} of the line: its current review_cadence judgment, else the
-    product default DEFAULT_REVIEW_CADENCE with judgment_id None."""
-    found = conn.one("SELECT judgment_id, cadence_trials FROM judgment j WHERE kind = 'review_cadence' AND "
-                     "line_bundle = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
-                     "ORDER BY judgment_id DESC LIMIT 1", (line_bundle,))
-    return dict(found) if found is not None else {"cadence_trials": DEFAULT_REVIEW_CADENCE, "judgment_id": None}
-
-
 def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: str | None = None) -> None:
     """The gates before the next registration: interpretations and a due review.
 
@@ -478,7 +465,7 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
     else:
         since = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND diff_type = 'added' "
                           "LIMIT 1", (line_bundle,))[0][0]
-    cadence = review_cadence(conn, line_bundle)
+    cadence = judgments.review_cadence(conn, line_bundle)
     count = lines.line_trials(conn, line_bundle, since_commit=since)["count"]
     if count >= cadence["cadence_trials"]:
         default = " (the product default)" if cadence["judgment_id"] is None else ""

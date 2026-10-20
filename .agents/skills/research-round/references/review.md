@@ -7,8 +7,7 @@ when writing a `recommendation` judgment.
   (which version or batch) and `priority` (what next and in which order, feedback.md). The
   `review_cadence` (after how many trials the next review comes, in `cadence_trials`, with the
   reason) holds until changed; without one the product default applies (`cadence` in
-  `research state`). Write one only to change it, later only to lower it, and never rewrite an
-  unchanged cadence.
+  `research state`). Write one only to lower it, and never rewrite an unchanged cadence.
 - Take every count from `research status` (trials, research attempts, audit-passed, economically
   available, diagnostic only, invalid, unfinished, validation registrations) with its ledger
   commit; never count trials yourself or from session memory, and never assess progress

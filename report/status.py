@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 
-from ledger import db, execution, lines, problems, witness
+from ledger import db, execution, judgments, lines, problems, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -275,7 +275,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         for kind in judged:
             for item in judged[kind]:
                 item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
-        cadence = register.review_cadence(pinned, line)
+        cadence = judgments.review_cadence(pinned, line)
         try:
             register.require_line_records(pinned, line)
             gates: list[dict] = []

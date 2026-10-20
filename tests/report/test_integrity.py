@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import math
 import unittest
+from unittest.mock import patch
 
-from ledger import db, strategies
+from ledger import db, judgments, strategies
 from qualification import availability
 from registration import precheck, register, seams as registration_seams
 from replay import entry
@@ -42,7 +43,9 @@ class IntegrityTests(unittest.TestCase):
         cls.market.__enter__()
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
-        world.judge("review_cadence", cadence=50)  # more research trials than the default cadence before a review
+        cls.cadence = patch.object(judgments, "DEFAULT_REVIEW_CADENCE", 50)  # more research trials than the default
+        cls.cadence.start()
+        cls.addClassCleanup(cls.cadence.stop)
         cls.refs, cls.runs = {}, {}
         cls.publish("base", BASE, None, None)
         world.register("registration-base", world.body([cls.refs["base"]], {cls.refs["base"]: world.prechecked(BASE)}))
