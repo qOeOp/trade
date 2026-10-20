@@ -40,11 +40,15 @@ line record, never an edit. The user's research targets (maximum drawdown, minim
 are the reference for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
 Then continue under `research-round`.
 
-- **E.4.1.3** Before continuing into `research-round`, tell the user once that continuous research
-  needs the host's goal mode, which only the user can set (Codex `/goal <objective>`, Claude Code
-  `/loop` with the objective as its prompt), and suggest an objective sentence: it names the line
-  and the two research targets as the reference for reading reports, and says not to stop after a
-  report or a review. Then continue; do not wait for it.
+- **E.4.1.3** Before continuing into `research-round`, set the host's goal for this session
+  yourself; the user does not write it. Compose the objective from the ledger: the selected line
+  (bundle and start), the user's two research targets as recorded with the line, and that a report,
+  review or priority never ends the work (A.1.1.3), only the user or a line that cannot continue.
+  If the host gives you a goal tool (Codex `create_goal` with `objective`; no token budget unless
+  the user asked), call it and tell the user in one line. Otherwise ask the user once to approve
+  the goal with the exact command (Codex `/goal <objective>`, Claude Code `/loop <objective>`) and
+  continue without waiting. Keep a goal already active for this line. While the line can continue,
+  never mark the goal complete.
 
 ## When to read the references
 
