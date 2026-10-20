@@ -33,10 +33,10 @@
 
 **触发**　计算夏普、索提诺、卡玛等比率（含子区间或滚动分布）或折扣夏普之前
 
-比率用引擎统计类对交易窗口日收益计算，按 365 天年化；折扣夏普用 research_status 的两个计数各算一端，只报范围，并列原始次数、方差与天数
+比率用引擎统计类对交易窗口日收益计算，按 365 天年化，HTML 绩效页只在用户要求时生成；折扣夏普用 research_status 的两个计数各算一端，只报范围，并列原始次数、方差与天数
 
 <ol className="rd-skill-rules">
-<li id="def-rule-R-1-2-2">比率用引擎统计类对交易窗口日收益算，按 365 天年化，不引第三方库 <span className="rd-rule-links"><Ref id="R.1.2.2">R.1.2.2</Ref></span><span className="rd-eval">eval <code>native-stats-and-tearsheet</code>：比率由引擎统计类对交易窗口日收益按 365 天年化得出；没有引入其他分析依赖；全程夏普与原生摘要一致，或说明了口径差异</span></li>
+<li id="def-rule-R-1-2-2">比率用引擎统计类对交易窗口日收益算，按 365 天年化，不引第三方库；HTML 绩效页只在用户要求时做 <span className="rd-rule-links"><Ref id="R.1.2.2">R.1.2.2</Ref></span><span className="rd-eval">eval <code>native-stats-and-tearsheet</code>：比率由引擎统计类对交易窗口日收益按 365 天年化得出；没有引入其他分析依赖；全程夏普与原生摘要一致，或说明了口径差异</span></li>
 <li id="def-rule-V-4-4-2">折扣夏普取研究状态同窗口去重版本数与全部试验数各算一端，报范围并列次数 <span className="rd-rule-links"><Ref id="V.4.4.2">V.4.4.2</Ref></span><span className="rd-eval">eval <code>dsr-uses-ledger-counts</code>：从 research status 读同一开发窗口的去重版本数与全部试验数，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交</span></li>
 </ol>
 
@@ -44,10 +44,11 @@
 
 **触发**　读资金使用、回撤、持仓结构或容量之前
 
-从 tables(exposures=True, account=True) 算四项资金使用率（时间加权名义额及其占权益比例、按 K 线采样的峰值、锁定保证金、在市时间），没有敞口表时写进局限；这四项是读回撤与持仓结构的语境
+从 tables(exposures=True, account=True) 算四项资金使用率（时间加权名义额及其占权益比例、按 K 线采样的峰值、锁定保证金、在市时间），没有敞口表时写进局限；这四项是读回撤与持仓结构的语境；成交量占比由 Agent 复现后自算（T 时刻的成交属于 T 取整到分钟的那根 K 线），附一段读取市场库成交量的示例，它是一个 search_exposure 视角
 
 <ol className="rd-skill-rules">
 <li id="def-rule-R-2-3-1">资金使用四项只从 tables 敞口与账户行算，先于回撤读；无敞口表不答资金问题 <span className="rd-rule-links"><Ref id="R.2.3.1">R.2.3.1</Ref></span><span className="rd-eval">eval <code>capital-use-four-readings</code>：给出四项：时间加权平均名义额（交易窗口全部 K 线，空仓根计零）及其占同刻权益的比例、标明按 K 线采样的峰值、取自账户行的锁定保证金、在市根数占比；没有重新估值仓位，也没有只凭账户报告推算；exposures 为空时不回答资金问题并写入局限。任一项缺失或口径不符即不通过</span></li>
+<li id="def-rule-R-2-3-3">成交量占比复现后自算：T 时刻的成交按 T 取整到分钟找 K 线；只作容量警示，算了记 search_exposure <span className="rd-rule-links"><Ref id="R.2.3.3">R.2.3.3</Ref></span></li>
 </ol>
 
 ## `references/exit-reasons.md` [#def-file-nautilus-report-analysis-references-exit-reasons-md]

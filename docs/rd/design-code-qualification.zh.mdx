@@ -31,7 +31,7 @@ def assess(conn: LedgerConnection, run: Mapping) -> dict
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接（ledger.connect），可指向 AS OF 某一提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：run_id、trial_id、status（存储审计结论）、source_sha256（候选源码内容哈希）、image_digest（运行环境身份）" } }} />
 
-**返回**　dict：\{economic_evidence_available: bool, reasons: list[str], activity: \{orders, fills, positions, account_rows\}, stored_audit_status, source_check（source_reviews 结果）, execution_capture: \{status, purpose, failed_stages, failures, original_missing\}, checker（check_identity 结果）, applicability, limitations: list[str]\}。纯视图，不改写 run.status 与审计结果
+**返回**　dict：\{economic_evidence_available: bool, reasons: list[str], activity: \{orders, fills, positions, account_rows\}, stored_audit_status, source_check（source_reviews 结果）, execution_capture: \{status, purpose, failed_stages, failures（按异常类型、阶段、合约与消息合并，带次数与拒绝码）, original_missing\}, checker（check_identity 结果）, applicability, limitations: list[str]\}。纯视图，不改写 run.status 与审计结果
 
 **期望行为**
 
@@ -180,9 +180,9 @@ def source_reviews(conn: LedgerConnection, run: Mapping) -> dict
 
 **期望行为**
 
-1. 从 evidence 读全部路径为 source-review.json 的行及其 evidence_bundle 归属；重算内容 sha256，与存储哈希不符拒绝 LEDGER_CORRUPT。
+1. 只读产品命名空间 source-review-* 下路径为 source-review.json 的行及其 evidence_bundle 归属（两次读都是主键区间）；重算内容 sha256，与存储哈希不符拒绝 LEDGER_CORRUPT。命名空间之外的同名文件从来不算审查，也不再列为 ignored。
 2. 解析 source-review-v1 记录：source_sha256 等于本运行候选源码哈希且 image_digest 等于本运行镜像摘要才计入；不符的记录属于别的候选或运行环境，跳过。
-3. 对计入的记录经 ledger.read_as_of 在其写入提交处读当时的试验行，核记录身份与当时试验一致；不一致或无法解析、缺字段的记录列入 ignored 并写原因，不按文件名或后来的探针推断。
+3. 每条记录的写入提交取自一次提交日志读取（record_review 的提交信息是 record_review:\<op_id>），并经 AS OF 核对；不是 record_review 写的审查包退回按历史差异查找。对计入的记录经 ledger.read_as_of 在其写入提交处读当时的试验行，核记录身份与当时试验一致；不一致或无法解析、缺字段的记录列入 ignored 并写原因，不按文件名或后来的探针推断。
 4. 汇总：任一 failed 即 failed；否则任一 passed 即 passed；否则 unreviewed。
 5. 不写账本；结论作为具名 Agent 证据返回，不替代也不被账户审计替代。
 

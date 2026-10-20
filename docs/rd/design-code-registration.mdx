@@ -425,7 +425,7 @@ def require_precheck(
 | <Ref id="registration.plan_schema">plan_schema</Ref> | 登记体 research-plan.json 的 JSON Schema：每个字段带 description；校验失败时把该字段的 description 原样放进拒绝信息 |
 | <Ref id="registration.register">register</Ref> | 登记入口：探测钉死的运行环境、按研究路线的市场提交新鲜导出不可变输入、在运行环境内读出生效配置，合成执行身份；再在一个写事务里校验并把登记体、执行身份与审查引用写成不可变登记证据包 research-plan.json；同内容重试幂等 |
 | <Ref id="registration.require_line_records">require_line_records</Ref> | 下一次登记的前置门：同一路线上已完成的试验都有解释、复盘到期时已有推荐、派生登记前已声明复盘节奏；在登记写事务内按当前头求值 |
-| <Ref id="registration.validate">validate</Ref> | 登记体与执行身份的全部核对：字段恰为规定项；单一比较维度；来源证据包存在；父与对照分别核对，根不得带对照；窗口等于研究路线；网格一到五点且每点父与改动等于登记；源码未暴露或带 retry_of；每格预检审查通过；对照须可比且经济证据可用。返回锁定网格的源码哈希集合。只读，不写账本。 |
+| <Ref id="registration.validate">validate</Ref> | 登记体与执行身份的全部核对：字段恰为规定项；有对照时校验检验条件；来源证据包存在；父与对照分别核对，根不得带对照；窗口等于研究路线；网格一到五点且每点父与改动等于登记；源码未暴露或带 retry_of；每格预检审查通过；对照须可比且经济证据可用。返回锁定网格的源码哈希集合。只读，不写账本。 |
 | <Ref id="registration.validate_design">validate_design</Ref> | 校验检验条件 comparison 的形态：字段恰为 method、block_days、resamples、inner_resamples、seed、alpha、minimum_effect、design_reason 八项，并核对类型与范围；不评价数值是否合理。数值是方法示例值，随登记锁定。 |
 
 ### `bind` [#def-registration-bind]
@@ -492,7 +492,7 @@ def plan_schema() -> dict
 
 **期望行为**
 
-1. 定义十二项必有键（含 prediction 与 changed_duties）与可选键的类型与说明。
+1. 定义十一项必有键（含 prediction 与 changed_duties）与可选键的类型与说明；comparison 写明是与对照比年化收益的配对检验，没有对照时为 null。
 2. prediction 是 \{mechanism: [\{slice, measure, direction, duty, reason\}], outcomes: \{improved, not_significant, loss, zero_activity, invalid\}, interaction?: \{base, a, b\}\}；direction 只取升或降；slice 与 measure 取自 registration.measure_catalogue，slice 可为空。
 3. registration.validate 先按它校验形态；失败时拒绝码 REGISTRATION_INVALID，missing 列出字段，message 附该字段 description。
 
@@ -568,16 +568,17 @@ def require_line_records(
     conn: Connection,
     line_bundle: str,
     is_derived: bool,
+    retry_of: str | None,
 ) -> None
 ```
 
-<TypeTable type={{ "conn": { type: "Connection", description: "登记写事务的连接" }, "line_bundle": { type: "str", description: "研究路线" }, "is_derived": { type: "bool", description: "登记体 parent 非空" } }} />
+<TypeTable type={{ "conn": { type: "Connection", description: "登记写事务的连接" }, "line_bundle": { type: "str", description: "研究路线" }, "is_derived": { type: "bool", description: "登记体 parent 非空" }, "retry_of": { type: "str | None", description: "正在写入的登记的 retry_of；它所指的登记同样算被重试" } }} />
 
 **返回**　None；任一不满足即抛拒绝
 
 **期望行为**
 
-1. 已完成：试验有 run 行（passed 或 invalid）或已被 recovery 结案。路线内每个已完成的研究试验，须被某条 interpretation 判断覆盖（主体含该试验或其登记包；被取代的解释也算），否则 INTERPRETATION_REQUIRED，missing 列出试验。
+1. 已完成：试验有 run 行（passed 或 invalid）或已被 recovery 结案。路线内每个已完成的研究试验，须被某条 interpretation 判断覆盖（主体含该试验或其登记包；被取代的解释也算），否则 INTERPRETATION_REQUIRED，missing 列出试验。例外：运行无效、且它的登记被某个登记的 retry_of 指向（已存的登记，或正在写入的这一个）的试验不需要解释；失败只修复重试，不解释。
 2. 复盘起点：最新且未被取代的 recommendation 的 based_on_commit；没有推荐时取路线包所在提交。经 ledger.line_trials 计起点之后的研究试验数。
 3. 节奏：最新且未被取代的 review_cadence 的 cadence_trials。派生登记而路线上没有节奏即 REVIEW_CADENCE_REQUIRED。
 4. 计数达到 cadence_trials 而起点之后没有新的 recommendation 即 REVIEW_DUE。
@@ -585,7 +586,7 @@ def require_line_records(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `INTERPRETATION_REQUIRED` | 路线内有已完成的研究试验没有被任何 interpretation 判断覆盖 |
+| `INTERPRETATION_REQUIRED` | 路线内有已完成的研究试验没有被任何 interpretation 判断覆盖；被 retry_of 重试的无效运行除外 |
 | `REVIEW_DUE` | 上次推荐以来的研究试验数已达到复盘节奏，尚未写新的 recommendation |
 | `REVIEW_CADENCE_REQUIRED` | 派生登记时路线上还没有 review_cadence 判断 |
 
@@ -599,7 +600,7 @@ def require_line_records(
 
 ### `validate` [#def-registration-validate]
 
-登记体与执行身份的全部核对：字段恰为规定项；单一比较维度；来源证据包存在；父与对照分别核对，根不得带对照；窗口等于研究路线；网格一到五点且每点父与改动等于登记；源码未暴露或带 retry_of；每格预检审查通过；对照须可比且经济证据可用。返回锁定网格的源码哈希集合。只读，不写账本。
+登记体与执行身份的全部核对：字段恰为规定项；有对照时校验检验条件；来源证据包存在；父与对照分别核对，根不得带对照；窗口等于研究路线；网格一到五点且每点父与改动等于登记；源码未暴露或带 retry_of；每格预检审查通过；对照须可比且经济证据可用。返回锁定网格的源码哈希集合。只读，不写账本。
 
 ```python
 def validate(
@@ -610,14 +611,14 @@ def validate(
 ) -> set[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十二项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、metric（比较维度）、comparison（检验条件，见 validate_design）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十一项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、comparison（与对照比年化收益的检验条件，见 validate_design；control_run 为 null 时为 null）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
 
 **返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
 
 **期望行为**
 
-1. 核字段集合恰等于十二项必有键（含 prediction 与 changed_duties）加可选键，多一键少一键即拒；metric 不是唯一具有推断定义的比较维度即拒；comparison 交 validate_design；sources 每个包名须在 evidence_bundle 存在
-2. 比较维度取值：metric 只接受 annual_return（年化收益，唯一有推断定义的维度）；预测的方向 direction 取 up 或 down。
+1. 核字段集合恰等于十一项必有键（含 prediction 与 changed_duties）加可选键，多一键少一键即拒；有对照（或 comparison 非空）时 comparison 交 validate_design，没有对照时 comparison 为 null、不校验；sources 每个包名须在 evidence_bundle 存在
+2. 预测的方向 direction 取 up 或 down；比较的对象固定是年化收益，登记体里没有选维度的字段。
 3. 核 changed_duties：每项须是 27 项职责编号之一；根登记必须为空，派生登记至少一项。
 4. 切面与职责：某切面可解释哪些职责，取 registration.measure_catalogue 的切面—职责表；预测的切面为空时须写理由，measure 非空时仍须是目录里某个切面的标量。
 5. 核 prediction：mechanism 每项的职责在 changed_duties 里，切面与标量在归因目录里（切面为空时须有理由）；changed_duties 每项至少一项预测；根登记的 mechanism 可为空。
@@ -634,7 +635,6 @@ def validate(
 | 拒绝码 | 条件 |
 |---|---|
 | `REGISTRATION_INVALID` | 字段缺一或多余；来源证据包、retry_of 所指登记或网格点候选不在账本；网格点数不在一到五或源码重复；根带对照或改动；非根缺父或改动；无对照而理由里没有父运行故障或零活动的本地诊断 |
-| `METRIC_UNSUPPORTED` | metric 不是唯一具有推断定义的比较维度 |
 | `RESEARCH_LINE_REQUIRED` | 账本里没有当前研究路线记录，窗口无从核对 |
 | `WINDOW_MISMATCH` | body.window 与研究路线记录的开发窗口起止不逐字相等 |
 | `LINEAGE_MISMATCH` | 某网格点的父版本或改动说明不等于登记的 parent / change |

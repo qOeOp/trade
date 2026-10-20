@@ -53,7 +53,7 @@ def attribution(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `（比较拒绝，见 [[report.compare]]）` | 无对照、运行不在网格、不可比、任一侧无经济证据资格或日钟不一致 |
+| `（比较拒绝，见 [[report.compare]]）` | 对照运行不存在、运行不在网格、不可比、任一侧无经济证据资格或日钟不一致（登记没有对照时比较入口不调用归因） |
 | `INTERACTION_UNATTESTED` | 登记声明了交互，但绑定的源码审查没有确认四个角的形状，或某个角不可比、无资格 |
 
 **使用**　<Ref id="report.compare" />、<Ref id="report.paired" />、<Ref id="ledger.load_run" />、<Ref id="ledger.economics" />、<Ref id="registration.measure_catalogue" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.pair_trades" />、<Ref id="market.daily_returns" />
@@ -173,22 +173,23 @@ def compare(
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一份研究账本" }, "bundle": { type: "str", description: "登记证据包名，比较条件（对照、网格、检验条件、研发父版本）全部从它读出" }, "run_id": { type: "str", description: "候选运行编号，必须是被本登记某网格点消耗的试验所产出的封存运行" }, "at": { type: "str | None", description: "账本版本（提交或标签），缺省为当前 HEAD；用于复读历史绩效指标" } }} />
 
-**返回**　dict：\{bundle, run_id, control_run_id, research_parent, ledger_commit, registered_at, metrics_revision, comparison_source_sha256, availability\{candidate, control\}, evidence\}；evidence 为 report.paired 的返回，并附 observed_account_annual_return_difference（两侧封存运行年化之差，账户口径，与自助统计分列）
+**返回**　dict：\{bundle, run_id, control_run_id, research_parent, ledger_commit, registered_at, metrics_revision, comparison_source_sha256, availability\{candidate, control\}, evidence\}；evidence 为 report.paired 的返回，并附 observed_account_annual_return_difference（两侧封存运行年化之差，账户口径，与自助统计分列）。登记没有对照时只返回 \{bundle, run_id, control_run_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}，next_actions 指向 replay report --run-id
 
 **期望行为**
 
-1. 读登记包，取对照、网格、检验条件与预测；核候选运行属于本登记网格。
-2. 两侧核可比资格（身份取自登记包与试验行）与经济证据资格；任一不过即拒绝，只留诊断。
-3. 两侧取逐日序列，核日钟一致，调用 report.paired 得效应、区间与 p。
-4. 调用 report.attribution，用两侧单运行报告、持仓周期、逐日序列与市场日收益算各切面的差、交易配对、预测对照与交互效应。
-5. 附完整身份与度量目录版本返回；不写账本，同样的输入任何时候重算都一样。
-6. difference 一律为候选减对照；比较自己定义的量（单边合约数、前五绝对差占比、月胜比例、去掉前五天后的残差、首要出场占比、盈亏平衡费率倍数等）放在 pairwise 下；预测按 pairwise 里有定义的量核对，没有才用两次单运行值之差，并注明 observed_as。
-7. 回归窗口太短或矩阵奇异时，该量置空并写原因，不抛异常。
-8. 报告与对比读取时都记下产品 checkout 的 HEAD（report_revision）；工作树里有本地改动照常读取，不拒绝。
+1. 登记没有对照（control_run 为空）时不拒绝：先核候选运行属于本登记网格（否则 RUN_NOT_IN_GRID），再如实回答没有可比的，evidence 与 attribution 为空，下一步是单独读这次运行的报告（replay report --run-id）。
+2. 读登记包，取对照、网格、检验条件与预测；核候选运行属于本登记网格。
+3. 两侧核可比资格（身份取自登记包与试验行）与经济证据资格；任一不过即拒绝，只留诊断。
+4. 两侧取逐日序列，核日钟一致，调用 report.paired 得效应、区间与 p。
+5. 调用 report.attribution，用两侧单运行报告、持仓周期、逐日序列与市场日收益算各切面的差、交易配对、预测对照与交互效应。
+6. 附完整身份与度量目录版本返回；不写账本，同样的输入任何时候重算都一样。
+7. difference 一律为候选减对照；比较自己定义的量（单边合约数、前五绝对差占比、月胜比例、去掉前五天后的残差、首要出场占比、盈亏平衡费率倍数等）放在 pairwise 下；预测按 pairwise 里有定义的量核对，没有才用两次单运行值之差，并注明 observed_as。
+8. 回归窗口太短或矩阵奇异时，该量置空并写原因，不抛异常。
+9. 报告与对比读取时都记下产品 checkout 的 HEAD（report_revision）；工作树里有本地改动照常读取，不拒绝。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `NO_CONTROL` | 登记体 control_run 为空（根登记或声明暂无对照的修复派生），或对照运行不存在 |
+| `NO_CONTROL` | 登记声明的对照运行不存在 |
 | `RUN_NOT_IN_GRID` | 候选运行的试验不在本登记的 registration_attempt 中，或绑定记录的源码哈希与运行源码哈希不符 |
 | `RUN_NOT_PASSED` | 任一侧运行 status 非 passed 或试验 purpose ∉ \{research, validation\}（由 registration.check_comparable 抛出并透传） |
 | `COMPARABILITY_MISMATCH` | 任一侧的运行环境摘要、有效配置或输入内容身份与登记记录不一致（由 registration.check_comparable 抛出并透传，消息列冲突项） |
@@ -565,7 +566,7 @@ def directory_report(directory: Path, account: bool) -> dict
 2. 经 ledger.metrics 用封存运行的同一函数算绩效指标并注明总体与样本量；对不上的绩效指标留 None 写原因。
 3. 经 qualification.native_reasons 按同一实质活动判据得原因，附 qualification.check_identity；因无执行捕获与源码审查绑定，固定附「未封存、来源未核验」局限。
 4. 经 qualification.mask 遮蔽无资格的绩效指标；输出标 exploration = True，不作候选清单或比较的输入。
-5. 合并运行器声明的局限与绩效指标局限去重输出；结果只供 Agent 登记前自检。
+5. 局限取 ledger.metrics 给出的清单（已含运行器声明的局限）加「未封存、来源未核验」去重输出；结果只供 Agent 登记前自检。
 6. 目录的审计结果 passed 为 false 时给原因 AUDIT_FAILED 并掩盖数值。
 
 | 拒绝码 | 条件 |
@@ -752,21 +753,22 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" } }} />
 
-**返回**　dict：at、line、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记还缺什么）、facts\{candidates, counts\}
+**返回**　dict：at、line、recommendation、priority、review_cadence、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记还缺什么）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
 1. 按 at 读取（AS OF）。
-2. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的。
-3. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
-4. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
-5. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。
-6. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出；gates 列出 registration.require_line_records 当前会拒绝的项。
-7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
+2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
+3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的。
+4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
+5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
+6. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。
+7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出；gates 列出 registration.require_line_records 当前会拒绝的项。
+8. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LINE_UNKNOWN` | 研究路线不存在 |
+| `LINE_UNKNOWN` | 所给的研究路线证据包不存在 |
 | `UNKNOWN_REF` | at 解析不到提交、分支或标签 |
 
 **使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />
@@ -787,12 +789,12 @@ def research_status(ledger: LedgerProfile, at: str | None) -> dict
 
 <TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" } }} />
 
-**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, availability_checker, metrics_revision\}；只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
+**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, availability_checker, metrics_revision\}；只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
 
 **期望行为**
 
 1. 以 ledger.read_as_of(ledger, at) 打开只读连接并记下解析到的 ledger_commit；版本解析不到即拒绝。
-2. trials = trial 全部行数（四种用途、失败与中断都计）；distinct_sources = trial.source_sha256 去重数；再按 (trade_start, trade_end) 分列为 by_development_window。
+2. trials、distinct_sources 与 by_development_window 只数算作策略检验的试验，不数两类，二者逐个列在 excluded_trials：复现（explore 试验与之前某个有运行的试验源码、镜像摘要、合约集、预热起点、交易窗口与输入身份都相同，即 replay.reproduce 写的那种）；策略运行前就停下的试验（宿主上已完成、运行器非零退出、没有写出摘要，且记下的失败回执都属于策略交易之前的阶段）。两类都由试验行与执行封存的清单推出，不另存标记（用户 10-20 决定）。
 3. research_attempts = registration_attempt 行数（每个被消耗的网格点一行，无效与中断的尝试同样计）；registration_attempt 左连 trial 再左连 run：无 run 行计 unfinished_research_attempts；run.status='invalid' 计 invalid_research_runs；run.status='passed' 计 audit_passed_research_runs。
 4. 对每个 passed 运行调用 qualification.assess(conn, run ⨝ trial)：economic_evidence_available 为真计 valid_research_runs，否则计 diagnostic_only_research_runs；四类之和恒等于 research_attempts，不等即拒绝，不静默少算。
 5. 样本外：registered = validation_registration 行数；bound = validation_binding 行数；unbound = registered − bound；unwitnessed = 登记所在提交经 ledger.stamped_at 读不到凭证的登记数。

@@ -29,7 +29,7 @@
 | <Ref id="cli.ledger_init">ledger_init</Ref> | 命令行入口 ledger init：初始化一个账本档案（账号、branch 写权、提交校验组），只在此命令内使用管理权限 |
 | <Ref id="cli.ledger_review">ledger_review</Ref> | 整体复核的命令入口：读账号按精确版本复核，只报发现 |
 | <Ref id="cli.ledger_service">ledger_service</Ref> | 启动、停止、查看账本数据库服务 |
-| <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条只读查询，可钉到精确版本 |
+| <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本 |
 | <Ref id="cli.ledger_temp">ledger_temp</Ref> | 在临时根下起一个隔离的测试账本 |
 | <Ref id="cli.ledger_witness">ledger_witness</Ref> | 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证 |
 | <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注），把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
@@ -140,7 +140,7 @@ def candidate_new(args: Namespace) -> JSON
 **期望行为**
 
 1. 核 output 在临时目录且不存在，否则 NOT_TEMPORARY_PATH / PATH_EXISTS。
-2. 写 strategy.py：顶部是按模板生成的文件头（出处行与 27 行职责立场待填），下面是唯一入口类与两个钩子的桩，钩子注释写明只用已收盘信息、交易事实取引擎状态。
+2. 写 strategy.py：顶部是按模板生成的文件头（出处行与 27 行职责立场待填），下面是唯一入口类与两个钩子的桩，钩子注释写明只用已收盘信息、交易事实取引擎状态；入口类的构造参数与运行器传入的一致（含 universe_membership），桩能被固定版引擎直接加载。
 3. 写 AGENTS.md 与 strategy-header.md，内容同 cli.candidate_export。
 4. 不连接账本；发布仍经 cli.candidate_publish。
 
@@ -379,7 +379,7 @@ def hypothesis_compare(
 | 拒绝码 | 条件 |
 |---|---|
 | `UNKNOWN_BUNDLE` | 登记证据包不存在 |
-| `NO_CONTROL` | 登记未声明对照运行或对照运行不存在（透传） |
+| `NO_CONTROL` | 登记声明的对照运行不存在（透传）；登记没有对照时以零退出返回「没有可比的」与下一步 |
 | `RUN_NOT_IN_GRID` | run_id 不是本登记某网格点消耗的试验所产运行（透传） |
 | `RUN_NOT_PASSED` | 任一侧是探索或预检回放、无效运行或审计未通过（透传） |
 | `COMPARABILITY_MISMATCH` | 任一侧三项身份与登记不一致（透传，列冲突项） |
@@ -577,26 +577,27 @@ def ledger_service(
 
 ### `ledger_sql` [#def-cli-ledger_sql]
 
-命令行入口 ledger sql：以 reader 账号执行单条只读查询，可钉到精确版本
+命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本
 
 ```python
 def ledger_sql(ledger: str, query: str, at: str | None) -> JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "str", description: "账本档案名" }, "query": { type: "str", description: "单条 SELECT、SHOW、DESCRIBE 或以 WITH 开头的查询" }, "at": { type: "str | None", description: "账本版本：提交、branch 或标签；给定时查询落在该提交上" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "账本档案名" }, "query": { type: "str", description: "单条读语句，首词为 SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE 或 VALUES" }, "at": { type: "str | None", description: "账本版本：提交、branch 或标签；给定时查询落在该提交上" } }} />
 
 **返回**　JSON：\{at, ledger_commit, columns: [str], rows: \[\[value\]\]\}
 
 **期望行为**
 
-1. 静态核对只有一条语句且首词为 SELECT / SHOW / DESCRIBE / WITH，不含写关键字；否则 WRITE_VIA_SQL，不送到服务器。
+1. 静态核对只有一条语句且首词是读语句（SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE、VALUES）；否则 WRITE_VIA_SQL，不送到服务器。语句里面不再按关键字扫描，REPLACE() 这类函数照常可用；首词核对挡住任何账号都能执行的 SET PERSIST 这类语句。
 2. 经 ledger.read_as_of 取 reader 连接，给定 at 时钉到其解析出的提交，解析不到即 UNKNOWN_REF。
-3. 执行查询；reader 账号只有 SELECT 权限，是服务端第二道闸。
+3. 执行查询；reader 账号只有 SELECT 权限，钉在修订库上，是写入的边界。服务器拒绝语句时 SQL_STATEMENT_FAILED，消息带服务器的错误原文（截至 300 字符）。
 4. 原样返回列名、行与所读提交，不加工、不裁决。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `WRITE_VIA_SQL` | 语句不是单条只读查询（多语句、INSERT/UPDATE/DELETE/CALL/DDL 或带写子句的 WITH） |
+| `WRITE_VIA_SQL` | 不是恰好一条语句，或首词不是 SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE、VALUES 之一 |
+| `SQL_STATEMENT_FAILED` | 服务器拒绝这条读语句；消息带服务器的错误原文，下一步是改语句（可先 SHOW TABLES、DESCRIBE \<表>） |
 | `UNKNOWN_REF` | at 解析不到提交、branch 或标签 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />
