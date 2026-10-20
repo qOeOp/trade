@@ -11,7 +11,7 @@ import math
 import unittest
 from unittest.mock import patch
 
-from ledger import db, judgments, strategies
+from ledger import db, strategies
 from qualification import availability
 from registration import precheck, register, seams as registration_seams
 from replay import entry
@@ -43,7 +43,7 @@ class IntegrityTests(unittest.TestCase):
         cls.market.__enter__()
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
-        cls.cadence = patch.object(judgments, "DEFAULT_REVIEW_CADENCE", 50)  # more research trials than the default
+        cls.cadence = patch.object(register, "REVIEW_EVERY", 50)  # more research trials than the breaker
         cls.cadence.start()
         cls.addClassCleanup(cls.cadence.stop)
         cls.refs, cls.runs = {}, {}

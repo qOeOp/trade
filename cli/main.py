@@ -572,15 +572,17 @@ def _subject(text: str) -> dict:
 
 
 def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str, body: str, subjects: list[str],
-                 supersedes: int | None, cadence_trials: int | None, op: str | None) -> dict:
+                 supersedes: int | None, op: str | None) -> dict:
     """judgment add: one judgment (body from a UTF-8 file) and its subjects."""
     data = _regular_file(body, "JUDGMENT_BODY_UNREADABLE")
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise refuse("JUDGMENT_BODY_UNREADABLE", f"{body} is not UTF-8", missing=(body,)) from exc
-    return judgments.add_judgment(profile, kind, line, based_on, text, cadence_trials,
-                                  [_subject(item) for item in subjects or ()], supersedes, op)
+    from report import status
+    return judgments.add_judgment(profile, kind, line, based_on, text, [_subject(item) for item in subjects or ()],
+                                  supersedes, op,
+                                  compared=lambda line_bundle, at: status.compared_candidates(profile, line_bundle, at))
 
 
 def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
@@ -621,9 +623,9 @@ def hypothesis_compare(profile: db.LedgerProfile, bundle: str, run_id: int, at: 
 
 # research, source review
 
-def research_status(profile: db.LedgerProfile, at: str | None) -> dict:
+def research_status(profile: db.LedgerProfile, at: str | None, line: str | None) -> dict:
     from report import status
-    return status.research_status(profile, at)
+    return status.research_status(profile, at, line)
 
 
 def research_state(conn: db.LedgerConnection, line: str | None, at: str | None) -> dict:
@@ -933,16 +935,13 @@ def _parser() -> Parser:
     command = judgment.add_parser("add", help="append one judgment")
     _ledger_option(command)
     command.add_argument("--kind", required=True,
-                         help="recommendation, priority, review_cadence, interpretation or search_exposure")
+                         help="recommendation, priority, interpretation or search_exposure")
     command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-1")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
                          help="role=…,candidate=ID@N | trial=N | registration=BUNDLE (repeatable)")
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
-    command.add_argument("--cadence-trials", type=int,
-                         help="trials between reviews (review_cadence only; without one the line uses the product "
-                              "default)")
     _op_id(command)
 
     line = verbs("line", "research lines: select")
@@ -975,8 +974,9 @@ def _parser() -> Parser:
     _at(command)
 
     research = verbs("research", "research facts: status, state")
-    command = research.add_parser("status", help="research fact counts")
+    command = research.add_parser("status", help="research fact counts and the line's comparison table")
     _ledger_option(command)
+    command.add_argument("--line", help="research line bundle of the comparison table (default: the current line)")
     _at(command)
     command = research.add_parser("state", help="the line record and its current judgments with read-time facts")
     _ledger_option(command)
@@ -1150,7 +1150,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return execution_recover(profile, args.trial_id, args.workdir, args.failure_receipt), 0
     if key == ("judgment", "add"):
         return judgment_add(profile, args.kind, args.line, args.based_on, args.body, args.subjects, args.supersedes,
-                            args.cadence_trials, args.op_id), 0
+                            args.op_id), 0
     if key == ("line", "select"):
         market = market_profile(args.market)
         with db.connect(profile, "writer") as conn:
@@ -1162,7 +1162,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("hypothesis", "compare"):
         return hypothesis_compare(profile, args.bundle, args.run_id, args.at), 0
     if key == ("research", "status"):
-        return research_status(profile, args.at), 0
+        return research_status(profile, args.at, args.line), 0
     if key == ("research", "state"):
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at), 0

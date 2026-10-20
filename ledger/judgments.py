@@ -1,15 +1,16 @@
-"""Agent judgments (`ledger.add_judgment`, `ledger.review_cadence`).
+"""Agent judgments (`ledger.add_judgment`).
 
-A judgment is the Agent's text (recommendation, priority, review cadence, interpretation or search
-exposure) on a research line, based on an exact ledger commit, about named candidates, trials or
+A judgment is the Agent's text (recommendation, priority, interpretation or search exposure) on a research line, based on an exact ledger commit, about named candidates, trials or
 attempted registrations. It cites records and never copies their facts; it is appended, and a
-newer judgment of the same kind on the same line supersedes it at most once. A line's review
-cadence is its current review_cadence judgment, else the product default; a new one may only lower it.
+newer judgment of the same kind on the same line supersedes it at most once. The review cadence is
+the product's (registration.REVIEW_EVERY), never a judgment; review_cadence rows written before
+stay stored and are read by nobody. A recommendation names, among its candidate subjects, every
+candidate of the line's comparison table at the commit it is based on.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from ledger import db, lines, strategies
 from ledger.errors import Refusal
@@ -19,20 +20,6 @@ from ledger.refusals import refuse
 CANDIDATE_ROLES = ("recommended", "parent", "control")
 ROLES = CANDIDATE_ROLES + ("about",)
 TARGETS = ("candidate", "trial_id", "registration_bundle")
-# Research trials since the last recommendation after which a review is due, on a line without a
-# review_cadence judgment; an uncalibrated example value.
-DEFAULT_REVIEW_CADENCE = 5
-
-
-def review_cadence(conn: db.LedgerConnection, line_bundle: str) -> dict:
-    """{cadence_trials, judgment_id} of the line: its current review_cadence judgment, else the
-    product default DEFAULT_REVIEW_CADENCE with judgment_id None."""
-    found = conn.one("SELECT judgment_id, cadence_trials FROM judgment j WHERE kind = 'review_cadence' AND "
-                     "line_bundle = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
-                     "ORDER BY judgment_id DESC LIMIT 1", (line_bundle,))
-    return dict(found) if found is not None else {"cadence_trials": DEFAULT_REVIEW_CADENCE, "judgment_id": None}
-
-
 def _subjects(subjects) -> list[dict]:
     normalized = []
     for subject in subjects or ():
@@ -79,13 +66,17 @@ def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> b
 
 
 def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_on_commit: str, body: str,
-                 cadence_trials: int | None = None, subjects: list[dict] | None = None, supersedes: int | None = None,
-                 op_id: str | None = None) -> dict:
-    """Append one judgment and its subjects in one write; the same payload again is a replay."""
-    if (kind == "review_cadence") != (cadence_trials is not None) or (
-            cadence_trials is not None and (not isinstance(cadence_trials, int) or cadence_trials < 1)):
-        raise refuse("CADENCE_REQUIRED", "cadence_trials (a positive integer) is required exactly for review_cadence",
-                     missing=("cadence_trials",) if kind == "review_cadence" else ())
+                 subjects: list[dict] | None = None, supersedes: int | None = None, op_id: str | None = None, *,
+                 compared: Callable[[str, str], list[str]] | None = None) -> dict:
+    """Append one judgment and its subjects in one write; the same payload again is a replay.
+
+    `compared(line_bundle, commit)` is report.compared_candidates: the candidates of the line's
+    comparison table at a commit, which a recommendation must all name (required for one)."""
+    if kind == "review_cadence":
+        raise refuse("REVIEW_CADENCE_FIXED", "the review cadence is fixed by the product, not a judgment",
+                     expected="recommendation | priority | interpretation | search_exposure")
+    if kind == "recommendation" and compared is None:
+        raise ValueError("a recommendation needs the comparison table (compared=)")
     normalized = _subjects(subjects)
     with db.connect(profile, "writer") as conn:
         try:
@@ -94,7 +85,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
             raise refuse("COMMIT_NOT_ANCESTOR", f"{based_on_commit!r} is no commit of this ledger",
                          missing=(str(based_on_commit),)) from exc
         payload = {"kind": kind, "line_bundle": line_bundle, "based_on_commit": commit, "body": body,
-                   "cadence_trials": cadence_trials, "subjects": normalized, "supersedes": supersedes}
+                   "subjects": normalized, "supersedes": supersedes}
 
         def insert(c, op):
             if not isinstance(line_bundle, str) or not lines.LINE.fullmatch(line_bundle) or not c.rows(
@@ -107,23 +98,24 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
             if not _is_ancestor(c, line_commit, commit):
                 raise refuse("COMMIT_BEFORE_LINE", f"{commit} is older than {line_bundle} ({line_commit})")
             rows = [_check_subject(c, subject) for subject in normalized]
+            if kind == "recommendation":
+                assert compared is not None
+                named = {f"{strategy_id}@{revision}" for _, strategy_id, revision, _, _ in rows if strategy_id}
+                missing = [ref for ref in compared(line_bundle, commit) if ref not in named]
+                if missing:
+                    raise refuse("RECOMMENDATION_INCOMPLETE", "the recommendation does not name every candidate of "
+                                                              f"the comparison table at {commit}: " + ", ".join(missing),
+                                 missing=tuple(missing))
             if supersedes is not None:
-                old = c.one("SELECT kind, line_bundle, cadence_trials FROM judgment WHERE judgment_id = %s",
+                old = c.one("SELECT kind, line_bundle FROM judgment WHERE judgment_id = %s",
                             (supersedes,))
                 if (old is None or old["kind"] != kind or old["line_bundle"] != line_bundle
                         or c.rows("SELECT 1 FROM judgment WHERE supersedes = %s", (supersedes,))):
                     raise refuse("SUPERSEDES_INVALID", f"judgment {supersedes} cannot be superseded by this one",
                                  missing=(str(supersedes),))
-            if kind == "review_cadence":
-                current = review_cadence(c, line_bundle)["cadence_trials"]
-                if supersedes is not None:
-                    current = min(current, old["cadence_trials"])
-                if cadence_trials > current:
-                    raise refuse("REVIEW_CADENCE_RAISED", f"the cadence may only be lowered from {current}",
-                                 expected=f"cadence_trials <= {current}")
-            c.rows("INSERT INTO judgment (kind, line_bundle, based_on_commit, body, cadence_trials, supersedes, op_id, "
-                   "created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
-                   (kind, line_bundle, commit, body, cadence_trials, supersedes, op))
+            c.rows("INSERT INTO judgment (kind, line_bundle, based_on_commit, body, supersedes, op_id, created_at) "
+                   "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
+                   (kind, line_bundle, commit, body, supersedes, op))
             (judgment_id,), = c.rows("SELECT LAST_INSERT_ID()")
             if rows:
                 c.many("INSERT INTO judgment_subject (judgment_id, seq, role, strategy_id, revision, trial_id, "
@@ -140,8 +132,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
                 {"registration_bundle": item["registration_bundle"]})} for item in stored]
             original = {"kind": row["kind"], "line_bundle": row["line_bundle"],
                         "based_on_commit": row["based_on_commit"], "body": row["body"],
-                        "cadence_trials": row["cadence_trials"], "subjects": stored_subjects,
-                        "supersedes": row["supersedes"]}
+                        "subjects": stored_subjects, "supersedes": row["supersedes"]}
             if original != payload:
                 raise refuse("OP_ID_CONFLICT", f"operation {row['op_id']} already names another judgment",
                              missing=(row["op_id"],))

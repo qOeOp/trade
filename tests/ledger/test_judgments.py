@@ -1,4 +1,5 @@
-"""Judgments: cited subjects, an exact basis commit on the line, single supersession, lowered cadence."""
+"""Judgments: cited subjects, an exact basis commit on the line, single supersession, no cadence
+judgment, and a recommendation that names every candidate of the comparison table."""
 
 from __future__ import annotations
 
@@ -33,7 +34,8 @@ class JudgmentTests(unittest.TestCase):
 
     def add(self, kind="interpretation", **overrides):
         arguments = {"kind": kind, "line_bundle": self.line, "based_on_commit": self.head, "body": "see trial",
-                     "subjects": [{"role": "about", "trial_id": self.trial["trial_id"]}], **overrides}
+                     "subjects": [{"role": "about", "trial_id": self.trial["trial_id"]}],
+                     "compared": lambda line, at: [], **overrides}
         return judgments.add_judgment(self.profile, **arguments)
 
     def code(self, **overrides) -> str:
@@ -91,7 +93,7 @@ class JudgmentTests(unittest.TestCase):
             with self.subTest(subject=subject):
                 self.assertEqual(self.code(subjects=[subject]), code)
 
-    def test_supersession_and_cadence(self):
+    def test_supersession_and_no_cadence_judgment(self):
         first = self.add("priority", body="first")
         second = self.add("priority", body="second", supersedes=first["judgment_id"])
         self.assertEqual(self.code(kind="priority", body="third", supersedes=first["judgment_id"]),
@@ -102,24 +104,30 @@ class JudgmentTests(unittest.TestCase):
         current = {row[0] for row in self.service.sql(self.profile, "SELECT judgment_id FROM v_judgments "
                                                                     "WHERE kind = 'priority'")}
         self.assertEqual(current, {second["judgment_id"]})
-        self.assertEqual(self.code(kind="review_cadence"), "CADENCE_REQUIRED")
-        self.assertEqual(self.code(kind="review_cadence", cadence_trials=0), "CADENCE_REQUIRED")
-        self.assertEqual(self.code(kind="priority", cadence_trials=5), "CADENCE_REQUIRED")
-        default = judgments.DEFAULT_REVIEW_CADENCE
-        self.assertEqual(self.code(kind="review_cadence", cadence_trials=default + 1, body="slower than the default"),
-                         "REVIEW_CADENCE_RAISED")
-        cadence = self.add("review_cadence", cadence_trials=default, body="review at the default")
-        self.assertEqual(self.code(kind="review_cadence", cadence_trials=default + 1, body="slower",
-                                   supersedes=cadence["judgment_id"]), "REVIEW_CADENCE_RAISED")
-        self.assertEqual(self.code(kind="review_cadence", cadence_trials=default + 1, body="slower, not superseding"),
-                         "REVIEW_CADENCE_RAISED")
-        lowered = self.add("review_cadence", cadence_trials=default - 1, body="faster",
-                           supersedes=cadence["judgment_id"])
-        self.assertFalse(lowered["replayed"])
+        self.assertEqual(self.code(kind="review_cadence", body="review every 10"), "REVIEW_CADENCE_FIXED")
         with self.assertRaises(Refusal) as caught:
             self.add("verdict", body="not a judgment kind")
         self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
 
+
+    def test_a_recommendation_names_every_candidate_of_the_comparison_table(self):
+        strategies.publish_candidate(self.profile, source("b"), "b", "Fixture", "another root")
+        table = []
+
+        def compared(line, at):
+            table.append((line, at))
+            return ["a@1", "b@1"]
+
+        exc = None
+        with self.assertRaises(Refusal) as caught:
+            self.add("recommendation", body="only a", compared=compared,
+                     subjects=[{"role": "recommended", "candidate": "a@1"}])
+        exc = caught.exception
+        self.assertEqual((exc.code, exc.missing), ("RECOMMENDATION_INCOMPLETE", ("b@1",)))
+        self.assertEqual(table, [(self.line, self.head)], "the table at the commit the recommendation reads")
+        written = self.add("recommendation", body="a over b", compared=compared,
+                           subjects=[{"role": "recommended", "candidate": "a@1"}, {"role": "about", "candidate": "b@1"}])
+        self.assertFalse(written["replayed"])
 
 if __name__ == "__main__":
     unittest.main()

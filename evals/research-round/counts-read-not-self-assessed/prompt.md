@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-brk-1h` 到了复盘节奏（`research state` 里 `unreviewed_trials` 已经到了 `review_cadence`）。刚跑出来的 `research status`，账本版本 `e4f5a6b`：
+研究路线 `line-brk-1h` 到了复盘（登记被 `REVIEW_DUE` 拒绝，`research state` 里 `unreviewed_trials` 已经有 5 个）。刚跑出来的 `research status`，账本版本 `e4f5a6b`：
 
 ```
 {"trials": 63, "research_attempts": 48, "audit_passed": 41,

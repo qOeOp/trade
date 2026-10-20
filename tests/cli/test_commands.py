@@ -262,10 +262,8 @@ class CommandTests(unittest.TestCase):
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
-        self.ok("judgment", "add", *ledger, "--kind", "review_cadence", "--line", "research-line-1", "--based-on", head,
-                "--body", self.write("cadence.md", "review every four trials"), "--cadence-trials", "4")
-        self.refused("CADENCE_REQUIRED", "judgment", "add", *ledger, "--kind", "review_cadence", "--line",
-                     "research-line-1", "--based-on", head, "--body", self.write("cadence2.md", "no count"))
+        self.refused("REVIEW_CADENCE_FIXED", "judgment", "add", *ledger, "--kind", "review_cadence", "--line",
+                     "research-line-1", "--based-on", head, "--body", self.write("cadence.md", "review every four"))
 
         # The child, registered against the root run as its control
         child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True"))
@@ -297,7 +295,8 @@ class CommandTests(unittest.TestCase):
         counts = self.ok("research", "status", *ledger)
         self.assertEqual((counts["trials"], counts["research_attempts"]), (5, 2))  # an exploration, two prechecks
         state = self.ok("research", "state", *ledger)
-        self.assertEqual((state["trials_on_line"], state["cadence"]["cadence_trials"]), (2, 4))
+        self.assertEqual((state["trials_on_line"], state["review_every"]), (2, 5))
+        self.assertIn("fixture@1", counts["comparison"]["candidates"])
         candidates = self.ok("candidate", "list", *ledger)
         self.assertEqual([item["revision"] for item in candidates["candidates"]], [1, 2])
         self.assertEqual(len(candidates["candidates"][1]["attempts"]), 1)

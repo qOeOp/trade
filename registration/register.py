@@ -22,7 +22,7 @@ import re
 
 import jsonschema
 
-from ledger import db, evidence, execution as ledger_execution, judgments, lines, strategies
+from ledger import db, evidence, execution as ledger_execution, lines, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, duties, inputs as registration_inputs, precheck, seams
@@ -37,6 +37,9 @@ DESIGN_MINIMA = {"block_days": 1, "resamples": 999, "inner_resamples": 99, "seed
 ALPHA_UPPER = 0.5  # uncalibrated example value
 TEXT_LIMIT = 8000  # uncalibrated example value
 GRID_LIMIT = 5
+# Research trials on a line since its last recommendation that stop the next registration until a
+# review (a fixed circuit breaker, user decision 2026-10-21; an uncalibrated example value).
+REVIEW_EVERY = 5
 REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources",
             "comparison", "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
@@ -465,12 +468,10 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
     else:
         since = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND diff_type = 'added' "
                           "LIMIT 1", (line_bundle,))[0][0]
-    cadence = judgments.review_cadence(conn, line_bundle)
     count = lines.line_trials(conn, line_bundle, since_commit=since)["count"]
-    if count >= cadence["cadence_trials"]:
-        default = " (the product default)" if cadence["judgment_id"] is None else ""
-        raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the cadence of "
-                                   f"{cadence['cadence_trials']}{default}", missing=("recommendation",))
+    if count >= REVIEW_EVERY:
+        raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the review every "
+                                   f"{REVIEW_EVERY}", missing=("recommendation", "priority"))
 
 
 def _encode(record: Mapping) -> bytes:
