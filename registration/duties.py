@@ -67,7 +67,8 @@ _SLICES = (
     ("trade_pairs", "Trade pairs", ("C1", "A3", "G1"),
      ("matched_share", "matched_net_share", "removed_net", "added_net", "matched_delta_net", "win_to_loss",
       "loss_to_win", "median_entry_shift_minutes")),
-    ("drawdown", "Drawdown", ("E2", "F3"), ("max_drawdown", "drawdown_days", "top_instrument_share_in_drawdown")),
+    ("drawdown", "Drawdown", ("E2", "F3", "A3", "E1", "E3"),
+     ("max_drawdown", "drawdown_days", "top_instrument_share_in_drawdown")),
 )
 
 

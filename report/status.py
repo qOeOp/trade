@@ -247,7 +247,8 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
 
 
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None) -> dict:
-    """The current judgments of a research line with read-time facts, the trials since the last
+    """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
+    note), its current judgments with read-time facts, the trials since the last
     recommendation, the trial count of the line and the gates the next registration would meet. On
     a ledger without a research line: `line` null with the facts and `line select` as the next step."""
     checker = availability.check_identity()
@@ -265,6 +266,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                               "counts": research_status(conn.profile, commit)},
                     "next_actions": ["Select the user's research line with `line select`."]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
+        record = lines.read_line(pinned, line, None)
         judged = _judgments(pinned, line)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
         unreviewed = (lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
@@ -279,7 +281,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                 gates[name] = []
             except Refusal as exc:
                 gates[name] = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
-    return {"at": commit, "line": line, **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
+    return {"at": commit, "line": record, **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],

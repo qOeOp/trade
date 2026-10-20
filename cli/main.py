@@ -433,6 +433,8 @@ def candidate_export(profile: db.LedgerProfile, candidate: str, output: str, at:
 
 
 STRATEGY_STUB = '''{header}
+from decimal import Decimal
+
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.trading import Strategy
 
@@ -446,6 +448,29 @@ class {entry_class}(Strategy):
         super().__init__(StrategyConfig(strategy_id=strategy_id))
         self.instrument_id = instrument_id
         self.trade_start_ns = trade_start_ns
+
+    def equity(self):
+        """Account equity in the instrument's quote currency: portfolio.equity(venue=...) maps each
+        currency to Money, keyed by Currency (not by its code)."""
+        instrument = self.cache.instrument(self.instrument_id)
+        found = self.portfolio.equity(venue=self.instrument_id.venue).get(instrument.quote_currency)
+        return found.as_decimal() if found is not None else Decimal(0)
+
+    def order_quantity(self, quantity, price=None):
+        """`quantity` rounded down to the size increment, or None when it is below the increment,
+        min_quantity or (given a price) min_notional; make_qty(round_down=True) raises below the
+        increment and the venue rejects an order below the minimums."""
+        instrument = self.cache.instrument(self.instrument_id)
+        quantity = Decimal(str(quantity))
+        if quantity < instrument.size_increment.as_decimal():
+            return None
+        made = instrument.make_qty(quantity, round_down=True)
+        if instrument.min_quantity is not None and made < instrument.min_quantity:
+            return None
+        if (price is not None and instrument.min_notional is not None and made.as_decimal() * Decimal(str(price))
+                * instrument.multiplier.as_decimal() < instrument.min_notional.as_decimal()):
+            return None
+        return made
 
     def replay_diagnostics(self):
         """Diagnostic hook: counts the strategy reports about itself (summary only, never evidence);
@@ -794,6 +819,25 @@ def _at(parser, what: str = "ledger") -> None:
     parser.add_argument("--at", help=f"{what} commit, tag or branch (default: the head)")
 
 
+def _op_id(parser) -> None:
+    parser.add_argument("--op-id", help="operation ID; the same ID and content again is a replay (default: derived "
+                                        "from the content)")
+
+
+CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision, e.g. rsi@2)"
+RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
+RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
+RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
+  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
+  --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
+                                           --trade-start defaults to --start
+  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
+example: -- --universe pool --start 2020-02-01T00:00:00Z --trade-start 2020-09-01T00:00:00Z \\
+            --end 2026-10-01T00:00:00Z"""
+COVERAGE_EPILOG = """output keys: commit, scope, input_interval_ms, coverage (per contract), lifecycle,
+lifecycle_missing, interpretation"""
+
+
 def _parser() -> Parser:
     parser = Parser(prog="python -m cli.main", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     nouns = parser.add_subparsers(dest="noun", required=True, parser_class=Parser)
@@ -802,58 +846,64 @@ def _parser() -> Parser:
         noun = nouns.add_parser(name, help=help_text)
         return noun.add_subparsers(dest="verb", required=True, parser_class=Parser)
 
+    def runner(group, name: str, help_text: str):
+        return group.add_parser(name, help=help_text, description=help_text, epilog=RUNNER_EPILOG,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+
     ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export")
     command = ledger.add_parser("init", help="initialize a new research ledger profile")
-    command.add_argument("--name", required=True)
-    command.add_argument("--kind", required=True, choices=db.KINDS)
-    command.add_argument("--service-root", required=True, type=Path)
-    command.add_argument("--research-branch", default="main")
-    command.add_argument("--backup-root", type=Path)
+    command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
+    command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
+    command.add_argument("--service-root", required=True, type=Path, help="directory of the Dolt service")
+    command.add_argument("--research-branch", default="main", help="the branch research writes go to (default: main)")
+    command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
     command = ledger.add_parser("service", help="start, stop or read the ledger's database service")
-    command.add_argument("action", choices=("start", "stop", "status"))
+    command.add_argument("action", choices=("start", "stop", "status"), help="start, stop or status")
     _ledger_option(command)
     command = ledger.add_parser("temp", help="an isolated temporary ledger under the temporary root")
-    command.add_argument("--root")
+    command.add_argument("--root", help="new directory under the temporary root (default: a fresh one)")
     command = ledger.add_parser("sql", help="one read-only query with the reader account")
     _ledger_option(command)
-    command.add_argument("query")
+    command.add_argument("query", help="one SELECT, SHOW, DESCRIBE, EXPLAIN, WITH, TABLE or VALUES statement")
     _at(command)
     command = ledger.add_parser("witness", help="timestamp out-of-sample registrations without a witness")
     _ledger_option(command)
-    command.add_argument("--tsa-url")
+    command.add_argument("--tsa-url", help="RFC 3161 timestamp authority URL (default: the built-in one)")
     command = ledger.add_parser("review", help="the whole review at one exact version")
     _ledger_option(command)
     _at(command)
     command = ledger.add_parser("export", help="full-history backup and reproduction manifest")
     _ledger_option(command)
-    command.add_argument("--kind", required=True, choices=("reproduce", "backup"))
-    command.add_argument("--output")
+    command.add_argument("--kind", required=True, choices=("reproduce", "backup"),
+                         help="reproduce: into a new --output directory; backup: sync to the profile's backup")
+    command.add_argument("--output", help="new directory (required for --kind reproduce)")
     _at(command)
-    command.add_argument("--run-id", type=int, action="append", dest="run_ids")
+    command.add_argument("--run-id", type=int, action="append", dest="run_ids",
+                         help="a run to list in the manifest (repeatable; default: every run)")
 
     candidate = verbs("candidate", "candidates: publish, show, export, new, list")
     command = candidate.add_parser("publish", help="publish one single-file source as a candidate")
     _ledger_option(command)
-    command.add_argument("--file", required=True)
-    command.add_argument("--strategy-id", required=True)
-    command.add_argument("--entry-class", required=True)
-    command.add_argument("--description", required=True)
-    command.add_argument("--parent")
-    command.add_argument("--difference")
-    command.add_argument("--op-id")
+    command.add_argument("--file", required=True, help="the UTF-8 strategy source file")
+    command.add_argument("--strategy-id", required=True, help="strategy ID; a new one starts at revision 1")
+    command.add_argument("--entry-class", required=True, help="the entry class name in the file")
+    command.add_argument("--description", required=True, help="one line on what the candidate does")
+    command.add_argument("--parent", help="parent candidate as ID@N (omit for a root)")
+    command.add_argument("--difference", help="what changed from the parent")
+    _op_id(command)
     command = candidate.add_parser("show", help="a candidate record without its source")
     _ledger_option(command)
-    command.add_argument("--candidate", required=True)
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     _at(command)
     command = candidate.add_parser("export", help="a candidate's source as a temporary working copy")
     _ledger_option(command)
-    command.add_argument("--candidate", required=True)
-    command.add_argument("--output", required=True)
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--output", required=True, help="new file path under the temporary root")
     _at(command)
     command = candidate.add_parser("new", help="a strategy scaffold in a new temporary directory")
-    command.add_argument("--output", required=True)
-    command.add_argument("--strategy-id", required=True)
-    command.add_argument("--entry-class", default="Strategy1")
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.add_argument("--strategy-id", required=True, help="strategy ID for the file header")
+    command.add_argument("--entry-class", default="Strategy1", help="entry class name (default: Strategy1)")
     command = candidate.add_parser("list", help="every candidate with its registration attempts")
     _ledger_option(command)
     _at(command)
@@ -861,144 +911,149 @@ def _parser() -> Parser:
     evidence_noun = verbs("evidence", "Agent evidence bundles: add, export")
     command = evidence_noun.add_parser("add", help="append an evidence bundle")
     _ledger_option(command)
-    command.add_argument("--bundle", required=True)
-    command.add_argument("--file", action="append", dest="files", default=[])
-    command.add_argument("--note")
-    command.add_argument("--op-id")
+    command.add_argument("--bundle", required=True, help="new bundle name")
+    command.add_argument("--file", action="append", dest="files", default=[], help="a file to add (repeatable)")
+    command.add_argument("--note", help="text stored as note.md")
+    _op_id(command)
     command = evidence_noun.add_parser("export", help="a bundle's files into a new temporary directory")
     _ledger_option(command)
-    command.add_argument("--bundle", required=True)
-    command.add_argument("--output", required=True)
+    command.add_argument("--bundle", required=True, help="bundle name")
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
     _at(command)
 
     execution_noun = verbs("execution", "execution captures: recover")
     command = execution_noun.add_parser("recover", help="append recovered bytes of a kept precheck directory")
     _ledger_option(command)
-    command.add_argument("--trial-id", required=True, type=int)
-    command.add_argument("--workdir", required=True)
-    command.add_argument("--failure-receipt", required=True)
+    command.add_argument("--trial-id", required=True, type=int, help="the precheck trial whose capture was refused")
+    command.add_argument("--workdir", required=True, help="the kept precheck directory")
+    command.add_argument("--failure-receipt", required=True, help="the failure receipt the refusal wrote")
 
     judgment = verbs("judgment", "Agent judgments: add")
     command = judgment.add_parser("add", help="append one judgment")
     _ledger_option(command)
-    command.add_argument("--kind", required=True)
-    command.add_argument("--line", required=True)
-    command.add_argument("--based-on", required=True)
+    command.add_argument("--kind", required=True,
+                         help="recommendation, priority, review_cadence, interpretation or search_exposure")
+    command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-1")
+    command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
-                         help="role=…,candidate=ID@N | trial=N | registration=BUNDLE")
-    command.add_argument("--supersedes", type=int)
-    command.add_argument("--cadence-trials", type=int)
-    command.add_argument("--op-id")
+                         help="role=…,candidate=ID@N | trial=N | registration=BUNDLE (repeatable)")
+    command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
+    command.add_argument("--cadence-trials", type=int, help="trials between reviews (review_cadence only)")
+    _op_id(command)
 
     line = verbs("line", "research lines: select")
     command = line.add_parser("select", help="record the user's research line")
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--start", required=True)
-    command.add_argument("--window-start", required=True)
-    command.add_argument("--window-end", required=True)
-    command.add_argument("--market-at")
-    command.add_argument("--note")
+    command.add_argument("--start", required=True,
+                         help="start candidate as ID@N; a revision whose source review passed")
+    command.add_argument("--window-start", required=True, help="development window start, YYYY-MM-DD UTC")
+    command.add_argument("--window-end", required=True, help="development window end (exclusive), YYYY-MM-DD UTC")
+    command.add_argument("--market-at", help="market commit, tag or branch to pin (default: main)")
+    command.add_argument("--note", help="the user's two research targets (maximum drawdown, minimum annual return) "
+                                        "and other context")
 
     registration = verbs("registration", "registrations: add")
-    command = registration.add_parser("add", help="lock a registration")
+    command = runner(registration, "add", "lock a registration")
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--bundle", required=True)
-    command.add_argument("--body", required=True)
-    command.add_argument("--runtime")
-    command.add_argument("--source", action="append", default=[])
+    command.add_argument("--bundle", required=True, help="new bundle name, registration-*")
+    command.add_argument("--body", required=True, help="JSON body file; templates in "
+                                                       ".agents/skills/research-round/templates/registration-*.json")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--source", action="append", default=[], help="a source original file (repeatable)")
 
     hypothesis = verbs("hypothesis", "registered hypotheses: compare")
     command = hypothesis.add_parser("compare", help="a grid run against its registered control")
     _ledger_option(command)
-    command.add_argument("--bundle", required=True)
-    command.add_argument("--run-id", required=True, type=int)
+    command.add_argument("--bundle", required=True, help="registration bundle, registration-*")
+    command.add_argument("--run-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
     research = verbs("research", "research facts: status, state")
     command = research.add_parser("status", help="research fact counts")
     _ledger_option(command)
     _at(command)
-    command = research.add_parser("state", help="the current judgments of a line with read-time facts")
+    command = research.add_parser("state", help="the line record and its current judgments with read-time facts")
     _ledger_option(command)
-    command.add_argument("--line")
+    command.add_argument("--line", help="research line bundle (default: the current line)")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
     command = source.add_parser("review", help="record an independent source review of a precheck")
     _ledger_option(command)
-    command.add_argument("--candidate", required=True)
-    command.add_argument("--runtime", required=True)
-    command.add_argument("--precheck-trial", required=True, type=int)
-    command.add_argument("--verdict", required=True, choices=("passed", "failed"))
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--runtime", required=True, help=RUNTIME_HELP + "; the precheck's image")
+    command.add_argument("--precheck-trial", required=True, type=int, help="the precheck trial reviewed")
+    command.add_argument("--verdict", required=True, choices=("passed", "failed"), help="passed or failed")
     command.add_argument("--items", required=True, help="JSON file with api, causal, activity and readiness")
-    command.add_argument("--reviewer", required=True)
+    command.add_argument("--reviewer", required=True, help="the reviewer's name, not the author's")
 
     validation = verbs("validation", "out-of-sample validations: registration, report")
     command = validation.add_parser("registration", help="register one out-of-sample validation")
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--candidate", required=True)
-    command.add_argument("--window-start", required=True)
-    command.add_argument("--window-end", required=True)
-    command.add_argument("--universe-rule", required=True)
-    command.add_argument("--market-at")
-    command.add_argument("--design", required=True)
-    command.add_argument("--retry-of", type=int)
-    command.add_argument("--op-id")
-    command.add_argument("--tsa-url")
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--window-start", required=True, help="UTC time, e.g. 2026-01-01T00:00:00Z")
+    command.add_argument("--window-end", required=True, help="UTC time, e.g. 2026-04-01T00:00:00Z")
+    command.add_argument("--universe-rule", required=True, help="the market commit's universe rule")
+    command.add_argument("--market-at", help="market commit, tag or branch (default: main)")
+    command.add_argument("--design", required=True, help="JSON file of the validation design")
+    command.add_argument("--retry-of", type=int, help="the registration ID this retries")
+    _op_id(command)
+    command.add_argument("--tsa-url", help="RFC 3161 timestamp authority URL (default: the built-in one)")
     command = validation.add_parser("report", help="the out-of-sample report of a registration")
     _ledger_option(command)
-    command.add_argument("--registration-id", required=True, type=int)
+    command.add_argument("--registration-id", required=True, type=int, help="validation registration ID")
     _at(command)
 
     replay = verbs("replay", "replays: explore, precheck, run, report, reproduce")
-    command = replay.add_parser("explore", help="replay an unpublished strategy file (not evidence)")
+    command = runner(replay, "explore", "replay an unpublished strategy file (not evidence)")
     _ledger_option(command)
     _market_option(command)
     _at(command, "market")
-    command.add_argument("--strategy-file", required=True)
-    command.add_argument("--strategy-class", required=True)
-    command.add_argument("--output", required=True)
-    command.add_argument("--runtime")
-    command = replay.add_parser("precheck", help="the declared native precheck of a published candidate")
+    command.add_argument("--strategy-file", required=True, help="the draft strategy source file")
+    command.add_argument("--strategy-class", required=True, help="its entry class name")
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command = runner(replay, "precheck", "the declared native precheck of a published candidate")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--at", required=True, help="market commit, tag or branch")
-    command.add_argument("--candidate", required=True)
-    command.add_argument("--runtime", required=True)
-    command.add_argument("--output", required=True)
-    command = replay.add_parser("run", help="a sealed research or validation replay")
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--runtime", required=True, help=RUNTIME_HELP)
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command = runner(replay, "run", "a sealed research or validation replay (runner arguments as registered)")
     _ledger_option(command)
     _market_option(command)
     _at(command, "market")
-    command.add_argument("--candidate", required=True)
-    command.add_argument("--runtime")
-    command.add_argument("--hypothesis")
-    command.add_argument("--validation", type=int)
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--hypothesis", help="registration bundle, registration-* (or --validation)")
+    command.add_argument("--validation", type=int, help="validation registration ID (or --hypothesis)")
     command = replay.add_parser("report", help="a sealed run's or an unsealed directory's report")
     _ledger_option(command)
-    command.add_argument("--run-id", type=int)
-    command.add_argument("--directory")
+    command.add_argument("--run-id", type=int, help="sealed run ID (or --directory)")
+    command.add_argument("--directory", help="an unsealed replay directory, reported unverified (or --run-id)")
     _at(command)
     command.add_argument("--tables", action="store_true", help="add the drill-down tables")
     command.add_argument("--reproduction", help="the directory `replay reproduce` wrote")
     command.add_argument("--reproduction-trial", type=int, help="the trial `replay reproduce` returned")
-    command.add_argument("--account", action="store_true")
-    command.add_argument("--exposures", action="store_true")
+    command.add_argument("--account", action="store_true", help="add the native account table")
+    command.add_argument("--exposures", action="store_true", help="add the capital exposures table")
     command = replay.add_parser("reproduce", help="replay a sealed run into a new temporary directory")
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--run-id", required=True, type=int)
-    command.add_argument("--output", required=True)
+    command.add_argument("--run-id", required=True, type=int, help="sealed run ID")
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
 
     market = verbs("market", "market data: init, import, lifecycle, coverage, backup, review")
     command = market.add_parser("init", help="create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
-    command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"))
-    command.add_argument("--service-root", required=True)
+    command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
+                         help="active, isolated or temporary")
+    command.add_argument("--service-root", required=True, help="directory of the Dolt service")
     command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
     command = market.add_parser("backup", help="sync the market database's history to its backup directory")
     _market_option(command)
@@ -1006,9 +1061,9 @@ def _parser() -> Parser:
     _market_option(command)
     command = market.add_parser("import", help="import one month as one market commit")
     _market_option(command)
-    command.add_argument("--month", required=True)
-    command.add_argument("--cache-root")
-    command.add_argument("--workers", type=int, default=4)
+    command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
+    command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
+    command.add_argument("--workers", type=int, default=4, help="parallel import processes (default: 4)")
     command.add_argument("--symbols", nargs="+", help="engineering allowlist (isolated market databases only)")
     command = market.add_parser("lifecycle", help="write the lifecycle bundle of a market commit")
     _ledger_option(command)
@@ -1016,15 +1071,16 @@ def _parser() -> Parser:
     _at(command, "market")
     command.add_argument("--manifest", required=True, help="lifecycle.json (native-lifecycle-v1)")
     command.add_argument("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites")
-    command.add_argument("--op-id")
-    command = market.add_parser("coverage", help="per-contract coverage facts at a market commit")
+    _op_id(command)
+    command = market.add_parser("coverage", help="per-contract coverage facts at a market commit",
+                                epilog=COVERAGE_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     _market_option(command)
     _at(command, "market")
-    command.add_argument("--symbols", nargs="+")
-    command.add_argument("--start", required=True)
-    command.add_argument("--end", required=True)
+    command.add_argument("--symbols", nargs="+", help="Binance symbols (default: every universe member in the window)")
+    command.add_argument("--start", required=True, help="input interval start, UTC ISO-8601 with Z")
+    command.add_argument("--end", required=True, help="input interval end, UTC ISO-8601 with Z")
     _ledger_option(command)
-    command.add_argument("--lifecycle-bundle")
+    command.add_argument("--lifecycle-bundle", help="lifecycle-<commit> bundle to add lifecycle episodes (needs --ledger)")
     return parser
 
 

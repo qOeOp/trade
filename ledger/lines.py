@@ -1,4 +1,4 @@
-"""Research lines (`ledger.select_line`, `ledger.current_line`, `ledger.line_trials`).
+"""Research lines (`ledger.select_line`, `ledger.current_line`, `ledger.read_line`, `ledger.line_trials`).
 
 A research line is the user's choice of start candidate, development window and pinned market
 commit, stored append-only as the evidence bundle research-line-<n> holding research-line.json.
@@ -30,7 +30,8 @@ def _unavailable_market(market_database: str, market_at: str) -> dict:
                               "pass market= until then")
 
 
-def _read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
+def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
+    """The stored record of research line `bundle` with its bundle name, creation time and commit."""
     try:
         loaded = evidence.load_bundle(conn, bundle, at)
     except Refusal as exc:
@@ -61,7 +62,7 @@ def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | Non
     numbered = _lines(conn, clause)
     if not numbered:
         return None
-    return _read_line(conn, numbered[-1][1], at)
+    return read_line(conn, numbered[-1][1], at)
 
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
@@ -135,7 +136,7 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
     if (not isinstance(line_bundle, str) or not LINE.fullmatch(line_bundle)
             or not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (line_bundle,))):
         raise refuse("LINE_UNKNOWN", f"no research line {line_bundle!r} at {commit}", missing=(str(line_bundle),))
-    line = _read_line(conn, line_bundle, at)
+    line = read_line(conn, line_bundle, at)
     window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
               datetime.combine(date.fromisoformat(line["window_end"]), time()))
     found = [trial_id for trial_id, start, end in conn.rows(
