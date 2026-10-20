@@ -432,21 +432,21 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-### 开始研究时告诉你一次：要连续研究，得由你开宿主的目标模式 [#E-4-1-3]
+### 开始研究时 Agent 自己设宿主目标，让研究连续跑下去 [#E-4-1-3]
 
-进入路线之前，Agent 会告诉你一次：想让研究连续跑下去，需要你在宿主里开目标模式，这只有你能开（Codex 用 `/goal <目标>`，Claude Code 用 `/loop`，把目标当提示词）。它还会给你一句可以直接用的目标。说完它就接着做，不等你开。
+进入路线之前，Agent 自己给这次会话设宿主的目标，你不用写。目标从账本拼出来：哪条路线、从哪一版开始、你选路线时定的两个目标，再加一句：写完报告、复盘或排好优先级都不算完，只有你叫停或路线做不下去才停。宿主有目标工具（比如 Codex 的 `create_goal`）它就直接调，不设 token 预算，并用一行告诉你。没有这种工具，它才请你批准一次，给你一条能直接粘贴的命令（Codex 用 `/goal <目标>`，Claude Code 用 `/loop <目标>`），然后不等你回复就接着做。
 
-一个回合里 Agent 能自己不停（<Ref id="A.1.1.3" />），但回合结束后要不要开下一个回合，由宿主决定；没开目标模式，做完一轮就停了。这件事 Agent 替你做不了，所以说一次；说多了是打扰。
+一个回合里 Agent 能自己不停（<Ref id="A.1.1.3" />），但回合结束后要不要接着开下一个回合，由宿主的目标决定；没有目标，做完一轮就停了。目标的内容账本里都有，让你自己写既多一步，也容易漏掉路线或目标；所以能设就由 Agent 设。目标一直留着，路线还能做就不标完成，否则宿主会以为事情做完了。
 
 <div className="rd-example">
 
-比如你选了一条日线动量路线，Agent 会说：要连续研究，请开目标模式，目标可以写成「在日线动量路线里持续研究，读报告时参照最大回撤上限和最低年化这两个目标，写完报告或复盘后不要停」。说完它就去核就绪、跑第一次回放。
+比如你选了一条日线动量路线，宿主有 `create_goal`。Agent 调用它，目标写成「在日线动量路线（从选定的那一版开始）里持续研究，读报告时参照选路线时记下的两个目标；写完报告、复盘或优先级都不停，直到用户叫停或路线做不下去」，不设 token 预算，然后告诉你一句「已设好目标」，就去核就绪、跑第一次回放。换到没有目标工具的宿主，它会把同一句目标放进 `/goal <目标>` 请你批准一次，不等你回复就接着做。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.3">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：无评测用例，演练中也未见这一步的实际过程。</p>
+<p className="rd-note">缺：评测用例 start-sets-goal 已写好、尚未运行；Desktop 会话里宿主是否提供 `create_goal` 未实测。</p>
 
 ## 待定事项 [#E-pending]
 
