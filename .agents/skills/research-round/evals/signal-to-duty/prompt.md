@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线上，`hypothesis compare research-plan-h44 run-f3d8`（候选 `xs-root@5` 对照 `xs-root@4`）的结果：账户年化差 -1.6 个百分点，区间跨 0。归因里比较显眼的几项：
+研究路线上，`hypothesis compare --bundle research-plan-h44 --run-id run-f3d8`（候选 `xs-root@5` 对照 `xs-root@4`）的结果：账户年化差 -1.6 个百分点，区间跨 0。归因里比较显眼的几项：
 - `by_instrument`：差集中在 ETC、APT、OP 三个合约；ETC 和 OP 在 `@3`、`@4` 两个版本里也是亏得最多的；
 - `fee_stress`：候选的盈亏平衡费率倍数 1.08；
 - `drawdown`：候选的最大回撤区间里，APT 一个合约占了回撤的 71%。

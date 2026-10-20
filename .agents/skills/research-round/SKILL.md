@@ -19,21 +19,41 @@ refusal. These commands are the only way to write the ledger.
 | Step | Command | Read first |
 |---|---|---|
 | 1 Sources | `evidence export`, `evidence add` (and `research-sources`) | [hypothesis.md](references/hypothesis.md) |
-| 2 Hypothesis | (registration body, written in /tmp) | [hypothesis.md](references/hypothesis.md) |
+| 2 Hypothesis | (registration body, written in /tmp) | [hypothesis.md](references/hypothesis.md), [registration-root.json](templates/registration-root.json), [registration-derived.json](templates/registration-derived.json) |
 | 3 Candidate | `candidate export`, `candidate new`, `candidate publish`, `candidate show`, `candidate list` | [strategy-header.md](templates/strategy-header.md), [strategy-authoring.md](references/strategy-authoring.md) |
 | 4 Precheck and review | `replay precheck`, then `source review` by an independent reviewer | |
 | 5 Registration | `registration add` | [hypothesis.md](references/hypothesis.md) |
 | 6 Replay | `replay run --hypothesis BUNDLE`, once per grid point | |
-| 7 Audit and eligibility | `replay report RUN` | [diagnosis.md](references/diagnosis.md) |
-| 8 Comparison | `hypothesis compare BUNDLE RUN` | [attribution.md](references/attribution.md), [feedback.md](references/feedback.md) |
+| 7 Audit and eligibility | `replay report --run-id RUN` | [diagnosis.md](references/diagnosis.md), [attribution.md](references/attribution.md) |
+| 8 Comparison | `hypothesis compare --bundle BUNDLE --run-id RUN`; a root without a control skips it | [attribution.md](references/attribution.md), [feedback.md](references/feedback.md) |
 | 9 Feedback and priority | `judgment add`, `research state`, `research status` | [feedback.md](references/feedback.md) |
 
+```bash
+cli() { uv run --frozen python -m cli.main "$@"; }
+M=LINE-MARKET-COMMIT; R=ghcr.io/qoeop/trade-runtime:main  # then the image_ref precheck returns
+WINDOW="--symbols BTCUSDT --start WARMUP-START --trade-start LINE-START --end LINE-END"  # ...T00:00:00Z
+cli replay precheck --at $M --candidate ID@N --runtime $R --output /tmp/RUNDIR/precheck \
+  -- --symbols BTCUSDT --start WARMUP-START --trade-start LINE-START --end ONE-WEEK-LATER
+cli source review --candidate ID@N --runtime $R --precheck-trial TRIAL --verdict passed|failed \
+  --items /tmp/RUNDIR/items.json --reviewer NAME  # by the reviewer; its "bundle" goes in prechecks
+cli registration add --bundle registration-NAME --body /tmp/RUNDIR/body.json --runtime $R -- $WINDOW
+cli replay run --at $M --candidate ID@N --runtime $R --hypothesis registration-NAME -- $WINDOW
+cli replay report --run-id RUN
+cli replay reproduce --run-id RUN --output /tmp/RUNDIR/reproduction
+```
+
+The runner arguments after `--` (`engine/README.md`) are the same for `registration add` and
+`replay run`. A refused `registration add` writes nothing: fix what the refusal names and rerun.
+Typical durations: precheck about 10 s, a one-contract 20-month run about 45 s, reproduce about
+35 s, the full test suite about 3 min; wait for the command instead of polling.
+
 Precheck runs the published candidate natively on the shortest window and fewest contracts the
-change needs. The review is done by a sub-agent that did not write the source: it reads the sealed
-precheck output and records its verdict on the four items (api, causal, activity, readiness) with
-`source review`. `replay explore` runs an unpublished file for engineering only (purpose
-explore); it writes a trial but is never evidence. Any statistic beyond the reports follows
-`nautilus-report-analysis`.
+change needs. The review is done by a fresh sub-agent with no authoring context (on Codex
+`fork_turns: "none"`), given only the candidate id, the sealed precheck bundle and the four items
+(api, causal, activity, readiness); after a repair, by a new one. It does those four checks only,
+recomputes no descriptive statistic, and records its verdict with `source review`. `replay explore`
+runs an unpublished file for engineering only (purpose explore); it writes a trial but is never
+evidence. Any statistic beyond the reports follows `nautilus-report-analysis`.
 
 Read also: [review.md](references/review.md) when the review cadence is due;
 [template.md](references/template.md) to transcribe a template or a user source into a root;
@@ -62,7 +82,8 @@ changes; [restore.md](references/restore.md) for a backup restore drill;
 - **A.2.3.3** Stop, explain and wait for the user before live trading, venue connections or
   trading credentials; a destructive write (clearing the ledger, rewriting or deleting published
   records); relaxing or tightening any refusal or audit check, in code, tests, configuration or a
-  skill; or changing a research target. Do not do it and do not work around it.
+  skill; changing a research target; or killing a host process or changing host configuration
+  (a Docker credential helper, for example). Do not do it and do not work around it.
 - **V.1.2.1** Replay every point of a registered grid once before reading any performance measure
   or registering the next batch. Do not add points, change parameters or edit source midway: a new
   grid, source or intent is a new registration, and a consumed point is retried only by a new

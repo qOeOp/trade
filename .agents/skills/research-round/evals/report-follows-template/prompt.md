@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-mom-4h`，登记 `research-plan-h21`：在父版本 `mom-root@8` 上把入场从市价单改成在信号 K 线收盘价挂限价单。对照运行 `run-e40`（`mom-root@8`），候选 `mom-root@9` 的运行 `run-e57`，两边经济证据都可用、可比。`replay report` 和 `hypothesis compare research-plan-h21 run-e57` 的结果（账本版本 `2d7f4a1`）：
+研究路线 `line-mom-4h`，登记 `research-plan-h21`：在父版本 `mom-root@8` 上把入场从市价单改成在信号 K 线收盘价挂限价单。对照运行 `run-e40`（`mom-root@8`），候选 `mom-root@9` 的运行 `run-e57`，两边经济证据都可用、可比。`replay report` 和 `hypothesis compare --bundle research-plan-h21 --run-id run-e57` 的结果（账本版本 `2d7f4a1`）：
 
 - 检验：账户日收益配对 stationary bootstrap，块长 10 天；年化效应 +2.6%，区间 [−0.9%, +6.1%]，p = 0.09
 - 年化：候选 15.4%，对照 12.8%；MARK 最大回撤：14.2% / 15.0%；计划胜率：47% / 44%；夏普：1.21 / 1.02

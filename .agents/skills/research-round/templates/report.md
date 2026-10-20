@@ -1,8 +1,8 @@
 # Report template
 
 The fixed sections of a report you write on one run or on a comparison of two runs, in this order.
-Values come from `replay report RUN` and `hypothesis compare BUNDLE RUN`; detail tables you compute
-(`nautilus-report-analysis`) go under their section.
+Values come from `replay report --run-id RUN` and `hypothesis compare --bundle BUNDLE --run-id
+RUN`; detail tables you compute (`nautilus-report-analysis`) go under their section.
 
 | Section | Single run | Comparison |
 |---|---|---|
@@ -22,4 +22,4 @@ Values come from `replay report RUN` and `hypothesis compare BUNDLE RUN`; detail
 | Limitations | Deduplicated list of limitations | Both sides' limitations, merged and deduplicated |
 
 - **R.3.1.2** Write every run or comparison report with all these sections in this order. Keep an
-  empty section and write why it is empty; never drop one.
+  empty section and write why it is empty; never drop one. No HTML report unless the user asks.
