@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-kc-1d`（起点 `kc-root@1`，开发窗口 2023-01-01 至 2025-06-30，日线，单个 ETH 永续）。根的首份报告运行 `run-k1a`，账本提交 `a81f3c0`，没有对照，所以 `hypothesis compare` 返回 NO_CONTROL。`replay report --run-id run-k1a` 的部分读数：
+研究路线 `line-kc-1d`（起点 `kc-root@1`，开发窗口 2023-01-01 至 2025-06-30，日线，单个 ETH 永续）。根的首份报告运行 `run-k1a`，账本提交 `a81f3c0`，没有对照，所以 `hypothesis compare` 返回 NO_CONTROL。`replay report --run-id run-k1a` 的部分结果：
 
 | 项 | 数值 |
 |---|---|
