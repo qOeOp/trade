@@ -260,6 +260,5 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         "mark_carry": list(getattr(replay.observer, "carried", None) or []),
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)
-    (output / "summary.json").write_text(payload + "\n")
-    print(payload)
+    (output / "summary.json").write_text(payload + "\n")  # not echoed to stdout: the capture keeps it once
     return summary, integrity_findings

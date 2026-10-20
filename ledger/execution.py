@@ -2,10 +2,13 @@
 
 Before a replay's container starts, its trial row, binding and start receipt land in one commit:
 every attempt has an identity before it has output. The receipt is the product-reserved bundle
-trial-<trial_id>-execution-start. When the replay ends (completed, interrupted or a host failure),
-`seal_capture` stores the bytes that exist in its working directory as trial-<trial_id>-execution,
-each file captured, captured empty, missing or not started; the native reports of a sealed run are
-only hashed (their bytes stay a working copy the ingest checks against). `read_capture` reads it
+trial-<trial_id>-execution-start; it holds the source bytes only when no candidate holds them. When
+the replay ends (completed, interrupted or a host failure), `seal_capture` stores the bytes that
+exist in its working directory as trial-<trial_id>-execution, each file captured, captured empty,
+hashed, missing or not started. Each fact is stored once: the source and the coverage receipt are
+only hashed (their bytes are the candidate's or the start receipt's), and so are a sealed run's
+native reports and semantic fingerprint (their bytes stay a working copy the ingest checks against;
+the run row keeps the fingerprint). `read_capture` reads it
 back with every identity and hash checked. A trial is sealed once: never again after a capture or
 recovery material exists. A capture refused for size leaves no capture; bytes recovered from the
 kept directory afterwards go to trial-<trial_id>-recovery (`recover_capture`) and never replace it.
@@ -64,7 +67,9 @@ def start_receipt(conn: db.LedgerConnection, trial_id: int, context: Mapping, op
     """Write trial-<trial_id>-execution-start inside the caller's write; returns its manifest hash.
 
     `context`: source_sha256, runtime_identity, workdir, argv, mounts, input_identity,
-    source_bytes and input_coverage (the coverage receipt bytes).
+    source_bytes and input_coverage (the coverage receipt bytes). The source bytes are stored only
+    when no candidate holds them (an exploration of an unpublished file); otherwise the candidate
+    row is their one copy and the trial row binds their hash.
     """
     trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref FROM trial WHERE trial_id = %s", (trial_id,))
     if trial is None:
@@ -88,8 +93,10 @@ def start_receipt(conn: db.LedgerConnection, trial_id: int, context: Mapping, op
                 "mounts": list(context.get("mounts") or ()), "input_identity": context.get("input_identity")}
     encoded = db.canonical_json(manifest).encode("utf-8")
     bundle = f"trial-{trial_id}-execution-start"
-    evidence.write_files(conn, bundle, {MANIFEST: encoded, SOURCE: source, COVERAGE: coverage},
-                         f"execution_start:{op_id}")
+    files = {MANIFEST: encoded, COVERAGE: coverage}
+    if not conn.rows("SELECT 1 FROM candidate WHERE source_sha256 = %s", (trial["source_sha256"],)):
+        files[SOURCE] = source
+    evidence.write_files(conn, bundle, files, f"execution_start:{op_id}")
     return {"bundle": bundle, "path": MANIFEST, "sha256": hashlib.sha256(encoded).hexdigest()}
 
 
@@ -129,7 +136,9 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
     path), statuses (status by path), listed (each manifest entry: status, sha256, length),
     runtime_failures, start, input_coverage}. `start` is the start receipt's execution.json,
     `input_coverage` its parsed input-coverage.json (None when it is not JSON) and
-    `input_coverage_bytes` its bytes. Whether the capture makes the run unusable is not decided here.
+    `input_coverage_bytes` its bytes. A hashed file's bytes are elsewhere (`listed_sha256` gives the
+    hash its readers check them against). Whether the capture makes the run unusable is not decided
+    here.
     """
     _, clause = db.as_of(conn, at)
     trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref FROM trial{clause} WHERE trial_id = %s",
@@ -178,7 +187,9 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
             raise refuse("LEDGER_CORRUPT", f"{bundle}/{path} is recorded {status} but holds bytes",
                          missing=(f"{bundle}/{path}",))
         statuses[path] = status
-    if CAPTURED_SOURCE in captured and hashlib.sha256(captured[CAPTURED_SOURCE]).hexdigest() != trial["source_sha256"]:
+    # the sealed source is hashed (or, in an older capture, stored); either way its listed hash is the source's
+    if statuses.get(CAPTURED_SOURCE) in ("captured", "hashed") and listed[CAPTURED_SOURCE].get(
+            "sha256") != trial["source_sha256"]:
         raise refuse("EXECUTION_IDENTITY", f"the sealed source of trial {trial_id} is not the trial's source",
                      missing=(f"{bundle}/{CAPTURED_SOURCE}",))
     failures = []
@@ -193,20 +204,38 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
             "input_coverage_bytes": coverage_bytes}
 
 
+def listed_sha256(capture: Mapping, path: str) -> str | None:
+    """The SHA-256 a read capture records for one file it captured or hashed, else None."""
+    entry = (capture.get("listed") or {}).get(path)
+    if isinstance(entry, Mapping) and entry.get("status") in ("captured", "hashed"):
+        return entry.get("sha256")
+    return None
+
+
+def read_files(workdir: Path, paths) -> dict[str, bytes]:
+    """The regular files of `paths` under `workdir` (never through a link); a missing one is left out.
+    A reader checks them against the capture's hashes (problems.sealed)."""
+    return {path: data for path in paths if (data := _regular(Path(workdir) / path)) is not None}
+
+
 # Sealing (seal_capture) and recovery (recover_capture, recovery_material)
 
 PROCESS = "process.json"
 AUDIT_RESULT = "audit/audit.json"
 FINGERPRINT_RESULT = "fingerprint/fingerprint.json"
 CAPTURE_FILES = (PROCESS, "native.stdout.txt", "native.stderr.txt", "audit.stdout.txt", "audit.stderr.txt",
-                 "fingerprint.stdout.txt", "fingerprint.stderr.txt", CAPTURED_SOURCE, COVERAGE, RUNTIME_ERRORS,
-                 "reports/summary.json", AUDIT_RESULT, FINGERPRINT_RESULT)
+                 "fingerprint.stdout.txt", "fingerprint.stderr.txt", RUNTIME_ERRORS, "reports/summary.json",
+                 AUDIT_RESULT, FINGERPRINT_RESULT)
+# Stored once elsewhere, so every capture records only their hash and length: the source (the candidate,
+# or the start receipt of an unpublished exploration) and the coverage receipt (the start receipt).
+HASHED_INPUTS = (CAPTURED_SOURCE, COVERAGE)
 AUDIT_FILES = frozenset({"audit.stdout.txt", "audit.stderr.txt", AUDIT_RESULT})
 FINGERPRINT_FILES = frozenset({"fingerprint.stdout.txt", "fingerprint.stderr.txt", FINGERPRINT_RESULT})
 STAGE_FILES = {"audit": AUDIT_FILES, "fingerprint": FINGERPRINT_FILES}
 STAGES = ("native", "audit", "fingerprint")
-# A sealed run's native reports stay a working copy: the capture records their hash and length only.
-HASHED_REPORTS = tuple(f"reports/{name}" for name in metrics.REPORT_FILES.values())
+# Outside a precheck the native reports stay a working copy and the fingerprint is the run row's: the
+# capture records their hash and length only.
+HASHED_OUTPUTS = (*(f"reports/{name}" for name in metrics.REPORT_FILES.values()), FINGERPRINT_RESULT)
 # The reports engine.audit_main needs before the auditor runs (engine.write_native_reports writes them).
 NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
                   "order_events.jsonl.gz")
@@ -266,10 +295,11 @@ def _regular(path: Path) -> bytes | None:
 def _capture_files(workdir: Path, purpose: str, facts: Mapping) -> tuple[dict, dict[str, bytes]]:
     """(manifest entries, stored bytes) of what exists in the working directory, by the capture rule.
 
-    A precheck stores every report; any other trial stores none and hashes the native reports.
+    Every trial hashes its source and coverage receipt; a precheck stores every report, any other
+    trial stores none and hashes the native reports and the fingerprint.
     """
     names = list(CAPTURE_FILES)
-    hashed = () if purpose == "precheck" else HASHED_REPORTS
+    hashed = HASHED_INPUTS + (() if purpose == "precheck" else HASHED_OUTPUTS)
     reports = workdir / "reports"
     if purpose == "precheck" and reports.is_dir() and not reports.is_symlink():
         for path in sorted(reports.rglob("*")):
@@ -279,7 +309,7 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping) -> tuple[dict, d
     not_started = {name for stage, files in STAGE_FILES.items() if not _ran(facts.get(stage)) for name in files}
     listed: dict[str, dict[str, str | int]] = {}
     stored: dict[str, bytes] = {}
-    for name in [*names, *hashed]:
+    for name in dict.fromkeys([*names, *hashed]):
         if name in not_started:
             listed[name] = {"status": "not_started"}
             continue
@@ -479,8 +509,7 @@ def recover_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, fail
                                                                                               "captured_empty")]
         if absent:
             raise refuse("RECOVERY_INCOMPLETE", "the kept directory lacks " + ", ".join(absent), missing=tuple(absent))
-        if CAPTURED_SOURCE not in stored or hashlib.sha256(stored[CAPTURED_SOURCE]).hexdigest() != trial[
-                "source_sha256"]:
+        if (listed.get(CAPTURED_SOURCE) or {}).get("sha256") != trial["source_sha256"]:
             raise refuse("EXECUTION_IDENTITY", f"the recovered source of trial {trial_id} is not the trial's source",
                          missing=(CAPTURED_SOURCE,))
         manifest = {"format": RECOVERY_FORMAT, "trial_id": trial_id, "purpose": trial["purpose"],

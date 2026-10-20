@@ -11,6 +11,7 @@ never make a run invalid. Nothing here writes.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import json
 
 from ledger import db, execution
@@ -102,9 +103,9 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
     capture = execution.read_capture(conn, trial_id)
     stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
     files = capture.get("files") or {}
+    sealed = execution.listed_sha256(capture, execution.COVERAGE) if capture["status"] == "captured" else None
     if (capture["status"] != "captured" or not isinstance(capture.get("start"), Mapping)
-            or not isinstance(stages.get("native"), Mapping) or SUMMARY not in files
-            or execution.COVERAGE not in files):
+            or not isinstance(stages.get("native"), Mapping) or SUMMARY not in files or sealed is None):
         raise refuse("CAPTURE_INCOMPLETE", f"trial {trial_id} has no complete original capture (start receipt, "
                                            "stages, coverage receipt and native summary)",
                      missing=(f"trial-{trial_id}-execution",))
@@ -114,8 +115,10 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
             code = stage.get("exit_code") if isinstance(stage, Mapping) else None
             raise refuse("PHASE_FAILED", f"stage {name} of trial {trial_id} did not exit 0 (exit code {code})",
                          missing=(name,))
-    coverage = _json(files[execution.COVERAGE])
-    if (files[execution.COVERAGE] != capture.get("input_coverage_bytes") or not isinstance(coverage, Mapping)
+    started = capture.get("input_coverage_bytes")
+    coverage = _json(started)
+    # The capture hashes the receipt the container read; its bytes are the start receipt's.
+    if (started is None or hashlib.sha256(started).hexdigest() != sealed or not isinstance(coverage, Mapping)
             or coverage.get("input_identity") != capture["start"].get("input_identity")):
         raise refuse("COVERAGE_MISMATCH", f"the sealed coverage receipt of trial {trial_id} is not the one its start "
                                           "receipt holds", missing=(execution.COVERAGE,))

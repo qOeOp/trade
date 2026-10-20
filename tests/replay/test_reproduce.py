@@ -44,7 +44,8 @@ class ReproduceTests(unittest.TestCase):
         stored = metrics.load_run(self.world.conn, self.fingerprinted)
         self.assertEqual((stored["run"]["fingerprints"], stored["capture"]["stages"]["fingerprint"]["exit_code"],
                           stored["evidence"]["unavailable"]), (FINGERPRINT, 0, []))
-        self.assertEqual(json.loads(stored["capture"]["files"]["fingerprint/fingerprint.json"]), FINGERPRINT)
+        self.assertEqual(stored["capture"]["statuses"]["fingerprint/fingerprint.json"], "hashed",
+                         "the run row keeps the fingerprint; the capture its hash")
         unprinted = metrics.load_run(self.world.conn, self.unprinted)
         self.assertEqual((unprinted["capture"]["stages"]["fingerprint"]["state"],
                           unprinted["evidence"]["fingerprints"]),

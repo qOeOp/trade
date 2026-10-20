@@ -83,7 +83,7 @@ def native() -> metrics.Reports:
 
 
 def report(reports: metrics.Reports) -> dict:
-    return metrics.metrics(reports, revision="0" * 40)
+    return metrics.metrics(reports)
 
 
 class SealedReportTests(unittest.TestCase):

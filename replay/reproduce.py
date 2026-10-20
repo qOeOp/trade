@@ -74,7 +74,8 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
             native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
                                                     "explore")
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
-            fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]))
+            fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]),
+                                                           execution.read_files(output, (execution.FINGERPRINT_RESULT,)))
         finally:
             entry._cleanup(exported)
     expected = stored["run"]["fingerprints"]

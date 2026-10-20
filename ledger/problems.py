@@ -215,17 +215,28 @@ def _exit(stage) -> int | None:
     return None
 
 
-def sealed(capture: Mapping, path: str) -> bytes | None:
-    """The sealed bytes of one captured file (b"" when captured empty), None when it was not captured."""
+def sealed(capture: Mapping, path: str, verified: Mapping[str, bytes] | None = None) -> bytes | None:
+    """The sealed bytes of one captured file (b"" when captured empty), None when it was not captured.
+
+    A hashed file's bytes are read from `verified` (files of the working directory) only when they
+    equal the hash and length the capture records."""
     status = (capture.get("statuses") or {}).get(path)
     if status == "captured":
         return capture["files"][path]
+    if status == "hashed" and verified is not None:
+        entry = (capture.get("listed") or {}).get(path) or {}
+        data = verified.get(path)
+        if data is not None and len(data) == entry.get("length") and hashlib.sha256(data).hexdigest() == entry.get(
+                "sha256"):
+            return data
+        return None
     return b"" if status == "captured_empty" else None
 
 
-def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, config_sha256: str) -> list[dict]:
+def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, config_sha256: str,
+                     verified: Mapping[str, bytes] | None = None) -> list[dict]:
     """Every invalidity reason the sealed capture of one trial gives: its outcome, stage exits, audit
-    result, runtime failures, native summary and fingerprint stage."""
+    result, runtime failures, native summary and fingerprint stage (`verified`: as `sealed`)."""
     stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
     outcome = given if isinstance(given := capture.get("outcome"), Mapping) else {}
     reasons = []
@@ -241,12 +252,15 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
         reasons.append(reason("NATIVE_REPORT_UNREADABLE", "the native summary is not a JSON object", SUMMARY))
     else:
         reasons += summary_problems(parsed, source_sha256, identity, config_sha256)
-    reasons += capture_fingerprint(capture)[1]
+    reasons += capture_fingerprint(capture, verified)[1]
     return cause_first(unique(reasons))
 
 
-def capture_fingerprint(capture: Mapping) -> tuple[dict | None, list[dict]]:
+def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None = None) -> tuple[dict | None, list[dict]]:
     """(the semantic fingerprint the fingerprint stage sealed, its failure reasons).
+
+    Outside a precheck the capture holds only the fingerprint's hash; its bytes come from `verified`
+    (the working directory's files, checked against that hash by `sealed`).
 
     A passed run needs its fingerprint: a stage that never ran, or an image without a fingerprint entry
     (not_available), is FINGERPRINT_MISSING. A stage that ran must exit 0 and leave a JSON object.
@@ -259,7 +273,7 @@ def capture_fingerprint(capture: Mapping) -> tuple[dict | None, list[dict]]:
     if _exit(stage) != 0:
         return None, [reason("FINGERPRINT_FAILED", f"the fingerprint stage ended {stage.get('state')} with exit "
                                                    f"code {stage.get('exit_code')}", "fingerprint")]
-    value = json_object(sealed(capture, FINGERPRINT))
+    value = json_object(sealed(capture, FINGERPRINT, verified))
     if value is None:
         return None, [reason("FINGERPRINT_FAILED", "the fingerprint stage wrote no JSON object", FINGERPRINT)]
     return value, []
