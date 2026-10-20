@@ -3,6 +3,8 @@ sealed research replays become runs, and every failure is recorded rather than h
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -276,9 +278,16 @@ class SealedReplayTests(unittest.TestCase):
         return trials.ingest_run(self.world.conn, trial_id, workdir or Path(start["workdir"]), start["input_identity"],
                                  checkout=self.world.checkout)
 
+    @contextlib.contextmanager
+    def keeps_directory(self, note: str = "replay directory kept for diagnosis: "):
+        """The replay entry says on stderr which directory it keeps; held back here and checked."""
+        with contextlib.redirect_stderr(io.StringIO()) as said:
+            yield
+        self.assertIn(note, said.getvalue())
+
     def interrupted_before_ingest(self, ref: str) -> tuple[int, Path]:
         """A research replay whose capture is sealed and whose ingest is interrupted: no run, directory kept."""
-        with patch.object(entry.trials, "ingest_run", side_effect=KeyboardInterrupt), \
+        with self.keeps_directory(), patch.object(entry.trials, "ingest_run", side_effect=KeyboardInterrupt), \
                 self.assertRaises(KeyboardInterrupt):
             self.run_ref(ref)
         (trial_id,), = self.rows("SELECT MAX(trial_id) FROM trial")
@@ -338,7 +347,8 @@ class SealedReplayTests(unittest.TestCase):
                          ("EXPORT_CHANGED_BEFORE_EXECUTION", before))
 
     def test_a_kept_directory_is_stored_only_as_it_was_sealed(self):
-        with patch.object(entry.trials, "ingest_run", side_effect=RuntimeError("host lost the ledger")), \
+        with self.keeps_directory(), \
+                patch.object(entry.trials, "ingest_run", side_effect=RuntimeError("host lost the ledger")), \
                 self.assertRaises(RuntimeError):
             self.run_ref(self.refs[3])
         (trial_id,), = self.rows("SELECT MAX(trial_id) FROM trial")
@@ -388,7 +398,8 @@ class SealedReplayTests(unittest.TestCase):
 
     def test_a_capture_refused_for_size_spends_the_point_as_an_invalid_run(self):
         self.world.scenario = {"audit_passed": False, "findings": ["lookahead"]}
-        with patch.object(execution, "CAPTURE_LIMIT", 64):
+        with self.keeps_directory("replay directory kept for diagnosis (capture refused for size): "), \
+                patch.object(execution, "CAPTURE_LIMIT", 64):
             stored = self.run_ref(self.refs[7])
         self.assertEqual((stored["status"], codes(stored["failure_reasons"])), ("invalid", ["EXECUTION_CAPTURE_LIMIT"]))
         trial_id = stored["trial_id"]
@@ -439,7 +450,7 @@ class SealedReplayTests(unittest.TestCase):
             raise subprocess.TimeoutExpired(command, timeout)
         exported = registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, LINE_WINDOW, {"universe": True},
                                                      None, True)
-        with db.connect(self.world.profile, "writer") as conn, seams.use(run=slow), \
+        with self.keeps_directory(), db.connect(self.world.profile, "writer") as conn, seams.use(run=slow), \
                 self.assertRaises(entry.ReplayTimeout):
             revision = __import__("ledger.strategies", fromlist=["x"]).read_candidate(conn, self.refs[12])
             entry.seal(self.world.profile, conn, revision, None, exported, RUNNER_ARGV, self.bundle_of[self.refs[12]],
@@ -448,6 +459,35 @@ class SealedReplayTests(unittest.TestCase):
         capture = execution.read_capture(self.world.conn, trial_id)
         self.assertEqual((capture["outcome"]["kind"], capture["stages"]["native"]["state"]), ("interrupted", "started"))
         self.assertEqual(self.world.stopped[-1], entry.container_name(self.world.profile, trial_id, "native"))
+
+
+class StageLogTests(unittest.TestCase):
+    def test_a_long_stage_log_keeps_its_first_and_last_lines_and_says_what_it_left_out(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        log = root / "native.stderr.txt"
+        lines = [b"first failure\n", *(f"[ERROR] Python on_bar failed: bar {index}\n".encode() for index in range(60_000)),
+                 b"verdict line\n"]
+        log.write_bytes(b"".join(lines))
+        with patch.object(entry, "LOG_HEAD", 4096), patch.object(entry, "LOG_TAIL", 1024):
+            entry.bound_log(log)
+            kept = log.read_bytes()
+            entry.bound_log(log)  # a bounded log stays as it is
+        self.assertEqual(log.read_bytes(), kept)
+        found = kept.splitlines(keepends=True)
+        note = next(line for line in found if line.startswith(b"[replay entry: "))
+        head, tail = found[:found.index(note)], found[found.index(note) + 1:]
+        self.assertEqual(head, lines[:len(head)])
+        self.assertEqual(tail, lines[len(lines) - len(tail):])
+        self.assertLessEqual(len(b"".join(head)), 4096)
+        self.assertLessEqual(len(b"".join(tail)), 1024)
+        omitted = lines[len(head):len(lines) - len(tail)]
+        self.assertEqual(note, f"[replay entry: {len(b''.join(omitted))} bytes in {len(omitted)} lines left out of "
+                               "this log]\n".encode())
+        small = root / "audit.stdout.txt"
+        small.write_bytes(b"short\n")
+        entry.bound_log(small)
+        self.assertEqual(small.read_bytes(), b"short\n")
 
 
 if __name__ == "__main__":

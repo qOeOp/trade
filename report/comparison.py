@@ -17,6 +17,7 @@ import json
 import math
 from pathlib import Path
 from statistics import NormalDist
+from typing import overload
 
 import numpy as np
 
@@ -76,7 +77,15 @@ def _series(values, name: str) -> np.ndarray:
     return array
 
 
-def _deviation(values: np.ndarray, axis=None) -> np.ndarray | float:
+@overload
+def _deviation(values: np.ndarray, axis: None = None) -> float: ...
+
+
+@overload
+def _deviation(values: np.ndarray, axis: int) -> np.ndarray: ...
+
+
+def _deviation(values: np.ndarray, axis: int | None = None) -> np.ndarray | float:
     """The sample standard deviation, exactly zero when every value is the same (numpy's two-pass
     formula leaves rounding residue there)."""
     spread = np.std(values, axis=axis, ddof=1)
@@ -165,7 +174,7 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
         raise refuse("COMPARISON_UNAVAILABLE", f"{days} days hold fewer than two blocks of {block}",
                      missing=("days",), expected=f"at least {2 * block} days")
     logs = [np.log1p(side) for side in sides]
-    values = sum(weight * series for weight, series in zip(weights, logs))
+    values = sum((weight * series for weight, series in zip(weights, logs, strict=True)), np.zeros(days))
     alpha = design["alpha"] / grid_points
     observed = float(values.mean())
     indices = block_indices(np.random.default_rng(design["seed"]), days, block, resamples)
@@ -292,7 +301,8 @@ def check_clocks(control: Sequence, candidate: Sequence) -> None:
     """CLOCK_MISMATCH unless both daily series hold the same UTC days in the same order."""
     left, right = [item[0] for item in control], [item[0] for item in candidate]
     if left != right:
-        differs = next((index for index, (a, b) in enumerate(zip(left, right)) if a != b), min(len(left), len(right)))
+        differs = next((index for index, (a, b) in enumerate(zip(left, right, strict=False)) if a != b),
+                       min(len(left), len(right)))
         raise refuse("CLOCK_MISMATCH", f"the two sides' UTC daily clocks differ from day {differs}",
                      missing=("ts_event_ns",))
 
@@ -460,7 +470,9 @@ def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
             raise _unattested(f"the qualified run of the compared candidate is run {runs_of['ab']}, not the compared "
                               f"run {found['candidate']['run_id']}")
         for name in ("base", "a", "b"):
-            created = conn.one("SELECT created_at FROM run WHERE run_id = %s", (runs_of[name],))["created_at"]
+            stored = conn.one("SELECT created_at FROM run WHERE run_id = %s", (runs_of[name],))
+            assert stored is not None  # _corner_run read this run on the same version
+            created = stored["created_at"]
             if not created < found["registered_at"]:
                 raise _unattested(f"run {runs_of[name]} of corner {name} was stored at {created}, not before the "
                                   f"declaring registration ({found['registered_at']})")
@@ -484,7 +496,8 @@ def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
             "corners": {name: {"candidate": f"{rows[name]['strategy_id']}@{rows[name]['revision']}",
                                "run_id": runs_of[name]} for name in ("base", "a", "b", "ab")},
             "shape": {"method": report_attribution.MERGE_METHOD, "merge_equals_ab": True},
-            "weights": dict(zip(("base", "a", "b", "ab"), INTERACTION_WEIGHTS)), "uncorrected": True, "p": None,
+            "weights": dict(zip(("base", "a", "b", "ab"), INTERACTION_WEIGHTS, strict=True)), "uncorrected": True,
+            "p": None,
             "interval_coverage_uncorrected": 1 - found["body"]["comparison"]["alpha"],
             "mean_daily_log": means, "contributions": report_attribution.contributions(means), "test": test,
             "limitations": list(INTERACTION_LIMITATIONS)}
@@ -552,6 +565,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         source = conn.one("SELECT source_sha256 FROM candidate WHERE strategy_id = %s AND revision = %s",
                           (row["strategy_id"], row["revision"]))
         limitations = list(VALIDATION_LIMITATIONS)
+        output: dict
         output = {"registration_id": registration_id, "ledger_commit": db.head_commit(conn),
                   "metrics_revision": availability.report_revision(),
                   "registration": {"candidate": f"{row['strategy_id']}@{row['revision']}",
@@ -600,7 +614,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                             "p_one_sided": None if tested is None else tested["p_one_sided"], "p_holm": None})
         with_p = [member for member in members if member["p_one_sided"] is not None]
         if with_p:
-            for member, adjusted in zip(with_p, holm([member["p_one_sided"] for member in with_p])):
+            for member, adjusted in zip(with_p, holm([member["p_one_sided"] for member in with_p]), strict=True):
                 member["p_holm"] = adjusted
         output["family"] = {"window_start": row["window_start"], "window_end": row["window_end"],
                             "universe_rule": row["universe_rule"], "size": family_size, "members": members,

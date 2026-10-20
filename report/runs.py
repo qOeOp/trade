@@ -248,7 +248,7 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
 def _reproduced(directory: Path, account: bool, exposures: bool) -> dict:
     reports = load_directory(directory)
     found = metrics.cycles(reports.positions, reports.fills)
-    position_of = {event_id: row.get("position_id") for row, cycle in zip(reports.positions, found)
+    position_of = {event_id: row.get("position_id") for row, cycle in zip(reports.positions, found, strict=True)
                    for event_id in cycle["event_ids"]}
     return {"orders": reports.orders,
             "fills": [{**fill, "cycle_position_id": position_of.get(fill.get("event_id"))} for fill in reports.fills],
@@ -283,6 +283,7 @@ def load_directory(directory: Path) -> metrics.Reports:
 def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
     """The facts derive_measures reads, built from a directory's native reports (no ledger)."""
     summary = reports.summary
+    assert summary is not None  # load_directory refuses a directory without a summary
     rows = []
     try:
         rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))

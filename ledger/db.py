@@ -31,6 +31,7 @@ import time
 from typing import Literal
 
 import pymysql
+import pymysql.constants.CR
 import pymysql.cursors
 
 from ledger.errors import Refusal
@@ -55,6 +56,7 @@ COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
 VERIFICATION_FAILED = "commit verification failed"
+SERVER_LAUNCH = '"$@" </dev/null >>server.log 2>&1 & echo $!'
 
 
 # Profiles
@@ -67,7 +69,7 @@ class LedgerProfile:
     database: str
     service_root: Path
     research_branch: str = "main"
-    kind: str = "isolated"
+    kind: str | None = "isolated"  # None: a profile file that names no lifecycle
     backup_root: Path | None = None
     holds: str = "research"
 
@@ -128,6 +130,14 @@ def _service(root: Path) -> dict | None:
         return None
 
 
+def _known_service(root: Path) -> dict:
+    """The service configuration of `root`; a directory without a readable one is no ledger service."""
+    config = _service(root)
+    if config is None:
+        raise refuse("LEDGER_UNKNOWN", f"{root} is not a ledger service directory")
+    return config
+
+
 # Service lifecycle
 
 def _binary(given: Path | str | None) -> str:
@@ -158,8 +168,23 @@ def _pid(root: Path) -> int | None:
     return pid
 
 
+def service_connection(socket_path: str, **options) -> pymysql.Connection:
+    """`pymysql.connect` over a service's Unix socket. pymysql 1.1.2 leaks its socket when the Unix
+    connect itself fails (a stopped service), so the socket is reached first by one that is closed
+    either way, and an unreachable one raises the same OperationalError pymysql would."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+        probe.settimeout(options.get("connect_timeout", 10))
+        try:
+            probe.connect(socket_path)
+        except OSError as exc:
+            raise pymysql.err.OperationalError(
+                pymysql.constants.CR.CR_CONN_HOST_ERROR, f"Can't connect to MySQL server on {socket_path!r} ({exc})",
+            ) from exc
+    return pymysql.connect(unix_socket=socket_path, **options)
+
+
 def _admin(config: dict, password: str | None = None, database: str | None = None):
-    return pymysql.connect(unix_socket=config["socket"], user="root",
+    return service_connection(config["socket"], user="root",
                            password=config["root_password"] if password is None else password,
                            database=database, autocommit=True, connect_timeout=5, max_allowed_packet=1 << 30)
 
@@ -167,17 +192,17 @@ def _admin(config: dict, password: str | None = None, database: str | None = Non
 def start_service(root: Path) -> dict:
     """Start the service of `root` unless it runs; wait until it accepts connections."""
     root = Path(root)
-    config = _service(root)
-    if config is None:
-        raise refuse("LEDGER_UNKNOWN", f"{root} is not a ledger service directory")
+    config = _known_service(root)
     pid = _pid(root)
     if pid is None:
         environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
-        with (root / "server.log").open("ab") as log:
-            process = subprocess.Popen([config["binary"], "sql-server", "--config", str(root / "config.yaml")],
-                                       cwd=root, stdout=log, stderr=log, start_new_session=True, env=environment)
-        (root / "server.pid").write_text(str(process.pid))
-        pid = process.pid
+        # The service outlives this process: a shell in a new session starts it in the background and
+        # exits, and is waited here, so the server is nobody's unreaped child.
+        launched = subprocess.run(["/bin/sh", "-c", SERVER_LAUNCH, "sh", config["binary"], "sql-server", "--config",
+                                   str(root / "config.yaml")], cwd=root, env=environment, start_new_session=True,
+                                  capture_output=True, text=True, check=True, timeout=30)
+        pid = int(launched.stdout)
+        (root / "server.pid").write_text(str(pid))
     for _ in range(150):
         try:
             _admin(config).close()
@@ -289,8 +314,8 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
                 raise refuse("ISOLATION_BREACH", "an active ledger keeps its service and backup outside the "
                                                  "source checkout and temporary roots")
     binary = _binary(dolt_binary)
-    config = _service(service_root) if (service_root / "service.json").exists() else _create_service(service_root,
-                                                                                                    binary)
+    config = _known_service(service_root) if (service_root / "service.json").exists() else _create_service(
+        service_root, binary)
     start_service(service_root)
     if database in config["databases"]:
         raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
@@ -396,8 +421,8 @@ def init_market(name: str, database: str, service_root: Path, kind: Literal["act
                 raise refuse("ISOLATION_BREACH", "an active market database keeps its service and backup outside "
                                                  "the source checkout and temporary roots")
     binary = _binary(dolt_binary)
-    config = _service(service_root) if (service_root / "service.json").exists() else _create_service(service_root,
-                                                                                                    binary)
+    config = _known_service(service_root) if (service_root / "service.json").exists() else _create_service(
+        service_root, binary)
     start_service(service_root)
     if database in config["databases"]:
         raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
@@ -472,7 +497,7 @@ class LedgerConnection:
             with self.raw.cursor() as cursor:
                 cursor.execute(statement, params)
                 names = [column[0] for column in cursor.description or ()]
-                return [dict(zip(names, row)) for row in cursor.fetchall()]
+                return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
         except pymysql.MySQLError as exc:
             raise _sql_error(exc) from exc
 
@@ -530,16 +555,16 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: s
                      expected=profile.research_branch)
     if not REF.fullmatch(branch) or ".." in branch:
         raise refuse("INVALID_REF", f"invalid branch name {branch!r}")
-    config = _service(profile.service_root)
-    accounts = (config or {}).get("databases", {}).get(profile.database)
+    config = _service(profile.service_root) or {}
+    accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:
         raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
     try:
-        raw = pymysql.connect(unix_socket=config["socket"], user=accounts[role]["user"],
-                              password=accounts[role]["password"], database=f"{profile.database}/{branch}",
-                              charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
-                              write_timeout=600, max_allowed_packet=1 << 30,
-                              cursorclass=pymysql.cursors.SSCursor if _streaming else pymysql.cursors.Cursor)
+        raw = service_connection(config["socket"], user=accounts[role]["user"],
+                                 password=accounts[role]["password"], database=f"{profile.database}/{branch}",
+                                 charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
+                                 write_timeout=600, max_allowed_packet=1 << 30,
+                                 cursorclass=pymysql.cursors.SSCursor if _streaming else pymysql.cursors.Cursor)
     except pymysql.MySQLError as exc:
         raise _connection_error(exc) from exc
     conn = LedgerConnection(raw, profile, role, branch, 0)

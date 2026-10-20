@@ -72,7 +72,7 @@ def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) ->
                      missing=("summary",))
     covered = {instrument for symbol in symbols for instrument in _instruments(receipts[symbol])}
     native = {coin.get("instrument") for coin in summary.get("per_coin") or () if isinstance(coin, Mapping)}
-    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), Mapping) else {}
+    config = given if isinstance(given := coverage.get("effective_config"), Mapping) else {}
     receipt_bounds = (_instant(config.get("start")), _instant(config.get("end")))
     summary_bounds = (_instant(summary.get("input_start_utc")), _instant(summary.get("period_end_utc")))
     conflicts = []
@@ -100,7 +100,7 @@ def _json(data: bytes | None):
 def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: Mapping) -> tuple[dict, ...]:
     """Lifecycle events rebuilt only from the trial's original capture; any gap or mismatch refuses."""
     capture = execution.read_capture(conn, trial_id)
-    stages = capture.get("stages") if isinstance(capture.get("stages"), Mapping) else {}
+    stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
     files = capture.get("files") or {}
     if (capture["status"] != "captured" or not isinstance(capture.get("start"), Mapping)
             or not isinstance(stages.get("native"), Mapping) or SUMMARY not in files

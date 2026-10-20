@@ -34,7 +34,7 @@ class PairedTests(unittest.TestCase):
         left = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01]
         right = [0.012, -0.01, 0.0, 0.004, 0.02, -0.012]
         found = comparison.paired(left, right, DESIGN, 1)
-        logs = [math.log1p(r) - math.log1p(l) for l, r in zip(left, right)]
+        logs = [math.log1p(r) - math.log1p(l) for l, r in zip(left, right, strict=True)]
         self.assertAlmostEqual(found["mean_daily_log_difference"], sum(logs) / 6, places=15)
         annual = (math.exp(365 * sum(map(math.log1p, right)) / 6) - math.exp(365 * sum(map(math.log1p, left)) / 6))
         self.assertAlmostEqual(found["annual_return_difference"], annual, places=12)
@@ -78,7 +78,8 @@ class PairedTests(unittest.TestCase):
     def test_a_weighted_contrast_tests_the_weighted_sum_of_log_series(self):
         series = [[0.01, 0.0, -0.01, 0.02], [0.0, 0.01, 0.0, 0.0], [0.02, -0.01, 0.0, 0.01], [0.0, 0.0, 0.01, -0.02]]
         found = comparison.paired(series[:2], series[2:], DESIGN, 1, weights=(1, -1, -1, 1))
-        manual = [math.log1p(a) - math.log1p(b) - math.log1p(c) + math.log1p(d) for a, b, c, d in zip(*series)]
+        manual = [math.log1p(a) - math.log1p(b) - math.log1p(c) + math.log1p(d)
+                  for a, b, c, d in zip(*series, strict=True)]
         self.assertAlmostEqual(found["mean_daily_log_difference"], sum(manual) / 4, places=15)
         self.assertIsNone(found["annual_return_difference"])
 
@@ -177,7 +178,7 @@ class MeasureTests(unittest.TestCase):
 
     def setUp(self):
         values, notional = [0.01, -0.005, 0.0, 0.02], ["100", "0", "50", "200"]
-        self.returns = [(JAN + k * DAY, value, Decimal(mean)) for k, (value, mean) in enumerate(zip(values, notional))]
+        self.returns = [(JAN + k * DAY, value, Decimal(mean)) for k, (value, mean) in enumerate(zip(values, notional, strict=True))]
         self.final = Decimal("1000") * Decimal(repr(1.01 * 0.995 * 1.0 * 1.02))
         self.cycles = [cycle(1, "X", "long", JAN, JAN + 6 * 3600 * 10**9, "20", "1", "0.5", plan="p1"),
                        cycle(2, "Y", "short", JAN + DAY, JAN + DAY + 2 * 3600 * 10**9, "-4", "1", "-0.5", plan="p2",

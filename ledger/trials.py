@@ -174,7 +174,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
         else:
             same = (data is not None and len(data) == entry.get("length")
                     and hashlib.sha256(data).hexdigest() == entry.get("sha256"))
-        if same:
+        if same and data is not None:
             found[path] = data
         else:
             differs.append(path)

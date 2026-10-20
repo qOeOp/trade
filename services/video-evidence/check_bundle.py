@@ -137,7 +137,7 @@ def page_media(page, url):
             for k in (k for k in ("duration", "video_duration") if k in obj):
                 m = re.fullmatch(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?", str(obj.get(k)))
                 found.add(float(obj[k]) if number(obj.get(k)) else
-                          sum(float(g or 0) * f for g, f in zip(m.groups(), (86400, 3600, 60, 1))) if m and any(m.groups()) else None)
+                          sum(float(g or 0) * f for g, f in zip(m.groups(), (86400, 3600, 60, 1), strict=True)) if m and any(m.groups()) else None)
     return held, (found.pop() if len(found) == 1 else None)
 
 
@@ -275,7 +275,7 @@ def asr_flags(segs, dur):
     eid = lambda i: f"E{i + 1:03d}"
     flags = {
         "tail_gap_s": round(dur - max((w["end"] for w in words), default=0), 2),
-        "gaps_over_3s": [[a["end"], b["start"]] for a, b in zip(words, words[1:]) if b["start"] - a["end"] > 3],
+        "gaps_over_3s": [[a["end"], b["start"]] for a, b in zip(words, words[1:], strict=False) if b["start"] - a["end"] > 3],
         "loops": [i for i, s in enumerate(segs) if s["compression_ratio"] > 2.4],
         "repeats": [i for i in range(2, len(segs))
                     if n(segs[i]["text"]) >= 2 and segs[i]["text"] == segs[i - 1]["text"] == segs[i - 2]["text"]],
@@ -595,7 +595,7 @@ def main():
     try:  # the build that recomputed the frames, and which executables PATH resolved
         tools = [shutil.which(t) for t in ("ffmpeg", "ffprobe")]
         out["ffmpeg"] = run(["ffmpeg", "-version"]).split("\n")[0] + "; sha256 " + ", ".join(
-            f"{t} {sha(p)[:16] if p else 'missing'}" for t, p in zip(("ffmpeg", "ffprobe"), tools))
+            f"{t} {sha(p)[:16] if p else 'missing'}" for t, p in zip(("ffmpeg", "ffprobe"), tools, strict=True))
         body(a)
     except Exception as error:  # a named failure, never a traceback
         check("checker", "internal_error", False, f"{type(error).__name__}: {error}"[:300])

@@ -283,7 +283,7 @@ class CheckBundleTests(unittest.TestCase):
         variants = {name: (self.variant(edit), media) for name, (edit, media) in cases.items()}
         variants.update({name: (self.variant(edit, self.generic), None) for name, edit in generic.items()})
         results = self.in_parallel([lambda v=v: self.failed(v[0], media=v[1]) for v in variants.values()])
-        for name, (rc, failed) in zip(variants, results):
+        for name, (rc, failed) in zip(variants, results, strict=True):
             with self.subTest(name):
                 self.assertEqual(rc, 1)
                 self.assertIn(name.split(" ")[0], failed)
@@ -302,7 +302,7 @@ class CheckBundleTests(unittest.TestCase):
                 whole(d["claims"][0], "frames", quote="price 52.8", value="52.80"),
                 whole(d["claims"][1], "crops", quote="四小时", value="四")))),
         }
-        for name, result in zip(bundles, self.in_parallel([lambda b=b: self.failed(b) for b in bundles.values()])):
+        for name, result in zip(bundles, self.in_parallel([lambda b=b: self.failed(b) for b in bundles.values()]), strict=True):
             with self.subTest(name):
                 self.assertEqual(result, (0, set()))
 

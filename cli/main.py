@@ -24,6 +24,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+from typing import Literal
 
 import pymysql
 
@@ -113,6 +114,18 @@ def ledger_profile(value: str | None) -> db.LedgerProfile:
     return runs.profile_of(value)
 
 
+def _active_market_profile() -> dict:
+    for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
+        try:
+            candidate = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(candidate, dict) and "market" in (candidate.get("kind"), candidate.get("holds"))
+                and candidate.get("role", candidate.get("kind")) == "active"):
+            return candidate
+    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory", missing=("--market",))
+
+
 def market_profile(value: str | None) -> dict:
     """The market database a command names: a profile file, a profile name, or the active one in the
     profile directory."""
@@ -121,19 +134,7 @@ def market_profile(value: str | None) -> dict:
     elif value is not None:
         found = _read_profile_file(db.home() / f"{value}.json")
     else:
-        found = None
-        for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
-            try:
-                candidate = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if (isinstance(candidate, dict) and "market" in (candidate.get("kind"), candidate.get("holds"))
-                    and candidate.get("role", candidate.get("kind")) == "active"):
-                found = candidate
-                break
-        if found is None:
-            raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory",
-                         missing=("--market",))
+        found = _active_market_profile()
     if "market" not in (found.get("kind"), found.get("holds")) or not found.get("database"):
         raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market database", missing=("--market",))
     return found
@@ -202,7 +203,10 @@ def _new_temporary(path: str) -> Path:
 
 # ledger
 
-def ledger_init(name: str, kind: str, service_root: Path, research_branch: str = "main",
+Kind = Literal["active", "isolated", "temporary"]  # db.KINDS, the --kind choices
+
+
+def ledger_init(name: str, kind: Kind, service_root: Path, research_branch: str = "main",
                 backup_root: Path | None = None) -> dict:
     """ledger init: a new research ledger profile (database = the profile name with - as _), its
     accounts, branch grant and commit verification group; administration happens only here."""
@@ -252,8 +256,8 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
             commit = conn.resolved_commit
     except Refusal:
         return {"action": action, "running": False, "address": (config or {}).get("socket")}
-    return {"action": action, "running": True, "pid": db._pid(profile.service_root), "address": config.get("socket"),
-            "branch": profile.research_branch, "ledger_commit": commit}
+    return {"action": action, "running": True, "pid": db._pid(profile.service_root),
+            "address": (config or {}).get("socket"), "branch": profile.research_branch, "ledger_commit": commit}
 
 
 def ledger_temp(root: str | None) -> dict:
@@ -284,7 +288,7 @@ def ledger_temp(root: str | None) -> dict:
             "accounts": created["accounts"], "ledger_commit": status.get("ledger_commit") or created["ledger_commit"]}
 
 
-def _statement_words(query: str) -> list[str]:
+def _statement_words(query: str) -> tuple[str, list[str]]:
     stripped = re.sub(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`", " ", query)
     stripped = re.sub(r"--[^\n]*|#[^\n]*|/\*.*?\*/", " ", stripped, flags=re.S)
     return stripped, re.findall(r"[A-Za-z_]+", stripped.upper())
@@ -311,7 +315,7 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
 def ledger_witness(conn: db.LedgerConnection, tsa_url: str | None) -> dict:
     """ledger witness: timestamp every out-of-sample registration commit that has none yet."""
     synced = witness.sync_witness(conn, tsa_url)
-    registrations = {}
+    registrations: dict[str, list[int]] = {}
     for commit, registration_id in conn.rows("SELECT to_commit, to_registration_id FROM dolt_diff_validation_registration "
                                              "WHERE diff_type = 'added'"):
         registrations.setdefault(commit, []).append(registration_id)
@@ -530,15 +534,13 @@ def _subject(text: str) -> dict:
         if not sep or not key.strip():
             raise UsageError(f"--subject {text!r} is not role=…,candidate=ID@N|trial=N|registration=BUNDLE")
         found[key.strip()] = value.strip()
-    subject = {"role": found.pop("role", None)}
+    subject: dict[str, str | int | None] = {"role": found.pop("role", None)}
     for key, target in (("candidate", "candidate"), ("trial", "trial_id"), ("registration", "registration_bundle")):
         if key in found:
             value = found.pop(key)
-            if target == "trial_id":
-                if not value.isdigit():
-                    raise UsageError(f"--subject trial={value!r} is not a trial ID")
-                value = int(value)
-            subject[target] = value
+            if target == "trial_id" and not value.isdigit():
+                raise UsageError(f"--subject trial={value!r} is not a trial ID")
+            subject[target] = int(value) if target == "trial_id" else value
     if found:
         raise UsageError(f"--subject has unknown keys {sorted(found)}")
     return subject
@@ -547,9 +549,9 @@ def _subject(text: str) -> dict:
 def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str, body: str, subjects: list[str],
                  supersedes: int | None, cadence_trials: int | None, op: str | None) -> dict:
     """judgment add: one judgment (body from a UTF-8 file) and its subjects."""
-    text = _regular_file(body, "JUDGMENT_BODY_UNREADABLE")
+    data = _regular_file(body, "JUDGMENT_BODY_UNREADABLE")
     try:
-        text = text.decode("utf-8")
+        text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise refuse("JUDGMENT_BODY_UNREADABLE", f"{body} is not UTF-8", missing=(body,)) from exc
     return judgments.add_judgment(profile, kind, line, based_on, text, cadence_trials,
@@ -689,12 +691,12 @@ def replay_report(profile, run_id: int | None, directory: str | None, at: str | 
     """replay report: a sealed run's report (with --tables its drill-down tables, native ones from a
     verified reproduction), or an unsealed directory's report marked unverified."""
     from report import runs
-    if (run_id is None) == (directory is None):
-        raise UsageError("give exactly one of --run-id or --directory")
-    if directory is not None:
+    if directory is not None and run_id is None:
         if not Path(directory).is_dir():
             raise refuse("DIRECTORY_NOT_FOUND", f"{directory} is not a directory", missing=(directory,))
         return {"source": "directory", **runs.directory_report(Path(directory), account=account)}
+    if run_id is None or directory is not None:
+        raise UsageError("give exactly one of --run-id or --directory")
     found = {"source": "sealed", **runs.run_report(profile, run_id, at)}
     if tables or exposures or account or reproduction:
         found["tables"] = runs.tables(run_id, profile, at, account=account, exposures=exposures,
@@ -705,7 +707,7 @@ def replay_report(profile, run_id: int | None, directory: str | None, at: str | 
 
 # market
 
-def market_init(name: str, kind: str, service_root: Path, backup_root: Path | None = None) -> dict:
+def market_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None) -> dict:
     """market init: an empty market database (tables, import and reader accounts, profile with its
     backup directory, required for the active one); the first `market import` writes its schema row
     and commit tests. Administration happens only here and in `market backup`."""
@@ -765,7 +767,7 @@ def market_coverage(market: dict, at: str | None, symbols: list[str] | None, sta
                                          market=seams.current.market(market))
         lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
     expanded = symbols is None
-    if expanded:
+    if symbols is None:
         symbols = coverage.universe_members(market, at, start, end)
     found = coverage.diagnose_coverage(market, at, list(symbols), start, end, lifecycle)
     found["scope"] = {"symbols": list(symbols), "start": start, "end": end, "expanded": expanded}

@@ -72,7 +72,7 @@ def _by_month(rows) -> dict[str, list[tuple]]:
     return {month: sorted(items) for month, items in grouped.items()}
 
 
-def _covered(interval: tuple[int, int], given: list) -> bool:
+def _covered(interval: tuple[int, int], given: list | None) -> bool:
     start, end = interval
     for lo, hi in sorted(tuple(item) for item in given or ()):
         if lo <= start < hi:
@@ -220,7 +220,9 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
 
 def _origin(conn: db.LedgerConnection, registration: dict) -> dict:
     while registration["retry_of"] is not None:
-        registration = _registration(conn, registration["retry_of"])
+        original = _registration(conn, registration["retry_of"])
+        assert original is not None  # the foreign key on retry_of keeps the original registration
+        registration = original
     return registration
 
 
@@ -266,7 +268,8 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
         raise refuse("WINDOW_MISMATCH", f"trial {trial_id} trades [{trial['trade_start']}, {trial['trade_end']}) at "
                                         f"{trial['created_at']}; the registered window is [{start}, {end})",
                      missing=("window",))
-    receipts = coverage.get("export_receipts") if isinstance(coverage.get("export_receipts"), Mapping) else {}
+    receipts = coverage.get("export_receipts")
+    receipts = receipts if isinstance(receipts, Mapping) else {}
     needed = (_ns(trial["input_start"]), _ns(trial["trade_end"]))
     uncovered = [symbol for symbol in instruments if not isinstance(receipts.get(symbol), Mapping)
                  or not receipts[symbol].get("start_ns", needed[0] + 1) <= needed[0]

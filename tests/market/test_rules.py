@@ -105,6 +105,11 @@ class SourceTests(Refusals):
                     mock.patch.object(sources.time, "sleep", lambda seconds: None):
                 self.refused(code, REAL_GET, f"{sources.REST}/fapi/v1/klines?symbol=X", attempts=2)
 
+    def test_a_400_without_a_json_body_quotes_its_text(self):
+        refused = sources._bad_request("https://x/fapi/v1/klines", b"<html>Bad Request</html>")
+        self.assertEqual(refused.code, "SOURCE_SHAPE")
+        self.assertTrue(refused.message.endswith("HTTP 400 None <html>Bad Request</html>"), refused.message)
+
     def test_rest_pages_return_closed_rows_and_refuse_unknown_contracts(self):
         rows = minutes(T0, T0 + 4000 * MINUTE)
         self.exchange.rest[("LAST", "BTCUSDT")] = rows

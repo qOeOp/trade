@@ -127,14 +127,16 @@ def _witness_commit(conn: db.LedgerConnection, commit: str) -> str | None:
     return found[0][0] if found else None
 
 
-def witness(conn: db.LedgerConnection, commit: str, tsa_url: str | None = None,
+def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None = None,
             tsa_roots: Path | None = None) -> dict:
     """Timestamp one validation registration commit and store the token; idempotent per commit."""
     url = tsa_url or TSA_URL
     if not url.startswith("https://"):
         raise ValueError("the timestamp authority endpoint must be https")
-    registered = _registered_at(conn, commit) if isinstance(commit, str) and COMMIT.fullmatch(commit) else None
-    if registered is None:
+    registered = None
+    if isinstance(commit, str) and COMMIT.fullmatch(commit):
+        registered = _registered_at(conn, commit)
+    if commit is None or registered is None:
         raise refuse("NOT_REGISTRATION_COMMIT", f"commit {commit!r} added no validation registration",
                      missing=(str(commit),))
     result = {"commit": commit, "tsa": url, "reason": None}

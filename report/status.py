@@ -32,7 +32,8 @@ TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
 def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, dict]]:
     """(start receipt, final capture) execution.json of every trial by trial ID, each hash checked:
     one primary-key range read of the trial-* namespace, no blob of the captures."""
-    starts, captures = {}, {}
+    starts: dict[int, dict] = {}
+    captures: dict[int, dict] = {}
     for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND "
                                              "path = %s", ("trial-%", execution.MANIFEST)):
         found = TRIAL_MANIFEST.fullmatch(bundle)
@@ -74,8 +75,11 @@ def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> 
     inputs: problems.PRE_STRATEGY_STAGES)."""
     if not isinstance(capture, Mapping):
         return False
-    files = capture.get("files") if isinstance(capture.get("files"), Mapping) else {}
-    native = (capture.get("stages") or {}).get("native") if isinstance(capture.get("stages"), Mapping) else None
+    files = capture.get("files")
+    if not isinstance(files, Mapping):
+        files = {}
+    recorded = capture.get("stages")
+    native = recorded.get("native") if isinstance(recorded, Mapping) else None
     exited = (isinstance(native, Mapping) and native.get("state") == "exited" and isinstance(native.get("exit_code"), int)
               and native["exit_code"] != 0)
     summary = (files.get("reports/summary.json") or {}).get("status")
@@ -262,13 +266,13 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "next_actions": ["Select the user's research line with `line select`."]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         judged = _judgments(pinned, line)
-        recommendation = (judged["recommendation"] or [None])[-1]
+        recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
         unreviewed = (lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
                       if recommendation else on_line["trials"])
         for kind in judged:
             for item in judged[kind]:
                 item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
-        gates = {}
+        gates: dict[str, list[dict]] = {}
         for name, derived in (("root", False), ("derived", True)):
             try:
                 register.require_line_records(pinned, line, derived)

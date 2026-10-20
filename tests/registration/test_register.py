@@ -12,7 +12,7 @@ from unittest.mock import patch
 from ledger import db, evidence, judgments, strategies, trials
 from ledger.errors import Refusal
 from registration import register
-from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
+from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
                                source)
 from tests.registration.world import (DAY, FEB, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, coverage_bytes,
                                       product_write)

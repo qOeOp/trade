@@ -72,7 +72,9 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
         price_increment=Price.from_str(increment), size_increment=Quantity.from_str(size), ts_event=0, ts_init=0,
         multiplier=Quantity.from_str("1"), lot_size=Quantity.from_str(size),
         max_quantity=optional("max_quantity", Quantity.from_str), min_quantity=optional("min_quantity", Quantity.from_str),
-        min_notional=Money(Decimal(terms["min_notional"]), usdt) if terms.get("min_notional") is not None else None,
+        # Money takes its amount as f64: Nautilus itself calls __float__ on a Decimal
+        min_notional=(Money(float(Decimal(terms["min_notional"])), usdt) if terms.get("min_notional") is not None
+                      else None),
         max_price=optional("max_price", Price.from_str), min_price=optional("min_price", Price.from_str),
         margin_init=Decimal(ASSUMED["margin_init"]), margin_maint=Decimal(ASSUMED["margin_maint"]),
         maker_fee=Decimal(ASSUMED["maker_fee"]), taker_fee=Decimal(ASSUMED["taker_fee"]))

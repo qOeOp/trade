@@ -25,6 +25,7 @@ import math
 from pathlib import Path
 import re
 import subprocess
+from typing import Any
 
 from ledger import db
 from ledger.refusals import refuse
@@ -304,7 +305,8 @@ def _json_bytes(data: bytes | None):
 
 def cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
     """Each position row's fill cash flow, commissions and funding; every fill belongs to exactly one row."""
-    found, events = [], Counter()
+    found: list[dict] = []
+    events: Counter[str] = Counter()
     for row in positions:
         try:
             if row.get("is_inverse") != "False" or not row.get("multiplier"):
@@ -382,9 +384,9 @@ def economics(found: list[dict], fills: list[dict], summary: dict, audited_econo
     if audited_economics is None:
         limitations.append("AUDIT_ECONOMICS_ABSENT: the cycles are reconciled only with the run's own reports")
     else:
-        expected = {"realized": audited_economics.get("reported_realized_pnl_usdt"),
-                    "commissions": audited_economics.get("fill_commissions_usdt"),
-                    "funding": audited_economics.get("reported_funding_usdt")}
+        expected: dict[str, Any] = {"realized": audited_economics.get("reported_realized_pnl_usdt"),
+                                    "commissions": audited_economics.get("fill_commissions_usdt"),
+                                    "funding": audited_economics.get("reported_funding_usdt")}
         try:
             differs = [key for key, value in expected.items() if abs(total(found, key) - Decimal(value)) > TOLERANCE]
             residual = Decimal(summary["final_equity_usdt"]) - Decimal(audited_economics["final_balance_usdt"])
@@ -421,8 +423,8 @@ def _plan_tags(order: dict) -> list[str]:
 
 
 def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[dict], found: list[dict],
-                       plan_of: dict[str, str], order_events: list[dict] | None,
-                       lifecycle_events: tuple[dict, ...]) -> dict[str, str]:
+                       plan_of: dict[str | None, str], order_events: list[dict] | None,
+                       lifecycle_events: tuple[dict, ...]) -> dict[str | None, str]:
     """Untagged engine settlement closes owned read-only by the one closed cycle's plan they end.
 
     Every condition must hold (one fill, events initialized/accepted/filled at the InstrumentClose
@@ -442,7 +444,7 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
     for fill in fills:
         fills_of[fill.get("client_order_id")].append(fill)
     cycle_of_event = {event_id: index for index, cycle in enumerate(found) for event_id in cycle["event_ids"]}
-    owners = {}
+    owners: dict[str | None, str] = {}
     for order in orders:
         order_id = order.get("client_order_id")
         if (order_id in plan_of or order.get("is_reduce_only") != "True" or order.get("type") != "MARKET"
@@ -468,15 +470,18 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
         earlier = [event_id for event_id in found[index]["event_ids"] if event_id != fill.get("event_id")]
         order_of = {item.get("event_id"): item.get("client_order_id") for item in fills}
         plans = {plan_of.get(order_of.get(event_id)) for event_id in earlier}
-        if earlier and len(plans) == 1 and None not in plans:
-            owners[order_id] = plans.pop()
+        plan = plans.pop() if len(plans) == 1 else None
+        if earlier and plan is not None:
+            owners[order_id] = plan
     return owners
 
 
 def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], found: list[dict],
                  order_events: list[dict] | None, lifecycle_events: tuple[dict, ...]) -> dict:
     """Plans read from order tags, matched one to one with position cycles; the plan win rate."""
-    plan_of, untagged, doubled = {}, [], []
+    plan_of: dict[str | None, str] = {}
+    untagged: list[str | None] = []
+    doubled: list[str | None] = []
     for order in orders:
         tags = _plan_tags(order)
         if len(tags) == 1 and len(tags[0]) > len(PLAN_TAG):
@@ -493,7 +498,8 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
     untagged = [order_id for order_id in untagged if order_id not in plan_of]
     if untagged:
         raise unreconciled("PLAN_TAG_MISSING", f"orders {_sample(untagged)} carry no plan tag")
-    instrument, span = {}, {}
+    instrument: dict[str, str] = {}
+    span: dict[str, tuple[int, int | None]] = {}
     try:
         for order in orders:
             plan = plan_of[order["client_order_id"]]
@@ -522,19 +528,19 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
         result[plan] = cycle
         start, end = span[plan]
         span[plan] = (start, max(end, cycle["ts_last"]) if cycle["closed"] and end is not None else None)
-    by_instrument = defaultdict(list)
+    by_instrument: defaultdict[str, list[tuple[int, float, str]]] = defaultdict(list)
     for plan, (start, end) in span.items():
         if end is not None and end <= start:
             continue  # every order ended the moment it began: the plan never held anything
         by_instrument[instrument[plan]].append((start, math.inf if end is None else end, plan))
     for name, spans in by_instrument.items():
         latest = None
-        for start, end, plan in sorted(spans):
+        for start, until, plan in sorted(spans):
             if latest is not None and start < latest[0]:
                 raise unreconciled("PLAN_OVERLAP", f"plan {plan} on {name} starts at {start}, before plan "
                                                    f"{latest[1]} ends")
-            if latest is None or end > latest[0]:
-                latest = (end, plan)
+            if latest is None or until > latest[0]:
+                latest = (until, plan)
     closed = [cycle for cycle in result.values() if cycle["closed"]]
     wins = sum(cycle["realized"] > 0 for cycle in closed)
     counted = len(result)
@@ -652,7 +658,8 @@ def equity_path(summary: dict, account: list[dict], exposures) -> list[dict]:
     return path
 
 
-def mark_drawdown(summary: dict, account: list[dict], exposures: list[dict] | None, path: list[dict] | None = None) -> dict:
+def mark_drawdown(summary: dict, account: list[dict], exposures: Iterable[dict] | ExposureTable | None,
+                  path: list[dict] | None = None) -> dict:
     """Largest fall of bar-close mark equity from its running peak (from the starting balance)."""
     path = equity_path(summary, account, exposures) if path is None else path
     peak = Decimal(summary["starting_balance_usdt"])
@@ -670,7 +677,8 @@ def mark_drawdown(summary: dict, account: list[dict], exposures: list[dict] | No
 
 def daily_notional(summary: dict, path: list[dict]) -> dict[int, Decimal]:
     """Mean gross notional over each UTC day's bar labels of the trade window (flat labels count zero)."""
-    sums, counts = defaultdict(Decimal), Counter()
+    sums: defaultdict[int, Decimal] = defaultdict(Decimal)
+    counts: Counter[int] = Counter()
     for point in path:
         day = point["label"] - point["label"] % DAY_NS
         sums[day] += point["gross"]
@@ -761,6 +769,7 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
     try:
         exposures = _typed_exposures(reports.exposures)
         path = equity_path(summary, reports.account, exposures)
+        assert exposures is not None  # equity_path refused a run without an exposure report
         drawn = mark_drawdown(summary, reports.account, exposures, path)
         drawdown = _drawdown_section(drawn, path, found, reports.positions, exposures)
         active = sum(1 for point in path if point["rows"])
@@ -774,7 +783,8 @@ def metrics(reports: Reports, revision: str | None = None) -> dict:
     except Unreconciled as exc:
         limitations.append(str(exc))
 
-    fees = defaultdict(lambda: {"commissions": Decimal(0), "notional": Decimal(0), "fills": 0})
+    fees: defaultdict[str, dict[str, Any]] = defaultdict(lambda: {"commissions": Decimal(0), "notional": Decimal(0),
+                                                                   "fills": 0})
     try:
         multiplier = _multipliers(reports.positions)
         for fill in fills:
@@ -840,7 +850,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
     share, top = None, None
     if found is not None and trough is not None:
         instrument_of = {row.get("position_id"): row.get("instrument_id") for row in positions}
-        loss = defaultdict(Decimal)
+        loss: defaultdict[str | None, Decimal] = defaultdict(Decimal)
         low = peak if peak is not None else path[0]["label"]
         for row, cycle in zip(positions, found, strict=True):
             if cycle["closed"] and low <= cycle["ts_last"] <= trough:
@@ -863,7 +873,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
 def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
     """The run_cycle rows: one per native position row, in report order."""
     orders = {order.get("client_order_id"): order for order in reports.orders}
-    last_unrealized: dict[str, Decimal] = {}
+    last_unrealized: dict[str | None, Decimal] = {}
     exposures = _typed_exposures(reports.exposures)
     if exposures:
         for row in exposures.rows_at(max(exposures.by_label)):
@@ -888,7 +898,7 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
 
 def daily_rows(reports: Reports) -> list[tuple[int, float, Decimal | None]]:
     """The run_return rows: trade-window native daily returns with the day's mean gross notional."""
-    summary = reports.summary
+    summary = reports.summary or {}
     start = utc_ns(summary["period_start_utc"])
     try:
         notional = daily_notional(summary, equity_path(summary, reports.account, _typed_exposures(reports.exposures)))

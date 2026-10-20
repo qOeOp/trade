@@ -45,9 +45,35 @@ EXECUTION_BINDING = "execution.json"  # in source/, mounted read-only at STRATEG
 HOST_ERROR = execution.HOST_ERROR
 WORK_ROOT = "/tmp"  # sealed replays work in a new directory here (docker shares it by default)
 PRECHECK_SCOPE = "engineering evidence only; interface, causality, activity and readiness are an independent Agent's review"
+# A stage log keeps its first LOG_HEAD and last LOG_TAIL bytes (whole lines): the engine logs every swallowed
+# callback exception again, and runtime_failures.jsonl already counts each one. Uncalibrated example values.
+LOG_HEAD, LOG_TAIL = 768 * 1024, 256 * 1024
 
 
 # Small helpers
+
+def bound_log(path: Path) -> None:
+    """Cut a stage log longer than LOG_HEAD + LOG_TAIL bytes (and room for the note) to its first and
+    last whole lines within those sizes, with one line in between that says how many bytes and lines
+    were left out; a log cut once stays as it is."""
+    size = path.stat().st_size
+    if size <= LOG_HEAD + LOG_TAIL + 256:
+        return
+    with path.open("rb") as stream:
+        head = stream.read(LOG_HEAD)
+        stream.seek(size - LOG_TAIL)
+        tail = stream.read()
+    head = head[:head.rfind(b"\n") + 1]  # empty when the head holds no whole line
+    tail = tail[tail.find(b"\n") + 1:]
+    with path.open("rb") as stream:
+        stream.seek(len(head))
+        left = size - len(head) - len(tail)
+        lines = sum(stream.read(min(1 << 20, left - done)).count(b"\n") for done in range(0, left, 1 << 20))
+    note = f"[replay entry: {left} bytes in {lines} lines left out of this log]\n".encode()
+    partial = path.with_name(path.name + ".partial")
+    partial.write_bytes(head + note + tail)
+    os.replace(partial, path)
+
 
 def _write_json(path: Path, value) -> None:
     with path.open("w", encoding="utf-8") as stream:
@@ -143,7 +169,9 @@ def input_coverage(workdir: Path, inputs: Mapping, inspection: Mapping) -> Path:
     for symbol in inputs["symbols"]:
         found = _read_json(Path(inputs["root"]) / symbol / registration_inputs.RECEIPT)
         receipts[symbol] = found if isinstance(found, dict) else {"status": "missing"}
-    config = inspection.get("effective_config") if isinstance(inspection.get("effective_config"), Mapping) else {}
+    config = inspection.get("effective_config")
+    if not isinstance(config, Mapping):
+        config = {}
     value = {"format": COVERAGE_FORMAT, "input_identity": inputs["identity"], "effective_config": config,
              "membership": _read_json(Path(inputs["membership_file"])), "export_receipts": receipts,
              "scope": {"start": config.get("start"), "trade_start": config.get("trade_start"), "end": config.get("end"),
@@ -209,7 +237,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     layout = seams.current.layout(identity["runtime_contract"])
     deadline = None if timeout is None else time.monotonic() + timeout
     stages: dict = {"native": None, "audit": None, "fingerprint": None}
-    process = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
+    process: dict = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
     outcome = {"kind": "completed", "detail": None}
     native_exit, audit_exit = None, None
 
@@ -231,18 +259,24 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         process["commands"][name] = command
         stages[name] = {"state": "started", "exit_code": None}
         record()
-        with (workdir / f"{name}.stdout.txt").open("wb") as out, (workdir / f"{name}.stderr.txt").open("wb") as err:
-            try:
-                code = seams.current.run(command, out, err, left)
-            except OSError as exc:
-                err.write(str(exc).encode("utf-8", errors="replace"))
-                code = 127
-            except subprocess.TimeoutExpired as exc:
-                _stop(container)
-                raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
-            except BaseException:
-                _stop(container)
-                raise
+        logs = workdir / f"{name}.stdout.txt", workdir / f"{name}.stderr.txt"
+        try:
+            with logs[0].open("wb") as out, logs[1].open("wb") as err:
+                try:
+                    code = seams.current.run(command, out, err, left)
+                except OSError as exc:
+                    err.write(str(exc).encode("utf-8", errors="replace"))
+                    code = 127
+                except subprocess.TimeoutExpired as exc:
+                    _stop(container)
+                    raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
+                except BaseException:
+                    _stop(container)
+                    raise
+        finally:
+            for log in logs:
+                if log.is_file():
+                    bound_log(log)
         stages[name] = {"state": "exited", "exit_code": code}
         record()
         return code
@@ -400,7 +434,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a registration bundle or a validation registration",
                      expected="hypothesis xor validation")
     checkout = registration_seams.current.checkout()
-    metrics.metrics_revision(checkout)  # a passed run records it: refuse a non-checkout before any trial
+    metrics.metrics_revision(checkout)  # a passed run records it; outside a checkout this raises before any trial
     identity = _resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
@@ -423,6 +457,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         if hypothesis is not None:
             purpose, binder = "research", register.binder(hypothesis, source_sha256)
         else:
+            assert validation is not None  # REGISTRATION_REQUIRED above refuses neither or both
             purpose = "validation"
             binder = registration_validation.validation_binder(validation, source_sha256, _identity4(identity),
                                                                inspection, market=market)

@@ -22,6 +22,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
+from typing import Any
 
 import numpy as np
 import pyarrow as pa
@@ -61,6 +62,15 @@ def native_symbol(symbol: str, episode: int | None = None) -> dict:
 
 # market.split_episodes
 
+def _inside(bars: dict, low: int, high: int | None) -> dict:
+    """The bars whose whole minute lies in [low, high) (milliseconds; no upper bound without `high`)."""
+    opens = bars["ts_open"]
+    keep = opens >= low
+    if high is not None:
+        keep &= opens + MINUTE - 1 < high
+    return _keep(bars, keep)
+
+
 def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray]:
     return {name: values[keep] for name, values in bars.items()}
 
@@ -73,7 +83,7 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
         return [{"index": None, "instrument_id": native["instrument_id"], "strategy_tag": native["strategy_tag"],
                  "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
     previous_end = None
-    pieces = []
+    pieces: list[dict] = []
     for index, episode in enumerate(episodes, start=1):
         if (not isinstance(episode, dict) or type(episode.get("start_ns")) is not int
                 or not isinstance(episode.get("events"), list)
@@ -93,17 +103,11 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
         ended = lifecycle.termination(episode)
         high = ended // 1_000_000 if ended is not None else None
         previous_end = ended
-
-        def inside(bars):
-            opens = bars["ts_open"]
-            keep = opens >= low
-            if high is not None:
-                keep &= opens + MINUTE - 1 < high
-            return _keep(bars, keep)
         pieces.append({"index": index, "instrument_id": native["instrument_id"], "strategy_tag": native["strategy_tag"],
                        "episode": episode, "low_ns": episode["start_ns"], "high_ns": ended,
-                       "catalog_dir": f"episode-{index}", "last": inside(series_["last"]),
-                       "mark": inside(series_["mark"]), "daily_source": inside(series_["daily_source"]),
+                       "catalog_dir": f"episode-{index}", "last": _inside(series_["last"], low, high),
+                       "mark": _inside(series_["mark"], low, high),
+                       "daily_source": _inside(series_["daily_source"], low, high),
                        "funding": [(at, rate) for at, rate in series_["funding"]
                                    if at >= low and (high is None or at < high)]})
     return pieces
@@ -182,7 +186,7 @@ def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: in
         part = slice(offset, offset + CHUNK)
         updates = [MarkPriceUpdate(instrument_id=instrument_id, value=Price.from_raw(int(close) * factor, price_precision),
                                    ts_event=int(t), ts_init=int(t))
-                   for close, t in zip(bars["close"][part], ts[part])]
+                   for close, t in zip(bars["close"][part], ts[part], strict=True)]
         catalog.write_mark_price_updates(updates)
         written += len(updates)
     return written
@@ -270,6 +274,7 @@ def export_episode(job: dict) -> dict:
     path.mkdir(parents=True)
     with store.connect(job["profile"], "reader") as conn:
         terms = instrument.terms(conn, commit, symbol)
+        raw: dict[str, Any]
         raw = {"last": coverage.read_bars(conn, commit, symbol, "LAST", start, end),
                "mark": coverage.read_bars(conn, commit, symbol, "MARK", start, end),
                "daily_source": {name: np.empty(0, np.int64) for name in COLUMNS},  # streamed per piece below
@@ -284,7 +289,7 @@ def export_episode(job: dict) -> dict:
     exchange = instrument.decimals(terms["price_increment"])
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
-    for piece, daily in zip(split, dailies):
+    for piece, daily in zip(split, dailies, strict=True):
         last, mark = piece["last"], piece["mark"]
         precision = max([exchange] + [needed_decimals(bars[name], price_scale) for bars in (last, daily)
                                       for name in ("open", "high", "low", "close")])
@@ -320,6 +325,7 @@ def export_episode(job: dict) -> dict:
                        "last_mark_unmatched": int(len(np.setxor1d(opens, mark["ts_open"]))),
                        "price_precision": precision, "price_precision_widened": precision != exchange,
                        "mark_precision": mark_precision, "episode": piece["episode"]})
+    assert record is not None  # split_episodes returns at least one piece
     receipt = {"format": FORMAT, "symbol": symbol, "commit": commit, "timeframe": TIMEFRAME, "start_ns": start_ns,
                "end_ns": end_ns, "coverage": facts, "terms_source": record["terms_source"],
                "terms_observed_at": record["terms_observed_at"], "historical_terms": record["historical_terms"],

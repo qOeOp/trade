@@ -18,6 +18,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from typing import TypeGuard
 
 from ledger import db, evidence, metrics
 from ledger.refusals import refuse
@@ -137,8 +138,8 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} on this ledger version", missing=(str(trial_id),))
     start_files = _bundle_rows(conn, f"trial-{trial_id}-execution-start", clause)
     start = _json(start_files[MANIFEST]) if start_files and MANIFEST in start_files else None
-    if (not isinstance(start, dict) or start.get("format") != FORMAT or not _identity_matches(start, trial)
-            or start.get("purpose") != trial["purpose"]):
+    if (start_files is None or not isinstance(start, dict) or start.get("format") != FORMAT
+            or not _identity_matches(start, trial) or start.get("purpose") != trial["purpose"]):
         raise refuse("EXECUTION_IDENTITY", f"the start receipt of trial {trial_id} is missing or differs from the "
                                            "trial row", missing=(f"trial-{trial_id}-execution-start/{MANIFEST}",))
     coverage_bytes = start_files.get(COVERAGE)
@@ -236,7 +237,7 @@ def _stage_valid(value, required: bool, optional_entry: bool = False) -> bool:
     return isinstance(code, int) and not isinstance(code, bool)
 
 
-def _stages_valid(stages) -> bool:
+def _stages_valid(stages: object) -> TypeGuard[Mapping]:
     return (isinstance(stages, Mapping) and not set(stages) - set(STAGES)
             and _stage_valid(stages.get("native"), True) and _stage_valid(stages.get("audit"), False)
             and _stage_valid(stages.get("fingerprint"), False, optional_entry=True))
@@ -276,7 +277,8 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping) -> tuple[dict, d
             if name not in names and not path.is_dir():
                 names.append(name)
     not_started = {name for stage, files in STAGE_FILES.items() if not _ran(facts.get(stage)) for name in files}
-    listed, stored = {}, {}
+    listed: dict[str, dict[str, str | int]] = {}
+    stored: dict[str, bytes] = {}
     for name in [*names, *hashed]:
         if name in not_started:
             listed[name] = {"status": "not_started"}
@@ -309,7 +311,7 @@ def _start_of(conn: db.LedgerConnection, trial_id: int) -> tuple[dict, dict, dic
     trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref FROM trial WHERE trial_id = %s", (trial_id,))
     files = _bundle_rows(conn, f"trial-{trial_id}-execution-start", "") if trial else None
     start = _json(files[MANIFEST]) if files and MANIFEST in files else None
-    if trial is None or not isinstance(start, dict):
+    if trial is None or files is None or not isinstance(start, dict):
         raise refuse("EXECUTION_START_MISSING", f"trial {trial_id} has no trial row or no start receipt",
                      missing=(f"trial-{trial_id}-execution-start",))
     return trial, start, files
@@ -405,6 +407,7 @@ def _recovery_start(conn: db.LedgerConnection, trial_id: int, workdir: Path, rec
     directory and size refusal are the ones recorded; refuses otherwise."""
     capture = read_capture(conn, trial_id)
     trial = conn.one("SELECT trial_id, purpose, source_sha256 FROM trial WHERE trial_id = %s", (trial_id,))
+    assert trial is not None  # read_capture refused TRIAL_NOT_FOUND
     start = capture.get("start") or {}
     if capture["status"] != "missing":
         raise refuse("RECOVERY_NOT_APPLICABLE", f"trial {trial_id} has its original capture",
@@ -456,6 +459,7 @@ def recover_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, fail
                                                     "refusal is stored with its invalid run",
                          missing=(f"trial-{trial_id}-execution",))
         trial, start = _recovery_start(conn, trial_id, workdir, receipt)
+        assert receipt_bytes is not None  # _recovery_start refused a receipt that is not a JSON object
         if conn.rows("SELECT 1 FROM run WHERE trial_id = %s", (trial_id,)) or conn.rows(
                 "SELECT 1 FROM registration_attempt WHERE trial_id = %s", (trial_id,)):
             raise refuse("RECOVERY_NOT_APPLICABLE", f"trial {trial_id} has a run or was consumed by a registration "

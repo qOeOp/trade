@@ -166,7 +166,7 @@ class IntegrityTests(unittest.TestCase):
         designs = [{**registered, "seed": 3}, {**registered, "seed": 29, "block_days": 3}]
         with db.read_as_of(self.profile) as conn:
             rows = {name: strategies.read_candidate(conn, self.refs[name]) for name in ("a", "b")}
-        for (name, design), op in zip(zip(("a", "b"), designs), ("v:a", "v:b")):
+        for (name, design), op in zip(zip(("a", "b"), designs, strict=True), ("v:a", "v:b"), strict=True):
             self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
                            "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, "
                            "'pool-v1', '2026-01-01', '2026-02-01', %s, NULL, %s, UTC_TIMESTAMP(6))",

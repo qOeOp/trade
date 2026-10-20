@@ -22,14 +22,17 @@ import json
 from pathlib import Path
 import re
 import shutil
+import socket
 import tempfile
 import time
+from typing import Any
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pcsv
 import pymysql
+import pymysql.constants.CR
 import pymysql.cursors
 
 from market import instrument, series, sources, universe
@@ -101,7 +104,7 @@ class MarketConnection:
             with self.raw.cursor() as cursor:
                 cursor.execute(statement, params)
                 names = [column[0] for column in cursor.description or ()]
-                return [dict(zip(names, row)) for row in cursor.fetchall()]
+                return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
         except pymysql.MySQLError as exc:
             raise _sql_error(exc) from exc
 
@@ -152,6 +155,21 @@ def _service(profile: dict) -> dict:
                       "readable service", "MARKET_UNREACHABLE") from exc
 
 
+def _service_connection(socket_path: str, **options) -> pymysql.Connection:
+    """`pymysql.connect` over the service's Unix socket. pymysql 1.1.2 leaks its socket when the Unix
+    connect itself fails (a stopped service), so the socket is reached first by one that is closed
+    either way, and an unreachable one raises the same OperationalError pymysql would."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+        probe.settimeout(options.get("connect_timeout", 10))
+        try:
+            probe.connect(socket_path)
+        except OSError as exc:
+            raise pymysql.err.OperationalError(
+                pymysql.constants.CR.CR_CONN_HOST_ERROR, f"Can't connect to MySQL server on {socket_path!r} ({exc})",
+            ) from exc
+    return pymysql.connect(unix_socket=socket_path, **options)
+
+
 def connect(profile: dict, role: str) -> MarketConnection:
     """market.connect: the market database as `import` (the import account) or `reader`, its schema
     generation checked; the import account on an empty database gets the empty-database mark."""
@@ -163,9 +181,10 @@ def connect(profile: dict, role: str) -> MarketConnection:
         raise _refuse(f"the service has no {role} account for market database {profile.get('database')}",
                       "MARKET_UNREACHABLE", missing=(str(profile.get("database")),))
     try:
-        raw = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
-                              database=profile["database"], charset="utf8mb4", autocommit=role == "reader",
-                              connect_timeout=5, read_timeout=7200, write_timeout=7200, max_allowed_packet=1 << 30)
+        raw = _service_connection(config["socket"], user=account["user"], password=account["password"],
+                                  database=profile["database"], charset="utf8mb4", autocommit=role == "reader",
+                                  connect_timeout=5, read_timeout=7200, write_timeout=7200,
+                                  max_allowed_packet=1 << 30)
     except pymysql.MySQLError as exc:
         raise _refuse(f"cannot connect to market database {profile.get('database')}: "
                       f"{exc.args[1] if len(exc.args) > 1 else exc}", "MARKET_UNREACHABLE",
@@ -361,7 +380,8 @@ def prepare(job: dict) -> dict:
     try:
         return _prepare(job)
     except MarketError as exc:
-        raise MarketError(f"{job['symbol']}: {exc.message}", code=exc.code, missing=(job["symbol"], *exc.missing))
+        raise MarketError(f"{job['symbol']}: {exc.message}", code=exc.code,
+                          missing=(job["symbol"], *exc.missing)) from exc
 
 
 def _prepare(job: dict) -> dict:
@@ -603,9 +623,9 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
     for symbol in candidates:
         item = by_symbol.get(symbol)
         if item is not None and item["symbol"].endswith("USDT"):
-            terms = listed_terms(item)
-            if not _same_terms(stored_terms.get(symbol), terms):
-                appended_terms.append((symbol, observed, terms))
+            observed_terms = listed_terms(item)
+            if not _same_terms(stored_terms.get(symbol), observed_terms):
+                appended_terms.append((symbol, observed, observed_terms))
 
     jobs, stored_through = [], {}
     for symbol in eligible:
@@ -632,8 +652,9 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
                      "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None,
                      "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers)})
 
-    totals = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
-              "source_rows": {name: 0 for name in series.SOURCES}, "derived_findings": {}, "per_symbol": {}}
+    totals: dict[str, Any] = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
+                              "source_rows": {name: 0 for name in series.SOURCES}, "derived_findings": {},
+                              "per_symbol": {}}
     # One worker prepares in this process; more prepare in a process pool (speed only, same result).
     pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
     try:
@@ -736,12 +757,13 @@ def _compare_reread(conn: MarketConnection, symbol: str, report: dict, stored_th
                           f"{times[:5]}", "MONTH_EXISTS", missing=(label, symbol, *map(str, times[:5])))
     high = stored_through[(symbol, "funding")]
     if high is not None:
-        stored = {funding_slot(int(at)): Decimal(rate) for at, rate in conn.rows(
+        stored_rates = {funding_slot(int(at)): Decimal(rate) for at, rate in conn.rows(
             "SELECT funding_time, rate FROM funding WHERE symbol = %s AND funding_time >= %s AND funding_time < %s",
             (symbol, start_ms, high))}
-        reread = {funding_slot(at): Decimal(rate) for at, rate in report["funding_reread"]}
-        if stored != reread:
-            slots = sorted(slot for slot in set(stored) | set(reread) if stored.get(slot) != reread.get(slot))
+        reread_rates = {funding_slot(at): Decimal(rate) for at, rate in report["funding_reread"]}
+        if stored_rates != reread_rates:
+            slots = sorted(slot for slot in set(stored_rates) | set(reread_rates)
+                           if stored_rates.get(slot) != reread_rates.get(slot))
             raise _refuse(f"{symbol} funding: the sources now differ from the stored {label} settlements in hours "
                           f"{slots[:5]}", "MONTH_EXISTS", missing=(label, symbol))
 
@@ -821,7 +843,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
     day = series._ms_day(covered) if covered is not None else None
     complete_day = (day - timedelta(days=1)) if day is not None else None
     month_start = day.replace(day=1) if day is not None else None
-    at_month_start = covered is not None and covered == series._day_ms(month_start)
+    at_month_start = month_start is not None and covered == series._day_ms(month_start)
     complete_month = (month_start - timedelta(days=1)).strftime("%Y-%m") if month_start is not None else None
     return {"commit": commit, "universe_rule": rule, "universe_months": [value.strftime("%Y-%m") for value in months],
             "symbols": int(count), "covered_through": covered, "latest_complete_day": complete_day,

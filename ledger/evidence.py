@@ -59,12 +59,12 @@ def _read_sources(sources: list[Path]) -> dict[str, bytes]:
         if given.is_symlink() or not given.exists():
             _path_refused(str(given))
         if given.is_dir():
-            for directory, names, files in os.walk(given, followlinks=False):
-                for name in sorted(names) + sorted(files):
+            for directory, names, filenames in os.walk(given, followlinks=False):
+                for name in sorted(names) + sorted(filenames):
                     path = Path(directory) / name
                     if path.is_symlink():
                         _path_refused(path.relative_to(given).as_posix())
-                for name in sorted(files):
+                for name in sorted(filenames):
                     path = Path(directory) / name
                     found.append((path.relative_to(given).as_posix(), path))
         else:

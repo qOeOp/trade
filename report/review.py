@@ -147,7 +147,7 @@ def _commit_test_findings(conn: db.LedgerConnection, commit: str) -> list[dict]:
             detail = "a commit test the product does not define was added"
         elif [item.encode("utf-8") if item is not None else None for item in stored[name]] != [
                 item.encode("utf-8") for item in expected[name]]:
-            differs = [column for column, left, right in zip(TEST_COLUMNS, stored[name], expected[name])
+            differs = [column for column, left, right in zip(TEST_COLUMNS, stored[name], expected[name], strict=True)
                        if left != right]
             detail = "the commit test differs from the product's definition in " + ", ".join(differs)
         else:
@@ -197,6 +197,7 @@ def _sealed_rows_findings(conn: db.LedgerConnection, run_id: int, commit: str, r
     if compounding.get("passed") and final is not None and starting is not None:
         trial = conn.one("SELECT t.trade_start, t.trade_end FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
                          "r.run_id = %s", (run_id,))
+        assert trial is not None  # run.trial_id is a foreign key to trial
         limitations: list[str] = []
         summary = {"period_start_utc": str(_ns(trial["trade_start"])), "period_end_utc": str(_ns(trial["trade_end"])),
                    "starting_balance_usdt": str(starting), "final_equity_usdt": str(final)}
@@ -239,7 +240,9 @@ def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> tuple
     if not report:
         found.append(_finding("SEALED_RESULT_MISSING", "run_sealed", run_id, commit, "no sealed result"))
         return found, True
-    coverage = capture.get("input_coverage") if isinstance(capture.get("input_coverage"), Mapping) else {}
+    coverage = capture.get("input_coverage")
+    if not isinstance(coverage, Mapping):
+        coverage = {}
     starting = ((coverage.get("effective_config") or {}).get("account") or {}).get("starting_balance_usdt")
     found += _sealed_rows_findings(conn, run_id, commit, report, starting)
     return found, True

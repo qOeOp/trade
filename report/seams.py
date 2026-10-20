@@ -37,9 +37,10 @@ def _market_profile(database: str | None = None) -> dict:
                  "ledger profile directory", missing=("market profile",))
 
 
-def _market_returns(market_database: str | None, commit: str, universe_rule: str, start: datetime,
+def _market_returns(market_database: str | None, commit: str | None, universe_rule: str | None, start: datetime,
                     end: datetime) -> dict:
-    """market.daily_returns on the run's market database (read only)."""
+    """market.daily_returns on the run's market database (read only). The values are the run's stored
+    input identity, which may lack them: the reader refuses a missing commit or universe rule."""
     from market import read, store
     try:
         return read.daily_returns(_market_profile(market_database), commit, universe_rule, start, end)
@@ -61,7 +62,7 @@ def _compare_reports(reference: Path, candidate: Path) -> dict:
 
 @dataclass(frozen=True)
 class Seams:
-    market_returns: Callable[[str | None, str, str, datetime, datetime], dict]
+    market_returns: Callable[[str | None, str | None, str | None, datetime, datetime], dict]
     reproduce: Callable[[int, Path, db.LedgerProfile], dict]
     compare_reports: Callable[[Path, Path], dict]
 

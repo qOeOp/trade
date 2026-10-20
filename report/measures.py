@@ -18,6 +18,7 @@ import math
 import statistics
 
 import numpy as np
+import numpy.typing as npt
 
 from ledger import db, metrics
 from registration import duties
@@ -80,6 +81,10 @@ def _ns(moment: datetime) -> int:
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
+def _mapping(value: object) -> Mapping:
+    return value if isinstance(value, Mapping) else {}
+
+
 def run_facts(conn: db.LedgerConnection, run_id: int) -> dict:
     """What derive_measures reads for one run: the run and trial rows, the latest sealed result, the
     daily series and position cycles as stored, the starting balance of the account terms, the final
@@ -87,9 +92,9 @@ def run_facts(conn: db.LedgerConnection, run_id: int) -> dict:
     loaded = metrics.load_run(conn, run_id)
     sealed = metrics.latest_sealed(conn, run_id, loaded["sealed"])
     capture = loaded["capture"]
-    coverage = capture.get("input_coverage") if isinstance(capture.get("input_coverage"), Mapping) else {}
-    config = coverage.get("effective_config") if isinstance(coverage.get("effective_config"), Mapping) else {}
-    account = config.get("account") if isinstance(config.get("account"), Mapping) else {}
+    coverage = _mapping(capture.get("input_coverage"))
+    config = _mapping(coverage.get("effective_config"))
+    account = _mapping(config.get("account"))
     starting = account.get("starting_balance_usdt")
     compounding = ((sealed or {}).get("activity") or {}).get("returns_compound_to_equity@1") or {}
     trial = loaded["trial"]
@@ -104,7 +109,7 @@ def run_facts(conn: db.LedgerConnection, run_id: int) -> dict:
 
 # Pure helpers
 
-def annual_return(growth: float, days: float) -> float | None:
+def annual_return(growth: float | None, days: float) -> float | None:
     """(final / initial) ** (365 / days) - 1 over the actual trading-window length in days."""
     if growth is None or growth <= 0 or days <= 0:
         return None
@@ -142,7 +147,7 @@ def automatic_bandwidth(series: Sequence[float]) -> tuple[int, int]:
     return min(int(math.floor(gamma * count ** (1 / 3))), count - 1), n
 
 
-def ols_newey_west(y: Sequence[float], x: np.ndarray, lags: int) -> tuple[np.ndarray, np.ndarray]:
+def ols_newey_west(y: npt.ArrayLike, x: np.ndarray, lags: int) -> tuple[np.ndarray, np.ndarray]:
     """OLS coefficients and their heteroskedasticity- and autocorrelation-consistent covariance
     (Bartlett weights 1 - l / (lags + 1))."""
     y = np.asarray(y, dtype=float)
@@ -159,7 +164,7 @@ def ols_newey_west(y: Sequence[float], x: np.ndarray, lags: int) -> tuple[np.nda
     return beta, bread @ middle @ bread
 
 
-def coefficient_bandwidth(y: Sequence[float], x: np.ndarray, index: int) -> tuple[int, int]:
+def coefficient_bandwidth(y: npt.ArrayLike, x: np.ndarray, index: int) -> tuple[int, int]:
     """The automatic bandwidth for the variance of coefficient `index`: the weight vector is
     w_T = alpha' H_T with alpha selecting that coefficient and H_T = (X'X / T)^-1 (Newey-West 1994,
     section III, the OLS case), so w'h_t is that coefficient's row of the inverse times x_t e_t."""
@@ -218,15 +223,17 @@ def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str
         return None, "MARKET_RETURNS_UNAVAILABLE: no market daily returns were read"
     if isinstance(market.get("error"), str):
         return None, market["error"]
-    basket = dict(zip(market.get("days") or [], market.get("basket") or []))
+    # A shorter series leaves its last days missing, which the caller reports.
+    basket = dict(zip(market.get("days") or [], market.get("basket") or [], strict=False))
     found: dict[str, str | None] = {}
     for day in days:
         moment = datetime.fromisoformat(day)
         prior = [basket.get((moment - k * timedelta(days=1)).date().isoformat()) for k in range(1, REGIME_WINDOW + 1)]
-        if any(value is None for value in prior):
+        known = [value for value in prior if value is not None]
+        if len(known) != len(prior):
             found[day] = None
             continue
-        found[day] = "high" if abs(prior[0]) > statistics.median(abs(value) for value in prior) else "low"
+        found[day] = "high" if abs(known[0]) > statistics.median(abs(value) for value in known) else "low"
     return found, None
 
 
@@ -234,8 +241,8 @@ def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict:
     """Daily PnL as notional times unit return over the exposed days: their total splits into a level
     term T * mean(N) * mean(u) and a timing term T * cov(N, u) (population covariance), summing exactly;
     the days without exposure are counted apart with their PnL (flat_days, flat_pnl)."""
-    exposed = [(n, p / n) for n, p in zip(notional, pnl) if n > 0]
-    flat = [p for n, p in zip(notional, pnl) if n <= 0]
+    exposed = [(n, p / n) for n, p in zip(notional, pnl, strict=True) if n > 0]
+    flat = [p for n, p in zip(notional, pnl, strict=True) if n <= 0]
     if not exposed:
         return {"level": None, "timing": None, "exposed_days": 0, "flat_days": len(flat), "flat_pnl": sum(flat)}
     count = len(exposed)
@@ -302,21 +309,21 @@ def _closed(cycles: list[dict]) -> list[dict]:
 
 
 def instrument_net(cycles: list[dict]) -> dict[str, Decimal]:
-    found = defaultdict(Decimal)
+    found: defaultdict[str, Decimal] = defaultdict(Decimal)
     for cycle in _closed(cycles):
         found[cycle["instrument_id"]] += Decimal(cycle["realized_pnl"])
     return dict(found)
 
 
 def exit_net(cycles: list[dict]) -> dict[str, Decimal]:
-    found = defaultdict(Decimal)
+    found: defaultdict[str, Decimal] = defaultdict(Decimal)
     for cycle in _closed(cycles):
         found[cycle["closing_order_type"] or "UNKNOWN"] += Decimal(cycle["realized_pnl"])
     return dict(found)
 
 
 def month_logs(returns: list[tuple]) -> dict[str, float]:
-    found = defaultdict(float)
+    found: defaultdict[str, float] = defaultdict(float)
     for ts, value, _ in returns:
         found[datetime.fromtimestamp(ts // 10**9, timezone.utc).strftime("%Y-%m")] += math.log1p(value)
     return dict(found)
@@ -332,20 +339,21 @@ def aligned_market(returns: list[tuple], market: Mapping | None, series: str) ->
         return None, "MARKET_RETURNS_UNAVAILABLE: no market daily returns were read"
     if isinstance(market.get("error"), str):
         return None, market["error"]
-    by_day = dict(zip(market.get("days") or [], market.get(series) or []))
-    values = [by_day.get(day_of(ts)) for ts, _, _ in returns]
-    missing = [day_of(ts) for (ts, _, _), value in zip(returns, values) if value is None]
+    # A shorter series leaves its last days missing: MARKET_RETURNS_INCOMPLETE below.
+    by_day = dict(zip(market.get("days") or [], market.get(series) or [], strict=False))
+    days = [day_of(ts) for ts, _, _ in returns]
+    missing = [day for day in days if by_day.get(day) is None]
     if missing:
         return None, f"MARKET_RETURNS_INCOMPLETE: no {series} return on {', '.join(missing[:3])}"
-    return values, None
+    return [by_day[day] for day in days], None
 
 
 def basket_months(returns: list[tuple], market: Mapping | None) -> tuple[dict[str, float] | None, str | None]:
     values, reason = aligned_market(returns, market, "basket")
     if values is None:
         return None, reason
-    found = defaultdict(float)
-    for (ts, _, _), value in zip(returns, values):
+    found: defaultdict[str, float] = defaultdict(float)
+    for (ts, _, _), value in zip(returns, values, strict=True):
         found[day_of(ts)[:7]] += math.log1p(value)
     return dict(found), None
 
@@ -426,8 +434,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     if any(cycle["open_unrealized"] is None for cycle in open_cycles) and bridge_reason is None:
         bridge_reason = "OPEN_MARK_MISSING: an open cycle has no final mark"
     open_mark = sum((Decimal(cycle["open_unrealized"] or 0) for cycle in open_cycles), Decimal(0))
-    account = final - starting if bridge_reason is None else None
-    if bridge_reason is None and abs(price - fees + funding + open_mark - account) > metrics.EQUITY_TOLERANCE:
+    account = final - starting if bridge_reason is None and final is not None and starting is not None else None
+    if account is not None and abs(price - fees + funding + open_mark - account) > metrics.EQUITY_TOLERANCE:
         bridge_reason = ("BRIDGE_UNRECONCILED: price - fees + funding + open mark differs from the account change by "
                          f"{money(price - fees + funding + open_mark - account)}")
     for name, value in (("price", price), ("fee", -fees), ("funding", funding), ("open_mark", open_mark),
@@ -441,7 +449,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         capital_reason = "EXPOSURE_SERIES_MISSING: a day has no mean gross notional"
     if capital_reason is None and starting is None:
         capital_reason = "ACCOUNT_UNKNOWN: the starting balance is not recorded"
-    if capital_reason is None:
+    if capital_reason is None and starting is not None:
         n = [float(mean) for mean in notional]
         pnl = daily_pnl(returns, starting)
         mean_n = sum(n) / len(n)
@@ -454,8 +462,10 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         for name in ("level_term", "timing_term"):  # the days without exposure are listed apart (R.3.2.2)
             found[key(name)].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
         months, reason = basket_months(returns, market)
-        up = [value for (ts, _, _), value in zip(returns, n) if months and months.get(day_of(ts)[:7], 0) > 0]
-        down = [value for (ts, _, _), value in zip(returns, n) if months and months.get(day_of(ts)[:7], 0) <= 0]
+        up = [value for (ts, _, _), value in zip(returns, n, strict=True)
+              if months and months.get(day_of(ts)[:7], 0) > 0]
+        down = [value for (ts, _, _), value in zip(returns, n, strict=True)
+                if months and months.get(day_of(ts)[:7], 0) <= 0]
         put("up_month_notional", sum(up) / len(up) if up else None, "basket_up_days", len(up),
             reason or "NO_UP_MONTH: the basket rose in no month")
         put("down_month_notional", sum(down) / len(down) if down else None, "basket_down_days", len(down),
@@ -469,7 +479,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         "NO_DRAWDOWN: the annual return or the mark drawdown is missing or zero")
 
     # fee_stress
-    if bridge_reason is None:
+    if bridge_reason is None and account is not None:
         multiple, reason = breakeven_multiple(account, fees) if fees else (None, "NO_FEES: the run paid no fees")
         put("breakeven_fee_multiple", multiple, "account", len(cycles), reason)
     else:
@@ -491,7 +501,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     for series, beta_name, alpha_name in (("basket", "beta_basket", "alpha_basket"), ("btc", "beta_btc", "alpha_btc")):
         values, reason = aligned_market(returns, market, series)
         reason = series_reason or reason
-        if reason is None:
+        if reason is None and values is not None:
             try:
                 fitted = market_regression(simple, values)
             except (ValueError, np.linalg.LinAlgError) as exc:
@@ -534,11 +544,11 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     count, empty = len(closed), "NO_CLOSED_CYCLE: no closed cycle"
     put("cycles", count, "closed_cycles", count)
     put("win_rate", len(wins) / count if count else None, "closed_cycles", count, empty)
-    put("avg_win", money(sum(wins) / len(wins)) if wins else None, "closed_cycles", len(wins), "NO_WIN: no winning "
-                                                                                               "cycle")
-    put("avg_loss", money(sum(losses) / len(losses)) if losses else None, "closed_cycles", len(losses),
+    win_total, loss_total = sum(wins, Decimal(0)), sum(losses, Decimal(0))
+    put("avg_win", money(win_total / len(wins)) if wins else None, "closed_cycles", len(wins), "NO_WIN: no winning cycle")
+    put("avg_loss", money(loss_total / len(losses)) if losses else None, "closed_cycles", len(losses),
         "NO_LOSS: no losing cycle")
-    put("expectancy", money((sum(wins) + sum(losses)) / count) if count else None, "closed_cycles", count, empty)
+    put("expectancy", money((win_total + loss_total) / count) if count else None, "closed_cycles", count, empty)
     hours = [(cycle["ts_closed_ns"] - cycle["ts_opened_ns"]) / HOUR_NS for cycle in closed]
     put("median_holding_hours", statistics.median(hours) if hours else None, "closed_cycles", count, empty)
     exits = exit_net(cycles)
