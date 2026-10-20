@@ -352,7 +352,7 @@ def write(
 | `COMMIT_CHECK_FAILED` | dolt_commit 时提交校验组 dolt_tests(commit) 任一项不通过 |
 | `CONCURRENT_WRITE` | 提交时与另一并发写入在 ledger_head 单行或同一记录格上冲突，本事务已回滚 |
 | `LEDGER_PERMISSION` | insert 执行了 writer 账号没有的语句（UPDATE/DELETE、其他表或过程） |
-| `DOLT_SQL_ERROR` | 其他 SQL 错误；事务已回滚，不留半截记录 |
+| `DOLT_SQL_ERROR` | 其他 SQL 错误；事务已回滚，不留半截记录；消息带服务器的错误原文（截至 300 字符） |
 | `COMMIT_CHECKS_DISABLED` | 服务的提交校验组设置不是 commit |
 
 **使用**　<Ref id="ledger.refusal" />、<Ref id="table:ledger_head" />、<Ref id="table:dolt_tests" />
@@ -1173,7 +1173,7 @@ def metrics(reports: Reports) -> dict
 2. 资格事实逐项核：真实成交、成交与订单一一对应、持仓周期覆盖全部成交、日收益复利到期末权益、账户首末相符；每项记是否通过、原因码与计数。
 3. 从逐分钟敞口与账户状态算标记价最大回撤、峰谷时刻、持续天数与回撤区间内亏损最多的合约占比；算资金使用峰值、在市时间与锁定保证金峰值，并给逐日序列写当日平均名义敞口（当日全部 K 线标签上名义绝对值之和的平均，空仓计零，不含预热段，最后不满一天按实际根数）。
 4. 按流动性方向汇总手续费与成交额；数订单漏斗；核计划标签与周期一一对应，记计划统计是否成立。
-5. 每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因；局限只记本运行特有的。
+5. 每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；算不出只置空该项并写原因。局限清单从运行器在原生摘要里列出的局限开始（它没有建模或近似处理的部分），再加本运行特有的。
 6. 能从持仓周期与逐日序列算出的量不在这里算，由 report.derive_measures 读时算。
 7. metrics_revision 取产品 checkout 的 HEAD，本地改动不拒绝；未封存的目录报告同样取 HEAD。按挂单吃单拆分的名义额乘合约乘数，与持仓周期一致。
 8. 敞口报告按 K 线标签流式聚合，不整表读入内存（1 分钟线全池一年整表约 20 GB，流式峰值约 1 GB）。
@@ -1200,12 +1200,8 @@ def metrics_revision() -> str
 
 1. 在产品 checkout（缺省为本仓库）运行 git rev-parse HEAD 取提交哈希。
 2. 工作树里未提交或未跟踪的文件既不拒绝，也不改变返回值（用户 10-20 授权）；没有区分干净与否的参数。
-3. 不在 Git 检出中即拒绝 NOT_A_CHECKOUT，不给占位值。
+3. 产品从它的 Git 检出运行；不在检出中时 git rev-parse 失败，抛普通的进程错误，不另设拒绝码。
 4. 由 ledger.ingest_run 在封存时写入 run.metrics_revision，由 qualification.check_identity 写入检查身份；写入后只读。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NOT_A_CHECKOUT` | 指标计算代码不在 Git 检出中，无法解析 HEAD |
 
 **使用**　<Ref id="ledger.ingest_run" />、<Ref id="qualification.check_identity" />
 

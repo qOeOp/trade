@@ -15,7 +15,7 @@
 
 **触发**　每次开始或中断恢复研究，以及路线内判定需要换路线、回到入口时
 
-core：先读账本续做已选路线；给路线选项后以提问结束，选定前不登记不回放；模板根与人造根的触发条件；进入路线前提示一次由用户开目标模式。另列三个 references 文件各自何时读
+core：先读账本续做已选路线；给路线选项后以提问结束，选定前不登记不回放；模板根与人造根的触发条件；进入路线前提示一次由用户开目标模式。用户选定后先核就绪；新根先发布、预检并经审查，再用 line select 记路线，--start 是审查通过的那一版。另列三个 references 文件各自何时读
 
 <ol className="rd-skill-rules">
 <li id="def-rule-E-1-1-1">开始或恢复先读账本研究状态；有路线记录就续做，不重问，不用会话记忆 <span className="rd-rule-links"><Ref id="E.1.1.1">E.1.1.1</Ref></span><span className="rd-eval">eval <code>resume-keeps-route</code>：首批动作读账本服务状态、候选清单、路线记录与研究状态视图；续做记录中的路线不重问；交接文件与会话记忆中与账本不一致的结论未被引用</span></li>
@@ -28,7 +28,7 @@ core：先读账本续做已选路线；给路线选项后以提问结束，选�
 
 **触发**　首次回放前核就绪、覆盖回执出现缺口、零量或资金费缺失、新月份数据到达时
 
-回放前核镜像、月份与逐合约覆盖并报精确阻断与可运行范围；缺口记事实不判经济失败；新月份只报可扩展范围，由用户选窗口
+回放前核镜像、月份与逐合约覆盖并报精确阻断与可运行范围；缺口记事实不判经济失败；新月份只报可扩展范围，由用户选窗口。开头说明 market coverage 输出的顶层键（commit、scope、coverage、lifecycle、lifecycle_missing），并给一条 jq 过滤去掉占大部分输出的资金费事件时间
 
 <ol className="rd-skill-rules">
 <li id="def-rule-E-1-2-3">回放前核镜像、月份与逐合约覆盖；缺则报精确阻断、可运行范围与恢复状态后提问 <span className="rd-rule-links"><Ref id="E.1.2.3">E.1.2.3</Ref></span><span className="rd-eval">eval <code>blocked-run-reports-range</code>：输出同时含精确阻断段（镜像／市场提交／合约与区间）、不改范围时的可运行范围和保留的恢复状态，并以提问结束；不删币、不缩窗、不补数，不擅改提交或窗口，不把阻断写成候选失败或路线无效</span></li>
