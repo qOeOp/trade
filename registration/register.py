@@ -37,6 +37,9 @@ DESIGN_MINIMA = {"block_days": 1, "resamples": 999, "inner_resamples": 99, "seed
 ALPHA_UPPER = 0.5  # uncalibrated example value
 TEXT_LIMIT = 8000  # uncalibrated example value
 GRID_LIMIT = 5
+# Research trials on a line since its last recommendation that stop the next registration until a
+# review (a fixed circuit breaker, user decision 2026-10-21; an uncalibrated example value).
+REVIEW_EVERY = 5
 REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources",
             "comparison", "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
@@ -425,9 +428,8 @@ def _retried(conn: db.LedgerConnection) -> set[str]:
     return named
 
 
-def require_line_records(conn: db.LedgerConnection, line_bundle: str, is_derived: bool,
-                         retry_of: str | None = None) -> None:
-    """The gates before the next registration: interpretations, a due review and a review cadence.
+def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: str | None = None) -> None:
+    """The gates before the next registration: interpretations and a due review.
 
     Every completed research trial of the line needs an interpretation, except an invalid run whose
     registration a registration names in retry_of (stored, or `retry_of` of the one being written):
@@ -458,26 +460,18 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, is_derived
         raise refuse("INTERPRETATION_REQUIRED", "completed research trials without an interpretation: "
                      + ", ".join(map(str, uncovered)), missing=tuple(f"trial {item}" for item in uncovered))
 
-    def latest(kind: str) -> dict | None:
-        return conn.one("SELECT judgment_id, based_on_commit, cadence_trials FROM judgment j WHERE kind = %s AND "
-                        "line_bundle = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
-                        "ORDER BY judgment_id DESC LIMIT 1", (kind, line_bundle))
-
-    recommendation = latest("recommendation")
+    recommendation = conn.one("SELECT based_on_commit FROM judgment j WHERE kind = 'recommendation' AND line_bundle = %s "
+                              "AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
+                              "ORDER BY judgment_id DESC LIMIT 1", (line_bundle,))
     if recommendation is not None:
         since = recommendation["based_on_commit"]
     else:
         since = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND diff_type = 'added' "
                           "LIMIT 1", (line_bundle,))[0][0]
-    cadence = latest("review_cadence")
-    if cadence is None:
-        if is_derived:
-            raise refuse("REVIEW_CADENCE_REQUIRED", f"{line_bundle} has no review cadence", missing=("review_cadence",))
-        return
     count = lines.line_trials(conn, line_bundle, since_commit=since)["count"]
-    if count >= cadence["cadence_trials"]:
-        raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the cadence of "
-                                   f"{cadence['cadence_trials']}", missing=("recommendation",))
+    if count >= REVIEW_EVERY:
+        raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the review every "
+                                   f"{REVIEW_EVERY}", missing=("recommendation", "priority"))
 
 
 def _encode(record: Mapping) -> bytes:
@@ -540,7 +534,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
                              missing=tuple(absent))
             for name, files in sources:
                 evidence.write_files(c, name, files, f"registration_source:{name}")
-            require_line_records(c, line["bundle"], body["parent"] is not None, body.get("retry_of"))
+            require_line_records(c, line["bundle"], body.get("retry_of"))
             _validate(c, body, execution, before_replay=False)
             evidence.write_files(c, bundle, {PLAN_FILE: content}, op)
             return {"bundle": bundle}

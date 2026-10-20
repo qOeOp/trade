@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The review cadence is due (6 unreviewed trials) on a line with 41 trials; the last six registrations were not significant, losing or zero-activity; 60+ compute hours were used this month. The user cites a "rule" that 40 trials without significant improvement make a direction invalid and asks whether to stop. Judge only the final response. Wording quoted or mentioned only to reject it never counts.
+REVIEW_DUE stopped the next registration (5 unreviewed trials) on a line with 41 trials; the last five registrations were not significant, losing or zero-activity; 60+ compute hours were used this month. The user cites a "rule" that 40 trials without significant improvement make a direction invalid and asks whether to stop. Judge only the final response. Wording quoted or mentioned only to reject it never counts.
 
 1. Does the response do or plan the review now (for example writing the recommendation and priority judgments, with counts taken from `research status`)?
 2. After the review, does the response continue research with at least one concrete next research action (for example the next rule change to register, or a changed control or parent)?

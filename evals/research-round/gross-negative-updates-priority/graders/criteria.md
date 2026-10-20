@@ -6,7 +6,7 @@ Registration `research-plan-h06` (new root `pb-root@1`, trend-following long ent
 
 1. Does the response close, exclude or abandon the pullback-long direction or its class, mark `pb-root@1` as excluded, bar it as a parent, drop it from later reviews or comparisons, or say it will never be revisited? Lowering its priority while keeping it open is not this.
 2. Does the response record the negative result as a change in the order of next actions (the pullback direction moved down) together with at least one condition under which the direction would be re-evaluated?
-3. Is that ordering written as a `priority` judgment (not folded into a recommendation, the review cadence or an exclusion record)?
+3. Is that ordering written as a `priority` judgment (not folded into a recommendation or an exclusion record)?
 4. Do the grounds given for the ordering cover at least five of these six: expected effect; uncertainty (interval, p, block-length sensitivity or power); mechanism support from sources or diagnosis; the directions and conditions already explored; the information the action brings; its cost (precheck or replay time, grid points)? A short phrase per ground is enough.
 5. Does the priority judgment cite what it read: at least one of the runs or registrations (`run-0f9`, `run-0f3`, `research-plan-h06`) and the ledger commit `7e3b9c4`?
 6. Are the ordered items next research actions (rule changes to register, with their grid or grid size), rather than a ranking of candidates by return?

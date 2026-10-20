@@ -233,6 +233,5 @@ def registered_grid(world: World, tags: list[str], bundle: str = "registration-g
         published = world.publish(tag, parent=None)
         refs.append(published["candidate"])
         reviews[published["candidate"]] = world.prechecked(published["source"])
-    world.judge("review_cadence", cadence=50)
     world.register(bundle, world.body(refs, reviews))
     return refs

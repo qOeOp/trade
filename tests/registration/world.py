@@ -19,7 +19,8 @@ from ledger import db, evidence, judgments, lines, strategies, trials
 from ledger.refusals import refuse
 from market import universe
 from registration import precheck, register, seams
-from tests.ledger.dolt import IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, market as line_market, sha, source
+from tests.ledger.dolt import (IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, market as line_market, reviewed,
+                               sha, source)
 
 
 OTHER_COMMIT = "n" * 32
@@ -185,7 +186,8 @@ class World:
             self.conn = db.connect(self.profile, "writer")
             strategies.publish_candidate(self.profile, source("root"), "rsi", "Fixture", "the line's start")
             self.line = lines.select_line(self.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1),
-                                          "rsi@1", market=line_market(latest_complete_day=date(2026, 3, 31)))
+                                          "rsi@1", market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                          reviews=reviewed(source("root")))
             self.counter = 0
         except BaseException:
             self.close()
@@ -282,9 +284,12 @@ class World:
             return {"run_id": run_id}
         return db.write(self.conn, "ingest_fixture", {"trial_id": trial_id}, "run", insert)["record"]["run_id"]
 
-    def judge(self, kind: str, subjects=None, cadence: int | None = None) -> int:
+    def judge(self, kind: str, subjects=None) -> int:
+        from report import status
         return judgments.add_judgment(self.profile, kind, self.line["bundle"], db.head_commit(self.conn),
-                                      f"{kind} fixture", cadence_trials=cadence, subjects=subjects)["judgment_id"]
+                                      f"{kind} fixture", subjects=subjects,
+                                      compared=lambda line, at: status.compared_candidates(self.profile, line, at))[
+            "judgment_id"]
 
     def seq(self) -> int:
         return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]

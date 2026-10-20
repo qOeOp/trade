@@ -3,9 +3,8 @@ they and the exporter share.
 
 Facts only, at one pinned market commit: per contract its member months, the gaps and zero-volume
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
-funding settlement times. First and last data are proxies of listing and delisting and are marked
-unproven; indicator readiness is the Agent's review. Nothing here drops a contract, shortens a
-window, fills data or judges an economic failure.
+funding settlement times. First and last data are proxies of listing and delisting, no exchange
+fact. Nothing here drops a contract, shortens a window, fills data or judges an economic failure.
 """
 
 from __future__ import annotations
@@ -90,14 +89,9 @@ def coverage_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, l
     return {"format": FORMAT, "commit": commit, "symbol": symbol, "input_interval_ms": [start_ms, end_ms],
             "last": last, "mark": mark, "last_mark_unmatched_minutes": unmatched,
             "funding": {"rows": len(times), "first_ms": times[0] if times else None,
-                        "last_ms": times[-1] if times else None, "event_times_ms": times,
-                        "expected_schedule": "not_established"},
+                        "last_ms": times[-1] if times else None, "event_times_ms": times},
             "member_months": months,
-            "listing_delisting": {"status": "unproven",
-                                  "data_bounds_proxy": {"last": bounds["LAST"], "mark": bounds["MARK"]},
-                                  "reason": "first and last stored data are no exchange listing or delisting fact"},
-            "indicator_readiness": {"status": "agent_review_required",
-                                    "reason": "whether the strategy's indicators are warmed up is the Agent's review"},
+            "listing_delisting": {"data_bounds_proxy": {"last": bounds["LAST"], "mark": bounds["MARK"]}},
             "interpretation": INTERPRETATION}
 
 

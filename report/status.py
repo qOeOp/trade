@@ -10,6 +10,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date, datetime, time
 import hashlib
 import json
 import re
@@ -22,10 +23,13 @@ from registration import comparability, register
 from report import candidates as report_candidates, measures, runs
 
 
-SINGLE_KINDS = ("recommendation", "priority", "review_cadence")
+SINGLE_KINDS = ("recommendation", "priority")
 MANY_KINDS = ("interpretation", "search_exposure")
 DIMENSIONS = ("runtime", "effective_config", "input")
 RUNTIME_KEYS = ("image_digest", "runtime_contract", "engine_version", "dependency_lock_sha256")
+# The comparison table's measures (the single-run report's), and those where less is better.
+TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
+LOWER_IS_BETTER = ("mark_max_drawdown",)
 TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
 
 
@@ -137,11 +141,13 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
     return {"counted": counted, "reproductions": reproductions, "stopped_before_strategy": stopped}
 
 
-def research_status(ledger, at: str | None = None) -> dict:
+def research_status(ledger, at: str | None = None, line_bundle: str | None = None) -> dict:
     """Research fact counts at a ledger version: trials, versions, registration attempts by outcome and
     out-of-sample registrations; only counts, versions and the checker identity. The trial counts
     (`trials`, `distinct_sources`, `by_development_window`, the multiple-testing counts) leave out
-    reproductions and trials stopped before the strategy ran, listed in `excluded_trials`."""
+    reproductions and trials stopped before the strategy ran, listed in `excluded_trials`.
+    `comparison` is the comparison table of `line_bundle` (default: the current line; null without
+    one)."""
     checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
@@ -188,6 +194,8 @@ def research_status(ledger, at: str | None = None) -> dict:
                                             "diff_type = 'added' GROUP BY to_commit"):
             if _stamp(conn, commit_hash) is None:
                 unwitnessed += count
+        line = line_bundle or (lines.current_line(conn) or {}).get("bundle")
+        table = comparison_table(conn, line, checker, records) if line is not None else None
     return {"ledger_commit": commit, "trials": trials, "distinct_sources": sources, "by_development_window": windows,
             "excluded_trials": excluded,
             "research_attempts": len(attempts), "audit_passed_research_runs": counted["passed"],
@@ -196,7 +204,7 @@ def research_status(ledger, at: str | None = None) -> dict:
             "validation": {"registered": registered, "bound": bound, "unbound": registered - bound,
                            "unwitnessed": unwitnessed},
             "unverified_runs": unverified, "availability_checker": checker,
-            "metrics_revision": checker["metrics_revision"]}
+            "metrics_revision": checker["metrics_revision"], "comparison": table}
 
 
 def _stamp(conn: db.LedgerConnection, commit: str):
@@ -206,13 +214,73 @@ def _stamp(conn: db.LedgerConnection, commit: str):
         return None
 
 
+# The comparison table
+
+def _headline(conn: db.LedgerConnection, run_id: int, names) -> dict:
+    """The named measures of one run as its single-run report gives them (report.derive_measures)."""
+    derived = measures.derive_measures(measures.run_facts(conn, run_id),
+                                       market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for the state"})
+    return {measures.key(name): derived[measures.key(name)] for name in names}
+
+
+def _dominates(better: Mapping, worse: Mapping) -> bool:
+    """Whether `better` is at least as good on all four measures and better on one; None never compares."""
+    pairs = []
+    for name in TABLE_MEASURES:
+        mine, theirs = better[measures.key(name)]["value"], worse[measures.key(name)]["value"]
+        if mine is None or theirs is None:
+            return False
+        pairs.append((-mine, -theirs) if name in LOWER_IS_BETTER else (mine, theirs))
+    return all(mine >= theirs for mine, theirs in pairs) and any(mine > theirs for mine, theirs in pairs)
+
+
+def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mapping, records: list) -> dict:
+    """Every passed research run with economic evidence whose trading window is the line's development
+    window and whose universe rule is the line's (older candidates and other lines included), with
+    the four measures of its report and whether another run of the table dominates it on them.
+    `non_dominated` is null for a run missing a measure. Nothing is ranked, scored or stored."""
+    line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
+    window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
+              datetime.combine(date.fromisoformat(line["window_end"]), time()))
+    starts, _ = _manifests(conn)
+    found = []
+    for row in conn.dicts("SELECT r.run_id, t.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
+                          "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
+                          "WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.run_id"):
+        identity = (starts.get(row["trial_id"]) or {}).get("input_identity") or {}
+        if (row["trade_start"], row["trade_end"]) != window or identity.get("universe_rule") != line["universe_rule"]:
+            continue
+        if not report_candidates.assess_listed(conn, row["run_id"], checker, records)["economic_evidence_available"]:
+            continue
+        found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "run_id": row["run_id"],
+                      "trial_id": row["trial_id"], "measures": _headline(conn, row["run_id"], TABLE_MEASURES)})
+    for item in found:
+        complete = all(item["measures"][measures.key(name)]["value"] is not None for name in TABLE_MEASURES)
+        item["dominated_by"] = [other["run_id"] for other in found if other is not item
+                                and _dominates(other["measures"], item["measures"])]
+        item["non_dominated"] = (not item["dominated_by"]) if complete else None
+    return {"line": line_bundle, "window_start": line["window_start"], "window_end": line["window_end"],
+            "universe_rule": line["universe_rule"], "measures": [measures.key(name) for name in TABLE_MEASURES],
+            "lower_is_better": [measures.key(name) for name in LOWER_IS_BETTER], "runs": found,
+            "candidates": sorted({item["candidate"] for item in found})}
+
+
+def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
+    """The candidates of the line's comparison table at `at` (what a recommendation must name)."""
+    checker = availability.check_identity()
+    with db.read_as_of(runs.profile_of(profile), at) as conn:
+        return comparison_table(conn, line_bundle, checker, availability.review_records(conn))["candidates"]
+
+
 # The research state
 
 def _judgments(conn: db.LedgerConnection, line: str) -> dict[str, list[dict]]:
     found: dict[str, list[dict]] = {kind: [] for kind in (*SINGLE_KINDS, *MANY_KINDS)}
-    rows = conn.dicts("SELECT judgment_id, kind, based_on_commit, cadence_trials, body, created_at FROM judgment j WHERE "
-                      "line_bundle = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
-                      "ORDER BY judgment_id", (line,))
+    kinds = (*SINGLE_KINDS, *MANY_KINDS)  # review_cadence rows from before the fixed cadence are not read
+    rows = conn.dicts(f"SELECT judgment_id, kind, based_on_commit, body, created_at FROM judgment j WHERE "
+                      f"line_bundle = %s AND kind IN ({', '.join(['%s'] * len(kinds))}) AND NOT EXISTS "
+                      "(SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) ORDER BY judgment_id",
+                      (line, *kinds))
     subjects: dict[int, list[dict]] = {}
     for row in conn.dicts("SELECT s.judgment_id, s.seq, s.role, s.strategy_id, s.revision, s.trial_id, "
                           "s.registration_bundle FROM judgment_subject s JOIN judgment j ON j.judgment_id = s.judgment_id "
@@ -239,17 +307,15 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
         value = report_candidates.assess_listed(conn, trial["run_id"], checker, records)
         headline = None
         if trial["status"] == "passed" and value["economic_evidence_available"]:
-            derived = measures.derive_measures(measures.run_facts(conn, trial["run_id"]),
-                                               market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for the state"})
-            headline = {measures.key(name): derived[measures.key(name)] for name in measures.HEADLINE}
+            headline = _headline(conn, trial["run_id"], measures.HEADLINE)
         return {"trial": trial, "availability": value, "headline": headline}
     return {"registration_bundle": subject.get("registration_bundle")}
 
 
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
-    note), its current judgments with read-time facts, the trials since the last
-    recommendation, the trial count of the line and the gates the next registration would meet. On
+    note), its current judgments with read-time facts, the fixed review cadence (`review_every`),
+    the trials since the last recommendation, the trial count of the line and the gates the next registration would meet. On
     a ledger without a research line: `line` null with the facts and `line select` as the next step."""
     checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
@@ -259,9 +325,9 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
             needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
                        "missing": ["research-line"]}]
-            return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "interpretations": [],
-                    "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
-                    "gates": {"root": needed, "derived": needed},
+            return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "review_every": register.REVIEW_EVERY,
+                    "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
+                    "gates": needed,
                     "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                               "counts": research_status(conn.profile, commit)},
                     "next_actions": ["Select the user's research line with `line select`."]}
@@ -274,15 +340,13 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         for kind in judged:
             for item in judged[kind]:
                 item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
-        gates: dict[str, list[dict]] = {}
-        for name, derived in (("root", False), ("derived", True)):
-            try:
-                register.require_line_records(pinned, line, derived)
-                gates[name] = []
-            except Refusal as exc:
-                gates[name] = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
+        try:
+            register.require_line_records(pinned, line)
+            gates: list[dict] = []
+        except Refusal as exc:
+            gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
     return {"at": commit, "line": record, **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
-            "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
+            "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)}}

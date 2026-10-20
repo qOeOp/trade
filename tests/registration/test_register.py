@@ -40,7 +40,6 @@ class RegisterTests(unittest.TestCase):
         cls.root_review = world.prechecked(source("root"))
         cls.child = world.publish("child")
         cls.child_review = world.prechecked(cls.child["source"])
-        world.judge("review_cadence", cadence=50)
         cls.registered = world.register("registration-root", world.body(["rsi@1"], {"rsi@1": cls.root_review},
                                                                           comparison=None))
 
@@ -394,15 +393,19 @@ class LineRecordTests(unittest.TestCase):
     def code(self, body, **kwargs) -> str:
         return refused(self.world.register, "registration-child", body, **kwargs).code
 
-    def test_interpretations_cadence_and_due_reviews_gate_the_next_registration(self):
+    def test_interpretations_and_the_review_breaker_gate_the_next_registration(self):
         world = self.world
 
-        def supersede(kind, old, cadence=None):
+        def supersede(kind, old):
             return judgments.add_judgment(world.profile, kind, world.line["bundle"], db.head_commit(world.conn),
-                                          f"revised {kind}", cadence_trials=cadence, supersedes=old)["judgment_id"]
+                                          f"revised {kind}", supersedes=old)["judgment_id"]
 
-        self.assertEqual(self.code(self.derived()), "REVIEW_CADENCE_REQUIRED")
-        cadence = world.judge("review_cadence", cadence=2)
+        batch = [world.publish(f"batch {index}", parent=None) for index in range(register.REVIEW_EVERY - 1)]
+        world.register("registration-batch", world.body([item["candidate"] for item in batch],
+                                                        {item["candidate"]: world.prechecked(item["source"])
+                                                         for item in batch}))
+        for item in batch[:-1]:  # with the root trial, one research trial short of the breaker (none completed)
+            world.research_trial("registration-batch", item["source"])
         world.register("registration-unfinished", self.derived())  # the root trial has no run: not completed yet
         run_id = world.seal_run(self.root_trial)
         another = world.publish("second child")
@@ -413,16 +416,17 @@ class LineRecordTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {self.root_trial}",)))
         first = world.judge("interpretation", subjects=[{"role": "about", "registration_bundle": "registration-root"}])
         supersede("interpretation", first)  # a superseded interpretation still covers its trial
-        supersede("review_cadence", cadence, cadence=1)
-        self.assertEqual(refused(world.register, "registration-gated", body).code, "REVIEW_DUE")
+        self.assertEqual(register.REVIEW_EVERY, 5)
+        world.research_trial("registration-batch", batch[-1]["source"])  # the fifth research trial
+        exc = refused(world.register, "registration-gated", body)
+        self.assertEqual((exc.code, exc.missing), ("REVIEW_DUE", ("recommendation", "priority")))
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": "rsi@1"}])
-        self.assertFalse(world.register("registration-gated", body)["replayed"])
+        self.assertFalse(world.register("registration-gated", body)["replayed"], "the recommendation clears it")
 
     def test_the_control_must_be_a_comparable_passed_run_with_economic_evidence(self):
         world = self.world
         run_id = world.seal_run(self.root_trial)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
-        world.judge("review_cadence", cadence=50)
         narrower = world.body([self.child["candidate"]], {self.child["candidate"]: self.child_review},
                               parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_run=run_id)
         exc = refused(world.register, "registration-narrow", narrower,
@@ -439,7 +443,6 @@ class LineRecordTests(unittest.TestCase):
         world = self.world
         run_id = world.seal_run(self.root_trial, "invalid")
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
-        world.judge("review_cadence", cadence=50)
         self.assertEqual(self.code(self.derived(control_run=run_id)), "RUN_NOT_PASSED")
         blank = world.publish("blank identity", parent=None)
         review = world.prechecked(blank["source"])
@@ -462,7 +465,6 @@ class RetryTests(unittest.TestCase):
     def setUp(self):
         self.world = World("retry")
         self.addCleanup(self.world.close)
-        self.world.judge("review_cadence", cadence=50)
         self.body = self.world.body(["rsi@1"], {"rsi@1": self.world.prechecked(source("root"))})
 
     def attempt(self, bundle: str, retry_of: str | None, outcome: str | None) -> int:
@@ -494,10 +496,10 @@ class RetryTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {failed}",)))
         self.world.register("registration-r2", {**self.body, "retry_of": "registration-r1"})
         line = self.world.line["bundle"]
-        self.assertIsNone(register.require_line_records(self.world.conn, line, False), "the stored retry exempts it")
+        self.assertIsNone(register.require_line_records(self.world.conn, line), "the stored retry exempts it")
         passed = self.world.research_trial("registration-r2", source("root"))
         self.world.seal_run(passed, "passed")
-        exc = refused(register.require_line_records, self.world.conn, line, False)
+        exc = refused(register.require_line_records, self.world.conn, line)
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {passed}",)),
                          "a valid run still needs its interpretation")
 
