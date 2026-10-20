@@ -733,9 +733,9 @@ def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy) -
 
 
 def fill_model(account) -> DefaultFillModel:
-    """engine.fill_model: a fresh seeded native fill model per engine (its draws are engine state)."""
+    """engine.fill_model: a fresh native fill model per engine; with probabilities 0 it draws nothing."""
     return DefaultFillModel(prob_fill_on_limit=float(account["prob_fill_on_limit"]),
-                            prob_slippage=float(account["prob_slippage"]), random_seed=account["fill_random_seed"])
+                            prob_slippage=float(account["prob_slippage"]))
 
 
 def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:

@@ -44,10 +44,12 @@ The runner takes the strategy reference, the inputs, the window and the account,
 - **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus margin account
   shared by every instrument, leverage 1, one-minute bar execution (`execution_bar_minutes = 1`),
   the exported instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. Fills
-  use the native `DefaultFillModel` (`prob_fill_on_limit` 0: a touched resting limit does not fill, a
-  traded-through one does; `prob_slippage` 0.5: each L1 fill, maker or taker, moves one tick against
-  the order on a seeded draw shared by all contracts in fill order) and adaptive high/low ordering;
-  the values are uncalibrated prototype choices (branch `exp/fill-model`). The
+  use the native `DefaultFillModel` with both probabilities 0, so it draws no random numbers: a
+  resting limit fills at its price only when a bar trades through it (a touch alone never fills),
+  and the model adds no slippage (a market order still takes a quarter of the bar's volume at the
+  close and the rest one tick worse). Each bar visits the extreme nearer its open first
+  (`bar_adaptive_high_low_ordering`), which decides a bracket whose stop and target fall in one bar;
+  consumed-liquidity and queue tracking stay off. The
   published `nautilus_trader==2.0.0rc3` owns data replay, orders, fills, funding settlement, risk,
   portfolio accounting and reports. No exchange trading credential is needed.
 

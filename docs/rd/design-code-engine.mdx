@@ -439,7 +439,7 @@ def compare_reports(
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="engine.account_contract">account_contract</Ref> | 所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、固定开高低收顺序、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项 |
+| <Ref id="engine.account_contract">account_contract</Ref> | 所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、离开盘价近的极值先走、两个概率都为 0 的缺省成交模型（限价被穿过才成交、不加随机滑点、不抽随机数）、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置延迟模型、不开强平；策略源码不能改动其中任何一项 |
 | <Ref id="engine.build_parser">build_parser</Ref> | 构造运行器唯一的命令行定义：策略引用、输入、窗口、输出目录与探针开关；没有任何策略参数选项，仓位、单笔风险、名义上限、周期等全部归源码。 |
 | <Ref id="engine.describe">describe</Ref> | 镜像内身份探针：从正在执行的镜像自身读出运行环境身份，供宿主与清单身份、源码布局和执行绑定逐字核对 |
 | <Ref id="engine.effective_configuration">effective_configuration</Ref> | 由运行器配置生成有效配置及其去宿主路径的哈希，使宿主写出的执行绑定与容器内运行器解析的结果可逐字比对 |
@@ -448,7 +448,7 @@ def compare_reports(
 
 ### `account_contract` [#def-engine-account_contract]
 
-所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、固定开高低收顺序、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项
+所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、离开盘价近的极值先走、两个概率都为 0 的缺省成交模型（限价被穿过才成交、不加随机滑点、不抽随机数）、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置延迟模型、不开强平；策略源码不能改动其中任何一项
 
 ```python
 def account_contract() -> 只读映射
@@ -459,9 +459,9 @@ def account_contract() -> 只读映射
 **期望行为**
 
 1. 账户：场所标识、oms_type=NETTING、account_type=MARGIN、book_type=L1_MBP、基础货币 USDT、固定本金 10 万 USDT（用户定的设计常量）、default_leverage=1、固定 trader_id。
-2. 撮合：bar_execution=True、bar_adaptive_high_low_ordering=False（固定开高低收顺序）、time_bars_timestamp_on_close=True、不跳过首根非完整 K 线、validate_data_sequence=True、固定下单速率上限。
+2. 撮合：bar_execution=True、bar_adaptive_high_low_ordering=True（离开盘价近的极值先走）、fill_model=DefaultFillModel 且 prob_fill_on_limit=0（只触到的限价单不成交）、prob_slippage=0（不加随机滑点，因而不需要种子）、liquidity_consumption=False、queue_position=False、time_bars_timestamp_on_close=True、不跳过首根非完整 K 线、validate_data_sequence=True、固定下单速率上限。
 3. 订单能力：support_gtd_orders=True、support_contingent_orders=True（括号单 bracket order / OCO）、reject_stop_orders=False。
-4. 不设 fill_model、latency_model、fee_model 与任何 liquidation_* 键，留引擎缺省（强平关闭）；手续费与保证金率来自导出合约上的假设条款（market.build_instrument），不在此处。
+4. 不设 latency_model、fee_model 与任何 liquidation_* 键，留引擎缺省（强平关闭）；手续费与保证金率来自导出合约上的假设条款（market.build_instrument），不在此处。
 5. 返回不可变映射，不接受任何外部输入。无输入、无拒绝：常量映射总能返回，参数非法由 engine.parse_configuration 在命令行层拒绝。
 
 **使用**　<Ref id="market.build_instrument" />
@@ -975,7 +975,7 @@ def write_native_reports(
 ) -> tuple[dict
 ```
 
-<TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、触价即成交、固定开高低收顺序、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
+<TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、限价被穿过才成交、离开盘价近的极值先走、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
 
 **返回**　tuple[dict, list[str]]：原生摘要 summary 与完整性发现列表 integrity_findings；摘要同时以 JSON 写入 output/summary.json 并打印到标准输出，供执行捕获封存
 
