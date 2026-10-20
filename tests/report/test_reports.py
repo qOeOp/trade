@@ -324,7 +324,12 @@ class ReportTests(unittest.TestCase):
     def test_the_research_state_gives_judgments_unreviewed_trials_and_gates(self):
         with db.connect(self.profile, "reader") as conn:
             found = status.research_state(conn)
-        self.assertEqual(found["line"], self.world.line["bundle"])
+        line = found["line"]
+        self.assertEqual({key: line[key] for key in ("bundle", "start", "window_start", "window_end", "market_commit",
+                                                     "universe_rule", "note")},
+                         {"bundle": self.world.line["bundle"], "start": "rsi@1", "window_start": "2026-01-01",
+                          "window_end": "2026-02-01", "market_commit": self.world.line["market_commit"],
+                          "universe_rule": self.world.line["universe_rule"], "note": None})
         self.assertIsNone(found["recommendation"])
         self.assertEqual(found["trials_on_line"], 4)
         self.assertEqual(len(found["unreviewed_trials"]), 4, "without a recommendation every trial of the line")
