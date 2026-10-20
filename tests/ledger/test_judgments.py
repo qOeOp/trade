@@ -9,7 +9,7 @@ import unittest
 from ledger import db, judgments, lines, strategies, trials
 from ledger.errors import Refusal
 from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, attempt_binder, context, inputs, market,
-                               product_bundle, sha, source, window)
+                               product_bundle, reviewed, sha, source, window)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -23,7 +23,7 @@ class JudgmentTests(unittest.TestCase):
         with db.connect(cls.profile, "writer") as conn:
             cls.before_line = db.head_commit(conn)
             cls.line = lines.select_line(conn, "market", "main", date(2026, 1, 2), date(2026, 2, 1), "a@1",
-                                         market=market())["bundle"]
+                                         market=market(), reviews=reviewed(source("a")))["bundle"]
             plan = {"research-plan.json": json.dumps({"grid": "a"}).encode()}
             product_bundle(conn, "registration-a", plan)
             product_bundle(conn, "registration-unused", plan)

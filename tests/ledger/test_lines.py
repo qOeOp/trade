@@ -13,7 +13,7 @@ from ledger import db, evidence, lines, strategies, trials
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from tests.ledger.dolt import (BINARY, JAN, DAY, MARKET_COMMIT, RUNTIME, SKIP, Service, attempt_binder, context,
-                               inputs, market, product_bundle, sha, source)
+                               inputs, market, product_bundle, reviewed, sha, source)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -29,7 +29,7 @@ class ResearchLineTests(unittest.TestCase):
     def select(self, **overrides):
         arguments = {"market_database": "market", "market_at": "main", "window_start": date(2026, 1, 2),
                      "window_end": date(2026, 2, 1), "start": "start@1", "note": "why this line",
-                     "market": market(), **overrides}
+                     "market": market(), "reviews": reviewed(source("start")), **overrides}
         return lines.select_line(self.conn, **arguments)
 
     def code(self, **overrides) -> str:
@@ -68,6 +68,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.code(market=market(universe_rule=None)), "MARKET_COMMIT_UNRESOLVED")
         self.assertEqual(self.code(window_start=date(2026, 2, 1)), "WINDOW_INVALID")
         self.assertEqual(self.code(market=market(latest_complete_day=date(2026, 1, 30))), "WINDOW_OUT_OF_COVERAGE")
+        self.assertEqual(self.code(reviews=reviewed()), "START_REVIEW_REQUIRED")
         self.assertEqual(self.select(market=market(latest_complete_day=date(2026, 1, 31)))["line_no"], 1)
         with patch.object(lines, "current_line", return_value=None):
             self.assertEqual(self.code(note="another choice"), "LINE_CONFLICT")

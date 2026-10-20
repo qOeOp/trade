@@ -248,7 +248,8 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
 
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
-    note), its current judgments with read-time facts, the trials since the last
+    note), its current judgments with read-time facts, the review cadence in force (`cadence`:
+    cadence_trials, and judgment_id null for the product default), the trials since the last
     recommendation, the trial count of the line and the gates the next registration would meet. On
     a ledger without a research line: `line` null with the facts and `line select` as the next step."""
     checker = availability.check_identity()
@@ -259,9 +260,9 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
             needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
                        "missing": ["research-line"]}]
-            return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "interpretations": [],
-                    "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
-                    "gates": {"root": needed, "derived": needed},
+            return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "cadence": None,
+                    "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
+                    "gates": needed,
                     "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                               "counts": research_status(conn.profile, commit)},
                     "next_actions": ["Select the user's research line with `line select`."]}
@@ -274,15 +275,14 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         for kind in judged:
             for item in judged[kind]:
                 item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
-        gates: dict[str, list[dict]] = {}
-        for name, derived in (("root", False), ("derived", True)):
-            try:
-                register.require_line_records(pinned, line, derived)
-                gates[name] = []
-            except Refusal as exc:
-                gates[name] = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
+        cadence = register.review_cadence(pinned, line)
+        try:
+            register.require_line_records(pinned, line)
+            gates: list[dict] = []
+        except Refusal as exc:
+            gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
     return {"at": commit, "line": record, **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
-            "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
+            "cadence": cadence, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)}}

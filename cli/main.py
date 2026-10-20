@@ -586,9 +586,10 @@ def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str,
 def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
                 market_at: str | None, note: str | None) -> dict:
     """line select: the user's research line (start candidate, development window, pinned market commit)."""
+    from qualification import availability
     first, last = _utc_day(window_start), _utc_day(window_end)
     selected = lines.select_line(conn, market["database"], market_at or "main", first, last, start, note,
-                                 market=_market_facts(market))
+                                 market=_market_facts(market), reviews=availability.review_records)
     return {"bundle": selected["bundle"], "line_no": selected["line_no"], "start": start,
             "window": {"start": first.isoformat(), "end": last.isoformat()},
             "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
@@ -939,7 +940,9 @@ def _parser() -> Parser:
     command.add_argument("--subject", action="append", dest="subjects", default=[],
                          help="role=…,candidate=ID@N | trial=N | registration=BUNDLE (repeatable)")
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
-    command.add_argument("--cadence-trials", type=int, help="trials between reviews (review_cadence only)")
+    command.add_argument("--cadence-trials", type=int,
+                         help="trials between reviews (review_cadence only; without one the line uses the product "
+                              "default)")
     _op_id(command)
 
     line = verbs("line", "research lines: select")

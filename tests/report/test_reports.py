@@ -13,7 +13,7 @@ import unittest
 from ledger import db, metrics, strategies
 from ledger.errors import Refusal
 from qualification import availability
-from registration import duties, precheck
+from registration import duties, precheck, register
 from replay import entry, reproduce
 from report import attribution, candidates, comparison, runs, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
@@ -335,7 +335,8 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(found["unreviewed_trials"]), 4, "without a recommendation every trial of the line")
         self.assertEqual(found["interpretations"][0]["facts"][0]["trial"]["trial_id"], self.control["trial_id"])
         self.assertIsNotNone(found["interpretations"][0]["facts"][0]["headline"])
-        self.assertEqual(found["gates"]["derived"][0]["code"], "INTERPRETATION_REQUIRED")
+        self.assertEqual(found["gates"][0]["code"], "INTERPRETATION_REQUIRED")
+        self.assertEqual(found["cadence"], {"cadence_trials": register.DEFAULT_REVIEW_CADENCE, "judgment_id": None})
         self.assertEqual(found["facts"]["counts"]["research_attempts"], 4)
         with db.connect(self.profile, "reader") as conn:
             self.assertEqual(refused(status.research_state, conn, "research-line-9").code, "LINE_UNKNOWN")

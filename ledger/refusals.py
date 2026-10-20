@@ -122,6 +122,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Research lines
     "START_NOT_FOUND": ("The start candidate of the research line does not exist.",
                         ("Publish the start with `candidate publish`, then select the line again.",)),
+    "START_REVIEW_REQUIRED": ("The start revision has no passed source review, or a source review of it failed.",
+                              ("Run `replay precheck` on the start revision and record its `source review`, then "
+                               "select the line again; after a failed review, fix the source, publish it and start "
+                               "from the new revision.",)),
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
                                  ("Pass a market commit, tag or branch shown by `market coverage`.",)),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
@@ -337,10 +341,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "run whose registration a later registration retries needs none).",
                                 ("Add an interpretation with `judgment add --kind interpretation` about the trials "
                                  "the message lists.",)),
-    "REVIEW_DUE": ("The research trials since the last recommendation reached the review cadence.",
+    "REVIEW_DUE": ("The research trials since the last recommendation reached the review cadence (the line's "
+                   "review_cadence judgment, else the product default).",
                    ("Review the line and add a recommendation with `judgment add --kind recommendation`.",)),
-    "REVIEW_CADENCE_REQUIRED": ("A derived registration needs a review cadence on the line first.",
-                                ("Declare one with `judgment add --kind review_cadence --cadence-trials N`.",)),
     # Comparability (registration/comparability.py)
     "RUN_NOT_PASSED": ("The run is not a passed sealed research or validation run.",
                        ("Choose a passed research or validation run as the control.",)),

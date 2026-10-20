@@ -42,7 +42,7 @@ class IntegrityTests(unittest.TestCase):
         cls.market.__enter__()
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
-        world.judge("review_cadence", cadence=50)
+        world.judge("review_cadence", cadence=50)  # more research trials than the default cadence before a review
         cls.refs, cls.runs = {}, {}
         cls.publish("base", BASE, None, None)
         world.register("registration-base", world.body([cls.refs["base"]], {cls.refs["base"]: world.prechecked(BASE)}))
