@@ -1,12 +1,12 @@
 ---
-description: Rule check — with the skill, a priority judgment quotes the report measures behind the first-ranked action (slice, measure, value), names the signal-table row and duty ids, prefers the duties the strongest signal points to, and a parameter-only change names its report evidence.
+description: Rule check — with the skill, a priority judgment names the report measures behind the first-ranked action (slice, measure, run and ledger commit), names the signal-table row and duty ids, prefers the duties the strongest signal points to, and a parameter-only change names its report evidence.
 tags: [method]
 plugins: ["../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-rsi-4h`（起点 `rsi-root@2`，开发窗口 2023-01-01 至 2025-06-30，4 小时线，20 个 USDT 永续）。基线运行 `run-r2b`，账本提交 `e57c1a9`，`replay report run-r2b` 的读数：
+研究路线 `line-rsi-4h`（起点 `rsi-root@2`，开发窗口 2023-01-01 至 2025-06-30，4 小时线，20 个 USDT 永续）。基线运行 `run-r2b`，账本提交 `e57c1a9`，`replay report run-r2b` 的结果：
 
 | 项 | 数值 |
 |---|---|
