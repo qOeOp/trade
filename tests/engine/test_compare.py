@@ -24,6 +24,63 @@ def _replay(root: Path, sharpe) -> Path:
 
 
 class CompareReportsTests(unittest.TestCase):
+    def test_empty_tables_preserve_nonvolatile_schema_differences(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "orders.csv").write_text("client_order_id,status,new_column\n")
+            found = compare_reports(left, right)
+        self.assertFalse(found["passed"])
+        table = found["tables"]["orders"]
+        self.assertFalse(table["column_match"])
+        self.assertEqual(table["compared_columns"], ["client_order_id", "status"])
+
+    def test_missing_nonkey_columns_report_schema_and_compare_shared_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "account.csv").write_text("ts_event\n2026-01-02\n")
+            for reference, candidate in ((left, right), (right, left)):
+                with self.subTest(reference=reference.name):
+                    found = compare_reports(reference, candidate)
+                    self.assertFalse(found["passed"])
+                    table = found["tables"]["account"]
+                    self.assertFalse(table["column_match"])
+                    self.assertEqual(table["compared_columns"], ["ts_event"])
+                    self.assertEqual(table["mismatch_count"], 1)
+
+    def test_volatile_columns_do_not_change_schema_parity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "orders.csv").write_text("client_order_id,status,init_id\n")
+            found = compare_reports(left, right)
+        self.assertTrue(found["passed"])
+        self.assertEqual(found["tables"]["orders"]["excluded_columns"], ["init_id"])
+
+    def test_sparse_empty_native_reports_can_be_compared(self):
+        from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
+        from nautilus_trader.common import LoggerConfig, LogLevel
+
+        from engine.report import orders_with_native_deadlines, readable_empty_report
+
+        engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.OFF)))
+        self.addCleanup(engine.dispose)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            reports = {
+                "orders": orders_with_native_deadlines(engine.cache, readable_empty_report(
+                    engine.generate_orders_report(), ("status",))),
+                "fills": readable_empty_report(engine.generate_fills_report(), ("client_order_id",)),
+                "positions": readable_empty_report(engine.generate_positions_report(),
+                                                   ("ts_closed", "realized_pnl", "instrument_id")),
+            }
+            for directory in (left, right):
+                for name, report in reports.items():
+                    report.to_csv(directory / f"{name}.csv", index=True)
+            self.assertTrue(compare_reports(left, right)["passed"])
+
     def test_zero_trade_replays_with_undefined_sharpe_match(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

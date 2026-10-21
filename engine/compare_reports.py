@@ -14,8 +14,10 @@ import hashlib
 import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import NamedTuple
 
 from engine.config import Refusal
+from engine.native_csv import dict_reader
 
 
 TABLES = ("orders", "fills", "positions", "account", "returns_series")
@@ -64,16 +66,25 @@ def _tolerance(value) -> Decimal:
     return tolerance
 
 
-def _rows(directory: Path, name: str) -> list[dict[str, str]]:
+class _ReportTable(NamedTuple):
+    columns: frozenset[str]
+    rows: list[dict[str, str]]
+
+
+def _rows(directory: Path, name: str) -> _ReportTable:
     try:
         with (directory / f"{name}.csv").open(newline="") as stream:
-            rows = list(csv.DictReader(stream))
+            reader = dict_reader(stream)
+            columns = frozenset(reader.fieldnames or ())
+            rows = list(reader)
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / f'{name}.csv'}: {exc}") from exc
-    missing = [key for key in BUSINESS_KEYS[name] if rows and key not in rows[0]]
+    missing = [key for key in BUSINESS_KEYS[name] if rows and key not in columns]
     if missing:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / f'{name}.csv'} lacks {', '.join(missing)}")
-    return sorted(rows, key=lambda row: tuple(row[key] for key in BUSINESS_KEYS[name])) if BUSINESS_KEYS[name] else rows
+    if BUSINESS_KEYS[name]:
+        rows = sorted(rows, key=lambda row: tuple(row[key] for key in BUSINESS_KEYS[name]))
+    return _ReportTable(columns, rows)
 
 
 def _summary(directory: Path) -> dict:
@@ -106,21 +117,21 @@ def _metric_equal(left, right, tolerance: Decimal) -> bool:
     return abs(Decimal(str(left)) - Decimal(str(right))) <= tolerance
 
 
-def _table(name: str, left: list[dict[str, str]], right: list[dict[str, str]]) -> dict:
-    columns = set(left[0]) if left else set()
-    compared = sorted(columns - VOLATILE[name])
+def _table(name: str, left: _ReportTable, right: _ReportTable) -> dict:
+    left_columns, right_columns = left.columns - VOLATILE[name], right.columns - VOLATILE[name]
+    compared = sorted(left_columns & right_columns)
     mismatches = []
-    for index, (a, b) in enumerate(zip(left, right, strict=False)):
+    for index, (a, b) in enumerate(zip(left.rows, right.rows, strict=False)):
         different = [column for column in compared if a[column] != b[column]]
         if different:
             mismatches.append({"row": index, "key": {key: a[key] for key in BUSINESS_KEYS[name]},
                                "fields": {column: {"reference": a[column], "candidate": b[column]}
                                           for column in different}})
     return {
-        "counts": [len(left), len(right)],
-        "column_match": columns == (set(right[0]) if right else set()),
+        "counts": [len(left.rows), len(right.rows)],
+        "column_match": left_columns == right_columns,
         "compared_columns": compared,
-        "excluded_columns": sorted(columns & VOLATILE[name]),
+        "excluded_columns": sorted((left.columns | right.columns) & VOLATILE[name]),
         "mismatch_count": len(mismatches),
         "first_mismatches": mismatches[:FIRST_MISMATCHES],
     }
@@ -143,7 +154,7 @@ def compare_reports(reference: Path, candidate: Path, account_tolerance: Decimal
     tolerance = _tolerance(account_tolerance)
     summaries = {"reference": _summary(reference), "candidate": _summary(candidate)}
     tables = {name: (_rows(reference, name), _rows(candidate, name)) for name in TABLES}
-    funding = _funding(reference, tables["positions"][0]), _funding(candidate, tables["positions"][1])
+    funding = _funding(reference, tables["positions"][0].rows), _funding(candidate, tables["positions"][1].rows)
     compared = {name: _table(name, left, right) for name, (left, right) in tables.items()}
     funding_mismatches = [{"index": index, "reference": list(a) if a else None, "candidate": list(b) if b else None}
                           for index, (a, b) in enumerate(zip(funding[0] + [None] * (len(funding[1]) - len(funding[0])),
