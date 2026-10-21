@@ -32,4 +32,4 @@ the action, the status (`open`, `in PR`, `fixed <commit>`, `rejected`, `recurred
 records where the item was first and last seen. When an item is fixed, its row moves to the closed
 section with the commit. A second table lists the doctor misses: problems the user pointed out
 before a diagnosis found them, each with the date, the lens that should have caught it and its
-status. A finding id is the date plus a number, such as `20261020-03`.
+status. A finding id is the date plus a number, written `<yyyymmdd>-<number>`.

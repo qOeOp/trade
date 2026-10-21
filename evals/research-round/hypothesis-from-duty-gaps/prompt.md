@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, the next hypothesis is chosen by summarizing the line's header stances, listing the 缺省 and 不适用 duties and combining them with the latest attribution, and its duty ids go into changed_duties.
+description: Rule check — with the skill, the next hypothesis connects relevant strategy policies with attribution evidence and declares its actual changed duties.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

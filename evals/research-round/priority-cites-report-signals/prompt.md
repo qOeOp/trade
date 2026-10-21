@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a priority judgment names the report measures behind the first-ranked action (slice, measure, run and ledger commit), names the signal-table row and duty ids, prefers the duties the strongest signal points to, and a parameter-only change names its report evidence.
+description: Rule check — the leading experiment cites report evidence and relevant duties, distinguishes conjecture from observations and explains parameter choices.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

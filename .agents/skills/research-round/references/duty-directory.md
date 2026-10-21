@@ -4,13 +4,10 @@ Read when unsure which stance a duty should take in a strategy header (strategy-
 duty gives its question, then I (inputs), S (state), O (output) and 钟 (clock), and its boundary.
 The four hard contracts (E1, E4, F5, H2) can never be 不适用.
 
-These are declarations of strategy choices, not independent factors or proof of implementation.
-采用 names an explicit economic rule; 缺省 names a relevant choice left to the stated baseline;
-不适用 needs a reason the economic question does not arise, not merely that a method is unused.
-Native accounting, causal clocks and order safety alone do not implement economic responses in
-G2, H1, H3 or I2. F1 includes choosing a single entry; an all-at-once exit is F4, not also F2
-unless a separate reduction path changes. Several duties can share one PA observation without
-providing several independent pieces of support.
+Duties locate policy responsibilities, not independent factors or implementation proofs. A stance
+names an explicit economic rule (采用), a relevant baseline choice (缺省), or a structural reason
+the economic question does not arise (不适用). Distinguish strategy decisions from engine
+guarantees, and apply the boundary of each duty when one action affects several responsibilities.
 
 ## Contents
 

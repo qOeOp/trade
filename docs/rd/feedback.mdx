@@ -171,17 +171,13 @@ Agent 根据反馈给下一项具体改动排先后，写成一条研究优先�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.2.1.1">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-### 排第一的动作要写明依据哪些报告信号、落到对照表哪一行 [#F-2-1-2]
+### 排第一的动作说明报告依据、受影响政策与待检验解释 [#F-2-1-2]
 
-排第一的动作，priority 判断里要写清是报告里哪些度量促成的：哪个切面或栏目、哪个度量、往哪个方向，引用运行编号和账本提交，但不抄数值；再写出这些信号落到对照表的哪一行、指向哪些职责。只改参数的动作，比如换个周期、长度或阈值，也要写出报告里支持它的依据。
+priority 的首位动作说明报告切面或栏目、度量与观察方向，引用运行及账本提交而不复制数值；定位受影响职责，区分已观察的事实与待检验的政策解释。参数选择有报告依据，或明确标为探索，不能由标签代替理由。
 
-不写依据，排序容易只凭习惯，最常见的是一直调指标参数，报告里明摆着的问题却没人管。写出切面、度量和对照表的行，别人能对着报告核对这个排序，也看得出报告最强的信号有没有被跳过。
+优先级综合效应、不确定性、机制支持、既有探索、信息价值与成本，说明决定排序的理由；信息价值在于能区分竞争解释，而不是重复多少指标或标签。
 
-<div className="rd-example">
 
-比如某次回放的报告显示，最大回撤几乎全落在连续几个月的一个窗口里，在市时间接近一，回撤区间里也没有哪个合约占大头。这对应对照表第 15 行，指向 A3、E1、E3、F3。有人提议把 RSI 周期从 14 改成 21，理由只是「更平滑」，报告里没有依据。排第一的应是加条件过滤或按波动缩放仓位，priority 里写 drawdown 切面的回撤窗口和 capital 栏目的在市时间偏高，引用这次运行和账本提交；换周期如果留在排序里，要注明没有报告依据。
-
-</div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.2.1.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 

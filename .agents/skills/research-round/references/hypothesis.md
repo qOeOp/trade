@@ -1,57 +1,45 @@
-# Hypothesis and registration body
+# Hypothesis and preregistration
 
-Read when checking sources, choosing a parent, writing the hypothesis and its prediction, and
-preparing the registration body.
+Read when choosing a parent and control, checking sources or preparing a registration body.
 
-## Sources first
+## Support and scope
 
-- Before an economic hypothesis, read the source bundles already retained in the ledger
-  (`evidence export`). Cite those whose mechanism and conditions still match; search only the
-  mechanism's gaps, following `research-sources` (videos: `video-evidence`). Enter originals,
-  excerpts and the query log as a bundle (`evidence add`) before registering.
-- Mark every reason as external evidence (someone else's research), local diagnosis (a fact seen
-  in this line's runs) or conjecture (your own guess), in the body's `rationale` (`external`,
-  `local`, `conjecture`) and the source notes. External evidence states its location, market,
-  window, frequency, costs and validation conditions, and whether it supports the mechanism, a rule
-  parameter or only the method; a condition not read is "unknown". Local diagnosis cites the run
-  and the ledger commit.
+Read retained source evidence and corrections before searching its gaps (`research-sources`;
+video material: `video-evidence`). Retain originals, excerpts and query logs through `evidence add`
+before citing them in a registration. Distinguish external evidence, local diagnosis and conjecture
+in rationale.external/local/conjecture. External support identifies its location and market,
+window, frequency, costs and validation conditions; unread conditions stay unknown. State whether
+it supports the mechanism, the parameter or only the method. Local evidence names run and commit.
 
-## Parent and change
+Describe the economic mechanism, who bears its cost and why it could persist under this line's
+conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
 
-- Any published candidate on the lineage can be the parent, not only the recommended, latest or
-  best one; a losing, insignificant or diagnostic-only candidate derives like any other, without
-  asking permission or questioning its eligibility. Give the reason for the parent separately from
-  the reason for the control.
-- One hypothesis registers one actual rule change, and every grid point's difference text equals
-  it word for word. Changing the universe selection (ranking, top N, signal screen, rebalance
-  frequency) or the sizing and capital budget is a rule change; an entry and exit change made
-  together is one action, registered and described as one. Quantities derived from existing rules
-  and parameters of a method not in use are not changes. Narrow a vague direction to one concrete
-  change before registering.
-- Pick the next change from the duties: summarize the stances in the headers of this line's
-  candidates, list the duties marked 缺省 or 不适用, combine them with the latest diagnosis or the
-  duty an attribution points to (attribution.md), and write the duty ids in `changed_duties`.
+Choose the parent for the change and the control for the comparison, with separate reasons.
+Any published lineage candidate can be a parent regardless of recommendation or past performance;
+no approval or eligibility challenge follows from that choice.
 
-## Rationale and prediction
+## Change and prediction
 
-- The rationale names the market mechanism, who pays (the counterparty, whose cost is
-  transferred) and why the mechanism should still exist in this line's universe and window; a
-  quantity the replay inputs lack is replaced by a named proxy with its limits. The prediction
-  gives, for each changed duty, the direction (up or down) of a catalogue measure in a slice and
-  the fill or holding features that should show it. A replay result must be able to refute it;
-  "it makes money" or "it performs better" is not a prediction.
-- Before registering, write in `prediction.outcomes` what follows each of the five outcomes,
-  `improved`, `not_significant`, `loss`, `zero_activity` and `invalid`, one sentence each: refine
-  this direction, change the control, repair and retry, or lower the priority with the condition
-  for re-evaluating it. Never rewrite it after the replay; add to it only in a judgment.
+Register one concrete rule change. Every grid point's difference text equals it word for word;
+several affected duties can belong to one coupled policy. Derived quantities and inactive-method
+parameters do not create additional changes. Use candidate headers to locate relevant policies,
+defaults and applicability; connect those choices to the diagnosis and register affected ids in
+changed_duties. Use duty-directory.md when their scope is unclear.
 
-## Registration body
+For each changed duty, predict the direction of a catalogue measure and the native fill or holding
+behavior expected to produce it. Shared measures are shared observations. Predictions must be
+refutable and distinguish the proposed explanation from alternatives; profit improvement alone
+does not identify a mechanism.
 
-`registration add --bundle NAME --body FILE --source FILE ...` locks the body and the execution
-identity in an immutable bundle. The body holds exactly `prediction`, `changed_duties`, `parent`,
-`control_run`, `change`, `rationale`, `sources`, `comparison`, `grid` (one to five
-`{candidate, params}`), `conditions` and `window`, optionally `retry_of` and `prechecks` (each
-grid candidate's `source-review-*` bundle). A root has no parent, no control and empty
-`changed_duties`; a derivation names at least one duty, and every changed duty has a prediction.
-The `comparison` values are uncalibrated method examples, locked with the registration; without a
-control run `comparison` is null and `hypothesis compare` has nothing to compare.
+Before execution, specify the response to improved, not_significant, loss, zero_activity and
+invalid in prediction.outcomes. Conditions and outcomes are frozen with the registration; later
+interpretation belongs in judgments.
+
+## Body and execution identity
+
+Use the root or derived JSON template linked by SKILL.md. A root has no parent or control and
+empty changed_duties; a derivation names its parent, control, actual change and a prediction for
+every changed duty. Prechecks bind each grid candidate's source review. Optional retry_of names
+a consumed registration. registration add locks the body and runtime/input identity as an immutable
+bundle; runner arguments must match replay. Comparison design is declared before results and
+applies only to the registered control; a root has no paired comparison.

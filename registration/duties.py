@@ -45,9 +45,9 @@ DUTIES = {
     "I2": "Exit feasibility and future resources",
 }
 
-# Slices in report order, each with its measures. The duties a slice points to are the attribution
-# table of the research-round skill (references/attribution.md: signal, slice, duties); the
-# catalogue lists their union per slice.
+# Slices in report order, each with its measures and a broad index of related responsibilities.
+# These duty links locate policies to investigate; they do not identify a cause or constrain the
+# choice of a hypothesis. Registration and both reports share the measure catalogue.
 _SLICES = (
     ("profit_bridge", "Profit bridge", ("H1", "B1"), ("price", "fee", "funding", "open_mark", "account")),
     ("capital_scaled", "Scale and position timing", ("G3", "E1", "B1", "A3", "E3"),
