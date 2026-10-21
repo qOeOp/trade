@@ -327,8 +327,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "under the validation's runtime first.",)),
     "SOURCE_ALREADY_EXPOSED": ("A grid source was already run by a replay that is not the cited precheck (of at "
                                "most seven trading days), and no registration on the retry_of chain consumed it.",
-                               ("Register a new source, or set retry_of to the registration that consumed this "
-                                "source.",)),
+                               ("Preserve the exposure record. Use retry_of only for an earlier registration that "
+                                "actually consumed this source and is retryable; an unregistered precheck or "
+                                "exploration has no registration to retry. Preserve that source and register a "
+                                "new source for a new research hypothesis.",)),
     "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
                      "registration.",
                      ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",)),

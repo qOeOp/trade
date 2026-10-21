@@ -66,18 +66,16 @@ changes; [duty-directory.md](references/duty-directory.md) when unsure of a duty
   user to approve or confirm the next step. A report, an interpretation, a recommendation, a review
   or a priority judgment never ends the turn: once the priority is recorded, publish, precheck,
   review, register and replay the next experiment in the same turn. End the turn only for the
-  authority list below, a line change (back to `research-start`) or the user.
+  explicit-authority boundaries, a line change (back to `research-start`) or the user.
   `research-start` sets the host's goal before the line starts.
-- Stop, explain and wait for the user before live trading, venue connections or trading
-  credentials; a destructive write (clearing the ledger, rewriting or deleting published
-  records); relaxing or tightening any refusal or audit check, in code, tests, configuration or a
-  skill; or changing a research target. Do not do it and do not work around it.
+- Follow AGENTS.md's explicit-authority boundaries: stop, explain and wait for the user's explicit
+  authority before any listed action; never work around a refusal.
 - Before ending a host process or changing host configuration (a credential helper, for example),
   ask the user and wait, even when a replay is blocked on it.
-- Position size, per-plan risk and notional limits are your design variables: write them in the
-  strategy source and change them as a new candidate without asking; never describe them as user
-  constraints. The user's research targets are only the maximum drawdown and the minimum annual
-  return: the direction of the iteration and the reference for reading reports, never a filter on
+- Follow AGENTS.md's design-variable ownership for position size, per-plan risk and notional limits;
+  keep them in strategy source, never as user constraints. The user's research targets are only the
+  maximum drawdown and the minimum annual return: the direction of the iteration and the reference
+  for reading reports, never a filter on
   candidates. Win rate is a report dimension, not a target.
 - No count of trials, runs or budget stops research or makes a direction invalid; `REVIEW_DUE`
   only triggers a review.

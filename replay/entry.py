@@ -29,7 +29,8 @@ import time
 from ledger import db, execution, metrics, paths, problems, strategies, trials
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from registration import comparability, inputs as registration_inputs, register, seams as registration_seams
+from registration import comparability, inputs as registration_inputs, precheck as source_precheck, register
+from registration import seams as registration_seams
 from registration import validation as registration_validation
 from replay import seams
 
@@ -374,6 +375,19 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     exported = None
     try:
         runner, exported = _export(market, at, runner_argv, True, ledger)
+        duration_ns = runner["window"]["end"] - runner["window"]["trade_start"]
+        trading_days = duration_ns / (86_400 * 10**9)
+        within_limit = duration_ns <= source_precheck.PRECHECK_MAX_DAYS * 86_400 * 10**9
+        exposure = {"trading_days": trading_days, "maximum_exempt_days": source_precheck.PRECHECK_MAX_DAYS,
+                    "within_window_limit": within_limit,
+                    "note": ("Only this registration's cited precheck with matching source, runtime, inputs and "
+                             "configuration can be exempt; a technical pass alone does not grant exemption."
+                             if within_limit else
+                             "This trading window exceeds the precheck exposure exemption. Even a technical pass "
+                             "exposes this source and prevents its first research registration; retry_of cannot "
+                             "refer to an unregistered precheck.")}
+        print(f"Precheck trading window: {trading_days:g} days; exposure exemption permits at most "
+              f"{source_precheck.PRECHECK_MAX_DAYS} trading days. {exposure['note']}", file=sys.stderr, flush=True)
         input_key = comparability.input_key(exported["identity"])
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         config_key = comparability.config_key(inspection.get("effective_config"))
@@ -391,7 +405,8 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
                 "execution_bundle": f"trial-{opened['trial_id']}-execution", "source_sha256": revision["source_sha256"],
                 "image_ref": identity["image_ref"], "input_key": input_key, "config_key": config_key,
                 "status": "passed" if not problems else "failed", "problems": problems, "path": str(output),
-                "metrics": seams.current.directory_report(output), "scope": PRECHECK_SCOPE}
+                "metrics": seams.current.directory_report(output), "scope": PRECHECK_SCOPE,
+                "exposure_exemption": exposure}
     finally:
         _cleanup(exported)
 

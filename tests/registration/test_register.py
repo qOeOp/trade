@@ -198,6 +198,11 @@ class RegisterTests(unittest.TestCase):
         review = self.world.prechecked(long["source"], days=8)
         body = self.derived(grid=[{"candidate": long["candidate"], "params": {}}], prechecks={long["candidate"]: review})
         self.assertEqual(self.code("registration-long-precheck", body), "SOURCE_ALREADY_EXPOSED")
+        problem = refused(self.world.register, "registration-long-precheck", body)
+        self.assertIn("unregistered precheck", problem.message)
+        self.assertIn("8 trading days, exemption maximum 7", problem.message)
+        self.assertIn("retry_of does not apply", problem.message)
+        self.assertTrue(any("actually consumed" in action for action in problem.next_actions))
         week = self.world.publish("prechecked for seven days")
         review = self.world.prechecked(week["source"], days=7)
         self.world.register("registration-week-precheck", self.derived(

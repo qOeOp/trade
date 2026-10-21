@@ -211,6 +211,29 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(precheck.require_precheck(self.world.conn, review["bundle"], published["source_sha256"],
                                                    checked["image_ref"], checked["input_key"]), checked["trial_id"])
 
+    def test_precheck_reports_window_exposure_before_execution_without_refusing_long_windows(self):
+        for end, eligible in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):
+            with self.subTest(end=end):
+                published = self.world.publish(f"exposure-{end}", parent=None)
+                argv = ONE.copy()
+                argv[argv.index("--end") + 1] = end
+                stderr = io.StringIO()
+                execute = entry.execute
+
+                def observed_execution(*args, **kwargs):
+                    self.assertIn("exposure exemption permits at most 7 trading days", stderr.getvalue())
+                    return execute(*args, **kwargs)
+
+                with contextlib.redirect_stderr(stderr), patch.object(entry, "execute", observed_execution):
+                    checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT,
+                                             published["candidate"], None, argv,
+                                             self.world.output(f"exposure-{eligible}"))
+                self.assertEqual(checked["status"], "passed", "exposure advice is not a new refusal")
+                self.assertIs(checked["exposure_exemption"]["within_window_limit"], eligible)
+                self.assertEqual(checked["exposure_exemption"]["maximum_exempt_days"], precheck.PRECHECK_MAX_DAYS)
+                if not eligible:
+                    self.assertIn("prevents its first research registration", stderr.getvalue())
+
 
 @unittest.skipUnless(BINARY, SKIP)
 class SealedReplayTests(unittest.TestCase):

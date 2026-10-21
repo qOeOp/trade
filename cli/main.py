@@ -302,6 +302,13 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
         raise refuse("WRITE_VIA_SQL", "only one " + ", ".join(READ_FIRST) + " statement is accepted",
                      expected="a single read statement")
     with db.read_as_of(profile, at) as conn:
+        if words[0] == "EXPLAIN":
+            # Dolt 2.4.2 sends some unavailable plan estimates as literal NULL in numeric fields.
+            # Scope the compatibility decoding to this read connection's EXPLAIN result.
+            conn.raw.decoders = {
+                kind: (lambda value, convert=convert: None if value == "NULL" else convert(value))
+                if convert in (int, float, Decimal) else convert
+                for kind, convert in conn.raw.decoders.items()}
         with conn.raw.cursor() as cursor:
             try:
                 cursor.execute(query.strip().rstrip(";"))
@@ -382,7 +389,8 @@ def _workdir_notes(directory: Path, candidate: str) -> dict:
 def _require_absent(*targets: Path) -> None:
     for target in targets:
         if os.path.lexists(target):
-            raise refuse("PATH_EXISTS", f"{target} already exists; working copies are always new",
+            raise refuse("PATH_EXISTS", f"{target} already exists; candidate export needs a fresh working directory "
+                         "for its source, candidate-specific AGENTS.md and strategy-header.md",
                          missing=(str(target),))
 
 
@@ -900,7 +908,9 @@ def _parser() -> Parser:
     command = candidate.add_parser("export", help="a candidate's source as a temporary working copy")
     _ledger_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
-    command.add_argument("--output", required=True, help="new file path under the temporary root")
+    command.add_argument("--output", required=True,
+                         help="new source file under the temporary root, in a fresh candidate working directory; "
+                              "AGENTS.md and strategy-header.md beside it must also be absent")
     _at(command)
     command = candidate.add_parser("new", help="a strategy scaffold in a new temporary directory")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
@@ -1020,6 +1030,12 @@ def _parser() -> Parser:
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command = runner(replay, "precheck", "the declared native precheck of a published candidate")
+    from registration.precheck import PRECHECK_MAX_DAYS
+    command.epilog = (f"Exposure exemption permits at most {PRECHECK_MAX_DAYS} trading days "
+                      "(--trade-start, or --start, to --end; warm-up is excluded). Longer prechecks still execute "
+                      "and can pass technically, but expose the source and prevent its first research "
+                      "registration. Exemption also requires this precheck to be cited with matching execution "
+                      "identity; other prior replays can still expose the source.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--at", required=True, help="market commit, tag or branch")
