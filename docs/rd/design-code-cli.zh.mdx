@@ -27,6 +27,7 @@
 | <Ref id="cli.judgment_add">judgment_add</Ref> | 命令 judgment add：调用 ledger.add_judgment，输出 JSON |
 | <Ref id="cli.ledger_export">ledger_export</Ref> | 命令行入口：以读账号导出账本全史备份与复现清单，或把全史增量同步到档案声明的备份目标 |
 | <Ref id="cli.ledger_init">ledger_init</Ref> | 命令行入口 ledger init：初始化一个账本档案（账号、branch 写权、提交校验组），只在此命令内使用管理权限 |
+| <Ref id="cli.ledger_migrate">ledger_migrate</Ref> | 命令行入口 ledger migrate：服务管理员把第 1 代模式的研究账本迁到第 2 代，先同步备份、独占运行、核对后一次提交 |
 | <Ref id="cli.ledger_review">ledger_review</Ref> | 整体复核的命令入口：读账号按精确版本复核，只报发现 |
 | <Ref id="cli.ledger_service">ledger_service</Ref> | 启动、停止、查看账本数据库服务 |
 | <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本 |
@@ -511,6 +512,47 @@ def ledger_init(
 **依据**
 
 - [Dolt — Branch permissions](https://www.dolthub.com/docs/sql-reference/server/branch-permissions)　官方文档
+
+</div>
+
+### `ledger_migrate` [#def-cli-ledger_migrate]
+
+命令行入口 ledger migrate：服务管理员把第 1 代模式的研究账本迁到第 2 代，先同步备份、独占运行、核对后一次提交
+
+```python
+def ledger_migrate(
+    ledger: str,
+    backup_root: Path | None,
+) -> JSON
+```
+
+<TypeTable type={{ "ledger": { type: "str", description: "账本档案名或路径，必填（不取缺省的活动账本）" }, "backup_root": { type: "Path | None", description: "迁移前同步的 dolt_backup 目录；缺省用档案声明的备份目录" } }} />
+
+**返回**　JSON：\{ledger, schema_version, migrated, ledger_commit, previous_commit, backup_path, backup_previous_head, rows, evidence_files, evidence_contents, evidence_bytes, renamed_runtime_contracts\}；已是第 2 代时只返回 migrated=false 与头提交
+
+**期望行为**
+
+1. 以服务管理员连接研究 branch；模式已是第 2 代即原样返回（幂等），不是第 1 代即 SCHEMA_MISMATCH。
+2. 该库的 writer 或 reader 账号还有其他会话连着即 MIGRATION_BUSY；工作集不干净即 DIRTY_WORKING_SET。
+3. 把全史同步到备份目录，备份头须等于研究头（沿用 ledger export 的同步与 BACKUP_DIVERGED 检查）；没有备份目录即 BACKUP_TARGET_UNSET。
+4. 在 Python 里读出并核对迁移前的全部记录（每个证据文件的字节与哈希、每份候选源码的哈希、每张表保留的每一列），再改结构：证据内容按哈希只存一份、重建候选表并改名旧回放契约、删去可由存储推出的列、收窄包名引用的长度、重建视图，bump ledger_head。
+5. 迁移后按同样方式再读一遍，任何一行不同即 MIGRATION_CHECK_FAILED；ledger_head 不是恰好前进一步即 MIGRATION_BUSY。两种情况都把工作集复位，不留提交。
+6. 全部一致才做一次 DOLT_COMMIT（提交校验照常运行），提交说明 schema:2。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `SCHEMA_MISMATCH` | 模式既不是第 1 代也不是第 2 代 |
+| `MIGRATION_BUSY` | 该库账号有其他会话连着，或迁移期间有写入落地 |
+| `DIRTY_WORKING_SET` | 研究 branch 有未提交的改动 |
+| `BACKUP_TARGET_UNSET` | 档案未声明备份目录且未给 --backup-root |
+| `LEDGER_CORRUPT` | 迁移前读到字节与存储哈希不符 |
+| `MIGRATION_CHECK_FAILED` | 迁移后读回的记录与迁移前不同 |
+
+**使用**　<Ref id="ledger.migrate" />、<Ref id="ledger.export_history" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref> <Ref id="J.3.3.1">J.3.3.1</Ref>
 
 </div>
 

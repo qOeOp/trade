@@ -1,7 +1,8 @@
 """Evidence bundles (`ledger.add_bundle`, `ledger.load_bundle`).
 
-A bundle is a named set of files stored as exact bytes; the ledger derives each file's SHA-256
-and length, so a writer cannot pair altered bytes with an old hash, and every read recomputes it.
+A bundle is a named set of files, each naming its content by SHA-256. Every distinct content is
+stored once (`evidence_content`) and the ledger derives its hash, so a writer cannot pair altered
+bytes with an old hash, and every read recomputes it.
 Agents name their own bundles through `add_bundle`; the product namespaces (replay receipts and
 seals, registrations, source reviews, research lines, lifecycle facts) are written only by
 product code through `write_files`. A bundle name is its identity: it is never replaced.
@@ -84,6 +85,12 @@ def _read_sources(sources: list[Path]) -> dict[str, bytes]:
     return files
 
 
+def files_from(clause: str = "") -> str:
+    """The FROM clause of bundle files with their bytes (`e.bundle`, `e.path`, `e.sha256`, `c.content`),
+    optionally AS OF one commit (`clause` from ledger.as_of)."""
+    return f"evidence{clause} e JOIN evidence_content{clause} c ON c.sha256 = e.sha256"
+
+
 def digests(files: dict[str, bytes]) -> dict[str, str]:
     return {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}
 
@@ -114,8 +121,16 @@ def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes],
         raise refuse("BUNDLE_EXISTS", f"bundle {bundle} already exists with other content", missing=(bundle,))
     conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES (%s, %s, UTC_TIMESTAMP(6))",
               (bundle, op_id))
-    conn.many("INSERT INTO evidence (bundle, path, content) VALUES (%s, %s, %s)",
-              [(bundle, name, data) for name, data in sorted(files.items())])
+    if files:
+        # Each distinct content once: the ones already stored are only referenced.
+        contents = {hashes[name]: data for name, data in files.items()}
+        known = {sha for (sha,) in conn.rows("SELECT sha256 FROM evidence_content WHERE sha256 IN ("
+                                             + ", ".join(["%s"] * len(contents)) + ")", tuple(contents))}
+        new = [(data,) for sha, data in sorted(contents.items()) if sha not in known]
+        if new:
+            conn.many("INSERT INTO evidence_content (content) VALUES (%s)", new)
+        conn.many("INSERT INTO evidence (bundle, path, sha256) VALUES (%s, %s, %s)",
+                  [(bundle, name, hashes[name]) for name in sorted(files)])
     return {"bundle": bundle, "files": hashes}
 
 
@@ -148,8 +163,8 @@ def add_bundle(conn: db.LedgerConnection, bundle: str, sources: list[Path], op_i
 
 def _fetch(conn: db.LedgerConnection, bundle: str, clause: str) -> tuple[dict | None, list[tuple]]:
     head = conn.one(f"SELECT bundle, created_at FROM evidence_bundle{clause} WHERE bundle = %s", (bundle,))
-    files = conn.rows(f"SELECT path, content, sha256 FROM evidence{clause} WHERE bundle = %s ORDER BY path",
-                      (bundle,)) if head else []
+    files = conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {files_from(clause)} WHERE e.bundle = %s "
+                      "ORDER BY e.path", (bundle,)) if head else []
     return head, files
 
 

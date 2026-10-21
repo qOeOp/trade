@@ -305,8 +305,8 @@ class BindTests(unittest.TestCase):
 
     def test_a_registration_recorded_after_the_trial_cannot_bind_it(self):
         bundle, data = self.registration()
-        plan = self.world.service.sql(self.world.profile, "SELECT content FROM evidence WHERE bundle = %s",
-                                      (bundle,))[0][0]
+        plan = self.world.service.sql(self.world.profile, "SELECT c.content FROM evidence e JOIN evidence_content c "
+                                      "ON c.sha256 = e.sha256 WHERE e.bundle = %s", (bundle,))[0][0]
 
         def late(conn, trial_id):
             evidence.write_files(conn, f"{bundle}-late", {"research-plan.json": bytes(plan)}, f"late:{trial_id}")

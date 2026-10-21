@@ -102,7 +102,8 @@ class PrecheckTests(unittest.TestCase):
         again = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")
         self.assertEqual((again["bundle"], again["replayed"], again["ledger_commit"]),
                          (recorded["bundle"], True, recorded["ledger_commit"]))
-        stored = json.loads(self.world.service.sql(self.world.profile, "SELECT content FROM evidence WHERE bundle = %s",
+        stored = json.loads(self.world.service.sql(self.world.profile, "SELECT c.content FROM evidence e JOIN "
+                                                   "evidence_content c ON c.sha256 = e.sha256 WHERE e.bundle = %s",
                                                    (recorded["bundle"],))[0][0])
         self.assertEqual((stored["format"], stored["execution_bundle"], stored["authority"]),
                          ("source-review-v1", f"trial-{trial_id}-execution", "reviewer-b"))

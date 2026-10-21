@@ -50,8 +50,8 @@ class OpenTrialTests(unittest.TestCase):
     def test_an_exploration_writes_its_trial_and_start_receipt_in_one_commit(self):
         data = source("unpublished exploration")
         opened = self.open("explore", data=data)
-        trial = self.service.sql(self.profile, "SELECT purpose, source_sha256, image_digest, instruments, trade_start "
-                                               "FROM trial WHERE trial_id = %s", (opened["trial_id"],))[0]
+        trial = self.service.sql(self.profile, f"SELECT purpose, source_sha256, {db.IMAGE_DIGEST}, instruments, "
+                                               "trade_start FROM trial WHERE trial_id = %s", (opened["trial_id"],))[0]
         self.assertEqual(trial[:3], ("explore", sha(data), IDENTITY["image_digest"]))
         self.assertEqual(json.loads(trial[3]), inputs()["identity"]["symbols"])
         self.assertEqual(trial[4].isoformat(), "2026-01-02T00:00:00")
@@ -82,7 +82,8 @@ class OpenTrialTests(unittest.TestCase):
             opened = self.open("precheck", start_context=context(source("published"), "/tmp/joined"))
             conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('joined-note', %s, NOW())",
                       (op,))
-            conn.rows("INSERT INTO evidence (bundle, path, content) VALUES ('joined-note', 'a', 'b')")
+            conn.rows("INSERT INTO evidence_content (content) VALUES ('b')")
+            conn.rows("INSERT INTO evidence (bundle, path, sha256) VALUES ('joined-note', 'a', SHA2('b', 256))")
             return opened
 
         written = db.write(self.conn, "replay", {"joined": True}, "evidence_bundle", insert)

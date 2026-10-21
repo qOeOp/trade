@@ -18,6 +18,7 @@
   <File name="judgments.py" />
   <File name="lines.py" />
   <File name="metrics.py" />
+  <File name="migrate.py" />
   <File name="paths.py" />
   <File name="problems.py" />
   <File name="refusals.py" />
@@ -441,7 +442,7 @@ def add_bundle(
 1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品保留命名空间 trial-\<id>-execution-start、trial-\<id>-execution、trial-\<id>-recovery、trial-\<id>-recovery-*、registration-*、source-review-*、research-line-\<n>、lifecycle-\<market_commit>（RESERVED_BUNDLE）；这些包只由对应的产品命令经 ledger.write_files 写。
 2. 逐源读字节：源或其后代是符号链接、包内路径为绝对路径或含 .. 或重复即 INVALID_EVIDENCE_PATH；空文件或没有任何文件即 EMPTY_EVIDENCE；音视频媒体即 MEDIA_NOT_KEPT；单文件超上限即 EVIDENCE_TOO_LARGE；拒绝时不写任何行。
 3. 对每份文件算 sha256，op_id 缺省时由包名与逐文件哈希派生。
-4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、content；sha256 与 byte_length 由数据库从内容派生）。
+4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、sha256）；库里还没有的内容另插一行 evidence_content（字节；sha256 由数据库从内容派生），已有的只引用，同样的字节只存一份。
 5. op_id 已存在且包名与逐文件哈希都相同则不写，读回已存逐文件哈希并返回 replayed；op_id 相同而包名或内容不同即 OP_ID_CONFLICT；包名已存在而 op_id 不同即 BUNDLE_EXISTS，提示换包名，旧包永不覆盖。
 6. 返回包名、逐文件哈希、写入状态与提交；调用方（cli.evidence_add、registration.register、registration.record_review、market.write_lifecycle_events）把包名与哈希记入各自记录。
 
@@ -1325,6 +1326,54 @@ def unreconciled(code: str, detail: str) -> 具名原因
 <div className="rd-meta">
 
 **关联章节**　<Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="R.1.1.2">R.1.1.2</Ref> <Ref id="R.2.1.3">R.2.1.3</Ref> <Ref id="R.2.2.1">R.2.2.1</Ref>
+
+</div>
+
+## `ledger/migrate.py` [#def-mod-ledger-migrate-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.migrate">migrate</Ref> | 服务管理员把第 1 代模式的研究账本迁到第 2 代：先同步备份，独占运行，迁移前后逐行核对，一次提交；已是第 2 代即原样返回 |
+
+### `migrate` [#def-ledger-migrate]
+
+服务管理员把第 1 代模式的研究账本迁到第 2 代：先同步备份，独占运行，迁移前后逐行核对，一次提交；已是第 2 代即原样返回
+
+```python
+def migrate(
+    profile: LedgerProfile | str,
+    backup: Path | None = None,
+) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile | str", description: "研究账本档案或档案名" }, "backup": { type: "Path | None", description: "dolt_backup 目录；缺省用档案的备份目录" } }} />
+
+**返回**　dict：ledger、schema_version、migrated，以及迁移时的 ledger_commit、previous_commit、backup_path、backup_previous_head、逐表行数 rows、evidence_files、evidence_contents、evidence_bytes \{files, stored_once\}、renamed_runtime_contracts
+
+**期望行为**
+
+1. 以服务管理员连研究 branch；版本为 2 即返回 migrated=false；不是 1 即 SCHEMA_MISMATCH。
+2. 该库 writer 或 reader 账号有其他会话即 MIGRATION_BUSY；dolt_status 非空即 DIRTY_WORKING_SET；无备份目录即 BACKUP_TARGET_UNSET；全史同步到备份目录（admin 的同步，含 BACKUP_DIVERGED）。
+3. 迁移前在 Python 里读出：每个证据文件的字节并重算哈希、每份候选源码的哈希（不符 LEDGER_CORRUPT）、每张表保留的每一列（按主键排序）、试验的镜像摘要与周期的价格盈亏。哈希不在 Dolt 里算：Dolt 2.4.2 对存储中的长二进制执行 SHA2 会 panic。
+4. 在工作集里改：删旧视图；按哈希插入每份不同的证据内容，重建 evidence 为引用表；重建 candidate（逐行重新插入，父版本在前，旧回放契约 r1-native-v6 改为 replay-contract@v6，source_sha256 NOT NULL；别的表指向它的外键先摘后挂，触发器重建）；删 trial.image_digest 与 run_cycle.price_pnl；judgment.line_bundle 与 judgment_subject.registration_bundle 收窄到 VARCHAR(160)；按 schema.sql 建视图；版本写 2，ledger_head 前进一步。
+5. 迁移后再读同样的记录：列名、每行、证据内容与引用、由 image_ref 读出的摘要、由已实现盈亏读出的价格盈亏必须与迁移前完全相同（候选只差契约改名），否则 MIGRATION_CHECK_FAILED；ledger_head 不是恰好前进一步即 MIGRATION_BUSY。失败时 DOLT_RESET --hard 再 DOLT_CLEAN，不留提交。
+6. 一致才 DOLT_COMMIT -A，说明 schema:2，提交校验照常运行。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_KIND` | 档案不是研究账本 |
+| `SCHEMA_MISMATCH` | 版本既不是 1 也不是 2 |
+| `MIGRATION_BUSY` | 有其他会话连着，或迁移期间有写入落地 |
+| `DIRTY_WORKING_SET` | 研究 branch 有未提交改动 |
+| `BACKUP_TARGET_UNSET` | 没有备份目录 |
+| `LEDGER_CORRUPT` | 迁移前字节与存储哈希不符 |
+| `MIGRATION_CHECK_FAILED` | 迁移后记录与迁移前不同，或失败后工作集复位不了 |
+
+**使用**　<Ref id="ledger.export_history" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref> <Ref id="J.3.3.1">J.3.3.1</Ref>
 
 </div>
 

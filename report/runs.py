@@ -212,7 +212,7 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
     if not isinstance(reproduction, int) or isinstance(reproduction, bool):
         raise _mismatch(directory, run["run_id"], "native detail is read only from a verified reproduction; give the "
                                                   "trial ID replay.reproduce returned", "reproduction")
-    found = conn.one("SELECT trial_id, purpose, source_sha256, image_digest FROM trial WHERE trial_id = %s",
+    found = conn.one(f"SELECT trial_id, purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s",
                      (reproduction,))
     if found is None:
         raise _mismatch(directory, run["run_id"], f"no trial {reproduction}", "reproduction")
@@ -290,9 +290,6 @@ def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
         rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
     except metrics.Unreconciled:
         pass
-    for row in rows:
-        row["price_pnl"] = (None if row["ts_closed_ns"] is None
-                            else row["realized_pnl"] + row["commissions"] - row["funding"])
     return {"sealed": sealed, "returns": metrics.daily_rows(reports), "cycles": rows, "effective_config": {},
             "starting_balance": Decimal(str(summary["starting_balance_usdt"])),
             "final_equity": Decimal(str(summary["final_equity_usdt"])),

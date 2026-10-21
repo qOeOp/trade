@@ -45,7 +45,7 @@ def attempts_of(conn: db.LedgerConnection, checker: dict, records: list | None =
         raise refuse("LEDGER_CORRUPT", f"run {dangling[0][0]} names a trial that does not exist",
                      missing=(f"run {dangling[0][0]}",))
     found = []
-    for row in conn.dicts("SELECT a.registration_bundle, a.source_sha256, a.trial_id, t.image_digest, t.purpose, "
+    for row in conn.dicts(f"SELECT a.registration_bundle, a.source_sha256, a.trial_id, {db.TRIAL_IMAGE_DIGEST}, t.purpose, "
                           "r.run_id, r.status FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id "
                           "LEFT JOIN run r ON r.trial_id = a.trial_id ORDER BY a.trial_id"):
         if row["purpose"] is None:

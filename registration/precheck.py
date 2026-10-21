@@ -43,7 +43,7 @@ def digest_of(image_ref: object) -> str | None:
 
 
 def _trial(conn: db.LedgerConnection, trial_id) -> dict:
-    row = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments, trade_start, "
+    row = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, trade_start, "
                    "trade_end FROM trial WHERE trial_id = %s", (trial_id,)) if isinstance(trial_id, int) else None
     if row is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id!r}", missing=(str(trial_id),))

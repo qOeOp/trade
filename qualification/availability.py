@@ -20,7 +20,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from ledger import db, metrics, problems
+from ledger import db, evidence, metrics, problems
 from ledger.refusals import refuse
 from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 
@@ -210,8 +210,8 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
     review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its
     content hash. Both reads are primary-key ranges of that namespace."""
     found: list[dict] = []
-    rows = conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND path = %s ORDER BY bundle",
-                     (REVIEW_PREFIX + "%", REVIEW_FILE))
+    rows = conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} WHERE e.bundle LIKE %s "
+                     "AND e.path = %s ORDER BY e.bundle", (REVIEW_PREFIX + "%", REVIEW_FILE))
     if not rows:
         return found
     operations = dict(conn.rows("SELECT bundle, op_id FROM evidence_bundle WHERE bundle LIKE %s",
@@ -240,7 +240,7 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
         item["ledger_commit"] = commit
         trial = None
         if commit is not None and isinstance(record["trial_id"], int):
-            trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_digest FROM trial AS OF "
+            trial = conn.one(f"SELECT trial_id, purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial AS OF "
                              f"'{db.check_ref(commit)}' WHERE trial_id = %s", (record["trial_id"],))
         if (trial is None or trial["purpose"] != "precheck" or trial["source_sha256"] != record["source_sha256"]
                 or trial["image_digest"] != record["image_digest"]):

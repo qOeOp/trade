@@ -17,6 +17,7 @@ import unittest
 
 import numpy as np
 
+from ledger import db
 from ledger.refusals import refusal_catalogue
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
 from tests.replay.world import clean_checkout
@@ -140,7 +141,7 @@ class CommandTests(unittest.TestCase):
         status = self.ok("ledger", "service", "status", *ledger)
         self.assertTrue(status["running"])
         found = self.ok("ledger", "sql", *ledger, "SELECT version FROM ledger_schema")
-        self.assertEqual((found["columns"], found["rows"]), (["version"], [[1]]))
+        self.assertEqual((found["columns"], found["rows"]), (["version"], [[db.SCHEMA_VERSION]]))
         explained = self.ok("ledger", "sql", *ledger, "EXPLAIN SELECT * FROM trial WHERE purpose = 'explore'")
         self.assertTrue(explained["rows"])
         estimates = [explained["columns"].index(name) for name in ("rows", "filtered")]
@@ -355,7 +356,7 @@ class CommandTests(unittest.TestCase):
                           str(self.tmp / "init-service"), env=env)
         self.addCleanup(self.call, "ledger", "service", "stop", "--ledger", created["profile"], env=env)
         self.assertEqual((created["database"], created["branch_grant"], created["schema_version"]),
-                         ("probe_init", "main", 1))
+                         ("probe_init", "main", db.SCHEMA_VERSION))
         self.assertEqual(created["accounts"], {"writer": "probe_init_writer", "reader": "probe_init_reader"})
         self.assertNotIn("password", json.dumps(created))
         self.refused("LEDGER_EXISTS", "ledger", "init", "--name", "probe-init", "--kind", "isolated", "--service-root",

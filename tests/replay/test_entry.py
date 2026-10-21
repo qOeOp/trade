@@ -292,8 +292,8 @@ class SealedReplayTests(unittest.TestCase):
                          revision)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run_return WHERE run_id = %s", (stored["run_id"],)),
                          [(31,)])
-        self.assertEqual(self.rows("SELECT instrument_id, realized_pnl, price_pnl FROM run_cycle WHERE run_id = %s",
-                                   (stored["run_id"],)),
+        self.assertEqual(self.rows(f"SELECT instrument_id, realized_pnl, {metrics.PRICE_PNL} FROM run_cycle "
+                                   "WHERE run_id = %s", (stored["run_id"],)),
                          [("AAAUSDT-PERP.BINANCE", metrics.Decimal("9.8"), metrics.Decimal("10"))])
         self.assertEqual(self.rows("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s",
                                    (stored["trial_id"],)), [("registration-grid",)])

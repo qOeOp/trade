@@ -38,6 +38,11 @@ EQUITY_TOLERANCE = Decimal("0.01")  # compounding to final equity; an uncalibrat
 MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale
 PLAN_TAG = "plan:"
 PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
+# A closed cycle's price PnL (fill cash flow) as Nautilus' realized PnL + commissions - funding; read,
+# not stored.
+PRICE_PNL = "IF(ts_closed_ns IS NULL, NULL, realized_pnl + commissions - funding) AS price_pnl"
+CYCLE_COLUMNS = ("run_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
+                 f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
 TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
@@ -258,7 +263,7 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
         raise refuse("UNKNOWN_RUN", f"no run {run_id!r} on this ledger version", missing=(str(run_id),))
     for key in ("failure_reasons", "audit", "fingerprints"):
         run[key] = json.loads(run[key]) if isinstance(run[key], (str, bytes)) else run[key]
-    trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments, input_start, "
+    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
                      "trade_start, trade_end FROM trial WHERE trial_id = %s", (run["trial_id"],))
     capture = execution.read_capture(conn, run["trial_id"])
     stored_identity = capture["start"].get("input_identity")
@@ -279,7 +284,7 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
     returns = [(ts, value, mean) for ts, value, mean in conn.rows(
         "SELECT ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE run_id = %s ORDER BY ts_event_ns",
         (run_id,))]
-    cycles = conn.dicts("SELECT * FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
+    cycles = conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
     return {"run": run, "trial": trial, "sealed": sealed, "returns": returns, "cycles": cycles, "capture": capture,
             "evidence": {"capture": capture["status"],
                          "fingerprints": "missing" if run["fingerprints"] is None else "recorded",
@@ -875,6 +880,9 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
         rows.append({"seq": seq, "instrument_id": row["instrument_id"], "side": "long" if row["entry"] == "BUY" else "short",
                      "ts_opened_ns": cycle["ts_opened"], "ts_closed_ns": cycle["ts_last"] if cycle["closed"] else None,
                      "realized_pnl": cycle["realized"] if cycle["closed"] else None,
+                     # not stored: the ledger reads it back as PRICE_PNL
+                     "price_pnl": (cycle["realized"] + cycle["commissions"] - cycle["funding"]
+                                   if cycle["closed"] else None),
                      "commissions": cycle["commissions"], "funding": cycle["funding"],
                      "open_unrealized": None if cycle["closed"] else last_unrealized.get(row.get("position_id")),
                      "plan_tag": plan[0] if len(plan) == 1 and len(plan[0]) <= PLAN_TAG_LIMIT else None,
