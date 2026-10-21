@@ -46,10 +46,7 @@ def input_key(value: object) -> dict:
 
 
 def image_digest_of(execution: Mapping):
-    """The runtime image digest of an execution identity ({runtime: {image_digest}} or top level)."""
-    runtime = execution.get("runtime")
-    if isinstance(runtime, Mapping) and runtime.get("image_digest"):
-        return runtime["image_digest"]
+    """The runtime image digest of a registration plan's execution identity."""
     return execution.get("image_digest")
 
 

@@ -288,14 +288,10 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
             audit_exit = run("audit", layout["audit_module"], [
                 (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, AUDIT_COVERAGE_MOUNT, True),
                 (workdir / AUDIT, REPORTS_MOUNT, False)],
-                ["--run", NATIVE_MOUNT, *layout["audit_args"], "--output", f"{REPORTS_MOUNT}/audit.json"])
-            if layout.get("fingerprint_module"):
-                run("fingerprint", layout["fingerprint_module"], [
-                    (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / FINGERPRINT, REPORTS_MOUNT, False)],
-                    ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/fingerprint.json"])
-            else:
-                stages["fingerprint"] = {"state": execution.NOT_AVAILABLE, "exit_code": None}
-                record()
+                ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/audit.json"])
+            run("fingerprint", layout["fingerprint_module"], [
+                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / FINGERPRINT, REPORTS_MOUNT, False)],
+                ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/fingerprint.json"])
     except BaseException as exc:
         failed = True
         interrupted = isinstance(exc, (KeyboardInterrupt, SystemExit, ReplayTimeout))

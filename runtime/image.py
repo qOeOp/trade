@@ -31,8 +31,8 @@ REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
 # The modules and source paths of each runtime contract inside its image. The refactor keeps no
 # compatibility: an image built before a layout change is no longer supported.
 LAYOUTS = {
-    "r1-native-v6": {"runner_module": "engine.run", "audit_module": "engine.audit", "audit_args": [],
-                     "probe_module": "engine.run", "fingerprint_module": "engine.compare",
+    "r1-native-v6": {"runner_module": "engine.run", "audit_module": "engine.audit",
+                     "fingerprint_module": "engine.compare",
                      "source_paths": {"config_source_sha256": "engine/config.py",
                                       "runner_source_sha256": "engine/run.py",
                                       "load_source_sha256": "engine/load.py",
@@ -63,7 +63,7 @@ def layout(runtime_contract: str | None) -> dict:
 
 
 def _copy(value: dict) -> dict:
-    return {**value, "audit_args": list(value["audit_args"]), "source_paths": dict(value["source_paths"])}
+    return {**value, "source_paths": dict(value["source_paths"])}
 
 
 def validate_identity(value) -> dict:
@@ -192,10 +192,9 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tup
         raise refuse("RUNTIME_MISMATCH", f"the local image is {platform}, the identity {identity['platform']}",
                      expected=identity["platform"])
     found = layout(identity["runtime_contract"])
-    probe = (["--describe", *runner_args] if found["probe_module"] == found["runner_module"]
-             else ["--runner-args-json", json.dumps(runner_args, separators=(",", ":"))])
     name = f"runtime-probe-{os.getpid()}-{time.time_ns()}"
-    command = container.command(identity, list(mounts), found["probe_module"], probe, name=name)
+    command = container.command(identity, list(mounts), found["runner_module"], ["--describe", *runner_args],
+                                name=name)
     try:
         observed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=PROBE_TIMEOUT)
     except subprocess.TimeoutExpired as exc:

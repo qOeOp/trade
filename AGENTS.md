@@ -45,9 +45,8 @@ ledger: publication is append-only.
   and eligibility verdicts, metrics, report measures, daily returns) with fingerprints of the
   native reports. Store each fact once and never what stored data derives. Native reports and
   other replay outputs are cache: regenerate them into `/tmp` and check them against the
-  fingerprints with the semantic report comparison. Reports already stored stay as they are until
-  the ledger is rebuilt against the design. Everything else (drafts, exploratory scripts, replay
-  outputs, media, derived reports) is a working copy in `/tmp`.
+  fingerprints with the semantic report comparison. Everything else (drafts, exploratory
+  scripts, replay outputs, media, derived reports) is a working copy in `/tmp`.
 - Write to the ledger only through the command line `python -m cli.main` (its `replay` commands
   included), never with direct SQL or another account. No strategy bodies or experiment receipts in
   Git.

@@ -3,8 +3,7 @@
 A strategy file's header takes a stance on each of the 27 duties; a derived registration names the
 duties its one change touches (`changed_duties`) and predicts, for each, the direction of a measure
 on a fixed attribution slice. The catalogue is shared by registration checks and both reports, so
-a prediction can only name what the reports measure. Changing the catalogue raises
-metrics_revision (ledger, a later phase): old reports are reread at their own version.
+a prediction can only name what the reports measure.
 """
 
 from __future__ import annotations

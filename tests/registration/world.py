@@ -129,9 +129,9 @@ def product_write(conn, kind: str, bundle: str, files: dict[str, bytes]) -> None
 def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck", native_exit: int = 0,
             audit_exit: int | None = 0, outcome: str = "completed", runtime_errors: bytes = b"",
             extra: dict[str, bytes] | None = None) -> str:
-    """Seal trial-<id>-execution in the capture format ledger.read_capture reads (seal_capture is a
-    later phase): execution.json listing every file with its status, length and hash."""
-    files = {"native.stdout.txt": b"native ran\n", "native.stderr.txt": b"", "source/strategy.py": source_bytes,
+    """Seal trial-<id>-execution in the capture format execution.seal_capture writes: execution.json
+    listing every file with its status, length and hash; the source and the coverage receipt hashed."""
+    files = {"native.stdout.txt": b"native ran\n", "native.stderr.txt": b"",
              "reports/runtime_failures.jsonl": runtime_errors, **(extra or {})}
     if audit_exit is not None:
         files.update({"audit.stdout.txt": b"audit ran\n", "audit/audit.json": b'{"passed": true}'})
@@ -144,6 +144,9 @@ def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck",
             listed[path] = {"status": "captured_empty"}
     if audit_exit is None:
         listed["audit.stdout.txt"] = {"status": "not_started"}
+    coverage = evidence.load_bundle(conn, f"trial-{trial_id}-execution-start")["files"]["input-coverage.json"]
+    for path, data in (("source/strategy.py", source_bytes), ("input-coverage.json", coverage)):
+        listed[path] = {"status": "hashed", "sha256": hashlib.sha256(data).hexdigest(), "length": len(data)}
     trial = conn.one("SELECT source_sha256, image_ref FROM trial WHERE trial_id = %s", (trial_id,))
     manifest = {"format": "execution_capture_v1", "trial_id": trial_id, "purpose": purpose,
                 "source_sha256": trial["source_sha256"],
@@ -277,9 +280,10 @@ class World:
 
     def seal_run(self, trial_id: int, status: str = "passed") -> int:
         def insert(conn, op):
-            conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, op_id, created_at) VALUES "
-                      "(%s, %s, %s, '{}', %s, UTC_TIMESTAMP(6))",
-                      (trial_id, status, None if status == "passed" else '[{"code": "AUDIT"}]', op))
+            passed = status == "passed"
+            conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
+                      "VALUES (%s, %s, %s, '{}', %s, %s, UTC_TIMESTAMP(6))",
+                      (trial_id, status, None if passed else '[{"code": "AUDIT"}]', '{}' if passed else None, op))
             (run_id,), = conn.rows("SELECT LAST_INSERT_ID()")
             return {"run_id": run_id}
         return db.write(self.conn, "ingest_fixture", {"trial_id": trial_id}, "run", insert)["record"]["run_id"]

@@ -113,8 +113,8 @@ class SealedReportTests(unittest.TestCase):
         listed = native()
         listed.summary["limitations"] = ["Liquidation is not modelled", "CURRENT_SNAPSHOT_APPROXIMATION: terms"]
         self.assertEqual(report(listed)["limitations"], listed.summary["limitations"])
-        written = native()  # a list in its text form, beside a limitation of the report's own
-        written.summary["limitations"] = "['Liquidation is not modelled']"
+        written = native()  # beside a limitation of the report's own
+        written.summary["limitations"] = ["Liquidation is not modelled"]
         written.orders[3]["tags"] = "[]"
         found = report(written)["limitations"]
         self.assertEqual(found[0], "Liquidation is not modelled")

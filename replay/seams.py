@@ -4,8 +4,7 @@ and the unverified directory report.
 
 `current` holds the implementations in force: `runtime.image`, `runtime.container` and
 `report.runs`. Tests swap them with `use(...)` (stand-in containers). The fingerprint stage runs
-the in-image semantic fingerprint (engine.report_fingerprint) the layout names; a layout naming
-none records the stage not_available.
+the in-image semantic fingerprint (engine.compare) the layout names.
 """
 
 from __future__ import annotations

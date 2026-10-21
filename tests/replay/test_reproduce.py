@@ -47,11 +47,11 @@ class ReproduceTests(unittest.TestCase):
         self.assertEqual(stored["capture"]["statuses"]["fingerprint/fingerprint.json"], "hashed",
                          "the run row keeps the fingerprint; the capture its hash")
         unprinted = metrics.load_run(self.world.conn, self.unprinted)
-        self.assertEqual((unprinted["capture"]["stages"]["fingerprint"]["state"],
+        self.assertEqual((unprinted["capture"]["stages"]["fingerprint"]["exit_code"],
                           unprinted["evidence"]["fingerprints"]),
-                         ("not_available", "missing"))
+                         (3, "missing"))
         self.assertEqual((unprinted["run"]["status"], [item["code"] for item in unprinted["run"]["failure_reasons"]]),
-                         ("invalid", ["FINGERPRINT_MISSING"]), "a run without a fingerprint is stored invalid")
+                         ("invalid", ["FINGERPRINT_FAILED"]), "a run without a fingerprint is stored invalid")
 
     def forged(self, ref: str, receipt_identity: dict | None = None) -> int:
         """A passed run row stored without any capture, its start coverage receipt naming `receipt_identity`."""
@@ -68,8 +68,7 @@ class ReproduceTests(unittest.TestCase):
     def test_reading_a_run_names_a_missing_capture_and_checks_the_coverage_identity(self):
         stored = metrics.load_run(self.world.conn, self.forged(self.forged_refs[0]))
         self.assertEqual(stored["evidence"]["capture"], "missing")
-        self.assertEqual([item.split(":")[0] for item in stored["evidence"]["unavailable"]],
-                         ["CAPTURE_MISSING", "FINGERPRINT_MISSING"])
+        self.assertEqual([item.split(":")[0] for item in stored["evidence"]["unavailable"]], ["CAPTURE_MISSING"])
         other = {**self.world.plan("registration-forged")["execution"]["input_identity"],
                  "export_content_sha256": "0" * 64}
         with self.assertRaises(Refusal) as caught:
@@ -88,7 +87,7 @@ class ReproduceTests(unittest.TestCase):
 
     def test_a_different_or_absent_fingerprint_refuses_and_keeps_the_directory(self):
         cases = [(self.fingerprinted, {"fills": {"rows": 3}}, "changed"),
-                 (self.fingerprinted, None, "image-without-entry"),
+                 (self.fingerprinted, None, "stage-failed"),
                  (self.unprinted, None, "never-recorded")]
         for run_id, computed, name in cases:
             self.world.fingerprint = computed

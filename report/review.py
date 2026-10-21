@@ -37,7 +37,6 @@ FINDINGS = {
                         "bridge, plan tags, the whole-day series behind the monthly figures) differs from the run's "
                         "sealed result.",
     "SEALED_RESULT_MISSING": "A passed run has no sealed result row.",
-    "FINGERPRINT_MISSING": "A passed run has no semantic fingerprint, so it cannot be reproduced.",
     "CAPTURE_MISSING": "A run's trial has no original execution capture.",
     "CAPTURE_UNREADABLE": "A run's execution capture or start receipt does not verify.",
     "REGISTRATION_AFTER_TRIAL": "A registration attempt's registration was recorded no earlier than its trial.",
@@ -232,8 +231,6 @@ def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> tuple
         found.append(_finding("CAPTURE_MISSING", "run", run_id, commit, capture.get("reason") or "missing"))
     if run["status"] != "passed":
         return found, True
-    if run["fingerprints"] is None:
-        found.append(_finding("FINGERPRINT_MISSING", "run", run_id, commit, "the passed run has no semantic fingerprint"))
     sealed = {revision: _json_value(report) for revision, report in conn.rows(
         "SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s", (run_id,))}
     report = metrics.latest_sealed(conn, run_id, sealed)

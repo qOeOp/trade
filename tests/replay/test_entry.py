@@ -319,13 +319,13 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
                          ("STALE_CHECKOUT", before, exports))
 
-    def test_a_replay_without_a_fingerprint_is_stored_invalid(self):
+    def test_a_replay_whose_fingerprint_stage_fails_is_stored_invalid(self):
         self.world.fingerprint = None
         try:
             stored = self.run_ref(self.refs[13])
         finally:
             self.world.fingerprint = DEFAULT_FINGERPRINT
-        self.assertEqual((stored["status"], codes(stored["failure_reasons"])), ("invalid", ["FINGERPRINT_MISSING"]))
+        self.assertEqual((stored["status"], codes(stored["failure_reasons"])), ("invalid", ["FINGERPRINT_FAILED"]))
 
     def test_a_failed_replay_is_stored_invalid_with_every_reason_and_consumes_its_point(self):
         self.world.scenario = {"native_exit": 2, "summary": {"source_sha256": "0" * 64}}

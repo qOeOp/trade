@@ -187,10 +187,11 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
             raise refuse("LEDGER_CORRUPT", f"{bundle}/{path} is recorded {status} but holds bytes",
                          missing=(f"{bundle}/{path}",))
         statuses[path] = status
-    # the sealed source is hashed (or, in an older capture, stored); either way its listed hash is the source's
-    if statuses.get(CAPTURED_SOURCE) in ("captured", "hashed") and listed[CAPTURED_SOURCE].get(
-            "sha256") != trial["source_sha256"]:
-        raise refuse("EXECUTION_IDENTITY", f"the sealed source of trial {trial_id} is not the trial's source",
+    source = statuses.get(CAPTURED_SOURCE)
+    if source not in (None, "missing") and (source != "hashed"
+                                            or listed[CAPTURED_SOURCE].get("sha256") != trial["source_sha256"]):
+        raise refuse("EXECUTION_IDENTITY", f"the sealed source of trial {trial_id} is stored or is not the trial's "
+                                           "source",
                      missing=(f"{bundle}/{CAPTURED_SOURCE}",))
     failures = []
     for line in captured.get(RUNTIME_ERRORS, b"").decode("utf-8", errors="replace").splitlines():
@@ -205,9 +206,9 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
 
 
 def listed_sha256(capture: Mapping, path: str) -> str | None:
-    """The SHA-256 a read capture records for one file it captured or hashed, else None."""
+    """The SHA-256 a read capture records for one file it hashed, else None."""
     entry = (capture.get("listed") or {}).get(path)
-    if isinstance(entry, Mapping) and entry.get("status") in ("captured", "hashed"):
+    if isinstance(entry, Mapping) and entry.get("status") == "hashed":
         return entry.get("sha256")
     return None
 
@@ -241,7 +242,6 @@ NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "a
                   "order_events.jsonl.gz")
 OUTCOMES = ("completed", "interrupted", "host_failure")
 STATES = ("started", "exited")
-NOT_AVAILABLE = "not_available"  # the image has no entry for the stage (today: the fingerprint)
 CAPTURE_LIMIT = 32 * 1024 * 1024  # bytes of one capture; an uncalibrated example value
 PRECHECK_CAPTURE_LIMIT = 512 * 1024 * 1024  # a precheck also keeps every report; an uncalibrated example value
 RECOVERY_FORMAT = "execution_recovery_v1"
@@ -251,13 +251,11 @@ RECOVERY_LIMITATION = ("Recovered from the kept working directory after the orig
                        "the original capture and is no evidence")
 
 
-def _stage_valid(value, required: bool, optional_entry: bool = False) -> bool:
+def _stage_valid(value, required: bool) -> bool:
     if value is None:
         return not required
     if not isinstance(value, Mapping):
         return False
-    if optional_entry and value.get("state") == NOT_AVAILABLE:
-        return value.get("exit_code") is None
     if value.get("state") not in STATES:
         return False
     code = value.get("exit_code")
@@ -269,7 +267,7 @@ def _stage_valid(value, required: bool, optional_entry: bool = False) -> bool:
 def _stages_valid(stages: object) -> TypeGuard[Mapping]:
     return (isinstance(stages, Mapping) and not set(stages) - set(STAGES)
             and _stage_valid(stages.get("native"), True) and _stage_valid(stages.get("audit"), False)
-            and _stage_valid(stages.get("fingerprint"), False, optional_entry=True))
+            and _stage_valid(stages.get("fingerprint"), False))
 
 
 def _stage_facts(stages: Mapping) -> dict:
@@ -384,8 +382,8 @@ def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages:
                  conn: db.LedgerConnection | None = None) -> dict:
     """Seal the bytes the working directory holds as trial-<trial_id>-execution, in one write.
 
-    `stages` {native: {state, exit_code}, audit: same or None (did not run), fingerprint: same, None
-    or {state: not_available} (the image has no entry)}, as the process record holds them;
+    `stages` {native: {state, exit_code}, audit and fingerprint: same or None (did not run)}, as the
+    process record holds them;
     `outcome` {kind: completed | interrupted | host_failure, detail}. The same capture again is an
     idempotent replay; any other capture, or one after recovery material, is refused.
     """

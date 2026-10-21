@@ -244,13 +244,10 @@ def export_history(profile, destination: Path, at: str | None = None, run_ids: l
     images = sorted({record["replay_identity"]["image_ref"] for record in records.values()})
     market_commits = sorted({record["replay_identity"]["market_commit"] for record in records.values()
                              if record["replay_identity"]["market_commit"]})
-    unavailable = [{"run_id": run_id, "reason": "no semantic fingerprint: a replay cannot be checked against it"}
-                   for run_id, record in records.items() if record["run"]["status"] == "passed"
-                   and record["run"]["fingerprints"] is None]
     manifest = {"format": EXPORT_FORMAT, "ledger_name": profile.name, "database": profile.database, "at": at,
                 "commit": commit, "candidates": listed,
                 "runs": [record["replay_identity"] for record in records.values()], "registrations": bundles,
-                "images": images, "market_commits": market_commits, "unavailable": unavailable,
+                "images": images, "market_commits": market_commits,
                 "files": {path: hashlib.sha256(data).hexdigest() for path, data in sorted(files.items())},
                 "check": "replay each run by its identity (replay.reproduce) and compare with engine.compare_reports"}
     encoded = _json(manifest)
@@ -279,8 +276,7 @@ def export_history(profile, destination: Path, at: str | None = None, run_ids: l
     shutil.rmtree(retired, ignore_errors=True)
     return {"at": at, "commit": commit, "ledger_name": profile.name, "backup_path": str(backup) if backup else None,
             "candidates": len(listed), "runs": len(records), "images": images, "market_commits": market_commits,
-            "manifest_path": str(final / MANIFEST), "content_hash": hashlib.sha256(encoded).hexdigest(),
-            "unavailable": unavailable}
+            "manifest_path": str(final / MANIFEST), "content_hash": hashlib.sha256(encoded).hexdigest()}
 
 
 def market_backup(market: Mapping) -> dict:

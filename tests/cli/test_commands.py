@@ -262,8 +262,6 @@ class CommandTests(unittest.TestCase):
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
-        self.refused("REVIEW_CADENCE_FIXED", "judgment", "add", *ledger, "--kind", "review_cadence", "--line",
-                     "research-line-1", "--based-on", head, "--body", self.write("cadence.md", "review every four"))
 
         # The child, registered against the root run as its control
         child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True"))

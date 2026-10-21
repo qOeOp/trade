@@ -243,8 +243,8 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
 
     A sealed run gives {run, trial, sealed (by metrics revision), returns, cycles, capture, evidence};
     its native reports are not in the ledger (replay.reproduce gives them back). A passed run whose
-    original capture or semantic fingerprint is missing is named in `evidence.unavailable` (the
-    qualification view marks it unusable); a coverage receipt naming other inputs than the stored
+    original capture is missing is named in `evidence.unavailable` (the qualification view marks it
+    unusable); a coverage receipt naming other inputs than the stored
     input identity refuses. A directory gives its parsed native `Reports`.
     """
     if conn is None:
@@ -273,8 +273,6 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
     unavailable = []
     if run["status"] == "passed" and capture["status"] != "captured":
         unavailable.append(f"CAPTURE_MISSING: {capture.get('reason')}")
-    if run["status"] == "passed" and run["fingerprints"] is None:
-        unavailable.append("FINGERPRINT_MISSING: the run has no semantic fingerprint; it cannot be reproduced")
     sealed = {revision: json.loads(report) if isinstance(report, (str, bytes)) else report
               for revision, report in conn.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s "
                                                 "ORDER BY metrics_revision", (run_id,))}
@@ -694,13 +692,8 @@ def metrics_revision(checkout: Path | None = None) -> str:
 
 
 def runner_limitations(summary) -> list[str]:
-    """The limitations the runner listed in its native summary (a list, or its text form)."""
+    """The limitations the runner listed in its native summary (engine.write_native_reports: a list)."""
     found = summary.get("limitations") if isinstance(summary, dict) else None
-    if isinstance(found, str):
-        try:
-            found = ast.literal_eval(found)
-        except (SyntaxError, ValueError):
-            found = [found]
     return [str(item) for item in found] if isinstance(found, list) else []
 
 
@@ -857,7 +850,6 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
             top, worst = max(negative.items(), key=lambda item: item[1])
             share = float(worst / sum(negative.values()))
     duration = None if peak is None or trough is None else (trough - peak) / DAY_NS
-    # @2: the equity at a bar label no longer reads account rows after it (mark_max_drawdown@1 did)
     return {"mark_max_drawdown@2": _measure(drawn["max_drawdown"], "bars"),
             "peak_utc@2": _measure(iso_minute(peak), "bars"), "trough_utc@2": _measure(iso_minute(trough), "bars"),
             "duration_days@2": _measure(duration, "bars"),

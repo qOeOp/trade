@@ -1,6 +1,7 @@
 """Runtime failure receipts as failure reasons: one reason per distinct failure with its count, the
 runner's refusal before the strategy as the cause, for one-row-per-failure receipts and for
-runtime-failure-v2 receipts that carry their count, code and overflow record."""
+runtime-failure-v2 receipts that carry their count, code and overflow record; and the fingerprint
+stage a run needs."""
 
 from __future__ import annotations
 
@@ -51,6 +52,16 @@ class RuntimeFailureTests(unittest.TestCase):
         (found,) = reasons(overflow)
         self.assertEqual((found["code"], found["message"]),
                          ("RUNTIME_FAILURES_NOT_ITEMISED", "42 more failures not itemised"))
+
+
+class FingerprintTests(unittest.TestCase):
+    def test_a_run_needs_a_fingerprint_stage_that_ran_and_exited_0(self):
+        def code(fingerprint) -> list[str]:
+            capture = {"stages": {"native": {"state": "exited", "exit_code": 0}, "fingerprint": fingerprint}}
+            return [item["code"] for item in problems.capture_fingerprint(capture)[1]]
+        self.assertEqual(code(None), ["FINGERPRINT_MISSING"])
+        self.assertEqual(code({"state": "exited", "exit_code": 3}), ["FINGERPRINT_FAILED"])
+
 
 if __name__ == "__main__":
     unittest.main()

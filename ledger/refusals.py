@@ -287,11 +287,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Supersede the current judgment of the same kind on the same line.",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
-    "REVIEW_CADENCE_FIXED": ("The review cadence is fixed by the product (REVIEW_DUE stops registrations after a "
-                             "fixed number of research trials since the line's last recommendation); it is not a "
-                             "judgment.",
-                             ("Write nothing for the cadence; when REVIEW_DUE refuses a registration, review and "
-                              "write the recommendation and priority it asks for.",)),
     "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line's comparison table "
                                   "at the commit it is based on.",
                                   ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "

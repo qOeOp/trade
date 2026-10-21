@@ -119,8 +119,6 @@ class ComparabilityTests(unittest.TestCase):
                      "input_identity": self.identity()}
         run = {"run_id": 1, "status": "passed", "purpose": "research", **execution}
         comparability.check_comparable(run, execution)
-        comparability.check_comparable(run, {"runtime": {"image_digest": execution["image_digest"]}, **{
-            k: v for k, v in execution.items() if k != "image_digest"}})
         for changed in ({"status": "invalid"}, {"status": None}, {"purpose": "explore"}, {"purpose": "precheck"}):
             with self.subTest(changed=changed):
                 self.assertEqual(code(comparability.check_comparable, {**run, **changed}, execution), "RUN_NOT_PASSED")

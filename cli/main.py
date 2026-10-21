@@ -357,8 +357,7 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
                      missing=(str(manifest),))
     return {"kind": kind, "ledger_commit": exported["commit"], "target": str(target),
             "backup_path": exported["backup_path"], "manifest_path": str(manifest),
-            "content_hash": exported["content_hash"], "runs": exported["runs"], "candidates": exported["candidates"],
-            "unavailable": exported["unavailable"]}
+            "content_hash": exported["content_hash"], "runs": exported["runs"], "candidates": exported["candidates"]}
 
 
 # candidate
@@ -934,7 +933,7 @@ def _parser() -> Parser:
     judgment = verbs("judgment", "Agent judgments: add")
     command = judgment.add_parser("add", help="append one judgment")
     _ledger_option(command)
-    command.add_argument("--kind", required=True,
+    command.add_argument("--kind", required=True, choices=judgments.KINDS,
                          help="recommendation, priority, interpretation or search_exposure")
     command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-1")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")

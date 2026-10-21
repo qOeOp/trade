@@ -41,7 +41,7 @@ def native_summary(**changes) -> dict:
 def process(workdir: Path, trial_id: int, stages: dict) -> None:
     """The process record the replay entry writes: the stage facts and one command per started stage."""
     commands = {name: ["docker", "run", "image", "-m", name, *(ARGV if name == "native" else [])]
-                for name, stage in stages.items() if stage is not None and stage["state"] != "not_available"}
+                for name, stage in stages.items() if stage is not None}
     (workdir / execution.PROCESS).write_text(json.dumps({"trial_id": trial_id, "stages": stages,
                                                          "commands": commands}))
 
@@ -140,7 +140,7 @@ class CaptureTests(LedgerCase):
         trial_id = self.trial(workdir)
         for stages, outcome in (({"native": {"state": "started", "exit_code": 0}, "audit": None}, DONE),
                                 ({"native": {"state": "exited", "exit_code": None}, "audit": None}, DONE),
-                                ({**EXITED, "fingerprint": {"state": "not_available", "exit_code": 1}}, DONE),
+                                ({**EXITED, "fingerprint": {"state": "not_available", "exit_code": None}}, DONE),
                                 (EXITED, {"kind": "crashed"})):
             with self.subTest(stages=stages, outcome=outcome):
                 self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, stages,
