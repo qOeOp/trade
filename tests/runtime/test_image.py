@@ -11,15 +11,15 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import problems
+from ledger import problems, strategies
 from ledger.errors import Refusal
 from runtime import container, image
 
 
-LAYOUT = image.layout("r1-native-v6")
+LAYOUT = image.layout("replay-contract@v6")
 SOURCE_PATHS = LAYOUT["source_paths"]
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/arm64", "runtime_contract": "r1-native-v6"}
+            "platform": "linux/arm64", "runtime_contract": "replay-contract@v6"}
 
 
 def refused(test, code, call, *args, **kwargs):
@@ -38,17 +38,19 @@ class IdentityTests(unittest.TestCase):
             with self.subTest(value=value):
                 refused(self, "RUNTIME_IDENTITY_INVALID", image.validate_identity, value)
         refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "platform": "windows/amd64"})
-        refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "runtime_contract": "r1-native-v5"})
+        refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "runtime_contract": "replay-contract@v5"})
         self.assertEqual(image.validate_identity({**IDENTITY, "build_revision": "1" * 40})["build_revision"], "1" * 40)
 
     def test_layout_of_an_undeclared_contract_is_refused(self):
-        refused(self, "RUNTIME_UNSUPPORTED", image.layout, "r1-native-v5")
-        self.assertEqual(set(image.layout(None)), {"r1-native-v6"})
+        for contract in ("replay-contract@v5", "r1-native-v6"):
+            with self.subTest(contract=contract):
+                refused(self, "RUNTIME_UNSUPPORTED", image.layout, contract)
+        self.assertEqual(set(image.layout(None)), {"replay-contract@v6"})
 
 
 class ProbeTests(unittest.TestCase):
     def probe(self, **changes):
-        value = {"runtime_contract": "r1-native-v6", "engine_version": "fixture", "python_version": "fixture",
+        value = {"runtime_contract": "replay-contract@v6", "engine_version": "fixture", "python_version": "fixture",
                  "dependency_lock_sha256": "b" * 64, "audit_source_sha256": "c" * 64,
                  "effective_config": {"fixture": True}, "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
                  "source_file_paths": dict(SOURCE_PATHS),
@@ -97,7 +99,10 @@ class ProbeTests(unittest.TestCase):
                 "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
         described = json.loads(subprocess.run([sys.executable, "-m", "engine.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
-        self.assertEqual(described["runtime_contract"], "r1-native-v6")
+        self.assertEqual(described["runtime_contract"], "replay-contract@v6")
+        self.assertEqual(strategies.RUNTIME_CONTRACT, described["runtime_contract"])
+        dockerfile = Path(__file__).resolve().parents[2] / "engine/runtime/Dockerfile"
+        self.assertIn(f'{image.CONTRACT_LABEL}="{described["runtime_contract"]}"', dockerfile.read_text())
         self.assertEqual(described["source_file_paths"], SOURCE_PATHS)
         root = Path(__file__).resolve().parents[2]
         for field, path in SOURCE_PATHS.items():
@@ -135,7 +140,7 @@ class ResolveTests(unittest.TestCase):
     DIGEST = "sha256:" + "f" * 64
     REVISION = "1" * 40
 
-    def image(self, repository=image.REPOSITORY, revision=REVISION, contract="r1-native-v6"):
+    def image(self, repository=image.REPOSITORY, revision=REVISION, contract="replay-contract@v6"):
         labels = {image.REVISION_LABEL: revision, **({image.CONTRACT_LABEL: contract} if contract else {})}
         return {"RepoDigests": [f"{repository}@{self.DIGEST}"], "Os": "linux", "Architecture": "arm64",
                 "Config": {"Labels": labels}}
@@ -152,7 +157,7 @@ class ResolveTests(unittest.TestCase):
             identity = image.resolve()
         self.assertEqual(calls.call_args_list[0].args[0], ["docker", "pull", "--quiet", image.CURRENT])
         self.assertEqual(identity, {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                                    "platform": "linux/arm64", "runtime_contract": "r1-native-v6",
+                                    "platform": "linux/arm64", "runtime_contract": "replay-contract@v6",
                                     "build_revision": self.REVISION})
 
     def test_a_local_digest_reference_is_not_pulled(self):
@@ -219,7 +224,7 @@ class MainBuildTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, self.FILES[argv[1].split(":", 1)[1]], b"")
             return subprocess.CompletedProcess(argv, 0, b"", b"")
         identity = {"image_ref": f"{repository}@{self.DIGEST}", "image_digest": self.DIGEST, "platform": "linux/arm64",
-                    "runtime_contract": "r1-native-v6", **({"build_revision": revision} if revision else {})}
+                    "runtime_contract": "replay-contract@v6", **({"build_revision": revision} if revision else {})}
         found = {"RepoDigests": [identity["image_ref"]], "Config": {"Labels": {}}}
         with patch("runtime.image._git", side_effect=git), \
                 patch("runtime.image.subprocess.run",
@@ -235,7 +240,7 @@ class MainBuildTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(command, kwargs["timeout"])
             return subprocess.CompletedProcess(command, 1, b"", b"")  # the revision is not known locally yet
         identity = {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                    "platform": "linux/arm64", "runtime_contract": "r1-native-v6", "build_revision": self.REVISION}
+                    "platform": "linux/arm64", "runtime_contract": "replay-contract@v6", "build_revision": self.REVISION}
         with patch("runtime.image.subprocess.run", side_effect=fetch_hangs) as calls:
             refusal = refused(self, "RUNTIME_UNAVAILABLE", image.require_main_build, identity,
                               self.inspection(self.FILES))

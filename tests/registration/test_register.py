@@ -329,7 +329,7 @@ class BindTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("effective_configuration",)))
         exc = self.refused_trial(bundle, data, runtime=OTHER_RUNTIME)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_image",)))
-        exc = self.refused_trial(bundle, data, runtime={**RUNTIME, "runtime_contract": "r1-native-v7"})
+        exc = self.refused_trial(bundle, data, runtime={**RUNTIME, "runtime_contract": "replay-contract@v7"})
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_contract",)))
         self.world.research_trial(bundle, data)
 

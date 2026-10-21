@@ -31,14 +31,14 @@ REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
 # The modules and source paths of each runtime contract inside its image. The refactor keeps no
 # compatibility: an image built before a layout change is no longer supported.
 LAYOUTS = {
-    "r1-native-v6": {"runner_module": "engine.run", "audit_module": "engine.audit",
-                     "fingerprint_module": "engine.compare",
-                     "source_paths": {"config_source_sha256": "engine/config.py",
-                                      "runner_source_sha256": "engine/run.py",
-                                      "load_source_sha256": "engine/load.py",
-                                      "report_source_sha256": "engine/report.py",
-                                      "fingerprint_source_sha256": "engine/compare.py"},
-                     "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
+    "replay-contract@v6": {"runner_module": "engine.run", "audit_module": "engine.audit",
+                           "fingerprint_module": "engine.compare",
+                           "source_paths": {"config_source_sha256": "engine/config.py",
+                                            "runner_source_sha256": "engine/run.py",
+                                            "load_source_sha256": "engine/load.py",
+                                            "report_source_sha256": "engine/report.py",
+                                            "fingerprint_source_sha256": "engine/compare.py"},
+                           "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
 }
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"

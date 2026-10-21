@@ -24,7 +24,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
 - **Strategy.** One complete source file, its entry class and SHA-256, and the execution binding
   every replay (exploration, precheck, sealed run, reproduction) passes the same way: the runtime
   identity and effective configuration the probe reported, refused as `EXECUTION_BINDING_MISMATCH`
-  when they differ from what the runner resolves itself. The `r1-native-v6` contract is in the [strategy-authoring
+  when they differ from what the runner resolves itself. The `replay-contract@v6` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
@@ -232,7 +232,7 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 
 ## History
 
-`runtime.image.LAYOUTS` knows only `r1-native-v6`; no image or seal of an earlier contract is read
+`runtime.image.LAYOUTS` knows only `replay-contract@v6`; no image or seal of an earlier contract is read
 or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at
 [`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);
