@@ -23,13 +23,14 @@ fresh UUIDs every run.
 from __future__ import annotations
 
 import argparse
-import csv
 from datetime import UTC, datetime
 import gzip
 import hashlib
 import json
 from pathlib import Path
 import re
+
+from engine.native_csv import dict_reader
 
 
 # table: (file, time column, file bytes are stable)
@@ -50,9 +51,9 @@ RANDOM = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 def _csv_rows(path: Path) -> list[dict]:
     if path.suffix == ".gz":
         with gzip.open(path, "rt", encoding="utf-8", newline="") as stream:
-            return list(csv.DictReader(stream))
+            return list(dict_reader(stream))
     with path.open(newline="", encoding="utf-8") as stream:
-        return list(csv.DictReader(stream))
+        return list(dict_reader(stream))
 
 
 def _event_rows(path: Path) -> list[dict]:

@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import ast
 from collections import Counter, defaultdict
-import csv
 import gzip
 import hashlib
 import json
@@ -24,6 +23,8 @@ from pathlib import Path
 from typing import TypedDict
 
 import pandas as pd
+
+from engine.native_csv import dict_reader
 
 
 REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
@@ -116,7 +117,7 @@ def _decimal(value) -> Decimal:
 
 def _rows(run: Path, name: str) -> list[dict]:
     with (run / f"{name}.csv").open(newline="") as stream:
-        return list(csv.DictReader(stream))
+        return list(dict_reader(stream))
 
 
 def _list(value: str) -> list:

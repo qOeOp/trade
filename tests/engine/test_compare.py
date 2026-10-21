@@ -24,6 +24,48 @@ def _replay(root: Path, sharpe) -> Path:
 
 
 class CompareReportsTests(unittest.TestCase):
+    def test_empty_tables_preserve_nonvolatile_schema_differences(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "orders.csv").write_text("client_order_id,status,new_column\n")
+            found = compare_reports(left, right)
+        self.assertFalse(found["passed"])
+        table = found["tables"]["orders"]
+        self.assertFalse(table["column_match"])
+        self.assertEqual(table["compared_columns"], ["client_order_id", "status"])
+
+    def test_missing_nonkey_columns_report_schema_and_compare_shared_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "account.csv").write_text("ts_event\n2026-01-02\n")
+            for reference, candidate in ((left, right), (right, left)):
+                with self.subTest(reference=reference.name):
+                    found = compare_reports(reference, candidate)
+                    self.assertFalse(found["passed"])
+                    table = found["tables"]["account"]
+                    self.assertFalse(table["column_match"])
+                    self.assertEqual(table["compared_columns"], ["ts_event"])
+                    self.assertEqual(table["mismatch_count"], 1)
+
+    def test_volatile_columns_do_not_change_schema_parity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "orders.csv").write_text("client_order_id,status,init_id\n")
+            found = compare_reports(left, right)
+        self.assertTrue(found["passed"])
+        self.assertEqual(found["tables"]["orders"]["excluded_columns"], ["init_id"])
+
+    def test_empty_table_missing_business_key_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = _replay(root / "a", None), _replay(root / "b", None)
+            (right / "orders.csv").write_text("status\n")
+            with self.assertRaisesRegex(Refusal, "lacks client_order_id"):
+                compare_reports(left, right)
+
     def test_zero_trade_replays_with_undefined_sharpe_match(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

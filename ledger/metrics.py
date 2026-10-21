@@ -28,6 +28,7 @@ import re
 import subprocess
 from typing import Any
 
+from engine.native_csv import dict_reader
 from ledger import db
 from ledger.refusals import refuse
 
@@ -133,8 +134,7 @@ class Reports:
 
 
 def _csv(data: bytes) -> list[dict]:
-    csv.field_size_limit(2**31 - 1)  # positions.events holds every fill of a cycle in one cell
-    return list(csv.DictReader(io.StringIO(data.decode("utf-8"), newline="")))
+    return list(dict_reader(io.StringIO(data.decode("utf-8"), newline="")))
 
 
 class ExposureRows:
@@ -147,9 +147,8 @@ class ExposureRows:
             pass
 
     def __iter__(self):
-        csv.field_size_limit(2**31 - 1)
         with gzip.GzipFile(fileobj=io.BytesIO(self.data)) as packed:
-            yield from csv.DictReader(io.TextIOWrapper(packed, encoding="utf-8", newline=""))
+            yield from dict_reader(io.TextIOWrapper(packed, encoding="utf-8", newline=""))
 
 
 def _unreadable(name: str, exc: Exception):
