@@ -15,9 +15,15 @@ Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, 
 print one JSON result, or a coded refusal with its repair commands on standard error and exit 1.
 Every replay runs in the CI-built image; the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) holds the order of the commands
-for a registered, sealed run. The current `r1-native-v6` contract runs one complete source file
+for a registered, sealed run. The current `replay-contract@v6` contract runs one complete source file
 whose native `Strategy` entry class supplies `replay_diagnostics` and `replay_integrity_findings`
 and holds every rule, sizing included; the runner takes no strategy parameter.
+
+`runtime_contract` names the replay interface and execution conventions as `replay-contract@v6`;
+its version is separate from the image digest, which pins the implementation. The publisher, host
+image layout and in-image probe declare the same contract. A new CI image is required after this
+rename; existing Dolt records and retained images keep their recorded identities and are not
+rewritten or accepted under an alias.
 
 ```bash
 uv sync --frozen

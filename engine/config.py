@@ -22,9 +22,9 @@ from types import MappingProxyType
 from typing import TypedDict
 
 
-# r1-native-v6: one-minute execution bars and the constructor's `universe_membership`. A source written
+# replay-contract@v6: one-minute execution bars and the constructor's `universe_membership`. A source written
 # for another contract is refused, not run on these inputs.
-RUNTIME_CONTRACT = "r1-native-v6"
+RUNTIME_CONTRACT = "replay-contract@v6"
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
 
