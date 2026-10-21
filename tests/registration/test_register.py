@@ -424,7 +424,7 @@ class LineRecordTests(unittest.TestCase):
         self.assertEqual(register.REVIEW_EVERY, 5)
         world.research_trial("registration-batch", batch[-1]["source"])  # the fifth research trial
         exc = refused(world.register, "registration-gated", body)
-        self.assertEqual((exc.code, exc.missing), ("REVIEW_DUE", ("recommendation", "priority")))
+        self.assertEqual((exc.code, exc.missing), ("REVIEW_DUE", ("recommendation",)))
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": "rsi@1"}])
         self.assertFalse(world.register("registration-gated", body)["replayed"], "the recommendation clears it")
 

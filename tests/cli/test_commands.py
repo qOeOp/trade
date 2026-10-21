@@ -276,6 +276,10 @@ class CommandTests(unittest.TestCase):
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
+        state = self.ok("research", "state", *ledger, "--history")
+        self.assertEqual(state["judgment_history"]["entries"][0]["judgment_id"], judged["judgment_id"])
+        older = self.ok("research", "state", *ledger, "--history-before", str(judged["judgment_id"]))
+        self.assertEqual(older["judgment_history"]["entries"], [])
 
         # The child, registered against the root run as its control
         child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True"))

@@ -73,8 +73,8 @@ def candidate_export(
 2. 给出 at 时经 ledger.read_as_of 取只读版本连接；ledger.read_candidate 取字节并核对存储哈希
 3. 原样写出字节（不改编码、不加头尾），写后重读文件哈希须等于 source_sha256
 4. 返回路径与哈希；该副本是派生新候选或无产品工作树重放的起点
-5. 在同一目录写 AGENTS.md：由 research-round 的 templates/workdir-agents.md 填入候选引用与下一步命令；Agent 进入该目录工作时读到它。
-6. 在同一目录写 strategy-header.md：research-round 的文件头模板原文。
+5. 在同一目录写 AGENTS.md：由 CLI 包内的 cli/templates/workdir-agents.md 填入候选引用与下一步命令；Agent 进入该目录工作时读到它。
+6. 在同一目录写 strategy-header.md：CLI 包内 cli/templates/strategy-header.md 的原文。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1121,6 +1121,8 @@ def research_state(args: Namespace) -> JSON
 **关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref>
 
 </div>
+
+`research state --history [--history-before ID]` 在同一 `--at` 提交分页读取全部原始判断（每页至多 20 条，按 ID 倒序），包括正文、subjects、supersedes 和 superseded_by。默认只附 judgment_history 总数与被替代数；原有 current judgments、facts 与 gates 的选择不变。继续翻页使用 next_before，并保持同一 --at。历史条目不重算旧绩效事实；需要时按其 based_on_commit 读取。
 
 ### `research_status` [#def-cli-research_status]
 

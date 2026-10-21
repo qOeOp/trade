@@ -6,6 +6,11 @@ research trials since the last recommendation) and when writing a `recommendatio
 - A review writes two separate judgments that do not follow from each other: `recommendation`
   (which version or batch) and `priority` (what next and in which order, feedback.md). The
   recommendation clears the stop.
+- The cadence counts trials since the latest recommendation's based-on commit, not all trials
+  ever run; an early recommendation resets that reference. It prompts a review, not independent
+  validation or protection against repeated adaptation to the same data. A per-run interpretation
+  and priority do not require regenerating a full recommendation; compare changed conclusions,
+  competing explanations and what the next experiment can distinguish when reviewing.
 - Take every count from `research status` (trials, research attempts, audit-passed, economically
   available, diagnostic only, invalid, unfinished, validation registrations) with its ledger
   commit; never count trials yourself or from session memory, and never assess progress

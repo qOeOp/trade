@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -33,8 +34,7 @@ from ledger.errors import Refusal, refusal
 from ledger.refusals import CATALOGUE, refuse
 
 
-REPOSITORY = Path(__file__).resolve().parents[1]
-TEMPLATES = REPOSITORY / ".agents" / "skills" / "research-round" / "templates"
+TEMPLATES = files("cli").joinpath("templates")
 WORKDIR_TEMPLATE, HEADER_TEMPLATE = "workdir-agents.md", "strategy-header.md"
 # `ledger sql` statement kinds: reads only. The reader account on a pinned revision database is the
 # write boundary; this first-word check keeps statements such as SET PERSIST, which any account may
@@ -370,13 +370,13 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
 # candidate
 
 def _workdir_notes(directory: Path, candidate: str) -> dict:
-    """AGENTS.md (research-round's workdir template with the candidate filled in) and strategy-header.md
+    """AGENTS.md (the packaged workdir template with the candidate filled in) and strategy-header.md
     (its file header template, verbatim) beside a working copy; a template not present is reported."""
     written, missing = [], []
     for name, target in ((WORKDIR_TEMPLATE, "AGENTS.md"), (HEADER_TEMPLATE, HEADER_TEMPLATE)):
-        source = TEMPLATES / name
+        source = TEMPLATES.joinpath(name)
         if not source.is_file():
-            missing.append(str(source.relative_to(REPOSITORY)))
+            missing.append(f"cli/templates/{name}")
             continue
         text = source.read_text(encoding="utf-8")
         if name == WORKDIR_TEMPLATE:
@@ -495,7 +495,7 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
     directory = _new_temporary(output)
     if not entry_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{entry_class!r} is not one Python class name")
-    header_template = TEMPLATES / HEADER_TEMPLATE
+    header_template = TEMPLATES.joinpath(HEADER_TEMPLATE)
     header = header_template.read_text(encoding="utf-8") if header_template.is_file() else ""
     header = '"""' + (header.replace('"""', "'''").strip() or f"{strategy_id}: the file header goes here.") + '\n"""'
     directory.mkdir(mode=0o700, parents=True)
@@ -635,9 +635,10 @@ def research_status(profile: db.LedgerProfile, at: str | None, line: str | None)
     return status.research_status(profile, at, line)
 
 
-def research_state(conn: db.LedgerConnection, line: str | None, at: str | None) -> dict:
+def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *,
+                   history: bool = False, history_before: int | None = None) -> dict:
     from report import status
-    return status.research_state(conn, line, at)
+    return status.research_state(conn, line, at, history=history, history_before=history_before)
 
 
 def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, precheck_trial: int, verdict: str,
@@ -990,6 +991,10 @@ def _parser() -> Parser:
     command = research.add_parser("state", help="the line record and its current judgments with read-time facts")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the current line)")
+    command.add_argument("--history", action="store_true",
+                         help="include up to 20 original judgments, newest first, including superseded text and subjects")
+    command.add_argument("--history-before", type=int,
+                         help="include the next history page before this judgment ID (use next_before; implies --history)")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -1180,7 +1185,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return research_status(profile, args.at, args.line), 0
     if key == ("research", "state"):
         with db.connect(profile, "reader") as conn:
-            return research_state(conn, args.line, args.at), 0
+            return research_state(conn, args.line, args.at, history=args.history,
+                                  history_before=args.history_before), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

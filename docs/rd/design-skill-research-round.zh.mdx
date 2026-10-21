@@ -13,13 +13,11 @@
   <File name="references/review.md" />
   <File name="references/validation.md" />
   <File name="references/changes.md" />
-  <File name="templates/strategy-header.md" />
   <File name="references/strategy-authoring.md" />
   <File name="templates/report.md" />
   <File name="templates/registration-root.json" />
   <File name="templates/registration-derived.json" />
   <File name="references/duty-directory.md" />
-  <File name="templates/workdir-agents.md" />
 </Folder>
 </Files>
 
@@ -101,12 +99,12 @@
 | 资金费差主导，价格差为负 | profit_bridge | H1、B1 | 把资金费写成显式收益来源，或单独检验价格腿 |
 | 规模放大后单位敞口收益下降 | capital_scaled | G3、E1 | 按流动性定数量，或改容量上限 |
 | 两侧都亏，候选少亏但单位敞口收益不变或更差 | capital_scaled | B1、A3 | 少亏来自少暴露，不是品质；回到信号或条件过滤 |
-| 择时项为正：涨月敞口大、跌月敞口小 | capital_scaled | E3、A3 | 保留并细化仓位随行情调整的规则 |
-| 择时项为负或接近零 | capital_scaled | E3、A3 | 加入随行情或波动调整仓位的规则 |
+| 择时项为正 | capital_scaled | E1、E3、A3 | 区分被动标价敞口、复利、成本与主动数量调整；涨跌月敞口另读 |
+| 择时项为负或接近零 | capital_scaled | E1、E3、A3 | 同样先辨别来源，符号本身不指向特定数量规则 |
 | 盈亏平衡费率倍数接近一 | fee_stress | G1、C2 | 换执行方式，或加不交易带 |
 | 差集中在少数合约，同一批合约在多个版本里持续亏损 | by_instrument | A1、A2、F3 | 改资格或选择，或加保护边界 |
 | 截距差接近零，斜率差解释大部分差 | market_exposure | E2、D2 | 控制组合净方向或同向持仓数，或加对冲 |
-| 去掉最好五天后剩余差反号，胜出月份少 | by_period | A3、B2 | 加条件过滤，或改预测期限 |
+| 按总和方向裁剪五天后剩余差反号，胜出月份少 | by_period | A3、B2 | 检查集中与竞争解释；本身不指向过滤、期限或参数方向 |
 | 胜率升而每笔期望降，平均赢变小 | trade_structure | F3、F4、C1 | 改退出或保护边界，或改触发 |
 | 删掉的交易净盈利为正 | trade_pairs | C1、A3 | 放宽触发或过滤，或只对亏损来源过滤 |
 | 配上的交易开仓普遍推迟且盈亏变差 | trade_pairs | G1、C1 | 换执行方式或触发价 |
@@ -118,7 +116,7 @@
 <ol className="rd-skill-rules">
 <li id="def-rule-R-3-2-10">逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <span className="rd-rule-links"><Ref id="R.3.2.10">R.3.2.10</Ref></span><span className="rd-eval">eval <code>attribution-detail-recomputed</code>：引用的逐合约、逐月或出场原因明细来自报告表，合计与报告的切面标量一致；驱动下一假设的数附独立复算</span></li>
 <li id="def-rule-P-2-2-1">账户差为正而预测的切面反号，只写账户差，不写机制成立 <span className="rd-rule-links"><Ref id="P.2.2.1">P.2.2.1</Ref></span><span className="rd-eval">eval <code>mechanism-before-account</code>：报告中预测与实测反号时，解释判断写明预测落空，未称机制成立</span></li>
-<li id="def-rule-P-3-1-1">一处改动的比较就是该职责的消融，不为归因另跑回放 <span className="rd-rule-links"><Ref id="P.3.1.1">P.3.1.1</Ref></span><span className="rd-eval">eval <code>single-change-is-ablation</code>：单一改动的归因只读该比较的归因报告，未另开为归因而设的回放</span></li>
+<li id="def-rule-P-3-1-1">核对候选与实际对照只差该改动后才称条件消融；涉及多个职责不代表各职责独立效应，不为归因另跑回放 <span className="rd-rule-links"><Ref id="P.3.1.1">P.3.1.1</Ref></span><span className="rd-eval">eval <code>single-change-is-ablation</code>：单一改动的归因只读该比较的归因报告，未另开为归因而设的回放</span></li>
 <li id="def-rule-P-3-1-3">要读交互，在补最后一个角的登记里声明四个角；交互只作归因，不作改善证据 <span className="rd-rule-links"><Ref id="P.3.1.3">P.3.1.3</Ref></span><span className="rd-eval">eval <code>interaction-declared</code>：交互效应来自登记时声明的四个角；解释里未把交互当作改善证据，也未事后从账本里挑二乘二</span></li>
 <li id="def-rule-P-3-1-4">沿谱系逐段相加的差依赖先后顺序，不写成各改动的独立效应 <span className="rd-rule-links"><Ref id="P.3.1.4">P.3.1.4</Ref></span><span className="rd-eval">eval <code>lineage-sum-is-ordered</code>：引用沿谱系的逐段差时注明它依赖顺序；称独立效应时引用了声明过的交互效应</span></li>
 <li id="def-rule-P-4-1-2">解释只引用结论所依据的切面，并逐项写每一项预测是否落空 <span className="rd-rule-links"><Ref id="P.4.1.2">P.4.1.2</Ref></span><span className="rd-eval">eval <code>attribution-cites-and-predictions</code>：每条结论附切面与标量名；每一项登记预测都写了是否同号，无法核对的写原因</span></li>
@@ -177,11 +175,11 @@
 <li id="def-rule-J-5-3-2">配对通过只写该配对下引擎行为未变，适配差异不写成经济改善 <span className="rd-rule-links"><Ref id="J.5.3.2">J.5.3.2</Ref></span><span className="rd-eval">eval <code>parity-not-endorsement</code>：陈述只称该配对下引擎行为未变，未称策略认可、经济证据或适配带来改善</span></li>
 </ol>
 
-## `templates/strategy-header.md` [#def-file-research-round-templates-strategy-header-md]
+## `cli/templates/strategy-header.md`（CLI 包资源） [#def-file-research-round-templates-strategy-header-md]
 
 **触发**　写新策略文件或修改文件头时
 
-策略文件头的固定格式：出处行与 27 项职责立场行
+策略文件头的固定格式：出处行与 27 项职责立场行。由 candidate new/export 输出；资源随 CLI 分发，CLI 不读取 skill 目录。
 
 ```text
 """
@@ -271,7 +269,7 @@ I2 退出可行性与未来资源：<立场> | <理由> | <来源>
 | 费用 | 吃单占比、盈亏平衡费率倍数 | 盈亏平衡费率倍数（<Ref id="R.3.2.3" />） |
 | 品种与方向 | 前五合约占绝对盈亏比例、多空分列 | 同左之差（<Ref id="R.3.2.4" />） |
 | 市场暴露 | 对等权篮子与 BTC 永续的斜率与截距 | 斜率之差与截距之差（<Ref id="R.3.2.5" />） |
-| 时期 | 盈利月份占比、去掉最好五天后的剩余 | 胜出月份占比、剩余差（<Ref id="R.3.2.6" />） |
+| 时期 | 盈利月份占比、按总和方向去掉最多五天后的剩余 | 胜出月份占比、剩余差（<Ref id="R.3.2.6" />） |
 | 波动状态 | 高波动日与低波动日各自的天数、平均与合计对数收益 | 同左之差（<Ref id="R.3.2.11" />） |
 | 交易结构 | 周期数、胜率、平均赢亏、每笔期望、持仓时长、出场类别 | 同左之差与期望差的拆分（<Ref id="R.3.2.7" />） |
 | 交易配对 | — | 覆盖、删掉与新增的交易、同一机会的差（<Ref id="R.3.2.8" />） |
@@ -571,7 +569,7 @@ I=预测成本/流动性/目标；S=持仓及规划期限；O=限制当前交易
 
 </Accordions>
 
-## `templates/workdir-agents.md` [#def-file-research-round-templates-workdir-agents-md]
+## `cli/templates/workdir-agents.md`（CLI 包资源） [#def-file-research-round-templates-workdir-agents-md]
 
 **触发**　命令导出工作副本或生成脚手架时写入工作目录，Agent 在该目录工作时读
 

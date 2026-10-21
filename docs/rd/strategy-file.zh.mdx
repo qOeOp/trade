@@ -132,7 +132,7 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 ### 文件头的立场与硬契约 [#C-1-4]
 
-文件头按模板写每项职责的立场，由 skill 指导，独立源码审查来核对。
+文件头由 skill 指导作者逐项对照源码。当前独立审查仅覆盖接口、因果、活动和就绪，不认证全部 27 项立场。
 
 #### 文件头逐行写 27 项职责的立场，硬契约行不能写不适用 [#C-1-4-1]
 
@@ -146,7 +146,7 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:C.1.4.1">research-round · templates/strategy-header.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:C.1.4.1">candidate new/export · cli/templates/strategy-header.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 改源码前先读父版本文件头，只改涉及的职责行，登记时列出 [#C-1-4-2]
 
@@ -557,7 +557,7 @@ Agent 读封存的预检原件，分清是没有交易机会还是实现出了�
 
 **另一个 Agent 按四项审查预检原件，都过了才能登记**
 
-审查者必须是没参与编写的 Agent，读的是预检的封存原件。接口、因果、活动、就绪四项各写结论和观察，同时核对文件头的立场和源码行为是否一致。结论作为证据包只追加进账本，绑定源码和运行环境。登记和回放时，四项必须都是通过或无交易机会，否则拒绝。
+审查者必须是没参与编写的 Agent，读的是预检的封存原件。接口、因果、活动、就绪四项各写结论和观察；当前审查不逐项认证全部 27 项职责的立场与源码一致。结论作为证据包只追加进账本，绑定源码和运行环境。登记和回放时，四项必须都是通过或无交易机会，否则拒绝。
 
 写代码的人最容易放过自己的错。换一个没参与的 Agent 照着原件逐项查，才能挡住前视、挂单写错这类审计查不出的问题。
 

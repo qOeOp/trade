@@ -274,6 +274,32 @@ def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
 
 # The research state
 
+def _judgment_history(conn: db.LedgerConnection, line: str, include: bool, before: int | None) -> dict:
+    """Original judgments, including replaced ones; bounded pages without recomputing old facts."""
+    (total, replaced), = conn.rows(
+        "SELECT COUNT(*), SUM(CASE WHEN n.judgment_id IS NOT NULL THEN 1 ELSE 0 END) "
+        "FROM judgment j LEFT JOIN judgment n ON n.supersedes = j.judgment_id WHERE j.line_bundle = %s", (line,))
+    result = {"total": int(total), "superseded": int(replaced or 0), "entries": [], "next_before": None}
+    if not include:
+        return result
+    rows = conn.dicts("SELECT j.judgment_id, j.kind, j.based_on_commit, j.body, j.created_at, j.supersedes, "
+                      "n.judgment_id AS superseded_by FROM judgment j LEFT JOIN judgment n "
+                      "ON n.supersedes = j.judgment_id WHERE j.line_bundle = %s "
+                      "AND (%s IS NULL OR j.judgment_id < %s) ORDER BY j.judgment_id DESC LIMIT 21",
+                      (line, before, before))
+    page = rows[:20]
+    if page:
+        ids = [row["judgment_id"] for row in page]
+        subjects: dict[int, list[dict]] = {}
+        for subject in conn.dicts("SELECT judgment_id, seq, role, strategy_id, revision, trial_id, registration_bundle "
+                                  "FROM judgment_subject WHERE judgment_id IN (" + ",".join(["%s"] * len(ids)) + ") "
+                                  "ORDER BY judgment_id, seq", tuple(ids)):
+            subjects.setdefault(subject.pop("judgment_id"), []).append(subject)
+        for row in page:
+            row["subjects"] = subjects.get(row["judgment_id"], [])
+    return {**result, "entries": page, "next_before": page[-1]["judgment_id"] if len(rows) > 20 else None}
+
+
 def _judgments(conn: db.LedgerConnection, line: str) -> dict[str, list[dict]]:
     found: dict[str, list[dict]] = {kind: [] for kind in (*SINGLE_KINDS, *MANY_KINDS)}
     rows = conn.dicts("SELECT judgment_id, kind, based_on_commit, body, created_at FROM judgment j WHERE "
@@ -310,7 +336,8 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
     return {"registration_bundle": subject.get("registration_bundle")}
 
 
-def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None) -> dict:
+def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
+                   history: bool = False, history_before: int | None = None) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), its current judgments with read-time facts, the fixed review cadence (`review_every`),
     the trials since the last recommendation, the trial count of the line and the gates the next registration would meet. On
@@ -326,12 +353,14 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
                     "gates": needed,
+                    "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                               "counts": research_status(conn.profile, commit)},
                     "next_actions": ["Select the user's research line with `line select`."]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         record = lines.read_line(pinned, line, None)
         judged = _judgments(pinned, line)
+        original = _judgment_history(pinned, line, history or history_before is not None, history_before)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
         unreviewed = (lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
                       if recommendation else on_line["trials"])
@@ -346,6 +375,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     return {"at": commit, "line": record, **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
+            "judgment_history": original,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)}}
 

@@ -182,6 +182,11 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
     def put(name, value, reason=None, **detail):
         found[name] = {"value": value, "null_reason": None if value is not None else
                        (reason or "NOT_COMPUTABLE: no value for this pair"), **detail}
+        if name in measures.MEASURE_NOTES:
+            found[name]["definition_note"] = measures.MEASURE_NOTES[name]
+            if name == "residual_after_top5_days":
+                found[name]["definition_note"] += " Here the contributions are paired daily log differences " \
+                                                  "(candidate minus control), trimmed as one series."
 
     account_c = (candidate_measures.get(measures.key("account")) or {}).get("value")
     account_o = (control_measures.get(measures.key("account")) or {}).get("value")
@@ -275,6 +280,12 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                      "null_reason": c["null_reason"] or o["null_reason"],
                      "population": c["population"], "sample_size": {"candidate": c["sample_size"],
                                                                     "control": o["sample_size"]}}
+            if name in measures.MEASURE_NOTES:
+                entry["definition_note"] = measures.MEASURE_NOTES[name]
+                if name == "residual_after_top5_days":
+                    entry["definition_note"] += " candidate and control each trim their own series; difference " \
+                                                "subtracts those residuals. pairwise.value separately trims " \
+                                                "the series of paired daily log differences."
             if name in pairwise:
                 entry["pairwise"] = pairwise[name]
             found[label] = entry

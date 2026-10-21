@@ -15,7 +15,7 @@ from ledger.errors import Refusal
 from qualification import availability
 from registration import duties, precheck, register
 from replay import entry, reproduce
-from report import attribution, candidates, comparison, runs, seams, status
+from report import attribution, candidates, comparison, measures, runs, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
@@ -153,6 +153,9 @@ class ReportTests(unittest.TestCase):
         self.assertIsNotNone(exposure["beta_basket@1"]["value"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
         self.assertEqual(report["cost_basis"]["taker_fill_share"], 0.5)
+        slices = {item["id"]: item["measures"] for item in report["slices"]}
+        for slice_id, name in (("capital_scaled", "timing_term"), ("by_period", "residual_after_top5_days")):
+            self.assertEqual(slices[slice_id][measures.key(name)]["definition_note"], measures.MEASURE_NOTES[name])
         self.assertEqual(report["availability"]["economic_evidence_available"], True)
         bare = runs.run_report(self.profile, self.bare["run_id"])
         self.assertEqual((bare["headline"], bare["slices"], bare["cost_basis"]), (None, None, None))
@@ -263,6 +266,12 @@ class ReportTests(unittest.TestCase):
                                annual["candidate"] - annual["control"], places=15)
         self.assertEqual(list(found["attribution"]["slices"]),
                          [item["id"] for item in duties.measure_catalogue()["slices"]])
+        slices = found["attribution"]["slices"]
+        self.assertEqual(slices["capital_scaled"]["measures"]["timing_term@1"]["definition_note"],
+                         measures.MEASURE_NOTES["timing_term"])
+        trimmed = slices["by_period"]["measures"]["residual_after_top5_days@1"]
+        self.assertIn("subtracts those residuals", trimmed["definition_note"])
+        self.assertIn("trimmed as one series", trimmed["pairwise"]["definition_note"])
         pairs = found["attribution"]["slices"]["trade_pairs"]["measures"]
         self.assertEqual(pairs["matched_share@1"]["difference"], 1.0, "the same single trade on both sides")
         predictions = found["attribution"]["predictions"]

@@ -38,8 +38,9 @@ table (attribution.md).
 ## Size and quality
 
 - Size is part of the strategy: the account difference it brings counts in full, read against the
-  drawdown and annual-return targets. Judge quality separately on scale-free measures: return per
-  unit of exposure, Sharpe, annual return over maximum drawdown, and sizing timing
-  (`capital_scaled`). Funding income counts; name where the profit came from with the profit
-  bridge. When both sides lose, a smaller loss that comes from smaller exposure is not better
-  quality.
+  drawdown and annual-return targets. Read exposure beside drawdown, and quality beside uncertainty:
+  return per unit of exposure, Sharpe and annual return over maximum drawdown are descriptive and
+  do not isolate sizing skill. The level and timing terms are account-currency PnL decompositions,
+  not scale-free quality measures; read their report definition notes. Funding income counts;
+  name where the profit came from with the profit bridge. When both sides lose, a smaller loss
+  that comes from smaller exposure is not better quality.

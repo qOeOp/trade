@@ -478,7 +478,7 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
     count = lines.line_trials(conn, line_bundle, since_commit=since)["count"]
     if count >= REVIEW_EVERY:
         raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the review every "
-                                   f"{REVIEW_EVERY}", missing=("recommendation", "priority"))
+                                   f"{REVIEW_EVERY}", missing=("recommendation",))
 
 
 def _encode(record: Mapping) -> bytes:

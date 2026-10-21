@@ -28,6 +28,18 @@ DAY_NS = metrics.DAY_NS
 HOUR_NS = 3_600 * 10**9
 MINUTE_NS = 60 * 10**9
 TOP = 5
+# Read-time explanations, not new measure definitions or sealed facts.
+MEASURE_NOTES = {
+    "level_term": "Account-currency PnL decomposition on exposed days: T * mean(N) * mean(PnL/N). "
+                  "N is contemporaneous marked gross notional; this is descriptive, not scale-free.",
+    "timing_term": "Account-currency PnL decomposition on exposed days: T * population_cov(N, PnL/N). "
+                   "N is contemporaneous marked gross notional. Scaling both N and PnL scales this term; "
+                   "passive price changes, compounding and costs can affect it. Its sign alone does not "
+                   "identify active sizing skill or exposure in rising versus falling months.",
+    "residual_after_top5_days": "Sum of daily log contributions after removing up to five in the direction "
+                                "of their total: the largest when total >= 0, the smallest when total < 0. "
+                                "This is descriptive concentration, not evidence for a filter or forecast horizon.",
+}
 # Definition versions; the drawdown measures are the sealed result's (ledger.metrics, @2 reads no
 # account row after its bar label).
 VERSIONS = {"annual_return": 1, "plan_win_rate": 1, "sharpe_365": 1, "mark_max_drawdown": 2,
@@ -383,6 +395,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
 
     def put(name: str, value, population: str, size: int | None, reason: str | None = None):
         found[key(name)] = measure(value, population, size, reason)
+        if name in MEASURE_NOTES:
+            found[key(name)]["definition_note"] = MEASURE_NOTES[name]
 
     growth = math.prod(1 + value for _, value, _ in returns) if returns else None
     annual = annual_return(growth, window_days) if series_reason is None else None

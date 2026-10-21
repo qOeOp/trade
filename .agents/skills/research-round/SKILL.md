@@ -20,7 +20,7 @@ refusal. These commands are the only way to write the ledger.
 |---|---|---|
 | 1 Sources | `evidence export`, `evidence add` (and `research-sources`) | [hypothesis.md](references/hypothesis.md) |
 | 2 Hypothesis | (registration body, written in /tmp) | [hypothesis.md](references/hypothesis.md), [registration-root.json](templates/registration-root.json), [registration-derived.json](templates/registration-derived.json) |
-| 3 Candidate | `candidate export`, `candidate new`, `candidate publish`, `candidate show`, `candidate list` | [strategy-header.md](templates/strategy-header.md), [strategy-authoring.md](references/strategy-authoring.md) |
+| 3 Candidate | `candidate export`, `candidate new`, `candidate publish`, `candidate show`, `candidate list` | [strategy-authoring.md](references/strategy-authoring.md); header from `candidate new` or `candidate export` |
 | 4 Precheck and review | `replay precheck`, then `source review` by an independent reviewer | |
 | 5 Registration | `registration add` | [hypothesis.md](references/hypothesis.md) |
 | 6 Replay | `replay run --hypothesis BUNDLE`, once per grid point | |
@@ -96,8 +96,9 @@ changes; [duty-directory.md](references/duty-directory.md) when unsure of a duty
   overfitted".
 - The ledger and its backup are the only research record; session memory, handoff files and
   working copies do not count. Cite every conclusion and judgment by bundle name, run or
-  registration id and ledger commit, without copying measures, counts or eligibility into the
-  text; enter material in the ledger before citing it.
+  registration id and ledger commit; enter material in the ledger before citing it. Judgment
+  bodies cite rather than copy measures, counts or eligibility. Reports may display the cited
+  product values in the report template; they are working presentations, not additional records.
 - Correct a mistake with a new evidence bundle (`evidence add`) naming the corrected object, the
   ledger commit it sits in, the correction and the reason; never change the original. A summary
   shows the old statement with its correction bundle.

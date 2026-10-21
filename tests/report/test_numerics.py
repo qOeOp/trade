@@ -272,6 +272,15 @@ class MeasureTests(unittest.TestCase):
         self.assertAlmostEqual(level["value"] + timing["value"] + level["flat_pnl"],
                                sum(measures.daily_pnl(self.returns, Decimal("1000"))), places=9)
 
+    def test_passive_marked_exposure_has_a_timing_term_that_scales_with_quantity(self):
+        # One fixed unit at prices 100 -> 200 -> 300; no active resizing decision.
+        full = measures.level_timing([150, 250], [100, 100])
+        half = measures.level_timing([75, 125], [50, 50])
+        self.assertAlmostEqual(full["timing"], -40 / 3)
+        self.assertAlmostEqual(half["timing"], full["timing"] / 2)
+        self.assertAlmostEqual(full["level"] + full["timing"], 200)
+        self.assertAlmostEqual(half["level"] + half["timing"], 100)
+
     def test_trade_structure_instruments_and_periods(self):
         found = self.derive()
         self.assertEqual((found["cycles@1"], found["win_rate@1"], found["avg_win@1"], found["avg_loss@1"],
