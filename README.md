@@ -45,7 +45,17 @@ uv run --frozen python -m cli.main ledger init --name research --kind active \
 ```
 
 `ledger init` refuses a profile or database that exists, and an active ledger whose service or
-backup lies in the checkout or a temporary directory. Tests, demos and engineering trials use
+backup lies in the checkout or a temporary directory. A failed `ledger init` removes the database,
+accounts and branch grant it created; grants and accounts left by a dropped database of the same
+name are replaced. Rebuilding the active ledger needs the user's authority:
+
+1. Stop every session that uses it; move its profile file (`research.json` in the profile directory)
+   and its backup directory aside as the archive.
+2. Drop the database as the service administrator (`root`, password in the service's `service.json`).
+3. Run the `ledger init` above with the same name and `RESEARCH_DOLT_BINARY` pointing at Dolt 2.4.2,
+   then `ledger export --kind backup` and `ledger review`.
+
+Tests, demos and engineering trials use
 `ledger temp` (a throwaway service and database under the temporary root, its profile file printed
 for `--ledger`) and stop it with `ledger service stop` before deleting the directory. The Dolt
 integration tests start their own throwaway services (`tests/ledger/dolt.py`) with the Dolt 2.4.2
