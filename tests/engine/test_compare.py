@@ -58,13 +58,28 @@ class CompareReportsTests(unittest.TestCase):
         self.assertTrue(found["passed"])
         self.assertEqual(found["tables"]["orders"]["excluded_columns"], ["init_id"])
 
-    def test_empty_table_missing_business_key_is_unreadable(self):
+    def test_sparse_empty_native_reports_can_be_compared(self):
+        from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
+        from nautilus_trader.common import LoggerConfig, LogLevel
+
+        from engine.report import orders_with_native_deadlines, readable_empty_report
+
+        engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.OFF)))
+        self.addCleanup(engine.dispose)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             left, right = _replay(root / "a", None), _replay(root / "b", None)
-            (right / "orders.csv").write_text("status\n")
-            with self.assertRaisesRegex(Refusal, "lacks client_order_id"):
-                compare_reports(left, right)
+            reports = {
+                "orders": orders_with_native_deadlines(engine.cache, readable_empty_report(
+                    engine.generate_orders_report(), ("status",))),
+                "fills": readable_empty_report(engine.generate_fills_report(), ("client_order_id",)),
+                "positions": readable_empty_report(engine.generate_positions_report(),
+                                                   ("ts_closed", "realized_pnl", "instrument_id")),
+            }
+            for directory in (left, right):
+                for name, report in reports.items():
+                    report.to_csv(directory / f"{name}.csv", index=True)
+            self.assertTrue(compare_reports(left, right)["passed"])
 
     def test_zero_trade_replays_with_undefined_sharpe_match(self):
         with tempfile.TemporaryDirectory() as temp:

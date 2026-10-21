@@ -79,7 +79,7 @@ def _rows(directory: Path, name: str) -> _ReportTable:
             rows = list(reader)
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / f'{name}.csv'}: {exc}") from exc
-    missing = [key for key in BUSINESS_KEYS[name] if key not in columns]
+    missing = [key for key in BUSINESS_KEYS[name] if rows and key not in columns]
     if missing:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / f'{name}.csv'} lacks {', '.join(missing)}")
     if BUSINESS_KEYS[name]:
