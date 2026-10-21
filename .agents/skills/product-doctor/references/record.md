@@ -10,7 +10,8 @@ record once it is written. Later state belongs in the index.
 |---|---|
 | Sessions | host, transcript file name, start and end time |
 | Checkout / ledger | commit; ledger commits from … to … |
-| Time split | research …%, discovery …%, repair …%, waiting …% |
+| Coverage | assigned workstreams, examined paths and explicit gaps |
+| Time split | measured research / discovery / repair / waiting; unknown where not attributable |
 | Invalid trials caused by the product | … |
 | Findings by action | fix … / remove … / skill … / authority … / measure … / none … |
 | Recurred items | ids, or none |
@@ -18,7 +19,7 @@ record once it is written. Later state belongs in the index.
 | Skill size | words per skill against the previous record; the reason for any growth |
 
 ## Findings
-| id | Finding | Evidence (session; product) | Action | Cost | Status |
+| id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |
 
 ## Removal list
 | Mechanism | Risk it guards | Covered by | Sessions show | Proposal |
@@ -33,3 +34,8 @@ records where the item was first and last seen. When an item is fixed, its row m
 section with the commit. A second table lists the doctor misses: problems the user pointed out
 before a diagnosis found them, each with the date, the lens that should have caught it and its
 status. A finding id is the date plus a number, written `<yyyymmdd>-<number>`.
+
+Group observations with the same cause and remedy into one actionable finding; reuse its id across
+records. The evidence cell locates the relevant output, consumer and supported or unsupported
+interpretation, without copying a call log. Keep measured costs separate from estimates. Missing
+coverage or measurements stay explicit; counts and text size alone do not prove improvement.
