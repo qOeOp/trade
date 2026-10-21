@@ -176,7 +176,7 @@ LEFT JOIN run r ON r.trial_id = b.trial_id
 
 ### 研究史视图 [#research-history-views]
 
-四个只读视图，不新增存储（模式第 2 代加入，评审见 `docs/plans/ledger-schema-v2.zh.md`）。它们补的是现有命令没有的跨研究线连接：`candidate list` 没有谱系根与深度，`research state` 只按一条研究线分页列判断。视图不计算任何度量：年化、夏普、计划胜率由报告推导，统计按 `tables()` 读一个运行。
+四个只读视图，不新增存储（模式第 2 代加入，取舍见 `docs/plans/ledger-schema-v2.zh.md`）。它们补的是现有命令没有的跨研究线连接：`candidate list` 没有谱系根与深度，`research state` 只按一条研究线分页列判断。视图不计算任何度量：年化、夏普、计划胜率由报告推导，统计按 `tables()` 读一个运行。
 
 - `v_candidate_lineage`　每个候选及其谱系根、深度（递归 CTE 沿父版本上溯）、改动说明、试验数与通过的研究运行数
 - `v_run_history`　每个运行：候选、用途、状态、窗口、登记包或样本外登记、最新封存的计量修订，以及封存报告里存下的最大回撤、期末权益与周期数，和点名该运行试验或候选的当前判断数
@@ -283,7 +283,7 @@ FROM universe_month
 | <Ref id="table:judgment">judgment</Ref> | Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加，正文只引用不抄写事实 |
 | <Ref id="table:judgment_subject">judgment_subject</Ref> | 一条判断涉及的候选、试验或登记包，以及它们在判断里的角色 |
 | <Ref id="table:ledger_head">ledger_head</Ref> | 写入头指针单行：每次写入 +1 并记本次操作 ID，是并发写冲突的碰撞点与幂等重放的索引 |
-| <Ref id="table:ledger_schema">ledger_schema</Ref> | 账本模式代数单行；初始化与模式迁移时写 |
+| <Ref id="table:ledger_schema">ledger_schema</Ref> | 账本模式代数单行；初始化时写 |
 | <Ref id="table:registration_attempt">registration_attempt</Ref> | 登记尝试：登记包 × 网格点源码 → 消耗它的试验；一点只消耗一次，无效与中断同样算消耗；只追加 |
 | <Ref id="table:run">run</Ref> | 运行：一次研究或样本外封存回放的结论、审计发现、单运行报告与原生报告指纹；执行身份不在此重复，按试验与登记包读 |
 | <Ref id="table:run_cycle">run_cycle</Ref> | 持仓周期：每个原生持仓周期一行的紧凑记录，供交易结构、交易配对、出场类别与逐合约逐月下钻 |
@@ -472,7 +472,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 - **J.3.2.1**　与引用它的 evidence 行同一事务；已存在的内容只被引用，不再插入（写入账号只有 INSERT）
 - **J.3.1.1**　dolt_diff_evidence_content 正常只出现 added
-- Dolt 2.4.2 只在插入字节时计算生成列；对已存的长二进制重算 SHA2（更新所在行或改生成列定义）会让服务端 panic（实测），所以内容行只插不改，哈希核对在 Python 里做
+- Dolt 2.4.2 只在插入字节时计算生成列；对已存的长二进制重算 SHA2（更新所在行或改生成列定义）会让服务端 panic（实测）；内容行只插不改，读回时的哈希核对在 Python 里做
 
 **写入方**　<Ref id="ledger.write_files" />
 
@@ -583,9 +583,9 @@ Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加�
 
 ### `ledger_schema` [#def-table-ledger_schema]
 
-账本模式代数单行；初始化与模式迁移时写
+账本模式代数单行；初始化时写
 
-<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "version": { type: "INT", description: "模式代数；建库时写 1，每次模式迁移加一", required: true } }} />
+<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "version": { type: "INT", description: "模式代数；建库时写代码的 SCHEMA_VERSION（当前为 2）；代数变了不迁移，正式账本按 README 以同名重建", required: true } }} />
 
 **键与约束**
 

@@ -1,5 +1,5 @@
 -- Research ledger schema, generation 2 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init`
--- on the research branch; `ledger migrate` (ledger/migrate.py) turns a generation-1 ledger into this one. Every table and view of the ledger database in the design, including
+-- on the research branch. Every table and view of the ledger database in the design, including
 -- the run tables later phases write, so the generation is the final one.
 --
 -- Rules: insert only (the writer account has INSERT, and UPDATE on ledger_head alone); every write

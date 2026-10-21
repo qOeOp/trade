@@ -40,7 +40,7 @@ from ledger.refusals import refuse
 
 
 SCHEMA_VERSION = 2
-READABLE_VERSIONS = frozenset({2})  # a generation-1 version is read with the code of its time
+READABLE_VERSIONS = frozenset({2})
 DOLT_VERSION = "2.4.2"
 KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")
@@ -56,7 +56,7 @@ COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
 VERIFICATION_FAILED = "commit verification failed"
-# trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored (works on every generation).
+# trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored.
 IMAGE_DIGEST = "SUBSTRING_INDEX(image_ref, '@', -1) AS image_digest"
 TRIAL_IMAGE_DIGEST = "SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest"  # trial aliased `t`
 SERVER_LAUNCH = '"$@" </dev/null >>server.log 2>&1 & echo $!'
@@ -692,11 +692,6 @@ def as_of(conn: LedgerConnection, at: str | None) -> tuple[str, str]:
     if at is None:
         return head_commit(conn), ""
     commit = resolve_commit(conn, at)
-    found = conn.rows(f"SELECT version FROM ledger_schema AS OF '{commit}' WHERE singleton = 1")
-    version = found[0][0] if found else None
-    if version not in READABLE_VERSIONS:
-        raise refuse("SCHEMA_MISMATCH", f"ledger schema version {version} at {commit} is not readable here",
-                     expected=", ".join(str(item) for item in sorted(READABLE_VERSIONS)))
     return commit, f" AS OF '{commit}'"
 
 

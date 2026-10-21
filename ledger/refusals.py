@@ -28,8 +28,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LEDGER_PERMISSION": ("The ledger account may not run this statement or was refused.",
                           ("Write only through the declared commands; they use the writer account.",)),
     "SCHEMA_MISMATCH": ("The ledger schema generation is not the one this code reads.",
-                        ("Bring a ledger of an older generation to this one with `ledger migrate --ledger NAME`; "
-                         "read a version older than its migration with the product version of its time.",)),
+                        ("Use the product version that matches the ledger's schema generation; the active "
+                         "ledger is rebuilt under the same name when the generation changes (README).",)),
     "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
     "LEDGER_EXISTS": ("A profile of that name, the active research ledger, or that database already exists.",
@@ -428,13 +428,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "synced.",
                         ("Run `ledger review` (or `market review`) and report the finding; a backup is replaced "
                          "only with the user's authority.",)),
-    # Schema migration (ledger/migrate.py)
-    "MIGRATION_BUSY": ("Another session is connected to the ledger's database; a migration runs alone.",
-                       ("Stop the Agents and replays using this ledger (or wait for them), then rerun "
-                        "`ledger migrate`.",)),
-    "MIGRATION_CHECK_FAILED": ("A record read after the migration differs from the same record before it; the "
-                               "migration was reset and nothing was committed.",
-                               ("Report the difference named in the refusal; do not rerun until it is understood.",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",

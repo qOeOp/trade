@@ -861,7 +861,7 @@ def _parser() -> Parser:
         return group.add_parser(name, help=help_text, description=help_text, epilog=RUNNER_EPILOG,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export, migrate")
+    ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export")
     command = ledger.add_parser("init", help="initialize a new research ledger profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
@@ -891,11 +891,6 @@ def _parser() -> Parser:
     _at(command)
     command.add_argument("--run-id", type=int, action="append", dest="run_ids",
                          help="a run to list in the manifest (repeatable; default: every run)")
-    command = ledger.add_parser("migrate", help="bring a schema generation 1 ledger to generation 2 (administrator; "
-                                                "backs up first, runs alone)")
-    _ledger_option(command, required=True)
-    command.add_argument("--backup-root", type=Path,
-                         help="dolt_backup directory synced before the migration (default: the profile's)")
 
     candidate = verbs("candidate", "candidates: publish, show, export, new, list")
     command = candidate.add_parser("publish", help="publish one single-file source as a candidate")
@@ -1149,9 +1144,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return ledger_sql(profile, args.query, args.at), 0
     if key == ("ledger", "export"):
         return ledger_export(profile, args.kind, args.output, args.at, args.run_ids), 0
-    if key == ("ledger", "migrate"):
-        from ledger import migrate
-        return migrate.migrate(profile, args.backup_root), 0
     if key == ("ledger", "witness"):
         with db.connect(profile, "writer") as conn:
             found = ledger_witness(conn, args.tsa_url)

@@ -15,7 +15,6 @@
   <File name="judgments.py" />
   <File name="lines.py" />
   <File name="metrics.py" />
-  <File name="migrate.py" />
   <File name="paths.py" />
   <File name="problems.py" />
   <File name="refusals.py" />
@@ -1323,54 +1322,6 @@ def unreconciled(code: str, detail: str) -> 具名原因
 <div className="rd-meta">
 
 **关联章节**　<Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="R.1.1.2">R.1.1.2</Ref> <Ref id="R.2.1.3">R.2.1.3</Ref> <Ref id="R.2.2.1">R.2.2.1</Ref>
-
-</div>
-
-## `ledger/migrate.py` [#def-mod-ledger-migrate-py]
-
-| 函数 | 用途 |
-|---|---|
-| <Ref id="ledger.migrate">migrate</Ref> | 服务管理员把第 1 代模式的研究账本迁到第 2 代：先同步备份，独占运行，迁移前后逐行核对，一次提交；已是第 2 代即原样返回 |
-
-### `migrate` [#def-ledger-migrate]
-
-服务管理员把第 1 代模式的研究账本迁到第 2 代：先同步备份，独占运行，迁移前后逐行核对，一次提交；已是第 2 代即原样返回
-
-```python
-def migrate(
-    profile: LedgerProfile | str,
-    backup: Path | None = None,
-) -> dict
-```
-
-<TypeTable type={{ "profile": { type: "LedgerProfile | str", description: "研究账本档案或档案名" }, "backup": { type: "Path | None", description: "dolt_backup 目录；缺省用档案的备份目录" } }} />
-
-**返回**　dict：ledger、schema_version、migrated，以及迁移时的 ledger_commit、previous_commit、backup_path、backup_previous_head、逐表行数 rows、evidence_files、evidence_contents、evidence_bytes \{files, stored_once\}、renamed_runtime_contracts
-
-**期望行为**
-
-1. 以服务管理员连研究 branch；版本为 2 即返回 migrated=false；不是 1 即 SCHEMA_MISMATCH。
-2. 该库 writer 或 reader 账号有其他会话即 MIGRATION_BUSY；dolt_status 非空即 DIRTY_WORKING_SET；无备份目录即 BACKUP_TARGET_UNSET；全史同步到备份目录（admin 的同步，含 BACKUP_DIVERGED）。
-3. 迁移前在 Python 里读出：每个证据文件的字节并重算哈希、每份候选源码的哈希（不符 LEDGER_CORRUPT）、每张表保留的每一列（按主键排序）、试验的镜像摘要与周期的价格盈亏。哈希不在 Dolt 里算：Dolt 2.4.2 对存储中的长二进制执行 SHA2 会 panic。
-4. 在工作集里改：删旧视图；按哈希插入每份不同的证据内容，重建 evidence 为引用表；重建 candidate（逐行重新插入，父版本在前，旧回放契约 r1-native-v6 改为 replay-contract@v6，source_sha256 NOT NULL；别的表指向它的外键先摘后挂，触发器重建）；删 trial.image_digest 与 run_cycle.price_pnl；judgment.line_bundle 与 judgment_subject.registration_bundle 收窄到 VARCHAR(160)；按 schema.sql 建视图；版本写 2，ledger_head 前进一步。
-5. 迁移后再读同样的记录：列名、每行、证据内容与引用、由 image_ref 读出的摘要、由已实现盈亏读出的价格盈亏必须与迁移前完全相同（候选只差契约改名），否则 MIGRATION_CHECK_FAILED；ledger_head 不是恰好前进一步即 MIGRATION_BUSY。失败时 DOLT_RESET --hard 再 DOLT_CLEAN，不留提交。
-6. 一致才 DOLT_COMMIT -A，说明 schema:2，提交校验照常运行。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_KIND` | 档案不是研究账本 |
-| `SCHEMA_MISMATCH` | 版本既不是 1 也不是 2 |
-| `MIGRATION_BUSY` | 有其他会话连着，或迁移期间有写入落地 |
-| `DIRTY_WORKING_SET` | 研究 branch 有未提交改动 |
-| `BACKUP_TARGET_UNSET` | 没有备份目录 |
-| `LEDGER_CORRUPT` | 迁移前字节与存储哈希不符 |
-| `MIGRATION_CHECK_FAILED` | 迁移后记录与迁移前不同，或失败后工作集复位不了 |
-
-**使用**　<Ref id="ledger.export_history" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref> <Ref id="J.3.3.1">J.3.3.1</Ref>
 
 </div>
 
