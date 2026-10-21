@@ -28,10 +28,10 @@
 | 20261021-17 | 每轮重复 HTML/overview 被当作报告义务（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
 | 20261021-18 | CLI 从 skill 路径取模板，wheel 缺失资源（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
 | 20261021-19 | 27 职责立场混淆，F2/F4 重复计全退出（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-20 | 设计站夸大四项审阅对 27 职责的认证范围（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
+| 20261021-20 | 设计站认证范围与归因语义未在所有消费者一致交付 | fix | #1625已合入271e8bcc9，正文/hover已修；[三任务复审](2026-10-21-three-workstream-validation.zh.md)实读发布图仍含旧信号处方与自动消融标题，修复未闭环 | 2026-10-21 | 2026-10-21 |
 | 20261021-21 | REVIEW_DUE missing 误列 priority（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
 | 20261021-22 | 五轮复盘与每轮全推荐的信息价值边界不清（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-23 | correction/source 反向发现与联读仍需审计（[复审](2026-10-21-economics-duties-pa.zh.md)） | measure | open；未改变检查、权限或存储结构 | 2026-10-21 | 2026-10-21 |
+| 20261021-23 | correction/source反向发现与联读仍需审计 | measure | [三任务复审](2026-10-21-three-workstream-validation.zh.md)确认历史分页可读旧判断，但普通report/state未展开自由文本更正；先测新读者能否经现有关系发现，不改检查/权限/schema | 2026-10-21 | 2026-10-21 |
 | 20261021-24 | doctor stored-field 授权文字与根规则不一致（[复审](2026-10-21-economics-duties-pa.zh.md)） | authority | open；未改变检查、权限或存储结构 | 2026-10-21 | 2026-10-21 |
 | 20261021-25 | 九职责无 PA 直接映射；先辨明代理/约束/不可观测（[复审](2026-10-21-economics-duties-pa.zh.md)） | measure | open；未改变检查、权限或存储结构 | 2026-10-21 | 2026-10-21 |
 
