@@ -104,7 +104,7 @@ CREATE TABLE run (
   created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
   CHECK ((status = 'invalid' AND failure_reasons IS NOT NULL) OR (status = 'passed' AND failure_reasons IS NULL)),
-  CHECK (status = 'passed' OR fingerprints IS NULL)
+  CHECK ((status = 'passed' AND fingerprints IS NOT NULL) OR (status = 'invalid' AND fingerprints IS NULL))
 );
 
 CREATE TABLE run_sealed (
@@ -180,16 +180,13 @@ CREATE TABLE judgment (
   line_bundle VARCHAR(200) NOT NULL,
   based_on_commit CHAR(32) NOT NULL,
   body TEXT NOT NULL,
-  cadence_trials INT NULL,
   supersedes BIGINT NULL UNIQUE,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (line_bundle) REFERENCES evidence_bundle (bundle),
   FOREIGN KEY (supersedes) REFERENCES judgment (judgment_id),
-  CHECK (kind IN ('recommendation', 'priority', 'review_cadence', 'interpretation', 'search_exposure')),
-  CHECK (line_bundle LIKE 'research-line-%'),
-  CHECK ((kind = 'review_cadence' AND cadence_trials IS NOT NULL AND cadence_trials >= 1)
-         OR (kind <> 'review_cadence' AND cadence_trials IS NULL))
+  CHECK (kind IN ('recommendation', 'priority', 'interpretation', 'search_exposure')),
+  CHECK (line_bundle LIKE 'research-line-%')
 );
 
 CREATE TABLE judgment_subject (
@@ -242,7 +239,7 @@ CREATE VIEW v_runs AS
   FROM run;
 
 CREATE VIEW v_judgments AS
-  SELECT j.judgment_id, j.kind, j.line_bundle, j.based_on_commit, j.cadence_trials, j.body,
+  SELECT j.judgment_id, j.kind, j.line_bundle, j.based_on_commit, j.body,
          s.role, s.strategy_id, s.revision, s.trial_id, s.registration_bundle, j.created_at
   FROM judgment j
   LEFT JOIN judgment_subject s ON s.judgment_id = j.judgment_id

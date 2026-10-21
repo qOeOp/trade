@@ -29,8 +29,7 @@ def _covers(target: str, protected: str) -> bool:
 
 def _modules(identity: dict) -> set[str]:
     found = image.layout(identity["runtime_contract"])
-    return {found[key] for key in ("runner_module", "audit_module", "probe_module", "fingerprint_module")
-            if found.get(key)}
+    return {found[key] for key in ("runner_module", "audit_module", "fingerprint_module")}
 
 
 def _check_mounts(mounts: list[tuple[Path, str, bool]], require_reports: bool) -> list[tuple[Path, str, bool]]:

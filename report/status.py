@@ -276,11 +276,9 @@ def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
 
 def _judgments(conn: db.LedgerConnection, line: str) -> dict[str, list[dict]]:
     found: dict[str, list[dict]] = {kind: [] for kind in (*SINGLE_KINDS, *MANY_KINDS)}
-    kinds = (*SINGLE_KINDS, *MANY_KINDS)  # review_cadence rows from before the fixed cadence are not read
-    rows = conn.dicts(f"SELECT judgment_id, kind, based_on_commit, body, created_at FROM judgment j WHERE "
-                      f"line_bundle = %s AND kind IN ({', '.join(['%s'] * len(kinds))}) AND NOT EXISTS "
-                      "(SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) ORDER BY judgment_id",
-                      (line, *kinds))
+    rows = conn.dicts("SELECT judgment_id, kind, based_on_commit, body, created_at FROM judgment j WHERE "
+                      "line_bundle = %s AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
+                      "ORDER BY judgment_id", (line,))
     subjects: dict[int, list[dict]] = {}
     for row in conn.dicts("SELECT s.judgment_id, s.seq, s.role, s.strategy_id, s.revision, s.trial_id, "
                           "s.registration_bundle FROM judgment_subject s JOIN judgment j ON j.judgment_id = s.judgment_id "

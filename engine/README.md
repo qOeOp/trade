@@ -195,9 +195,7 @@ The file is rewritten when a record is new or its count reaches a power of two, 
 the runner ends. Without a failure the file is not written.
 
 The auditor does not prove a source's signal clock, order geometry, staged-exit races or other source-specific invariants: the strategy checks those in
-`replay_integrity_findings`, or a native probe does before the property is claimed. Seals from
-images before 2026-10-10 also ran budgeted-tier geometry gates for a fixed list of legacy signal
-variants; their sealed `audit.json` keeps those results.
+`replay_integrity_findings`, or a native probe does before the property is claimed.
 
 The fingerprint stage (`python -m engine.compare`) reads the reports and writes only
 `fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
@@ -234,17 +232,8 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 
 ## History
 
-Seals from the `backtest/r1` layout (`r1-native-v1` to `v3`) are no longer read by current code;
-`runtime.image.LAYOUTS` knows only `r1-native-v6`. `r1-native-v5` replayed five-minute
-bars and passed `pool_membership`; its images and runs are not executed by current code. Their directories and locally built
-images remain until WS7; the v1 and v2 constructors received sizing arguments and the v1 to v3
-runners took signal, exit and warmup options that later contracts refuse. `r1-native-v4` read
-prepared minute and daily Catalog directories, identified by their file-tree hashes, and a per-coin
-quantity CSV whose quantity reached the constructor as `trade_size`; `r1-native-v5` reads an
-exported market commit, identified by that commit, and passes no quantity. Images built before the
-package moved from `backtest/` to `engine/` are not supported.
-
-The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
+`runtime.image.LAYOUTS` knows only `r1-native-v6`; no image or seal of an earlier contract is read
+or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at
 [`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);
 they accept their own historical implementations, not later execution paths. The H23a–H27a paired
@@ -255,8 +244,8 @@ Exposed-year implementation acceptance is not independent strategy qualification
 ## Recovery boundaries
 
 A stored run holds the revision's source, resolved configuration, observed runtime identity, input
-identity (market database, commit, pool rule and contracts) and the native reports, in the research
-ledger and its `dolt_backup` copy. It does not hold the image or the exported Catalogs: full replay
+identity (market database, commit, pool rule and contracts) and the hashes and semantic fingerprint
+of the native reports, in the research ledger and its `dolt_backup` copy. It does not hold the image or the exported Catalogs: full replay
 recovery needs the image (pull its digest from GHCR) and the market commit, which a new export
 turns into the same Catalogs. Historical local custody addresses are not product dependency paths.
 

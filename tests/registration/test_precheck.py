@@ -58,7 +58,7 @@ class PrecheckTests(unittest.TestCase):
         read = execution.read_capture(self.conn, trial_id)
         self.assertEqual((read["status"], read["purpose"], read["stages"]["native"]["exit_code"]),
                          ("captured", "precheck", 0))
-        self.assertEqual(read["files"]["source/strategy.py"], self.data)
+        self.assertEqual(read["listed"]["source/strategy.py"]["sha256"], hashlib.sha256(self.data).hexdigest())
         self.assertEqual(read["statuses"]["native.stderr.txt"], "captured_empty")
         self.assertEqual(read["runtime_failures"], [{"callback": "on_bar"}])
         self.assertEqual(read["input_coverage"]["effective_config"]["symbols"], ["AAAUSDT"])

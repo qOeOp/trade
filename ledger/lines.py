@@ -25,11 +25,6 @@ FIELDS = ("line_no", "market_database", "market_commit", "universe_rule", "windo
           "start_sha256", "note")
 
 
-def _unavailable_market(market_database: str, market_at: str) -> dict:
-    raise NotImplementedError("market.resolve_commit and market.freshness arrive with the market package; "
-                              "pass market= until then")
-
-
 def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
     """The stored record of research line `bundle` with its bundle name, creation time and commit."""
     try:
@@ -67,7 +62,7 @@ def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | Non
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
                 window_end: date, start: str, note: str | None = None, *,
-                market: Callable[[str, str], dict] | None = None,
+                market: Callable[[str, str], dict],
                 reviews: Callable[[db.LedgerConnection], list[dict]]) -> dict:
     """Append the user's chosen line as research-line-<n+1>; the same choice again is a replay.
 
@@ -83,7 +78,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
             raise refuse("START_NOT_FOUND", f"no candidate {start} to start the line from", missing=(start,)) from exc
         raise
     try:
-        facts = (market or _unavailable_market)(market_database, market_at or "main")
+        facts = market(market_database, market_at or "main")
     except Refusal as exc:
         raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} did not resolve ({exc.code})",
                      missing=(str(market_at),)) from exc

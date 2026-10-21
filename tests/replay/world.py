@@ -1,6 +1,6 @@
 """A replay world for the replay and run-storage tests: the registration world (throwaway Dolt service,
 research line, candidates, fake market) plus a stand-in runtime whose "containers" are local Python
-processes acting as runner, auditor and (when `fingerprint` is set) fingerprint stage on the host
+processes acting as runner, auditor and fingerprint stage (failing when `fingerprint` is None) on the host
 side of the mounts, and a clean throwaway Git checkout as the product checkout. No Docker, never the
 active ledger.
 
@@ -53,6 +53,8 @@ def iso(value):
     return datetime.fromtimestamp(value // 10**9, timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f+00:00")
 
 if spec["module"] == "fingerprint":
+    if spec["fingerprint"] is None:
+        sys.exit(3)  # a fingerprint stage that fails
     Path(mounts["/reports"], "fingerprint.json").write_text(json.dumps(spec["fingerprint"]))
     sys.exit(0)
 
@@ -170,7 +172,7 @@ class ReplayWorld(World):
         try:
             self.market = Market({MARKET_COMMIT: months_rows()})
             self.scenario: dict = {}
-            self.fingerprint = DEFAULT_FINGERPRINT  # None: the image has no fingerprint entry
+            self.fingerprint = DEFAULT_FINGERPRINT  # None: the fingerprint stage fails
             self.commands: list[dict] = []
             self.stopped: list[str] = []
             self.checkout = clean_checkout(self.service.root / "checkout")
@@ -196,7 +198,7 @@ class ReplayWorld(World):
 
     def layout(self, runtime_contract: str) -> dict:
         found = seams.DEFAULT.layout(runtime_contract)
-        return {**found, "fingerprint_module": "fingerprint" if self.fingerprint is not None else None}
+        return {**found, "fingerprint_module": "fingerprint"}
 
     def command(self, identity, mounts, module, argv, name):
         kind = "audit" if module.endswith("audit") else "fingerprint" if module == "fingerprint" else "runner"

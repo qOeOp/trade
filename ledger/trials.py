@@ -267,7 +267,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
                 for item in host_reasons or ()]
     summary = problems.json_object(problems.sealed(capture, problems.SUMMARY))
     bar = config.get("execution_bar_minutes")
-    if summary is not None and bar is not None and summary.get("data_interval_minutes") != bar:
+    if summary is not None and summary.get("data_interval_minutes") != bar:
         reasons.append(problems.reason("CONFIG_MISMATCH", f"the summary's bars are {summary.get('data_interval_minutes')}"
                                                           f" minutes, the configuration's {bar}",
                                        "data_interval_minutes"))

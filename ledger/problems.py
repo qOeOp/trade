@@ -51,7 +51,7 @@ REASONS: dict[str, str] = {
     "CONFIG_MISMATCH": "The native summary names another effective configuration.",
     "RUNNER_INTEGRITY_FAILED": "The runner's own integrity checks failed.",
     "FINGERPRINT_FAILED": "The in-image semantic fingerprint stage failed or wrote no readable fingerprint.",
-    "FINGERPRINT_MISSING": "The run has no semantic fingerprint: the stage never ran or the image has no fingerprint entry.",
+    "FINGERPRINT_MISSING": "The run has no semantic fingerprint: the stage never ran.",
     "NATIVE_REPORT_MISSING": "A native report a passed run needs is missing.",
     "NATIVE_REPORT_UNREADABLE": "A native report exists but does not parse.",
     "METRICS_UNREADABLE": "A native value the sealed report needs cannot be read.",
@@ -262,13 +262,12 @@ def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None =
     Outside a precheck the capture holds only the fingerprint's hash; its bytes come from `verified`
     (the working directory's files, checked against that hash by `sealed`).
 
-    A passed run needs its fingerprint: a stage that never ran, or an image without a fingerprint entry
-    (not_available), is FINGERPRINT_MISSING. A stage that ran must exit 0 and leave a JSON object.
+    A passed run needs its fingerprint: a stage that never ran is FINGERPRINT_MISSING. A stage that
+    ran must exit 0 and leave a JSON object.
     """
     stage = (capture.get("stages") or {}).get("fingerprint") if isinstance(capture.get("stages"), Mapping) else None
-    if not isinstance(stage, Mapping) or stage.get("state") == "not_available":
-        state = stage.get("state") if isinstance(stage, Mapping) else "never started"
-        return None, [reason("FINGERPRINT_MISSING", f"the run has no semantic fingerprint (stage {state})",
+    if not isinstance(stage, Mapping):
+        return None, [reason("FINGERPRINT_MISSING", "the run has no semantic fingerprint (stage never started)",
                              "fingerprint")]
     if _exit(stage) != 0:
         return None, [reason("FINGERPRINT_FAILED", f"the fingerprint stage ended {stage.get('state')} with exit "

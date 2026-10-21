@@ -3,9 +3,8 @@
 A judgment is the Agent's text (recommendation, priority, interpretation or search exposure) on a research line, based on an exact ledger commit, about named candidates, trials or
 attempted registrations. It cites records and never copies their facts; it is appended, and a
 newer judgment of the same kind on the same line supersedes it at most once. The review cadence is
-the product's (registration.REVIEW_EVERY), never a judgment; review_cadence rows written before
-stay stored and are read by nobody. A recommendation names, among its candidate subjects, every
-candidate of the line's comparison table at the commit it is based on.
+the product's (registration.REVIEW_EVERY), never a judgment. A recommendation names, among its
+candidate subjects, every candidate of the line's comparison table at the commit it is based on.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
+KINDS = ("recommendation", "priority", "interpretation", "search_exposure")  # the judgment.kind CHECK
 CANDIDATE_ROLES = ("recommended", "parent", "control")
 ROLES = CANDIDATE_ROLES + ("about",)
 TARGETS = ("candidate", "trial_id", "registration_bundle")
@@ -72,9 +72,6 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
 
     `compared(line_bundle, commit)` is report.compared_candidates: the candidates of the line's
     comparison table at a commit, which a recommendation must all name (required for one)."""
-    if kind == "review_cadence":
-        raise refuse("REVIEW_CADENCE_FIXED", "the review cadence is fixed by the product, not a judgment",
-                     expected="recommendation | priority | interpretation | search_exposure")
     if kind == "recommendation" and compared is None:
         raise ValueError("a recommendation needs the comparison table (compared=)")
     normalized = _subjects(subjects)

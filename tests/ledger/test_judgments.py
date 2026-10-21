@@ -1,5 +1,5 @@
-"""Judgments: cited subjects, an exact basis commit on the line, single supersession, no cadence
-judgment, and a recommendation that names every candidate of the comparison table."""
+"""Judgments: cited subjects, an exact basis commit on the line, single supersession, known kinds
+only, and a recommendation that names every candidate of the comparison table."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ class JudgmentTests(unittest.TestCase):
             with self.subTest(subject=subject):
                 self.assertEqual(self.code(subjects=[subject]), code)
 
-    def test_supersession_and_no_cadence_judgment(self):
+    def test_supersession_and_unknown_kind(self):
         first = self.add("priority", body="first")
         second = self.add("priority", body="second", supersedes=first["judgment_id"])
         self.assertEqual(self.code(kind="priority", body="third", supersedes=first["judgment_id"]),
@@ -104,7 +104,6 @@ class JudgmentTests(unittest.TestCase):
         current = {row[0] for row in self.service.sql(self.profile, "SELECT judgment_id FROM v_judgments "
                                                                     "WHERE kind = 'priority'")}
         self.assertEqual(current, {second["judgment_id"]})
-        self.assertEqual(self.code(kind="review_cadence", body="review every 10"), "REVIEW_CADENCE_FIXED")
         with self.assertRaises(Refusal) as caught:
             self.add("verdict", body="not a judgment kind")
         self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")

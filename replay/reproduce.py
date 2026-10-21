@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 from ledger import db, execution, metrics, paths, problems, strategies, trials
@@ -43,12 +42,9 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
                          missing=(trial["source_sha256"],))
         revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
         recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
-        instruments = json.loads(trial["instruments"]) if isinstance(trial["instruments"], str) else trial["instruments"]
         window = {"start": _ns(trial["input_start"]), "trade_start": _ns(trial["trade_start"]),
                   "end": _ns(trial["trade_end"])}
-        selection = recorded.get("selection")
-        if not isinstance(selection, Mapping):
-            selection = {"symbols": list(instruments)}
+        selection = recorded["selection"]
         runner_argv = ["--start", _iso(trial["input_start"]), "--trade-start", _iso(trial["trade_start"]), "--end",
                        _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
         if recorded.get("lifecycle_bundle"):

@@ -103,8 +103,8 @@ class TamperTests(unittest.TestCase):
             found = review.review_all(conn)
         self.assertEqual(found["history"]["status"], "no_backup")
         self.assertEqual(found["limitations"], [review.HISTORY_UNCHECKED])
-        self.assertEqual(codes(found), ["CAPTURE_MISSING", "FINGERPRINT_MISSING", "SEALED_RESULT_MISSING",
-                                        "SOURCE_NOT_IN_GRID", "WITNESS_MISSING"])
+        self.assertEqual(codes(found), ["CAPTURE_MISSING", "SEALED_RESULT_MISSING", "SOURCE_NOT_IN_GRID",
+                                        "WITNESS_MISSING"])
         self.assertTrue(found["tests_run"] >= 7)
         missing = [item for item in found["findings"] if item["code"] == "WITNESS_MISSING"]
         self.assertEqual([item["record_id"] for item in missing], [str(self.unwitnessed["registration_id"])])

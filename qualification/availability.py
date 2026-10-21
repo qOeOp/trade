@@ -88,7 +88,7 @@ def _stage_failures(capture: Mapping) -> list[str]:
         stages = {}
     failed = []
     for name, stage in sorted(stages.items()):
-        if not isinstance(stage, Mapping) or stage.get("state") == "not_available":
+        if not isinstance(stage, Mapping):
             continue
         if stage.get("state") != "exited" or stage.get("exit_code") != 0:
             failed.append(name)
@@ -104,20 +104,15 @@ def _capture_view(capture: Mapping) -> dict:
             "outcome": (capture.get("outcome") or {}).get("kind")}
 
 
-def _counts(fingerprints, sealed: Mapping | None) -> dict:
-    """Activity counts for diagnosis: native row counts the fingerprint records, else the sealed facts."""
+def _counts(fingerprints) -> dict:
+    """Activity counts for diagnosis: the native row counts the fingerprint records (a passed run's)."""
     rows = {}
     if isinstance(fingerprints, Mapping):
         for name in ("orders", "fills", "positions", "account"):
             item = fingerprints.get(name)
             rows[name] = item.get("rows") if isinstance(item, Mapping) else None
-    activity = (sealed or {}).get("activity") or {}
-    populations = (sealed or {}).get("populations") or {}
-    return {"orders": rows.get("orders"),
-            "fills": rows.get("fills") if rows.get("fills") is not None else populations.get("fills"),
-            "positions": rows.get("positions") if rows.get("positions") is not None else populations.get("cycles"),
-            "account_rows": rows.get("account") if rows.get("account") is not None else
-            (activity.get("account_endpoints_match@2") or {}).get("rows")}
+    return {"orders": rows.get("orders"), "fills": rows.get("fills"), "positions": rows.get("positions"),
+            "account_rows": rows.get("account")}
 
 
 def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None = None, records: list | None = None,
@@ -156,7 +151,7 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
     if not comparable:
         reasons.append(f"PURPOSE_NOT_COMPARABLE: a {trial['purpose']} trial is no run")
     return {"economic_evidence_available": not reasons, "reasons": reasons,
-            "activity": _counts(row.get("fingerprints"), sealed), "stored_audit_status": row["status"],
+            "activity": _counts(row.get("fingerprints")), "stored_audit_status": row["status"],
             "source_check": reviewed, "execution_capture": view,
             "checker": dict(checker) if checker is not None else check_identity(),
             "applicability": {"purpose": trial["purpose"], "comparable_purpose": comparable,
