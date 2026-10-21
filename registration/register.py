@@ -357,10 +357,11 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
     declared_config = comparability.config_key(execution.get("effective_config"))
     declared_inputs = comparability.input_key(execution.get("input_identity"))
     for point in points:
-        found = conn.rows("SELECT t.trial_id, a.registration_bundle FROM trial t LEFT JOIN registration_attempt a "
+        found = conn.rows("SELECT t.trial_id, a.registration_bundle, t.purpose, t.trade_start, t.trade_end "
+                          "FROM trial t LEFT JOIN registration_attempt a "
                           "ON a.trial_id = t.trial_id WHERE t.source_sha256 = %s ORDER BY t.trial_id",
                           (point["source_sha256"],))
-        for trial_id, attempted in found:
+        for trial_id, attempted, purpose, trade_start, trade_end in found:
             if exclude is not None and (trial_id == exclude[1] or attempted == exclude[0]):
                 continue
             if attempted is not None and attempted in chain:
@@ -369,8 +370,14 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                     conn, trial_id, point["source_sha256"], execution.get("image_ref"), declared_config,
                     declared_inputs):
                 continue
+            detail = (f"consumed by {attempted}" if attempted else
+                      f"an unregistered {purpose}; no registration consumed it, so retry_of does not apply")
+            if purpose == "precheck":
+                days = (trade_end - trade_start).total_seconds() / 86_400
+                detail += (f"; {days:g} trading days, exemption maximum {precheck.PRECHECK_MAX_DAYS}; "
+                           "only the cited precheck with matching execution identity can be exempt")
             raise refuse("SOURCE_ALREADY_EXPOSED", f"grid source of {point['candidate']} already ran in trial "
-                                                   f"{trial_id}", missing=(point["candidate"],))
+                                                   f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
 def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool,
@@ -471,7 +478,7 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
     count = lines.line_trials(conn, line_bundle, since_commit=since)["count"]
     if count >= REVIEW_EVERY:
         raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the review every "
-                                   f"{REVIEW_EVERY}", missing=("recommendation", "priority"))
+                                   f"{REVIEW_EVERY}", missing=("recommendation",))
 
 
 def _encode(record: Mapping) -> bytes:

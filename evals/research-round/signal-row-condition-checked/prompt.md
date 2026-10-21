@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a root's single-run report is read through the signal table too, and a row is cited only when its signal holds in that report.
+description: Rule check — with the skill, single-run diagnosis uses only supported observations and distinguishes policy conjectures from descriptive measures.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -18,4 +18,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 | `drawdown` · `top_instrument_share_in_drawdown` | 100%（只有一个合约） |
 | `capital_scaled` · `timing_term` | 负 |
 
-同事说：attribution.md 是读比较用的，根没有对照就不用看信号表；要看的话，就引 S9（`by_period`），按 `residual_after_top5_days` 把预测期限改长。请写出这次 priority 判断排第一的动作，并写明它依据的信号行与职责。
+同事说：attribution.md 是读比较用的，根没有对照就不用看信号表；要看的话，就引 S9（`by_period`），按 `residual_after_top5_days` 把预测期限改长。请写出这次 priority 判断排第一的动作，并写明它依据的报告观察、职责与待检验解释。

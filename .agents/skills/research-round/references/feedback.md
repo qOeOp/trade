@@ -1,45 +1,33 @@
-# Feedback and priority
+# Feedback and next experiment
 
-Read when reading comparison evidence, writing `interpretation`, `search_exposure` or `priority`
-judgments, and ordering the next actions.
+Read when interpreting comparison evidence or writing interpretation, search_exposure or priority
+judgments. `judgment add` binds each judgment to a line, subjects and a `--based-on` ledger commit.
+Judgments are append-only: supersedes corrects the same conclusion; independent conclusions
+remain separately readable. `research state` gives current judgments, facts and registration
+gates; `--history [--history-before ID] --at COMMIT` reads original judgments and replacements.
 
-Judgments are written with `judgment add --kind KIND --line LINE --based-on COMMIT --body FILE
---subject ...`, where `KIND` is `interpretation`, `search_exposure`, `priority` or
-`recommendation` and `--based-on` is the ledger commit you read. They are append-only: to change
-one, add a new one that supersedes it. `research state` shows the current judgments with the facts
-read now and `gates`, which lists what the next registration still lacks.
+## Interpret evidence
 
-## Reading the comparison
+Use product comparisons with qualified, comparable controls. Resolve comparability refusals by
+choosing a valid control or replaying under a common identity; never construct a substitute paired
+series. Interpret p under the registered null and resampling model, not as a probability the
+strategy works. An interval across zero is uncertain; development evidence remains conditional.
 
-- When a comparison is refused for comparability, choose another comparable control, or replay
-  the control under the new identity first and the candidate after it. Never align or splice the
-  two series yourself to get an effect, an interval or a p.
-- p is a tail probability under the registered null and paired-resampling model, not the
-  probability that the strategy or mechanism works, and not an effect size. Not reaching the
-  registered level does not make the mechanism invalid; an interval across zero reads as
-  uncertain. Reaching it inside the development window is an improvement or a development
-  observation, not out-of-sample validity.
+Before the next registration, interpret the previous completed result with its applicability and
+reassessment conditions. Invalid runs retried through `retry_of` receive repair evidence instead
+(diagnosis.md). Losing, insignificant or zero-activity results do not exclude a direction. Record
+self-computed analytical views as search_exposure, including skill-required views; product trial
+counts come from the ledger.
 
-## Judgments
+## Choose the next experiment
 
-- Before registering the next hypothesis, write at least one `interpretation` of the previous
-  result: the conditions it was obtained under and when it should be re-evaluated. A conclusion
-  stays inside the registered conditions; an insignificant, losing or zero-fill result is never
-  written as an exclusion. An invalid run that a registration retries (`retry_of`) needs no
-  interpretation, only its repair record (diagnosis.md).
-- Trials the product's commands read are counted by the ledger. Every extra view you computed
-  with your own script (per month, per contract, participation, ...) is recorded as a
-  `search_exposure` judgment, including views a skill requires.
-- Order the next research actions (each a registered rule change with its grid, not a ranking of
-  candidates) on six grounds: expected effect; uncertainty (interval, p, block-length sensitivity,
-  power); mechanism support from sources and diagnosis; the directions and conditions already
-  explored; the information the action brings; its cost (precheck and replay time, grid points).
-  Write the grounds with the runs, registrations and ledger commit you read in a `priority`
-  judgment, apart from the recommendation. A negative result changes the
-  order and the re-evaluation condition; it never closes a direction or excludes a candidate.
-- For each action it ranks first, a `priority` judgment names the report measures that motivate
-  it (slice or section, measure name and direction, cited by run id and ledger commit without
-  copying values) and the signal-table row and duty ids they map to (attribution.md). A
-  parameter-only change (another period, length or threshold) names the report evidence that
-  supports it; prefer the duties the report's strongest signals point to over a parameter change
-  without such evidence.
+Rank rule changes by expected effect, uncertainty, mechanism support, previous exploration,
+information value and execution cost. Write the reasons that determine the ordering in a priority
+judgment, separately from the candidate recommendation. Negative evidence updates priority and
+reassessment conditions, not permission to research a direction.
+
+The leading action names its supporting report slice or section, measure and direction, run and
+ledger commit, affected duties and the policy explanation it tests. Separate observed facts from
+conjecture. Parameter choices need supporting evidence or an explicit statement that they are
+exploratory. Information value is the ability to distinguish competing explanations; repeated
+metrics, labels and registrations on the same development data are not independent evidence.

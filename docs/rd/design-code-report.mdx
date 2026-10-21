@@ -861,6 +861,8 @@ def research_state(
 
 </div>
 
+`research state --history [--history-before ID]` 在同一 `--at` 提交分页读取全部原始判断（每页至多 20 条，按 ID 倒序），包括正文、subjects、supersedes 和 superseded_by。默认只附 judgment_history 总数与被替代数；原有 current judgments、facts 与 gates 的选择不变。继续翻页使用 next_before，并保持同一 --at。历史条目不重算旧绩效事实；需要时按其 based_on_commit 读取。
+
 ### `research_status` [#def-report-research_status]
 
 研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表；无停止标志、目标与分数字段

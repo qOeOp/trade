@@ -1,5 +1,15 @@
 # Lenses
 
+## Contents
+
+- Failures
+- Mechanisms
+- Efficiency
+- Method
+- Data
+- Product state
+- Removal test
+
 Each lens is a separate read-only sub-agent. Every item it returns carries the session location
 (for product state, the norm it breaks) and a product proof (SKILL.md, Verify).
 
@@ -79,8 +89,9 @@ norms from outside the product; the product's own conventions are not the refere
 
 - Skills, against the Anthropic skill-authoring best practices
   (https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices,
-  https://code.claude.com/docs/en/skills): does each skill folder hold only runtime content, with
-  evals kept outside it? Is any text history, a changelog, a design id, a special case, good
+  https://code.claude.com/docs/en/skills): does each skill folder hold focused runtime content?
+  Separately check AGENTS.md's repository policy that evals live outside skill folders; do not
+  attribute that layout to the external guide. Is any text history, a changelog, a design id, a special case, good
   practice a capable agent already follows, or something the product's own output already says?
   Is each description in the third person, saying what the skill does and when to use it? Is
   every reference one level deep from SKILL.md, a long reference given a table of contents, and

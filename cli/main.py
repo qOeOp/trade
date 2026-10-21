@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -33,8 +34,7 @@ from ledger.errors import Refusal, refusal
 from ledger.refusals import CATALOGUE, refuse
 
 
-REPOSITORY = Path(__file__).resolve().parents[1]
-TEMPLATES = REPOSITORY / ".agents" / "skills" / "research-round" / "templates"
+TEMPLATES = files("cli").joinpath("templates")
 WORKDIR_TEMPLATE, HEADER_TEMPLATE = "workdir-agents.md", "strategy-header.md"
 # `ledger sql` statement kinds: reads only. The reader account on a pinned revision database is the
 # write boundary; this first-word check keeps statements such as SET PERSIST, which any account may
@@ -302,6 +302,13 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
         raise refuse("WRITE_VIA_SQL", "only one " + ", ".join(READ_FIRST) + " statement is accepted",
                      expected="a single read statement")
     with db.read_as_of(profile, at) as conn:
+        if words[0] == "EXPLAIN":
+            # Dolt 2.4.2 sends some unavailable plan estimates as literal NULL in numeric fields.
+            # Scope the compatibility decoding to this read connection's EXPLAIN result.
+            conn.raw.decoders = {
+                kind: (lambda value, convert=convert: None if value == "NULL" else convert(value))
+                if convert in (int, float, Decimal) else convert
+                for kind, convert in conn.raw.decoders.items()}
         with conn.raw.cursor() as cursor:
             try:
                 cursor.execute(query.strip().rstrip(";"))
@@ -363,13 +370,13 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
 # candidate
 
 def _workdir_notes(directory: Path, candidate: str) -> dict:
-    """AGENTS.md (research-round's workdir template with the candidate filled in) and strategy-header.md
+    """AGENTS.md (the packaged workdir template with the candidate filled in) and strategy-header.md
     (its file header template, verbatim) beside a working copy; a template not present is reported."""
     written, missing = [], []
     for name, target in ((WORKDIR_TEMPLATE, "AGENTS.md"), (HEADER_TEMPLATE, HEADER_TEMPLATE)):
-        source = TEMPLATES / name
+        source = TEMPLATES.joinpath(name)
         if not source.is_file():
-            missing.append(str(source.relative_to(REPOSITORY)))
+            missing.append(f"cli/templates/{name}")
             continue
         text = source.read_text(encoding="utf-8")
         if name == WORKDIR_TEMPLATE:
@@ -382,7 +389,8 @@ def _workdir_notes(directory: Path, candidate: str) -> dict:
 def _require_absent(*targets: Path) -> None:
     for target in targets:
         if os.path.lexists(target):
-            raise refuse("PATH_EXISTS", f"{target} already exists; working copies are always new",
+            raise refuse("PATH_EXISTS", f"{target} already exists; candidate export needs a fresh working directory "
+                         "for its source, candidate-specific AGENTS.md and strategy-header.md",
                          missing=(str(target),))
 
 
@@ -487,7 +495,7 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
     directory = _new_temporary(output)
     if not entry_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{entry_class!r} is not one Python class name")
-    header_template = TEMPLATES / HEADER_TEMPLATE
+    header_template = TEMPLATES.joinpath(HEADER_TEMPLATE)
     header = header_template.read_text(encoding="utf-8") if header_template.is_file() else ""
     header = '"""' + (header.replace('"""', "'''").strip() or f"{strategy_id}: the file header goes here.") + '\n"""'
     directory.mkdir(mode=0o700, parents=True)
@@ -627,9 +635,10 @@ def research_status(profile: db.LedgerProfile, at: str | None, line: str | None)
     return status.research_status(profile, at, line)
 
 
-def research_state(conn: db.LedgerConnection, line: str | None, at: str | None) -> dict:
+def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *,
+                   history: bool = False, history_before: int | None = None) -> dict:
     from report import status
-    return status.research_state(conn, line, at)
+    return status.research_state(conn, line, at, history=history, history_before=history_before)
 
 
 def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, precheck_trial: int, verdict: str,
@@ -900,7 +909,9 @@ def _parser() -> Parser:
     command = candidate.add_parser("export", help="a candidate's source as a temporary working copy")
     _ledger_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
-    command.add_argument("--output", required=True, help="new file path under the temporary root")
+    command.add_argument("--output", required=True,
+                         help="new source file under the temporary root, in a fresh candidate working directory; "
+                              "AGENTS.md and strategy-header.md beside it must also be absent")
     _at(command)
     command = candidate.add_parser("new", help="a strategy scaffold in a new temporary directory")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
@@ -980,6 +991,10 @@ def _parser() -> Parser:
     command = research.add_parser("state", help="the line record and its current judgments with read-time facts")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the current line)")
+    command.add_argument("--history", action="store_true",
+                         help="include up to 20 original judgments, newest first, including superseded text and subjects")
+    command.add_argument("--history-before", type=int,
+                         help="include the next history page before this judgment ID (use next_before; implies --history)")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -1020,6 +1035,12 @@ def _parser() -> Parser:
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command = runner(replay, "precheck", "the declared native precheck of a published candidate")
+    from registration.precheck import PRECHECK_MAX_DAYS
+    command.epilog = (f"Exposure exemption permits at most {PRECHECK_MAX_DAYS} trading days "
+                      "(--trade-start, or --start, to --end; warm-up is excluded). Longer prechecks still execute "
+                      "and can pass technically, but expose the source and prevent its first research "
+                      "registration. Exemption also requires this precheck to be cited with matching execution "
+                      "identity; other prior replays can still expose the source.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--at", required=True, help="market commit, tag or branch")
@@ -1164,7 +1185,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return research_status(profile, args.at, args.line), 0
     if key == ("research", "state"):
         with db.connect(profile, "reader") as conn:
-            return research_state(conn, args.line, args.at), 0
+            return research_state(conn, args.line, args.at, history=args.history,
+                                  history_before=args.history_before), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

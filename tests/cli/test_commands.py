@@ -141,6 +141,12 @@ class CommandTests(unittest.TestCase):
         self.assertTrue(status["running"])
         found = self.ok("ledger", "sql", *ledger, "SELECT version FROM ledger_schema")
         self.assertEqual((found["columns"], found["rows"]), (["version"], [[1]]))
+        explained = self.ok("ledger", "sql", *ledger, "EXPLAIN SELECT * FROM trial WHERE purpose = 'explore'")
+        self.assertTrue(explained["rows"])
+        estimates = [explained["columns"].index(name) for name in ("rows", "filtered")]
+        self.assertTrue(any(row[index] is None for row in explained["rows"] for index in estimates))
+        self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT 'NULL' AS literal, NULL AS absent, 7 AS n")["rows"],
+                         [["NULL", None, 7]], "EXPLAIN compatibility does not change ordinary query types")
         self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, "DELETE FROM candidate")
         self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, "SELECT 1; SELECT 2")
         self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT REPLACE('a-b', '-', '') AS joined")["rows"],
@@ -172,6 +178,14 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(Path(exported["path"]).read_text(), SOURCE)
         self.refused("PATH_EXISTS", "candidate", "export", *ledger, "--candidate", "fixture@1",
                      "--output", exported["path"])
+        notes = Path(exported["path"]).parent / "AGENTS.md"
+        original_notes = notes.read_bytes()
+        collision = Path(exported["path"]).with_name("another.py")
+        refused = self.refused("PATH_EXISTS", "candidate", "export", *ledger, "--candidate", "fixture@1",
+                               "--output", str(collision))
+        self.assertIn("fresh working directory", refused["message"])
+        self.assertFalse(collision.exists())
+        self.assertEqual(notes.read_bytes(), original_notes)
         self.refused("NOT_TEMPORARY_PATH", "candidate", "export", *ledger, "--candidate", "fixture@1",
                      "--output", str(NOT_TEMPORARY / "strategy.py"))
 
@@ -262,6 +276,10 @@ class CommandTests(unittest.TestCase):
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
+        state = self.ok("research", "state", *ledger, "--history")
+        self.assertEqual(state["judgment_history"]["entries"][0]["judgment_id"], judged["judgment_id"])
+        older = self.ok("research", "state", *ledger, "--history-before", str(judged["judgment_id"]))
+        self.assertEqual(older["judgment_history"]["entries"], [])
 
         # The child, registered against the root run as its control
         child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True"))

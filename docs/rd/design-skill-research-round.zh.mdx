@@ -13,13 +13,11 @@
   <File name="references/review.md" />
   <File name="references/validation.md" />
   <File name="references/changes.md" />
-  <File name="templates/strategy-header.md" />
   <File name="references/strategy-authoring.md" />
   <File name="templates/report.md" />
   <File name="templates/registration-root.json" />
   <File name="templates/registration-derived.json" />
   <File name="references/duty-directory.md" />
-  <File name="templates/workdir-agents.md" />
 </Folder>
 </Files>
 
@@ -58,7 +56,7 @@
 <li id="def-rule-H-2-2-1">理由逐条标外部依据、本地诊断或推测，写支持范围与所引运行 <span className="rd-rule-links"><Ref id="H.2.2.1">H.2.2.1</Ref></span><span className="rd-eval">eval <code>source-three-classes</code>：每条理由标出三类之一并写支持范围；本地诊断引用运行与账本提交</span></li>
 <li id="def-rule-H-3-1-1">理由写机制、付钱方与代理局限，预测须能被回放结果否定 <span className="rd-rule-links"><Ref id="H.3.1.1">H.3.1.1</Ref></span><span className="rd-eval">eval <code>prediction-falsifiable</code>：prediction 写出登记维度上的变化方向及预计体现的成交或持仓特征，存在可观察的回放结果能否定它；「会赚钱」「表现更好」类不通过</span></li>
 <li id="def-rule-H-3-1-2">登记前在预测里写定五类结果的后续动作，事后只在判断里补充 <span className="rd-rule-links"><Ref id="H.3.1.2">H.3.1.2</Ref></span><span className="rd-eval">eval <code>outcome-map-not-rewritten</code>：登记体 prediction 含五类结果的后续动作，回放后未改写，只在判断里补充</span></li>
-<li id="def-rule-H-1-1-4">下一假设从缺省、不适用或归因指向的职责里选，写明职责编号 <span className="rd-rule-links"><Ref id="H.1.1.4">H.1.1.4</Ref></span><span className="rd-eval">eval <code>hypothesis-from-duty-gaps</code>：Agent 先汇总本路线候选文件头里各职责的立场，列出缺省或不适用的职责，再结合最近的诊断选出改动职责；所提假设写明职责编号</span></li>
+<li id="def-rule-H-1-1-4">用相关政策与诊断定位实际改动，登记受影响职责 <span className="rd-rule-links"><Ref id="H.1.1.4">H.1.1.4</Ref></span><span className="rd-eval">eval <code>hypothesis-from-duty-gaps</code>：假设联系相关策略立场与归因证据，区分原生记账与经济政策，声明实际改动职责；不要求重列全部职责</span></li>
 </ol>
 
 ## `references/template.md` [#def-file-research-round-references-template-md]
@@ -80,11 +78,11 @@
 
 **触发**　回放完成、读单个运行的资格与报告并诊断时
 
-先读资格、零成交与失败只诊断修复（首报前的根修复不带父版本，只有消耗过登记才写 retry_of，产品缺陷先合并到 main 再重试）、六项诊断顺序（资格；失败或零成交；时钟与就绪；资金使用率与回撤；利润来源与品质；信号对照表）、同钟成交是缺陷、就绪时点、资金使用率与利润来源
+先读资格、零成交与失败只诊断修复（首报前的根修复不带父版本，只有消耗过登记才写 retry_of，产品缺陷先合并到 main 再重试）、诊断从资格与有效性到因果时钟、敞口和经济解释、同钟成交是缺陷、就绪时点、资金使用率与利润来源
 
 <ol className="rd-skill-rules">
 <li id="def-rule-V-4-2-4">仓位是策略的一部分，账户差照算；品质看单位敞口收益与收益回撤比，两侧都亏时小敞口少亏不算更好 <span className="rd-rule-links"><Ref id="V.4.2.4">V.4.2.4</Ref></span><span className="rd-eval">eval <code>size-counts-quality-scale-free</code>：账户差按回撤与年化目标读，未因来自仓位而打折；品质结论引用了单位敞口收益、夏普或年化与回撤之比；两侧都亏时，未把来自小敞口的少亏称为品质更好</span></li>
-<li id="def-rule-F-1-1-1">先读资格视图，零成交运行只按六类归因诊断，不与亏损比优劣 <span className="rd-rule-links"><Ref id="F.1.1.1">F.1.1.1</Ref></span><span className="rd-eval">eval <code>zero-fill-is-diagnostic</code>：零成交运行按六类归因诊断，未与亏损运行比较优劣、未改优先级</span></li>
+<li id="def-rule-F-1-1-1">先读资格视图，零成交运行沿原生信号、就绪与订单证据诊断，不与亏损比优劣 <span className="rd-rule-links"><Ref id="F.1.1.1">F.1.1.1</Ref></span><span className="rd-eval">eval <code>zero-fill-is-diagnostic</code>：零成交运行依据原生状态解释活动缺失，未与亏损运行比较优劣、未改优先级</span></li>
 <li id="def-rule-F-1-1-2">无效、未完成或预检未过只记修复；修好重发（首报前的根不带父版本），消耗过的登记以 retry_of 另登；产品缺陷先合并到 main 再重试 <span className="rd-rule-links"><Ref id="F.1.1.2">F.1.1.2</Ref></span><span className="rd-eval">eval <code>failure-is-repair-not-feedback</code>：失败运行只记修复，修复后以新源码重发并以 retry_of 另登记，未写入负面 interpretation 或降低优先级</span></li>
 <li id="def-rule-C-3-1-2">成交须晚于决策 K 线收盘，同钟成交即撤回解释并修复 <span className="rd-rule-links"><Ref id="C.3.1.2">C.3.1.2</Ref></span><span className="rd-eval">eval <code>same-clock-fill-is-defect</code>：发现同钟成交后撤回相关解释、修复源码重发，不当作经济证据</span></li>
 <li id="def-rule-W-2-2-2">改周期或指标长度时登记初始化条件，解读写明两边首次就绪时点 <span className="rd-rule-links"><Ref id="W.2.2.2">W.2.2.2</Ref></span><span className="rd-eval">eval <code>readiness-shift-not-mechanism</code>：解读写明两侧首次就绪时点，未把就绪差异带来的结果归为机制</span></li>
@@ -94,36 +92,19 @@
 
 **触发**　单运行报告或比较出结果后，读切面或归因报告、写解释判断与选下一假设的职责时
 
-明细自算与复算、预测落空的读法、消融与交互、切面信号到职责的对照表（单运行报告也照表读，引用前先核对信号成立）
+解释只引用支持结论的切面与度量，逐项核对预测；从政策、样本与成本解释观察，保持对照、消融与交互的条件范围
 
-| 信号 | 切面 | 职责 | 常见的下一假设 |
-|---|---|---|---|
-| 资金费差主导，价格差为负 | profit_bridge | H1、B1 | 把资金费写成显式收益来源，或单独检验价格腿 |
-| 规模放大后单位敞口收益下降 | capital_scaled | G3、E1 | 按流动性定数量，或改容量上限 |
-| 两侧都亏，候选少亏但单位敞口收益不变或更差 | capital_scaled | B1、A3 | 少亏来自少暴露，不是品质；回到信号或条件过滤 |
-| 择时项为正：涨月敞口大、跌月敞口小 | capital_scaled | E3、A3 | 保留并细化仓位随行情调整的规则 |
-| 择时项为负或接近零 | capital_scaled | E3、A3 | 加入随行情或波动调整仓位的规则 |
-| 盈亏平衡费率倍数接近一 | fee_stress | G1、C2 | 换执行方式，或加不交易带 |
-| 差集中在少数合约，同一批合约在多个版本里持续亏损 | by_instrument | A1、A2、F3 | 改资格或选择，或加保护边界 |
-| 截距差接近零，斜率差解释大部分差 | market_exposure | E2、D2 | 控制组合净方向或同向持仓数，或加对冲 |
-| 去掉最好五天后剩余差反号，胜出月份少 | by_period | A3、B2 | 加条件过滤，或改预测期限 |
-| 胜率升而每笔期望降，平均赢变小 | trade_structure | F3、F4、C1 | 改退出或保护边界，或改触发 |
-| 删掉的交易净盈利为正 | trade_pairs | C1、A3 | 放宽触发或过滤，或只对亏损来源过滤 |
-| 配上的交易开仓普遍推迟且盈亏变差 | trade_pairs | G1、C1 | 换执行方式或触发价 |
-| 差集中在某个出场类别 | trade_structure | F3、F4、F5、I1 | 改保护边界、退出或存量处置规则 |
-| 候选回撤区间被一个合约主导 | drawdown | E2、F3 | 限制单合约敞口，或加保护边界 |
-| 回撤集中在一个窗口，同时在市时间（单运行报告的 capital 节）接近一 | drawdown | A3、E1、E3、F3 | 用条件过滤空仓观望，按权益或波动缩放风险，或加保护边界 |
-| 收益集中在一种波动状态：高波动日与低波动日的符号或平均对数收益不同 | by_regime | A3、D2 | 只在赚钱的那种状态里交易，或对冲在另一种状态里亏钱的敞口 |
+报告切面用于定位问题，不按固定的“信号→下一规则”处方选题。结合利润来源、敞口、成本、持仓行为和条件解释观察，使用报告的总体、单位与定义说明。一个度量可关联多个职责，但不产生多个独立观察。
 
 <ol className="rd-skill-rules">
 <li id="def-rule-R-3-2-10">逐合约、逐月、出场原因交叉表由 Agent 从报告表自算，驱动决定的数交独立 Agent 复算 <span className="rd-rule-links"><Ref id="R.3.2.10">R.3.2.10</Ref></span><span className="rd-eval">eval <code>attribution-detail-recomputed</code>：引用的逐合约、逐月或出场原因明细来自报告表，合计与报告的切面标量一致；驱动下一假设的数附独立复算</span></li>
 <li id="def-rule-P-2-2-1">账户差为正而预测的切面反号，只写账户差，不写机制成立 <span className="rd-rule-links"><Ref id="P.2.2.1">P.2.2.1</Ref></span><span className="rd-eval">eval <code>mechanism-before-account</code>：报告中预测与实测反号时，解释判断写明预测落空，未称机制成立</span></li>
-<li id="def-rule-P-3-1-1">一处改动的比较就是该职责的消融，不为归因另跑回放 <span className="rd-rule-links"><Ref id="P.3.1.1">P.3.1.1</Ref></span><span className="rd-eval">eval <code>single-change-is-ablation</code>：单一改动的归因只读该比较的归因报告，未另开为归因而设的回放</span></li>
+<li id="def-rule-P-3-1-1">核对候选与实际对照只差该改动后才称条件消融；涉及多个职责不代表各职责独立效应，不为归因另跑回放 <span className="rd-rule-links"><Ref id="P.3.1.1">P.3.1.1</Ref></span><span className="rd-eval">eval <code>single-change-is-ablation</code>：单一改动的归因只读该比较的归因报告，未另开为归因而设的回放</span></li>
 <li id="def-rule-P-3-1-3">要读交互，在补最后一个角的登记里声明四个角；交互只作归因，不作改善证据 <span className="rd-rule-links"><Ref id="P.3.1.3">P.3.1.3</Ref></span><span className="rd-eval">eval <code>interaction-declared</code>：交互效应来自登记时声明的四个角；解释里未把交互当作改善证据，也未事后从账本里挑二乘二</span></li>
 <li id="def-rule-P-3-1-4">沿谱系逐段相加的差依赖先后顺序，不写成各改动的独立效应 <span className="rd-rule-links"><Ref id="P.3.1.4">P.3.1.4</Ref></span><span className="rd-eval">eval <code>lineage-sum-is-ordered</code>：引用沿谱系的逐段差时注明它依赖顺序；称独立效应时引用了声明过的交互效应</span></li>
 <li id="def-rule-P-4-1-2">解释只引用结论所依据的切面，并逐项写每一项预测是否落空 <span className="rd-rule-links"><Ref id="P.4.1.2">P.4.1.2</Ref></span><span className="rd-eval">eval <code>attribution-cites-and-predictions</code>：每条结论附切面与标量名；每一项登记预测都写了是否同号，无法核对的写原因</span></li>
-<li id="def-rule-P-4-1-1">照对照表把切面信号落到职责；单运行报告也照表读，引用某一行前先核对它的信号在报告里成立 <span className="rd-rule-links"><Ref id="P.4.1.1">P.4.1.1</Ref></span><span className="rd-eval">eval <code>signal-row-condition-checked</code>：没有比较时也照对照表读单运行的切面；不引信号不成立的行；排第一的动作落在信号成立的行上并改该行的职责；单合约运行不把该合约占满回撤当作单合约集中</span></li>
-<li id="def-rule-P-4-1-3">解释判断里的指向写职责编号与对照表的信号行 <span className="rd-rule-links"><Ref id="P.4.1.3">P.4.1.3</Ref></span><span className="rd-eval">eval <code>signal-to-duty</code>：每条指向写了切面、对照表的信号行与职责编号</span></li>
+<li id="def-rule-P-4-1-1">单运行与比较都从实际报告证据定位政策，区分观察与待检验解释 <span className="rd-rule-links"><Ref id="P.4.1.1">P.4.1.1</Ref></span><span className="rd-eval">eval <code>signal-row-condition-checked</code>：单运行不虚构配对证据，解释与动作引用成立的观察，不将描述性指标直接等同于经济机制</span></li>
+<li id="def-rule-P-4-1-3">解释判断关联报告证据、受影响职责与可检验的政策解释 <span className="rd-rule-links"><Ref id="P.4.1.3">P.4.1.3</Ref></span><span className="rd-eval">eval <code>signal-to-duty</code>：每条研究方向有切面证据、职责和政策解释，并明确不确定性</span></li>
 </ol>
 
 ## `references/feedback.md` [#def-file-research-round-references-feedback-md]
@@ -138,7 +119,7 @@
 <li id="def-rule-V-2-3-2">可比性被拒时另选对照或先重放对照，不自拼序列出比较 <span className="rd-rule-links"><Ref id="V.2.3.2">V.2.3.2</Ref></span><span className="rd-eval">eval <code>comparability-refusal-no-self-splice</code>：COMPARABILITY_MISMATCH 后下一动作是另选可比对照或在新身份下先重放对照；没有自行对齐或拼接两侧序列算出效应、区间或 p</span></li>
 <li id="def-rule-V-4-2-3">p 是登记模型下的尾部概率：跨零为不确定，开发窗口内只称改善 <span className="rd-rule-links"><Ref id="V.4.2.3">V.4.2.3</Ref></span><span className="rd-eval">eval <code>p-is-not-validity-probability</code>：陈述把 p 写成登记模型下的尾部概率，区间跨零称不确定，开发窗口内只称改善</span></li>
 <li id="def-rule-F-2-1-1">按效应、不确定性、机制、覆盖、信息价值与成本排下一动作，不关方向 <span className="rd-rule-links"><Ref id="F.2.1.1">F.2.1.1</Ref></span><span className="rd-eval">eval <code>gross-negative-updates-priority</code>：负面结果只体现在 priority 判断的排序与重评条件，没有关闭方向或排除候选</span></li>
-<li id="def-rule-F-2-1-2">首位动作写依据的切面、度量与方向（引运行与账本提交，不抄值）及对照表行与职责；只改参数须有报告依据 <span className="rd-rule-links"><Ref id="F.2.1.2">F.2.1.2</Ref></span><span className="rd-eval">eval <code>priority-cites-report-signals</code>：排第一的动作写了切面或栏目与度量名，引用运行或账本提交，判断正文不抄值；写了对照表的信号行与职责编号；排第一的是信号指向的职责改动，不是没有依据的换参数；保留的换参数写明报告依据或注明没有；信号到行与职责的对应与表一致</span></li>
+<li id="def-rule-F-2-1-2">首位动作写报告度量、方向、运行与提交、受影响职责和政策解释；参数选择注明依据或探索性质 <span className="rd-rule-links"><Ref id="F.2.1.2">F.2.1.2</Ref></span><span className="rd-eval">eval <code>priority-cites-report-signals</code>：首位动作可追溯到报告度量和职责，区分事实与假设，并说明参数选择依据或探索性质；不要求固定表行或指定下一规则</span></li>
 </ol>
 
 ## `references/review.md` [#def-file-research-round-references-review-md]
@@ -177,11 +158,11 @@
 <li id="def-rule-J-5-3-2">配对通过只写该配对下引擎行为未变，适配差异不写成经济改善 <span className="rd-rule-links"><Ref id="J.5.3.2">J.5.3.2</Ref></span><span className="rd-eval">eval <code>parity-not-endorsement</code>：陈述只称该配对下引擎行为未变，未称策略认可、经济证据或适配带来改善</span></li>
 </ol>
 
-## `templates/strategy-header.md` [#def-file-research-round-templates-strategy-header-md]
+## `cli/templates/strategy-header.md`（CLI 包资源） [#def-file-research-round-templates-strategy-header-md]
 
 **触发**　写新策略文件或修改文件头时
 
-策略文件头的固定格式：出处行与 27 项职责立场行
+策略文件头的固定格式：出处行与 27 项职责立场行。由 candidate new/export 输出；资源随 CLI 分发，CLI 不读取 skill 目录。
 
 ```text
 """
@@ -271,7 +252,7 @@ I2 退出可行性与未来资源：<立场> | <理由> | <来源>
 | 费用 | 吃单占比、盈亏平衡费率倍数 | 盈亏平衡费率倍数（<Ref id="R.3.2.3" />） |
 | 品种与方向 | 前五合约占绝对盈亏比例、多空分列 | 同左之差（<Ref id="R.3.2.4" />） |
 | 市场暴露 | 对等权篮子与 BTC 永续的斜率与截距 | 斜率之差与截距之差（<Ref id="R.3.2.5" />） |
-| 时期 | 盈利月份占比、去掉最好五天后的剩余 | 胜出月份占比、剩余差（<Ref id="R.3.2.6" />） |
+| 时期 | 盈利月份占比、按总和方向去掉最多五天后的剩余 | 胜出月份占比、剩余差（<Ref id="R.3.2.6" />） |
 | 波动状态 | 高波动日与低波动日各自的天数、平均与合计对数收益 | 同左之差（<Ref id="R.3.2.11" />） |
 | 交易结构 | 周期数、胜率、平均赢亏、每笔期望、持仓时长、出场类别 | 同左之差与期望差的拆分（<Ref id="R.3.2.7" />） |
 | 交易配对 | — | 覆盖、删掉与新增的交易、同一机会的差（<Ref id="R.3.2.8" />） |
@@ -571,7 +552,7 @@ I=预测成本/流动性/目标；S=持仓及规划期限；O=限制当前交易
 
 </Accordions>
 
-## `templates/workdir-agents.md` [#def-file-research-round-templates-workdir-agents-md]
+## `cli/templates/workdir-agents.md`（CLI 包资源） [#def-file-research-round-templates-workdir-agents-md]
 
 **触发**　命令导出工作副本或生成脚手架时写入工作目录，Agent 在该目录工作时读
 

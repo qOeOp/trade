@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, every pointer toward the next hypothesis in an interpretation names the slice, the signal-table row and the duty ids.
+description: Rule check — with the skill, proposed directions cite report evidence, affected duties and a testable policy explanation.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

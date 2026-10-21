@@ -14,7 +14,7 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 | Costs | Taker share, breakeven fee multiple | Breakeven fee multiple |
 | Instruments and direction | Top five contracts' share of absolute PnL, long and short apart | Difference of the same |
 | Market exposure | Slope and intercept against the equal-weight basket and the BTC perpetual | Slope difference and intercept difference |
-| Periods | Share of profitable months, remainder without the best five days | Share of months won, remaining difference |
+| Periods | Share of profitable months, remainder after removing up to five daily log contributions in the total's direction (largest for nonnegative total, smallest for negative total) | Share of months won, same trimming applied to paired daily log differences |
 | Volatility regimes | High- and low-volatility days: count, mean and summed log return | Difference of the same |
 | Trade structure | Cycles, win rate, average win and loss, expectancy per trade, holding time, exit categories | Difference of the same and the split of the expectancy difference |
 | Trade pairing | — | Coverage, removed and added trades, difference on the same opportunity |
@@ -24,3 +24,6 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 
 Write every run or comparison report with all these sections in this order. Keep an empty
 section and write why it is empty; never drop one.
+
+The product's JSON reports are the working evidence. This template does not require an HTML
+report or a regenerated overview on every iteration; create presentation files when needed.

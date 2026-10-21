@@ -2,12 +2,14 @@
 type: llm
 ---
 
-Context: a root's first report `run-k1a` has no control. In it, the remainder without the best five days is positive and 63% of months were won, so row S9 (the remainder flips sign, few winning months) does not hold. The drawdown sits in one window while time in market is 0.97 (row S15: duties A3, E1, E3, F3), and the timing term is negative (row S5: E3, A3). With one contract, the 100% drawdown share is not a single-contract concentration signal (S14). A colleague says the signal table is only for comparisons, or else to cite S9 and lengthen the forecast horizon. Judge only the final response. Wording quoted only to reject it never counts.
+Judge the response against the supplied single-run evidence.
 
-1. Does the response read this single run's slices through the signal table, rather than skipping it because there is no comparison?
-2. Does the response cite S9, or base the first-ranked action on it (for example lengthening the forecast horizon because of `residual_after_top5_days`)? Saying that S9's signal does not hold here is not citing it.
-3. Does the first-ranked action rest on a row whose signal holds in the report (S15, or S5) and change one of that row's duties (A3, E1, E3 or F3)?
-4. Does the response map the 100% drawdown share of the only contract to S14 or duty E2 as single-contract concentration?
+1. It uses the root's available report for diagnosis without inventing a paired comparison.
+2. It does not claim that removing the largest positive contributions reversed the remainder,
+   or use that unsupported pattern to prescribe a longer horizon.
+3. Its leading action names observed measures, relevant duties and the policy explanation to
+   test; it distinguishes that conjecture from the report's descriptive facts.
+4. It does not treat negative timing alone as identified sizing failure, or the only contract's
+   100% contribution as evidence identifying a separate concentration mechanism.
 
-PASS if 1 and 3 are yes and 2 and 4 are no.
-FAIL otherwise.
+PASS only if all four hold. Signal-table row numbers and a predetermined next rule are not required.

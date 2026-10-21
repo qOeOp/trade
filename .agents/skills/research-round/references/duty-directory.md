@@ -4,6 +4,11 @@ Read when unsure which stance a duty should take in a strategy header (strategy-
 duty gives its question, then I (inputs), S (state), O (output) and 钟 (clock), and its boundary.
 The four hard contracts (E1, E4, F5, H2) can never be 不适用.
 
+Duties locate policy responsibilities, not independent factors or implementation proofs. A stance
+names an explicit economic rule (采用), a relevant baseline choice (缺省), or a structural reason
+the economic question does not arise (不适用). Distinguish strategy decisions from engine
+guarantees, and apply the boundary of each duty when one action affects several responsibilities.
+
 ## Contents
 
 - A 对象与适用性: A1–A3

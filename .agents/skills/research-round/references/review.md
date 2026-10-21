@@ -1,23 +1,21 @@
-# Review
+# Recommendation and review
 
-Read when a registration is refused with `REVIEW_DUE` (the product stops after `review_every`
-research trials since the last recommendation) and when writing a `recommendation` judgment.
+Read when writing a recommendation or resolving REVIEW_DUE. The stop counts research trials since
+the latest recommendation's based-on commit (or line creation); an early recommendation moves
+that reference. The recommendation clears the stop. This is review cadence, not independent
+validation or a limit on a research direction.
 
-- A review writes two separate judgments that do not follow from each other: `recommendation`
-  (which version or batch) and `priority` (what next and in which order, feedback.md). The
-  recommendation clears the stop.
-- Take every count from `research status` (trials, research attempts, audit-passed, economically
-  available, diagnostic only, invalid, unfinished, validation registrations) with its ledger
-  commit; never count trials yourself or from session memory, and never assess progress
-  yourself. The number of comparable candidates is the economically available count, never the audit-passed one.
-- Before recommending, compare all economically available candidates up to now, older versions
-  and other lines included: the scope is the `comparison` table of `research status` at the commit
-  you read, and the recommendation names every candidate in it as a subject; each candidate's
-  further measures from `replay report`. Weigh annual return, drawdown, Sharpe, win rate, costs,
-  capital use, profit sources, mechanism and uncertainty; a missing measure gets its reason, never a substitute. Name
-  the trade-offs and the versions kept for reference; diagnostic-only and invalid runs are listed
-  apart and never recommended.
-- The non-dominated set (`non_dominated` in that table) is found only among economically
-  available runs on the same development window and the same universe, on four measures (annual
-  return, drawdown, Sharpe, win rate). It describes the range; it is not a gate, an eligibility
-  boundary or a single-measure ranking.
+Recommendation selects versions; priority selects experiments (feedback.md). A per-run
+interpretation and priority do not require a new full recommendation. Review changed conclusions,
+competing explanations and the information another experiment can add.
+
+Use research status at the cited commit for counts and its full comparison table, including older
+versions and other lines. Never reconstruct counts or progress from memory. Comparable candidates
+are those with economic evidence, not merely passed audits. A recommendation names every candidate
+in that table and weighs return, drawdown, Sharpe, win rate, costs, exposure, profit mechanism and
+uncertainty using replay report. State trade-offs and retained references; unavailable measures
+keep their reasons, and invalid or diagnostic-only runs stay separate and are not recommended.
+
+The table's non_dominated set describes economically available runs on the same window and
+universe, using annual return, drawdown, Sharpe and win rate. It is neither eligibility nor a
+ranking or gate.

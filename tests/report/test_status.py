@@ -9,6 +9,7 @@ import json
 import unittest
 
 from ledger.errors import Refusal
+from ledger import db, judgments
 from replay import entry, reproduce
 from report import measures, runs, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
@@ -45,6 +46,39 @@ class TrialCountTests(unittest.TestCase):
     def replay(self, ref: str, bundle: str) -> dict:
         return entry.run(self.world.profile, self.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
                          hypothesis=bundle)
+
+    def test_history_keeps_replaced_text_subjects_and_pinned_pages_without_changing_gates(self):
+        world = self.world
+        first = judgments.add_judgment(world.profile, "interpretation", world.line["bundle"],
+                                       db.head_commit(world.conn), "original conclusion",
+                                       subjects=[{"role": "about", "candidate": "rsi@1"}])
+        for _ in range(20):
+            world.judge("priority")
+        last = judgments.add_judgment(world.profile, "interpretation", world.line["bundle"],
+                                      db.head_commit(world.conn), "corrected conclusion",
+                                      subjects=[{"role": "about", "candidate": "rsi@1"}],
+                                      supersedes=first["judgment_id"])
+        with db.connect(world.profile, "reader") as conn:
+            default = status.research_state(conn)
+            first_page = status.research_state(conn, history=True)
+            self.assertEqual(default["judgment_history"], {"total": 22, "superseded": 1,
+                                                           "entries": [], "next_before": None})
+            self.assertEqual(default["gates"], first_page["gates"])
+            self.assertEqual(default["interpretations"], first_page["interpretations"])
+            history = first_page["judgment_history"]
+            self.assertEqual(len(history["entries"]), 20)
+            self.assertEqual(history["entries"][0]["supersedes"], first["judgment_id"])
+            older = status.research_state(conn, at=first_page["at"], history_before=history["next_before"])
+            tail = older["judgment_history"]
+            self.assertEqual(len(tail["entries"]), 2)
+            original = tail["entries"][-1]
+            self.assertEqual((original["body"], original["superseded_by"]),
+                             ("original conclusion", last["judgment_id"]))
+            self.assertEqual(original["subjects"][0]["strategy_id"], "rsi")
+            self.assertIsNone(tail["next_before"])
+            pinned = status.research_state(conn, at=first["ledger_commit"], history=True)
+            self.assertEqual(pinned["judgment_history"]["total"], 1)
+            self.assertIsNone(pinned["judgment_history"]["entries"][0]["superseded_by"])
 
     def test_reproductions_and_trials_stopped_before_the_strategy_are_not_counted(self):
         world = self.world
