@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from engine.compare import report_fingerprint
 
@@ -43,8 +44,10 @@ def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.9
             writer.writerows(order(rows))
     (root / "account.csv").write_text("ts_event,total\n2025-01-08 00:00:00+00:00,100000\n")
     (root / "returns_series.csv").write_text(f"ts_event_ns,native_return\n{DAY1},0.0\n")
-    with gzip.open(root / "exposures.csv.gz", "wt", newline="") as stream:
-        stream.write(f"ts_event_ns,position_id,notional_value,unrealized_pnl\n{DAY1 - 10**6},P,5 USDT,0 USDT\n")
+    with (root / "exposures.csv.gz").open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as stream:
+            stream.write(("ts_event_ns,position_id,notional_value,unrealized_pnl\n"
+                          f"{DAY1 - 10**6},P,5 USDT,0 USDT\n").encode())
     by_order = {"O-1": events[:2], "O-2": events[2:]}
     with gzip.open(root / "order_events.jsonl.gz", "wt") as stream:
         for identity in order(["O-1", "O-2"]):
@@ -70,7 +73,10 @@ class FingerprintTests(unittest.TestCase):
         return report_fingerprint(self.root / name)
 
     def test_fresh_uuids_and_row_order_give_the_same_fingerprint(self):
-        first, second = self.fingerprint("a"), self.fingerprint("b", swap=True)
+        with patch("gzip.time.time", return_value=1_792_570_000):
+            first = self.fingerprint("a")
+        with patch("gzip.time.time", return_value=1_792_570_001):
+            second = self.fingerprint("b", swap=True)
         self.assertEqual(first, second)
         self.assertEqual({name: value["rows"] for name, value in first.items()},
                          {"orders": 2, "fills": 2, "positions": 1, "account": 1, "returns_series": 1,
