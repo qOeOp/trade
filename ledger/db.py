@@ -317,25 +317,11 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
     config = _known_service(service_root) if (service_root / "service.json").exists() else _create_service(
         service_root, binary)
     start_service(service_root)
-    if database in config["databases"]:
-        raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
-    conn = _admin(config)
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SHOW DATABASES")
-            if database in {row[0] for row in cursor.fetchall()}:
-                raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
-            accounts = {role: {"user": f"{database}_{role}", "password": secrets.token_urlsafe(24)}
-                        for role in ROLES}
-            commit = _create_database(cursor, config, database, research_branch, accounts)
-    finally:
-        conn.close()
-    config["secured"] = True
-    config["databases"][database] = accounts
-    _private_write(service_root / "service.json", config)
     profile = LedgerProfile(name=name, database=database, service_root=service_root, research_branch=research_branch,
                             kind=kind, backup_root=Path(backup_root).expanduser().absolute() if backup_root else None)
-    _private_write(home() / f"{name}.json", profile.as_json())
+    _, commit = _provision(service_root, config, database,
+                           lambda cursor, accounts: _ledger_tables(cursor, database, research_branch, accounts),
+                           home() / f"{name}.json", profile.as_json())
     return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": research_branch,
             "schema_version": SCHEMA_VERSION, "commit": commit}
 
@@ -352,17 +338,79 @@ def _secure(cursor, config: dict) -> None:
     if not config.get("secured"):
         # Once per service, with a database selected: branch writes need an explicit grant; root keeps
         # admin everywhere (deleting the wildcard row alone would also remove root's write).
-        cursor.execute("INSERT INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
+        # IGNORE: a failed init that was rolled back may already have secured the service.
+        cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
         cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = '%' AND branch = '%' "
                        "AND user = '%' AND host = '%'")
         # Service-wide: every database on this service needs at least one test in this group.
         cursor.execute(f"SET PERSIST dolt_commit_verification_groups = '{COMMIT_TESTS}'")
 
 
-def _create_database(cursor, config: dict, database: str, branch: str, accounts: dict) -> str:
-    cursor.execute(f"CREATE DATABASE `{database}`")
-    cursor.execute(f"USE `{database}`")
-    _secure(cursor, config)
+def _provision(service_root: Path, config: dict, database: str, build: Callable[[object, dict], str],
+               profile_path: Path, profile: dict) -> tuple[dict, str]:
+    """Create `database` on the running service with `build(cursor, accounts)` (its tables, its two
+    accounts and their grants; returns the creating commit), record the accounts in service.json and
+    write the profile. The service alone says whether the database exists: a service.json entry,
+    branch grants or accounts left for a name it does not hold belong to a dropped database and are
+    replaced. Any failure once the database is created removes what this call created (the database,
+    its branch grants and accounts, its service.json entry) and re-raises."""
+    accounts = {role: {"user": f"{database}_{role}", "password": secrets.token_urlsafe(24)} for role in ROLES}
+    created = recorded = False
+    conn = _admin(config)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SHOW DATABASES")
+            # Dolt database names are case-insensitive (`CREATE DATABASE A` fails while `a` exists).
+            if database.lower() in {row[0].lower() for row in cursor.fetchall()}:
+                raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
+            cursor.execute(f"CREATE DATABASE `{database}`")
+            created = True
+            cursor.execute(f"USE `{database}`")
+            _clear(cursor, database, accounts)
+            _secure(cursor, config)
+            commit = build(cursor, accounts)
+        config["secured"] = True
+        config["databases"][database] = accounts
+        recorded = True
+        _private_write(service_root / "service.json", config)
+        _private_write(profile_path, profile)
+    except BaseException as failure:
+        if created:
+            try:
+                _remove(service_root, config, database, accounts, recorded)
+            except Exception as cleanup:  # the original failure stays the one raised
+                failure.add_note(f"database {database} and its accounts could not be removed: {cleanup}")
+        raise
+    finally:
+        conn.close()
+    return accounts, commit
+
+
+def _clear(cursor, database: str, accounts: dict) -> None:
+    """Delete the branch grants and the generated accounts of `database`, with it selected
+    (dolt_branch_control is service-wide, outlives a dropped database and needs one selected). While
+    the service held no database of that name before this call, they can only be this call's or a
+    dropped database's: an account is named `<database>_<role>`, which no other database's takes."""
+    cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = %s", (database,))
+    for account in accounts.values():
+        cursor.execute(f"DROP USER IF EXISTS '{account['user']}'@'%'")
+
+
+def _remove(service_root: Path, config: dict, database: str, accounts: dict, recorded: bool) -> None:
+    """Undo a failed `_provision` after it created `database`."""
+    conn = _admin(config, database=database)
+    try:
+        with conn.cursor() as cursor:
+            _clear(cursor, database, accounts)
+            cursor.execute(f"DROP DATABASE `{database}`")
+    finally:
+        conn.close()
+    if recorded:
+        del config["databases"][database]
+        _private_write(service_root / "service.json", config)
+
+
+def _ledger_tables(cursor, database: str, branch: str, accounts: dict) -> str:
     for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
         cursor.execute(statement)
     cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (SCHEMA_VERSION,))
@@ -424,45 +472,33 @@ def init_market(name: str, database: str, service_root: Path, kind: Literal["act
     config = _known_service(service_root) if (service_root / "service.json").exists() else _create_service(
         service_root, binary)
     start_service(service_root)
-    if database in config["databases"]:
-        raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
-    accounts = {role: {"user": f"{database}_{role}", "password": secrets.token_urlsafe(24)} for role in ROLES}
-    writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
-    conn = _admin(config)
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SHOW DATABASES")
-            if database in {row[0] for row in cursor.fetchall()}:
-                raise refuse("LEDGER_EXISTS", f"the service already holds database {database}")
-            cursor.execute(f"CREATE DATABASE `{database}`")
-            cursor.execute(f"USE `{database}`")
-            _secure(cursor, config)
-            for statement in _statements(MARKET_SCHEMA.read_text(encoding="utf-8")):
-                cursor.execute(statement)
-            # The tables only: there are no commit tests yet, so this one commit skips verification.
-            cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'market tables')")
-            (commit,), = cursor.fetchall()
-            cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
-            cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
-            # The import account inserts (the commit tests included, once) and updates only market_schema's
-            # import sequence; it may not delete, reset, tag or branch.
-            cursor.execute(f"GRANT SELECT, INSERT ON `{database}`.* TO '{writer}'@'%'")
-            cursor.execute(f"GRANT UPDATE ON `{database}`.market_schema TO '{writer}'@'%'")
-            cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
-            cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, 'main', %s, '%%', 'write')", (database, writer))
-            cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
-    finally:
-        conn.close()
-    config["secured"] = True
-    config["databases"][database] = accounts
-    _private_write(service_root / "service.json", config)
     backup = str(Path(backup_root).expanduser().absolute()) if backup_root else None
     profile = {"name": name, "kind": "market", "role": kind, "service": str(service_root), "database": database,
                "backup": backup}
-    _private_write(home() / f"{name}.json", profile)
+    accounts, commit = _provision(service_root, config, database, lambda cursor, accounts: _market_tables(
+        cursor, database, accounts), home() / f"{name}.json", profile)
     return {"profile": str(home() / f"{name}.json"), "name": name, "database": database, "kind": kind,
             "service_root": str(service_root), "backup": backup,
             "accounts": {role: accounts[role]["user"] for role in ROLES}, "commit": commit}
+
+
+def _market_tables(cursor, database: str, accounts: dict) -> str:
+    for statement in _statements(MARKET_SCHEMA.read_text(encoding="utf-8")):
+        cursor.execute(statement)
+    # The tables only: there are no commit tests yet, so this one commit skips verification.
+    cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'market tables')")
+    (commit,), = cursor.fetchall()
+    writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
+    cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
+    cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
+    # The import account inserts (the commit tests included, once) and updates only market_schema's
+    # import sequence; it may not delete, reset, tag or branch.
+    cursor.execute(f"GRANT SELECT, INSERT ON `{database}`.* TO '{writer}'@'%'")
+    cursor.execute(f"GRANT UPDATE ON `{database}`.market_schema TO '{writer}'@'%'")
+    cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
+    cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, 'main', %s, '%%', 'write')", (database, writer))
+    cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
+    return commit
 
 
 # Connections

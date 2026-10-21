@@ -375,5 +375,96 @@ class CommitChecksGuardTests(unittest.TestCase):
             self.assertEqual(fresh.role, "writer")
 
 
+@unittest.skipUnless(BINARY, SKIP)
+class InitRecoveryTests(unittest.TestCase):
+    """A service per test, so that a failing first init is also the one that secures the service."""
+
+    def setUp(self):
+        self.service = Service()
+        self.addCleanup(self.service.close)
+
+    def admin(self, statement: str, params=None, database: str | None = None) -> list[tuple]:
+        conn = db._admin(db._service(self.service.service_root), database=database)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(statement, params)
+                return list(cursor.fetchall())
+        finally:
+            conn.close()
+
+    def left(self, database: str, profile: str) -> dict:
+        """What the service, its configuration and the profile directory hold of `database`. The
+        service-wide dolt_branch_control is read with a database selected, an empty one of the test's."""
+        self.admin("CREATE DATABASE IF NOT EXISTS lookout")
+        databases = {name for (name,) in self.admin("SHOW DATABASES")}
+        users = {user for (user,) in self.admin("SELECT user FROM mysql.user") if user.startswith(f"{database}_")}
+        grants = self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s", (database,), "lookout")
+        return {"database": database in databases, "users": users, "grants": grants,
+                "recorded": database in db._service(self.service.service_root)["databases"],
+                "profile": (self.service.home / f"{profile}.json").exists()}
+
+    def init(self, name: str, database: str, market: bool = False) -> dict:
+        if market:
+            return db.init_market(name, database, self.service.service_root, "isolated", dolt_binary=BINARY)
+        return db.init(name, database, self.service.service_root, "isolated", dolt_binary=BINARY)
+
+    def test_a_failed_init_removes_what_it_created_and_the_same_name_can_be_made_again(self):
+        nothing = {"database": False, "users": set(), "grants": [], "recorded": False, "profile": False}
+        real_tables, real_write = db._ledger_tables, db._private_write
+
+        def tables_then_fail(*args):
+            real_tables(*args)  # the tables, both accounts, their grants and the branch grant exist
+            raise RuntimeError("forced after the branch grant")
+
+        def profile_write_fails(path, value):
+            if path.parent == self.service.home:
+                raise OSError("forced at the profile")
+            real_write(path, value)
+
+        for name, failure in (("first", patch.object(db, "_ledger_tables", tables_then_fail)),
+                              ("late", patch.object(db, "_private_write", profile_write_fails))):
+            with self.subTest(failure=name):
+                database = f"test_{name}"
+                with failure, self.assertRaises((RuntimeError, OSError)):
+                    self.init(name, database)
+                self.assertEqual(self.left(database, name), nothing)
+                self.init(name, database)
+                with db.connect(db.load_profile(name), "writer") as writer:
+                    written = db.write(writer, "probe", {"bundle": name}, "evidence_bundle", bundle_insert(name))
+                self.assertEqual(written["write_status"], "written")
+
+    def test_a_database_dropped_by_the_administrator_is_rebuilt_under_the_same_name(self):
+        for market in (False, True):
+            name = "rebuilt-market" if market else "rebuilt"
+            database = name.replace("-", "_")
+            with self.subTest(market=market):
+                self.init(name, database, market)
+                old = db._service(self.service.service_root)["databases"][database]
+                self.admin(f"DROP DATABASE `{database}`")
+                (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
+                self.assertTrue(self.left(database, name)["users"])
+                self.assertTrue(self.left(database, name)["grants"])
+                self.init(name, database, market)
+                state = self.left(database, name)
+                self.assertEqual(len(state["grants"]), 1)
+                self.assertEqual(state["users"], {f"{database}_writer", f"{database}_reader"})
+                new = db._service(self.service.service_root)["databases"][database]
+                self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
+                if not market:
+                    with db.connect(db.load_profile(name), "writer") as writer:
+                        written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle",
+                                           bundle_insert("again"))
+                    self.assertEqual(written["write_status"], "written")
+
+    def test_a_name_the_service_holds_in_another_case_is_refused_and_kept(self):
+        self.init("cased", "test_cased")
+        with self.assertRaises(Refusal) as caught:
+            self.init("upper", "TEST_CASED")
+        self.assertEqual(caught.exception.code, "LEDGER_EXISTS")
+        self.assertEqual(self.left("test_cased", "cased")["database"], True)
+        with db.connect(db.load_profile("cased"), "reader") as reader:
+            self.assertEqual(reader.rows("SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])
+
+
 if __name__ == "__main__":
     unittest.main()
