@@ -787,7 +787,7 @@ def comparison_table(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<n>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<date>-<slug>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
 
 **返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, run_id, trial_id, measures, dominated_by: [run_id…], non_dominated\}], candidates（表里的候选，去重排序）\}
 
@@ -830,7 +830,7 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" } }} />
 
-**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记会被拒的项，一个列表）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记会被拒的项，一个列表）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
@@ -848,7 +848,7 @@ def research_state(
 | `LINE_UNKNOWN` | 所给的研究路线证据包不存在 |
 | `UNKNOWN_REF` | at 解析不到提交、分支或标签 |
 | `LINE_CORRUPT` | 路线记录读回哈希与存储哈希不符，或包内缺 research-line.json（由 ledger.read_line 抛出） |
-| `LINE_FORMAT_UNSUPPORTED` | 路线记录的 format 不是 research-line-v1（由 ledger.read_line 抛出） |
+| `LINE_FORMAT_UNSUPPORTED` | 路线记录的 format 不是 research-line-v2（由 ledger.read_line 抛出） |
 
 **使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />
 

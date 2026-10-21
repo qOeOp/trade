@@ -21,7 +21,7 @@ from ledger.refusals import refuse
 
 BUNDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}\Z")
 RESERVED = re.compile(r"(trial-[0-9]+-(execution|execution-start|recovery(-.*)?)|registration-.*|source-review-.*"
-                      r"|research-line-[0-9]+|lifecycle-[0-9a-v]{32})\Z")
+                      r"|research-line-.*|lifecycle-[0-9a-v]{32})\Z")
 PATH_LIMIT = 512
 MAX_FILE_BYTES = 64 * 1024 * 1024  # uncalibrated example value
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".mp3", ".wav", ".aac", ".opus",

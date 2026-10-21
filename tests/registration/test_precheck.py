@@ -283,7 +283,7 @@ class LineStartTests(unittest.TestCase):
 
         def select(ref: str) -> dict:
             return lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), ref,
-                                     market=market(), reviews=availability.review_records)
+                                     slug="passing-start", market=market(), reviews=availability.review_records)
 
         def code(ref: str) -> str:
             with self.assertRaises(Refusal) as caught:
@@ -300,4 +300,4 @@ class LineStartTests(unittest.TestCase):
         passing = world.publish("passing")
         world.prechecked(passing["source"])
         selected = select(passing["candidate"])
-        self.assertEqual((selected["line_no"], selected["created"]), (2, True))
+        self.assertEqual((selected["bundle"].endswith("-passing-start"), selected["created"]), (True, True))

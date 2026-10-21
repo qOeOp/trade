@@ -438,7 +438,7 @@ def add_bundle(
 
 **期望行为**
 
-1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品保留命名空间 trial-\<id>-execution-start、trial-\<id>-execution、trial-\<id>-recovery、trial-\<id>-recovery-*、registration-*、source-review-*、research-line-\<n>、lifecycle-\<market_commit>（RESERVED_BUNDLE）；这些包只由对应的产品命令经 ledger.write_files 写。
+1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品保留命名空间 trial-\<id>-execution-start、trial-\<id>-execution、trial-\<id>-recovery、trial-\<id>-recovery-*、registration-*、source-review-*、research-line-\<date>-\<slug>、lifecycle-\<market_commit>（RESERVED_BUNDLE）；这些包只由对应的产品命令经 ledger.write_files 写。
 2. 逐源读字节：源或其后代是符号链接、包内路径为绝对路径或含 .. 或重复即 INVALID_EVIDENCE_PATH；空文件或没有任何文件即 EMPTY_EVIDENCE；音视频媒体即 MEDIA_NOT_KEPT；单文件超上限即 EVIDENCE_TOO_LARGE；拒绝时不写任何行。
 3. 对每份文件算 sha256，op_id 缺省时由包名与逐文件哈希派生。
 4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、sha256）；库里还没有的内容另插一行 evidence_content（字节；sha256 由数据库从内容派生），已有的只引用，同样的字节只存一份。
@@ -777,10 +777,41 @@ def add_judgment(
 
 | 函数 | 用途 |
 |---|---|
+| <Ref id="ledger.close_line">close_line</Ref> | 给已结束的研究路线封盘：在它的最后一个提交上打 tag line/\<UTC 日期>-\<slug>，消息是这条路线的总结；research state 的 unclosed_lines 列出待封路线 |
 | <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
 | <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径 |
 | <Ref id="ledger.read_line">read_line</Ref> | 按包名读一条研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交，附包的创建时间与所读提交 |
-| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成新编号的研究路线证据包；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。 |
+| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。 |
+
+### `close_line` [#def-ledger-close_line]
+
+给一条已结束的研究路线封盘：服务管理员在它的最后一个提交上打 tag line/\<UTC 日期>-\<slug>，tag 消息是 Agent 写的这条路线的总结
+
+```python
+def close_line(profile: LedgerProfile, bundle: str, summary: bytes) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案" }, "bundle": { type: "str", description: "已结束的研究路线包名（research state 的 unclosed_lines 所列）" }, "summary": { type: "bytes", description: "这条路线的总结，UTF-8，去掉首尾空白后存为 tag 消息，至多 32768 字节" } }} />
+
+**返回**　dict：\{line, tag, commit, ended_by, replayed\}
+
+**期望行为**
+
+1. 总结须为非空 UTF-8 且不超过上限，否则 LINE_SUMMARY_INVALID；去掉首尾空白（Dolt 也会去掉 tag 消息末尾的换行）。
+2. 以 reader 读路线列表（按入账时间排序）：没有这条即 LINE_UNKNOWN；它是最新一条即 LINE_OPEN（一条路线在下一条被选定时结束）。
+3. 封盘点：下一条路线的包所在提交（dolt_diff_evidence_bundle 中 added 的那一行）的父提交；research branch 是线性的，父提交不是恰好一个即 LEDGER_CORRUPT。
+4. 同名 tag 已存在：指向同一提交且消息相同即返回 replayed=true；否则 LINE_CLOSED，tag 永不替换。
+5. 以服务管理员连接执行 DOLT_TAG('-m', 总结, tag, 封盘提交)（writer 账号不能打 tag）；tag 不改工作集、不经 ledger_head，与研究写入互不冲突。
+6. 总结是检索用的目录，不是证据：tag 可被管理员删除，删后下次 research-start 会把这条路线列为未封并重新封。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LINE_SUMMARY_INVALID` | 总结不是 UTF-8、为空或超过 32768 字节 |
+| `LINE_UNKNOWN` | 没有这条研究路线 |
+| `LINE_OPEN` | 它是当前路线 |
+| `LINE_CLOSED` | 已经以另一份总结或另一个提交封过 |
+
+**使用**　<Ref id="ledger.read_line" />、<Ref id="table:evidence_bundle" />
 
 ### `current_line` [#def-ledger-current_line]
 
@@ -792,12 +823,12 @@ def current_line(conn: LedgerConnection, at: str | None) -> dict | None
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "at": { type: "str | None", description: "账本提交或标签；给出时经 ledger.read_as_of 按 AS OF 读当时的最新路线，缺省读当前头" } }} />
 
-**返回**　dict | None：\{bundle, line_no, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希；账本中没有任何路线记录时返回 None
+**返回**　dict | None：\{bundle, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希；账本中没有任何路线记录时返回 None
 
 **期望行为**
 
-1. 在 evidence_bundle 中列出名为 research-line-\<n> 的包，取 n 最大者；没有即返回 None，入口据此进入路线选择而不是自行开始。
-2. 经 ledger.read_line 读该包的 research-line.json，核对读回字节的 sha256 与存储哈希一致、format 为 research-line-v1；不一致拒绝 LINE_CORRUPT，format 不识别拒绝 LINE_FORMAT_UNSUPPORTED。
+1. 在 evidence_bundle 中列出名为 research-line-\<UTC 日期>-\<slug> 的包，取入账时间（服务器 UTC）最晚者；没有即返回 None，入口据此进入路线选择而不是自行开始。
+2. 经 ledger.read_line 读该包的 research-line.json，核对读回字节的 sha256 与存储哈希一致、format 为 research-line-v2；不一致拒绝 LINE_CORRUPT，format 不识别拒绝 LINE_FORMAT_UNSUPPORTED。
 3. 原样返回记录字段并附包的 created_at 与所读账本提交；登记的窗口核对与可比核对读同一来源。
 4. 只读：不连接市场库、不判断新鲜度、不建议换提交；新月份可扩展范围由入口另行报告，改窗口或提交是用户经 ledger.select_line 写新记录。
 
@@ -865,14 +896,14 @@ def read_line(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "bundle": { type: "str", description: "研究路线证据包名 research-line-<n>" }, "at": { type: "str | None", description: "账本提交或标签；None 读连接所见的版本" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "bundle": { type: "str", description: "研究路线证据包名 research-line-<UTC 日期>-<slug>" }, "at": { type: "str | None", description: "账本提交或标签；None 读连接所见的版本" } }} />
 
-**返回**　dict：\{bundle, line_no, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希
+**返回**　dict：\{bundle, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希
 
 **期望行为**
 
 1. 经 ledger.load_bundle 按 at 读该包，逐文件重算哈希；读回哈希不符拒绝 LINE_CORRUPT。
-2. 包内缺 research-line.json 拒绝 LINE_CORRUPT；内容不是 JSON 对象或 format 不是 research-line-v1，拒绝 LINE_FORMAT_UNSUPPORTED。
+2. 包内缺 research-line.json 拒绝 LINE_CORRUPT；内容不是 JSON 对象或 format 不是 research-line-v2，拒绝 LINE_FORMAT_UNSUPPORTED。
 3. 按记录字段原样返回，附包的 created_at 与所读账本提交；缺的字段为 null。
 4. ledger.current_line、ledger.line_trials 与 report.research_state 都经它读路线记录，口径只有这一份。
 5. 只读：不连接市场库，不判断新鲜度。
@@ -881,7 +912,7 @@ def read_line(
 |---|---|
 | `UNKNOWN_BUNDLE` | 该版本下没有这个包（由 ledger.load_bundle 抛出） |
 | `LINE_CORRUPT` | research-line.json 读回哈希与存储哈希不符，或包内缺该文件 |
-| `LINE_FORMAT_UNSUPPORTED` | 记录不是 JSON 对象，或 format 不是 research-line-v1 |
+| `LINE_FORMAT_UNSUPPORTED` | 记录不是 JSON 对象，或 format 不是 research-line-v2 |
 
 **使用**　<Ref id="ledger.load_bundle" />、<Ref id="table:v_evidence" />
 
@@ -897,7 +928,7 @@ def read_line(
 
 ### `select_line` [#def-ledger-select_line]
 
-把用户选定的起点候选、开发窗口与钉住的市场提交写成新编号的研究路线证据包；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。
+把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。
 
 ```python
 def select_line(
@@ -908,24 +939,25 @@ def select_line(
     window_end: date,
     start: str,
     note: str | None,
+    slug: str,
     reviews: Callable[[LedgerConnection], list[dict]],
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_database": { type: "str", description: "交易所数据库名；与账本同一服务上的第二个数据库，跨库只传提交哈希" }, "market_at": { type: "str", description: "用户给的市场提交引用（Dolt 引用名或提交哈希，缺省 main）；函数内解析成唯一提交哈希后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" }, "reviews": { type: "Callable[[LedgerConnection], list[dict]]", description: "qualification.review_records：读这条连接所见当前头的源码审查记录；由命令行传入，账本层不导入资格层" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_database": { type: "str", description: "交易所数据库名；与账本同一服务上的第二个数据库，跨库只传提交哈希" }, "market_at": { type: "str", description: "用户给的市场提交引用（Dolt 引用名或提交哈希，缺省 main）；函数内解析成唯一提交哈希后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连，至多 48 字符；与选定当天的 UTC 日期一起组成包名与封盘 tag 名" }, "reviews": { type: "Callable[[LedgerConnection], list[dict]]", description: "qualification.review_records：读这条连接所见当前头的源码审查记录；由命令行传入，账本层不导入资格层" } }} />
 
-**返回**　dict：\{bundle: 'research-line-\<n>', line_no: n, market_commit, universe_rule, content_sha256, op_id, created: bool\}；同载荷重试返回原记录且 created=False
+**返回**　dict：\{bundle: 'research-line-\<UTC 日期>-\<slug>', market_commit, universe_rule, content_sha256, op_id, created: bool\}；同载荷重试返回原记录且 created=False
 
 **期望行为**
 
 1. 核对起点：经 ledger.read_candidate 按 strategy_id@revision 读 candidate 表，取其源码内容哈希作为起点身份；不存在即拒绝 START_NOT_FOUND。
 2. 核对市场与窗口：market.resolve_commit 把引用解析为唯一哈希，market.freshness 按该提交 AS OF 读 universe_rule 与最新完整日；解析失败拒绝 MARKET_COMMIT_UNRESOLVED；window_start ≥ window_end 拒绝 WINDOW_INVALID；window_end 晚于最新完整日的次日拒绝 WINDOW_OUT_OF_COVERAGE。只核对，不删币、不缩窗、不换提交。
 3. 核对起点审查：经 reviews 读源码审查记录，只看未被忽略、源码哈希等于起点的；有一条 failed，或没有一条 passed，即拒绝 START_REVIEW_REQUIRED。
-4. 编号：经 ledger.current_line 取最新编号 n（无则 0），新包名 research-line-\<n+1>。
-5. 组装 research-line.json（format research-line-v1：line_no、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
-6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包内容哈希不同拒绝 LINE_CONFLICT，不覆盖。
+4. 命名：slug 不合形态即 LINE_SLUG_INVALID；新包名 research-line-\<服务器当前 UTC 日期 YYYYMMDD>-\<slug>。
+5. 组装 research-line.json（format research-line-v2：market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
+6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包（同一天、同一 slug）内容哈希不同拒绝 LINE_CONFLICT，不覆盖，由 Agent 换一个更准确的 slug。
 7. 返回包名与写入身份；此后每次登记的窗口核对与可比核对都读这条记录。
-8. 最新路线与本次内容完全相同时不写新记录，返回该路线并标 created=false；内容不同才写 research-line-\<n+1>。
+8. 最新路线与本次选择完全相同时（不论 slug）不写新记录，返回该路线并标 created=false；选择不同才写新路线。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -934,7 +966,8 @@ def select_line(
 | `MARKET_COMMIT_UNRESOLVED` | 市场提交引用解析不到唯一哈希，或该提交上读不到 universe_rule |
 | `WINDOW_INVALID` | window_start ≥ window_end |
 | `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |
-| `LINE_CONFLICT` | 研究路线包名已存在且内容哈希不同（并发选路或重复编号） |
+| `LINE_SLUG_INVALID` | slug 不是至多 48 字符的小写 ASCII 单词连字符串 |
+| `LINE_CONFLICT` | 同一天、同一 slug 的路线已存在且选择不同 |
 
 **使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
 

@@ -435,7 +435,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 
 证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、更正与 Agent 自由文本都以证据包入账；包名即身份
 
-<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<id>-execution-start、trial-<id>-execution、trial-<id>-recovery、trial-<id>-recovery-*、registration-*、source-review-*、research-line-<n>、lifecycle-<market_commit>，只由对应的产品命令经 ledger.write_files 写；其余名字（如 correction-*、Agent 的来源与笔记包）由 Agent 经 ledger.add_bundle 写；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<id>-execution-start、trial-<id>-execution、trial-<id>-recovery、trial-<id>-recovery-*、registration-*、source-review-*、research-line-<date>-<slug>、lifecycle-<market_commit>，只由对应的产品命令经 ledger.write_files 写；其余名字（如 correction-*、Agent 的来源与笔记包）由 Agent 经 ledger.add_bundle 写；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
 
 **键与约束**
 
