@@ -1,121 +1,86 @@
-# Lenses
+# Audit coverage
 
 ## Contents
 
-- Failures
-- Mechanisms
-- Efficiency
-- Method
-- Data
-- Product state
+- Assignment
+- Behavior and decision evidence
+- Data and usage cost
+- Product contracts and delivery
 - Removal test
 
-Each lens is a separate read-only sub-agent. Every item it returns carries the session location
-(for product state, the norm it breaks) and a product proof (SKILL.md, Verify).
+## Assignment
 
-## Failures
+The workstreams combine related questions, not evidence standards or audit scope. Assign one fresh
+read-only reviewer to each; all findings follow SKILL.md's proof requirements. Share the pinned
+raw evidence and timeline, not another reviewer's conclusions. Split work only when a distinct risk
+needs it. Report coverage and anything unexamined; an untriggered path is not a verified one.
 
-Look at every command that failed, was refused, was retried, or gave a wrong or surprising result,
-and every point where the agent worked around the product. For each one, report:
-- the root cause in the product;
-- whether main already fixes it;
-- the fix.
-
-Also report latent defects the session exposed without failing: wrong or missing values in a
-report or stored record, refusal text whose fix points nowhere, an argument that silently does
-something else.
-
-## Mechanisms
-
-List the refusals, audit and eligibility checks, gates and skill rules that the session's steps
-pass through. Put each one in exactly one class:
-
-| Class | Meaning |
+| Workstream | Coverage combined |
 |---|---|
-| should have fired | the session hit the risk it guards, but it stayed silent (gap or defect) |
-| fired, no value | always true, duplicated by another check, or only produced ceremony or a workaround |
-| fired, useful | caught a real problem |
-| silent, useful | did not fire, but guards a real risk that no other check covers |
-| silent, no value | cannot matter for this product, or is fully covered elsewhere |
+| Behavior and decision evidence | Failures; Method |
+| Data and usage cost | Data; Efficiency |
+| Product contracts and delivery | Mechanisms; Product state |
 
-Cover every item in the first two classes and the last. Apply the removal test to each.
+## Behavior and decision evidence
 
-## Efficiency
+Inspect failures, refusals, retries, workarounds and latent wrong or missing outputs. Identify the
+product cause, current-main status and smallest remedy. Follow the actual output into the agent's
+interpretation and decision, including where information was lost or an unsupported inference arose.
 
-Measure:
-- wall-clock time per phase, and the replay time within it;
-- tokens over time;
-- `--help` calls and source reads the agent needed before it could use a command (each one points
-  to a gap in a skill or in the CLI help);
-- repeated commands and polling;
-- scripts the agent wrote in /tmp, and whether a skill should have given them;
-- oversized outputs.
+Check applicable research instructions against the session, ambiguous or conflicting guidance,
+strategy source (lookahead, sizing, fees, protection) and the validity of later comparisons.
+Distinguish faithful execution from justified interpretation: what observation supports the
+claim, what alternatives remain, and what information the next step could add? Assess product
+support for that reasoning without making research selections or claiming economic validity.
 
-For each finding, give the cost, the cause, the cheapest remedy (CLI output or a default first,
-then removing something, skill text last, or nothing) and the expected saving. Product code is the
-remedy only for a trust boundary, a defect, or something an agent cannot do (AGENTS.md).
+## Data and usage cost
 
-## Method
+Trace session ledger commits to their commands and changed rows. Check wrong, missing or duplicated
+facts, derivable storage, failed-attempt remnants against the schema, identity consistency, original
+records and corrections, and whether normal reads preserve their meaning. Compare blob sizes with
+physical database growth, backup identity and query scaling. Use only read-only statements.
 
-Go through the session's steps against the current research skills, rule by rule, and report:
-- which rule applied and whether the agent complied;
-- where the skill text was ambiguous or contradictory and led the agent astray;
-- what the agent should have done instead;
-- the smallest wording change that would prevent it.
+Measure phase and replay time, tokens, discovery reads, repeated calls and polling, temporary
+scripts and oversized outputs. Attribute unnecessary work to a demonstrated cause; a help call or
+script alone is not a defect. Give observed cost, cheapest remedy and the basis for expected
+savings; leave uncertain attribution unknown. Product code remedies follow AGENTS.md.
 
-Judge the strategy source too: lookahead, sizing, fees and protection. Also judge whether the
-setup keeps later comparisons valid. Grading the session against the skills says nothing about
-the skills themselves; that is the product-state lens.
+## Product contracts and delivery
 
-## Data
+Evaluate the whole current product against external norms, beyond the paths reached by the
+session. Check the rules themselves independently of the behavior review's compliance assessment.
 
-Report:
-- every ledger commit in the session's span, with the command that made it and the rows it
-  changed;
-- stored facts that are duplicated, or that stored data already derives;
-- wrong or missing values;
-- records left by failed attempts, and whether the schema intends them;
-- inconsistent identities;
-- blob sizes, compared with the physical growth of the database;
-- whether the backup matches;
-- query patterns that scale badly with the number of rounds.
+For refusals, audits, eligibility, gates and skill rules, distinguish: should have fired; fired
+without value; fired usefully; silent but uniquely protective; silent with no distinct value.
+Explain every missed risk or removal proposal and apply the removal test.
 
-Use only read-only statements.
+Trace contracts from their owner through actual distribution, invocation and presentation
+consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
+alone does not verify a consumer. Check repaired claims along the same path before closure.
+AGENTS.md owns common permissions; identify duplicated or conflicting policies without silently
+resolving them by changing authority. Keep diagnosis and implementation decisions separate.
 
-## Product state
-
-Runs on every diagnosis over the whole current product, whatever the sessions touched, against
-norms from outside the product; the product's own conventions are not the reference.
-
-- Skills, against the Anthropic skill-authoring best practices
-  (https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices,
-  https://code.claude.com/docs/en/skills): does each skill folder hold focused runtime content?
-  Separately check AGENTS.md's repository policy that evals live outside skill folders; do not
-  attribute that layout to the external guide. Is any text history, a changelog, a design id, a special case, good
-  practice a capable agent already follows, or something the product's own output already says?
-  Is each description in the third person, saying what the skill does and when to use it? Is
-  every reference one level deep from SKILL.md, a long reference given a table of contents, and
-  SKILL.md under 500 lines? Is one term used per concept? Where to look: every skill folder and
-  its size against the previous record.
-- Code: what do the repository's configured static checks report on the current checkout, and
-  what does the latest CI run on main print? Report every error and warning line, ResourceWarning
-  and deprecation included, with its cause. Where to look: the project's lint and type-check
-  configuration, and the log of the quality job of the latest CI run on main.
-- Design site: which text no longer matches the code or the skills (commands, fields, rules,
-  paths, eval names)? Where to look: the published design pages next to the current checkout.
+- Skills: use [Anthropic authoring guidance](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
+  and [Claude Code skill documentation](https://code.claude.com/docs/en/skills). Check focused runtime
+  content, third-person capability/trigger descriptions, progressive disclosure, consistent terms,
+  references one level from SKILL.md, navigation for long references and an entry under 500 lines. Remove history, design ids, case accumulations and redundant
+  instructions. Evals outside skills are this repository's AGENTS.md policy, not an external rule.
+- Code: inspect configured static checks on this checkout and the latest main CI quality log.
+  Account for every error and warning, including ResourceWarning and deprecations, with its cause.
+- Design: compare published pages and their presentation consumers with current code and skills,
+  including commands, fields, rules, paths and eval references. Distinguish published state from
+  checkout changes awaiting delivery.
 
 ## Removal test
 
-For a mechanism, rule, command, field or test, answer three questions:
-1. Which concrete risk does it guard? For a test, ask instead: if it fails, is the product broken?
-2. Does another check already cover that risk?
-3. What do the sessions show: caught something, only ceremony, or never reached?
+For every touched mechanism, rule, command, field or test, ask:
+1. What concrete risk does it guard? For a test, would its failure mean the product is broken?
+2. What other check covers that risk?
+3. Did the session expose protection, ceremony or an unreached path?
 
-Propose removal when no distinct risk remains, or when the sessions show only ceremony while
-another check holds the risk. Keep it when it guards a real risk on its own, even if it has never
-fired. A removal of a refusal or audit check is an `authority` item (SKILL.md, Boundaries).
+Propose removal only when no distinct protection remains. Keep a uniquely useful boundary even if
+it never fired. Changes to refusals or audits remain authority items under AGENTS.md.
 
-For a skill file, also ask: is it runtime content the agent needs (no design ids, history or
-evals inside the skill folder), and would a capable agent fail without it? Before removing skill text
-because the product already says it, find where the product's own output says it; if it does
-not, move the fact into that output instead of deleting it.
+For skill text, retain necessary runtime guidance; confirm any claimed replacement in actual
+product output before deleting it. Express recurring needs as general principles, not examples or
+incremental rules. Add a mechanism only for a demonstrated failure it would catch.
