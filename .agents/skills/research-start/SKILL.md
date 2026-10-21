@@ -18,6 +18,13 @@ selected (`line select`); everything inside it follows `research-round`.
   taking the user's two research targets from its note.
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
+- When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
+  background sub-agent (on a host without one, do it before the session ends). For each line, read
+  it as it ended (`research state --line LINE --at COMMIT`, the commit the list gives), write its
+  summary and run `line close --line LINE --summary FILE`. The summary is the index later research
+  searches: the direction, what was tried, the results with their run IDs, the failures and why,
+  the lessons, and advice for later lines; numbers stay in the reports. Closing writes nothing
+  else; a failure is retried at the next start.
 
 ## Offer lines and wait
 
@@ -35,9 +42,11 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
 then published, prechecked and reviewed (research-round's template.md, First report). Record the
 choice once with `line select --start ID@N --window-start YYYY-MM-DD --window-end YYYY-MM-DD
---market-at COMMIT --note TEXT`, `--start` being the revision whose review passed and the note
-stating the user's two research targets (maximum drawdown, minimum annual return); a later change
-is a new line record, never an edit. The targets are the reference for reading reports; ask for
+--market-at COMMIT --note TEXT --slug SLUG`, `--start` being the revision whose review passed, the
+note stating the user's two research targets (maximum drawdown, minimum annual return) and the
+slug naming the line's direction in lowercase words joined by hyphens (`ema-trend-vol-sizing`);
+with the UTC date it names the line and its closing tag. A later change is a new line record,
+never an edit. The targets are the reference for reading reports; ask for
 nothing else (no coins, sizing, budgets or stages).
 
 - Before continuing into `research-round`, set the host's goal for this session yourself; the user

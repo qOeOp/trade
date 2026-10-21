@@ -348,7 +348,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found["review_every"], register.REVIEW_EVERY)
         self.assertEqual(found["facts"]["counts"]["research_attempts"], 4)
         with db.connect(self.profile, "reader") as conn:
-            self.assertEqual(refused(status.research_state, conn, "research-line-9").code, "LINE_UNKNOWN")
+            self.assertEqual(refused(status.research_state, conn, "research-line-20260101-none").code, "LINE_UNKNOWN")
 
     def test_affected_runs_list_the_runs_of_another_identity(self):
         other = {"runtime": {"image_digest": "sha256:" + "c" * 64}}

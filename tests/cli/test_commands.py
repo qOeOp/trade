@@ -203,11 +203,11 @@ class CommandTests(unittest.TestCase):
 
         # The line
         self.refused("WINDOW_INVALID", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-1-1",
-                     "--window-end", "2026-02-01")
+                     "--window-end", "2026-02-01", "--slug", "fixture-trend")
         self.refused("WINDOW_OUT_OF_COVERAGE", "line", "select", *ledger, "--start", "fixture@1",
-                     "--window-start", "2026-01-01", "--window-end", "2026-03-01")
+                     "--window-start", "2026-01-01", "--window-end", "2026-03-01", "--slug", "fixture-trend")
         selection = ("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
-                     "--window-end", "2026-02-01", "--note", "the user's choice")
+                     "--window-end", "2026-02-01", "--note", "the user's choice", "--slug", "fixture-trend")
         self.refused("START_REVIEW_REQUIRED", *selection)
 
         # Market facts and the lifecycle bundle
@@ -245,7 +245,8 @@ class CommandTests(unittest.TestCase):
         # The root: precheck, review, registration and the sealed replay
         root_review = self.prechecked("fixture@1", "root")
         line = self.ok(*selection)
-        self.assertEqual((line["bundle"], line["created"], line["market_commit"]), ("research-line-1", True, commit))
+        self.assertRegex(line["bundle"], r"\Aresearch-line-[0-9]{8}-fixture-trend\Z")
+        self.assertEqual((line["created"], line["market_commit"]), (True, commit))
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
                      "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")
@@ -273,7 +274,7 @@ class CommandTests(unittest.TestCase):
 
         # Judgments before the derived registration
         head = self.ok("ledger", "sql", *ledger, "SELECT DOLT_HASHOF('HEAD')")["rows"][0][0]
-        judged = self.ok("judgment", "add", *ledger, "--kind", "interpretation", "--line", "research-line-1",
+        judged = self.ok("judgment", "add", *ledger, "--kind", "interpretation", "--line", line["bundle"],
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])

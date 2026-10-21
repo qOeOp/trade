@@ -593,13 +593,13 @@ def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str,
 
 
 def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
-                market_at: str | None, note: str | None) -> dict:
+                market_at: str | None, note: str | None, slug: str) -> dict:
     """line select: the user's research line (start candidate, development window, pinned market commit)."""
     from qualification import availability
     first, last = _utc_day(window_start), _utc_day(window_end)
-    selected = lines.select_line(conn, market["database"], market_at or "main", first, last, start, note,
+    selected = lines.select_line(conn, market["database"], market_at or "main", first, last, start, note, slug=slug,
                                  market=_market_facts(market), reviews=availability.review_records)
-    return {"bundle": selected["bundle"], "line_no": selected["line_no"], "start": start,
+    return {"bundle": selected["bundle"], "start": start,
             "window": {"start": first.isoformat(), "end": last.isoformat()},
             "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
             "content_sha256": selected["content_sha256"], "created": selected["created"]}
@@ -946,7 +946,7 @@ def _parser() -> Parser:
     _ledger_option(command)
     command.add_argument("--kind", required=True, choices=judgments.KINDS,
                          help="recommendation, priority, interpretation or search_exposure")
-    command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-1")
+    command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-20261021-ema-trend")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
@@ -954,7 +954,7 @@ def _parser() -> Parser:
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
 
-    line = verbs("line", "research lines: select")
+    line = verbs("line", "research lines: select, close")
     command = line.add_parser("select", help="record the user's research line")
     _ledger_option(command)
     _market_option(command)
@@ -965,6 +965,12 @@ def _parser() -> Parser:
     command.add_argument("--market-at", help="market commit, tag or branch to pin (default: main)")
     command.add_argument("--note", help="the user's two research targets (maximum drawdown, minimum annual return) "
                                         "and other context")
+    command.add_argument("--slug", required=True,
+                         help="the line's direction as lowercase words joined by hyphens, e.g. ema-trend-vol-sizing")
+    command = line.add_parser("close", help="tag an ended line's last commit with its summary")
+    _ledger_option(command)
+    command.add_argument("--line", required=True, help="an ended line research state lists under unclosed_lines")
+    command.add_argument("--summary", required=True, help="UTF-8 text file: the line's summary (at most 32 KB)")
 
     registration = verbs("registration", "registrations: add")
     command = runner(registration, "add", "lock a registration")
@@ -1175,7 +1181,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         market = market_profile(args.market)
         with db.connect(profile, "writer") as conn:
             return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
-                               args.note), 0
+                               args.note, args.slug), 0
+    if key == ("line", "close"):
+        return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
     if key == ("registration", "add"):
         return registration_add(profile, args.bundle, args.body, args.runtime, market_profile(args.market),
                                 runner_argv, args.source), 0

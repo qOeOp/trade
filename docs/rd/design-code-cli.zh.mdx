@@ -32,6 +32,7 @@
 | <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本 |
 | <Ref id="cli.ledger_temp">ledger_temp</Ref> | 在临时根下起一个隔离的测试账本 |
 | <Ref id="cli.ledger_witness">ledger_witness</Ref> | 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证 |
+| <Ref id="cli.line_close">line_close</Ref> | 命令行 line close：给一条已结束的研究路线封盘，总结写进 tag 消息 |
 | <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注），把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
 | <Ref id="cli.main">main</Ref> | 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
@@ -688,6 +689,28 @@ def ledger_witness(profile: path, tsa_url: str | None) -> JSON {checked
 
 </div>
 
+### `line_close` [#def-cli-line_close]
+
+命令行 line close：给一条已结束的研究路线封盘，把总结文件交给 ledger.close_line
+
+```python
+def line_close(
+    ledger: str,
+    line: str,
+    summary: path,
+) -> JSON
+```
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案" }, "line": { type: "str", description: "已结束的研究路线包名（research state 的 unclosed_lines）" }, "summary": { type: "path", description: "UTF-8 总结文件，至多 32 KB" } }} />
+
+**返回**　JSON：\{line, tag, commit, ended_by, replayed\}
+
+**期望行为**
+
+1. 读总结文件（须为普通文件，否则 LINE_SUMMARY_INVALID），原样交给 ledger.close_line；拒绝码原样输出。
+
+**使用**　<Ref id="ledger.close_line" />
+
 ### `line_select` [#def-cli-line_select]
 
 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注），把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。
@@ -701,12 +724,13 @@ def line_select(
     window_end: str (YYYY-MM-DD),
     market_at: str,
     note: str | None,
+    slug: str,
 ) -> JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本服务地址与数据库名，经 ledger.connect 以写账号打开一条连接" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本服务地址与数据库名，经 ledger.connect 以写账号打开一条连接" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" } }} />
 
-**返回**　JSON：\{bundle, line_no, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created\}；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
+**返回**　JSON：\{bundle, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created\}；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
 
 **期望行为**
 
@@ -722,7 +746,8 @@ def line_select(
 | `START_REVIEW_REQUIRED` | 由 select_line 返回：起点没有通过的源码审查，或有一次审查失败 |
 | `MARKET_COMMIT_UNRESOLVED` | 由 select_line 返回：市场提交引用解析不到 |
 | `WINDOW_OUT_OF_COVERAGE` | 由 select_line 返回：窗口终点晚于钉住提交的最新完整日 |
-| `LINE_CONFLICT` | 由 select_line 返回：并发选路造成同名不同内容 |
+| `LINE_SLUG_INVALID` | 由 select_line 返回：slug 形态不合 |
+| `LINE_CONFLICT` | 由 select_line 返回：同一天、同一 slug 的路线已存在且选择不同 |
 
 **使用**　<Ref id="cli.main" />、<Ref id="ledger.connect" />、<Ref id="ledger.select_line" />
 

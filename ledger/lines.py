@@ -1,8 +1,16 @@
-"""Research lines (`ledger.select_line`, `ledger.current_line`, `ledger.read_line`, `ledger.line_trials`).
+"""Research lines (`ledger.select_line`, `ledger.current_line`, `ledger.read_line`, `ledger.line_trials`,
+`ledger.close_line`).
 
 A research line is the user's choice of start candidate (a revision whose source review passed),
 development window and pinned market commit, stored append-only as the evidence bundle
-research-line-<n> holding research-line.json. The latest line is the one with the largest n; a new choice is a new number, never an edit.
+research-line-<UTC date>-<slug> holding research-line.json; the slug names the line's direction.
+The latest line is the one the ledger received last; a new choice is a new line, never an edit.
+
+A line ends when the next one is selected. Closing it tags the commit before the next line's
+(`line/<UTC date>-<slug>`) with the Agent's summary as the tag message: a read-only snapshot of
+the line's end and an index for later research. Only the product tags, as the service
+administrator (the writer account cannot tag); the summary is an index, the evidence stays in
+the ledger.
 """
 
 from __future__ import annotations
@@ -13,16 +21,23 @@ import hashlib
 import json
 import re
 
+import pymysql
+
 from ledger import db, evidence, execution, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
-LINE = re.compile(r"research-line-([1-9][0-9]*)\Z")
+PREFIX = "research-line-"
+LINE = re.compile(r"research-line-([0-9]{8})-([a-z0-9]+(?:-[a-z0-9]+)*)\Z")
+SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+SLUG_LIMIT = 48
 FILE = "research-line.json"
-FORMAT = "research-line-v1"
-FIELDS = ("line_no", "market_database", "market_commit", "universe_rule", "window_start", "window_end", "start",
-          "start_sha256", "note")
+FORMAT = "research-line-v2"
+FIELDS = ("market_database", "market_commit", "universe_rule", "window_start", "window_end", "start", "start_sha256",
+          "note")
+TAG_PREFIX = "line/"
+SUMMARY_LIMIT = 32 * 1024  # bytes of a line summary; an index, not a report
 
 
 def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
@@ -46,31 +61,37 @@ def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
             "ledger_commit": loaded["commit"]}
 
 
-def _lines(conn: db.LedgerConnection, clause: str) -> list[tuple[int, str]]:
-    names = conn.rows(f"SELECT bundle FROM evidence_bundle{clause} WHERE bundle LIKE 'research-line-%'")
-    return sorted((int(match.group(1)), name) for (name,) in names if (match := LINE.fullmatch(name)))
+def _lines(conn: db.LedgerConnection, clause: str) -> list[str]:
+    """Every research line bundle, oldest first by server time (one line per write, so no ties)."""
+    rows = conn.rows(f"SELECT bundle, created_at FROM evidence_bundle{clause} WHERE bundle LIKE 'research-line-%'")
+    return [name for created, name in sorted((created, name) for name, created in rows if LINE.fullmatch(name))]
 
 
 def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | None:
     """The latest research line record at `at` (default: what the connection sees), or None."""
     _, clause = db.as_of(conn, at)
-    numbered = _lines(conn, clause)
-    if not numbered:
+    named = _lines(conn, clause)
+    if not named:
         return None
-    return read_line(conn, numbered[-1][1], at)
+    return read_line(conn, named[-1], at)
 
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
-                window_end: date, start: str, note: str | None = None, *,
+                window_end: date, start: str, note: str | None = None, *, slug: str,
                 market: Callable[[str, str], dict],
                 reviews: Callable[[db.LedgerConnection], list[dict]]) -> dict:
-    """Append the user's chosen line as research-line-<n+1>; the same choice again is a replay.
+    """Append the user's chosen line as research-line-<UTC date>-<slug>; the same choice again
+    (whatever its slug) is a replay of the current line. Another choice under a name already taken
+    is LINE_CONFLICT: the Agent names the direction more precisely.
 
     `market(market_database, market_at)` returns {commit, universe_rule, latest_complete_day}
     (market.resolve_commit and market.freshness of the design, a later phase). `reviews(conn)` is
     qualification.review_records: the start revision needs a passed source review of its source
     hash and none failed, read at the head this connection sees.
     """
+    if not isinstance(slug, str) or len(slug) > SLUG_LIMIT or not SLUG.fullmatch(slug):
+        raise refuse("LINE_SLUG_INVALID", f"invalid line slug {slug!r}",
+                     expected=f"lowercase ASCII words joined by hyphens, at most {SLUG_LIMIT} characters")
     try:
         candidate = strategies.read_candidate(conn, start)
     except Refusal as exc:
@@ -103,14 +124,14 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
               "note": note}
     latest = current_line(conn)
     if latest is not None and all(latest[key] == value for key, value in choice.items()):
-        content_sha256 = hashlib.sha256(_encode({"format": FORMAT, "line_no": latest["line_no"], **choice})).hexdigest()
-        return {"bundle": latest["bundle"], "line_no": latest["line_no"], "market_commit": latest["market_commit"],
+        content_sha256 = hashlib.sha256(_encode({"format": FORMAT, **choice})).hexdigest()
+        return {"bundle": latest["bundle"], "market_commit": latest["market_commit"],
                 "universe_rule": latest["universe_rule"], "content_sha256": content_sha256,
                 "op_id": db.derive_op_id("select_line", {"bundle": latest["bundle"], "content_sha256": content_sha256}),
                 "created": False}
-    line_no = (latest["line_no"] if latest else 0) + 1
-    bundle = f"research-line-{line_no}"
-    content = _encode({"format": FORMAT, "line_no": line_no, **choice})
+    (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
+    bundle = f"{PREFIX}{today.strftime('%Y%m%d')}-{slug}"
+    content = _encode({"format": FORMAT, **choice})
     content_sha256 = hashlib.sha256(content).hexdigest()
     op = db.derive_op_id("select_line", {"bundle": bundle, "content_sha256": content_sha256})
     try:
@@ -119,9 +140,10 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
                                                                                         operation), op_id=op)
     except Refusal as exc:
         if exc.code == "BUNDLE_EXISTS":
-            raise refuse("LINE_CONFLICT", f"{bundle} already exists with other content", missing=(bundle,)) from exc
+            raise refuse("LINE_CONFLICT", f"{bundle} already exists with another choice; name this direction "
+                                          "with another slug", missing=(bundle,)) from exc
         raise
-    return {"bundle": bundle, "line_no": line_no, "market_commit": facts["commit"],
+    return {"bundle": bundle, "market_commit": facts["commit"],
             "universe_rule": facts["universe_rule"], "content_sha256": content_sha256, "op_id": written["op_id"],
             "created": not written["replayed"]}
 
@@ -174,3 +196,72 @@ def _market_commit(conn: db.LedgerConnection, trial_id: int, clause: str) -> str
         raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no readable start receipt",
                      missing=(f"{bundle}/{execution.MANIFEST}",)) from exc
 
+
+
+# Closing ended lines
+
+def tag_name(bundle: str) -> str:
+    """The closing tag of a line: line/<UTC date>-<slug>."""
+    return TAG_PREFIX + bundle[len(PREFIX):]
+
+
+def unclosed_lines(conn: db.LedgerConnection) -> list[dict]:
+    """The ended lines (every line but the latest) without their closing tag, oldest first, each
+    with its closing commit ({line, tag, commit, ended_by})."""
+    tags = {name for (name,) in conn.rows("SELECT tag_name FROM dolt_tags WHERE tag_name LIKE 'line/%'")}
+    return [{"line": bundle, **closing_commit(conn, bundle)} for bundle in _lines(conn, "")[:-1]
+            if tag_name(bundle) not in tags]
+
+
+def closing_commit(conn: db.LedgerConnection, bundle: str) -> dict:
+    """{tag, commit, ended_by} of an ended line: the parent of the commit that added the next line
+    (the research branch is linear). LINE_UNKNOWN for no line, LINE_OPEN for the current one."""
+    named = _lines(conn, "")
+    if bundle not in named:
+        raise refuse("LINE_UNKNOWN", f"no research line {bundle!r}", missing=(str(bundle),))
+    position = named.index(bundle)
+    if position == len(named) - 1:
+        raise refuse("LINE_OPEN", f"{bundle} is the current line; it ends when the next line is selected",
+                     missing=(bundle,))
+    successor = named[position + 1]
+    (added,), = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND "
+                          "diff_type = 'added'", (successor,))
+    parents = conn.rows("SELECT parent_hash FROM dolt_commit_ancestors WHERE commit_hash = %s", (added,))
+    if len(parents) != 1:
+        raise refuse("LEDGER_CORRUPT", f"the commit adding {successor} has {len(parents)} parents", missing=(added,))
+    return {"tag": tag_name(bundle), "commit": parents[0][0], "ended_by": successor}
+
+
+def close_line(profile: db.LedgerProfile, bundle: str, summary: bytes) -> dict:
+    """Tag an ended line's last commit line/<date>-<slug> with the Agent's summary (UTF-8, at most
+    SUMMARY_LIMIT bytes, stored without surrounding blank space) as the message, as the service
+    administrator; the same summary again is a replay, another one LINE_CLOSED (a tag is never
+    replaced)."""
+    from ledger import admin
+    try:
+        text = summary.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise refuse("LINE_SUMMARY_INVALID", "the summary is not UTF-8", expected="UTF-8 text") from exc
+    text = text.strip()  # Dolt stores a tag message without its trailing newline, as git does
+    if not text or len(summary) > SUMMARY_LIMIT:
+        raise refuse("LINE_SUMMARY_INVALID", "the summary is empty or too long",
+                     expected=f"1 to {SUMMARY_LIMIT} bytes of UTF-8 text")
+    with db.connect(profile, "reader") as conn:
+        closing = closing_commit(conn, bundle)
+        existing = conn.rows("SELECT tag_hash, message FROM dolt_tags WHERE tag_name = %s", (closing["tag"],))
+    if existing:
+        if tuple(existing[0]) == (closing["commit"], text):
+            return {"line": bundle, **closing, "replayed": True}
+        raise refuse("LINE_CLOSED", f"{bundle} is already closed as {closing['tag']}", missing=(closing["tag"],))
+    try:
+        _, conn = admin._admin(profile)
+    except pymysql.MySQLError as exc:
+        raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to tag the line") from exc
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("CALL DOLT_TAG('-m', %s, %s, %s)", (text, closing["tag"], closing["commit"]))
+    except pymysql.MySQLError as exc:
+        raise db._sql_error(exc) from exc
+    finally:
+        conn.close()
+    return {"line": bundle, **closing, "replayed": False}

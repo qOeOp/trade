@@ -77,7 +77,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "INVALID_BUNDLE_NAME": ("The bundle name is not of the form [A-Za-z0-9][A-Za-z0-9_.-]{0,159}.",
                             ("Rename the bundle within the allowed characters and length.",)),
     "RESERVED_BUNDLE": ("The bundle name lies in a product namespace (trial-<id>-execution(-start), "
-                        "trial-<id>-recovery(-*), registration-*, source-review-*, research-line-<n>, "
+                        "trial-<id>-recovery(-*), registration-*, source-review-*, research-line-*, "
                         "lifecycle-<market_commit>), written only by its product command.",
                         ("Write those through their commands (`registration add`, `source review`, `line select`); "
                          "name your own evidence otherwise, for example correction-*.",)),
@@ -136,14 +136,23 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "WINDOW_OUT_OF_COVERAGE": ("The development window ends after the market commit's latest complete day.",
                                ("End the window at most one day after the latest complete day, or pin a newer "
                                 "market commit.",)),
-    "LINE_CONFLICT": ("A research line of that number already exists with other content.",
-                      ("Read the current line with `research state`, then select again.",)),
+    "LINE_CONFLICT": ("A research line of that date and slug already exists with another choice.",
+                      ("Name the direction more precisely with another `--slug`, then select again.",)),
+    "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",
+                          ("Name the line's direction in that form, for example ema-trend-vol-sizing.",)),
+    "LINE_OPEN": ("The line is the current one; a line ends when the next one is selected.",
+                  ("Close only the ended lines `research state` lists under unclosed_lines.",)),
+    "LINE_CLOSED": ("The line is already closed with another summary; a closing tag is never replaced.",
+                    ("Read its summary from dolt_tags (`ledger sql`); leave it as it is.",)),
+    "LINE_SUMMARY_INVALID": ("The line summary is not UTF-8, is empty or exceeds 32768 bytes.",
+                             ("Shorten the summary to the line's directions, results, failures and lessons, then "
+                              "close again.",)),
     "LINE_CORRUPT": ("The research line record is missing from its bundle or no longer matches its hash.",
                      ("Run `ledger review`; select a new line with `line select`.",)),
-    "LINE_FORMAT_UNSUPPORTED": ("The research line record is not a research-line-v1 record.",
+    "LINE_FORMAT_UNSUPPORTED": ("The research line record is not a research-line-v2 record.",
                                 ("Select a new line with `line select`.",)),
     "LINE_UNKNOWN": ("The research line bundle does not exist or is not a research-line-* bundle.",
-                     ("Name an existing research-line-<n> bundle, or omit --line to read the current line; "
+                     ("Name an existing research-line-<date>-<slug> bundle, or omit --line to read the current line; "
                       "select a line with `line select`.",)),
     # Trials
     "BINDING_NOT_ALLOWED": ("The binder does not fit the replay's purpose: an exploration or precheck was given "

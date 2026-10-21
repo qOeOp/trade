@@ -340,7 +340,7 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
-    note), its current judgments with read-time facts, the fixed review cadence (`review_every`),
+    note), the ended lines not yet closed (`unclosed_lines`, for `line close`), its current judgments with read-time facts, the fixed review cadence (`review_every`),
     the trials since the last recommendation, the trial count of the line and the gates the next registration would meet. On
     a ledger without a research line: `line` null with the facts and `line select` as the next step."""
     checker = availability.check_identity()
@@ -351,7 +351,8 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
             needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
                        "missing": ["research-line"]}]
-            return {"at": commit, "line": None, **{kind: None for kind in SINGLE_KINDS}, "review_every": register.REVIEW_EVERY,
+            return {"at": commit, "line": None, "unclosed_lines": [], **{kind: None for kind in SINGLE_KINDS},
+                    "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
                     "gates": needed,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
@@ -361,6 +362,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         record = lines.read_line(pinned, line, None)
         judged = _judgments(pinned, line)
+        unclosed = lines.unclosed_lines(pinned)
         original = _judgment_history(pinned, line, history or history_before is not None, history_before)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
         unreviewed = (lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
@@ -373,7 +375,8 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             gates: list[dict] = []
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
-    return {"at": commit, "line": record, **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
+    return {"at": commit, "line": record, "unclosed_lines": unclosed,
+            **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
             "judgment_history": original,

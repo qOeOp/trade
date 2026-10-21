@@ -24,7 +24,7 @@ class JudgmentTests(unittest.TestCase):
         with db.connect(cls.profile, "writer") as conn:
             cls.before_line = db.head_commit(conn)
             cls.line = lines.select_line(conn, "market", "main", date(2026, 1, 2), date(2026, 2, 1), "a@1",
-                                         market=market(), reviews=reviewed(source("a")))["bundle"]
+                                         slug="a-root", market=market(), reviews=reviewed(source("a")))["bundle"]
             plan = {"research-plan.json": json.dumps({"grid": "a"}).encode()}
             product_bundle(conn, "registration-a", plan)
             product_bundle(conn, "registration-unused", plan)
@@ -66,7 +66,7 @@ class JudgmentTests(unittest.TestCase):
         self.assertEqual(self.add(based_on_commit="main", body="by branch")["replayed"], False)
 
     def test_basis_and_line_refusals(self):
-        self.assertEqual(self.code(line_bundle="research-line-99"), "LINE_UNKNOWN")
+        self.assertEqual(self.code(line_bundle="research-line-20260101-none"), "LINE_UNKNOWN")
         self.assertEqual(self.code(line_bundle="registration-a"), "LINE_UNKNOWN")
         self.assertEqual(self.code(based_on_commit=self.before_line), "COMMIT_BEFORE_LINE")
         self.assertEqual(self.code(based_on_commit="0" * 32), "COMMIT_NOT_ANCESTOR")
