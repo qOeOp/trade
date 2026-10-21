@@ -76,6 +76,25 @@ class LedgerBaseTests(unittest.TestCase):
         dumped = json.dumps(result, default=str) + json.dumps(db.load_profile("nopass").as_json())
         self.assertFalse(any(secret in dumped for secret in secrets))
 
+    def test_long_database_names_have_distinct_private_accounts(self):
+        profiles = [db.init(f"long-{suffix}", "x" * 63 + suffix, self.profile.service_root, "isolated",
+                            dolt_binary=BINARY)["profile"] for suffix in ("a", "b")]
+        config = db._service(self.profile.service_root)
+        names = [config["databases"][profile.database][role]["user"]
+                 for profile in profiles for role in db.ROLES]
+        self.assertEqual(len(set(names)), 4)
+        self.assertTrue(all(len(name) <= 32 for name in names))
+        self.assertEqual(config["databases"][self.profile.database]["writer"]["user"], "test_base_writer")
+        for profile, other in ((profiles[0], profiles[1]), (profiles[1], profiles[0])):
+            with db.connect(profile, "writer") as writer:
+                self.assertEqual(db.write(writer, "probe", {"bundle": "long"}, "evidence_bundle",
+                                          bundle_insert("long"))["write_status"], "written")
+            for role in db.ROLES:
+                with db.connect(profile, role) as conn:
+                    self.assertEqual(conn.rows("SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])
+                    with self.assertRaises(Refusal):
+                        conn.rows(f"SELECT version FROM `{other.database}`.ledger_schema")
+
     def test_init_refusals(self):
         for name, database in (("bad name", "ok"), ("ok", "bad-database")):
             with self.subTest(name=name):
@@ -464,6 +483,43 @@ class InitRecoveryTests(unittest.TestCase):
                         written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle",
                                            bundle_insert("again"))
                     self.assertEqual(written["write_status"], "written")
+
+    def test_long_research_and_market_accounts_are_rolled_back_and_rebuilt(self):
+        self.init("anchor", "anchor")
+        original_users = set(self.admin("SELECT user FROM mysql.user"))
+        real_write = db._private_write
+
+        def profile_write_fails(path, value):
+            if path.parent == self.service.home:
+                raise OSError("forced at the profile")
+            real_write(path, value)
+
+        for name, database, market in (("long-research", "r" * 64, False),
+                                        ("long-market", "m" * 64, True)):
+            with self.subTest(market=market):
+                before = set(self.admin("SELECT user FROM mysql.user"))
+                with patch.object(db, "_private_write", profile_write_fails), self.assertRaises(OSError):
+                    self.init(name, database, market)
+                self.assertEqual(set(self.admin("SELECT user FROM mysql.user")), before)
+                self.assertNotIn((database,), self.admin("SHOW DATABASES"))
+                self.assertNotIn(database, db._service(self.service.service_root)["databases"])
+                self.assertFalse((self.service.home / f"{name}.json").exists())
+                self.assertEqual(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
+                                            (database,), "anchor"), [])
+                self.init(name, database, market)
+                old = db._service(self.service.service_root)["databases"][database]
+                users = {account["user"] for account in old.values()}
+                self.assertTrue(users.isdisjoint(user for (user,) in original_users))
+                self.admin(f"DROP DATABASE `{database}`")
+                (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
+                self.init(name, database, market)
+                new = db._service(self.service.service_root)["databases"][database]
+                self.assertEqual({account["user"] for account in new.values()}, users)
+                self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
+                self.assertEqual(set(self.admin("SELECT user FROM mysql.user")),
+                                 before | {(user,) for user in users})
+                self.assertEqual(len(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
+                                                (database,), database)), 1)
 
     def test_a_name_the_service_holds_in_another_case_is_refused_and_kept(self):
         self.init("cased", "test_cased")

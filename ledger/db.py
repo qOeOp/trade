@@ -349,6 +349,14 @@ def _secure(cursor, config: dict) -> None:
         cursor.execute(f"SET PERSIST dolt_commit_verification_groups = '{COMMIT_TESTS}'")
 
 
+def _account_name(database: str, role: str) -> str:
+    legacy = f"{database}_{role}"
+    if len(legacy) <= 32:
+        return legacy
+    # '-' cannot occur in a database name, so these cannot alias legacy account names.
+    return "lg-" + hashlib.sha256(f"{database}:{role}".encode()).hexdigest()[:29]
+
+
 def _provision(service_root: Path, config: dict, database: str, build: Callable[[object, dict], str],
                profile_path: Path, profile: dict) -> tuple[dict, str]:
     """Create `database` on the running service with `build(cursor, accounts)` (its tables, its two
@@ -357,7 +365,7 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
     branch grants or accounts left for a name it does not hold belong to a dropped database and are
     replaced. Any failure once the database is created removes what this call created (the database,
     its branch grants and accounts, its service.json entry) and re-raises."""
-    accounts = {role: {"user": f"{database}_{role}", "password": secrets.token_urlsafe(24)} for role in ROLES}
+    accounts = {role: {"user": _account_name(database, role), "password": secrets.token_urlsafe(24)} for role in ROLES}
     created = recorded = False
     conn = _admin(config)
     try:
@@ -393,7 +401,7 @@ def _clear(cursor, database: str, accounts: dict) -> None:
     """Delete the branch grants and the generated accounts of `database`, with it selected
     (dolt_branch_control is service-wide, outlives a dropped database and needs one selected). While
     the service held no database of that name before this call, they can only be this call's or a
-    dropped database's: an account is named `<database>_<role>`, which no other database's takes."""
+    dropped database's: account names are derived from the full database name and role."""
     cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = %s", (database,))
     for account in accounts.values():
         cursor.execute(f"DROP USER IF EXISTS '{account['user']}'@'%'")
