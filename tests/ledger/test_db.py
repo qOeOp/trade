@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import hashlib
 import json
 from pathlib import Path
 import stat
@@ -21,7 +22,9 @@ from tests.ledger.dolt import BINARY, SKIP, Service
 def bundle_insert(name: str, wait=None):
     def insert(conn, op):
         conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES (%s, %s, '2000-01-01')", (name, op))
-        conn.rows("INSERT INTO evidence (bundle, path, content) VALUES (%s, 'a.txt', %s)", (name, name.encode()))
+        conn.rows("INSERT INTO evidence_content (content) VALUES (%s)", (name.encode(),))
+        conn.rows("INSERT INTO evidence (bundle, path, sha256) VALUES (%s, 'a.txt', %s)",
+                  (name, hashlib.sha256(name.encode()).hexdigest()))
         if wait is not None:
             wait()
         return {"bundle": name}
@@ -49,11 +52,12 @@ class LedgerBaseTests(unittest.TestCase):
     def test_init_creates_the_whole_schema_its_guards_and_private_accounts(self):
         profile = self.service.ledger("fresh")
         tables = {name: kind for name, kind in self.service.sql(profile, "SHOW FULL TABLES")}
-        for table in ("candidate", "evidence_bundle", "evidence", "trial", "registration_attempt", "run", "run_sealed",
+        for table in ("candidate", "evidence_bundle", "evidence", "evidence_content", "trial", "registration_attempt", "run", "run_sealed",
                       "run_return", "run_cycle", "validation_registration", "validation_binding", "judgment",
                       "judgment_subject", "witness", "ledger_head", "ledger_schema"):
             self.assertEqual(tables.get(table), "BASE TABLE", table)
-        for view in ("v_candidates", "v_trials", "v_runs", "v_judgments", "v_evidence", "v_validations"):
+        for view in ("v_candidates", "v_trials", "v_runs", "v_judgments", "v_evidence", "v_validations",
+                     "v_candidate_lineage", "v_run_history", "v_judgment_chain", "v_judgment_subjects"):
             self.assertEqual(tables.get(view), "VIEW", view)
         self.assertEqual(self.service.sql(profile, "SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])
         self.assertEqual(self.service.sql(profile, "SELECT singleton, op_id FROM ledger_head")[0], (1, "schema"))
@@ -133,7 +137,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(self.code(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
                                                                            "service_root": stopped}), "reader")),
                          "LEDGER_PERMISSION")
-        with patch.object(db, "SCHEMA_VERSION", 2):
+        with patch.object(db, "SCHEMA_VERSION", db.SCHEMA_VERSION + 1):
             self.assertEqual(self.code(lambda: db.connect(self.profile, "reader")), "SCHEMA_MISMATCH")
 
     def test_connections_carry_their_role_and_branch(self):
@@ -173,14 +177,19 @@ class LedgerBaseTests(unittest.TestCase):
                 "INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('upsert', 'u', NOW()) "
                 "ON DUPLICATE KEY UPDATE op_id = 'hijacked'")), "LEDGER_PERMISSION")
 
-            def forged_hash(conn, op):
-                conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('forged', %s, NOW())", (op,))
-                conn.rows("INSERT INTO evidence (bundle, path, content, sha256) VALUES ('forged', 'a', 'x', %s)",
-                          ("0" * 64,))
-                return {}
+            def forged(statement):
+                def insert(conn, op):
+                    conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('forged', %s, NOW())",
+                              (op,))
+                    conn.rows(statement, ("0" * 64,))
+                    return {}
+                return insert
 
-            self.assertEqual(self.code(lambda: db.write(writer, "probe", {"forged": 1}, "evidence_bundle",
-                                                        forged_hash)), "DOLT_SQL_ERROR")
+            # The ledger derives a content's hash, and a bundle file can only name a stored content.
+            for number, statement in enumerate(("INSERT INTO evidence_content (content, sha256) VALUES ('x', %s)",
+                                                "INSERT INTO evidence (bundle, path, sha256) VALUES ('forged', 'a', %s)")):
+                self.assertEqual(self.code(lambda: db.write(writer, "probe", {"forged": number}, "evidence_bundle",
+                                                            forged(statement))), "DOLT_SQL_ERROR")
         (stored,), = self.service.sql(self.profile, "SELECT op_id FROM evidence_bundle WHERE bundle = 'upsert'")
         self.assertTrue(stored.startswith("probe:"))
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle WHERE bundle = 'forged'"),

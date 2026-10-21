@@ -193,7 +193,8 @@ class IntegrityTests(unittest.TestCase):
 
     def test_5_a_run_whose_records_do_not_verify_does_not_stop_the_lists_and_counts(self):
         trial_id = self.runs["not_the_merge"]["trial_id"]
-        self.admin_sql(f"UPDATE evidence SET content = '{{}}' WHERE bundle = 'trial-{trial_id}-execution' AND "
+        self.admin_sql("INSERT IGNORE INTO evidence_content (content) VALUES ('{}')",
+                       f"UPDATE evidence SET sha256 = SHA2('{{}}', 256) WHERE bundle = 'trial-{trial_id}-execution' AND "
                        "path = 'execution.json'",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: an execution capture', '--skip-verification')")
         listed = candidates.candidates(self.profile)

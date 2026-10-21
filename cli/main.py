@@ -652,7 +652,7 @@ def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, prech
         except Refusal as exc:
             raise refuse("RUNTIME_UNRESOLVED", f"{runtime} does not resolve to an image digest ({exc.code})",
                          missing=(str(runtime),)) from exc
-        trial = conn.one("SELECT purpose, source_sha256, image_digest FROM trial WHERE trial_id = %s", (precheck_trial,))
+        trial = conn.one(f"SELECT purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (precheck_trial,))
     if trial is None or (trial["purpose"], trial["source_sha256"], trial["image_digest"]) != (
             "precheck", row["source_sha256"], identity["image_digest"]):
         raise refuse("PRECHECK_NOT_FOUND", f"trial {precheck_trial} is no precheck of {candidate} on "

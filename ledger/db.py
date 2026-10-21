@@ -39,8 +39,8 @@ from ledger.paths import temporary_path
 from ledger.refusals import refuse
 
 
-SCHEMA_VERSION = 1
-READABLE_VERSIONS = frozenset({1})
+SCHEMA_VERSION = 2
+READABLE_VERSIONS = frozenset({2})
 DOLT_VERSION = "2.4.2"
 KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")
@@ -56,6 +56,9 @@ COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
 VERIFICATION_FAILED = "commit verification failed"
+# trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored.
+IMAGE_DIGEST = "SUBSTRING_INDEX(image_ref, '@', -1) AS image_digest"
+TRIAL_IMAGE_DIGEST = "SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest"  # trial aliased `t`
 SERVER_LAUNCH = '"$@" </dev/null >>server.log 2>&1 & echo $!'
 
 

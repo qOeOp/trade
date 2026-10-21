@@ -15,7 +15,7 @@ import hashlib
 import json
 import re
 
-from ledger import db, execution, lines, problems, witness
+from ledger import db, evidence, execution, lines, problems, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -38,8 +38,8 @@ def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, di
     one primary-key range read of the trial-* namespace, no blob of the captures."""
     starts: dict[int, dict] = {}
     captures: dict[int, dict] = {}
-    for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND "
-                                             "path = %s", ("trial-%", execution.MANIFEST)):
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+                                             "WHERE e.bundle LIKE %s AND e.path = %s", ("trial-%", execution.MANIFEST)):
         found = TRIAL_MANIFEST.fullmatch(bundle)
         if found is None:
             continue
@@ -106,7 +106,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
     same source, image digest, windows, instruments and inputs, as replay.reproduce writes) and a
     trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the
     stored trial rows and capture manifests; nothing is marked."""
-    trials = conn.dicts("SELECT t.trial_id, t.purpose, t.source_sha256, t.image_digest, t.instruments, t.input_start, "
+    trials = conn.dicts(f"SELECT t.trial_id, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, t.instruments, t.input_start, "
                         "t.trade_start, t.trade_end, r.run_id FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
                         "ORDER BY t.trial_id")
     starts, captures = _manifests(conn)
@@ -128,7 +128,8 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         failures = None
         if isinstance(capture, Mapping) and ((capture.get("files") or {}).get(execution.RUNTIME_ERRORS) or {}).get(
                 "status") == "captured":
-            found = conn.rows("SELECT content, sha256 FROM evidence WHERE bundle = %s AND path = %s",
+            found = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.files_from()} WHERE e.bundle = %s "
+                              "AND e.path = %s",
                               (f"trial-{trial_id}-execution", execution.RUNTIME_ERRORS))
             if found and hashlib.sha256(bytes(found[0][0])).hexdigest() == found[0][1]:
                 failures = bytes(found[0][0])
@@ -410,7 +411,7 @@ def affected_runs(ledger, current: Mapping, at: str | None = None) -> dict:
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
         affected, unrecorded = [], set()
-        for row in conn.dicts("SELECT r.run_id, r.trial_id, r.status, t.image_digest FROM run r JOIN trial t ON "
+        for row in conn.dicts(f"SELECT r.run_id, r.trial_id, r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
                               "t.trial_id = r.trial_id ORDER BY r.run_id"):
             record = register.control_run(conn, row["run_id"])
             start = execution.read_capture(conn, row["trial_id"])["start"]

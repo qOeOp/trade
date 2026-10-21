@@ -95,7 +95,8 @@ class EvidenceLedgerTests(unittest.TestCase):
         self.assertEqual(loaded["files"]["sub/raw.bin"], bytes(range(256)))
         self.assertEqual(loaded["digests"], first["files"])
         self.assertEqual(loaded["commit"], first["ledger_commit"])
-        stored = dict(self.service.sql(self.profile, "SELECT path, byte_length FROM evidence WHERE bundle = 'notes-1'"))
+        stored = dict(self.service.sql(self.profile, "SELECT e.path, LENGTH(c.content) FROM evidence e JOIN "
+                                                     "evidence_content c ON c.sha256 = e.sha256 WHERE e.bundle = 'notes-1'"))
         self.assertEqual(stored, {"claims.json": 15, "sub/raw.bin": 256})
 
     def test_a_name_is_never_reused_for_other_content(self):

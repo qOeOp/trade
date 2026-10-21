@@ -308,7 +308,7 @@ def check_clocks(control: Sequence, candidate: Sequence) -> None:
 
 
 def _run_row(conn: db.LedgerConnection, run_id: int, side: str) -> dict:
-    found = conn.one("SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, t.image_digest FROM run r "
+    found = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
                      "JOIN trial t ON t.trial_id = r.trial_id WHERE r.run_id = %s", (run_id,))
     if found is None:
         if side == "control":
@@ -531,7 +531,7 @@ def _bound(conn: db.LedgerConnection, registration_id: int) -> tuple[dict | None
     if trial is None:
         raise refuse("LEDGER_CORRUPT", f"validation registration {registration_id} binds the missing trial "
                                        f"{binding['trial_id']}", missing=(f"trial {binding['trial_id']}",))
-    run = conn.one("SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, t.image_digest, r.audit FROM run r "
+    run = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, r.audit FROM run r "
                    "JOIN trial t ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (binding["trial_id"],))
     return {**binding, "purpose": trial["purpose"], "bound_at": trial["created_at"]}, run
 

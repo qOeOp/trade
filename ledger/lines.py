@@ -158,7 +158,8 @@ def _market_commit(conn: db.LedgerConnection, trial_id: int, clause: str) -> str
     """The market commit of a research trial's input identity, read from execution.json of its start
     receipt (written in the trial's own commit, so a missing or unreadable one is ledger damage)."""
     bundle = f"trial-{trial_id}-execution-start"
-    found = conn.rows(f"SELECT content, sha256 FROM evidence{clause} WHERE bundle = %s AND path = %s",
+    found = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.files_from(clause)} WHERE e.bundle = %s "
+                      "AND e.path = %s",
                       (bundle, execution.MANIFEST))
     try:
         (content, stored), = found

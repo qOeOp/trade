@@ -172,8 +172,8 @@ def _sealed_rows_findings(conn: db.LedgerConnection, run_id: int, commit: str, r
     def mismatch(table: str, detail: str) -> None:
         found.append(_finding("READING_MISMATCH", table, run_id, commit, detail))
 
-    cycles = conn.dicts("SELECT ts_closed_ns, realized_pnl, commissions, funding, price_pnl, open_unrealized, plan_tag "
-                        "FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
+    cycles = conn.dicts(f"SELECT ts_closed_ns, realized_pnl, commissions, funding, {metrics.PRICE_PNL}, "
+                        "open_unrealized, plan_tag FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
     returns = conn.rows("SELECT ts_event_ns, native_return FROM run_return WHERE run_id = %s ORDER BY ts_event_ns",
                         (run_id,))
     populations = report.get("populations") or {}

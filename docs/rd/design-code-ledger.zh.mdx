@@ -438,7 +438,7 @@ def add_bundle(
 1. 核对包名形态（INVALID_BUNDLE_NAME），并核对它不落入产品保留命名空间 trial-\<id>-execution-start、trial-\<id>-execution、trial-\<id>-recovery、trial-\<id>-recovery-*、registration-*、source-review-*、research-line-\<n>、lifecycle-\<market_commit>（RESERVED_BUNDLE）；这些包只由对应的产品命令经 ledger.write_files 写。
 2. 逐源读字节：源或其后代是符号链接、包内路径为绝对路径或含 .. 或重复即 INVALID_EVIDENCE_PATH；空文件或没有任何文件即 EMPTY_EVIDENCE；音视频媒体即 MEDIA_NOT_KEPT；单文件超上限即 EVIDENCE_TOO_LARGE；拒绝时不写任何行。
 3. 对每份文件算 sha256，op_id 缺省时由包名与逐文件哈希派生。
-4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、content；sha256 与 byte_length 由数据库从内容派生）。
+4. 经 ledger.write 以一个事务、一次提交写入：evidence_bundle 一行（bundle、op_id；created_at 由服务器触发器打）与每文件一行 evidence（bundle、path、sha256）；库里还没有的内容另插一行 evidence_content（字节；sha256 由数据库从内容派生），已有的只引用，同样的字节只存一份。
 5. op_id 已存在且包名与逐文件哈希都相同则不写，读回已存逐文件哈希并返回 replayed；op_id 相同而包名或内容不同即 OP_ID_CONFLICT；包名已存在而 op_id 不同即 BUNDLE_EXISTS，提示换包名，旧包永不覆盖。
 6. 返回包名、逐文件哈希、写入状态与提交；调用方（cli.evidence_add、registration.register、registration.record_review、market.write_lifecycle_events）把包名与哈希记入各自记录。
 

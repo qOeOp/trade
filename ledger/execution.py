@@ -112,8 +112,8 @@ def _bundle_rows(conn: db.LedgerConnection, bundle: str, clause: str) -> dict[st
     if not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (bundle,)):
         return None
     files = {}
-    for path, content, stored in conn.rows(f"SELECT path, content, sha256 FROM evidence{clause} WHERE bundle = %s "
-                                           "ORDER BY path", (bundle,)):
+    for path, content, stored in conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {evidence.files_from(clause)} "
+                                           "WHERE e.bundle = %s ORDER BY e.path", (bundle,)):
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{path} differs from its content hash",

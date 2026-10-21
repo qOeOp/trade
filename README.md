@@ -55,8 +55,11 @@ backup lies in the checkout or a temporary directory. A failed `ledger init` rem
 accounts and branch grant it created; grants and accounts left by a dropped database of the same
 name are replaced. Rebuilding the active ledger needs the user's authority:
 
-1. Stop every session that uses it; move its profile file (`research.json` in the profile directory)
-   and its backup directory aside as the archive.
+1. Stop every session that uses it. With the code of the old schema generation (a new generation's
+   code refuses the old ledger with SCHEMA_MISMATCH), sync its backup with `ledger export --kind
+   backup` and write the full export outside the checkout with `ledger export --kind reproduce
+   --output <archive>`; then move its profile file (`research.json` in the profile directory) and
+   its backup directory into the archive.
 2. Drop the database as the service administrator (`root`, password in the service's `service.json`).
 3. Run the `ledger init` above with the same name and `RESEARCH_DOLT_BINARY` pointing at Dolt 2.4.2,
    then `ledger export --kind backup` and `ledger review`.

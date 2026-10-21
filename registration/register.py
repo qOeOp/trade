@@ -242,7 +242,7 @@ def _check_prediction(body: Mapping) -> None:
 def control_run(conn: db.LedgerConnection, run_id: int) -> dict:
     """A run joined with its trial and the execution identity of its start receipt (input identity in
     execution.json, effective configuration in input-coverage.json): the comparability record."""
-    row = conn.one("SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, t.image_digest FROM run r "
+    row = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
                    "JOIN trial t ON t.trial_id = r.trial_id WHERE r.run_id = %s", (run_id,))
     if row is None:
         raise refuse("RUN_NOT_PASSED", f"no sealed run {run_id}", missing=(str(run_id),))
@@ -320,7 +320,7 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     finds no economic evidence in it by the facts fixed when it was sealed (its sealed facts and the
     precheck review cited at registration as it stood then): a source review recorded after the run
     was ingested does not make a passed attempt retryable."""
-    run = conn.one("SELECT r.run_id, r.trial_id, r.status, t.source_sha256, t.image_digest FROM run r JOIN trial t "
+    run = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t "
                    "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if run is None:
         capture = ledger_execution.read_capture(conn, trial_id)
@@ -420,8 +420,8 @@ def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay:
 def _retried(conn: db.LedgerConnection) -> set[str]:
     """The registration bundles a stored registration names in retry_of."""
     named = set()
-    for bundle, content, stored in conn.rows("SELECT bundle, content, sha256 FROM evidence WHERE bundle LIKE %s AND "
-                                             "path = %s", ("registration-%", PLAN_FILE)):
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+                                             "WHERE e.bundle LIKE %s AND e.path = %s", ("registration-%", PLAN_FILE)):
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{PLAN_FILE} differs from its content hash",
@@ -614,7 +614,7 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
     body, registered = plan["body"], plan["execution"]
     details = _validate(conn, body, registered, before_replay=True, exclude=(bundle, trial_id))
     grid = {point["source_sha256"]: point for point in details["grid"]}
-    trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref, image_digest, instruments, input_start, "
+    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
                      "trade_start, trade_end, created_at FROM trial WHERE trial_id = %s", (trial_id,))
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} in this transaction", missing=(str(trial_id),))

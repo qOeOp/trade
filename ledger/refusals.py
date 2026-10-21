@@ -28,7 +28,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LEDGER_PERMISSION": ("The ledger account may not run this statement or was refused.",
                           ("Write only through the declared commands; they use the writer account.",)),
     "SCHEMA_MISMATCH": ("The ledger schema generation is not the one this code reads.",
-                        ("Use the product version that matches the ledger's schema generation.",)),
+                        ("Use the product version that matches the ledger's schema generation; the active "
+                         "ledger is rebuilt under the same name when the generation changes (README).",)),
     "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
     "LEDGER_EXISTS": ("A profile of that name, the active research ledger, or that database already exists.",
