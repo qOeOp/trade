@@ -34,7 +34,7 @@
 def check_comparable(run: Mapping, execution: Mapping) -> None
 ```
 
-<TypeTable type={{ "run": { type: "Mapping", description: "一侧的运行行与其试验行合并后的记录（由 ledger.load_run 读出）：status、purpose、image_digest、effective_config（JSON）、input_identity（JSON）" }, "execution": { type: "Mapping", description: "对照基准的执行身份 {runtime{image_digest}, effective_config, input_identity}：登记记录里的执行身份；比较入口对候选与对照各调一次" } }} />
+<TypeTable type={{ "run": { type: "Mapping", description: "一侧的运行行与其试验行合并后的记录（由 ledger.load_run 读出）：status、purpose、image_digest、effective_config（JSON）、input_identity（JSON）" }, "execution": { type: "Mapping", description: "对照基准的执行身份 {image_digest, effective_config, input_identity}：登记记录里的执行身份；比较入口对候选与对照各调一次" } }} />
 
 **返回**　None；核对通过不产生值，不写账本
 
@@ -150,7 +150,7 @@ def measure_catalogue() -> dict
 
 1. 目录固定为：profit_bridge（利润来源桥）：price、fee、funding、open_mark、account；capital_scaled（规模与仓位择时）：mean_notional、unit_return、level_term、timing_term、up_month_notional、down_month_notional、return_over_drawdown；fee_stress（费用压力）：breakeven_fee_multiple、daily_turnover；by_instrument（品种与方向）：top5_abs_share、one_side_instruments、long_net、short_net；market_exposure（市场暴露）：beta_basket、alpha_basket、beta_btc、alpha_btc；by_period（时期）：months_won_share、residual_after_top5_days、sharpe_lo；by_regime（波动状态）：high_vol_days、high_vol_mean_log、high_vol_log_sum、low_vol_days、low_vol_mean_log、low_vol_log_sum；trade_structure（交易结构）：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share；trade_pairs（交易配对）：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes；drawdown（回撤）：max_drawdown、drawdown_days、top_instrument_share_in_drawdown。
 2. 每个切面同时列出它能解释的职责：取归因对照表（<Ref id="P.4.1.1" />）中该切面对应职责的并集，例如 drawdown 是 E2、F3、A3、E1、E3，by_regime 是 A3、D2；登记的预测按此核对切面与职责是否相配。
-3. 改目录即升 metrics_revision；旧报告按旧版本复读。
+3. 目录是代码的一部分：metrics_revision 是封存时产品 checkout 的提交哈希，改了目录，之后封存的报告就带新的 metrics_revision。
 
 <div className="rd-meta">
 

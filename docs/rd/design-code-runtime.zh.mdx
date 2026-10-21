@@ -91,7 +91,7 @@ def container_command(
 **期望行为**
 
 1. 核对身份：经 runtime.validate_identity 校验，取 platform 填 --platform，取含摘要的 image_ref 作镜像引用。
-2. 核对模块：取 runtime.layout(identity.runtime_contract) 声明的运行器、审计器与探针模块；module 不在其中拒绝 MODULE_NOT_IN_LAYOUT。
+2. 核对模块：取 runtime.layout(identity.runtime_contract) 声明的运行器、审计器与指纹模块；module 不在其中拒绝 MODULE_NOT_IN_LAYOUT。
 3. 核对挂载：host_path 为存在的绝对路径；container_path 为绝对路径、不重复、不覆盖 /tmp；可写项只能是 /reports 且恰好一项，缺失拒绝 REPORTS_MOUNT_MISSING。
 4. 拼固定隔离参数：--rm --pull never --platform \<platform> --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit \<固定上限，未校准示例值> --user \<当前 uid:gid> --tmpfs /tmp；不加环境变量、端口、设备或额外能力。
 5. 按清单顺序拼 --mount type=bind,src=\<host_path>,dst=\<container_path>,readonly（/reports 省略 readonly），相同输入得到相同命令行。
@@ -103,7 +103,7 @@ def container_command(
 |---|---|
 | `RUNTIME_IDENTITY_INVALID` | runtime.validate_identity 判身份形态不合，或 image_ref 不含 @sha256: 摘要、与 image_digest 不一致 |
 | `RUNTIME_UNSUPPORTED` | platform 或 runtime_contract 不受支持 |
-| `MODULE_NOT_IN_LAYOUT` | module 不是 runtime.layout 为该契约声明的运行器、审计器或探针模块 |
+| `MODULE_NOT_IN_LAYOUT` | module 不是 runtime.layout 为该契约声明的运行器、审计器或指纹模块 |
 | `MOUNT_HOST_PATH_INVALID` | 某项 host_path 不是绝对路径或在宿主上不存在 |
 | `MOUNT_TARGET_INVALID` | 某项 container_path 不是绝对路径、重复出现，或等于或覆盖 /tmp |
 | `MOUNT_WRITABLE_NOT_REPORTS` | 可写挂载目标不是 /reports，或可写挂载多于一项 |
@@ -129,7 +129,7 @@ def container_command(
 | 函数 | 用途 |
 |---|---|
 | <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> | 宿主侧核对运行环境身份：本地镜像带该摘要与平台，隔离容器内运行探针，报告与清单契约、源码布局一致且有效配置哈希自洽；返回写入运行记录的运行环境检视 |
-| <Ref id="runtime.layout">layout</Ref> | 返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块与参数、身份探针模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对 |
+| <Ref id="runtime.layout">layout</Ref> | 返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块、指纹模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对 |
 | <Ref id="runtime.require_main_build">require_main_build</Ref> | 样本外验证专用：核运行环境来自产品镜像注册表 registry、构建源码版本在产品源码 main 上、镜像内运行器与审计器源码及依赖锁哈希等于该版本源码中的字节；研究回放不调用，任一构建来源的镜像在研究中仍可用 |
 | <Ref id="runtime.resolve">resolve</Ref> | 把标签或摘要引用解析为该镜像名下唯一的清单摘要，并从镜像清单与标签读出身份；身份不能手写，缺省引用为镜像注册表中的 main 标签 |
 | <Ref id="runtime.validate_identity">validate_identity</Ref> | 核对运行环境身份字典的形态：四个必需字段齐全、引用含不可变摘要且与摘要字段一致、平台与运行契约受支持；登记、回放、比较、样本外等所有接收身份的入口共用这一个核对 |
@@ -153,7 +153,7 @@ def inspect_runtime(
 **期望行为**
 
 1. runtime.validate_identity 后检视本地镜像：RepoDigests 须含 identity.image_ref 且平台等于 identity.platform；检视命令失败或 60 秒内未结束即 RUNTIME_UNAVAILABLE
-2. 按 runtime.layout(identity.runtime_contract) 取探针模块，用 runtime.container_command 构造带名字的无网络、只读、去特权容器执行探针并传 runner_args；300 秒内未结束即按名字停掉容器并拒绝 RUNTIME_UNAVAILABLE；退出非零或输出非 JSON 即拒绝
+2. 按 runtime.layout(identity.runtime_contract) 取运行器模块，用 runtime.container_command 构造带名字的无网络、只读、去特权容器，以 --describe 加 runner_args 运行它作为探针；300 秒内未结束即按名字停掉容器并拒绝 RUNTIME_UNAVAILABLE；退出非零或输出非 JSON 即拒绝
 3. 核对报告字段齐全且各哈希为 sha256 形态，缺一即拒绝
 4. 核对报告 runtime_contract 等于身份契约，source_file_paths 的键与路径逐项等于布局；重算 effective_config 规范 JSON 哈希须等于 effective_config_sha256
 5. 附加 image_config_digest 与 platform 返回；不写账本，由回放与登记路径写入运行记录
@@ -174,7 +174,7 @@ def inspect_runtime(
 
 ### `layout` [#def-runtime-layout]
 
-返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块与参数、身份探针模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对
+返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块、指纹模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对
 
 ```python
 def layout(runtime_contract: str | None) -> layout dict
@@ -182,12 +182,12 @@ def layout(runtime_contract: str | None) -> layout dict
 
 <TypeTable type={{ "runtime_contract": { type: "str | None", description: "运行契约版本标识；None 返回全部契约的布局映射。" } }} />
 
-**返回**　layout dict：runner_module、audit_module、audit_args、probe_module、source_paths（探针字段名 → 镜像内源码相对路径）、audit_path、lock_path；参数为 None 时返回 \{契约: layout\}
+**返回**　layout dict：runner_module、audit_module、fingerprint_module、source_paths（探针字段名 → 镜像内源码相对路径）、audit_path、lock_path；参数为 None 时返回 \{契约: layout\}
 
 **期望行为**
 
-1. 布局是模块级常量，每个契约版本一份：运行器、审计器、身份探针与指纹阶段的模块及源码路径。重构期间产品不兼容此前的镜像、运行与数据：镜像内模块搬迁（如 backtest.* → engine.*）直接改写布局，布局变动之前构建的镜像不再支持。
-2. 每个契约声明运行器模块、审计器模块与参数、身份探针模块，以及运行器各文件、审计器、依赖锁三类源码路径；不声明策略源码、账本配置或市场数据路径。
+1. 布局是模块级常量，每个契约版本一份：运行器、审计器与指纹阶段的模块及源码路径；身份探针就是运行器模块加 --describe。重构期间产品不兼容此前的镜像、运行与数据：镜像内模块搬迁（如 backtest.* → engine.*）直接改写布局，布局变动之前构建的镜像不再支持。
+2. 每个契约声明运行器、审计器与指纹三个模块，以及运行器各文件、审计器、依赖锁三类源码路径；不声明策略源码、账本配置或市场数据路径。
 3. 按给定契约查布局；契约未声明拒绝 RUNTIME_UNSUPPORTED。
 4. 受支持契约集合即布局映射的键，供 runtime.validate_identity 与 runtime.build_image 读取。
 

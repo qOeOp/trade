@@ -836,7 +836,7 @@ def research_state(
 
 1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line。
 2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
-3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的；review_cadence 旧行不读。
+3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
 5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
 6. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。

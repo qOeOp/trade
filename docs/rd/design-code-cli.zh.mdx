@@ -403,7 +403,7 @@ def hypothesis_compare(
 def judgment_add(args: Namespace) -> JSON
 ```
 
-<TypeTable type={{ "args": { type: "Namespace", description: "kind（recommendation、priority、interpretation、search_exposure）、line、based-on、body 文件、subject（可重复）、supersedes、op-id" } }} />
+<TypeTable type={{ "args": { type: "Namespace", description: "kind（recommendation、priority、interpretation、search_exposure，别的值由参数解析直接拒绝）、line、based-on、body 文件、subject（可重复）、supersedes、op-id" } }} />
 
 **返回**　JSON：judgment_id、ledger_commit、replayed
 
@@ -416,7 +416,6 @@ def judgment_add(args: Namespace) -> JSON
 | 拒绝码 | 条件 |
 |---|---|
 | `JUDGMENT_BODY_UNREADABLE` | body 不是可读的普通文件或不是 UTF-8 |
-| `REVIEW_CADENCE_FIXED` | 由 ledger.add_judgment 返回：--kind review_cadence |
 | `RECOMMENDATION_INCOMPLETE` | 由 ledger.add_judgment 返回：推荐漏点名对照表里的候选 |
 
 **使用**　<Ref id="ledger.add_judgment" />、<Ref id="report.compared_candidates" />
@@ -449,14 +448,14 @@ def ledger_export(
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；命令以读账号打开连接" }, "kind": { type: "enum reproduce|backup", description: "reproduce：写全史备份与复现清单到新目录；backup：增量同步到档案声明的 dolt_backup 目标" }, "output": { type: "path | None", description: "kind=reproduce 时必填：尚不存在的目录" }, "at": { type: "str | None", description: "精确账本版本；缺省取头提交" }, "run_ids": { type: "list[int] | None", description: "只导出这些运行；缺省全部已封存运行" } }} />
 
-**返回**　\{kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates, unavailable\}
+**返回**　\{kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates\}
 
 **期望行为**
 
 1. reproduce：output 已存在即 PATH_EXISTS；调 ledger.export_history(destination=output, with_backup=True, at, run_ids)
 2. backup：档案未声明 dolt_backup 目标即 BACKUP_TARGET_UNSET；调 ledger.export_history(destination=该目标, with_backup=True)
 3. 导出后重读清单文件算内容哈希，须等于返回的 content_hash，不等即 EXPORT_MISMATCH 并删除本次写出的不完整副本
-4. 返回账本提交、目标位置与标为 unavailable 的运行；不导出镜像文件与导出目录
+4. 返回账本提交、目标位置、清单路径与内容哈希；不导出镜像文件与导出目录
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -492,15 +491,15 @@ def ledger_init(
 
 **期望行为**
 
-1. 解析参数；已有同名档案、kind=active 时已有活动研究账本，或服务里已有同名库，ledger.init 即拒绝 LEDGER_EXISTS，不覆盖。
+1. 解析参数；已有同名档案、kind=active 时已有活动研究账本，或服务里已有同名库（不分大小写），ledger.init 即拒绝 LEDGER_EXISTS，不覆盖；初始化中途失败不留下半个库。
 2. 调用 ledger.init 建库、建表、写 ledger_schema 与 ledger_head 单行、建 writer 与 reader 账号、装 branch 写权与提交校验组；其拒绝原样转出。
 3. 以 reader 读回模式版本、ledger_head 单行与 dolt_tests 测试名，与声明不一致即 LEDGER_CORRUPT。
 4. 以 JSON 输出账号名、写权所在 branch 与初始提交，不打印口令。
-5. 库名由档案名把 - 换成 _ 得到。只有一个研究账本 research 和一个市场库 market，不按代编号：产品不兼容旧数据，模式或规则变了就用同一个名字重建（用户定 10-20）。
+5. 库名由档案名把 - 换成 _ 得到。只有一个研究账本 research 和一个市场库 market，不按代编号：产品不兼容旧数据，模式或规则变了就用同一个名字重建（用户定 10-20）。重建正式账本要用户授权，步骤在 README：停掉用它的会话，把档案文件和备份目录移开存档，以服务管理员删库，再用同一个名字跑 ledger init，然后跑 ledger export --kind backup 和 ledger review。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `LEDGER_EXISTS` | ledger.init 判定同名档案、活动研究账本或同名数据库已存在 |
+| `LEDGER_EXISTS` | ledger.init 判定同名档案、活动研究账本或同名数据库（不分大小写）已存在 |
 | `LEDGER_CORRUPT` | 初始化后读回的模式版本、ledger_head 单行或 dolt_tests 测试名与声明不一致 |
 
 **使用**　<Ref id="ledger.init" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="table:ledger_schema" />、<Ref id="table:ledger_head" />、<Ref id="table:dolt_tests" />

@@ -49,7 +49,7 @@ def export_history(
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名；读源码与清单用读账号，全史同步用管理账号（dolt_backup 拒绝读账号）" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "run_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
 
-**返回**　dict：\{at, commit, ledger_name, backup_path, candidates, runs, images, market_commits, manifest_path, content_hash, unavailable\}；images 为按摘要列出的运行环境引用，market_commits 为需重新导出的市场提交，content_hash 为清单文件内容哈希
+**返回**　dict：\{at, commit, ledger_name, backup_path, candidates, runs, images, market_commits, manifest_path, content_hash\}；images 为按摘要列出的运行环境引用，market_commits 为需重新导出的市场提交，content_hash 为清单文件内容哈希
 
 **期望行为**
 
@@ -245,17 +245,18 @@ def init(
 **期望行为**
 
 1. 核对名称字符、档案不存在、种类合法、隔离与临时账本不用活跃数据库名、活跃账本的服务目录与备份目录不在源码检出目录或 ledger.temporary_path 判定的临时根下；不符即拒绝，不触碰文件系统。
-2. 核对 Dolt 版本等于钉死版本；按需创建服务目录并以仅本机监听启动服务，限时内不接受连接即拒绝；服务已持有同名数据库即拒绝。
-3. 以初始化专用的管理会话建库，按模式文件建全部表，写 ledger_schema 单行（version）与 ledger_head 单行（seq=0, op_id='schema'），装入提交校验组 dolt_tests(commit)，做首个提交。
-4. 删除 dolt_branch_control 中的通配写权行，只留管理账号；创建 writer 与 reader 两账号，口令随机。
+2. 核对 Dolt 版本等于钉死版本；按需创建服务目录并以仅本机监听启动服务，限时内不接受连接即拒绝；库在不在只看服务的 SHOW DATABASES，名字不分大小写比较（Dolt 的库名不分大小写）；服务已有这个库即拒绝。
+3. 以初始化专用的管理会话建库；建库后先删掉这个库名在 dolt_branch_control 的行和 \<库名>_writer、\<库名>_reader 两个账号：服务上原本没有这个库，它们只能是被删掉的同名库留下的，service.json 里的旧条目同样被覆盖，所以同一个名字可以重建。然后按模式文件建全部表，写 ledger_schema 单行（version）与 ledger_head 单行（seq=0, op_id='schema'），装入提交校验组 dolt_tests(commit)，做首个提交。
+4. 删除 dolt_branch_control 中的通配写权行，只留管理账号（给 root 加管理行用 INSERT IGNORE，回滚过的首次初始化可以重试）；创建 writer 与 reader 两账号，口令随机。
 5. 授权 writer：SELECT、INSERT、对 ledger_head 的 UPDATE、dolt_commit 过程的 EXECUTE，并在 dolt_branch_control 只对 research_branch 授 write；reader 只 SELECT；不授 UPDATE/DELETE（ledger_head 除外）、库级 EXECUTE、打标签或改 branch 的权限。
 6. 把账号写入服务目录私有文件，把档案写入账本档案目录，返回不含口令的结果。
-7. 服务端口由本函数在本机选空闲端口；Unix 套接字路径超过 100 字节时在创建任何文件前拒绝 LEDGER_START；active 缺备份目录拒绝 ISOLATION_BREACH。
+7. 建库之后任何一步失败，都删掉本次建的库、它的 branch 写权行和两个账号，service.json 已写入的条目也删掉，再原样抛出原来的错误；清理本身失败只作为附注挂在原错误上。本次没建成的库一律不删。市场库的 market init 走同一步。
+8. 服务端口由本函数在本机选空闲端口；Unix 套接字路径超过 100 字节时在创建任何文件前拒绝 LEDGER_START；active 缺备份目录拒绝 ISOLATION_BREACH。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `INVALID_NAME` | name 或 database 含不允许的字符，或 kind 不是三种之一 |
-| `LEDGER_EXISTS` | 同名档案已存在；或 kind=active 时活跃研究账本已存在；或服务已持有同名数据库 |
+| `LEDGER_EXISTS` | 同名档案已存在；或 kind=active 时活跃研究账本已存在；或服务已持有同名数据库（不分大小写） |
 | `ISOLATION_BREACH` | isolated/temporary 使用活跃账本的数据库名，或 active 的服务目录、备份目录位于源码检出目录或临时根之下 |
 | `DOLT_BINARY` | 找不到 Dolt 可执行文件或其版本不等于钉死版本 |
 | `LEDGER_START` | 服务创建后未在时限内接受连接，或启动进程已退出（日志位置打印在标准错误） |
@@ -567,7 +568,7 @@ def read_capture(conn: LedgerConnection, trial_id: int) -> dict
 2. 核开始回执：format、trial_id、source_sha256、运行环境身份（runtime.validate_identity）与试验行一致且 purpose 与试验行相同，否则拒绝 EXECUTION_IDENTITY。
 3. 执行封存包无清单时返回 status = missing 与 reason「原始最终捕获缺失，后来的探针不能替代」；不读、不合并任何 recovery 包。
 4. 核封存清单：format、trial_id、source_sha256、运行环境身份与试验行一致，purpose 与开始回执相同，包内无清单外文件，否则拒绝 EXECUTION_IDENTITY。
-5. 逐文件核验：状态只允许 captured、captured_empty、hashed、missing、not_started；captured 的存储字节长度与 sha256 须等于清单，hashed 须有合法的 sha256 与长度且不带字节，其余状态须无内容，否则拒绝 LEDGER_CORRUPT；清单里 strategy.py 的哈希（新捕获为 hashed，旧捕获为 captured）须等于 trial.source_sha256，否则拒绝 EXECUTION_IDENTITY。hashed 文件的字节在别处（候选行、开始回执或工作目录），读者按清单哈希核对后才用。
+5. 逐文件核验：状态只允许 captured、captured_empty、hashed、missing、not_started；captured 的存储字节长度与 sha256 须等于清单，hashed 须有合法的 sha256 与长度且不带字节，其余状态须无内容，否则拒绝 LEDGER_CORRUPT；清单里的 strategy.py 只能是 hashed 且哈希等于 trial.source_sha256，存了字节或哈希不符都拒绝 EXECUTION_IDENTITY。hashed 文件的字节在别处（候选行、开始回执或工作目录），读者按清单哈希核对后才用。
 6. 把 runtime_failures.jsonl 解析为 runtime_failures 后原样返回；是否构成不可用由 qualification.assess 判定，本函数不裁决。
 
 | 拒绝码 | 条件 |
@@ -744,7 +745,7 @@ def add_judgment(
 3. 核对 line_bundle 是存在的 research-line-* 证据包。
 4. 逐个核对主体存在；登记包须在 registration_attempt 中出现过；role 与目标类型须匹配。
 5. 核对 supersedes 同 kind、同路线且未被取代过。
-6. kind=review_cadence 一律拒绝 REVIEW_CADENCE_FIXED：复盘停点是产品常数（registration.REVIEW_EVERY），不是判断。kind=recommendation 时，候选主体（任一角色）须覆盖 based_on_commit 上 compared 给出的每个候选，否则 RECOMMENDATION_INCOMPLETE 并列出缺的。
+6. kind 只有四种，由 judgment 表的 CHECK 约束；复盘停点是产品常数（registration.REVIEW_EVERY），不是判断。kind=recommendation 时，候选主体（任一角色）须覆盖 based_on_commit 上 compared 给出的每个候选，否则 RECOMMENDATION_INCOMPLETE 并列出缺的。
 7. 写入 judgment 与 judgment_subject；同 op_id 同载荷幂等返回原行。
 
 | 拒绝码 | 条件 |
@@ -756,7 +757,6 @@ def add_judgment(
 | `SUBJECT_ROLE_MISMATCH` | role 为 recommended、parent 或 control 而目标不是候选 |
 | `SUPERSEDES_INVALID` | 被取代的判断不同 kind、不同路线或已被取代 |
 | `OP_ID_CONFLICT` | 同 op_id 载荷不同 |
-| `REVIEW_CADENCE_FIXED` | kind 为 review_cadence：复盘停点由产品固定，不是判断 |
 | `RECOMMENDATION_INCOMPLETE` | recommendation 没有点名所依据提交上对照表里的每个候选 |
 
 **使用**　<Ref id="ledger.write" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:evidence_bundle" />、<Ref id="table:registration_attempt" />、<Ref id="table:candidate" />、<Ref id="table:trial" />
@@ -1008,7 +1008,7 @@ def daily_returns(
 
 <TypeTable type={{ "returns": { type: "list[tuple[int, float]]", description: "原生日收益 [(ts_event_ns, value)]，来自报表目录或 run_return 表" }, "summary": { type: "dict", description: "原生摘要：period_start_utc、period_end_utc、starting_balance_usdt、final_equity_usdt" }, "limitations": { type: "list[str]", description: "累积局限列表" } }} />
 
-**返回**　list[tuple[int, float]] | None：交易窗口内的日收益序列；不完整时 None 并追加具名局限
+**返回**　list[tuple[int, float]] | None：交易窗口内的日收益序列；不完整时 None 并在 limitations 里追加具名局限（RETURN_SERIES_INVALID、RETURN_CLOCK_GAP 或 RETURN_COMPOUNDING_MISMATCH），不拒绝
 
 **期望行为**
 
@@ -1016,12 +1016,6 @@ def daily_returns(
 2. 核时间戳为 UTC 日历日边界且严格递增、相邻恰差一天、覆盖窗口内每一天，否则 RETURN_CLOCK_GAP 写局限返回 None
 3. 核初始权益 × ∏(1+r) 在容差内等于期末权益，否则 RETURN_COMPOUNDING_MISMATCH 写局限返回 None
 4. 通过则原样返回；不改值、不插补、不重采样
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RETURN_SERIES_INVALID` | 交易窗口内无日收益或存在 ≤ −1 的值 |
-| `RETURN_CLOCK_GAP` | 日钟有缺日、重日或非日边界时间戳 |
-| `RETURN_COMPOUNDING_MISMATCH` | 日收益复利不等于原生摘要的期末权益 |
 
 **使用**　<Ref id="ledger.load_run" />
 
@@ -1138,10 +1132,10 @@ def load_run(
 **期望行为**
 
 1. 按 run_id 读运行行，不存在即拒绝；读逐日序列与持仓周期。
-2. 通过的运行核执行封存与报告指纹在位；缺失或哈希不符即拒绝，由资格视图标不可用。
+2. 通过的运行一定有报告指纹（run 表的 CHECK 保证）；执行封存的文件与清单哈希不符即拒绝。
 3. 不返回原生报告行；调用方需要时经 replay.reproduce 重放并核指纹。
-4. 通过的运行缺原始执行封存或缺指纹时如实报告缺项；覆盖身份与运行记下的输入身份核对，不符即 COVERAGE_MISMATCH。
-5. 缺项不拒绝：缺原始执行封存或缺指纹的通过运行照常可读，缺项列在返回值 evidence.unavailable 里（现行镜像不产生指纹）。
+4. 通过的运行缺原始执行封存时如实报告缺项；覆盖回执的输入身份与运行记下的输入身份核对，不符即 EXECUTION_IDENTITY。
+5. 缺项不拒绝：缺原始执行封存的通过运行照常可读，缺项列在返回值 evidence.unavailable 里（CAPTURE_MISSING），资格视图据此标不可用。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1647,13 +1641,13 @@ def ingest_run(
 1. 失败原因由本函数从原始执行封存算出，不收调用方的原因：各阶段状态与退出码、结局、封存的审计结果 audit/audit.json、封存的运行期失败、封存的原生摘要（含完整性标志），按 ledger.audit_problems 与 ledger.summary_problems 的同一规则；任一非空即 invalid，只写状态、原因与审计，不写封存结果与指纹。
 2. 有效配置哈希由本函数从开始回执封存的有效配置重算（ledger.config_sha256：去掉 market_root、universe_path，规范 JSON 的 SHA-256，与 engine.config_sha256 同一规则），与封存原生摘要的 effective_config_sha256 比对，不符记 CONFIG_MISMATCH；摘要的 K 线分钟数须等于该配置的 execution_bar_minutes，否则同样记 CONFIG_MISMATCH。不收调用方的哈希或配置。
 3. 工作目录须等于开始回执记下的目录；原生报告不入账，但执行封存清单记下每个报告文件的 sha256 与长度，计算封存结果前逐一重算核对，不符即 EXECUTION_IDENTITY；只读常规文件，不跟随符号链接。
-4. 语义指纹取指纹阶段写出的 fingerprint/fingerprint.json：执行封存只记它的哈希与长度，字节从工作目录读，与哈希相等才用；指纹阶段缺失、不可用或没有结果都是失败原因，运行存为 invalid，通过的运行一定有指纹，存进运行行的 fingerprints 列，这是它唯一的一份。
+4. 语义指纹取指纹阶段写出的 fingerprint/fingerprint.json：执行封存只记它的哈希与长度，字节从工作目录读，与哈希相等才用；指纹阶段没跑、失败或没有结果都是失败原因，运行存为 invalid，通过的运行一定有指纹，存进运行行的 fingerprints 列，这是它唯一的一份。
 5. 核对试验存在、用途为 research 或 validation、尚无运行行；从工作目录读原生报告与审计结果，缺失即为空。
 6. passed：经 ledger.metrics 从工作目录的原生报告算出单运行报告；运行行写入上一步核对过的语义指纹，封存结果行写入取自产品 checkout HEAD 的 metrics_revision。
 7. 在一个写事务里写运行行、封存结果（键为运行与代码版本）、逐日序列（日收益与当日平均名义敞口）与持仓周期；返回 run_id 与 status。
 8. 原生报告留在工作目录，随后清理；需要时经 replay.reproduce 重放复现。
 9. 运行契约、引擎版本、依赖锁与有效配置已在开始回执与执行封存里，运行行不重复存。
-10. 内容原因（NATIVE_REPORT_MISSING、NATIVE_REPORT_UNREADABLE、SUMMARY_INCOMPLETE、METRICS_UNREADABLE、覆盖与生命周期不符）在本函数内转成失败原因、存为 invalid；计划标签超过列宽时计划有效性记失败与局限 PLAN_TAG_TOO_LONG，不报原始 SQL 错误。
+10. 内容原因（NATIVE_REPORT_MISSING、NATIVE_REPORT_UNREADABLE、SUMMARY_INCOMPLETE、METRICS_UNREADABLE、覆盖与生命周期不符，如 COVERAGE_MISMATCH 与 LIFECYCLE_COUNT_MISMATCH 等 LIFECYCLE_* 原因）在本函数内转成失败原因、存为 invalid；计划标签超过列宽时计划有效性记失败与局限 PLAN_TAG_TOO_LONG，不报原始 SQL 错误。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1661,7 +1655,6 @@ def ingest_run(
 | `TRIAL_PURPOSE_INVALID` | 试验 purpose 为 explore 或 precheck：其报告只留工作副本，不入账 |
 | `RUN_ALREADY_INGESTED` | 同一试验的运行行已存在 |
 | `EXECUTION_IDENTITY` | 覆盖回执与原生摘要不一致；或原始执行捕获不完整、任一阶段退出码非零、试验／源码／运行环境身份或回执输入身份与存储身份不符（由 ledger.original_coverage 上抛） |
-| `LIFECYCLE_MISMATCH` | 本地重算的生命周期事件与原始执行捕获中的回执不完全相等，或逐实例状态与关闭事件计数与原生摘要不符 |
 | `CONCURRENT_WRITE` | 由 ledger.write 在提交时上抛：并发写入同格不同值，后到者回滚 |
 
 **使用**　<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="ledger.metrics" />、<Ref id="ledger.unreconciled" />、<Ref id="ledger.metrics_revision" />、<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="table:run_cycle" />
