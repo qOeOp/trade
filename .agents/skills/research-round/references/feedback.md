@@ -29,5 +29,7 @@ reassessment conditions, not permission to research a direction.
 The leading action names its supporting report slice or section, measure and direction, run and
 ledger commit, affected duties and the policy explanation it tests. Separate observed facts from
 conjecture. Parameter choices need supporting evidence or an explicit statement that they are
-exploratory. Information value is the ability to distinguish competing explanations; repeated
-metrics, labels and registrations on the same development data are not independent evidence.
+exploratory. Information value is the ability to distinguish competing explanations; a difference
+below the comparison's detectable difference (same units as `mean_daily_log_difference`) cannot
+be distinguished on that data, and repeated metrics, labels and registrations on the same
+development data are not independent evidence.

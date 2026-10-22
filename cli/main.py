@@ -1082,7 +1082,8 @@ def _parser() -> Parser:
     command.add_argument("--reproduction-trial", type=int, help="the reproduction_trial_id `replay reproduce` returned")
     command.add_argument("--account", action="store_true", help="add the native account table")
     command.add_argument("--exposures", action="store_true", help="add the capital exposures table")
-    command = replay.add_parser("reproduce", help="regenerate a sealed result's or precheck's reports into /tmp")
+    command = replay.add_parser("reproduce", help="regenerate a sealed result's or precheck's reports into /tmp, "
+                                                  "recording an explore trial")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--trial-id", required=True, type=int, help="original trial holding a result or precheck")

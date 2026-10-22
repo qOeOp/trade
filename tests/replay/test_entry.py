@@ -199,8 +199,9 @@ class ExploreAndPrecheckTests(unittest.TestCase):
 
     def test_a_passed_precheck_hashes_cached_reports_and_a_review_of_it_admits_the_source(self):
         published = self.world.publish("prechecked", parent=None)
-        checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, published["candidate"], None,
-                                 ONE, self.world.output("precheck"))
+        with contextlib.redirect_stderr(io.StringIO()):
+            checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, published["candidate"],
+                                     None, ONE, self.world.output("precheck"))
         self.assertEqual((checked["status"], checked["problems"]), ("passed", []))
         capture = execution.read_capture(self.world.conn, checked["trial_id"])
         self.assertNotIn("reports/fills.csv", capture["files"])

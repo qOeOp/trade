@@ -54,19 +54,6 @@ ledger: publication is append-only.
   a symlink to it), holding runtime content only; their eval suites live in `evals/<skill>/`
   (`claude plugin eval .`, the root `.claude-plugin/plugin.json`).
 
-## Skills
-
-- `research-round`: before running a backtest for a research question, freezing a candidate or
-  registering a confirmation, choosing the next experiment, or claiming that a strategy improved,
-  failed or generalized.
-- `nautilus-report-analysis`: before computing any statistic from stored native reports.
-- `research-sources`: before searching papers or economic and positioning data outside this
-  repository, or stating what prior work found.
-- `video-evidence`: before probing, downloading, transcribing or citing a video, or writing notes
-  from one.
-- `product-doctor`: after a research session, when diagnosing why a session failed, stalled or was
-  slow, and before proposing to add, keep or remove a check, field, command, skill rule or test.
-
 ## Nautilus and parity
 
 - Check Nautilus APIs against the version pinned in `uv.lock` and the code in `engine/`; probe

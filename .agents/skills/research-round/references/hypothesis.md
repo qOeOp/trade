@@ -27,7 +27,8 @@ defaults and applicability; connect those choices to the diagnosis and register 
 changed_duties. Use duty-directory.md when their scope is unclear.
 
 For each changed duty, predict the direction of a catalogue measure and the native fill or holding
-behavior expected to produce it. Shared measures are shared observations. Predictions must be
+behavior expected to produce it, where the control's report shows the change can act: the days,
+plans or drawdown window that determine that reading. Shared measures are shared observations. Predictions must be
 refutable and distinguish the proposed explanation from alternatives; profit improvement alone
 does not identify a mechanism.
 
