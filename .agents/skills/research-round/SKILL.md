@@ -12,8 +12,8 @@ action. Host process termination or configuration changes also require the user'
 
 ## Research loop
 
-Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Use `--help` for arguments;
-runner arguments follow `--` and must match between registration and replay (`engine/README.md`).
+Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
+states its arguments, what it writes and what it returns; this skill says when and why to use it.
 Resolve refusals through their `next_actions`, never bypass them.
 
 | Stage | Commands | Read for this stage |
@@ -28,18 +28,13 @@ Resolve refusals through their `next_actions`, never bypass them.
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
-verified report cache and api/causal/activity/readiness items. Verify the original cache with
-`replay report --trial-id P --directory DIR`. If lost, use `replay reproduce --trial-id P --output DIR`,
-then `replay report --trial-id P --reproduction DIR --reproduction-trial M` with its returned
-`reproduction_trial_id`. Keep the review bound to P; reproduced reports do not replace original
-failures. Only successful identical regeneration of the cited exempt precheck avoids extra exposure.
-It checks only those four and records `source review`;
-use a new reviewer after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering,
-never economic evidence.
+verified report cache (`replay report`) and api/causal/activity/readiness items, keeps the review
+bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
+after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
+evidence.
 
 Complete every registered grid point once before reading performance or registering another
-batch. Source, intent or grid changes require a new registration; retry a consumed point through
-a new registration naming `retry_of`. Do not add points or tune source within a batch.
+batch. Do not add points or tune source within a batch.
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary or a line change

@@ -7,21 +7,16 @@ description: Derives descriptive statistics from a sealed run's stored cycles, d
 
 The product's reports (`replay report --trial-id RUN`, `hypothesis compare --bundle BUNDLE --trial-id
 RUN`) give the measures of the measure catalogue, already masked by eligibility. Everything else you
-compute yourself from the `report` package's `tables(trial_id, at=..., account=..., exposures=...,
-directory=..., reproduction=...)`, under these rules. It returns the run's position cycles
-(`positions`, snapshot rows kept: `plan_tag`, `ts_opened_ns`, `ts_closed_ns`, `price_pnl`, `funding`,
-`closing_order_type`, `closing_order_tag`), the trade-window daily returns, `reconciled` totals, `availability`, `metrics_revision`, `ledger_commit`
-and `limitations`.
+compute yourself from `report.runs.tables()` under these rules; its docstring lists its arguments
+and returned fields.
 
 ## Rules
 
 - Take every number from `tables()` and cite its `ledger_commit`; never parse native
   files, query ledger tables directly, or override or fill a report measure. Holding time is
   `ts_closed_ns − ts_opened_ns`, the entry plan `plan_tag`, the exit `closing_order_tag` or
-  `closing_order_type`. For native detail beyond cycles and daily
-  returns (orders, fills, account, order events), first replay the run into /tmp with `replay
-  reproduce --trial-id RUN --output DIR` and pass that directory and the reproduction trial to
-  `tables()`, which checks the semantic fingerprint first.
+  `closing_order_type`. For orders, fills, account or order events, pass a `replay reproduce`
+  directory and its reproduction trial to `tables()`.
 - State the population (closed cycles, open rows, account), the weighting and the
   frequency of every derived number. Totals over closed cycles equal `reconciled`; if not, do not
   cite them. A number that drives a recommendation or the next hypothesis is recomputed
