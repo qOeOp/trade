@@ -111,7 +111,7 @@ export is `docs-site/out`.
 
 ## Repository map
 
-- [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and which skill to use.
+- [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and where things go.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence` and `product-doctor`; `.claude/skills` links here.
 - [`evals/`](evals/): one eval suite per skill (`evals/<skill>/<case>/`), run with `claude plugin eval .` from the repository root, whose [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) loads `.agents/skills` as one plugin; results go to the ignored `evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).

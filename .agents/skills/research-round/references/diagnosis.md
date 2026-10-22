@@ -18,9 +18,10 @@ template.md. Product defects must be fixed and merged to main before retrying.
 
 ## Causal comparability
 
-Check each plan's decision, submit and fill timestamps after precheck and replay: fills must be
-strictly later than the decision bar's close. A violation invalidates the economic interpretation
-even if the audit passed; withdraw it and repair through the publication/review/registration path.
+Check each plan's decision, submit and fill timestamps against the causal clock
+([strategy-authoring.md](strategy-authoring.md)) after precheck, and after replay when the change
+adds or retimes orders. A violation invalidates the economic interpretation even if the audit
+passed; withdraw it and repair through the publication/review/registration path.
 Register initialization conditions for changed timeframes or indicator lengths, and report when
 each side could first decide. Readiness differences are not evidence of the proposed mechanism.
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import shutil
 import unittest
 
@@ -27,8 +29,9 @@ class PrecheckCacheTests(unittest.TestCase):
 
     def checked(self, name="original"):
         world = self.world
-        return entry.precheck(world.profile, world.market, MARKET_COMMIT, "rsi@1", IDENTITY["image_ref"],
-                              ARGV, world.output(name))
+        with contextlib.redirect_stderr(io.StringIO()):
+            return entry.precheck(world.profile, world.market, MARKET_COMMIT, "rsi@1", IDENTITY["image_ref"],
+                                  ARGV, world.output(name))
 
     def report(self, trial_id, directory=None, regenerated=None, reproduction_trial=None):
         return replay_report(self.world.profile, trial_id, str(directory) if directory else None, None, True,

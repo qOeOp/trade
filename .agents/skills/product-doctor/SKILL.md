@@ -12,8 +12,8 @@ research conclusions and experiment selection belong to `research-round`.
 ## Boundaries
 
 - Read only: transcripts, the checkout, CI logs, `ledger sql`, `ledger review`, `research status`,
-  `research state` and `--help`. Regenerate replay outputs only into /tmp. Never write the ledger
-  or the market database, and never read credentials.
+  `research state` and `--help`. Never write the ledger or the market database (`replay
+  reproduce` records an explore trial), and never read credentials.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority.

@@ -6,36 +6,30 @@
 
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
-| 20261022-04 | 严格一对零或一的 trial/run 使用两套编号，消费者需反复翻译身份 | remove | in PR [#1636](https://github.com/qOeOp/trade/pull/1636)；共享 trial_id、提交顺序及历史隔离本地验收通过 | 2026-10-22 | 2026-10-22 |
-| 20261022-05 | 成功预检的可再生原生表永久存储；缓存再生须接通技术审查及严格暴露豁免 | remove | in PR [#1636](https://github.com/qOeOp/trade/pull/1636)；用户授权暴露调整，隔离测试及原生配对通过；[复核](2026-10-22-trial-identity-cache.zh.md)、[独立复审](2026-10-22-pr1636-independent-review.zh.md) | 2026-10-22 | 2026-10-22 |
-| 20261022-03 | 固定源码的新运行时基准及消融被旧预检／复现暴露和有效重试拒绝阻塞（[诊断与授权](2026-10-22-runtime-registration-continuity.zh.md)） | fix | 已授权并实现；隔离登记测试通过，待独立复核、全量测试及 PR 交付 | 2026-10-22 | 2026-10-22 |
+| 20261022-09 | 比较输出不给两侧回撤峰谷与区间内持仓；Agent 在规则无法作用的区间上预测回撤下降并写入错误机制结论（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 hypothesis.md，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-10 | 比较已给可检出效应但无消费者使用；同窗口定仓变体不可分辨，分叉与推荐按点估计排序；两种区间构造未标注（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 feedback.md，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-11 | 每版本 8–17 分钟、约 5–8M token，成本在审阅与核查子代理；每 run 无条件全窗口复现，参与率从未驱动决策（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill + measure | 本地已改 diagnosis.md、capital.md，未合并；审阅命中率仍待测 | 2026-10-22 | 2026-10-22 |
+| 20261022-12 | price_pnl 为 Nautilus 逐笔 8 位舍入之和，与精确成交现金流差 1e-8；skill 未说明（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill | 本地已改 nautilus-report-analysis，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-13 | strategy-authoring 缺“成交严格晚于决策 K 线收盘”，只在 diagnosis（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill | 本地已改 strategy-authoring.md 并由 diagnosis 引用，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-15 | 测试泄漏 replay/entry.py:389 的 stderr 到 CI 日志；mypy 跳过 metrics.py:864 未注解函数体（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | fix | 本地已改，ruff/mypy 通过，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-16 | skill/AGENTS/help 文字与产品不符（写账本命令清单、strategy-header 引用、Skills 列表缺 research-start、reproduce 写 explore trial 未说明）（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill + fix（help） | 本地已改；AGENTS.md 的 Skills 列表与六个 skill 的 description 重复（两宿主均按 description 加载），用户 2026-10-22 交由 Agent 判断，已删并改 README 一句；未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-17 | research-round 自加授权规则；doctor 存储字段授权与 AGENTS 不一致（含 20261021-24）（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | remove（删重复） | 用户 2026-10-22 改定问题为信息不重复记录；本地已删 research-round 与 AGENTS.md 重复的句子，未合并 | 2026-10-22 | 2026-10-22 |
 | 20261020-38 | 审查子代理过早派出、继承作者提示或修复后复用（[第二次诊断](2026-10-20-doctor-run-2.zh.md)） | none（skill 已写清；产品无法验证审查者身份） | 新会话七次 fork_turns:none、修复后换人，未见复发；任务参数为密文，是否始终只给四项材料仍待观察（[本轮](2026-10-21-codex-ema-year.zh.md)） | 2026-10-20 | 2026-10-21 |
 | 20261020-39 | 拉镜像卡在凭据助手时仍要等满 300 秒 | measure | open | 2026-10-20 | 2026-10-20 |
-| 20261020-40 | 日线策略的一周预检碰不到退出逻辑；豁免只看窗口长度，不看位置 | measure | open | 2026-10-20 | 2026-10-20 |
+| 20261020-40 | 日线策略的一周预检碰不到退出逻辑；豁免只看窗口长度，不看位置 | measure | open；2026-10-22 会话未复发（预检在月界、≤7 天） | 2026-10-20 | 2026-10-22 |
 | M1 | `market coverage` 打印全部资金费时间戳，skill 要用 jq 删掉；先量一年、200 个合约的输出大小，再定 CLI 默认 | measure | open | 2026-10-20 | 2026-10-20 |
 | M2 | research-start 让用户手动输入 `/loop`，但在 Claude Code 里 Agent 可以自己调用 loop；先量自己调用是否可靠 | measure | open | 2026-10-20 | 2026-10-20 |
-| M3 | `research state` 的输出随路线上的判断和试验变长；先量一条长路线的输出大小 | measure | open | 2026-10-20 | 2026-10-20 |
-| 20261021-03 | video-evidence 仍缺设计页（源码缺失、公开页 404）；评测错误引用及 #1621/#1622 的设计页更新已由 #1623 / 18cd160cd 修复，83 个当前命名评测引用均存在 | fix | open（仅余 video 页；[回读](2026-10-21-codex-ema-year.zh.md)） | 2026-10-21 | 2026-10-21 |
-| 20261021-04 | 过长预检技术 passed，却到登记才说明超出暴露豁免；拒绝还给出没有消耗登记时不适用的 retry_of 建议 | fix（输出及帮助，不改检查） | 本分支已修，427 tests、Ruff、Mypy 通过；未合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-05 | candidate export 帮助只说新文件，未说明同目录候选说明文件也必须不存在 | fix | 本分支已修，427 tests、Ruff、Mypy 通过；未合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-06 | ledger sql EXPLAIN 因 Dolt/PyMySQL 的 NULL 数值转换抛出未捕获 ValueError，破坏 JSON 错误契约 | fix | 本分支已修，427 tests、Ruff、Mypy 通过；未合并（doctor 探针发现） | 2026-10-21 | 2026-10-21 |
+| M3 | `research state` 的输出随路线上的判断和试验变长；先量一条长路线的输出大小 | measure | open；已测：8 run、30 判断时紧凑输出 102 KB，其中判断正文 73 KB，会话调用 10 次；待定是否默认给摘要 | 2026-10-20 | 2026-10-22 |
+| 20261021-03 | video-evidence 仍缺设计页（源码缺失、公开页 404）；评测错误引用及 #1621/#1622 的设计页更新已由 #1623 / 18cd160cd 修复，83 个当前命名评测引用均存在 | fix | open（仅余 video 页；[回读](2026-10-21-codex-ema-year.zh.md)） | 2026-10-21 | 2026-10-22 |
 | 20261021-07 | 技术审阅原件混有经济结果和大输出；先测现有 capture/tables 的技术投影能否满足四项审阅 | measure | open；未证明经济暴露影响审阅结论 | 2026-10-21 | 2026-10-21 |
-| 20261021-08 | research-round 禁止在 text 复制数值的范围不明，与报告模板的数值要求冲突 | skill（澄清引用范围） | 本分支已澄清 judgment 与工作报告范围，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-09 | doctor 把本库 evals 外置政策归为 Anthropic 通则；lenses.md 长引用缺目录 | skill（修规范归属，保留本库政策） | 本分支已澄清规范归属并加目录，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-12 | research-round 重复 AGENTS 的通用授权清单及仓位变量所有权，可用精确引用去重并保留专属解释 | authority | 用户 2026-10-21 明确批准按[记录方案](2026-10-21-codex-ema-year.zh.md)去重并保持现有检查和权限边界；本分支已改，未合并 | 2026-10-21 | 2026-10-21 |
-
-| 20261021-13 | PA timing 被误读为规模无关能力（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-14 | 时期裁剪文字与负总和算法、单侧差/配对差口径不符（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-15 | 预测同号、单规则与各职责独立效应混淆（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-16 | 跨 trial supersedes 让默认读取隐藏既有解释（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-17 | 每轮重复 HTML/overview 被当作报告义务（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-18 | CLI 从 skill 路径取模板，wheel 缺失资源（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-19 | 27 职责立场混淆，F2/F4 重复计全退出（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
+| 20261021-13 | PA timing 被误读为规模无关能力（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
+| 20261021-14 | 时期裁剪文字与负总和算法、单侧差/配对差口径不符（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
+| 20261021-15 | 预测同号、单规则与各职责独立效应混淆（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
+| 20261021-16 | 跨 trial supersedes 让默认读取隐藏既有解释（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
+| 20261021-19 | 27 职责立场混淆，F2/F4 重复计全退出（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
 | 20261021-20 | 设计站认证范围与归因语义未在所有消费者一致交付 | fix | #1625已合入271e8bcc9，正文/hover已修；[三任务复审](2026-10-21-three-workstream-validation.zh.md)实读发布图仍含旧信号处方与自动消融标题，修复未闭环 | 2026-10-21 | 2026-10-21 |
-| 20261021-21 | REVIEW_DUE missing 误列 priority（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
-| 20261021-22 | 五轮复盘与每轮全推荐的信息价值边界不清（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 本分支已修；429 tests、静态检查、wheel 与文档验证通过，待 PR 合并 | 2026-10-21 | 2026-10-21 |
+| 20261021-22 | 五轮复盘与每轮全推荐的信息价值边界不清（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
 | 20261021-23 | correction/source反向发现与联读仍需审计 | measure | [三任务复审](2026-10-21-three-workstream-validation.zh.md)确认历史分页可读旧判断，但普通report/state未展开自由文本更正；先测新读者能否经现有关系发现，不改检查/权限/schema | 2026-10-21 | 2026-10-21 |
-| 20261021-24 | doctor stored-field 授权文字与根规则不一致（[复审](2026-10-21-economics-duties-pa.zh.md)） | authority | open；未改变检查、权限或存储结构 | 2026-10-21 | 2026-10-21 |
 | 20261021-25 | 九职责无 PA 直接映射；先辨明代理/约束/不可观测（[复审](2026-10-21-economics-duties-pa.zh.md)） | measure | open；未改变检查、权限或存储结构 | 2026-10-21 | 2026-10-21 |
 
 本轮新会话已见正式预检、独立审阅、登记绑定、报告与重放顺利经过，也未证明已结缺陷复发；不能把未触发路径统称为已验证。04–20、26–37 的其余路径继续按新会话回读。上述新项及保留措施见 [2026-10-21 EMA 会话诊断](2026-10-21-codex-ema-year.zh.md)；-10、-11 是既有指导已覆盖的方法错误或旧版本问题，动作 none，不列为待修产品项。
@@ -46,20 +40,34 @@
 
 | id | 问题 | 用户指出 | 应发现的镜头 | 状态 |
 |---|---|---|---|---|
-| 20261022-04 | 用户指出结果无需独立 run_id | 2026-10-22 | 数据与产品契约 | in PR [#1636](https://github.com/qOeOp/trade/pull/1636)；隔离验收通过 |
+| 20261022-04 | 用户指出结果无需独立 run_id | 2026-10-22 | 数据与产品契约 | 已修 #1636 |
 | 20261022-06 | 用户指出应补完整收益与拆分，不能仅改审计不报错 | 2026-10-22 | 消费者与存储 | 修复及验收见 #1637 |
 | 20261022-08 | 用户指出原会话未创建 Goal，并要求宿主授权兼容 | 2026-10-22 | 行为与技能 | 修复见 #1637，实际宿主创建未代办 |
-| 20261022-05 | 用户指出预检持久化价值与全量报告归档的必要性不能混为一谈 | 2026-10-22 | 数据与使用成本 | in PR [#1636](https://github.com/qOeOp/trade/pull/1636)；隔离验收通过 |
+| 20261022-05 | 用户指出预检持久化价值与全量报告归档的必要性不能混为一谈 | 2026-10-22 | 数据与使用成本 | 已修 #1636 |
 | 20261020-24 | skill 文件夹不合 skill 编写规范：评测在 skill 目录内、规则带设计编号、个案规则与历史说明 | 2026-10-20 | 产品现状 | 已修 #1613；剩余项 -32、-33、-34 已修 #1615 |
 | 20261020-25 | CI 测试日志里满是错误与警告行 | 2026-10-20 | 产品现状 | 已修：#1604、#1605；uv 构建后端版本警告已由 #1613 修 |
 | 20261021-01 | `ledger init` 中途失败会留下建了一半的账本（库、账号、branch 写权），同名再初始化被拒 | 2026-10-21（Agent 在用户要求的重建中发现，不是诊断发现） | 产品现状（没有检查重建路径） | 已修 #1622 |
 | 20261021-02 | 删库后同名重建撞上服务级 `dolt_branch_control` 里残留的旧写权行（和旧账号） | 2026-10-21（同上） | 产品现状（没有检查重建路径） | 已修 #1622 |
-| 20261021-18 | 用户先指出 skill/code 耦合；此前未检查安装包是否包含命令资源 | 2026-10-21 | 产品现状（缺少分发产物复核） | 本分支移除 CLI→skill 路径依赖并验证 wheel，待 PR 合并 |
+| 20261021-18 | 用户先指出 skill/code 耦合；此前未检查安装包是否包含命令资源 | 2026-10-21 | 产品现状（缺少分发产物复核） | 已修 #1625 |
 
 ## 已结
 
 | id | 发现 | 处理 |
 |---|---|---|
+| 20261022-14 | 整轮未同步备份；ledger review 只查历史改写，过期备份仍 ok（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | rejected：用户 2026-10-22 暂不加；research-round 中“账本及其备份是研究记录”一句作为 AGENTS.md 重复删去 |
+| 20261021-24 | doctor stored-field 授权文字与根规则不一致（[复审](2026-10-21-economics-duties-pa.zh.md)） | none：用户 2026-10-22 定问题在于是否重复记录；该句不重复 AGENTS.md，保留（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261022-04 | 严格一对零或一的 trial/run 使用两套编号，消费者需反复翻译身份 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261022-05 | 成功预检的可再生原生表永久存储；缓存再生须接通技术审查及严格暴露豁免 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261022-03 | 固定源码的新运行时基准及消融被旧预检／复现暴露和有效重试拒绝阻塞（[诊断与授权](2026-10-22-runtime-registration-continuity.zh.md)） | #1635 / f7e7c1df9；后续会话固定源码运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-04 | 过长预检技术 passed，却到登记才说明超出暴露豁免；拒绝还给出没有消耗登记时不适用的 retry_of 建议 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-05 | candidate export 帮助只说新文件，未说明同目录候选说明文件也必须不存在 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-06 | ledger sql EXPLAIN 因 Dolt/PyMySQL 的 NULL 数值转换抛出未捕获 ValueError，破坏 JSON 错误契约 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-08 | research-round 禁止在 text 复制数值的范围不明，与报告模板的数值要求冲突 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-09 | doctor 把本库 evals 外置政策归为 Anthropic 通则；lenses.md 长引用缺目录 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-12 | research-round 重复 AGENTS 的通用授权清单及仓位变量所有权，可用精确引用去重并保留专属解释 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-17 | 每轮重复 HTML/overview 被当作报告义务（[复审](2026-10-21-economics-duties-pa.zh.md)） | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-18 | CLI 从 skill 路径取模板，wheel 缺失资源（[复审](2026-10-21-economics-duties-pa.zh.md)） | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
+| 20261021-21 | REVIEW_DUE missing 误列 priority（[复审](2026-10-21-economics-duties-pa.zh.md)） | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261022-06 | 开放周期 realized 丢失，利润桥与配对归因不完整（[诊断与授权](2026-10-22-complete-realized-profit.zh.md)） | 随 [#1637](https://github.com/qOeOp/trade/pull/1637) 交付；[独立复审及验收](2026-10-22-complete-profit-acceptance.zh.md)通过，活动历史未改 |
 | 20261022-07 | 回撤合约贡献遗漏峰值与区间已实现变化（[诊断与授权](2026-10-22-complete-realized-profit.zh.md)） | 随 [#1637](https://github.com/qOeOp/trade/pull/1637) 交付；[独立复审及验收](2026-10-22-complete-profit-acceptance.zh.md)通过，活动历史未改 |
 | 20261022-08 | Goal 自动创建指导与宿主许可冲突，Agent 静默跳过（[诊断与授权](2026-10-22-complete-realized-profit.zh.md)） | 随 [#1637](https://github.com/qOeOp/trade/pull/1637) 交付；[独立复审及验收](2026-10-22-complete-profit-acceptance.zh.md)通过，活动历史未改 |

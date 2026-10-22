@@ -14,8 +14,7 @@ action. Host process termination or configuration changes also require the user'
 
 Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Use `--help` for arguments;
 runner arguments follow `--` and must match between registration and replay (`engine/README.md`).
-Only these commands write the ledger. Resolve refusals through their `next_actions`, never bypass
-them.
+Resolve refusals through their `next_actions`, never bypass them.
 
 | Stage | Commands | Read for this stage |
 |---|---|---|
@@ -52,15 +51,15 @@ through `research-start`. Trial counts and budgets do not reject a research dire
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
   masked measures. Additional statistics follow `nautilus-report-analysis`.
-- The ledger and its backup are the research record. Cite objects by bundle, trial or registration
-  and ledger commit. Judgment bodies reference facts instead of copying measures, counts or
-  eligibility; working reports may display cited product values.
+- Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
+  instead of copying measures, counts or eligibility; working reports may display cited product
+  values.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,
   correction and reason. Present the original with its correction; working copies and session
   memory do not replace either.
 - Export candidate source into /tmp before editing and publish the change as a new candidate.
   Read its duty header, edit only affected duty lines, preserve the others byte for byte and
-  register those ids in `changed_duties`. Source, bodies and receipts never go into Git.
+  register those ids in `changed_duties`.
 
 ## Conditional workflows
 
@@ -75,5 +74,4 @@ through `research-start`. Trial counts and budgets do not reject a research dire
   previously unused subsets, support conditional observations, never independent validation or
   claims of generalization or absence of overfitting.
 
-The user's return and drawdown targets guide interpretation, not candidate eligibility. Win rate
-is a report dimension. Position size, per-plan risk and notional limits stay in strategy source.
+The user's return and drawdown targets guide interpretation, not candidate eligibility.
