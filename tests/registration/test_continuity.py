@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from unittest.mock import patch
 
 from ledger import trials
 from registration import precheck, register, seams
@@ -66,6 +67,12 @@ class ContinuityTests(unittest.TestCase):
         with seams.use(resolve_runtime=lambda ref: dict(RUNTIME)):
             self.assertEqual(refused(self.world.register, "registration-rollback",
                                      {**self.body, "retry_of": "registration-new"}).code, "RETRY_NOT_ALLOWED")
+        third = {**OTHER_RUNTIME, "image_digest": "sha256:" + "d" * 64,
+                 "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "d" * 64}
+        third_review = self.review_on(self.data, third)
+        with seams.use(resolve_runtime=lambda ref: dict(third)):
+            self.world.register("registration-third", {**body, "retry_of": "registration-new",
+                                                       "prechecks": {"rsi@1": third_review}})
         self.assertEqual(self.world.plan("registration-old")["body"], self.body)
         self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE run_id = %s",
                                             (self.old_run,))["status"], "passed")
@@ -105,6 +112,15 @@ class ContinuityTests(unittest.TestCase):
             with seams.use(inspect_runtime=changed_account):
                 self.assertEqual(refused(self.world.register, "registration-account", body).code,
                                  "RETRY_NOT_ALLOWED")
+            export = self.world.market.export_catalogs
+            def changed_export(*args):
+                found = export(*args)
+                bar_file = found["root"] / "AAAUSDT/bars.parquet"
+                bar_file.write_bytes(bar_file.read_bytes() + b" changed data")
+                return found
+            with patch.object(self.world.market, "export_catalogs", changed_export):
+                self.assertEqual(refused(self.world.register, "registration-input", body).code,
+                                 "RETRY_NOT_ALLOWED")
 
     def test_a_mismatching_explore_is_still_an_unregistered_exposure(self):
         self.reproduction({"fixture": "different"})
@@ -113,6 +129,13 @@ class ContinuityTests(unittest.TestCase):
         with self.on_new_runtime():
             self.assertEqual(refused(self.world.register, "registration-new", body).code, "SOURCE_ALREADY_EXPOSED")
         self.assertEqual(self.world.seq(), seq)
+
+    def test_an_uncited_old_precheck_remains_an_exposure(self):
+        self.review_on(self.data, RUNTIME)
+        body = self.migrated_body()
+        with self.on_new_runtime():
+            self.assertEqual(refused(self.world.register, "registration-extra-precheck", body).code,
+                             "SOURCE_ALREADY_EXPOSED")
 
     def test_reproduction_proof_requires_configuration_and_completed_fingerprinting(self):
         effective = copy.deepcopy(self.world.plan("registration-old")["execution"]["effective_config"])
@@ -147,3 +170,32 @@ class ContinuityTests(unittest.TestCase):
             self.world.research_trial("registration-child-new", child["source"], runtime=OTHER_RUNTIME)
         self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE trial_id = %s", (failed,))["status"],
                          "invalid")
+
+    def test_successful_derived_rebuild_requires_the_equivalent_control_source(self):
+        child = self.world.publish("valid child")
+        review = self.review_on(child["source"], RUNTIME)
+        original = self.world.body([child["candidate"]], {child["candidate"]: review}, parent="rsi@1",
+                                   control_run=self.old_run, change="cap volume at 5%", duties=["G3"])
+        self.world.register("registration-child-old", original)
+        old = self.world.research_trial("registration-child-old", child["source"])
+        self.world.seal_run(old)
+        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": old}])
+        baseline = self.migrated_body()
+        new_review = self.review_on(child["source"], OTHER_RUNTIME)
+        other = self.world.publish("other root", parent=None)
+        other_review = self.review_on(other["source"], OTHER_RUNTIME)
+        with self.on_new_runtime():
+            self.world.register("registration-new", baseline)
+            new = self.world.research_trial("registration-new", self.data, runtime=OTHER_RUNTIME)
+            new_run = self.world.seal_run(new)
+            self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": new}])
+            self.world.register("registration-other", self.world.body([other["candidate"]],
+                                {other["candidate"]: other_review}, comparison=None))
+            unrelated = self.world.research_trial("registration-other", other["source"], runtime=OTHER_RUNTIME)
+            unrelated_run = self.world.seal_run(unrelated)
+            self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": unrelated}])
+            retry = {**original, "retry_of": "registration-child-old",
+                     "prechecks": {child["candidate"]: new_review}}
+            self.assertEqual(refused(self.world.register, "registration-wrong-control",
+                                     {**retry, "control_run": unrelated_run}).code, "RETRY_NOT_ALLOWED")
+            self.world.register("registration-child-new", {**retry, "control_run": new_run})
