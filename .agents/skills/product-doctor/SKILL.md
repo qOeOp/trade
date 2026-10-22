@@ -1,6 +1,6 @@
 ---
 name: product-doctor
-description: Audits this product through agent sessions and the current checkout, tracing behavior, interpretation and decisions against evidence and external norms. Use after research, for failed or slow sessions, missed defects, or proposals to add, retain or remove product mechanisms and skill guidance.
+description: Diagnoses suspected product defects against contracts and evidence, and reviews proposed product mechanisms or skill rules. Use for focused product diagnosis or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
 ---
 
 # Product doctor
@@ -18,6 +18,13 @@ research conclusions and experiment selection belong to `research-round`.
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority.
 - Use current product names and evidence in findings; do not keep a mechanism catalogue here.
+
+## Scope
+
+Focused diagnosis uses steps 3–5 for one question: read only related calls, code and consumers;
+report evidence, attribution or remaining uncertainty, and the next action. Read references only
+as needed. Use all steps and Convergence only when the task calls for overall product or session
+quality. Failure, delay or unresolved attribution alone does not expand the scope.
 
 ## Steps
 

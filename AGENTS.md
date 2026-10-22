@@ -58,14 +58,17 @@ ledger: publication is append-only.
 
 - `research-round`: before running a backtest for a research question, freezing a candidate or
   registering a confirmation, choosing the next experiment, or claiming that a strategy improved,
-  failed or generalized.
+  failed or generalized. It also owns initial failure diagnosis and ordinary strategy repairs.
 - `nautilus-report-analysis`: before computing any statistic from stored native reports.
 - `research-sources`: before searching papers or economic and positioning data outside this
   repository, or stating what prior work found.
 - `video-evidence`: before probing, downloading, transcribing or citing a video, or writing notes
   from one.
-- `product-doctor`: after a research session, when diagnosing why a session failed, stalled or was
-  slow, and before proposing to add, keep or remove a check, field, command, skill rule or test.
+- `product-doctor`: for focused diagnosis of observed behavior that conflicts with a named product
+  contract, and before proposing to add, keep or remove a check, field, command, skill rule or test.
+  Load it only after identifying that question; ordinary strategy repairs stay in `research-round`.
+  Use a full audit only when the task calls for overall product or session quality; failure,
+  delay or unresolved attribution alone does not set that scope.
 
 ## Nautilus and parity
 

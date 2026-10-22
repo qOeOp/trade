@@ -17,6 +17,11 @@ runner arguments follow `--` and must match between registration and replay (`en
 Only these commands write the ledger. Resolve refusals through their `next_actions`, never bypass
 them.
 
+Own initial failure diagnosis from source, native evidence and pinned inputs/runtime. Handle
+ordinary strategy errors through [diagnosis.md](references/diagnosis.md). For a suspected product
+defect, pass the observed behavior and conflicting product contract to `product-doctor` for focused
+diagnosis; attribution may remain unresolved. Failure or delay alone does not call for a full audit.
+
 | Stage | Commands | Read for this stage |
 |---|---|---|
 | Sources and hypothesis | `evidence export`, `evidence add` | [hypothesis.md](references/hypothesis.md), `research-sources` |
