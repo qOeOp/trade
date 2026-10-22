@@ -1,5 +1,5 @@
-"""Noun-verb dispatch (`cli.main`) and every command of the design page except `replay reproduce`
-(`cli/replay.py`).
+"""The product command line (`cli.main`): noun verb subcommands that print JSON; each command's
+--help states its contract.
 
     uv run --frozen python -m cli.main <noun> <verb> [options] [-- runner arguments]
 
@@ -192,9 +192,9 @@ def _utc_time(text: str) -> datetime:
     try:
         moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except (AttributeError, ValueError) as exc:
-        raise refuse("WINDOW_INVALID", f"{text!r} is not an ISO-8601 time", expected="UTC, e.g. 2026-01-01T00:00:00Z") from exc
+        raise refuse("WINDOW_INVALID", f"{text!r} is not an ISO-8601 time", expected="UTC as YYYY-MM-DDTHH:MM:SSZ") from exc
     if moment.utcoffset() != timedelta(0):
-        raise refuse("WINDOW_INVALID", f"{text!r} is not a UTC time", expected="UTC, e.g. 2026-01-01T00:00:00Z")
+        raise refuse("WINDOW_INVALID", f"{text!r} is not a UTC time", expected="UTC as YYYY-MM-DDTHH:MM:SSZ")
     return moment
 
 
@@ -847,16 +847,14 @@ def _op_id(parser) -> None:
                                         "from the content)")
 
 
-CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision, e.g. rsi@2)"
+CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
-  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
-example: -- --universe pool --start 2020-02-01T00:00:00Z --trade-start 2020-09-01T00:00:00Z \\
-            --end 2026-10-01T00:00:00Z"""
+  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
 output keys: commit, scope, input_interval_ms, coverage (per contract), lifecycle,
 lifecycle_missing, interpretation; coverage[].funding.event_times_ms is most of the output"""
@@ -962,7 +960,7 @@ def _parser() -> Parser:
     _ledger_option(command)
     command.add_argument("--kind", required=True, choices=judgments.KINDS,
                          help="recommendation, priority, interpretation or search_exposure")
-    command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-20261021-ema-trend")
+    command.add_argument("--line", required=True, help="research line bundle, research-line-<YYYYMMDD>-<slug>")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
@@ -984,7 +982,7 @@ def _parser() -> Parser:
     command.add_argument("--note", help="the user's two research targets (maximum drawdown, minimum annual return) "
                                         "and other context")
     command.add_argument("--slug", required=True,
-                         help="the line's direction as lowercase words joined by hyphens, e.g. ema-trend-vol-sizing")
+                         help="the line's direction as lowercase words joined by hyphens")
     command = line.add_parser("close", help="tag an ended line's last commit with its summary")
     _ledger_option(command)
     command.add_argument("--line", required=True, help="an ended line research state lists under unclosed_lines")
@@ -1046,8 +1044,8 @@ def _parser() -> Parser:
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
-    command.add_argument("--window-start", required=True, help="UTC time, e.g. 2026-01-01T00:00:00Z")
-    command.add_argument("--window-end", required=True, help="UTC time, e.g. 2026-04-01T00:00:00Z")
+    command.add_argument("--window-start", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
+    command.add_argument("--window-end", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--universe-rule", required=True, help="the market commit's universe rule")
     command.add_argument("--market-at", help="market commit, tag or branch (default: main)")
     command.add_argument("--design", required=True, help="JSON file of the validation design")
