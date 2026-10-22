@@ -285,11 +285,11 @@ def seal(
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="replay.reproduce">reproduce</Ref> | 把一个已封存的运行按它的身份重放到 /tmp，核语义指纹一致后交出原生报告目录；只写一条用途为 reproduce 的试验行 |
+| <Ref id="replay.reproduce">reproduce</Ref> | 按正式结果或预检的原身份再生 /tmp 报告，核原语义指纹后交出目录；另写一条 purpose=explore 的试验行 |
 
 ### `reproduce` [#def-replay-reproduce]
 
-把一个已封存的运行按它的身份重放到 /tmp，核语义指纹一致后交出原生报告目录；只写一条用途为 reproduce 的试验行
+按正式结果或预检的原身份再生 /tmp 报告，核原语义指纹后交出目录；另写一条 purpose=explore 的试验行
 
 ```python
 def reproduce(
@@ -302,14 +302,14 @@ def reproduce(
 
 <TypeTable type={{ "trial_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" }, "ledger": { type: "LedgerProfile", description: "研究账本档案（关键字参数）" }, "market": { type: "MarketProfile", description: "市场库档案（关键字参数），按运行记下的市场提交导出" } }} />
 
-**返回**　dict：\{directory, trial_id, fingerprints_match\}
+**返回**　dict：\{directory, trial_id, reproduction_trial_id, fingerprints_match\}
 
 **期望行为**
 
-1. 读运行、试验与登记包，取源码、镜像摘要、市场提交、合约集与窗口。
-2. 复现本身开一条 purpose=explore 的试验并照常封存执行（试验用途只有四种）；它不登记、不入运行表，源码早已暴露，不影响任何登记。
+1. 按原 trial_id 读取正式结果或预检原 capture，取源码、镜像摘要、市场提交、配置、合约集、窗口和原指纹。
+2. 再生先开一条 purpose=explore 的试验并照常封存执行，不新增正式结果或审查。仅成功且完全等价于本次登记所引用豁免预检的再生获暴露豁免；其他失败或不匹配执行仍可能影响登记。
 3. 按同一身份导出输入，写与封存回放相同的 source/execution.json 执行绑定，在钉死的运行环境里重放。
-4. 经 engine.report_fingerprint 算指纹，与运行行记录的逐文件比较；复现的指纹阶段没算出指纹或与运行行记录的不一致，都拒绝 REPRODUCTION_MISMATCH 并保留目录供诊断，拒绝信息说明复现自身的试验与封存已入账。
+4. 镜像内计算语义指纹，与原正式结果行或预检 capture 的原指纹比较；两边执行须完整成功且身份一致。无指纹、不等价或执行失败均拒绝 REPRODUCTION_MISMATCH，保留新试验与目录；不覆盖原件。
 5. 目录不入账，用完由调用方清理。
 
 | 拒绝码 | 条件 |

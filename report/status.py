@@ -125,7 +125,10 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
             reproductions.append(trial_id)
             continue
         if trial["purpose"] == "explore" and any(
-                earlier["purpose"] == "precheck" and reproduction.matches(conn, trial_id, earlier["trial_id"])
+                earlier["purpose"] == "precheck"
+                and (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]), earlier["input_start"],
+                     earlier["trade_start"], earlier["trade_end"]) == identity
+                and reproduction.matches(conn, trial_id, earlier["trial_id"])
                 for earlier in trials if earlier["trial_id"] < trial_id):
             reproductions.append(trial_id)
             continue
