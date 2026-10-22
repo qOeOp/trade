@@ -35,8 +35,11 @@ header template, the entry class, the two hooks and a sizing helper.
   `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (1), `strategy_id` and
   `universe_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
   `StrategyConfig(strategy_id=strategy_id)` to `Strategy.__init__`.
-- `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL` without an aggregation source;
-  subscribe to it with `@1-MINUTE-EXTERNAL` appended, or no daily bars arrive.
+- `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL`, the type the daily bars arrive
+  with: in `on_bar`, a daily bar's `bar.bar_type` equals `daily_bar_type`. Subscribe with the
+  aggregation source appended, `BarType.from_str(f"{daily_bar_type}@1-MINUTE-EXTERNAL")`, and
+  keep the two apart: the subscription type for `subscribe_bars`, `daily_bar_type` for matching
+  bars.
 - `universe_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is
   in the monthly universe (empty when the replay names contracts the universe never held), cut at
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
@@ -68,8 +71,9 @@ Any finding or any denied or rejected order fails the run.
 ## Causal clock
 
 - Input is 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and funding
-  updates; no quotes, trades or books. Aggregate natively with
-  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; aggregated bars are stamped on
+  updates; no quotes, trades or books. Aggregate natively by subscribing to
+  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; the aggregated bars arrive as
+  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
   close.
 - Decide only from completed bars on the engine clock. When a rule reads a prior-bar indicator,
   update it after the decision.
