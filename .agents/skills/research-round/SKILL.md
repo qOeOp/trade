@@ -16,6 +16,11 @@ Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each com
 states its arguments, what it writes and what it returns; this skill says when and why to use it.
 Resolve refusals through their `next_actions`, never bypass them.
 
+Own initial failure diagnosis from source, native evidence and pinned inputs/runtime. Handle
+ordinary strategy errors through [diagnosis.md](references/diagnosis.md). For a suspected product
+defect, pass the observed behavior and conflicting product contract to `product-doctor` for focused
+diagnosis; attribution may remain unresolved.
+
 | Stage | Commands | Read for this stage |
 |---|---|---|
 | Sources and hypothesis | `evidence export`, `evidence add` | [hypothesis.md](references/hypothesis.md), `research-sources` |

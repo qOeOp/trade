@@ -10,10 +10,10 @@
 
 ## Assignment
 
-The workstreams combine related questions, not evidence standards or audit scope. Assign one fresh
-read-only reviewer to each; all findings follow SKILL.md's proof requirements. Share the pinned
-raw evidence and timeline, not another reviewer's conclusions. Split work only when a distinct risk
-needs it. Report coverage and anything unexamined; an untriggered path is not a verified one.
+For a full audit (SKILL.md, Scope), assign one fresh read-only reviewer to each workstream; all
+findings follow SKILL.md's proof requirements. Share the pinned raw evidence and timeline, not
+another reviewer's conclusions. Split work only when a distinct risk needs it. Report coverage
+and anything unexamined; an untriggered path is not a verified one.
 
 | Workstream | Coverage combined |
 |---|---|
