@@ -980,7 +980,7 @@ def write_native_reports(
 
 1. 从 portfolio 取 venue 账户与期末权益快照：账户缺失、快照过期或含未定价合约、基础货币非 USDT 即拒绝；期末权益含未实现盈亏，原样记录
 2. 把引擎报告提供者的订单、成交、持仓（含快照行）、账户四张表原样写成 CSV；零行表只补消费者依赖的表头；订单表附引擎订单对象上的 GTD 到期纳秒，GTD 订单无到期即拒绝；日收益序列按 ts_event_ns 排序原样写出
-3. 调 engine.write_order_events 写订单事件史；把资金观察器累积的估值行写成敞口表（ts_event_ns、position_id、notional_value、unrealized_pnl），不重估
+3. 调 engine.write_order_events 写订单事件史；把资金观察器累积的估值行写成敞口表（ts_event_ns、position_id、notional_value、unrealized_pnl、realized_pnl），不重估
 4. 汇总完整性发现：订单表存在 DENIED 或 REJECTED 状态即记一条；逐策略调完整性自检钩子（传入是否有被否被拒订单），返回值不是非空字符串列表即拒绝，发现去重并入；并入 engine.capital_findings 的估值缺口发现
 5. 调 engine.summary_statistics 得年化、夏普与交易段计数；每合约一节：导出计数、生命周期逐实例计数、engine.diagnostics 的自报诊断、原生持仓行数（诊断键不得占用合约、数量、计数、持仓等原生事实名）
 6. 写摘要：身份、窗口三界、账户条款、统计、每合约节、integrity_findings、integrity_passed（无发现为真）、limitations（去重）；非有限浮点写为 null；任何拒绝以异常抛出，由运行器非零退出，回放无效
@@ -1142,13 +1142,13 @@ def capital_observer(
 
 <TypeTable type={{ "instrument_ids": { type: "tuple[str, ...]", description: "要订阅标记价的全部合约" }, "exposure_path": { type: "Path", description: "敞口表输出路径（压缩 CSV），位于报告目录内" }, "lifecycle_ids": { type: "set[InstrumentId]", description: "有生命周期片段的合约；只为它们计状态与终止事件，摘要的逐合约生命周期计数依此得出" } }} />
 
-**返回**　引擎数据参与者实例；回放后产出敞口表（ts_event_ns、position_id、notional、unrealized_pnl）、估值时间戳计数 timestamps 与发现列表 findings
+**返回**　引擎数据参与者实例；回放后产出敞口表（ts_event_ns、position_id、notional_value、unrealized_pnl、realized_pnl）、估值时间戳计数 timestamps 与发现列表 findings
 
 **期望行为**
 
 1. 启动时订阅全部合约的引擎 MarkPriceUpdate；不设定时器，采样点只在输入 K 线时间戳
 2. 收到更早时间戳的标记价记为发现并忽略；收到更晚时间戳时先对上一时间戳估值，再切换当前时间戳并清空标记价表；同一时间戳按合约保留最新标记价
-3. 估值一个时间戳：对引擎缓存中每个未平持仓取该合约标记价，算名义价值与未实现盈亏写一行；缺标记价或持仓已在下一时间戳变动记为无法估值的发现；每估值一次计数加一
+3. 估值一个时间戳：对引擎缓存中每个未平持仓取该合约标记价，读取原生名义价值、未实现盈亏与累计 realized_pnl 写一行；realized_pnl 包含费用与资金费，不重复计算；缺标记价或持仓已在下一时间戳变动记为无法估值的发现；每估值一次计数加一
 4. 敞口写入异常先记为发现再原样抛出，不让后续成功写入掩盖缺口
 5. finish 在全部组件停止后对最后时间戳估值（含收盘成交）并关闭敞口流
 6. 估值价源固定为标记价，采样周期为每根输入 K 线收盘后；engine.capital_findings 读取这些发现并计为完整性发现

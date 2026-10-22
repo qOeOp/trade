@@ -196,7 +196,11 @@ class ReportTests(unittest.TestCase):
         detail = runs.tables(self.control["trial_id"], self.profile, directory=directory, account=True,
                              reproduction=done["reproduction_trial_id"])
         self.assertEqual([fill["cycle_position_id"] for fill in detail["fills"]], ["AAAUSDT-PERP.BINANCE-P"] * 2)
-        self.assertEqual(detail["positions"], found["positions"], "native drill-down must keep stored cycle semantics")
+        self.assertEqual([{k: v for k, v in row.items() if k != "realized_pnl_source"}
+                          for row in detail["positions"]], found["positions"],
+                         "native drill-down must keep known stored cycle values")
+        self.assertTrue(all(row["realized_pnl_source"] == "verified-native-reproduction"
+                            for row in detail["positions"]))
         self.assertEqual((len(detail["account"]), detail["reproduction"]), (3, done["reproduction_trial_id"]))
         exc = refused(runs.tables, self.control["trial_id"], self.profile, directory=directory)
         self.assertEqual((exc.code, exc.missing), ("REPRODUCTION_MISMATCH", ("reproduction",)),

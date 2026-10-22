@@ -54,6 +54,15 @@ class CompleteProfitTests(unittest.TestCase):
             self.assertIsNone(found["scalars"]["loss_to_win"])
             self.assertEqual(found["pairs"][0]["null_reason"], "CYCLE_PNL_MISSING")
 
+    def test_derived_cycle_provenance_survives_pairing(self):
+        left = profit.complete_cycles([{**self.open, "realized_pnl": None}],
+                                     {"reported_realized_pnl_usdt": "-5"})
+        right = profit.complete_cycles([{**self.open, "realized_pnl": None}],
+                                      {"reported_realized_pnl_usdt": "3"})
+        found = attribution.pair_trades(left, right, 100)
+        self.assertTrue(found["pairs"][0]["realized_pnl_source"]["control"].startswith("derived:"))
+        self.assertTrue(found["profit_sources"]["candidate"][0]["realized_pnl_source"].startswith("derived:"))
+
     def test_missing_capture_or_cycle_mark_is_not_zero(self):
         self.assertIsNone(profit.native_economics({}))
         found = profit.account_bridge([self.closed, {**self.open, "open_unrealized": None}], 100, 115, self.audit)

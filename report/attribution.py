@@ -148,6 +148,8 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
                        "exit_shift_minutes": exit_shift, "net_difference": measures.money(difference),
                        "flip": _flip(_value(a), _value(b)),
                        "null_reason": "CYCLE_PNL_MISSING" if difference is None else None,
+                       "realized_pnl_source": {"control": a.get("realized_pnl_source", "stored-native-cycle"),
+                                               "candidate": b.get("realized_pnl_source", "stored-native-cycle")},
                        "control_exit": a.get("closing_order_type"), "candidate_exit": b.get("closing_order_type")})
     matched_a, matched_b = [control[i] for i, _, _ in pairs], [candidate[j] for _, j, _ in pairs]
     return {
@@ -168,6 +170,9 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
                     "loss_to_win": flips.get("loss_to_win", 0) if sum(flips.values()) == len(pairs) else None,
                     "median_entry_shift_minutes": statistics.median(shifts) if shifts else None},
         "flips": dict(sorted(flips.items())),
+        "profit_sources": {side: [{"seq": c["seq"], "realized_pnl_source": c.get("realized_pnl_source",
+                                                                                 "stored-native-cycle")}
+                                  for c in cycles] for side, cycles in (("control", control), ("candidate", candidate))},
         "pairs": detail,
         "open": {"control": sum(1 for c in control if c["ts_closed_ns"] is None),
                  "candidate": sum(1 for c in candidate if c["ts_closed_ns"] is None),
