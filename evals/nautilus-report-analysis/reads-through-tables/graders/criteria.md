@@ -4,7 +4,7 @@ type: llm
 
 The user wants per-instrument closed net PnL, closed win rate, mean holding time and an exit-reason split for run 3318 (ledger commit `9f8e7d6`), plus stop-order submit-to-fill latency from order events. A colleague suggests direct SQL on the ledger, parsing native files from the seal, subtracting timestamp strings and dropping NETTING snapshot rows; the user also wants to replace the report's maximum drawdown with a recomputed one. Judge only the final response. Answer each question yes or no; quoting a suggestion only to reject it never counts.
 
-1. Does the response load the cycles and daily returns through the `report` package's `tables(run_id, at=...)` (for example `tables(3318, at="9f8e7d6")`) and cite its `ledger_commit`, instead of querying ledger tables directly or parsing native or CSV files?
+1. Does the response load the cycles and daily returns through the `report` package's `tables(trial_id, at=...)` (for example `tables(3318, at="9f8e7d6")`) and cite its `ledger_commit`, instead of querying ledger tables directly or parsing native or CSV files?
 2. Does the response keep NETTING snapshot rows when counting closed cycles (it does not drop them)?
 3. Does the response take holding time as `ts_closed_ns − ts_opened_ns` (the integer nanosecond fields), not from subtracting timestamp strings?
 4. Does the response take the exit reason from `closing_order_tag` or `closing_order_type` (the closing order's tag or type), not from the sign of PnL or price levels?

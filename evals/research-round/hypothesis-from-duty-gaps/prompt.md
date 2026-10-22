@@ -12,6 +12,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 @2：与 @3 相同，只是 F4 的理由里只有反向突破出场，没有时间退出。
 @1：与 @2 相同，只是 F3 为缺省。
 
-最近一次比较 `hypothesis compare --bundle research-plan-k03 --run-id run-k03a`（@3 对 @2）：配对差接近 0，不显著；归因 `profit_bridge` 显示两边的差额主要来自资金费，价格部分差不多，@3 的持仓赶上资金费高位的时间更多；`trade_structure` 里各出场类别差别不大。
+最近一次比较 `hypothesis compare --bundle research-plan-k03 --trial-id run-k03a`（@3 对 @2）：配对差接近 0，不显著；归因 `profit_bridge` 显示两边的差额主要来自资金费，价格部分差不多，@3 的持仓赶上资金费高位的时间更多；`trade_structure` 里各出场类别差别不大。
 
 我的想法是下一个假设直接把 Keltner 倍数从 2.0 调到 2.5，感觉突破会更干净。请你定下一个假设：改哪一处、为什么选它，并写出登记体里的 `change` 和 `changed_duties`。

@@ -19,11 +19,11 @@ from report import runs
 UNVERIFIED_RECORDS = ("LEDGER_CORRUPT", "EXECUTION_IDENTITY")  # a run's own records fail to verify
 
 
-def assess_listed(conn: db.LedgerConnection, run_id: int, checker: Mapping, records: list) -> dict:
+def assess_listed(conn: db.LedgerConnection, trial_id: int, checker: Mapping, records: list) -> dict:
     """availability.assess of one listed run with the call's checker and review records; a run whose
     stored records do not verify is unavailable (diagnostic only) with the refusal as its reason."""
     try:
-        return availability.assess(conn, {"run_id": run_id}, checker=checker, records=records)
+        return availability.assess(conn, {"trial_id": trial_id}, checker=checker, records=records)
     except Refusal as exc:
         if exc.code not in UNVERIFIED_RECORDS:
             raise
@@ -39,26 +39,26 @@ def attempts_of(conn: db.LedgerConnection, checker: dict, records: list | None =
     """Every registration attempt with its run and the run's availability now; LEDGER_CORRUPT on a
     dangling reference."""
     records = availability.review_records(conn) if records is None else records
-    dangling = conn.rows("SELECT r.run_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS "
-                         "NULL ORDER BY r.run_id LIMIT 1")
+    dangling = conn.rows("SELECT r.trial_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS "
+                         "NULL ORDER BY r.trial_id LIMIT 1")
     if dangling:
         raise refuse("LEDGER_CORRUPT", f"run {dangling[0][0]} names a trial that does not exist",
                      missing=(f"run {dangling[0][0]}",))
     found = []
     for row in conn.dicts(f"SELECT a.registration_bundle, a.source_sha256, a.trial_id, {db.TRIAL_IMAGE_DIGEST}, t.purpose, "
-                          "r.run_id, r.status FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id "
+                          "r.status FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id "
                           "LEFT JOIN run r ON r.trial_id = a.trial_id ORDER BY a.trial_id"):
         if row["purpose"] is None:
             raise refuse("LEDGER_CORRUPT", f"registration attempt of {row['registration_bundle']} names the missing "
                                            f"trial {row['trial_id']}", missing=(f"trial {row['trial_id']}",))
-        if row["run_id"] is None:
+        if row["status"] is None:
             value = {"economic_evidence_available": False, "reasons": ["unfinished"], "checker": checker}
         else:
-            assessed = assess_listed(conn, row["run_id"], checker, records)
+            assessed = assess_listed(conn, row["trial_id"], checker, records)
             value = {"economic_evidence_available": assessed["economic_evidence_available"],
                      "reasons": assessed["reasons"], "checker": assessed["checker"]}
         found.append({"bundle": row["registration_bundle"], "source_sha256": row["source_sha256"],
-                      "trial_id": row["trial_id"], "run_id": row["run_id"],
+                      "trial_id": row["trial_id"],
                       "run_status": row["status"] or "unfinished", "availability": value})
     return found
 

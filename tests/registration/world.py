@@ -105,14 +105,14 @@ class Qualification:
         self.unavailable: set[int] = set()
 
     def assess(self, conn, run, **options):
-        available = run["run_id"] not in self.unavailable
+        available = run["trial_id"] not in self.unavailable
         return {"economic_evidence_available": available, "reasons": [] if available else ["zero_fills"]}
 
     def require(self, conn, run):
         value = self.assess(conn, run)
         if not value["economic_evidence_available"]:
-            raise refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['run_id']} has no economic evidence",
-                         missing=(str(run["run_id"]),))
+            raise refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['trial_id']} has no economic evidence",
+                         missing=(str(run["trial_id"]),))
         return value
 
 
@@ -251,12 +251,12 @@ class World:
 
     # Registrations
 
-    def body(self, grid: list[str], reviews: dict[str, str], parent: str | None = None, control_run: int | None = None,
+    def body(self, grid: list[str], reviews: dict[str, str], parent: str | None = None, control_trial_id: int | None = None,
              change: str | None = None, duties: list[str] | None = None, **overrides) -> dict:
         mechanism = [{"slice": "capital_scaled", "measure": "unit_return", "direction": "up", "duty": duty,
                       "reason": "smaller orders fill closer to the signal"} for duty in (duties or [])]
         body = {"prediction": {"mechanism": mechanism, "outcomes": dict(OUTCOMES)},
-                "changed_duties": list(duties or []), "parent": parent, "control_run": control_run, "change": change,
+                "changed_duties": list(duties or []), "parent": parent, "control_trial_id": control_trial_id, "change": change,
                 "rationale": {"external": "", "local": "the parent fills large orders late",
                               "conjecture": "capacity limits the edge"},
                 "sources": [], "comparison": dict(DESIGN),
@@ -290,9 +290,8 @@ class World:
             conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
                       "VALUES (%s, %s, %s, '{}', %s, %s, UTC_TIMESTAMP(6))",
                       (trial_id, status, None if passed else '[{"code": "AUDIT"}]', '{}' if passed else None, op))
-            (run_id,), = conn.rows("SELECT LAST_INSERT_ID()")
-            return {"run_id": run_id}
-        return db.write(self.conn, "ingest_fixture", {"trial_id": trial_id}, "run", insert)["record"]["run_id"]
+            return {"trial_id": trial_id}
+        return db.write(self.conn, "ingest_fixture", {"trial_id": trial_id}, "run", insert)["record"]["trial_id"]
 
     def judge(self, kind: str, subjects=None) -> int:
         from report import status

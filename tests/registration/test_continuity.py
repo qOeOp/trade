@@ -74,7 +74,7 @@ class ContinuityTests(unittest.TestCase):
             self.world.register("registration-third", {**body, "retry_of": "registration-new",
                                                        "prechecks": {"rsi@1": third_review}})
         self.assertEqual(self.world.plan("registration-old")["body"], self.body)
-        self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE run_id = %s",
+        self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE trial_id = %s",
                                             (self.old_run,))["status"], "passed")
 
     def test_migration_requires_a_new_review_and_explicit_retry_link(self):
@@ -150,7 +150,7 @@ class ContinuityTests(unittest.TestCase):
         child = self.world.publish("child")
         old_review = self.review_on(child["source"], RUNTIME)
         original = self.world.body([child["candidate"]], {child["candidate"]: old_review}, parent="rsi@1",
-                                   control_run=self.old_run, change="cap volume at 5%", duties=["G3"])
+                                   control_trial_id=self.old_run, change="cap volume at 5%", duties=["G3"])
         self.world.register("registration-child-old", original)
         failed = self.world.research_trial("registration-child-old", child["source"])
         self.world.seal_run(failed, "invalid")
@@ -166,7 +166,7 @@ class ContinuityTests(unittest.TestCase):
                      "prechecks": {child["candidate"]: child_review}}
             self.assertEqual(refused(self.world.register, "registration-child-old-control", retry).code,
                              "COMPARABILITY_MISMATCH")
-            self.world.register("registration-child-new", {**retry, "control_run": rebuilt_run})
+            self.world.register("registration-child-new", {**retry, "control_trial_id": rebuilt_run})
             self.world.research_trial("registration-child-new", child["source"], runtime=OTHER_RUNTIME)
         self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE trial_id = %s", (failed,))["status"],
                          "invalid")
@@ -175,7 +175,7 @@ class ContinuityTests(unittest.TestCase):
         child = self.world.publish("valid child")
         review = self.review_on(child["source"], RUNTIME)
         original = self.world.body([child["candidate"]], {child["candidate"]: review}, parent="rsi@1",
-                                   control_run=self.old_run, change="cap volume at 5%", duties=["G3"])
+                                   control_trial_id=self.old_run, change="cap volume at 5%", duties=["G3"])
         self.world.register("registration-child-old", original)
         old = self.world.research_trial("registration-child-old", child["source"])
         self.world.seal_run(old)
@@ -197,5 +197,5 @@ class ContinuityTests(unittest.TestCase):
             retry = {**original, "retry_of": "registration-child-old",
                      "prechecks": {child["candidate"]: new_review}}
             self.assertEqual(refused(self.world.register, "registration-wrong-control",
-                                     {**retry, "control_run": unrelated_run}).code, "RETRY_NOT_ALLOWED")
-            self.world.register("registration-child-new", {**retry, "control_run": new_run})
+                                     {**retry, "control_trial_id": unrelated_run}).code, "RETRY_NOT_ALLOWED")
+            self.world.register("registration-child-new", {**retry, "control_trial_id": new_run})

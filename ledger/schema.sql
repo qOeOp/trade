@@ -1,4 +1,4 @@
--- Research ledger schema, generation 2 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init`
+-- Research ledger schema, generation 3 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init`
 -- on the research branch. Every table and view of the ledger database in the design, including
 -- the run tables later phases write, so the generation is the final one.
 --
@@ -101,8 +101,7 @@ CREATE TABLE registration_attempt (
 );
 
 CREATE TABLE run (
-  run_id INT AUTO_INCREMENT PRIMARY KEY,
-  trial_id INT NOT NULL UNIQUE,
+  trial_id INT PRIMARY KEY,
   status ENUM('passed', 'invalid') NOT NULL,
   failure_reasons JSON NULL,
   audit JSON NOT NULL,
@@ -115,27 +114,27 @@ CREATE TABLE run (
 );
 
 CREATE TABLE run_sealed (
-  run_id INT NOT NULL,
+  trial_id INT NOT NULL,
   metrics_revision CHAR(40) NOT NULL,
   report JSON NOT NULL,
   op_id VARCHAR(160) NOT NULL,
   created_at DATETIME(6) NOT NULL,
-  PRIMARY KEY (run_id, metrics_revision),
+  PRIMARY KEY (trial_id, metrics_revision),
   INDEX run_sealed_op (op_id),
-  FOREIGN KEY (run_id) REFERENCES run (run_id)
+  FOREIGN KEY (trial_id) REFERENCES run (trial_id)
 );
 
 CREATE TABLE run_return (
-  run_id INT NOT NULL,
+  trial_id INT NOT NULL,
   ts_event_ns BIGINT NOT NULL,
   native_return DOUBLE NOT NULL,
   mean_gross_notional DECIMAL(24,8) NULL,
-  PRIMARY KEY (run_id, ts_event_ns),
-  FOREIGN KEY (run_id) REFERENCES run (run_id)
+  PRIMARY KEY (trial_id, ts_event_ns),
+  FOREIGN KEY (trial_id) REFERENCES run (trial_id)
 );
 
 CREATE TABLE run_cycle (
-  run_id INT NOT NULL,
+  trial_id INT NOT NULL,
   seq INT NOT NULL,
   instrument_id VARCHAR(64) NOT NULL,
   side ENUM('long', 'short') NOT NULL,
@@ -149,8 +148,8 @@ CREATE TABLE run_cycle (
   plan_tag VARCHAR(160) NULL,
   closing_order_type VARCHAR(40) NULL,
   closing_order_tag VARCHAR(160) NULL,
-  PRIMARY KEY (run_id, seq),
-  FOREIGN KEY (run_id) REFERENCES run (run_id),
+  PRIMARY KEY (trial_id, seq),
+  FOREIGN KEY (trial_id) REFERENCES run (trial_id),
   CHECK (ts_closed_ns IS NULL OR open_unrealized IS NULL)
 );
 
@@ -234,14 +233,14 @@ CREATE VIEW v_candidates AS
 CREATE VIEW v_trials AS
   SELECT t.trial_id, t.purpose, t.source_sha256, a.registration_bundle,
          b.registration_id AS validation_registration, SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest,
-         t.trade_start, t.trade_end, r.run_id, r.status AS run_status, t.created_at
+         t.trade_start, t.trade_end, r.status AS run_status, t.created_at
   FROM trial t
   LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
   LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
   LEFT JOIN run r ON r.trial_id = t.trial_id;
 
 CREATE VIEW v_runs AS
-  SELECT run_id, trial_id, status, failure_reasons, audit, created_at
+  SELECT trial_id, status, failure_reasons, audit, created_at
   FROM run;
 
 CREATE VIEW v_judgments AS
@@ -258,7 +257,7 @@ CREATE VIEW v_evidence AS
 
 CREATE VIEW v_validations AS
   SELECT g.registration_id, g.strategy_id, g.revision, g.market_commit, g.universe_rule,
-         g.window_start, g.window_end, b.trial_id, r.run_id, r.status AS run_status, g.created_at
+         g.window_start, g.window_end, b.trial_id, r.status AS run_status, g.created_at
   FROM validation_registration g
   LEFT JOIN validation_binding b ON b.registration_id = g.registration_id
   LEFT JOIN run r ON r.trial_id = b.trial_id;
@@ -282,7 +281,7 @@ CREATE VIEW v_candidate_lineage AS
   JOIN lineage l ON l.strategy_id = c.strategy_id AND l.revision = c.revision;
 
 CREATE VIEW v_run_history AS
-  SELECT r.run_id, r.trial_id, t.purpose, r.status, c.strategy_id, c.revision, t.trade_start, t.trade_end,
+  SELECT r.trial_id, t.purpose, r.status, c.strategy_id, c.revision, t.trade_start, t.trade_end,
          a.registration_bundle, b.registration_id AS validation_registration, s.metrics_revision,
          CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.drawdown."mark_max_drawdown@2".value')) AS DOUBLE)
            AS mark_max_drawdown,
@@ -298,8 +297,8 @@ CREATE VIEW v_run_history AS
   LEFT JOIN candidate c ON c.source_sha256 = t.source_sha256
   LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
   LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
-  LEFT JOIN run_sealed s ON s.run_id = r.run_id AND s.metrics_revision = (
-    SELECT s2.metrics_revision FROM run_sealed s2 WHERE s2.run_id = r.run_id
+  LEFT JOIN run_sealed s ON s.trial_id = r.trial_id AND s.metrics_revision = (
+    SELECT s2.metrics_revision FROM run_sealed s2 WHERE s2.trial_id = r.trial_id
     ORDER BY s2.created_at DESC, s2.metrics_revision DESC LIMIT 1);
 
 CREATE VIEW v_judgment_chain AS
@@ -318,7 +317,7 @@ CREATE VIEW v_judgment_subjects AS
   SELECT s.judgment_id, s.seq, s.role, j.kind, j.line_bundle,
          NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) AS is_current,
          COALESCE(s.strategy_id, c.strategy_id) AS strategy_id, COALESCE(s.revision, c.revision) AS revision,
-         s.trial_id, r.run_id, s.registration_bundle, j.created_at
+         s.trial_id, s.registration_bundle, j.created_at
   FROM judgment_subject s
   JOIN judgment j ON j.judgment_id = s.judgment_id
   LEFT JOIN trial t ON t.trial_id = s.trial_id

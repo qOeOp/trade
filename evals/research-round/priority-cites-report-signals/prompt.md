@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-rsi-4h`（起点 `rsi-root@2`，开发窗口 2023-01-01 至 2025-06-30，4 小时线，20 个 USDT 永续）。基线运行 `run-r2b`，账本提交 `e57c1a9`，`replay report --run-id run-r2b` 的结果：
+研究路线 `line-rsi-4h`（起点 `rsi-root@2`，开发窗口 2023-01-01 至 2025-06-30，4 小时线，20 个 USDT 永续）。基线运行 `run-r2b`，账本提交 `e57c1a9`，`replay report --trial-id run-r2b` 的结果：
 
 | 项 | 数值 |
 |---|---|

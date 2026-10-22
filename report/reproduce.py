@@ -20,37 +20,37 @@ from registration import comparability, register
 from report import runs, seams
 
 
-def _side(conn: db.LedgerConnection, run_id: int) -> dict:
-    loaded = metrics.load_run(conn, run_id)  # UNKNOWN_RUN, EXECUTION_IDENTITY
+def _side(conn: db.LedgerConnection, trial_id: int) -> dict:
+    loaded = metrics.load_run(conn, trial_id)  # UNKNOWN_RUN, EXECUTION_IDENTITY
     run, trial = loaded["run"], loaded["trial"]
     if run["status"] != "passed" or not loaded["sealed"]:
-        raise refuse("RUN_INCOMPLETE", f"run {run_id} is not a passed run with a sealed result", missing=(str(run_id),))
-    record = register.control_run(conn, run_id)
+        raise refuse("RUN_INCOMPLETE", f"run {trial_id} is not a passed run with a sealed result", missing=(str(trial_id),))
+    record = register.control_trial(conn, trial_id)
     start = loaded["capture"].get("start") or {}
     runtime = start.get("runtime_identity") or {}
-    return {"run_id": run_id, "source_sha256": trial["source_sha256"], "image_ref": trial["image_ref"],
+    return {"trial_id": trial_id, "source_sha256": trial["source_sha256"], "image_ref": trial["image_ref"],
             "runtime_contract": runtime.get("runtime_contract"), "build_revision": runtime.get("build_revision"),
             "config_key": comparability.config_key(record["effective_config"]),
             "input_key": comparability.input_key(record["input_identity"])}
 
 
-def compare_runs(profile, reference_run_id: int, candidate_run_id: int, at: str | None = None,
+def compare_runs(profile, reference_trial_id: int, candidate_trial_id: int, at: str | None = None,
                  work_dir: Path | None = None) -> dict:
     """engine.compare_reports of two reproduced runs of the same source, inputs and configuration
     (the reference on its original image), with both identities and the ledger commit read. The
     reproductions go into a new directory under `work_dir` (default: the temporary root), removed
     afterwards unless a reproduction mismatched."""
-    if reference_run_id == candidate_run_id:
-        raise refuse("SAME_RUN", "the reference and the candidate are the same run", missing=(str(reference_run_id),))
+    if reference_trial_id == candidate_trial_id:
+        raise refuse("SAME_RUN", "the reference and the candidate are the same run", missing=(str(reference_trial_id),))
     profile = runs.profile_of(profile)
     with db.read_as_of(profile, at) as conn:
         commit = db.head_commit(conn)
-        reference, candidate = _side(conn, reference_run_id), _side(conn, candidate_run_id)
+        reference, candidate = _side(conn, reference_trial_id), _side(conn, candidate_trial_id)
     differs = [name for name in ("source_sha256", "input_key", "config_key") if reference[name] != candidate[name]]
     if differs:
         raise refuse("PAIR_INPUT_MISMATCH", "the two runs differ in " + ", ".join(differs), missing=tuple(differs))
     parent = Path(tempfile.gettempdir()) if work_dir is None else Path(work_dir)
-    root = paths.temporary_path(parent / f"compare-runs-{reference_run_id}-{candidate_run_id}-{uuid.uuid4().hex[:12]}")
+    root = paths.temporary_path(parent / f"compare-runs-{reference_trial_id}-{candidate_trial_id}-{uuid.uuid4().hex[:12]}")
     root.mkdir(parents=True)
     keep = False
     try:
@@ -58,7 +58,7 @@ def compare_runs(profile, reference_run_id: int, candidate_run_id: int, at: str 
         for name, side in (("reference", reference), ("candidate", candidate)):
             target = root / name
             try:
-                seams.current.reproduce(side["run_id"], target, profile)
+                seams.current.reproduce(side["trial_id"], target, profile)
             except Refusal as exc:
                 if exc.code != "REPRODUCTION_MISMATCH":
                     raise
@@ -69,13 +69,13 @@ def compare_runs(profile, reference_run_id: int, candidate_run_id: int, at: str 
             reports = target / "reports"
             absent = [report for report in execution.NATIVE_REPORTS if not (reports / report).is_file()]
             if absent:
-                raise refuse("EXPORT_INCOMPLETE", f"the reproduction of run {side['run_id']} lacks " + ", ".join(absent),
+                raise refuse("EXPORT_INCOMPLETE", f"the reproduction of run {side['trial_id']} lacks " + ", ".join(absent),
                              missing=tuple(absent))
             directories[name] = reports
         compared = seams.current.compare_reports(directories["reference"], directories["candidate"])
     finally:
         if not keep:
             shutil.rmtree(root, ignore_errors=True)
-    identity = ("run_id", "image_ref", "runtime_contract", "build_revision")
+    identity = ("trial_id", "image_ref", "runtime_contract", "build_revision")
     return {**compared, "reference": {key: reference[key] for key in identity},
             "candidate": {key: candidate[key] for key in identity}, "ledger_commit": commit}

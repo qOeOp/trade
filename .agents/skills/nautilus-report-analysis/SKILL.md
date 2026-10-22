@@ -5,9 +5,9 @@ description: Derives descriptive statistics from a sealed run's stored cycles, d
 
 # Native report analysis
 
-The product's reports (`replay report --run-id RUN`, `hypothesis compare --bundle BUNDLE --run-id
+The product's reports (`replay report --trial-id RUN`, `hypothesis compare --bundle BUNDLE --trial-id
 RUN`) give the measures of the measure catalogue, already masked by eligibility. Everything else you
-compute yourself from the `report` package's `tables(run_id, at=..., account=..., exposures=...,
+compute yourself from the `report` package's `tables(trial_id, at=..., account=..., exposures=...,
 directory=..., reproduction=...)`, under these rules. It returns the run's position cycles
 (`positions`, snapshot rows kept: `plan_tag`, `ts_opened_ns`, `ts_closed_ns`, `price_pnl`, `funding`,
 `closing_order_type`, `closing_order_tag`), the trade-window daily returns, `reconciled` totals, `availability`, `metrics_revision`, `ledger_commit`
@@ -20,7 +20,7 @@ and `limitations`.
   `ts_closed_ns − ts_opened_ns`, the entry plan `plan_tag`, the exit `closing_order_tag` or
   `closing_order_type`. For native detail beyond cycles and daily
   returns (orders, fills, account, order events), first replay the run into /tmp with `replay
-  reproduce --run-id RUN --output DIR` and pass that directory and the reproduction trial to
+  reproduce --trial-id RUN --output DIR` and pass that directory and the reproduction trial to
   `tables()`, which checks the semantic fingerprint first.
 - State the population (closed cycles, open rows, account), the weighting and the
   frequency of every derived number. Totals over closed cycles equal `reconciled`; if not, do not

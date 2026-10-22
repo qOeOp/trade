@@ -234,8 +234,8 @@ AUDIT_FILES = frozenset({"audit.stdout.txt", "audit.stderr.txt", AUDIT_RESULT})
 FINGERPRINT_FILES = frozenset({"fingerprint.stdout.txt", "fingerprint.stderr.txt", FINGERPRINT_RESULT})
 STAGE_FILES = {"audit": AUDIT_FILES, "fingerprint": FINGERPRINT_FILES}
 STAGES = ("native", "audit", "fingerprint")
-# Outside a precheck the native reports stay a working copy and the fingerprint is the run row's: the
-# capture records their hash and length only.
+# Formal reports and reports of a clean, reproducible precheck stay a working copy. A precheck's
+# fingerprint is kept in its capture (it has no run row); formal fingerprints live in the run row.
 HASHED_OUTPUTS = (*(f"reports/{name}" for name in metrics.REPORT_FILES.values()), FINGERPRINT_RESULT)
 # The reports engine.audit_main needs before the auditor runs (engine.write_native_reports writes them).
 NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
@@ -243,7 +243,7 @@ NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "a
 OUTCOMES = ("completed", "interrupted", "host_failure")
 STATES = ("started", "exited")
 CAPTURE_LIMIT = 32 * 1024 * 1024  # bytes of one capture; an uncalibrated example value
-PRECHECK_CAPTURE_LIMIT = 512 * 1024 * 1024  # a precheck also keeps every report; an uncalibrated example value
+PRECHECK_CAPTURE_LIMIT = 512 * 1024 * 1024  # failed/nonreproducible prechecks retain originals; unchanged limit
 RECOVERY_FORMAT = "execution_recovery_v1"
 RECOVERY_MANIFEST = "recovery.json"
 HOST_ERROR = "host-error.json"
@@ -290,14 +290,24 @@ def _regular(path: Path) -> bytes | None:
         return None
 
 
-def _capture_files(workdir: Path, purpose: str, facts: Mapping) -> tuple[dict, dict[str, bytes]]:
+def _capture_files(workdir: Path, purpose: str, facts: Mapping,
+                   outcome: Mapping | None = None) -> tuple[dict, dict[str, bytes]]:
     """(manifest entries, stored bytes) of what exists in the working directory, by the capture rule.
 
-    Every trial hashes its source and coverage receipt; a precheck stores every report, any other
-    trial stores none and hashes the native reports and the fingerprint.
+    A clean precheck with a completed fingerprint hashes its regenerable native tables, retaining
+    its summary, audit and fingerprint once. Failed, interrupted or nonreproducible prechecks keep
+    their original reports. This storage choice does not change precheck admission requirements.
     """
     names = list(CAPTURE_FILES)
-    hashed = HASHED_INPUTS + (() if purpose == "precheck" else HASHED_OUTPUTS)
+    audit = _json(_regular(workdir / AUDIT_RESULT) or b"")
+    cacheable = (purpose == "precheck" and (outcome or {}).get("kind") == "completed"
+                 and all(isinstance(facts.get(stage), Mapping) and facts[stage].get("state") == "exited"
+                         and facts[stage].get("exit_code") == 0 for stage in STAGES)
+                 and isinstance(_json(_regular(workdir / FINGERPRINT_RESULT) or b""), dict)
+                 and isinstance(audit, dict) and audit.get("passed") is True
+                 and not (_regular(workdir / RUNTIME_ERRORS) or b"").strip())
+    hashed = HASHED_INPUTS + (tuple(f"reports/{name}" for name in metrics.REPORT_FILES.values()) if cacheable
+                             else () if purpose == "precheck" else HASHED_OUTPUTS)
     reports = workdir / "reports"
     if purpose == "precheck" and reports.is_dir() and not reports.is_symlink():
         for path in sorted(reports.rglob("*")):
@@ -404,7 +414,7 @@ def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages:
     facts = _stage_facts(stages)
     _require_process(workdir, trial_id, start, facts)
     _require_coverage(workdir, trial_id, start, start_files)
-    listed, stored = _capture_files(workdir, trial["purpose"], facts)
+    listed, stored = _capture_files(workdir, trial["purpose"], facts, outcome)
     _check_size(stored, trial["purpose"], trial_id)
     manifest = {"format": CAPTURE_FORMAT, "trial_id": trial_id, "purpose": trial["purpose"],
                 "source_sha256": trial["source_sha256"], "runtime_identity": start.get("runtime_identity"),

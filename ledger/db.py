@@ -39,8 +39,8 @@ from ledger.paths import temporary_path
 from ledger.refusals import refuse
 
 
-SCHEMA_VERSION = 2
-READABLE_VERSIONS = frozenset({2})
+SCHEMA_VERSION = 3
+READABLE_VERSIONS = frozenset({3})
 DOLT_VERSION = "2.4.2"
 KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")

@@ -32,7 +32,7 @@ from ledger import db, evidence, metrics, strategies
 from ledger.refusals import refuse
 
 
-EXPORT_FORMAT = "ledger-export-v1"
+EXPORT_FORMAT = "ledger-export-v2"
 MANIFEST = "manifest.json"
 BACKUP, REPRODUCE = "backup", "reproduce"
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE")
@@ -176,8 +176,8 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> str | No
     return previous
 
 
-def _run_record(conn: db.LedgerConnection, run_id: int) -> dict:
-    loaded = metrics.load_run(conn, run_id)
+def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
+    loaded = metrics.load_run(conn, trial_id)
     capture, trial, run = loaded["capture"], loaded["trial"], loaded["run"]
     coverage = capture.get("input_coverage") if isinstance(capture.get("input_coverage"), Mapping) else {}
     start = capture.get("start") or {}
@@ -188,7 +188,7 @@ def _run_record(conn: db.LedgerConnection, run_id: int) -> dict:
                         for ts, value, mean in loaded["returns"]],
             "cycles": [{key: (metrics.money(item) if isinstance(item, metrics.Decimal) else item)
                         for key, item in cycle.items()} for cycle in loaded["cycles"]],
-            "replay_identity": {"run_id": run_id, "trial_id": trial["trial_id"], "purpose": trial["purpose"],
+            "replay_identity": {"trial_id": trial_id, "purpose": trial["purpose"],
                                 "source_sha256": trial["source_sha256"], "image_ref": trial["image_ref"],
                                 "image_digest": trial["image_digest"], "runtime_identity": start.get("runtime_identity"),
                                 "input_identity": start.get("input_identity"),
@@ -201,7 +201,7 @@ def _run_record(conn: db.LedgerConnection, run_id: int) -> dict:
                                 "validation_registration": (binding or {}).get("registration_id")}}
 
 
-def export_history(profile, destination: Path, at: str | None = None, run_ids: list | None = None,
+def export_history(profile, destination: Path, at: str | None = None, trial_ids: list | None = None,
                    with_backup: bool = True) -> dict:
     """Export the ledger at one exact version through the reader account: the full-history backup
     (with_backup) and the reproduction manifest with candidate sources, run rows, sealed results,
@@ -211,15 +211,15 @@ def export_history(profile, destination: Path, at: str | None = None, run_ids: l
     with db.read_as_of(profile, at) as conn:
         require_reader(conn)
         commit = db.head_commit(conn)
-        sealed = [run_id for (run_id,) in conn.rows("SELECT run_id FROM run ORDER BY run_id")]
-        wanted = sealed if run_ids is None else [int(item) for item in run_ids]
+        sealed = [trial_id for (trial_id,) in conn.rows("SELECT trial_id FROM run ORDER BY trial_id")]
+        wanted = sealed if trial_ids is None else [int(item) for item in trial_ids]
         absent = [str(item) for item in wanted if item not in sealed]
         if absent:
             raise refuse("UNKNOWN_RUN", "no sealed run " + ", ".join(absent) + f" at {commit}", missing=tuple(absent))
-        records = {run_id: _run_record(conn, run_id) for run_id in wanted}
+        records = {trial_id: _run_record(conn, trial_id) for trial_id in wanted}
         sources = {record["trial"]["source_sha256"] for record in records.values()}
         candidates = [row for row in conn.dicts("SELECT strategy_id, revision, source_sha256 FROM candidate ORDER BY "
-                                                "strategy_id, revision") if run_ids is None or row["source_sha256"] in sources]
+                                                "strategy_id, revision") if trial_ids is None or row["source_sha256"] in sources]
         files: dict[str, bytes] = {}
         listed = []
         for row in candidates:
@@ -230,8 +230,8 @@ def export_history(profile, destination: Path, at: str | None = None, run_ids: l
             path = f"candidates/{ref}.py"
             files[path] = found["source"]
             listed.append({"candidate": ref, "source_sha256": row["source_sha256"], "path": path})
-        for run_id, record in records.items():
-            files[f"runs/{run_id}.json"] = _json(record)
+        for trial_id, record in records.items():
+            files[f"runs/{trial_id}.json"] = _json(record)
         bundles = [bundle for (bundle,) in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE "
                                                      "'registration-%' ORDER BY bundle")]
         for bundle in bundles:

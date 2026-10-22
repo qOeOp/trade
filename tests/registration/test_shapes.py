@@ -39,7 +39,7 @@ class SchemaTests(unittest.TestCase):
     def body(self) -> dict:
         from tests.registration.world import OUTCOMES
         return {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
-                "control_run": None, "change": None,
+                "control_trial_id": None, "change": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a guess"}, "sources": [],
                 "comparison": dict(DESIGN), "grid": [{"candidate": "rsi@1", "params": {}}],
                 "conditions": "all", "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}}
@@ -68,7 +68,7 @@ class SchemaTests(unittest.TestCase):
             lambda b: b.update(grid=[]),
             lambda b: b.update(grid=[{"candidate": f"rsi@{n}", "params": {}} for n in range(1, 7)]),
             lambda b: b.update(grid=[{"candidate": "rsi", "params": {}}]),
-            lambda b: b.update(control_run=0),
+            lambda b: b.update(control_trial_id=0),
             lambda b: b.update(parent="no-revision"),
             lambda b: b.update(rationale={"external": "", "local": "", "conjecture": ""}),
             lambda b: b.update(window={"trade_start": "2026-01-01"}),
@@ -117,7 +117,7 @@ class ComparabilityTests(unittest.TestCase):
     def test_check_comparable_names_every_conflict(self):
         execution = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(),
                      "input_identity": self.identity()}
-        run = {"run_id": 1, "status": "passed", "purpose": "research", **execution}
+        run = {"trial_id": 1, "status": "passed", "purpose": "research", **execution}
         comparability.check_comparable(run, execution)
         for changed in ({"status": "invalid"}, {"status": None}, {"purpose": "explore"}, {"purpose": "precheck"}):
             with self.subTest(changed=changed):

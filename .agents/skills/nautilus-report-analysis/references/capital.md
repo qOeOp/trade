@@ -13,7 +13,7 @@ context for drawdown and for the holding structure: read it first.
   alone. When the run has no exposure readings, it cannot answer capital questions: say so and put
   it in the limitations.
 - Participation is yours to compute; the product stores none. Replay the run with
-  `replay reproduce --run-id RUN --output DIR`, take its fills from `tables()`, and divide each
+  `replay reproduce --trial-id RUN --output DIR`, take its fills from `tables()`, and divide each
   fill's quantity by the volume of that instrument's one-minute LAST bar at the run's market commit
   (market database, read only). The engine stamps a bar at its open plus 59.999 s and the market
   database keys it by its open, so a fill at T belongs to the bar opening at T floored to the

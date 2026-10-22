@@ -116,7 +116,7 @@ class CommandTests(unittest.TestCase):
 
     def body(self, ref: str, review: str, **overrides) -> dict:
         body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
-                "control_run": None, "change": None,
+                "control_trial_id": None, "change": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a fixture rule earns its keep"},
                 "sources": [], "comparison": dict(DESIGN),
                 "grid": [{"candidate": ref, "params": {}}], "conditions": "one contract, the development window",
@@ -265,12 +265,12 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((ran["purpose"], ran["status"]), ("research", "passed"))
         self.refused("GRID_ALREADY_ATTEMPTED", "replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1",
                      "--hypothesis", "registration-root", "--", *RUNNER)
-        report = self.ok("replay", "report", *ledger, "--run-id", str(ran["run_id"]))
+        report = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]))
         self.assertEqual(report["source"], "sealed")
         self.assertTrue(report["availability"]["economic_evidence_available"], report["availability"])
-        tables = self.ok("replay", "report", *ledger, "--run-id", str(ran["run_id"]), "--tables")
+        tables = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]), "--tables")
         self.assertEqual(tables["tables"]["reconciled"]["closed_cycles"], 1)
-        self.refused("UNKNOWN_RUN", "replay", "report", *ledger, "--run-id", "99")
+        self.refused("UNKNOWN_RUN", "replay", "report", *ledger, "--trial-id", "99")
 
         # Judgments before the derived registration
         head = self.ok("ledger", "sql", *ledger, "SELECT DOLT_HASHOF('HEAD')")["rows"][0][0]
@@ -292,7 +292,7 @@ class CommandTests(unittest.TestCase):
         child_review = self.prechecked("fixture@2", "child")
         mechanism = [{"slice": None, "measure": None, "direction": "up", "duty": "F3",
                       "reason": "no slice measures the stop"}]
-        child_body = self.body("fixture@2", child_review, parent="fixture@1", control_run=ran["run_id"],
+        child_body = self.body("fixture@2", child_review, parent="fixture@1", control_trial_id=ran["trial_id"],
                                change="widen the stop", changed_duties=["F3"],
                                prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)},
                                rationale={"external": "", "local": "the root's stop is hit early", "conjecture": ""})
@@ -302,12 +302,12 @@ class CommandTests(unittest.TestCase):
                          "registration-child", "--", *RUNNER, standin=True, scenario={"returns": CHILD_RETURNS})
         self.assertEqual(second["status"], "passed")
         compared = self.ok("hypothesis", "compare", *ledger, "--bundle", "registration-child",
-                           "--run-id", str(second["run_id"]))
-        self.assertEqual((compared["run_id"], compared["control_run_id"]), (second["run_id"], ran["run_id"]))
+                           "--trial-id", str(second["trial_id"]))
+        self.assertEqual((compared["trial_id"], compared["control_trial_id"]), (second["trial_id"], ran["trial_id"]))
         self.assertIn("evidence", compared)
         self.assertIn("attribution", compared)
         self.refused("RUN_NOT_IN_GRID", "hypothesis", "compare", *ledger, "--bundle", "registration-child",
-                     "--run-id", str(ran["run_id"]))
+                     "--trial-id", str(ran["trial_id"]))
 
         # Research facts and the candidate list
         counts = self.ok("research", "status", *ledger)
@@ -320,7 +320,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(len(candidates["candidates"][1]["attempts"]), 1)
 
         # Reproduction, out-of-sample registration, witness, recovery, review and export
-        reproduced = self.ok("replay", "reproduce", *ledger, "--run-id", str(ran["run_id"]),
+        reproduced = self.ok("replay", "reproduce", *ledger, "--trial-id", str(ran["trial_id"]),
                              "--output", str(self.tmp / "reproduce"))
         self.assertTrue(reproduced["fingerprints_match"])
         validation = self.ok("validation", "registration", *ledger, "--candidate", "fixture@2",

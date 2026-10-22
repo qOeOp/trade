@@ -16,6 +16,7 @@ from pathlib import Path
 import subprocess
 
 from ledger import db, execution, strategies, witness
+from ledger import trials
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, register, seams
@@ -283,16 +284,14 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
     if stamped is None or not stamped < start.replace(tzinfo=UTC):
         raise refuse("REGISTRATION_TOO_LATE", f"registration {origin['registration_id']} has no witness before the "
                                               f"window starts at {start}", missing=(str(origin["registration_id"]),))
-    latest = conn.one("SELECT r.run_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE t.purpose = 'research' "
-                      "AND t.source_sha256 = %s AND r.status = 'passed' ORDER BY r.run_id DESC LIMIT 1",
-                      (source_sha256,))
+    latest = trials.latest_research(conn, source_sha256)
     if latest is None:
         raise refuse("CONFIG_MISMATCH", "the candidate has no valid research run to compare account terms with",
                      missing=("research run",))
-    research = register.control_run(conn, latest["run_id"])
+    research = register.control_trial(conn, latest)
     if comparability.config_key(research["effective_config"])["account"] != comparability.config_key(
             coverage.get("effective_config"))["account"]:
-        raise refuse("CONFIG_MISMATCH", f"the account terms differ from research run {latest['run_id']}",
+        raise refuse("CONFIG_MISMATCH", f"the account terms differ from research run {latest}",
                      missing=("account",))
     if conn.rows("SELECT 1 FROM validation_binding WHERE registration_id = %s OR trial_id = %s",
                  (registration_id, trial_id)):

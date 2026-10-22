@@ -97,12 +97,12 @@ def _mapping(value: object) -> Mapping:
     return value if isinstance(value, Mapping) else {}
 
 
-def run_facts(conn: db.LedgerConnection, run_id: int) -> dict:
+def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
     """What derive_measures reads for one run: the run and trial rows, the latest sealed result, the
     daily series and position cycles as stored, the starting balance of the account terms, the final
     equity the sealed facts record, the trading window and the input identity."""
-    loaded = metrics.load_run(conn, run_id)
-    sealed = metrics.latest_sealed(conn, run_id, loaded["sealed"])
+    loaded = metrics.load_run(conn, trial_id)
+    sealed = metrics.latest_sealed(conn, trial_id, loaded["sealed"])
     capture = loaded["capture"]
     coverage = _mapping(capture.get("input_coverage"))
     config = _mapping(coverage.get("effective_config"))

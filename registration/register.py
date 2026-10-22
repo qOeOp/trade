@@ -23,13 +23,14 @@ import re
 import jsonschema
 
 from ledger import db, evidence, execution as ledger_execution, lines, strategies
+from ledger import reproduction
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, duties, inputs as registration_inputs, precheck, seams
 
 
 PLAN_FILE = "research-plan.json"
-PLAN_FORMAT = "research-plan-v1"
+PLAN_FORMAT = "research-plan-v2"
 METHOD = "paired-circular-log-mean-v1"
 DESIGN_KEYS = ("method", "block_days", "resamples", "inner_resamples", "seed", "alpha", "minimum_effect",
                "design_reason")
@@ -40,7 +41,7 @@ GRID_LIMIT = 5
 # Research trials on a line since its last recommendation that stop the next registration until a
 # review (a fixed circuit breaker, user decision 2026-10-21; an uncalibrated example value).
 REVIEW_EVERY = 5
-REQUIRED = ("prediction", "changed_duties", "parent", "control_run", "change", "rationale", "sources",
+REQUIRED = ("prediction", "changed_duties", "parent", "control_trial_id", "change", "rationale", "sources",
             "comparison", "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
 REGISTRATION_NAME = re.compile(r"registration-.+")
@@ -84,7 +85,7 @@ def plan_schema() -> dict:
                                "type": "array", "items": {"type": "string"}},
             "parent": {"description": "The research parent strategy_id@revision the change starts from, or null for "
                                       "a root.", "anyOf": [_REF, {"type": "null"}]},
-            "control_run": {"description": "The run_id of the comparison control, a passed, sealed, comparable run "
+            "control_trial_id": {"description": "The trial_id of the comparison control, a passed, sealed, comparable run "
                                            "with economic evidence; null for a root, or for a derived registration "
                                            "whose rationale.local cites the parent run's fault or zero activity.",
                             "anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
@@ -104,7 +105,7 @@ def plan_schema() -> dict:
             "comparison": {"description": "The declared paired test of the annual return against the control: "
                                           "method, block_days, resamples, inner_resamples, seed, alpha, "
                                           "minimum_effect and design_reason (values are uncalibrated examples, "
-                                          "locked with the registration); null when control_run is null.",
+                                          "locked with the registration); null when control_trial_id is null.",
                            "type": ["object", "null"]},
             "grid": {"description": "One to five grid points {candidate: strategy_id@revision, params: the "
                                     "parameters described}, each a published candidate whose parent and difference "
@@ -239,13 +240,13 @@ def _check_prediction(body: Mapping) -> None:
                      missing=tuple(unpredicted))
 
 
-def control_run(conn: db.LedgerConnection, run_id: int) -> dict:
+def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
     """A run joined with its trial and the execution identity of its start receipt (input identity in
     execution.json, effective configuration in input-coverage.json): the comparability record."""
-    row = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
-                   "JOIN trial t ON t.trial_id = r.trial_id WHERE r.run_id = %s", (run_id,))
+    row = conn.one(f"SELECT r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
+                   "JOIN trial t ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if row is None:
-        raise refuse("RUN_NOT_PASSED", f"no sealed run {run_id}", missing=(str(run_id),))
+        raise refuse("RUN_NOT_PASSED", f"no sealed run {trial_id}", missing=(str(trial_id),))
     capture = ledger_execution.read_capture(conn, row["trial_id"])
     coverage = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
     return {**row, "effective_config": coverage.get("effective_config"),
@@ -253,10 +254,10 @@ def control_run(conn: db.LedgerConnection, run_id: int) -> dict:
 
 
 def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping) -> None:
-    parent, control, change = body["parent"], body["control_run"], body["change"]
+    parent, control, change = body["parent"], body["control_trial_id"], body["change"]
     if parent is None:
         if control is not None or change is not None:
-            raise _invalid("a root registration has no control run and no change", "control_run", "change")
+            raise _invalid("a root registration has no control run and no change", "control_trial_id", "change")
         return
     if change is None:
         raise _invalid("a derived registration states its one change", "change")
@@ -266,7 +267,7 @@ def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping)
             raise _invalid("without a control run, rationale.local cites the parent run's fault or zero activity",
                            "rationale.local")
         return
-    run = control_run(conn, control)
+    run = control_trial(conn, control)
     comparability.check_comparable(run, execution)
     seams.current.qualification_require(conn, run)
 
@@ -302,11 +303,11 @@ def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) ->
     return points
 
 
-def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int, run_id: int) -> dict:
+def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int) -> dict:
     """The source reviews fixed when a run was sealed: the precheck reviews its registration cited, as
     the ledger held them at the commit that ingested the run (a validation run cites none)."""
-    ingested = conn.rows("SELECT to_commit FROM dolt_diff_run WHERE to_run_id = %s AND diff_type = 'added' LIMIT 1",
-                         (run_id,))
+    ingested = conn.rows("SELECT to_commit FROM dolt_diff_run WHERE to_trial_id = %s AND diff_type = 'added' LIMIT 1",
+                         (trial_id,))
     attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
     cited = []
     if attempt is not None:
@@ -320,7 +321,7 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     finds no economic evidence in it by the facts fixed when it was sealed (its sealed facts and the
     precheck review cited at registration as it stood then): a source review recorded after the run
     was ingested does not make a passed attempt retryable."""
-    run = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t "
+    run = conn.one(f"SELECT r.trial_id, r.status, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t "
                    "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if run is None:
         capture = ledger_execution.read_capture(conn, trial_id)
@@ -329,7 +330,7 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
         return capture["status"] == "captured" and outcome.get("kind") in ("interrupted", "host_failure")
     if run["status"] == "invalid":
         return True
-    scope = _sealing_review_scope(conn, trial_id, run["run_id"])
+    scope = _sealing_review_scope(conn, trial_id)
     return not seams.current.qualification_assess(conn, run, review_scope=scope)["economic_evidence_available"]
 
 
@@ -355,14 +356,14 @@ def _runtime_transition(conn: db.LedgerConnection, body: Mapping, execution: Map
             or comparability.input_key(execution.get("input_identity"))
             != comparability.input_key(previous.get("input_identity"))):
         return False
-    movable = {"retry_of", "prechecks", "control_run"}
+    movable = {"retry_of", "prechecks", "control_trial_id"}
     if {k: v for k, v in body.items() if k not in movable} != {k: v for k, v in old.items() if k not in movable}:
         return False
-    control, old_control = body["control_run"], old["control_run"]
+    control, old_control = body["control_trial_id"], old["control_trial_id"]
     if control is None or old_control is None:
         return control is old_control
     # _check_lineage has already required the new control to be comparable and economically available.
-    current, earlier = control_run(conn, control), control_run(conn, old_control)
+    current, earlier = control_trial(conn, control), control_trial(conn, old_control)
     return current["source_sha256"] == earlier["source_sha256"]
 
 
@@ -396,46 +397,13 @@ def _check_retry(conn: db.LedgerConnection, chain: list[str], points: list[dict]
 def _verified_reproduction(conn: db.LedgerConnection, trial_id: int, bundles: list[str]) -> bool:
     """A complete explore capture of a linked earlier passed run with identical execution identity
     and the exact fingerprint bytes its original image sealed. No cached report directory is needed."""
-    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, {db.IMAGE_DIGEST}, instruments, input_start, "
-                     "trade_start, trade_end FROM trial WHERE trial_id = %s", (trial_id,))
-    if trial is None or trial["purpose"] != "explore":
+    if not bundles:
         return False
-    anchors = conn.dicts(f"SELECT t.trial_id, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, t.instruments, "
-                         "t.input_start, t.trade_start, t.trade_end FROM trial t JOIN run r ON r.trial_id = t.trial_id "
-                         "JOIN registration_attempt a ON a.trial_id = t.trial_id WHERE a.registration_bundle IN ("
-                         + ",".join(["%s"] * len(bundles)) + ") AND r.status = 'passed' AND r.fingerprints IS NOT NULL "
-                         "AND t.trial_id < %s AND t.source_sha256 = %s",
-                         (*bundles, trial_id, trial["source_sha256"]))
-    keys = ("source_sha256", "image_digest", "instruments", "input_start", "trade_start", "trade_end")
-    for anchor in anchors:
-        if any(trial[key] != anchor[key] for key in keys):
-            continue
-        try:
-            current = ledger_execution.read_capture(conn, trial_id)
-            original = ledger_execution.read_capture(conn, anchor["trial_id"])
-        except Refusal as exc:
-            if exc.code == "EXECUTION_IDENTITY":
-                return False
-            raise
-        def sealed_fingerprint(capture: Mapping) -> str | None:
-            if (capture["status"] != "captured" or (capture.get("outcome") or {}).get("kind") != "completed"
-                    or capture["runtime_failures"] or any(
-                        not precheck._stage_ok((capture.get("stages") or {}).get(stage))
-                        for stage in ("native", "audit", "fingerprint"))):
-                return None
-            entry = capture["listed"].get(ledger_execution.FINGERPRINT_RESULT) or {}
-            return entry.get("sha256") if entry.get("status") in ("captured", "hashed") else None
-        fingerprint = sealed_fingerprint(current)
-        current_coverage, original_coverage = current["input_coverage"], original["input_coverage"]
-        current_coverage = current_coverage if isinstance(current_coverage, Mapping) else {}
-        original_coverage = original_coverage if isinstance(original_coverage, Mapping) else {}
-        if (fingerprint and fingerprint == sealed_fingerprint(original)
-                and _same_key(comparability.config_key,
-                              current_coverage.get("effective_config"), original_coverage.get("effective_config"))
-                and _same_key(comparability.input_key, current["start"].get("input_identity"),
-                              original["start"].get("input_identity"))):
-            return True
-    return False
+    anchors = conn.rows("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+                        "JOIN registration_attempt a ON a.trial_id = t.trial_id WHERE a.registration_bundle IN ("
+                        + ",".join(["%s"] * len(bundles)) + ") AND r.status = 'passed' "
+                        "AND r.fingerprints IS NOT NULL AND t.trial_id < %s", (*bundles, trial_id))
+    return any(reproduction.matches(conn, trial_id, original) for (original,) in anchors)
 
 
 def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[str],
@@ -470,6 +438,17 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                     comparability.config_key(prior["effective_config"]),
                     comparability.input_key(prior["input_identity"])):
                 continue
+            if purpose == "explore":
+                # Reading the cited precheck's identical reports adds no new research exposure.
+                # Both the anchor and its regenerated execution must verify; ordinary explorations
+                # and failed or changed reproductions remain prior exposure.
+                anchors = [(point["precheck_trial"], execution), *cited.items()]
+                if any(precheck.exposure_exempt(conn, original, point["source_sha256"],
+                                               actual.get("image_ref"),
+                                               comparability.config_key(actual.get("effective_config")),
+                                               comparability.input_key(actual.get("input_identity")))
+                       and reproduction.matches(conn, trial_id, original) for original, actual in anchors):
+                    continue
             if transitions and purpose == "explore" and _verified_reproduction(
                     conn, trial_id, [plan["bundle"] for plan in transitions]):
                 continue
@@ -486,7 +465,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
 def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool,
               exclude: tuple[str, int] | None = None) -> dict:
     _check_shape(body)
-    if body["control_run"] is not None or body["comparison"] is not None:  # nothing to test without a control
+    if body["control_trial_id"] is not None or body["comparison"] is not None:  # nothing to test without a control
         validate_design(body["comparison"])
     absent = [bundle for bundle in body["sources"] if not _bundle_exists(conn, bundle)]
     if absent:

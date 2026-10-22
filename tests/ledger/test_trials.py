@@ -73,7 +73,7 @@ class OpenTrialTests(unittest.TestCase):
 
     def test_a_research_trial_consumes_its_grid_point_in_the_same_commit(self):
         opened = self.open("research", binder=attempt_binder("registration-1", self.published))
-        rows = self.service.sql(self.profile, "SELECT registration_bundle, run_id FROM v_trials WHERE trial_id = %s",
+        rows = self.service.sql(self.profile, "SELECT registration_bundle, run_status FROM v_trials WHERE trial_id = %s",
                                 (opened["trial_id"],))
         self.assertEqual(rows, [("registration-1", None)])
 

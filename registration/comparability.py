@@ -53,9 +53,9 @@ def image_digest_of(execution: Mapping):
 def check_comparable(run: Mapping, execution: Mapping) -> None:
     """Refuse unless `run` is a passed research or validation run with the same three identities."""
     if run.get("status") != "passed" or run.get("purpose") not in COMPARABLE_PURPOSES:
-        raise refuse("RUN_NOT_PASSED", f"run {run.get('run_id')} is {run.get('status') or 'unfinished'} with purpose "
+        raise refuse("RUN_NOT_PASSED", f"run {run.get('trial_id')} is {run.get('status') or 'unfinished'} with purpose "
                                        f"{run.get('purpose')}", expected="a passed research or validation run",
-                     missing=(str(run.get("run_id")),))
+                     missing=(str(run.get("trial_id")),))
     conflicts = []
     if run.get("image_digest") is None or run.get("image_digest") != image_digest_of(execution):
         conflicts.append("runtime_image")
