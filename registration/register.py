@@ -342,21 +342,115 @@ def _retry_chain(conn: db.LedgerConnection, retry_of) -> list[str]:
     return chain
 
 
-def _check_retry(conn: db.LedgerConnection, chain: list[str], points: list[dict]) -> None:
+def _runtime_transition(conn: db.LedgerConnection, body: Mapping, execution: Mapping, prior: Mapping) -> bool:
+    """An explicitly linked technical rebuild: only the image, precheck reviews and the equivalent
+    rebuilt control may differ. All research declarations, grid, configuration and inputs stay fixed.
+    This recognizes continuity, not an independent hypothesis or cross-image economic comparison."""
+    old, previous = prior["body"], prior["execution"]
+    if not execution.get("image_digest") or execution["image_digest"] == previous.get("image_digest"):
+        return False
+    if (execution.get("runtime_contract") != previous.get("runtime_contract")
+            or comparability.config_key(execution.get("effective_config"))
+            != comparability.config_key(previous.get("effective_config"))
+            or comparability.input_key(execution.get("input_identity"))
+            != comparability.input_key(previous.get("input_identity"))):
+        return False
+    movable = {"retry_of", "prechecks", "control_run"}
+    if {k: v for k, v in body.items() if k not in movable} != {k: v for k, v in old.items() if k not in movable}:
+        return False
+    control, old_control = body["control_run"], old["control_run"]
+    if control is None or old_control is None:
+        return control is old_control
+    # _check_lineage has already required the new control to be comparable and economically available.
+    current, earlier = control_run(conn, control), control_run(conn, old_control)
+    return current["source_sha256"] == earlier["source_sha256"]
+
+
+def _check_retry(conn: db.LedgerConnection, chain: list[str], points: list[dict], body: Mapping,
+                 execution: Mapping) -> list[dict]:
+    """Keep failed-attempt retries; additionally admit fixed-question rebuilds on a different image.
+    Return only linked transition plans with consumed grid points for technical exposure checks."""
     sources = {point["source_sha256"] for point in points}
+    transitions = []
     for bundle in chain:
+        plan, _ = load_plan(conn, bundle)
+        transition = _runtime_transition(conn, body, execution, plan)
+        consumed = False
         for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM registration_attempt WHERE "
                                           "registration_bundle = %s ORDER BY trial_id", (bundle,)):
-            if source in sources and not retryable(conn, trial_id):
+            if source not in sources:
+                continue
+            consumed = True
+            run = conn.one("SELECT status FROM run WHERE trial_id = %s", (trial_id,))
+            if not retryable(conn, trial_id) and not (transition and run is not None and run["status"] == "passed"):
                 raise refuse("RETRY_NOT_ALLOWED", f"trial {trial_id} of {bundle} was neither interrupted nor invalid "
-                                                  "and has economic evidence", missing=(bundle, f"trial {trial_id}"))
+                                                  "and has economic evidence; rebuilding it on another image "
+                                                  "requires the same research declarations, source grid, "
+                                                  "configuration and inputs",
+                             missing=(bundle, f"trial {trial_id}"))
+        if transition and consumed:
+            transitions.append({"bundle": bundle, **plan})
+    return transitions
+
+
+def _verified_reproduction(conn: db.LedgerConnection, trial_id: int, bundles: list[str]) -> bool:
+    """A complete explore capture of a linked earlier passed run with identical execution identity
+    and the exact fingerprint bytes its original image sealed. No cached report directory is needed."""
+    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, {db.IMAGE_DIGEST}, instruments, input_start, "
+                     "trade_start, trade_end FROM trial WHERE trial_id = %s", (trial_id,))
+    if trial is None or trial["purpose"] != "explore":
+        return False
+    anchors = conn.dicts(f"SELECT t.trial_id, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, t.instruments, "
+                         "t.input_start, t.trade_start, t.trade_end FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+                         "JOIN registration_attempt a ON a.trial_id = t.trial_id WHERE a.registration_bundle IN ("
+                         + ",".join(["%s"] * len(bundles)) + ") AND r.status = 'passed' AND r.fingerprints IS NOT NULL "
+                         "AND t.trial_id < %s AND t.source_sha256 = %s",
+                         (*bundles, trial_id, trial["source_sha256"]))
+    keys = ("source_sha256", "image_digest", "instruments", "input_start", "trade_start", "trade_end")
+    for anchor in anchors:
+        if any(trial[key] != anchor[key] for key in keys):
+            continue
+        try:
+            current = ledger_execution.read_capture(conn, trial_id)
+            original = ledger_execution.read_capture(conn, anchor["trial_id"])
+        except Refusal as exc:
+            if exc.code == "EXECUTION_IDENTITY":
+                return False
+            raise
+        def sealed_fingerprint(capture: Mapping) -> str | None:
+            if (capture["status"] != "captured" or (capture.get("outcome") or {}).get("kind") != "completed"
+                    or capture["runtime_failures"] or any(
+                        not precheck._stage_ok((capture.get("stages") or {}).get(stage))
+                        for stage in ("native", "audit", "fingerprint"))):
+                return None
+            entry = capture["listed"].get(ledger_execution.FINGERPRINT_RESULT) or {}
+            return entry.get("sha256") if entry.get("status") in ("captured", "hashed") else None
+        fingerprint = sealed_fingerprint(current)
+        current_coverage, original_coverage = current["input_coverage"], original["input_coverage"]
+        current_coverage = current_coverage if isinstance(current_coverage, Mapping) else {}
+        original_coverage = original_coverage if isinstance(original_coverage, Mapping) else {}
+        if (fingerprint and fingerprint == sealed_fingerprint(original)
+                and _same_key(comparability.config_key,
+                              current_coverage.get("effective_config"), original_coverage.get("effective_config"))
+                and _same_key(comparability.input_key, current["start"].get("input_identity"),
+                              original["start"].get("input_identity"))):
+            return True
+    return False
 
 
 def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[str],
-                    exclude: tuple[str, int] | None) -> None:
+                    exclude: tuple[str, int] | None, transitions: list[dict]) -> None:
     declared_config = comparability.config_key(execution.get("effective_config"))
     declared_inputs = comparability.input_key(execution.get("input_identity"))
     for point in points:
+        cited = {}
+        for plan in transitions:
+            previous = plan["execution"]
+            review = (plan["body"].get("prechecks") or {}).get(point["candidate"])
+            if review is not None:
+                trial_id = precheck.require_precheck(conn, review, point["source_sha256"], previous["image_ref"],
+                                                     comparability.input_key(previous["input_identity"]))
+                cited[trial_id] = previous
         found = conn.rows("SELECT t.trial_id, a.registration_bundle, t.purpose, t.trade_start, t.trade_end "
                           "FROM trial t LEFT JOIN registration_attempt a "
                           "ON a.trial_id = t.trial_id WHERE t.source_sha256 = %s ORDER BY t.trial_id",
@@ -369,6 +463,15 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
             if trial_id == point["precheck_trial"] and precheck.exposure_exempt(
                     conn, trial_id, point["source_sha256"], execution.get("image_ref"), declared_config,
                     declared_inputs):
+                continue
+            prior = cited.get(trial_id)
+            if prior is not None and precheck.exposure_exempt(
+                    conn, trial_id, point["source_sha256"], prior["image_ref"],
+                    comparability.config_key(prior["effective_config"]),
+                    comparability.input_key(prior["input_identity"])):
+                continue
+            if transitions and purpose == "explore" and _verified_reproduction(
+                    conn, trial_id, [plan["bundle"] for plan in transitions]):
                 continue
             detail = (f"consumed by {attempted}" if attempted else
                       f"an unregistered {purpose}; no registration consumed it, so retry_of does not apply")
@@ -404,8 +507,8 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
         point["review_bundle"] = review
         point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"],
                                                             execution.get("image_ref"), declared_inputs)
-    _check_retry(conn, chain, points)
-    _check_exposure(conn, execution, points, chain, exclude)
+    transitions = _check_retry(conn, chain, points, body, execution)
+    _check_exposure(conn, execution, points, chain, exclude, transitions)
     return {"grid": points, "line": line}
 
 

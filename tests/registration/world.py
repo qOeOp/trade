@@ -128,13 +128,15 @@ def product_write(conn, kind: str, bundle: str, files: dict[str, bytes]) -> None
 
 def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck", native_exit: int = 0,
             audit_exit: int | None = 0, outcome: str = "completed", runtime_errors: bytes = b"",
-            extra: dict[str, bytes] | None = None) -> str:
+            extra: dict[str, bytes] | None = None, fingerprint: dict | None = None) -> str:
     """Seal trial-<id>-execution in the capture format execution.seal_capture writes: execution.json
     listing every file with its status, length and hash; the source and the coverage receipt hashed."""
     files = {"native.stdout.txt": b"native ran\n", "native.stderr.txt": b"",
              "reports/runtime_failures.jsonl": runtime_errors, **(extra or {})}
     if audit_exit is not None:
         files.update({"audit.stdout.txt": b"audit ran\n", "audit/audit.json": b'{"passed": true}'})
+    if fingerprint is not None:
+        files["fingerprint/fingerprint.json"] = json.dumps(fingerprint, sort_keys=True, indent=2).encode() + b"\n"
     listed, stored = {}, {}
     for path, data in files.items():
         if data:
@@ -144,15 +146,19 @@ def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck",
             listed[path] = {"status": "captured_empty"}
     if audit_exit is None:
         listed["audit.stdout.txt"] = {"status": "not_started"}
-    coverage = evidence.load_bundle(conn, f"trial-{trial_id}-execution-start")["files"]["input-coverage.json"]
+    start = evidence.load_bundle(conn, f"trial-{trial_id}-execution-start")["files"]
+    coverage = start["input-coverage.json"]
     for path, data in (("source/strategy.py", source_bytes), ("input-coverage.json", coverage)):
         listed[path] = {"status": "hashed", "sha256": hashlib.sha256(data).hexdigest(), "length": len(data)}
     trial = conn.one("SELECT source_sha256, image_ref FROM trial WHERE trial_id = %s", (trial_id,))
     manifest = {"format": "execution_capture_v1", "trial_id": trial_id, "purpose": purpose,
                 "source_sha256": trial["source_sha256"],
-                "runtime_identity": {**IDENTITY, "image_ref": trial["image_ref"]}, "argv": ["python", "-m", "engine"],
+                "runtime_identity": json.loads(start["execution.json"])["runtime_identity"],
+                "argv": ["python", "-m", "engine"],
                 "stages": {"native": {"state": "exited", "exit_code": native_exit},
-                           "audit": None if audit_exit is None else {"state": "exited", "exit_code": audit_exit}},
+                           "audit": None if audit_exit is None else {"state": "exited", "exit_code": audit_exit},
+                           **({"fingerprint": {"state": "exited", "exit_code": 0}}
+                              if fingerprint is not None else {})},
                 "outcome": {"kind": outcome, "detail": None}, "files": listed}
     stored["execution.json"] = db.canonical_json(manifest).encode()
     product_write(conn, "seal_fixture", f"trial-{trial_id}-execution", stored)
