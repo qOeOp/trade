@@ -26,7 +26,7 @@ import numpy as np
 
 from qualification import availability
 from registration import duties
-from report import measures
+from report import measures, profit
 
 
 MINUTE_NS = measures.MINUTE_NS
@@ -44,10 +44,17 @@ def _net(cycle: Mapping) -> Decimal | None:
     return None if cycle["ts_closed_ns"] is None else Decimal(cycle["realized_pnl"])
 
 
-def _value(cycle: Mapping) -> Decimal:
-    """A cycle's PnL: realized when closed, its final mark (open_unrealized) while open."""
-    found = _net(cycle)
-    return found if found is not None else Decimal(cycle["open_unrealized"] or 0)
+def _value(cycle: Mapping) -> Decimal | None:
+    """Native realized PnL plus the open mark; absent facts remain unknown."""
+    return profit.cycle_value(cycle)
+
+
+def _delta(a, b):
+    return None if a is None or b is None else a - b
+
+
+def _flip(a, b):
+    return None if a is None or b is None else ("win" if a > 0 else "loss") + "_to_" + ("win" if b > 0 else "loss")
 
 
 def _rank(values: list[float], share: float):
@@ -56,16 +63,16 @@ def _rank(values: list[float], share: float):
 
 
 def _sums(cycles: Sequence[Mapping]) -> dict:
-    closed = [cycle for cycle in cycles if cycle["ts_closed_ns"] is not None]
-    return {"count": len(cycles), "price": measures.money(sum((Decimal(c["price_pnl"]) for c in closed), Decimal(0))),
+    return {"count": len(cycles),
+            "price": measures.money(profit.total(c.get("price_pnl") for c in cycles)),
             "fee": measures.money(-sum((Decimal(c["commissions"]) for c in cycles), Decimal(0))),
             "funding": measures.money(sum((Decimal(c["funding"]) for c in cycles), Decimal(0))),
-            "net": measures.money(sum((_value(c) for c in cycles), Decimal(0)))}
+            "net": measures.money(profit.total(_value(c) for c in cycles))}
 
 
 def _minus(left: dict, right: dict) -> dict:
     return {key: (left[key] - right[key] if key == "count" else
-                  measures.money(Decimal(left[key]) - Decimal(right[key]))) for key in left}
+                  measures.money(_delta(profit.amount(left[key]), profit.amount(right[key])))) for key in left}
 
 
 def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
@@ -74,7 +81,7 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
     group are a candidate pair when their holding intervals intersect, with overlap = intersection
     over union; pairs are taken one to one by overlap, highest first (ties: the earlier opening
     first); an unpaired cycle intersecting a paired cycle of the other side is split or merged. An
-    open cycle's interval ends at `window_end` and its PnL is its final mark. Descriptive only; it
+    open cycle's interval ends at `window_end` and its PnL includes native realized PnL and its final mark. Descriptive only; it
     never enters the test."""
     end = _ns(window_end)
 
@@ -122,7 +129,9 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
                     if net_a is not None and net_b is not None]
     flips: dict[str, int] = defaultdict(int)
     for i, j, _ in pairs:
-        flips[("win" if _value(control[i]) > 0 else "loss") + "_to_" + ("win" if _value(candidate[j]) > 0 else "loss")] += 1
+        flip = _flip(_value(control[i]), _value(candidate[j]))
+        if flip is not None:
+            flips[flip] += 1
     closed_abs = sum((abs(net) for net in map(_net, [*control, *candidate]) if net is not None), Decimal(0))
     matched_abs = sum((abs(net_a) + abs(net_b) for net_a, net_b in closed_pairs), Decimal(0))
     overlaps = sorted(overlap for _, _, overlap in pairs)
@@ -132,12 +141,13 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
         a, b = control[i], candidate[j]
         exit_shift = (None if a["ts_closed_ns"] is None or b["ts_closed_ns"] is None
                       else (b["ts_closed_ns"] - a["ts_closed_ns"]) / MINUTE_NS)
-        difference = _value(b) - _value(a)
+        difference = _delta(_value(b), _value(a))
         detail.append({"control": a["seq"], "candidate": b["seq"], "instrument_id": a["instrument_id"],
                        "side": a["side"], "overlap": overlap,
                        "entry_shift_minutes": (b["ts_opened_ns"] - a["ts_opened_ns"]) / MINUTE_NS,
                        "exit_shift_minutes": exit_shift, "net_difference": measures.money(difference),
-                       "flip": ("win" if _value(a) > 0 else "loss") + "_to_" + ("win" if _value(b) > 0 else "loss"),
+                       "flip": _flip(_value(a), _value(b)),
+                       "null_reason": "CYCLE_PNL_MISSING" if difference is None else None,
                        "control_exit": a.get("closing_order_type"), "candidate_exit": b.get("closing_order_type")})
     matched_a, matched_b = [control[i] for i, _, _ in pairs], [candidate[j] for _, j, _ in pairs]
     return {
@@ -152,16 +162,17 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
         "scalars": {"matched_share": 2 * len(pairs) / (len(control) + len(candidate)) if control or candidate else None,
                     "matched_net_share": float(matched_abs / closed_abs) if closed_abs else None,
                     "removed_net": _sums(removed)["net"], "added_net": _sums(added)["net"],
-                    "matched_delta_net": measures.money(sum((_value(candidate[j]) - _value(control[i])
-                                                             for i, j, _ in pairs), Decimal(0))),
-                    "win_to_loss": flips.get("win_to_loss", 0), "loss_to_win": flips.get("loss_to_win", 0),
+                    "matched_delta_net": measures.money(profit.total(_delta(_value(candidate[j]), _value(control[i]))
+                                                                     for i, j, _ in pairs)),
+                    "win_to_loss": flips.get("win_to_loss", 0) if sum(flips.values()) == len(pairs) else None,
+                    "loss_to_win": flips.get("loss_to_win", 0) if sum(flips.values()) == len(pairs) else None,
                     "median_entry_shift_minutes": statistics.median(shifts) if shifts else None},
         "flips": dict(sorted(flips.items())),
         "pairs": detail,
         "open": {"control": sum(1 for c in control if c["ts_closed_ns"] is None),
                  "candidate": sum(1 for c in candidate if c["ts_closed_ns"] is None),
                  "pairs_with_an_open_side": len(pairs) - len(closed_pairs),
-                 "scope": "an open cycle's interval ends at the window end and its PnL is its final mark; the "
+                 "scope": "an open cycle's interval ends at the window end and its PnL is native realized plus final mark; the "
                           "matched net share counts closed cycles only"},
     }
 

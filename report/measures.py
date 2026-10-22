@@ -22,6 +22,7 @@ import numpy.typing as npt
 
 from ledger import db, metrics
 from registration import duties
+from report import profit
 
 
 DAY_NS = metrics.DAY_NS
@@ -56,14 +57,14 @@ VERSIONS = {"annual_return": 1, "plan_win_rate": 1, "sharpe_365": 1, "mark_max_d
             "low_vol_days": 1, "low_vol_mean_log": 1, "low_vol_log_sum": 1,
             "cycles": 1, "win_rate": 1, "avg_win": 1, "avg_loss": 1, "expectancy": 1, "median_holding_hours": 1,
             "top_exit_share": 1,
-            "matched_share": 1, "matched_net_share": 1, "removed_net": 1, "added_net": 1, "matched_delta_net": 1,
-            "win_to_loss": 1, "loss_to_win": 1, "median_entry_shift_minutes": 1,
-            "max_drawdown": 2, "drawdown_days": 2, "top_instrument_share_in_drawdown": 2}
+            "matched_share": 1, "matched_net_share": 1, "removed_net": 2, "added_net": 2, "matched_delta_net": 2,
+            "win_to_loss": 2, "loss_to_win": 2, "median_entry_shift_minutes": 1,
+            "max_drawdown": 2, "drawdown_days": 2, "top_instrument_share_in_drawdown": 3}
 HEADLINE = ("annual_return", "mark_max_drawdown", "plan_win_rate", "sharpe_365", "sharpe_lo")
 COMPARISON_ONLY = frozenset({"trade_pairs"})
 SEALED_DRAWDOWN = {"max_drawdown": "mark_max_drawdown@2", "mark_max_drawdown": "mark_max_drawdown@2",
                    "drawdown_days": "duration_days@2",
-                   "top_instrument_share_in_drawdown": "top_instrument_share_in_drawdown@2"}
+                   "top_instrument_share_in_drawdown": "top_instrument_share_in_drawdown@3"}
 CATALOGUE_REVISION = metrics.CATALOGUE
 ANNUAL_DAYS = 365
 BARTLETT_GAMMA = 1.1447  # Newey-West (1994) c_gamma of the Bartlett kernel (q = 1)
@@ -112,7 +113,8 @@ def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
     trial = loaded["trial"]
     return {"run": loaded["run"], "trial": trial, "sealed": sealed, "capture": capture, "evidence": loaded["evidence"],
             "returns": [(int(ts), float(value), mean) for ts, value, mean in loaded["returns"]],
-            "cycles": loaded["cycles"], "effective_config": dict(config),
+            "cycles": profit.complete_cycles(loaded["cycles"], profit.native_economics(capture)),
+            "stored_cycles": loaded["cycles"], "native_economics": profit.native_economics(capture), "effective_config": dict(config),
             "starting_balance": Decimal(str(starting)) if starting is not None else None,
             "final_equity": Decimal(str(compounding["final_equity"])) if compounding.get("final_equity") else None,
             "trade_start_ns": _ns(trial["trade_start"]), "trade_end_ns": _ns(trial["trade_end"]),
@@ -415,8 +417,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     for name, sealed_key in SEALED_DRAWDOWN.items():
         item = drawdown.get(sealed_key) or {}
         put(name, item.get("value"), "bars", (sealed.get("populations") or {}).get("bars"),
-            None if item.get("value") is not None else "SEALED_DRAWDOWN_MISSING: the sealed result has no mark-price "
-                                                       "drawdown")
+            None if item.get("value") is not None else item.get("null_reason") or
+            "SEALED_DRAWDOWN_MISSING: the sealed result has no reading for this definition")
     plans_valid = sealed.get("plans_valid@1") or {}
     if plans_valid.get("passed") is not True:
         put("plan_win_rate", None, "plans", None, f"{plans_valid.get('code') or 'PLANS_UNAVAILABLE'}: the plan "
@@ -434,27 +436,10 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
 
     # profit_bridge
     starting, final = run.get("starting_balance"), run.get("final_equity")
-    reconciled = (activity.get("cycles_reconcile_audit@1") or {}).get("passed") is True
-    bridge_reason = None
-    if not reconciled:
-        bridge_reason = (f"{(activity.get('cycles_reconcile_audit@1') or {}).get('code') or 'UNRECONCILED'}: the "
-                         "profit split is not reconciled with the audited account")
-    elif starting is None or final is None:
-        bridge_reason = "ACCOUNT_UNKNOWN: the starting balance or final equity is not recorded"
-    price = sum((Decimal(cycle["price_pnl"]) for cycle in closed), Decimal(0))
-    fees = sum((Decimal(cycle["commissions"]) for cycle in cycles), Decimal(0))
-    funding = sum((Decimal(cycle["funding"]) for cycle in cycles), Decimal(0))
-    open_cycles = [cycle for cycle in cycles if cycle["ts_closed_ns"] is None]
-    if any(cycle["open_unrealized"] is None for cycle in open_cycles) and bridge_reason is None:
-        bridge_reason = "OPEN_MARK_MISSING: an open cycle has no final mark"
-    open_mark = sum((Decimal(cycle["open_unrealized"] or 0) for cycle in open_cycles), Decimal(0))
-    account = final - starting if bridge_reason is None and final is not None and starting is not None else None
-    if account is not None and abs(price - fees + funding + open_mark - account) > metrics.EQUITY_TOLERANCE:
-        bridge_reason = ("BRIDGE_UNRECONCILED: price - fees + funding + open mark differs from the account change by "
-                         f"{money(price - fees + funding + open_mark - account)}")
-    for name, value in (("price", price), ("fee", -fees), ("funding", funding), ("open_mark", open_mark),
-                        ("account", account)):
-        put(name, money(value) if bridge_reason is None else None, "account", len(cycles), bridge_reason)
+    bridge = profit.account_bridge(run.get("stored_cycles", cycles), starting, final, run.get("native_economics"))
+    # Legacy residual cycle readings are descriptive. Audit the original stored rows separately.
+    for name, value in bridge["values"].items():
+        put(name, money(value), "account", len(cycles), bridge["reason"])
 
     # capital_scaled
     notional = [mean for _, _, mean in returns]
@@ -491,6 +476,10 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     drawn = (drawdown.get("mark_max_drawdown@2") or {}).get("value")
     put("return_over_drawdown", annual / drawn if annual is not None and drawn else None, "account_days", days,
         "NO_DRAWDOWN: the annual return or the mark drawdown is missing or zero")
+
+    bridge_reason = bridge["reason"]
+    account = bridge["values"]["account"]
+    fees = -bridge["values"]["fee"] if bridge["values"]["fee"] is not None else None
 
     # fee_stress
     if bridge_reason is None and account is not None:

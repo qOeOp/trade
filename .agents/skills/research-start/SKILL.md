@@ -49,14 +49,15 @@ with the UTC date it names the line and its closing tag. A later change is a new
 never an edit. The targets are the reference for reading reports; ask for
 nothing else (no coins, sizing, budgets or stages).
 
-- Before continuing into `research-round`, set the host's goal for this session yourself; the user
-  does not write it. Compose the objective from the ledger: the selected line (bundle and start),
-  the user's two research targets from the line's note, and that a report, review or priority
-  never ends the work, only the user or a line that cannot continue. If the host gives you a goal
-  tool (Codex `create_goal` with `objective`; no token budget unless the user asked), call it and
-  tell the user in one line. Otherwise ask the user once to approve the goal with the exact command
-  (Codex `/goal <objective>`, Claude Code `/loop <objective>`) and continue without waiting. Keep a
-  goal already active for this line. While the line can continue, never mark the goal complete.
+- Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
+  an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
+  the user's two targets and the stopping rule: reports, reviews and priorities do not end the
+  work; only the user or a line that cannot continue does. Create it automatically when the host
+  permits it. If creation needs explicit user authorization, present that concrete objective and
+  ask for authorization; create after approval, never infer approval from silence. If no Goal
+  tool exists, ask the user to activate the exact `/goal <objective>` (Codex) or `/loop <objective>`
+  (Claude Code) command and verify activation before research. Never set a token budget unless
+  requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 
 ## When to read the references
 

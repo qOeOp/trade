@@ -66,7 +66,7 @@ def native() -> metrics.Reports:
                {"ts_event": iso(JAN + 2 * hour), "total": "100009.80000000", "locked": "0"},
                {"ts_event": iso(JAN + DAY + hour), "total": "100009.70000000", "locked": "100.00000000"}]
     exposures = [{"ts_event_ns": str(JAN + day * DAY + LABEL), "position_id": f"{IID}-P", "notional_value": f"{notional} USDT",
-                  "unrealized_pnl": f"{unrealized} USDT"}
+                  "unrealized_pnl": f"{unrealized} USDT", "realized_pnl": "-0.10000000 USDT"}
                  for day, notional, unrealized in ((1, "1100", "100"), (2, "600", "-400"), (3, "800", "-200"))]
     final = Decimal("100009.70000000") - 200
     returns = [(JAN, 0.000098), (JAN + DAY, float(Decimal("100109.7") / Decimal("100009.8") - 1)),
@@ -94,7 +94,7 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual((drawdown["peak_utc@2"]["value"], drawdown["trough_utc@2"]["value"]),
                          ("2026-01-02T23:59", "2026-01-03T23:59"))
         self.assertEqual(drawdown["duration_days@2"]["value"], 1.0)
-        self.assertEqual((drawdown["top_instrument@2"]["value"], drawdown["top_instrument_share_in_drawdown@2"]["value"]),
+        self.assertEqual((drawdown["top_instrument@3"]["value"], drawdown["top_instrument_share_in_drawdown@3"]["value"]),
                          (IID, 1.0))
         self.assertEqual((capital["peak_gross_notional@1"]["value"], capital["peak_utc@1"]["value"]),
                          ("1100.00000000", "2026-01-02T23:59"))
@@ -199,7 +199,7 @@ class SealedReportTests(unittest.TestCase):
                           closed["closing_order_type"], closed["closing_order_tag"], closed["plan_tag"]),
                          (JAN + 7_200 * 10**9, Decimal("9.8"), None, "LIMIT", "exit:target", "plan:a"))
         self.assertEqual((opened["ts_closed_ns"], opened["realized_pnl"], opened["open_unrealized"], opened["side"]),
-                         (None, None, Decimal(-200), "long"))
+                         (None, Decimal("-0.1"), Decimal(-200), "long"))
 
     def test_metrics_need_readable_reports(self):
         with tempfile.TemporaryDirectory() as directory:

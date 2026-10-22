@@ -12,7 +12,7 @@ from engine.report import EXPOSURE_COLUMNS, ExposureWriter
 from engine.run import capital_findings
 
 
-ROWS = [(1_767_225_899_999_000_000, "AAAUSDT-PERP.BINANCE-R1-AAA", "100.00000000 USDT", "-1.00000000 USDT")]
+ROWS = [(1_767_225_899_999_000_000, "AAAUSDT-PERP.BINANCE-R1-AAA", "100.00000000 USDT", "-1.00000000 USDT", "-0.10000000 USDT")]
 
 
 class CapitalExposureTests(unittest.TestCase):

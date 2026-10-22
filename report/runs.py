@@ -97,6 +97,7 @@ def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None = 
                                "trade_end": trial["trade_end"]},
               "created_at": run["created_at"], "ledger_commit": db.head_commit(conn),
               "catalogue": (sealed or {}).get("catalogue", measures.CATALOGUE_REVISION),
+              "read_catalogue": measures.CATALOGUE_REVISION,
               "metrics_revision": (sealed or {}).get("metrics_revision"), "audit": run["audit"],
               "failure_reasons": run["failure_reasons"] or [], "populations": (sealed or {}).get("populations"),
               "activity": (sealed or {}).get("activity"), "order_funnel": (sealed or {}).get("order_funnel@1"),
@@ -212,7 +213,18 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
                          missing=("directory",))
         with db.read_as_of(profile) as head:  # the reproduction trial is newer than any earlier version read
             verify_reproduction(head, Path(directory), facts, reproduction)
-        found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction)
+        reports = load_directory(Path(directory))
+        native = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
+        stored = facts.get("stored_cycles", facts["cycles"])
+        if len(native) != len(stored):
+            raise _mismatch(Path(directory), trial_id, "native cycle population differs", "positions")
+        for original, recovered in zip(stored, native, strict=True):
+            for name, expected in recovered.items():
+                if original.get(name) is not None and original[name] != expected:
+                    raise _mismatch(Path(directory), trial_id, f"native cycle {recovered['seq']} differs: {name}", name)
+            recovered["realized_pnl_source"] = "verified-native-reproduction"
+        found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction,
+                     positions=_typed_cycles(native))
     found["limitations"] = dedupe(limitations)
     return found
 
@@ -330,6 +342,7 @@ def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
     except metrics.Unreconciled:
         pass
     return {"sealed": sealed, "returns": metrics.daily_rows(reports), "cycles": rows, "effective_config": {},
+            "native_economics": (reports.audit or {}).get("native_economics"),
             "starting_balance": Decimal(str(summary["starting_balance_usdt"])),
             "final_equity": Decimal(str(summary["final_equity_usdt"])),
             "trade_start_ns": metrics.utc_ns(summary["period_start_utc"]),

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from decimal import Decimal
+
+from report import profit
 import json
 import math
 import re
@@ -164,7 +166,7 @@ def _ns(moment) -> int:
 
 
 def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str, report: Mapping,
-                          starting) -> list[dict]:
+                          starting, native_economics=None) -> list[dict]:
     """What the stored cycles and daily series determine against the sealed result: the counts, the
     compounding, the profit bridge, the plan tags and the whole-day (monthly) series."""
     found = []
@@ -202,17 +204,11 @@ def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str,
                    "starting_balance_usdt": str(starting), "final_equity_usdt": str(final)}
         if metrics.daily_returns([(int(ts), float(value)) for ts, value in returns], summary, limitations) is None:
             mismatch("run_return", "the monthly figures have no whole daily series: " + "; ".join(limitations))
-    reconciled = (activity.get("cycles_reconcile_audit@1") or {}).get("passed") is True
-    open_marks = [cycle["open_unrealized"] for cycle in cycles if cycle["ts_closed_ns"] is None]
-    if reconciled and final is not None and starting is not None and None not in open_marks:
-        price = sum((Decimal(cycle["price_pnl"]) for cycle in cycles if cycle["ts_closed_ns"] is not None), Decimal(0))
-        fees = sum((Decimal(cycle["commissions"]) for cycle in cycles), Decimal(0))
-        funding = sum((Decimal(cycle["funding"]) for cycle in cycles), Decimal(0))
-        bridge = price - fees + funding + sum((Decimal(mark) for mark in open_marks), Decimal(0))
-        change = Decimal(str(final)) - Decimal(str(starting))
-        if abs(bridge - change) > EQUITY_TOLERANCE:
-            mismatch("run_cycle", f"price - fees + funding + open mark is {metrics.money(bridge)}, the sealed equity "
-                                  f"change is {metrics.money(change)}")
+    if final is not None and starting is not None:
+        bridge = profit.account_bridge(cycles, starting, final, native_economics)
+        if bridge["reason"] and any(code in bridge["reason"] for code in
+                                    ("MISMATCH", "BRIDGE_UNRECONCILED")):
+            mismatch("run_cycle", bridge["reason"])
     if (report.get("plans_valid@1") or {}).get("passed"):
         untagged = sum(1 for cycle in cycles if cycle["plan_tag"] is None)
         if untagged:
@@ -241,7 +237,7 @@ def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> tuple
     if not isinstance(coverage, Mapping):
         coverage = {}
     starting = ((coverage.get("effective_config") or {}).get("account") or {}).get("starting_balance_usdt")
-    found += _sealed_rows_findings(conn, trial_id, commit, report, starting)
+    found += _sealed_rows_findings(conn, trial_id, commit, report, starting, profit.native_economics(capture))
     return found, True
 
 

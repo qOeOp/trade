@@ -33,7 +33,7 @@ from ledger import db
 from ledger.refusals import refuse
 
 
-CATALOGUE = "measures@2026-10-20"
+CATALOGUE = "measures@2026-10-22"
 TOLERANCE = Decimal("0.000001")
 EQUITY_TOLERANCE = Decimal("0.01")  # compounding to final equity; an uncalibrated example value
 MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale
@@ -41,7 +41,7 @@ PLAN_TAG = "plan:"
 PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 # A closed cycle's price PnL (fill cash flow) as Nautilus' realized PnL + commissions - funding; read,
 # not stored.
-PRICE_PNL = "IF(ts_closed_ns IS NULL, NULL, realized_pnl + commissions - funding) AS price_pnl"
+PRICE_PNL = "realized_pnl + commissions - funding AS price_pnl"
 CYCLE_COLUMNS = ("trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
                  f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
 TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
@@ -568,6 +568,14 @@ def daily_returns(returns: list[tuple[int, float]], summary: dict, limitations: 
     return window
 
 
+def _optional_realized(value) -> Decimal | None:
+    try:
+        found = value if isinstance(value, Decimal) else _usdt(value)
+        return found if found.is_finite() else None
+    except (ValueError, TypeError, ArithmeticError, AttributeError, Unreconciled):
+        return None
+
+
 class ExposureTable:
     """The typed exposure rows aggregated per bar label in one pass (open rows, unrealized PnL, gross
     notional); the rows of one label are read again from the source when asked."""
@@ -585,7 +593,8 @@ class ExposureTable:
     def _typed(row: dict) -> dict:
         value = (lambda item: item if isinstance(item, Decimal) else _usdt(item))
         return {"ts_event_ns": int(row["ts_event_ns"]), "position_id": row["position_id"],
-                "notional_value": value(row["notional_value"]), "unrealized_pnl": value(row["unrealized_pnl"])}
+                "notional_value": value(row["notional_value"]), "unrealized_pnl": value(row["unrealized_pnl"]),
+                "realized_pnl": _optional_realized(row.get("realized_pnl"))}
 
     def rows(self):
         for row in self._source:
@@ -763,7 +772,8 @@ def metrics(reports: Reports) -> dict:
         path = equity_path(summary, reports.account, exposures)
         assert exposures is not None  # equity_path refused a run without an exposure report
         drawn = mark_drawdown(summary, reports.account, exposures, path)
-        drawdown = _drawdown_section(drawn, path, found, reports.positions, exposures)
+        drawdown = _drawdown_section(drawn, path, found, reports.positions, exposures,
+                                     Decimal(summary["starting_balance_usdt"]))
         active = sum(1 for point in path if point["rows"])
         busiest = max(path, key=lambda point: point["gross"], default=None)
         capital = {"peak_gross_notional@1": _measure(money(busiest["gross"]) if busiest else None, "bars"),
@@ -837,28 +847,56 @@ def _safe_tags(order: dict) -> list:
 
 
 def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, positions: list[dict],
-                      exposures: ExposureTable) -> dict:
+                      exposures: ExposureTable, starting: Decimal | None = None) -> dict:
     peak, trough = drawn["peak_ns"], drawn["trough_ns"]
-    share, top = None, None
-    if found is not None and trough is not None:
-        instrument_of = {row.get("position_id"): row.get("instrument_id") for row in positions}
-        loss: defaultdict[str | None, Decimal] = defaultdict(Decimal)
-        low = peak if peak is not None else path[0]["label"]
-        for row, cycle in zip(positions, found, strict=True):
-            if cycle["closed"] and low <= cycle["ts_last"] <= trough:
-                loss[row.get("instrument_id")] += cycle["realized"]
-        for row in exposures.rows_at(trough):
-            loss[instrument_of.get(row["position_id"], row["position_id"])] += row["unrealized_pnl"]
-        negative = {name: -value for name, value in loss.items() if value < 0}
-        if negative:
-            top, worst = max(negative.items(), key=lambda item: item[1])
-            share = float(worst / sum(negative.values()))
+    share, top, reason = None, None, None
+    if found is None or trough is None:
+        reason = "DRAWDOWN_INTERVAL_MISSING"
+    else:
+        # Native exposure observations include all events before the next bar. Account @2
+        # reads cash <= label; reconciliation below isolates any cutoff disagreement.
+        owners: defaultdict[str, set[str]] = defaultdict(set)
+        for row in positions:
+            owners[row["position_id"]].add(row["instrument_id"])
+            # NETTING snapshot IDs differ from the live ID; resolve via instrument ownership
+            # only when the exposure ID has a direct, unambiguous native report match.
+        def endpoint(label):
+            values: defaultdict[str, Decimal] = defaultdict(Decimal)
+            if label is None:
+                return values
+            for row, cycle in zip(positions, found, strict=True):
+                if cycle["closed"] and cycle["ts_last"] < label + 60 * 10**9:
+                    values[row["instrument_id"]] += cycle["realized"]
+            for row in exposures.rows_at(label):
+                names = owners.get(row["position_id"], set())
+                if len(names) != 1 or row["realized_pnl"] is None:
+                    raise ValueError("NATIVE_REALIZED_SNAPSHOT_MISSING")
+                values[next(iter(names))] += row["realized_pnl"] + row["unrealized_pnl"]
+            return values
+        try:
+            high, low = endpoint(peak), endpoint(trough)
+            changes = {name: low.get(name, Decimal(0)) - high.get(name, Decimal(0)) for name in low.keys() | high.keys()}
+            points = {point["label"]: point["equity"] for point in path}
+            # The native replay starts flat; the declared initial account is the baseline.
+            base = points[peak] if peak is not None else starting
+            if base is None:
+                raise ValueError("INITIAL_ACCOUNT_UNKNOWN")
+            if abs(sum(changes.values(), Decimal(0)) - (points[trough] - base)) > EQUITY_TOLERANCE:
+                reason = "DRAWDOWN_CONTRIBUTION_UNRECONCILED"
+            else:
+                negative = {name: -value for name, value in changes.items() if value < 0}
+                if negative:
+                    top, worst = max(negative.items(), key=lambda item: item[1])
+                    share = float(worst / sum(negative.values()))
+        except ValueError as exc:
+            reason = str(exc)
     duration = None if peak is None or trough is None else (trough - peak) / DAY_NS
     return {"mark_max_drawdown@2": _measure(drawn["max_drawdown"], "bars"),
             "peak_utc@2": _measure(iso_minute(peak), "bars"), "trough_utc@2": _measure(iso_minute(trough), "bars"),
             "duration_days@2": _measure(duration, "bars"),
-            "top_instrument_share_in_drawdown@2": _measure(share, "instruments"),
-            "top_instrument@2": _measure(top, "instruments")}
+            "top_instrument_share_in_drawdown@3": {**_measure(share, "negative_contributing_instruments"),
+                                                     "null_reason": reason},
+            "top_instrument@3": {**_measure(top, "negative_contributing_instruments"), "null_reason": reason}}
 
 
 def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
@@ -878,10 +916,9 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
         others = [str(tag) for tag in _safe_tags(closing) if not str(tag).startswith(PLAN_TAG)]
         rows.append({"seq": seq, "instrument_id": row["instrument_id"], "side": "long" if row["entry"] == "BUY" else "short",
                      "ts_opened_ns": cycle["ts_opened"], "ts_closed_ns": cycle["ts_last"] if cycle["closed"] else None,
-                     "realized_pnl": cycle["realized"] if cycle["closed"] else None,
+                     "realized_pnl": cycle["realized"],
                      # not stored: the ledger reads it back as PRICE_PNL
-                     "price_pnl": (cycle["realized"] + cycle["commissions"] - cycle["funding"]
-                                   if cycle["closed"] else None),
+                     "price_pnl": cycle["realized"] + cycle["commissions"] - cycle["funding"],
                      "commissions": cycle["commissions"], "funding": cycle["funding"],
                      "open_unrealized": None if cycle["closed"] else last_unrealized.get(row.get("position_id")),
                      "plan_tag": plan[0] if len(plan) == 1 and len(plan[0]) <= PLAN_TAG_LIMIT else None,
