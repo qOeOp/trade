@@ -19,7 +19,7 @@
   },
   "changed_duties": ["A3"],
   "parent": "PARENT-ID@1",
-  "control_run": 1,
+  "control_trial_id": 1,
   "change": "The one rule change, word for word the --difference of every grid candidate.",
   "rationale": {
     "external": "",

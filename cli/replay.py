@@ -8,7 +8,7 @@ from pathlib import Path
 from ledger import db
 
 
-def replay_reproduce(profile: db.LedgerProfile, market: dict, run_id: int, output: str) -> dict:
+def replay_reproduce(profile: db.LedgerProfile, market: dict, trial_id: int, output: str) -> dict:
     """replay.reproduce, passed through."""
     from replay import reproduce
-    return reproduce.reproduce(run_id, Path(output), ledger=profile, market=market)
+    return reproduce.reproduce(trial_id, Path(output), ledger=profile, market=market)

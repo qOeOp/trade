@@ -28,8 +28,13 @@ them.
 | Next decision | `judgment add`, `research state`, `research status` | [feedback.md](references/feedback.md) |
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
-fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle
-and api/causal/activity/readiness items. It checks only those four and records `source review`;
+fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
+verified report cache and api/causal/activity/readiness items. Verify the original cache with
+`replay report --trial-id P --directory DIR`. If lost, use `replay reproduce --trial-id P --output DIR`,
+then `replay report --trial-id P --reproduction DIR --reproduction-trial M` with its returned
+`reproduction_trial_id`. Keep the review bound to P; reproduced reports do not replace original
+failures. Only successful identical regeneration of the cited exempt precheck avoids extra exposure.
+It checks only those four and records `source review`;
 use a new reviewer after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering,
 never economic evidence.
 
@@ -47,7 +52,7 @@ through `research-start`. Trial counts and budgets do not reject a research dire
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
   masked measures. Additional statistics follow `nautilus-report-analysis`.
-- The ledger and its backup are the research record. Cite objects by bundle, run or registration
+- The ledger and its backup are the research record. Cite objects by bundle, trial or registration
   and ledger commit. Judgment bodies reference facts instead of copying measures, counts or
   eligibility; working reports may display cited product values.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,

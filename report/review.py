@@ -163,19 +163,19 @@ def _ns(moment) -> int:
     return metrics.utc_ns(moment.replace(tzinfo=None).isoformat() + "Z")
 
 
-def _sealed_rows_findings(conn: db.LedgerConnection, run_id: int, commit: str, report: Mapping,
+def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str, report: Mapping,
                           starting) -> list[dict]:
     """What the stored cycles and daily series determine against the sealed result: the counts, the
     compounding, the profit bridge, the plan tags and the whole-day (monthly) series."""
     found = []
 
     def mismatch(table: str, detail: str) -> None:
-        found.append(_finding("READING_MISMATCH", table, run_id, commit, detail))
+        found.append(_finding("READING_MISMATCH", table, trial_id, commit, detail))
 
     cycles = conn.dicts(f"SELECT ts_closed_ns, realized_pnl, commissions, funding, {metrics.PRICE_PNL}, "
-                        "open_unrealized, plan_tag FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
-    returns = conn.rows("SELECT ts_event_ns, native_return FROM run_return WHERE run_id = %s ORDER BY ts_event_ns",
-                        (run_id,))
+                        "open_unrealized, plan_tag FROM run_cycle WHERE trial_id = %s ORDER BY seq", (trial_id,))
+    returns = conn.rows("SELECT ts_event_ns, native_return FROM run_return WHERE trial_id = %s ORDER BY ts_event_ns",
+                        (trial_id,))
     populations = report.get("populations") or {}
     activity = report.get("activity") or {}
     checks = [("populations.cycles", populations.get("cycles"), len(cycles)),
@@ -195,7 +195,7 @@ def _sealed_rows_findings(conn: db.LedgerConnection, run_id: int, commit: str, r
                                    f"{compounding['compounded']}")
     if compounding.get("passed") and final is not None and starting is not None:
         trial = conn.one("SELECT t.trade_start, t.trade_end FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
-                         "r.run_id = %s", (run_id,))
+                         "r.trial_id = %s", (trial_id,))
         assert trial is not None  # run.trial_id is a foreign key to trial
         limitations: list[str] = []
         summary = {"period_start_utc": str(_ns(trial["trade_start"])), "period_end_utc": str(_ns(trial["trade_end"])),
@@ -222,26 +222,26 @@ def _sealed_rows_findings(conn: db.LedgerConnection, run_id: int, commit: str, r
 
 def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> tuple[list[dict], bool]:
     """(findings, whether a capture was checked) of one run."""
-    found, run_id = [], run["run_id"]
+    found, trial_id = [], run["trial_id"]
     try:
         capture = execution.read_capture(conn, run["trial_id"])
     except Refusal as exc:
-        return [_finding("CAPTURE_UNREADABLE", "run", run_id, commit, f"{exc.code}: {exc.message}")], True
+        return [_finding("CAPTURE_UNREADABLE", "run", trial_id, commit, f"{exc.code}: {exc.message}")], True
     if capture["status"] != "captured":
-        found.append(_finding("CAPTURE_MISSING", "run", run_id, commit, capture.get("reason") or "missing"))
+        found.append(_finding("CAPTURE_MISSING", "run", trial_id, commit, capture.get("reason") or "missing"))
     if run["status"] != "passed":
         return found, True
     sealed = {revision: _json_value(report) for revision, report in conn.rows(
-        "SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s", (run_id,))}
-    report = metrics.latest_sealed(conn, run_id, sealed)
+        "SELECT metrics_revision, report FROM run_sealed WHERE trial_id = %s", (trial_id,))}
+    report = metrics.latest_sealed(conn, trial_id, sealed)
     if not report:
-        found.append(_finding("SEALED_RESULT_MISSING", "run_sealed", run_id, commit, "no sealed result"))
+        found.append(_finding("SEALED_RESULT_MISSING", "run_sealed", trial_id, commit, "no sealed result"))
         return found, True
     coverage = capture.get("input_coverage")
     if not isinstance(coverage, Mapping):
         coverage = {}
     starting = ((coverage.get("effective_config") or {}).get("account") or {}).get("starting_balance_usdt")
-    found += _sealed_rows_findings(conn, run_id, commit, report, starting)
+    found += _sealed_rows_findings(conn, trial_id, commit, report, starting)
     return found, True
 
 
@@ -303,7 +303,7 @@ def _validation_findings(conn: db.LedgerConnection, commit: str) -> tuple[list[d
 
 
 def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[str] | None = None,
-               run_ids: list | None = None) -> dict:
+               trial_ids: list | None = None) -> dict:
     """The whole review at one exact version with the reader account; every difference a finding."""
     admin.require_reader(conn)
     findings = []
@@ -334,9 +334,9 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
         head = db.resolve_commit(pinned, conn.profile.research_branch)
         history, found, limitations = _history(conn.profile, head, lambda commit: _in_branch(conn.profile, commit))
         findings += found
-        wanted = None if run_ids is None else {int(item) for item in run_ids}
-        runs = [row for row in pinned.dicts("SELECT run_id, trial_id, status, fingerprints FROM run ORDER BY run_id")
-                if wanted is None or row["run_id"] in wanted]
+        wanted = None if trial_ids is None else {int(item) for item in trial_ids}
+        runs = [row for row in pinned.dicts("SELECT trial_id, status, fingerprints FROM run ORDER BY trial_id")
+                if wanted is None or row["trial_id"] in wanted]
         captures = 0
         for row in runs:
             if isinstance(row["fingerprints"], (str, bytes)):

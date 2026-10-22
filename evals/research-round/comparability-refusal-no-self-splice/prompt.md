@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 研究路线 `line-trend-1d`：开发窗口 2022-01-01 至 2024-12-31，日线，20 个 USDT 永续，市场版本 `m2a9f40`。登记 `research-plan-h09` 在父版本 `trend-root@3` 上加了「波动率目标仓位」，登记里的对照运行是 `run-a1`（`trend-root@3`，上个月跑的）。候选 `trend-root@4` 的回放 `run-c2` 已完成，经济证据可用。
 
-运行 `hypothesis compare --bundle research-plan-h09 --run-id run-c2` 被拒：
+运行 `hypothesis compare --bundle research-plan-h09 --trial-id run-c2` 被拒：
 
 ```
 {"code": "COMPARABILITY_MISMATCH",

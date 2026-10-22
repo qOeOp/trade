@@ -10,6 +10,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 手上已有的开发窗口结果（开发窗口 2023-01-01 至 2025-06-30）：
 
-- `replay report --run-id run-9c4`（`vol-root@7`，账本版本 `5a6b7c8`）：年化 26%，MARK 最大回撤 15%，平均资金使用率 14%，最高 38%。
+- `replay report --trial-id run-9c4`（`vol-root@7`，账本版本 `5a6b7c8`）：年化 26%，MARK 最大回撤 15%，平均资金使用率 14%，最高 38%。
 - 按 `nautilus-report-analysis` 用 `tables()` 从同一运行、同一账本版本算的：按年盈亏 2023 +31,200 USDT、2024 +4,100 USDT、2025 上半年 +4,700 USDT（合计 40,000）；盈利最多的 5 天占净盈亏 41%；前 3 个合约占绝对盈亏 63%。
 - 计划频率：开发窗口里平均每月 6 个计划。

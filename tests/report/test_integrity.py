@@ -79,7 +79,7 @@ class IntegrityTests(unittest.TestCase):
             prediction["interaction"] = interaction
         world.register(f"registration-{name}", world.body(
             [cls.refs[name]], {cls.refs[name]: world.prechecked(data)}, parent=cls.refs[parent],
-            control_run=cls.runs[control]["run_id"], change=change, duties=["F3"], prediction=prediction))
+            control_trial_id=cls.runs[control]["trial_id"], change=change, duties=["F3"], prediction=prediction))
 
     @classmethod
     def derive(cls, name, data, parent, control, change, interaction=None) -> None:
@@ -104,14 +104,14 @@ class IntegrityTests(unittest.TestCase):
 
     def series(self, name: str) -> list[float]:
         with db.read_as_of(self.profile) as conn:
-            return [value for _, value, _ in measures.run_facts(conn, self.runs[name]["run_id"])["returns"]]
+            return [value for _, value, _ in measures.run_facts(conn, self.runs[name]["trial_id"])["returns"]]
 
     def test_1_a_declared_two_by_two_gives_the_uncorrected_interaction_and_both_contributions(self):
-        found = comparison.compare(self.profile, "registration-ab", self.runs["ab"]["run_id"])
+        found = comparison.compare(self.profile, "registration-ab", self.runs["ab"]["trial_id"])
         interaction = found["attribution"]["interaction"]
         self.assertTrue(interaction["available"], interaction["reason"])
-        self.assertEqual({name: item["run_id"] for name, item in interaction["corners"].items()},
-                         {name: self.runs[name]["run_id"] for name in ("base", "a", "b", "ab")})
+        self.assertEqual({name: item["trial_id"] for name, item in interaction["corners"].items()},
+                         {name: self.runs[name]["trial_id"] for name in ("base", "a", "b", "ab")})
         logs = {name: sum(map(math.log1p, self.series(name))) / 31 for name in ("base", "a", "b", "ab")}
         expected = logs["ab"] - logs["a"] - logs["b"] + logs["base"]
         self.assertAlmostEqual(interaction["test"]["mean_daily_log_difference"], expected, places=12)
@@ -130,14 +130,14 @@ class IntegrityTests(unittest.TestCase):
         cases = {"not_the_merge": "is not the source of", "ab_late": "not before the declaring registration"}
         for name, why in cases.items():
             with self.subTest(corner=name):
-                found = comparison.compare(self.profile, f"registration-{name}", self.runs[name]["run_id"])
+                found = comparison.compare(self.profile, f"registration-{name}", self.runs[name]["trial_id"])
                 interaction = found["attribution"]["interaction"]
                 self.assertFalse(interaction["available"])
                 self.assertTrue(interaction["reason"].startswith("INTERACTION_UNATTESTED: "), interaction["reason"])
                 self.assertIn(why, interaction["reason"])
                 self.assertIsNotNone(found["evidence"]["mean_daily_log_difference"])
                 self.assertTrue(found["attribution"]["slices"]["trade_pairs"]["available"])
-        plain = comparison.compare(self.profile, "registration-a", self.runs["a"]["run_id"])
+        plain = comparison.compare(self.profile, "registration-a", self.runs["a"]["trial_id"])
         self.assertIsNone(plain["attribution"]["interaction"], "no declaration, no interaction")
 
     def test_3_a_source_review_recorded_after_sealing_does_not_make_a_passed_attempt_retryable(self):
@@ -146,7 +146,7 @@ class IntegrityTests(unittest.TestCase):
         precheck.record_review(self.profile, self.world.review_body(
             trial_id, "failed", api={"status": "failed", "note": "found after the run was sealed"}), "reviewer-d")
         with db.read_as_of(self.profile) as conn:
-            now = availability.assess(conn, {"run_id": self.runs["base"]["run_id"]})
+            now = availability.assess(conn, {"trial_id": self.runs["base"]["trial_id"]})
         self.assertTrue(any(reason.startswith("SOURCE_REVIEW_FAILED") for reason in now["reasons"]),
                         "the read-time view counts the later review")
         with registration_seams.use(qualification_assess=availability.assess,
@@ -204,7 +204,7 @@ class IntegrityTests(unittest.TestCase):
         self.assertTrue(broken["reasons"][0].startswith("EXECUTION_IDENTITY: "))
         self.assertTrue(attempts[self.runs["ab"]["trial_id"]]["availability"]["economic_evidence_available"])
         counted = status.research_status(self.profile)
-        self.assertEqual(counted["unverified_runs"], [{"run_id": self.runs["not_the_merge"]["run_id"],
+        self.assertEqual(counted["unverified_runs"], [{"trial_id": self.runs["not_the_merge"]["trial_id"],
                                                        "reason": broken["reasons"][0]}])
         self.assertEqual(counted["valid_research_runs"] + counted["diagnostic_only_research_runs"]
                          + counted["invalid_research_runs"] + counted["unfinished_research_attempts"],

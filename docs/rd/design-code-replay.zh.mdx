@@ -18,7 +18,7 @@
 | <Ref id="replay.execute">execute</Ref> | 同一运行环境内先运行器后独立审计器：报表齐全才启动审计器；各阶段命令、状态与退出码分文件落盘；无论结局都封存执行捕获 |
 | <Ref id="replay.explore">explore</Ref> | 非登记探索：把未发布的策略文件装入钉死运行环境回放，试验行 purpose=explore，报告留在新建的临时目录，账本只有试验行、开始回执与执行封存 |
 | <Ref id="replay.input_coverage">input_coverage</Ref> | 启动前把全部合约的导出回执、输入身份、有效配置与成员文件写成 input-coverage.json，只读挂入容器供审计器与生命周期核对，并随执行封存 |
-| <Ref id="replay.precheck">precheck</Ref> | 对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后把原生输出、退出码、审计与报告随试验封存，并返回封存包名 |
+| <Ref id="replay.precheck">precheck</Ref> | 对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后封存原始技术事实、审计与指纹；完整成功且具备指纹的原生表作为临时缓存，并返回封存包名 |
 | <Ref id="replay.run">run</Ref> | 研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，失败保留目录供诊断 |
 | <Ref id="replay.seal">seal</Ref> | 研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写执行绑定与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账 |
 
@@ -53,7 +53,7 @@ def execute(
 6. 本函数不拒绝：报表不全、进程无法启动、中断或宿主失败都如实记入阶段记录并封存，由 ledger.audit_problems 转成无效原因。
 7. 挂载：运行器只写 reports/（运行期回调失败写 reports/runtime_failures.jsonl）；审计器只写 audit/，结果为 audit/audit.json，原生报告对它只读；运行器因此写不出审计结果。
 8. 入口保留的运行器选项包括输出目录、市场根与提交、成员文件与 --describe；Agent 传入即 RUNNER_OPTION_RESERVED。
-9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态随执行封存；预检以外指纹文件只记哈希，入账从工作目录读出并按该哈希核对，调用方给不了。
+9. 指纹阶段：审计之后在同一镜像里单独运行 engine.report_fingerprint，原生报告只读挂入，唯一可写目录为 fingerprint/；其阶段状态随执行封存；预检的指纹原件留在执行捕获；正式运行的指纹留在结果行，捕获只记哈希，入账从工作目录读出并按该哈希核对，调用方给不了。
 10. 容器按试验命名；中断或可选超时到期时按名停止容器再封存，结局记 interrupted。
 
 **使用**　<Ref id="runtime.layout" />、<Ref id="runtime.container_command" />、<Ref id="ledger.seal_capture" />、<Ref id="engine.audit_main" />
@@ -141,9 +141,11 @@ def input_coverage(
 
 </div>
 
+成功且具备可核验指纹的预检只保留原生表清单、长度与哈希；原 summary、audit、阶段、日志和指纹仍永久保留。失败、中断或缺指纹时保留原报告，不改变现有准入条件。原缓存由 `replay report --trial-id P --directory DIR` 核验。缓存丢失时 `replay reproduce --trial-id P --output DIR` 创建新的 explore trial M；随后以 `--reproduction DIR --reproduction-trial M` 核验再生报告。只有成功且与本次登记引用的豁免预检完全等价的再生才豁免额外暴露；失败或不匹配仍留痕并按原暴露规则处理。审查始终引用原预检 P。
+
 ### `precheck` [#def-replay-precheck]
 
-对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后把原生输出、退出码、审计与报告随试验封存，并返回封存包名
+对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后封存原始技术事实、审计与指纹；完整成功且具备指纹的原生表作为临时缓存，并返回封存包名
 
 ```python
 def precheck(
@@ -206,7 +208,7 @@ def run(
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置（数据库名、服务地址、写账号凭据来源）" }, "market": { type: "dict", description: "市场库连接配置；输入只从它的某一提交导出" }, "at": { type: "str | None", description: "市场提交；空表示当前头，解析结果写进输入身份" }, "strategy": { type: "str（strategy_id@revision）", description: "已发布候选引用" }, "runtime": { type: "str | None", description: "运行环境引用（标签或含 @sha256: 的清单摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数（预热起点、交易窗口、合约或共同可交易范围）；不得含入口保留选项" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出即 purpose=research，绑定其一个网格点" }, "validation": { type: "str | None", description: "样本外登记编号；给出即 purpose=validation，与 hypothesis 恰给一个" } }} />
 
-**返回**　dict \{purpose: research|validation, strategy, trial_id, run_id, status: passed|invalid, failure_reasons, image_ref\}
+**返回**　dict \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref\}
 
 **期望行为**
 
@@ -253,7 +255,7 @@ def seal(
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本档案" }, "conn": { type: "connection", description: "账本写连接；试验、绑定、开始回执与入账都在它上面完成" }, "revision": { type: "dict", description: "[[ledger.read_candidate]] 读出的候选行：strategy_id、revision、source（字节）、source_sha256、entry_class、runtime_contract" }, "runtime": { type: "str | None", description: "运行环境引用；缺省为镜像注册表的 main 标签" }, "inputs": { type: "dict", description: "registration.market_inputs 的返回：root、membership_file、symbols、每合约回执、identity" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与范围参数" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出则 purpose=research 并绑定其网格点" }, "validation": { type: "int | None", description: "样本外登记编号；给出则 purpose=validation 并绑定该登记" } }} />
 
-**返回**　dict\{trial_id, run_id, status(passed|invalid), failure_reasons, image_ref\}
+**返回**　dict\{trial_id, status(passed|invalid), failure_reasons, image_ref\}
 
 **期望行为**
 
@@ -291,16 +293,16 @@ def seal(
 
 ```python
 def reproduce(
-    run_id: int,
+    trial_id: int,
     output: Path,
     ledger: LedgerProfile,
     market: MarketProfile,
 ) -> dict
 ```
 
-<TypeTable type={{ "run_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" }, "ledger": { type: "LedgerProfile", description: "研究账本档案（关键字参数）" }, "market": { type: "MarketProfile", description: "市场库档案（关键字参数），按运行记下的市场提交导出" } }} />
+<TypeTable type={{ "trial_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" }, "ledger": { type: "LedgerProfile", description: "研究账本档案（关键字参数）" }, "market": { type: "MarketProfile", description: "市场库档案（关键字参数），按运行记下的市场提交导出" } }} />
 
-**返回**　dict：\{directory, run_id, fingerprints_match\}
+**返回**　dict：\{directory, trial_id, fingerprints_match\}
 
 **期望行为**
 

@@ -121,7 +121,7 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
 
     `checker` (check_identity) and `records` (review_records) are what a caller assessing many runs
     reads once; `review_scope` restricts the source reviews counted (source_reviews)."""
-    loaded = metrics.load_run(conn, run["run_id"])
+    loaded = metrics.load_run(conn, run["trial_id"])
     row, trial, capture = loaded["run"], loaded["trial"], loaded["capture"]
     reasons, limitations = [], [LIMITATION]
     if row["status"] != "passed":
@@ -136,13 +136,13 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
         reasons.append("CAPTURE_FAILED: " + ", ".join(
             [*(f"stage {name}" for name in view["failed_stages"]), *(["runtime failures"] if view["failures"] else []),
              *([f"outcome {view['outcome']}"] if view["outcome"] != "completed" else [])]))
-    sealed = metrics.latest_sealed(conn, row["run_id"], loaded["sealed"]) if row["status"] == "passed" else None
+    sealed = metrics.latest_sealed(conn, row["trial_id"], loaded["sealed"]) if row["status"] == "passed" else None
     if row["status"] == "passed":
         for item in native_reasons(sealed):
             reasons.append(item)
             if item.startswith("NOT_EVALUATED: "):
                 limitations.append(NOT_EVALUATED.format(fact=item.removeprefix("NOT_EVALUATED: ")))
-    reviewed = source_reviews(conn, {"run_id": row["run_id"], "source_sha256": trial["source_sha256"],
+    reviewed = source_reviews(conn, {"trial_id": row["trial_id"], "source_sha256": trial["source_sha256"],
                                      "image_digest": trial["image_digest"]}, records=records, scope=review_scope)
     if reviewed["status"] == "failed":
         reasons.append("SOURCE_REVIEW_FAILED: " + ", ".join(item["bundle"] for item in reviewed["reviews"]
@@ -164,8 +164,8 @@ def require(conn: db.LedgerConnection, run: Mapping, **options) -> dict:
     The refusal carries every reason (and the whole view as `availability`); `options` are assess's."""
     value = assess(conn, run, **options)
     if not value["economic_evidence_available"]:
-        exc = refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['run_id']} has no economic evidence: "
-                     + "; ".join(value["reasons"]), missing=(str(run["run_id"]), *value["reasons"]))
+        exc = refuse("ECONOMIC_EVIDENCE_UNAVAILABLE", f"run {run['trial_id']} has no economic evidence: "
+                     + "; ".join(value["reasons"]), missing=(str(run["trial_id"]), *value["reasons"]))
         exc.availability = value  # type: ignore[attr-defined]  # ledger.Refusal declares no view field
         raise exc
     return value

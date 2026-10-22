@@ -29,16 +29,16 @@ class ReproduceTests(unittest.TestCase):
         cls.forged_refs = registered_grid(world, ["f1", "f2"], "registration-forged")
         world.fingerprint = FINGERPRINT
         cls.fingerprinted = entry.run(world.profile, world.market, MARKET_COMMIT, fingerprinted, None, RUNNER_ARGV,
-                                      hypothesis="registration-grid")["run_id"]
+                                      hypothesis="registration-grid")["trial_id"]
         world.fingerprint = None
         cls.unprinted = entry.run(world.profile, world.market, MARKET_COMMIT, unprinted, None, RUNNER_ARGV,
-                                  hypothesis="registration-grid")["run_id"]
+                                  hypothesis="registration-grid")["trial_id"]
 
     def setUp(self):
         self.world = self.__class__.world
 
-    def reproduce(self, run_id: int, name: str):
-        return reproduce.reproduce(run_id, self.world.output(name), ledger=self.world.profile, market=self.world.market)
+    def reproduce(self, trial_id: int, name: str):
+        return reproduce.reproduce(trial_id, self.world.output(name), ledger=self.world.profile, market=self.world.market)
 
     def test_the_recorded_fingerprint_is_the_sealed_fingerprint_stage(self):
         stored = metrics.load_run(self.world.conn, self.fingerprinted)
@@ -78,9 +78,9 @@ class ReproduceTests(unittest.TestCase):
     def test_a_matching_fingerprint_hands_over_the_reproduced_reports(self):
         self.world.fingerprint = FINGERPRINT
         done = self.reproduce(self.fingerprinted, "same")
-        self.assertEqual((done["run_id"], done["fingerprints_match"]), (self.fingerprinted, True))
+        self.assertEqual((done["trial_id"], done["fingerprints_match"]), (self.fingerprinted, True))
         self.assertTrue((self.world.output("same") / "reports" / "fills.csv").is_file())
-        capture = execution.read_capture(self.world.conn, done["trial_id"])
+        capture = execution.read_capture(self.world.conn, done["reproduction_trial_id"])
         self.assertEqual((capture["status"], capture["purpose"]), ("captured", "explore"))
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM run")[0][0], 2,
                          "a reproduction stores no run")
@@ -89,10 +89,10 @@ class ReproduceTests(unittest.TestCase):
         cases = [(self.fingerprinted, {"fills": {"rows": 3}}, "changed"),
                  (self.fingerprinted, None, "stage-failed"),
                  (self.unprinted, None, "never-recorded")]
-        for run_id, computed, name in cases:
+        for trial_id, computed, name in cases:
             self.world.fingerprint = computed
             with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                self.reproduce(run_id, name)
+                self.reproduce(trial_id, name)
             self.assertEqual((caught.exception.code, caught.exception.write_status),
                              ("REPRODUCTION_MISMATCH", "written"), "the reproduction's own trial was committed")
             self.assertTrue((self.world.output(name) / "reports").is_dir())

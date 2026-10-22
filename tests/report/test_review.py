@@ -110,7 +110,7 @@ class TamperTests(unittest.TestCase):
         self.assertEqual([item["record_id"] for item in missing], [str(self.unwitnessed["registration_id"])])
         with db.connect(self.profile, "writer") as writer:
             self.assertEqual(refused(review.review_all, writer).code, "LEDGER_PERMISSION")
-        exported = admin.export_history(self.profile, self.profile.backup_root, run_ids=[self.fixture_run])
+        exported = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])
         manifest = json.loads(Path(exported["manifest_path"]).read_text())
         self.assertEqual((manifest["ledger_name"], manifest["commit"], len(manifest["runs"])),
                          (self.profile.name, exported["commit"], 1))
@@ -120,7 +120,7 @@ class TamperTests(unittest.TestCase):
         with self.reader() as conn:
             backed = review.review_all(conn)
         self.assertEqual((backed["history"]["status"], backed["limitations"]), ("ancestor", []))
-        again = admin.export_history(self.profile, self.profile.backup_root, run_ids=[self.fixture_run],
+        again = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run],
                                      with_backup=False)
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
 
@@ -130,12 +130,12 @@ class TamperTests(unittest.TestCase):
         foreign = self.backups / "foreign"
         foreign.mkdir()
         self.assertEqual(refused(admin.export_history, self.profile, foreign).code, "EXPORT_PATH_INVALID")
-        self.assertEqual(refused(admin.export_history, self.profile, self.backups / "new", run_ids=[999],
+        self.assertEqual(refused(admin.export_history, self.profile, self.backups / "new", trial_ids=[999],
                                  with_backup=False).code, "UNKNOWN_RUN")
         broken = self.backups / "broken"
-        admin.export_history(self.profile, broken, run_ids=[self.fixture_run], with_backup=False)
+        admin.export_history(self.profile, broken, trial_ids=[self.fixture_run], with_backup=False)
         (broken / "backup").write_text("not a backup directory")
-        self.assertEqual(refused(admin.export_history, self.profile, broken, run_ids=[self.fixture_run]).code,
+        self.assertEqual(refused(admin.export_history, self.profile, broken, trial_ids=[self.fixture_run]).code,
                          "DOLT_BACKUP")
 
     def test_3_the_out_of_sample_report_lists_the_registration_family_and_no_verdict(self):
@@ -159,7 +159,7 @@ class TamperTests(unittest.TestCase):
     def test_5_tampering_through_the_administrator_is_found(self):
         self.admin_sql("UPDATE candidate SET description = 'rewritten' WHERE strategy_id = 'rsi' AND revision = 1",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: change a row')")
-        backed = admin.export_history(self.profile, self.profile.backup_root, run_ids=[self.fixture_run])["commit"]
+        backed = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])["commit"]
         self.admin_sql("CALL DOLT_COMMIT('--amend', '--allow-empty', '-m', 'tamper: amend the backed-up head')")
         self.admin_sql("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, trade_start, "
                        "trade_end, op_id, created_at) VALUES ('research', REPEAT('9', 64), "
@@ -175,7 +175,7 @@ class TamperTests(unittest.TestCase):
         self.assertEqual((changed["table"], changed["record_id"]), ("candidate", "rsi/1"))
         # the backup of the amended head is evidence: the next backup sync refuses rather than overwrite it
         self.assertEqual(refused(admin.export_history, self.profile, self.profile.backup_root,
-                                 run_ids=[self.fixture_run]).code, "BACKUP_DIVERGED")
+                                 trial_ids=[self.fixture_run]).code, "BACKUP_DIVERGED")
         self.assertEqual(admin.backup_head(self.profile, admin.backup_path(self.profile)), backed)
         with self.reader() as conn:
             again = review.review_all(conn)
@@ -265,11 +265,11 @@ class SealedTamperTests(unittest.TestCase):
     def test_4_a_cycle_amended_into_the_ingest_commit_is_found(self):
         (message,), = self.world.service.sql(self.world.profile, "SELECT message FROM dolt_log LIMIT 1")
         self.assertTrue(message.startswith("ingest_run:"), "the late run's ingest is the head commit")
-        self.admin_sql(f"UPDATE run_cycle SET realized_pnl = realized_pnl + 5 WHERE run_id = {self.late['run_id']}",
+        self.admin_sql(f"UPDATE run_cycle SET realized_pnl = realized_pnl + 5 WHERE trial_id = {self.late['trial_id']}",
                        "CALL DOLT_COMMIT('-a', '--amend', '-m', %s)", params=(message,))
         found = self.review()
         changed = [(item["code"], item["table"], item["record_id"]) for item in found["findings"]]
-        self.assertEqual(changed, [("READING_MISMATCH", "run_cycle", str(self.late["run_id"]))],
+        self.assertEqual(changed, [("READING_MISMATCH", "run_cycle", str(self.late["trial_id"]))],
                          "the profit bridge no longer adds up to the sealed equity change")
         self.assertIn("is 14.80000000, the sealed equity change is 9.80000000", found["findings"][0]["detail"])
 
@@ -315,7 +315,7 @@ class CrossImageTests(unittest.TestCase):
                               hypothesis="registration-r1")
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.first["trial_id"]}])
         body = world.plan("registration-r1")["body"]
-        world.qualification.unavailable.add(cls.first["run_id"])  # the stand-in registration sees no evidence
+        world.qualification.unavailable.add(cls.first["trial_id"])  # the stand-in registration sees no evidence
         world.register("registration-r2", {**body, "retry_of": "registration-r1"})
         world.fingerprint = FINGERPRINT
         cls.second = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
@@ -331,41 +331,41 @@ class CrossImageTests(unittest.TestCase):
         self.calls = []
 
     def fake_reproduce(self, complete: bool):
-        def reproduce_run(run_id, output, ledger):
-            self.calls.append(run_id)
+        def reproduce_run(trial_id, output, ledger):
+            self.calls.append(trial_id)
             (output / "reports").mkdir(parents=True)
             for name in ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv",
                          "returns_series.csv", "order_events.jsonl.gz")[:None if complete else 3]:
                 (output / "reports" / name).write_text("{}")
-            return {"directory": str(output), "run_id": run_id, "fingerprints_match": True}
+            return {"directory": str(output), "trial_id": trial_id, "fingerprints_match": True}
         return reproduce_run
 
     def test_two_reproduced_runs_go_to_the_engine_comparison(self):
         compared = []
         with seams.use(reproduce=self.fake_reproduce(True),
                        compare_reports=lambda left, right: compared.append((left.name, right.name)) or {"passed": True}):
-            found = reproduce.compare_runs(self.world.profile, self.first["run_id"], self.second["run_id"])
-        self.assertEqual((found["passed"], self.calls, compared), (True, [self.first["run_id"], self.second["run_id"]],
+            found = reproduce.compare_runs(self.world.profile, self.first["trial_id"], self.second["trial_id"])
+        self.assertEqual((found["passed"], self.calls, compared), (True, [self.first["trial_id"], self.second["trial_id"]],
                                                                     [("reports", "reports")]))
-        self.assertEqual(found["reference"]["run_id"], self.first["run_id"])
+        self.assertEqual(found["reference"]["trial_id"], self.first["trial_id"])
         with seams.use(reproduce=self.fake_reproduce(False)):
-            self.assertEqual(refused(reproduce.compare_runs, self.world.profile, self.first["run_id"],
-                                     self.second["run_id"]).code, "EXPORT_INCOMPLETE")
+            self.assertEqual(refused(reproduce.compare_runs, self.world.profile, self.first["trial_id"],
+                                     self.second["trial_id"]).code, "EXPORT_INCOMPLETE")
 
     def test_the_working_directory_goes_unless_a_reproduction_mismatched(self):
         work = Path(tempfile.mkdtemp(prefix="compare-work-"))
         self.addCleanup(shutil.rmtree, work, True)
         with seams.use(reproduce=self.fake_reproduce(True), compare_reports=lambda left, right: {"passed": True}):
-            reproduce.compare_runs(self.world.profile, self.first["run_id"], self.second["run_id"], work_dir=work)
+            reproduce.compare_runs(self.world.profile, self.first["trial_id"], self.second["trial_id"], work_dir=work)
         self.assertEqual(list(work.iterdir()), [], "the directory it created under work_dir is removed")
 
-        def mismatched(run_id, output, ledger):
+        def mismatched(trial_id, output, ledger):
             output.mkdir(parents=True)
-            raise refuse("REPRODUCTION_MISMATCH", f"run {run_id} is not reproduced in {output}; the directory is kept",
+            raise refuse("REPRODUCTION_MISMATCH", f"run {trial_id} is not reproduced in {output}; the directory is kept",
                          missing=("fingerprints",))
 
         with seams.use(reproduce=mismatched):
-            exc = refused(reproduce.compare_runs, self.world.profile, self.first["run_id"], self.second["run_id"],
+            exc = refused(reproduce.compare_runs, self.world.profile, self.first["trial_id"], self.second["trial_id"],
                           work_dir=work)
         (kept,) = list(work.iterdir())
         self.assertEqual(exc.code, "REPRODUCTION_MISMATCH")
@@ -375,8 +375,8 @@ class CrossImageTests(unittest.TestCase):
     def test_the_cross_image_comparison_needs_two_passed_runs_of_the_same_inputs(self):
         profile = self.world.profile
         self.assertEqual(refused(reproduce.compare_runs, profile, 1, 1).code, "SAME_RUN")
-        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["run_id"], 999).code, "UNKNOWN_RUN")
-        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["run_id"], self.other["run_id"]).code,
+        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["trial_id"], 999).code, "UNKNOWN_RUN")
+        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["trial_id"], self.other["trial_id"]).code,
                          "PAIR_INPUT_MISMATCH")
         self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.other["trial_id"]}])
         self.world.scenario = {"audit_exit": 1}
@@ -384,7 +384,7 @@ class CrossImageTests(unittest.TestCase):
         invalid = entry.run(profile, self.world.market, MARKET_COMMIT, bad, None, RUNNER_ARGV,
                             hypothesis="registration-bad")
         self.world.scenario = {}
-        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["run_id"], invalid["run_id"]).code,
+        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["trial_id"], invalid["trial_id"]).code,
                          "RUN_INCOMPLETE")
 
 

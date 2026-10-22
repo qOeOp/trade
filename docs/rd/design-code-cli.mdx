@@ -102,7 +102,7 @@ def candidate_list(ledger: path, at: str | None) -> JSON
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径，解析为 LedgerProfile（连接位置与只读账号）" }, "at": { type: "str | None", description: "可选账本版本：提交哈希或标签；None 读当前" } }} />
 
-**返回**　JSON：\{ledger_commit, checker: \{check, metrics_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_id, run_status, availability\}], valid_evidence\}]\}；原样转发 report.candidates 的结果，不加分数、排序或资格标记
+**返回**　JSON：\{ledger_commit, checker: \{check, metrics_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_status, availability\}], valid_evidence\}]\}；原样转发 report.candidates 的结果，不加分数、排序或资格标记
 
 **期望行为**
 
@@ -363,14 +363,14 @@ def execution_recover(
 def hypothesis_compare(
     ledger: path,
     bundle: str,
-    run_id: int,
+    trial_id: int,
     at: str | None,
 ) -> JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "bundle": { type: "str", description: "登记证据包名" }, "run_id": { type: "int", description: "候选侧封存运行" }, "at": { type: "str | None", description: "账本版本（提交、标签）；缺省为当前 HEAD" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "bundle": { type: "str", description: "登记证据包名" }, "trial_id": { type: "int", description: "候选侧封存运行" }, "at": { type: "str | None", description: "账本版本（提交、标签）；缺省为当前 HEAD" } }} />
 
-**返回**　JSON：\{bundle, run_id, control_run_id, research_parent, ledger_commit, registered_at, metrics_revision, catalogue, comparison_source_sha256, availability\{candidate, control\}, evidence\{method, days, mean_daily_log_difference, mean_log_basic_interval, mean_log_studentized_interval, annual_return_difference, annual_return_difference_interval, p_one_sided, p_bonferroni, predeclared_alpha, predeclared_minimum_effect, block_sensitivity, design, limitations …\}, attribution\{metrics_revision, catalogue, headline, slices, predictions, interaction, trade_pairs …\}, limitations\}；登记没有对照时 \{bundle, run_id, control_run_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}；无采纳或显著性裁决字段；拒绝时以非零退出码输出拒绝码与原因
+**返回**　JSON：\{bundle, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, metrics_revision, catalogue, comparison_source_sha256, availability\{candidate, control\}, evidence\{method, days, mean_daily_log_difference, mean_log_basic_interval, mean_log_studentized_interval, annual_return_difference, annual_return_difference_interval, p_one_sided, p_bonferroni, predeclared_alpha, predeclared_minimum_effect, block_sensitivity, design, limitations …\}, attribution\{metrics_revision, catalogue, headline, slices, predictions, interaction, trade_pairs …\}, limitations\}；登记没有对照时 \{bundle, trial_id, control_trial_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}；无采纳或显著性裁决字段；拒绝时以非零退出码输出拒绝码与原因
 
 **期望行为**
 
@@ -382,14 +382,14 @@ def hypothesis_compare(
 | 拒绝码 | 条件 |
 |---|---|
 | `NO_CONTROL` | 登记声明的对照运行不存在（透传）；登记没有对照时以零退出返回「没有可比的」与下一步 |
-| `RUN_NOT_IN_GRID` | run_id 不是本登记某网格点消耗的试验所产运行（透传） |
+| `RUN_NOT_IN_GRID` | trial_id 不是本登记某网格点消耗的试验所产运行（透传） |
 | `RUN_NOT_PASSED` | 任一侧是探索或预检回放、无效运行或审计未通过（透传） |
 | `COMPARABILITY_MISMATCH` | 任一侧三项身份与登记不一致（透传，列冲突项） |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 任一侧无经济证据资格（透传，附原因） |
 | `COMPARISON_UNAVAILABLE` | 任一侧日收益序列不可用（透传，附局限） |
 | `CLOCK_MISMATCH` | 两侧日收益时间轴不逐日一致（透传） |
 | `REGISTRATION_INVALID` | bundle 不是 registration-* 或该版本没有这个登记包（透传 registration.load_plan） |
-| `UNKNOWN_RUN` | run_id 在所读版本不存在（透传） |
+| `UNKNOWN_RUN` | trial_id 在所读版本不存在（透传） |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="report.compare" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="ledger.load_run" />
 
@@ -446,17 +446,17 @@ def ledger_export(
     kind: enum reproduce|backup,
     output: path | None,
     at: str | None,
-    run_ids: list[int] | None,
+    trial_ids: list[int] | None,
 ) -> {kind
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；命令以读账号打开连接" }, "kind": { type: "enum reproduce|backup", description: "reproduce：写全史备份与复现清单到新目录；backup：增量同步到档案声明的 dolt_backup 目标" }, "output": { type: "path | None", description: "kind=reproduce 时必填：尚不存在的目录" }, "at": { type: "str | None", description: "精确账本版本；缺省取头提交" }, "run_ids": { type: "list[int] | None", description: "只导出这些运行；缺省全部已封存运行" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；命令以读账号打开连接" }, "kind": { type: "enum reproduce|backup", description: "reproduce：写全史备份与复现清单到新目录；backup：增量同步到档案声明的 dolt_backup 目标" }, "output": { type: "path | None", description: "kind=reproduce 时必填：尚不存在的目录" }, "at": { type: "str | None", description: "精确账本版本；缺省取头提交" }, "trial_ids": { type: "list[int] | None", description: "只导出这些运行；缺省全部已封存运行" } }} />
 
 **返回**　\{kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates\}
 
 **期望行为**
 
-1. reproduce：output 已存在即 PATH_EXISTS；调 ledger.export_history(destination=output, with_backup=True, at, run_ids)
+1. reproduce：output 已存在即 PATH_EXISTS；调 ledger.export_history(destination=output, with_backup=True, at, trial_ids)
 2. backup：档案未声明 dolt_backup 目标即 BACKUP_TARGET_UNSET；调 ledger.export_history(destination=该目标, with_backup=True)
 3. 导出后重读清单文件算内容哈希，须等于返回的 content_hash，不等即 EXPORT_MISMATCH 并删除本次写出的不完整副本
 4. 返回账本提交、目标位置、清单路径与内容哈希；不导出镜像文件与导出目录
@@ -1031,12 +1031,14 @@ def replay_precheck(
 
 ### `replay_report` [#def-cli-replay_report]
 
+新增预检读法：`--trial-id P` 返回原始技术事实；再给 `--directory DIR` 核验原缓存，或 `--reproduction DIR --reproduction-trial M` 核验再生缓存。返回原 summary、audit、stages、outcome、原日志、reports_verified 和可选原生明细，economic_evidence_available 恒为 false。单独 `--directory` 仍为 unverified；预检不进入正式绩效比较。`replay reproduce --trial-id P --output DIR` 适用于封存结果和预检，返回原 trial_id 与新 reproduction_trial_id；无新经济结果或审查。
+
 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图
 
 ```python
 def replay_report(
     ledger: path | None,
-    run_id: int | None,
+    trial_id: int | None,
     directory: path | None,
     at: str | None,
     tables: bool,
@@ -1047,21 +1049,21 @@ def replay_report(
 ) -> JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "path | None", description: "账本档案路径；以读账号连接；只读目录时可不连账本" }, "run_id": { type: "int | None", description: "封存运行；与 directory 恰给一个" }, "directory": { type: "path | None", description: "探索或预检输出目录；与 run_id 恰给一个" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" }, "exposures": { type: "bool", description: "附资本敞口表（需已核对的复现）" } }} />
+<TypeTable type={{ "ledger": { type: "path | None", description: "账本档案路径；以读账号连接；只读目录时可不连账本" }, "trial_id": { type: "int | None", description: "封存运行；与 directory 恰给一个" }, "directory": { type: "path | None", description: "探索或预检输出目录；与 trial_id 恰给一个" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" }, "exposures": { type: "bool", description: "附资本敞口表（需已核对的复现）" } }} />
 
-**返回**　JSON：封存运行 \{source: sealed, run_id, trial_id, status, purpose, source_sha256, runtime, trade_window, created_at, ledger_commit, catalogue, metrics_revision, audit, failure_reasons, populations, activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, limitations, availability\}，给 tables、account、exposures 或 reproduction 时附 tables；目录 \{source: directory, directory, exploration, metrics_revision, catalogue, populations, activity, order_funnel, plans, headline, slices, drawdown, capital, cost_basis, limitations, availability\}，availability 附「未封存、来源未核验」；无经济证据时绩效字段置空
+**返回**　JSON：封存运行 \{source: sealed, trial_id, status, purpose, source_sha256, runtime, trade_window, created_at, ledger_commit, catalogue, metrics_revision, audit, failure_reasons, populations, activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, limitations, availability\}，给 tables、account、exposures 或 reproduction 时附 tables；目录 \{source: directory, directory, exploration, metrics_revision, catalogue, populations, activity, order_funnel, plans, headline, slices, drawdown, capital, cost_basis, limitations, availability\}，availability 附「未封存、来源未核验」；无经济证据时绩效字段置空
 
 **期望行为**
 
-1. run_id 与 directory 恰给一个，否则拒绝 USAGE_ERROR。
-2. run_id：给定 at 时经 ledger.read_as_of 钉版本，调用 report.run_report 取经资格视图遮蔽的绩效指标；exposures 时附敞口表。
+1. trial_id 与 directory 恰给一个，否则拒绝 USAGE_ERROR。
+2. trial_id：给定 at 时经 ledger.read_as_of 钉版本，调用 report.run_report 取经资格视图遮蔽的绩效指标；exposures 时附敞口表。
 3. directory：调用 report.directory_report 按同一判据读目录并标明未核验。
 4. 返回绩效指标、检查身份与局限；无裁决字段，不写账本。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `USAGE_ERROR` | run_id 与 directory 都未给或都给了 |
-| `UNKNOWN_RUN` | run_id 不存在 |
+| `USAGE_ERROR` | trial_id 与 directory 都未给或都给了 |
+| `UNKNOWN_RUN` | trial_id 不存在 |
 | `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | 封存行哈希与记录不符 |
 | `DIRECTORY_NOT_FOUND` | directory 不是目录 |
@@ -1095,7 +1097,7 @@ def replay_run(
 
 <TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" } }} />
 
-**返回**　JSON \{purpose: research|validation, strategy, trial_id, run_id, status: passed|invalid, failure_reasons, image_ref, ledger_commit\}；status 非 passed 时进程退出码为 1
+**返回**　JSON \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, ledger_commit\}；status 非 passed 时进程退出码为 1
 
 **期望行为**
 
@@ -1328,14 +1330,14 @@ def validation_report(
 def replay_reproduce(
     ledger: path,
     market: path,
-    run_id: int,
+    trial_id: int,
     output: path,
 ) -> JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "run_id": { type: "int", description: "要复现的封存运行" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "trial_id": { type: "int", description: "要复现的封存运行" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
 
-**返回**　JSON：\{directory, run_id, fingerprints_match: true, trial_id\}；指纹不等时拒绝 REPRODUCTION_MISMATCH 并保留目录
+**返回**　JSON：\{directory, trial_id, fingerprints_match: true, trial_id\}；指纹不等时拒绝 REPRODUCTION_MISMATCH 并保留目录
 
 **期望行为**
 
@@ -1345,7 +1347,7 @@ def replay_reproduce(
 |---|---|
 | `NOT_TEMPORARY_PATH` | output 不在平台临时根之下 |
 | `PATH_EXISTS` | output 已存在 |
-| `UNKNOWN_RUN` | run_id 在账本里不存在（转发自 ledger.load_run） |
+| `UNKNOWN_RUN` | trial_id 在账本里不存在（转发自 ledger.load_run） |
 | `UNKNOWN_CANDIDATE` | 该运行的源码不是已发布候选 |
 | `REPRODUCTION_MISMATCH` | 重新导出的输入身份或复现算出的语义指纹与记录不等；复现自己的试验与执行封存已写入 |
 

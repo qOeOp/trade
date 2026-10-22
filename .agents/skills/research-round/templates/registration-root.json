@@ -11,7 +11,7 @@
   },
   "changed_duties": [],
   "parent": null,
-  "control_run": null,
+  "control_trial_id": null,
   "change": null,
   "rationale": {
     "external": "The source bundle: location, market, window, frequency, costs; supports the method, a parameter or the mechanism.",

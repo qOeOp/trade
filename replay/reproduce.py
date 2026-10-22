@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ledger import db, execution, metrics, paths, problems, strategies, trials
+from ledger import db, execution, metrics, paths, problems, reproduction, strategies, trials
 from ledger.refusals import refuse
 from registration import comparability, inputs as registration_inputs
 from replay import entry
@@ -29,16 +29,23 @@ def _iso(moment: datetime) -> str:
     return moment.replace(tzinfo=None).isoformat() + "Z"
 
 
-def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) -> dict:
+def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) -> dict:
     """Replay a sealed run by its identity into `output`; refuse unless the semantic fingerprints match."""
     output = paths.temporary_path(output)
     with db.connect(ledger, "writer") as conn:
-        stored = metrics.load_run(conn, run_id)
+        original = reproduction.trial_record(conn, trial_id)
+        if original is not None and original["purpose"] == "precheck":
+            captured = execution.read_capture(conn, trial_id)
+            expected, _ = problems.capture_fingerprint(captured)
+            stored = {"trial": original, "capture": captured}
+        else:
+            stored = metrics.load_run(conn, trial_id)
+            expected = stored["run"]["fingerprints"]
         trial, start = stored["trial"], stored["capture"]["start"]
         found = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s",
                          (trial["source_sha256"],))
         if found is None:
-            raise refuse("UNKNOWN_CANDIDATE", f"the source of run {run_id} is no published candidate",
+            raise refuse("UNKNOWN_CANDIDATE", f"the source of run {trial_id} is no published candidate",
                          missing=(trial["source_sha256"],))
         revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
         recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
@@ -56,9 +63,13 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
                                                          dict(selection), recorded.get("lifecycle_bundle"),
                                                          True, ledger)
             if comparability.input_key(exported["identity"]) != comparability.input_key(recorded):
-                raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {run_id} differ from the "
+                raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {trial_id} differ from the "
                                                       "recorded input identity", missing=("input_identity",))
             inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
+            if comparability.config_key(inspection.get("effective_config")) != comparability.config_key(
+                    (stored["capture"].get("input_coverage") or {}).get("effective_config")):
+                raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
+                             missing=("effective_config",))
             coverage = entry._prepare(output, revision["source"], inspection, exported)
             argv, mounts = entry._mounts(output, exported, runner_argv)
             argv += entry._strategy_argv(output, identity, inspection, revision["entry_class"],
@@ -72,16 +83,16 @@ def reproduce(run_id: int, output: Path, *, ledger: db.LedgerProfile, market) ->
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
             fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]),
                                                            execution.read_files(output, (execution.FINGERPRINT_RESULT,)))
+            identical = reproduction.matches(conn, opened["trial_id"], trial_id)
         finally:
             entry._cleanup(exported)
-    expected = stored["run"]["fingerprints"]
-    if expected is None or fingerprints is None or fingerprints != expected:
+    if expected is None or fingerprints is None or fingerprints != expected or not identical:
         why = ("the run has no recorded semantic fingerprint" if expected is None else
                "the runtime image computed no semantic fingerprint" if fingerprints is None else
-               "the semantic fingerprints differ")
+               "the semantic fingerprints or sealed execution facts differ")
         # The reproduction's own trial and capture were committed before this check.
-        raise refuse("REPRODUCTION_MISMATCH", f"run {run_id} is not reproduced in {output}: {why} (trial "
+        raise refuse("REPRODUCTION_MISMATCH", f"run {trial_id} is not reproduced in {output}: {why} (trial "
                                               f"{opened['trial_id']}, native exit {native_exit}, audit exit "
                                               f"{audit_exit}); the directory is kept", missing=("fingerprints",),
                      write_status="written", operation_id=trial_op)
-    return {"directory": str(output), "run_id": run_id, "fingerprints_match": True, "trial_id": opened["trial_id"]}
+    return {"directory": str(output), "trial_id": trial_id, "fingerprints_match": True, "reproduction_trial_id": opened["trial_id"]}

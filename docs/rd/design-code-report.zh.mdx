@@ -32,12 +32,12 @@
 def attribution(
     profile: str,
     bundle: str,
-    run_id: str,
+    trial_id: str,
     at: str | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "bundle": { type: "str", description: "登记证据包名；对照、预测与交互声明从它读出" }, "run_id": { type: "str", description: "候选运行，须是本登记某网格点产出的封存运行" }, "at": { type: "str | None", description: "账本版本，缺省为当前 HEAD" } }} />
+<TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "bundle": { type: "str", description: "登记证据包名；对照、预测与交互声明从它读出" }, "trial_id": { type: "str", description: "候选运行，须是本登记某网格点产出的封存运行" }, "at": { type: "str | None", description: "账本版本，缺省为当前 HEAD" } }} />
 
 **返回**　dict：\{comparison（report.compare 的身份字段）, metrics_revision, slices: \{切面: \{measures: \{名: \{candidate, control, difference\}\}, available, reason\}\}, predictions: [\{slice, measure, direction, duty, observed, same_sign, reason\}], interaction\}
 
@@ -114,13 +114,13 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 
 <TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案（连接位置与只读账号）；经 ledger.read_as_of 打开只读连接，是本函数与 cli.candidate_list 唯一的连接来源" }, "at": { type: "str | None", description: "可选账本版本：提交哈希或标签；None 读当前。按版本读出当时的全部候选与尝试，用于复读入口当时看到的森林" } }} />
 
-**返回**　dict：\{ledger_commit: 实际读到的账本提交哈希, checker: 本次计算经济证据可用性的检查身份 \{check, metrics_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_id, run_status: 'passed' | 'invalid' | 'unfinished', availability: \{economic_evidence_available, reasons, checker\}\}], valid_evidence: bool\}]\}。候选按 (strategy_id, revision) 自然顺序列出，仅为稳定输出，不是排序或推荐；不含任何绩效指标、分数或裁决键。
+**返回**　dict：\{ledger_commit: 实际读到的账本提交哈希, checker: 本次计算经济证据可用性的检查身份 \{check, metrics_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_status: 'passed' | 'invalid' | 'unfinished', availability: \{economic_evidence_available, reasons, checker\}\}], valid_evidence: bool\}]\}。候选按 (strategy_id, revision) 自然顺序列出，仅为稳定输出，不是排序或推荐；不含任何绩效指标、分数或裁决键。
 
 **期望行为**
 
 1. 经 ledger.read_as_of(profile, at) 打开 AS OF 只读连接，核对 ledger_schema 版本与代码一致，取该连接实际指向的提交哈希作 ledger_commit；at 不能解析为提交或标签时拒绝。
 2. 读 candidate 全部行（strategy_id、revision、source_sha256、entry_class、runtime_contract、description、parent_strategy_id、parent_revision、difference、created_at）；不读任何收益、显著性或推荐相关列，候选身份只看 source_sha256。
-3. 读 registration_attempt 左连 trial 与 run：每个尝试带登记证据包 bundle、消耗它的 trial_id、对应 run_id 与 run.status；无 run 行的尝试（中断、未完成、失败）仍列出并标 run_status = unfinished，因为网格点已被消耗。
+3. 读 registration_attempt 左连 trial 与 run：每个尝试带登记证据包 bundle、消耗它的 trial_id 与对应结果 run.status；无 run 行的尝试（中断、未完成、失败）仍列出并标 run_status = unfinished，因为网格点已被消耗。
 4. 对有 run 的尝试经 ledger.load_run 读封存报表，再经 qualification.assess 按 qualification.check_identity 给出的检查身份算当前经济证据可用性（读时视图，不改写存储的 run.status 与审计结论；封存缺失或哈希不符由 assess 标为不可用）；无 run 的尝试 availability = \{economic_evidence_available: false, reasons: ['unfinished'], checker\}。
 5. 按 attempt.source_sha256 = candidate.source_sha256 把尝试挂到候选，valid_evidence = 任一尝试经济证据可用；返回 \{ledger_commit, checker, candidates\}。全程不写账本，不生成分数、资格标记、排序或占位推荐。
 6. 核对一致性：某尝试引用的 source_sha256 在同一版本的 candidate 里不存在，或 run.trial_id 指向不存在的 trial，经 ledger.refusal 以 LEDGER_CORRUPT 拒绝并指明行，而不是静默丢行。
@@ -163,18 +163,18 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 def compare(
     profile: str,
     bundle: str,
-    run_id: str,
+    trial_id: str,
     at: str | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一份研究账本" }, "bundle": { type: "str", description: "登记证据包名，比较条件（对照、网格、检验条件、研发父版本）全部从它读出" }, "run_id": { type: "str", description: "候选运行编号，必须是被本登记某网格点消耗的试验所产出的封存运行" }, "at": { type: "str | None", description: "账本版本（提交或标签），缺省为当前 HEAD；用于复读历史绩效指标" } }} />
+<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一份研究账本" }, "bundle": { type: "str", description: "登记证据包名，比较条件（对照、网格、检验条件、研发父版本）全部从它读出" }, "trial_id": { type: "str", description: "候选运行编号，必须是被本登记某网格点消耗的试验所产出的封存运行" }, "at": { type: "str | None", description: "账本版本（提交或标签），缺省为当前 HEAD；用于复读历史绩效指标" } }} />
 
-**返回**　dict：\{bundle, run_id, control_run_id, research_parent, ledger_commit, registered_at, metrics_revision, comparison_source_sha256, availability\{candidate, control\}, evidence\}；evidence 为 report.paired 的返回，并附 observed_account_annual_return_difference（两侧封存运行年化之差，账户口径，与自助统计分列）。登记没有对照时只返回 \{bundle, run_id, control_run_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}，next_actions 指向 replay report --run-id
+**返回**　dict：\{bundle, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, metrics_revision, comparison_source_sha256, availability\{candidate, control\}, evidence\}；evidence 为 report.paired 的返回，并附 observed_account_annual_return_difference（两侧封存运行年化之差，账户口径，与自助统计分列）。登记没有对照时只返回 \{bundle, trial_id, control_trial_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}，next_actions 指向 replay report --trial-id
 
 **期望行为**
 
-1. 登记没有对照（control_run 为空）时不拒绝：先核候选运行属于本登记网格（否则 RUN_NOT_IN_GRID），再如实回答没有可比的，evidence 与 attribution 为空，下一步是单独读这次运行的报告（replay report --run-id）。
+1. 登记没有对照（control_trial_id 为空）时不拒绝：先核候选运行属于本登记网格（否则 RUN_NOT_IN_GRID），再如实回答没有可比的，evidence 与 attribution 为空，下一步是单独读这次运行的报告（replay report --trial-id）。
 2. 读登记包，取对照、网格、检验条件与预测；核候选运行属于本登记网格。
 3. 两侧核可比资格（身份取自登记包与试验行）与经济证据资格；任一不过即拒绝，只留诊断。
 4. 两侧取逐日序列，核日钟一致，调用 report.paired 得效应、区间与 p。
@@ -299,7 +299,7 @@ def registration_id(
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "registration_id": { type: "str", description: "样本外登记编号（validation_registration 主键）" }, "at": { type: "str | None", description: "账本版本（提交、分支或标签），缺省为当前 HEAD" } }} />
 
-**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate, revision, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{stamped_at | None, verified\}, binding\{trial_id, run_id, mode, status, audit_status, bound_at\} | None, availability | None, metrics | None（run_report 同口径绩效指标经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 指向封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, members[\{registration_id, candidate, revision, run_id, p_one_sided | None, p_holm | None\}], interval_coverage_family_adjusted\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}
+**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate, revision, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{stamped_at | None, verified\}, binding\{trial_id, mode, status, audit_status, bound_at\} | None, availability | None, metrics | None（run_report 同口径绩效指标经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 指向封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, members[\{registration_id, candidate, revision, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage_family_adjusted\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}
 
 **期望行为**
 
@@ -382,7 +382,7 @@ def validation_report(
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "registration_id": { type: "str", description: "样本外登记标识（validation_registration 主键）" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签），缺省为当前 HEAD" } }} />
 
-**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate（strategy_id@revision）, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{stamped_at | None, verified\}, binding\{trial_id, run_id, purpose（恒为 validation）, status, audit_status, bound_at\} | None, availability | None, metrics | None（与开发报告同口径并经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 为封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, size, members[\{registration_id, candidate, run_id, p_one_sided | None, p_holm | None\}], interval_coverage\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}；无裁决、通过或推荐字段
+**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate（strategy_id@revision）, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{stamped_at | None, verified\}, binding\{trial_id, purpose（恒为 validation）, status, audit_status, bound_at\} | None, availability | None, metrics | None（与开发报告同口径并经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 为封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, size, members[\{registration_id, candidate, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}；无裁决、通过或推荐字段
 
 **期望行为**
 
@@ -451,16 +451,16 @@ def derive_measures(facts: dict, market_returns: dict) -> dict
 ```python
 def compare_runs(
     profile: str,
-    reference_run_id: int,
-    candidate_run_id: int,
+    reference_trial_id: int,
+    candidate_trial_id: int,
     at: str | None,
     work_dir: Path | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一个账本" }, "reference_run_id": { type: "int", description: "参照运行（旧运行环境下）的 run_id" }, "candidate_run_id": { type: "int", description: "待比较运行（新运行环境下）的 run_id，须与参照不同" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签）；缺省读当前头，给定则两运行都按该版本读取" }, "work_dir": { type: "Path | None", description: "导出目录的临时位置；缺省用 ledger.temporary_path 新建，比较后删除" } }} />
+<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一个账本" }, "reference_trial_id": { type: "int", description: "参照运行（旧运行环境下）的 trial_id" }, "candidate_trial_id": { type: "int", description: "待比较运行（新运行环境下）的 trial_id，须与参照不同" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签）；缺省读当前头，给定则两运行都按该版本读取" }, "work_dir": { type: "Path | None", description: "导出目录的临时位置；缺省用 ledger.temporary_path 新建，比较后删除" } }} />
 
-**返回**　dict：engine.compare_reports 的完整结果，另附 reference 与 candidate 各自的 run_id、image_ref、runtime_contract、engine_version，以及读取所用的 ledger_commit。
+**返回**　dict：engine.compare_reports 的完整结果，另附 reference 与 candidate 各自的 trial_id、image_ref、runtime_contract、engine_version，以及读取所用的 ledger_commit。
 
 **期望行为**
 
@@ -471,8 +471,8 @@ def compare_runs(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `SAME_RUN` | reference_run_id 与 candidate_run_id 相同 |
-| `UNKNOWN_RUN` | 任一 run_id 在指定账本版本下不存在 |
+| `SAME_RUN` | reference_trial_id 与 candidate_trial_id 相同 |
+| `UNKNOWN_RUN` | 任一 trial_id 在指定账本版本下不存在 |
 | `RUN_INCOMPLETE` | 任一运行缺 summary，或五张原生行表任一无原样行可导出，或 ledger.load_run 核执行身份与文件哈希不符 |
 | `PAIR_INPUT_MISMATCH` | 两运行的源码内容哈希、输入身份或有效配置任一不一致 |
 | `EXPORT_INCOMPLETE` | 导出目录缺表，或某表行数与账本读到的原样行数不符 |
@@ -505,11 +505,11 @@ def review_all(
     conn: LedgerConnection,
     at: str | None,
     tables: list[str] | None,
-    run_ids: list[str] | None,
+    trial_ids: list[str] | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "读账号连接" }, "at": { type: "str | None", description: "精确版本（提交、标签或 branch）；缺省为固定研究 branch 的当前提交" }, "tables": { type: "list[str] | None", description: "只追加检查的受查表；缺省为全部账本业务表（头指针单行除外）" }, "run_ids": { type: "list[str] | None", description: "限定绩效指标重算与身份核对的运行；缺省为全部已封存运行" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "读账号连接" }, "at": { type: "str | None", description: "精确版本（提交、标签或 branch）；缺省为固定研究 branch 的当前提交" }, "tables": { type: "list[str] | None", description: "只追加检查的受查表；缺省为全部账本业务表（头指针单行除外）" }, "trial_ids": { type: "list[str] | None", description: "限定绩效指标重算与身份核对的运行；缺省为全部已封存运行" } }} />
 
 **返回**　dict：\{at, commit, tests_run, tables_checked, runs_checked, captures_checked, registrations_checked, validations_checked, ok, findings\}；findings 每条为 \{code, table, record_id, commit, detail\}；ok 即 findings 为空
 
@@ -619,12 +619,12 @@ def load_directory(directory: Path) -> NativeReports
 单运行报告的读口：读最新的封存结果，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出
 
 ```python
-def run_report(ledger: str | None, run_id: int, at: str | None) -> dict
+def run_report(ledger: str | None, trial_id: int, at: str | None) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "str | None", description: "账本档案名；None 取当前活动账本" }, "run_id": { type: "int", description: "封存运行的编号" }, "at": { type: "str | None", description: "可选的账本提交或标签，按历史版本读（AS OF）" } }} />
+<TypeTable type={{ "ledger": { type: "str | None", description: "账本档案名；None 取当前活动账本" }, "trial_id": { type: "int", description: "封存运行的编号" }, "at": { type: "str | None", description: "可选的账本提交或标签，按历史版本读（AS OF）" } }} />
 
-**返回**　dict：运行身份与状态（run_id、trial_id、status、运行环境身份、引擎版本、交易窗口、created_at）；绩效指标（期末权益、年化、原生摘要夏普、标记价最大回撤、计划胜率、闭仓与账户整体拆分、未实现残差）各附 population 与 sample_size；closed_by_year；cost_basis（native_account 与按 MAKER/TAKER 的观察费率）；failure_reasons；availability（reasons、activity、checker 身份）；metrics_revision；limitations（去重）；ledger_commit。无资格或无效时绩效指标全部为 None。
+**返回**　dict：运行身份与状态（trial_id、status、运行环境身份、引擎版本、交易窗口、created_at）；绩效指标（期末权益、年化、原生摘要夏普、标记价最大回撤、计划胜率、闭仓与账户整体拆分、未实现残差）各附 population 与 sample_size；closed_by_year；cost_basis（native_account 与按 MAKER/TAKER 的观察费率）；failure_reasons；availability（reasons、activity、checker 身份）；metrics_revision；limitations（去重）；ledger_commit。无资格或无效时绩效指标全部为 None。
 
 **期望行为**
 
@@ -635,7 +635,7 @@ def run_report(ledger: str | None, run_id: int, at: str | None) -> dict
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNKNOWN_RUN` | 账本（或 at 指定版本）中没有该 run_id |
+| `UNKNOWN_RUN` | 账本（或 at 指定版本）中没有该 trial_id |
 | `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | run 行与其 trial、evidence_bundle 的引用或存储内容哈希不一致，读取时核验失败 |
 
@@ -653,7 +653,7 @@ Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原�
 
 ```python
 def tables(
-    run_id: int,
+    trial_id: int,
     ledger: str | None,
     at: str | None,
     account: bool,
@@ -663,7 +663,7 @@ def tables(
 ) -> dict
 ```
 
-<TypeTable type={{ "run_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" }, "directory": { type: "Path | None", description: "replay.reproduce 留下的重放目录" }, "reproduction": { type: "int | None", description: "replay.reproduce 返回的复现试验编号；给 directory 时必填" } }} />
+<TypeTable type={{ "trial_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" }, "directory": { type: "Path | None", description: "replay.reproduce 留下的重放目录" }, "reproduction": { type: "int | None", description: "replay.reproduce 返回的复现试验编号；给 directory 时必填" } }} />
 
 **返回**　dict：orders、fills（附 cycle_position_id）、positions（持仓周期含快照行，每行含 seq、instrument_id、side、ts_opened_ns、ts_closed_ns、realized_pnl、commissions、funding、price_pnl、open_unrealized、plan_tag、closing_order_type、closing_order_tag；未平周期的 ts_closed_ns、realized_pnl、price_pnl 为 null，带 open_unrealized）、account（可选）、daily_returns（不能复合到期末权益时为 None 并写局限）、exposures（可选）、order_events（orders、fills、account、exposures、order_events 只在给出已核验的重放目录时有值，否则为 None）、reconciled（闭仓对账合计，Agent 自算合计须与之相等）、availability（含检查身份）、metrics_revision、ledger_commit、reproduction（复现试验编号，未给目录时为 None）、limitations。只做类型化转换，不算统计
 
@@ -676,7 +676,7 @@ def tables(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNKNOWN_RUN` | 账本中没有该 run_id |
+| `UNKNOWN_RUN` | 账本中没有该 trial_id |
 | `RUN_NOT_PASSED` | run.status 不是 passed |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | qualification.require 判定不可用，返回原因作诊断 |
 | `EXECUTION_IDENTITY` | 执行开始回执或执行封存与试验行不符、封存源码不是试验源码，或覆盖回执所列输入与存储的输入身份不符（由 ledger.load_run 与 ledger.read_capture 抛出） |
@@ -717,7 +717,7 @@ def affected_runs(
 
 <TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案；经 ledger.read_as_of 打开只读连接" }, "current": { type: "dict", description: "当前身份，至少一个维度：runtime → {image_digest, runtime_contract, engine_version, dependency_lock_sha256} 的任意子集；effective_config → registration.config_key 的输出；input → registration.input_key 的输出。只比对给到的维度" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签）；为空取当前头；按 AS OF 读，结果可复读" } }} />
 
-**返回**　dict：\{ledger_commit, current, runs: [\{run_id, trial_id, status, differs_in: [维度名], recorded: \{image_digest, runtime_contract, engine_version, dependency_lock_sha256, config_key, input_key\}\}], registrations: [\{bundle, source_sha256, trial_id, retry_of_chain\}], validation: [\{registration_id, run_id\}], evidence_bundles: [bundle]\}。只列身份不同的运行与引用它们的记录，不带优先级、排序或标记。
+**返回**　dict：\{ledger_commit, current, runs: [\{trial_id, status, differs_in: [维度名], recorded: \{image_digest, runtime_contract, engine_version, dependency_lock_sha256, config_key, input_key\}\}], registrations: [\{bundle, source_sha256, trial_id, retry_of_chain\}], validation: [\{registration_id, trial_id\}], evidence_bundles: [bundle]\}。只列身份不同的运行与引用它们的记录，不带优先级、排序或标记。
 
 **期望行为**
 
@@ -731,7 +731,7 @@ def affected_runs(
 | `INVALID_QUERY` | current 为空、含未知维度名或 runtime 含四字段以外的键；或 runtime 给完整身份而 runtime.validate_identity 不通过 |
 | `UNKNOWN_REF` | at 给出的提交或标签在账本中不存在 |
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
-| `RUN_IDENTITY_MISSING` | 某封存运行缺开始回执里的有效配置或输入身份，或其 trial 行缺 image_digest；列出该 run_id 并拒绝，提示走整体复核 |
+| `RUN_IDENTITY_MISSING` | 某封存运行缺开始回执里的有效配置或输入身份，或其 trial 行缺 image_digest；列出该 trial_id 并拒绝，提示走整体复核 |
 
 **使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="runtime.validate_identity" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_validations" />、<Ref id="table:v_evidence" />
 
@@ -789,7 +789,7 @@ def comparison_table(
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<date>-<slug>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
 
-**返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, run_id, trial_id, measures, dominated_by: [run_id…], non_dominated\}], candidates（表里的候选，去重排序）\}
+**返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, measures, dominated_by: [trial_id…], non_dominated\}], candidates（表里的候选，去重排序）\}
 
 **期望行为**
 

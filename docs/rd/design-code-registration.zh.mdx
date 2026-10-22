@@ -606,7 +606,7 @@ def validate(
 ) -> set[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十一项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_run（run_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、comparison（与对照比年化收益的检验条件，见 validate_design；control_run 为 null 时为 null）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十一项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_trial_id（trial_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、comparison（与对照比年化收益的检验条件，见 validate_design；control_trial_id 为 null 时为 null）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" } }} />
 
 **返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
 
@@ -617,7 +617,7 @@ def validate(
 3. 核 changed_duties：每项须是 27 项职责编号之一；根登记必须为空，派生登记至少一项。
 4. 切面与职责：某切面可解释哪些职责，取 registration.measure_catalogue 的切面—职责表；预测的切面为空时须写理由，measure 非空时仍须是目录里某个切面的标量。
 5. 核 prediction：mechanism 每项的职责在 changed_duties 里，切面与标量在归因目录里（切面为空时须有理由）；changed_duties 每项至少一项预测；根登记的 mechanism 可为空。
-6. 核父与对照：parent 为空则 control_run 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_run 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_run 为空只允许在 rationale.local 引用父运行的故障或零活动
+6. 核父与对照：parent 为空则 control_trial_id 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_trial_id 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_trial_id 为空只允许在 rationale.local 引用父运行的故障或零活动
 7. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
 8. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
 9. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
@@ -638,7 +638,7 @@ def validate(
 | `SOURCE_ALREADY_EXPOSED` | 某网格源码已被非免除的探索（purpose=explore）或封存回放执行过，且登记未以 retry_of 指向实际消耗它的先前登记 |
 | `SOURCE_PRECHECK_REQUIRED` | 某网格源码没有绑定同源码、同镜像摘要的独立预检审查件 |
 | `SOURCE_PRECHECK_FAILED` | 审查件存在但原生或审计退出非零，或四项中有 failed / unresolved |
-| `RUN_NOT_PASSED` | control_run 不是 status=passed 的封存运行 |
+| `RUN_NOT_PASSED` | control_trial_id 不是 status=passed 的封存运行 |
 | `COMPARABILITY_MISMATCH` | 对照运行的运行环境摘要、有效配置或输入内容身份与本次执行身份不一致 |
 | `ECONOMIC_EVIDENCE_UNAVAILABLE` | 对照运行按当前检查身份没有经济证据资格（零成交、缺匹配记录、执行捕获失败或源码审查失败） |
 | `DUTY_UNKNOWN` | changed_duties 含 27 项之外的编号，或根登记非空、派生登记为空 |

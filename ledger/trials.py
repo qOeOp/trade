@@ -222,7 +222,7 @@ def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str,
 
 def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_identity: Mapping, *,
                host_reasons: list[dict] | tuple = (), checkout: Path | None = None) -> dict:
-    """Store one sealed replay as a run in one write; returns {run_id, status, failure_reasons}.
+    """Store one sealed replay as a run in one write; returns {trial_id, status, failure_reasons}.
 
     Only the trial's original capture decides: its stages, outcome, audit result, runtime failures,
     native summary and fingerprint stage give the failure reasons, and the native reports are read
@@ -293,32 +293,50 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
                "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
                (trial_id, status, db.canonical_json(reasons) if reasons else None, db.canonical_json(record),
                 db.canonical_json(fingerprints) if fingerprints is not None else None, op_id))
-        (run_id,), = c.rows("SELECT LAST_INSERT_ID()")
         if status == "passed":
-            c.rows("INSERT INTO run_sealed (run_id, metrics_revision, report, op_id, created_at) "
-                   "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6))", (run_id, revision, db.canonical_json(report), op_id))
+            c.rows("INSERT INTO run_sealed (trial_id, metrics_revision, report, op_id, created_at) "
+                   "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6))", (trial_id, revision, db.canonical_json(report), op_id))
             if daily:
-                c.many("INSERT INTO run_return (run_id, ts_event_ns, native_return, mean_gross_notional) "
-                       "VALUES (%s, %s, %s, %s)", [(run_id, ts, value, mean) for ts, value, mean in daily])
+                c.many("INSERT INTO run_return (trial_id, ts_event_ns, native_return, mean_gross_notional) "
+                       "VALUES (%s, %s, %s, %s)", [(trial_id, ts, value, mean) for ts, value, mean in daily])
             if cycle_rows:
-                c.many("INSERT INTO run_cycle (run_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
+                c.many("INSERT INTO run_cycle (trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
                        "realized_pnl, commissions, funding, open_unrealized, plan_tag, closing_order_type, "
                        "closing_order_tag) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                       [(run_id, row["seq"], row["instrument_id"], row["side"], row["ts_opened_ns"],
+                       [(trial_id, row["seq"], row["instrument_id"], row["side"], row["ts_opened_ns"],
                          row["ts_closed_ns"], row["realized_pnl"], row["commissions"], row["funding"],
                          row["open_unrealized"], row["plan_tag"], row["closing_order_type"], row["closing_order_tag"])
                         for row in cycle_rows])
-        return {"run_id": run_id, "status": status, "failure_reasons": reasons}
+        return {"trial_id": trial_id, "status": status, "failure_reasons": reasons}
 
     written = db.write(conn, "ingest_run", payload, "run", insert, lambda c, row: run_record(row))
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
 
 
 def run_record(row: Mapping) -> dict:
-    """{run_id, status, failure_reasons} of a run row."""
+    """{trial_id, status, failure_reasons} of a run row."""
     reasons = row["failure_reasons"]
-    return {"run_id": row["run_id"], "status": row["status"],
+    return {"trial_id": row["trial_id"], "status": row["status"],
             "failure_reasons": (json.loads(reasons) if isinstance(reasons, (str, bytes)) else reasons) or []}
+
+
+def latest_research(conn: db.LedgerConnection, source_sha256: str) -> int | None:
+    """Latest passed result by insertion commit, not trial launch order or wall-clock ties.
+
+The write protocol already commits each result with a monotonically increasing ledger_head.seq.
+Read that existing fact at each result's insertion commit; store no second result identity/order.
+"""
+    found = []
+    for row in conn.dicts("SELECT r.trial_id, r.op_id FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+                           "WHERE t.purpose = 'research' AND t.source_sha256 = %s AND r.status = 'passed'",
+                           (source_sha256,)):
+        commit = db._commit_of(conn, "run", row["op_id"])
+        if commit is None:
+            raise refuse("LEDGER_CORRUPT", f"trial {row['trial_id']} has no result insertion commit",
+                         missing=(str(row["trial_id"]),))
+        (seq,), = conn.rows("SELECT seq FROM ledger_head AS OF %s", (commit,))
+        found.append((seq, row["trial_id"]))
+    return max(found)[1] if found else None
 
 
 def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> dict:
@@ -341,8 +359,7 @@ def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Pa
         c.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
                "VALUES (%s, 'invalid', %s, %s, NULL, %s, UTC_TIMESTAMP(6))",
                (trial_id, db.canonical_json(reasons), db.canonical_json(record), op_id))
-        (run_id,), = c.rows("SELECT LAST_INSERT_ID()")
-        return {"run_id": run_id, "status": "invalid", "failure_reasons": reasons}
+        return {"trial_id": trial_id, "status": "invalid", "failure_reasons": reasons}
 
     written = db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row))
     return {**written["record"], "recovery_bundle": material["bundle"], "replayed": written["replayed"],

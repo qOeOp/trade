@@ -340,7 +340,7 @@ def ledger_review(conn: db.LedgerConnection, at: str | None) -> dict:
 
 
 def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: str | None,
-                  run_ids: list[int] | None) -> dict:
+                  trial_ids: list[int] | None) -> dict:
     """ledger export: the full-history backup and reproduction manifest into a new directory
     (reproduce), or the incremental backup sync to the profile's backup directory (backup)."""
     if kind == "reproduce":
@@ -355,7 +355,7 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
                          missing=("backup",))
         target = Path(profile.backup_root)
     created = not target.exists()
-    exported = admin.export_history(profile, target, at, run_ids, with_backup=True)
+    exported = admin.export_history(profile, target, at, trial_ids, with_backup=True)
     manifest = Path(exported["manifest_path"])
     if hashlib.sha256(manifest.read_bytes()).hexdigest() != exported["content_hash"]:
         if created:
@@ -622,10 +622,10 @@ def registration_add(profile: db.LedgerProfile, bundle: str, body: str, runtime:
             "ledger_commit": registered["ledger_commit"], "replayed": registered["replayed"]}
 
 
-def hypothesis_compare(profile: db.LedgerProfile, bundle: str, run_id: int, at: str | None) -> dict:
+def hypothesis_compare(profile: db.LedgerProfile, bundle: str, trial_id: int, at: str | None) -> dict:
     """hypothesis compare: the comparison report of a grid run with its registered control (report.compare)."""
     from report import comparison
-    return comparison.compare(profile, bundle, run_id, at)
+    return comparison.compare(profile, bundle, trial_id, at)
 
 
 # research, source review
@@ -722,20 +722,31 @@ def replay_run(profile, market, at, candidate, runtime, runner_argv, hypothesis,
     return {**ran, "ledger_commit": commit}
 
 
-def replay_report(profile, run_id: int | None, directory: str | None, at: str | None, tables: bool,
+def replay_report(profile, trial_id: int | None, directory: str | None, at: str | None, tables: bool,
                   reproduction: str | None, reproduction_trial: int | None, account: bool, exposures: bool) -> dict:
     """replay report: a sealed run's report (with --tables its drill-down tables, native ones from a
     verified reproduction), or an unsealed directory's report marked unverified."""
     from report import runs
-    if directory is not None and run_id is None:
+    if directory is not None and trial_id is None:
         if not Path(directory).is_dir():
             raise refuse("DIRECTORY_NOT_FOUND", f"{directory} is not a directory", missing=(directory,))
         return {"source": "directory", **runs.directory_report(Path(directory), account=account)}
-    if run_id is None or directory is not None:
-        raise UsageError("give exactly one of --run-id or --directory")
-    found = {"source": "sealed", **runs.run_report(profile, run_id, at)}
+    if trial_id is None:
+        raise UsageError("give --trial-id or --directory")
+    with db.read_as_of(profile, at) as conn:
+        trial = conn.one("SELECT purpose FROM trial WHERE trial_id = %s", (trial_id,))
+    if trial is not None and trial["purpose"] == "precheck":
+        if directory and reproduction:
+            raise UsageError("give either --directory (original cache) or --reproduction (regenerated cache)")
+        cache_directory = directory or reproduction
+        return {"source": "precheck", **runs.precheck_report(
+            profile, trial_id, at, directory=Path(cache_directory) if cache_directory else None,
+            reproduction=reproduction_trial, account=account, exposures=exposures)}
+    if directory is not None:
+        raise UsageError("--directory with --trial-id reads an original precheck cache; use --reproduction for a run")
+    found = {"source": "sealed", **runs.run_report(profile, trial_id, at)}
     if tables or exposures or account or reproduction:
-        found["tables"] = runs.tables(run_id, profile, at, account=account, exposures=exposures,
+        found["tables"] = runs.tables(trial_id, profile, at, account=account, exposures=exposures,
                                       directory=Path(reproduction) if reproduction else None,
                                       reproduction=reproduction_trial)
     return found
@@ -889,7 +900,7 @@ def _parser() -> Parser:
                          help="reproduce: into a new --output directory; backup: sync to the profile's backup")
     command.add_argument("--output", help="new directory (required for --kind reproduce)")
     _at(command)
-    command.add_argument("--run-id", type=int, action="append", dest="run_ids",
+    command.add_argument("--trial-id", type=int, action="append", dest="trial_ids",
                          help="a run to list in the manifest (repeatable; default: every run)")
 
     candidate = verbs("candidate", "candidates: publish, show, export, new, list")
@@ -986,7 +997,7 @@ def _parser() -> Parser:
     command = hypothesis.add_parser("compare", help="a grid run against its registered control")
     _ledger_option(command)
     command.add_argument("--bundle", required=True, help="registration bundle, registration-*")
-    command.add_argument("--run-id", required=True, type=int, help="a grid run of that registration")
+    command.add_argument("--trial-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
     research = verbs("research", "research facts: status, state")
@@ -1061,20 +1072,20 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--hypothesis", help="registration bundle, registration-* (or --validation)")
     command.add_argument("--validation", type=int, help="validation registration ID (or --hypothesis)")
-    command = replay.add_parser("report", help="a sealed run's or an unsealed directory's report")
+    command = replay.add_parser("report", help="a sealed result, precheck technical facts/cache, or unverified directory")
     _ledger_option(command)
-    command.add_argument("--run-id", type=int, help="sealed run ID (or --directory)")
-    command.add_argument("--directory", help="an unsealed replay directory, reported unverified (or --run-id)")
+    command.add_argument("--trial-id", type=int, help="trial holding a sealed result or original precheck")
+    command.add_argument("--directory", help="original precheck cache with --trial-id; otherwise an unverified directory")
     _at(command)
     command.add_argument("--tables", action="store_true", help="add the drill-down tables")
     command.add_argument("--reproduction", help="the directory `replay reproduce` wrote")
-    command.add_argument("--reproduction-trial", type=int, help="the trial `replay reproduce` returned")
+    command.add_argument("--reproduction-trial", type=int, help="the reproduction_trial_id `replay reproduce` returned")
     command.add_argument("--account", action="store_true", help="add the native account table")
     command.add_argument("--exposures", action="store_true", help="add the capital exposures table")
-    command = replay.add_parser("reproduce", help="replay a sealed run into a new temporary directory")
+    command = replay.add_parser("reproduce", help="regenerate a sealed result's or precheck's reports into /tmp")
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--run-id", required=True, type=int, help="sealed run ID")
+    command.add_argument("--trial-id", required=True, type=int, help="original trial holding a result or precheck")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
 
     market = verbs("market", "market data: init, import, lifecycle, coverage, backup, review")
@@ -1141,7 +1152,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                args.lifecycle_bundle), 0
     if key == ("replay", "reproduce"):
         from cli import replay as cli_replay
-        return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.run_id,
+        return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
                                            args.output), 0
     profile = ledger_profile(args.ledger)
     if key == ("ledger", "service"):
@@ -1149,7 +1160,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("ledger", "sql"):
         return ledger_sql(profile, args.query, args.at), 0
     if key == ("ledger", "export"):
-        return ledger_export(profile, args.kind, args.output, args.at, args.run_ids), 0
+        return ledger_export(profile, args.kind, args.output, args.at, args.trial_ids), 0
     if key == ("ledger", "witness"):
         with db.connect(profile, "writer") as conn:
             found = ledger_witness(conn, args.tsa_url)
@@ -1188,7 +1199,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return registration_add(profile, args.bundle, args.body, args.runtime, market_profile(args.market),
                                 runner_argv, args.source), 0
     if key == ("hypothesis", "compare"):
-        return hypothesis_compare(profile, args.bundle, args.run_id, args.at), 0
+        return hypothesis_compare(profile, args.bundle, args.trial_id, args.at), 0
     if key == ("research", "status"):
         return research_status(profile, args.at, args.line), 0
     if key == ("research", "state"):
@@ -1217,7 +1228,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                            args.hypothesis, args.validation)
         return found, 0 if found.get("status") == "passed" else 1
     if key == ("replay", "report"):
-        return replay_report(profile, args.run_id, args.directory, args.at, args.tables, args.reproduction,
+        return replay_report(profile, args.trial_id, args.directory, args.at, args.tables, args.reproduction,
                              args.reproduction_trial, args.account, args.exposures), 0
     if key == ("market", "lifecycle"):
         return market_lifecycle(profile, market_profile(args.market), args.at, args.manifest, args.notices,

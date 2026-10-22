@@ -108,7 +108,7 @@ class RegisterTests(unittest.TestCase):
         body = self.derived()
         del body["conditions"]
         self.assertEqual(self.code("registration-shape", body), "REGISTRATION_INVALID")
-        self.assertEqual(self.code("registration-shape", self.derived(control_run=1, comparison=None)),
+        self.assertEqual(self.code("registration-shape", self.derived(control_trial_id=1, comparison=None)),
                          "REGISTRATION_INVALID", "a control needs the comparison design")
         self.assertEqual(self.code("registration-shape", self.derived(
             comparison={"method": "paired-circular-log-mean-v1"})), "REGISTRATION_INVALID")
@@ -150,7 +150,7 @@ class RegisterTests(unittest.TestCase):
 
     def test_lineage_grid_and_references_are_checked_against_the_ledger(self):
         cases = {
-            "root with control": self.world.body(["rsi@1"], {"rsi@1": self.root_review}, control_run=1),
+            "root with control": self.world.body(["rsi@1"], {"rsi@1": self.root_review}, control_trial_id=1),
             "root with change": self.world.body(["rsi@1"], {"rsi@1": self.root_review}, change="x"),
             "derived without change": self.derived(change=None),
             "unknown parent": self.derived(parent="ghost@1"),
@@ -172,7 +172,7 @@ class RegisterTests(unittest.TestCase):
             retired = self.world.publish("retired contract")
         self.assertEqual(self.code("registration-lineage", self.derived(
             grid=[{"candidate": retired["candidate"], "params": {}}])), "CONFIG_MISMATCH")
-        self.assertEqual(self.code("registration-lineage", self.derived(control_run=999)), "RUN_NOT_PASSED")
+        self.assertEqual(self.code("registration-lineage", self.derived(control_trial_id=999)), "RUN_NOT_PASSED")
 
     def test_every_grid_source_needs_a_passing_review_and_no_prior_exposure(self):
         self.assertEqual(self.code("registration-review", self.derived(prechecks={})), "SOURCE_PRECHECK_REQUIRED")
@@ -390,9 +390,9 @@ class LineRecordTests(unittest.TestCase):
         self.child = world.publish("child")
         self.child_review = world.prechecked(self.child["source"])
 
-    def derived(self, control_run=None, **overrides) -> dict:
+    def derived(self, control_trial_id=None, **overrides) -> dict:
         return self.world.body([self.child["candidate"]], {self.child["candidate"]: self.child_review},
-                               parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_run=control_run,
+                               parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_trial_id=control_trial_id,
                                **overrides)
 
     def code(self, body, **kwargs) -> str:
@@ -412,11 +412,11 @@ class LineRecordTests(unittest.TestCase):
         for item in batch[:-1]:  # with the root trial, one research trial short of the breaker (none completed)
             world.research_trial("registration-batch", item["source"])
         world.register("registration-unfinished", self.derived())  # the root trial has no run: not completed yet
-        run_id = world.seal_run(self.root_trial)
+        trial_id = world.seal_run(self.root_trial)
         another = world.publish("second child")
         review = world.prechecked(another["source"])
         body = world.body([another["candidate"]], {another["candidate"]: review}, parent="rsi@1",
-                          change="cap volume at 5%", duties=["G3"], control_run=run_id)
+                          change="cap volume at 5%", duties=["G3"], control_trial_id=trial_id)
         exc = refused(world.register, "registration-gated", body)
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {self.root_trial}",)))
         first = world.judge("interpretation", subjects=[{"role": "about", "registration_bundle": "registration-root"}])
@@ -430,25 +430,25 @@ class LineRecordTests(unittest.TestCase):
 
     def test_the_control_must_be_a_comparable_passed_run_with_economic_evidence(self):
         world = self.world
-        run_id = world.seal_run(self.root_trial)
+        trial_id = world.seal_run(self.root_trial)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
         narrower = world.body([self.child["candidate"]], {self.child["candidate"]: self.child_review},
-                              parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_run=run_id)
+                              parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_trial_id=trial_id)
         exc = refused(world.register, "registration-narrow", narrower,
                       runner_argv=[*RUNNER_ARGV, "--symbols", "AAAUSDT"])
         self.assertEqual((exc.code, exc.missing),
                          ("COMPARABILITY_MISMATCH", ("effective_configuration", "input_identity")))
-        world.qualification.unavailable.add(run_id)
-        self.assertEqual(self.code(self.derived(control_run=run_id)), "ECONOMIC_EVIDENCE_UNAVAILABLE")
+        world.qualification.unavailable.add(trial_id)
+        self.assertEqual(self.code(self.derived(control_trial_id=trial_id)), "ECONOMIC_EVIDENCE_UNAVAILABLE")
         world.qualification.unavailable.clear()
-        registered = world.register("registration-child", self.derived(control_run=run_id))
+        registered = world.register("registration-child", self.derived(control_trial_id=trial_id))
         self.assertFalse(registered["replayed"])
 
     def test_a_control_that_failed_or_lacks_its_identity_is_refused(self):
         world = self.world
-        run_id = world.seal_run(self.root_trial, "invalid")
+        trial_id = world.seal_run(self.root_trial, "invalid")
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
-        self.assertEqual(self.code(self.derived(control_run=run_id)), "RUN_NOT_PASSED")
+        self.assertEqual(self.code(self.derived(control_trial_id=trial_id)), "RUN_NOT_PASSED")
         blank = world.publish("blank identity", parent=None)
         review = world.prechecked(blank["source"])
         world.register("registration-blank", world.body([blank["candidate"]], {blank["candidate"]: review}))
@@ -460,7 +460,7 @@ class LineRecordTests(unittest.TestCase):
                                      attempt_binder("registration-blank", sha(blank["source"])))["trial_id"]
         blank_run = world.seal_run(trial_id)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
-        self.assertEqual(self.code(self.derived(control_run=blank_run)), "IDENTITY_MALFORMED")
+        self.assertEqual(self.code(self.derived(control_trial_id=blank_run)), "IDENTITY_MALFORMED")
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -518,9 +518,9 @@ class RetryTests(unittest.TestCase):
     def test_a_passed_run_admits_a_retry_only_without_economic_evidence(self):
         trial_id = self.attempt("registration-r1", None, "passed")
         self.assertEqual(self.code("registration-r2", "registration-r1"), "RETRY_NOT_ALLOWED")
-        run_id = self.world.service.sql(self.world.profile, "SELECT run_id FROM run WHERE trial_id = %s",
+        trial_id = self.world.service.sql(self.world.profile, "SELECT trial_id FROM run WHERE trial_id = %s",
                                         (trial_id,))[0][0]
-        self.world.qualification.unavailable.add(run_id)
+        self.world.qualification.unavailable.add(trial_id)
         self.world.register("registration-r2", {**self.body, "retry_of": "registration-r1"})
         self.world.qualification.unavailable.clear()
 

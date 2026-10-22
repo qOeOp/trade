@@ -307,65 +307,65 @@ def check_clocks(control: Sequence, candidate: Sequence) -> None:
                      missing=("ts_event_ns",))
 
 
-def _run_row(conn: db.LedgerConnection, run_id: int, side: str) -> dict:
-    found = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
-                     "JOIN trial t ON t.trial_id = r.trial_id WHERE r.run_id = %s", (run_id,))
+def _run_row(conn: db.LedgerConnection, trial_id: int, side: str) -> dict:
+    found = conn.one(f"SELECT r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
+                     "JOIN trial t ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if found is None:
         if side == "control":
-            raise refuse("NO_CONTROL", f"the registered control run {run_id} does not exist", missing=(str(run_id),))
-        raise refuse("UNKNOWN_RUN", f"no run {run_id} on this ledger version", missing=(str(run_id),))
+            raise refuse("NO_CONTROL", f"the registered control run {trial_id} does not exist", missing=(str(trial_id),))
+        raise refuse("UNKNOWN_RUN", f"no run {trial_id} on this ledger version", missing=(str(trial_id),))
     return found
 
 
-def _grid_run(conn: db.LedgerConnection, bundle: str, run_id: int) -> dict:
+def _grid_run(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
     """The run of a grid point the registration consumed; RUN_NOT_IN_GRID otherwise."""
-    candidate = _run_row(conn, run_id, "candidate")
+    candidate = _run_row(conn, trial_id, "candidate")
     attempt = conn.one("SELECT source_sha256 FROM registration_attempt WHERE registration_bundle = %s AND trial_id = %s",
                        (bundle, candidate["trial_id"]))
     if attempt is None or attempt["source_sha256"] != candidate["source_sha256"]:
-        raise refuse("RUN_NOT_IN_GRID", f"run {run_id} is not the run of a grid point of {bundle}",
-                     missing=(str(run_id),))
+        raise refuse("RUN_NOT_IN_GRID", f"run {trial_id} is not the run of a grid point of {bundle}",
+                     missing=(str(trial_id),))
     return candidate
 
 
-def gather(conn: db.LedgerConnection, bundle: str, run_id: int) -> dict:
+def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
     """Every check of report.compare and both sides' stored facts (read only)."""
     plan, registered_at = register.load_plan(conn, bundle)
     body, execution = plan["body"], plan["execution"]
-    if body.get("control_run") is None:
-        raise refuse("NO_CONTROL", f"{bundle} declares no control run", missing=("control_run",))
-    candidate = _grid_run(conn, bundle, run_id)
-    control = _run_row(conn, body["control_run"], "control")
+    if body.get("control_trial_id") is None:
+        raise refuse("NO_CONTROL", f"{bundle} declares no control run", missing=("control_trial_id",))
+    candidate = _grid_run(conn, bundle, trial_id)
+    control = _run_row(conn, body["control_trial_id"], "control")
     records = {}
     for side, row in (("candidate", candidate), ("control", control)):
-        records[side] = register.control_run(conn, row["run_id"])
+        records[side] = register.control_trial(conn, row["trial_id"])
         comparability.check_comparable(records[side], execution)
     qualified = {side: availability.require(conn, records[side]) for side in ("candidate", "control")}
-    facts = {side: measures.run_facts(conn, records[side]["run_id"]) for side in ("candidate", "control")}
+    facts = {side: measures.run_facts(conn, records[side]["trial_id"]) for side in ("candidate", "control")}
     series = {side: trade_window_series(facts[side], side) for side in ("candidate", "control")}
     check_clocks(series["control"], series["candidate"])
     return {"plan": plan, "body": body, "registered_at": registered_at, "candidate": candidate, "control": control,
             "availability": qualified, "facts": facts, "series": series, "ledger_commit": db.head_commit(conn)}
 
 
-def compare(profile, bundle: str, run_id: int, at: str | None = None, *, part: str = "all") -> dict:
+def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, part: str = "all") -> dict:
     """The one comparison entry: comparability and economic evidence of both sides, the paired test,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
     read time from stored rows and the registration, never stored. A grid run of a registration
     without a control gets that answer (no evidence, no attribution) and the single-run report to read."""
     revision = availability.report_revision()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
-        if register.load_plan(conn, bundle)[0]["body"].get("control_run") is None:
-            candidate = _grid_run(conn, bundle, run_id)
-            return {"bundle": bundle, "run_id": candidate["run_id"], "control_run_id": None,
+        if register.load_plan(conn, bundle)[0]["body"].get("control_trial_id") is None:
+            candidate = _grid_run(conn, bundle, trial_id)
+            return {"bundle": bundle, "trial_id": candidate["trial_id"], "control_trial_id": None,
                     "ledger_commit": db.head_commit(conn), "evidence": None, "attribution": None,
                     "reason": f"{bundle} declares no control run, so there is nothing to compare run "
-                              f"{candidate['run_id']} with",
-                    "next_actions": [f"Read the run alone with `replay report --run-id {candidate['run_id']}`."]}
-        found = gather(conn, bundle, run_id)
+                              f"{candidate['trial_id']} with",
+                    "next_actions": [f"Read the run alone with `replay report --trial-id {candidate['trial_id']}`."]}
+        found = gather(conn, bundle, trial_id)
         interaction = interaction_of(conn, found)
     body, facts = found["body"], found["facts"]
-    identity = {"bundle": bundle, "run_id": found["candidate"]["run_id"], "control_run_id": found["control"]["run_id"],
+    identity = {"bundle": bundle, "trial_id": found["candidate"]["trial_id"], "control_trial_id": found["control"]["trial_id"],
                 "research_parent": body.get("parent"), "ledger_commit": found["ledger_commit"],
                 "registered_at": found["registered_at"], "metrics_revision": revision,
                 "catalogue": measures.CATALOGUE_REVISION, "comparison_source_sha256": _source(),
@@ -394,11 +394,11 @@ def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: M
     """The one passed research run of a corner's source that is comparable with the registration's
     execution and has economic evidence; INTERACTION_UNATTESTED unless there is exactly one."""
     qualified = []
-    for (candidate_run,) in conn.rows("SELECT r.run_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
+    for (candidate_run,) in conn.rows("SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
                                       "t.source_sha256 = %s AND t.purpose = 'research' AND r.status = 'passed' ORDER BY "
-                                      "r.run_id", (row["source_sha256"],)):
+                                      "r.trial_id", (row["source_sha256"],)):
         try:
-            record = register.control_run(conn, candidate_run)
+            record = register.control_trial(conn, candidate_run)
             comparability.check_comparable(record, execution)
             availability.require(conn, record, checker=checker)
         except Refusal:
@@ -466,11 +466,11 @@ def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
         execution = found["plan"]["execution"]
         checker = availability.check_identity()
         runs_of = {name: _corner_run(conn, name, rows[name], execution, checker) for name in ("base", "a", "b", "ab")}
-        if runs_of["ab"] != found["candidate"]["run_id"]:
+        if runs_of["ab"] != found["candidate"]["trial_id"]:
             raise _unattested(f"the qualified run of the compared candidate is run {runs_of['ab']}, not the compared "
-                              f"run {found['candidate']['run_id']}")
+                              f"run {found['candidate']['trial_id']}")
         for name in ("base", "a", "b"):
-            stored = conn.one("SELECT created_at FROM run WHERE run_id = %s", (runs_of[name],))
+            stored = conn.one("SELECT created_at FROM run WHERE trial_id = %s", (runs_of[name],))
             assert stored is not None  # _corner_run read this run on the same version
             created = stored["created_at"]
             if not created < found["registered_at"]:
@@ -494,7 +494,7 @@ def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
     test["limitations"] = [item for item in test["limitations"] if item not in PAIRED_LIMITATIONS]
     return {"available": True, "declared": dict(declared), "reason": None,
             "corners": {name: {"candidate": f"{rows[name]['strategy_id']}@{rows[name]['revision']}",
-                               "run_id": runs_of[name]} for name in ("base", "a", "b", "ab")},
+                               "trial_id": runs_of[name]} for name in ("base", "a", "b", "ab")},
             "shape": {"method": report_attribution.MERGE_METHOD, "merge_equals_ab": True},
             "weights": dict(zip(("base", "a", "b", "ab"), INTERACTION_WEIGHTS, strict=True)), "uncorrected": True,
             "p": None,
@@ -531,7 +531,7 @@ def _bound(conn: db.LedgerConnection, registration_id: int) -> tuple[dict | None
     if trial is None:
         raise refuse("LEDGER_CORRUPT", f"validation registration {registration_id} binds the missing trial "
                                        f"{binding['trial_id']}", missing=(f"trial {binding['trial_id']}",))
-    run = conn.one(f"SELECT r.run_id, r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, r.audit FROM run r "
+    run = conn.one(f"SELECT r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, r.audit FROM run r "
                    "JOIN trial t ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (binding["trial_id"],))
     return {**binding, "purpose": trial["purpose"], "bound_at": trial["created_at"]}, run
 
@@ -543,7 +543,7 @@ def _single_of(conn: db.LedgerConnection, run: Mapping | None, design: dict, fam
     value = availability.assess(conn, run)
     if not value["economic_evidence_available"]:
         return None, "the bound run has no economic evidence"
-    facts = measures.run_facts(conn, run["run_id"])
+    facts = measures.run_facts(conn, run["trial_id"])
     try:
         series = trade_window_series(facts, "validation")
         return single([item for _, item, _ in series], design, family_size), None
@@ -585,18 +585,18 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         if binding is None:
             limitations.append("UNBOUND: no validation replay is bound to the registration")
         else:
-            output["binding"] = {"trial_id": binding["trial_id"], "run_id": (run or {}).get("run_id"),
+            output["binding"] = {"trial_id": binding["trial_id"],
                                  "purpose": binding["purpose"], "status": (run or {}).get("status", "unfinished"),
                                  "audit_status": (run or {}).get("status"), "bound_at": binding["bound_at"]}
             if run is None:
                 limitations.append("UNFINISHED: the bound replay stored no run")
             else:
-                report = runs.report_of(conn, run["run_id"])
+                report = runs.report_of(conn, run["trial_id"])
                 output["availability"] = report["availability"]
                 output["metrics"] = None if report["headline"] is None else {
                     "headline": report["headline"], "slices": report["slices"], "cost_basis": report["cost_basis"],
                     "closed_by_year": report["closed_by_year"], "capital": report["capital"],
-                    "exposures_table": {"reader": "report.tables", "run_id": run["run_id"], "exposures": True,
+                    "exposures_table": {"reader": "report.tables", "trial_id": run["trial_id"], "exposures": True,
                                         "needs": "the directory and trial ID replay.reproduce returns (a verified "
                                                  "reproduction)"}}
                 output["single"], why = _single_of(conn, run, design, family_size)
@@ -610,7 +610,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                 _single_of(conn, member_run, own, family_size)  # each member's p by its own registered design
             members.append({"registration_id": member["registration_id"],
                             "candidate": f"{member['strategy_id']}@{member['revision']}", "design": own,
-                            "run_id": (member_run or {}).get("run_id"),
+                            "trial_id": (member_run or {}).get("trial_id"),
                             "p_one_sided": None if tested is None else tested["p_one_sided"], "p_holm": None})
         with_p = [member for member in members if member["p_one_sided"] is not None]
         if with_p:

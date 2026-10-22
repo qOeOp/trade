@@ -29,7 +29,7 @@
 def assess(conn: LedgerConnection, run: Mapping) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接（ledger.connect），可指向 AS OF 某一提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：run_id、trial_id、status（存储审计结论）、source_sha256（候选源码内容哈希）、image_digest（运行环境身份）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接（ledger.connect），可指向 AS OF 某一提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：trial_id、status（存储审计结论）、source_sha256（候选源码内容哈希）、image_digest（运行环境身份）" } }} />
 
 **返回**　dict：\{economic_evidence_available: bool, reasons: list[str], activity: \{orders, fills, positions, account_rows\}, stored_audit_status, source_check（source_reviews 结果）, execution_capture: \{status, purpose, failed_stages, failures（按异常类型、阶段、合约与消息合并，带次数与拒绝码）, original_missing\}, checker（check_identity 结果）, applicability, limitations: list[str]\}。纯视图，不改写 run.status 与审计结果
 
@@ -42,7 +42,7 @@ def assess(conn: LedgerConnection, run: Mapping) -> dict
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNKNOWN_RUN` | run_id 在账本中没有封存的运行行（ledger.load_run 透传） |
+| `UNKNOWN_RUN` | trial_id 在账本中没有封存的运行行（ledger.load_run 透传） |
 | `LEDGER_CORRUPT` | 源码审查证据或执行捕获文件的存储内容哈希与重算不符（source_reviews、read_capture 透传） |
 | `EXECUTION_IDENTITY` | 执行捕获的试验、源码哈希、运行环境身份或用途与本运行不符（read_capture 透传） |
 
@@ -147,7 +147,7 @@ def require(conn: LedgerConnection, run: Mapping) -> dict
 **期望行为**
 
 1. 调用 assess 得到当前资格视图。
-2. economic_evidence_available 为假即以 ECONOMIC_EVIDENCE_UNAVAILABLE 拒绝，拒绝体携带 run_id、全部 reasons 与整份资格字典，write_status 为 not_written；调用方不得给出改善、区间与 p。
+2. economic_evidence_available 为假即以 ECONOMIC_EVIDENCE_UNAVAILABLE 拒绝，拒绝体携带 trial_id、全部 reasons 与整份资格字典，write_status 为 not_written；调用方不得给出改善、区间与 p。
 3. 零成交且账户未变的运行同样拒绝，不因未亏损而优于亏损对照。
 4. 可用时原样返回资格字典，不做任何写入。
 
@@ -174,7 +174,7 @@ def require(conn: LedgerConnection, run: Mapping) -> dict
 def source_reviews(conn: LedgerConnection, run: Mapping) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接；核历史记录时经 ledger.read_as_of 读其写入提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：run_id、source_sha256、image_digest" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接；核历史记录时经 ledger.read_as_of 读其写入提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：trial_id、source_sha256、image_digest" } }} />
 
 **返回**　dict：\{status: passed | failed | unreviewed, reviews: [\{bundle_id, sha256, verdict, reviewer, ledger_commit\}], ignored: [\{bundle_id, reason\}], scope: 「Agent 因果职责；审计通过不等于源码有效」\}
 

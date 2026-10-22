@@ -93,9 +93,9 @@ class TrialCountTests(unittest.TestCase):
         self.assertEqual(refused["status"], "invalid")
         self.assertEqual(before["excluded_trials"], {"reproductions": [],
                                                      "stopped_before_strategy": [refused["trial_id"]]})
-        done = reproduce.reproduce(passed["run_id"], world.output("again"), ledger=world.profile, market=world.market)
+        done = reproduce.reproduce(passed["trial_id"], world.output("again"), ledger=world.profile, market=world.market)
         after = status.research_status(world.profile)
-        self.assertEqual(after["excluded_trials"]["reproductions"], [done["trial_id"]])
+        self.assertEqual(after["excluded_trials"]["reproductions"], [done["reproduction_trial_id"]])
         self.assertEqual((after["trials"], after["distinct_sources"], after["by_development_window"]),
                          (before["trials"], before["distinct_sources"], before["by_development_window"]))
         window = after["by_development_window"]
@@ -139,16 +139,16 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual((table["line"], table["window_start"], table["window_end"], table["universe_rule"]),
                          (self.world.line["bundle"], "2026-01-01", "2026-02-01", self.world.line["universe_rule"]))
         self.assertEqual(table["candidates"], sorted(self.refs))
-        self.assertEqual([item["run_id"] for item in table["runs"]], [self.runs[ref]["run_id"] for ref in self.refs])
+        self.assertEqual([item["trial_id"] for item in table["runs"]], [self.runs[ref]["trial_id"] for ref in self.refs])
         for item in table["runs"]:
-            report = runs.run_report(self.world.profile, item["run_id"])
+            report = runs.run_report(self.world.profile, item["trial_id"])
             self.assertEqual({name: item["measures"][name]["value"] for name in table["measures"]},
                              {name: report["headline"][name]["value"] for name in table["measures"]},
                              "the single-run report's measures, not a recomputation")
         first, second = table["runs"]
         for item, other in ((first, second), (second, first)):
             dominated = status._dominates(other["measures"], item["measures"])
-            self.assertEqual(item["dominated_by"], [other["run_id"]] if dominated else [])
+            self.assertEqual(item["dominated_by"], [other["trial_id"]] if dominated else [])
             complete = all(item["measures"][name]["value"] is not None for name in table["measures"])
             self.assertEqual(item["non_dominated"], (not dominated) if complete else None)
 

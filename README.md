@@ -39,16 +39,33 @@ the report readers also use). Runner arguments (window and instrument scope) fol
 
 ### The ledger and the market database
 
-There is one research ledger, `research`, and one market database, `market`, on one Dolt service.
-Neither is versioned by name: the product keeps no compatibility with earlier data, so a schema or
-rule change rebuilds the database under the same name. The ledger is created once with its accounts,
-branch grant, commit verification group and backup directory:
+The current research ledger uses schema generation 3. Each execution has one `trial_id`; a
+research/validation result uses that same primary key. Commands and new registration bodies use
+`--trial-id` and `control_trial_id`. There is no `run_id` alias: old numeric references belong to
+their original ledger generation. The market database has its own independent schema.
+
+For a generation change, retain the old database and backup unchanged and read them with their
+matching old checkout (schema 2: `f7e7c1df974da88d2478ec5731551f13689a649c`). Prepare generation 3
+under a distinct profile/database name and backup root; do not rewrite old records. Creating or
+switching the active ledger requires the user's explicit authority. A new database does not erase
+previous research exposure or transfer an old line's qualification; cross-generation continuation
+needs an explicit handoff before research resumes. The command below is for a fresh installation:
 
 ```bash
 uv run --frozen python -m cli.main ledger init --name research --kind active \
   --service-root "$HOME/.local/share/trade/dolt" \
   --backup-root "$HOME/.local/share/trade/dolt-backups/research"
 ```
+
+Clean prechecks keep their original identity, stage outcomes, logs, summary, audit, review and
+semantic fingerprint in Dolt. Their native tables are cache. Read an original cache with
+`replay report --trial-id N --directory /tmp/original`; after a cache loss use
+`replay reproduce --trial-id N --output /tmp/rebuilt`, then `replay report --trial-id N
+--reproduction /tmp/rebuilt --reproduction-trial M`. `M` is the new explore execution, not a new
+economic result or review. Only a successful exact reproduction of the registration's cited,
+exempt precheck is exempt from additional exposure. Failed or changed reproductions remain
+recorded exposures. Failed/incomplete prechecks and prechecks without a usable fingerprint retain
+their original reports; a later success never replaces their original facts.
 
 `ledger init` refuses a profile or database that exists, and an active ledger whose service or
 backup lies in the checkout or a temporary directory. A failed `ledger init` removes the database,

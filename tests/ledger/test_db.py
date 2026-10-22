@@ -226,10 +226,10 @@ class LedgerBaseTests(unittest.TestCase):
                     conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, "
                               "created_at) VALUES (LAST_INSERT_ID(), %s, %s, '{}', %s, %s, NOW())",
                               (status, failure_reasons, fingerprints, op))
-                    (run_id,), = conn.rows("SELECT LAST_INSERT_ID()")
-                    conn.rows("INSERT INTO run_cycle (run_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
+                    (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")
+                    conn.rows("INSERT INTO run_cycle (trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
                               "commissions, funding, open_unrealized) VALUES (%s, 1, 'A', 'long', 1, %s, 0, 0, %s)",
-                              (run_id, cycle_closed, open_unrealized))
+                              (trial_id, cycle_closed, open_unrealized))
                     return {}
                 return db.write(writer, "probe", {"run": [status, fingerprints, cycle_closed, open_unrealized]},
                                 "trial", insert)

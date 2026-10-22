@@ -15,7 +15,7 @@ import hashlib
 import json
 import re
 
-from ledger import db, evidence, execution, lines, problems, witness
+from ledger import db, evidence, execution, lines, problems, reproduction, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -107,7 +107,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
     trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the
     stored trial rows and capture manifests; nothing is marked."""
     trials = conn.dicts(f"SELECT t.trial_id, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST}, t.instruments, t.input_start, "
-                        "t.trade_start, t.trade_end, r.run_id FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
+                        "t.trade_start, t.trade_end, r.status FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
                         "ORDER BY t.trial_id")
     starts, captures = _manifests(conn)
     reproductions, stopped, counted = [], [], []
@@ -116,12 +116,17 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         identity = (trial["source_sha256"], trial["image_digest"], str(trial["instruments"]), trial["input_start"],
                     trial["trade_start"], trial["trade_end"])
         if trial["purpose"] == "explore" and any(
-                earlier["run_id"] is not None and earlier["trial_id"] < trial_id
+                earlier["status"] is not None and earlier["trial_id"] < trial_id
                 and (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]),
                      earlier["input_start"], earlier["trade_start"], earlier["trade_end"]) == identity
                 and _input_key(starts.get(trial_id)) is not None
                 and _input_key(starts.get(earlier["trial_id"])) == _input_key(starts.get(trial_id))
                 for earlier in trials):
+            reproductions.append(trial_id)
+            continue
+        if trial["purpose"] == "explore" and any(
+                earlier["purpose"] == "precheck" and reproduction.matches(conn, trial_id, earlier["trial_id"])
+                for earlier in trials if earlier["trial_id"] < trial_id):
             reproductions.append(trial_id)
             continue
         capture = captures.get(trial_id)
@@ -163,9 +168,9 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
                    for (start, end), items in sorted(by_window.items())]
         excluded = {"reproductions": found["reproductions"],
                     "stopped_before_strategy": found["stopped_before_strategy"]}
-        gaps = [f"run {run_id}" for (run_id,) in conn.rows(
-            "SELECT r.run_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS NULL")]
-        attempts = conn.dicts("SELECT a.registration_bundle, a.trial_id, t.trial_id AS found_trial, r.run_id, r.status "
+        gaps = [f"run {trial_id}" for (trial_id,) in conn.rows(
+            "SELECT r.trial_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS NULL")]
+        attempts = conn.dicts("SELECT a.registration_bundle, a.trial_id, t.trial_id AS found_trial, r.status "
                               "FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id LEFT JOIN run r "
                               "ON r.trial_id = a.trial_id ORDER BY a.trial_id")
         gaps += [f"attempt trial {row['trial_id']}" for row in attempts if row["found_trial"] is None]
@@ -175,15 +180,15 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
         counted = {"unfinished": 0, "invalid": 0, "passed": 0, "valid": 0, "diagnostic": 0}
         unverified = []
         for row in attempts:
-            if row["run_id"] is None:
+            if row["status"] is None:
                 counted["unfinished"] += 1
             elif row["status"] == "invalid":
                 counted["invalid"] += 1
             else:
                 counted["passed"] += 1
-                assessed = report_candidates.assess_listed(conn, row["run_id"], checker, records)
+                assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
                 if assessed.get("unverified_records"):
-                    unverified.append({"run_id": row["run_id"], "reason": assessed["reasons"][0]})
+                    unverified.append({"trial_id": row["trial_id"], "reason": assessed["reasons"][0]})
                 counted["valid" if assessed["economic_evidence_available"] else "diagnostic"] += 1
         if counted["unfinished"] + counted["invalid"] + counted["valid"] + counted["diagnostic"] != len(attempts):
             raise refuse("REFERENTIAL_GAP", "the attempt outcomes do not add up to the attempts",
@@ -217,9 +222,9 @@ def _stamp(conn: db.LedgerConnection, commit: str):
 
 # The comparison table
 
-def _headline(conn: db.LedgerConnection, run_id: int, names) -> dict:
+def _headline(conn: db.LedgerConnection, trial_id: int, names) -> dict:
     """The named measures of one run as its single-run report gives them (report.derive_measures)."""
-    derived = measures.derive_measures(measures.run_facts(conn, run_id),
+    derived = measures.derive_measures(measures.run_facts(conn, trial_id),
                                        market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for the state"})
     return {measures.key(name): derived[measures.key(name)] for name in names}
 
@@ -245,19 +250,18 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
               datetime.combine(date.fromisoformat(line["window_end"]), time()))
     starts, _ = _manifests(conn)
     found = []
-    for row in conn.dicts("SELECT r.run_id, t.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
+    for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
                           "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
-                          "WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.run_id"):
+                          "WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.trial_id"):
         identity = (starts.get(row["trial_id"]) or {}).get("input_identity") or {}
         if (row["trade_start"], row["trade_end"]) != window or identity.get("universe_rule") != line["universe_rule"]:
             continue
-        if not report_candidates.assess_listed(conn, row["run_id"], checker, records)["economic_evidence_available"]:
+        if not report_candidates.assess_listed(conn, row["trial_id"], checker, records)["economic_evidence_available"]:
             continue
-        found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "run_id": row["run_id"],
-                      "trial_id": row["trial_id"], "measures": _headline(conn, row["run_id"], TABLE_MEASURES)})
+        found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"], "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)})
     for item in found:
         complete = all(item["measures"][measures.key(name)]["value"] is not None for name in TABLE_MEASURES)
-        item["dominated_by"] = [other["run_id"] for other in found if other is not item
+        item["dominated_by"] = [other["trial_id"] for other in found if other is not item
                                 and _dominates(other["measures"], item["measures"])]
         item["non_dominated"] = (not item["dominated_by"]) if complete else None
     return {"line": line_bundle, "window_start": line["window_start"], "window_end": line["window_end"],
@@ -325,14 +329,14 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
                        (subject["strategy_id"], subject["revision"]))
         return {"candidate": row}
     if subject.get("trial_id") is not None:
-        trial = conn.one("SELECT t.trial_id, t.purpose, t.source_sha256, r.run_id, r.status FROM trial t LEFT JOIN run r "
+        trial = conn.one("SELECT t.trial_id, t.purpose, t.source_sha256, r.status FROM trial t LEFT JOIN run r "
                          "ON r.trial_id = t.trial_id WHERE t.trial_id = %s", (subject["trial_id"],))
-        if trial is None or trial["run_id"] is None:
+        if trial is None or trial["status"] is None:
             return {"trial": trial, "availability": None, "headline": None}
-        value = report_candidates.assess_listed(conn, trial["run_id"], checker, records)
+        value = report_candidates.assess_listed(conn, trial["trial_id"], checker, records)
         headline = None
         if trial["status"] == "passed" and value["economic_evidence_available"]:
-            headline = _headline(conn, trial["run_id"], measures.HEADLINE)
+            headline = _headline(conn, trial["trial_id"], measures.HEADLINE)
         return {"trial": trial, "availability": value, "headline": headline}
     return {"registration_bundle": subject.get("registration_bundle")}
 
@@ -414,16 +418,16 @@ def affected_runs(ledger, current: Mapping, at: str | None = None) -> dict:
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
         affected, unrecorded = [], set()
-        for row in conn.dicts(f"SELECT r.run_id, r.trial_id, r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
-                              "t.trial_id = r.trial_id ORDER BY r.run_id"):
-            record = register.control_run(conn, row["run_id"])
+        for row in conn.dicts(f"SELECT r.trial_id, r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
+                              "t.trial_id = r.trial_id ORDER BY r.trial_id"):
+            record = register.control_trial(conn, row["trial_id"])
             start = execution.read_capture(conn, row["trial_id"])["start"]
             runtime = start.get("runtime_identity") or {}
             if (row["image_digest"] is None or not isinstance(record.get("effective_config"), Mapping)
                     or not isinstance(record.get("input_identity"), Mapping)):
-                raise refuse("RUN_IDENTITY_MISSING", f"run {row['run_id']} lacks its runtime image, effective "
+                raise refuse("RUN_IDENTITY_MISSING", f"run {row['trial_id']} lacks its runtime image, effective "
                                                      "configuration or input identity; run the whole review",
-                             missing=(f"run {row['run_id']}",))
+                             missing=(f"run {row['trial_id']}",))
             recorded = {"image_digest": row["image_digest"], "runtime_contract": runtime.get("runtime_contract"),
                         "engine_version": None, "dependency_lock_sha256": None,
                         "config_key": comparability.config_key(record["effective_config"]),
@@ -440,10 +444,9 @@ def affected_runs(ledger, current: Mapping, at: str | None = None) -> dict:
             if "input" in current and recorded["input_key"] != comparability.input_key(current["input"]):
                 differs.append("input")
             if differs:
-                affected.append({"run_id": row["run_id"], "trial_id": row["trial_id"], "status": row["status"],
+                affected.append({"trial_id": row["trial_id"], "status": row["status"],
                                  "differs_in": differs, "recorded": recorded})
-        trial_ids = [item["trial_id"] for item in affected]
-        run_ids = {item["run_id"] for item in affected}
+        trial_ids = {item["trial_id"] for item in affected}
         registrations, validation, cited = [], [], []
         if trial_ids:
             marks = ", ".join(["%s"] * len(trial_ids))
@@ -452,12 +455,12 @@ def affected_runs(ledger, current: Mapping, at: str | None = None) -> dict:
                                                       tuple(trial_ids)):
                 registrations.append({"bundle": bundle, "source_sha256": source, "trial_id": trial_id,
                                       "retry_of_chain": _retry_chain(conn, bundle)})
-            validation = [{"registration_id": registration_id, "run_id": run_id} for registration_id, run_id in conn.rows(
-                f"SELECT b.registration_id, r.run_id FROM validation_binding b JOIN run r ON r.trial_id = b.trial_id WHERE "
+            validation = [{"registration_id": registration_id, "trial_id": trial_id} for registration_id, trial_id in conn.rows(
+                f"SELECT b.registration_id, r.trial_id FROM validation_binding b JOIN run r ON r.trial_id = b.trial_id WHERE "
                 f"b.trial_id IN ({marks}) ORDER BY b.registration_id", tuple(trial_ids))]
             for (bundle,) in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE 'registration-%' ORDER BY "
                                        "bundle"):
-                if register.load_plan(conn, bundle)[0]["body"].get("control_run") in run_ids:
+                if register.load_plan(conn, bundle)[0]["body"].get("control_trial_id") in trial_ids:
                     cited.append(bundle)
     return {"ledger_commit": commit, "current": json.loads(json.dumps(current, default=str)), "runs": affected,
             "registrations": registrations, "validation": validation, "evidence_bundles": cited,

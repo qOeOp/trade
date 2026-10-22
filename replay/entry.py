@@ -479,7 +479,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         try:
             execute(ledger, trial_id, identity, mounts, workdir, argv, conn, purpose, timeout)
         except Refusal as exc:
-            stored = conn.one("SELECT run_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))
+            stored = conn.one("SELECT trial_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))
             if exc.code != "EXECUTION_CAPTURE_LIMIT" or stored is None:
                 raise
             print(f"replay directory kept for diagnosis (capture refused for size): {workdir}", file=sys.stderr)
@@ -496,5 +496,5 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
             shutil.rmtree(workdir, ignore_errors=True)
         raise
     shutil.rmtree(workdir, ignore_errors=True)
-    return {"trial_id": trial_id, "run_id": stored["run_id"], "status": stored["status"],
+    return {"trial_id": trial_id, "status": stored["status"],
             "failure_reasons": stored["failure_reasons"], "image_ref": identity["image_ref"]}

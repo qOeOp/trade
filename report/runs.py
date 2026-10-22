@@ -17,11 +17,11 @@ from decimal import Decimal
 import hashlib
 from pathlib import Path
 
-from ledger import db, execution, metrics, problems
+from ledger import db, execution, metrics, problems, reproduction as reproduced_identity
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
-from registration import comparability, duties
+from registration import duties
 from report import measures
 
 
@@ -54,7 +54,7 @@ def dedupe(*groups) -> list[str]:
 
 
 def _row(run: Mapping, trial: Mapping) -> dict:
-    return {"run_id": run["run_id"], "trial_id": run["trial_id"], "status": run["status"],
+    return {"trial_id": run["trial_id"], "status": run["status"],
             "source_sha256": trial["source_sha256"], "image_digest": trial["image_digest"],
             "purpose": trial["purpose"]}
 
@@ -80,15 +80,15 @@ def slices_of(derived: Mapping, catalogue: Mapping, comparison: bool = False) ->
             for item in catalogue["slices"] if comparison or item["id"] not in measures.COMPARISON_ONLY]
 
 
-def report_of(conn: db.LedgerConnection, run_id: int, facts: Mapping | None = None, market: Mapping | None = None,
+def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None = None, market: Mapping | None = None,
               value: Mapping | None = None) -> dict:
     """The single-run report of one run on an open (pinned) connection."""
-    facts = facts or measures.run_facts(conn, run_id)
+    facts = facts or measures.run_facts(conn, trial_id)
     run, trial, sealed = facts["run"], facts["trial"], facts["sealed"]
     value = value or availability.assess(conn, _row(run, trial))
     catalogue = duties.measure_catalogue()
     identity = (facts["capture"].get("start") or {}).get("runtime_identity") or {}
-    output = {"run_id": run["run_id"], "trial_id": run["trial_id"], "status": run["status"],
+    output = {"trial_id": run["trial_id"], "status": run["status"],
               "purpose": trial["purpose"], "source_sha256": trial["source_sha256"],
               "runtime": {"image_ref": trial["image_ref"], "image_digest": trial["image_digest"],
                           "runtime_contract": identity.get("runtime_contract"),
@@ -114,18 +114,63 @@ def report_of(conn: db.LedgerConnection, run_id: int, facts: Mapping | None = No
     return availability.mask(output, dict(value))
 
 
-def run_report(ledger, run_id: int, at: str | None = None) -> dict:
+def run_report(ledger, trial_id: int, at: str | None = None) -> dict:
     """The single-run report of a sealed run at a ledger version (default: the research head)."""
     with db.read_as_of(profile_of(ledger), at) as conn:
-        return report_of(conn, run_id)
+        return report_of(conn, trial_id)
+
+
+def precheck_report(ledger, trial_id: int, at: str | None = None, *, directory: Path | None = None,
+                    reproduction: int | None = None, account: bool = False, exposures: bool = False) -> dict:
+    """Original technical facts plus optional verified cached native detail, never economic evidence.
+
+An original directory must match its original capture byte for byte. A regenerated directory
+must match its own capture and the original semantic fingerprint. Original summary/audit/logs
+remain authoritative; regenerated diagnostics never replace the original execution's facts.
+"""
+    profile = profile_of(ledger)
+    with db.read_as_of(profile, at) as conn:
+        trial = reproduced_identity.trial_record(conn, trial_id)
+        if trial is None or trial["purpose"] != "precheck":
+            raise refuse("TRIAL_PURPOSE_INVALID", f"trial {trial_id} is not a precheck", missing=(str(trial_id),))
+        captured = execution.read_capture(conn, trial_id)
+        fingerprint, _ = problems.capture_fingerprint(captured)
+        output = {"trial_id": trial_id, "purpose": "precheck", "ledger_commit": db.head_commit(conn),
+                  "source_sha256": trial["source_sha256"], "image_ref": trial["image_ref"],
+                  "capture": captured["status"], "stages": captured.get("stages"),
+                  "outcome": captured.get("outcome"), "runtime_failures": captured.get("runtime_failures", []),
+                  "summary": problems.json_object(problems.sealed(captured, problems.SUMMARY)),
+                  "audit": problems.json_object(problems.sealed(captured, execution.AUDIT_RESULT)),
+                  "reports": None, "reports_verified": False,
+                  "economic_evidence_available": False,
+                  "limitation": "technical precheck only; original execution facts are authoritative"}
+        # Failure logs and other original observations remain readable even without report caches.
+        output["diagnostics"] = {path: data.decode("utf-8", errors="replace")
+                                 for path, data in captured.get("files", {}).items() if path.endswith(".txt")}
+        if directory is None:
+            if reproduction is not None:
+                raise _mismatch(Path("/tmp"), trial_id, "a reproduction requires its directory", "directory")
+            return output
+        if reproduction is None:
+            differs = _differing_files(directory, captured.get("listed") or {})
+            if captured["status"] != "captured" or differs:
+                raise _mismatch(directory, trial_id, "original precheck cache differs", *(differs or ["capture"]))
+        else:
+            facts = {"run": {"trial_id": trial_id, "fingerprints": fingerprint},
+                     "trial": trial, "capture": captured}
+            with db.read_as_of(profile) as head:
+                verify_reproduction(head, directory, facts, reproduction)
+        output.update(reports=_reproduced(directory, account, exposures, positions=True), reports_verified=True,
+                      directory=str(directory), reproduction_trial_id=reproduction)
+        return output
 
 
 def _typed_cycles(cycles: list[dict]) -> list[dict]:
     return [{key: (metrics.money(item) if isinstance(item, Decimal) else item) for key, item in cycle.items()
-             if key != "run_id"} for cycle in cycles]
+             if key != "trial_id"} for cycle in cycles]
 
 
-def tables(run_id: int, ledger=None, at: str | None = None, account: bool = False, exposures: bool = False,
+def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = False, exposures: bool = False,
            directory: Path | None = None, reproduction: int | None = None) -> dict:
     """The drill-down tables of a passed run with economic evidence: its position cycles and daily
     series from the ledger, and, from a verified reproduction (the `directory` replay.reproduce wrote
@@ -133,10 +178,10 @@ def tables(run_id: int, ledger=None, at: str | None = None, account: bool = Fals
     exposures. Typed only."""
     profile = profile_of(ledger)
     with db.read_as_of(profile, at) as conn:
-        facts = measures.run_facts(conn, run_id)
+        facts = measures.run_facts(conn, trial_id)
         run, trial = facts["run"], facts["trial"]
         if run["status"] != "passed":
-            raise refuse("RUN_NOT_PASSED", f"run {run_id} is {run['status']}", missing=(str(run_id),),
+            raise refuse("RUN_NOT_PASSED", f"run {trial_id} is {run['status']}", missing=(str(trial_id),),
                          expected="a passed sealed run")
         value = availability.require(conn, _row(run, trial))
         commit = db.head_commit(conn)
@@ -152,7 +197,7 @@ def tables(run_id: int, ledger=None, at: str | None = None, account: bool = Fals
     reconciled = {name: metrics.money(sum((Decimal(cycle[column]) for cycle in closed), Decimal(0)))
                   for name, column in (("realized_pnl_usdt", "realized_pnl"), ("commissions_usdt", "commissions"),
                                        ("funding_usdt", "funding"), ("price_pnl_usdt", "price_pnl"))}
-    found = {"run_id": run_id, "positions": _typed_cycles(facts["cycles"]),
+    found = {"trial_id": trial_id, "positions": _typed_cycles(facts["cycles"]),
              "daily_returns": None if series is None else [
                  {"ts_event_ns": ts, "native_return": value,
                   "mean_gross_notional": metrics.money(mean) if isinstance(mean, Decimal) else mean}
@@ -172,8 +217,8 @@ def tables(run_id: int, ledger=None, at: str | None = None, account: bool = Fals
     return found
 
 
-def _mismatch(directory: Path, run_id: int, why: str, *missing: str) -> Refusal:
-    return refuse("REPRODUCTION_MISMATCH", f"{directory} is no verified reproduction of run {run_id}: {why}",
+def _mismatch(directory: Path, trial_id: int, why: str, *missing: str) -> Refusal:
+    return refuse("REPRODUCTION_MISMATCH", f"{directory} is no verified reproduction of run {trial_id}: {why}",
                   missing=missing or ("reproduction",))
 
 
@@ -210,51 +255,45 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
     the run's recorded fingerprint, and every report file in `directory` matches that capture."""
     run, trial = facts["run"], facts["trial"]
     if not isinstance(reproduction, int) or isinstance(reproduction, bool):
-        raise _mismatch(directory, run["run_id"], "native detail is read only from a verified reproduction; give the "
+        raise _mismatch(directory, run["trial_id"], "native detail is read only from a verified reproduction; give the "
                                                   "trial ID replay.reproduce returned", "reproduction")
     found = conn.one(f"SELECT trial_id, purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s",
                      (reproduction,))
     if found is None:
-        raise _mismatch(directory, run["run_id"], f"no trial {reproduction}", "reproduction")
+        raise _mismatch(directory, run["trial_id"], f"no trial {reproduction}", "reproduction")
     try:
         capture = execution.read_capture(conn, reproduction)
     except Refusal as exc:
-        raise _mismatch(directory, run["run_id"], f"the capture of trial {reproduction} does not verify "
+        raise _mismatch(directory, run["trial_id"], f"the capture of trial {reproduction} does not verify "
                                                   f"({exc.code})", "reproduction") from exc
-    recorded = (facts["capture"].get("start") or {}).get("input_identity")
-    started = (capture.get("start") or {}).get("input_identity")
-    if found["purpose"] != "explore" or found["source_sha256"] != trial["source_sha256"] or (
-            found["image_digest"] != trial["image_digest"]):
-        raise _mismatch(directory, run["run_id"], f"trial {reproduction} is no replay of the run's source on its image",
-                        "reproduction")
-    try:
-        same_inputs = comparability.input_key(started) == comparability.input_key(recorded)
-    except Refusal:
-        same_inputs = False
-    if not same_inputs:
-        raise _mismatch(directory, run["run_id"], f"trial {reproduction} read other inputs", "input_identity")
     if capture["status"] != "captured":
-        raise _mismatch(directory, run["run_id"], f"trial {reproduction} has no execution capture", "capture")
+        raise _mismatch(directory, run["trial_id"], f"trial {reproduction} has no execution capture", "capture")
+    if not reproduced_identity.matches(conn, reproduction, trial["trial_id"]):
+        raise _mismatch(directory, run["trial_id"], "the sealed execution identity, stages or fingerprint differ",
+                        "execution_identity")
     root = directory if (directory / "reports").is_dir() else directory.parent
     fingerprint, _ = problems.capture_fingerprint(capture, execution.read_files(root, (execution.FINGERPRINT_RESULT,)))
     if run["fingerprints"] is None or fingerprint is None or fingerprint != run["fingerprints"]:
-        raise _mismatch(directory, run["run_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
+        raise _mismatch(directory, run["trial_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
                                                   "run's recorded fingerprint", execution.FINGERPRINT_RESULT)
     differs = _differing_files(directory, capture["listed"])
     if differs:
-        raise _mismatch(directory, run["run_id"], f"files differ from the capture of trial {reproduction}: "
+        raise _mismatch(directory, run["trial_id"], f"files differ from the capture of trial {reproduction}: "
                         + ", ".join(differs[:5]), *differs)
 
 
-def _reproduced(directory: Path, account: bool, exposures: bool) -> dict:
+def _reproduced(directory: Path, account: bool, exposures: bool, *, positions: bool = False) -> dict:
     reports = load_directory(directory)
     found = metrics.cycles(reports.positions, reports.fills)
     position_of = {event_id: row.get("position_id") for row, cycle in zip(reports.positions, found, strict=True)
                    for event_id in cycle["event_ids"]}
-    return {"orders": reports.orders,
-            "fills": [{**fill, "cycle_position_id": position_of.get(fill.get("event_id"))} for fill in reports.fills],
-            "account": reports.account if account else None,
-            "exposures": list(reports.exposures or ()) if exposures else None, "order_events": reports.order_events}
+    detail = {"orders": reports.orders,
+              "fills": [{**fill, "cycle_position_id": position_of.get(fill.get("event_id"))} for fill in reports.fills],
+              "account": reports.account if account else None,
+              "exposures": list(reports.exposures or ()) if exposures else None, "order_events": reports.order_events}
+    if positions:
+        detail["positions"] = reports.positions
+    return detail
 
 
 def load_directory(directory: Path) -> metrics.Reports:

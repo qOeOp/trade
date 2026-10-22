@@ -48,10 +48,10 @@ def _market_returns(market_database: str | None, commit: str | None, universe_ru
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
 
-def _reproduce(run_id: int, output: Path, ledger: db.LedgerProfile) -> dict:
+def _reproduce(trial_id: int, output: Path, ledger: db.LedgerProfile) -> dict:
     from registration import seams as registration_seams
     from replay import reproduce
-    return reproduce.reproduce(run_id, output, ledger=ledger,
+    return reproduce.reproduce(trial_id, output, ledger=ledger,
                                market=registration_seams.current.market(_market_profile()))
 
 

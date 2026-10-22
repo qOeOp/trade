@@ -42,7 +42,7 @@ PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 # A closed cycle's price PnL (fill cash flow) as Nautilus' realized PnL + commissions - funding; read,
 # not stored.
 PRICE_PNL = "IF(ts_closed_ns IS NULL, NULL, realized_pnl + commissions - funding) AS price_pnl"
-CYCLE_COLUMNS = ("run_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
+CYCLE_COLUMNS = ("trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
                  f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
 TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -241,9 +241,9 @@ def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
                    present=frozenset(present))
 
 
-def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None, directory: Path | None = None,
+def load_run(conn: db.LedgerConnection | None = None, trial_id: int | None = None, directory: Path | None = None,
              account: bool = True, exposures: bool = True):
-    """One run: a sealed run by `run_id` on `conn`, or an unsealed replay directory.
+    """One run: a sealed run by `trial_id` on `conn`, or an unsealed replay directory.
 
     A sealed run gives {run, trial, sealed (by metrics revision), returns, cycles, capture, evidence};
     its native reports are not in the ledger (replay.reproduce gives them back). A passed run whose
@@ -253,13 +253,13 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
     """
     if conn is None:
         if directory is None:
-            raise ValueError("load_run needs a connection and run_id, or a directory")
+            raise ValueError("load_run needs a connection and trial_id, or a directory")
         return load_directory(directory, account, exposures)
     from ledger import execution
-    run = conn.one("SELECT run_id, trial_id, status, failure_reasons, audit, fingerprints, created_at FROM run "
-                   "WHERE run_id = %s", (run_id,))
+    run = conn.one("SELECT trial_id, status, failure_reasons, audit, fingerprints, created_at FROM run "
+                   "WHERE trial_id = %s", (trial_id,))
     if run is None:
-        raise refuse("UNKNOWN_RUN", f"no run {run_id!r} on this ledger version", missing=(str(run_id),))
+        raise refuse("UNKNOWN_RUN", f"no run {trial_id!r} on this ledger version", missing=(str(trial_id),))
     for key in ("failure_reasons", "audit", "fingerprints"):
         run[key] = json.loads(run[key]) if isinstance(run[key], (str, bytes)) else run[key]
     trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
@@ -272,29 +272,29 @@ def load_run(conn: db.LedgerConnection | None = None, run_id: int | None = None,
                                             != hashlib.sha256(started).hexdigest()):
         receipts.append(None)  # the receipt the container read is not the start receipt's
     if any(not isinstance(item, dict) or item.get("input_identity") != stored_identity for item in receipts):
-        raise refuse("EXECUTION_IDENTITY", f"the coverage receipts of run {run_id} name other inputs than its stored "
+        raise refuse("EXECUTION_IDENTITY", f"the coverage receipts of run {trial_id} name other inputs than its stored "
                                            "input identity", missing=(COVERAGE,))
     unavailable = []
     if run["status"] == "passed" and capture["status"] != "captured":
         unavailable.append(f"CAPTURE_MISSING: {capture.get('reason')}")
     sealed = {revision: json.loads(report) if isinstance(report, (str, bytes)) else report
-              for revision, report in conn.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s "
-                                                "ORDER BY metrics_revision", (run_id,))}
+              for revision, report in conn.rows("SELECT metrics_revision, report FROM run_sealed WHERE trial_id = %s "
+                                                "ORDER BY metrics_revision", (trial_id,))}
     returns = [(ts, value, mean) for ts, value, mean in conn.rows(
-        "SELECT ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE run_id = %s ORDER BY ts_event_ns",
-        (run_id,))]
-    cycles = conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE run_id = %s ORDER BY seq", (run_id,))
+        "SELECT ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id = %s ORDER BY ts_event_ns",
+        (trial_id,))]
+    cycles = conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id = %s ORDER BY seq", (trial_id,))
     return {"run": run, "trial": trial, "sealed": sealed, "returns": returns, "cycles": cycles, "capture": capture,
             "evidence": {"capture": capture["status"],
                          "fingerprints": "missing" if run["fingerprints"] is None else "recorded",
                          "unavailable": unavailable}}
 
 
-def latest_sealed(conn: db.LedgerConnection, run_id: int, sealed: dict) -> dict | None:
+def latest_sealed(conn: db.LedgerConnection, trial_id: int, sealed: dict) -> dict | None:
     """The run's latest sealed result (by sealing time) among `sealed` (load_run's, by metrics revision),
     with the metrics revision of its row."""
-    found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE run_id = %s ORDER BY created_at DESC, "
-                      "metrics_revision DESC LIMIT 1", (run_id,))
+    found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE trial_id = %s ORDER BY created_at DESC, "
+                      "metrics_revision DESC LIMIT 1", (trial_id,))
     report = sealed.get(found[0][0]) if found else None
     return None if report is None else {**report, "metrics_revision": found[0][0]}
 

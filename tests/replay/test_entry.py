@@ -197,13 +197,14 @@ class ExploreAndPrecheckTests(unittest.TestCase):
             precheck_call(candidate="rsi@99")
         self.assertEqual(caught.exception.code, "UNKNOWN_CANDIDATE")
 
-    def test_a_passed_precheck_seals_its_reports_and_a_review_of_it_admits_the_source(self):
+    def test_a_passed_precheck_hashes_cached_reports_and_a_review_of_it_admits_the_source(self):
         published = self.world.publish("prechecked", parent=None)
         checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, published["candidate"], None,
                                  ONE, self.world.output("precheck"))
         self.assertEqual((checked["status"], checked["problems"]), ("passed", []))
         capture = execution.read_capture(self.world.conn, checked["trial_id"])
-        self.assertIn("reports/fills.csv", capture["files"])
+        self.assertNotIn("reports/fills.csv", capture["files"])
+        self.assertEqual(capture["statuses"]["reports/fills.csv"], "hashed")
         runner = next(spec for spec in reversed(self.world.commands) if spec["module"] == "runner")
         self.assertEqual(runner["argv"][runner["argv"].index("--execution-binding") + 1],
                          f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}", "a precheck loads as a sealed replay")
@@ -270,8 +271,8 @@ class SealedReplayTests(unittest.TestCase):
         before = self.kept()
         stored = self.run_ref(self.refs[0])
         self.assertEqual((stored["purpose"], stored["status"], stored["failure_reasons"]), ("research", "passed", []))
-        (status, audit, fingerprints), = self.rows("SELECT status, audit, fingerprints FROM run WHERE run_id = %s",
-                                                   (stored["run_id"],))
+        (status, audit, fingerprints), = self.rows("SELECT status, audit, fingerprints FROM run WHERE trial_id = %s",
+                                                   (stored["trial_id"],))
         self.assertEqual((status, json.loads(audit), json.loads(fingerprints)),
                          ("passed", {"ran": True, "findings": []}, DEFAULT_FINGERPRINT))
         capture = execution.read_capture(self.world.conn, stored["trial_id"])
@@ -283,17 +284,17 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT path FROM evidence WHERE bundle = %s ORDER BY path",
                                    (f"trial-{stored['trial_id']}-execution-start",)),
                          [("execution.json",), ("input-coverage.json",)])
-        (revision, report), = self.rows("SELECT metrics_revision, report FROM run_sealed WHERE run_id = %s",
-                                        (stored["run_id"],))
+        (revision, report), = self.rows("SELECT metrics_revision, report FROM run_sealed WHERE trial_id = %s",
+                                        (stored["trial_id"],))
         self.assertEqual(("metrics_revision" in json.loads(report), json.loads(report)["populations"]["fills"]),
                          (False, 2))
-        loaded = metrics.load_run(self.world.conn, stored["run_id"])
-        self.assertEqual(metrics.latest_sealed(self.world.conn, stored["run_id"], loaded["sealed"])["metrics_revision"],
+        loaded = metrics.load_run(self.world.conn, stored["trial_id"])
+        self.assertEqual(metrics.latest_sealed(self.world.conn, stored["trial_id"], loaded["sealed"])["metrics_revision"],
                          revision)
-        self.assertEqual(self.rows("SELECT COUNT(*) FROM run_return WHERE run_id = %s", (stored["run_id"],)),
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM run_return WHERE trial_id = %s", (stored["trial_id"],)),
                          [(31,)])
         self.assertEqual(self.rows(f"SELECT instrument_id, realized_pnl, {metrics.PRICE_PNL} FROM run_cycle "
-                                   "WHERE run_id = %s", (stored["run_id"],)),
+                                   "WHERE trial_id = %s", (stored["trial_id"],)),
                          [("AAAUSDT-PERP.BINANCE", metrics.Decimal("9.8"), metrics.Decimal("10"))])
         self.assertEqual(self.rows("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s",
                                    (stored["trial_id"],)), [("registration-grid",)])
@@ -355,7 +356,7 @@ class SealedReplayTests(unittest.TestCase):
         stored = self.run_ref(self.refs[1])
         self.assertEqual(stored["status"], "invalid")
         self.assertEqual(sorted(codes(stored["failure_reasons"])), ["NATIVE_EXIT_NONZERO", "SOURCE_MISMATCH"])
-        self.assertEqual(self.rows("SELECT COUNT(*) FROM run_sealed WHERE run_id = %s", (stored["run_id"],)), [(0,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM run_sealed WHERE trial_id = %s", (stored["trial_id"],)), [(0,)])
         before = self.kept()
         with self.assertRaises(Refusal) as caught:
             self.run_ref(self.refs[1])
@@ -404,7 +405,7 @@ class SealedReplayTests(unittest.TestCase):
         stored = self.ingest(trial_id)
         self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
         again = self.ingest(trial_id)
-        self.assertEqual((again["run_id"], again["replayed"]), (stored["run_id"], True))
+        self.assertEqual((again["trial_id"], again["replayed"]), (stored["trial_id"], True))
         precheck_trial = self.rows("SELECT MIN(trial_id) FROM trial WHERE purpose = 'precheck'")[0][0]
         self.assertEqual(self.refused(lambda: trials.ingest_run(self.world.conn, precheck_trial, workdir, {})),
                          "TRIAL_PURPOSE_INVALID")

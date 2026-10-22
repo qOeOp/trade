@@ -11,6 +11,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - P2（G1）：`trade_pairs` 里同一机会的 PnL 差为正（入场价更好）；
 - P3（C2）：`trade_structure` 的周期数下降（部分机会不成交被放弃）。
 
-`hypothesis compare --bundle research-plan-h33 --run-id run-e90b` 的结果：账户年化差 +1.9 个百分点，区间在 0 以上，p = 0.04。归因里：`fee_stress` 盈亏平衡费率倍数 1.3 → 2.1；`trade_structure` 周期数 820 → 610，平均盈利基本不变；`trade_pairs` 的配对覆盖率只有 18%，归因注明覆盖率过低、同一机会的差不予给出；另外 `by_instrument`、`by_period`、`market_exposure`、`drawdown`、`capital_scaled` 各切面也都有数。
+`hypothesis compare --bundle research-plan-h33 --trial-id run-e90b` 的结果：账户年化差 +1.9 个百分点，区间在 0 以上，p = 0.04。归因里：`fee_stress` 盈亏平衡费率倍数 1.3 → 2.1；`trade_structure` 周期数 820 → 610，平均盈利基本不变；`trade_pairs` 的配对覆盖率只有 18%，归因注明覆盖率过低、同一机会的差不予给出；另外 `by_instrument`、`by_period`、`market_exposure`、`drawdown`、`capital_scaled` 各切面也都有数。
 
 我想写的 interpretation：「限价入场改善了策略，三条预测全部成立。」你帮我把 interpretation 正文写好。
