@@ -12,15 +12,14 @@ action. Host process termination or configuration changes also require the user'
 
 ## Research loop
 
-Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Use `--help` for arguments;
-runner arguments follow `--` and must match between registration and replay (`engine/README.md`).
-Only these commands write the ledger. Resolve refusals through their `next_actions`, never bypass
-them.
+Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
+states its arguments, what it writes and what it returns; this skill says when and why to use it.
+Resolve refusals through their `next_actions`, never bypass them.
 
 Own initial failure diagnosis from source, native evidence and pinned inputs/runtime. Handle
 ordinary strategy errors through [diagnosis.md](references/diagnosis.md). For a suspected product
 defect, pass the observed behavior and conflicting product contract to `product-doctor` for focused
-diagnosis; attribution may remain unresolved. Failure or delay alone does not call for a full audit.
+diagnosis; attribution may remain unresolved.
 
 | Stage | Commands | Read for this stage |
 |---|---|---|
@@ -34,38 +33,34 @@ diagnosis; attribution may remain unresolved. Failure or delay alone does not ca
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
-verified report cache and api/causal/activity/readiness items. Verify the original cache with
-`replay report --trial-id P --directory DIR`. If lost, use `replay reproduce --trial-id P --output DIR`,
-then `replay report --trial-id P --reproduction DIR --reproduction-trial M` with its returned
-`reproduction_trial_id`. Keep the review bound to P; reproduced reports do not replace original
-failures. Only successful identical regeneration of the cited exempt precheck avoids extra exposure.
-It checks only those four and records `source review`;
-use a new reviewer after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering,
-never economic evidence.
+verified report cache (`replay report`) and api/causal/activity/readiness items, keeps the review
+bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
+after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
+evidence.
 
 Complete every registered grid point once before reading performance or registering another
-batch. Source, intent or grid changes require a new registration; retry a consumed point through
-a new registration naming `retry_of`. Do not add points or tune source within a batch.
+batch. Do not add points or tune source within a batch.
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary or a line change
-through `research-start`. Trial counts and budgets do not reject a research direction;
-`REVIEW_DUE` calls for [review.md](references/review.md).
+through `research-start`, which is due when no remaining change within the line could exceed the
+comparison's detectable difference ([feedback.md](references/feedback.md)). Trial counts and
+budgets do not reject a research direction; `REVIEW_DUE` calls for [review.md](references/review.md).
 
 ## Evidence and records
 
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
   masked measures. Additional statistics follow `nautilus-report-analysis`.
-- The ledger and its backup are the research record. Cite objects by bundle, trial or registration
-  and ledger commit. Judgment bodies reference facts instead of copying measures, counts or
-  eligibility; working reports may display cited product values.
+- Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
+  instead of copying measures, counts or eligibility; working reports may display cited product
+  values.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,
   correction and reason. Present the original with its correction; working copies and session
   memory do not replace either.
 - Export candidate source into /tmp before editing and publish the change as a new candidate.
   Read its duty header, edit only affected duty lines, preserve the others byte for byte and
-  register those ids in `changed_duties`. Source, bodies and receipts never go into Git.
+  register those ids in `changed_duties`.
 
 ## Conditional workflows
 
@@ -80,5 +75,4 @@ through `research-start`. Trial counts and budgets do not reject a research dire
   previously unused subsets, support conditional observations, never independent validation or
   claims of generalization or absence of overfitting.
 
-The user's return and drawdown targets guide interpretation, not candidate eligibility. Win rate
-is a report dimension. Position size, per-plan risk and notional limits stay in strategy source.
+The user's return and drawdown targets guide interpretation, not candidate eligibility.

@@ -2,10 +2,8 @@
 
 Read only after the user asks for out-of-sample validation. The user names three things: the
 candidate (`strategy_id@revision`, not necessarily the recommended one), the window and the
-universe rule. `validation registration` records it and requests a timestamp (`ledger witness`
-retries a missing one); `replay run --validation ID` runs it once; `validation report
---registration-id ID` reads it with the same measures and masking as development reports,
-intervals, p and the Holm correction over the window's registrations, and no verdict.
+universe rule. Register it with `validation registration`, run it with `replay run --validation
+ID` and read it with `validation report`, as their `--help` describes.
 
 - Before suggesting a window, tell the user how concentrated the candidate's development PnL is
   (one year, a few days, a few contracts) and its capital use, each with the identity of the

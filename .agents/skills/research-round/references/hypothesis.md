@@ -27,7 +27,8 @@ defaults and applicability; connect those choices to the diagnosis and register 
 changed_duties. Use duty-directory.md when their scope is unclear.
 
 For each changed duty, predict the direction of a catalogue measure and the native fill or holding
-behavior expected to produce it. Shared measures are shared observations. Predictions must be
+behavior expected to produce it, where the control's report shows the change can act: the days,
+plans or drawdown window that determine that reading. Shared measures are shared observations. Predictions must be
 refutable and distinguish the proposed explanation from alternatives; profit improvement alone
 does not identify a mechanism.
 
@@ -37,9 +38,8 @@ interpretation belongs in judgments.
 
 ## Body and execution identity
 
-Use the root or derived JSON template linked by SKILL.md. A root has no parent or control and
-empty changed_duties; a derivation names its parent, control, actual change and a prediction for
-every changed duty. Prechecks bind each grid candidate's source review. Optional retry_of names
-a consumed registration. registration add locks the body and runtime/input identity as an immutable
-bundle; runner arguments must match replay. Comparison design is declared before results and
-applies only to the registered control; a root has no paired comparison.
+Use the root or derived JSON template linked by SKILL.md (`registration add --help` for what the
+lock binds). A root has no parent or control and empty changed_duties; a derivation names its
+parent, control, actual change and a prediction for every changed duty. Comparison design is
+declared before results and applies only to the registered control; a root has no paired
+comparison.

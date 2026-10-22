@@ -1,5 +1,5 @@
-"""Noun-verb dispatch (`cli.main`) and every command of the design page except `replay reproduce`
-(`cli/replay.py`).
+"""The product command line (`cli.main`): noun verb subcommands that print JSON; each command's
+--help states its contract.
 
     uv run --frozen python -m cli.main <noun> <verb> [options] [-- runner arguments]
 
@@ -25,6 +25,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+import textwrap
 from typing import Literal
 
 import pymysql
@@ -191,9 +192,9 @@ def _utc_time(text: str) -> datetime:
     try:
         moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except (AttributeError, ValueError) as exc:
-        raise refuse("WINDOW_INVALID", f"{text!r} is not an ISO-8601 time", expected="UTC, e.g. 2026-01-01T00:00:00Z") from exc
+        raise refuse("WINDOW_INVALID", f"{text!r} is not an ISO-8601 time", expected="UTC as YYYY-MM-DDTHH:MM:SSZ") from exc
     if moment.utcoffset() != timedelta(0):
-        raise refuse("WINDOW_INVALID", f"{text!r} is not a UTC time", expected="UTC, e.g. 2026-01-01T00:00:00Z")
+        raise refuse("WINDOW_INVALID", f"{text!r} is not a UTC time", expected="UTC as YYYY-MM-DDTHH:MM:SSZ")
     return moment
 
 
@@ -846,18 +847,17 @@ def _op_id(parser) -> None:
                                         "from the content)")
 
 
-CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision, e.g. rsi@2)"
+CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
-  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
-example: -- --universe pool --start 2020-02-01T00:00:00Z --trade-start 2020-09-01T00:00:00Z \\
-            --end 2026-10-01T00:00:00Z"""
-COVERAGE_EPILOG = """output keys: commit, scope, input_interval_ms, coverage (per contract), lifecycle,
-lifecycle_missing, interpretation"""
+  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit"""
+COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
+output keys: commit, scope, input_interval_ms, coverage (per contract), lifecycle,
+lifecycle_missing, interpretation; coverage[].funding.event_times_ms is most of the output"""
 
 
 def _parser() -> Parser:
@@ -954,10 +954,13 @@ def _parser() -> Parser:
 
     judgment = verbs("judgment", "Agent judgments: add")
     command = judgment.add_parser("add", help="append one judgment")
+    command.epilog = ("A judgment binds to a line, its subjects and the --based-on commit and is never edited. "
+                      "--supersedes corrects the same conclusion; an independent conclusion is a new judgment, "
+                      "and both stay readable (research state --history).")
     _ledger_option(command)
     command.add_argument("--kind", required=True, choices=judgments.KINDS,
                          help="recommendation, priority, interpretation or search_exposure")
-    command.add_argument("--line", required=True, help="research line bundle, e.g. research-line-20261021-ema-trend")
+    command.add_argument("--line", required=True, help="research line bundle, research-line-<YYYYMMDD>-<slug>")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
@@ -967,6 +970,8 @@ def _parser() -> Parser:
 
     line = verbs("line", "research lines: select, close")
     command = line.add_parser("select", help="record the user's research line")
+    command.epilog = ("One record per choice: a later change of start, window or market commit is a new line "
+                      "record, never an edit. The UTC date and --slug name the line and its closing tag.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--start", required=True,
@@ -977,14 +982,22 @@ def _parser() -> Parser:
     command.add_argument("--note", help="the user's two research targets (maximum drawdown, minimum annual return) "
                                         "and other context")
     command.add_argument("--slug", required=True,
-                         help="the line's direction as lowercase words joined by hyphens, e.g. ema-trend-vol-sizing")
+                         help="the line's direction as lowercase words joined by hyphens")
     command = line.add_parser("close", help="tag an ended line's last commit with its summary")
     _ledger_option(command)
     command.add_argument("--line", required=True, help="an ended line research state lists under unclosed_lines")
-    command.add_argument("--summary", required=True, help="UTF-8 text file: the line's summary (at most 32 KB)")
+    command.add_argument("--summary", required=True,
+                         help="UTF-8 text file (at most 32 KB), the index later research searches: the direction, "
+                              "what was tried, results with their run IDs, failures and why, lessons and advice; "
+                              "numbers stay in the reports")
 
     registration = verbs("registration", "registrations: add")
     command = runner(registration, "add", "lock a registration")
+    command.epilog = textwrap.fill(
+        "Locks the body and its runtime and input identity as an immutable bundle; the runner arguments must "
+        "match replay run. body.prechecks binds each grid candidate's passed source review. Changing source, "
+        "intent or grid needs a new registration; a consumed point is retried by a new one naming it in "
+        "retry_of.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--bundle", required=True, help="new bundle name, registration-*")
@@ -1026,11 +1039,13 @@ def _parser() -> Parser:
 
     validation = verbs("validation", "out-of-sample validations: registration, report")
     command = validation.add_parser("registration", help="register one out-of-sample validation")
+    command.epilog = ("Records the user's candidate, window and universe rule and requests an RFC 3161 timestamp; "
+                      "ledger witness retries a missing one. replay run --validation runs it once.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
-    command.add_argument("--window-start", required=True, help="UTC time, e.g. 2026-01-01T00:00:00Z")
-    command.add_argument("--window-end", required=True, help="UTC time, e.g. 2026-04-01T00:00:00Z")
+    command.add_argument("--window-start", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
+    command.add_argument("--window-end", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--universe-rule", required=True, help="the market commit's universe rule")
     command.add_argument("--market-at", help="market commit, tag or branch (default: main)")
     command.add_argument("--design", required=True, help="JSON file of the validation design")
@@ -1038,6 +1053,8 @@ def _parser() -> Parser:
     _op_id(command)
     command.add_argument("--tsa-url", help="RFC 3161 timestamp authority URL (default: the built-in one)")
     command = validation.add_parser("report", help="the out-of-sample report of a registration")
+    command.epilog = ("The same measures and masking as development reports, with intervals, p and the Holm "
+                      "correction over the window's registrations; no verdict.")
     _ledger_option(command)
     command.add_argument("--registration-id", required=True, type=int, help="validation registration ID")
     _at(command)
@@ -1053,11 +1070,12 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command = runner(replay, "precheck", "the declared native precheck of a published candidate")
     from registration.precheck import PRECHECK_MAX_DAYS
-    command.epilog = (f"Exposure exemption permits at most {PRECHECK_MAX_DAYS} trading days "
-                      "(--trade-start, or --start, to --end; warm-up is excluded). Longer prechecks still execute "
-                      "and can pass technically, but expose the source and prevent its first research "
-                      "registration. Exemption also requires this precheck to be cited with matching execution "
-                      "identity; other prior replays can still expose the source.")
+    command.epilog = textwrap.fill(
+        f"Exposure exemption permits at most {PRECHECK_MAX_DAYS} trading days (--trade-start, or --start, to "
+        "--end; warm-up is excluded). Longer prechecks still execute and can pass technically, but expose the "
+        "source and prevent its first research registration. Exemption also requires this precheck to be cited "
+        "with matching execution identity; other prior replays can still expose the source.", 100) + "\n\n" \
+        + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--at", required=True, help="market commit, tag or branch")
@@ -1073,6 +1091,9 @@ def _parser() -> Parser:
     command.add_argument("--hypothesis", help="registration bundle, registration-* (or --validation)")
     command.add_argument("--validation", type=int, help="validation registration ID (or --hypothesis)")
     command = replay.add_parser("report", help="a sealed result, precheck technical facts/cache, or unverified directory")
+    command.epilog = ("For a precheck, --directory verifies its original cache. When the cache is lost, run replay "
+                      "reproduce and pass its --reproduction directory and --reproduction-trial; a reproduction "
+                      "never replaces the original's failures.")
     _ledger_option(command)
     command.add_argument("--trial-id", type=int, help="trial holding a sealed result or original precheck")
     command.add_argument("--directory", help="original precheck cache with --trial-id; otherwise an unverified directory")
@@ -1082,11 +1103,15 @@ def _parser() -> Parser:
     command.add_argument("--reproduction-trial", type=int, help="the reproduction_trial_id `replay reproduce` returned")
     command.add_argument("--account", action="store_true", help="add the native account table")
     command.add_argument("--exposures", action="store_true", help="add the capital exposures table")
-    command = replay.add_parser("reproduce", help="regenerate a sealed result's or precheck's reports into /tmp")
+    command = replay.add_parser("reproduce", help="regenerate a sealed result's or precheck's reports into /tmp, "
+                                                  "recording an explore trial")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--trial-id", required=True, type=int, help="original trial holding a result or precheck")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.epilog = ("Hands over the directory only when its semantic fingerprint equals the recorded one. "
+                      "Identically reproducing the precheck a registration cites adds no exposure; any other "
+                      "reproduction or exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, import, lifecycle, coverage, backup, review")
     command = market.add_parser("init", help="create an empty market database and its profile")

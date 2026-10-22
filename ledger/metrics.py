@@ -860,7 +860,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
             owners[row["position_id"]].add(row["instrument_id"])
             # NETTING snapshot IDs differ from the live ID; resolve via instrument ownership
             # only when the exposure ID has a direct, unambiguous native report match.
-        def endpoint(label):
+        def endpoint(label: int | None) -> defaultdict[str, Decimal]:
             values: defaultdict[str, Decimal] = defaultdict(Decimal)
             if label is None:
                 return values
