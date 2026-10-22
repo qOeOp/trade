@@ -7,7 +7,7 @@
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
 | 20261022-09 | 比较输出不给两侧回撤峰谷与区间内持仓；Agent 在规则无法作用的区间上预测回撤下降并写入错误机制结论（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 hypothesis.md，未合并 | 2026-10-22 | 2026-10-22 |
-| 20261022-10 | 比较已给可检出效应但无消费者使用；同窗口定仓变体不可分辨，分叉与推荐按点估计排序；两种区间构造未标注（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 feedback.md，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-10 | 比较已给可检出效应但无消费者使用；同窗口定仓变体不可分辨，分叉与推荐按点估计排序；两种区间构造未标注（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 feedback.md，未合并；用户 2026-10-22 批准在 research-round 停止规则补“线内无改动能超过可检出差时应经 research-start 换线”（批准经另一会话转达），本地已改未提交。依据之一是 trial 26 之后十余次线内分叉区间均跨零且从未回问用户，此证据来自另一会话的观察，未经本诊断复核 | 2026-10-22 | 2026-10-22 |
 | 20261022-11 | 每版本 8–17 分钟、约 5–8M token，成本在审阅与核查子代理；每 run 无条件全窗口复现，参与率从未驱动决策（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill + measure | 本地已改 diagnosis.md、capital.md，未合并；审阅命中率仍待测 | 2026-10-22 | 2026-10-22 |
 | 20261022-12 | price_pnl 为 Nautilus 逐笔 8 位舍入之和，与精确成交现金流差 1e-8；skill 未说明（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill | 本地已改 nautilus-report-analysis，未合并 | 2026-10-22 | 2026-10-22 |
 | 20261022-13 | strategy-authoring 缺“成交严格晚于决策 K 线收盘”，只在 diagnosis（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill | 本地已改 strategy-authoring.md 并由 diagnosis 引用，未合并 | 2026-10-22 | 2026-10-22 |

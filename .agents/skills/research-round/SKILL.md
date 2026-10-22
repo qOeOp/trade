@@ -43,8 +43,9 @@ a new registration naming `retry_of`. Do not add points or tune source within a 
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary or a line change
-through `research-start`. Trial counts and budgets do not reject a research direction;
-`REVIEW_DUE` calls for [review.md](references/review.md).
+through `research-start`, which is due when no remaining change within the line could exceed the
+comparison's detectable difference ([feedback.md](references/feedback.md)). Trial counts and
+budgets do not reject a research direction; `REVIEW_DUE` calls for [review.md](references/review.md).
 
 ## Evidence and records
 
