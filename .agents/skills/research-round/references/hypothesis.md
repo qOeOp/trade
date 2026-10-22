@@ -38,9 +38,8 @@ interpretation belongs in judgments.
 
 ## Body and execution identity
 
-Use the root or derived JSON template linked by SKILL.md. A root has no parent or control and
-empty changed_duties; a derivation names its parent, control, actual change and a prediction for
-every changed duty. Prechecks bind each grid candidate's source review. Optional retry_of names
-a consumed registration. registration add locks the body and runtime/input identity as an immutable
-bundle; runner arguments must match replay. Comparison design is declared before results and
-applies only to the registered control; a root has no paired comparison.
+Use the root or derived JSON template linked by SKILL.md (`registration add --help` for what the
+lock binds). A root has no parent or control and empty changed_duties; a derivation names its
+parent, control, actual change and a prediction for every changed duty. Comparison design is
+declared before results and applies only to the registered control; a root has no paired
+comparison.

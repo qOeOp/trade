@@ -1,11 +1,8 @@
 # Readiness
 
 Read before the first replay of a line, when a coverage receipt shows a gap, zero volume or
-missing funding, and when a new month of data arrives. `market coverage --at COMMIT --start START
---end END [--symbols ...]` gives the per-contract facts at the line's pinned commit; it judges
-nothing. Its top-level keys are `commit`, `scope`, `coverage` (one entry per contract), `lifecycle`
-and `lifecycle_missing`; `jq 'del(.coverage[].funding.event_times_ms)'` drops the funding event
-times, most of the output.
+missing funding, and when a new month of data arrives. Read coverage facts with `market coverage`
+at the line's pinned commit (`--help` for its output).
 
 - Before a replay, check three things: the runtime reference resolves to exactly one image; the
   market database has every month of the development window; every contract's coverage can be

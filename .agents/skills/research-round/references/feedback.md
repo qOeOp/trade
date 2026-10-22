@@ -1,10 +1,7 @@
 # Feedback and next experiment
 
 Read when interpreting comparison evidence or writing interpretation, search_exposure or priority
-judgments. `judgment add` binds each judgment to a line, subjects and a `--based-on` ledger commit.
-Judgments are append-only: supersedes corrects the same conclusion; independent conclusions
-remain separately readable. `research state` gives current judgments, facts and registration
-gates; `--history [--history-before ID] --at COMMIT` reads original judgments and replacements.
+judgments (`judgment add`, `research state`; their `--help` gives binding, correction and history).
 
 ## Interpret evidence
 

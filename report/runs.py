@@ -176,7 +176,14 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
     """The drill-down tables of a passed run with economic evidence: its position cycles and daily
     series from the ledger, and, from a verified reproduction (the `directory` replay.reproduce wrote
     and the `reproduction` trial ID it returned), its native orders, fills, account, order events and
-    exposures. Typed only."""
+    exposures. Typed only.
+
+    Keys: trial_id, positions (one row per NETTING cycle, snapshot rows kept: seq, instrument_id, side,
+    ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, price_pnl, open_unrealized,
+    plan_tag, closing_order_type, closing_order_tag), daily_returns (ts_event_ns, native_return,
+    mean_gross_notional), reconciled (closed-cycle totals), availability, metrics_revision,
+    ledger_commit, limitations, and orders, fills, account, exposures, order_events, reproduction
+    (None without a reproduction; account and exposures only when asked)."""
     profile = profile_of(ledger)
     with db.read_as_of(profile, at) as conn:
         facts = measures.run_facts(conn, trial_id)
