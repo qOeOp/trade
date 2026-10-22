@@ -335,12 +335,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "account terms differ from the candidate's latest valid research run (or it has none).",
                         ("Publish the grid for the probed runtime contract; replay the candidate's research run "
                          "under the validation's runtime first.",)),
-    "SOURCE_ALREADY_EXPOSED": ("A grid source was already run by a replay that is not the cited precheck (of at "
-                               "most seven trading days), and no registration on the retry_of chain consumed it.",
+    "SOURCE_ALREADY_EXPOSED": ("A grid source was already run outside its consumed retry chain, cited short "
+                               "prechecks or verified reproductions of an explicitly linked runtime rebuild.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
-                                "actually consumed this source and is retryable; an unregistered precheck or "
-                                "exploration has no registration to retry. Preserve that source and register a "
-                                "new source for a new research hypothesis.",)),
+                                "actually consumed this source. A fixed-question rebuild on a different image "
+                                "requires a new matching precheck; unrelated explorations and prechecks remain "
+                                "exposures. Register a new source for a new research hypothesis.",)),
     "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
                      "registration.",
                      ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",)),
@@ -403,10 +403,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "design_reason.",)),
     "RETRY_NOT_ALLOWED": ("A consumed attempt on the retry_of chain of a research registration, or the bound "
                           "replay of a retried validation registration, was neither interrupted (by its original "
-                          "capture) nor invalid and has economic evidence; or the retried validation registration "
+                          "capture) nor invalid and has economic evidence without qualifying as a fixed-question "
+                          "research rebuild on a different image; or the retried validation registration "
                           "does not exist, differs in candidate, window or universe rule, or was never bound.",
                           ("Retry only attempts whose replay was interrupted, invalid or without economic "
-                           "evidence; a poor result is no reason to retry.",)),
+                           "evidence. For a research runtime rebuild, keep the declarations, source grid, "
+                           "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
+                           "control first. A poor result is no reason to retry.",)),
     "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
                              ("List validation registrations with `research status`.",)),
     "REGISTRATION_CONSUMED": ("The validation registration was already bound, or the trial is bound to another "
