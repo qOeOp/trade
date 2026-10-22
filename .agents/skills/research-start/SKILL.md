@@ -1,6 +1,6 @@
 ---
 name: research-start
-description: Starts or resumes strategy research in this repository - reads the ledger first and continues a selected research line, otherwise presents the latest recommendation and line options (template roots only when there is no candidate or the user leaves every line), waits for the user's choice and records it, and checks readiness before the first replay or when new data arrives. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, and when work inside a line decides the line should change.
+description: Starts or resumes strategy research in this repository - reads the ledger first, continues a selected research line after an interruption and offers it beside the other lines at a new session, otherwise presents the latest recommendation and line options (template roots only when there is no candidate or the user leaves every line), waits for the user's choice and records it, and checks readiness before the first replay or when new data arrives. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, and when work inside a line decides the line should change.
 ---
 
 # Research start
@@ -13,9 +13,11 @@ selected (`line select`); everything inside it follows `research-round`.
 
 - At every start or return from an interruption, read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
-  (`research status`), the research state and the current line record (`research state`). When a
-  line record exists the user has chosen: continue it under `research-round` without asking again,
-  taking the user's two research targets from its note.
+  (`research status`), the research state and the current line record (`research state`). A line
+  record holds the user's two research targets in its note. After an interruption, or when the user
+  says to continue, continue that line under `research-round` without asking. A new session started
+  with only `research-start` asks once: continue the current line (its state and next step) or
+  choose another line (Offer lines and wait).
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
@@ -46,10 +48,11 @@ budgets or stages).
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
   the user's two targets and the stopping rule: reports, reviews and priorities do not end the
   work; only the user or a line that cannot continue does. Create it automatically when the host
-  permits it. If creation needs explicit user authorization, present that concrete objective and
-  ask for authorization; create after approval, never infer approval from silence. If no Goal
-  tool exists, ask the user to activate the exact `/goal <objective>` (Codex) or `/loop <objective>`
-  (Claude Code) command and verify activation before research. Never set a token budget unless
+  permits it. If creation needs explicit user authorization, present that concrete objective in
+  the same question as the line choice; choosing to continue approves it. Create after approval,
+  never infer approval from silence. If no Goal tool exists, ask the user to activate the exact
+  `/goal <objective>` (Codex) or `/loop <objective>` (Claude Code) command and verify activation
+  before research. Never set a token budget unless
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 
 ## When to read the references
