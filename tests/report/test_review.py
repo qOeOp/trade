@@ -271,7 +271,7 @@ class SealedTamperTests(unittest.TestCase):
         changed = [(item["code"], item["table"], item["record_id"]) for item in found["findings"]]
         self.assertEqual(changed, [("READING_MISMATCH", "run_cycle", str(self.late["trial_id"]))],
                          "the profit bridge no longer adds up to the sealed equity change")
-        self.assertIn("is 14.80000000, the sealed equity change is 9.80000000", found["findings"][0]["detail"])
+        self.assertIn("CYCLE_REALIZED_MISMATCH", found["findings"][0]["detail"])
 
     def test_5_a_deleted_changed_or_added_commit_test_is_found(self):
         self.admin_sql("DELETE FROM dolt_tests WHERE test_name = 'research_trials_follow_their_registration'",

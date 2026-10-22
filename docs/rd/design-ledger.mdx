@@ -683,14 +683,14 @@ Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加�
 
 持仓周期：每个原生持仓周期一行的紧凑记录，供交易结构、交易配对、出场类别与逐合约逐月下钻
 
-<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "周期序号", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "合约", required: true }, "side": { type: "ENUM('long','short')", description: "方向", required: true }, "ts_opened_ns": { type: "BIGINT", description: "开仓时刻", required: true }, "ts_closed_ns": { type: "BIGINT", description: "平仓时刻；期末未平为空", required: false }, "realized_pnl": { type: "DECIMAL(24,8)", description: "原生已实现盈亏（含手续费与资金费）；未平为空", required: false }, "commissions": { type: "DECIMAL(24,8)", description: "周期内手续费", required: true }, "funding": { type: "DECIMAL(24,8)", description: "周期内资金费", required: true }, "open_unrealized": { type: "DECIMAL(24,8)", description: "期末未平的浮动盈亏；已平必须为空", required: false }, "plan_tag": { type: "VARCHAR(160)", description: "入场计划标签；标签不合规为空", required: false }, "closing_order_type": { type: "VARCHAR(40)", description: "最后一张平仓单的原生类型，含引擎下架结算单的来源标识；未平为空", required: false }, "closing_order_tag": { type: "VARCHAR(160)", description: "最后一张平仓单的非计划标签", required: false } }} />
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "周期序号", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "合约", required: true }, "side": { type: "ENUM('long','short')", description: "方向", required: true }, "ts_opened_ns": { type: "BIGINT", description: "开仓时刻", required: true }, "ts_closed_ns": { type: "BIGINT", description: "平仓时刻；期末未平为空", required: false }, "realized_pnl": { type: "DECIMAL(24,8)", description: "原生已实现盈亏（含手续费与资金费）；未平也保留，历史缺失为空", required: false }, "commissions": { type: "DECIMAL(24,8)", description: "周期内手续费", required: true }, "funding": { type: "DECIMAL(24,8)", description: "周期内资金费", required: true }, "open_unrealized": { type: "DECIMAL(24,8)", description: "期末未平的浮动盈亏；已平必须为空", required: false }, "plan_tag": { type: "VARCHAR(160)", description: "入场计划标签；标签不合规为空", required: false }, "closing_order_type": { type: "VARCHAR(40)", description: "最后一张平仓单的原生类型，含引擎下架结算单的来源标识；未平为空", required: false }, "closing_order_tag": { type: "VARCHAR(160)", description: "最后一张平仓单的非计划标签", required: false } }} />
 
 **键与约束**
 
 - 主键　`trial_id`, `seq`
 - 外键　`trial_id` → <Ref id="table:run">run</Ref> `trial_id`
 - CHECK　`ts_closed_ns IS NULL OR open_unrealized IS NULL`
-- 价格盈亏不存：读方按 `IF(ts_closed_ns IS NULL, NULL, realized_pnl + commissions - funding)` 读出（`ledger.metrics.PRICE_PNL`）；已实现盈亏是 Nautilus 报告的事实，封存前已与成交现金流逐周期对账
+- 价格盈亏不存：读方按 `realized_pnl + commissions - funding` 读出（`ledger.metrics.PRICE_PNL`）；已实现盈亏是 Nautilus 报告的事实，封存前已与成交现金流逐周期对账
 
 **写入方**　<Ref id="ledger.ingest_run" />
 

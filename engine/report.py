@@ -22,7 +22,7 @@ from engine.load import diagnostics
 
 
 DAY_NS = 86_400 * 10**9
-EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl")
+EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl", "realized_pnl")
 EXPOSURES = "exposures.csv.gz"
 ORDER_EVENTS = "order_events.jsonl.gz"
 LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")

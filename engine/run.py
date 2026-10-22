@@ -527,7 +527,7 @@ class CapitalObserver(DataActor):
                 continue
             try:
                 self._writer.write((ts, str(position.id), str(position.notional_value(price)),
-                                    str(position.unrealized_pnl(price))))
+                                    str(position.unrealized_pnl(price)), str(position.realized_pnl)))
             except Exception as exc:
                 self.findings.append(f"EXPOSURE_WRITE_FAILED: {type(exc).__name__}: {exc}")
                 raise

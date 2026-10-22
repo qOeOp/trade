@@ -155,10 +155,10 @@ class RegressionTests(unittest.TestCase):
 
 def cycle(seq, instrument, side, opened, closed, realized, commissions="0", funding="0", unrealized=None,
           plan=None, exit_type="LIMIT") -> dict:
-    realized_value = None if closed is None else Decimal(realized)
+    realized_value = None if realized is None else Decimal(realized)
     return {"seq": seq, "instrument_id": instrument, "side": side, "ts_opened_ns": opened, "ts_closed_ns": closed,
             "realized_pnl": realized_value, "commissions": Decimal(commissions), "funding": Decimal(funding),
-            "price_pnl": None if closed is None else realized_value + Decimal(commissions) - Decimal(funding),
+            "price_pnl": None if realized_value is None else realized_value + Decimal(commissions) - Decimal(funding),
             "open_unrealized": None if unrealized is None else Decimal(unrealized), "plan_tag": plan,
             "closing_order_type": exit_type if closed is not None else None}
 
@@ -183,7 +183,7 @@ class MeasureTests(unittest.TestCase):
         self.cycles = [cycle(1, "X", "long", JAN, JAN + 6 * 3600 * 10**9, "20", "1", "0.5", plan="p1"),
                        cycle(2, "Y", "short", JAN + DAY, JAN + DAY + 2 * 3600 * 10**9, "-4", "1", "-0.5", plan="p2",
                              exit_type="STOP_MARKET"),
-                       cycle(3, "X", "long", JAN + 3 * DAY, None, None, "0.5", "0", unrealized="9.549", plan="p3")]
+                       cycle(3, "X", "long", JAN + 3 * DAY, None, "-0.5", "0.5", "0", unrealized="9.549", plan="p3")]
         self.facts = {"sealed": sealed(), "returns": self.returns, "cycles": self.cycles,
                       "starting_balance": Decimal("1000"), "final_equity": self.final, "trade_start_ns": JAN,
                       "trade_end_ns": JAN + 4 * DAY, "input_identity": {}}
@@ -243,7 +243,7 @@ class MeasureTests(unittest.TestCase):
         self.assertTrue(unlabelled["_reasons"]["low_vol_mean_log@1"].startswith("NO_LOW_VOL_DAY"))
 
     def test_an_unreconciled_bridge_is_empty_as_a_whole(self):
-        found = self.derive(cycles=[*self.cycles[:2], cycle(3, "X", "long", JAN, None, None, "0.5", unrealized="1")])
+        found = self.derive(cycles=[*self.cycles[:2], cycle(3, "X", "long", JAN, None, "-0.5", "0.5", unrealized="1")])
         self.assertEqual([found[f"{name}@1"] for name in ("price", "fee", "funding", "open_mark", "account")],
                          [None] * 5)
         self.assertTrue(found["_reasons"]["price@1"].startswith("BRIDGE_UNRECONCILED"))
@@ -422,7 +422,7 @@ class PairTradeTests(unittest.TestCase):
                         cycle(5, "X", "short", 0, 100 * m, "2")]
         self.candidate = [cycle(1, "X", "long", 0, 100 * m, "10"), cycle(2, "X", "long", 250 * m, 300 * m, "4"),
                           cycle(3, "X", "long", 400 * m, 500 * m, "5"), cycle(4, "X", "long", 500 * m, 600 * m, "5"),
-                          cycle(5, "X", "short", 700 * m, None, None, unrealized="-1")]
+                          cycle(5, "X", "short", 700 * m, None, "0", unrealized="-1")]
         self.found = attribution.pair_trades(self.control, self.candidate, 1000 * m)
 
     def test_cycles_pair_one_to_one_by_overlap_within_instrument_and_side(self):
