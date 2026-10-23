@@ -27,7 +27,8 @@
 | <Ref id="engine.audit">audit</Ref> | 读摘要后执行通用审计，不导入策略源码 |
 | <Ref id="engine.audit_main">audit_main</Ref> | 审计器进程入口；报表不全不运行；以退出码报告通过与否 |
 | <Ref id="engine.event_report_findings">event_report_findings</Ref> | 事件史与订单、成交报表完全一致、有序、不换范围 |
-| <Ref id="engine.generic_audit">generic_audit</Ref> | 字段齐全→身份→被否被拒→保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限 |
+| <Ref id="engine.submission_findings">submission_findings</Ref> | 按原生提交者实例检查预热提交，不把订单准备当成提交 |
+| <Ref id="engine.generic_audit">generic_audit</Ref> | 字段齐全→身份→被否被拒→提交起点、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限 |
 | <Ref id="engine.generic_result">generic_result</Ref> | 每次结果写明审计查什么、不查什么，附报表哈希与计数 |
 | <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> | 未定价终止前每个原生仓位归零且全部订单已结束；终止时刻及之后的订单事件视为迟到 |
 | <Ref id="engine.protection">protection</Ref> | 沿事件史重建保护覆盖；事件史缺失即发现；按源码声明决定裸仓是拒绝还是只报告 |
@@ -139,15 +140,41 @@ def event_report_findings(
 
 </div>
 
+### `submission_findings` [#def-engine-submission_findings]
+
+按原生提交者实例检查预热提交，不把订单准备当成提交
+
+```python
+def submission_findings(events: list[dict], summary: dict, coverage: dict | None = None) -> list[str]
+```
+
+<TypeTable type={{ "events": { type: "list[dict]", description: "原生订单事件史；读取 OrderSubmitted 与 OrderEmulated 的 strategy_id、client_order_id、ts_event" }, "summary": { type: "dict", description: "运行器写出的窗口与 trade_start_by_strategy，不读策略源码或诊断" }, "coverage": { type: "dict | None", description: "有覆盖回执时，核对 effective_config 窗口、导出片段推导的策略身份及上市下界" } }} />
+
+**返回**　发现列表；空列表表示本项通过。
+
+**期望行为**
+
+1. 起点 map 必须非空，键为策略标识，值为交易窗口内的整数纳秒；不能用策略属性、目标合约起点或全局起点回退代替。
+2. 有覆盖回执时核对全局窗口相等；每个 map 身份属于导出实例，起点不早于上市。日线首次就绪时间由运行器规划，审计不复制日线规划算法。
+3. 每条 OrderSubmitted 或 OrderEmulated 按提交者 strategy_id 匹配；ts_event 早于该实例起点即发现，同一违规订单只记一次。恰在起点允许；OrderInitialized 不构成提交。
+4. 只读并判无效；不拦单、不丢单、不修补时钟。信号因果性独立审查。
+
+| 发现码 | 条件 |
+|---|---|
+| `TRADE_START_INVALID` | 缺少或非法逐实例起点、与输入不一致，或提交者不在规划内 |
+| `ORDER_BEFORE_TRADE_START` | 原生提交确认时间早于提交者实例的有效交易起点 |
+
+**关联章节**　<Ref id="W.2.1.5" /> <Ref id="G.3.1.2" />
+
 ### `generic_audit` [#def-engine-generic_audit]
 
-字段齐全→身份→被否被拒→保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限
+字段齐全→身份→被否被拒→提交起点、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限
 
 ```python
 def generic_audit(run_dir: Path, summary: dict) -> dict
 ```
 
-<TypeTable type={{ "run_dir": { type: "Path", description: "报表目录；读 orders.csv、fills.csv、positions.csv、account.csv 与订单事件史，覆盖回执 input-coverage.json 从上一级目录读" }, "summary": { type: "dict", description: "原生摘要：integrity_passed、denied_orders、rejected_orders、starting_balance_usdt、final_equity_usdt、period_end_utc、strategy_uses_stop_loss、per_coin 逐合约事件计数" } }} />
+<TypeTable type={{ "run_dir": { type: "Path", description: "报表目录；读 orders.csv、fills.csv、positions.csv、account.csv 与订单事件史，覆盖回执 input-coverage.json 从上一级目录读" }, "summary": { type: "dict", description: "原生摘要：integrity_passed、denied_orders、rejected_orders、starting_balance_usdt、final_equity_usdt、period_end_utc、strategy_uses_stop_loss、trade_start_by_strategy、per_coin 逐合约事件计数" } }} />
 
 **返回**　dict：generic_result 形态；findings 为空即 passed；native_economics 含期初与期末余额、已实现盈亏、成交佣金合计、资金费调整条数与金额、并发成交时刻数
 
@@ -155,7 +182,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 
 1. 字段与身份：四张报表每行必含 strategy_id、instrument_id、account_id 与各自必需列（REPORT_FIELDS_MISSING）；订单状态只允许已知终态或在途态（ORDER_STATUS_UNKNOWN）；client_order_id 与 position_id 非空且唯一（IDENTITY_MISSING_OR_DUPLICATED）。
 2. 被否被拒：摘要 integrity_passed 为假或报表中存在 DENIED/REJECTED 订单即 INTEGRITY_REPORTED_FAILED；两类计数与摘要自报不符另记 DENIED_REJECTED_COUNT_MISMATCH；不区分原因。
-3. 保护与终止：调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
+3. 提交起点、保护与终止：调用 submission_findings 检查逐实例原生提交起点；调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
 4. 逐项对账（只比引擎产出，不重算）：成交对应唯一同范围订单、filled_qty 等于成交量和、FILLED 满额（ORDER_FILL_MISMATCH）；持仓事件恰好覆盖全部成交一次且买卖量、净量、开平仓订单、佣金一致（POSITION_FILL_COVERAGE_MISMATCH）；资金费只认 FUNDING 类型并在无并发成交的时刻等于账户总额变动（FUNDING_BALANCE_MISMATCH）；账户每行 total = locked + free、币种一致、时间有序、同一账户（ACCOUNT_REPORT_INCONSISTENT）。
 5. 汇总核对：期初余额等于摘要；期末余额减期初等于已实现盈亏；期末无持仓时期末余额等于摘要期末权益；闭仓与盈利计数等于持仓报表统计（SUMMARY_TOTALS_MISMATCH）。
 6. 任何解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID 而不中止；最后交 generic_result 组装结果，并发成交时刻数写入 native_economics。
@@ -176,7 +203,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 | `SUMMARY_TOTALS_MISMATCH` | 期初余额、已实现盈亏、无持仓时的期末权益或闭仓与盈利计数与摘要不一致 |
 | `REPORT_PAYLOAD_INVALID` | 任一报表字段类型错误、算术或读取异常 |
 
-**使用**　<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
+**使用**　<Ref id="engine.submission_findings" />、<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
 
 <div className="rd-meta">
 
@@ -213,7 +240,7 @@ def generic_result(
 
 1. 对存在的报表文件逐个计算 SHA-256 写入 file_sha256，供入账与资格视图核对原件未变。
 2. 写入订单、成交、持仓三类报表行数作为原生计数。
-3. scope 固定写：原生报表身份、链接、保护历史与自报经济数。
+3. scope 固定写：原生报表身份、链接、提交起点、保护历史与自报经济数。
 4. coverage_limits 固定写不查项：不重建信号与目标几何；保护只比只减仓止损未成交量不比价格；同一纳秒事件一起应用且容忍至多一根执行 K 线的未覆盖；资金费只认原生调整不按费率重算；并发成交时刻不对账资金费；有持仓时不对账期末权益。
 5. 合入 protection 信息与 economics，passed = findings 为空；本函数不产生新发现。
 
@@ -1244,6 +1271,8 @@ def write_native_reports(
 - [NautilusTrader — Strategies](https://nautilustrader.io/docs/latest/concepts/strategies/)　官方文档
 
 </div>
+
+摘要另含运行器在策略构造前保存的 `trade_start_by_strategy`；值来自实例规划，不读取策略可变属性或自报诊断。它属于报告缓存，不新增 ledger 列。
 
 ### `write_order_events` [#def-engine-write_order_events]
 

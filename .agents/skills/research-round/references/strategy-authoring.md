@@ -82,11 +82,16 @@ Any finding or any denied or rejected order fails the run.
   input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
   Native order/fill/account and lifecycle events follow their own event-ordering contracts;
   do not delay required protection or termination actions with a blanket bar gate.
-- Bars between `--start` and `--trade-start` are warm-up. Nothing blocks orders there; the file
-  must not submit before `trade_start_ns`.
+- Bars before the instance’s runner-supplied `trade_start_ns` are warm-up: read inputs, update
+  indicators and prepare order objects, but do not submit them. The independent audit checks native
+  `OrderSubmitted` / `OrderEmulated.ts_event` against the runner-owned per-strategy start; any early
+  submission makes the entire run invalid, even without fills. Submission exactly at the start is
+  allowed by this audit; the causal-input rule above still applies. The runner does not drop or
+  reschedule orders. An instance delayed by listing or daily warm-up uses its own later start.
 - With `DAILY_WARMUP = True`, `historical_daily_bars` holds the unbroken run of daily
   `-1-DAY-LAST-EXTERNAL` bars (derived from 1-minute bars, from 2020 at the earliest) that ends
-  1 ms before `--start`, at least 200 of them, so `--start` must be 00:00 UTC; without it the list
+  1 ms before the instance’s input start, at least 200 of them; an instance can be delayed until
+  its history is ready, and the input start must be 00:00 UTC; without it the list
   is `[]`. The engine does not replay them; seed state from the list.
 - Matching uses 1-minute bars and the order inside one bar is unknown. Do not encode an intrabar
   path.
