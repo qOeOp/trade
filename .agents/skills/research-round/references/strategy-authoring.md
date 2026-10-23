@@ -112,6 +112,9 @@ Any finding or any denied or rejected order fails the run.
   on the closing side for longer than one one-minute bar. A source with no stop-loss by design sets
   the class attribute `USES_STOP_LOSS = False` (default `True`); its uncovered intervals are then
   reported, not refused.
+  Shortfalls lasting at most one minute are neither refused nor listed as uncovered intervals;
+  a passing audit does not prove continuous protection. This tolerance applies only to stop
+  coverage; the entry cutoff above has no such grace period.
 - Two behaviours of the pinned Nautilus break protection; recheck both after any Nautilus change:
   - It lists the stop first in the entry's `linked_order_ids` and activates children in that
     order, so an entry bar that reaches the stop gets the target rejected and fails the run.
