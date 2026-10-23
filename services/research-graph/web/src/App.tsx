@@ -66,7 +66,7 @@ export function App({ view }: { view: View }) {
       <div className="relative min-h-0 flex-1">
         <div className="absolute inset-0" style={{ bottom: dockHeight, right: drawer ? DRAWER_WIDTH : 0 }}>
           {of("canvas").map(([w, e]) => <div key={w.id} className="h-full w-full">{e.render(w, ctx)}</div>)}
-          <div className="pointer-events-none absolute left-3 top-3">
+          <div className="pointer-events-none absolute left-3 top-8 z-20">
             {legend ? <Legend onClose={() => setLegend(false)} /> : (
               <button className="card pointer-events-auto p-1.5 muted" onClick={() => setLegend(true)} title="图例"><Info size={16} /></button>
             )}

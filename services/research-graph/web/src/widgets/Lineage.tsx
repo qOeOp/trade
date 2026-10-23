@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import {
-  Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow,
+  Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, useViewport,
   type Edge, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { LineageNode, LineageWidget } from "../types";
+import type { LaneEvent, LineageNode, LineageWidget } from "../types";
 import { pct, PREDICTION, STATUS, when } from "../format";
 
 // Research units -> canvas pixels: x is the trial number, y the lineage row.
@@ -15,8 +15,7 @@ const LANES: Record<string, string> = {
 };
 
 type VersionData = LineageNode & { selected: boolean };
-type BandData = { width: number; label: string; scope?: boolean };
-type LaneData = { kind: string; tip: string };
+type BandData = { width: number; label: string; scope?: boolean; stripe?: boolean };
 type TextData = { text: string; height?: number };
 
 function Version({ data }: NodeProps<Node<VersionData>>) {
@@ -52,19 +51,65 @@ function Version({ data }: NodeProps<Node<VersionData>>) {
 function Band({ data }: NodeProps<Node<BandData>>) {
   return (
     <div className="flex h-full items-center justify-end rounded-md pr-3 text-[10.5px] faint"
-         style={{ width: data.width, background: data.scope ? "var(--scope)" : "var(--band)" }}>{data.label}</div>
+         style={{ width: data.width, background: data.stripe ? "var(--stripe)" : data.scope ? "var(--scope)" : "var(--band)",
+                  borderRadius: data.stripe || data.scope ? 0 : undefined }}>{data.label}</div>
   );
 }
 
-function Lane({ data }: NodeProps<Node<LaneData>>) {
-  const shapes: Record<string, React.ReactNode> = {
-    recommendation: <span className="block h-3 w-3 rotate-45" style={{ background: "var(--s-recommended)" }} />,
-    user_message: <span className="block h-3 w-3 rounded-full" style={{ background: "var(--ink-1)" }} />,
-    agent_question: <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold"
-                          style={{ border: "1.25px solid var(--ink-1)" }}>?</span>,
-    eligibility_change: <span className="block h-0 w-0" style={{ borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderBottom: "12px solid var(--s-failed)" }} />,
-  };
-  return <div title={data.tip}>{shapes[data.kind] ?? <span className="block h-2.5 w-2.5" style={{ background: "var(--ink-2)" }} />}</div>;
+function Marker({ kind }: { kind: string }) {
+  if (kind === "recommendation") return <span className="block h-2.5 w-2.5 rotate-45" style={{ background: "var(--s-recommended)" }} />;
+  if (kind === "user_message") return <span className="block h-2.5 w-2.5 rounded-full" style={{ background: "var(--ink-1)" }} />;
+  if (kind === "agent_question") return (
+    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold"
+          style={{ border: "1.25px solid var(--ink-1)", background: "var(--surface-1)" }}>?</span>);
+  if (kind === "eligibility_change") return (
+    <span className="block h-0 w-0" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderBottom: "11px solid var(--s-failed)" }} />);
+  return <span className="block h-2.5 w-2.5" style={{ background: "var(--ink-2)" }} />;
+}
+
+// The trial ruler on top and the event lanes at the bottom stay pinned to the canvas edges and
+// follow its horizontal pan and zoom, so they are always in view.
+const RULER = 22, LANE_ROW = 20, LANE_LABEL = 112;
+
+function Pinned({ widget }: { widget: LineageWidget }) {
+  const { x: tx, zoom } = useViewport();
+  const sx = (trial: number) => trial * UNIT * zoom + tx;
+  const { axis, lanes } = widget;
+  const scope = axis.scope_start != null ? sx(axis.scope_start) : null;
+  const tip = (ev: LaneEvent) => [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
+  return (
+    <>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 overflow-hidden border-b text-[10.5px] faint"
+           style={{ height: RULER, background: "color-mix(in srgb, var(--surface-1) 92%, transparent)", borderColor: "var(--rule)" }}>
+        {axis.ticks.map((tick) => (
+          <span key={tick} className="absolute top-1 -translate-x-1/2 whitespace-nowrap" style={{ left: sx(tick) }}>trial {tick}</span>
+        ))}
+      </div>
+      <div className="absolute inset-x-0 bottom-0 z-10 overflow-hidden border-t"
+           style={{ height: lanes.length * LANE_ROW + 8, background: "var(--surface-1)", borderColor: "var(--rule)" }}>
+        {scope != null && scope > 0 && (
+          <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)" }} />
+        )}
+        {axis.ticks.map((tick) => (
+          <div key={tick} className="pointer-events-none absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }} />
+        ))}
+        {lanes.map((lane, i) => (
+          <div key={lane.kind} className="absolute inset-x-0" style={{ top: 4 + i * LANE_ROW, height: LANE_ROW }}>
+            <div className="absolute inset-x-0 top-1/2" style={{ borderTop: "1px dashed var(--rule)" }} />
+            {lane.events.map((ev, j) => ev.x == null ? null : (
+              <span key={j} title={tip(ev)} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: sx(ev.x) }}>
+                <Marker kind={lane.kind} />
+              </span>
+            ))}
+            <span className="absolute left-0 top-0 flex h-full items-center whitespace-nowrap px-2 text-[10.5px] faint"
+                  style={{ width: LANE_LABEL, background: "var(--surface-1)", borderRight: "1px solid var(--rule)" }}>
+              {LANES[lane.kind] ?? lane.kind}{!lane.events.length && <span className="ml-1">· 无记录</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }
 
 function Text({ data }: NodeProps<Node<TextData>>) {
@@ -75,7 +120,7 @@ function Text({ data }: NodeProps<Node<TextData>>) {
   );
 }
 
-const nodeTypes = { version: Version, band: Band, lane: Lane, text: Text };
+const nodeTypes = { version: Version, band: Band, text: Text };
 const fixed = { draggable: false, selectable: false, connectable: false, focusable: false };
 
 export function Lineage({ widget, selected, onSelect }: {
@@ -83,16 +128,21 @@ export function Lineage({ widget, selected, onSelect }: {
 }) {
   const { nodes, edges, focus } = useMemo(() => {
     const { axis } = widget;
-    const height = (widget.rows.length + widget.lanes.length + 2) * ROW;
+    const height = (widget.rows.length + 2) * ROW;
     const out: Node[] = [];
     if (axis.scope_start != null) {
       out.push({ id: "scope", type: "band", position: { x: axis.min * UNIT, y: -ROW },
                  data: { width: (axis.scope_start - axis.min) * UNIT, label: "", scope: true },
                  style: { height }, zIndex: -3, ...fixed });
     }
+    const left = (axis.min - 4) * UNIT, span = (axis.max - axis.min + 8) * UNIT;
+    for (const r of widget.rows) {
+      if (r.row % 2) out.push({ id: `stripe-${r.row}`, type: "band", position: { x: left, y: r.row * ROW - ROW / 2 },
+                                data: { width: span, label: "", stripe: true }, style: { height: ROW }, zIndex: -4, ...fixed });
+    }
     for (const tick of axis.ticks) {
       out.push({ id: `tick-${tick}`, type: "text", position: { x: tick * UNIT, y: -ROW },
-                 data: { text: `trial ${tick}`, height }, zIndex: -2, ...fixed });
+                 data: { text: "", height }, zIndex: -2, ...fixed });
     }
     const merged: { candidate: string; row: number; x0: number; x1: number; count: number }[] = [];
     for (const b of widget.bands) {
@@ -111,18 +161,6 @@ export function Lineage({ widget, selected, onSelect }: {
       out.push({ id: n.id, type: "version", position: { x: n.x * UNIT - 6, y: n.row * ROW - 13 },
                  data: { ...n, selected: n.id === selected } satisfies VersionData });
     }
-    const laneTop = (widget.rows.length + 1) * ROW;
-    widget.lanes.forEach((lane, i) => {
-      const y = laneTop + i * ROW;
-      out.push({ id: `lane-${lane.kind}`, type: "text", position: { x: (axis.min - 12) * UNIT, y: y - 6 },
-                 data: { text: lane.events.length ? LANES[lane.kind] ?? lane.kind : `${LANES[lane.kind] ?? lane.kind}（此来源无记录）` }, ...fixed });
-      lane.events.forEach((ev, j) => {
-        if (ev.x == null) return;
-        const tip = [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
-        out.push({ id: `ev-${lane.kind}-${j}`, type: "lane", position: { x: ev.x * UNIT - 6, y: y - 6 },
-                   data: { kind: lane.kind, tip } satisfies LaneData, ...fixed });
-      });
-    });
     const links: Edge[] = widget.edges.map((e) => ({
       id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "smoothstep",
       pathOptions: { borderRadius: 10 }, style: { stroke: "var(--edge)", strokeWidth: 1.25 },
@@ -143,10 +181,8 @@ export function Lineage({ widget, selected, onSelect }: {
       onNodeClick={(_, node) => { if (node.type === "version") onSelect(node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--rule-strong)" />
-      <MiniMap pannable zoomable nodeColor={(n) => (n.type === "version" ? STATUS[(n.data as VersionData).status].color : "transparent")}
-               nodeStrokeWidth={0} bgColor="var(--surface-2)" maskColor="rgba(120, 120, 110, 0.18)"
-               style={{ width: 170, height: 110, border: "1px solid var(--rule)", borderRadius: 8 }} />
-      <Controls showInteractive={false} />
+      <Controls showInteractive={false} style={{ marginBottom: widget.lanes.length * LANE_ROW + 16 }} />
+      <Pinned widget={widget} />
     </ReactFlow>
   );
 }
