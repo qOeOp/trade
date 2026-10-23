@@ -17,8 +17,7 @@ services/research-graph/graph.py` checks, renders and compares graphs. Work in
   period under study. Redirect the output to `graph.json`.
 - `graph.py check graph.json`, then `graph.py render graph.json --out DIR`: one HTML page (an
   interactive canvas that needs a browser), rebuilt with npm when its sources changed.
-- Give the user the page path and what the graph shows, including its `gaps`: runs without
-  economic evidence carry no measures, and the graph holds no conversation or host state.
+- Give the user the page path, what the graph shows and its `gaps` (what it does not hold).
 
 ## Change the tool
 

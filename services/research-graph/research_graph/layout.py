@@ -159,7 +159,8 @@ def build_view(graph: dict) -> dict:
          "meeting_targets": sum(1 for n in nodes if n["status"] in ("meets_targets", "recommended")
                                 and n["reading"]["annual_return"] is not None
                                 and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
-                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] or 1) <= targets["max_drawdown"]))},
+                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
+                                                                and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
         {"id": "lineage", "type": "lineage/1", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
                   "scope_start": clock(start) if start else None},
