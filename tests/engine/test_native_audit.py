@@ -114,7 +114,8 @@ class NativeAuditTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        self.root = Path(self.directory.name) / "reports"  # the auditor reads the receipt from its parent
+        self.root.mkdir()
 
     def check(self, values):
         summary = values["summary"]
@@ -358,8 +359,6 @@ class NativeAuditTests(unittest.TestCase):
                                         for item in found["findings"]), found["findings"])
 
     def test_the_auditor_runs_only_on_complete_reports_and_lifecycle_counts_need_the_coverage_receipt(self):
-        self.root = Path(self.directory.name) / "reports"
-        self.root.mkdir()
         output = Path(self.directory.name) / "audit" / "audit.json"
         self.check(reports())
         self.assertIsNone(audit_main(self.root, output))
