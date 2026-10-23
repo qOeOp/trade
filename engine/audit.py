@@ -61,6 +61,8 @@ FINDINGS: dict[str, str] = {
     "REPORT_PAYLOAD_INVALID": "A report field has a wrong type, reading or arithmetic failed, or the order event "
                               "history cannot be replayed (EVENT_PAYLOAD_INVALID).",
     "ORDER_EVENT_HISTORY_MISSING": "The report directory has no order event history.",
+    "TRADE_START_INVALID": "Runner-owned per-strategy trading starts are missing, invalid or inconsistent with inputs.",
+    "ORDER_BEFORE_TRADE_START": "An order was submitted or emulated before its strategy instance's trading start.",
     "EVENT_ORDER_SET_MISMATCH": "The event history and the orders report hold different orders.",
     "EVENT_NOT_INITIALIZED": "An order's events do not start with exactly one initialization.",
     "EVENT_OUT_OF_ORDER": "An order's events go back in time.",
@@ -162,6 +164,57 @@ def _ns_utc(value: int) -> str:
 def read_order_events(path: Path) -> list[dict]:
     with gzip.open(path, "rt", encoding="utf-8") as stream:
         return [json.loads(line) for line in stream]
+
+
+def submission_findings(events: list[dict], summary: dict, coverage: dict | None = None) -> list[str]:
+    """engine.submission_findings: native submissions obey their submitting instance's runner-owned start.
+
+    Initialization is preparation, not submission. OrderEmulated is the native acknowledgement of
+    submission to the emulator, which need not produce OrderSubmitted until much later (or ever).
+    """
+    from engine.config import Refusal, parse_window
+    from engine.load import strategy_id
+    starts = summary.get("trade_start_by_strategy")
+    try:
+        window = parse_window(summary["input_start_utc"], summary["period_start_utc"], summary["period_end_utc"])
+        if not isinstance(starts, dict) or not starts:
+            raise ValueError("summary has no runner-owned trade_start_by_strategy")
+        if any(not isinstance(key, str) or not key or type(value) is not int
+               or not window.trade_start_ns <= value < window.end_ns for key, value in starts.items()):
+            raise ValueError("instance starts must be integer nanoseconds inside the trading window")
+        if coverage is not None:
+            config = coverage["effective_config"]
+            trusted = parse_window(config["start"], config["trade_start"], config["end"])
+            if trusted != window:
+                raise ValueError("summary window differs from the input coverage receipt")
+            expected = {}
+            for symbol, receipt in coverage["export_receipts"].items():
+                for piece in receipt["pieces"]:
+                    key = strategy_id(symbol, piece.get("index"))
+                    if key in expected:
+                        raise ValueError(f"duplicate exported strategy instance {key}")
+                    expected[key] = max(window.trade_start_ns, (piece.get("episode") or {}).get("start_ns") or 0)
+            if any(key not in expected or value < expected[key] for key, value in starts.items()):
+                raise ValueError("instance start has no exported identity or precedes its listing")
+    except (Refusal, KeyError, TypeError, ValueError, AttributeError) as exc:
+        return [finding("TRADE_START_INVALID", str(exc))]
+    findings, seen = [], set()
+    for event in events:
+        if event["type"] not in {"OrderSubmitted", "OrderEmulated"}:
+            continue
+        strategy, order = event["strategy_id"], event["client_order_id"]
+        if order in seen:
+            continue
+        start = starts.get(strategy)
+        if start is None:
+            findings.append(finding("TRADE_START_INVALID", f"{order} submitted by unplanned instance {strategy}"))
+            seen.add(order)
+        elif int(event["ts_event"]) < start:
+            findings.append(finding("ORDER_BEFORE_TRADE_START", f"{order} ({strategy}, {event['instrument_id']}) "
+                                    f"{event['type']} at {_ns_utc(int(event['ts_event']))}, "
+                                    f"before {_ns_utc(start)}"))
+            seen.add(order)
+    return findings
 
 
 def event_report_findings(events: list[dict], orders: list[dict], fills: list[dict]) -> list[str]:
@@ -492,7 +545,7 @@ def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positio
     names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
              ORDER_EVENTS)
     return {"run": str(run_dir),
-            "scope": "native report identity, links, protection history and reported economics",
+            "scope": "native report identity, links, submission timing, protection history and reported economics",
             "file_sha256": {name: _sha(run_dir / name) for name in names if (run_dir / name).is_file()},
             "native_orders": len(orders), "native_fills": len(fills), "native_positions": len(positions),
             "native_economics": economics, **(protection or {}),
@@ -546,6 +599,8 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
     try:
         protection_findings, protection_info = protection(run_dir, orders, fills, summary)
         findings.extend(protection_findings)
+        events = read_order_events(run_dir / ORDER_EVENTS) if (run_dir / ORDER_EVENTS).is_file() else []
+        coverage = None
         # Lifecycle: rebuilt from the coverage receipt beside the reports (engine.lifecycle_events), then
         # checked against the reports (engine.lifecycle_findings).
         counted = [str(coin.get("instrument")) for coin in summary.get("per_coin") or []
@@ -567,8 +622,8 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
             except (OSError, UnicodeDecodeError, ValueError) as exc:
                 findings.append(finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}"))
             else:
-                events = read_order_events(run_dir / ORDER_EVENTS) if (run_dir / ORDER_EVENTS).is_file() else []
                 findings.extend(lifecycle_findings(lifecycle, orders, fills, positions, events, coverage))
+        findings.extend(submission_findings(events, summary, coverage))
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:

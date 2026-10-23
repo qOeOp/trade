@@ -147,6 +147,7 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
         start_ns = int(START.timestamp() * 1e9)
         venue = Venue(account["venue"])
         finished = SimpleNamespace(
+            trade_start_by_strategy={str(strategy.strategy_id): start_ns},
             cache=engine.cache, portfolio=engine.portfolio, result=SimpleNamespace(returns_series={}),
             observer=SimpleNamespace(timestamps=BARS, findings=[], lifecycle={}),
             orders=engine.generate_orders_report, fills=engine.generate_fills_report,

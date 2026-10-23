@@ -604,8 +604,9 @@ def mark_timestamps(rows: list[dict]) -> int:
 class Replay:
     """One finished engine run: its native reports, cache, portfolio, result and observer."""
 
-    def __init__(self, engine: BacktestEngine, result, observer: CapitalObserver):
+    def __init__(self, engine: BacktestEngine, result, observer: CapitalObserver, trade_start_by_strategy: dict[str, int]):
         self.engine, self.result, self.observer = engine, result, observer
+        self.trade_start_by_strategy = trade_start_by_strategy
         self.cache = engine.cache
         self.portfolio = engine.portfolio
 
@@ -834,6 +835,8 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     daily warm-up) holds in the window, and exactly one capital observer; afterwards the native result
     is checked against the receipts. Returns (Replay, instances by coin, limitations)."""
     planned, limitations = plan_instances(rows, window, strategy)
+    # Keep the trusted plan outside source instances: their attributes and diagnostics are mutable.
+    trade_start_by_strategy = {row["strategy_id"]: start for row, _, start in planned}
     limitations += terms_approximations(rows, window.end_ns)
     account = ACCOUNT_CONTRACT
     engine = BacktestEngine(BacktestEngineConfig(
@@ -873,7 +876,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     if len(OBSERVERS) != 1:
         raise Refusal("OBSERVER_COUNT_MISMATCH", "the native capital observer did not start exactly once")
     strategies = {row["coin"]: STRATEGIES.get(str(row["instrument_id"])) for row in rows}
-    finished = Replay(engine, result, OBSERVERS[0])
+    finished = Replay(engine, result, OBSERVERS[0], trade_start_by_strategy)
     finished.observer.finish(finished.cache)
     return finished, strategies, limitations
 
