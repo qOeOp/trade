@@ -88,7 +88,8 @@ const AXIS = 22, LANE_ROW = 20, GUTTER = 150;
 function Timeline({ widget }: { widget: LineageWidget }) {
   const { x: tx, zoom } = useViewport();
   const sx = (trial: number) => trial * UNIT * zoom + tx;
-  const { axis, lanes } = widget;
+  const { axis } = widget;
+  const lanes = widget.lanes.filter((lane) => lane.events.length);  // a lane with nothing recorded is left out
   const scope = axis.scope_start != null ? sx(axis.scope_start) : null;
   const height = AXIS + lanes.length * LANE_ROW + 10;
   const tip = (ev: LaneEvent) => [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
@@ -118,7 +119,6 @@ function Timeline({ widget }: { widget: LineageWidget }) {
                style={{ top: AXIS + 4 + i * LANE_ROW, height: LANE_ROW }}>
             <span className="flex w-3.5 justify-center"><Marker kind={lane.kind} /></span>
             <span className="muted">{LANES[lane.kind] ?? lane.kind}</span>
-            {!lane.events.length && <span className="text-[10px] faint">无记录</span>}
           </div>
         ))}
       </div>
