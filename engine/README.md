@@ -196,6 +196,10 @@ position larger than that for longer than one one-minute bar fails the run; `aud
 such interval in `uncovered_intervals` with its start, end, quantities, the orders filled into the
 position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS = False` (recorded
 as `strategy_uses_stop_loss` in `summary.json`) gets the same list without the refusal.
+Shortfalls lasting at most one minute are neither refused nor listed; passing this audit does not
+prove continuous protection. This stop-coverage threshold is separate from the entry cutoff, which
+has no one-bar tolerance. Partial-fill quantities already reconcile through native events and
+reports; the source restores protection from the actual native position minus working stop coverage.
 
 The auditor (`python -m engine.audit --run REPORTS --output FILE`) exits 0 when the run passes, 1
 with findings (the result is written) and 2 without auditing when a report or the event history is
@@ -225,8 +229,12 @@ ones are counted in one `receipt_overflow` record, so a callback failing on ever
 The file is rewritten when a record is new or its count reaches a power of two, and once more when
 the runner ends. Without a failure the file is not written.
 
-The auditor does not prove a source's signal clock, order geometry, staged-exit races or other source-specific invariants: the strategy checks those in
-`replay_integrity_findings`, or a native probe does before the property is claimed.
+The auditor does not prove a source's signal clock, order geometry, staged-exit races or other
+source-specific invariants. Native order events prove submission and fill times, but cannot
+independently prove when an arbitrary strategy decided; a self-reported decision timestamp is not
+an independent audit. Source contracts, native precheck evidence and independent source review
+continue to cover causal clocks. Source-specific integrity checks and native probes provide evidence
+for their stated properties before those properties are claimed.
 
 The fingerprint stage (`python -m engine.compare`) reads the reports and writes only
 `fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
