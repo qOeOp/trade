@@ -82,7 +82,7 @@ function Marker({ kind }: { kind: string }) {
 
 // The trial ruler on top and the event lanes at the bottom stay pinned to the canvas edges and
 // follow its horizontal pan and zoom, so they are always in view.
-const RULER = 22, LANE_ROW = 20, LANE_LABEL = 112;
+const RULER = 22, LANE_ROW = 20;
 
 function Pinned({ widget }: { widget: LineageWidget }) {
   const { x: tx, zoom } = useViewport();
@@ -90,33 +90,35 @@ function Pinned({ widget }: { widget: LineageWidget }) {
   const { axis, lanes } = widget;
   const scope = axis.scope_start != null ? sx(axis.scope_start) : null;
   const tip = (ev: LaneEvent) => [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
+  const veil = "color-mix(in srgb, var(--surface-1) 82%, transparent)";
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 overflow-hidden border-b text-[10.5px] faint"
-           style={{ height: RULER, background: "color-mix(in srgb, var(--surface-1) 92%, transparent)", borderColor: "var(--rule)" }}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 overflow-hidden text-[10.5px] faint"
+           style={{ height: RULER, background: `linear-gradient(to bottom, ${veil} 70%, transparent)` }}>
         {axis.ticks.map((tick) => (
           <span key={tick} className="absolute top-1 -translate-x-1/2 whitespace-nowrap" style={{ left: sx(tick) }}>trial {tick}</span>
         ))}
       </div>
-      <div className="absolute inset-x-0 bottom-0 z-10 overflow-hidden border-t"
-           style={{ height: lanes.length * LANE_ROW + 8, background: "var(--surface-1)", borderColor: "var(--rule)" }}>
+      <div className="absolute inset-x-0 bottom-0 z-10 overflow-hidden"
+           style={{ height: lanes.length * LANE_ROW + 14, background: `linear-gradient(to top, ${veil} 85%, transparent)`,
+                    backdropFilter: "blur(1.5px)" }}>
         {scope != null && scope > 0 && (
-          <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)" }} />
+          <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)", opacity: 0.55 }} />
         )}
         {axis.ticks.map((tick) => (
           <div key={tick} className="pointer-events-none absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }} />
         ))}
         {lanes.map((lane, i) => (
-          <div key={lane.kind} className="absolute inset-x-0" style={{ top: 4 + i * LANE_ROW, height: LANE_ROW }}>
-            <div className="absolute inset-x-0 top-1/2" style={{ borderTop: "1px dashed var(--rule)" }} />
+          <div key={lane.kind} className="absolute inset-x-0" style={{ top: 10 + i * LANE_ROW, height: LANE_ROW }}>
+            <div className="pointer-events-none absolute inset-x-0 top-1/2" style={{ borderTop: "1px solid var(--rule)" }} />
             {lane.events.map((ev, j) => ev.x == null ? null : (
               <span key={j} title={tip(ev)} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: sx(ev.x) }}>
                 <Marker kind={lane.kind} />
               </span>
             ))}
-            <span className="absolute left-0 top-0 flex h-full items-center whitespace-nowrap px-2 text-[10.5px] faint"
-                  style={{ width: LANE_LABEL, background: "var(--surface-1)", borderRight: "1px solid var(--rule)" }}>
-              {LANES[lane.kind] ?? lane.kind}{!lane.events.length && <span className="ml-1">· 无记录</span>}
+            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1.5 text-[10.5px] faint"
+                  style={{ background: veil }}>
+              {LANES[lane.kind] ?? lane.kind}{!lane.events.length && " · 此来源无记录"}
             </span>
           </div>
         ))}
