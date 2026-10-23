@@ -8,10 +8,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@number-flow/react": "^0.6.2",
+    "@tanstack/react-table": "^9.3.1",
+    "@visx/axis": "^4.0.0",
+    "@visx/group": "^4.0.0",
+    "@visx/scale": "^4.0.0",
+    "@visx/shape": "^4.0.0",
     "@xyflow/react": "12.11.3",
+    "cmdk": "^1.1.1",
     "lucide-react": "1.28.0",
+    "radix-ui": "^1.8.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-resizable-panels": "^4.14.8",
+    "tinykeys": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",

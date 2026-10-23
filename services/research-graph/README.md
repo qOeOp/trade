@@ -42,6 +42,7 @@ research units, never pixels.
 | `summary/1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
 | `lineage/2` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `marks` (eligibility changes on the row of the reviewed version), `rug` (every event once on the axis, with the version it is about), `history` (research runs' annual returns and the recommended version's return per trail segment) |
 | `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
+| `table/1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
 | `notes/1` | `items`: plain notes (the graph's `gaps`) |
 | `candidate-detail/1` | `default` and `items`: the graph's candidate records with `status_class` and `prediction_class` |
 
@@ -53,15 +54,19 @@ type; a changed widget is a new version of its type.
 
 A renderer is a package under `research_graph/renderers/` whose `render.py` defines
 `render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
-`web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind; its own
-npm toolchain). The lineage is one figure on the trial axis: a canvas that pans, zooms and lets nodes be
-dragged, with the recommendation trail and the events drawn on the rows they concern, a sticky ruler
-with every event as a rug above it and a strip of research-run returns below it; hovering any mark
-highlights its version everywhere, and `#<version>` in the address opens on that version. A one-line
-summary bar sits above, a drawer with the selected version beside it and a dock with the other
-widgets below. The renderer injects `view.json` into the built page and
-rebuilds it whenever the sources under `web/` differ from the ones it was built from
-(`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs JavaScript, so
-it opens in a browser. A new widget type is a component registered in `web/src/widgets/registry.tsx`
+`web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
+primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets only; its own npm
+toolchain), laid out like an IDE. The lineage is one figure on the trial axis: a canvas that pans,
+zooms and lets nodes be dragged, with each version's role shown by its mark's shape, the
+recommendation trail and the events drawn on the rows they concern, a sticky ruler with every event
+as a rug and a strip of research-run returns below. A title bar carries the current recommendation's
+readout, a resizable bottom panel holds the version table, the return/drawdown scatter (with the
+non-dominated frontier) and the data gaps, and an inspector on the right holds the selected version.
+Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `.`
+centres the current recommendation; `#<version>` in the address opens on that version. Panel sizes
+and the theme are kept in browser storage when it is available. The renderer injects `view.json`
+into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
+built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
+JavaScript, so it opens in a browser. A new widget type is a component registered in `web/src/widgets/registry.tsx`
 with the region it lives in (bar, canvas, drawer or dock); a type the page does not know becomes a
 dock tab that names it.

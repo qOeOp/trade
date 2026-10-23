@@ -1,7 +1,7 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (summary/1, lineage/2, scatter/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
+versioned type (summary/1, lineage/2, scatter/1, table/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
@@ -127,7 +127,7 @@ def build_view(graph: dict) -> dict:
         runs = research_runs(c)
         last = runs[-1] if runs else {}
         nodes.append({"id": c["id"], "row": row[c["id"]], "x": x_of(c), "status": status(c, targets),
-                      "change": c.get("change"),
+                      "role": c.get("status"), "change": c.get("change"),
                       "prediction": prediction(c),
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
     events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
@@ -195,12 +195,17 @@ def build_view(graph: dict) -> dict:
                      "max_drawdown": t["max_drawdown"], "eligible": t.get("eligible"), "status": status_of[c["id"]]}
                     for c in candidates for t in research_runs(c)
                     if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
+        {"id": "versions", "type": "table/1", "slot": "main", "title": "版本表", "targets": targets,
+         "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
+                   "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
+                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}}
+                  for c in candidates]},
         {"id": "gaps", "type": "notes/1", "slot": "main", "title": "这份数据缺什么", "items": graph["gaps"]},
         {"id": "details", "type": "candidate-detail/1", "slot": "side",
          "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
          "items": [{**c, "status_class": status_of[c["id"]], "prediction_class": prediction_of[c["id"]]}
                    for c in candidates]},
     ]
-    return {"format": VIEW_FORMAT, "source": graph["source"], "line": graph["line"], "targets": targets,
+    return {"format": VIEW_FORMAT, "source": graph["source"], "scope": graph.get("scope"), "line": graph["line"], "targets": targets,
             "counts": {"candidates": len(candidates), "research_runs": sum(len(research_runs(c)) for c in candidates)},
             "widgets": widgets}

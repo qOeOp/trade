@@ -1,40 +1,93 @@
 @import "tailwindcss";
 
-/* Tokens: surfaces, ink and the validated status slots (dataviz reference palette), light and dark. */
+/* Fonts: the Latin subsets only (inlined into the single page); CJK falls back to system fonts. */
+@font-face {
+  font-family: "Inter Variable"; font-style: normal; font-display: block; font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "JetBrains Mono Variable"; font-style: normal; font-display: block; font-weight: 100 800;
+  src: url("../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+/* Tokens. Neutrals carry structure and text; four hues carry meaning, validated for colour-vision
+   deficiency on each surface: --meet (reading meets its target), --miss (misses it), --accent (the
+   recommendation), --fail (a failed review). Elevation steps lightness only. */
 :root {
   color-scheme: light;
-  --surface-0: #f5f5f2; --surface-1: #fcfcfb; --surface-2: #ffffff; --stripe: #f3f2ee;
-  --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #8a8983; --rule: #e1e0d9; --rule-strong: #c9c8bf;
-  --s-recommended: #eda100; --s-meets: #1baf7a; --s-below: #2a78d6; --s-failed: #e34948; --s-masked: #b9b8b0;
-  --band: #fbeccb; --scope: #efeee8; --edge: #a9a8a0; --ok-zone: #1baf7a;
+  --bg: #f7f7f4; --panel: #fcfcfa; --raised: #ffffff; --sunken: #f1f0ec; --stripe: #f4f3ef; --scope: #ecebe5;
+  --ink-1: #16161a; --ink-2: #4f4e57; --ink-3: #8b8a92; --ink-4: #b8b7bd;
+  --rule: #e4e3de; --rule-2: #d3d2cb; --edge: #b0afb6; --focus: #16161a;
+  --meet: #2f6fdf; --miss: #d97506; --accent: #7c4dff; --fail: #d6403a;
+  --accent-wash: #efe9ff; --accent-line: #c9b8ff; --hover: rgba(22, 22, 26, 0.045);
+  --ease: cubic-bezier(0.2, 0, 0.38, 0.9); --ease-in: cubic-bezier(0, 0, 0.38, 0.9);
+  --t-fast: 110ms; --t-mid: 180ms; --t-slow: 240ms;
 }
 @media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #222220; --stripe: #1f1f1d;
-    --ink-1: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86; --rule: #2f2f2c; --rule-strong: #45443f;
-    --s-recommended: #c98500; --s-meets: #199e70; --s-below: #3987e5; --s-failed: #e66767; --s-masked: #5f5e58;
-    --band: #3a2f17; --scope: #20201e; --edge: #5f5e58; --ok-zone: #199e70;
+    --bg: #111113; --panel: #17171a; --raised: #1d1d21; --sunken: #141416; --stripe: #1a1a1d; --scope: #1f1f23;
+    --ink-1: #ededf0; --ink-2: #b4b3bc; --ink-3: #85848d; --ink-4: #56555d;
+    --rule: #26262b; --rule-2: #34343a; --edge: #4d4c55; --focus: #ededf0;
+    --meet: #5b8ff0; --miss: #d47a1c; --accent: #8a68f5; --fail: #e5605a;
+    --accent-wash: #241d3d; --accent-line: #4b3a8f; --hover: rgba(237, 237, 240, 0.05);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #222220; --stripe: #1f1f1d;
-  --ink-1: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86; --rule: #2f2f2c; --rule-strong: #45443f;
-  --s-recommended: #c98500; --s-meets: #199e70; --s-below: #3987e5; --s-failed: #e66767; --s-masked: #5f5e58;
-  --band: #3a2f17; --scope: #20201e; --edge: #5f5e58; --ok-zone: #199e70;
+  --bg: #111113; --panel: #17171a; --raised: #1d1d21; --sunken: #141416; --stripe: #1a1a1d; --scope: #1f1f23;
+  --ink-1: #ededf0; --ink-2: #b4b3bc; --ink-3: #85848d; --ink-4: #56555d;
+  --rule: #26262b; --rule-2: #34343a; --edge: #4d4c55; --focus: #ededf0;
+  --meet: #5b8ff0; --miss: #d47a1c; --accent: #8a68f5; --fail: #e5605a;
+  --accent-wash: #241d3d; --accent-line: #4b3a8f; --hover: rgba(237, 237, 240, 0.05);
 }
 
+html, body, #root { height: 100%; }
 body {
-  margin: 0;
-  background: var(--surface-0);
-  color: var(--ink-1);
-  font: 13px/1.5 ui-sans-serif, -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
-  font-variant-numeric: tabular-nums;
+  margin: 0; background: var(--bg); color: var(--ink-1);
+  font: 13px/1.45 "Inter Variable", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-feature-settings: "tnum", "cv11", "ss02"; -webkit-font-smoothing: antialiased;
 }
-.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-.card { background: var(--surface-1); border: 1px solid var(--rule); border-radius: 14px; }
+.mono { font-family: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace; font-feature-settings: "tnum", "zero"; }
 .muted { color: var(--ink-2); }
 .faint { color: var(--ink-3); }
-.react-flow { --xy-background-color: var(--surface-1); --xy-minimap-background-color: var(--surface-2); }
+.ghost { color: var(--ink-4); }
+.label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 3px; }
+
+/* Interactive chrome: one hover wash, quick and interruptible. */
+.press { transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); border-radius: 4px; }
+.press:hover { background: var(--hover); color: var(--ink-1); }
+.kbd { font: 10px/1 "JetBrains Mono Variable", ui-monospace, monospace; padding: 2px 4px; border-radius: 3px;
+       border: 1px solid var(--rule-2); color: var(--ink-3); background: var(--raised); }
+
+/* Resizable panels: a 1px rule that thickens to the focus colour while dragged or hovered. */
+[data-separator] { background: var(--rule); transition: background-color var(--t-fast) var(--ease); }
+[data-separator]:hover, [data-separator][data-separator-state="drag"] { background: var(--accent-line); }
+[data-separator][aria-orientation="vertical"] { width: 1px; }
+[data-separator][aria-orientation="horizontal"] { height: 1px; }
+
+/* Tooltips, popovers and the command palette share one raised surface and an entrance. */
+.float { background: var(--raised); border: 1px solid var(--rule-2); border-radius: 6px; color: var(--ink-1);
+         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+         animation: enter var(--t-mid) var(--ease-in); }
+@keyframes enter { from { opacity: 0; transform: translateY(2px) scale(0.985); } }
+.tip { max-width: 280px; padding: 6px 8px; font-size: 11.5px; line-height: 1.45; }
+
+/* Linked highlight: elements carry data-v; one rule dims the rest (see hover.ts). */
+.rg [data-v] { transition: opacity var(--t-fast) var(--ease); }
+
+.react-flow { --xy-background-color: var(--panel); --xy-minimap-background-color: var(--raised);
+              --xy-controls-button-background-color: var(--raised); --xy-controls-button-border-color: var(--rule);
+              --xy-controls-button-color: var(--ink-2); --xy-controls-button-background-color-hover: var(--sunken); }
+.react-flow__controls { box-shadow: none; border: 1px solid var(--rule-2); border-radius: 6px; overflow: hidden; }
+.react-flow__minimap { border: 1px solid var(--rule-2); border-radius: 6px; overflow: hidden; }
 .react-flow__attribution { display: none; }
+.react-flow__node { transition: opacity var(--t-fast) var(--ease); }
+
+[cmdk-item][data-selected="true"] { background: var(--hover); color: var(--ink-1); }
+[cmdk-group-heading] { padding: 8px 10px 4px; font-size: 10.5px; letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}

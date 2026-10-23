@@ -1,28 +1,48 @@
+import NumberFlow from "@number-flow/react";
+type Format = React.ComponentProps<typeof NumberFlow>["format"];
 import type { SummaryWidget } from "../types";
-import { pct, ratio } from "../format";
+import { meets, readingColor } from "../format";
+import { requestFocus } from "../store";
+import { RoleMark, Tip } from "../ui";
 
-// One line in the top bar: the current recommendation against the targets and how long it held.
+const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
+
+function Metric({ label, children, tip }: { label: string; children: React.ReactNode; tip?: React.ReactNode }) {
+  const body = (
+    <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+      <span className="text-[11px] faint">{label}</span><span className="mono text-[12.5px] font-medium">{children}</span>
+    </span>
+  );
+  return tip ? <Tip content={tip} side="bottom">{body}</Tip> : body;
+}
+
+// The title bar's readout: the current recommendation against the targets, how long it has held,
+// and how many trials it was chosen from (the multiple-testing context of "best").
 export function SummaryBar({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading ?? { annual_return: null, max_drawdown: null, sharpe: null, win_rate: null };
-  const meets = (v: number | null, target: number | null | undefined, higher: boolean) =>
-    v == null || target == null ? "var(--ink-1)" : (higher ? v >= target : v <= target) ? "var(--s-meets)" : "var(--s-failed)";
-  const item = (label: string, value: React.ReactNode, title?: string) => (
-    <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap" title={title}>
-      <span className="text-[11px] faint">{label}</span><span className="font-semibold">{value}</span>
-    </span>
-  );
+  const num = (v: number | null, format: Format) => v == null ? "—" : <NumberFlow value={v} format={format} />;
   return (
-    <div className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-[13px]">
-      {item("当前推荐", <span className="mono">{widget.recommended ?? "—"}</span>)}
-      {item("年化", <span style={{ color: meets(r.annual_return, t.annual_return, true) }}>{pct(r.annual_return)}</span>, `目标 ≥ ${pct(t.annual_return)}`)}
-      {item("回撤", <span style={{ color: meets(r.max_drawdown, t.max_drawdown, false) }}>{pct(r.max_drawdown)}</span>, `目标 ≤ ${pct(t.max_drawdown)}`)}
-      {item("夏普", ratio(r.sharpe))}
-      {item("推荐未变", `${widget.runs_since_recommendation_changed} 次运行`,
-            `最近 ${widget.recommendations_unchanged} / ${widget.recommendations} 条推荐判断未换版本`)}
-      {item("版本", `${widget.versions} · 回放 ${widget.research_runs}`)}
-      {item("达标版本", widget.meeting_targets)}
-      {item("失去资格", `${widget.masked_runs} 次运行`)}
+    <div className="flex min-w-0 items-center gap-x-5 overflow-hidden">
+      {widget.recommended && (
+        <button className="press inline-flex items-center gap-1.5 px-1 py-0.5" onClick={() => requestFocus(widget.recommended!)}>
+          <RoleMark role="recommended" size={12} />
+          <span className="mono text-[12.5px] font-semibold">{widget.recommended}</span>
+        </button>
+      )}
+      <Metric label="年化" tip={`目标 ≥ ${t.annual_return != null ? (t.annual_return * 100).toFixed(2) + "%" : "—"}`}>
+        <span style={{ color: readingColor(meets(r.annual_return, t.annual_return, true)) }}>{num(r.annual_return, percent)}</span>
+      </Metric>
+      <Metric label="回撤" tip={`目标 ≤ ${t.max_drawdown != null ? (t.max_drawdown * 100).toFixed(2) + "%" : "—"}`}>
+        <span style={{ color: readingColor(meets(r.max_drawdown, t.max_drawdown, false)) }}>{num(r.max_drawdown, percent)}</span>
+      </Metric>
+      <Metric label="夏普">{num(r.sharpe, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}</Metric>
+      <Metric label="选自" tip="被推荐的读数是从这么多次研究运行里挑出来的；挑得越多，最好的那个越可能偏高。">
+        {widget.research_runs} 次运行
+      </Metric>
+      <Metric label="推荐未变" tip={`最近 ${widget.recommendations_unchanged} / ${widget.recommendations} 条推荐判断没有换版本`}>
+        {widget.runs_since_recommendation_changed} 次运行
+      </Metric>
     </div>
   );
 }
