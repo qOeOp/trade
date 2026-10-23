@@ -112,7 +112,7 @@ export is `docs-site/out`.
 ## Repository map
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and where things go.
-- [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence` and `product-doctor`; `.claude/skills` links here.
+- [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence`, `research-graph` and `product-doctor`; `.claude/skills` links here.
 - [`evals/`](evals/): one eval suite per skill (`evals/<skill>/<case>/`), run with `claude plugin eval .` from the repository root, whose [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) loads `.agents/skills` as one plugin; results go to the ignored `evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
@@ -121,6 +121,7 @@ export is `docs-site/out`.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`market/`](market/): the Binance market database, its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
+- [`services/research-graph/`](services/research-graph/): the stdlib tool of the `research-graph` skill: the research graph format, the view-model layout, replaceable renderers and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
 

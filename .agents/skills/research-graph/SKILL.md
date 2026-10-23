@@ -1,0 +1,30 @@
+---
+name: research-graph
+description: Draws a research line from the research ledger as a graph - the lineage of strategy versions over trial numbers with their replays, predictions, source reviews, recommendations and eligibility changes - rendered as a local page. Use whenever the user asks to draw, chart, visualize or show as a graph or diagram (画图、图、可视化、谱系) a research line's history, progress or decision path.
+---
+
+# Research graph
+
+`research graph` (`--help`) reads a line from the ledger only and prints a `research-graph/1`
+document; the same ledger commit always gives the same graph. `python3
+services/research-graph/graph.py` (standard library) checks, renders and compares graphs. Work in
+`/tmp/research-graph-<line>/`; graphs and pages are working copies, never ledger records.
+
+## Draw a line
+
+- Read the user's two targets from the line note (`research state`) and pass them as
+  `--max-drawdown` and `--annual-return`; add `--since COMMIT` to shade what came before the
+  period under study. Redirect the output to `graph.json`.
+- `graph.py check graph.json`, then `graph.py render graph.json --out DIR`. `--renderer web` (an
+  interactive canvas, for a browser) is the page to hand the user; `--renderer static` (no script)
+  is for previews that block scripts.
+- Give the user the page path and what the graph shows, including its `gaps`: runs without
+  economic evidence carry no measures, and the graph holds no conversation or host state.
+
+## Change the tool
+
+- A new renderer is a package `services/research-graph/research_graph/renderers/<name>/` whose
+  `render.py` defines `render(view, out_dir) -> Path` and reads only the view model.
+- A new chart is a new widget type in the layout; a changed widget is a new version of its type.
+- A new fact in the graph is a new graph format version, changed together in the schema,
+  `research graph`, the layout, the comparison and product-doctor's fidelity test.

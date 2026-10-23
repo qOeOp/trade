@@ -1,0 +1,420 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research-graph/1",
+  "title": "Research graph",
+  "description": "One research line rebuilt from one source. Every field is one the research ledger records or derives; conversation and host state are not part of a graph. Unknown values are null, never guessed.",
+  "type": "object",
+  "required": [
+    "format",
+    "source",
+    "line",
+    "candidates",
+    "events",
+    "gaps"
+  ],
+  "properties": {
+    "format": {
+      "const": "research-graph/1"
+    },
+    "source": {
+      "enum": [
+        "ledger",
+        "session"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "description": "What the source covers: the ledger commit read and the start and end of the period.",
+      "properties": {
+        "ledger_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "required": [
+        "bundle"
+      ],
+      "properties": {
+        "bundle": {
+          "type": "string"
+        },
+        "start": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "window": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "market_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targets": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "max_drawdown": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "annual_return": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "strategy_id@revision"
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duties": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "hypothesis": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "predictions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "measure": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "direction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "enum": [
+                    "held",
+                    "failed",
+                    "untestable",
+                    null
+                  ]
+                }
+              }
+            }
+          },
+          "registration": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "control_trial": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "trials": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "required": [
+                "trial_id",
+                "purpose"
+              ],
+              "properties": {
+                "trial_id": {
+                  "type": "integer"
+                },
+                "purpose": {
+                  "enum": [
+                    "precheck",
+                    "research",
+                    "explore",
+                    "validation"
+                  ]
+                },
+                "status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "annual_return": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "max_drawdown": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "sharpe": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "win_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "eligible": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "ineligible_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "comparison": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "vs_trial": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "mean_daily_log_difference": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "detectable": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "interval_crosses_zero": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "reviews": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "bundle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "verdict": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    null
+                  ]
+                },
+                "failed_items": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "interpretation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "recommended",
+              "kept_reference",
+              "superseded",
+              "abandoned",
+              "masked",
+              "precheck_failed",
+              "unrun",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "recommendation",
+              "priority",
+              "interpretation",
+              "line_change",
+              "eligibility_change",
+              "other"
+            ]
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recommends": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What the source could not provide, and how derived values were derived."
+    }
+  }
+}

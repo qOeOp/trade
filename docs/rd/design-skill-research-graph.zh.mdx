@@ -1,0 +1,26 @@
+# 研究图：research-graph
+
+从研究账本把一条研究线画成图：按试验编号排开的策略版本谱系，以及回放、预测、源码审阅、推荐与资格变化，渲染成本地页面。检验账本能否还原会话的反向测试归 product-doctor（[references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)），复用这里的数据格式与对比工具。
+
+## `SKILL.md` [#def-file-research-graph-SKILL-md]
+
+**触发**　用户要看、要画一条研究线的历史、进展或决策路径。
+
+**职责**
+
+1. 图由产品命令 `research graph` 只从账本读出：只组合产品已有的读取函数、不加自己的规则，同一账本提交永远得到同一张图；用户的两个目标由调用者从路线备注读出后传入。
+2. 图须通过 `graph.py check`；不为迁就数据放宽格式。
+3. 用 `graph.py render` 出页面，交给用户时说明图里显示了什么、缺什么。
+4. 新渲染器只读视图模型；新图表是新的 widget 类型；图的新事实是新的格式版本，格式、`research graph`、布局、对比与 product-doctor 的反向测试一起改。
+
+## 工具：services/research-graph
+
+| 阶段 | 输入 → 输出 | 负责 |
+|---|---|---|
+| 抽取 | 账本 → graph.json | 一条研究线在账本里的全部记录（产品命令 `research graph`） |
+| 格式 | graph.json（research-graph/1）→ 问题清单 | 图的形状（schema/graph.schema.json） |
+| 布局 | graph.json → view.json（research-graph-view/1） | 画什么、放在哪，以试验编号和行为单位，不含像素；按 widget 分块（lineage/1、scatter/1、notes/1、candidate-detail/1），每块自带类型、版本与位置 |
+| 渲染 | view.json → 文件 | 像素、颜色、文字与交互；static 渲染器输出不含脚本的单个 HTML |
+| 对比 | 两份 graph.json → 差异 | 哪些事实不同，不做归类（供 product-doctor 的反向测试） |
+
+阶段之间只通过这些文件交接，任一阶段可单独替换；更细腻的渲染器（如每种 widget 对应一个 React 组件，由 web server 经 HTTP 收发 widget 文档；server 只提供视图，不读写账本）读取同样的 widget，static 保留为无依赖的后备。

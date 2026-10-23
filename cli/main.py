@@ -1015,7 +1015,7 @@ def _parser() -> Parser:
     command.add_argument("--trial-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
-    research = verbs("research", "research facts: status, state")
+    research = verbs("research", "research facts: status, state, graph")
     command = research.add_parser("status", help="research fact counts and the line's comparison table")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle of the comparison table (default: the current line)")
@@ -1030,6 +1030,16 @@ def _parser() -> Parser:
     command.add_argument("--full", action="store_true",
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
+    _at(command)
+    command = research.add_parser("graph", help="the line as a research-graph/1 document, read from the ledger only")
+    command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
+                      "targets are the user's, read from the line note; --since marks where the scope under study "
+                      "starts. Check, render and compare it with services/research-graph/graph.py. Writes nothing.")
+    _ledger_option(command)
+    command.add_argument("--line", help="research line bundle (default: the current line)")
+    command.add_argument("--since", help="ledger commit where the scope under study starts")
+    command.add_argument("--max-drawdown", type=float, help="the user's maximum drawdown target as a fraction (0.15)")
+    command.add_argument("--annual-return", type=float, help="the user's minimum annual return target as a fraction (0.20)")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -1243,6 +1253,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
                                   history_before=args.history_before, full=args.full), 0
+    if key == ("research", "graph"):
+        from report import graph
+        return graph.research_graph(profile, args.line, args.at, since=args.since, max_drawdown=args.max_drawdown,
+                                    annual_return=args.annual_return), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

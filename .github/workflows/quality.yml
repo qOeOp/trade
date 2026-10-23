@@ -23,7 +23,7 @@ jobs:
       - name: Lint with ruff (pyproject configuration)
         run: uv run --frozen ruff check .
       - name: Type-check the product packages with mypy (pyproject configuration)
-        run: uv run --frozen mypy cli engine ledger market qualification registration replay report runtime
+        run: uv run --frozen mypy cli engine ledger market qualification registration replay report runtime services/research-graph/research_graph
       - name: Install pinned Dolt for ledger integration tests
         # The tests start and delete their own throwaway Dolt services; nothing runs here.
         run: |

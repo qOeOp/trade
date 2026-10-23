@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Tokens: surfaces, ink and the validated status slots (dataviz reference palette), light and dark. */
+:root {
+  color-scheme: light;
+  --surface-0: #f5f5f2; --surface-1: #fcfcfb; --surface-2: #ffffff; --stripe: #f3f2ee;
+  --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #8a8983; --rule: #e1e0d9; --rule-strong: #c9c8bf;
+  --s-recommended: #eda100; --s-meets: #1baf7a; --s-below: #2a78d6; --s-failed: #e34948; --s-masked: #b9b8b0;
+  --band: #fbeccb; --scope: #efeee8; --edge: #a9a8a0; --ok-zone: #1baf7a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #222220; --stripe: #1f1f1d;
+    --ink-1: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86; --rule: #2f2f2c; --rule-strong: #45443f;
+    --s-recommended: #c98500; --s-meets: #199e70; --s-below: #3987e5; --s-failed: #e66767; --s-masked: #5f5e58;
+    --band: #3a2f17; --scope: #20201e; --edge: #5f5e58; --ok-zone: #199e70;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #222220; --stripe: #1f1f1d;
+  --ink-1: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86; --rule: #2f2f2c; --rule-strong: #45443f;
+  --s-recommended: #c98500; --s-meets: #199e70; --s-below: #3987e5; --s-failed: #e66767; --s-masked: #5f5e58;
+  --band: #3a2f17; --scope: #20201e; --edge: #5f5e58; --ok-zone: #199e70;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--ink-1);
+  font: 13px/1.5 ui-sans-serif, -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.card { background: var(--surface-1); border: 1px solid var(--rule); border-radius: 14px; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.react-flow { --xy-background-color: var(--surface-1); --xy-minimap-background-color: var(--surface-2); }
+.react-flow__attribution { display: none; }
