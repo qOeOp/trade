@@ -4,13 +4,13 @@ import {
   type Edge, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { EventItem, Focus, LineageNode, LineageWidget } from "../types";
+import type { Focus, LineageNode, LineageWidget } from "../types";
 import { pct, PREDICTION, STATUS, when } from "../format";
 
 // Research units -> canvas pixels: x is the trial number, y the lineage row.
 const UNIT = 22, ROW = 46;
 
-type VersionData = LineageNode & { selected: boolean; highlighted: boolean; targets: LineageWidget["targets"] };
+type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
 type BandData = { width: number; label: string; scope?: boolean; stripe?: boolean };
 type TextData = { text: string; height?: number };
 
@@ -36,8 +36,7 @@ function Version({ data }: NodeProps<Node<VersionData>>) {
         style={{
           width: recommended ? 14 : 12, height: recommended ? 14 : 12, background: status.color,
           border: data.status === "unrun" ? "1.25px dashed var(--ink-3)" : "1px solid var(--ink-1)",
-          boxShadow: data.highlighted ? "0 0 0 3px var(--surface-1), 0 0 0 6px var(--s-failed)"
-            : data.selected ? "0 0 0 3px var(--surface-1), 0 0 0 5px var(--ink-1)"
+          boxShadow: data.selected ? "0 0 0 3px var(--surface-1), 0 0 0 5px var(--ink-1)"
             : recommended ? "0 0 0 3px var(--surface-1), 0 0 0 5px var(--s-recommended)" : undefined,
         }}
       />
@@ -81,7 +80,7 @@ export function Marker({ kind }: { kind: string }) {
 // recommendation on the recommended row, a failed review on every version it masked); an event
 // about the whole research is a line across the canvas with a pin above the lineage.
 type MarkData = { kind: string; tip: string };
-type FlagData = { kind: string; tip: string; label: string; height: number; quiet?: boolean };
+type FlagData = { kind: string; tip: string; label: string; height: number };
 const FLAG_COLOR: Record<string, string> = {
   user_message: "var(--ink-2)", agent_question: "var(--ink-2)", goal: "var(--ink-3)", line_change: "var(--ink-3)",
   eligibility_change: "var(--s-failed)",
@@ -95,8 +94,17 @@ function Flag({ data }: NodeProps<Node<FlagData>>) {
   const color = FLAG_COLOR[data.kind] ?? "var(--ink-3)";
   return (
     <div title={data.tip} className="group relative flex justify-center" style={{ width: 11, height: data.height }}>
-      <div className="h-full" style={{ opacity: data.quiet ? 0.25 : 0.9,
-           borderLeft: `${data.quiet ? 1 : 1.5}px ${data.kind === "agent_question" ? "dashed" : "solid"} ${data.quiet ? color : "var(--ink-1)"}` }} />
+      <div className="h-full opacity-60 group-hover:opacity-100"
+           style={{ borderLeft: `1.5px ${data.kind === "agent_question" ? "dashed" : "solid"} ${color}` }} />
+    </div>
+  );
+}
+
+function Pin({ data }: NodeProps<Node<FlagData>>) {
+  return (
+    <div title={data.tip} className="flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px] muted"
+         style={{ borderColor: "var(--rule-strong)", background: "var(--surface-2)" }}>
+      <Marker kind={data.kind} /><span className="max-w-[160px] truncate">{data.label}</span>
     </div>
   );
 }
@@ -126,12 +134,11 @@ function Text({ data }: NodeProps<Node<TextData>>) {
   );
 }
 
-const nodeTypes = { version: Version, band: Band, text: Text, mark: Mark, flag: Flag };
+const nodeTypes = { version: Version, band: Band, text: Text, mark: Mark, flag: Flag, pin: Pin };
 const fixed = { draggable: false, selectable: false, connectable: false, focusable: false };
 
-export function Lineage({ widget, selected, onSelect, focus, hover, showEvents }: {
+export function Lineage({ widget, selected, onSelect, focus }: {
   widget: LineageWidget; selected: string | null; onSelect: (id: string) => void; focus: Focus | null;
-  hover: EventItem | null; showEvents: boolean;
 }) {
   const { nodes, edges, opening, versions } = useMemo(() => {
     const { axis } = widget;
@@ -157,24 +164,19 @@ export function Lineage({ widget, selected, onSelect, focus, hover, showEvents }
       }
     }
     const tipOf = (e: { at: string; ref?: string | null; text?: string | null }) => [when(e.at), e.ref, e.text].filter(Boolean).join(" · ");
-    // The canvas stays clean: events show only while one is hovered in the event list, or all of
-    // the eligibility changes and research-wide moments when the event switch is on.
-    if (showEvents) {
-      widget.marks.forEach((m, i) => {
-        if (m.x == null || m.kind !== "eligibility_change") return;
-        out.push({ id: `mark-${i}`, type: "mark", position: { x: m.x * UNIT - 7, y: m.row * ROW + 8 },
-                   data: { kind: m.kind, tip: `${tipOf(m)} · ${m.candidate}` } satisfies MarkData, zIndex: 1, ...fixed });
-      });
-      widget.flags.forEach((f, i) => {
-        if (f.x == null) return;
-        out.push({ id: `flag-${i}`, type: "flag", position: { x: f.x * UNIT - 5, y: -ROW * 2 - 4000 },
-                   data: { kind: f.kind, tip: tipOf(f), label: "", height: height + 8000, quiet: true } satisfies FlagData, zIndex: 0, ...fixed });
-      });
-    }
-    if (hover?.x != null) {
-      out.push({ id: "hover", type: "flag", position: { x: hover.x * UNIT - 5, y: -ROW * 2 - 4000 },
-                 data: { kind: hover.kind, tip: tipOf(hover), label: "", height: height + 8000, quiet: false } satisfies FlagData, zIndex: 3, ...fixed });
-    }
+    widget.marks.forEach((m, i) => {
+      if (m.x == null) return;
+      out.push({ id: `mark-${i}`, type: "mark", position: { x: m.x * UNIT - 7, y: m.row * ROW + 8 },
+                 data: { kind: m.kind, tip: `${tipOf(m)} · ${m.candidate}` } satisfies MarkData, zIndex: 1, ...fixed });
+    });
+    widget.flags.forEach((f, i) => {
+      if (f.x == null) return;
+      const tip = tipOf(f), label = (f.text ?? f.ref ?? "").replace(/\s+/g, " ").slice(0, 24);
+      out.push({ id: `flag-${i}`, type: "flag", position: { x: f.x * UNIT - 5, y: -ROW * 2 - 4000 },
+                 data: { kind: f.kind, tip, label, height: height + 8000 } satisfies FlagData, zIndex: 0, ...fixed });
+      out.push({ id: `pin-${i}`, type: "pin", position: { x: f.x * UNIT, y: -ROW * 2 - 14 - (i % 3) * 22 },
+                 data: { kind: f.kind, tip, label, height: 0 } satisfies FlagData, zIndex: 2, ...fixed });
+    });
     const merged: { candidate: string; row: number; x0: number; x1: number; count: number }[] = [];
     for (const b of widget.bands) {
       if (b.x0 == null) continue;
@@ -190,8 +192,7 @@ export function Lineage({ widget, selected, onSelect, focus, hover, showEvents }
     for (const n of widget.nodes) {
       if (n.x == null) continue;
       out.push({ id: n.id, type: "version", position: { x: n.x * UNIT - 6, y: n.row * ROW - 10 },
-                 data: { ...n, selected: n.id === selected, highlighted: !!hover?.candidates.includes(n.id) && hover.kind !== "recommendation",
-                         targets: widget.targets } satisfies VersionData });
+                 data: { ...n, selected: n.id === selected, targets: widget.targets } satisfies VersionData });
     }
     const links: Edge[] = widget.edges.map((e) => ({
       id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "smoothstep",
@@ -204,7 +205,7 @@ export function Lineage({ widget, selected, onSelect, focus, hover, showEvents }
       .map((n) => ({ id: n.id }));
     const versions = widget.nodes.filter((n) => n.x != null).map((n) => ({ id: n.id }));
     return { nodes: out, edges: links, opening, versions };
-  }, [widget, selected, hover, showEvents]);
+  }, [widget, selected]);
 
   return (
     <ReactFlow

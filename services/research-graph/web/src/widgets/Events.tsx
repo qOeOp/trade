@@ -1,4 +1,4 @@
-import type { EventItem, EventsWidget, Focus } from "../types";
+import type { EventsWidget, Focus } from "../types";
 import { when } from "../format";
 import { Marker } from "./Lineage";
 
@@ -7,11 +7,8 @@ const KINDS: Record<string, string> = {
   eligibility_change: "资格变化", goal: "Goal", line_change: "换线",
 };
 
-// Every event in time order; hovering one marks its moment and versions on the canvas, choosing
-// one moves the canvas there.
-export function Events({ widget, onFocus, onHover }: {
-  widget: EventsWidget; onFocus: (f: Omit<Focus, "seq">) => void; onHover: (e: EventItem | null) => void;
-}) {
+// Every event in time order; choosing one moves the canvas to it.
+export function Events({ widget, onFocus }: { widget: EventsWidget; onFocus: (f: Omit<Focus, "seq">) => void }) {
   if (!widget.items.length) return <p className="faint">此来源没有事件记录。</p>;
   return (
     <table className="w-full border-collapse text-xs">
@@ -21,8 +18,7 @@ export function Events({ widget, onFocus, onHover }: {
       <tbody>
         {widget.items.map((e, i) => (
           <tr key={i} className="cursor-pointer align-top hover:bg-[var(--surface-0)]"
-              onMouseEnter={() => onHover(e)} onMouseLeave={() => onHover(null)}
-              onClick={() => onFocus({ candidate: e.kind === "eligibility_change" ? undefined : e.candidates[0], x: e.x })}>
+              onClick={() => onFocus({ candidate: e.candidates[0], x: e.x })}>
             <td className="mono whitespace-nowrap border-t py-1 pr-3" style={{ borderColor: "var(--rule)" }}>{when(e.at)}</td>
             <td className="whitespace-nowrap border-t py-1 pr-3" style={{ borderColor: "var(--rule)" }}>
               <span className="inline-flex items-center gap-1.5"><span className="flex w-3.5 justify-center"><Marker kind={e.kind} /></span>{KINDS[e.kind] ?? e.kind}</span>
