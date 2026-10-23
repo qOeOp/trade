@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     command = sub.add_parser("render", help="write view.json and the renderer's page into a directory")
     command.add_argument("graph")
     command.add_argument("--out", required=True, help="output directory (normally under /tmp)")
-    command.add_argument("--renderer", default="static", choices=renderer_names())
+    command.add_argument("--renderer", default="web", choices=renderer_names())
     command = sub.add_parser("compare", help="compare two graphs of one line; Markdown on stdout")
     command.add_argument("a", help="normally the ledger graph")
     command.add_argument("b", help="normally the session graph")

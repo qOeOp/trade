@@ -137,7 +137,7 @@ def build_view(graph: dict) -> dict:
     xs = [n["x"] for n in nodes if n["x"] is not None] + [e["x"] for lane in lanes.values() for e in lane if e["x"] is not None]
     lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
     bands = [{"candidate": a["recommends"], "row": row[a["recommends"]], "x0": clock(a["at"]),
-              "x1": clock(b["at"]) if b else hi, "ref": a.get("ref")} for a, b in zip(recs, [*recs[1:], None], strict=True)]
+              "x1": clock(b["at"]) if b else hi, "ref": a.get("ref")} for a, b in zip(recs, [*recs[1:], None][:len(recs)], strict=True)]
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
     current = recs[-1]["recommends"] if recs else None
@@ -159,7 +159,8 @@ def build_view(graph: dict) -> dict:
          "meeting_targets": sum(1 for n in nodes if n["status"] in ("meets_targets", "recommended")
                                 and n["reading"]["annual_return"] is not None
                                 and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
-                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] or 1) <= targets["max_drawdown"]))},
+                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
+                                                                and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
         {"id": "lineage", "type": "lineage/1", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
                   "scope_start": clock(start) if start else None},

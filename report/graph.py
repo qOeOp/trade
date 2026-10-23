@@ -114,8 +114,8 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
         for row in conn.dicts("SELECT t.trial_id, t.purpose, t.source_sha256, t.created_at, r.status FROM trial t "
                               "LEFT JOIN run r ON r.trial_id = t.trial_id ORDER BY t.trial_id"):
             key = owner.get(row["source_sha256"])
-            if key is None:
-                continue
+            if key is None or (row["purpose"] == "research" and row["trial_id"] not in on_line):
+                continue  # a research run on another window or market commit belongs to another line
             trial = {"trial_id": row["trial_id"], "purpose": row["purpose"], "status": row["status"],
                      "annual_return": None, "max_drawdown": None, "sharpe": None, "win_rate": None,
                      "eligible": None, "ineligible_reason": None, "at": _iso(row["created_at"])}
@@ -210,7 +210,10 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
             "Runs without economic evidence carry no measures (the product masks them); their reasons are kept.",
             "Status: recommended and kept_reference come from the latest recommendation's subjects; superseded is any "
             "other version with economic evidence; masked, precheck_failed and unrun come from availability and reviews.",
+            "Research runs are the line's own (its window and market commit); other trials of a version are kept "
+            "by source.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
+            "Out-of-sample validation registrations and verdicts are not drawn.",
             "Times are the ledger's UTC times without a zone.",
         ] + ([] if targets else ["No targets were given; they live in the line note and are passed by the caller."]),
     }

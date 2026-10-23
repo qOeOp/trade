@@ -17,10 +17,10 @@ Draws one research line from the research ledger as a graph: the lineage of stra
 
 | Stage | Input → output | Owns |
 |---|---|---|
-| Extract | ledger → graph.json | everything the ledger holds about one line (the product command `research graph`) |
+| Extract | ledger → graph.json | everything the ledger holds about one line: its versions, its own research runs (its window and market commit), reviews and judgments (the product command `research graph`) |
 | Contract | graph.json (research-graph/1) → problems | the shape of a graph (schema/graph.schema.json) |
-| Layout | graph.json → view.json (research-graph-view/1) | what to draw and where, in trial numbers and rows, no pixels; split into widgets (lineage/1, scatter/1, notes/1, candidate-detail/1), each with its own type, version and slot |
-| Render | view.json → files | pixels, colours, labels and interaction; the static renderer writes one HTML file with no script |
+| Layout | graph.json → view.json (research-graph-view/1) | what to draw and where, in trial numbers and rows, no pixels; split into widgets (summary/1, lineage/1, scatter/1, notes/1, candidate-detail/1), each with its own type, version and slot |
+| Render | view.json → files | pixels, colours, labels and interaction; the web renderer writes one self-contained HTML page, rebuilt whenever its sources change |
 | Compare | two graph.json → differences | which facts differ, without classing them (for product-doctor's fidelity test) |
 
-Stages hand over only through these files, so each can be replaced alone. A richer renderer (for example one React component per widget type, with a web server sending widget documents over HTTP; the server only serves views and never reads or writes the ledger) reads the same widgets; static stays as the dependency-free fallback.
+Stages hand over only through these files, so each can be replaced alone. There is one renderer; another (for example a server sending widget documents over HTTP, which only serves views and never reads or writes the ledger) reads the same widgets.
