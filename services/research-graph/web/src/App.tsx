@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Info, PanelRightClose, PanelRightOpen, X } from "lucide-react";
-import type { DetailWidget, Focus, View, Widget } from "./types";
+import type { DetailWidget, EventItem, Focus, View, Widget } from "./types";
 import { PREDICTION, STATUS } from "./format";
 import { REGISTRY, unknown, type Entry } from "./widgets/registry";
 
@@ -25,7 +25,7 @@ function Legend({ onClose }: { onClose: () => void }) {
         ))}
       </div>
       <div className="mt-2 leading-relaxed">
-        浅黄底：推荐保持不变。底部轨道：◆ 推荐判断 · ● 用户消息 · ⓘ 提问 · ▲ 资格变化 · ■ Goal。
+        浅黄底：推荐保持不变。徽章：年化 │ 回撤，绿＝达标、红＝未达标。事件默认不画；在底栏“事件列表”悬停一条，画布上标出它的时刻和涉及的版本，点击则跳过去。
         拖动画布平移，滚轮缩放，节点可拖动，点节点看详情。
       </div>
     </div>
@@ -42,6 +42,8 @@ export function App({ view }: { view: View }) {
   const dock = of("dock");
   const [tab, setTab] = useState<string | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
+  const [hover, setHover] = useState<EventItem | null>(null);
+  const [showEvents, setShowEvents] = useState(false);
   const ctx = {
     selected,
     onSelect: (id: string) => { setSelected(id); setDrawer(true); },
@@ -50,6 +52,7 @@ export function App({ view }: { view: View }) {
       setFocus((prev) => ({ ...f, seq: (prev?.seq ?? 0) + 1 }));
       if (f.candidate) { setSelected(f.candidate); setDrawer(true); }
     },
+    hover, onHover: setHover, showEvents,
   };
   const line = view.line;
   const dockHeight = tab ? DOCK_HEIGHT : TAB_HEIGHT;
@@ -72,9 +75,14 @@ export function App({ view }: { view: View }) {
       <div className="relative min-h-0 flex-1">
         <div className="absolute inset-0" style={{ bottom: dockHeight, right: drawer ? DRAWER_WIDTH : 0 }}>
           {of("canvas").map(([w, e]) => <div key={w.id} className="h-full w-full">{e.render(w, ctx)}</div>)}
-          <div className="pointer-events-none absolute left-3 top-8 z-20">
+          <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex flex-col-reverse">
             {legend ? <Legend onClose={() => setLegend(false)} /> : (
-              <button className="card pointer-events-auto p-1.5 muted" onClick={() => setLegend(true)} title="图例"><Info size={16} /></button>
+              <div className="flex gap-1.5">
+                <button className="card pointer-events-auto p-1.5 muted" onClick={() => setLegend(true)} title="图例"><Info size={16} /></button>
+                <button className="card pointer-events-auto px-2 text-[11.5px]" onClick={() => setShowEvents(!showEvents)}
+                        style={{ color: showEvents ? "var(--ink-1)" : "var(--ink-2)", borderColor: showEvents ? "var(--ink-2)" : undefined }}
+                        title="在画布上显示资格变化与研究过程中的时刻">{showEvents ? "隐藏事件" : "显示事件"}</button>
+              </div>
             )}
           </div>
         </div>
