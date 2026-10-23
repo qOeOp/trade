@@ -59,9 +59,9 @@ same widgets; the server only serves views and never reads or writes the ledger.
 renderer stays as the dependency-free fallback.
 
 `web` (`--renderer web`) writes one self-contained HTML page built from [`web/`](web/) (React,
-React Flow, Tailwind; its own npm toolchain): a bento grid of widgets, the lineage as a canvas that
-pans, zooms and lets nodes be dragged, and a detail panel that follows the selected version. The
+React Flow, Tailwind; its own npm toolchain): the lineage as a canvas that
+pans, zooms and lets nodes be dragged on the whole screen under a one-line summary bar, a right drawer with the selected version and a bottom dock whose tabs hold the other widgets. The
 renderer injects `view.json` into the built page and builds it once with `npm` when `web/dist` is
 missing. The page needs JavaScript, so it opens in a browser; previews that block scripts show the
 static page instead. A new widget type is a component registered in `web/src/widgets/registry.tsx`
-with its bento placement.
+with the region it lives in (bar, canvas, drawer or dock).
