@@ -467,7 +467,9 @@ class {entry_class}(Strategy):
     def order_quantity(self, quantity, price=None):
         """`quantity` rounded down to the size increment, or None when it is below the increment,
         min_quantity or (given a price) min_notional; make_qty(round_down=True) raises below the
-        increment and the venue rejects an order below the minimums."""
+        increment and the venue rejects an order below the minimums. Market-data price/indicator
+        inputs used to derive quantity and price must come from completed events strictly earlier
+        than submission; this helper rounds and checks specifications, not their timestamps."""
         instrument = self.cache.instrument(self.instrument_id)
         quantity = Decimal(str(quantity))
         if quantity < instrument.size_increment.as_decimal():
