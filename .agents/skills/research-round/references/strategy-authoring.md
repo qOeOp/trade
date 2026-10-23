@@ -150,7 +150,9 @@ in a temporary directory, run on the host with `uv run --frozen --project REPO p
 
 Publish a revision only to precheck and register it; parsing checks one top-level entry class
 without executing the file, which proves nothing about rules, clock or safety. A derivation names
-its parent and the difference; a root has none.
+its parent and the difference; a root has none. A new revision of the same strategy ID states in
+its description what it fixes from the previous revision and why, since the difference stays
+relative to the parent.
 
 ```bash
 uv run --frozen python -m cli.main candidate publish --file /tmp/RUNDIR/strategy.py \
