@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import {
-  Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, useViewport,
+  Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useViewport,
   type Edge, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -80,56 +80,49 @@ function Marker({ kind }: { kind: string }) {
   return <span className="block h-2.5 w-2.5" style={{ background: "var(--ink-2)" }} />;
 }
 
-// The trial ruler on top and the event lanes at the bottom stay pinned to the canvas edges and
-// follow its horizontal pan and zoom, so they are always in view.
-const RULER = 22, LANE_ROW = 20;
+// The timeline below the canvas: the shared trial axis at the seam, then the event lanes. It is
+// its own panel (nothing floats over the canvas) and follows the canvas's horizontal pan and zoom,
+// with gridlines and the before-scope shading continuing straight across the seam.
+const AXIS = 22, LANE_ROW = 20, GUTTER = 150;
 
-function Pinned({ widget }: { widget: LineageWidget }) {
+function Timeline({ widget }: { widget: LineageWidget }) {
   const { x: tx, zoom } = useViewport();
   const sx = (trial: number) => trial * UNIT * zoom + tx;
   const { axis, lanes } = widget;
   const scope = axis.scope_start != null ? sx(axis.scope_start) : null;
+  const height = AXIS + lanes.length * LANE_ROW + 10;
   const tip = (ev: LaneEvent) => [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
-  const veil = "color-mix(in srgb, var(--surface-1) 82%, transparent)";
   return (
-    <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 overflow-hidden text-[10.5px] faint"
-           style={{ height: RULER, background: `linear-gradient(to bottom, ${veil} 70%, transparent)` }}>
-        {axis.ticks.map((tick) => (
-          <span key={tick} className="absolute top-1 -translate-x-1/2 whitespace-nowrap" style={{ left: sx(tick) }}>trial {tick}</span>
-        ))}
-      </div>
-      <div className="absolute inset-x-0 bottom-0 z-10 overflow-hidden"
-           style={{ height: lanes.length * LANE_ROW + 14, background: `linear-gradient(to top, ${veil} 85%, transparent)`,
-                    backdropFilter: "blur(1.5px)" }}>
-        {scope != null && scope > 0 && (
-          <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)", opacity: 0.55 }} />
-        )}
-        {axis.ticks.map((tick) => (
-          <div key={tick} className="pointer-events-none absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }} />
-        ))}
-        <div className="pointer-events-none absolute inset-y-0 left-0 z-10" style={{ width: 170, background: `linear-gradient(to right, var(--surface-1) 62%, transparent)` }}>
-          {lanes.map((lane, i) => (
-            <div key={lane.kind} className="absolute left-3 flex items-center gap-2 whitespace-nowrap text-[10.5px]"
-                 style={{ top: 10 + i * LANE_ROW, height: LANE_ROW }}>
-              <span className="flex w-3.5 justify-center opacity-80"><Marker kind={lane.kind} /></span>
-              <span className="muted">{LANES[lane.kind] ?? lane.kind}</span>
-              {!lane.events.length && <span className="text-[10px] faint">无记录</span>}
-            </div>
+    <div className="relative shrink-0 overflow-hidden border-t" style={{ height, background: "var(--surface-1)", borderColor: "var(--rule-strong)" }}>
+      {scope != null && scope > 0 && <div className="absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)" }} />}
+      {axis.ticks.map((tick) => (
+        <div key={tick} className="absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }}>
+          <span className="absolute left-0 top-1 -translate-x-1/2 whitespace-nowrap px-1 text-[10.5px] faint"
+                style={{ background: "var(--surface-1)" }}>trial {tick}</span>
+        </div>
+      ))}
+      {lanes.map((lane, i) => (
+        <div key={lane.kind} className="absolute inset-x-0" style={{ top: AXIS + 4 + i * LANE_ROW, height: LANE_ROW }}>
+          <div className="absolute inset-x-0 top-1/2" style={{ borderTop: "1px solid var(--rule)" }} />
+          {lane.events.map((ev, j) => ev.x == null || sx(ev.x) < GUTTER ? null : (
+            <span key={j} title={tip(ev)} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: sx(ev.x) }}>
+              <Marker kind={lane.kind} />
+            </span>
           ))}
         </div>
+      ))}
+      <div className="absolute inset-y-0 left-0 border-r" style={{ width: GUTTER, background: "var(--surface-1)", borderColor: "var(--rule)" }}>
+        <div className="px-3 pt-1 text-[10.5px] faint">事件</div>
         {lanes.map((lane, i) => (
-          <div key={lane.kind} className="absolute inset-x-0" style={{ top: 10 + i * LANE_ROW, height: LANE_ROW }}>
-            <div className="pointer-events-none absolute inset-x-0 top-1/2" style={{ borderTop: "1px solid var(--rule)" }} />
-            {lane.events.map((ev, j) => ev.x == null ? null : (
-              <span key={j} title={tip(ev)} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: sx(ev.x) }}>
-                <Marker kind={lane.kind} />
-              </span>
-            ))}
+          <div key={lane.kind} className="absolute left-3 flex items-center gap-2 whitespace-nowrap text-[10.5px]"
+               style={{ top: AXIS + 4 + i * LANE_ROW, height: LANE_ROW }}>
+            <span className="flex w-3.5 justify-center"><Marker kind={lane.kind} /></span>
+            <span className="muted">{LANES[lane.kind] ?? lane.kind}</span>
+            {!lane.events.length && <span className="text-[10px] faint">无记录</span>}
           </div>
         ))}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -147,14 +140,14 @@ const fixed = { draggable: false, selectable: false, connectable: false, focusab
 export function Lineage({ widget, selected, onSelect }: {
   widget: LineageWidget; selected: string | null; onSelect: (id: string) => void;
 }) {
-  const { nodes, edges, focus } = useMemo(() => {
+  const { nodes, edges, focus, versions } = useMemo(() => {
     const { axis } = widget;
     const height = (widget.rows.length + 2) * ROW;
     const out: Node[] = [];
     if (axis.scope_start != null) {
-      out.push({ id: "scope", type: "band", position: { x: axis.min * UNIT, y: -ROW },
+      out.push({ id: "scope", type: "band", position: { x: axis.min * UNIT, y: -ROW - 4000 },
                  data: { width: (axis.scope_start - axis.min) * UNIT, label: "", scope: true },
-                 style: { height }, zIndex: -3, ...fixed });
+                 style: { height: height + 8000 }, zIndex: -3, ...fixed });
     }
     const left = (axis.min - 4) * UNIT, span = (axis.max - axis.min + 8) * UNIT;
     for (const r of widget.rows) {
@@ -162,8 +155,8 @@ export function Lineage({ widget, selected, onSelect }: {
                                 data: { width: span, label: "", stripe: true }, style: { height: ROW }, zIndex: -4, ...fixed });
     }
     for (const tick of axis.ticks) {
-      out.push({ id: `tick-${tick}`, type: "text", position: { x: tick * UNIT, y: -ROW },
-                 data: { text: "", height }, zIndex: -2, ...fixed });
+      out.push({ id: `tick-${tick}`, type: "text", position: { x: tick * UNIT, y: -ROW - 4000 },
+                 data: { text: "", height: height + 8000 }, zIndex: -2, ...fixed });
     }
     const merged: { candidate: string; row: number; x0: number; x1: number; count: number }[] = [];
     for (const b of widget.bands) {
@@ -191,10 +184,14 @@ export function Lineage({ widget, selected, onSelect }: {
     const focus = widget.nodes
       .filter((n) => n.x != null && (current ? n.row >= current.row - 3 && n.row <= current.row + 12 : true))
       .map((n) => ({ id: n.id }));
-    return { nodes: out, edges: links, focus };
+    const versions = widget.nodes.filter((n) => n.x != null).map((n) => ({ id: n.id }));
+    return { nodes: out, edges: links, focus, versions };
   }, [widget, selected]);
 
   return (
+    <ReactFlowProvider>
+    <div className="flex h-full flex-col">
+    <div className="relative min-h-0 flex-1">
     <ReactFlow
       nodes={nodes} edges={edges} nodeTypes={nodeTypes} colorMode="system" minZoom={0.1} maxZoom={2.5}
       fitView fitViewOptions={{ nodes: focus.length ? focus : undefined, padding: 0.12, minZoom: 0.6, maxZoom: 1 }}
@@ -202,8 +199,11 @@ export function Lineage({ widget, selected, onSelect }: {
       onNodeClick={(_, node) => { if (node.type === "version") onSelect(node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--rule-strong)" />
-      <Controls position="bottom-right" showInteractive={false} style={{ marginBottom: widget.lanes.length * LANE_ROW + 22 }} />
-      <Pinned widget={widget} />
+      <Controls position="bottom-right" showInteractive={false} fitViewOptions={{ nodes: versions, padding: 0.05 }} />
     </ReactFlow>
+    </div>
+    <Timeline widget={widget} />
+    </div>
+    </ReactFlowProvider>
   );
 }
