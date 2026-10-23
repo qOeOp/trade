@@ -10,6 +10,7 @@ replay passes.
 import contextlib
 import csv
 import io
+import json
 import tempfile
 import unittest
 from datetime import UTC, datetime
@@ -155,8 +156,15 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
         window = parse_window(utc_text(start_ns), None, utc_text(start_ns + BARS * BAR_NS))
         rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}}]
         with contextlib.redirect_stdout(io.StringIO()):
-            report.write_native_reports(output, finished, {"AAA": strategy}, rows, {"strategy_uses_stop_loss": True},
+            report.write_native_reports(output, finished, {"AAA": strategy}, rows,
+                                        {"strategy_uses_stop_loss": True, "market_commit": "c" * 32},
                                         window, account, [], BARS)
+        (output.parent / "input-coverage.json").write_text(json.dumps({
+            "format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32},
+            "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
+            "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[window.start_ns, window.end_ns]]}},
+            "export_receipts": {"AAAUSDT": {"pieces": [{"index": None, "instrument_id": str(INSTRUMENT_ID),
+                                                        "last_bar_ns": window.end_ns - 1_000_000}]}}}))
     finally:
         engine.dispose()
     return audit(output)

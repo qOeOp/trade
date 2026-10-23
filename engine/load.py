@@ -185,6 +185,80 @@ def read_universe(universe_path: Path | None, symbols: list[str]) -> dict[str, t
         raise Refusal("UNIVERSE_FILE_INVALID", f"{universe_path}: {exc}") from exc
 
 
+
+def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | None) -> tuple[tuple[int, int], ...]:
+    """engine.episode_membership: membership cut at the listing and at the first PRE_CLOSE, CLOSE or
+    settlement; empty intervals are dropped."""
+    if episode is None:
+        return tuple(intervals)
+    low = episode.get("start_ns") or 0
+    stops = [int(event["ts_event"]) for event in episode.get("events") or ()
+             if event.get("type") == "InstrumentClose" or event.get("action") in ("PRE_CLOSE", "CLOSE")]
+    high = min(stops) if stops else None
+    found = []
+    for start, end in intervals:
+        start, end = max(start, low), end if high is None else min(end, high)
+        if start < end:
+            found.append((start, end))
+    return tuple(found)
+
+
+def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, int], ...]]:
+    """engine.entry_windows: each exported instrument's entry intervals from trusted input receipts.
+
+    Membership is intersected with its episode and the input window. Overlapping or adjacent
+    intervals form one interval; an empty membership permits only reduce-only orders.
+    """
+    if not isinstance(coverage, dict) or coverage.get("format") != COVERAGE_FORMAT:
+        raise ValueError("input-coverage.json is missing or has an unknown format")
+    config = coverage["effective_config"]
+    window = parse_window(config["start"], config["trade_start"], config["end"])
+    stated = parse_window(summary["input_start_utc"], summary["period_start_utc"], summary["period_end_utc"])
+    membership = coverage["membership"]
+    if (window != stated or coverage["input_identity"]["market_commit"] != summary["market_commit"]
+            or membership["commit"] != summary["market_commit"]):
+        raise ValueError("entry scope window or market commit differs from the summary")
+    members = membership["membership"]
+    if not isinstance(members, dict) or not isinstance(coverage["export_receipts"], dict):
+        raise ValueError("input receipt has no membership or export mapping")
+    allowed = {}
+    for symbol, receipt in coverage["export_receipts"].items():
+        intervals = members.get(symbol, [])
+        if not isinstance(intervals, list) or any(
+                not isinstance(pair, list) or len(pair) != 2 or any(type(value) is not int for value in pair)
+                or pair[0] >= pair[1] for pair in intervals):
+            raise ValueError(f"{symbol}: membership is not a list of nonempty integer intervals")
+        pieces = receipt["pieces"]
+        if not isinstance(pieces, list) or not pieces:
+            raise ValueError(f"{symbol}: no exported instances")
+        for piece in pieces:
+            instrument, episode = piece["instrument_id"], piece.get("episode")
+            if not isinstance(instrument, str) or not instrument or instrument in allowed:
+                raise ValueError(f"{symbol}: exported instrument is missing or repeats")
+            if episode is not None:
+                if (not coverage["input_identity"].get("lifecycle_bundle")
+                        or not isinstance(episode, dict) or episode["instrument_id"] != instrument
+                        or type(episode["start_ns"]) is not int):
+                    raise ValueError(f"{symbol}: episode is not the trusted exported instrument")
+                for event in episode["events"]:
+                    if str(_native_lifecycle(event).instrument_id) != instrument:
+                        raise ValueError(f"{symbol}: lifecycle event changes instrument")
+            clipped: list[tuple[int, int]] = []
+            for low, high in sorted(episode_membership(tuple(map(tuple, intervals)), episode)):
+                low, high = max(low, window.start_ns), min(high, window.end_ns)
+                if low >= high:
+                    continue
+                if clipped and low <= clipped[-1][1]:
+                    clipped[-1] = (clipped[-1][0], max(high, clipped[-1][1]))
+                else:
+                    clipped.append((low, high))
+            allowed[instrument] = tuple(clipped)
+    if not allowed:
+        raise ValueError("input receipt names no exported instrument")
+    return allowed
+
+
+
 def read_market(market_root: Path, symbols: list[str], market_commit: str, start_ns: int, end_ns: int) -> list[dict]:
     """engine.read_market: each contract's export receipt checked against the commit, the window and the
     one-minute timeframe, and one row per exported piece (the contract, or each lifecycle episode of a

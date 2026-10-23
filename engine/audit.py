@@ -4,7 +4,8 @@ Besides reconciling the reports, the audit replays the native order event histor
 run in which a position stays larger than its working reduce-only stop orders for more than one
 one-minute execution bar, unless the strategy declares ``USES_STOP_LOSS = False``, and checks that
 every contract terminated without a settlement price was flat with no working order before its
-termination. Strategy-specific geometry belongs in the strategy's own ``replay_integrity_findings``.
+termination. Outside receipt-derived entry membership, only native reduce-only orders may operate;
+old entries must have no unfilled remainder. Strategy geometry belongs in ``replay_integrity_findings``.
 Every finding starts with a code of FINDINGS.
 """
 
@@ -63,6 +64,8 @@ FINDINGS: dict[str, str] = {
     "ORDER_EVENT_HISTORY_MISSING": "The report directory has no order event history.",
     "TRADE_START_INVALID": "Runner-owned per-strategy trading starts are missing, invalid or inconsistent with inputs.",
     "ORDER_BEFORE_TRADE_START": "An order was submitted or emulated before its strategy instance's trading start.",
+    "ENTRY_SCOPE_INVALID": "The trusted membership/lifecycle scope or a native reduce-only flag is missing or invalid.",
+    "ENTRY_ORDER_OUTSIDE_MEMBERSHIP": "A non-reduce-only order was submitted, filled or left working outside its entry intervals.",
     "EVENT_ORDER_SET_MISMATCH": "The event history and the orders report hold different orders.",
     "EVENT_NOT_INITIALIZED": "An order's events do not start with exactly one initialization.",
     "EVENT_OUT_OF_ORDER": "An order's events go back in time.",
@@ -251,6 +254,7 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
         if (quantity != _quantity(row["quantity"]) or filled != _quantity(row["filled_qty"])
                 or (first["strategy_id"], first["instrument_id"]) != (row["strategy_id"], row["instrument_id"])
                 or first["order_side"] != row["side"] or first["order_type"] != row["type"]
+                or ("is_reduce_only" in row and row["is_reduce_only"] != str(first.get("reduce_only")))
                 or (status in ENDING_EVENTS.values()) != bool(ended)
                 or (ended and ended[-1] != status)):
             findings.append(finding("EVENT_ORDER_STATE_MISMATCH", f"{identity} event history differs from the "
@@ -409,6 +413,82 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
 EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settlement (rc3 matching engine)
 
 
+def entry_findings(events: list[dict], summary: dict, coverage: dict | None) -> list[str]:
+    """engine.entry_findings: only native reduce-only orders may operate outside entry membership.
+
+    Track only submitted order quantity, native fills and terminal events, never simulate execution
+    or reconstruct net positions. Cancellation/expiry at the cutoff is allowed, a fill there is not.
+    """
+    from engine.config import parse_window
+    from engine.load import entry_windows
+    try:
+        if coverage is None:
+            raise ValueError("input-coverage.json is missing")
+        windows = entry_windows(coverage, summary)
+        config = coverage["effective_config"]
+        window = parse_window(config["start"], config["trade_start"], config["end"])
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        return [finding("ENTRY_SCOPE_INVALID", str(exc))]
+    history = defaultdict(list)
+    for event in events:
+        history[event["client_order_id"]].append(event)
+    findings = []
+    for identity, order_events in history.items():
+        first, detail = order_events[0], None
+        instrument = first["instrument_id"]
+        if instrument not in windows or type(first.get("reduce_only")) is not bool:
+            findings.append(finding("ENTRY_SCOPE_INVALID", f"{identity}: unknown instrument or no native boolean reduce_only"))
+            continue
+        if first["reduce_only"]:
+            continue
+        intervals = windows[instrument]
+
+        def forbidden(low, high, intervals=intervals):
+            """The first excluded nanosecond in [low, high), clipped to the replay input window."""
+            low, high = max(low, window.start_ns), min(high, window.end_ns)
+            for start, end in intervals:
+                if end <= low:
+                    continue
+                if start > low:
+                    break
+                low = end
+            return low if low < high else None
+
+        quantity, filled, active, previous = _quantity(first["quantity"]), Decimal(0), False, int(first["ts_event"])
+        timeline = defaultdict(list)
+        for event in order_events:
+            timeline[int(event["ts_event"])].append(event)
+        for at, batch in sorted(timeline.items()):
+            outside = forbidden(previous, at) if active and quantity > filled else None
+            if outside is not None:
+                detail = f"{quantity - filled} unfilled at {_ns_utc(outside)}"
+                break
+            if forbidden(at, at + 1) is not None and any(event["type"] in {
+                    "OrderSubmitted", "OrderEmulated", "OrderReleased", "OrderUpdated", "OrderFilled"} for event in batch):
+                detail = (f"non-reduce-only submission, update, release or fill at {_ns_utc(at)}; "
+                          f"{quantity - filled} unfilled before event")
+                break
+            for event in batch:
+                kind = event["type"]
+                if kind in {"OrderSubmitted", "OrderEmulated", "OrderReleased", "OrderAccepted"}:
+                    active = True
+                elif kind == "OrderUpdated" and event.get("quantity") is not None:
+                    quantity = _quantity(event["quantity"])
+                elif kind == "OrderFilled":
+                    filled += _quantity(event["last_qty"])
+                elif kind in ENDING_EVENTS:
+                    active = False
+            previous = at
+        if detail is None and active and quantity > filled:
+            outside = forbidden(previous, window.end_ns)
+            if outside is not None:
+                detail = f"{quantity - filled} unfilled at {_ns_utc(outside)}"
+        if detail:
+            findings.append(finding("ENTRY_ORDER_OUTSIDE_MEMBERSHIP", f"{identity} ({first['strategy_id']}, "
+                                    f"{instrument}): {detail}"))
+    return findings
+
+
 class _OrderState(TypedDict):
     """An order's state before a termination, from its events (engine.lifecycle_findings)."""
     quantity: Decimal | None
@@ -545,11 +625,12 @@ def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positio
     names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
              ORDER_EVENTS)
     return {"run": str(run_dir),
-            "scope": "native report identity, links, submission timing, protection history and reported economics",
+            "scope": "native report identity, links, submission timing, entry membership, protection history and reported economics",
             "file_sha256": {name: _sha(run_dir / name) for name in names if (run_dir / name).is_file()},
             "native_orders": len(orders), "native_fills": len(fills), "native_positions": len(positions),
             "native_economics": economics, **(protection or {}),
             "coverage_limits": ["No strategy signal or target geometry reconstruction",
+                                "Entry membership uses trusted input receipts and native reduce-only flags, not net-position inference",
                                 "Protection is the unfilled quantity of accepted reduce-only stop orders on the "
                                 "closing side; stop prices are not checked",
                                 "Events of one nanosecond are applied together; an uncovered interval of at most "
@@ -624,6 +705,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
             else:
                 findings.extend(lifecycle_findings(lifecycle, orders, fills, positions, events, coverage))
         findings.extend(submission_findings(events, summary, coverage))
+        findings.extend(entry_findings(events, summary, coverage))
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:

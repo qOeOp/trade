@@ -9,10 +9,10 @@ with `docker run` or `python -m engine.run` directly.
 | Path | Role |
 |---|---|
 | `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, the runtime source identity, `--describe` and the runner's refusal codes |
-| `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics and the lifecycle events rebuilt from the coverage receipt |
+| `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics, shared membership intersection, entry scopes and the lifecycle events rebuilt from the coverage receipt |
 | `run.py` | The streamed `BacktestEngine` run, strategy construction and guarded callbacks, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
 | `report.py` | Native reports, `order_events.jsonl.gz`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
-| `audit.py` | Independent audit of every run's native reports, submission timing, stop protection and lifecycle terminations; its finding codes |
+| `audit.py` | Independent audit of every run's native reports, submission timing, entry membership, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
 | `compare_reports.py` | Engineering parity between two runs |
 | `runtime/` | Image build inputs |
@@ -37,8 +37,8 @@ The runner takes the strategy reference, the inputs, the window and the account,
   `export.json` against the commit, the window and the one-minute timeframe. Every strategy instance
   receives its contract's membership as `universe_membership` ([UTC start, end) nanosecond
   intervals, cut at the listing and at the first PRE_CLOSE or termination of its lifecycle
-  episode); "after leaving the universe, only close" is the source's to apply, and no audit judges
-  it. A contract whose episode does not intersect the window gets no instance.
+  episode); the source manages exits, and the independent audit requires only-reduce orders
+  outside those intervals and checks that old entry residuals have ended. A contract whose episode does not intersect the window gets no instance.
 - **Window.** `--start`, `--trade-start` and `--end` need an explicit `Z` or UTC offset (whole
   minutes, at most six fractional digits) and fall on the one-minute grid with
   `start <= trade-start < end`; the host timezone is never consulted, and the effective
@@ -170,7 +170,24 @@ repair. Causal input clocks remain a separate source-review obligation. Old summ
 metadata cannot pass the new audit; old pinned images and sealed verdicts are unchanged. New code
 requires a CI-built image digest before research replays can use this boundary.
 
-The auditor checks report identities, links, submission timing, stop protection throughout the replay and reported
+Outside an instrument's entry membership (including PRE_CLOSE and monthly universe gaps), every
+exit and protective order must carry native `reduce_only=True`; an unmarked intended exit also fails.
+`load.entry_windows` rebuilds intervals from the trusted coverage receipt with the same
+`episode_membership` intersection used by the runner. `audit.entry_findings` checks the actual target
+instrument, native submissions/emulation/releases/updates/fills and each old entry's remaining quantity.
+A resting entry or partially filled entry must have its remainder ended by native cancellation/expiry
+at the cutoff, even if it never fills. Cancellation/expiry at the cutoff is allowed; an entry fill
+there still fails. There is no one-bar tolerance, forced exit at pool removal or automatic cancellation;
+rejoining the pool restores entry permission. A canceled partial bracket still needs its filled part
+re-protected because Nautilus cancels its children. The pinned PRE_CLOSE does not itself reject entry
+orders; CLOSE rejects even exits. A GTD requested expiry between matching events can produce its
+native OrderExpired only at the next matching event: ensure the native cancellation/expiry is complete
+by the cutoff, do not substitute the requested deadline. Violations are
+`ENTRY_ORDER_OUTSIDE_MEMBERSHIP`; absent/invalid receipts, scope or native flags are
+`ENTRY_SCOPE_INVALID`. No new ledger field or net-position execution model is added. Native settlement
+orders already carry `reduce_only=True` and need no name-based exemption from this check.
+
+The auditor checks report identities, links, submission timing, entry membership, stop protection throughout the replay and reported
 account economics, the same way for every strategy. It first
 reconciles the order event history with the orders and fills reports, then applies each timestamp's
 events together and reads, per strategy and instrument, the position and the unfilled quantity of
@@ -183,8 +200,8 @@ as `strategy_uses_stop_loss` in `summary.json`) gets the same list without the r
 The auditor (`python -m engine.audit --run REPORTS --output FILE`) exits 0 when the run passes, 1
 with findings (the result is written) and 2 without auditing when a report or the event history is
 missing or the summary is unreadable. It reads the coverage receipt `input-coverage.json` from the
-report directory's parent: a summary that counts native lifecycle events without that receipt is a
-finding. With the receipt, `load.lifecycle_events` rebuilds the window's terminations from the
+report directory's parent: the entry-membership audit requires it even without lifecycle events;
+missing membership must not become unrestricted permission. With the receipt, `load.lifecycle_events` rebuilds the window's terminations from the
 exported episodes and checks them against the native counts; before each termination without a
 settlement price (a CLOSE status with no `InstrumentClose`) every native position of the contract
 must be flat and every order filled or ended (`POSITION_OPEN_AT_TERMINATION`,

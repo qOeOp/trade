@@ -24,11 +24,12 @@
 
 | 函数 | 用途 |
 |---|---|
+| <Ref id="engine.entry_findings">entry_findings</Ref> | 区间外只减仓，逐订单检查旧入场单与部分成交剩余量 |
 | <Ref id="engine.audit">audit</Ref> | 读摘要后执行通用审计，不导入策略源码 |
 | <Ref id="engine.audit_main">audit_main</Ref> | 审计器进程入口；报表不全不运行；以退出码报告通过与否 |
 | <Ref id="engine.event_report_findings">event_report_findings</Ref> | 事件史与订单、成交报表完全一致、有序、不换范围 |
 | <Ref id="engine.submission_findings">submission_findings</Ref> | 按原生提交者实例检查预热提交，不把订单准备当成提交 |
-| <Ref id="engine.generic_audit">generic_audit</Ref> | 字段齐全→身份→被否被拒→提交起点、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限 |
+| <Ref id="engine.generic_audit">generic_audit</Ref> | 字段齐全→身份→被否被拒→提交起点、成员只减仓、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限 |
 | <Ref id="engine.generic_result">generic_result</Ref> | 每次结果写明审计查什么、不查什么，附报表哈希与计数 |
 | <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> | 未定价终止前每个原生仓位归零且全部订单已结束；终止时刻及之后的订单事件视为迟到 |
 | <Ref id="engine.protection">protection</Ref> | 沿事件史重建保护覆盖；事件史缺失即发现；按源码声明决定裸仓是拒绝还是只报告 |
@@ -96,6 +97,36 @@ def audit_main(run_dir: Path, output_path: Path) -> None
 **关联章节**　<Ref id="G.3.1.1">G.3.1.1</Ref>
 
 </div>
+
+### `entry_findings` [#def-engine-entry_findings]
+
+区间外只减仓，逐订单检查旧入场单与部分成交剩余量
+
+```python
+def entry_findings(events: list[dict], summary: dict, coverage: dict | None) -> list[str]
+```
+
+<TypeTable type={{ "events": { type: "list[dict]", description: "原生订单事件史：初始化的 reduce_only、原生总量与修改、提交/模拟/释放、成交、撤销/到期等终态" }, "summary": { type: "dict", description: "用于与可信输入回执核对窗口及市场身份" }, "coverage": { type: "dict | None", description: "父目录 input-coverage.json；缺失时不能完成本项审计，不能按全区间允许回退" } }} />
+
+**返回**　发现列表。空列表表示本项通过，不代替裸仓、终止与其他对账。
+
+**期望行为**
+
+1. entry_windows 重建实际交易合约的成员区间，不用提交者所对应的另一个合约、策略诊断或可变属性。
+2. OrderInitialized.reduce_only 必须为原生布尔值；区间外只接受 True。event_report_findings 同时核对该标记与订单 CSV 一致。
+3. 对非只减仓订单按自身事件顺序累计原生 quantity、OrderUpdated.quantity 和 OrderFilled.last_qty；提交后到原生终态或足额成交前，仍有剩余量即为活动入场单。不重建净仓、不模拟撮合。
+4. 非只减仓提交、模拟、释放、修改或成交落在禁新仓时段，或者活动剩余量跨过该时段，逐订单记发现。成员区间左闭右开，同一纳秒撤销/到期允许，但入场成交仍违规；不提供一分钟宽限。
+5. 原生减仓止损/止盈与持有旧仓允许；退池不强平，重新入池恢复开仓。原生结算订单自带 reduce_only=True，无需按名字为本项增加例外。
+6. 缺失/非法回执、身份/窗口不符、未知目标合约或非法标记都不能通过。GTD 请求时间不替代原生到期确认。
+
+| 发现码 | 条件 |
+|---|---|
+| `ENTRY_SCOPE_INVALID` | 输入回执、成员/生命周期、目标合约或原生只减仓标记缺失、非法或不一致 |
+| `ENTRY_ORDER_OUTSIDE_MEMBERSHIP` | 非只减仓订单在区间外提交/释放/修改/成交，或残余入场量仍活动 |
+
+**使用**　<Ref id="engine.entry_windows" />
+
+**关联章节**　<Ref id="G.3.3.4" /> <Ref id="W.3.2.1" /> <Ref id="W.3.2.2" />
 
 ### `event_report_findings` [#def-engine-event_report_findings]
 
@@ -168,7 +199,7 @@ def submission_findings(events: list[dict], summary: dict, coverage: dict | None
 
 ### `generic_audit` [#def-engine-generic_audit]
 
-字段齐全→身份→被否被拒→提交起点、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限
+字段齐全→身份→被否被拒→提交起点、成员只减仓、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限
 
 ```python
 def generic_audit(run_dir: Path, summary: dict) -> dict
@@ -182,7 +213,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 
 1. 字段与身份：四张报表每行必含 strategy_id、instrument_id、account_id 与各自必需列（REPORT_FIELDS_MISSING）；订单状态只允许已知终态或在途态（ORDER_STATUS_UNKNOWN）；client_order_id 与 position_id 非空且唯一（IDENTITY_MISSING_OR_DUPLICATED）。
 2. 被否被拒：摘要 integrity_passed 为假或报表中存在 DENIED/REJECTED 订单即 INTEGRITY_REPORTED_FAILED；两类计数与摘要自报不符另记 DENIED_REJECTED_COUNT_MISMATCH；不区分原因。
-3. 提交起点、保护与终止：调用 submission_findings 检查逐实例原生提交起点；调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
+3. 提交起点、成员只减仓、保护与终止：调用 submission_findings 检查逐实例原生提交起点，entry_findings 检查成员与生命周期区间外只减仓及旧入场剩余量；调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
 4. 逐项对账（只比引擎产出，不重算）：成交对应唯一同范围订单、filled_qty 等于成交量和、FILLED 满额（ORDER_FILL_MISMATCH）；持仓事件恰好覆盖全部成交一次且买卖量、净量、开平仓订单、佣金一致（POSITION_FILL_COVERAGE_MISMATCH）；资金费只认 FUNDING 类型并在无并发成交的时刻等于账户总额变动（FUNDING_BALANCE_MISMATCH）；账户每行 total = locked + free、币种一致、时间有序、同一账户（ACCOUNT_REPORT_INCONSISTENT）。
 5. 汇总核对：期初余额等于摘要；期末余额减期初等于已实现盈亏；期末无持仓时期末余额等于摘要期末权益；闭仓与盈利计数等于持仓报表统计（SUMMARY_TOTALS_MISMATCH）。
 6. 任何解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID 而不中止；最后交 generic_result 组装结果，并发成交时刻数写入 native_economics。
@@ -203,7 +234,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 | `SUMMARY_TOTALS_MISMATCH` | 期初余额、已实现盈亏、无持仓时的期末权益或闭仓与盈利计数与摘要不一致 |
 | `REPORT_PAYLOAD_INVALID` | 任一报表字段类型错误、算术或读取异常 |
 
-**使用**　<Ref id="engine.submission_findings" />、<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
+**使用**　<Ref id="engine.entry_findings" />、<Ref id="engine.submission_findings" />、<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
 
 <div className="rd-meta">
 
@@ -240,7 +271,7 @@ def generic_result(
 
 1. 对存在的报表文件逐个计算 SHA-256 写入 file_sha256，供入账与资格视图核对原件未变。
 2. 写入订单、成交、持仓三类报表行数作为原生计数。
-3. scope 固定写：原生报表身份、链接、提交起点、保护历史与自报经济数。
+3. scope 固定写：原生报表身份、链接、提交起点、成员只减仓、保护历史与自报经济数。
 4. coverage_limits 固定写不查项：不重建信号与目标几何；保护只比只减仓止损未成交量不比价格；同一纳秒事件一起应用且容忍至多一根执行 K 线的未覆盖；资金费只认原生调整不按费率重算；并发成交时刻不对账资金费；有持仓时不对账期末权益。
 5. 合入 protection 信息与 economics，passed = findings 为空；本函数不产生新发现。
 
@@ -843,6 +874,8 @@ The runtime source files' hashes, independent of any strategy revision.
 
 | 函数 | 用途 |
 |---|---|
+| <Ref id="engine.episode_membership">episode_membership</Ref> | 成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束 |
+| <Ref id="engine.entry_windows">entry_windows</Ref> | 从可信覆盖回执重建每个实际交易合约允许开仓的区间 |
 | <Ref id="engine.diagnostics">diagnostics</Ref> | 回放结束后调用诊断钩子；返回值非字典、不可序列化为 JSON 或占用原生事实键名即拒绝；通过的字典作自报诊断写入摘要 |
 | <Ref id="engine.lifecycle_events">lifecycle_events</Ref> | 回放后逐实例核对生命周期事件：计数与原生摘要相等、落在窗口内、能构造为原生事件、关闭价为正；任一不符即拒绝，不降级为无事件。 |
 | <Ref id="engine.load_strategy">load_strategy</Ref> | 读源码字节核对内容哈希，以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝 |
@@ -850,6 +883,58 @@ The runtime source files' hashes, independent of any strategy revision.
 | <Ref id="engine.read_universe">read_universe</Ref> | 读每合约成员区间；无成员文件时为空 |
 | <Ref id="engine.strategy_metadata">strategy_metadata</Ref> | 把源码内容哈希、入口类、运行契约与两个布尔声明（是否设止损、是否需日线预热）写成运行身份，并入原生摘要与执行身份 |
 | <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> | 为声明 DAILY_WARMUP 的源码取紧贴输入起点的连续日线段；不足 200 根（未校准示例值）或末根不在起点前 1 毫秒即拒绝。 |
+
+### `episode_membership` [#def-engine-episode_membership]
+
+成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束
+
+```python
+def episode_membership(
+    intervals: tuple[tuple[int, int], ...],
+    episode: dict | None,
+) -> 相交后的成员区间元组
+```
+
+<TypeTable type={{ "intervals": { type: "tuple[tuple[int, int], ...]", description: "该合约按月合并的原成员区间，[start_ns, end_ns) 左闭右开" }, "episode": { type: "dict | None", description: "生命周期片段：start_ns（合法开仓起点）与事件列表（类型、动作、ts_event）；None 表示无生命周期约束" } }} />
+
+**返回**　相交后的成员区间元组，左闭右开，空区间丢弃，顺序不变
+
+**期望行为**
+
+1. 片段为 None 时原样返回原成员区间。
+2. 下界取片段起点（缺失视为零）。
+3. 上界取最早的禁新仓 PRE_CLOSE、终止 CLOSE 或下架结算事件时刻；没有任一事件则不设上界。
+4. 每个区间取 [max(start, 下界), min(end, 上界))，只保留非空区间。
+5. 纯函数：不读文件、不改输入、不拒绝；结果作为 universe_membership 传给实例，也由独立审计复用；退出后新单与旧入场剩余量受只减仓边界核验，退出时机由源码决定。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.3.2.1">W.3.2.1</Ref> <Ref id="W.4.1.1">W.4.1.1</Ref>
+
+</div>
+
+### `entry_windows` [#def-engine-entry_windows]
+
+从可信覆盖回执重建每个实际交易合约允许开仓的区间
+
+```python
+def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, int], ...]]
+```
+
+<TypeTable type={{ "coverage": { type: "dict", description: "execution-input-coverage-v1：effective_config、input_identity、membership 与逐 symbol 的 export_receipts" }, "summary": { type: "dict", description: "核对 input_start_utc、period_start_utc、period_end_utc 和 market_commit" } }} />
+
+**返回**　instrument_id → 允许开仓的 [start_ns, end_ns) 区间；空成员区间意味着只允许减仓。
+
+**期望行为**
+
+1. 核对回执格式、全局窗口与市场提交一致，成员输入为非空整数区间列表；缺失成员映射不能当作全部允许。
+2. 导出实例身份唯一；使用生命周期时须具名 bundle、片段身份相同、事件可按固定版本构造且时钟一致。
+3. 复用 episode_membership 与运行器相同的区间相交规则，裁到输入窗口；合并重叠或相邻区间，保留退池到重新入池之间的禁新仓空档。
+4. 只派生区间，不增加存储字段；解析失败抛 ValueError/Refusal，由 entry_findings 转成 ENTRY_SCOPE_INVALID。
+
+**使用**　<Ref id="engine.episode_membership" />
+
+**关联章节**　<Ref id="G.3.3.4" /> <Ref id="W.3.2.1" />
 
 ### `diagnostics` [#def-engine-diagnostics]
 
@@ -1029,7 +1114,7 @@ def read_universe(
 1. universe_path 为空时直接返回每个合约对应空元组。
 2. 读普通文件并解析 JSON；顶层须是带 membership 对象的字典，否则拒绝。
 3. 对每个合约取 membership 中的区间列表并转为整数纳秒对；不是整数对即拒绝；文件中没有的合约为空元组。
-4. 区间只是输入不是审计：与片段生命周期相交后交给策略实例（engine.episode_membership），退出范围后的处置由源码按契约写明。
+4. 成员区间与片段生命周期相交后交给策略实例（engine.episode_membership）；独立审计从可信覆盖回执重建相同边界，退出旧仓时机由源码按只减仓契约决定。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1370,7 +1455,6 @@ The exposure table as gzip CSV with a fixed header time, written row by row as t
 | <Ref id="engine.capital_observer">capital_observer</Ref> | 运行器挂在回放节点上的数据参与者：每根输入 K 线后按引擎标记价估值全部未平持仓写敞口表；无法估值记为发现 |
 | <Ref id="engine.configure_strategy">configure_strategy</Ref> | 以运行器输入构造入口类：合约、交易起点、按声明取的预热日线、策略标识、成员区间；不传任何策略参数 |
 | <Ref id="engine.episode_active">episode_active</Ref> | 合法生命周期与输入窗口相交才建实例；缺 K 线不使片段失效 |
-| <Ref id="engine.episode_membership">episode_membership</Ref> | 成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束 |
 | <Ref id="engine.execution_failure">execution_failure</Ref> | 把策略构造、回调或运行器某阶段的异常写成结构化回执：同一异常类型、阶段、合约与消息只记一条并计数，留首条回溯，不依赖日志文本 |
 | <Ref id="engine.fill_model">fill_model</Ref> | 按账户合约构造引擎的 DefaultFillModel：prob_fill_on_limit=0、prob_slippage=0，不抽随机数 |
 | <Ref id="engine.guard_callback">guard_callback</Ref> | 包装策略回调：异常先写结构化回执再原样抛出 |
@@ -1555,34 +1639,6 @@ def episode_active(
 
 </div>
 
-### `episode_membership` [#def-engine-episode_membership]
-
-成员区间与片段起点及禁新仓/终止时刻相交；开仓范围在禁新仓时结束
-
-```python
-def episode_membership(
-    intervals: tuple[tuple[int, int], ...],
-    episode: dict | None,
-) -> 相交后的成员区间元组
-```
-
-<TypeTable type={{ "intervals": { type: "tuple[tuple[int, int], ...]", description: "该合约按月合并的原成员区间，[start_ns, end_ns) 左闭右开" }, "episode": { type: "dict | None", description: "生命周期片段：start_ns（合法开仓起点）与事件列表（类型、动作、ts_event）；None 表示无生命周期约束" } }} />
-
-**返回**　相交后的成员区间元组，左闭右开，空区间丢弃，顺序不变
-
-**期望行为**
-
-1. 片段为 None 时原样返回原成员区间。
-2. 下界取片段起点（缺失视为零）。
-3. 上界取最早的禁新仓 PRE_CLOSE、终止 CLOSE 或下架结算事件时刻；没有任一事件则不设上界。
-4. 每个区间取 [max(start, 下界), min(end, 上界))，只保留非空区间。
-5. 纯函数：不读文件、不改输入、不拒绝；结果作为 universe_membership 传给实例，退出范围后如何处置旧仓旧单由源码按契约写明。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.3.2.1">W.3.2.1</Ref> <Ref id="W.4.1.1">W.4.1.1</Ref>
-
-</div>
 
 ### `execution_failure` [#def-engine-execution_failure]
 
