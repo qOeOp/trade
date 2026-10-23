@@ -15,7 +15,7 @@ export type Entry = { region: Region; label: string; render: (w: Widget, ctx: Wi
 
 export const REGISTRY: Record<string, Entry> = {
   "summary/1": { region: "bar", label: "概要", render: (w) => <SummaryBar widget={w as SummaryWidget} /> },
-  "lineage/1": { region: "canvas", label: "策略谱系",
+  "lineage/2": { region: "canvas", label: "策略谱系",
                  render: (w, c) => <Lineage widget={w as LineageWidget} selected={c.selected} onSelect={c.onSelect} /> },
   "candidate-detail/1": { region: "drawer", label: "版本详情",
                           render: (w, c) => <Detail widget={w as DetailWidget} selected={c.selected} /> },

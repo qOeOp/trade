@@ -1,4 +1,4 @@
-// The view model (research-graph-view/1) as research_graph/layout.py writes it.
+// The view model (research-graph-view/1) as research_graph/layout.py writes it; the lineage is lineage/2.
 
 export type Status = "recommended" | "meets_targets" | "below_targets" | "masked" | "precheck_failed" | "unrun";
 export type Prediction = "held" | "failed" | "mixed" | "none";
@@ -50,7 +50,10 @@ export type LineageNode = {
   reading: { annual_return: number | null; max_drawdown: number | null };
 };
 
-export type LaneEvent = { x: number | null; at: string; ref?: string | null; text?: string | null; recommends?: string | null };
+export type AxisEvent = {
+  kind: "recommendation" | "eligibility_change" | "line_change";
+  x: number | null; at: string; ref?: string | null; text?: string | null; candidate: string | null;
+};
 
 export type Widget = { id: string; type: string; slot?: string; title?: string } & Record<string, unknown>;
 
@@ -73,8 +76,13 @@ export type LineageWidget = Widget & {
   rows: { id: string; row: number }[];
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
-  bands: { candidate: string; row: number; x0: number | null; x1: number | null; ref?: string | null }[];
-  lanes: { kind: string; events: LaneEvent[] }[];
+  trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
+  marks: { kind: string; candidate: string; row: number; x: number; at: string; ref?: string | null; text?: string | null }[];
+  rug: AxisEvent[];
+  history: {
+    points: { id: string; trial_id: number; annual_return: number; eligible: boolean | null }[];
+    steps: { candidate: string; x0: number | null; x1: number | null; annual_return: number | null }[];
+  };
 };
 
 export type ScatterWidget = Widget & {

@@ -1,12 +1,17 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (summary/1, lineage/1, scatter/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
+versioned type (summary/1, lineage/2, scatter/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
 placed by interpolating between trials whose times are known. Rows follow the lineage depth first,
 children in order of their first trial. A renderer maps these units to its own pixels and colours.
+
+Events are placed where they belong rather than in lanes of their own: the recommendation judgments
+form a trail over the recommended versions' rows, an eligibility change marks the row of the version
+whose source review caused it, and a line change marks the axis. Every event also appears once in a
+`rug` on the axis, and `history` holds the research runs' annual returns on the same x.
 """
 from __future__ import annotations
 
@@ -14,7 +19,7 @@ from bisect import bisect_left
 from datetime import datetime, timezone
 
 VIEW_FORMAT = "research-graph-view/1"
-LANES = ("recommendation", "eligibility_change", "line_change")
+EVENT_KINDS = ("recommendation", "eligibility_change", "line_change")
 
 
 def seconds(value: str) -> float:
@@ -125,19 +130,30 @@ def build_view(graph: dict) -> dict:
                       "change": c.get("change"),
                       "prediction": prediction(c),
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
-    events = [e for e in graph["events"] if e.get("at")]
-    lanes: dict[str, list[dict]] = {kind: [] for kind in LANES}
+    events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
+    reviewed = {r["bundle"]: c["id"] for c in candidates for r in c.get("reviews") or [] if r.get("bundle")}
+    rug = []
     for e in events:
-        kind = e["kind"]
-        if kind in lanes:
-            lanes[kind].append({"x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
-                                "recommends": e.get("recommends")})
+        about = e.get("recommends") if e["kind"] == "recommendation" else reviewed.get(e.get("ref") or "")
+        rug.append({"kind": e["kind"], "x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
+                    "candidate": about if about in row else None})
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
                   key=lambda e: seconds(e["at"]))
-    xs = [n["x"] for n in nodes if n["x"] is not None] + [e["x"] for lane in lanes.values() for e in lane if e["x"] is not None]
+    xs = [n["x"] for n in nodes if n["x"] is not None] + [e["x"] for e in rug if e["x"] is not None]
     lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
-    bands = [{"candidate": a["recommends"], "row": row[a["recommends"]], "x0": clock(a["at"]),
-              "x1": clock(b["at"]) if b else hi, "ref": a.get("ref")} for a, b in zip(recs, [*recs[1:], None][:len(recs)], strict=True)]
+    trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
+    for e in recs:
+        x = clock(e["at"])
+        if trail and trail[-1]["candidate"] == e["recommends"]:
+            trail[-1]["judgments"].append(x)
+        else:
+            trail.append({"candidate": e["recommends"], "row": row[e["recommends"]], "x0": x, "judgments": [x]})
+    for a, b in zip(trail, [*trail[1:], None][:len(trail)], strict=True):
+        a["x1"] = b["x0"] if b else hi
+    marks = [{"kind": e["kind"], "candidate": e["candidate"], "row": row[e["candidate"]], "x": e["x"], "at": e["at"],
+              "ref": e["ref"], "text": e["text"]}
+             for e in rug if e["kind"] == "eligibility_change" and e["candidate"] is not None and e["x"] is not None]
+    reading_of = {n["id"]: n["reading"]["annual_return"] for n in nodes}
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
     current = recs[-1]["recommends"] if recs else None
@@ -161,14 +177,18 @@ def build_view(graph: dict) -> dict:
                                 and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
                                 and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
                                                                 and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
-        {"id": "lineage", "type": "lineage/1", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
+        {"id": "lineage", "type": "lineage/2", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
                   "scope_start": clock(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
-         "bands": bands,
-         "lanes": [{"kind": kind, "events": lanes[kind]} for kind in LANES]},
+         "trail": trail, "marks": marks, "rug": rug,
+         "history": {"points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
+                                 "eligible": t.get("eligible")}
+                                for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
+                     "steps": [{"candidate": t["candidate"], "x0": t["x0"], "x1": t["x1"],
+                                "annual_return": reading_of.get(t["candidate"])} for t in trail]}},
         {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
          "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],

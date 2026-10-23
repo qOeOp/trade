@@ -1,42 +1,16 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Info, PanelRightClose, PanelRightOpen, X } from "lucide-react";
+import { ChevronDown, ChevronUp, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { DetailWidget, View, Widget } from "./types";
-import { PREDICTION, STATUS } from "./format";
 import { REGISTRY, unknown, type Entry } from "./widgets/registry";
 
 // The shell: a slim top bar, the lineage canvas on the whole screen below it, a right drawer for
 // the selected version and a bottom dock whose tabs hold every other widget.
 const DOCK_HEIGHT = 360, TAB_HEIGHT = 38, DRAWER_WIDTH = 440;
 
-function Legend({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="card pointer-events-auto w-60 p-3 text-xs muted shadow-sm">
-      <div className="mb-1.5 flex items-center justify-between font-semibold" style={{ color: "var(--ink-1)" }}>
-        图例<button onClick={onClose} aria-label="收起图例"><X size={14} /></button>
-      </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        {Object.values(STATUS).map((s) => (
-          <span key={s.label} className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color, border: "1px solid var(--ink-2)" }} />{s.label}
-          </span>
-        ))}
-        {Object.values(PREDICTION).filter((p) => p.glyph).map((p) => (
-          <span key={p.label}><b style={{ color: p.color }}>{p.glyph}</b> {p.label}</span>
-        ))}
-      </div>
-      <div className="mt-2 leading-relaxed">
-        浅黄底：推荐保持不变。底部轨道：◆ 推荐判断 · ▲ 资格变化 · ■ 选线 / 换线。
-        拖动画布平移，滚轮缩放，节点可拖动，点节点看详情。
-      </div>
-    </div>
-  );
-}
-
 export function App({ view }: { view: View }) {
   const detail = view.widgets.find((w) => w.type === "candidate-detail/1") as DetailWidget | undefined;
   const [selected, setSelected] = useState<string | null>(detail?.default ?? null);
   const [drawer, setDrawer] = useState(true);
-  const [legend, setLegend] = useState(false);
   const entries: [Widget, Entry][] = view.widgets.map((w) => [w, REGISTRY[w.type] ?? unknown(w)]);
   const of = (region: Entry["region"]) => entries.filter(([, e]) => e.region === region);
   const dock = of("dock");
@@ -66,11 +40,6 @@ export function App({ view }: { view: View }) {
       <div className="relative min-h-0 flex-1">
         <div className="absolute inset-0" style={{ bottom: dockHeight, right: drawer ? DRAWER_WIDTH : 0 }}>
           {of("canvas").map(([w, e]) => <div key={w.id} className="h-full w-full">{e.render(w, ctx)}</div>)}
-          <div className="pointer-events-none absolute left-3 top-8 z-20">
-            {legend ? <Legend onClose={() => setLegend(false)} /> : (
-              <button className="card pointer-events-auto p-1.5 muted" onClick={() => setLegend(true)} title="图例"><Info size={16} /></button>
-            )}
-          </div>
         </div>
 
         {drawer && (

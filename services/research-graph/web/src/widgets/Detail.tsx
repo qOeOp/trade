@@ -46,11 +46,11 @@ function Card({ c }: { c: Candidate }) {
           </span>
           <span className="rounded-full border px-2" style={{ borderColor: "var(--rule-strong)" }}>{PREDICTION[c.prediction_class].label}</span>
         </div>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs">
           <dt className="faint">父版本</dt><dd className="mono break-all">{c.parent ?? "无（根）"}</dd>
           <dt className="faint">发布</dt><dd>{when(c.created_at) || "—"}</dd>
           <dt className="faint">职责</dt><dd>{(c.duties ?? []).join(" ") || "—"}</dd>
-          {c.registration && <><dt className="faint">登记</dt><dd className="mono break-all">{c.registration}</dd></>}
+          {c.registration && <><dt className="faint">登记</dt><dd className="mono truncate" title={c.registration}>{c.registration}</dd></>}
         </dl>
         <div className="mt-3 grid grid-cols-4 gap-1.5">
           {[["年化", pct(last.annual_return)], ["最大回撤", pct(last.max_drawdown)], ["夏普", ratio(last.sharpe)], ["胜率", pct(last.win_rate)]].map(([k, v]) => (
@@ -64,7 +64,7 @@ function Card({ c }: { c: Candidate }) {
       <Section title="假设"><p>{c.hypothesis ?? "—"}</p></Section>
       {!!c.predictions?.length && (
         <Section title="预测">
-          <Table head={["度量", "方向", "结果"]} rows={c.predictions.map((p) => [<span className="mono">{p.measure}</span>, p.direction, OUTCOME[p.outcome ?? ""] ?? "—"])} />
+          <Table head={["度量", "方向", "结果"]} rows={c.predictions.map((p) => [<span className="mono">{p.measure ?? "—"}</span>, p.direction, OUTCOME[p.outcome ?? ""] ?? "—"])} />
         </Section>
       )}
       <Section title="回放">
