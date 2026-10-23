@@ -254,6 +254,22 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
+#### 推荐连续不变、差异都分不出来时就该换线，交给你选 [#F-3-1-3]
+
+推荐版本连续若干次研究运行都没变（次数与 REVIEW_DUE 的固定次数相同），而且这几次比较的 `mean_daily_log_difference` 都落在各自的 `detectable_mean_log_difference_80pct_normal_approx` 以内，Agent 就停止登记线内变体，经 research-start 把这条线连同其他选项交给你选，等你回答。
+
+条件只用已经发生的事实：推荐有没有变、每次差异是否小于可检出差。早先的写法是「线内已没有任何改动能超过可检出差」，那是对还没跑的实验下结论，Agent 永远无法确认，所以从来不触发。换线由你选，不是 Agent 宣布方向无效；它也不按次数或预算叫停（<Ref id="F.3.1.2" />）。
+
+<div className="rd-example">
+
+一次 12.5 小时的 EMA 日线会话里，推荐在第 67 号试验后就不再变，之后又跑了 41 个版本、11.6 小时，每次差异区间都跨零，Agent 一直没回来问。按这条规则，推荐连续 5 次不变、差异都在可检出差内时就会停下问你。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：评测 line-change-due-offers-lines 已通过；尚无真实会话验证。</p>
+
 ### 复盘的内容 [#F-3-2]
 
 复盘时在对照表的全部候选上综合推荐并逐个点名，推荐和下一实验的父版本分开定。
