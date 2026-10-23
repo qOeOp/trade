@@ -11,6 +11,7 @@
 <Folder name="replay" defaultOpen>
   <File name="entry.py" />
   <File name="reproduce.py" />
+  <File name="seams.py" />
 </Folder>
 </Files>
 
@@ -284,6 +285,62 @@ def seal(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `bound_log` [#impl-replay-entry-py-bound_log]
+
+```python
+def bound_log(path: Path) -> None
+```
+
+Cut a stage log longer than LOG_HEAD + LOG_TAIL bytes (and room for the note) to its first and last whole lines within those sizes, with one line in between that says how many bytes and lines were left out; a log cut once stays as it is.
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/entry.py#L56)
+
+#### `audit_problems` [#impl-replay-entry-py-audit_problems]
+
+```python
+def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | None) -> tuple[list[dict], dict | None]
+```
+
+Invalidity reasons from the exit codes, the audit result and the structured runtime failures of a working directory (ledger.audit_problems on its regular files).
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/entry.py#L193)
+
+#### `summary_problems` [#impl-replay-entry-py-summary_problems]
+
+```python
+def summary_problems(summary: Mapping | None, source_sha256: str, identity: Mapping, config_sha256: str) -> list[dict]
+```
+
+The native summary checked against the trial's identity: source, runtime, configuration, integrity.
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/entry.py#L201)
+
+#### `ReplayTimeout` [#impl-replay-entry-py-ReplayTimeout]
+
+```python
+class ReplayTimeout(Exception)
+```
+
+The replay's timeout expired; the replay ends as interrupted.
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/entry.py#L211)
+
+#### `container_name` [#impl-replay-entry-py-container_name]
+
+```python
+def container_name(ledger: db.LedgerProfile, trial_id: int, stage: str) -> str
+```
+
+The container name of one stage of one trial (stopped by this name on an interrupt).
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/entry.py#L215)
+
+
 ## `replay/reproduce.py` [#def-mod-replay-reproduce-py]
 
 | 函数 | 用途 |
@@ -326,3 +383,29 @@ def reproduce(
 **关联章节**　<Ref id="R.3.1.5">R.3.1.5</Ref> <Ref id="R.2.3.3">R.2.3.3</Ref>
 
 </div>
+
+## `replay/seams.py` [#def-mod-replay-seams-py]
+
+Adapters for container commands, execution/stop, image layout and directory reports; scoped overrides support tests.
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `Seams` [#impl-replay-seams-py-Seams]
+
+```python
+class Seams
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/seams.py#L65)
+
+#### `use` [#impl-replay-seams-py-use]
+
+```python
+def use(**overrides) -> Iterator[Seams]
+```
+
+Replace some implementations for the duration of the block (tests and later-phase wiring).
+
+[Source](https://github.com/qOeOp/trade/blob/main/replay/seams.py#L80)

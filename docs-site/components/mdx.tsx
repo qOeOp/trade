@@ -10,10 +10,12 @@ import { Mermaid } from './mdx/mermaid';
 import { Ref } from './mdx/ref';
 import { Cap, Tier, Kind } from './mdx/cap';
 import { ChapterMap } from './mdx/chapter-map';
+import { ArchitectureOverview } from './mdx/architecture-overview';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
+    ArchitectureOverview,
     Accordion,
     Accordions,
     Cap,

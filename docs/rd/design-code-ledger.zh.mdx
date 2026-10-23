@@ -21,6 +21,7 @@
   <File name="strategies.py" />
   <File name="trials.py" />
   <File name="witness.py" />
+  <File name="reproduction.py" />
 </Folder>
 </Files>
 
@@ -71,6 +72,52 @@ def export_history(
 **关联章节**　<Ref id="J.6.2.3">J.6.2.3</Ref> <Ref id="J.3.5.1">J.3.5.1</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `require_reader` [#impl-ledger-admin-py-require_reader]
+
+```python
+def require_reader(conn: db.LedgerConnection) -> None
+```
+
+LEDGER_PERMISSION unless the connection's account holds no write privilege on its database.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/admin.py#L41)
+
+#### `backup_path` [#impl-ledger-admin-py-backup_path]
+
+```python
+def backup_path(profile: db.LedgerProfile, destination: Path | None=None) -> Path | None
+```
+
+The full-history backup of a profile: `&lt;destination or backup_root&gt;/backup`.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/admin.py#L70)
+
+#### `backup_head` [#impl-ledger-admin-py-backup_head]
+
+```python
+def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None=None) -> str | None
+```
+
+The research branch head of a dolt_backup copy, read from a restore in a new temporary directory (deleted afterwards); None when there is no backup. A restore or listing that fails, times out or returns no readable branch list is DOLT_BACKUP.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/admin.py#L76)
+
+#### `market_backup` [#impl-ledger-admin-py-market_backup]
+
+```python
+def market_backup(market: Mapping) -> dict
+```
+
+market backup: the market database's whole history synced incrementally by the service administrator to `&lt;profile backup&gt;/backup`, outside the service directory, the checkout, any Git work tree and (for the active database) the temporary roots. The import lock is held so no import lands during the sync; the backup's head must equal main afterwards.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/admin.py#L282)
+
 
 ## `ledger/coverage.py` [#def-mod-ledger-coverage-py]
 
@@ -157,6 +204,22 @@ def verify_coverage(
 **关联章节**　<Ref id="G.2.2.1">G.2.2.1</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="G.1.1.1">G.1.1.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `lifecycle_events` [#impl-ledger-coverage-py-lifecycle_events]
+
+```python
+def lifecycle_events(coverage: Mapping, summary: Mapping) -> tuple[dict, ...]
+```
+
+engine.lifecycle_events, the same implementation the auditor runs, its refusals as ledger refusals.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/coverage.py#L37)
+
 
 ## `ledger/db.py` [#def-mod-ledger-db-py]
 
@@ -367,6 +430,172 @@ def write(
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `LedgerProfile` [#impl-ledger-db-py-LedgerProfile]
+
+```python
+class LedgerProfile
+```
+
+A named research database on one service; `kind` is its lifecycle, `holds` its content.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L68)
+
+#### `home` [#impl-ledger-db-py-home]
+
+```python
+def home() -> Path
+```
+
+The profile directory; `TRADE_LEDGER_HOME` overrides it for tests and rehearsals.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L95)
+
+#### `profiles` [#impl-ledger-db-py-profiles]
+
+```python
+def profiles() -> dict[str, LedgerProfile]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L100)
+
+#### `load_profile` [#impl-ledger-db-py-load_profile]
+
+```python
+def load_profile(name: str) -> LedgerProfile
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L113)
+
+#### `service_connection` [#impl-ledger-db-py-service_connection]
+
+```python
+def service_connection(socket_path: str, **options) -> pymysql.Connection
+```
+
+`pymysql.connect` over a service's Unix socket. pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so the socket is reached first by one that is closed either way, and an unreachable one raises the same OperationalError pymysql would.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L174)
+
+#### `start_service` [#impl-ledger-db-py-start_service]
+
+```python
+def start_service(root: Path) -> dict
+```
+
+Start the service of `root` unless it runs; wait until it accepts connections.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L195)
+
+#### `stop_service` [#impl-ledger-db-py-stop_service]
+
+```python
+def stop_service(root: Path) -> dict
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L221)
+
+#### `init_market` [#impl-ledger-db-py-init_market]
+
+```python
+def init_market(name: str, database: str, service_root: Path, kind: Literal['active', 'isolated', 'temporary'], backup_root: Path | None=None, dolt_binary: Path | None=None) -> dict
+```
+
+Create an empty market database (its tables, committed once by the administrator; no market_schema row: the first `market import` writes it and the commit tests), its import and reader accounts and its profile (kind market, with its backup directory). An active market database, like the active ledger, needs a backup directory, and keeps its service and backup outside the source checkout and temporary roots.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L454)
+
+#### `LedgerConnection` [#impl-ledger-db-py-LedgerConnection]
+
+```python
+class LedgerConnection
+```
+
+One command's connection to one database/branch, with its account role.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L517)
+
+#### `ReadConnection` [#impl-ledger-db-py-ReadConnection]
+
+```python
+class ReadConnection(LedgerConnection)
+```
+
+A reader connection pinned on the revision database of one exact commit.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L575)
+
+#### `require_commit_checks` [#impl-ledger-db-py-require_commit_checks]
+
+```python
+def require_commit_checks(conn: LedgerConnection) -> None
+```
+
+Refuse unless the service-wide commit verification group is the ledger's.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L635)
+
+#### `check_ref` [#impl-ledger-db-py-check_ref]
+
+```python
+def check_ref(ref) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L653)
+
+#### `resolve_commit` [#impl-ledger-db-py-resolve_commit]
+
+```python
+def resolve_commit(conn: LedgerConnection, ref: str) -> str
+```
+
+The commit hash a branch, tag or commit hash names on this database.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L660)
+
+#### `head_commit` [#impl-ledger-db-py-head_commit]
+
+```python
+def head_commit(conn: LedgerConnection) -> str
+```
+
+The commit a connection reads: its pinned commit, else its branch head.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L690)
+
+#### `as_of` [#impl-ledger-db-py-as_of]
+
+```python
+def as_of(conn: LedgerConnection, at: str | None) -> tuple[str, str]
+```
+
+`(commit, clause)` for reading tables at `at` on this connection; `at=None` reads what the connection sees now (inside a write, its own uncommitted rows too) and names its head commit.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L697)
+
+#### `canonical_json` [#impl-ledger-db-py-canonical_json]
+
+```python
+def canonical_json(payload) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L708)
+
+#### `derive_op_id` [#impl-ledger-db-py-derive_op_id]
+
+```python
+def derive_op_id(kind: str, payload: Mapping) -> str
+```
+
+`kind:sha256(kind ‖ canonical_json(payload))`; the same payload gives the same ID.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L712)
+
+
 ## `ledger/errors.py` [#def-mod-ledger-errors-py]
 
 | 函数 | 用途 |
@@ -407,6 +636,22 @@ def refusal(
 **关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="V.2.3.2">V.2.3.2</Ref> <Ref id="J.1.2.1">J.1.2.1</Ref> <Ref id="J.3.2.1">J.3.2.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `Refusal` [#impl-ledger-errors-py-Refusal]
+
+```python
+class Refusal(Exception)
+```
+
+A coded refusal; `as_dict()` is what a command prints before it exits nonzero.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/errors.py#L20)
+
 
 ## `ledger/evidence.py` [#def-mod-ledger-evidence-py]
 
@@ -537,6 +782,38 @@ def write_files(
 **关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `check_name` [#impl-ledger-evidence-py-check_name]
+
+```python
+def check_name(bundle) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L31)
+
+#### `files_from` [#impl-ledger-evidence-py-files_from]
+
+```python
+def files_from(clause: str='') -> str
+```
+
+The FROM clause of bundle files with their bytes (`e.bundle`, `e.path`, `e.sha256`, `c.content`), optionally AS OF one commit (`clause` from ledger.as_of).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L88)
+
+#### `digests` [#impl-ledger-evidence-py-digests]
+
+```python
+def digests(files: dict[str, bytes]) -> dict[str, str]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L94)
+
 
 ## `ledger/execution.py` [#def-mod-ledger-execution-py]
 
@@ -706,6 +983,62 @@ def start_receipt(
 **关联章节**　<Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `pinned_identity` [#impl-ledger-execution-py-pinned_identity]
+
+```python
+def pinned_identity(value) -> dict | None
+```
+
+The runtime identity's four fields (and build revision) when its image is pinned by digest.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/execution.py#L45)
+
+#### `listed_sha256` [#impl-ledger-execution-py-listed_sha256]
+
+```python
+def listed_sha256(capture: Mapping, path: str) -> str | None
+```
+
+The SHA-256 a read capture records for one file it hashed, else None.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/execution.py#L208)
+
+#### `read_files` [#impl-ledger-execution-py-read_files]
+
+```python
+def read_files(workdir: Path, paths) -> dict[str, bytes]
+```
+
+The regular files of `paths` under `workdir` (never through a link); a missing one is left out. A reader checks them against the capture's hashes (problems.sealed).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/execution.py#L216)
+
+#### `recovery_bundles` [#impl-ledger-execution-py-recovery_bundles]
+
+```python
+def recovery_bundles(conn: db.LedgerConnection, trial_id: int) -> list[str]
+```
+
+The trial-&lt;trial_id&gt;-recovery* bundles of a trial.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/execution.py#L358)
+
+#### `recovery_material` [#impl-ledger-execution-py-recovery_material]
+
+```python
+def recovery_material(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> dict
+```
+
+The recovery material of a research or validation trial whose capture was refused for size: trial-&lt;trial_id&gt;-recovery holding a manifest (every file's status, hash and length, no report bytes) and the host error. `ledger.ingest_capture_refusal` writes it with the trial's invalid run.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/execution.py#L462)
+
 
 ## `ledger/judgments.py` [#def-mod-ledger-judgments-py]
 
@@ -973,6 +1306,42 @@ def select_line(
 **关联章节**　<Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="J.6.3.1">J.6.3.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `tag_name` [#impl-ledger-lines-py-tag_name]
+
+```python
+def tag_name(bundle: str) -> str
+```
+
+The closing tag of a line: line/&lt;UTC date&gt;-&lt;slug&gt;.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L203)
+
+#### `unclosed_lines` [#impl-ledger-lines-py-unclosed_lines]
+
+```python
+def unclosed_lines(conn: db.LedgerConnection) -> list[dict]
+```
+
+The ended lines (every line but the latest) without their closing tag, oldest first, each with its closing commit (\{line, tag, commit, ended_by\}).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L208)
+
+#### `closing_commit` [#impl-ledger-lines-py-closing_commit]
+
+```python
+def closing_commit(conn: db.LedgerConnection, bundle: str) -> dict
+```
+
+\{tag, commit, ended_by\} of an ended line: the parent of the commit that added the next line (the research branch is linear). LINE_UNKNOWN for no line, LINE_OPEN for the current one.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L216)
+
 
 ## `ledger/metrics.py` [#def-mod-ledger-metrics-py]
 
@@ -1358,6 +1727,168 @@ def unreconciled(code: str, detail: str) -> 具名原因
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `Unreconciled` [#impl-ledger-metrics-py-Unreconciled]
+
+```python
+class Unreconciled(Exception)
+```
+
+A named reason (code and detail) why one metric cannot be given; `str()` is "CODE: detail".
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L61)
+
+#### `utc_ns` [#impl-ledger-metrics-py-utc_ns]
+
+```python
+def utc_ns(text: str) -> int
+```
+
+UTC nanoseconds of a native time: an integer, or ISO-8601 with up to nine fraction digits.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L80)
+
+#### `iso_minute` [#impl-ledger-metrics-py-iso_minute]
+
+```python
+def iso_minute(ns: int | None) -> str | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L96)
+
+#### `money` [#impl-ledger-metrics-py-money]
+
+```python
+def money(value: Decimal | None) -> str | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L112)
+
+#### `Reports` [#impl-ledger-metrics-py-Reports]
+
+```python
+class Reports
+```
+
+One run's native reports as the runner wrote them; rows keep their native string values.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L119)
+
+#### `ExposureRows` [#impl-ledger-metrics-py-ExposureRows]
+
+```python
+class ExposureRows
+```
+
+The exposure report's rows, streamed from its gzip bytes each time they are iterated: a long multi-contract one-minute table is never held as rows.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L140)
+
+#### `load_directory` [#impl-ledger-metrics-py-load_directory]
+
+```python
+def load_directory(directory: Path, account: bool=True, exposures: bool=True) -> Reports
+```
+
+The native reports of a replay working directory (or its reports/), parsed but not converted.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L180)
+
+#### `load_files` [#impl-ledger-metrics-py-load_files]
+
+```python
+def load_files(files, account: bool=True, exposures: bool=True) -> Reports
+```
+
+The native reports from their bytes by working-directory path (reports/&lt;name&gt;, audit/audit.json, input-coverage.json).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L196)
+
+#### `latest_sealed` [#impl-ledger-metrics-py-latest_sealed]
+
+```python
+def latest_sealed(conn: db.LedgerConnection, trial_id: int, sealed: dict) -> dict | None
+```
+
+The run's latest sealed result (by sealing time) among `sealed` (load_run's, by metrics revision), with the metrics revision of its row.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L293)
+
+#### `closed_by_year` [#impl-ledger-metrics-py-closed_by_year]
+
+```python
+def closed_by_year(found: list[dict]) -> dict
+```
+
+Closed cycles' price PnL, commissions and funding by the UTC year of their last event.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L342)
+
+#### `ExposureTable` [#impl-ledger-metrics-py-ExposureTable]
+
+```python
+class ExposureTable
+```
+
+The typed exposure rows aggregated per bar label in one pass (open rows, unrealized PnL, gross notional); the rows of one label are read again from the source when asked.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L579)
+
+#### `equity_path` [#impl-ledger-metrics-py-equity_path]
+
+```python
+def equity_path(summary: dict, account: list[dict], exposures) -> list[dict]
+```
+
+Per bar label T: mark equity (the last account total at or before T, never a later row, plus the unrealized PnL of the exposure rows labelled T), gross notional and the number of open rows.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L644)
+
+#### `daily_notional` [#impl-ledger-metrics-py-daily_notional]
+
+```python
+def daily_notional(summary: dict, path: list[dict]) -> dict[int, Decimal]
+```
+
+Mean gross notional over each UTC day's bar labels of the trade window (flat labels count zero).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L685)
+
+#### `runner_limitations` [#impl-ledger-metrics-py-runner_limitations]
+
+```python
+def runner_limitations(summary) -> list[str]
+```
+
+The limitations the runner listed in its native summary (engine.write_native_reports: a list).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L707)
+
+#### `cycle_rows` [#impl-ledger-metrics-py-cycle_rows]
+
+```python
+def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]
+```
+
+The run_cycle rows: one per native position row, in report order.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L902)
+
+#### `daily_rows` [#impl-ledger-metrics-py-daily_rows]
+
+```python
+def daily_rows(reports: Reports) -> list[tuple[int, float, Decimal | None]]
+```
+
+The run_return rows: trade-window native daily returns with the day's mean gross notional.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/metrics.py#L930)
+
+
 ## `ledger/paths.py` [#def-mod-ledger-paths-py]
 
 | 函数 | 用途 |
@@ -1482,6 +2013,100 @@ def summary_problems(
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `reason` [#impl-ledger-problems-py-reason]
+
+```python
+def reason(code: str, message: str, locator=None) -> dict
+```
+
+One failure reason \{code, message, locator\}; an uncatalogued code is a KeyError.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L71)
+
+#### `config_sha256` [#impl-ledger-problems-py-config_sha256]
+
+```python
+def config_sha256(effective_config: Mapping) -> str
+```
+
+The effective configuration hash by the engine's rule (engine.config.config_sha256): SHA-256 of the canonical JSON of the configuration without its host paths. The host derives it from the sealed configuration and never takes it from a caller.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L77)
+
+#### `unique` [#impl-ledger-problems-py-unique]
+
+```python
+def unique(reasons) -> list[dict]
+```
+
+The reasons with repeats (same code, locator and message) dropped, in order.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L85)
+
+#### `json_object` [#impl-ledger-problems-py-json_object]
+
+```python
+def json_object(data: bytes | None)
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L91)
+
+#### `cause_first` [#impl-ledger-problems-py-cause_first]
+
+```python
+def cause_first(reasons: list[dict]) -> list[dict]
+```
+
+The reasons with a runner refusal before the run first: the exit, audit and summary reasons that follow from it come after, in their order.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L142)
+
+#### `failure_groups` [#impl-ledger-problems-py-failure_groups]
+
+```python
+def failure_groups(items) -> list[dict]
+```
+
+Runtime failure receipts merged by (exception type, stage, instrument, message), in first-seen order, each with its total count, its refusal code and its first traceback. A receipt is one failure unless it carries a positive `count`; `code` is optional (a runner refusal's code).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L163)
+
+#### `sealed` [#impl-ledger-problems-py-sealed]
+
+```python
+def sealed(capture: Mapping, path: str, verified: Mapping[str, bytes] | None=None) -> bytes | None
+```
+
+The sealed bytes of one captured file (b"" when captured empty), None when it was not captured.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L218)
+
+#### `capture_problems` [#impl-ledger-problems-py-capture_problems]
+
+```python
+def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, config_sha256: str, verified: Mapping[str, bytes] | None=None) -> list[dict]
+```
+
+Every invalidity reason the sealed capture of one trial gives: its outcome, stage exits, audit result, runtime failures, native summary and fingerprint stage (`verified`: as `sealed`).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L236)
+
+#### `capture_fingerprint` [#impl-ledger-problems-py-capture_fingerprint]
+
+```python
+def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None=None) -> tuple[dict | None, list[dict]]
+```
+
+(the semantic fingerprint the fingerprint stage sealed, its failure reasons).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L259)
+
+
 ## `ledger/refusals.py` [#def-mod-ledger-refusals-py]
 
 | 函数 | 用途 |
@@ -1510,6 +2135,22 @@ def refusal_catalogue(code: str) -> dict
 **关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `refuse` [#impl-ledger-refusals-py-refuse]
+
+```python
+def refuse(code: str, message: str, *, missing: tuple[str, ...]=(), expected: str | None=None, write_status: Literal['not_written', 'unknown', 'written']='not_written', operation_id: str | None=None) -> Refusal
+```
+
+A refusal whose repair commands come from the catalogue (an unknown code is a KeyError).
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/refusals.py#L690)
+
 
 ## `ledger/strategies.py` [#def-mod-ledger-strategies-py]
 
@@ -1641,6 +2282,20 @@ def read_candidate(conn: Connection, ref: str) -> dict
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `parse_ref` [#impl-ledger-strategies-py-parse_ref]
+
+```python
+def parse_ref(ref) -> tuple[str, int]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/strategies.py#L45)
+
+
 ## `ledger/trials.py` [#def-mod-ledger-trials-py]
 
 | 函数 | 用途 |
@@ -1755,6 +2410,42 @@ def open_trial(
 - [Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)　论文
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `run_record` [#impl-ledger-trials-py-run_record]
+
+```python
+def run_record(row: Mapping) -> dict
+```
+
+\{trial_id, status, failure_reasons\} of a run row.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/trials.py#L316)
+
+#### `latest_research` [#impl-ledger-trials-py-latest_research]
+
+```python
+def latest_research(conn: db.LedgerConnection, source_sha256: str) -> int | None
+```
+
+Latest passed result by insertion commit, not trial launch order or wall-clock ties.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/trials.py#L323)
+
+#### `ingest_capture_refusal` [#impl-ledger-trials-py-ingest_capture_refusal]
+
+```python
+def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> dict
+```
+
+Store a research or validation replay whose capture was refused for size: its recovery material and an invalid run (failure reason EXECUTION_CAPTURE_LIMIT) in one write, so the trial is spent.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/trials.py#L342)
+
 
 ## `ledger/witness.py` [#def-mod-ledger-witness-py]
 
@@ -1935,3 +2626,39 @@ def witness(
 - [Haber & Stornetta 1991, https://doi.org/10.1007/BF00196791](https://doi.org/10.1007/BF00196791)　论文
 
 </div>
+
+## `ledger/reproduction.py` [#def-mod-ledger-reproduction-py]
+
+从现有试验身份与完整封存执行事实推导复现关系；不存复现标记。相同指纹本身不授予一般暴露豁免。
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `trial_record` [#impl-ledger-reproduction-py-trial_record]
+
+```python
+def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/reproduction.py#L19)
+
+#### `fingerprint_hash` [#impl-ledger-reproduction-py-fingerprint_hash]
+
+```python
+def fingerprint_hash(capture: Mapping) -> str | None
+```
+
+The original fingerprint hash only after all execution stages completed cleanly.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/reproduction.py#L24)
+
+#### `matches` [#impl-ledger-reproduction-py-matches]
+
+```python
+def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int) -> bool
+```
+
+A successful explore with the earlier trial's complete identity and original fingerprint.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/reproduction.py#L37)

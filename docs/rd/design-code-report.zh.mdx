@@ -14,6 +14,8 @@
   <File name="review.py" />
   <File name="runs.py" />
   <File name="status.py" />
+  <File name="profit.py" />
+  <File name="seams.py" />
 </Folder>
 </Files>
 
@@ -98,6 +100,52 @@ def pair_trades(
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `attribute` [#impl-report-attribution-py-attribute]
+
+```python
+def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None, interaction: Mapping | None=None) -> dict
+```
+
+\{metrics_revision, catalogue, slices, predictions, interaction, trade_pairs\} for two runs' facts (report.measures.run_facts) and the registration body that declared the comparison; `interaction` is report.compare's reading of a declared two-by-two (None without a declaration).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/attribution.py#L268)
+
+#### `predictions` [#impl-report-attribution-py-predictions]
+
+```python
+def predictions(body: Mapping, slices: Mapping) -> list[dict]
+```
+
+Each registered prediction beside the observed value, marked only for its sign: the comparison's own value where it defines one (the pairwise value, or a comparison-only measure), else the difference of the two single-run values.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/attribution.py#L323)
+
+#### `merge3` [#impl-report-attribution-py-merge3]
+
+```python
+def merge3(base: bytes, a: bytes, b: bytes) -> bytes | None
+```
+
+The three-way merge of `a` and `b` from their common ancestor `base`, line by line, or None when both change one base region differently (a conflict). Pure Python and deterministic (MERGE_METHOD): the stable regions are the base lines both sides keep (difflib's matching blocks, autojunk off), as in bzr's merge3; between two stable regions a part changed on one side only takes that side, and a part changed alike on both sides is taken once.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/attribution.py#L360)
+
+#### `contributions` [#impl-report-attribution-py-contributions]
+
+```python
+def contributions(means: Mapping[str, float]) -> dict
+```
+
+Each change's contribution to the corner difference (ab minus base) of the mean daily log returns, as the mean of its marginal effect over both orders of adding the two changes.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/attribution.py#L395)
+
+
 ## `report/candidates.py` [#def-mod-report-candidates-py]
 
 | 函数 | 用途 |
@@ -143,6 +191,32 @@ def candidates(profile: LedgerProfile, at: str | None) -> dict
 - [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `assess_listed` [#impl-report-candidates-py-assess_listed]
+
+```python
+def assess_listed(conn: db.LedgerConnection, trial_id: int, checker: Mapping, records: list) -> dict
+```
+
+availability.assess of one listed run with the call's checker and review records; a run whose stored records do not verify is unavailable (diagnostic only) with the refusal as its reason.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/candidates.py#L22)
+
+#### `attempts_of` [#impl-report-candidates-py-attempts_of]
+
+```python
+def attempts_of(conn: db.LedgerConnection, checker: dict, records: list | None=None) -> list[dict]
+```
+
+Every registration attempt with its run and the run's availability now; LEDGER_CORRUPT on a dangling reference.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/candidates.py#L38)
+
 
 ## `report/comparison.py` [#def-mod-report-comparison-py]
 
@@ -285,43 +359,9 @@ def paired(
 
 </div>
 
-### `registration_id` [#def-registration_id]
+### 样本外登记编号 [#def-registration_id]
 
-样本外报告：从绑定的封存运行读与开发报告同口径的绩效指标并经同一经济证据资格视图遮蔽；单序列区间与 p；同窗口登记族的 Holm 校正；列出登记内容、凭证时间、绑定试验与审计状态、同一候选的全部样本外登记；无裁决字段；资金使用率由 Agent 从封存敞口表自算，报告只给其读口位置
-
-```python
-def registration_id(
-    profile: str,
-    registration_id: str,
-    at: str | None,
-) -> dict
-```
-
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "registration_id": { type: "str", description: "样本外登记编号（validation_registration 主键）" }, "at": { type: "str | None", description: "账本版本（提交、分支或标签），缺省为当前 HEAD" } }} />
-
-**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate, revision, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{stamped_at | None, verified\}, binding\{trial_id, mode, status, audit_status, bound_at\} | None, availability | None, metrics | None（run_report 同口径绩效指标经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 指向封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, members[\{registration_id, candidate, revision, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage_family_adjusted\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}
-
-**期望行为**
-
-1. 以 at 打开只读连接，读 validation_registration 行（候选与版本、窗口、范围规则、检验条件、retry_of、服务器登记时间），不存在即 REGISTRATION_UNKNOWN；经 ledger.stamped_at 读该登记提交的凭证 genTime 并离线验证，无凭证记 None 并写入局限。
-2. 读 validation_binding 取绑定试验；无绑定则 binding、availability、metrics、single 为 None 并记「未绑定」局限；有绑定则经 ledger.load_run 读 run ⨝ trial 行与审计状态，引用的运行缺失即 LEDGER_CORRUPT。
-3. 有绑定时经 qualification.assess 取资格字典，经 report.run_report 读同口径绩效指标并经 qualification.mask 遮蔽：资格不可用时绩效指标与 cost_basis 置空只留原因，不拒绝；metrics 附封存敞口表读口（report.tables）供 Agent 自算资金使用率。
-4. 资格可用时经 ledger.daily_returns 取窗口内交易段日收益并对账期末权益，调用 report.single；序列不可用或不足两块时 single 置 None 并把原因写入局限。
-5. 取同窗口族：validation_registration 中 window_start、window_end、universe_rule 相同的全部登记行，按各自绑定运行的 single 原始 p 调用 report.holm，无 p 的成员 p_holm 为 None；族区间覆盖按族大小 Bonferroni 调整并注明 Holm 不对应单一区间。
-6. 列同一候选版本的全部样本外登记及其状态，附账本提交哈希、指标计算版本（ledger.metrics_revision）与固定局限句（p 是零模型尾概率；检验条件为方法示例值未校准；资格为读时视图不改写存储结论）后返回；不写账本，无任何裁决、通过或推荐字段。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REGISTRATION_UNKNOWN` | registration_id 在 validation_registration 中不存在于所读版本 |
-| `LEDGER_CORRUPT` | validation_binding 引用的试验或运行行缺失，或登记证据内容哈希与账本记录不符 |
-
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="report.run_report" />、<Ref id="report.tables" />、<Ref id="report.single" />、<Ref id="report.holm" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_candidates" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="X.2.1.1">X.2.1.1</Ref>
-
-</div>
+`registration_id` 是样本外登记的主键参数；实际报告读口为 <Ref id="report.validation_report" />。
 
 ### `single` [#def-report-single]
 
@@ -404,6 +444,62 @@ def validation_report(
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `block_indices` [#impl-report-comparison-py-block_indices]
+
+```python
+def block_indices(rng: np.random.Generator, days: int, block: int, resamples: int) -> np.ndarray
+```
+
+(resamples, days) circular block indices: each row draws ceil(days / block) block starts in [0, days) and concatenates the wrapped blocks, cut to `days`.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/comparison.py#L96)
+
+#### `trade_window_series` [#impl-report-comparison-py-trade_window_series]
+
+```python
+def trade_window_series(facts: Mapping, side: str) -> list[tuple[int, float, object]]
+```
+
+The trade-window daily returns of one side, refused unless they compound to its final equity.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/comparison.py#L284)
+
+#### `check_clocks` [#impl-report-comparison-py-check_clocks]
+
+```python
+def check_clocks(control: Sequence, candidate: Sequence) -> None
+```
+
+CLOCK_MISMATCH unless both daily series hold the same UTC days in the same order.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/comparison.py#L300)
+
+#### `gather` [#impl-report-comparison-py-gather]
+
+```python
+def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict
+```
+
+Every check of report.compare and both sides' stored facts (read only).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/comparison.py#L331)
+
+#### `interaction_of` [#impl-report-comparison-py-interaction_of]
+
+```python
+def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None
+```
+
+The declared two-by-two of a comparison (gather's result), or None without a declaration.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/comparison.py#L451)
+
+
 ## `report/measures.py` [#def-mod-report-measures-py]
 
 | 函数 | 用途 |
@@ -437,6 +533,286 @@ def derive_measures(facts: dict, market_returns: dict) -> dict
 **关联章节**　<Ref id="R.3.1.4">R.3.1.4</Ref> <Ref id="E.3.3.1">E.3.3.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `key` [#impl-report-measures-py-key]
+
+```python
+def key(name: str) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L74)
+
+#### `measure` [#impl-report-measures-py-measure]
+
+```python
+def measure(value, population: str, sample_size: int | None, null_reason: str | None=None) -> dict
+```
+
+One measure: a value, or None with the reason it cannot be given.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L78)
+
+#### `money` [#impl-report-measures-py-money]
+
+```python
+def money(value: Decimal | None) -> str | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L86)
+
+#### `run_facts` [#impl-report-measures-py-run_facts]
+
+```python
+def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict
+```
+
+What derive_measures reads for one run: the run and trial rows, the latest sealed result, the daily series and position cycles as stored, the starting balance of the account terms, the final equity the sealed facts record, the trading window and the input identity.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L101)
+
+#### `annual_return` [#impl-report-measures-py-annual_return]
+
+```python
+def annual_return(growth: float | None, days: float) -> float | None
+```
+
+(final / initial) ** (365 / days) - 1 over the actual trading-window length in days.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L126)
+
+#### `sharpe_365` [#impl-report-measures-py-sharpe_365]
+
+```python
+def sharpe_365(returns: Sequence[float]) -> float | None
+```
+
+Mean over sample standard deviation of the daily simple returns, times sqrt(365).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L133)
+
+#### `lag_selection` [#impl-report-measures-py-lag_selection]
+
+```python
+def lag_selection(observations: int) -> int
+```
+
+Newey-West (1994)'s lag selection parameter n = floor(4 (T / 100) ** (2 / 9)): where the autocovariance sums that estimate the bandwidth are truncated (not the bandwidth itself).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L141)
+
+#### `automatic_bandwidth` [#impl-report-measures-py-automatic_bandwidth]
+
+```python
+def automatic_bandwidth(series: Sequence[float]) -> tuple[int, int]
+```
+
+Newey-West (1994) automatic bandwidth of the Bartlett kernel for the scalar series w'h_t (eqs. 3-8 to 3-13, without prewhitening): sigma_j = T^-1 sum_\{t&gt;j\} h_t h_(t-j) for j = 0..n, s0 = sigma_0 + 2 sum sigma_j, s1 = 2 sum j sigma_j, gamma = 1.1447 ((s1 / s0) ** 2) ** (1 / 3), m = floor(gamma T ** (1 / 3)), at most T - 1. Returns (m, n); m is 0 when the series is all zero.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L147)
+
+#### `ols_newey_west` [#impl-report-measures-py-ols_newey_west]
+
+```python
+def ols_newey_west(y: npt.ArrayLike, x: np.ndarray, lags: int) -> tuple[np.ndarray, np.ndarray]
+```
+
+OLS coefficients and their heteroskedasticity- and autocorrelation-consistent covariance (Bartlett weights 1 - l / (lags + 1)).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L164)
+
+#### `coefficient_bandwidth` [#impl-report-measures-py-coefficient_bandwidth]
+
+```python
+def coefficient_bandwidth(y: npt.ArrayLike, x: np.ndarray, index: int) -> tuple[int, int]
+```
+
+The automatic bandwidth for the variance of coefficient `index`: the weight vector is w_T = alpha' H_T with alpha selecting that coefficient and H_T = (X'X / T)^-1 (Newey-West 1994, section III, the OLS case), so w'h_t is that coefficient's row of the inverse times x_t e_t.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L181)
+
+#### `market_regression` [#impl-report-measures-py-market_regression]
+
+```python
+def market_regression(y: Sequence[float], market: Sequence[float]) -> dict
+```
+
+y_t = a + b0 m_t + b1 m_(t-1) + e_t from the second day on (Dimson's one-day lag); beta = b0 + b1, alpha = a per day with its Newey-West standard error at the automatic bandwidth for the intercept (`lags`; `lag_selection` is the truncation that estimated it).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L192)
+
+#### `autocorrelations` [#impl-report-measures-py-autocorrelations]
+
+```python
+def autocorrelations(values: Sequence[float], lags: int) -> list[float]
+```
+
+Sample autocorrelations rho_1..rho_lags: sum_\{t&gt;k\} (r_t - mean)(r_(t-k) - mean) over sum (r_t - mean)^2.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L207)
+
+#### `sharpe_lo` [#impl-report-measures-py-sharpe_lo]
+
+```python
+def sharpe_lo(returns: Sequence[float], periods: int=ANNUAL_DAYS) -> dict | None
+```
+
+Lo (2002)'s annual Sharpe ratio under serial correlation: the daily Sharpe ratio (mean over sample standard deviation of the simple returns) times eta(q) = q / sqrt(q + 2 sum_k (q - k) rho_k) with q = 365; the autocorrelations beyond `lags` = lag_selection(T) are taken as zero. None when the returns do not vary, the series is shorter than lags + 2, or the bracket is not positive.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L214)
+
+#### `regime_labels` [#impl-report-measures-py-regime_labels]
+
+```python
+def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str, str | None] | None, str | None]
+```
+
+Each day's volatility regime from the equal-weight basket's daily returns known before it: "high" when the absolute basket return of the prior day is above the median absolute basket return of the REGIME_WINDOW days ending the prior day, else "low"; None (unlabelled) when one of those days has no basket return.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L231)
+
+#### `level_timing` [#impl-report-measures-py-level_timing]
+
+```python
+def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict
+```
+
+Daily PnL as notional times unit return over the exposed days: their total splits into a level term T * mean(N) * mean(u) and a timing term T * cov(N, u) (population covariance), summing exactly; the days without exposure are counted apart with their PnL (flat_days, flat_pnl).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L254)
+
+#### `residual_after_top` [#impl-report-measures-py-residual_after_top]
+
+```python
+def residual_after_top(values: Sequence[float], top: int=TOP) -> float | None
+```
+
+The sum left after removing the `top` values that contribute most in the direction of the total.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L270)
+
+#### `top_share` [#impl-report-measures-py-top_share]
+
+```python
+def top_share(values: Sequence, top: int=TOP) -> float | None
+```
+
+The share of the `top` largest absolute values in the sum of all absolute values.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L279)
+
+#### `breakeven_multiple` [#impl-report-measures-py-breakeven_multiple]
+
+```python
+def breakeven_multiple(difference: Decimal, fee_difference: Decimal) -> tuple[float | None, str | None]
+```
+
+The multiple k of both sides' fees at which the account difference reaches zero: difference - (k - 1) * fee_difference = 0 (fees are net of maker rebates). A candidate that pays less in fees and still wins never reaches zero: raising both fees only widens its lead.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L286)
+
+#### `expectancy_split` [#impl-report-measures-py-expectancy_split]
+
+```python
+def expectancy_split(control: Mapping, candidate: Mapping) -> dict | None
+```
+
+Expectancy E = w W + (1 - w) L split into a win-rate part and a payoff part, each the mean of its marginal effect over both orders of change (Shapley); the parts sum to the difference.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L300)
+
+#### `instrument_net` [#impl-report-measures-py-instrument_net]
+
+```python
+def instrument_net(cycles: list[dict]) -> dict[str, Decimal]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L325)
+
+#### `exit_net` [#impl-report-measures-py-exit_net]
+
+```python
+def exit_net(cycles: list[dict]) -> dict[str, Decimal]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L332)
+
+#### `month_logs` [#impl-report-measures-py-month_logs]
+
+```python
+def month_logs(returns: list[tuple]) -> dict[str, float]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L339)
+
+#### `day_of` [#impl-report-measures-py-day_of]
+
+```python
+def day_of(ts: int) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L346)
+
+#### `aligned_market` [#impl-report-measures-py-aligned_market]
+
+```python
+def aligned_market(returns: list[tuple], market: Mapping | None, series: str) -> tuple[list[float] | None, str | None]
+```
+
+The market series aligned to the run's days; None with the reason when a day lacks it.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L350)
+
+#### `basket_months` [#impl-report-measures-py-basket_months]
+
+```python
+def basket_months(returns: list[tuple], market: Mapping | None) -> tuple[dict[str, float] | None, str | None]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L365)
+
+#### `daily_pnl` [#impl-report-measures-py-daily_pnl]
+
+```python
+def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L375)
+
+#### `daily_turnover` [#impl-report-measures-py-daily_turnover]
+
+```python
+def daily_turnover(sides: Mapping | None, starting: Decimal | None, days: float) -> tuple[float | None, int | None, str | None]
+```
+
+(turnover, fills, reason): the sealed traded notional of every liquidity side over the starting balance, per day of the trading window.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L566)
+
+#### `closed_by_year` [#impl-report-measures-py-closed_by_year]
+
+```python
+def closed_by_year(cycles: list[dict]) -> dict
+```
+
+Closed cycles' count, price PnL, commissions and funding by the UTC year of their close.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L579)
+
+#### `market_for` [#impl-report-measures-py-market_for]
+
+```python
+def market_for(run: Mapping) -> dict | None
+```
+
+The market's daily returns over the run's trading window and the REGIME_WINDOW days before it (report.seams.market_returns); a failure becomes \{error\} so that only the market measures are empty.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L595)
+
 
 ## `report/reproduce.py` [#def-mod-report-reproduce-py]
 
@@ -535,6 +911,32 @@ def review_all(
 **关联章节**　<Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="J.3.1.1">J.3.1.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.6.2.2">J.6.2.2</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `market_review` [#impl-report-review-py-market_review]
+
+```python
+def market_review(market: Mapping) -> dict
+```
+
+market review: whether the latest backup's head commit of the market database is still an ancestor of its main head (the import account can amend its last commit, which would drop a pinned market commit from history), read with the reader account; findings only, as in the ledger review: HISTORY_REWRITTEN, BACKUP_UNREADABLE, and without a backup HISTORY_UNCHECKED.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/review.py#L108)
+
+#### `product_commit_tests` [#impl-report-review-py-product_commit_tests]
+
+```python
+def product_commit_tests() -> dict[str, tuple[str, ...]]
+```
+
+The commit verification tests the product defines (the one INSERT INTO dolt_tests statement of ledger/schema.sql), by name: (test_name, test_group, test_query, assertion_type, assertion_comparator, assertion_value).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/review.py#L126)
+
 
 ## `report/runs.py` [#def-mod-report-runs-py]
 
@@ -692,6 +1094,90 @@ def tables(
 **关联章节**　<Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="G.4.1.2">G.4.1.2</Ref> <Ref id="R.1.2.1">R.1.2.1</Ref> <Ref id="R.1.2.3">R.1.2.3</Ref> <Ref id="R.2.3.1">R.2.3.1</Ref> <Ref id="R.2.3.3">R.2.3.3</Ref> <Ref id="R.3.1.5">R.3.1.5</Ref> <Ref id="V.1.2.2">V.1.2.2</Ref> <Ref id="V.2.2.3">V.2.2.3</Ref> <Ref id="V.4.2.4">V.4.2.4</Ref> <Ref id="V.4.4.2">V.4.4.2</Ref> <Ref id="F.1.1.1">F.1.1.1</Ref> <Ref id="F.1.2.2">F.1.2.2</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `profile_of` [#impl-report-runs-py-profile_of]
+
+```python
+def profile_of(ledger) -> db.LedgerProfile
+```
+
+A ledger profile from a profile, a profile name, or None (the active research ledger).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L40)
+
+#### `dedupe` [#impl-report-runs-py-dedupe]
+
+```python
+def dedupe(*groups) -> list[str]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L52)
+
+#### `cost_basis` [#impl-report-runs-py-cost_basis]
+
+```python
+def cost_basis(facts: Mapping) -> dict | None
+```
+
+The account terms and the observed fee rate (commissions over notional) by liquidity side.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L62)
+
+#### `slices_of` [#impl-report-runs-py-slices_of]
+
+```python
+def slices_of(derived: Mapping, catalogue: Mapping, comparison: bool=False) -> list[dict]
+```
+
+The catalogue's slices in order, each with its measures from `derived` (single-run slices only unless `comparison`).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L75)
+
+#### `report_of` [#impl-report-runs-py-report_of]
+
+```python
+def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None=None, market: Mapping | None=None, value: Mapping | None=None) -> dict
+```
+
+The single-run report of one run on an open (pinned) connection.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L83)
+
+#### `precheck_report` [#impl-report-runs-py-precheck_report]
+
+```python
+def precheck_report(ledger, trial_id: int, at: str | None=None, *, directory: Path | None=None, reproduction: int | None=None, account: bool=False, exposures: bool=False) -> dict
+```
+
+Original technical facts plus optional verified cached native detail, never economic evidence.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L124)
+
+#### `verify_reproduction` [#impl-report-runs-py-verify_reproduction]
+
+```python
+def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mapping, reproduction) -> None
+```
+
+REPRODUCTION_MISMATCH unless `reproduction` is the explore trial replay.reproduce wrote for this run (same source, image digest and inputs), its capture is complete, its fingerprint stage sealed the run's recorded fingerprint, and every report file in `directory` matches that capture.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L271)
+
+#### `directory_facts` [#impl-report-runs-py-directory_facts]
+
+```python
+def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict
+```
+
+The facts derive_measures reads, built from a directory's native reports (no ledger).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/runs.py#L342)
+
 
 ## `report/status.py` [#def-mod-report-status-py]
 
@@ -900,3 +1386,127 @@ def research_status(
 **关联章节**　<Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.3.3.1">E.3.3.1</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="V.4.4.2">V.4.4.2</Ref> <Ref id="F.2.1.1">F.2.1.1</Ref> <Ref id="F.3.1.1">F.3.1.1</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `failure_stages` [#impl-report-status-py-failure_stages]
+
+```python
+def failure_stages(data: bytes) -> set[str] | None
+```
+
+The stages of runtime failure receipt bytes; None when a line is no structured receipt.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L59)
+
+#### `stopped_before_strategy` [#impl-report-status-py-stopped_before_strategy]
+
+```python
+def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> bool
+```
+
+Whether a sealed capture shows the runner stopped before any strategy result existed: the replay completed on the host, the native runner exited nonzero without writing its summary, and every runtime failure it recorded (if any) is of a stage before the strategy trades (binding, load, inputs: problems.PRE_STRATEGY_STAGES).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L75)
+
+#### `counted_trials` [#impl-report-status-py-counted_trials]
+
+```python
+def counted_trials(conn: db.LedgerConnection) -> dict
+```
+
+The trials that count as tests of a strategy, and the ones that do not (user decision 2026-10-20): a reproduction (an explore trial replaying an earlier trial that has a run, with the same source, image digest, windows, instruments and inputs, as replay.reproduce writes) and a trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the stored trial rows and capture manifests; nothing is marked.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L103)
+
+
+## `report/profit.py` [#def-mod-report-profit-py]
+
+统一读取原生利润事实与账户桥接：已实现损益、费用、资金费和未平仓标记一起对账。历史空值保持未知，唯一可识别残差明确标为派生读数。
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `native_economics` [#impl-report-profit-py-native_economics]
+
+```python
+def native_economics(capture: Mapping) -> Mapping | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/profit.py#L16)
+
+#### `amount` [#impl-report-profit-py-amount]
+
+```python
+def amount(value) -> Decimal | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/profit.py#L21)
+
+#### `total` [#impl-report-profit-py-total]
+
+```python
+def total(values) -> Decimal | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/profit.py#L31)
+
+#### `cycle_value` [#impl-report-profit-py-cycle_value]
+
+```python
+def cycle_value(cycle: Mapping) -> Decimal | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/profit.py#L36)
+
+#### `complete_cycles` [#impl-report-profit-py-complete_cycles]
+
+```python
+def complete_cycles(cycles: Sequence[Mapping], audit: Mapping | None) -> list[dict]
+```
+
+Copy readings; only one historical unknown open realized is identifiable from a total.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/profit.py#L44)
+
+#### `account_bridge` [#impl-report-profit-py-account_bridge]
+
+```python
+def account_bridge(cycles: Sequence[Mapping], starting, final, audit: Mapping | None=None) -> dict
+```
+
+Reconcile complete account contributions without inferring realized PnL from equity.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/profit.py#L64)
+
+
+
+## `report/seams.py` [#def-mod-report-seams-py]
+
+报告域集中调用市场日收益、原生复现与报表语义比较；不在报告里另造这些实现。
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `Seams` [#impl-report-seams-py-Seams]
+
+```python
+class Seams
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/seams.py#L64)
+
+#### `use` [#impl-report-seams-py-use]
+
+```python
+def use(**overrides) -> Iterator[Seams]
+```
+
+Replace some implementations for the duration of the block (tests and later-phase wiring).
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/seams.py#L75)

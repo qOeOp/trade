@@ -12,6 +12,7 @@ const description = { en: 'The research chain: candidates, registered hypotheses
 
 function rewriteLinks(markdown, sourcePath, locale) {
   return markdown.replace(/\]\((?!https?:|#|mailto:)([^)#]+)(#[^)]+)?\)/g, (match, target, fragment = '') => {
+    if (target.startsWith('/')) return match;
     const resolved = resolve(dirname(join(repositoryRoot, 'docs', sourcePath)), target);
     const relative = resolved.slice(repositoryRoot.length + 1).replaceAll('\\', '/');
     const canonical = relative.replace(/\.zh\.md$/, '.md').replace(/^docs\//, '');
@@ -57,8 +58,9 @@ await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: 'Á†îÂè
 // Definition index for <Ref> hover previews, generated together with the chapters.
 await mkdir(join(siteRoot, 'lib', 'generated'), { recursive: true });
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'rd-index.json'), join(siteRoot, 'lib', 'generated', 'rd-index.json'));
+await writeFile(join(siteRoot, 'lib', 'generated', 'rd-groups.json'), JSON.stringify(groups));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot, 'lib', 'generated', 'rd-entries.json'));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), join(siteRoot, 'lib', 'generated', 'rd-map.json'));
-await copyFile(join(repositoryRoot, 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
-await copyFile(join(repositoryRoot, 'icon.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
+await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
+await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
 console.log(`Prepared ${entries.length} bilingual chapters.`);

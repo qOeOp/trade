@@ -1,0 +1,257 @@
+# Read views and research history
+
+Business and research-history views derive a reading surface from stored facts. They add neither stored facts nor an access boundary.
+
+[Database overview](/en/docs/design-ledger/)
+
+### `v_candidates` [#def-table-v_candidates]
+
+候选的身份与谱系，不含源码字节
+
+<TypeTable type={{ "strategy_id": { type: "VARCHAR(100)", description: "引用名 ID", required: false }, "revision": { type: "INT", description: "版本号", required: false }, "source_sha256": { type: "CHAR(64)", description: "内容身份", required: false }, "entry_class": { type: "VARCHAR(100)", description: "入口类", required: false }, "runtime_contract": { type: "VARCHAR(40)", description: "运行契约", required: false }, "parent_strategy_id": { type: "VARCHAR(100)", description: "研发父版本 ID", required: false }, "parent_revision": { type: "INT", description: "研发父版本号", required: false }, "difference": { type: "VARCHAR(2000)", description: "改动说明", required: false }, "created_at": { type: "DATETIME(6)", description: "服务器时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_candidates AS
+SELECT strategy_id, revision, source_sha256, entry_class, runtime_contract,
+       parent_strategy_id, parent_revision, difference, created_at
+FROM candidate
+```
+
+**底表**　<Ref id="table:candidate">candidate</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="E.2.1.1">E.2.1.1</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.1.1.1">C.1.1.1</Ref> <Ref id="C.1.1.2">C.1.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.1.1.1">H.1.1.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.3.3.1">H.3.3.1</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.1.1">J.2.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+
+</div>
+
+### `v_trials` [#def-table-v_trials]
+
+每次试验及其登记网格点、样本外绑定与运行状态；路线内试验、研究计数与前置门都读它
+
+<TypeTable type={{ "trial_id": { type: "INT", description: "试验", required: false }, "purpose": { type: "VARCHAR(20)", description: "explore | precheck | research | validation", required: false }, "source_sha256": { type: "CHAR(64)", description: "被回放的源码", required: false }, "registration_bundle": { type: "VARCHAR(160)", description: "消耗的登记包；无则为空", required: false }, "validation_registration": { type: "BIGINT", description: "样本外登记；无则为空", required: false }, "image_digest": { type: "CHAR(71)", description: "运行环境摘要", required: false }, "trade_start": { type: "DATETIME(6)", description: "交易起点", required: false }, "trade_end": { type: "DATETIME(6)", description: "交易终点", required: false }, "run_status": { type: "VARCHAR(10)", description: "passed | invalid；未完成为空", required: false }, "created_at": { type: "DATETIME(6)", description: "试验开始的服务器时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_trials AS
+SELECT t.trial_id, t.purpose, t.source_sha256, a.registration_bundle,
+       b.registration_id AS validation_registration, SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest,
+       t.trade_start, t.trade_end, r.status AS run_status, t.created_at
+FROM trial t
+LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
+LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
+LEFT JOIN run r ON r.trial_id = t.trial_id
+```
+
+**底表**　<Ref id="table:trial">trial</Ref>、<Ref id="table:registration_attempt">registration_attempt</Ref>、<Ref id="table:validation_binding">validation_binding</Ref>、<Ref id="table:run">run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.1.2">E.2.1.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="L.2.2.1">L.2.2.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.6.1.1">C.6.1.1</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="W.2.1.1">W.2.1.1</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.2.2.2">J.2.2.2</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.5.4.1">J.5.4.1</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref>
+
+</div>
+
+### `v_runs` [#def-table-v_runs]
+
+运行的身份、审计结论与存储的绩效指标；指标在读取入口里按资格遮蔽后才流出
+
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验及结果的共享编号", required: false }, "status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "failure_reasons": { type: "JSON", description: "无效原因", required: false }, "audit": { type: "JSON", description: "审计结论", required: false }, "created_at": { type: "DATETIME(6)", description: "入账时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_runs AS
+SELECT trial_id, status, failure_reasons, audit, created_at
+FROM run
+```
+
+**底表**　<Ref id="table:run">run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.5.2.1">C.5.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="G.1.2.2">G.1.2.2</Ref> <Ref id="G.2.1.1">G.2.1.1</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="G.4.2.3">G.4.2.3</Ref> <Ref id="R.1.1.1">R.1.1.1</Ref> <Ref id="R.1.1.3">R.1.1.3</Ref> <Ref id="R.1.1.4">R.1.1.4</Ref> <Ref id="R.2.1.1">R.2.1.1</Ref> <Ref id="R.2.1.3">R.2.1.3</Ref> <Ref id="R.2.2.1">R.2.2.1</Ref> <Ref id="V.2.1.1">V.2.1.1</Ref> <Ref id="V.2.1.2">V.2.1.2</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.2.3">J.2.2.3</Ref> <Ref id="J.2.3.1">J.2.3.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref> <Ref id="J.5.3.1">J.5.3.1</Ref> <Ref id="J.5.4.1">J.5.4.1</Ref> <Ref id="J.6.1.1">J.6.1.1</Ref>
+
+</div>
+
+### `v_judgments` [#def-table-v_judgments]
+
+当前生效（未被取代）的判断及其主体，一行一个主体
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "判断", required: false }, "kind": { type: "VARCHAR(32)", description: "判断种类", required: false }, "line_bundle": { type: "VARCHAR(160)", description: "研究路线", required: false }, "based_on_commit": { type: "CHAR(32)", description: "所依据的账本提交", required: false }, "body": { type: "TEXT", description: "判断正文", required: false }, "role": { type: "VARCHAR(16)", description: "主体角色", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "候选 ID", required: false }, "revision": { type: "INT", description: "候选版本", required: false }, "trial_id": { type: "INT", description: "试验", required: false }, "registration_bundle": { type: "VARCHAR(160)", description: "登记包", required: false }, "created_at": { type: "DATETIME(6)", description: "写入时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_judgments AS
+SELECT j.judgment_id, j.kind, j.line_bundle, j.based_on_commit, j.body,
+       s.role, s.strategy_id, s.revision, s.trial_id, s.registration_bundle, j.created_at
+FROM judgment j
+LEFT JOIN judgment_subject s ON s.judgment_id = j.judgment_id
+WHERE NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id)
+```
+
+**底表**　<Ref id="table:judgment">judgment</Ref>、<Ref id="table:judgment_subject">judgment_subject</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="V.2.4.1">V.2.4.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+
+</div>
+
+### `v_evidence` [#def-table-v_evidence]
+
+证据包与其文件目录（路径、哈希、长度），不含原件字节
+
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "包名", required: false }, "created_at": { type: "DATETIME(6)", description: "入账时间", required: false }, "path": { type: "VARCHAR(400)", description: "文件路径", required: false }, "sha256": { type: "CHAR(64)", description: "内容哈希", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_evidence AS
+SELECT b.bundle, b.created_at, e.path, e.sha256
+FROM evidence_bundle b
+JOIN evidence e ON e.bundle = b.bundle
+```
+
+**底表**　<Ref id="table:evidence_bundle">evidence_bundle</Ref>、<Ref id="table:evidence">evidence</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="T.2.2.3">T.2.2.3</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.2.3.1">H.2.3.1</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.2.2">W.3.2.2</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref> <Ref id="G.4.2.1">G.4.2.1</Ref> <Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="V.2.2.1">V.2.2.1</Ref> <Ref id="V.4.1.2">V.4.1.2</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref> <Ref id="J.2.3.2">J.2.3.2</Ref> <Ref id="J.2.3.3">J.2.3.3</Ref> <Ref id="J.2.4.1">J.2.4.1</Ref> <Ref id="J.3.1.2">J.3.1.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref> <Ref id="J.3.4.2">J.3.4.2</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
+
+</div>
+
+### `v_validations` [#def-table-v_validations]
+
+样本外登记、它绑定的试验与运行状态
+
+<TypeTable type={{ "registration_id": { type: "BIGINT", description: "样本外登记", required: false }, "strategy_id": { type: "VARCHAR(100)", description: "被验候选 ID", required: false }, "revision": { type: "INT", description: "被验候选版本", required: false }, "market_commit": { type: "CHAR(32)", description: "钉住的市场提交", required: false }, "universe_rule": { type: "VARCHAR(80)", description: "范围规则", required: false }, "window_start": { type: "DATETIME(6)", description: "窗口起点", required: false }, "window_end": { type: "DATETIME(6)", description: "窗口终点", required: false }, "trial_id": { type: "INT", description: "绑定的试验；未绑定为空", required: false }, "run_status": { type: "VARCHAR(10)", description: "passed | invalid", required: false }, "created_at": { type: "DATETIME(6)", description: "登记时间", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_validations AS
+SELECT g.registration_id, g.strategy_id, g.revision, g.market_commit, g.universe_rule,
+       g.window_start, g.window_end, b.trial_id, r.status AS run_status, g.created_at
+FROM validation_registration g
+LEFT JOIN validation_binding b ON b.registration_id = g.registration_id
+LEFT JOIN run r ON r.trial_id = b.trial_id
+```
+
+**底表**　<Ref id="table:validation_registration">validation_registration</Ref>、<Ref id="table:validation_binding">validation_binding</Ref>、<Ref id="table:run">run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="V.4.4.1">V.4.4.1</Ref> <Ref id="X.1.2.2">X.1.2.2</Ref> <Ref id="X.1.3.1">X.1.3.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="X.2.1.3">X.2.1.3</Ref> <Ref id="X.2.1.4">X.2.1.4</Ref> <Ref id="J.2.2.1">J.2.2.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref> <Ref id="J.3.5.2">J.3.5.2</Ref> <Ref id="J.4.1.1">J.4.1.1</Ref> <Ref id="J.4.1.2">J.4.1.2</Ref> <Ref id="J.4.2.2">J.4.2.2</Ref>
+
+</div>
+
+### 研究史视图 [#research-history-views]
+
+四个只读视图，不新增存储（模式第 2 代加入，取舍见 `docs/plans/ledger-schema-v2.zh.md`）。它们补的是现有命令没有的跨研究线连接：`candidate list` 没有谱系根与深度，`research state` 只按一条研究线分页列判断。视图不计算任何度量：年化、夏普、计划胜率由报告推导，统计按 `tables()` 读一个运行。
+
+- `v_candidate_lineage`　每个候选及其谱系根、深度（递归 CTE 沿父版本上溯）、改动说明、试验数与通过的研究运行数
+- `v_run_history`　每个运行：候选、用途、状态、窗口、登记包或样本外登记、最新封存的计量修订，以及封存报告里存下的最大回撤、期末权益与周期数，和点名该运行试验或候选的当前判断数
+- `v_judgment_chain`　每条判断（含已被取代的）：取代链的根与深度、取代者、是否当前有效、正文
+- `v_judgment_subjects`　每个判断主体，试验主体解析到其候选与运行，带该判断是否当前有效
+
+```sql
+CREATE VIEW v_candidate_lineage AS
+  WITH RECURSIVE lineage (strategy_id, revision, root_strategy_id, root_revision, depth) AS (
+    SELECT strategy_id, revision, strategy_id, revision, 0 FROM candidate WHERE parent_strategy_id IS NULL
+    UNION ALL
+    SELECT c.strategy_id, c.revision, l.root_strategy_id, l.root_revision, l.depth + 1
+    FROM candidate c JOIN lineage l ON c.parent_strategy_id = l.strategy_id AND c.parent_revision = l.revision)
+  SELECT c.strategy_id, c.revision, l.root_strategy_id, l.root_revision, l.depth,
+         c.parent_strategy_id, c.parent_revision, c.difference, c.description, c.runtime_contract, c.source_sha256,
+         (SELECT COUNT(*) FROM trial t WHERE t.source_sha256 = c.source_sha256) AS trials,
+         (SELECT COUNT(*) FROM trial t JOIN run r ON r.trial_id = t.trial_id
+          WHERE t.source_sha256 = c.source_sha256 AND t.purpose = 'research' AND r.status = 'passed') AS passed_research_runs,
+         c.created_at
+  FROM candidate c
+  JOIN lineage l ON l.strategy_id = c.strategy_id AND l.revision = c.revision
+
+CREATE VIEW v_run_history AS
+  SELECT r.trial_id, t.purpose, r.status, c.strategy_id, c.revision, t.trade_start, t.trade_end,
+         a.registration_bundle, b.registration_id AS validation_registration, s.metrics_revision,
+         CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.drawdown."mark_max_drawdown@2".value')) AS DOUBLE)
+           AS mark_max_drawdown,
+         CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.activity."returns_compound_to_equity@1".final_equity'))
+           AS DECIMAL(24,8)) AS final_equity,
+         CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.populations.cycles')) AS SIGNED) AS cycles,
+         (SELECT COUNT(DISTINCT j.judgment_id) FROM judgment_subject js JOIN judgment j ON j.judgment_id = js.judgment_id
+          WHERE (js.trial_id = r.trial_id OR (js.strategy_id = c.strategy_id AND js.revision = c.revision))
+          AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id)) AS current_judgments,
+         r.created_at
+  FROM run r
+  JOIN trial t ON t.trial_id = r.trial_id
+  LEFT JOIN candidate c ON c.source_sha256 = t.source_sha256
+  LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
+  LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
+  LEFT JOIN run_sealed s ON s.trial_id = r.trial_id AND s.metrics_revision = (
+    SELECT s2.metrics_revision FROM run_sealed s2 WHERE s2.trial_id = r.trial_id
+    ORDER BY s2.created_at DESC, s2.metrics_revision DESC LIMIT 1)
+
+CREATE VIEW v_judgment_chain AS
+  WITH RECURSIVE chain (judgment_id, chain_root, depth) AS (
+    SELECT judgment_id, judgment_id, 0 FROM judgment WHERE supersedes IS NULL
+    UNION ALL
+    SELECT j.judgment_id, ch.chain_root, ch.depth + 1 FROM judgment j JOIN chain ch ON j.supersedes = ch.judgment_id)
+  SELECT j.judgment_id, j.kind, j.line_bundle, ch.chain_root, ch.depth, j.supersedes,
+         n.judgment_id AS superseded_by, n.judgment_id IS NULL AS is_current, j.based_on_commit, j.body, j.created_at
+  FROM judgment j
+  JOIN chain ch ON ch.judgment_id = j.judgment_id
+  LEFT JOIN judgment n ON n.supersedes = j.judgment_id
+
+CREATE VIEW v_judgment_subjects AS
+  SELECT s.judgment_id, s.seq, s.role, j.kind, j.line_bundle,
+         NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) AS is_current,
+         COALESCE(s.strategy_id, c.strategy_id) AS strategy_id, COALESCE(s.revision, c.revision) AS revision,
+         s.trial_id, s.registration_bundle, j.created_at
+  FROM judgment_subject s
+  JOIN judgment j ON j.judgment_id = s.judgment_id
+  LEFT JOIN trial t ON t.trial_id = s.trial_id
+  LEFT JOIN candidate c ON c.source_sha256 = t.source_sha256
+  LEFT JOIN run r ON r.trial_id = s.trial_id
+```
+
+**底表**　<Ref id="table:candidate">candidate</Ref>、<Ref id="table:trial">trial</Ref>、<Ref id="table:run">run</Ref>、<Ref id="table:run_sealed">run_sealed</Ref>、<Ref id="table:judgment">judgment</Ref>、<Ref id="table:judgment_subject">judgment_subject</Ref>
+
+### `v_universe` [#def-table-v_universe]
+
+共同可交易范围：每个规则、每月的成员合约
+
+<TypeTable type={{ "universe_rule": { type: "VARCHAR(80)", description: "范围规则", required: false }, "month": { type: "DATE", description: "月份", required: false }, "symbol": { type: "VARCHAR(40)", description: "合约", required: false } }} />
+
+**Dolt 能力**
+
+- **修订库**　按 `库/提交` 读时使用该提交时的视图定义
+
+```sql
+CREATE VIEW v_universe AS
+SELECT universe_rule, month, symbol
+FROM universe_month
+```
+
+**底表**　<Ref id="table:universe_month">universe_month</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.9.1">J.2.9.1</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.1.1">W.3.1.1</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="J.6.1.3">J.6.1.3</Ref>
+
+</div>

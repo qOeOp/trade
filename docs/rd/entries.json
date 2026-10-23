@@ -119,109 +119,193 @@
   "close"
  ],
  [
+  "platform-architecture",
+  "rd/platform-architecture",
+  "Architecture overview",
+  "架构总览",
+  "design"
+ ],
+ [
   "design-code-market",
   "rd/design-code-market",
-  "Code: Market data",
-  "代码：市场数据",
-  "design"
+  "Market data",
+  "市场数据",
+  "code"
  ],
  [
   "design-code-engine",
   "rd/design-code-engine",
-  "Code: Engine runner and auditor",
-  "代码：引擎运行器与审计器",
-  "design"
+  "Engine runner and auditor",
+  "引擎运行器与审计器",
+  "code"
  ],
  [
   "design-code-runtime",
   "rd/design-code-runtime",
-  "Code: Runtime identity",
-  "代码：运行环境身份",
-  "design"
+  "Runtime identity",
+  "运行环境身份",
+  "code"
  ],
  [
   "design-code-ledger",
   "rd/design-code-ledger",
-  "Code: Ledger",
-  "代码：账本",
-  "design"
+  "Ledger reads and writes",
+  "账本读写",
+  "code"
  ],
  [
   "design-code-qualification",
   "rd/design-code-qualification",
-  "Code: Economic evidence eligibility",
-  "代码：经济证据资格",
-  "design"
+  "Economic evidence eligibility",
+  "经济证据资格",
+  "code"
  ],
  [
   "design-code-registration",
   "rd/design-code-registration",
-  "Code: Registration and admission",
-  "代码：登记与准入",
-  "design"
+  "Registration and admission",
+  "登记与准入",
+  "code"
  ],
  [
   "design-code-replay",
   "rd/design-code-replay",
-  "Code: Replay entry",
-  "代码：回放入口",
-  "design"
+  "Replay entry",
+  "回放入口",
+  "code"
  ],
  [
   "design-code-report",
   "rd/design-code-report",
-  "Code: Report readers",
-  "代码：报告读口",
-  "design"
+  "Report readers",
+  "报告读口",
+  "code"
  ],
  [
   "design-code-cli",
   "rd/design-code-cli",
-  "Code: Command line",
-  "代码：命令行",
-  "design"
+  "Command line",
+  "命令行",
+  "code"
+ ],
+ [
+  "design-code-video-evidence",
+  "rd/design-code-video-evidence",
+  "Video evidence verification",
+  "视频证据核验",
+  "code"
  ],
  [
   "design-ledger",
   "rd/design-ledger",
-  "Table design",
-  "表结构设计",
-  "design"
+  "Database overview",
+  "数据库总览",
+  "database"
  ],
  [
-  "design-skill-nautilus-report-analysis",
-  "rd/design-skill-nautilus-report-analysis",
-  "Skill: nautilus-report-analysis",
-  "skill：nautilus-report-analysis",
-  "design"
+  "design-database-candidates",
+  "rd/design-database-candidates",
+  "Candidates and lineage",
+  "候选与谱系",
+  "database"
  ],
  [
-  "design-skill-product-doctor",
-  "rd/design-skill-product-doctor",
-  "Skill: product-doctor",
-  "skill：product-doctor",
-  "design"
+  "design-database-trials",
+  "rd/design-database-trials",
+  "Trials and registration bindings",
+  "试验与登记绑定",
+  "database"
  ],
  [
-  "design-skill-research-round",
-  "rd/design-skill-research-round",
-  "Skill: research-round",
-  "skill：research-round",
-  "design"
+  "design-database-runs",
+  "rd/design-database-runs",
+  "Runs and sealed readings",
+  "运行结果与封存读数",
+  "database"
  ],
  [
-  "design-skill-research-sources",
-  "rd/design-skill-research-sources",
-  "Skill: research-sources",
-  "skill：research-sources",
-  "design"
+  "design-database-evidence",
+  "rd/design-database-evidence",
+  "Evidence bundles and originals",
+  "证据包与原件",
+  "database"
+ ],
+ [
+  "design-database-judgments",
+  "rd/design-database-judgments",
+  "Research judgments and subjects",
+  "研究判断与主体",
+  "database"
+ ],
+ [
+  "design-database-validation",
+  "rd/design-database-validation",
+  "Validation and timestamp witnesses",
+  "样本外登记与时间见证",
+  "database"
+ ],
+ [
+  "design-database-market",
+  "rd/design-database-market",
+  "Market data and universe",
+  "市场数据与交易范围",
+  "database"
+ ],
+ [
+  "design-database-coordination",
+  "rd/design-database-coordination",
+  "Schema versions and write coordination",
+  "模式版本与写入协调",
+  "database"
+ ],
+ [
+  "design-database-views",
+  "rd/design-database-views",
+  "Read views and research history",
+  "读取视图与研究史",
+  "database"
  ],
  [
   "design-skill-research-start",
   "rd/design-skill-research-start",
-  "Skill: research-start",
-  "skill：research-start",
-  "design"
+  "Research entry and recovery",
+  "研究入口与恢复",
+  "skill"
+ ],
+ [
+  "design-skill-research-round",
+  "rd/design-skill-research-round",
+  "Research iteration",
+  "研究迭代",
+  "skill"
+ ],
+ [
+  "design-skill-research-sources",
+  "rd/design-skill-research-sources",
+  "External research sources",
+  "外部研究来源",
+  "skill"
+ ],
+ [
+  "design-skill-video-evidence",
+  "rd/design-skill-video-evidence",
+  "Video evidence acquisition and verification",
+  "视频证据采集与核验",
+  "skill"
+ ],
+ [
+  "design-skill-nautilus-report-analysis",
+  "rd/design-skill-nautilus-report-analysis",
+  "Native report analysis",
+  "原生报告分析",
+  "skill"
+ ],
+ [
+  "design-skill-product-doctor",
+  "rd/design-skill-product-doctor",
+  "Product diagnosis",
+  "产品诊断",
+  "skill"
  ],
  [
   "appendix-references",

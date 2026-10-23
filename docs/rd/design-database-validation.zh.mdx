@@ -1,0 +1,110 @@
+# 样本外登记与时间见证
+
+保存事前检验声明、一次执行绑定与时间凭证；凭证证明提交在给定时间前已存在。
+
+[数据库总览](/zh/docs/design-ledger/)
+
+### `validation_registration` [#def-table-validation_registration]
+
+样本外登记（预登记）：被验候选、共同可交易范围身份、窗口与声明的检验条件；其账本提交取 RFC 3161 凭证
+
+<TypeTable type={{ "registration_id": { type: "INT AUTO_INCREMENT", description: "登记编号", required: true }, "strategy_id": { type: "VARCHAR(100)", description: "被验候选 ID", required: true }, "revision": { type: "INT", description: "被验候选版本号；源码身份经 candidate.source_sha256", required: true }, "market_commit": { type: "CHAR(32)", description: "登记时钉住的市场提交；登记前各月成员时间路径由 universe_month 按它 AS OF 派生", required: true }, "universe_rule": { type: "VARCHAR(60)", description: "共同可交易范围规则版本；窗口内月份由环境按同一规则产出", required: true }, "window_start": { type: "DATETIME(6)", description: "样本外窗口起点，UTC，左闭；非重试登记须晚于 created_at，绑定时须晚于凭证 genTime", required: true }, "window_end": { type: "DATETIME(6)", description: "样本外窗口终点，UTC，右开", required: true }, "design": { type: "JSON", description: "声明的检验条件：method、block_days、resamples、inner_resamples、seed、alpha、minimum_effect、design_reason；数值为未校准示例值", required: true }, "retry_of": { type: "INT", description: "修复环境缺陷后对同一候选、窗口、范围规则再登记时指向的原登记；准入沿用原登记凭证时间", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原行", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 J.4.1.1）", required: true } }} />
+
+**键与约束**
+
+- 主键　`registration_id`
+- 唯一　`op_id`
+- 外键　`strategy_id, revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- 外键　`retry_of` → <Ref id="table:validation_registration">validation_registration</Ref> `registration_id`
+- CHECK　`window_start \< window_end`
+- CHECK　`retry_of IS NULL OR retry_of \< registration_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次登记恰一个 DOLT_COMMIT，登记行与提交一一对应
+- **J.3.1.1**　只追加：dolt_diff_validation_registration 出现任何非 added 行即篡改发现；没有「已用于验证」列，准入只靠凭证时间
+- **J.3.1.3**　AS OF 读任一时刻的登记
+- **X.1.2.1**　dolt_diff_validation_registration 中该行 diff_type='added' 的 to_commit 是登记提交，即凭证的被哈希对象；witness.commit_hash 等于它
+- **J.4.1.1**　created_at 由服务器触发器写；dolt_tests validation_window_after_registration 核非重试行 window_start > created_at
+- **W.3.1.2**　universe_month AS OF market_commit 重现登记时的范围规则与各月名单，绑定时逐行比对
+
+**写入方**　<Ref id="registration.validation_register" />
+
+**读取视图**　<Ref id="table:v_validations">v_validations</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="X.1.2.1">X.1.2.1</Ref>
+
+**依据**
+
+- [RFC 3161 — Internet X.509 PKI Time-Stamp Protocol（2001，更新于 RFC 5816）](https://www.rfc-editor.org/rfc/rfc3161)　官方文档
+- [Haber & Stornetta 1991, doi:10.1007/BF00196791](https://doi.org/10.1007/BF00196791)　论文
+- [Nosek, Ebersole, DeHaven & Mellor 2018, doi:10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)　论文
+- [Dolt — System tables（dolt_diff_\<t>、dolt_history_\<t>）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+
+</div>
+
+### `validation_binding` [#def-table-validation_binding]
+
+一次样本外登记绑定一次回放：以登记为主键，第二次绑定主键冲突即拒绝；中断或无效的试验同样留行
+
+<TypeTable type={{ "registration_id": { type: "INT", description: "被消耗的样本外登记", required: true }, "trial_id": { type: "INT", description: "绑定的那次回放（purpose=validation）；运行经 run.trial_id 关联", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID，与试验行同一操作", required: true } }} />
+
+**键与约束**
+
+- 主键　`registration_id`
+- 唯一　`trial_id`
+- 唯一　`op_id`
+- 外键　`registration_id` → <Ref id="table:validation_registration">validation_registration</Ref> `registration_id`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与试验行、执行开始回执同一事务同一提交
+- **J.3.1.1**　dolt_diff_validation_binding 只应出现 added；任何改删即篡改发现
+- **X.1.3.1**　主键为登记：再次绑定主键冲突即拒绝；dolt_history_validation_binding 可追每次绑定的提交
+- **J.3.1.4**　dolt_tests validation_runs_match_their_registration（绑定试验的源码哈希与交易窗口符合登记）与 validation_retry_keeps_candidate_window（重试登记与原登记同候选、同窗口、同范围规则）
+
+**写入方**　<Ref id="ledger.open_trial" />
+
+**读取视图**　<Ref id="table:v_validations">v_validations</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="X.1.3.1">X.1.3.1</Ref>
+
+</div>
+
+### `witness` [#def-table-witness]
+
+时间凭证：对样本外登记诞生提交取得的 RFC 3161 凭证原件；证明记录在 genTime 前已存在，不证明唯一
+
+<TypeTable type={{ "commit_hash": { type: "CHAR(32)", description: "被盖戳的账本提交（样本外登记行诞生的提交）", required: true }, "token": { type: "LONGBLOB", description: "RFC 3161 TimeStampToken 的 DER 原字节；genTime 由离线验证读出，不另存", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID，取 witness:<commit_hash>；同载荷重试返回原记录", required: true } }} />
+
+**键与约束**
+
+- 主键　`commit_hash`
+- 唯一　`op_id`
+- CHECK　`LENGTH(commit_hash) = 32`
+- CHECK　`LENGTH(token) > 0`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每份凭证一个事务一个提交
+- **J.3.1.1**　只追加，凭证从不改写；改删留在 dolt_history_witness 可查
+- **J.3.1.4**　dolt_tests 提交校验 witnesses_stamp_validation_registrations：每行 commit_hash 是 dolt_diff_validation_registration 中 diff_type='added' 的 to_commit
+- **A.5.2.1**　外部先后由凭证证明，只有摘要离开本机
+
+**写入方**　<Ref id="ledger.witness" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.4.2.2">J.4.2.2</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="X.1.2.2">X.1.2.2</Ref> <Ref id="X.2.1.1">X.2.1.1</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+
+**依据**
+
+- [IETF — RFC 3161 Time-Stamp Protocol](https://www.rfc-editor.org/rfc/rfc3161)　官方文档
+- [Haber & Stornetta 1991, https://doi.org/10.1007/BF00196791](https://doi.org/10.1007/BF00196791)　论文
+
+</div>

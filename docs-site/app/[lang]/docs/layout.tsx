@@ -1,4 +1,4 @@
-import { source } from '@/lib/source';
+import { docsTree } from '@/lib/source';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { baseOptions } from '@/lib/layout.shared';
 import { isLocale } from '@/lib/i18n';
@@ -9,7 +9,7 @@ export default async function Layout({ children, params }: LayoutProps<'/[lang]/
   if (!isLocale(lang)) notFound();
 
   return (
-    <DocsLayout tree={source.getPageTree(lang)} {...baseOptions(lang)}>
+    <DocsLayout tree={docsTree(lang)} {...baseOptions(lang)}>
       {children}
     </DocsLayout>
   );

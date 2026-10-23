@@ -126,6 +126,22 @@ def container_command(
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `command` [#impl-runtime-container-py-command]
+
+```python
+def command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *, name: str | None=None, require_reports: bool=False) -> list[str]
+```
+
+The docker run argument list; the checks of `container_command` without requiring /reports (the identity probe writes nothing).
+
+[源码](https://github.com/qOeOp/trade/blob/main/runtime/container.py#L60)
+
+
 ## `runtime/image.py` [#def-mod-runtime-image-py]
 
 | 函数 | 用途 |
@@ -316,3 +332,17 @@ def validate_identity(value: dict) -> 规范化身份 dict
 - [OCI — image-spec descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)　官方文档
 
 </div>
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `repository` [#impl-runtime-image-py-repository]
+
+```python
+def repository(reference: str) -> str
+```
+
+The image name of a reference, without its tag or digest.
+
+[源码](https://github.com/qOeOp/trade/blob/main/runtime/image.py#L133)

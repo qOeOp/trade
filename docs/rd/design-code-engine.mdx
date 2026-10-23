@@ -16,6 +16,7 @@
   <File name="load.py" />
   <File name="report.py" />
   <File name="run.py" />
+  <File name="native_csv.py" />
 </Folder>
 </Files>
 
@@ -347,6 +348,58 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `outcome` [#impl-engine-audit-py-outcome]
+
+```python
+def outcome(code: str, detail: str) -> str
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/audit.py#L99)
+
+#### `finding` [#impl-engine-audit-py-finding]
+
+```python
+def finding(code: str, detail: str) -> str
+```
+
+One finding: a catalogued code and its locating detail.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/audit.py#L104)
+
+#### `read_order_events` [#impl-engine-audit-py-read_order_events]
+
+```python
+def read_order_events(path: Path) -> list[dict]
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/audit.py#L162)
+
+#### `EventPayloadInvalid` [#impl-engine-audit-py-EventPayloadInvalid]
+
+```python
+class EventPayloadInvalid(ValueError)
+```
+
+EVENT_PAYLOAD_INVALID: the order event history cannot be replayed (an unknown event type, a non-positive quantity, an invalid side or an order without its initialization); engine.protection records it as REPORT_PAYLOAD_INVALID.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/audit.py#L223)
+
+#### `AuditNotRun` [#impl-engine-audit-py-AuditNotRun]
+
+```python
+class AuditNotRun(Exception)
+```
+
+The reports cannot be audited; the auditor exits 2 and writes no result.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/audit.py#L734)
+
+
 ## `engine/compare.py` [#def-mod-engine-compare-py]
 
 | 函数 | 用途 |
@@ -639,6 +692,126 @@ def parse_window(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `AccountContract` [#impl-engine-config-py-AccountContract]
+
+```python
+class AccountContract(TypedDict)
+```
+
+The value types of ACCOUNT_CONTRACT's terms.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L43)
+
+#### `Refusal` [#impl-engine-config-py-Refusal]
+
+```python
+class Refusal(ValueError)
+```
+
+A catalogued runner refusal; its text starts with the code.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L189)
+
+#### `Window` [#impl-engine-config-py-Window]
+
+```python
+class Window
+```
+
+[start, trade_start) warm-up and [trade_start, end) trading, as UTC nanoseconds and Z strings.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L201)
+
+#### `utc_datetime` [#impl-engine-config-py-utc_datetime]
+
+```python
+def utc_datetime(value: str) -> datetime
+```
+
+Parse an explicit ISO-8601 timezone without consulting the host timezone.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L211)
+
+#### `ns` [#impl-engine-config-py-ns]
+
+```python
+def ns(value: str) -> int
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L235)
+
+#### `utc_text` [#impl-engine-config-py-utc_text]
+
+```python
+def utc_text(value_ns: int) -> str
+```
+
+The Z-terminated text of a whole-second UTC instant.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L240)
+
+#### `RunnerConfiguration` [#impl-engine-config-py-RunnerConfiguration]
+
+```python
+class RunnerConfiguration
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L291)
+
+#### `read_universe_bytes` [#impl-engine-config-py-read_universe_bytes]
+
+```python
+def read_universe_bytes(path: Path) -> bytes
+```
+
+A regular file's bytes through one descriptor, never following a link.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L322)
+
+#### `EffectiveConfiguration` [#impl-engine-config-py-EffectiveConfiguration]
+
+```python
+class EffectiveConfiguration
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L335)
+
+#### `key_difference` [#impl-engine-config-py-key_difference]
+
+```python
+def key_difference(found, required) -> str
+```
+
+'missing a, b; extra c': how a key set differs from the required one.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L345)
+
+#### `config_sha256` [#impl-engine-config-py-config_sha256]
+
+```python
+def config_sha256(values: dict) -> str
+```
+
+The digest of the values without their host paths (canonical JSON).
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L352)
+
+#### `runtime_source_metadata` [#impl-engine-config-py-runtime_source_metadata]
+
+```python
+def runtime_source_metadata() -> dict
+```
+
+The runtime source files' hashes, independent of any strategy revision.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/config.py#L378)
+
+
 ## `engine/load.py` [#def-mod-engine-load-py]
 
 | 函数 | 用途 |
@@ -906,6 +1079,70 @@ def warmup_daily_bars(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `LoadedStrategy` [#impl-engine-load-py-LoadedStrategy]
+
+```python
+class LoadedStrategy
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/load.py#L38)
+
+#### `read_regular_file` [#impl-engine-load-py-read_regular_file]
+
+```python
+def read_regular_file(path: Path) -> bytes
+```
+
+Read through one descriptor; never follow a symlink at the file boundary.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/load.py#L47)
+
+#### `coin` [#impl-engine-load-py-coin]
+
+```python
+def coin(symbol: str, episode: int | None=None) -> str
+```
+
+The contract's short name: BTCUSDT -&gt; BTC, 1000PEPEUSDT -&gt; PEPE (a leading 1000 before letters); a lifecycle episode n of a reused ticker adds _E&lt;n&gt;.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/load.py#L152)
+
+#### `strategy_id` [#impl-engine-load-py-strategy_id]
+
+```python
+def strategy_id(symbol: str, episode: int | None=None) -> str
+```
+
+Nautilus identifiers are ASCII; a non-ASCII coin is spelled by its UTF-8 bytes.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/load.py#L160)
+
+#### `terms_approximations` [#impl-engine-load-py-terms_approximations]
+
+```python
+def terms_approximations(rows: list[dict], end_ns: int) -> list[str]
+```
+
+CURRENT_SNAPSHOT_APPROXIMATION limitations: each contract whose terms were observed after the window's end (a market imported after the fact), named with its observation time.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/load.py#L231)
+
+#### `warmup_start` [#impl-engine-load-py-warmup_start]
+
+```python
+def warmup_start(catalog_path: Path, instrument_id: InstrumentId, earliest: int, end: int) -> int | None
+```
+
+The first instant at or after `earliest` and before `end` at which the daily warm-up holds (WARMUP_DAYS contiguous daily bars end 1 ms before it); None when it never holds in the window.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/load.py#L270)
+
+
 ## `engine/report.py` [#def-mod-engine-report-py]
 
 | 函数 | 用途 |
@@ -1042,6 +1279,58 @@ def write_order_events(orders: Iterable[Order], path: Path) -> None
 - [NautilusTrader — Orders](https://nautilustrader.io/docs/latest/concepts/orders/)　官方文档
 
 </div>
+
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `json_safe` [#impl-engine-report-py-json_safe]
+
+```python
+def json_safe(value)
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/report.py#L31)
+
+#### `snapshot_equity_usdt` [#impl-engine-report-py-snapshot_equity_usdt]
+
+```python
+def snapshot_equity_usdt(snapshot) -> Decimal
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/report.py#L41)
+
+#### `orders_with_native_deadlines` [#impl-engine-report-py-orders_with_native_deadlines]
+
+```python
+def orders_with_native_deadlines(cache, report)
+```
+
+Export optional GTD nanoseconds from native Orders without float coercion.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/report.py#L50)
+
+#### `readable_empty_report` [#impl-engine-report-py-readable_empty_report]
+
+```python
+def readable_empty_report(report, columns)
+```
+
+Give a zero-row native report the headers its consumers already use.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/report.py#L66)
+
+#### `ExposureWriter` [#impl-engine-report-py-ExposureWriter]
+
+```python
+class ExposureWriter
+```
+
+The exposure table as gzip CSV with a fixed header time, written row by row as the observer values.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/report.py#L73)
+
 
 ## `engine/run.py` [#def-mod-engine-run-py]
 
@@ -1470,3 +1759,149 @@ def replay(
 - [NautilusTrader — Backtest Accounts and Margin（账户类型 CASH/MARGIN/BETTING；MARGIN 缺省 LeveragedMarginModel；配置示例 oms_type=NETTING；starting_balances）](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)　官方文档
 
 </div>
+
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `execution_metadata` [#impl-engine-run-py-execution_metadata]
+
+```python
+def execution_metadata(config) -> dict
+```
+
+The execution binding checked against the configuration this runner resolves itself.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L84)
+
+#### `StrategyInputs` [#impl-engine-run-py-StrategyInputs]
+
+```python
+class StrategyInputs
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L124)
+
+#### `write_failures` [#impl-engine-run-py-write_failures]
+
+```python
+def write_failures() -> None
+```
+
+Replace the receipt file with the current records (written beside it, then renamed into place).
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L203)
+
+#### `clear_failures` [#impl-engine-run-py-clear_failures]
+
+```python
+def clear_failures() -> None
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L246)
+
+#### `GuardedClock` [#impl-engine-run-py-GuardedClock]
+
+```python
+class GuardedClock
+```
+
+The strategy's native clock, with every callback the source registers on it guarded.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L280)
+
+#### `guarded_callbacks` [#impl-engine-run-py-guarded_callbacks]
+
+```python
+def guarded_callbacks(strategy_class: type) -> dict
+```
+
+Every on_ callback and report hook the source's classes define, guarded, the most derived winning, and a clock whose registered callbacks are guarded too.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L317)
+
+#### `resident_bytes` [#impl-engine-run-py-resident_bytes]
+
+```python
+def resident_bytes() -> int
+```
+
+This process's resident memory (Linux /proc; elsewhere the peak from getrusage).
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L391)
+
+#### `CapitalObserverConfig` [#impl-engine-run-py-CapitalObserverConfig]
+
+```python
+class CapitalObserverConfig
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L403)
+
+#### `CapitalObserver` [#impl-engine-run-py-CapitalObserver]
+
+```python
+class CapitalObserver(DataActor)
+```
+
+Value the positions held between input bar timestamps, and count the lifecycle events delivered.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L410)
+
+#### `Replay` [#impl-engine-run-py-Replay]
+
+```python
+class Replay
+```
+
+One finished engine run: its native reports, cache, portfolio, result and observer.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L604)
+
+#### `market_events` [#impl-engine-run-py-market_events]
+
+```python
+def market_events(rows: list[dict], start: int, end: int, batch: int=SESSION_BATCH)
+```
+
+Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end` bound the exported events' ts_init.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L695)
+
+#### `stream` [#impl-engine-run-py-stream]
+
+```python
+def stream(engine: BacktestEngine, events, chunk_size: int) -> int
+```
+
+BacktestNode's streaming run: aligned chunks, each run up to its last ts_init, the last to the end; a shutdown a source requested during a chunk ends the feed (the engine already ended the run).
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L747)
+
+#### `plan_instances` [#impl-engine-run-py-plan_instances]
+
+```python
+def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy) -> tuple[list[tuple], list[str]]
+```
+
+[(row, input start, trade start)] of the contracts that get an instance, and the limitations.
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L777)
+
+
+## `engine/native_csv.py` [#def-mod-engine-native-csv-py]
+
+Shared CSV field-size contract for native report readers inside the image and on the host.
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `dict_reader` [#impl-engine-native-csv-py-dict_reader]
+
+```python
+def dict_reader(stream: Iterable[str]) -> csv.DictReader[str]
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/engine/native_csv.py#L14)

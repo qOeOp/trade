@@ -1,0 +1,47 @@
+# 候选与谱系
+
+保存完整策略源码、内容身份与父版本关系；候选版本是谱系中的节点。
+
+[数据库总览](/zh/docs/design-ledger/)
+
+### `candidate` [#def-table-candidate]
+
+候选 candidate：一份完整单文件策略源码的精确字节；身份是账本从字节派生的内容哈希，引用名是 strategy_id@revision；父版本与改动说明构成候选谱系的边。只增不改，每次发布恰一个账本提交。
+
+<TypeTable type={{ "strategy_id": { type: "VARCHAR(100)", description: "引用名 ID；同一 ID 下 revision 由发布函数取当前最大值加一", required: true }, "revision": { type: "INT", description: "版本号 N；只是引用名，不是身份", required: true }, "source": { type: "LONGBLOB", description: "完整单文件源码原字节（UTF-8），精确保存，不规范化", required: true }, "source_sha256": { type: "CHAR(64)", description: "生成列 SHA2(source, 256)，小写十六进制；内容身份，UNIQUE：相同字节不能成为两个候选（SOURCE_EXISTS）；读回时重算比对（LEDGER_CORRUPT）", required: true }, "entry_class": { type: "VARCHAR(100)", description: "唯一顶层入口类名；发布时只解析源码不执行，核对该类存在且唯一", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "发布时生效的运行契约标识；登记时须与运行环境（runtime image）声明的契约一致，否则 CONFIG_MISMATCH（由登记核对强制）", required: true }, "description": { type: "VARCHAR(2000)", description: "发布说明：规则摘要、来源声明与非声明；根的来源只写在这里与文件头，不设标记字段", required: true }, "parent_strategy_id": { type: "VARCHAR(100)", description: "研发父版本 ID；根为空", required: false }, "parent_revision": { type: "INT", description: "研发父版本 N；根为空", required: false }, "difference": { type: "VARCHAR(2000)", description: "改动说明：与父版本同空同非空，是谱系边上唯一的语义；登记时须等于登记锁定的改动", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录而不是第二个候选；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器规则见 [[J.4.1.1]]）；父早于子由提交顺序与本列共同证明", required: true } }} />
+
+**键与约束**
+
+- 主键　`strategy_id`, `revision`
+- 唯一　`source_sha256`
+- 唯一　`op_id`
+- 外键　`parent_strategy_id, parent_revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- CHECK　`revision > 0`
+- CHECK　`(parent_strategy_id IS NULL AND parent_revision IS NULL AND difference IS NULL) OR (parent_strategy_id IS NOT NULL AND parent_revision IS NOT NULL AND difference IS NOT NULL)`
+- CHECK　`NOT (parent_strategy_id = strategy_id AND parent_revision = revision)`
+- 生成列　`source_sha256 = SHA2(source, 256) STORED UNIQUE`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次发布恰一个 DOLT_COMMIT，整笔成或整笔不成：候选只增
+- **J.3.1.1**　dolt_diff_candidate 正常路径只应出现 added；出现 modified 或 removed 即篡改线索
+- **J.3.1.3**　AS OF 读任一账本提交时刻的候选谱系，候选清单按版本读历史
+- **T.2.1.2**　父外键指向已存在行且表只追加，所以谱系是无环森林；父早于子由提交顺序与 created_at 证明，无需额外字段
+- **T.1.1.1**　dolt_history_candidate 单元格级历史证明父列与改动说明从未被改
+- **J.3.4.1**　内容寻址：生成列哈希加 UNIQUE，读回重算比对，重复身份拒写
+
+**写入方**　<Ref id="ledger.publish_candidate" />
+
+**读取视图**　<Ref id="table:v_candidates">v_candidates</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref>
+
+**依据**
+
+- [Pro Git — Git Internals: Git Objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)　官方文档
+- [OCI image-spec — descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)　官方文档
+- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+
+</div>

@@ -119,6 +119,40 @@ def diagnose_coverage(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `read_bars` [#impl-market-coverage-py-read_bars]
+
+```python
+def read_bars(conn, commit: str, symbol: str, price_type: str, start_ms: int, end_ms: int) -> dict[str, np.ndarray]
+```
+
+One series' one-minute integer bars in [start_ms, end_ms) at an exact commit.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L30)
+
+#### `read_funding` [#impl-market-coverage-py-read_funding]
+
+```python
+def read_funding(conn, commit: str, symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, Decimal]]
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L39)
+
+#### `universe_members` [#impl-market-coverage-py-universe_members]
+
+```python
+def universe_members(profile: dict, at: str | None, start: str, end: str) -> list[str]
+```
+
+Every universe member of the months [start, end) touches, at the commit `at` names.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L110)
+
+
 ## `market/export.py` [#def-mod-market-export-py]
 
 | 函数 | 用途 |
@@ -421,6 +455,80 @@ def write_marks(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `needed_decimals` [#impl-market-export-py-needed_decimals]
+
+```python
+def needed_decimals(values: np.ndarray, scale: int) -> int
+```
+
+The fewest decimals that represent every integer at `scale` exactly.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L120)
+
+#### `nautilus_raw` [#impl-market-export-py-nautilus_raw]
+
+```python
+def nautilus_raw(values: np.ndarray, scale: int) -> pa.Array
+```
+
+Integers at `scale` as Nautilus fixed-point raws (value x 10^16, int128 little-endian).
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L132)
+
+#### `daily_bars` [#impl-market-export-py-daily_bars]
+
+```python
+def daily_bars(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int=DAILY_CHUNK) -> dict[str, np.ndarray]
+```
+
+The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after `low_ms` and close before `high_ms`, streamed in chunks: a chunk's last (possibly unfinished) day carries into the next, so memory holds one chunk and the days, never the whole history.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L236)
+
+#### `receipt_coverage` [#impl-market-export-py-receipt_coverage]
+
+```python
+def receipt_coverage(facts: dict) -> dict
+```
+
+The coverage facts an export receipt stores: market.coverage_facts without the funding event times, which the pinned commit gives back.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L266)
+
+#### `complete` [#impl-market-export-py-complete]
+
+```python
+def complete(path: Path) -> dict | None
+```
+
+The receipt of a complete cached export, or None.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L345)
+
+#### `default_cache` [#impl-market-export-py-default_cache]
+
+```python
+def default_cache() -> Path
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L354)
+
+#### `exporter_sha256` [#impl-market-export-py-exporter_sha256]
+
+```python
+def exporter_sha256() -> str
+```
+
+The total hash of the exporter files, each file's SHA-256 sorted by path; part of the cache key.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L364)
+
+
 ## `market/instrument.py` [#def-mod-market-instrument-py]
 
 | 函数 | 用途 |
@@ -503,6 +611,20 @@ def terms(
 **关联章节**　<Ref id="W.4.2.2">W.4.2.2</Ref> <Ref id="W.3.2.3">W.3.2.3</Ref> <Ref id="W.4.1.2">W.4.1.2</Ref>
 
 </div>
+
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `decimals` [#impl-market-instrument-py-decimals]
+
+```python
+def decimals(increment: str) -> int
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/instrument.py#L33)
+
 
 ## `market/lifecycle.py` [#def-mod-market-lifecycle-py]
 
@@ -618,6 +740,42 @@ def write_lifecycle_events(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `LifecycleInput` [#impl-market-lifecycle-py-LifecycleInput]
+
+```python
+class LifecycleInput(MarketError)
+```
+
+LIFECYCLE_INPUT: the lifecycle evidence does not hold.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L31)
+
+#### `termination` [#impl-market-lifecycle-py-termination]
+
+```python
+def termination(episode: Mapping) -> int | None
+```
+
+The clock of the episode's first InstrumentClose or InstrumentStatus CLOSE; None while it trades.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L58)
+
+#### `file_name` [#impl-market-lifecycle-py-file_name]
+
+```python
+def file_name(first: int, last: int) -> str
+```
+
+The engine Catalog's file name for data with ts_init in [first, last].
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L140)
+
+
 ## `market/read.py` [#def-mod-market-read-py]
 
 | 函数 | 用途 |
@@ -660,6 +818,22 @@ def daily_returns(
 - [Newey & West 1987, Econometrica；滞后阶数按 Newey & West 1994, Review of Economic Studies](https://doi.org/10.2307/1913610)　论文
 
 </div>
+
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `returns_from` [#impl-market-read-py-returns_from]
+
+```python
+def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]], days: list[str]) -> dict
+```
+
+\{days, btc, basket, members_per_day\} from day closes by symbol and members by month; None where a day has no return.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/read.py#L28)
+
 
 ## `market/series.py` [#def-mod-market-series-py]
 
@@ -828,6 +1002,20 @@ def stitch_series(
 - [Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)　官方文档
 
 </div>
+
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `buckets` [#impl-market-series-py-buckets]
+
+```python
+def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/series.py#L216)
+
 
 ## `market/sources.py` [#def-mod-market-sources-py]
 
@@ -1037,6 +1225,128 @@ def rest_klines(
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `MarketError` [#impl-market-sources-py-MarketError]
+
+```python
+class MarketError(Exception)
+```
+
+A coded market refusal; nothing was written by the refused call.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L51)
+
+#### `check_symbol` [#impl-market-sources-py-check_symbol]
+
+```python
+def check_symbol(symbol) -> str
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L67)
+
+#### `fetch_all` [#impl-market-sources-py-fetch_all]
+
+```python
+def fetch_all(cache_root: Path, keys: list[str], workers: int=4) -> list[Path]
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L190)
+
+#### `archive_symbols` [#impl-market-sources-py-archive_symbols]
+
+```python
+def archive_symbols() -> list[str]
+```
+
+Every contract code with monthly USD-M kline archives, delisted ones included.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L231)
+
+#### `period` [#impl-market-sources-py-period]
+
+```python
+def period(key: str) -> str
+```
+
+'YYYY-MM' or 'YYYY-MM-DD' of an archive key.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L242)
+
+#### `daily_archives` [#impl-market-sources-py-daily_archives]
+
+```python
+def daily_archives(cache_root: Path, kind: str, symbol: str, interval: str, days: list[str], workers: int=4) -> dict[str, Path]
+```
+
+\{day: verified path\} of the published daily archives among `days` (YYYY-MM-DD), found by one listing per month.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L285)
+
+#### `kline_table` [#impl-market-sources-py-kline_table]
+
+```python
+def kline_table(path: Path) -> pa.Table
+```
+
+An archive's klines as (open_time, open, high, low, close, volume, close_time), prices and volumes as the exchange's decimal strings.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L308)
+
+#### `period_bounds` [#impl-market-sources-py-period_bounds]
+
+```python
+def period_bounds(period: str) -> tuple[int, int]
+```
+
+[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L323)
+
+#### `archive_table` [#impl-market-sources-py-archive_table]
+
+```python
+def archive_table(path: Path, period: str) -> pa.Table
+```
+
+An archive's klines, refused SOURCE_SHAPE unless every row is a closed one-minute kline inside the archive's own month or day (checked before any trimming to a window, so a file in other units or of another period is never silently dropped).
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L332)
+
+#### `rows_table` [#impl-market-sources-py-rows_table]
+
+```python
+def rows_table(rows: list[tuple]) -> pa.Table
+```
+
+REST kline rows (same tuple shape as archive rows) as a kline table.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L347)
+
+#### `funding_rows` [#impl-market-sources-py-funding_rows]
+
+```python
+def funding_rows(path: Path) -> list[tuple[int, str]]
+```
+
+(funding_time, rate) of a monthly fundingRate archive (calc_time, interval hours, rate).
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L353)
+
+#### `contract_terms` [#impl-market-sources-py-contract_terms]
+
+```python
+def contract_terms(item: dict) -> dict
+```
+
+One exchangeInfo contract as ContractTerms (its filters verbatim).
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L473)
+
+
 ## `market/store.py` [#def-mod-market-store-py]
 
 | 函数 | 用途 |
@@ -1224,6 +1534,156 @@ def resolve_commit(conn: Connection, ref: str) -> str
 
 </div>
 
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `MarketConnection` [#impl-market-store-py-MarketConnection]
+
+```python
+class MarketConnection
+```
+
+One connection to one market database as one role, with its market_schema facts.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L78)
+
+#### `check_commit` [#impl-market-store-py-check_commit]
+
+```python
+def check_commit(commit) -> str
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L244)
+
+#### `default_cache` [#impl-market-store-py-default_cache]
+
+```python
+def default_cache() -> Path
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L251)
+
+#### `scaled` [#impl-market-store-py-scaled]
+
+```python
+def scaled(column, scale: int, label: str, *, float_tails: bool=False) -> tuple[np.ndarray, int]
+```
+
+Decimal strings as integers at `scale`, exactly.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L270)
+
+#### `significant_decimals` [#impl-market-store-py-significant_decimals]
+
+```python
+def significant_decimals(column) -> int
+```
+
+The most decimals any value needs, ignoring trailing zeros.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L293)
+
+#### `bar_rows` [#impl-market-store-py-bar_rows]
+
+```python
+def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[dict[str, np.ndarray], int]
+```
+
+A stitched minute table as integer bar columns \{ts_open, open, high, low, close, volume\} and the count of float-tail volumes rounded.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L302)
+
+#### `insert_statements` [#impl-market-store-py-insert_statements]
+
+```python
+def insert_statements(bars: dict[str, np.ndarray], symbol: str, price_type: str)
+```
+
+Multi-row INSERT statements of INSERT_ROWS bars each (the import account has no FILE privilege).
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L322)
+
+#### `inferred_terms` [#impl-market-store-py-inferred_terms]
+
+```python
+def inferred_terms(last: pa.Table) -> dict
+```
+
+Increments of a contract absent from exchangeInfo: the most decimals its trades used.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L337)
+
+#### `listed_terms` [#impl-market-store-py-listed_terms]
+
+```python
+def listed_terms(item: dict) -> dict
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L347)
+
+#### `prepare` [#impl-market-store-py-prepare]
+
+```python
+def prepare(job: dict) -> dict
+```
+
+Stitch, check and scale one contract's month of bars and funding; the new bars go to statements under `work`, the bars and funding already stored for the month come back for the comparison.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L377)
+
+#### `funding_slot` [#impl-market-store-py-funding_slot]
+
+```python
+def funding_slot(time_ms: int) -> int
+```
+
+The settlement a funding time belongs to: its nearest whole UTC hour. Binance settles at most once an hour (intervals of 1, 4 or 8 hours) and its times carry milliseconds of jitter, so two sources' times in one slot are one settlement; their rates must agree.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L455)
+
+#### `funding` [#impl-market-store-py-funding]
+
+```python
+def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) -> list[tuple[int, str]]
+```
+
+Settlements in [start, end): monthly archives, then public REST for months without one (there are no daily funding archives). One settlement per funding slot: a slot held by two sources with different rates refuses SOURCE_CONFLICT (the earlier source's time is kept); one source holding two settlements in a slot refuses SOURCE_SHAPE.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L462)
+
+#### `imports` [#impl-market-store-py-imports]
+
+```python
+def imports(conn: MarketConnection, ref: str='main') -> list[dict]
+```
+
+The import commits reachable from `ref`, oldest first: \{commit, month, through, universe_rule, scope\}.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L501)
+
+#### `lock` [#impl-market-store-py-lock]
+
+```python
+def lock(conn: MarketConnection) -> None
+```
+
+Hold the database's import lock for this connection's life: one import at a time.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L557)
+
+#### `trading_days` [#impl-market-store-py-trading_days]
+
+```python
+def trading_days(conn: MarketConnection, symbols: list[str], low: date, high: date) -> dict[str, set[date]]
+```
+
+Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/store.py#L778)
+
+
 ## `market/universe.py` [#def-mod-market-universe-py]
 
 | 函数 | 用途 |
@@ -1356,3 +1816,43 @@ def monthly_universe(
 - [Binance USDⓈ-M Futures — Exchange Information（contractType、underlyingType、status、onboardDate、filters）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information)　官方文档
 
 </div>
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `rule` [#impl-market-universe-py-rule]
+
+```python
+def rule(rule_version: str) -> dict
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/universe.py#L29)
+
+#### `next_month` [#impl-market-universe-py-next_month]
+
+```python
+def next_month(month: date) -> date
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/universe.py#L69)
+
+#### `merge_months` [#impl-market-universe-py-merge_months]
+
+```python
+def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]
+```
+
+Each member month as [month start, next month start) in UTC nanoseconds; touching intervals merge.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/universe.py#L112)
+
+#### `months_of` [#impl-market-universe-py-months_of]
+
+```python
+def months_of(conn, commit: str) -> list[tuple[date, str]]
+```
+
+(month, symbol) rows of the commit's universe rule AS OF the commit.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/universe.py#L149)
