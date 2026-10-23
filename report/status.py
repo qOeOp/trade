@@ -247,19 +247,23 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
     the four measures of its report and whether another run of the table dominates it on them.
-    `non_dominated` is null for a run missing a measure. Nothing is ranked, scored or stored."""
+    `non_dominated` is null for a run missing a measure. Passed runs of that window without economic
+    evidence are listed apart with their reasons and no measures. Nothing is ranked, scored or stored."""
     line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
     window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
               datetime.combine(date.fromisoformat(line["window_end"]), time()))
     starts, _ = _manifests(conn)
-    found = []
+    found, excluded = [], []
     for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
                           "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
                           "WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.trial_id"):
         identity = (starts.get(row["trial_id"]) or {}).get("input_identity") or {}
         if (row["trade_start"], row["trade_end"]) != window or identity.get("universe_rule") != line["universe_rule"]:
             continue
-        if not report_candidates.assess_listed(conn, row["trial_id"], checker, records)["economic_evidence_available"]:
+        assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
+        if not assessed["economic_evidence_available"]:
+            excluded.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
+                             "reasons": assessed["reasons"]})
             continue
         found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"], "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)})
     for item in found:
@@ -270,7 +274,7 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     return {"line": line_bundle, "window_start": line["window_start"], "window_end": line["window_end"],
             "universe_rule": line["universe_rule"], "measures": [measures.key(name) for name in TABLE_MEASURES],
             "lower_is_better": [measures.key(name) for name in LOWER_IS_BETTER], "runs": found,
-            "candidates": sorted({item["candidate"] for item in found})}
+            "candidates": sorted({item["candidate"] for item in found}), "without_economic_evidence": excluded}
 
 
 def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
