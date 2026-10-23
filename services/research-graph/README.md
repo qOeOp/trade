@@ -39,9 +39,8 @@ research units, never pixels.
 | Type | Content |
 |---|---|
 | `summary/1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage/1` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `bands` (spans where one recommendation held), `lanes` (events by kind with trial positions), `marks` (events placed on the rows of the candidates they concern), `flags` (events about the whole research, as moments across the canvas) |
+| `lineage/1` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `bands` (spans where one recommendation held), `lanes` (events by kind with trial positions) |
 | `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
-| `events/1` | `items`: every event in time order with its trial position and candidates |
 | `notes/1` | `items`: plain notes (the graph's `gaps`) |
 | `candidate-detail/1` | `default` and `items`: the graph's candidate records with `status_class` and `prediction_class` |
 

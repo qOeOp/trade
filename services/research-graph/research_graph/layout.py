@@ -1,7 +1,7 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (summary/1, lineage/1, scatter/1, events/1, notes/1, candidate-detail/1) and a slot (top, main, side or dock) and is
+versioned type (summary/1, lineage/1, scatter/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 
 VIEW_FORMAT = "research-graph-view/1"
 LANES = ("recommendation", "user_message", "agent_question", "eligibility_change", "goal")
-EVENT_KINDS = LANES + ("line_change", "priority")
 
 
 def seconds(value: str) -> float:
@@ -127,14 +126,6 @@ def build_view(graph: dict) -> dict:
                       "prediction": prediction(c),
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
     events = [e for e in graph["events"] if e.get("at")]
-    marks, flags = [], []
-    for e in events:
-        subjects = [s for s in (e.get("candidates") or ([e["recommends"]] if e.get("recommends") else [])) if s in row]
-        item = {"kind": e["kind"], "x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text")}
-        if e["kind"] in ("recommendation", "eligibility_change") and subjects:
-            marks += [{**item, "candidate": s, "row": row[s]} for s in subjects]
-        elif e["kind"] in ("user_message", "agent_question", "goal", "line_change", "eligibility_change"):
-            flags.append(item)
     lanes: dict[str, list[dict]] = {kind: [] for kind in LANES}
     for e in events:
         kind = "goal" if e["kind"] == "line_change" else e["kind"]
@@ -176,17 +167,13 @@ def build_view(graph: dict) -> dict:
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
          "bands": bands,
-         "lanes": [{"kind": kind, "events": lanes[kind]} for kind in LANES], "marks": marks, "flags": flags},
+         "lanes": [{"kind": kind, "events": lanes[kind]} for kind in LANES]},
         {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
          "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t["max_drawdown"], "eligible": t.get("eligible"), "status": status_of[c["id"]]}
                     for c in candidates for t in research_runs(c)
                     if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
-        {"id": "events", "type": "events/1", "slot": "dock", "title": "事件",
-         "items": sorted(({"kind": e["kind"], "x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
-                           "candidates": list(e.get("candidates") or ([e["recommends"]] if e.get("recommends") else []))}
-                          for e in events if e["kind"] in EVENT_KINDS), key=lambda item: seconds(item["at"]))},
         {"id": "gaps", "type": "notes/1", "slot": "main", "title": "这份数据缺什么", "items": graph["gaps"]},
         {"id": "details", "type": "candidate-detail/1", "slot": "side",
          "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),

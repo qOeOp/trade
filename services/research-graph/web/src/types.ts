@@ -75,13 +75,7 @@ export type LineageWidget = Widget & {
   edges: { from: string; to: string }[];
   bands: { candidate: string; row: number; x0: number | null; x1: number | null; ref?: string | null }[];
   lanes: { kind: string; events: LaneEvent[] }[];
-  marks: (LaneEvent & { kind: string; candidate: string; row: number })[];
-  flags: (LaneEvent & { kind: string })[];
 };
-
-export type EventItem = { kind: string; x: number | null; at: string; ref?: string | null; text?: string | null; candidates: string[] };
-export type EventsWidget = Widget & { items: EventItem[] };
-export type Focus = { candidate?: string; x?: number | null; seq: number };
 
 export type ScatterWidget = Widget & {
   targets: Targets | null;
