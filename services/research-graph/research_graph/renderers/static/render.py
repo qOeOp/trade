@@ -18,8 +18,7 @@ STATUS = {"recommended": ("当前推荐", "--s-recommended"), "meets_targets": (
           "precheck_failed": ("预检或审阅失败", "--s-failed"), "unrun": ("未回放", "--s-unrun")}
 PREDICTION = {"held": ("✓", "预测全部成立"), "failed": ("✗", "预测全部失败"), "mixed": ("±", "预测部分成立"),
               "none": ("", "预测未判定")}
-LANES = {"recommendation": "推荐判断", "user_message": "用户消息", "agent_question": "向用户提问",
-         "eligibility_change": "资格变化", "goal": "Goal / 换线"}
+LANES = {"recommendation": "推荐判断", "eligibility_change": "资格变化", "line_change": "选线 / 换线"}
 ROW, TOP, LABEL_W, RIGHT, UNIT, LANE = 24, 40, 250, 130, 7, 22
 
 
@@ -43,11 +42,6 @@ def marker(kind: str, x: float, y: float) -> str:
     """The shape of one event: identity by shape, so colour is never the only cue."""
     if kind == "recommendation":
         return f'<path d="M{x:.1f},{y - 6} l6,6 l-6,6 l-6,-6 z" fill="var(--s-recommended)" stroke="var(--surface-1)" stroke-width="1.5"/>'
-    if kind == "user_message":
-        return f'<circle cx="{x:.1f}" cy="{y}" r="5" fill="var(--ink-1)"/>'
-    if kind == "agent_question":
-        return (f'<circle cx="{x:.1f}" cy="{y}" r="6.5" fill="var(--surface-1)" stroke="var(--ink-1)" stroke-width="1.25"/>'
-                f'<text x="{x:.1f}" y="{y + 3.5}" text-anchor="middle" font-size="9.5" font-weight="700">?</text>')
     if kind == "eligibility_change":
         return f'<path d="M{x:.1f},{y - 6.5} l6.5,12 h-13 z" fill="var(--s-failed)" stroke="var(--surface-1)" stroke-width="1.5"/>'
     return f'<rect x="{x - 4.5:.1f}" y="{y - 4.5}" width="9" height="9" rx="1.5" fill="var(--ink-2)"/>'
@@ -308,7 +302,7 @@ def render(view: dict, out_dir: Path) -> Path:
         line.get("market_commit") and f'市场提交 {line["market_commit"][:12]}') if x)
     legend = "".join(f'<span><span class="sw" style="background:var({c})"></span>{n}</span>' for n, c in STATUS.values())
     legend += "".join(f'<span><b class="pred {k}">{g}</b>{n}</span>' for k, (g, n) in PREDICTION.items() if g)
-    legend += '<span>◆ 推荐判断　● 用户消息　ⓘ 提问　▲ 资格变化　■ Goal</span><span>浅黄底：推荐保持不变</span>'
+    legend += '<span>◆ 推荐判断　▲ 资格变化　■ 选线 / 换线</span><span>浅黄底：推荐保持不变</span>'
     slots = {"top": "", "main": "", "side": ""}
     for widget in view["widgets"]:
         slots[widget.get("slot", "main")] += widget_html(widget)

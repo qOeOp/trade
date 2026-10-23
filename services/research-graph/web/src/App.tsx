@@ -25,7 +25,7 @@ function Legend({ onClose }: { onClose: () => void }) {
         ))}
       </div>
       <div className="mt-2 leading-relaxed">
-        浅黄底：推荐保持不变。底部轨道：◆ 推荐判断 · ● 用户消息 · ⓘ 提问 · ▲ 资格变化 · ■ Goal。
+        浅黄底：推荐保持不变。底部轨道：◆ 推荐判断 · ▲ 资格变化 · ■ 选线 / 换线。
         拖动画布平移，滚轮缩放，节点可拖动，点节点看详情。
       </div>
     </div>

@@ -37,7 +37,7 @@ GRAPH = {
                      "at": "2026-01-01T12:30:00"}]},
     ],
     "events": [{"at": "2026-01-01T11:45:00Z", "kind": "recommendation", "ref": "judgment 7", "recommends": "a@1"},
-               {"at": "2026-01-01T12:10:00Z", "kind": "user_message", "text": "?"}],
+               {"at": "2026-01-01T12:10:00Z", "kind": "line_change", "text": "line selected"}],
     "gaps": [],
 }
 
@@ -73,7 +73,7 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((band["candidate"], band["x1"]), ("a@1", tree["axis"]["max"]))
         self.assertTrue(4 < band["x0"] < 5, "a timed event sits between the trials around its time")
         lanes = {lane["kind"]: lane["events"] for lane in tree["lanes"]}
-        self.assertEqual(len(lanes["user_message"]), 1)
+        self.assertEqual(len(lanes["line_change"]), 1)
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
         summary = widgets["summary"]

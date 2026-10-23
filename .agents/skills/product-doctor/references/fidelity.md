@@ -10,8 +10,8 @@ and use the tool of the `research-graph` skill (`services/research-graph/graph.p
    ([hosts.md](hosts.md)) and the schema: no ledger command, no files the session wrote under
    /tmp, no memory, no other graph. It takes ids, numbers, verdicts and times from tool outputs,
    and hypotheses, interpretations and decisions from the agent's messages, saying so in `gaps`.
-   It records every user message, every question the agent asked the user, host Goal changes and
-   eligibility changes the session learned of. `scope.end` is the last event read.
+   It fills only the graph's fields (what the ledger should hold); conversation and host state
+   are not part of a graph. `scope.end` is the last event read.
 3. **Check and compare.** `graph.py check` passes on both; fix an extraction, never the format.
    `graph.py compare LEDGER SESSION --until END` lists the differences.
 

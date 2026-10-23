@@ -20,5 +20,5 @@ records anything, `replay reproduce` included. Bulk reads are cheaper as `ledger
 | status | the latest recommendation's subjects plus availability; say the rule in `gaps` |
 | events | judgments by kind and time, line records, the times failed reviews masked earlier runs |
 
-Ledger times are UTC without a zone. User messages, questions to the user and host Goal events
-are not ledger records; list them in `gaps` rather than reconstructing them from judgment prose.
+Ledger times are UTC without a zone. Conversation and host state (user messages, questions to the
+user, Goal changes) are not part of a graph.

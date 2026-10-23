@@ -10,8 +10,7 @@ import { pct, PREDICTION, STATUS, when } from "../format";
 // Research units -> canvas pixels: x is the trial number, y the lineage row.
 const UNIT = 22, ROW = 46;
 const LANES: Record<string, string> = {
-  recommendation: "推荐判断", user_message: "用户消息", agent_question: "向用户提问",
-  eligibility_change: "资格变化", goal: "Goal / 换线",
+  recommendation: "推荐判断", eligibility_change: "资格变化", line_change: "选线 / 换线",
 };
 
 type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
@@ -71,10 +70,6 @@ function Band({ data }: NodeProps<Node<BandData>>) {
 
 function Marker({ kind }: { kind: string }) {
   if (kind === "recommendation") return <span className="block h-2.5 w-2.5 rotate-45" style={{ background: "var(--s-recommended)" }} />;
-  if (kind === "user_message") return <span className="block h-2.5 w-2.5 rounded-full" style={{ background: "var(--ink-1)" }} />;
-  if (kind === "agent_question") return (
-    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold"
-          style={{ border: "1.25px solid var(--ink-1)", background: "var(--surface-1)" }}>?</span>);
   if (kind === "eligibility_change") return (
     <span className="block h-0 w-0" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderBottom: "11px solid var(--s-failed)" }} />);
   return <span className="block h-2.5 w-2.5" style={{ background: "var(--ink-2)" }} />;

@@ -14,7 +14,7 @@ from bisect import bisect_left
 from datetime import datetime, timezone
 
 VIEW_FORMAT = "research-graph-view/1"
-LANES = ("recommendation", "user_message", "agent_question", "eligibility_change", "goal")
+LANES = ("recommendation", "eligibility_change", "line_change")
 
 
 def seconds(value: str) -> float:
@@ -128,7 +128,7 @@ def build_view(graph: dict) -> dict:
     events = [e for e in graph["events"] if e.get("at")]
     lanes: dict[str, list[dict]] = {kind: [] for kind in LANES}
     for e in events:
-        kind = "goal" if e["kind"] == "line_change" else e["kind"]
+        kind = e["kind"]
         if kind in lanes:
             lanes[kind].append({"x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
                                 "recommends": e.get("recommends")})
