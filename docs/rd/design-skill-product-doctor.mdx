@@ -10,6 +10,7 @@
   <File name="references/hosts.md" />
   <File name="references/lenses.md" />
   <File name="references/record.md" />
+  <File name="references/fidelity.md" />
 </Folder>
 </Files>
 
@@ -68,6 +69,12 @@
 **删减检验**
 
 对每个触及对象问：它保护哪个具体风险（测试失败是否表示产品有缺陷）；别的检查是否已覆盖；会话显示了保护作用、形式工作还是未触发。没有独立保护才提议删减；独自保护真实风险的机制即使未触发也保留。拒绝或审计变更仍按 AGENTS 列为授权项。删 skill 文字前验证替代输出确实存在，新增指导概括需要，不累积个案。
+
+## `references/fidelity.md` [#def-file-product-doctor-references-fidelity-md]
+
+**Trigger**　An overall audit tests whether the ledger reconstructs a session, or a finding turns on what the ledger preserves.
+
+Two fresh read-only sub-agents each build a research-graph/1 graph, one from the ledger only (as the research-graph skill does) and one from the session transcripts only; neither sees the other, and what is missing stays null in gaps. Both pass the format check, `graph.py compare` covers one scope, and each difference is classed as a ledger gap, not a record, derivable or an extraction miss with the evidence that decides it; only a ledger gap is a finding, and a stored field it calls for still needs the AGENTS.md review and the user's decision.
 
 ## `references/record.md` [#def-file-product-doctor-references-record-md]
 

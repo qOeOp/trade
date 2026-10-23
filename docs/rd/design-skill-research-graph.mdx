@@ -1,35 +1,31 @@
 # Research graph: research-graph
 
-Draws one research line as a graph of strategy versions, replays, predictions, source reviews and decisions, built from the research ledger alone or from session transcripts alone. Comparing the two tests whether the ledger alone reconstructs the research.
+Draws one research line from the research ledger as a graph: the lineage of strategy versions over trial numbers with their replays, predictions, source reviews, recommendations and eligibility changes, rendered as a local page. The reverse test of whether the ledger reconstructs a session belongs to product-doctor ([references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)) and reuses this format and comparison tool.
 
 ## `SKILL.md` [#def-file-research-graph-SKILL-md]
 
-**Trigger**　The user wants to see or draw a research line's history and progress; an audit tests what the ledger preserves against what a session did.
+**Trigger**　The user wants to see or draw a research line's history, progress or decision path.
 
 **Duties**
 
-1. A graph has one source and is built by a fresh read-only sub-agent given only that source, its reference and the format; it never sees the other source, another graph or the author's conclusions, and what is missing stays null and goes into gaps.
-2. A graph must pass `graph.py check`; the extraction is fixed, the format is never loosened to fit a source.
-3. A comparison covers one line and one period; each difference is classed as a ledger gap, not a record, derivable or an extraction miss; only a ledger gap goes to product-doctor as a finding.
-4. A comparison is evidence, not authority: a new stored field still needs the review and user decision AGENTS.md requires.
-5. A new renderer reads only the view model; a new fact in the graph is a new format version, changed together in the format, both references, the layout and the comparison.
+1. A graph is built from the ledger only, by a fresh read-only sub-agent given the line, the format and the reference; what is missing stays null and goes into gaps.
+2. A graph must pass `graph.py check`; the extraction is fixed, the format is never loosened to fit.
+3. `graph.py render` writes the page; the user gets its path with what the graph shows and what it lacks.
+4. A new renderer reads only the view model; a new chart is a new widget type; a new fact in the graph is a new format version, changed together in the format, the reference, the layout, the comparison and product-doctor's fidelity test.
 
 ## File duties
 
 | File | Duty |
 |---|---|
 | [references/ledger.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/ledger.md) | The read-only commands and where each field comes from: candidates, trials, readings and eligibility, registration and predictions, comparison, reviews, interpretation, status and events. |
-| [references/session.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/session.md) | Where transcripts are and how they are structured; ids and numbers from tool outputs, hypotheses and decisions from the agent's messages and said so; user messages, questions and Goal changes recorded, cut at the end of scope. |
-| [references/compare.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/compare.md) | The four classes of difference, what decides each and the next step. |
 
 ## Tool: services/research-graph
 
 | Stage | Input → output | Owns |
 |---|---|---|
-| Extract | ledger or transcripts → graph.json (research-graph/1) | what happened, from one source (done by the Agent per the references) |
-| Contract | graph.json → problems | the shape of a graph (schema/graph.schema.json) |
+| Contract | graph.json (research-graph/1) → problems | the shape of a graph (schema/graph.schema.json) |
 | Layout | graph.json → view.json (research-graph-view/1) | what to draw and where, in trial numbers and rows, no pixels; split into widgets (lineage/1, scatter/1, notes/1, candidate-detail/1), each with its own type, version and slot |
 | Render | view.json → files | pixels, colours, labels and interaction; the static renderer writes one HTML file with no script |
-| Compare | two graph.json → differences | which facts differ, without classing them |
+| Compare | two graph.json → differences | which facts differ, without classing them (for product-doctor's fidelity test) |
 
 Stages hand over only through these files, so each can be replaced alone. A richer renderer (for example one React component per widget type, with a web server sending widget documents over HTTP; the server only serves views and never reads or writes the ledger) reads the same widgets; static stays as the dependency-free fallback.

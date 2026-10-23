@@ -1,35 +1,31 @@
 # 研究图：research-graph
 
-把一条研究线画成图：策略版本、回放、预测、源码审阅与决策；图可以只从研究账本建，也可以只从会话转录建。两张图对比，检验账本单独能否还原研究过程。
+从研究账本把一条研究线画成图：按试验编号排开的策略版本谱系，以及回放、预测、源码审阅、推荐与资格变化，渲染成本地页面。检验账本能否还原会话的反向测试归 product-doctor（[references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)），复用这里的数据格式与对比工具。
 
 ## `SKILL.md` [#def-file-research-graph-SKILL-md]
 
-**触发**　用户要看或要画一条研究线的历史与进展；审计要检验账本相对会话保存了什么。
+**触发**　用户要看、要画一条研究线的历史、进展或决策路径。
 
 **职责**
 
-1. 一张图只有一个来源，由只读、全新的子代理只拿该来源、对应参考文件与数据格式来建；看不到另一来源、其他图或作者结论，缺什么就留空并写进 gaps。
+1. 图只从账本建，由只读、全新的子代理拿研究线、数据格式与参考文件来建；缺什么就留空并写进 gaps。
 2. 图须通过 `graph.py check`；只改抽取，不为迁就来源放宽格式。
-3. 对比限定同一研究线与时间范围；每处差异归入账本缺口、不属于记录、可推导、抽取遗漏四类；只有账本缺口作为发现交给 product-doctor。
-4. 对比只是证据，新增存储字段仍按 AGENTS.md 先评审、由用户决定。
-5. 新渲染器只读视图模型；图的新事实是新的格式版本，格式、两份参考、布局与对比一起改。
+3. 用 `graph.py render` 出页面，交给用户时说明图里显示了什么、缺什么。
+4. 新渲染器只读视图模型；新图表是新的 widget 类型；图的新事实是新的格式版本，格式、参考文件、布局、对比与 product-doctor 的反向测试一起改。
 
 ## 文件职责
 
 | 文件 | 职责 |
 |---|---|
 | [references/ledger.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/ledger.md) | 只读命令清单与每个字段的来源：候选、试验、读数与资格、登记与预测、比较、审阅、解释、状态与事件。 |
-| [references/session.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/session.md) | 转录位置与结构；编号与数字取自工具输出，假设与决策取自 Agent 叙述并写明；记录用户消息、提问与 Goal 变化，截到范围终点。 |
-| [references/compare.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/compare.md) | 差异四类的含义、判定依据与下一步。 |
 
 ## 工具：services/research-graph
 
 | 阶段 | 输入 → 输出 | 负责 |
 |---|---|---|
-| 抽取 | 账本或转录 → graph.json（research-graph/1） | 某一来源里发生了什么（由 Agent 按参考文件完成） |
-| 格式 | graph.json → 问题清单 | 图的形状（schema/graph.schema.json） |
+| 格式 | graph.json（research-graph/1）→ 问题清单 | 图的形状（schema/graph.schema.json） |
 | 布局 | graph.json → view.json（research-graph-view/1） | 画什么、放在哪，以试验编号和行为单位，不含像素；按 widget 分块（lineage/1、scatter/1、notes/1、candidate-detail/1），每块自带类型、版本与位置 |
 | 渲染 | view.json → 文件 | 像素、颜色、文字与交互；static 渲染器输出不含脚本的单个 HTML |
-| 对比 | 两份 graph.json → 差异 | 哪些事实不同，不做归类 |
+| 对比 | 两份 graph.json → 差异 | 哪些事实不同，不做归类（供 product-doctor 的反向测试） |
 
-阶段之间只通过这些文件交接，任一阶段可单独替换；更细腻的渲染器（如每种 widget 对应一个 React 组件，由 web server 经 HTTP 收发 widget 文档；server 只提供视图，不读写账本）作为新的渲染器读取同样的 widget，static 保留为无依赖的后备。
+阶段之间只通过这些文件交接，任一阶段可单独替换；更细腻的渲染器（如每种 widget 对应一个 React 组件，由 web server 经 HTTP 收发 widget 文档；server 只提供视图，不读写账本）读取同样的 widget，static 保留为无依赖的后备。

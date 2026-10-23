@@ -35,6 +35,7 @@ quality. Failure, delay or unresolved attribution alone does not expand the scop
    a fresh read-only sub-agent. Give it the evidence paths, checkout and its questions, without
    authoring context or your conclusions. Split a workstream only for distinct unresolved risks;
    keep every coverage responsibility assigned, including whole-product review beyond the session.
+   A ledger fidelity test, when the audit needs one, follows [fidelity.md](references/fidelity.md).
 3. **Verify the chain.** Trace product output through its actual consumer, interpretation and
    subsequent decision. Check population, units, assumptions and evidence scope; successful
    execution or rule compliance alone does not establish a sound inference or useful next step.
