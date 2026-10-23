@@ -94,7 +94,7 @@ function Timeline({ widget }: { widget: LineageWidget }) {
   const tip = (ev: LaneEvent) => [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
   return (
     <div className="relative shrink-0 overflow-hidden border-t" style={{ height, background: "var(--surface-1)", borderColor: "var(--rule-strong)" }}>
-      {scope != null && scope > 0 && <div className="absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)" }} />}
+      {scope != null && scope > 0 && <div className="absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)", opacity: 0.55 }} />}
       {axis.ticks.map((tick) => (
         <div key={tick} className="absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }}>
           <span className="absolute left-0 top-1 -translate-x-1/2 whitespace-nowrap px-1 text-[10.5px] faint"
@@ -147,9 +147,10 @@ export function Lineage({ widget, selected, onSelect }: {
     if (axis.scope_start != null) {
       out.push({ id: "scope", type: "band", position: { x: axis.min * UNIT, y: -ROW - 4000 },
                  data: { width: (axis.scope_start - axis.min) * UNIT, label: "", scope: true },
-                 style: { height: height + 8000 }, zIndex: -3, ...fixed });
+                 style: { height: height + 8000, opacity: 0.55 }, zIndex: -3, ...fixed });
     }
-    const left = (axis.min - 4) * UNIT, span = (axis.max - axis.min + 8) * UNIT;
+    // Stripes run far past both ends of the axis, so panning never shows bare canvas beside them.
+    const left = axis.min * UNIT - 6000, span = (axis.max - axis.min) * UNIT + 12000;
     for (const r of widget.rows) {
       if (r.row % 2) out.push({ id: `stripe-${r.row}`, type: "band", position: { x: left, y: r.row * ROW - ROW / 2 },
                                 data: { width: span, label: "", stripe: true }, style: { height: ROW }, zIndex: -4, ...fixed });
