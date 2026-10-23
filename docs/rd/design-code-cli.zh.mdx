@@ -689,17 +689,11 @@ def ledger_witness(profile: path, tsa_url: str | None) -> JSON {checked
 
 </div>
 
-### `line_close` [#def-cli-line_close]
+### `line close` [#def-cli-line_close]
 
 命令行 line close：给一条已结束的研究路线封盘，把总结文件交给 ledger.close_line
 
-```python
-def line_close(
-    ledger: str,
-    line: str,
-    summary: path,
-) -> JSON
-```
+此命令由 CLI 分发逻辑直接调用 `ledger.lines.close_line`，没有独立的 `line_close` Python 函数。
 
 <TypeTable type={{ "ledger": { type: "str", description: "研究账本档案" }, "line": { type: "str", description: "已结束的研究路线包名（research state 的 unclosed_lines）" }, "summary": { type: "path", description: "UTF-8 总结文件，至多 32 KB" } }} />
 
@@ -1312,6 +1306,98 @@ def validation_report(
 **关联章节**　<Ref id="X.2.1.1">X.2.1.1</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `UsageError` [#impl-cli-main-py-UsageError]
+
+```python
+class UsageError(Exception)
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L48)
+
+#### `refusal_json` [#impl-cli-main-py-refusal_json]
+
+```python
+def refusal_json(exc: Refusal) -> dict
+```
+
+The printed form of a refusal: its fields and its catalogue repair commands.
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L77)
+
+#### `ledger_profile` [#impl-cli-main-py-ledger_profile]
+
+```python
+def ledger_profile(value: str | None) -> db.LedgerProfile
+```
+
+The research ledger a command names: a profile file, a profile name, or the active one.
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L107)
+
+#### `market_profile` [#impl-cli-main-py-market_profile]
+
+```python
+def market_profile(value: str | None) -> dict
+```
+
+The market database a command names: a profile file, a profile name, or the active one in the profile directory.
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L130)
+
+#### `market_init` [#impl-cli-main-py-market_init]
+
+```python
+def market_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None=None) -> dict
+```
+
+market init: an empty market database (tables, import and reader accounts, profile with its backup directory, required for the active one); the first `market import` writes its schema row and commit tests. Administration happens only here and in `market backup`.
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L760)
+
+#### `market_backup` [#impl-cli-main-py-market_backup]
+
+```python
+def market_backup(market: dict) -> dict
+```
+
+market backup: the incremental dolt_backup sync of the market database to its profile's backup directory (ledger.market_backup).
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L768)
+
+#### `market_review` [#impl-cli-main-py-market_review]
+
+```python
+def market_review(market: dict) -> dict
+```
+
+market review: whether the latest market backup's head is still an ancestor of main; findings only.
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L774)
+
+#### `market_lifecycle` [#impl-cli-main-py-market_lifecycle]
+
+```python
+def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str], op: str | None) -> dict
+```
+
+market lifecycle: the lifecycle evidence bundle lifecycle-&lt;commit&gt; of a market commit, from its manifest and the exchange notices it cites (registration.record_lifecycle).
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L797)
+
+#### `Parser` [#impl-cli-main-py-Parser]
+
+```python
+class Parser(argparse.ArgumentParser)
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L829)
+
 
 ## `cli/replay.py` [#def-mod-cli-replay-py]
 

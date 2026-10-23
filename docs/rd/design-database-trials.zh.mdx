@@ -1,0 +1,71 @@
+# 试验与登记绑定
+
+记录每次执行的身份、用途与窗口，以及登记网格点消耗了哪次试验。
+
+[数据库总览](/zh/docs/design-ledger/)
+
+### `trial` [#def-table-trial]
+
+试验 trial：每次回放一行，在子进程启动前写下用途、被执行源码身份、钉死运行环境、合约集与窗口；无效与中断同样有行
+
+<TypeTable type={{ "trial_id": { type: "INT AUTO_INCREMENT", description: "试验主键，自增", required: true }, "purpose": { type: "ENUM('explore','precheck','research','validation')", description: "explore 未登记探索，报告留工作副本；precheck 事前声明用途的原生预检；research 研究封存回放，须同事务有 registration_attempt；validation 样本外回放，须同事务有 validation_binding", required: true }, "source_sha256": { type: "CHAR(64)", description: "被执行源码的内容哈希；research 与 validation 须等于已发布候选（提交校验）", required: true }, "image_ref": { type: "VARCHAR(300)", description: "含 @sha256: 的钉死运行环境引用；镜像摘要按 SUBSTRING_INDEX(image_ref, '@', -1) 读出，不另存", required: true }, "instruments": { type: "JSON", description: "合约集（原生合约 ID 列表，ticker 重用已按生命周期拆分）", required: true }, "input_start": { type: "DATETIME(6)", description: "预热起点 UTC，整分钟", required: true }, "trade_start": { type: "DATETIME(6)", description: "交易起点 UTC，左闭", required: true }, "trade_end": { type: "DATETIME(6)", description: "交易终点 UTC，右开", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器归 J.4.1.1）", required: true } }} />
+
+**键与约束**
+
+- 主键　`trial_id`
+- 唯一　`op_id`
+- CHECK　`input_start \<= trade_start AND trade_start \< trade_end`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与绑定、开始回执同一事务
+- **J.3.1.1**　dolt_diff_trial 只应出现 added；dolt_history_trial 给每行提交哈希与时间
+- **J.3.1.3**　AS OF 读该版本的试验
+- **J.4.1.1**　created_at 为服务器时间；与登记包 created_at 比较即登记先于试验，由 dolt_tests 每次提交复核
+- **J.4.1.2**　试验行、网格点或样本外绑定与开始回执同一事务同一提交：先有身份后有输出
+
+**写入方**　<Ref id="ledger.open_trial" />
+
+**读取视图**　<Ref id="table:v_trials">v_trials</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="H.4.1.3">H.4.1.3</Ref>
+
+**依据**
+
+- [Dolt — Transactions (https://www.dolthub.com/docs/concepts/dolt/sql/transaction/)](https://www.dolthub.com/docs/concepts/dolt/sql/transaction/)　官方文档
+- [Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)　论文
+
+</div>
+
+### `registration_attempt` [#def-table-registration_attempt]
+
+登记尝试：登记包 × 网格点源码 → 消耗它的试验；一点只消耗一次，无效与中断同样算消耗；只追加
+
+<TypeTable type={{ "registration_bundle": { type: "VARCHAR(160)", description: "登记证据包名（含 research-plan.json）", required: true }, "source_sha256": { type: "CHAR(64)", description: "网格点源码的内容哈希，须为已发布候选", required: true }, "trial_id": { type: "INT", description: "消耗该点的试验；唯一：一次试验只绑定一个点", required: true } }} />
+
+**键与约束**
+
+- 主键　`registration_bundle`, `source_sha256`
+- 唯一　`trial_id`
+- 外键　`registration_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- 外键　`source_sha256` → <Ref id="table:candidate">candidate</Ref> `source_sha256`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　随试验行在同一事务、同一提交落账，试验行与消耗行同生同灭
+- **J.3.1.1**　dolt_diff_registration_attempt 只应出现 added，出现 modified 或 removed 即被整体复核发现
+- **H.4.2.1**　主键为（登记包，源码）：第二次绑定同一点主键冲突即 GRID_ALREADY_ATTEMPTED；并发绑定提交冲突即拒绝
+- **J.3.1.4**　dolt_tests research_trials_follow_their_registration：每行对应的 trial.created_at 晚于登记包 created_at
+
+**写入方**　<Ref id="registration.bind" />
+
+**读取视图**　<Ref id="table:v_trials">v_trials</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="H.4.2.1">H.4.2.1</Ref>
+
+</div>

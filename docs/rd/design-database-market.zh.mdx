@@ -1,0 +1,129 @@
+# 市场数据与交易范围
+
+保存合约规格、成交价与标记价 K 线、资金费率和逐月共同交易范围。
+
+[数据库总览](/zh/docs/design-ledger/)
+
+### `instrument` [#def-table-instrument]
+
+合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长；导出按市场提交取最新一行
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "observed_at": { type: "BIGINT", description: "观测时刻 UTC 毫秒；每次条款变化追加一行", required: true }, "terms_source": { type: "ENUM('exchange_info','inferred')", description: "公开原文或推断", required: true }, "price_increment": { type: "VARCHAR(40)", description: "原精度字符串，小数位即精度", required: true }, "size_increment": { type: "VARCHAR(40)", description: "原精度字符串", required: true }, "min_quantity": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "max_quantity": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "min_notional": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "min_price": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "max_price": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "classification": { type: "JSON", description: "条款原文分类：contract_type、quote_asset、underlying_type、underlying_sub_types；范围规则据此排除指数类、稳定币对与股票类；inferred 时为空", required: false } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `observed_at`
+- CHECK　`(terms_source = 'inferred') = (min_quantity IS NULL AND max_quantity IS NULL AND min_notional IS NULL AND min_price IS NULL AND max_price IS NULL AND classification IS NULL)`
+
+**Dolt 能力**
+
+- **W.1.3.2**　一次导入全部追加后恰一个 DOLT_COMMIT：提交哈希即数据版本 market commit
+- **W.1.3.2**　AS OF '\<market_commit>' 导出：任何时候逐字节复现某次回放读到的条款
+- **D.1.1.1**　dolt_diff_instrument 只应出现 added；出现 modified/removed 即条款被改写
+- **W.4.2.2**　导出取 AS OF market_commit 下 observed_at 最新一行，回执记 CURRENT_SNAPSHOT_APPROXIMATION
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.2.1">W.1.2.1</Ref> <Ref id="W.1.1.2">W.1.1.2</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.1.1">W.3.1.1</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="W.4.2.2">W.4.2.2</Ref>
+
+**依据**
+
+- [Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)　官方文档
+- [Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History)　官方文档
+- [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）](https://arxiv.org/abs/2212.06888)　论文
+
+</div>
+
+### `bar` [#def-table-bar]
+
+1 分钟 K 线：成交价 LAST 与标记价 MARK（无量）；每个永续独立序列，三来源拼成一条、来源不留痕；缺口即缺行，不补造
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "price_type": { type: "ENUM('LAST','MARK')", description: "成交价或标记价", required: true }, "ts_open": { type: "BIGINT", description: "开盘时刻 UTC 毫秒，整分钟；导出时以收盘时刻为事件时间", required: true }, "open": { type: "BIGINT", description: "× 10^price_scale", required: true }, "high": { type: "BIGINT", description: "× 10^price_scale", required: true }, "low": { type: "BIGINT", description: "× 10^price_scale", required: true }, "close": { type: "BIGINT", description: "× 10^price_scale", required: true }, "volume": { type: "BIGINT", description: "× 10^volume_scale；MARK 恒 0", required: true } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `price_type`, `ts_open`
+- CHECK　`low > 0 AND low \<= open AND low \<= close AND high >= open AND high >= close AND volume >= 0`
+- CHECK　`price_type = 'LAST' OR volume = 0`
+
+**Dolt 能力**
+
+- **W.1.3.2**　一次导入全部追加后恰一个 DOLT_COMMIT：提交哈希即数据版本 market commit
+- **W.1.3.2**　AS OF '\<market_commit>' 导出：任何时候逐字节复现某次回放读到的 K 线
+- **D.1.1.1**　dolt_diff_bar 只应出现 added；出现 modified/removed 即数据被改写
+- **W.1.1.2**　同一分钟两来源不等即整次导入拒绝，不以一方覆盖另一方
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.2.1">W.1.2.1</Ref> <Ref id="W.1.1.1">W.1.1.1</Ref> <Ref id="W.1.1.2">W.1.1.2</Ref> <Ref id="W.1.2.2">W.1.2.2</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref>
+
+**依据**
+
+- [Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)　官方文档
+- [Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History)　官方文档
+- [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）](https://arxiv.org/abs/2212.06888)　论文
+
+</div>
+
+### `funding` [#def-table-funding]
+
+资金费按交易所实际结算时刻记录，保留抖动；导出为引擎资金费更新
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "funding_time": { type: "BIGINT", description: "实际结算时刻 UTC 毫秒，不按固定周期对齐", required: true }, "rate": { type: "DECIMAL(20,10)", description: "资金费率，正费率多头付、空头收", required: true } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `funding_time`
+- CHECK　`rate > -1 AND rate \< 1`
+
+**Dolt 能力**
+
+- **W.1.3.2**　一次导入全部追加后恰一个 DOLT_COMMIT
+- **W.1.3.2**　AS OF market_commit 随提交复现
+- **D.1.1.1**　dolt_diff_funding 只应出现 added
+
+**写入方**　<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.2.1">W.1.2.1</Ref> <Ref id="W.1.1.1">W.1.1.1</Ref> <Ref id="W.1.1.2">W.1.1.2</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="W.5.2.3">W.5.2.3</Ref>
+
+**依据**
+
+- [Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)　官方文档
+- [Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History)　官方文档
+- [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）](https://arxiv.org/abs/2212.06888)　论文
+
+</div>
+
+### `universe_month` [#def-table-universe_month]
+
+共同可交易范围 universe：环境按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里；成员时间路径由本表按 AS OF 派生
+
+<TypeTable type={{ "universe_rule": { type: "VARCHAR(60)", description: "产出该行的范围规则版本；不同版本的名单共存，旧行不改", required: true }, "month": { type: "DATE", description: "UTC 月初", required: true }, "symbol": { type: "VARCHAR(40)", description: "成员合约的交易所公开名；ticker 重用在导出时按生命周期拆为原生合约", required: true } }} />
+
+**键与约束**
+
+- 主键　`universe_rule`, `month`, `symbol`
+- CHECK　`DAYOFMONTH(month) = 1`
+
+**Dolt 能力**
+
+- **W.1.3.2**　随导入在同一提交追加；导入前重算全部月份并与已存行比对，不一致 UNIVERSE_CHANGED 拒绝，旧提交上的名单不被改写
+- **D.1.1.1**　dolt_diff_universe_month 只应出现 added；AS OF 重现任一提交的成员时间路径
+- **W.3.1.2**　AS OF market_commit 派生范围规则、合约清单与每合约 [start, end) 成员时间路径，进入输入身份
+- **X.1.3.1**　样本外绑定时在登记的 market_commit 与本次 market_commit 下逐行比对登记前各月名单
+
+**写入方**　<Ref id="market.import_month" />
+
+**读取视图**　<Ref id="table:v_universe">v_universe</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.3.1.2">W.3.1.2</Ref>
+
+</div>

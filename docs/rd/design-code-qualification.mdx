@@ -200,3 +200,27 @@ def source_reviews(conn: LedgerConnection, run: Mapping) -> dict
 **关联章节**　<Ref id="G.4.2.2">G.4.2.2</Ref> <Ref id="C.3.1.2">C.3.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="G.3.1.2">G.3.1.2</Ref> <Ref id="G.4.1.1">G.4.1.1</Ref> <Ref id="J.4.2.1">J.4.2.1</Ref>
 
 </div>
+
+### Implementation entry points
+
+These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
+
+#### `report_revision` [#impl-qualification-availability-py-report_revision]
+
+```python
+def report_revision() -> str
+```
+
+The metrics revision a read-time report computes with: the product checkout's HEAD, whatever its work tree holds. The checkout is the registration seam's (`registration.seams.current.checkout`).
+
+[Source](https://github.com/qOeOp/trade/blob/main/qualification/availability.py#L57)
+
+#### `review_records` [#impl-qualification-availability-py-review_records]
+
+```python
+def review_records(conn: db.LedgerConnection) -> list[dict]
+```
+
+Every stored source-review file of the product namespace (source-review-*), read and checked once: \{bundle, sha256, record, ledger_commit, ignored\}; `ignored` names why a file is no product review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its content hash. Both reads are primary-key ranges of that namespace.
+
+[Source](https://github.com/qOeOp/trade/blob/main/qualification/availability.py#L207)

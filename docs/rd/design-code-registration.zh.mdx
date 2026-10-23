@@ -12,6 +12,7 @@
   <File name="precheck.py" />
   <File name="register.py" />
   <File name="validation.py" />
+  <File name="seams.py" />
 </Folder>
 </Files>
 
@@ -127,6 +128,22 @@ def input_key(value: Mapping) -> dict
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `image_digest_of` [#impl-registration-comparability-py-image_digest_of]
+
+```python
+def image_digest_of(execution: Mapping)
+```
+
+The runtime image digest of a registration plan's execution identity.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/comparability.py#L48)
+
+
 ## `registration/duties.py` [#def-mod-registration-duties-py]
 
 | 函数 | 用途 |
@@ -158,6 +175,22 @@ def measure_catalogue() -> dict
 - [Bacon 2023, Practical Portfolio Performance Measurement and Attribution（第 3 版, Wiley）](https://doi.org/10.1002/9781119831976)　书
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `slice_measures` [#impl-registration-duties-py-slice_measures]
+
+```python
+def slice_measures() -> dict[str, frozenset[str]]
+```
+
+Measures by slice ID.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/duties.py#L80)
+
 
 ## `registration/inputs.py` [#def-mod-registration-inputs-py]
 
@@ -278,6 +311,42 @@ def market_inputs(
 **关联章节**　<Ref id="J.6.1.3">J.6.1.3</Ref> <Ref id="H.4.1.2">H.4.1.2</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.3.1.2">W.3.1.2</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="G.2.1.1">G.2.1.1</Ref> <Ref id="V.2.1.3">V.2.1.3</Ref> <Ref id="X.1.3.2">X.1.3.2</Ref> <Ref id="J.5.2.3">J.5.2.3</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `exporter_sha256` [#impl-registration-inputs-py-exporter_sha256]
+
+```python
+def exporter_sha256() -> str
+```
+
+market.export's exporter hash: the market modules an export runs and the dependency lock.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L51)
+
+#### `record_lifecycle` [#impl-registration-inputs-py-record_lifecycle]
+
+```python
+def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: list[Path], op_id: str | None=None) -> dict
+```
+
+Write the lifecycle evidence bundle lifecycle-&lt;commit&gt; of one market commit: the manifest (lifecycle.json, native-lifecycle-v1) with the exchange notices it cites as sources, validated by market.validate_lifecycle against the commit before anything is written. The bundle is immutable; a correction is a new market commit's bundle.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L85)
+
+#### `cleanup` [#impl-registration-inputs-py-cleanup]
+
+```python
+def cleanup(inputs: Mapping | None) -> None
+```
+
+Remove what market_inputs created: the membership directory, and a fresh export root.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L122)
+
 
 ## `registration/precheck.py` [#def-mod-registration-precheck-py]
 
@@ -413,6 +482,20 @@ def require_precheck(
 **关联章节**　<Ref id="J.4.2.1">J.4.2.1</Ref> <Ref id="C.3.1.2">C.3.1.2</Ref> <Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.1.1">H.4.1.1</Ref> <Ref id="H.4.1.3">H.4.1.3</Ref> <Ref id="A.1.1.2">A.1.1.2</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `digest_of` [#impl-registration-precheck-py-digest_of]
+
+```python
+def digest_of(image_ref: object) -> str | None
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/precheck.py#L41)
+
 
 ## `registration/register.py` [#def-mod-registration-register-py]
 
@@ -691,6 +774,52 @@ def validate_design(value: dict) -> None
 
 </div>
 
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `control_trial` [#impl-registration-register-py-control_trial]
+
+```python
+def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict
+```
+
+A run joined with its trial and the execution identity of its start receipt (input identity in execution.json, effective configuration in input-coverage.json): the comparability record.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/register.py#L243)
+
+#### `retryable` [#impl-registration-register-py-retryable]
+
+```python
+def retryable(conn: db.LedgerConnection, trial_id: int) -> bool
+```
+
+Whether a consumed attempt may be tried again: it was interrupted (no run, and its original capture records an interrupted or host-failure outcome), its run is invalid, or qualification finds no economic evidence in it by the facts fixed when it was sealed (its sealed facts and the precheck review cited at registration as it stood then): a source review recorded after the run was ingested does not make a passed attempt retryable.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/register.py#L318)
+
+#### `load_plan` [#impl-registration-register-py-load_plan]
+
+```python
+def load_plan(conn: db.LedgerConnection, bundle) -> tuple[dict, object]
+```
+
+(research-plan record, bundle created_at) of a registration bundle, its hash rechecked. Only the registration-* namespace, which only register writes, holds registrations.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/register.py#L640)
+
+#### `binder` [#impl-registration-register-py-binder]
+
+```python
+def binder(bundle: str, source_sha256: str) -> Callable[[db.LedgerConnection, int], None]
+```
+
+The binder ledger.open_trial calls for a research replay of one grid point.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/register.py#L752)
+
+
 ## `registration/validation.py` [#def-mod-registration-validation-py]
 
 | 函数 | 用途 |
@@ -873,3 +1002,117 @@ def validation_register(
 **关联章节**　<Ref id="X.1.2.2">X.1.2.2</Ref> <Ref id="H.3.2.2">H.3.2.2</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="X.2.1.4">X.2.1.4</Ref> <Ref id="J.4.2.2">J.4.2.2</Ref>
 
 </div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `validation_binder` [#impl-registration-validation-py-validation_binder]
+
+```python
+def validation_binder(registration_id: int, source_sha256: str, identity: Mapping, inspection: Mapping, **options) -> Callable[[db.LedgerConnection, int], None]
+```
+
+The binder ledger.open_trial calls for a validation replay.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/validation.py#L310)
+
+
+## `registration/seams.py` [#def-mod-registration-seams-py]
+
+登记域的外部依赖适配：运行环境、引擎配置探测、市场输入与资格读口集中在这里；保留参数由此核对。
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `reserved_options` [#impl-registration-seams-py-reserved_options]
+
+```python
+def reserved_options(runner_argv: list[str]) -> list[str]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L40)
+
+#### `container_runner_args` [#impl-registration-seams-py-container_runner_args]
+
+```python
+def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list[str], list[tuple[Path, str, bool]]]
+```
+
+(runner arguments with the inputs at their container paths, the read-only input mounts).
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L44)
+
+#### `runtime_identity_fields` [#impl-registration-seams-py-runtime_identity_fields]
+
+```python
+def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L76)
+
+#### `MarketAdapter` [#impl-registration-seams-py-MarketAdapter]
+
+```python
+class MarketAdapter(Protocol)
+```
+
+What registration reads of a market: Market below, or a test's stand-in.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L123)
+
+#### `Market` [#impl-registration-seams-py-Market]
+
+```python
+class Market
+```
+
+The market database behind the registration interface: each method one designed market function, its refusals in the registration codes.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L142)
+
+#### `validate_lifecycle` [#impl-registration-seams-py-validate_lifecycle]
+
+```python
+def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> dict
+```
+
+market.validate_lifecycle, its refusal as LIFECYCLE_INPUT.
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L200)
+
+#### `Seams` [#impl-registration-seams-py-Seams]
+
+```python
+class Seams
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L227)
+
+#### `use` [#impl-registration-seams-py-use]
+
+```python
+def use(**overrides) -> Iterator[Seams]
+```
+
+Replace some implementations for the duration of the block (tests and later-phase wiring).
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L246)
+
+#### `month_of` [#impl-registration-seams-py-month_of]
+
+```python
+def month_of(moment: datetime | date) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L257)
+
+#### `next_month` [#impl-registration-seams-py-next_month]
+
+```python
+def next_month(month: str) -> str
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L261)

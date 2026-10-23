@@ -1,0 +1,79 @@
+# Research judgments and subjects
+
+Append-only judgments retain supersession links and the candidates, trials and registrations they refer to.
+
+[Database overview](/en/docs/design-ledger/)
+
+### `judgment` [#def-table-judgment]
+
+Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加，正文只引用不抄写事实
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "主键", required: true }, "kind": { type: "VARCHAR(32)", description: "recommendation | priority | interpretation | search_exposure", required: true }, "line_bundle": { type: "VARCHAR(160)", description: "所属研究路线的 research-line-* 证据包", required: true }, "based_on_commit": { type: "CHAR(32)", description: "做判断时读的账本提交哈希；不早于路线包所在提交", required: true }, "body": { type: "TEXT", description: "Agent 的自由文本；只引用候选、试验、登记包与账本提交，不抄绩效指标、计数、资格或结果类别", required: true }, "supersedes": { type: "BIGINT", description: "被取代的上一条判断；同 kind、同路线，至多被取代一次", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器写入的服务器时间", required: true } }} />
+
+**键与约束**
+
+- 主键　`judgment_id`
+- 唯一　`op_id`
+- 唯一　`supersedes`
+- 外键　`line_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- 外键　`supersedes` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
+- CHECK　`kind IN ('recommendation','priority','interpretation','search_exposure')`
+- CHECK　`line_bundle LIKE 'research-line-%'`
+
+**Dolt 能力**
+
+- **dolt_diff_judgment**　只应出现 added；dolt_tests 在提交时核对
+- **AS OF**　按任一账本提交读当时的判断
+- **分支控制与账号**　写账号对本表只有 INSERT
+
+**写入方**　<Ref id="ledger.add_judgment" />
+
+**读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
+
+**依据**
+
+- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+
+</div>
+
+### `judgment_subject` [#def-table-judgment_subject]
+
+一条判断涉及的候选、试验或登记包，以及它们在判断里的角色
+
+<TypeTable type={{ "judgment_id": { type: "BIGINT", description: "所属判断", required: true }, "seq": { type: "INT", description: "判断内序号", required: true }, "role": { type: "VARCHAR(16)", description: "recommended | parent | control | about", required: true }, "strategy_id": { type: "VARCHAR(100)", description: "候选引用名 ID", required: false }, "revision": { type: "INT", description: "候选版本号", required: false }, "trial_id": { type: "INT", description: "试验；覆盖没有运行行的未完成与预检失败尝试", required: false }, "registration_bundle": { type: "VARCHAR(160)", description: "登记包；须在 registration_attempt 中出现过", required: false } }} />
+
+**键与约束**
+
+- 主键　`judgment_id`, `seq`
+- 外键　`judgment_id` → <Ref id="table:judgment">judgment</Ref> `judgment_id`
+- 外键　`strategy_id, revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+- 外键　`registration_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- CHECK　`恰有一类目标非空：(strategy_id, revision) | trial_id | registration_bundle`
+- CHECK　`role IN ('recommended','parent','control') 时目标必须是候选`
+
+**Dolt 能力**
+
+- **dolt_diff_judgment_subject**　只应出现 added；dolt_tests 在提交时核对
+
+**写入方**　<Ref id="ledger.add_judgment" />
+
+**读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.2.2.1">E.2.2.1</Ref>
+
+**依据**
+
+- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+
+</div>

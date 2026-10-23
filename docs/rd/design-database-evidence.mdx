@@ -1,0 +1,83 @@
+# Evidence bundles and originals
+
+Bundles organize file paths pointing to content-addressed originals. Research lines and registration declarations use these bundles rather than duplicate records.
+
+[Database overview](/en/docs/design-ledger/)
+
+### `evidence_bundle` [#def-table-evidence_bundle]
+
+证据包头：登记、源码审查、执行封存、生命周期事实、研究路线、更正与 Agent 自由文本都以证据包入账；包名即身份
+
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "证据包名。产品保留命名空间：trial-<id>-execution-start、trial-<id>-execution、trial-<id>-recovery、trial-<id>-recovery-*、registration-*、source-review-*、research-line-<date>-<slug>、lifecycle-<market_commit>，只由对应的产品命令经 ledger.write_files 写；其余名字（如 correction-*、Agent 的来源与笔记包）由 Agent 经 ledger.add_bundle 写；同名第二次写入 BUNDLE_EXISTS", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器见 [[J.4.1.1]]）", required: true } }} />
+
+**键与约束**
+
+- 主键　`bundle`
+- 唯一　`op_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与业务行同一事务
+- **J.3.1.1**　dolt_diff_evidence_bundle 正常只出现 added；dolt_history_evidence_bundle 给每行每提交的哈希与时间
+- **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的包
+- **J.4.1.1**　created_at 与 trial.created_at 比较＝登记先于试验；不用可指定的提交日期
+
+**写入方**　`ledger.add_bundle（Agent 的来源、笔记与更正）；ledger.write_files（产品保留命名空间：登记、源码审查、研究路线、生命周期、开始回执、执行封存、恢复材料）`
+
+**读取视图**　<Ref id="table:v_evidence">v_evidence</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
+
+</div>
+
+### `evidence` [#def-table-evidence]
+
+证据包内文件：每个文件按内容哈希指向一份 <Ref id="table:evidence_content">evidence_content</Ref>；大原件按固定块分行，逻辑文件由包内清单重组
+
+<TypeTable type={{ "bundle": { type: "VARCHAR(160)", description: "所属证据包", required: true }, "path": { type: "VARCHAR(512)", description: "包内相对路径；分块封存时为 <逻辑文件>.part-<n>，清单文件 execution.json 记逻辑名、总长、总哈希与块序（容量规则见 [[J.3.4.2]]）", required: true }, "sha256": { type: "CHAR(64)", description: "文件内容的哈希；外键指向库内派生该哈希的内容行，读回时对字节重算核对，不符 LEDGER_CORRUPT", required: true } }} />
+
+**键与约束**
+
+- 主键　`bundle`, `path`
+- 外键　`bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- 外键　`sha256` → <Ref id="table:evidence_content">evidence_content</Ref> `sha256`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与包头同一事务恰一个 DOLT_COMMIT
+- **J.3.1.1**　dolt_diff_evidence 正常只出现 added；任何 modified/removed 即篡改发现，登记与审查结论不能被事后改写
+- **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的文件
+- **J.3.4.1**　内容寻址：哈希只能指向已存在的内容行，内容行的哈希由库内生成列派生，调用方不能把字节配上别的哈希；INDEX sha256 供按内容查找
+- **J.3.5.1**　随 dolt_backup 整份备份；不运行 DOLT_GC，被引用的原件永久保留
+
+**写入方**　`ledger.add_bundle（Agent 命名空间，含 registration.register 写的登记包）；ledger.start_receipt、ledger.seal_capture、ledger.recover_capture（产品保留命名空间）`
+
+**读取视图**　<Ref id="table:v_evidence">v_evidence</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.2.1.2">J.2.1.2</Ref>
+
+</div>
+
+### `evidence_content` [#def-table-evidence_content]
+
+证据原件字节：每份不同内容只存一次（模式第 2 代），多个包、多个路径的相同文件共用一行
+
+<TypeTable type={{ "sha256": { type: "CHAR(64)", description: "生成列 SHA2(content,256) STORED，主键；调用方不能填写", required: true }, "content": { type: "LONGBLOB", description: "原件字节，非空", required: true } }} />
+
+**键与约束**
+
+- 主键　`sha256`
+- CHECK　`LENGTH(content) > 0`
+- 生成列　`sha256 = SHA2(content, 256) STORED`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与引用它的 evidence 行同一事务；已存在的内容只被引用，不再插入（写入账号只有 INSERT）
+- **J.3.1.1**　dolt_diff_evidence_content 正常只出现 added
+- Dolt 2.4.2 只在插入字节时计算生成列；对已存的长二进制重算 SHA2（更新所在行或改生成列定义）会让服务端 panic（实测）；内容行只插不改，读回时的哈希核对在 Python 里做
+
+**写入方**　<Ref id="ledger.write_files" />

@@ -1,0 +1,106 @@
+# Runs and sealed readings
+
+Execution validity, audits, fingerprints, sealed reports, daily returns and native position cycles have distinct records.
+
+[Database overview](/en/docs/design-ledger/)
+
+### `run` [#def-table-run]
+
+运行：一次研究或样本外封存回放的结论、审计发现、单运行报告与原生报告指纹；执行身份不在此重复，按试验与登记包读
+
+<TypeTable type={{ "trial_id": { type: "INT", description: "执行前已生成的试验编号，同时为结果主键与外键", required: true }, "status": { type: "ENUM('passed','invalid')", description: "审计结论", required: true }, "failure_reasons": { type: "JSON", description: "无效原因，只引用审计发现的编号；通过为空", required: false }, "audit": { type: "JSON", description: "{ran, findings}：审计是否跑完与发现清单；审计边界属审计器版本，不存", required: true }, "fingerprints": { type: "JSON", description: "原生报告的语义指纹：由该运行镜像内的指纹入口计算，覆盖订单、成交、持仓、账户、日收益、订单事件与敞口；每表行数、整表哈希与逐 UTC 日哈希；逐字节稳定的账户、日收益、敞口另记字节哈希；通过的运行必有，无效运行为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
+
+**键与约束**
+
+- 主键　`trial_id`
+- 唯一　`op_id`
+- 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
+- CHECK　`(status = 'invalid' AND failure_reasons IS NOT NULL) OR (status = 'passed' AND failure_reasons IS NULL)`
+- CHECK　`(status = 'passed' AND fingerprints IS NOT NULL) OR (status = 'invalid' AND fingerprints IS NULL)`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与封存结果、逐日序列、持仓周期同一事务恰一个 DOLT_COMMIT
+- **J.3.2.2**　共享主键 trial_id 加固定 op_id：幂等，第二次写入返回原记录
+- **J.3.1.1**　dolt_diff_run 定位任何被改绩效指标，非 added 即篡改发现
+- **J.3.1.3**　AS OF 重算当时绩效指标
+- **D.1.2.2**　绩效指标列与 status 从不改写；重评与更正只作新证据包，旧版本 AS OF 可读
+- **J.5.4.1**　运行环境身份列随行永久可读回，旧镜像按摘要仍可拉取
+- **J.3.5.1**　不运行 DOLT_GC；随 dolt_backup 全史备份
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+**读取视图**　<Ref id="table:v_runs">v_runs</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
+
+</div>
+
+### `run_sealed` [#def-table-run_sealed]
+
+封存结果：一个运行在某个代码版本下的单运行报告；只追加，口径升版时追加新行，不改旧行
+
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "metrics_revision": { type: "CHAR(40)", description: "算这份封存结果的代码提交；只记在这一列，报告 JSON 里不重复", required: true }, "report": { type: "JSON", description: "单运行报告：只含存储数据推不出的指标，即资格事实（每项是否通过、原因码与计数）、标记价回撤及其区间与主导合约、资金使用峰值与在市时间、锁定保证金峰值、按流动性方向的手续费与成交额、订单漏斗计数、计划统计是否成立、本运行特有的局限；每项指标以「度量名@定义版本」为键，金额为十进制字符串，样本量按总体名记一次；不含 metrics_revision（同一行的列记它）", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
+
+**键与约束**
+
+- 主键　`trial_id`, `metrics_revision`
+- 外键　`trial_id` → <Ref id="table:run">run</Ref> `trial_id`
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.3">R.3.1.3</Ref>
+
+</div>
+
+### `run_return` [#def-table-run_return]
+
+逐日序列：UTC 日收益与当日平均总名义敞口；配对比较的唯一配对单位，也是资金使用与仓位择时的依据
+
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "ts_event_ns": { type: "BIGINT", description: "UTC 日钟时刻，引擎纳秒", required: true }, "native_return": { type: "DOUBLE", description: "引擎原生日收益；须复利到期末权益，否则该侧序列不可用（[[ledger.daily_returns]]）", required: true }, "mean_gross_notional": { type: "DECIMAL(24,8)", description: "当日平均总名义敞口（逐分钟采样，含空仓分钟）", required: false } }} />
+
+**键与约束**
+
+- 主键　`trial_id`, `ts_event_ns`
+- 外键　`trial_id` → <Ref id="table:run">run</Ref> `trial_id`
+
+**Dolt 能力**
+
+- **J.3.2.1**　与 run 行同一事务同一提交
+- **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
+- **J.3.5.2**　只读账号的整体复核按原生序列重算检验结果
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="G.1.1.1">G.1.1.1</Ref>
+
+</div>
+
+### `run_cycle` [#def-table-run_cycle]
+
+持仓周期：每个原生持仓周期一行的紧凑记录，供交易结构、交易配对、出场类别与逐合约逐月下钻
+
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属运行", required: true }, "seq": { type: "INT", description: "周期序号", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "合约", required: true }, "side": { type: "ENUM('long','short')", description: "方向", required: true }, "ts_opened_ns": { type: "BIGINT", description: "开仓时刻", required: true }, "ts_closed_ns": { type: "BIGINT", description: "平仓时刻；期末未平为空", required: false }, "realized_pnl": { type: "DECIMAL(24,8)", description: "原生已实现盈亏（含手续费与资金费）；未平也保留，历史缺失为空", required: false }, "commissions": { type: "DECIMAL(24,8)", description: "周期内手续费", required: true }, "funding": { type: "DECIMAL(24,8)", description: "周期内资金费", required: true }, "open_unrealized": { type: "DECIMAL(24,8)", description: "期末未平的浮动盈亏；已平必须为空", required: false }, "plan_tag": { type: "VARCHAR(160)", description: "入场计划标签；标签不合规为空", required: false }, "closing_order_type": { type: "VARCHAR(40)", description: "最后一张平仓单的原生类型，含引擎下架结算单的来源标识；未平为空", required: false }, "closing_order_tag": { type: "VARCHAR(160)", description: "最后一张平仓单的非计划标签", required: false } }} />
+
+**键与约束**
+
+- 主键　`trial_id`, `seq`
+- 外键　`trial_id` → <Ref id="table:run">run</Ref> `trial_id`
+- CHECK　`ts_closed_ns IS NULL OR open_unrealized IS NULL`
+- 价格盈亏不存：读方按 `realized_pnl + commissions - funding` 读出（`ledger.metrics.PRICE_PNL`）；已实现盈亏是 Nautilus 报告的事实，封存前已与成交现金流逐周期对账
+
+**写入方**　<Ref id="ledger.ingest_run" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.3">R.3.1.3</Ref>
+
+</div>
