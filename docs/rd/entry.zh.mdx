@@ -434,7 +434,7 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 ### 开始研究时 Agent 自己设宿主目标，让研究连续跑下去 [#E-4-1-3]
 
-进入路线之前，Agent 自己给这次会话设宿主的目标，你不用写。目标从账本拼出来：哪条路线、从哪一版开始、你选路线时定的两个目标，再加一句：写完报告、复盘或排好优先级都不算完，只有你叫停或路线做不下去才停。先检查并复用本路线已有的活动目标。宿主允许自动创建时，Agent 直接调用目标工具（比如 Codex 的 `create_goal`），不设 token 预算，并用一行告诉你。若宿主要求明确授权，Agent 提出上述具体目标，请你授权，获准后才创建，沉默不算批准。没有目标工具时，给出可直接激活的命令（Codex 用 `/goal <目标>`，Claude Code 用 `/loop <目标>`），核实目标激活后再开始研究。
+进入路线之前，Agent 自己给这次会话设宿主的目标，你不用写。目标从账本拼出来：哪条路线、从哪一版开始、你选路线时定的两个目标，再加一句：写完报告、复盘或排好优先级都不算完，只有你叫停、路线做不下去或到了该换线的时候（<Ref id="F.3.1.3" />）才停。先检查并复用本路线已有的活动目标。宿主允许自动创建时，Agent 直接调用目标工具（比如 Codex 的 `create_goal`），不设 token 预算，并用一行告诉你。若宿主要求明确授权，Agent 提出上述具体目标，请你授权，获准后才创建，沉默不算批准。没有目标工具时，给出可直接激活的命令（Codex 用 `/goal <目标>`，Claude Code 用 `/loop <目标>`），核实目标激活后再开始研究。
 
 一个回合里 Agent 能自己不停（<Ref id="A.1.1.3" />），但回合结束后要不要接着开下一个回合，由宿主的目标决定；没有目标，做完一轮就停了。目标的内容账本里都有，让你自己写既多一步，也容易漏掉路线或目标；所以能设就由 Agent 设。目标一直留着，路线还能做就不标完成，否则宿主会以为事情做完了。
 
@@ -447,6 +447,20 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.3">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺：评测用例 start-sets-goal 已写好、尚未运行；本轮 Desktop 提供 `create_goal`，其契约要求显式授权；本次验证了该兼容分支，尚未运行新的端到端技能评测。</p>
+
+### Goal 激活时只问卡住工作的问题，问之前先让 Goal 停下 [#E-4-1-4]
+
+宿主的目标会在回合以提问结束后不等你回答就续跑。所以 Goal 激活时，Agent 只问会卡住这条线的问题（该换线了、需要你授权的事）；其余在自己权限内决定，用一句话告诉你。问之前先用宿主的工具暂停目标；宿主没有暂停工具时，在同一个问题里请你手动暂停。你没回答之前，续跑的回合不做任何依赖答案的事：只重复这个问题然后结束。没有你的消息，就不能说已获授权。
+
+<div className="rd-example">
+
+一次 Codex 会话里，Agent 问你扩窗起点选哪个，15 毫秒后目标就续跑了；它随后自己撤回了问题，在旧窗口里又跑了 12 小时。按这条规则，它会请你先暂停目标，续跑时只重复问题。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.4">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：评测 goal-question-waits 已通过；宿主暂停目标的方式未实测。</p>
 
 ## 待定事项 [#E-pending]
 

@@ -424,6 +424,22 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.3.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
+#### 你看过的读数失去资格时，下一条消息点名撤回 [#J-3-1-3]
+
+一个运行的读数已经给你看过，之后它失去经济证据资格（例如追加的源码审阅判了失败，`research status` 把它列进 `without_economic_evidence`），Agent 的下一条消息要点名这个运行、当时给你的读数和不再算数的原因。只说「若干旧运行转为诊断」不够：你记得的是那张表。
+
+产品负责让失效看得见：比较表单列出被剔除的运行及原因，按旧版本读报告时若最新账本已无资格会加一条局限。什么时候告诉你、怎么说，由 Agent 做。
+
+<div className="rd-example">
+
+一次会话里，`ema-entryvar@1` 的 22.29% / 8.47% 先给你看过，十几分钟后追加审阅判了因果失败，Agent 只说了「19 个旧运行转为诊断」。12 小时后你拿这组数字问为什么不推荐它，它才说明那组数字已作废。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.3.1.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+
+<p className="rd-note">缺：评测 withdrawn-reading-told 已通过；尚无真实会话验证。</p>
+
 #### 改和删能查到但拦不住：保证的是留痕 [#J-3-1-4]
 
 每次提交前账本自动跑校验，失败就整笔回滚，挡住正常路径上的错误。但这个校验能被管理权限跳过，所以它不是信任边界。
