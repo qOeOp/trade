@@ -68,6 +68,7 @@ export type SummaryWidget = Widget & {
 };
 
 export type LineageWidget = Widget & {
+  targets: Targets | null;
   axis: { min: number; max: number; ticks: number[]; scope_start: number | null };
   rows: { id: string; row: number }[];
   nodes: LineageNode[];

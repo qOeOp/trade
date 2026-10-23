@@ -6,9 +6,10 @@ const VERDICT: Record<string, string> = { passed: "✓ 通过", failed: "✗ 失
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-4">
-      <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider faint">{title}</h4>
-      {children}
+    <section className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--rule)", background: "var(--surface-2)" }}>
+      <h4 className="border-b px-3 py-1.5 text-[11px] font-semibold tracking-wider faint"
+          style={{ borderColor: "var(--rule)", background: "var(--surface-0)" }}>{title}</h4>
+      <div className="px-3 py-2.5 text-[12.5px] leading-relaxed">{children}</div>
     </section>
   );
 }
@@ -36,24 +37,29 @@ function Card({ c }: { c: Candidate }) {
   ].filter(Boolean).join(" · ") || "—";
   const status = STATUS[c.status_class];
   return (
-    <div>
-      <h3 className="mono text-[15px] font-semibold break-all">{c.id}</h3>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[11.5px] muted">
-        <span className="inline-flex items-center gap-1.5 rounded-full border px-2" style={{ borderColor: "var(--rule-strong)" }}>
-          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: status.color, border: "1px solid var(--ink-2)" }} />{status.label}
-        </span>
-        <span className="rounded-full border px-2" style={{ borderColor: "var(--rule-strong)" }}>{PREDICTION[c.prediction_class].label}</span>
-      </div>
-      <div className="mt-2 text-xs faint">
-        {[`父版本 ${c.parent ?? "无（根）"}`, when(c.created_at), `职责 ${(c.duties ?? []).join(" ") || "—"}`, c.registration].filter(Boolean).join(" · ")}
-      </div>
-      <div className="mt-3 grid grid-cols-4 gap-1.5">
-        {[["年化", pct(last.annual_return)], ["最大回撤", pct(last.max_drawdown)], ["夏普", ratio(last.sharpe)], ["胜率", pct(last.win_rate)]].map(([k, v]) => (
-          <div key={k} className="rounded-lg px-2 py-1.5" style={{ background: "var(--surface-0)" }}>
-            <div className="text-[11px] faint">{k}</div><div className="text-sm font-semibold">{v}</div>
-          </div>
-        ))}
-      </div>
+    <div className="space-y-3">
+      <section className="rounded-xl border p-3" style={{ borderColor: "var(--rule)", background: "var(--surface-2)" }}>
+        <h3 className="mono text-[15px] font-semibold break-all">{c.id}</h3>
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11.5px] muted">
+          <span className="inline-flex items-center gap-1.5 rounded-full border px-2" style={{ borderColor: "var(--rule-strong)" }}>
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: status.color, border: "1px solid var(--ink-2)" }} />{status.label}
+          </span>
+          <span className="rounded-full border px-2" style={{ borderColor: "var(--rule-strong)" }}>{PREDICTION[c.prediction_class].label}</span>
+        </div>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+          <dt className="faint">父版本</dt><dd className="mono break-all">{c.parent ?? "无（根）"}</dd>
+          <dt className="faint">发布</dt><dd>{when(c.created_at) || "—"}</dd>
+          <dt className="faint">职责</dt><dd>{(c.duties ?? []).join(" ") || "—"}</dd>
+          {c.registration && <><dt className="faint">登记</dt><dd className="mono break-all">{c.registration}</dd></>}
+        </dl>
+        <div className="mt-3 grid grid-cols-4 gap-1.5">
+          {[["年化", pct(last.annual_return)], ["最大回撤", pct(last.max_drawdown)], ["夏普", ratio(last.sharpe)], ["胜率", pct(last.win_rate)]].map(([k, v]) => (
+            <div key={k} className="rounded-lg px-2 py-1.5" style={{ background: "var(--surface-0)" }}>
+              <div className="text-[11px] faint">{k}</div><div className="text-sm font-semibold">{v}</div>
+            </div>
+          ))}
+        </div>
+      </section>
       <Section title="改了什么"><p>{c.change ?? "—"}</p></Section>
       <Section title="假设"><p>{c.hypothesis ?? "—"}</p></Section>
       {!!c.predictions?.length && (

@@ -14,19 +14,29 @@ const LANES: Record<string, string> = {
   eligibility_change: "资格变化", goal: "Goal / 换线",
 };
 
-type VersionData = LineageNode & { selected: boolean };
+type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
 type BandData = { width: number; label: string; scope?: boolean; stripe?: boolean };
 type TextData = { text: string; height?: number };
+
+function Reading({ value, target, higher }: { value: number | null; target?: number | null; higher: boolean }) {
+  const ok = value == null || target == null ? null : higher ? value >= target : value <= target;
+  return (
+    <span className="px-1.5" style={{ color: ok == null ? "var(--ink-2)" : ok ? "var(--s-meets)" : "var(--s-failed)" }}>
+      {pct(value)}
+    </span>
+  );
+}
 
 function Version({ data }: NodeProps<Node<VersionData>>) {
   const status = STATUS[data.status], prediction = PREDICTION[data.prediction];
   const recommended = data.status === "recommended";
   const [name, revision] = data.id.split("@");
+  const read = data.reading.annual_return != null;
   return (
-    <div className="flex items-center gap-2 whitespace-nowrap" title={`${data.id}｜${status.label}｜${prediction.label}\n${data.change ?? ""}`}>
+    <div className="flex items-center gap-1.5 whitespace-nowrap" title={`${data.id}｜${status.label}｜${prediction.label}\n${data.change ?? ""}`}>
       <Handle type="target" position={Position.Left} className="!opacity-0" />
       <span
-        className="inline-block rounded-full"
+        className="inline-block shrink-0 rounded-full"
         style={{
           width: recommended ? 14 : 12, height: recommended ? 14 : 12, background: status.color,
           border: data.status === "unrun" ? "1.25px dashed var(--ink-3)" : "1px solid var(--ink-1)",
@@ -34,15 +44,18 @@ function Version({ data }: NodeProps<Node<VersionData>>) {
             : recommended ? "0 0 0 3px var(--surface-1), 0 0 0 5px var(--s-recommended)" : undefined,
         }}
       />
-      <span className="leading-tight">
-        <span className="mono block text-[11px]" style={{ color: "var(--ink-1)" }}>
-          {name}<span className="faint">@{revision}</span>
+      {read ? (
+        <span className="mono inline-flex shrink-0 items-center divide-x divide-[color:var(--rule-strong)] rounded-md border text-[10.5px] leading-[18px]"
+              style={{ borderColor: "var(--rule-strong)", background: "var(--surface-2)" }}
+              title={`年化 ${pct(data.reading.annual_return)} · 最大回撤 ${pct(data.reading.max_drawdown)}`}>
+          <Reading value={data.reading.annual_return} target={data.targets?.annual_return} higher />
+          <Reading value={data.reading.max_drawdown} target={data.targets?.max_drawdown} higher={false} />
         </span>
-        <span className="block text-[10.5px] muted">
-          {prediction.glyph && <b style={{ color: prediction.color }}>{prediction.glyph} </b>}
-          {data.reading.annual_return != null ? `${pct(data.reading.annual_return)} · ${pct(data.reading.max_drawdown)}` : status.label}
-        </span>
-      </span>
+      ) : (
+        <span className="shrink-0 rounded-md border px-1.5 text-[10.5px] leading-[18px] faint" style={{ borderColor: "var(--rule)" }}>{status.label}</span>
+      )}
+      {prediction.glyph && <b className="text-[11px]" style={{ color: prediction.color }} title={prediction.label}>{prediction.glyph}</b>}
+      <span className="mono text-[11.5px]" style={{ color: "var(--ink-1)" }}>{name}<span className="faint">@{revision}</span></span>
       <Handle type="source" position={Position.Bottom} className="!opacity-0" style={{ left: recommended ? 7 : 6 }} />
     </div>
   );
@@ -158,8 +171,8 @@ export function Lineage({ widget, selected, onSelect }: {
     }));
     for (const n of widget.nodes) {
       if (n.x == null) continue;
-      out.push({ id: n.id, type: "version", position: { x: n.x * UNIT - 6, y: n.row * ROW - 13 },
-                 data: { ...n, selected: n.id === selected } satisfies VersionData });
+      out.push({ id: n.id, type: "version", position: { x: n.x * UNIT - 6, y: n.row * ROW - 10 },
+                 data: { ...n, selected: n.id === selected, targets: widget.targets } satisfies VersionData });
     }
     const links: Edge[] = widget.edges.map((e) => ({
       id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "smoothstep",

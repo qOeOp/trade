@@ -74,8 +74,8 @@ export function App({ view }: { view: View }) {
         </div>
 
         {drawer && (
-          <aside className="absolute right-0 top-0 overflow-auto border-l p-4"
-                 style={{ width: DRAWER_WIDTH, bottom: dockHeight, borderColor: "var(--rule)", background: "var(--surface-1)" }}>
+          <aside className="absolute right-0 top-0 overflow-auto border-l p-3"
+                 style={{ width: DRAWER_WIDTH, bottom: dockHeight, borderColor: "var(--rule)", background: "var(--surface-0)" }}>
             {of("drawer").map(([w, e]) => <div key={w.id}>{e.render(w, ctx)}</div>)}
           </aside>
         )}
