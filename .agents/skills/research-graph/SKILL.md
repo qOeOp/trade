@@ -7,7 +7,7 @@ description: Draws a research line from the research ledger as a graph - the lin
 
 `research graph` (`--help`) reads a line from the ledger only and prints a `research-graph/1`
 document; the same ledger commit always gives the same graph. `python3
-services/research-graph/graph.py` (standard library) checks, renders and compares graphs. Work in
+services/research-graph/graph.py` checks, renders and compares graphs. Work in
 `/tmp/research-graph-<line>/`; graphs and pages are working copies, never ledger records.
 
 ## Draw a line
@@ -15,9 +15,8 @@ services/research-graph/graph.py` (standard library) checks, renders and compare
 - Read the user's two targets from the line note (`research state`) and pass them as
   `--max-drawdown` and `--annual-return`; add `--since COMMIT` to shade what came before the
   period under study. Redirect the output to `graph.json`.
-- `graph.py check graph.json`, then `graph.py render graph.json --out DIR`. `--renderer web` (an
-  interactive canvas, for a browser) is the page to hand the user; `--renderer static` (no script)
-  is for previews that block scripts.
+- `graph.py check graph.json`, then `graph.py render graph.json --out DIR`: one HTML page (an
+  interactive canvas that needs a browser), rebuilt with npm when its sources changed.
 - Give the user the page path and what the graph shows, including its `gaps`: runs without
   economic evidence carry no measures, and the graph holds no conversation or host state.
 

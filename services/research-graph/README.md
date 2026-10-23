@@ -1,11 +1,12 @@
 # research-graph
 
 Draws one research line as a graph and compares graphs built from different sources. Used by the
-`research-graph` skill. Standard library only:
+`research-graph` skill. Checking, layout and comparison use the standard library; rendering needs
+node and npm:
 
 ```bash
 python3 services/research-graph/graph.py check GRAPH.json
-python3 services/research-graph/graph.py render GRAPH.json --out /tmp/research-graph-X/out [--renderer static]
+python3 services/research-graph/graph.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 services/research-graph/graph.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
 ```
 
@@ -26,7 +27,7 @@ Stages hand over only through these files, so each can be replaced alone.
 One research line from one source: the line and its targets, candidate versions with parent,
 change, duties, hypothesis, predictions and outcomes, registration, control, trials with
 readings and eligibility, comparison, source reviews, interpretation and status; timed events
-(judgments, user messages, questions to the user, Goal changes, eligibility changes); and `gaps`.
+(judgments, line changes, eligibility changes); and `gaps`. It holds no conversation or host state.
 Unknown values are null. The schema is authoritative.
 
 ## View model (`research-graph-view/1`)
@@ -50,18 +51,14 @@ type; a changed widget is a new version of its type.
 
 ## Renderers
 
-`static` writes one HTML file with inline SVG and no script, so it opens in previews that block
-scripts. A renderer is a package under `research_graph/renderers/` whose `render.py` defines
-`render(view: dict, out_dir: Path) -> Path`, reads nothing but the view model, draws each widget
-type it knows and names the ones it does not. A richer renderer (for example React components,
-one per widget type, served by a web server that receives widget documents over HTTP) reads the
-same widgets; the server only serves views and never reads or writes the ledger. The static
-renderer stays as the dependency-free fallback.
-
-`web` (`--renderer web`) writes one self-contained HTML page built from [`web/`](web/) (React,
-React Flow, Tailwind; its own npm toolchain): the lineage as a canvas that
-pans, zooms and lets nodes be dragged on the whole screen under a one-line summary bar, a right drawer with the selected version and a bottom dock whose tabs hold the other widgets. The
-renderer injects `view.json` into the built page and builds it once with `npm` when `web/dist` is
-missing. The page needs JavaScript, so it opens in a browser; previews that block scripts show the
-static page instead. A new widget type is a component registered in `web/src/widgets/registry.tsx`
-with the region it lives in (bar, canvas, drawer or dock).
+A renderer is a package under `research_graph/renderers/` whose `render.py` defines
+`render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
+`web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind; its own
+npm toolchain). The lineage is a canvas that pans, zooms and lets nodes be dragged on the whole
+screen, under a one-line summary bar, beside a drawer with the selected version, above a dock
+whose tabs hold the other widgets. The renderer injects `view.json` into the built page and
+rebuilds it whenever the sources under `web/` differ from the ones it was built from
+(`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs JavaScript, so
+it opens in a browser. A new widget type is a component registered in `web/src/widgets/registry.tsx`
+with the region it lives in (bar, canvas, drawer or dock); a type the page does not know becomes a
+dock tab that names it.
