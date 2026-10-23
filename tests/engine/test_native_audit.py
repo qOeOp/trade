@@ -21,6 +21,7 @@ ENTRY = "2026-01-01 00:05:00+00:00"
 FUNDING = "2026-01-01 00:07:00+00:00"
 EXIT = "2026-01-01 00:10:00+00:00"
 SCOPE = {"strategy_id": "R1-BTC", "instrument_id": "BTCUSDT-PERP.BINANCE", "account_id": "BINANCE-001"}
+COMMIT = "c" * 32
 
 
 def order(identity, side, kind="LIMIT", quantity="1", status="FILLED", **changes):
@@ -64,7 +65,7 @@ def reports(open_position=False, short=False):
                    order("last", side, quantity="0.5", status="ACCEPTED", is_reduce_only="True")]
     else:
         orders += [order("stop", side, "STOP_MARKET", status="CANCELED", parent_order_id="entry", is_reduce_only="True"),
-                   order("close", close["order_side"])]
+                   order("close", close["order_side"], is_reduce_only="True")]
     accounts = [{"ts_event": START, "total": "100000", "locked": "0", "free": "100000",
                  "currency": "USDT", "base_currency": "USDT", "account_id": "BINANCE-001"},
                 {"ts_event": ENTRY, "total": "99999", "locked": "0", "free": "99999",
@@ -74,7 +75,7 @@ def reports(open_position=False, short=False):
                 {"ts_event": EXIT, "total": "100000" if open_position else "100009", "locked": "0",
                  "free": "100000" if open_position else "100009", "currency": "USDT",
                  "base_currency": "USDT", "account_id": "BINANCE-001"}]
-    summary = {"signal_variant": "daily-pivot", "integrity_passed": True, "denied_orders": 0,
+    summary = {"signal_variant": "daily-pivot", "integrity_passed": True, "denied_orders": 0, "market_commit": COMMIT,
                "rejected_orders": 0, "closed_trades": 0 if open_position else 1,
                "winning_trades": 0 if open_position else 1, "starting_balance_usdt": "100000",
                "final_equity_usdt": "100010" if open_position else "100009", "period_end_utc": EXIT,
@@ -116,6 +117,20 @@ class NativeAuditTests(unittest.TestCase):
         self.root = Path(self.directory.name)
 
     def check(self, values):
+        summary = values["summary"]
+        receipt = values.get("coverage", {
+            "format": "execution-input-coverage-v1", "input_identity": {"market_commit": summary["market_commit"]},
+            "effective_config": {"start": summary["input_start_utc"], "trade_start": summary["period_start_utc"],
+                                 "end": summary["period_end_utc"]},
+            "membership": {"commit": summary["market_commit"], "membership": {
+                "BTCUSDT": [[pd.Timestamp(summary["input_start_utc"]).value, pd.Timestamp(summary["period_end_utc"]).value]]}},
+            "export_receipts": {"BTCUSDT": {"pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"],
+                "last_bar_ns": pd.Timestamp(summary["period_end_utc"]).value - 1_000_000, "episode": None}]}}})
+        coverage_path = self.root.parent / "input-coverage.json"
+        if receipt is None:
+            coverage_path.unlink(missing_ok=True)
+        else:
+            coverage_path.write_text(json.dumps(receipt))
         for name in ("orders", "fills", "positions", "account"):
             with (self.root / f"{name}.csv").open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=list(values[name][0]))
@@ -350,6 +365,7 @@ class NativeAuditTests(unittest.TestCase):
         self.assertIsNone(audit_main(self.root, output))
         values = reports()
         values["summary"]["per_coin"] = [{"instrument": SCOPE["instrument_id"], "counts": {"instrument_close": 1}}]
+        values["coverage"] = None
         self.check(values)
         self.assertEqual(self.exit_code(output), 1)
         self.assertTrue(json.loads(output.read_text())["findings"][0].startswith("LIFECYCLE_COVERAGE_MISSING"))
@@ -397,14 +413,15 @@ class LifecycleAuditTests(unittest.TestCase):
         last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
         receipt = {"pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "",
                                "counts": receipt_counts or counted, "last_bar_ns": last,
-                               "episode": {"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
-                                           "events": events, "sources": ["notice.txt"]}}]}
+                               "episode": ({"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
+                                            "events": events, "sources": ["notice.txt"]} if bundle or events else None)}]}
         receipt_file = {"format": "execution-input-coverage-v1",
+                        "membership": {"commit": self.COMMIT, "membership": {"BTCUSDT": [[0, 10**20]]}},
                         "effective_config": {"start": "2026-01-01T00:00:00Z", "trade_start": "2026-01-01T00:00:00Z",
                                              "end": "2026-01-02T00:00:00Z"},
                         "input_identity": {"market_commit": self.COMMIT, "lifecycle_bundle": bundle},
                         "export_receipts": {"BTCUSDT": receipt}, **coverage}
-        (self.root.parent / "input-coverage.json").write_text(json.dumps(receipt_file))
+        values["coverage"] = receipt_file
         return NativeAuditTests.check(self, values)
 
     def test_flat_before_an_unpriced_termination_passes(self):
@@ -440,7 +457,7 @@ class LifecycleAuditTests(unittest.TestCase):
 
     def test_the_engines_expiration_order_at_a_settlement_is_not_late(self):
         values = self.late_order(reports(), "EXPIRATION-BINANCE-1", "2026-01-01 00:20:00+00:00")
-        values["orders"][-1].update(status="ACCEPTED")
+        values["orders"][-1].update(status="ACCEPTED", is_reduce_only="True")
         values["summary"].update(rejected_orders=0, integrity_passed=True)
         close = self.close("2026-01-01 00:20:00+00:00")
         value = self.run_audit([self.status("CLOSE", "2026-01-01 00:20:00+00:00"), close], values=values)
@@ -494,11 +511,14 @@ class LifecycleAuditTests(unittest.TestCase):
         for options, code in cases:
             with self.subTest(code=code, options=options):
                 expected = {code, "TRADE_START_INVALID"} if "effective_config" in options else {code}
+                if any(key in options for key in ("effective_config", "bundle", "format")):
+                    expected.add("ENTRY_SCOPE_INVALID")
                 self.assertEqual(codes(self.run_audit([close], **options)), expected)
         self.assertEqual(codes(self.run_audit([close, dict(close)])), {"LIFECYCLE_DUPLICATE_EVENT"})
         self.assertEqual(codes(self.run_audit([{**close, "ts_init": close["ts_init"] + 1}])),
-                         {"LIFECYCLE_EVENT_INVALID"})
-        self.assertEqual(codes(self.run_audit([{**close, "type": "InstrumentHalt"}])), {"LIFECYCLE_EVENT_INVALID"})
+                         {"LIFECYCLE_EVENT_INVALID", "ENTRY_SCOPE_INVALID"})
+        self.assertEqual(codes(self.run_audit([{**close, "type": "InstrumentHalt"}])),
+                         {"LIFECYCLE_EVENT_INVALID", "ENTRY_SCOPE_INVALID"})
 
 
 def event(kind, identity, at, **fields):

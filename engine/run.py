@@ -69,6 +69,7 @@ from engine.load import (
     BAR_INTERVAL_NS,
     LIFECYCLE_COUNTS,
     LoadedStrategy,
+    episode_membership,
     load_strategy,
     read_market,
     read_regular_file,
@@ -363,23 +364,6 @@ def episode_active(episode: dict | None, start_ns: int, end_ns: int) -> bool:
         return True
     end = _termination(episode)
     return episode.get("start_ns", 0) < end_ns and (end is None or end > start_ns)
-
-
-def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | None) -> tuple[tuple[int, int], ...]:
-    """engine.episode_membership: membership cut at the listing and at the first PRE_CLOSE, CLOSE or
-    settlement; empty intervals are dropped."""
-    if episode is None:
-        return tuple(intervals)
-    low = episode.get("start_ns") or 0
-    stops = [int(event["ts_event"]) for event in episode.get("events") or ()
-             if event.get("type") == "InstrumentClose" or event.get("action") in ("PRE_CLOSE", "CLOSE")]
-    high = min(stops) if stops else None
-    found = []
-    for start, end in intervals:
-        start, end = max(start, low), end if high is None else min(end, high)
-        if start < end:
-            found.append((start, end))
-    return tuple(found)
 
 
 # A one-minute hole in a contract's MARK data is valued at its latest MARK up to this age

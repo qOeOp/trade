@@ -43,11 +43,18 @@ header template, the entry class, the two hooks and a sizing helper.
 - `universe_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is
   in the monthly universe (empty when the replay names contracts the universe never held), cut at
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
-  contract out of the universe takes no new positions and only closes what it holds; apply it in
-  the file, the runner and the audit do not.
+  contract outside these intervals takes no new positions. Use native `reduce_only=True` for every
+  exit and protective order there, including an order intended only to close. End all non-reduce-only
+  entry orders and their partially filled remainders by the cutoff; canceling a bracket entry can
+  cancel its protection too, so re-protect the filled part with the reference handler below. The
+  independent audit checks the trusted intervals, native flags, submissions, fills and old residuals;
+  any violation invalidates the run. Cancellation/expiry at the cutoff is allowed, a fill there is
+  not. A GTD deadline alone is not a native expiry acknowledgement. Holding an old position does not
+  require an immediate exit; membership reentry restores entry permission.
 - With a lifecycle bundle the engine delivers the contract's `InstrumentStatus` (PRE_CLOSE, CLOSE)
   and, when the exchange published one, its settlement `InstrumentClose`; subscribe with
-  `subscribe_instrument_status`. After CLOSE the market rejects orders, and the audit refuses a
+  `subscribe_instrument_status`. The pinned PRE_CLOSE does not itself reject opening orders;
+  enforce the only-reduce boundary above. After CLOSE the market rejects orders, and the audit refuses a
   position or a working order left at a termination without a settlement price.
 - No quantity arrives: size from the account and price in the file. The runner has no signal,
   exit, warmup or sizing option: every rule and parameter is in the file, and a variant is a new
