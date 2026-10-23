@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Info, PanelRightClose, PanelRightOpen, X } from "lucide-react";
-import type { DetailWidget, View, Widget } from "./types";
+import type { DetailWidget, Focus, View, Widget } from "./types";
 import { PREDICTION, STATUS } from "./format";
 import { REGISTRY, unknown, type Entry } from "./widgets/registry";
 
@@ -41,9 +41,15 @@ export function App({ view }: { view: View }) {
   const of = (region: Entry["region"]) => entries.filter(([, e]) => e.region === region);
   const dock = of("dock");
   const [tab, setTab] = useState<string | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
   const ctx = {
     selected,
     onSelect: (id: string) => { setSelected(id); setDrawer(true); },
+    focus,
+    onFocus: (f: Omit<Focus, "seq">) => {
+      setFocus((prev) => ({ ...f, seq: (prev?.seq ?? 0) + 1 }));
+      if (f.candidate) { setSelected(f.candidate); setDrawer(true); }
+    },
   };
   const line = view.line;
   const dockHeight = tab ? DOCK_HEIGHT : TAB_HEIGHT;

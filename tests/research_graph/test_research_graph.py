@@ -59,8 +59,8 @@ class LayoutTests(unittest.TestCase):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
-                         [("summary/1", "top"), ("lineage/1", "main"), ("scatter/1", "main"), ("notes/1", "main"),
-                          ("candidate-detail/1", "side")])
+                         [("summary/1", "top"), ("lineage/1", "main"), ("scatter/1", "main"), ("events/1", "dock"),
+                          ("notes/1", "main"), ("candidate-detail/1", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([r["id"] for r in tree["rows"]], ["root@1", "a@1", "b@1"])
@@ -74,6 +74,10 @@ class LayoutTests(unittest.TestCase):
         self.assertTrue(4 < band["x0"] < 5, "a timed event sits between the trials around its time")
         lanes = {lane["kind"]: lane["events"] for lane in tree["lanes"]}
         self.assertEqual(len(lanes["user_message"]), 1)
+        self.assertEqual([(m["kind"], m["candidate"], m["row"]) for m in tree["marks"]], [("recommendation", "a@1", 1)],
+                         "an event about a version sits on that version's row")
+        self.assertEqual([f["kind"] for f in tree["flags"]], ["user_message"], "an event about the research is a moment")
+        self.assertEqual([i["kind"] for i in widgets["events"]["items"]], ["recommendation", "user_message"])
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
         summary = widgets["summary"]

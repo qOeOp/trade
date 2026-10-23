@@ -1,18 +1,14 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
-  Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, ReactFlowProvider, useViewport,
+  Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, useReactFlow,
   type Edge, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { LaneEvent, LineageNode, LineageWidget } from "../types";
+import type { Focus, LineageNode, LineageWidget } from "../types";
 import { pct, PREDICTION, STATUS, when } from "../format";
 
 // Research units -> canvas pixels: x is the trial number, y the lineage row.
 const UNIT = 22, ROW = 46;
-const LANES: Record<string, string> = {
-  recommendation: "推荐判断", user_message: "用户消息", agent_question: "向用户提问",
-  eligibility_change: "资格变化", goal: "Goal / 换线",
-};
 
 type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
 type BandData = { width: number; label: string; scope?: boolean; stripe?: boolean };
@@ -69,7 +65,7 @@ function Band({ data }: NodeProps<Node<BandData>>) {
   );
 }
 
-function Marker({ kind }: { kind: string }) {
+export function Marker({ kind }: { kind: string }) {
   if (kind === "recommendation") return <span className="block h-2.5 w-2.5 rotate-45" style={{ background: "var(--s-recommended)" }} />;
   if (kind === "user_message") return <span className="block h-2.5 w-2.5 rounded-full" style={{ background: "var(--ink-1)" }} />;
   if (kind === "agent_question") return (
@@ -80,50 +76,54 @@ function Marker({ kind }: { kind: string }) {
   return <span className="block h-2.5 w-2.5" style={{ background: "var(--ink-2)" }} />;
 }
 
-// The timeline below the canvas: the shared trial axis at the seam, then the event lanes. It is
-// its own panel (nothing floats over the canvas) and follows the canvas's horizontal pan and zoom,
-// with gridlines and the before-scope shading continuing straight across the seam.
-const AXIS = 22, LANE_ROW = 20, GUTTER = 150;
+// Events live in the canvas. An event about versions sits on their rows at its time (a
+// recommendation on the recommended row, a failed review on every version it masked); an event
+// about the whole research is a line across the canvas with a pin above the lineage.
+type MarkData = { kind: string; tip: string };
+type FlagData = { kind: string; tip: string; label: string; height: number };
+const FLAG_COLOR: Record<string, string> = {
+  user_message: "var(--ink-2)", agent_question: "var(--ink-2)", goal: "var(--ink-3)", line_change: "var(--ink-3)",
+  eligibility_change: "var(--s-failed)",
+};
 
-function Timeline({ widget }: { widget: LineageWidget }) {
-  const { x: tx, zoom } = useViewport();
-  const sx = (trial: number) => trial * UNIT * zoom + tx;
-  const { axis, lanes } = widget;
-  const scope = axis.scope_start != null ? sx(axis.scope_start) : null;
-  const height = AXIS + lanes.length * LANE_ROW + 10;
-  const tip = (ev: LaneEvent) => [when(ev.at), ev.ref, ev.text, ev.recommends && `推荐 ${ev.recommends}`].filter(Boolean).join(" · ");
+function Mark({ data }: NodeProps<Node<MarkData>>) {
+  return <div title={data.tip} className="flex h-3.5 w-3.5 scale-75 items-center justify-center"><Marker kind={data.kind} /></div>;
+}
+
+function Flag({ data }: NodeProps<Node<FlagData>>) {
+  const color = FLAG_COLOR[data.kind] ?? "var(--ink-3)";
   return (
-    <div className="relative shrink-0 overflow-hidden border-t" style={{ height, background: "var(--surface-1)", borderColor: "var(--rule-strong)" }}>
-      {scope != null && scope > 0 && <div className="absolute inset-y-0 left-0" style={{ width: scope, background: "var(--scope)", opacity: 0.55 }} />}
-      {axis.ticks.map((tick) => (
-        <div key={tick} className="absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }}>
-          <span className="absolute left-0 top-1 -translate-x-1/2 whitespace-nowrap px-1 text-[10.5px] faint"
-                style={{ background: "var(--surface-1)" }}>trial {tick}</span>
-        </div>
-      ))}
-      {lanes.map((lane, i) => (
-        <div key={lane.kind} className="absolute inset-x-0" style={{ top: AXIS + 4 + i * LANE_ROW, height: LANE_ROW }}>
-          <div className="absolute inset-x-0 top-1/2" style={{ borderTop: "1px solid var(--rule)" }} />
-          {lane.events.map((ev, j) => ev.x == null || sx(ev.x) < GUTTER ? null : (
-            <span key={j} title={tip(ev)} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: sx(ev.x) }}>
-              <Marker kind={lane.kind} />
-            </span>
-          ))}
-        </div>
-      ))}
-      <div className="absolute inset-y-0 left-0 border-r" style={{ width: GUTTER, background: "var(--surface-1)", borderColor: "var(--rule)" }}>
-        <div className="px-3 pt-1 text-[10.5px] faint">事件</div>
-        {lanes.map((lane, i) => (
-          <div key={lane.kind} className="absolute left-3 flex items-center gap-2 whitespace-nowrap text-[10.5px]"
-               style={{ top: AXIS + 4 + i * LANE_ROW, height: LANE_ROW }}>
-            <span className="flex w-3.5 justify-center"><Marker kind={lane.kind} /></span>
-            <span className="muted">{LANES[lane.kind] ?? lane.kind}</span>
-            {!lane.events.length && <span className="text-[10px] faint">无记录</span>}
-          </div>
-        ))}
-      </div>
+    <div title={data.tip} className="group relative flex justify-center" style={{ width: 11, height: data.height }}>
+      <div className="h-full opacity-60 group-hover:opacity-100"
+           style={{ borderLeft: `1.5px ${data.kind === "agent_question" ? "dashed" : "solid"} ${color}` }} />
     </div>
   );
+}
+
+function Pin({ data }: NodeProps<Node<FlagData>>) {
+  return (
+    <div title={data.tip} className="flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px] muted"
+         style={{ borderColor: "var(--rule-strong)", background: "var(--surface-2)" }}>
+      <Marker kind={data.kind} /><span className="max-w-[160px] truncate">{data.label}</span>
+    </div>
+  );
+}
+
+// Moves the view to a requested version or moment.
+function Focuser({ focus, widget }: { focus: Focus | null; widget: LineageWidget }) {
+  const flow = useReactFlow();
+  useEffect(() => {
+    if (!focus) return;
+    const node = focus.candidate ? widget.nodes.find((n) => n.id === focus.candidate && n.x != null) : undefined;
+    const { zoom } = flow.getViewport();
+    if (node) flow.setCenter(node.x! * UNIT + 160, node.row * ROW, { zoom: Math.max(zoom, 0.8), duration: 450 });
+    else if (focus.x != null) {
+      const view = flow.getViewport(), el = document.querySelector(".react-flow");
+      const centerY = el ? (el.clientHeight / 2 - view.y) / view.zoom : 0;
+      flow.setCenter(focus.x * UNIT, centerY, { zoom: Math.max(zoom, 0.8), duration: 450 });
+    }
+  }, [focus, flow, widget]);
+  return null;
 }
 
 function Text({ data }: NodeProps<Node<TextData>>) {
@@ -134,13 +134,13 @@ function Text({ data }: NodeProps<Node<TextData>>) {
   );
 }
 
-const nodeTypes = { version: Version, band: Band, text: Text };
+const nodeTypes = { version: Version, band: Band, text: Text, mark: Mark, flag: Flag, pin: Pin };
 const fixed = { draggable: false, selectable: false, connectable: false, focusable: false };
 
-export function Lineage({ widget, selected, onSelect }: {
-  widget: LineageWidget; selected: string | null; onSelect: (id: string) => void;
+export function Lineage({ widget, selected, onSelect, focus }: {
+  widget: LineageWidget; selected: string | null; onSelect: (id: string) => void; focus: Focus | null;
 }) {
-  const { nodes, edges, focus, versions } = useMemo(() => {
+  const { nodes, edges, opening, versions } = useMemo(() => {
     const { axis } = widget;
     const height = (widget.rows.length + 2) * ROW;
     const out: Node[] = [];
@@ -155,10 +155,28 @@ export function Lineage({ widget, selected, onSelect }: {
       if (r.row % 2) out.push({ id: `stripe-${r.row}`, type: "band", position: { x: left, y: r.row * ROW - ROW / 2 },
                                 data: { width: span, label: "", stripe: true }, style: { height: ROW }, zIndex: -4, ...fixed });
     }
+    const bottom = widget.rows.length * ROW;
     for (const tick of axis.ticks) {
       out.push({ id: `tick-${tick}`, type: "text", position: { x: tick * UNIT, y: -ROW - 4000 },
                  data: { text: "", height: height + 8000 }, zIndex: -2, ...fixed });
+      for (const [k, y] of [["t", -ROW - 6], ["b", bottom - 4]] as const) {
+        out.push({ id: `tick-${k}-${tick}`, type: "text", position: { x: tick * UNIT + 4, y }, data: { text: `trial ${tick}` }, zIndex: -1, ...fixed });
+      }
     }
+    const tipOf = (e: { at: string; ref?: string | null; text?: string | null }) => [when(e.at), e.ref, e.text].filter(Boolean).join(" · ");
+    widget.marks.forEach((m, i) => {
+      if (m.x == null) return;
+      out.push({ id: `mark-${i}`, type: "mark", position: { x: m.x * UNIT - 7, y: m.row * ROW + 8 },
+                 data: { kind: m.kind, tip: `${tipOf(m)} · ${m.candidate}` } satisfies MarkData, zIndex: 1, ...fixed });
+    });
+    widget.flags.forEach((f, i) => {
+      if (f.x == null) return;
+      const tip = tipOf(f), label = (f.text ?? f.ref ?? "").replace(/\s+/g, " ").slice(0, 24);
+      out.push({ id: `flag-${i}`, type: "flag", position: { x: f.x * UNIT - 5, y: -ROW * 2 - 4000 },
+                 data: { kind: f.kind, tip, label, height: height + 8000 } satisfies FlagData, zIndex: 0, ...fixed });
+      out.push({ id: `pin-${i}`, type: "pin", position: { x: f.x * UNIT, y: -ROW * 2 - 14 - (i % 3) * 22 },
+                 data: { kind: f.kind, tip, label, height: 0 } satisfies FlagData, zIndex: 2, ...fixed });
+    });
     const merged: { candidate: string; row: number; x0: number; x1: number; count: number }[] = [];
     for (const b of widget.bands) {
       if (b.x0 == null) continue;
@@ -182,29 +200,23 @@ export function Lineage({ widget, selected, onSelect }: {
     }));
     // Open on the current recommendation and the rows just around it, at a readable zoom.
     const current = widget.nodes.find((n) => n.status === "recommended" && n.x != null);
-    const focus = widget.nodes
+    const opening = widget.nodes
       .filter((n) => n.x != null && (current ? n.row >= current.row - 3 && n.row <= current.row + 12 : true))
       .map((n) => ({ id: n.id }));
     const versions = widget.nodes.filter((n) => n.x != null).map((n) => ({ id: n.id }));
-    return { nodes: out, edges: links, focus, versions };
+    return { nodes: out, edges: links, opening, versions };
   }, [widget, selected]);
 
   return (
-    <ReactFlowProvider>
-    <div className="flex h-full flex-col">
-    <div className="relative min-h-0 flex-1">
     <ReactFlow
       nodes={nodes} edges={edges} nodeTypes={nodeTypes} colorMode="system" minZoom={0.1} maxZoom={2.5}
-      fitView fitViewOptions={{ nodes: focus.length ? focus : undefined, padding: 0.12, minZoom: 0.6, maxZoom: 1 }}
+      fitView fitViewOptions={{ nodes: opening.length ? opening : undefined, padding: 0.12, minZoom: 0.6, maxZoom: 1 }}
       nodesConnectable={false} proOptions={{ hideAttribution: true }}
       onNodeClick={(_, node) => { if (node.type === "version") onSelect(node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--rule-strong)" />
       <Controls position="bottom-right" showInteractive={false} fitViewOptions={{ nodes: versions, padding: 0.05 }} />
+      <Focuser focus={focus} widget={widget} />
     </ReactFlow>
-    </div>
-    <Timeline widget={widget} />
-    </div>
-    </ReactFlowProvider>
   );
 }

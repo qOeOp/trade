@@ -281,9 +281,21 @@ def notes(widget: dict) -> str:
     return f'<ul class="notes">{items}</ul>' if items else ""
 
 
-WIDGETS = {"summary/1": summary, "lineage/1": lineage, "scatter/1": scatter, "notes/1": notes,
+KINDS = {"recommendation": "推荐判断", "priority": "优先级", "user_message": "用户消息", "agent_question": "向用户提问",
+         "eligibility_change": "资格变化", "goal": "Goal", "line_change": "换线"}
+
+
+def events(widget: dict) -> str:
+    """events/1: every event in time order with what it is about."""
+    rows = "".join(f'<tr><td class="mono">{e(item["at"][:16].replace("T", " "))}</td><td>{KINDS.get(item["kind"], e(item["kind"]))}</td>'
+                   f'<td class="mono">{e(", ".join(item.get("candidates") or []))}</td><td>{e(item.get("text") or item.get("ref"))}</td></tr>'
+                   for item in widget["items"])
+    return f'<table><tr><th>时间</th><th>类型</th><th>涉及版本</th><th>内容</th></tr>{rows}</table>' if rows else ""
+
+
+WIDGETS = {"summary/1": summary, "events/1": events, "lineage/1": lineage, "scatter/1": scatter, "notes/1": notes,
            "candidate-detail/1": details}
-FRAMED = {"lineage/1", "scatter/1", "notes/1"}
+FRAMED = {"lineage/1", "scatter/1", "notes/1", "events/1"}
 
 
 def widget_html(widget: dict) -> str:
@@ -311,7 +323,8 @@ def render(view: dict, out_dir: Path) -> Path:
     legend += '<span>◆ 推荐判断　● 用户消息　ⓘ 提问　▲ 资格变化　■ Goal</span><span>浅黄底：推荐保持不变</span>'
     slots = {"top": "", "main": "", "side": ""}
     for widget in view["widgets"]:
-        slots[widget.get("slot", "main")] += widget_html(widget)
+        slot = widget.get("slot", "main")
+        slots["main" if slot == "dock" else slot] += widget_html(widget)
     page = Template((HERE / "page.html").read_text()).substitute(
         style=(HERE / "style.css").read_text(), title=e(line["bundle"]), meta=e(meta), legend=legend,
         top=slots["top"], main=slots["main"], side=slots["side"])

@@ -18,7 +18,7 @@ records anything, `replay reproduce` included. Bulk reads are cheaper as `ledger
 | reviews | source review bundles of the candidate's prechecks: verdict, failed items, time |
 | interpretation | the current interpretation judgment whose subjects name the registration or trial |
 | status | the latest recommendation's subjects plus availability; say the rule in `gaps` |
-| events | judgments by kind and time, line records, the times failed reviews masked earlier runs |
+| events | judgments by kind and time, line records, the times failed reviews masked earlier runs; `candidates` names what an event is about (the recommended candidate, the candidates whose runs a failed review masked) |
 
 Ledger times are UTC without a zone. User messages, questions to the user and host Goal events
 are not ledger records; list them in `gaps` rather than reconstructing them from judgment prose.
