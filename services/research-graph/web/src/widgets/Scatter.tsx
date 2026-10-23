@@ -16,7 +16,7 @@ export function Scatter({ widget, selected, onSelect }: {
   const ordered = [...points].sort((a, b) =>
     Number(a.id === selected) - Number(b.id === selected) || Number(a.status === "recommended") - Number(b.status === "recommended"));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-full w-full" role="img" aria-label="研究运行的年化与最大回撤">
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-full max-h-[310px] w-auto" role="img" aria-label="研究运行的年化与最大回撤">
       {ticks.map((i) => {
         const vx = (xmax * i) / 5, vy = ymin + ((ymax - ymin) * i) / 5;
         return (

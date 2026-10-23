@@ -1,35 +1,28 @@
 import type { SummaryWidget } from "../types";
 import { pct, ratio } from "../format";
 
-export function Summary({ widget }: { widget: SummaryWidget }) {
+// One line in the top bar: the current recommendation against the targets and how long it held.
+export function SummaryBar({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading ?? { annual_return: null, max_drawdown: null, sharpe: null, win_rate: null };
-  const tiles = [
-    { label: "推荐保持不变", value: `${widget.runs_since_recommendation_changed} 次`,
-      note: `研究运行；最近 ${widget.recommendations_unchanged} / ${widget.recommendations} 条推荐判断未换版本` },
-    { label: "策略版本", value: String(widget.versions), note: `研究回放 ${widget.research_runs} 次` },
-    { label: "达到两个目标", value: String(widget.meeting_targets), note: "个版本（按最后一次研究回放）" },
-    { label: "失去资格的运行", value: String(widget.masked_runs), note: "读数不再计入比较" },
-  ];
+  const meets = (v: number | null, target: number | null | undefined, higher: boolean) =>
+    v == null || target == null ? "var(--ink-1)" : (higher ? v >= target : v <= target) ? "var(--s-meets)" : "var(--s-failed)";
+  const item = (label: string, value: React.ReactNode, title?: string) => (
+    <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap" title={title}>
+      <span className="text-[11px] faint">{label}</span><span className="font-semibold">{value}</span>
+    </span>
+  );
   return (
-    <div className="grid h-full grid-cols-2 gap-3 md:grid-cols-6">
-      <div className="card col-span-2 p-4" style={{ borderColor: "var(--s-recommended)" }}>
-        <div className="text-xs muted">当前推荐</div>
-        <div className="mono mt-1 text-base font-semibold break-all">{widget.recommended ?? "—"}</div>
-        <div className="mt-2 flex gap-4 text-sm">
-          <span>年化 <b>{pct(r.annual_return)}</b></span>
-          <span>回撤 <b>{pct(r.max_drawdown)}</b></span>
-          <span>夏普 <b>{ratio(r.sharpe)}</b></span>
-        </div>
-        <div className="mt-1 text-xs faint">目标 年化 ≥ {pct(t.annual_return)} · 回撤 ≤ {pct(t.max_drawdown)}</div>
-      </div>
-      {tiles.map((tile) => (
-        <div key={tile.label} className="card p-4">
-          <div className="text-xs muted">{tile.label}</div>
-          <div className="mt-1 text-2xl font-semibold tracking-tight">{tile.value}</div>
-          <div className="mt-1 text-xs faint">{tile.note}</div>
-        </div>
-      ))}
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-[13px]">
+      {item("当前推荐", <span className="mono">{widget.recommended ?? "—"}</span>)}
+      {item("年化", <span style={{ color: meets(r.annual_return, t.annual_return, true) }}>{pct(r.annual_return)}</span>, `目标 ≥ ${pct(t.annual_return)}`)}
+      {item("回撤", <span style={{ color: meets(r.max_drawdown, t.max_drawdown, false) }}>{pct(r.max_drawdown)}</span>, `目标 ≤ ${pct(t.max_drawdown)}`)}
+      {item("夏普", ratio(r.sharpe))}
+      {item("推荐未变", `${widget.runs_since_recommendation_changed} 次运行`,
+            `最近 ${widget.recommendations_unchanged} / ${widget.recommendations} 条推荐判断未换版本`)}
+      {item("版本", `${widget.versions} · 回放 ${widget.research_runs}`)}
+      {item("达标版本", widget.meeting_targets)}
+      {item("失去资格", `${widget.masked_runs} 次运行`)}
     </div>
   );
 }

@@ -4,27 +4,27 @@ import { Detail } from "./Detail";
 import { Lineage } from "./Lineage";
 import { Notes } from "./Notes";
 import { Scatter } from "./Scatter";
-import { Summary } from "./Summary";
+import { SummaryBar } from "./Summary";
 
 export type WidgetContext = { selected: string | null; onSelect: (id: string) => void };
 
-// Bento placement per widget type: columns of a 12-column grid and a row height class.
-export type Entry = { span: string; height: string; framed: boolean; render: (w: Widget, ctx: WidgetContext) => ReactNode };
+// Where a widget type lives in the shell: the top bar, the full-screen canvas, the right drawer
+// or a tab of the bottom dock. A type that is not registered becomes a dock tab saying so.
+export type Region = "bar" | "canvas" | "drawer" | "dock";
+export type Entry = { region: Region; label: string; render: (w: Widget, ctx: WidgetContext) => ReactNode };
 
 export const REGISTRY: Record<string, Entry> = {
-  "summary/1": { span: "col-span-12", height: "", framed: false,
-                 render: (w) => <Summary widget={w as SummaryWidget} /> },
-  "lineage/1": { span: "col-span-12 xl:col-span-8", height: "h-[720px]", framed: true,
+  "summary/1": { region: "bar", label: "概要", render: (w) => <SummaryBar widget={w as SummaryWidget} /> },
+  "lineage/1": { region: "canvas", label: "策略谱系",
                  render: (w, c) => <Lineage widget={w as LineageWidget} selected={c.selected} onSelect={c.onSelect} /> },
-  "candidate-detail/1": { span: "col-span-12 xl:col-span-4 xl:row-span-2", height: "max-h-[1140px] overflow-auto", framed: true,
+  "candidate-detail/1": { region: "drawer", label: "版本详情",
                           render: (w, c) => <Detail widget={w as DetailWidget} selected={c.selected} /> },
-  "scatter/1": { span: "col-span-12 md:col-span-6 xl:col-span-5", height: "h-[400px]", framed: true,
+  "scatter/1": { region: "dock", label: "年化 vs 回撤",
                  render: (w, c) => <Scatter widget={w as ScatterWidget} selected={c.selected} onSelect={c.onSelect} /> },
-  "notes/1": { span: "col-span-12 md:col-span-6 xl:col-span-3", height: "max-h-[400px] overflow-auto", framed: true,
-               render: (w) => <Notes widget={w as NotesWidget} /> },
+  "notes/1": { region: "dock", label: "数据缺口", render: (w) => <Notes widget={w as NotesWidget} /> },
 };
 
-export const UNKNOWN: Entry = {
-  span: "col-span-12 md:col-span-4", height: "", framed: true,
-  render: (w) => <p className="faint">此渲染器不支持 widget 类型 <span className="mono">{w.type}</span></p>,
-};
+export const unknown = (w: Widget): Entry => ({
+  region: "dock", label: w.title ?? w.type,
+  render: () => <p className="faint">此渲染器不支持 widget 类型 <span className="mono">{w.type}</span></p>,
+});

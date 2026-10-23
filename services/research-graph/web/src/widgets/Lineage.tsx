@@ -127,21 +127,24 @@ export function Lineage({ widget, selected, onSelect }: {
       id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "smoothstep",
       pathOptions: { borderRadius: 10 }, style: { stroke: "var(--edge)", strokeWidth: 1.25 },
     }));
-    const start = axis.scope_start ?? axis.min;
-    const focus = widget.nodes.filter((n) => n.x != null && n.x >= start).map((n) => ({ id: n.id }));
+    // Open on the current recommendation and the rows just around it, at a readable zoom.
+    const current = widget.nodes.find((n) => n.status === "recommended" && n.x != null);
+    const focus = widget.nodes
+      .filter((n) => n.x != null && (current ? n.row >= current.row - 3 && n.row <= current.row + 12 : true))
+      .map((n) => ({ id: n.id }));
     return { nodes: out, edges: links, focus };
   }, [widget, selected]);
 
   return (
     <ReactFlow
       nodes={nodes} edges={edges} nodeTypes={nodeTypes} colorMode="system" minZoom={0.1} maxZoom={2.5}
-      fitView fitViewOptions={{ nodes: focus.length ? focus : undefined, padding: 0.08, minZoom: 0.55, maxZoom: 1 }}
+      fitView fitViewOptions={{ nodes: focus.length ? focus : undefined, padding: 0.12, minZoom: 0.6, maxZoom: 1 }}
       nodesConnectable={false} proOptions={{ hideAttribution: true }}
       onNodeClick={(_, node) => { if (node.type === "version") onSelect(node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--rule-strong)" />
       <MiniMap pannable zoomable nodeColor={(n) => (n.type === "version" ? STATUS[(n.data as VersionData).status].color : "transparent")}
-               nodeStrokeWidth={0} maskColor="color-mix(in srgb, var(--surface-0) 70%, transparent)"
+               nodeStrokeWidth={0} bgColor="var(--surface-2)" maskColor="rgba(120, 120, 110, 0.18)"
                style={{ width: 170, height: 110, border: "1px solid var(--rule)", borderRadius: 8 }} />
       <Controls showInteractive={false} />
     </ReactFlow>
