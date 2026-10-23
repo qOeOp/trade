@@ -349,11 +349,15 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
 
 
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
-                   history: bool = False, history_before: int | None = None) -> dict:
+                   history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), the ended lines not yet closed (`unclosed_lines`, for `line close`), its current judgments with read-time facts, the fixed review cadence (`review_every`),
     the trials since the last recommendation, the trial count of the line and the gates the next registration would meet. On
-    a ledger without a research line: `line` null with the facts and `line select` as the next step."""
+    a ledger without a research line: `line` null with the facts and `line select` as the next step.
+
+    By default interpretations and search exposures are those after the current recommendation, with the
+    count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
+    gives every current judgment and the facts."""
     checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
@@ -367,6 +371,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
                     "gates": needed,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
+                    "earlier": None,
                     "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                               "counts": research_status(conn.profile, commit)},
                     "next_actions": ["Select the user's research line with `line select`."]}
@@ -378,6 +383,12 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
         unreviewed = (lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
                       if recommendation else on_line["trials"])
+        earlier = None
+        if not full and recommendation is not None:
+            earlier = {}
+            for kind, name in (("interpretation", "interpretations"), ("search_exposure", "search_exposures")):
+                kept = [item for item in judged[kind] if item["judgment_id"] > recommendation["judgment_id"]]
+                earlier[name], judged[kind] = len(judged[kind]) - len(kept), kept
         for kind in judged:
             for item in judged[kind]:
                 item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
@@ -390,9 +401,9 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
-            "judgment_history": original,
+            "judgment_history": original, "earlier": earlier,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
-                      "counts": research_status(conn.profile, commit)}}
+                      "counts": research_status(conn.profile, commit)} if full else None}
 
 
 # Runs affected by an identity change

@@ -639,9 +639,9 @@ def research_status(profile: db.LedgerProfile, at: str | None, line: str | None)
 
 
 def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *,
-                   history: bool = False, history_before: int | None = None) -> dict:
+                   history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
     from report import status
-    return status.research_state(conn, line, at, history=history, history_before=history_before)
+    return status.research_state(conn, line, at, history=history, history_before=history_before, full=full)
 
 
 def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, precheck_trial: int, verdict: str,
@@ -1027,6 +1027,9 @@ def _parser() -> Parser:
                          help="include up to 20 original judgments, newest first, including superseded text and subjects")
     command.add_argument("--history-before", type=int,
                          help="include the next history page before this judgment ID (use next_before; implies --history)")
+    command.add_argument("--full", action="store_true",
+                         help="every current interpretation and search exposure, and the candidate list and research "
+                              "status as facts (default: those after the current recommendation, earlier ones counted)")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -1239,7 +1242,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("research", "state"):
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
-                                  history_before=args.history_before), 0
+                                  history_before=args.history_before, full=args.full), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

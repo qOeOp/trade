@@ -22,7 +22,7 @@ selected (`line select`); everything inside it follows `research-round`.
   not is not used.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
   background sub-agent (on a host without one, do it before the session ends). For each line, read
-  it as it ended (`research state --line LINE --at COMMIT`, the commit the list gives), write its
+  it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its
   summary as `line close --help` describes and close it; a failure is retried at the next start.
 
 ## Offer lines and wait

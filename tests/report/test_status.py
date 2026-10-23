@@ -161,6 +161,23 @@ class ComparisonTableTests(unittest.TestCase):
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                      {"role": "about", "candidate": second}])
 
+    def test_y_the_default_state_keeps_the_judgments_after_the_recommendation(self):
+        first, second = self.refs
+        self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
+                                                     {"role": "about", "candidate": second}])
+        later = self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.runs[first]["trial_id"]}])
+        with db.connect(self.world.profile, "reader") as conn:
+            default, full = status.research_state(conn), status.research_state(conn, full=True)
+        self.assertEqual([item["judgment_id"] for item in default["interpretations"]], [later])
+        self.assertEqual(default["earlier"], {"interpretations": len(full["interpretations"]) - 1,
+                                              "search_exposures": len(full["search_exposures"])})
+        self.assertGreater(len(full["interpretations"]), 1)
+        self.assertIsNone(default["facts"])
+        self.assertEqual(full["facts"]["counts"]["research_attempts"], 2)
+        self.assertIsNone(full["earlier"])
+        self.assertEqual((default["recommendation"], default["gates"], default["unreviewed_trials"]),
+                         (full["recommendation"], full["gates"], full["unreviewed_trials"]))
+
     def test_z_a_later_failed_review_lists_the_run_apart_and_flags_its_earlier_report(self):
         first, second = self.refs
         trial_id = self.runs[second]["trial_id"]
