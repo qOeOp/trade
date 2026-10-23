@@ -38,6 +38,15 @@ bound to the precheck trial, checks only those four and records `source review`;
 after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
 evidence.
 
+For causal, trace every market-data price or indicator input reaching order submission, including
+quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
+submission; a daily signal guard or a passed run audit does not cover other inputs. Report
+unobserved branches as such. Native execution-state and lifecycle reactions retain their own
+event-ordering contracts.
+An input-clock failure follows [diagnosis.md](references/diagnosis.md): publish a repaired source,
+precheck it on the shortest sufficient window, obtain a fresh independent review, then register
+anew before the formal replay.
+
 Complete every registered grid point once before reading performance or registering another
 batch. Do not add points or tune source within a batch.
 

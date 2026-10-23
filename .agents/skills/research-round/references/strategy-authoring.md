@@ -75,9 +75,13 @@ Any finding or any denied or rejected order fails the run.
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
   close.
-- Decide only from completed bars on the engine clock, and submit on a later event than the
-  decision bar so fills are strictly later than its close. When a rule reads a prior-bar
-  indicator, update it after the decision.
+- Every market-data price or indicator input used to decide whether, how much or at what price
+  to submit (signals, quantity inputs and specification-check prices included) must come from a
+  completed event strictly earlier than submission. Trace each input's timestamp; guarding the signal
+  timestamp alone does not establish this. Submit on a later event so fills cannot share the
+  input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
+  Native order/fill/account and lifecycle events follow their own event-ordering contracts;
+  do not delay required protection or termination actions with a blanket bar gate.
 - Bars between `--start` and `--trade-start` are warm-up. Nothing blocks orders there; the file
   must not submit before `trade_start_ns`.
 - With `DAILY_WARMUP = True`, `historical_daily_bars` holds the unbroken run of daily
