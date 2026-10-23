@@ -108,6 +108,16 @@ function Pinned({ widget }: { widget: LineageWidget }) {
         {axis.ticks.map((tick) => (
           <div key={tick} className="pointer-events-none absolute inset-y-0" style={{ left: sx(tick), borderLeft: "1px solid var(--rule)" }} />
         ))}
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10" style={{ width: 170, background: `linear-gradient(to right, var(--surface-1) 62%, transparent)` }}>
+          {lanes.map((lane, i) => (
+            <div key={lane.kind} className="absolute left-3 flex items-center gap-2 whitespace-nowrap text-[10.5px]"
+                 style={{ top: 10 + i * LANE_ROW, height: LANE_ROW }}>
+              <span className="flex w-3.5 justify-center opacity-80"><Marker kind={lane.kind} /></span>
+              <span className="muted">{LANES[lane.kind] ?? lane.kind}</span>
+              {!lane.events.length && <span className="text-[10px] faint">无记录</span>}
+            </div>
+          ))}
+        </div>
         {lanes.map((lane, i) => (
           <div key={lane.kind} className="absolute inset-x-0" style={{ top: 10 + i * LANE_ROW, height: LANE_ROW }}>
             <div className="pointer-events-none absolute inset-x-0 top-1/2" style={{ borderTop: "1px solid var(--rule)" }} />
@@ -116,10 +126,6 @@ function Pinned({ widget }: { widget: LineageWidget }) {
                 <Marker kind={lane.kind} />
               </span>
             ))}
-            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1.5 text-[10.5px] faint"
-                  style={{ background: veil }}>
-              {LANES[lane.kind] ?? lane.kind}{!lane.events.length && " · 此来源无记录"}
-            </span>
           </div>
         ))}
       </div>
@@ -196,7 +202,7 @@ export function Lineage({ widget, selected, onSelect }: {
       onNodeClick={(_, node) => { if (node.type === "version") onSelect(node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--rule-strong)" />
-      <Controls showInteractive={false} style={{ marginBottom: widget.lanes.length * LANE_ROW + 16 }} />
+      <Controls position="bottom-right" showInteractive={false} style={{ marginBottom: widget.lanes.length * LANE_ROW + 22 }} />
       <Pinned widget={widget} />
     </ReactFlow>
   );
