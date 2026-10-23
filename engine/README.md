@@ -12,7 +12,7 @@ with `docker run` or `python -m engine.run` directly.
 | `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics and the lifecycle events rebuilt from the coverage receipt |
 | `run.py` | The streamed `BacktestEngine` run, strategy construction and guarded callbacks, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
 | `report.py` | Native reports, `order_events.jsonl.gz`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
-| `audit.py` | Independent audit of every run's native reports, stop protection and lifecycle terminations; its finding codes |
+| `audit.py` | Independent audit of every run's native reports, submission timing, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
 | `compare_reports.py` | Engineering parity between two runs |
 | `runtime/` | Image build inputs |
@@ -156,7 +156,21 @@ minutes old (`MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such
 interval in the summary's `mark_carry` and a limitation. A run fails integrity if a timestamp or an
 open position goes unvalued: one `CAPITAL_VALUATION_GAP` finding per unvalued interval.
 
-The auditor checks report identities, links, stop protection throughout the replay and reported
+Warm-up permits reading data, updating indicators and preparing unsubmitted order objects. The
+independent auditor checks native `OrderSubmitted` and `OrderEmulated.ts_event` against
+`summary.trade_start_by_strategy`, captured from the runner's plan before source construction. Each
+submitting strategy instance uses the later of the global trading start and its own input readiness
+(listing and daily warm-up included), even when its order targets another contract. A submission
+before that instant is `ORDER_BEFORE_TRADE_START` and makes the entire run invalid, including an
+unfilled order; exactly at it is allowed by this check. Missing or invalid starts or unplanned
+submitters are `TRADE_START_INVALID`; with the input coverage receipt the auditor also checks the
+window, exported instance identities and listing floors. It never uses source diagnostics or a
+mutable strategy attribute as the start. There is no runner-side order interception or timestamp
+repair. Causal input clocks remain a separate source-review obligation. Old summaries lacking this
+metadata cannot pass the new audit; old pinned images and sealed verdicts are unchanged. New code
+requires a CI-built image digest before research replays can use this boundary.
+
+The auditor checks report identities, links, submission timing, stop protection throughout the replay and reported
 account economics, the same way for every strategy. It first
 reconciles the order event history with the orders and fills reports, then applies each timestamp's
 events together and reads, per strategy and instrument, the position and the unfilled quantity of

@@ -311,6 +311,36 @@ def node_replay(rows, window, loaded, universe, output, chunk):
 
 
 class StreamTests(unittest.TestCase):
+    def test_runner_keeps_trusted_start_when_source_mutates_its_own_start(self):
+        from engine.audit import audit
+        from engine.report import write_native_reports
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contract(root / "market", "AAAUSDT", np.arange(DAYS * 1440), [], seed=1)
+            rows = read_market(root / "market", ["AAAUSDT"], "c" * 32, START * 10**6, END * 10**6)
+            source = root / "early.py"
+            # A source may change its own clock guard and self-report success; neither controls the audit.
+            source.write_text(PROBE.replace('kw["trade_start_ns"]', '0')
+                              .replace('if bar.ts_event < self.trade_start:', 'if True:'))
+            loaded = load_strategy(source, "Probe", hashlib.sha256(source.read_bytes()).hexdigest())
+            window = parse_window(utc_text(START * 10**6), utc_text((START + 60 * MIN) * 10**6), utc_text(END * 10**6))
+            output = root / "reports"
+            output.mkdir()
+            finished, strategies, limitations = run.replay(rows, window, loaded, {"AAAUSDT": ((0, 10**20),)}, output)
+            try:
+                summary, _ = write_native_reports(output, finished, strategies, rows,
+                                                  {"strategy_uses_stop_loss": False}, window, ACCOUNT_CONTRACT,
+                                                  limitations, run.mark_timestamps(rows))
+                self.assertEqual(summary["trade_start_by_strategy"], {"R1-AAA": window.trade_start_ns})
+                self.assertEqual(strategies["AAA"].trade_start, 0)
+                self.assertTrue(summary["integrity_passed"], summary["integrity_findings"])
+                result = audit(output)
+                self.assertFalse(result["passed"])
+                self.assertTrue(any(item.startswith("ORDER_BEFORE_TRADE_START:") for item in result["findings"]),
+                                result["findings"])
+            finally:
+                finished.engine.dispose()
+
     def test_the_streamed_replay_equals_backtest_node(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -384,7 +414,8 @@ class StreamTests(unittest.TestCase):
             (work / "input-coverage.json").write_text(json.dumps({
                 "format": "execution-input-coverage-v1", "export_receipts": {key: receipts[key] for key in ("AAAUSDT", "CCCUSDT")},
                 "input_identity": {"lifecycle_bundle": "lifecycle-test", "market_commit": "c" * 32},
-                "effective_config": {"start": utc_text(START * 10**6), "end": utc_text(END * 10**6)}}))
+                "effective_config": {"start": utc_text(START * 10**6), "trade_start": utc_text(START * 10**6),
+                                     "end": utc_text(END * 10**6)}}))
             result = audit(work / "reports")
             summary = json.loads((work / "reports" / "summary.json").read_text())
         late = [item for item in result["findings"] if item.startswith("LATE_ORDER_EVENT")]

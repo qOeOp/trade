@@ -232,6 +232,7 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         "rejected_orders": int((orders["status"] == "REJECTED").sum()),
         "data_interval_minutes": EXECUTION_BAR_MINUTES,  # the execution bar, under the name the ledger reads
         "input_start_utc": window.start,
+        "trade_start_by_strategy": replay.trade_start_by_strategy,
         "per_coin": [
             {
                 "coin": row["coin"],

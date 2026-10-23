@@ -77,7 +77,9 @@ def reports(open_position=False, short=False):
     summary = {"signal_variant": "daily-pivot", "integrity_passed": True, "denied_orders": 0,
                "rejected_orders": 0, "closed_trades": 0 if open_position else 1,
                "winning_trades": 0 if open_position else 1, "starting_balance_usdt": "100000",
-               "final_equity_usdt": "100010" if open_position else "100009", "period_end_utc": EXIT}
+               "final_equity_usdt": "100010" if open_position else "100009", "period_end_utc": EXIT,
+               "input_start_utc": START, "period_start_utc": START,
+               "trade_start_by_strategy": {SCOPE["strategy_id"]: pd.Timestamp(START).value}}
     return {"orders": orders, "fills": fills, "positions": [position], "account": accounts, "summary": summary}
 
 
@@ -134,6 +136,21 @@ class NativeAuditTests(unittest.TestCase):
             self.assertEqual(value["native_economics"]["reported_funding_usdt"], "1")
             self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
             self.assertIn("native report identity", value["scope"])
+
+    def test_audit_refuses_warmup_submissions_despite_passing_strategy_self_check(self):
+        values = reports()
+        values["summary"].update(period_start_utc=ENTRY,
+                                  trade_start_by_strategy={SCOPE["strategy_id"]: pd.Timestamp(ENTRY).value})
+        result = self.check(values)
+        self.assertEqual(codes(result), {"ORDER_BEFORE_TRADE_START"})
+        self.assertEqual(len(result["findings"]), len(values["orders"]))
+        values["events"] = order_events(values)
+        for event in values["events"]:
+            if event["type"] in {"OrderSubmitted", "OrderAccepted"}:
+                event["ts_event"] = pd.Timestamp(ENTRY).value
+        self.assertTrue(self.check(values)["passed"])  # initialization still happened in warm-up
+        values["summary"].pop("trade_start_by_strategy")
+        self.assertEqual(codes(self.check(values)), {"TRADE_START_INVALID"})
 
     def test_open_position_with_stop_and_staged_targets_passes(self):
         for short in (False, True):
@@ -378,12 +395,13 @@ class LifecycleAuditTests(unittest.TestCase):
                                  per_coin=[{"instrument": SCOPE["instrument_id"], "counts": counts or counted}])
         ends = [item["ts_event"] for item in events if item.get("action") == "CLOSE" or item["type"] == "InstrumentClose"]
         last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
-        receipt = {"pieces": [{"index": 1, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "episode-1",
+        receipt = {"pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "",
                                "counts": receipt_counts or counted, "last_bar_ns": last,
                                "episode": {"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
                                            "events": events, "sources": ["notice.txt"]}}]}
         receipt_file = {"format": "execution-input-coverage-v1",
-                        "effective_config": {"start": "2026-01-01T00:00:00Z", "end": "2026-01-02T00:00:00Z"},
+                        "effective_config": {"start": "2026-01-01T00:00:00Z", "trade_start": "2026-01-01T00:00:00Z",
+                                             "end": "2026-01-02T00:00:00Z"},
                         "input_identity": {"market_commit": self.COMMIT, "lifecycle_bundle": bundle},
                         "export_receipts": {"BTCUSDT": receipt}, **coverage}
         (self.root.parent / "input-coverage.json").write_text(json.dumps(receipt_file))
@@ -475,7 +493,8 @@ class LifecycleAuditTests(unittest.TestCase):
         ]
         for options, code in cases:
             with self.subTest(code=code, options=options):
-                self.assertEqual(codes(self.run_audit([close], **options)), {code})
+                expected = {code, "TRADE_START_INVALID"} if "effective_config" in options else {code}
+                self.assertEqual(codes(self.run_audit([close], **options)), expected)
         self.assertEqual(codes(self.run_audit([close, dict(close)])), {"LIFECYCLE_DUPLICATE_EVENT"})
         self.assertEqual(codes(self.run_audit([{**close, "ts_init": close["ts_init"] + 1}])),
                          {"LIFECYCLE_EVENT_INVALID"})
