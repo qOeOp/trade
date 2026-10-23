@@ -1031,6 +1031,9 @@ def _parser() -> Parser:
 
     source = verbs("source", "independent source reviews: review")
     command = source.add_parser("review", help="record an independent source review of a precheck")
+    command.epilog = ("Records the review in the ledger. A failed review removes economic evidence from every run "
+                      "of the same source and image, including runs sealed before it; their reports then give "
+                      "the reason instead of measures.")
     _ledger_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", required=True, help=RUNTIME_HELP + "; the precheck's image")
@@ -1063,6 +1066,9 @@ def _parser() -> Parser:
 
     replay = verbs("replay", "replays: explore, precheck, run, report, reproduce")
     command = runner(replay, "explore", "replay an unpublished strategy file (not evidence)")
+    command.epilog = textwrap.fill(
+        "Records an explore trial in the ledger; the replay counts as prior exposure of that source and is never "
+        "economic evidence.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
     _at(command, "market")
@@ -1111,7 +1117,8 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--trial-id", required=True, type=int, help="original trial holding a result or precheck")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
-    command.epilog = ("Hands over the directory only when its semantic fingerprint equals the recorded one. "
+    command.epilog = ("Records an explore trial in the ledger. "
+                      "Hands over the directory only when its semantic fingerprint equals the recorded one. "
                       "Identically reproducing the precheck a registration cites adds no exposure; any other "
                       "reproduction or exploration of a source counts as its prior exposure.")
 
