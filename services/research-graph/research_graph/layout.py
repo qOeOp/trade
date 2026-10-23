@@ -1,7 +1,7 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (lineage/1, scatter/1, notes/1, candidate-detail/1) and a slot (main or side) and is
+versioned type (summary/1, lineage/1, scatter/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
@@ -140,8 +140,26 @@ def build_view(graph: dict) -> dict:
               "x1": clock(b["at"]) if b else hi, "ref": a.get("ref")} for a, b in zip(recs, [*recs[1:], None], strict=True)]
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
+    current = recs[-1]["recommends"] if recs else None
+    streak = len(recs)
+    while streak > 0 and recs[streak - 1]["recommends"] == current:
+        streak -= 1
+    held_since = clock(recs[streak]["at"]) if recs else None
+    runs = [t for c in candidates for t in research_runs(c)]
+    best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
     widgets = [
+        {"id": "summary", "type": "summary/1", "slot": "top", "targets": targets,
+         "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}
+         if best else None, "status": status_of.get(current) if current else None,
+         "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
+         "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and r["trial_id"] > held_since),
+         "versions": len(candidates), "research_runs": len(runs),
+         "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
+         "meeting_targets": sum(1 for n in nodes if n["status"] in ("meets_targets", "recommended")
+                                and n["reading"]["annual_return"] is not None
+                                and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
+                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] or 1) <= targets["max_drawdown"]))},
         {"id": "lineage", "type": "lineage/1", "slot": "main", "title": "策略谱系 · 按试验编号推进",
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
                   "scope_start": clock(start) if start else None},

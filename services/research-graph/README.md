@@ -32,12 +32,13 @@ Unknown values are null. The schema is authoritative.
 ## View model (`research-graph-view/1`)
 
 Written next to every render as `view.json`: a manifest (`line`, `targets`, `counts`) and
-`widgets`. Each widget is self-contained, with an `id`, a versioned `type`, a `slot` (`main` or
+`widgets`. Each widget is self-contained, with an `id`, a versioned `type`, a `slot` (`top`, `main` or
 `side`) and an optional `title`, so each can be drawn, cached or sent on its own. Positions are in
 research units, never pixels.
 
 | Type | Content |
 |---|---|
+| `summary/1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
 | `lineage/1` | `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `bands` (spans where one recommendation held), `lanes` (events by kind with trial positions) |
 | `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `notes/1` | `items`: plain notes (the graph's `gaps`) |

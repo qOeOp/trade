@@ -58,7 +58,8 @@ class LayoutTests(unittest.TestCase):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
-                         [("lineage/1", "main"), ("scatter/1", "main"), ("notes/1", "main"), ("candidate-detail/1", "side")])
+                         [("summary/1", "top"), ("lineage/1", "main"), ("scatter/1", "main"), ("notes/1", "main"),
+                          ("candidate-detail/1", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([r["id"] for r in tree["rows"]], ["root@1", "a@1", "b@1"])
@@ -74,6 +75,9 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(len(lanes["user_message"]), 1)
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
+        summary = widgets["summary"]
+        self.assertEqual((summary["recommended"], summary["runs_since_recommendation_changed"], summary["masked_runs"]),
+                         ("a@1", 1, 1), "one research run (trial 5) since a@1 became the recommendation")
 
 
 class RenderTests(unittest.TestCase):
@@ -87,7 +91,7 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(view["format"], layout.VIEW_FORMAT)
         for cid in ("root@1", "a@1", "b@1"):
             self.assertIn(f'id="c-{cid.replace("@", "_")}"', page)
-        self.assertIn('class="detail default" id="c-a_1"', page, "the current recommendation opens first")
+        self.assertIn('detail default" id="c-a_1"', page, "the current recommendation opens first")
         view["widgets"].append({"id": "future", "type": "heatmap/1", "slot": "main"})
         with tempfile.TemporaryDirectory() as tmp:
             unknown = render_static.render(view, Path(tmp)).read_text()
