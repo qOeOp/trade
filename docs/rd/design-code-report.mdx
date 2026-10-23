@@ -1315,21 +1315,22 @@ def research_state(
     conn: Connection,
     line_bundle: str,
     at: str | None,
+    full: bool,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" } }} />
+<TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
-**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记会被拒的项，一个列表）、facts\{candidates, counts\}；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记会被拒的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
 1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line。
 2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
-3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 返回全部未被取代的。
+3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 在 full 时返回全部未被取代的，缺省只返回编号大于当前推荐的（没有推荐时全部返回），更早的只在 earlier 里计数。完整读取用于关闭路线写总结与回看历史。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
 5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
-6. facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status。
+6. full 时 facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status；缺省为 null，这两项由 candidate list 与 research status 各自读取。
 7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出；gates 列出 registration.require_line_records 当前会拒绝的项。
 8. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 

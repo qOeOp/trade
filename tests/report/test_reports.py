@@ -337,7 +337,7 @@ class ReportTests(unittest.TestCase):
 
     def test_the_research_state_gives_judgments_unreviewed_trials_and_gates(self):
         with db.connect(self.profile, "reader") as conn:
-            found = status.research_state(conn)
+            found = status.research_state(conn, full=True)
         line = found["line"]
         self.assertEqual({key: line[key] for key in ("bundle", "start", "window_start", "window_end", "market_commit",
                                                      "universe_rule", "note")},
