@@ -17,8 +17,10 @@ becomes a view model of widgets (`research-graph-view/1`), which a renderer draw
   [ledger.md](references/ledger.md). Unknown values stay null; every derivation that is not a
   direct read, and every read that failed, goes into `gaps`.
 - `graph.py check GRAPH` must pass. Fix the extraction; never loosen the format to fit.
-- `graph.py render GRAPH --out DIR` writes `view.json` and the page (`--renderer static`: one HTML
-  file with no script). Give the user the page path and what the graph shows, including its gaps.
+- `graph.py render GRAPH --out DIR` writes `view.json` and the page. `--renderer web` (an
+  interactive canvas, for a browser) is the page to hand the user; `--renderer static` (no script)
+  is for previews that block scripts. Give the user the page path and what the graph shows,
+  including its gaps.
 
 ## Change the tool
 

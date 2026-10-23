@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "services/research-graph"))
 
 from research_graph import cli, compare, contract, layout  # noqa: E402
 from research_graph.renderers.static import render as render_static  # noqa: E402
+from research_graph.renderers.web import render as render_web  # noqa: E402
 
 GRAPH = {
     "format": "research-graph/1", "source": "ledger",
@@ -96,6 +97,27 @@ class RenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             unknown = render_static.render(view, Path(tmp)).read_text()
         self.assertIn("heatmap/1", unknown, "an unknown widget type is named, not dropped silently")
+
+
+class WebRenderTests(unittest.TestCase):
+    def test_the_view_is_injected_once_and_cannot_close_its_script(self):
+        view = layout.build_view(GRAPH)
+        view["widgets"][0]["note"] = "</script><script>alert(1)</script>"
+        with tempfile.TemporaryDirectory() as tmp:
+            built = Path(tmp) / "index.html"
+            built.write_text('<script id="research-graph-view" type="application/json">__RESEARCH_GRAPH_VIEW__</script>')
+            original, render_web.PAGE = render_web.PAGE, built
+            try:
+                page = render_web.render(view, Path(tmp) / "out").read_text()
+                built.write_text("no placeholder")
+                with self.assertRaises(RuntimeError):
+                    render_web.render(view, Path(tmp) / "out")
+            finally:
+                render_web.PAGE = original
+        self.assertNotIn("__RESEARCH_GRAPH_VIEW__", page)
+        self.assertEqual(page.count("</script>"), 1, "the injected view never closes the data script")
+        payload = page.split('type="application/json">', 1)[1].rsplit("</script>", 1)[0]
+        self.assertEqual(json.loads(payload)["format"], layout.VIEW_FORMAT)
 
 
 class CompareTests(unittest.TestCase):
