@@ -8,21 +8,16 @@
 
 **职责**
 
-1. 图只从账本建，由只读、全新的子代理拿研究线、数据格式与参考文件来建；缺什么就留空并写进 gaps。
-2. 图须通过 `graph.py check`；只改抽取，不为迁就来源放宽格式。
+1. 图由产品命令 `research graph` 只从账本读出：只组合产品已有的读取函数、不加自己的规则，同一账本提交永远得到同一张图；用户的两个目标由调用者从路线备注读出后传入。
+2. 图须通过 `graph.py check`；不为迁就数据放宽格式。
 3. 用 `graph.py render` 出页面，交给用户时说明图里显示了什么、缺什么。
-4. 新渲染器只读视图模型；新图表是新的 widget 类型；图的新事实是新的格式版本，格式、参考文件、布局、对比与 product-doctor 的反向测试一起改。
-
-## 文件职责
-
-| 文件 | 职责 |
-|---|---|
-| [references/ledger.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-graph/references/ledger.md) | 只读命令清单与每个字段的来源：候选、试验、读数与资格、登记与预测、比较、审阅、解释、状态与事件。 |
+4. 新渲染器只读视图模型；新图表是新的 widget 类型；图的新事实是新的格式版本，格式、`research graph`、布局、对比与 product-doctor 的反向测试一起改。
 
 ## 工具：services/research-graph
 
 | 阶段 | 输入 → 输出 | 负责 |
 |---|---|---|
+| 抽取 | 账本 → graph.json | 一条研究线在账本里的全部记录（产品命令 `research graph`） |
 | 格式 | graph.json（research-graph/1）→ 问题清单 | 图的形状（schema/graph.schema.json） |
 | 布局 | graph.json → view.json（research-graph-view/1） | 画什么、放在哪，以试验编号和行为单位，不含像素；按 widget 分块（lineage/1、scatter/1、notes/1、candidate-detail/1），每块自带类型、版本与位置 |
 | 渲染 | view.json → 文件 | 像素、颜色、文字与交互；static 渲染器输出不含脚本的单个 HTML |

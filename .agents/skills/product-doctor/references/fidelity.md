@@ -4,8 +4,8 @@ Tests whether the ledger alone reconstructs what a session did. Use it in an ove
 a finding turns on what the ledger preserves. Both graphs follow the `research-graph/1` format
 and use the tool of the `research-graph` skill (`services/research-graph/graph.py`).
 
-1. **Ledger graph.** Build it as the `research-graph` skill does: a fresh read-only sub-agent
-   given only the ledger.
+1. **Ledger graph.** `research graph` at the session's last ledger commit (`--at`), as the
+   `research-graph` skill runs it; it reads the ledger only.
 2. **Session graph.** A second fresh read-only sub-agent gets only the session transcripts
    ([hosts.md](hosts.md)) and the schema: no ledger command, no files the session wrote under
    /tmp, no memory, no other graph. It takes ids, numbers, verdicts and times from tool outputs,

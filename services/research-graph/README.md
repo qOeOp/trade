@@ -13,7 +13,7 @@ python3 services/research-graph/graph.py compare LEDGER.json SESSION.json --unti
 
 | Stage | Input → output | Owns | Module |
 |---|---|---|---|
-| Extract | ledger or transcripts → `graph.json` | what happened, from one source | agents, per the skill's references |
+| Extract | ledger → `graph.json` | what the ledger holds about one line | the product command `research graph` (a session graph for product-doctor's fidelity test is built by an agent) |
 | Contract | `graph.json` → problems | the shape of a graph | `research_graph/contract.py`, `schema/graph.schema.json` |
 | Layout | `graph.json` → `view.json` | what to draw and where, in research units | `research_graph/layout.py` |
 | Render | `view.json` → files | pixels, colours, labels, interaction | `research_graph/renderers/<name>/` |

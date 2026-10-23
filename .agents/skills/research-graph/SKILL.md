@@ -5,22 +5,21 @@ description: Draws a research line from the research ledger as a graph - the lin
 
 # Research graph
 
-The tool is `python3 services/research-graph/graph.py` (standard library only). Stages hand over
-through files: a graph (`research-graph/1`,
-[services/research-graph/schema/graph.schema.json](../../../services/research-graph/schema/graph.schema.json))
-becomes a view model of widgets (`research-graph-view/1`), which a renderer draws. Work in
+`research graph` (`--help`) reads a line from the ledger only and prints a `research-graph/1`
+document; the same ledger commit always gives the same graph. `python3
+services/research-graph/graph.py` (standard library) checks, renders and compares graphs. Work in
 `/tmp/research-graph-<line>/`; graphs and pages are working copies, never ledger records.
 
 ## Draw a line
 
-- Build the graph from the ledger with a fresh read-only sub-agent given the line, the schema and
-  [ledger.md](references/ledger.md). Unknown values stay null; every derivation that is not a
-  direct read, and every read that failed, goes into `gaps`.
-- `graph.py check GRAPH` must pass. Fix the extraction; never loosen the format to fit.
-- `graph.py render GRAPH --out DIR` writes `view.json` and the page. `--renderer web` (an
+- Read the user's two targets from the line note (`research state`) and pass them as
+  `--max-drawdown` and `--annual-return`; add `--since COMMIT` to shade what came before the
+  period under study. Redirect the output to `graph.json`.
+- `graph.py check graph.json`, then `graph.py render graph.json --out DIR`. `--renderer web` (an
   interactive canvas, for a browser) is the page to hand the user; `--renderer static` (no script)
-  is for previews that block scripts. Give the user the page path and what the graph shows,
-  including its gaps.
+  is for previews that block scripts.
+- Give the user the page path and what the graph shows, including its `gaps`: runs without
+  economic evidence carry no measures, and the graph holds no conversation or host state.
 
 ## Change the tool
 
@@ -28,4 +27,4 @@ becomes a view model of widgets (`research-graph-view/1`), which a renderer draw
   `render.py` defines `render(view, out_dir) -> Path` and reads only the view model.
 - A new chart is a new widget type in the layout; a changed widget is a new version of its type.
 - A new fact in the graph is a new graph format version, changed together in the schema,
-  [ledger.md](references/ledger.md), the layout, the comparison and product-doctor's fidelity test.
+  `research graph`, the layout, the comparison and product-doctor's fidelity test.
