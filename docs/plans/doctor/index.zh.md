@@ -6,20 +6,23 @@
 
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
-| 20261022-09 | 比较输出不给两侧回撤峰谷与区间内持仓；Agent 在规则无法作用的区间上预测回撤下降并写入错误机制结论（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 hypothesis.md，未合并 | 2026-10-22 | 2026-10-22 |
-| 20261022-10 | 比较已给可检出效应但无消费者使用；同窗口定仓变体不可分辨，分叉与推荐按点估计排序；两种区间构造未标注（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill（产品输出已足够） | 本地已改 feedback.md，未合并；用户 2026-10-22 批准在 research-round 停止规则补“线内无改动能超过可检出差时应经 research-start 换线”（批准经另一会话转达），本地已改未提交。依据之一是 trial 26 之后十余次线内分叉区间均跨零且从未回问用户，此证据来自另一会话的观察，未经本诊断复核 | 2026-10-22 | 2026-10-22 |
-| 20261022-11 | 每版本 8–17 分钟、约 5–8M token，成本在审阅与核查子代理；每 run 无条件全窗口复现，参与率从未驱动决策（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill + measure | 本地已改 diagnosis.md、capital.md，未合并；审阅命中率仍待测 | 2026-10-22 | 2026-10-22 |
-| 20261022-12 | price_pnl 为 Nautilus 逐笔 8 位舍入之和，与精确成交现金流差 1e-8；skill 未说明（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill | 本地已改 nautilus-report-analysis，未合并 | 2026-10-22 | 2026-10-22 |
-| 20261022-13 | strategy-authoring 缺“成交严格晚于决策 K 线收盘”，只在 diagnosis（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill | 本地已改 strategy-authoring.md 并由 diagnosis 引用，未合并 | 2026-10-22 | 2026-10-22 |
-| 20261022-15 | 测试泄漏 replay/entry.py:389 的 stderr 到 CI 日志；mypy 跳过 metrics.py:864 未注解函数体（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | fix | 本地已改，ruff/mypy 通过，未合并 | 2026-10-22 | 2026-10-22 |
-| 20261022-16 | skill/AGENTS/help 文字与产品不符（写账本命令清单、strategy-header 引用、Skills 列表缺 research-start、reproduce 写 explore trial 未说明）（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | skill + fix（help） | 本地已改；AGENTS.md 的 Skills 列表与六个 skill 的 description 重复（两宿主均按 description 加载），用户 2026-10-22 交由 Agent 判断，已删并改 README 一句；未合并 | 2026-10-22 | 2026-10-22 |
-| 20261022-17 | research-round 自加授权规则；doctor 存储字段授权与 AGENTS 不一致（含 20261021-24）（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | remove（删重复） | 用户 2026-10-22 改定问题为信息不重复记录；本地已删 research-round 与 AGENTS.md 重复的句子，未合并 | 2026-10-22 | 2026-10-22 |
+| 20261022-10 | 换线规则触发条件（“线内无改动能超过可检出差”）不可观测，从未触发；推荐冻结后又跑 41 版、11.6 h（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | authority（改用户已批文字为可观测触发，并写入 Goal 停止规则） | recurred；原 skill 改动已随 #1639 / c20890092 合入，不足以触发 | 2026-10-22 | 2026-10-23 |
+| 20261022-11 | 每版本 8–17 分钟；本轮升至平均 12.1M token，43/43 运行无条件复现（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill + measure | skill 部分已随 #1639 合入；成本上升，叠加 20261023-04；审阅命中率仍待测 | 2026-10-22 | 2026-10-23 |
+| 20261022-13 | 因果规则只管决策 K 线，定量与最小名义价等订单输入不受约束；20 次 causal 失败继承自根，首轮审阅漏 19 次（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill（strategy-authoring 与骨架 docstring） | recurred；原改动已随 #1639 合入，范围过窄 | 2026-10-22 | 2026-10-23 |
+| 20261022-16 | help 未说明写入效果：`replay reproduce`/`replay explore` 写 trial、`source review` 失败会遮罩旧运行；设计站称每个 help 都写明（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix（help） | 其余已随 #1639 / #1640 合入；余项 open | 2026-10-22 | 2026-10-23 |
+| 20261023-01 | 活动 Goal 下向用户的提问 15 ms 后被续跑吞掉，Agent 自行撤回并独跑 12 h；暂停后仍称“授权已收到”（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | open | 2026-10-23 | 2026-10-23 |
+| 20261023-02 | 已向用户展示、后被遮罩的读数未撤回；`research status` 只给遮罩计数；`replay report --at` 旧提交读出未遮罩数字不提示（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix + skill | open | 2026-10-23 | 2026-10-23 |
+| 20261023-03 | 推荐正文逐版重抄全表（54,387 字节，TEXT 上限 65,535），16/23 条紧跟单次运行（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill + measure（溢出行为） | open | 2026-10-23 | 2026-10-23 |
+| 20261023-04 | 原生核查代理跨 52 版复用，93.7M token（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | open | 2026-10-23 | 2026-10-23 |
+| 20261023-05 | 向用户用裸 “#253” 指称 judgment，用户误为 lane（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | open | 2026-10-23 | 2026-10-23 |
+| 20261023-06 | 设计站仍把移入 AGENTS.md 的规则记为 skill 规则；#1641 新问法无 eval（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix | open | 2026-10-23 | 2026-10-23 |
+| 20261023-07 | 压缩后反复重读 skill 与 help（估算约 41M） | measure | open | 2026-10-23 | 2026-10-23 |
 | 20261020-38 | 审查子代理过早派出、继承作者提示或修复后复用（[第二次诊断](2026-10-20-doctor-run-2.zh.md)） | none（skill 已写清；产品无法验证审查者身份） | 新会话七次 fork_turns:none、修复后换人，未见复发；任务参数为密文，是否始终只给四项材料仍待观察（[本轮](2026-10-21-codex-ema-year.zh.md)） | 2026-10-20 | 2026-10-21 |
 | 20261020-39 | 拉镜像卡在凭据助手时仍要等满 300 秒 | measure | open | 2026-10-20 | 2026-10-20 |
 | 20261020-40 | 日线策略的一周预检碰不到退出逻辑；豁免只看窗口长度，不看位置 | measure | open；2026-10-22 会话未复发（预检在月界、≤7 天） | 2026-10-20 | 2026-10-22 |
 | M1 | `market coverage` 打印全部资金费时间戳，skill 要用 jq 删掉；先量一年、200 个合约的输出大小，再定 CLI 默认 | measure | open | 2026-10-20 | 2026-10-20 |
 | M2 | research-start 让用户手动输入 `/loop`，但在 Claude Code 里 Agent 可以自己调用 loop；先量自己调用是否可靠 | measure | open | 2026-10-20 | 2026-10-20 |
-| M3 | `research state` 的输出随路线上的判断和试验变长；先量一条长路线的输出大小 | measure | open；已测：8 run、30 判断时紧凑输出 102 KB，其中判断正文 73 KB，会话调用 10 次；待定是否默认给摘要 | 2026-10-20 | 2026-10-22 |
+| M3 | `research state` 输出随路线变长 | fix（默认摘要） | 已测：1.24 MB（会话起点 322 KB），直读被截断，01:43 回答用户因此漏读；待改默认（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | 2026-10-20 | 2026-10-23 |
 | 20261021-03 | video-evidence 仍缺设计页（源码缺失、公开页 404）；评测错误引用及 #1621/#1622 的设计页更新已由 #1623 / 18cd160cd 修复，83 个当前命名评测引用均存在 | fix | open（仅余 video 页；[回读](2026-10-21-codex-ema-year.zh.md)） | 2026-10-21 | 2026-10-22 |
 | 20261021-07 | 技术审阅原件混有经济结果和大输出；先测现有 capture/tables 的技术投影能否满足四项审阅 | measure | open；未证明经济暴露影响审阅结论 | 2026-10-21 | 2026-10-21 |
 | 20261021-13 | PA timing 被误读为规模无关能力（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | 已随 #1625 / 271e8bcc9 合入，未逐项复核 | 2026-10-21 | 2026-10-22 |
@@ -40,6 +43,8 @@
 
 | id | 问题 | 用户指出 | 应发现的镜头 | 状态 |
 |---|---|---|---|---|
+| 20261023-05 | 用户问 “#253 是 lane 吗”：面向用户的对象命名 | 2026-10-23 | 行为与决策（未检查面向用户的报告） | open |
+| 20261023-02 | 用户引用 12 小时前已被遮罩的数字追问 | 2026-10-23 | 行为与决策（未沿用户已见读数追踪资格变化） | open |
 | 20261022-04 | 用户指出结果无需独立 run_id | 2026-10-22 | 数据与产品契约 | 已修 #1636 |
 | 20261022-06 | 用户指出应补完整收益与拆分，不能仅改审计不报错 | 2026-10-22 | 消费者与存储 | 修复及验收见 #1637 |
 | 20261022-08 | 用户指出原会话未创建 Goal，并要求宿主授权兼容 | 2026-10-22 | 行为与技能 | 修复见 #1637，实际宿主创建未代办 |
@@ -54,6 +59,10 @@
 
 | id | 发现 | 处理 |
 |---|---|---|
+| 20261022-09 | 比较输出不给回撤峰谷与区间持仓，Agent 预测落空区间 | #1639 / c20890092；hypothesis.md 消费者核对通过（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
+| 20261022-12 | price_pnl 舍入差未说明 | #1639 / c20890092；消费者核对通过（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
+| 20261022-15 | 测试 stderr 泄漏、mypy 跳过未注解函数体 | #1639 / c20890092；main CI 39801200436 测试日志无泄漏，mypy 无 note（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
+| 20261022-17 | research-round 与 AGENTS 重复授权句 | #1639 / c20890092；消费者核对通过（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
 | 20261022-14 | 整轮未同步备份；ledger review 只查历史改写，过期备份仍 ok（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） | rejected：用户 2026-10-22 暂不加；research-round 中“账本及其备份是研究记录”一句作为 AGENTS.md 重复删去 |
 | 20261021-24 | doctor stored-field 授权文字与根规则不一致（[复审](2026-10-21-economics-duties-pa.zh.md)） | none：用户 2026-10-22 定问题在于是否重复记录；该句不重复 AGENTS.md，保留（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261022-04 | 严格一对零或一的 trial/run 使用两套编号，消费者需反复翻译身份 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
