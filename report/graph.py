@@ -213,6 +213,7 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
             "Research runs are the line's own (its window and market commit); other trials of a version are kept "
             "by source.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
+            "Out-of-sample validation registrations and verdicts are not drawn.",
             "Times are the ledger's UTC times without a zone.",
         ] + ([] if targets else ["No targets were given; they live in the line note and are passed by the caller."]),
     }
