@@ -35,7 +35,8 @@ support for that reasoning without making research selections or claiming econom
 
 ## Data and usage cost
 
-Trace session ledger commits to their commands and changed rows. Check wrong, missing or duplicated
+Trace session ledger commits to their commands and changed rows. To test whether the ledger alone
+reconstructs the research, compare a ledger graph with a session graph (`research-graph`). Check wrong, missing or duplicated
 facts, derivable storage, failed-attempt remnants against the schema, identity consistency, original
 records and corrections, and whether normal reads preserve their meaning. Compare blob sizes with
 physical database growth, backup identity and query scaling. Use only read-only statements.

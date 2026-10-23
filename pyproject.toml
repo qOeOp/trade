@@ -47,7 +47,8 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.14"
-files = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime"]
+files = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime",
+         "services/research-graph/research_graph"]
 
 [[tool.mypy.overrides]]
 # pandas ships no type information and pyarrow 23 has no py.typed marker; both stay Any.

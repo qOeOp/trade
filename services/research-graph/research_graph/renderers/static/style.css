@@ -1,0 +1,24 @@
+:root{--bg:#fbfbfa;--fg:#1d1d1b;--muted:#6b6b66;--line:#d9d8d2;--panel:#fff;--rec:#c98a00;--ok:#2e8b57;--miss:#3a6ea5;
+ --mask:#9a9a94;--fail:#c0392b;--unrun:#fff;--band:#f3e7c4;--shade:#efeee9}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#171716;--fg:#ecebe6;--muted:#9c9b94;--line:#3a3a37;
+ --panel:#20201e;--rec:#e0a526;--ok:#4caf7d;--miss:#5b8fcc;--mask:#77776f;--fail:#e05a4b;--unrun:#20201e;--band:#3b3220;--shade:#232321}}
+:root[data-theme="dark"]{--bg:#171716;--fg:#ecebe6;--muted:#9c9b94;--line:#3a3a37;--panel:#20201e;--rec:#e0a526;--ok:#4caf7d;
+ --miss:#5b8fcc;--mask:#77776f;--fail:#e05a4b;--unrun:#20201e;--band:#3b3220;--shade:#232321}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"PingFang SC","Helvetica Neue",sans-serif}
+header{padding:14px 16px 4px}h1{font-size:17px;margin:0 0 4px}.sub,.k{color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 16px;color:var(--muted)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px;border:1.5px solid var(--fg)}
+.legend b{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:0}
+.wrap{display:flex;align-items:flex-start}#main{flex:1;min-width:0;overflow-x:auto;padding:0 8px 16px}
+#side{width:390px;flex:none;max-height:100vh;overflow:auto;position:sticky;top:0;background:var(--panel);
+ border-left:1px solid var(--line);padding:14px 16px}
+@media (max-width:900px){.wrap{display:block}#side{width:auto;position:static;border-left:0;border-top:1px solid var(--line)}}
+.detail{display:none}.detail:target{display:block}#side:not(:has(.detail:target)) .default{display:block}
+svg text{fill:var(--fg)}.axis{stroke:var(--line)}.tick{fill:var(--muted);font-size:10px}.lbl{font-size:10.5px}
+.edge{fill:none;stroke:var(--muted);stroke-width:1.1;opacity:.55}a:hover rect{stroke-width:3}
+h2{font-size:14px;margin:16px 8px 4px}h3{font-size:13px;margin:12px 0 4px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+td,th{border-bottom:1px solid var(--line);padding:3px 4px;text-align:left;vertical-align:top}
+.pill{display:inline-block;padding:0 6px;border-radius:9px;border:1px solid var(--line);font-size:11px}
+ul.gaps{margin:4px 16px 16px;color:var(--muted)}
