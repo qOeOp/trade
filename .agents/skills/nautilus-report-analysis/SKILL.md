@@ -20,8 +20,8 @@ and returned fields.
 - State the population (closed cycles, open rows, account), the weighting and the
   frequency of every derived number. Totals over closed cycles equal `reconciled`; if not, do not
   cite them. A number that drives a recommendation or the next hypothesis is recomputed
-  independently by a second agent from the same run and `ledger_commit`; when they disagree, draw
-  no conclusion.
+  independently by a fresh agent for each recomputation, given only the run, its `ledger_commit`
+  and the question, never a reused one; when they disagree, draw no conclusion.
 - Tests pair only account daily returns, and the product does that
   (`hypothesis compare`). For a trade-by-trade comparison read the attribution's trade pairing
   (`trade_pairs`), its coverage first. Never pair trades yourself by time, position id or

@@ -63,7 +63,8 @@ budgets do not reject a research direction; `REVIEW_DUE` calls for [review.md](r
   masked measures. Additional statistics follow `nautilus-report-analysis`.
 - Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
   instead of copying measures, counts or eligibility; working reports may display cited product
-  values.
+  values. To the user, name each object by its kind and product id (`trial 67`, `recommendation
+  judgment 253`, `ema-fixed-dailyspec@1`), never a bare `#N`.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,
   correction and reason. Present the original with its correction; working copies and session
   memory do not replace either.
