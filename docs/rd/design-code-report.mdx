@@ -1321,7 +1321,7 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
-**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N）、gates（下一次登记会被拒的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N：同一开发窗口与市场提交上的全部研究试验，换线而窗口不变时也计入旧路线的试验，因为它们是同一份开发数据上的搜索暴露）、gates（下一次登记会被拒的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
