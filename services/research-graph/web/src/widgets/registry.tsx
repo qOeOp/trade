@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import type {
-  DetailWidget, LineageWidget, NotesWidget, ScatterWidget, SummaryWidget, TableWidget, Targets, Widget,
+  DetailWidget, LineageWidget, NotesWidget, ProgressWidget, ScatterWidget, SummaryWidget, TableWidget, Targets, Widget,
 } from "../types";
 import { Detail } from "./Detail";
 import { Lineage } from "./Lineage";
 import { Notes } from "./Notes";
+import { Progress } from "./Progress";
 import { Scatter } from "./Scatter";
 import { SummaryBar } from "./Summary";
 import { VersionTable } from "./Table";
@@ -22,6 +23,8 @@ export const REGISTRY: Record<string, Entry> = {
                  render: (w, c) => <Lineage widget={w as LineageWidget} selected={c.selected} onSelect={c.onSelect} /> },
   "candidate-detail/1": { region: "drawer", label: "版本详情",
                           render: (w, c) => <Detail widget={w as DetailWidget} selected={c.selected} onSelect={c.onSelect} targets={c.targets} /> },
+  "progress/1": { region: "dock", label: "研究进展",
+                  render: (w, c) => <Progress widget={w as ProgressWidget} selected={c.selected} /> },
   "table/1": { region: "dock", label: "版本表",
                render: (w, c) => <VersionTable widget={w as TableWidget} selected={c.selected} onSelect={c.onSelect} /> },
   "scatter/1": { region: "dock", label: "年化 vs 回撤",

@@ -1,7 +1,7 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (summary/1, lineage/2, scatter/1, table/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
+versioned type (summary/1, lineage/2, progress/1, scatter/1, table/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
@@ -11,7 +11,7 @@ children in order of their first trial. A renderer maps these units to its own p
 Events are placed where they belong rather than in lanes of their own: the recommendation judgments
 form a trail over the recommended versions' rows, an eligibility change marks the row of the version
 whose source review caused it, and a line change marks the axis. Every event also appears once in a
-`rug` on the axis, and `history` holds the research runs' annual returns on the same x.
+`rug` on the axis; `progress/1` holds the research runs' annual returns on the same x.
 """
 from __future__ import annotations
 
@@ -183,12 +183,14 @@ def build_view(graph: dict) -> dict:
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
-         "trail": trail, "marks": marks, "rug": rug,
-         "history": {"points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
-                                 "eligible": t.get("eligible")}
-                                for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
-                     "steps": [{"candidate": t["candidate"], "x0": t["x0"], "x1": t["x1"],
-                                "annual_return": reading_of.get(t["candidate"])} for t in trail]}},
+         "trail": trail, "marks": marks, "rug": rug},
+        {"id": "progress", "type": "progress/1", "slot": "main", "title": "研究进展", "targets": targets,
+         "axis": {"min": lo, "max": hi, "scope_start": clock(start) if start else None},
+         "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
+                     "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
+                    for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
+         "steps": [{"candidate": t["candidate"], "x0": t["x0"], "x1": t["x1"],
+                    "annual_return": reading_of.get(t["candidate"])} for t in trail]},
         {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
          "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],

@@ -145,7 +145,7 @@ export function App({ view }: { view: View }) {
   const current = lineage?.trail.at(-1)?.candidate;
   const actions = [
     ...(current ? [{ label: "定位当前推荐", keys: ".", run: () => requestFocus(current) }] : []),
-    { label: "显示全部版本", keys: "F", run: () => requestFocus("") },
+    { label: "回到横轴起点", keys: "Home", run: () => requestFocus("") },
     { label: drawerOpen ? "收起详情" : "展开详情", keys: "⌘B", run: toggle(drawerRef) },
     { label: dockOpen ? "收起底部面板" : "展开底部面板", keys: "⌘J", run: toggle(dockRef) },
     ...dock.map(([w, e]) => ({ label: `底部面板：${e.label}`, run: () => { setTab(w.id); dockRef.current?.expand(); } })),
@@ -157,7 +157,7 @@ export function App({ view }: { view: View }) {
     "$mod+KeyB": (e) => { e.preventDefault(); toggle(drawerRef)(); },
     "$mod+KeyJ": (e) => { e.preventDefault(); toggle(dockRef)(); },
     Period: (e) => { if (!typing(e) && current) requestFocus(current); },
-    KeyF: (e) => { if (!typing(e)) requestFocus(""); },
+    Home: (e) => { if (!typing(e)) requestFocus(""); },
   }), [current]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

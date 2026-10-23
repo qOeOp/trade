@@ -82,10 +82,13 @@ export type LineageWidget = Widget & {
   trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
   marks: { kind: string; candidate: string; row: number; x: number; at: string; ref?: string | null; text?: string | null }[];
   rug: AxisEvent[];
-  history: {
-    points: { id: string; trial_id: number; annual_return: number; eligible: boolean | null }[];
-    steps: { candidate: string; x0: number | null; x1: number | null; annual_return: number | null }[];
-  };
+};
+
+export type ProgressWidget = Widget & {
+  targets: Targets | null;
+  axis: { min: number; max: number; scope_start: number | null };
+  points: { id: string; trial_id: number; annual_return: number; max_drawdown?: number | null; eligible: boolean | null }[];
+  steps: { candidate: string; x0: number | null; x1: number | null; annual_return: number | null }[];
 };
 
 export type ScatterWidget = Widget & {

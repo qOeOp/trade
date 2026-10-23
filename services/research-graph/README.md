@@ -40,7 +40,8 @@ research units, never pixels.
 | Type | Content |
 |---|---|
 | `summary/1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage/2` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `marks` (eligibility changes on the row of the reviewed version), `rug` (every event once on the axis, with the version it is about), `history` (research runs' annual returns and the recommended version's return per trail segment) |
+| `lineage/2` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `marks` (eligibility changes on the row of the reviewed version), `rug` (every event once on the axis, with the version it is about) |
+| `progress/1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns by trial) and `steps` (the recommended version's return over each trail segment) |
 | `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `table/1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
 | `notes/1` | `items`: plain notes (the graph's `gaps`) |
@@ -56,14 +57,15 @@ A renderer is a package under `research_graph/renderers/` whose `render.py` defi
 `render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
 `web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
 primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets only; its own npm
-toolchain), laid out like an IDE. The lineage is one figure on the trial axis: a canvas that pans,
-zooms and lets nodes be dragged, with each version's role shown by its mark's shape, the
-recommendation trail and the events drawn on the rows they concern, a sticky ruler with every event
-as a rug and a strip of research-run returns below. A title bar carries the current recommendation's
-readout, a resizable bottom panel holds the version table, the return/drawdown scatter (with the
-non-dominated frontier) and the data gaps, and an inspector on the right holds the selected version.
+toolchain), laid out like an IDE. The lineage is one figure on the trial axis at a fixed scale: a
+canvas that pans but never zooms, with each version's role shown by its mark's shape, parent-to-child
+lines drawn as git graphs draw them, the recommendation trail and the events on the rows they concern,
+and a ruler above with every event and the trial under the pointer. A title bar carries the current recommendation's
+readout, a resizable bottom panel holds the research progress on the canvas's x (research-run returns,
+the recommended version's return and the target), the return/drawdown scatter (with the
+non-dominated frontier), the version table and the data gaps, and an inspector on the right holds the selected version.
 Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `.`
-centres the current recommendation; `#<version>` in the address opens on that version. Panel sizes
+centres the current recommendation and `Home` goes back to the start of the axis; `#<version>` in the address opens on that version. Panel sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs

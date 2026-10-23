@@ -1,39 +1,26 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  applyNodeChanges, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useReactFlow, useStore, useViewport, ViewportPortal,
-  type Edge, type Node, type NodeProps,
+  BaseEdge, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, useStore,
+  useViewport, ViewportPortal, type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Crosshair, Info, Maximize2, Minus, Plus } from "lucide-react";
+import { Crosshair, Info } from "lucide-react";
 import { Popover } from "radix-ui";
-import { scaleLinear } from "@visx/scale";
 import type { AxisEvent, LineageNode, LineageWidget } from "../types";
 import { pct, PREDICTION, readingColor, ROLE, verdict, when } from "../format";
-import { hoverProps, requestFocus, useFocusRequest } from "../store";
+import { axisView, crosshair, hoverProps, requestFocus, useAxisView, useCrosshair, useFocusRequest } from "../store";
 import { RoleMark, Tip } from "../ui";
 import { Legend } from "./Legend";
 
-// One figure on one x: the trial number. The canvas holds the versions on their lineage rows; a
-// backdrop layer under them holds row stripes, gridlines, the before-scope shading and the
-// recommendation trail; a glyph layer over them holds the events, each on the row it is about. The
-// ruler above and the history strip below follow the canvas's horizontal pan and zoom.
-const UNIT = 22, ROW = 30, RULER = 28, STRIP = 104;
-const KIND: Record<AxisEvent["kind"], { label: string; color: string }> = {
-  recommendation: { label: "推荐判断", color: "var(--accent)" },
-  eligibility_change: { label: "资格变化", color: "var(--fail)" },
-  line_change: { label: "选线", color: "var(--ink-2)" },
-};
-
-// The trial step between gridlines: the smallest that keeps labels at least 56px apart.
-const stepOf = (zoom: number) => [1, 2, 5, 10, 20, 50, 100, 200, 500].find((s) => s * UNIT * zoom >= 56) ?? 1000;
-const range = (lo: number, hi: number, step: number) => {
-  const out: number[] = [];
-  for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) out.push(t);
-  return out;
-};
+// One figure on one x, the trial number, at a fixed scale: the canvas pans but never zooms, so
+// marks and text keep their size. A backdrop under the versions holds row stripes, gridlines, the
+// before-scope shading and the recommendation trail; a glyph layer over them holds the events, each
+// on the row it is about. The ruler above shares the x and reads out the trial under the pointer.
+export const UNIT = 24, ROW = 30, RULER = 38;
 
 type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
+type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
 
 function NodeTip({ data }: { data: VersionData }) {
   const ok = verdict(data.reading, data.targets);
@@ -51,9 +38,10 @@ function NodeTip({ data }: { data: VersionData }) {
   );
 }
 
+const MARK_CENTRE = 11;  // the mark's centre from the node's left edge: 4px padding + half a 14px mark
+
 const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
   const prediction = PREDICTION[data.prediction];
-  const masked = data.role === "masked";
   const [name, revision] = data.id.split("@");
   const read = data.reading.annual_return != null;
   const ok = verdict(data.reading, data.targets);
@@ -61,7 +49,7 @@ const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
     <Tip content={<NodeTip data={data} />} side="bottom">
       <div {...hoverProps(data.id)} className="rounded-[5px] px-1 py-[2px] transition-colors duration-150"
            style={data.selected ? { background: "var(--accent-wash)", boxShadow: "inset 0 0 0 1px var(--accent-line)" } : undefined}>
-        <div className="flex items-center gap-1.5 whitespace-nowrap" style={{ opacity: masked ? 0.45 : 1 }}>
+        <div className="flex items-center gap-1.5 whitespace-nowrap" style={{ opacity: data.role === "masked" ? 0.45 : 1 }}>
           <Handle type="target" position={Position.Left} className="!opacity-0" />
           <RoleMark role={data.role} />
           {read ? (
@@ -78,49 +66,76 @@ const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
           <span className="mono text-[11.5px]" style={{ color: data.role === "superseded" ? "var(--ink-2)" : "var(--ink-1)" }}>
             {name}<span className="faint">@{revision}</span>
           </span>
-          <Handle type="source" position={Position.Bottom} className="!opacity-0" style={{ left: 11 }} />
+          <Handle type="source" position={Position.Bottom} className="!opacity-0" style={{ left: MARK_CENTRE }} />
         </div>
       </div>
     </Tip>
   );
 });
 
-// The extent of the backdrop and glyph layers, in canvas pixels.
-function frame(widget: LineageWidget) {
-  const left = (widget.axis.min - 400) * UNIT, top = -2 * ROW;
-  return { left, top, width: (widget.axis.max - widget.axis.min + 800) * UNIT, height: (widget.rows.length + 3) * ROW };
+// Parent to child as a git graph draws it: straight down from the parent's mark to the child's row,
+// one rounded corner, then straight on to the child. No jogs, whatever the distance.
+function Elbow({ sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
+  const r = Math.max(0, Math.min(7, Math.abs(targetY - sourceY) / 2, Math.abs(targetX - sourceX) / 2));
+  const dir = targetX >= sourceX ? 1 : -1;
+  const path = Math.abs(targetY - sourceY) < 1
+    ? `M${sourceX} ${targetY} H${targetX}`
+    : `M${sourceX} ${sourceY} V${targetY - r} Q${sourceX} ${targetY} ${sourceX + dir * r} ${targetY} H${targetX}`;
+  return <BaseEdge path={path} style={style} />;
 }
 
-// Under the versions and edges: stripes, gridlines, the before-scope shading and the trail. It is
-// portalled into the viewport rather than added as a node, so it never counts in fit or minimap.
+// The extent of the backdrop and glyph layers, in canvas pixels.
+function frame(widget: LineageWidget) {
+  const left = (widget.axis.min - 40) * UNIT, top = -2 * ROW;
+  return { left, top, width: (widget.axis.max - widget.axis.min + 80) * UNIT, height: (widget.rows.length + 4) * ROW };
+}
+export const steps = (lo: number, hi: number, step: number) => {
+  const out: number[] = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) out.push(t);
+  return out;
+};
+
+// Under the versions and edges; portalled into the viewport rather than added as a node.
 function Backdrop({ widget }: { widget: LineageWidget }) {
   const viewport = useStore((s) => s.domNode?.querySelector(".react-flow__viewport") ?? null);
-  const step = useStore((s) => stepOf(s.transform[2]));
   const { left, top, width, height } = frame(widget);
   const X = (t: number) => t * UNIT - left, Y = (row: number) => row * ROW - top;
   const scope = widget.axis.scope_start;
-  const trail = widget.trail.filter((t) => t.x0 != null && t.x1 != null) as (LineageWidget["trail"][number] & { x0: number; x1: number })[];
+  const trail = widget.trail.filter((t) => t.x0 != null && t.x1 != null) as Span[];
   if (!viewport) return null;
   return createPortal(
-    <svg width={width} height={height} className="pointer-events-none absolute" style={{ left, top, zIndex: -1, overflow: "visible" }}>
+    <svg width={width} height={height} className="pointer-events-none absolute" style={{ left, top, zIndex: -1 }}>
       {widget.rows.filter((r) => r.row % 2).map((r) => (
         <rect key={r.id} x={0} y={Y(r.row) - ROW / 2} width={width} height={ROW} fill="var(--stripe)" />
       ))}
       {scope != null && <rect x={0} y={0} width={X(scope)} height={height} fill="var(--scope)" opacity={0.7} />}
-      {range(widget.axis.min - 400, widget.axis.max + 400, step).map((t) => (
-        <line key={t} x1={X(t)} x2={X(t)} y1={0} y2={height} stroke="var(--rule)" strokeWidth={1} />
+      {steps(widget.axis.min - 40, widget.axis.max + 40, 5).map((t) => (
+        <line key={t} x1={X(t) + 0.5} x2={X(t) + 0.5} y1={0} y2={height} stroke="var(--rule)" strokeDasharray={t % 10 ? "2 4" : undefined} />
       ))}
       {trail.map((t, i) => (
         <g key={i}>
           <rect x={X(t.x0)} y={Y(t.row) - 12} width={Math.max(3, (t.x1 - t.x0) * UNIT)} height={24} rx={4} fill="var(--accent-wash)" />
           {i > 0 && (
             <path d={`M${X(t.x0)} ${Y(trail[i - 1].row)} V${Y(t.row)}`} fill="none" stroke="var(--accent)"
-                  strokeWidth={1} strokeOpacity={0.55} strokeDasharray="1 3" strokeLinecap="round" />
+                  strokeWidth={1} strokeOpacity={0.5} strokeDasharray="1 3" strokeLinecap="round" />
           )}
         </g>
       ))}
     </svg>,
     viewport,
+  );
+}
+
+export function EventTip({ kind, version, at, refName, note }: {
+  kind: string; version?: string | null; at?: string | null; refName?: string | null; note?: string | null;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="font-semibold">{kind}</div>
+      {version && <div className="mono">{version}</div>}
+      <div className="mono faint">{[when(at), refName].filter(Boolean).join(" · ")}</div>
+      {note && <div className="line-clamp-4 muted">{note}</div>}
+    </div>
   );
 }
 
@@ -137,11 +152,11 @@ function Glyphs({ widget }: { widget: LineageWidget }) {
           <g key={i} {...hoverProps(t.candidate)}>
             {t.judgments.slice(1).map((x, j) => x == null ? null : (
               <Tip key={j} content={<EventTip kind="推荐判断 · 保持" version={t.candidate} at={about(x)?.at} refName={about(x)?.ref} />}>
-                <rect className="pointer-events-auto" x={X(x) - 2} y={Y(t.row) - 14} width={4} height={8} fill="transparent" />
+                <g className="pointer-events-auto cursor-default">
+                  <rect x={X(x) - 3} y={Y(t.row) - 15} width={6} height={8} fill="transparent" />
+                  <line x1={X(x)} x2={X(x)} y1={Y(t.row) - 12} y2={Y(t.row) - 8} stroke="var(--accent)" strokeWidth={1.25} />
+                </g>
               </Tip>
-            ))}
-            {t.judgments.slice(1).map((x, j) => x == null ? null : (
-              <line key={`l${j}`} x1={X(x)} x2={X(x)} y1={Y(t.row) - 12} y2={Y(t.row) - 8} stroke="var(--accent)" strokeWidth={1.25} />
             ))}
             <Tip content={<EventTip kind={i ? "推荐换到此版本" : "首次推荐"} version={t.candidate} at={about(t.x0)?.at}
                                     refName={about(t.x0)?.ref} note={`其后 ${t.judgments.length - 1} 条判断保持推荐`} />}>
@@ -161,15 +176,73 @@ function Glyphs({ widget }: { widget: LineageWidget }) {
   );
 }
 
-function EventTip({ kind, version, at, refName, note }: {
-  kind: string; version?: string | null; at?: string | null; refName?: string | null; note?: string | null;
-}) {
+export function useSize() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
+
+/** A trial-axis ruler like an editor's: a tick per trial, labels every ten, the trial under the
+ *  pointer read out, and the events as the same glyphs the canvas uses, on one baseline. */
+function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode }) {
+  const [ref, { width }] = useSize();
+  const { x0, unit } = useAxisView();
+  const at = useCrosshair();
+  const sx = (t: number) => x0 + t * unit;
+  const ticks = steps(Math.floor(-x0 / unit) - 1, Math.ceil((width - x0) / unit) + 1, 1);
+  const H = RULER, base = H - 0.5, lane = 22;
+  const firsts = new Set<number | null>();  // a recommendation that moved to another version gets the diamond
+  let last: string | null = null;
+  for (const e of events.filter((e) => e.kind === "recommendation")) { if (e.candidate !== last) firsts.add(e.x); last = e.candidate; }
   return (
-    <div className="space-y-0.5">
-      <div className="font-semibold">{kind}</div>
-      {version && <div className="mono">{version}</div>}
-      <div className="mono faint">{[when(at), refName].filter(Boolean).join(" · ")}</div>
-      {note && <div className="line-clamp-4 muted">{note}</div>}
+    <div ref={ref} className="relative select-none" style={{ height: H, background: "var(--panel)" }}>
+      <svg width={width} height={H} className="absolute inset-0">
+        <line x1={0} x2={width} y1={base} y2={base} stroke="var(--rule-2)" />
+        {ticks.map((t) => {
+          const size = t % 10 === 0 ? 9 : t % 5 === 0 ? 6 : 3;
+          return <line key={t} x1={sx(t) + 0.5} x2={sx(t) + 0.5} y1={base - size} y2={base}
+                       stroke={t % 10 === 0 ? "var(--ink-3)" : "var(--ink-4)"} />;
+        })}
+        {ticks.filter((t) => t % 10 === 0).map((t) => (
+          <text key={`l${t}`} x={sx(t) + 3.5} y={11} className="mono" fontSize={10} fill="var(--ink-2)">{t}</text>
+        ))}
+        {events.map((e, i) => {
+          if (e.x == null) return null;
+          const x = sx(e.x);
+          if (x < 40 || x > width - 8) return null;
+          const glyph = e.kind === "line_change"
+            ? <><line x1={x} x2={x} y1={15} y2={base} stroke="var(--ink-2)" /><text x={x + 3} y={lane + 3.5} fontSize={10} fill="var(--ink-2)">选线</text></>
+            : e.kind === "eligibility_change"
+              ? <path d={`M${x - 3.5} ${lane - 3} h7 l-3.5 6 z`} fill="var(--fail)" />
+              : firsts.has(e.x)
+                ? <rect x={x - 3} y={lane - 3} width={6} height={6} fill="var(--accent)" transform={`rotate(45 ${x} ${lane})`} />
+                : <circle cx={x} cy={lane} r={1.6} fill="var(--accent)" />;
+          const kind = e.kind === "recommendation" ? (firsts.has(e.x) ? "推荐换到" : "推荐判断 · 保持") : e.kind === "line_change" ? "选线" : "失去资格";
+          return (
+            <Tip key={i} content={<EventTip kind={kind} version={e.candidate} at={e.at} refName={e.ref} note={e.kind === "line_change" ? e.text : undefined} />}>
+              <g {...hoverProps(e.candidate)} className="cursor-pointer" onClick={() => e.candidate && requestFocus(e.candidate)}>
+                <rect x={x - 5} y={lane - 7} width={10} height={14} fill="transparent" />{glyph}
+              </g>
+            </Tip>
+          );
+        })}
+        {at != null && sx(at) > 40 && (
+          <g pointerEvents="none">
+            <line x1={sx(at) + 0.5} x2={sx(at) + 0.5} y1={14} y2={H} stroke="var(--ink-2)" />
+            <rect x={sx(at) - 17} y={0} width={34} height={14} rx={3} fill="var(--ink-1)" />
+            <text x={sx(at)} y={10.5} textAnchor="middle" className="mono" fontSize={10} fill="var(--panel)">{Math.round(at)}</text>
+          </g>
+        )}
+      </svg>
+      <span className="label absolute left-0 top-0 flex h-full w-10 items-end pb-[3px] pl-2 !normal-case"
+            style={{ background: "linear-gradient(90deg, var(--panel) 80%, transparent)" }}>trial</span>
+      {tools && <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md pl-1" style={{ background: "var(--panel)" }}>{tools}</div>}
     </div>
   );
 }
@@ -182,165 +255,86 @@ function ToolButton({ label, keys, onClick, children }: { label: string; keys?: 
   );
 }
 
-// The shared x axis, sticky above the canvas: trial labels, a rug of every event and the view tools.
-function Ruler({ widget }: { widget: LineageWidget }) {
-  const { x: tx, zoom } = useViewport();
-  const width = useStore((s) => s.width);
-  const { zoomIn, zoomOut } = useReactFlow();
-  const sx = (t: number) => t * UNIT * zoom + tx;
-  const ticks = range(-tx / (UNIT * zoom), (width - tx) / (UNIT * zoom), stepOf(zoom));
-  const current = widget.trail.at(-1)?.candidate;
-  return (
-    <div className="absolute inset-x-0 top-0 z-10 border-b backdrop-blur-sm"
-         style={{ height: RULER, borderColor: "var(--rule-2)", background: "color-mix(in srgb, var(--panel) 90%, transparent)" }}>
-      <div className="absolute inset-0" style={{ clipPath: "inset(0 112px 0 48px)" }}>
-        {ticks.map((t) => (
-          <span key={t} className="mono absolute top-[5px] -translate-x-1/2 text-[10px] faint" style={{ left: sx(t) }}>{t}</span>
-        ))}
-        {widget.rug.map((e, i) => e.x == null ? null : e.kind === "line_change" ? (
-          <Tip key={i} content={<EventTip kind="选线" at={e.at} refName={e.ref} note={e.text} />}>
-            <span className="absolute bottom-0 top-0" style={{ left: sx(e.x), borderLeft: "1px solid var(--ink-2)" }}>
-              <span className="absolute left-1 top-[5px] whitespace-nowrap text-[10px] muted">选线</span>
-            </span>
-          </Tip>
-        ) : (
-          <Tip key={i} content={<EventTip kind={KIND[e.kind].label} version={e.candidate} at={e.at} refName={e.ref} />}>
-            <span {...hoverProps(e.candidate)} className="absolute bottom-0 -translate-x-1/2 cursor-default px-[2px]" style={{ left: sx(e.x) }}
-                  onClick={() => e.candidate && requestFocus(e.candidate)}>
-              <span className="block h-[6px] w-[2px]" style={{ background: KIND[e.kind].color }} />
-            </span>
-          </Tip>
-        ))}
-      </div>
-      <span className="label absolute left-0 top-0 flex h-full w-12 items-center px-2 !normal-case">trial</span>
-      <div className="absolute right-1 top-[3px] flex items-center gap-0.5">
-        <ToolButton label="缩小" keys="-" onClick={() => zoomOut({ duration: 180 })}><Minus size={13} /></ToolButton>
-        <ToolButton label="放大" keys="=" onClick={() => zoomIn({ duration: 180 })}><Plus size={13} /></ToolButton>
-        <ToolButton label="显示全部版本" keys="F" onClick={() => requestFocus("")}><Maximize2 size={12} /></ToolButton>
-        {current && <ToolButton label="定位当前推荐" keys="." onClick={() => requestFocus(current)}><Crosshair size={13} /></ToolButton>}
-        <Popover.Root>
-          <Tip content="图例" side="bottom">
-            <Popover.Trigger asChild>
-              <button className="press grid h-[22px] w-[22px] place-items-center muted" aria-label="图例"><Info size={13} /></button>
-            </Popover.Trigger>
-          </Tip>
-          <Popover.Portal>
-            <Popover.Content align="end" sideOffset={6} className="z-50"><Legend /></Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-      </div>
-    </div>
-  );
-}
-
-// Under the canvas on the same x: each research run's annual return, the recommended version's
-// return as a step line and the return target, so the trail above reads against its outcome.
-function History({ widget }: { widget: LineageWidget }) {
-  const { x: tx, zoom } = useViewport();
-  const width = useStore((s) => s.width);
-  const { points, steps } = widget.history;
-  const target = widget.targets?.annual_return ?? null;
-  const values = [...points.map((p) => p.annual_return), ...steps.map((s) => s.annual_return ?? 0), target ?? 0, 0];
-  const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [STRIP - 10, 14], nice: true });
-  const sx = (t: number) => t * UNIT * zoom + tx;
-  const ticks = range(-tx / (UNIT * zoom), (width - tx) / (UNIT * zoom), stepOf(zoom));
-  let line = "", joined = false;  // a step without a reading (a masked version) breaks the line
-  for (const s of steps) {
-    if (s.x0 == null || s.x1 == null || s.annual_return == null) { joined = false; continue; }
-    line += `${joined ? `V${y(s.annual_return)}` : `M${sx(s.x0)} ${y(s.annual_return)}`} H${sx(s.x1)} `;
-    joined = true;
-  }
-  const scope = widget.axis.scope_start;
-  return (
-    <div className="relative h-full" style={{ background: "var(--panel)" }}>
-      <svg width={width} height={STRIP} className="absolute inset-0">
-        {scope != null && <rect x={0} y={0} width={Math.max(0, sx(scope))} height={STRIP} fill="var(--scope)" opacity={0.7} />}
-        {ticks.map((t) => <line key={t} x1={sx(t)} x2={sx(t)} y1={0} y2={STRIP} stroke="var(--rule)" />)}
-        {y.ticks(3).map((v) => <line key={v} x1={0} x2={width} y1={y(v)} y2={y(v)} stroke="var(--rule)" strokeDasharray={v === 0 ? undefined : "2 3"} />)}
-        {target != null && <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke="var(--meet)" strokeDasharray="5 3" strokeWidth={1} />}
-        {line && <path d={line} fill="none" stroke="var(--accent)" strokeWidth={1.75} strokeLinejoin="round" />}
-        {points.map((p) => (
-          <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · 研究运行`} version={p.id}
-                                                   note={`年化 ${pct(p.annual_return)}${p.eligible === false ? " · 失去资格" : ""}`} />}>
-            <circle {...hoverProps(p.id)} cx={sx(p.trial_id)} cy={y(p.annual_return)} r={2.75} className="cursor-pointer"
-                    onClick={() => requestFocus(p.id)}
-                    fill={p.eligible === false ? "var(--panel)" : "var(--ink-3)"} stroke="var(--ink-3)" strokeWidth={1} />
-          </Tip>
-        ))}
-      </svg>
-      <div className="pointer-events-none absolute left-0 top-0 h-full w-12" style={{ background: "linear-gradient(90deg, var(--panel) 75%, transparent)" }}>
-        {y.ticks(3).map((v) => (
-          <span key={v} className="mono absolute right-1 -translate-y-1/2 text-[9.5px] faint" style={{ top: y(v) }}>{Math.round(v * 100)}%</span>
-        ))}
-      </div>
-      <span className="label pointer-events-none absolute left-14 top-1 !normal-case">研究运行年化 · 推荐版本 · 目标</span>
-    </div>
-  );
-}
-
-// Carries out focus requests from the palette, the table, the strip or the keyboard.
-function FocusDriver({ positions }: { positions: Map<string, { x: number; y: number }> }) {
+// Publishes the canvas's pan for the ruler and the progress chart, and carries out focus requests.
+function AxisDriver({ positions, start }: { positions: Map<string, { x: number; y: number }>; start: number }) {
+  const { x } = useViewport();
   const request = useFocusRequest();
   const flow = useReactFlow();
+  useEffect(() => axisView.set({ x0: x, unit: UNIT }), [x]);
   useEffect(() => {
     if (!request) return;
-    if (request.id === "") { flow.fitView({ padding: 0.06, duration: 240 }); return; }
+    if (request.id === "") { flow.setViewport({ x: -start * UNIT + 56, y: flow.getViewport().y, zoom: 1 }, { duration: 240 }); return; }
     const at = positions.get(request.id);
-    if (at) flow.setCenter(at.x + 200, at.y, { zoom: Math.max(flow.getZoom(), 0.85), duration: 240 });
-  }, [request, positions, flow]);
+    if (at) flow.setCenter(at.x + 200, at.y, { zoom: 1, duration: 240 });
+  }, [request, positions, flow, start]);
   return null;
 }
 
 export function Lineage({ widget, selected, onSelect }: {
   widget: LineageWidget; selected: string | null; onSelect: (id: string) => void;
 }) {
-  const { nodes, edges, positions, opening } = useMemo(() => {
+  const { nodes, edges, positions, opening, extent } = useMemo(() => {
     const out: Node[] = widget.nodes.filter((n) => n.x != null).map((n) => ({
-      id: n.id, type: "version", position: { x: n.x! * UNIT - 8, y: n.row * ROW - 10 },
+      id: n.id, type: "version", position: { x: n.x! * UNIT - MARK_CENTRE, y: n.row * ROW - 11 },
       data: { ...n, selected: n.id === selected, targets: widget.targets } satisfies VersionData,
-      draggable: true, connectable: false,
+      draggable: false, connectable: false,
     }));
     const links: Edge[] = widget.edges.map((e) => ({
-      id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "smoothstep", focusable: false,
-      pathOptions: { borderRadius: 6 }, style: { stroke: "var(--edge)", strokeWidth: 1.1 },
+      id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "elbow", focusable: false,
+      style: { stroke: "var(--edge)", strokeWidth: 1.1 },
     }));
     const positions = new Map(widget.nodes.filter((n) => n.x != null).map((n) => [n.id, { x: n.x! * UNIT, y: n.row * ROW }]));
     // Open on #<version> when the address names one, else on the current recommendation.
     const linked = decodeURIComponent(window.location.hash.slice(1));
     const opening = positions.has(linked) ? linked : widget.trail.at(-1)?.candidate ?? null;
-    return { nodes: out, edges: links, positions, opening };
+    const extent: [[number, number], [number, number]] = [
+      [(widget.axis.min - 4) * UNIT, -3 * ROW], [(widget.axis.max + 30) * UNIT, (widget.rows.length + 3) * ROW]];
+    return { nodes: out, edges: links, positions, opening, extent };
   }, [widget, selected]);
-  // Kept as state so React Flow can store each node's measured size (the minimap needs it) and a dragged position.
-  const [placed, setPlaced] = useState<Node[]>(nodes);
-  useEffect(() => setPlaced((prev) => {
-    const before = new Map(prev.map((n) => [n.id, n]));
-    return nodes.map((n) => ({ ...before.get(n.id), ...n, position: before.get(n.id)?.position ?? n.position }));
-  }), [nodes]);
+  const box = useRef<HTMLDivElement>(null);
+  const at = useCrosshair();
+  const { x0 } = useAxisView();
+  const current = widget.trail.at(-1)?.candidate;
 
   return (
     <ReactFlowProvider>
       <div className="flex h-full flex-col">
-        <div className="relative min-h-0 flex-1">
+        <div className="shrink-0 border-b" style={{ borderColor: "var(--rule-2)" }}>
+          <Ruler events={widget.rug} tools={<>
+            {current && <ToolButton label="定位当前推荐" keys="." onClick={() => requestFocus(current)}><Crosshair size={13} /></ToolButton>}
+            <Popover.Root>
+              <Tip content="图例" side="bottom">
+                <Popover.Trigger asChild>
+                  <button className="press grid h-[22px] w-[22px] place-items-center muted" aria-label="图例"><Info size={13} /></button>
+                </Popover.Trigger>
+              </Tip>
+              <Popover.Portal><Popover.Content align="end" sideOffset={6} className="z-50"><Legend /></Popover.Content></Popover.Portal>
+            </Popover.Root>
+          </>} />
+        </div>
+        <div ref={box} className="relative min-h-0 flex-1"
+             onMouseMove={(e) => { const r = box.current!.getBoundingClientRect(); crosshair.set((e.clientX - r.left - x0) / UNIT); }}
+             onMouseLeave={() => crosshair.set(null)}>
           <ReactFlow
-            nodes={placed} edges={edges} onNodesChange={(changes) => setPlaced((prev) => applyNodeChanges(changes, prev))}
-            nodeTypes={{ version: Version }} colorMode="system" minZoom={0.1} maxZoom={2.5}
+            nodes={nodes} edges={edges}
+            nodeTypes={{ version: Version }} edgeTypes={{ elbow: Elbow }} colorMode="system"
+            minZoom={1} maxZoom={1} zoomOnScroll={false} zoomOnPinch={false} zoomOnDoubleClick={false}
+            panOnScroll panOnDrag translateExtent={extent} nodesDraggable={false} nodesConnectable={false}
             onInit={(flow) => {
-              const at = opening ? positions.get(opening) : undefined;
-              if (at) flow.setCenter(at.x + 200, at.y, { zoom: 0.9 }); else flow.fitView();
+              const p = opening ? positions.get(opening) : undefined;
+              if (p) flow.setCenter(p.x + 200, p.y, { zoom: 1 }); else flow.setViewport({ x: 56, y: 40, zoom: 1 });
             }}
-            nodesConnectable={false} proOptions={{ hideAttribution: true }}
+            proOptions={{ hideAttribution: true }}
             onNodeClick={(_, node) => onSelect(node.id)}
           >
             <Backdrop widget={widget} />
             <Glyphs widget={widget} />
-            <FocusDriver positions={positions} />
-            <MiniMap position="bottom-right" style={{ width: 132, height: 72, opacity: 0.9 }} pannable zoomable
-                     nodeColor={(n) => (n.data as VersionData).role === "recommended" ? "var(--accent)" : "var(--ink-4)"}
-                     nodeComponent={({ x, y, width, color }) => <rect x={x} y={y - 20} width={width} height={60} rx={18} fill={color} />} />
+            <AxisDriver positions={positions} start={widget.axis.min} />
           </ReactFlow>
-          <Ruler widget={widget} />
+          {at != null && (
+            <div className="pointer-events-none absolute inset-y-0 w-px" style={{ left: x0 + at * UNIT, background: "var(--ink-4)" }} />
+          )}
         </div>
-        <div className="shrink-0 border-t" style={{ height: STRIP, borderColor: "var(--rule)" }}><History widget={widget} /></div>
       </div>
     </ReactFlowProvider>
   );

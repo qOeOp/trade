@@ -77,11 +77,7 @@ body {
 /* Linked highlight: elements carry data-v; one rule dims the rest (see hover.ts). */
 .rg [data-v] { transition: opacity var(--t-fast) var(--ease); }
 
-.react-flow { --xy-background-color: var(--panel); --xy-minimap-background-color: var(--raised);
-              --xy-controls-button-background-color: var(--raised); --xy-controls-button-border-color: var(--rule);
-              --xy-controls-button-color: var(--ink-2); --xy-controls-button-background-color-hover: var(--sunken); }
-.react-flow__controls { box-shadow: none; border: 1px solid var(--rule-2); border-radius: 6px; overflow: hidden; }
-.react-flow__minimap { border: 1px solid var(--rule-2); border-radius: 6px; overflow: hidden; }
+.react-flow { --xy-background-color: var(--panel); }
 .react-flow__attribution { display: none; }
 .react-flow__node { transition: opacity var(--t-fast) var(--ease); }
 

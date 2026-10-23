@@ -69,7 +69,7 @@ class LayoutTests(unittest.TestCase):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
-                         [("summary/1", "top"), ("lineage/2", "main"), ("scatter/1", "main"), ("table/1", "main"), ("notes/1", "main"),
+                         [("summary/1", "top"), ("lineage/2", "main"), ("progress/1", "main"), ("scatter/1", "main"), ("table/1", "main"), ("notes/1", "main"),
                           ("candidate-detail/1", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
@@ -84,8 +84,10 @@ class LayoutTests(unittest.TestCase):
         self.assertTrue(4 < segment["x0"] < 5, "a timed event sits between the trials around its time")
         self.assertEqual({e["kind"]: e["candidate"] for e in tree["rug"]},
                          {"recommendation": "a@1", "line_change": None}, "every event sits once on the axis")
-        self.assertEqual(tree["history"]["steps"][0]["annual_return"], 0.25, "the trail carries its version's reading")
-        self.assertEqual([p["eligible"] for p in tree["history"]["points"]], [False, True, True])
+        progress = widgets["progress"]
+        self.assertEqual(progress["steps"][0]["annual_return"], 0.25, "the trail carries its version's reading")
+        self.assertEqual([p["eligible"] for p in progress["points"]], [False, True, True])
+        self.assertEqual(progress["axis"]["max"], tree["axis"]["max"], "the same x as the lineage")
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
         self.assertEqual({r["id"]: (r["role"], r["runs"], r["annual_return"]) for r in widgets["versions"]["rows"]},

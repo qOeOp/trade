@@ -22,8 +22,15 @@ export const hoverProps = (id: string | null | undefined) => id ? {
   "data-v": id, onMouseEnter: () => hovered.set(id), onMouseLeave: () => hovered.set(null),
 } : {};
 
-// A focus request: the canvas centres on `id` ("" means fit everything); `n` makes repeats distinct.
+// A focus request: the canvas centres on `id` ("" means the start of the axis); `n` makes repeats distinct.
 export const focusRequest = atom<{ id: string; n: number } | null>(null);
 let counter = 0;
 export const requestFocus = (id: string) => focusRequest.set({ id, n: ++counter });
 export const useFocusRequest = () => useSyncExternalStore(focusRequest.subscribe, focusRequest.get);
+
+// The canvas's horizontal pan (screen x of trial 0, and pixels per trial) and the trial under the
+// pointer, so the ruler and the progress chart below stay on the canvas's x.
+export const axisView = atom<{ x0: number; unit: number }>({ x0: 0, unit: 24 });
+export const useAxisView = () => useSyncExternalStore(axisView.subscribe, axisView.get);
+export const crosshair = atom<number | null>(null);
+export const useCrosshair = () => useSyncExternalStore(crosshair.subscribe, crosshair.get);

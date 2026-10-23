@@ -23,14 +23,15 @@ export function Legend() {
       <ul className="space-y-1 leading-relaxed">
         <li><b style={{ color: "var(--accent)" }}>◆</b> 推荐换到这一版；紫色底是推荐保持的区间，其上短线是重复的推荐判断，点线连接前后两任推荐。</li>
         <li><b style={{ color: "var(--fail)" }}>▼</b> 这一版此时因审阅失败失去资格，节点随之变淡并划去。</li>
-        <li>刻度尺底边的短线是全部事件，点一下定位到相关版本。</li>
-        <li>底部窄图：灰点是每次研究运行的年化（空心为失去资格），紫线是当时推荐版本的年化，蓝色虚线是年化目标。</li>
+        <li>刻度尺上用同样的符号列出全部事件（小圆点是重复的推荐判断），点一下定位到相关版本。</li>
+        <li>底部"研究进展"与谱系同一横轴：每次研究运行的年化、当时推荐版本的年化和年化目标。</li>
+        <li>画布固定比例：滚轮或拖动平移，十字线读出所在试验。</li>
       </ul>
       <div className="label mb-1.5 mt-3">操作</div>
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
         <span className="kbd">⌘K</span><span>跳到版本或执行命令</span>
         <span className="kbd">.</span><span>定位当前推荐</span>
-        <span className="kbd">F</span><span>显示全部版本</span>
+        <span className="kbd">Home</span><span>回到横轴起点</span>
         <span className="kbd">⌘B / ⌘J</span><span>开关详情 / 底部面板</span>
       </div>
     </div>
