@@ -9,7 +9,8 @@ import json
 import unittest
 
 from ledger.errors import Refusal
-from ledger import db, judgments
+from ledger import db, judgments, strategies
+from registration import precheck
 from replay import entry, reproduce
 from report import measures, runs, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
@@ -159,6 +160,29 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, caught.exception.missing), ("RECOMMENDATION_INCOMPLETE", (second,)))
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                      {"role": "about", "candidate": second}])
+
+    def test_z_a_later_failed_review_lists_the_run_apart_and_flags_its_earlier_report(self):
+        first, second = self.refs
+        trial_id = self.runs[second]["trial_id"]
+        before = status.research_status(self.world.profile)["ledger_commit"]
+        with db.read_as_of(self.world.profile) as conn:
+            source_sha256 = strategies.read_candidate(conn, second)["source_sha256"]
+            (precheck_id,), = conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s",
+                                        (source_sha256,))
+        precheck.record_review(self.world.profile, self.world.review_body(
+            precheck_id, "failed", causal={"status": "failed", "note": "found after the run was sealed"}), "reviewer-z")
+        table = status.research_status(self.world.profile)["comparison"]
+        self.assertEqual([item["trial_id"] for item in table["runs"]], [self.runs[first]["trial_id"]])
+        (apart,) = table["without_economic_evidence"]
+        self.assertEqual((apart["candidate"], apart["trial_id"]), (second, trial_id))
+        self.assertTrue(any(reason.startswith("SOURCE_REVIEW_FAILED") for reason in apart["reasons"]))
+        earlier = runs.run_report(self.world.profile, trial_id, before)
+        self.assertIsNotNone(earlier["headline"], "the historical reading stays readable")
+        self.assertTrue(any("at the research head" in item and "SOURCE_REVIEW_FAILED" in item
+                            for item in earlier["limitations"]))
+        self.assertFalse(any("at the research head" in item
+                             for item in runs.run_report(self.world.profile, self.runs[first]["trial_id"], before)
+                             ["limitations"]), "a run the head still qualifies carries no such note")
 
 if __name__ == "__main__":
     unittest.main()

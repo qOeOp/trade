@@ -51,10 +51,13 @@ Complete every registered grid point once before reading performance or register
 batch. Do not add points or tune source within a batch.
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
-judgments do not end the loop. Stop only for the user, an authority boundary or a line change
-through `research-start`, which is due when no remaining change within the line could exceed the
-comparison's detectable difference ([feedback.md](references/feedback.md)). Trial counts and
-budgets do not reject a research direction; `REVIEW_DUE` calls for [review.md](references/review.md).
+judgments do not end the loop. Stop only for the user, an authority boundary or a due line change.
+A line change is due when the recommended version has stayed the same across as many consecutive
+research runs as `REVIEW_DUE` counts and each of those runs' `mean_daily_log_difference` lies
+within its `detectable_mean_log_difference_80pct_normal_approx`
+([feedback.md](references/feedback.md)): stop registering and offer the line beside the other
+options through `research-start`. Trial counts and budgets do not reject a research direction;
+`REVIEW_DUE` calls for [review.md](references/review.md).
 
 ## Evidence and records
 
@@ -66,7 +69,9 @@ budgets do not reject a research direction; `REVIEW_DUE` calls for [review.md](r
   values.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,
   correction and reason. Present the original with its correction; working copies and session
-  memory do not replace either.
+  memory do not replace either. When a run whose measures the user has seen loses economic
+  evidence (`research status` lists it under `without_economic_evidence`), the next message to the
+  user names that run, the measures shown and the reason they no longer count.
 - Export candidate source into /tmp before editing and publish the change as a new candidate.
   Read its duty header, edit only affected duty lines, preserve the others byte for byte and
   register those ids in `changed_duties`.

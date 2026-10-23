@@ -47,13 +47,19 @@ budgets or stages).
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
   the user's two targets and the stopping rule: reports, reviews and priorities do not end the
-  work; only the user or a line that cannot continue does. Create it automatically when the host
+  work; only the user, a line that cannot continue or a due line change (research-round) does. Create it automatically when the host
   permits it. If creation needs explicit user authorization, present that concrete objective in
   the same question as the line choice; choosing to continue approves it. Create after approval,
   never infer approval from silence. If no Goal tool exists, ask the user to activate the exact
   `/goal <objective>` (Codex) or `/loop <objective>` (Claude Code) command and verify activation
   before research. Never set a token budget unless
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
+- An active Goal continues a turn that ends with a question without waiting for the user. Under it,
+  ask only what blocks the line (a due line change, an authority item); decide anything else within
+  your authority and say so in one line. Pause the Goal before such a question with the host's
+  tool, or ask the user in the same question to pause it when the host has none. Until the user
+  answers, a continuation does no work that depends on the answer: it repeats the question and
+  ends the turn. Never state an approval that no user message gives.
 
 ## When to read the references
 

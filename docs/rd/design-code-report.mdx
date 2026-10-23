@@ -635,6 +635,7 @@ def run_report(ledger: str | None, trial_id: int, at: str | None) -> dict
 2. 经 report.derive_measures 算年化、计划胜率、利润来源、交易结构、品种与方向、时期、夏普等可派生量。
 3. 经 qualification.assess 判资格，不可用即把经济栏整体置空并附原因。
 4. 按度量目录的栏目顺序输出，附封存结果的代码版本、目录版本、资格检查身份与局限；不写账本。
+5. at 指定历史版本且该版本有经济证据、而研究账本最新版本已无资格（例如之后记下了失败的源码审查）时，limitations 加一条，写明最新版本与其资格原因；历史读数照常给出。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -792,12 +793,12 @@ def comparison_table(
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<date>-<slug>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
 
-**返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, measures, dominated_by: [trial_id…], non_dominated\}], candidates（表里的候选，去重排序）\}
+**返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, measures, dominated_by: [trial_id…], non_dominated\}], candidates（表里的候选，去重排序）, without_economic_evidence: [\{candidate, trial_id, reasons\}]（同窗口、已通过但无经济证据资格的运行，只有原因、没有度量）\}
 
 **期望行为**
 
 1. 经 ledger.read_line 读路线的开发窗口与范围规则；路线不存在或损坏即拒绝。
-2. 取全部 purpose=research、status=passed 的运行；交易段等于开发窗口、开始回执输入身份里的 universe_rule 等于路线的才进表，再按资格视图（qualification.assess 同一判据）只留有经济证据资格的。
+2. 取全部 purpose=research、status=passed 的运行；交易段等于开发窗口、开始回执输入身份里的 universe_rule 等于路线的才进表，再按资格视图（qualification.assess 同一判据）只留有经济证据资格的；其余列入 without_economic_evidence，附资格原因，供读者知道哪些候选不在表里、为什么。
 3. 四项度量由 report.derive_measures 算，与单运行报告的标题指标同一算法；只有回撤是封存时存下的值，其余三项每次从存下的逐日序列与持仓周期算。
 4. 支配：A 在四项上都不差于 B（回撤越小越好，其余越大越好），且至少一项更好。dominated_by 列出压过它的运行；任一项缺值的运行不参与比较，non_dominated 为 null。
 5. 只读，不写账本；表里没有分数、排名或门槛。

@@ -116,9 +116,19 @@ def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None = 
 
 
 def run_report(ledger, trial_id: int, at: str | None = None) -> dict:
-    """The single-run report of a sealed run at a ledger version (default: the research head)."""
-    with db.read_as_of(profile_of(ledger), at) as conn:
-        return report_of(conn, trial_id)
+    """The single-run report of a sealed run at a ledger version (default: the research head). A
+    version where the run has economic evidence that the head no longer gives says so in limitations."""
+    profile = profile_of(ledger)
+    with db.read_as_of(profile, at) as conn:
+        output = report_of(conn, trial_id)
+    if at is None or not output["availability"]["economic_evidence_available"]:
+        return output
+    with db.read_as_of(profile) as conn:
+        head, now = db.head_commit(conn), availability.assess(conn, {"trial_id": trial_id})
+    if not now["economic_evidence_available"]:
+        output["limitations"] = dedupe(output["limitations"], [
+            f"at the research head {head} this run has no economic evidence: " + "; ".join(now["reasons"])])
+    return output
 
 
 def precheck_report(ledger, trial_id: int, at: str | None = None, *, directory: Path | None = None,
