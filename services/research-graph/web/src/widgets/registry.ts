@@ -17,14 +17,14 @@ const r = <W extends Widget>(title: string, Component: ComponentType<{ widget: W
   ({ title, Component: Component as ComponentType<{ widget: Widget }> });
 
 export const RENDERERS = {
-  summary: r("当前推荐", Recommendation),
-  lineage: r("策略谱系", Lineage),
-  tree: r("版本树", VersionTree),
-  detail: r("详情", Detail),
-  progress: r("研究进展", Progress),
-  scatter: r("年化与回撤", Scatter),
-  table: r("版本表", VersionTable),
-  notes: r("数据缺口", Notes),
+  summary: r("Recommended", Recommendation),
+  lineage: r("Lineage", Lineage),
+  tree: r("Versions", VersionTree),
+  detail: r("Details", Detail),
+  progress: r("Progress", Progress),
+  scatter: r("Return vs drawdown", Scatter),
+  table: r("Version table", VersionTable),
+  notes: r("Data gaps", Notes),
 } as const;
 
 export const unknownRenderer = (widget: Widget): Renderer => r(widget.title ?? widget.type, Unknown);

@@ -1,6 +1,6 @@
 import type { Candidate, DetailWidget, Targets, Trial } from "../../model/types";
 import { meets } from "../../model/semantics";
-import { when } from "../../lib/format";
+import { when, plural } from "../../lib/format";
 import { useView } from "../../model/view";
 import { Icon } from "../../icons/Icon";
 import { useSelection } from "../../state/selection";
@@ -15,9 +15,9 @@ import { Header } from "./Header";
 import { ReplayTable } from "./ReplayTable";
 
 const OUTCOME: Record<string, [string, string]> = {
-  held: ["成立", "text-meets"], failed: ["失败", "text-misses"], untestable: ["无法检验", "text-fg-faint"],
+  held: ["Held", "text-meets"], failed: ["Failed", "text-misses"], untestable: ["Untestable", "text-fg-faint"],
 };
-const VERDICT: Record<string, [string, string]> = { passed: ["通过", "text-meets"], failed: ["失败", "text-fail"] };
+const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets"], failed: ["Failed", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 
@@ -35,27 +35,27 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
     <div className="@container space-y-3 px-2 pb-3 text-dense">
       <Header c={c}>
       <MetricStrip items={[
-        { label: "年化", value: last.annual_return, format: percent, tone: meets(last.annual_return, targets?.annual_return, true) === false ? "misses" : "fg" },
-        { label: "最大回撤", value: last.max_drawdown, format: percent, tone: meets(last.max_drawdown, targets?.max_drawdown, false) === false ? "misses" : "fg" },
-        { label: "夏普", value: last.sharpe, format: two },
-        { label: "胜率", value: last.win_rate, format: percent },
+        { label: "Annual return", value: last.annual_return, format: percent, tone: meets(last.annual_return, targets?.annual_return, true) === false ? "misses" : "fg" },
+        { label: "Max drawdown", value: last.max_drawdown, format: percent, tone: meets(last.max_drawdown, targets?.max_drawdown, false) === false ? "misses" : "fg" },
+        { label: "Sharpe", value: last.sharpe, format: two },
+        { label: "Win rate", value: last.win_rate, format: percent },
       ]} />
       </Header>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
-      <CardGroup title="改动与预期" className={SIDE}>
-      <Section title="改了什么"><Prose text={c.change} /></Section>
-      <Section title="假设"><Prose text={c.hypothesis} /></Section>
+      <CardGroup title="Change and hypothesis" className={SIDE}>
+      <Section title="What changed"><Prose text={c.change} /></Section>
+      <Section title="Hypothesis"><Prose text={c.hypothesis} /></Section>
       {!!c.predictions?.length && (
-        <Section title="预测" aside={`${c.predictions.length} 条`}>
+        <Section title="Predictions" aside={`${c.predictions.length}`}>
           <table className="w-full"><tbody>
             {c.predictions.map((p, i) => {
-              const [label, cls] = OUTCOME[p.outcome ?? ""] ?? ["未判定", "text-fg-faint"];
+              const [label, cls] = OUTCOME[p.outcome ?? ""] ?? ["Not judged", "text-fg-faint"];
               return (
                 <tr key={i} className="border-b border-line last:border-0">
                   <td className="py-1 pr-2 font-mono">{p.measure ?? <Missing />}</td>
                   <td className="py-1 pr-2 text-fg-muted">
-                    {p.direction === "up" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-up" size={12} />上升</span>
-                      : p.direction === "down" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-down" size={12} />下降</span>
+                    {p.direction === "up" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-up" size={12} />Up</span>
+                      : p.direction === "down" ? <span className="inline-flex items-center gap-1"><Icon name="arrow-down" size={12} />Down</span>
                       : p.direction ?? <Missing />}
                   </td>
                   <td className={`py-1 text-right ${cls}`}>{label}</td>
@@ -66,23 +66,23 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         </Section>
       )}
       </CardGroup>
-      <CardGroup title="证据" className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
-      <Section title="回放" aside={`${runs.length} 次研究运行 · 共 ${(c.trials ?? []).length} 次试验`}>
+      <CardGroup title="Evidence" className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
+      <Section title="Replays" aside={`${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
         <ReplayTable trials={c.trials ?? []} targets={targets} />
       </Section>
-      <Section title="与对照比较">
+      <Section title="Versus control">
         {cmp ? (
           <KeyValues items={[
-            ["对照", cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null],
-            ["日均对数差", cmp.mean_daily_log_difference != null ? <span>{cmp.mean_daily_log_difference.toPrecision(3)}</span> : null],
-            ["可检出差", <Tip content="按现有样本，80% 把握能检出的最小日均对数差"><span>{cmp.detectable?.toPrecision(3) ?? "-"}</span></Tip>],
-            ["差值区间", cmp.interval_crosses_zero == null ? null : cmp.interval_crosses_zero
-              ? <span className="text-misses">跨零：不能说明好于对照</span> : <span className="text-meets">不跨零</span>],
+            ["Control", cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null],
+            ["Mean daily log diff.", cmp.mean_daily_log_difference != null ? <span>{cmp.mean_daily_log_difference.toPrecision(3)}</span> : null],
+            ["Min. detectable diff.", <Tip content="The smallest mean daily log difference the current sample detects with 80% power"><span>{cmp.detectable?.toPrecision(3) ?? "-"}</span></Tip>],
+            ["Difference interval", cmp.interval_crosses_zero == null ? null : cmp.interval_crosses_zero
+              ? <span className="text-misses">Crosses zero</span> : <span className="text-meets">Excludes zero</span>],
           ]} />
-        ) : <p className="text-fg-faint">没有可比较的对照</p>}
+        ) : <p className="text-fg-faint">No control to compare against</p>}
       </Section>
       {!!c.reviews?.length && (
-        <Section title="源码审阅" aside={`${c.reviews.length} 次`}>
+        <Section title="Source reviews" aside={`${c.reviews.length}`}>
           <div className="space-y-1.5">
             {c.reviews.map((r, i) => {
               const [label, cls] = VERDICT[r.verdict ?? ""] ?? ["-", "text-fg-faint"];
@@ -90,7 +90,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2">
                   <span className={cls}>{label}</span>
                   <span className="min-w-0"><span className="text-fg-faint">{when(r.at)}</span>
-                    {!!r.failed_items?.length && <span className="ml-2">失败项 {r.failed_items.join("、")}</span>}
+                    {!!r.failed_items?.length && <span className="ml-2">Failed items {r.failed_items.join(", ")}</span>}
                     {r.note && <span className="block text-fg-muted">{r.note}</span>}</span>
                 </div>
               );
@@ -99,12 +99,12 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         </Section>
       )}
       </CardGroup>
-      <CardGroup title="结论" className="@3xl:col-start-1">
-      <Section title="解释与决策"><Prose text={c.interpretation} /></Section>
-      <Section title="登记" open={false}>
+      <CardGroup title="Conclusion" className="@3xl:col-start-1">
+      <Section title="Interpretation and decision"><Prose text={c.interpretation} /></Section>
+      <Section title="Registration" open={false}>
         <KeyValues items={[
-          ["登记", c.registration ? <Token value={c.registration} /> : null],
-          ["职责", (c.duties ?? []).join(" ") || null],
+          ["Registration", c.registration ? <Token value={c.registration} /> : null],
+          ["Duties", (c.duties ?? []).join(" ") || null],
         ]} />
       </Section>
       </CardGroup>
@@ -118,5 +118,5 @@ export function Detail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
   const { targets } = useView();
   const c = widget.items.find((item) => item.id === (selected ?? widget.default));
-  return c ? <VersionDetail c={c} targets={targets} /> : <p className="p-4 text-fg-faint">在谱系、表格或散点图里点一个版本。</p>;
+  return c ? <VersionDetail c={c} targets={targets} /> : <p className="p-4 text-fg-faint">Pick a version in the lineage, the table or the scatter.</p>;
 }

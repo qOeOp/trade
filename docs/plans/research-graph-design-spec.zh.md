@@ -122,6 +122,8 @@
   - 试过只把读数的数字换成 Supply、字母和 `%` `.` 仍用 Inter：一个读数里两种字体，数字和字母高度不齐，用户评审后改成全部用 Supply。
   - 等宽英文夹在中文里会空出很宽的间隙，所以标点用全角（「目标：年化≥20.00%，回撤≤15.00%」），面板名用「年化与回撤」而不是「年化 vs 回撤」。
   - Supply 的零带斜杠，字体没有替代字形，关不掉。
+- **界面语言**（10-25 用户定）：界面全部用英文（按钮、面板名、图例、状态、提示），页面上的中文只来自账本里的旧记录。英文面板名：Versions、Details、Progress、Return vs drawdown、Version table、Data gaps。等宽英文比中文宽，窄处用短标签（版本树徽章「Failed」「Not run」，完整说法放在提示里）。
+- **长文本**：账本里的长文本按空行分段、按「- 」行排成列表，折叠时只显示第一段（只有一段时显示第一句），「Show more」和正文左对齐。
 - **中英混排**：
   - 用 CSS `text-autospace`，由浏览器在汉字和拉丁字母之间加 ⅛ 字宽的空隙，不手打空格（[css-text-4](https://drafts.csswg.org/css-text-4/)、[MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/text-autospace)）。
   - 中文段落行高 1.6–1.7（[W3C clreq §7.1.1](https://www.w3.org/TR/clreq/)）；界面单行文字保持 1.45。

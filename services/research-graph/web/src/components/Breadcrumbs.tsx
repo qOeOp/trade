@@ -1,5 +1,6 @@
 import { Icon } from "../icons/Icon";
 import { Dropdown, DropdownItem } from "./Dropdown";
+import { plural } from "../lib/format";
 
 export type Crumb = { id: string; label: string; onSelect?: () => void };
 
@@ -21,12 +22,12 @@ export function Breadcrumbs({ items }: { items: readonly Crumb[] }) {
   const folded = items.length > HEAD + TAIL + 1 ? items.slice(HEAD, items.length - TAIL) : [];
   const shown = folded.length ? [...items.slice(0, HEAD), null, ...items.slice(items.length - TAIL)] : items;
   return (
-    <nav aria-label="路径" className="flex min-w-0 items-center overflow-hidden">
+    <nav aria-label="Path" className="flex min-w-0 items-center overflow-hidden">
       {shown.map((c, i) => (
         <span key={c?.id ?? "…"} className={`flex min-w-0 items-center ${c == null ? "shrink-0" : ""}`}>
           {i > 0 && <Chevron />}
           {c == null
-            ? <Dropdown variant="inline" label={`另外 ${folded.length} 级`} trigger={<span className="hover:text-fg">…</span>}>
+            ? <Dropdown variant="inline" label={plural(folded.length, "more level")} trigger={<span className="hover:text-fg">…</span>}>
                 {folded.map((f) => <DropdownItem key={f.id} onSelect={() => f.onSelect?.()}>{f.label}</DropdownItem>)}
               </Dropdown>
             : <Step crumb={c} last={i === shown.length - 1} />}

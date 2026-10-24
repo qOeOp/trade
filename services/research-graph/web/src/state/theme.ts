@@ -4,7 +4,7 @@ import { persistedAtom, useAtom } from "./atom";
 
 export type ThemeChoice = "system" | "light" | "dark";
 const CHOICES: readonly ThemeChoice[] = ["system", "light", "dark"];
-export const THEME_LABEL: Record<ThemeChoice, string> = { system: "跟随系统", light: "浅色", dark: "深色" };
+export const THEME_LABEL: Record<ThemeChoice, string> = { system: "System", light: "Light", dark: "Dark" };
 
 export const theme = persistedAtom<ThemeChoice>("rg-theme", "system", (v): v is ThemeChoice => CHOICES.includes(v as ThemeChoice));
 

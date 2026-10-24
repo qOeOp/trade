@@ -11,9 +11,9 @@ import { Missing } from "./Missing";
 const ROOT = "box-border inline-flex h-[18px] shrink-0 items-center overflow-hidden rounded-badge border text-badge";
 const CELL = "px-(--rb-pad)";
 
-export function ReadingBadge({ reading, targets, status }: { reading: Reading | null; targets: Targets | null; status?: string }) {
+export function ReadingBadge({ reading, targets, status, hint }: { reading: Reading | null; targets: Targets | null; status?: string; hint?: string }) {
   if (!reading || reading.annual_return == null) {
-    return <span data-part="badge" className={`${ROOT} border-line text-fg-faint`}><span data-part="status" className={CELL}>{status ?? <Missing />}</span></span>;
+    return <span data-part="badge" className={`${ROOT} border-line text-fg-faint`}><span data-part="status" className={CELL} title={hint}>{status ?? <Missing />}</span></span>;
   }
   const ok = verdict(reading, targets);
   return (

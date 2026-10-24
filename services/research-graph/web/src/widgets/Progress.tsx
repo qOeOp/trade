@@ -18,7 +18,7 @@ import { Tip } from "../components/Tip";
 const TOP = 40, BOTTOM = 16, MIN_LEFT = 64, RIGHT = 12, GUTTER = 8;
 // Bars fill 70% of a trial's slot up to 24px, flat; the far end is rounded, the foot on the axis square.
 const SLOT = 0.7, MAX_BAR = 24, R = 3;
-const LEGEND: readonly [ColorRole, string][] = [["meets", "达到目标"], ["bar", "正收益未达标"], ["misses", "亏损"]];
+const LEGEND: readonly [ColorRole, string][] = [["meets", "Meets target"], ["bar", "Gain below target"], ["misses", "Loss"]];
 const crisp = (n: number) => Math.round(n) + 0.5;
 
 /** A bar from `base` to `end` (screen y), rounded only at `end` (square once too small to show it). */
@@ -66,7 +66,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   });
   const readout = near ? y(near.annual_return) : null;
   return (
-    <div ref={ref} tabIndex={0} aria-label="研究运行年化，方向键逐个读取" onKeyDown={keys}
+    <div ref={ref} tabIndex={0} aria-label="Annual return of research runs; arrow keys step through them" onKeyDown={keys}
          onBlur={() => { crosshair.set(null); hovered.set(null); }}
          className="relative h-full w-full select-none rounded-island -outline-offset-4"
          onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); crosshair.set(Math.round((e.clientX - r.left - x0) / unit)); }}
@@ -88,8 +88,8 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
                                       stroke={v("crosshair")} strokeDasharray="1 2" pointerEvents="none" />}
             <g className="chart-series">
               {points.map((p) => (
-                <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · 研究运行`} version={p.id}
-                  note={`年化 ${pct(p.annual_return)}${p.max_drawdown != null ? ` · 回撤 ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · 曾被推荐" : ""}`} />}>
+                <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · research run`} version={p.id}
+                  note={`Return ${pct(p.annual_return)}${p.max_drawdown != null ? ` · drawdown ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · once recommended" : ""}`} />}>
                   <path {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="cursor-pointer" onClick={() => requestFocus(p.id)}
                         d={bar(sx(p.trial_id) - barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)}
                         fill={v(tone(p.annual_return))} />
@@ -102,7 +102,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
             </g>
           </g>
           {target != null && <text className="chart-plot-line-label" x={width - RIGHT} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}
-                                   stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">目标 {pct(target)}</text>}
+                                   stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">Target {pct(target)}</text>}
           <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="end">
             {ticks.filter((t) => readout == null || Math.abs(y(t) - readout) > PILL_H + 2).map((t) => (
               <text key={t} x={left - GUTTER} y={y(t) + 3.5}>{pct(t)}</text>

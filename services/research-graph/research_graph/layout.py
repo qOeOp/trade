@@ -175,7 +175,7 @@ def build_view(graph: dict) -> dict:
                                 and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
                                 and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
                                                                 and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
-        {"id": "lineage", "type": "lineage/2", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
+        {"id": "lineage", "type": "lineage/2", "slot": "main", "title": "Lineage by trial", "targets": targets,
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
                   "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
@@ -184,24 +184,24 @@ def build_view(graph: dict) -> dict:
          "trail": trail,
          "trials": sorted(({"trial_id": t["trial_id"], "candidate": c["id"], "purpose": t["purpose"]}
                            for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
-        {"id": "progress", "type": "progress/1", "slot": "main", "title": "研究进展", "targets": targets,
+        {"id": "progress", "type": "progress/1", "slot": "main", "title": "Progress", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
                     for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
          "recommended": sorted({t["candidate"] for t in trail})},
-        {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
+        {"id": "readings", "type": "scatter/1", "slot": "main", "title": "Research runs: annual return vs max drawdown",
          "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t["max_drawdown"], "eligible": t.get("eligible"), "status": status_of[c["id"]]}
                     for c in candidates for t in research_runs(c)
                     if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
-        {"id": "versions", "type": "table/1", "slot": "main", "title": "版本表", "targets": targets,
+        {"id": "versions", "type": "table/1", "slot": "main", "title": "Version table", "targets": targets,
          "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
                    "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
                    **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}}
                   for c in candidates]},
-        {"id": "gaps", "type": "notes/1", "slot": "main", "title": "这份数据缺什么", "items": graph["gaps"]},
+        {"id": "gaps", "type": "notes/1", "slot": "main", "title": "What this data lacks", "items": graph["gaps"]},
         {"id": "details", "type": "candidate-detail/1", "slot": "side",
          "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
          "items": [{**c, "status_class": status_of[c["id"]], "prediction_class": prediction_of[c["id"]]}

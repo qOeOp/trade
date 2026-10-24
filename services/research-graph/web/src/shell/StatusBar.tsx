@@ -6,6 +6,7 @@ import { select, useSelection } from "../state/selection";
 import { Breadcrumbs } from "../components/Breadcrumbs";
 import { VersionLine } from "../components/VersionLine";
 import { useMemo } from "react";
+import { plural } from "../lib/format";
 
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left; the version under the pointer, else the
@@ -27,9 +28,9 @@ export function StatusBar() {
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
-        {hovered && hovered.length > 1 ? <span className="text-fg-muted">{hovered.length} 个版本</span>
+        {hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
           : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />}
-        {summary && <span>{summary.versions} 个版本 · {summary.research_runs} 次研究运行 · {summary.masked_runs} 次失去资格</span>}
+        {summary && <span>{plural(summary.versions, "version")} · {plural(summary.research_runs, "research run")} · {summary.masked_runs} ineligible</span>}
       </span>
     </footer>
   );

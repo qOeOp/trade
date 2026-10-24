@@ -9,11 +9,11 @@ const THEMES = (Object.keys(THEME_LABEL) as ThemeChoice[]).map((value) => ({ val
 export function SettingsMenu() {
   const choice = useTheme();
   return (
-    <Dropdown label="设置" align="end" variant="icon" trigger={<span className="text-icon"><Icon name="settings" size={20} /></span>}>
-      <DropdownLabel>主题</DropdownLabel>
+    <Dropdown label="Settings" align="end" variant="icon" trigger={<span className="text-icon"><Icon name="settings" size={20} /></span>}>
+      <DropdownLabel>Theme</DropdownLabel>
       <DropdownRadio value={choice} options={THEMES} onChange={(v) => theme.set(v)} />
       <DropdownSeparator />
-      <DropdownItem onSelect={resetShell}>重置工具窗布局</DropdownItem>
+      <DropdownItem onSelect={resetShell}>Reset tool window layout</DropdownItem>
     </Dropdown>
   );
 }

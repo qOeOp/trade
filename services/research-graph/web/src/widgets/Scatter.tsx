@@ -3,7 +3,7 @@ import { AxisBottom, AxisLeft } from "@visx/axis";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import type { ScatterWidget } from "../model/types";
-import { pct } from "../lib/format";
+import { pct, plural } from "../lib/format";
 import { valueDomain } from "../lib/valueDomain";
 import { tint, v } from "../theme/roles";
 import { hovered as hoveredAtom, hoverProps, requestFocus, useHovered } from "../state/linking";
@@ -73,7 +73,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const byReturn = [...points].sort((a, b) => a.annual_return - b.annual_return);
   const pinned = focus && shows(focus) ? focus : null;
   // The targets in the legend, out of the plot; full-width punctuation keeps the monospace face's wide spaces out.
-  const zone = t.annual_return != null && t.max_drawdown != null ? `目标：年化≥${pct(t.annual_return)}，回撤≤${pct(t.max_drawdown)}` : null;
+  const zone = t.annual_return != null && t.max_drawdown != null ? `Target: return ≥ ${pct(t.annual_return)}, drawdown ≤ ${pct(t.max_drawdown)}` : null;
   // Runs within 1.5px of one another are one marker (the one drawn last in `order`), counting the rest.
   const groups = new Map<string, Point[]>();
   for (const p of order) {
@@ -87,10 +87,10 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     return (
       <Tip key={`${p.id}-${p.trial_id}`} content={
         <div className="space-y-0.5"><div className="font-mono font-semibold">{p.id}</div>
-          <div>trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
-          {front && <div className="text-fg-muted">在不被支配的前沿上</div>}
-          {p.eligible === false && <div className="text-fail">失去资格</div>}
-          {more > 0 && <div className="text-fg-muted">另有 {more} 个运行与它重合</div>}</div>}>
+          <div>trial {p.trial_id} · return {pct(p.annual_return)} · drawdown {pct(p.max_drawdown)}</div>
+          {front && <div className="text-fg-muted">On the Pareto frontier</div>}
+          {p.eligible === false && <div className="text-fail">Ineligible</div>}
+          {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
         <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
           {p.id === selected && <circle cx={cx} cy={cy} r={R + 4.5} fill="none" stroke={v("selection-strong")} strokeWidth={2} />}
           <circle cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
@@ -122,7 +122,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     <div ref={ref} tabIndex={0} onKeyDown={keys} onBlur={() => { setKbd(null); hoveredAtom.set(null); }} {...zoom.handlers}
          className={`relative h-full w-full touch-none select-none rounded-island -outline-offset-4 ${zoom.zoomed ? "cursor-grab active:cursor-grabbing" : ""}`}>
       {width > 0 && (
-        <svg width={width} height={height} role="img" aria-label="研究运行的年化与最大回撤，方向键逐个读取">
+        <svg width={width} height={height} role="img" aria-label="Annual return against max drawdown of research runs; arrow keys step through them">
           {/* Zoomed in, marks stop at the plot's edges; showing everything, they may overhang them by a point's width. */}
           <defs><clipPath id={clip}><rect x={-pad} y={-pad} width={w + 2 * pad} height={h + 2 * pad} /></clipPath></defs>
           <Group left={M.left} top={M.top}>
@@ -172,13 +172,13 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
         </svg>
       )}
       <div className="absolute left-3 right-3 top-1.5 flex flex-wrap items-center justify-end gap-x-3.5 text-small text-fg-muted">
-        {zoom.zoomed && <TextButton onClick={zoom.reset} title="双击图表也可复原">复原缩放</TextButton>}
+        {zoom.zoomed && <TextButton onClick={zoom.reset} title="Double-click the chart to reset too">Reset zoom</TextButton>}
         {zone && <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={tint("meets", 24)} /></svg>{zone}
         </span>}
         <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={14} height={8} className="shrink-0"><line x1={0} x2={14} y1={4} y2={4} stroke={v("recommended")} strokeWidth={2} /></svg>
-          不被支配的前沿
+          Pareto frontier
         </span>
       </div>
     </div>

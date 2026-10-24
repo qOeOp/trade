@@ -11,7 +11,7 @@ import { VersionMenu } from "../components/VersionMenu";
 
 const col = columns<TableRow>();
 type Measure = "annual_return" | "max_drawdown" | "sharpe" | "win_rate";
-const HEADER: Record<Measure, string> = { annual_return: "年化", max_drawdown: "回撤", sharpe: "夏普", win_rate: "胜率" };
+const HEADER: Record<Measure, string> = { annual_return: "Return", max_drawdown: "Drawdown", sharpe: "Sharpe", win_rate: "Win rate" };
 
 function reading(key: Measure, higher: boolean, target: number | null | undefined, format: (x: number) => string): Column<TableRow> {
   return col.accessor(key, {
@@ -30,20 +30,20 @@ export function VersionTable({ widget }: { widget: TableWidget }) {
   const t = widget.targets ?? {};
   const cols: Column<TableRow>[] = [
     col.accessor("id", {
-      header: "版本", sortFn: "alphanumeric",
+      header: "Version", sortFn: "alphanumeric",
       cell: (c) => <span className="inline-flex items-center gap-1.5"><RoleMark role={c.row.original.role} size={12} />{c.getValue()}</span>,
     }) as Column<TableRow>,
-    col.accessor("first_trial", { header: "首次试验", meta: { numeric: true }, sortUndefined: "last", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
-    col.accessor("runs", { header: "研究运行", meta: { numeric: true } }) as Column<TableRow>,
+    col.accessor("first_trial", { header: "First trial", meta: { numeric: true }, sortUndefined: "last", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
+    col.accessor("runs", { header: "Runs", meta: { numeric: true } }) as Column<TableRow>,
     reading("annual_return", true, t.annual_return, pct),
     reading("max_drawdown", false, t.max_drawdown, pct),
     reading("sharpe", true, null, ratio),
     reading("win_rate", true, null, pct),
     col.accessor("prediction", {
-      header: "预测", cell: (c) => c.row.original.prediction === "none" ? <Missing /> : <PredictionMark prediction={c.row.original.prediction} size={16} />,
+      header: "Prediction", cell: (c) => c.row.original.prediction === "none" ? <Missing /> : <PredictionMark prediction={c.row.original.prediction} size={16} />,
     }) as Column<TableRow>,
-    col.accessor((r) => (r.role ? ROLE[r.role].label : ""), { id: "role", header: "角色", cell: (c) => c.getValue() || <Missing /> }) as Column<TableRow>,
-    col.accessor("parent", { header: "父版本", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
+    col.accessor((r) => (r.role ? ROLE[r.role].label : ""), { id: "role", header: "Role", cell: (c) => c.getValue() || <Missing /> }) as Column<TableRow>,
+    col.accessor("parent", { header: "Parent", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
   ];
   return (
     <DataTable data={widget.rows} columns={cols} rowId={(r) => r.id} version={(r) => r.id} selected={selected}
