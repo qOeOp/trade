@@ -65,6 +65,21 @@ yet, the first instant it does; it gets no data stamped earlier and trades from 
 contract where it never holds in the window gets no instance. Both are summary limitations; a run in
 which no contract can start is `WARMUP_INSUFFICIENT`. There is no second matching or account engine.
 
+A source declaring `QUOTE_EXECUTION = True` runs the quote environment: the export's best bid/ask
+quotes (`market import-quotes`, inferred from Binance aggTrades under a declared rule, both sizes the
+instrument's max quantity) are streamed to the venue and drive matching on an L1 book, bar execution is
+off (bars only feed signals), the venue's native liquidation is on (`liquidation_enabled`, trigger ratio
+1.0, open orders cancelled first) with the standard margin model (maintenance = notional x the rate,
+not divided by leverage), and the instruments carry the source's `INITIAL_MARGIN_RATE` and
+`MAINTENANCE_MARGIN_RATE` (decimal strings, 0 < maintenance <= initial < 1: the Binance bracket of the
+strategy's largest position, declared by the source because position size is its design variable;
+`MARGIN_DECLARATION_INVALID` otherwise). An active contract whose export holds no quotes is
+`QUOTES_MISSING`. The quotes count in the consumed events. The model is declared, not the exchange's:
+equity is valued at the cached best bid/ask, not the mark price; the maintenance margin is fixed at the
+position's average entry price; fills take the best price with no depth; the quotes themselves are an
+inference from trades (see `market/README.md`). Without the declaration nothing changes: exported
+quotes are not streamed and the bar environment is as before.
+
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
 `symbols`, `start`, `trade_start`, `end` and `account`; its digest leaves out the two host paths, so

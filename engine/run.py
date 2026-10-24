@@ -28,6 +28,9 @@ from nautilus_trader.common import DataActor, LoggerConfig, LogLevel
 from nautilus_trader.data import DataEngineConfig
 from nautilus_trader.execution import DefaultFillModel
 from nautilus_trader.model import (
+    StandardMarginModel,
+    CryptoPerpetual,
+    QuoteTick,
     AccountType,
     Bar,
     BarType,
@@ -617,9 +620,10 @@ class Replay:
 # funding, bars, status, close. The engine gets the node's chunks: chunk_size events, extended to
 # the last event's ts_init, each run up to it.
 
-STREAM_TYPES = ("MarkPriceUpdate", "FundingRateUpdate", "Bar", "InstrumentStatus", "InstrumentClose")
-DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "FundingRateUpdate": "funding_rate_update",
-                    "InstrumentStatus": "instrument_status", "InstrumentClose": "instrument_closes"}
+STREAM_TYPES = ("MarkPriceUpdate", "QuoteTick", "FundingRateUpdate", "Bar", "InstrumentStatus", "InstrumentClose")
+DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes",
+                    "FundingRateUpdate": "funding_rate_update", "InstrumentStatus": "instrument_status",
+                    "InstrumentClose": "instrument_closes"}
 RUN_ID = "r1-native-replay"
 SESSION_BATCH = 5_000
 SESSION_WINDOW_NS = 7 * 86_400 * 10**9
@@ -677,18 +681,23 @@ def _keyed(events, order: int):
         yield event.ts_init, order, sequence, event
 
 
-def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_BATCH):
+def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_BATCH, quotes: bool = False):
     """Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end`
-    bound the exported events' ts_init."""
+    bound the exported events' ts_init. Exported quotes are streamed only with `quotes` (a QUOTE_EXECUTION
+    source): in the bar environment they would move the venue's book between bars."""
     import heapq
     import pyarrow.parquet as parquet
-    bars, marks, small, files = {}, {}, [], []
+    bars, marks, quote_order, small, files = {}, {}, {}, [], []
     for index, row in enumerate(rows):
         base = index * len(STREAM_TYPES)
         instrument_id = row["instrument_id"]
         bar_type = BarType.from_str(f"{instrument_id}-{EXECUTION_BAR_MINUTES}-MINUTE-LAST-EXTERNAL")
         bars[bar_type], marks[instrument_id] = base + STREAM_TYPES.index("Bar"), base
-        for kind, native in (("Bar", NautilusDataType.Bar), ("MarkPriceUpdate", NautilusDataType.MarkPriceUpdate)):
+        quote_order[instrument_id] = base + STREAM_TYPES.index("QuoteTick")
+        kinds = [("Bar", NautilusDataType.Bar), ("MarkPriceUpdate", NautilusDataType.MarkPriceUpdate)]
+        if quotes:
+            kinds.append(("QuoteTick", NautilusDataType.QuoteTick))
+        for kind, native in kinds:
             for number, path in enumerate(_files(row, kind)):
                 if kind == "Bar" and unquote(Path(path).parent.name) != str(bar_type):
                     continue  # the daily warm-up bars are the strategy's, never replayed (names are %-encoded)
@@ -721,7 +730,8 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
             if group:
                 yield from flush(group, ts)
             group, ts = [], at
-        group.append((bars[event.bar_type] if type(event) is Bar else marks[event.instrument_id], event))
+        group.append((bars[event.bar_type] if type(event) is Bar else quote_order[event.instrument_id]
+                      if type(event) is QuoteTick else marks[event.instrument_id], event))
     if group:
         yield from flush(group, ts)
     while following is not None:
@@ -799,18 +809,37 @@ def fill_model(account) -> DefaultFillModel:
                             prob_slippage=float(account["prob_slippage"]))
 
 
-def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
-    """engine.add_venue: the one simulated venue with the account and matching terms."""
+def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT, quote_execution: bool = False) -> None:
+    """engine.add_venue: the one simulated venue with the account and matching terms. With `quote_execution`
+    the exported quotes drive matching and the native liquidation (bar execution off, liquidation on, the
+    standard margin model: maintenance = notional x the instrument's rate, not divided by leverage)."""
     currency = Currency.from_str(account["base_currency"])
     engine.add_venue(
         Venue(account["venue"]), getattr(OmsType, account["oms_type"]), getattr(AccountType, account["account_type"]),
         # The pinned Money takes the amount through __float__, as the stub's float says; the value stays a Decimal.
         [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,  # type: ignore[arg-type]
         default_leverage=Decimal(account["default_leverage"]), book_type=getattr(BookType, account["book_type"]),
+        margin_model=StandardMarginModel() if quote_execution else None,
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
-        support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
+        support_contingent_orders=account["support_contingent_orders"],
+        bar_execution=False if quote_execution else account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=fill_model(account),
-        liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"])
+        liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"],
+        liquidation_enabled=quote_execution)
+
+
+def with_margins(made: CryptoPerpetual, rates: tuple[str, str]) -> CryptoPerpetual:
+    """engine.with_margins: the exported instrument with the source's declared (initial, maintenance) margin
+    rates; every other term stays the Catalog's."""
+    return CryptoPerpetual(
+        instrument_id=made.id, raw_symbol=made.raw_symbol, base_currency=made.base_currency,
+        quote_currency=made.quote_currency, settlement_currency=made.settlement_currency, is_inverse=made.is_inverse,
+        price_precision=made.price_precision, size_precision=made.size_precision, price_increment=made.price_increment,
+        size_increment=made.size_increment, ts_event=made.ts_event, ts_init=made.ts_init, multiplier=made.multiplier,
+        lot_size=made.lot_size, max_quantity=made.max_quantity, min_quantity=made.min_quantity,
+        max_notional=made.max_notional, min_notional=made.min_notional, max_price=made.max_price,
+        min_price=made.min_price, margin_init=Decimal(rates[0]), margin_maint=Decimal(rates[1]),
+        maker_fee=made.maker_fee, taker_fee=made.taker_fee)
 
 
 def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path):
@@ -833,9 +862,15 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         ),
         risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
     ))
-    add_venue(engine, account)
+    add_venue(engine, account, strategy.quote_execution)
+    rates = strategy.margin_rates if strategy.quote_execution else None  # load_strategy requires them with QUOTE_EXECUTION
+    if strategy.quote_execution:
+        for row, _, _ in planned:
+            if not row["counts"].get("quote"):
+                raise Refusal("QUOTES_MISSING", f"{row['symbol']}: the source declares QUOTE_EXECUTION but the export "
+                                                "holds no quotes for this contract in the window")
     for row in rows:
-        engine.add_instrument(row["instrument"])
+        engine.add_instrument(with_margins(row["instrument"], rates) if rates is not None else row["instrument"])
     STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
@@ -851,9 +886,11 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         )))
     engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
-    stream(engine, market_events(rows, window.start_ns, window.end_ns), account["chunk_size"])
+    stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=strategy.quote_execution),
+           account["chunk_size"])
     result = engine.get_result()
-    expected_iterations = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
+    skipped = ("daily",) if strategy.quote_execution else ("daily", "quote")
+    expected_iterations = sum(sum(value for key, value in row["counts"].items() if key not in skipped) for row in rows)
     if result.iterations != expected_iterations:
         raise Refusal("DATA_COUNT_MISMATCH", f"the engine consumed {result.iterations} events, the export receipts "
                                              f"hold {expected_iterations}")

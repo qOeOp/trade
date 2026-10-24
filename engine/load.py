@@ -4,6 +4,7 @@ lifecycle events checked against the coverage receipt."""
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import hashlib
 import importlib.util
 import inspect
@@ -42,6 +43,8 @@ class LoadedStrategy:
     strategy_class: type[Strategy]
     uses_stop_loss: bool = True
     daily_warmup: bool = False
+    quote_execution: bool = False
+    margin_rates: tuple[str, str] | None = None  # (initial, maintenance) decimal strings, quote execution only
 
 
 def read_regular_file(path: Path) -> bytes:
@@ -109,8 +112,32 @@ def load_strategy(
         raise Refusal("DECLARATION_NOT_BOOL", "strategy DAILY_WARMUP must be True or False")
     if type(getattr(strategy_class, "USES_STOP_LOSS", True)) is not bool:
         raise Refusal("DECLARATION_NOT_BOOL", "strategy USES_STOP_LOSS must be True or False")
+    if type(getattr(strategy_class, "QUOTE_EXECUTION", False)) is not bool:
+        raise Refusal("DECLARATION_NOT_BOOL", "strategy QUOTE_EXECUTION must be True or False")
     return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class,
-                          getattr(strategy_class, "USES_STOP_LOSS", True), getattr(strategy_class, "DAILY_WARMUP", False))
+                          getattr(strategy_class, "USES_STOP_LOSS", True), getattr(strategy_class, "DAILY_WARMUP", False),
+                          getattr(strategy_class, "QUOTE_EXECUTION", False), margin_rates(strategy_class))
+
+
+def margin_rates(strategy_class) -> tuple[str, str] | None:
+    """The (initial, maintenance) margin rates a QUOTE_EXECUTION source declares: decimal strings with
+    0 < maintenance <= initial < 1 (the Binance bracket of the strategy's largest position, declared by the
+    source because position size is its design variable); None for a bar-execution source."""
+    if not getattr(strategy_class, "QUOTE_EXECUTION", False):
+        return None
+    values = []
+    for name in ("INITIAL_MARGIN_RATE", "MAINTENANCE_MARGIN_RATE"):
+        text = getattr(strategy_class, name, None)
+        try:
+            value = Decimal(text) if type(text) is str else None
+        except InvalidOperation:
+            value = None
+        if value is None or not value.is_finite() or not 0 < value < 1:
+            raise Refusal("MARGIN_DECLARATION_INVALID", f"strategy {name} must be a decimal string in (0, 1), got {text!r}")
+        values.append(value)
+    if values[1] > values[0]:
+        raise Refusal("MARGIN_DECLARATION_INVALID", "strategy MAINTENANCE_MARGIN_RATE must not exceed INITIAL_MARGIN_RATE")
+    return format(values[0], "f"), format(values[1], "f")
 
 
 def strategy_metadata(loaded: LoadedStrategy) -> dict:
@@ -121,6 +148,8 @@ def strategy_metadata(loaded: LoadedStrategy) -> dict:
         "strategy_runtime_contract": RUNTIME_CONTRACT,
         "strategy_uses_stop_loss": loaded.uses_stop_loss,
         "strategy_daily_warmup": loaded.daily_warmup,
+        "strategy_quote_execution": loaded.quote_execution,
+        "strategy_margin_rates": list(loaded.margin_rates) if loaded.margin_rates else None,
         "strategy_source": {
             "path": str(loaded.source_path),
             "content_hash": loaded.content_hash,
@@ -292,6 +321,8 @@ def read_market(market_root: Path, symbols: list[str], market_commit: str, start
                 raise Refusal("INSTRUMENT_NOT_UNIQUE", f"{symbol}: one Binance USDT instrument is required")
             counts = {key: piece["counts"][key] for key in ("last", "mark", "funding")}
             counts.update({key: piece["counts"][key] for key in LIFECYCLE_COUNTS if piece["counts"].get(key)})
+            if piece["counts"].get("quote"):
+                counts["quote"] = piece["counts"]["quote"]
             rows.append({"symbol": symbol, "coin": coin(symbol, index), "strategy_id": strategy_id(symbol, index),
                          "catalog_path": catalog_path, "receipt": receipt, "piece": piece,
                          "instrument": instruments[0], "instrument_id": instrument_id, "counts": counts,

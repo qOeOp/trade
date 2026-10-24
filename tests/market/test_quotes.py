@@ -144,6 +144,21 @@ class ImportQuotesTests(unittest.TestCase):
             dirty = conn.rows("SELECT table_name FROM dolt_status")
         self.assertEqual((count, dirty), (0, []))
 
+    def test_an_export_writes_the_stored_quotes_with_the_max_quantity_as_size(self):
+        from nautilus_trader.persistence import ParquetDataCatalog
+        from market import export
+        start_ns, end_ns = day_ms(JAN) * 10**6, (day_ms(JAN) + 2 * DAY) * 10**6  # the first two days
+        with tempfile.TemporaryDirectory() as temp:
+            made = export.export_catalogs(self.profile, None, ["BTCUSDT"], start_ns, end_ns, fresh=True, root=Path(temp))
+            piece = made["receipts"]["BTCUSDT"]["pieces"][0]
+            catalog = ParquetDataCatalog(str(Path(made["root"]) / "BTCUSDT"))
+            quotes = catalog.query_quote_ticks([piece["instrument_id"]])
+            self.assertEqual((piece["counts"]["quote"], len(quotes), piece["quote_size"]), (2 * 2880, 2 * 2880, "1000"))
+            first = quotes[0]
+            self.assertEqual((first.ts_event, str(first.bid_size), str(first.ask_size)), (start_ns + 100 * 10**6, "1000.000", "1000.000"))
+            self.assertEqual(first.ask_price.as_decimal() - first.bid_price.as_decimal(), Decimal("0.03"))  # the eve's carried ask
+            self.assertTrue(all(q.bid_price < q.ask_price for q in quotes[:1000]))
+
     def test_upgrade_adds_a_missing_table_and_is_otherwise_a_no_op(self):
         self.assertEqual(db.upgrade_market(self.profile)["created"], [])
         config = db._known_service(Path(self.profile["service"]))

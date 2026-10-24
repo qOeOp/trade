@@ -1,12 +1,14 @@
 """Export one market commit as Nautilus ParquetDataCatalogs for a replay window (`market.export_catalogs`,
 `market.export_episode`, `market.split_episodes`, `market.native_symbol`, `market.write_bars`,
-`market.write_marks`, `market.write_funding`).
+`market.write_marks`, `market.write_quotes`, `market.write_funding`).
 
 Per contract, `<root>/<SYMBOL>/` holds its receipt `export.json` and one Catalog per piece: the whole
 contract when no lifecycle is given (the Catalog sits in the contract directory), one
 `episode-<n>/` per lifecycle episode otherwise (a reused ticker becomes independent native
 contracts). A Catalog holds the instrument, the stored one-minute LAST bars and one MARK price update
-per one-minute MARK bar of the window, funding updates at their settlement times, the complete UTC
+per one-minute MARK bar of the window, one QuoteTick per stored best bid/ask state (both sizes the
+instrument's max quantity: no depth is modeled; none when the terms have no max quantity or no quotes are
+stored), funding updates at their settlement times, the complete UTC
 daily LAST bars derived from the minutes before the window's end (the daily warm-up) and the
 episode's window events. `export.json`, written last, marks a complete export; a cache entry is
 keyed by commit, window and lifecycle evidence, and a missing or partial one is exported again. The
@@ -228,6 +230,42 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
     return len(rows)
 
 
+def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int, price_scale: int,
+                 chunk: int = CHUNK) -> int:
+    """market.write_quotes: one QuoteTick per stored best bid/ask state (`rows` yields (ts_ms, bid, ask) integer
+    batches in time order); both sizes are `size` at the instrument's size precision (its max quantity: no depth
+    is modeled)."""
+    from nautilus_trader.model import Price, Quantity, QuoteTick
+    factor = 10 ** (NAUTILUS_SCALE - price_scale)
+    quantity = Quantity.from_str(format(Decimal(size).quantize(Decimal(1).scaleb(-size_precision)), "f"))
+    written, last = 0, None
+    for batch in rows:
+        block = np.array(batch, dtype=np.int64).reshape(-1, 3)
+        if not len(block):
+            continue
+        if not _exact(block[:, 1], price_scale, price_precision) or not _exact(block[:, 2], price_scale, price_precision):
+            raise _refuse(f"{instrument_id}: a quote price is not exact at precision {price_precision}", "QUOTE_INEXACT",
+                          missing=(str(instrument_id),))
+        if (last is not None and block[0, 0] < last) or np.any(np.diff(block[:, 0]) < 0):
+            raise _refuse(f"{instrument_id}: quote times go backwards", "QUOTES_UNSORTED", missing=(str(instrument_id),))
+        last = int(block[-1, 0])
+        for offset in range(0, len(block), chunk):
+            part = block[offset:offset + chunk]
+            ticks = [QuoteTick(instrument_id, Price.from_raw(int(bid) * factor, price_precision),
+                               Price.from_raw(int(ask) * factor, price_precision), quantity, quantity,
+                               int(ts) * 1_000_000, int(ts) * 1_000_000) for ts, bid, ask in part.tolist()]
+            catalog.write_quote_ticks(ticks)
+            written += len(ticks)
+    return written
+
+
+def quote_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int = CHUNK):
+    """The stored quote states of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, bid, ask) batches."""
+    stop = end_ms if high_ms is None else min(end_ms, high_ms)
+    yield from conn.stream(f"SELECT ts, bid, ask FROM quote AS OF '{commit}' WHERE symbol = %s AND ts >= %s AND ts < %s "
+                           "ORDER BY ts, agg_trade_id", (symbol, low_ms, stop), size=chunk)
+
+
 # The daily warm-up, derived while streaming
 
 DAILY_CHUNK = 20_000  # rows per streamed chunk: about two weeks of minutes
@@ -310,10 +348,17 @@ def export_episode(job: dict) -> dict:
         catalog.write_instruments([made])
         iid = InstrumentId.from_str(piece["instrument_id"])
         mark_precision = max(precision, needed_decimals(mark["close"], price_scale))
+        quote_size = terms.get("max_quantity")  # None for inferred terms: no quotes can be exported
+        with store.connect(job["profile"], "reader") as conn:
+            quotes = write_quotes(catalog, iid, quote_rows(conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
+                                                            piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None
+                                                            else None, end),
+                                  precision, quote_size, size_increment, price_scale) if quote_size is not None else 0
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
                                      max(size_increment, needed_decimals(last["volume"], volume_scale)),
                                      price_scale, volume_scale),
                   "mark": write_marks(catalog, iid, mark, MINUTE, mark_precision, price_scale),
+                  "quote": quotes,
                   "funding": write_funding(root, str(iid), piece["funding"]),
                   "daily": write_bars(catalog, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, precision,
                                       max(size_increment, needed_decimals(daily["volume"], volume_scale)),
@@ -332,7 +377,8 @@ def export_episode(job: dict) -> dict:
                        "missing_minutes": held["missing_count"],
                        "last_mark_unmatched": int(len(np.setxor1d(opens, mark["ts_open"]))),
                        "price_precision": precision, "price_precision_widened": precision != exchange,
-                       "mark_precision": mark_precision, "episode": piece["episode"]})
+                       "mark_precision": mark_precision, "quote_size": quote_size if quotes else None,
+                       "episode": piece["episode"]})
     assert record is not None  # split_episodes returns at least one piece
     receipt = {"format": FORMAT, "symbol": symbol, "commit": commit, "timeframe": TIMEFRAME, "start_ns": start_ns,
                "end_ns": end_ns, "coverage": receipt_coverage(facts), "terms_source": record["terms_source"],

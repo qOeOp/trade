@@ -23,7 +23,9 @@ from typing import TypedDict
 
 
 # replay-contract@v6: one-minute execution bars and the constructor's `universe_membership`. A source written
-# for another contract is refused, not run on these inputs.
+# for another contract is refused, not run on these inputs. A source declaring QUOTE_EXECUTION = True (with its
+# INITIAL_MARGIN_RATE and MAINTENANCE_MARGIN_RATE) runs the quote environment instead: the exported best bid/ask
+# quotes drive matching and the native liquidation, bars only feed signals (engine.run.add_venue).
 RUNTIME_CONTRACT = "replay-contract@v6"
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
@@ -130,6 +132,7 @@ REFUSALS: dict[str, str] = {
     "INSTRUMENT_NOT_UNIQUE": "An exported Catalog does not hold exactly one USDT instrument of the receipt's ID.",
     "CONTRACT_NAME_COLLISION": "Two contracts share a short name or strategy identifier.",
     "NO_ACTIVE_INSTRUMENT": "No contract's lifecycle intersects the input window.",
+    "QUOTES_MISSING": "The source declares QUOTE_EXECUTION but an active contract's export holds no quotes.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
@@ -145,7 +148,9 @@ REFUSALS: dict[str, str] = {
     "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
-    "DECLARATION_NOT_BOOL": "DAILY_WARMUP or USES_STOP_LOSS is not a bool.",
+    "DECLARATION_NOT_BOOL": "DAILY_WARMUP, USES_STOP_LOSS or QUOTE_EXECUTION is not a bool.",
+    "MARGIN_DECLARATION_INVALID": "A QUOTE_EXECUTION source's INITIAL_MARGIN_RATE or MAINTENANCE_MARGIN_RATE is not a "
+                                  "decimal string with 0 < maintenance <= initial < 1.",
     # engine.warmup_daily_bars and engine.mark_timestamps
     "WARMUP_NOT_ADJACENT": "No daily bar closes 1 ms before the input start.",
     "WARMUP_INSUFFICIENT": "Too few contiguous daily bars end at the input start (no contract can start).",
