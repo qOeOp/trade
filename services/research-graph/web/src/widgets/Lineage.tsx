@@ -24,7 +24,7 @@ function NodeTip({ data }: { data: VersionData }) {
   return (
     <div className="space-y-1">
       <div className="mono font-semibold">{data.id}</div>
-      <div className="flex items-center gap-1.5 muted"><RoleMark role={data.role} size={12} />{ROLE[data.role]?.label ?? "—"}
+      <div className="flex items-center gap-1.5 muted"><RoleMark role={data.role} size={12} />{ROLE[data.role]?.label ?? "-"}
         {PREDICTION[data.prediction].glyph && <span>· {PREDICTION[data.prediction].label}</span>}</div>
       {data.reading.annual_return != null && (
         <div className="mono">年化 <span style={{ color: readingColor(ok.ret) }}>{pct(data.reading.annual_return)}</span>
@@ -58,7 +58,7 @@ const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
               <span className="w-[46px] px-1 text-right" style={{ color: readingColor(ok.dd) }}>{pct(data.reading.max_drawdown)}</span>
             </span>
           ) : (
-            <span className="shrink-0 rounded-[4px] border px-1.5 text-[10.5px] leading-[16px] faint" style={{ borderColor: "var(--rule)" }}>{ROLE[data.role]?.label ?? "—"}</span>
+            <span className="shrink-0 rounded-[4px] border px-1.5 text-[10.5px] leading-[16px] faint" style={{ borderColor: "var(--rule)" }}>{ROLE[data.role]?.label ?? "-"}</span>
           )}
           {prediction.glyph && <b className="w-2 text-[11px]" style={{ color: prediction.color }}>{prediction.glyph}</b>}
           <span className="mono text-[11.5px]" style={{ color: data.role === "superseded" ? "var(--ink-2)" : "var(--ink-1)" }}>

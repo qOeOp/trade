@@ -18,7 +18,7 @@ function Metric({ label, value, ok, format }: { label: string; value?: number | 
   return (
     <div className="flex items-baseline justify-between gap-2 whitespace-nowrap px-3 py-1.5">
       <span className="faint">{label}</span>
-      <span style={{ color: readingColor(ok) }}>{value == null ? "—" : <NumberFlow value={value} format={format} />}</span>
+      <span style={{ color: readingColor(ok) }}>{value == null ? "-" : <NumberFlow value={value} format={format} />}</span>
     </div>
   );
 }
@@ -31,7 +31,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
   const cmp = c.comparison;
   const role = c.status ?? null;
   const value = (v: number | null | undefined, text: string, ok: boolean | null = null) =>
-    v == null ? <span className="ghost">—</span> : <span style={{ color: readingColor(ok) }}>{text}</span>;
+    v == null ? <span className="ghost">-</span> : <span style={{ color: readingColor(ok) }}>{text}</span>;
   const trialColumns: Column<Trial>[] = [
     col.accessor("trial_id", { header: "trial" }) as Column<Trial>,
     col.accessor("purpose", { header: "用途", cell: (x) => PURPOSE[x.getValue() as string] ?? x.getValue() }) as Column<Trial>,
@@ -44,7 +44,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
     col.accessor("eligible", { header: "资格", meta: { align: "right" }, cell: (x) => {
       const t = x.row.original;
       if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "失去资格"}><span style={{ color: "var(--fail)" }}>失去</span></Tip>;
-      return t.eligible ? <span style={{ color: "var(--meet)" }}>✓</span> : <span className="ghost">—</span>;
+      return t.eligible ? <span style={{ color: "var(--meet)" }}>✓</span> : <span className="ghost">-</span>;
     } }) as Column<Trial>,
   ];
   return (
@@ -56,7 +56,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
           <button className="press ml-auto shrink-0 px-1.5 py-0.5 text-[11px] faint" onClick={() => requestFocus(c.id)}>在图中定位</button>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11.5px] faint">
-          <Tip content={role ? ROLE[role].hint : undefined}><span className="muted">{role ? ROLE[role].label : "—"}</span></Tip>
+          <Tip content={role ? ROLE[role].hint : undefined}><span className="muted">{role ? ROLE[role].label : "-"}</span></Tip>
           <span style={{ color: PREDICTION[c.prediction_class].color }}>{PREDICTION[c.prediction_class].label}</span>
           <span className="mono">{when(c.created_at)}</span>
           {c.parent && (
@@ -70,8 +70,8 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
         <Metric label="夏普" value={last.sharpe} ok={null} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />
         <Metric label="胜率" value={last.win_rate} ok={null} format={percent} />
       </div>
-      <Section title="改了什么"><p className="leading-relaxed">{c.change ?? "—"}</p></Section>
-      <Section title="假设"><p className="leading-relaxed">{c.hypothesis ?? "—"}</p></Section>
+      <Section title="改了什么"><p className="leading-relaxed">{c.change ?? "-"}</p></Section>
+      <Section title="假设"><p className="leading-relaxed">{c.hypothesis ?? "-"}</p></Section>
       {!!c.predictions?.length && (
         <Section title="预测" aside={`${c.predictions.length} 条`}>
           <table className="w-full text-[12px]"><tbody>
@@ -79,8 +79,8 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
               const [label, color] = OUTCOME[p.outcome ?? ""] ?? ["未判定", "var(--ink-3)"];
               return (
                 <tr key={i} className="border-b last:border-0" style={{ borderColor: "var(--rule)" }}>
-                  <td className="mono py-1 pr-2">{p.measure ?? "—"}</td>
-                  <td className="py-1 pr-2 muted">{p.direction === "up" ? "↑ 上升" : p.direction === "down" ? "↓ 下降" : p.direction ?? "—"}</td>
+                  <td className="mono py-1 pr-2">{p.measure ?? "-"}</td>
+                  <td className="py-1 pr-2 muted">{p.direction === "up" ? "↑ 上升" : p.direction === "down" ? "↓ 下降" : p.direction ?? "-"}</td>
                   <td className="py-1 text-right" style={{ color }}>{label}</td>
                 </tr>
               );
@@ -94,10 +94,10 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
       <Section title="与对照比较">
         {cmp ? (
           <KeyValues items={[
-            ["对照", cmp.vs_trial != null ? <span className="mono">trial {cmp.vs_trial}</span> : "—"],
-            ["日均对数差", <span className="mono">{cmp.mean_daily_log_difference?.toPrecision(3) ?? "—"}</span>],
-            ["可检出差", <Tip content="按现有样本，80% 把握能检出的最小日均对数差"><span className="mono">{cmp.detectable?.toPrecision(3) ?? "—"}</span></Tip>],
-            ["差值区间", cmp.interval_crosses_zero == null ? "—" : cmp.interval_crosses_zero
+            ["对照", cmp.vs_trial != null ? <span className="mono">trial {cmp.vs_trial}</span> : "-"],
+            ["日均对数差", <span className="mono">{cmp.mean_daily_log_difference?.toPrecision(3) ?? "-"}</span>],
+            ["可检出差", <Tip content="按现有样本，80% 把握能检出的最小日均对数差"><span className="mono">{cmp.detectable?.toPrecision(3) ?? "-"}</span></Tip>],
+            ["差值区间", cmp.interval_crosses_zero == null ? "-" : cmp.interval_crosses_zero
               ? <span style={{ color: "var(--miss)" }}>跨零：不能说明好于对照</span>
               : <span style={{ color: "var(--meet)" }}>不跨零</span>],
           ]} />
@@ -107,7 +107,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
         <Section title="源码审阅" aside={`${c.reviews.length} 次`}>
           <div className="space-y-1.5">
             {c.reviews.map((r, i) => {
-              const [label, color] = VERDICT[r.verdict ?? ""] ?? ["—", "var(--ink-3)"];
+              const [label, color] = VERDICT[r.verdict ?? ""] ?? ["-", "var(--ink-3)"];
               return (
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2 text-[12px]">
                   <span style={{ color }}>{label}</span>
@@ -120,11 +120,11 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
           </div>
         </Section>
       )}
-      <Section title="解释与决策"><p className="leading-relaxed">{c.interpretation ?? "—"}</p></Section>
+      <Section title="解释与决策"><p className="leading-relaxed">{c.interpretation ?? "-"}</p></Section>
       <Section title="登记" open={false}>
         <KeyValues items={[
-          ["登记", c.registration ? <Tip content={c.registration}><span className="mono block truncate">{c.registration}</span></Tip> : "—"],
-          ["职责", (c.duties ?? []).join(" ") || "—"],
+          ["登记", c.registration ? <Tip content={c.registration}><span className="mono block truncate">{c.registration}</span></Tip> : "-"],
+          ["职责", (c.duties ?? []).join(" ") || "-"],
         ]} />
       </Section>
     </div>

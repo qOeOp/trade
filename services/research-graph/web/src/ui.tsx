@@ -69,7 +69,7 @@ export function Section({ title, aside, children, open: initial = true }: {
 export function KeyValues({ items }: { items: [string, ReactNode][] }) {
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 text-[12px]">
-      {items.map(([k, v]) => <div key={k} className="contents"><dt className="faint">{k}</dt><dd className="min-w-0">{v ?? "—"}</dd></div>)}
+      {items.map(([k, v]) => <div key={k} className="contents"><dt className="faint">{k}</dt><dd className="min-w-0">{v ?? "-"}</dd></div>)}
     </dl>
   );
 }

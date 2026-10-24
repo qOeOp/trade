@@ -1,7 +1,7 @@
 import type { Prediction, Role, Targets } from "./types";
 
-export const pct = (v?: number | null) => (v == null ? "—" : `${(v * 100).toFixed(2)}%`);
-export const ratio = (v?: number | null) => (v == null ? "—" : v.toFixed(2));
+export const pct = (v?: number | null) => (v == null ? "-" : `${(v * 100).toFixed(2)}%`);
+export const ratio = (v?: number | null) => (v == null ? "-" : v.toFixed(2));
 export const when = (v?: string | null) => (v ? v.slice(0, 16).replace("T", " ") : "");
 
 // A version's role in the line, shown by shape first and colour second (see StatusMark).

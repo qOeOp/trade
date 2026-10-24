@@ -32,17 +32,17 @@ export function VersionTable({ widget, selected, onSelect }: { widget: TableWidg
           <span className="mono">{c.getValue()}</span></span>
       ),
     }) as Column<TableRow>,
-    col.accessor("first_trial", { header: "首次试验", meta: { numeric: true }, sortUndefined: "last", cell: (c) => c.getValue() ?? "—" }) as Column<TableRow>,
+    col.accessor("first_trial", { header: "首次试验", meta: { numeric: true }, sortUndefined: "last", cell: (c) => c.getValue() ?? "-" }) as Column<TableRow>,
     col.accessor("runs", { header: "研究运行", meta: { numeric: true } }) as Column<TableRow>,
     reading("annual_return", true, t.annual_return),
     reading("max_drawdown", false, t.max_drawdown),
     reading("sharpe", true, null, ratio),
     reading("win_rate", true, null),
     col.accessor("prediction", {
-      header: "预测", cell: (c) => <span style={{ color: PREDICTION[c.row.original.prediction].color }}>{PREDICTION[c.row.original.prediction].glyph || "—"}</span>,
+      header: "预测", cell: (c) => <span style={{ color: PREDICTION[c.row.original.prediction].color }}>{PREDICTION[c.row.original.prediction].glyph || "-"}</span>,
     }) as Column<TableRow>,
-    col.accessor((r) => (r.role ? ROLE[r.role].label : "—"), { id: "role", header: "角色", cell: (c) => <span className="muted">{c.getValue()}</span> }) as Column<TableRow>,
-    col.accessor("parent", { header: "父版本", cell: (c) => <span className="mono faint">{c.getValue() ?? "—"}</span> }) as Column<TableRow>,
+    col.accessor((r) => (r.role ? ROLE[r.role].label : "-"), { id: "role", header: "角色", cell: (c) => <span className="muted">{c.getValue()}</span> }) as Column<TableRow>,
+    col.accessor("parent", { header: "父版本", cell: (c) => <span className="mono faint">{c.getValue() ?? "-"}</span> }) as Column<TableRow>,
   ];
   return (
     <DataTable data={widget.rows} columns={cols} rowId={(r) => r.id} version={(r) => r.id} selected={selected}

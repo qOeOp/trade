@@ -22,7 +22,7 @@ function Metric({ label, children, unit, tip }: { label: string; children: React
 export function SummaryBar({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading ?? { annual_return: null, max_drawdown: null, sharpe: null, win_rate: null };
-  const num = (v: number | null, format: Format) => v == null ? "—" : <NumberFlow value={v} format={format} />;
+  const num = (v: number | null, format: Format) => v == null ? "-" : <NumberFlow value={v} format={format} />;
   return (
     <div className="flex min-w-0 items-center gap-x-5 overflow-hidden text-[12px]">
       {widget.recommended && (
@@ -31,10 +31,10 @@ export function SummaryBar({ widget }: { widget: SummaryWidget }) {
           <span style={{ color: "var(--ink-1)" }}>{widget.recommended}</span>
         </span>
       )}
-      <Metric label="年化" tip={`目标 ≥ ${t.annual_return != null ? (t.annual_return * 100).toFixed(2) + "%" : "—"}`}>
+      <Metric label="年化" tip={`目标 ≥ ${t.annual_return != null ? (t.annual_return * 100).toFixed(2) + "%" : "-"}`}>
         <span style={{ color: readingColor(meets(r.annual_return, t.annual_return, true)) }}>{num(r.annual_return, percent)}</span>
       </Metric>
-      <Metric label="回撤" tip={`目标 ≤ ${t.max_drawdown != null ? (t.max_drawdown * 100).toFixed(2) + "%" : "—"}`}>
+      <Metric label="回撤" tip={`目标 ≤ ${t.max_drawdown != null ? (t.max_drawdown * 100).toFixed(2) + "%" : "-"}`}>
         <span style={{ color: readingColor(meets(r.max_drawdown, t.max_drawdown, false)) }}>{num(r.max_drawdown, percent)}</span>
       </Metric>
       <Metric label="夏普">{num(r.sharpe, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}</Metric>
