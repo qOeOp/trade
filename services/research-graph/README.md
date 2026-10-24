@@ -78,7 +78,8 @@ colours (a coloured mark beside them gives identity), headroom above the data an
 研究进展 bars fill 70% of a trial (at most 24px), rounded only at their far end, over a faint band from zero to the target;
 the selected version's runs stand on a deeper selection-tone bar and the run at the crosshair's trial on a lighter one, its
 return read out under the axis. In 年化 vs 回撤 the dominated runs are translucent grey, the frontier blue with its ends and
-the recommendation named, and the corner meeting both targets tinted green and labelled. Hovering a mark dims every other
+the recommendation named, and the corner meeting both targets tinted green and labelled; where runs crowd, the wheel zooms in around the pointer, a drag
+pans and a double-click (or 复原缩放) shows them all again. Hovering a mark dims every other
 version mark to 30%; Tab reaches either chart and the arrow keys step from run to run (Enter selects, Escape lets go).
 Reading badges
 are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
