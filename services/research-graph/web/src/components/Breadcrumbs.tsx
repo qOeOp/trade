@@ -10,7 +10,7 @@ const HEAD = 1, TAIL = 2;
 
 function Step({ crumb, last }: { crumb: Crumb; last: boolean }) {
   return crumb.onSelect
-    ? <button type="button" onClick={crumb.onSelect} className={`truncate rounded-control px-2 transition-colors hover:bg-hover hover:text-fg ${last ? "text-fg-muted" : "max-w-40"}`}>{crumb.label}</button>
+    ? <button type="button" onClick={crumb.onSelect} className={`truncate rounded-control px-2 transition-colors hover:bg-hover active:bg-pressed hover:text-fg ${last ? "text-fg-muted" : "max-w-40"}`}>{crumb.label}</button>
     : <span className="truncate px-2">{crumb.label}</span>;
 }
 

@@ -19,12 +19,12 @@ export function Dropdown({ trigger, label, children, align = "start", variant = 
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger aria-label={label}
-        className={`inline-flex min-w-0 shrink items-center gap-1.5 rounded-control outline-none transition-colors hover:bg-hover data-[state=open]:bg-pressed ${TRIGGER[variant]}`}>
+        className={`inline-flex min-w-0 shrink items-center gap-1.5 rounded-control transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${TRIGGER[variant]}`}>
         {trigger}{variant === "widget" && <span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align={align} sideOffset={4} collisionPadding={8}
-          className="enter z-50 max-h-[70vh] min-w-56 overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-xl">
+          className="z-50 max-h-[70vh] min-w-56 overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup">
           {children}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

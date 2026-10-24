@@ -7,7 +7,7 @@ export function TabStrip({ items, active, onSelect }: { items: readonly TabItem[
     <div role="tablist" className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]">
       {items.map((t) => (
         <button key={t.id} type="button" role="tab" aria-selected={t.id === active} onClick={() => onSelect(t.id)}
-                className={`shrink-0 whitespace-nowrap rounded-control px-2 py-0.5 text-dense transition-colors hover:bg-hover ${t.id === active ? "bg-pressed text-fg" : "text-fg-muted"}`}>
+                className={`shrink-0 whitespace-nowrap rounded-control px-2 py-0.5 text-dense transition-colors hover:bg-hover active:bg-pressed ${t.id === active ? "bg-pressed text-fg" : "text-fg-muted"}`}>
           {t.label}
         </button>
       ))}

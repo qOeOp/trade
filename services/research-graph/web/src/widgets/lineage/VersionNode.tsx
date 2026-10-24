@@ -23,7 +23,7 @@ function NodeTip({ data }: { data: VersionData }) {
         {data.prediction !== "none" && <span>· {PREDICTION[data.prediction].label}</span>}
       </div>
       {data.reading.annual_return != null && (
-        <div className="font-mono">年化 <span className={ok.ret === false ? "text-misses" : ""}>{pct(data.reading.annual_return)}</span>
+        <div>年化 <span className={ok.ret === false ? "text-misses" : ""}>{pct(data.reading.annual_return)}</span>
           {"  "}回撤 <span className={ok.dd === false ? "text-misses" : ""}>{pct(data.reading.max_drawdown)}</span></div>
       )}
       {data.change && <div className="line-clamp-3 text-fg-faint">{data.change}</div>}

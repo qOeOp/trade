@@ -16,7 +16,7 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
   return (
     <Command.Dialog open={open} onOpenChange={paletteOpen.set} label="跳转或执行命令"
                     overlayClassName="fixed inset-0 z-40 bg-scrim"
-                    contentClassName="enter fixed left-1/2 top-[14%] z-50 w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden rounded-popup border border-popup-border bg-popup shadow-2xl">
+                    contentClassName="fixed left-1/2 top-[14%] z-50 w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden rounded-popup border border-popup-border bg-popup shadow-popup">
       <Command.Input placeholder="版本名、改动内容或命令…" autoFocus className="w-full border-b border-line bg-transparent px-3.5 py-2.5 text-ui outline-none" />
       <Command.List className="max-h-96 overflow-auto p-1 text-dense">
         <Command.Empty className="px-3 py-6 text-center text-fg-faint">没有匹配的版本或命令</Command.Empty>

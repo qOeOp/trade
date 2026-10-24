@@ -50,7 +50,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
           {y.ticks(4).filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={y(t)} y2={y(t)} stroke={v("grid")} strokeDasharray="2 4" />)}
           {target != null && <>
             <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke={v("meets")} strokeDasharray="6 4" />
-            <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")} className="font-mono">目标 {pct(target)}</text>
+            <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")}>目标 {pct(target)}</text>
           </>}
           {near && (() => {
             // From the axis out past the bar's end, rounded only at that end.
@@ -82,7 +82,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
                 const x = Math.min(Math.max(0, sx(near.trial_id) - w / 2), width - w);
                 return <>
                   <rect x={x} y={top} width={w} height={16} rx={3} fill={v("fg")} />
-                  <text x={x + w / 2} y={top + 11.5} textAnchor="middle" className="font-mono" fontSize={10} fill={v("island")}>{label}</text>
+                  <text x={x + w / 2} y={top + 11.5} textAnchor="middle" fontSize={10} fill={v("island")}>{label}</text>
                 </>;
               })()}
             </g>
@@ -91,7 +91,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
       )}
       <div className="pointer-events-none absolute inset-y-0 left-0 w-14 bg-linear-to-r from-island from-65% to-transparent">
         {height > 0 && y.ticks(4).map((t) => (
-          <span key={t} className="absolute right-2 -translate-y-1/2 font-mono text-small text-fg-faint" style={{ top: y(t) }}>{Math.round(t * 100)}%</span>
+          <span key={t} className="absolute right-2 -translate-y-1/2 text-small text-fg-faint" style={{ top: y(t) }}>{Math.round(t * 100)}%</span>
         ))}
       </div>
       <div className="pointer-events-none absolute left-3 top-1.5 text-small font-medium text-fg-muted">研究运行年化</div>

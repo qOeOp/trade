@@ -70,13 +70,14 @@ try {
     writeFileSync(join(outDir, `${scheme}.png`), Buffer.from(shot.data, "base64"));
     for (const i of m.islands) expect(i.radius === "10px", `${scheme}: island ${i.id} radius ${i.radius}`);
     const by = Object.fromEntries(m.islands.map((i) => [i.id, i]));
+    const GAP = 4; // --gap in tokens.css
     for (const id of ["editor", "left", "right", "bottom"]) expect(by[id], `${scheme}: no ${id} island`);
     if (by.editor && by.bottom) {
-      expect(Math.abs(by.bottom.top - by.editor.bottom - 6) < 0.6, `${scheme}: editor-bottom gap ${(by.bottom.top - by.editor.bottom).toFixed(1)}`);
+      expect(Math.abs(by.bottom.top - by.editor.bottom - GAP) < 0.6, `${scheme}: editor-bottom gap ${(by.bottom.top - by.editor.bottom).toFixed(1)}`);
       expect(Math.abs(by.bottom.left - by.editor.left) < 0.6 && Math.abs(by.bottom.width - by.editor.width) < 0.6, `${scheme}: editor and bottom differ in left edge or width`);
     }
-    if (by.editor && by.right) expect(Math.abs(by.right.left - by.editor.right - 6) < 0.6, `${scheme}: editor-right gap ${(by.right.left - by.editor.right).toFixed(1)}`);
-    if (by.editor && by.left) expect(Math.abs(by.editor.left - by.left.right - 6) < 0.6, `${scheme}: left-editor gap ${(by.editor.left - by.left.right).toFixed(1)}`);
+    if (by.editor && by.right) expect(Math.abs(by.right.left - by.editor.right - GAP) < 0.6, `${scheme}: editor-right gap ${(by.right.left - by.editor.right).toFixed(1)}`);
+    if (by.editor && by.left) expect(Math.abs(by.editor.left - by.left.right - GAP) < 0.6, `${scheme}: left-editor gap ${(by.editor.left - by.left.right).toFixed(1)}`);
     const f = m.frame, first = f.left[0], last = f.left.at(-1), near = (a, b) => Math.abs(a - b) < 0.6;
     expect(near((first.top + first.bottom) / 2, f.island.top + 20), `${scheme}: the first stripe button is off the island header's centre`);
     expect(near(f.island.bottom - last.bottom, first.top - f.island.top), `${scheme}: the stripe's last button is not inset from the island's foot as its first is from its top`);

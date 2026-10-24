@@ -10,10 +10,12 @@
 }
 
 :root {
-  --ease: cubic-bezier(0.2, 0, 0.38, 0.9);
-  --ease-in: cubic-bezier(0, 0, 0.38, 0.9);
-  --t-fast: 110ms;
-  --t-mid: 180ms;
+  /* Motion: ease-out, at most 250ms; nothing animates on menus, the palette or the crosshair. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 100ms;
+  --t-mid: 150ms;
+  --t-slow: 200ms;
+  --t-pan: 250ms;
 }
 html, body, #root { height: 100%; }
 body {
@@ -21,7 +23,9 @@ body {
   font: 13px/1.45 var(--font-sans); font-feature-settings: "tnum", "cv11", "ss02";
   -webkit-font-smoothing: antialiased;
 }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 3px; }
+/* Keyboard focus is one blue ring; it sits in the base layer so a component that draws its own
+   focus (a tree row, a menu item, the palette input) turns it off with outline-none. */
+@layer base { :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; } }
 
 /* Selection follows IntelliJ: the active island's selection is the brand fill, others are muted. */
 [data-selected] { background: var(--selection-inactive); }
@@ -30,8 +34,9 @@ body {
 /* Linked highlight: marks carry data-v; one injected rule dims the rest (shell/Dimming). */
 [data-v] { transition: opacity var(--t-fast) var(--ease); }
 
-@keyframes enter { from { opacity: 0; transform: translateY(2px) scale(0.985); } }
-.enter { animation: enter var(--t-mid) var(--ease-in); }
+/* Tooltips fade in; menus, dropdowns and the palette open at once (frequent, so never animated). */
+@keyframes enter { from { opacity: 0; } }
+.enter { animation: enter var(--t-fast) var(--ease); }
 
 /* Resizable panels: the separator is the gap between islands; it shows only while dragged or hovered. */
 [data-separator] { background: transparent; transition: background-color var(--t-fast) var(--ease); }

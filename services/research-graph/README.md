@@ -57,8 +57,12 @@ A renderer is a package under `research_graph/renderers/` whose `render.py` defi
 `render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
 `web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
 primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets only; its own npm
-toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 6px apart on the
-window frame. The lineage is one figure on the trial axis at a fixed scale: a
+toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 4px apart on the
+window frame, following the design rules in
+[`docs/plans/research-graph-design-spec.zh.md`](../../docs/plans/research-graph-design-spec.zh.md): warm low-chroma
+OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, Inter with tabular
+figures for numbers and JetBrains Mono only for version names, hashes and code, one shadow for popups, a blue ring for
+keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms and only as far as its content (trial 0 and the first row at its top-left, the
 last row at its bottom; focusing a version centres it only as far as that allows, and opening or closing a side
 leaves the canvas where it is), with each version's role shown by its mark's shape, parent-to-child
@@ -109,7 +113,7 @@ JavaScript, so it opens in a browser. A new widget type is a renderer in `web/sr
 chart widgets, a `<button>` or colour inline style outside `components/`, arbitrary `text-[…]`/`rounded-[…]` classes,
 storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
 the validated set. `scripts/verify.mjs <page>
-<out> [#version]` screenshots a rendered page in light and dark and checks that islands are 10px-rounded and 6px apart,
+<out> [#version]` screenshots a rendered page in light and dark and checks that islands are 10px-rounded and 4px apart,
 the canvas and the bottom island share their left edge and width, canvas nodes are vertically centred, and every
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
@@ -118,5 +122,5 @@ There it also drives the tree's arrow keys, the folded path's menu, a canvas ver
 double-click opening a tab, and the wheel panning the canvas to its edges.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
-with 1.25-unit strokes (1.5 at 12px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,
+with strokes that draw one pixel wide at every size (2 units at 12px, 1.5 at 16px, 1.2 at 20px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,
 © Cole Bemis. The licence text and a notice are in `web/src/icons/`.

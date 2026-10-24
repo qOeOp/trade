@@ -11,7 +11,7 @@ export function Tip({ content, children, side = "top" }: {
       <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content side={side} sideOffset={6} collisionPadding={8}
-                         className="enter z-50 max-w-md rounded-popup border border-popup-border bg-tooltip px-2 py-1.5 text-dense text-fg shadow-lg">
+                         className="enter z-50 max-w-md rounded-card border border-popup-border bg-tooltip px-3 py-2 text-dense text-fg shadow-popup">
           {content}
         </Tooltip.Content>
       </Tooltip.Portal>

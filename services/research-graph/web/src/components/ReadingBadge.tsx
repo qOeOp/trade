@@ -8,7 +8,7 @@ import { Missing } from "./Missing";
 // padding to the badge's edges and to the divider (the second cell's left border), so the badge is as
 // wide as its numbers; one face, size and weight. A version without readings shows its status in a
 // badge with the same padding.
-const ROOT = "box-border inline-flex h-[18px] shrink-0 items-center overflow-hidden rounded-badge border font-mono text-badge";
+const ROOT = "box-border inline-flex h-[18px] shrink-0 items-center overflow-hidden rounded-badge border text-badge";
 const CELL = "px-(--rb-pad)";
 
 export function ReadingBadge({ reading, targets, status }: { reading: Reading | null; targets: Targets | null; status?: string }) {

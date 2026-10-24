@@ -1,9 +1,9 @@
 import { v, type ColorRole } from "../theme/roles";
 import { ICONS, type IconName } from "./registry";
 
-// Lucide draws on a 24-unit grid in strokes of the current colour. The page draws them thin, as the
-// Islands UI does: 1.25 units at 16 and 20px (0.83 and 1.04px), 1.5 at 12px so small ones stay legible.
-const STROKE = { 12: 1.5, 16: 1.25, 20: 1.25 } as const;
+// Lucide draws on a 24-unit grid in strokes of the current colour. The stroke is chosen per size so
+// every icon draws one pixel wide, as the Islands UI icons do: 2 units at 12px, 1.5 at 16 and 1.2 at 20.
+const STROKE = { 12: 2, 16: 1.5, 20: 1.2 } as const;
 const BODIES = new Map<IconName, string>((Object.keys(ICONS) as IconName[]).map((name) =>
   [name, ICONS[name].svg.replace(/<!--[\s\S]*?-->/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
 

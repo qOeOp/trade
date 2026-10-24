@@ -14,12 +14,12 @@ export function EditorTabStrip({ tabs, active, onActivate, onClose }: {
         <div key={t.id} role="tab" aria-selected={t.id === active} tabIndex={0} onClick={() => onActivate(t.id)}
              onKeyDown={(e) => { if (e.key === "Enter") onActivate(t.id); }}
              onAuxClick={(e) => { if (e.button === 1 && t.closable) onClose(t.id); }}
-             className={`group flex h-7 shrink-0 cursor-default items-center gap-1.5 rounded-control pl-2 text-dense transition-colors hover:bg-hover ${t.id === active ? "bg-pressed text-fg" : "text-fg-muted"} ${t.closable ? "pr-1" : "pr-2"}`}>
+             className={`group flex h-7 shrink-0 cursor-default items-center gap-1.5 rounded-control pl-2 text-dense transition-colors hover:bg-hover active:bg-pressed ${t.id === active ? "bg-pressed text-fg" : "text-fg-muted"} ${t.closable ? "pr-1" : "pr-2"}`}>
           <Icon name={t.icon} />
           <span className="font-mono">{t.label}</span>
           {t.closable && (
             <button type="button" aria-label={`关闭 ${t.label}`} onClick={(e) => { e.stopPropagation(); onClose(t.id); }}
-                    className="grid size-5 place-items-center rounded-badge text-icon opacity-60 transition hover:bg-hover hover:opacity-100">
+                    className="grid size-5 place-items-center rounded-badge text-icon opacity-60 transition hover:bg-hover active:bg-pressed hover:opacity-100">
               <Icon name="close-small" />
             </button>
           )}

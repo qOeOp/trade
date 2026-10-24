@@ -59,7 +59,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
           const id = version?.(row.original) ?? null;
           const tr = (
             <tr key={row.id} {...hoverProps(id)} onClick={() => onRow?.(row.original)} data-selected={id && id === selected ? "" : undefined}
-                className={onRow ? "cursor-pointer transition-colors hover:bg-row-hover" : undefined}>
+                className={onRow ? "cursor-pointer transition-colors hover:bg-row-hover active:bg-hover" : undefined}>
               {row.getAllCells().map((cell) => (
                 <td key={cell.id} className={`whitespace-nowrap border-b border-line px-2 py-1 ${right(cell.column.columnDef.meta) ? "text-right" : ""}`}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
