@@ -4,11 +4,12 @@ import type { Candidate, DetailWidget, Targets, Trial } from "../types";
 import { meets, pct, PREDICTION, ratio, readingColor, ROLE, when } from "../format";
 import { requestFocus } from "../store";
 import { columns, DataTable, KeyValues, RoleMark, Section, Tip, type Column } from "../ui";
+import { Icon } from "../icons";
 
 const OUTCOME: Record<string, [string, string]> = {
-  held: ["✓ 成立", "var(--meet)"], failed: ["✗ 失败", "var(--miss)"], untestable: ["无法检验", "var(--ink-3)"],
+  held: ["成立", "var(--meet)"], failed: ["失败", "var(--miss)"], untestable: ["无法检验", "var(--ink-3)"],
 };
-const VERDICT: Record<string, [string, string]> = { passed: ["✓ 通过", "var(--meet)"], failed: ["✗ 失败", "var(--fail)"] };
+const VERDICT: Record<string, [string, string]> = { passed: ["通过", "var(--meet)"], failed: ["失败", "var(--fail)"] };
 const PURPOSE: Record<string, string> = { research: "研究", precheck: "预检", explore: "探索", validation: "验证" };
 const col = columns<Trial>();
 
@@ -44,7 +45,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
     col.accessor("eligible", { header: "资格", meta: { align: "right" }, cell: (x) => {
       const t = x.row.original;
       if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "失去资格"}><span style={{ color: "var(--fail)" }}>失去</span></Tip>;
-      return t.eligible ? <span style={{ color: "var(--meet)" }}>✓</span> : <span className="ghost">-</span>;
+      return t.eligible ? <Icon name="check" color="var(--meet)" size={14} className="align-[-3px]" /> : <span className="ghost">-</span>;
     } }) as Column<Trial>,
   ];
   return (
@@ -60,7 +61,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
           <span style={{ color: PREDICTION[c.prediction_class].color }}>{PREDICTION[c.prediction_class].label}</span>
           <span className="mono">{when(c.created_at)}</span>
           {c.parent && (
-            <button className="press mono px-1" onClick={() => { onSelect(c.parent!); requestFocus(c.parent!); }}>↑ {c.parent}</button>
+            <button className="press mono px-1" onClick={() => { onSelect(c.parent!); requestFocus(c.parent!); }}><Icon name="arrow-up" size={12} className="align-[-2px]" /> {c.parent}</button>
           )}
         </div>
       </header>
@@ -80,7 +81,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
               return (
                 <tr key={i} className="border-b last:border-0" style={{ borderColor: "var(--rule)" }}>
                   <td className="mono py-1 pr-2">{p.measure ?? "-"}</td>
-                  <td className="py-1 pr-2 muted">{p.direction === "up" ? "↑ 上升" : p.direction === "down" ? "↓ 下降" : p.direction ?? "-"}</td>
+                  <td className="py-1 pr-2 muted">{p.direction === "up" ? <><Icon name="arrow-up" size={12} className="align-[-2px]" /> 上升</> : p.direction === "down" ? <><Icon name="arrow-down" size={12} className="align-[-2px]" /> 下降</> : p.direction ?? "-"}</td>
                   <td className="py-1 text-right" style={{ color }}>{label}</td>
                 </tr>
               );

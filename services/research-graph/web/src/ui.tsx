@@ -1,12 +1,12 @@
 import { useState, type ReactElement, type ReactNode } from "react";
 import { Collapsible, Tooltip } from "radix-ui";
-import { ChevronRight } from "lucide-react";
 import {
   createColumnHelper, createSortedRowModel, flexRender, rowSortingFeature, sortFn_alphanumeric, sortFn_basic, tableFeatures,
   useTable, type ColumnDef, type RowData, type SortingState,
 } from "@tanstack/react-table";
 import type { Role } from "./types";
 import { ROLE } from "./format";
+import { Icon } from "./icons";
 import { hoverProps } from "./store";
 
 // Shared building blocks: tooltip, role mark, collapsible section, key-value grid and a dense table.
@@ -39,7 +39,7 @@ export function RoleMark({ role, size = 14 }: { role: Role | null | undefined; s
         <circle cx={c} cy={c} r={c - 3} fill="none" stroke="var(--ink-3)" strokeWidth={1.25} />
         <line x1={3} y1={size - 3} x2={size - 3} y2={3} stroke="var(--ink-3)" strokeWidth={1.25} />
       </>;
-      case "precheck_failed": return <path d={`M4 4 L${size - 4} ${size - 4} M${size - 4} 4 L4 ${size - 4}`} stroke="var(--fail)" strokeWidth={1.75} strokeLinecap="round" />;
+      case "precheck_failed": return <path d={`M4 4 L${size - 4} ${size - 4} M${size - 4} 4 L4 ${size - 4}`} stroke="var(--fail)" strokeWidth={1.75} strokeLinecap="square" />;
       case "unrun": return <circle cx={c} cy={c} r={c - 3} fill="none" stroke="var(--ink-3)" strokeWidth={1.25} strokeDasharray="2 2" />;
       default: return <circle cx={c} cy={c} r={c - 4.5} fill="var(--ink-3)" />;
     }
@@ -57,8 +57,8 @@ export function Section({ title, aside, children, open: initial = true }: {
       <Collapsible.Trigger className="press flex w-full items-center gap-2 !rounded-none px-3 py-1.5 text-left">
         <span className="label">{title}</span>
         {aside != null && <span className="ml-auto text-[11px] faint">{aside}</span>}
-        <ChevronRight size={12} className={`faint transition-transform duration-150 ${aside == null ? "ml-auto" : ""}`}
-                      style={{ transform: open ? "rotate(90deg)" : undefined }} />
+        <span className={`faint grid transition-transform duration-150 ${aside == null ? "ml-auto" : ""}`}
+              style={{ transform: open ? "rotate(90deg)" : undefined }}><Icon name="chevron-right" size={14} /></span>
       </Collapsible.Trigger>
       <Collapsible.Content className="px-3 pb-2.5 pt-0.5">{children}</Collapsible.Content>
     </Collapsible.Root>
@@ -109,7 +109,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
                   {/* the sort arrow sits outside the label, so headers line up with their column's values */}
                   <span className="relative">
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                    {dir && <span className={`absolute top-0 ghost ${numeric ? "right-full mr-0.5" : "left-full ml-0.5"}`}>{dir === "asc" ? "↑" : "↓"}</span>}
+                    {dir && <span className={`absolute top-0 ghost ${numeric ? "right-full mr-0.5" : "left-full ml-0.5"}`}><Icon name={dir === "asc" ? "arrow-up" : "arrow-down"} size={11} className="align-[-1px]" /></span>}
                   </span>
                 </th>
               );

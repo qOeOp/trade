@@ -73,3 +73,7 @@ built from (`dist/source.sha256`), reinstalling first when the lockfile changed.
 JavaScript, so it opens in a browser. A new widget type is a component registered in `web/src/widgets/registry.tsx`
 with the region it lives in (bar, canvas, drawer or dock); a type the page does not know becomes a
 dock tab that names it.
+
+Icons are from the IntelliJ Platform's New UI set ([JetBrains/intellij-community](https://github.com/JetBrains/intellij-community),
+`platform/icons/src/expui`, commit `b861a2178f`), Apache License 2.0, © JetBrains s.r.o. and contributors; the
+SVGs and the licence are in `web/src/icons/intellij/`.

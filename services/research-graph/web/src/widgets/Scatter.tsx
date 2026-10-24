@@ -60,7 +60,7 @@ export function Scatter({ widget, selected, onSelect }: {
             {t.annual_return != null && <line x1={0} x2={w} y1={y(t.annual_return)} y2={y(t.annual_return)} stroke="var(--meet)" strokeDasharray="5 3" />}
             {frontier.length > 1 && (
               <path d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
-                    fill="none" stroke="var(--ink-3)" strokeWidth={1} strokeDasharray="1 2.5" strokeLinecap="round" />
+                    fill="none" stroke="var(--ink-3)" strokeWidth={1} strokeDasharray="2 3" />
             )}
             {focus && <g pointerEvents="none" stroke="var(--ink-2)" strokeWidth={0.75} strokeDasharray="2 2">
               <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />

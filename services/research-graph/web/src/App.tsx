@@ -3,12 +3,10 @@ import { Command } from "cmdk";
 import { Tooltip } from "radix-ui";
 import { tinykeys } from "tinykeys";
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import {
-  ChevronDown, ChevronUp, Command as CommandIcon, GitBranch, Monitor, Moon, PanelBottom, PanelRight, Sun,
-} from "lucide-react";
 import type { DetailWidget, LineageWidget, SummaryWidget, View, Widget } from "./types";
 import { pct, readingColor, ROLE, verdict } from "./format";
 import { requestFocus, useHovered } from "./store";
+import { Icon } from "./icons";
 import { RoleMark, Tip } from "./ui";
 import { REGISTRY, unknown, type Entry } from "./widgets/registry";
 
@@ -107,7 +105,7 @@ function StatusBar({ view, lineage, summary, selected }: { view: View; lineage?:
   const commit = view.scope?.ledger_commit;
   return (
     <footer className="flex h-[22px] shrink-0 items-center gap-4 border-t px-2.5 text-[11px] faint" style={{ borderColor: "var(--rule)", background: "var(--panel)" }}>
-      <span className="inline-flex items-center gap-1"><GitBranch size={11} />{view.source === "ledger" ? "账本" : "会话"}</span>
+      <span className="inline-flex items-center gap-1"><Icon name="commit" size={13} />{view.source === "ledger" ? "账本" : "会话"}</span>
       {commit && <Tip content={`账本提交 ${commit}`}><span className="mono">{commit.slice(0, 8)}</span></Tip>}
       {view.line.window && <span className="mono">{view.line.window.join(" → ")}</span>}
       {summary && <span>{summary.versions} 个版本 · {summary.research_runs} 次研究运行 · {summary.masked_runs} 次失去资格</span>}
@@ -173,13 +171,13 @@ export function App({ view }: { view: View }) {
           <div className="min-w-0 flex-1">{of("bar").map(([w, e]) => <div key={w.id}>{e.render(w, ctx)}</div>)}</div>
           <button className="press inline-flex shrink-0 items-center gap-2 border px-2 py-1 text-[11.5px] faint"
                   style={{ borderColor: "var(--rule-2)" }} onClick={() => setPalette(true)}>
-            <CommandIcon size={12} />跳转…<span className="kbd">⌘K</span>
+            <Icon name="search" size={13} />跳转…<span className="kbd">⌘K</span>
           </button>
           <div className="flex shrink-0 items-center">
-            <IconButton label="底部面板" keys="⌘J" active={dockOpen} onClick={toggle(dockRef)}><PanelBottom size={15} /></IconButton>
-            <IconButton label="详情" keys="⌘B" active={drawerOpen} onClick={toggle(drawerRef)}><PanelRight size={15} /></IconButton>
+            <IconButton label="底部面板" keys="⌘J" active={dockOpen} onClick={toggle(dockRef)}><Icon name="panel-bottom" /></IconButton>
+            <IconButton label="详情" keys="⌘B" active={drawerOpen} onClick={toggle(drawerRef)}><Icon name="panel-right" /></IconButton>
             <IconButton label={`主题：${{ system: "跟随系统", light: "浅色", dark: "深色" }[theme]}`} onClick={cycleTheme}>
-              {theme === "system" ? <Monitor size={14} /> : theme === "light" ? <Sun size={14} /> : <Moon size={14} />}
+              <Icon name="theme" />
             </IconButton>
           </div>
         </header>
@@ -205,7 +203,7 @@ export function App({ view }: { view: View }) {
                       </button>
                     ))}
                     <button className="press my-1 ml-auto grid w-7 place-items-center faint" onClick={toggle(dockRef)} aria-label={dockOpen ? "收起" : "展开"}>
-                      {dockOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                      <Icon name={dockOpen ? "chevron-down" : "chevron-up"} />
                     </button>
                   </nav>
                   <div className="min-h-0 flex-1 overflow-auto">

@@ -1,3 +1,4 @@
+import type { IconName } from "./icons";
 import type { Prediction, Role, Targets } from "./types";
 
 export const pct = (v?: number | null) => (v == null ? "-" : `${(v * 100).toFixed(2)}%`);
@@ -14,11 +15,11 @@ export const ROLE: Record<Role, { label: string; hint: string }> = {
   unrun: { label: "未回放", hint: "没有研究运行" },
 };
 
-export const PREDICTION: Record<Prediction, { glyph: string; label: string; color: string }> = {
-  held: { glyph: "✓", label: "预测全部成立", color: "var(--meet)" },
-  failed: { glyph: "✗", label: "预测全部失败", color: "var(--miss)" },
-  mixed: { glyph: "±", label: "预测部分成立", color: "var(--ink-2)" },
-  none: { glyph: "", label: "预测未判定", color: "var(--ink-3)" },
+export const PREDICTION: Record<Prediction, { glyph: IconName | null; label: string; color: string }> = {
+  held: { glyph: "check", label: "预测全部成立", color: "var(--meet)" },
+  failed: { glyph: "close", label: "预测全部失败", color: "var(--miss)" },
+  mixed: { glyph: "dash", label: "预测部分成立", color: "var(--ink-2)" },
+  none: { glyph: null, label: "预测未判定", color: "var(--ink-3)" },
 };
 
 /** Whether a reading meets its target: null when either is unknown. */

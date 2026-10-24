@@ -1,6 +1,7 @@
 import type { TableRow, TableWidget } from "../types";
 import { meets, pct, PREDICTION, ratio, readingColor, ROLE } from "../format";
 import { columns, DataTable, RoleMark, type Column } from "../ui";
+import { Icon } from "../icons";
 import { requestFocus } from "../store";
 
 const col = columns<TableRow>();
@@ -39,7 +40,10 @@ export function VersionTable({ widget, selected, onSelect }: { widget: TableWidg
     reading("sharpe", true, null, ratio),
     reading("win_rate", true, null),
     col.accessor("prediction", {
-      header: "预测", cell: (c) => <span style={{ color: PREDICTION[c.row.original.prediction].color }}>{PREDICTION[c.row.original.prediction].glyph || "-"}</span>,
+      header: "预测", cell: (c) => {
+        const p = PREDICTION[c.row.original.prediction];
+        return p.glyph ? <Icon name={p.glyph} color={p.color} size={14} className="align-[-3px]" /> : <span className="ghost">-</span>;
+      },
     }) as Column<TableRow>,
     col.accessor((r) => (r.role ? ROLE[r.role].label : "-"), { id: "role", header: "角色", cell: (c) => <span className="muted">{c.getValue()}</span> }) as Column<TableRow>,
     col.accessor("parent", { header: "父版本", cell: (c) => <span className="mono faint">{c.getValue() ?? "-"}</span> }) as Column<TableRow>,

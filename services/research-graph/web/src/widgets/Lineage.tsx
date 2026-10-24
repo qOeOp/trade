@@ -9,6 +9,7 @@ import type { LineageNode, LineageWidget } from "../types";
 import { pct, PREDICTION, readingColor, ROLE, verdict, when } from "../format";
 import { axisView, crosshair, hoverProps, useAxisView, useCrosshair, useFocusRequest } from "../store";
 import { RoleMark, Tip } from "../ui";
+import { Icon } from "../icons";
 
 // One figure on one x, the trial number, at a fixed scale: the canvas pans but never zooms, so
 // marks and text keep their size. Events are washes, not marks: the stretch where a version stayed
@@ -60,7 +61,7 @@ const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
           ) : (
             <span className="shrink-0 rounded-[4px] border px-1.5 text-[10.5px] leading-[16px] faint" style={{ borderColor: "var(--rule)" }}>{ROLE[data.role]?.label ?? "-"}</span>
           )}
-          {prediction.glyph && <b className="w-2 text-[11px]" style={{ color: prediction.color }}>{prediction.glyph}</b>}
+          {prediction.glyph && <Icon name={prediction.glyph} color={prediction.color} size={13} />}
           <span className="mono text-[11.5px]" style={{ color: data.role === "superseded" ? "var(--ink-2)" : "var(--ink-1)" }}>
             {name}<span className="faint">@{revision}</span>
           </span>
@@ -115,7 +116,7 @@ function Backdrop({ widget }: { widget: LineageWidget }) {
           <rect x={X(t.x0)} y={Y(t.row) - 12} width={Math.max(3, (t.x1 - t.x0) * UNIT)} height={24} rx={4} fill="var(--accent-wash)" />
           {i > 0 && (
             <path d={`M${X(t.x0)} ${Y(trail[i - 1].row)} V${Y(t.row)}`} fill="none" stroke="var(--accent)"
-                  strokeWidth={1} strokeOpacity={0.5} strokeDasharray="1 3" strokeLinecap="round" />
+                  strokeWidth={1} strokeOpacity={0.5} strokeDasharray="2 3" />
           )}
         </g>
       ))}
