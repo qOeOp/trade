@@ -20,10 +20,10 @@ export function Legend() {
         ))}
       </div>
       <div className="label mb-1.5 mt-3">事件</div>
-      <ul className="space-y-1 leading-relaxed">
-        <li><b style={{ color: "var(--accent)" }}>◆</b> 推荐换到这一版；紫色底是推荐保持的区间，其上短线是重复的推荐判断，点线连接前后两任推荐。</li>
-        <li><b style={{ color: "var(--fail)" }}>▼</b> 这一版此时因审阅失败失去资格，节点随之变淡并划去。</li>
-        <li>刻度尺上用同样的符号列出全部事件（小圆点是重复的推荐判断），点一下定位到相关版本。</li>
+      <ul className="space-y-1.5 leading-relaxed">
+        <li className="flex gap-2"><Wash color="var(--accent)" />推荐保持在这一版的区间；点线连接前后两任推荐。</li>
+        <li className="flex gap-2"><Wash color="var(--fail)" />这一版从此时起失去资格（源码审阅失败）。</li>
+        <li>刻度尺上着色的格子是发生事件的区间：紫色推荐换了版本，红色有版本失去资格（数字是个数），灰色选线。悬停查看、点击定位。</li>
         <li>底部"研究进展"与谱系同一横轴：每次研究运行的年化画成从 0 出发的柱（向上盈利、向下亏损），虚线是年化目标。</li>
         <li>画布固定比例：滚轮或拖动平移，十字线读出所在试验。</li>
       </ul>
@@ -36,4 +36,8 @@ export function Legend() {
       </div>
     </div>
   );
+}
+
+function Wash({ color }: { color: string }) {
+  return <span className="mt-[5px] inline-block h-2.5 w-5 shrink-0 rounded-[3px]" style={{ background: color, opacity: 0.25 }} />;
 }

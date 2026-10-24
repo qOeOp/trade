@@ -59,8 +59,9 @@ A renderer is a package under `research_graph/renderers/` whose `render.py` defi
 primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets only; its own npm
 toolchain), laid out like an IDE. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms, with each version's role shown by its mark's shape, parent-to-child
-lines drawn as git graphs draw them, the recommendation trail and the events on the rows they concern,
-and a ruler above with every event and the trial under the pointer. A title bar carries the current recommendation's
+lines drawn as git graphs draw them, and events as washes rather than marks: a violet band where a
+version stayed recommended, a red band on a version's row from the moment it lost eligibility, and
+on the ruler above the gaps where events happened, beside the trial under the pointer. A title bar carries the current recommendation's
 readout, a resizable bottom panel holds the research progress on the canvas's x (research-run returns,
 as bars from zero, against the target), the return/drawdown scatter (with the
 non-dominated frontier), the version table and the data gaps, and an inspector on the right holds the selected version.
