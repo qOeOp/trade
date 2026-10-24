@@ -878,7 +878,10 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
-  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit"""
+  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
+  --execution bars|quotes                  the execution environment (default bars); quotes drives matching and
+                                           the native liquidation with the exported best bid/ask and needs
+  --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
 output keys: commit, scope, input_interval_ms, coverage (per contract), lifecycle,
 lifecycle_missing, interpretation; coverage[].funding.event_times_ms is most of the output"""

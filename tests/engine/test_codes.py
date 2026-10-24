@@ -186,9 +186,10 @@ class ReportRefusalTests(unittest.TestCase):
 
 class FixedLimitationsTests(unittest.TestCase):
     def test_the_limitations_state_the_execution_mode_of_the_run(self):
+        from engine.config import execution_account
         from engine.report import fixed_limitations
-        bars = fixed_limitations({"strategy_quote_execution": False, "strategy_margin_rates": None})
-        quotes = fixed_limitations({"strategy_quote_execution": True, "strategy_margin_rates": ["0.05", "0.025"]})
+        bars = fixed_limitations(execution_account("bars", None))
+        quotes = fixed_limitations(execution_account("quotes", ("0.05", "0.025")))
         self.assertEqual(len(bars), len(quotes))
         self.assertIn("Liquidation is not modelled", bars)
         self.assertTrue(bars[0].startswith("One-minute execution bars"))

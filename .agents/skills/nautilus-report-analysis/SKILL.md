@@ -54,7 +54,7 @@ and returned fields.
   entry parents, then split by the strategy's own tags before reading cancels as lost
   opportunities. Only one order's own event order is causal.
 
-- Under quote execution (`strategy_quote_execution` true in the run's summary), every fill, liquidation
+- Under quote execution (`execution` is `quotes` in the run's summary), every fill, liquidation
   fills included, took its whole quantity at the best bid or ask with no depth. Before reading fill
   sizes, liquidation prices or slippage, check each fill against the venue's published depth
   ([depth.md](references/depth.md)): count the fills whose quantity exceeds the resting quantity

@@ -34,8 +34,8 @@ SKIP = f"needs Dolt {db.DOLT_VERSION} (RESEARCH_DOLT_BINARY or dolt on PATH)"
 SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
 IMAGE_DIGEST = "sha256:" + "b" * 64
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@" + IMAGE_DIGEST, "image_digest": IMAGE_DIGEST,
-            "platform": "linux/arm64", "runtime_contract": "replay-contract@v6"}
-RUNTIME = {**IDENTITY, "inspection": {"runtime_contract": "replay-contract@v6", "engine_version": "fixture"}}
+            "platform": "linux/arm64", "runtime_contract": "replay-contract@v7"}
+RUNTIME = {**IDENTITY, "inspection": {"runtime_contract": "replay-contract@v7", "engine_version": "fixture"}}
 MARKET_COMMIT = "m" * 32
 DAY = 86_400 * 10**9
 JAN = 1_767_225_600 * 10**9  # 2026-01-01T00:00:00Z in nanoseconds

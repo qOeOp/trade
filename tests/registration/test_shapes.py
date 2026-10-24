@@ -114,6 +114,22 @@ class ComparabilityTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(code(comparability.input_key, value), "IDENTITY_MALFORMED")
 
+    def test_the_execution_environment_makes_runs_incomparable(self):
+        """Same image, inputs and window: a bar-environment run and a quote-environment run differ in the effective
+        configuration's account, so they are never compared as the same conditions."""
+        from engine.config import execution_account
+        bars = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(account=execution_account("bars", None)),
+                "input_identity": self.identity()}
+        quotes = {**bars, "effective_config": config(account=execution_account("quotes", ("0.05", "0.025")))}
+        run = {"trial_id": 1, "status": "passed", "purpose": "research", **bars}
+        comparability.check_comparable(run, bars)
+        with self.assertRaises(Refusal) as caught:
+            comparability.check_comparable(run, quotes)
+        self.assertEqual((caught.exception.code, caught.exception.missing),
+                         ("COMPARABILITY_MISMATCH", ("effective_configuration",)))
+        other_rates = {**bars, "effective_config": config(account=execution_account("quotes", ("0.05", "0.02")))}
+        self.assertEqual(code(comparability.check_comparable, {**run, **quotes}, other_rates), "COMPARABILITY_MISMATCH")
+
     def test_check_comparable_names_every_conflict(self):
         execution = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(),
                      "input_identity": self.identity()}

@@ -24,7 +24,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
 - **Strategy.** One complete source file, its entry class and SHA-256, and the execution binding
   every replay (exploration, precheck, sealed run, reproduction) passes the same way: the runtime
   identity and effective configuration the probe reported, refused as `EXECUTION_BINDING_MISMATCH`
-  when they differ from what the runner resolves itself. The `replay-contract@v6` contract is in the [strategy-authoring
+  when they differ from what the runner resolves itself. The `replay-contract@v7` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
@@ -65,20 +65,22 @@ yet, the first instant it does; it gets no data stamped earlier and trades from 
 contract where it never holds in the window gets no instance. Both are summary limitations; a run in
 which no contract can start is `WARMUP_INSUFFICIENT`. There is no second matching or account engine.
 
-A source declaring `QUOTE_EXECUTION = True` runs the quote environment: the export's best bid/ask
-quotes (`market import-quotes`, inferred from Binance aggTrades under a declared rule, both sizes the
-instrument's max quantity) are streamed to the venue and drive matching on an L1 book, bar execution is
-off (bars only feed signals), the venue's native liquidation is on (`liquidation_enabled`, trigger ratio
-1.0, open orders cancelled first) with the standard margin model (maintenance = notional x the rate,
-not divided by leverage), and the instruments carry the source's `INITIAL_MARGIN_RATE` and
-`MAINTENANCE_MARGIN_RATE` (decimal strings, 0 < maintenance <= initial < 1: the Binance bracket of the
-strategy's largest position, declared by the source because position size is its design variable;
-`MARGIN_DECLARATION_INVALID` otherwise). An active contract whose export holds no quotes is
-`QUOTES_MISSING`. The quotes count in the consumed events. The model is declared, not the exchange's:
-equity is valued at the cached best bid/ask, not the mark price; the maintenance margin is fixed at the
-position's average entry price; fills take the best price with no depth; the quotes themselves are an
-inference from trades (see `market/README.md`). Without the declaration nothing changes: exported
-quotes are not streamed and the bar environment is as before.
+The runner argument `--execution` chooses the execution environment, and the choice is part of the
+account contract in the effective configuration (so of every run's identity and of the comparability of
+runs); a source never chooses it (`ENVIRONMENT_DECLARED` if it declares `QUOTE_EXECUTION` or a margin
+rate). `bars` (the default) is the bar environment above. `quotes` needs `--initial-margin` and
+`--maintenance-margin` (decimal strings, 0 < maintenance <= initial < 1: the Binance bracket of the
+strategy's largest position; `MARGIN_RATES_INVALID` otherwise, also when bars is given a rate): the
+export's best bid/ask quotes (`market import-quotes`, inferred from Binance aggTrades under a declared
+rule, both sizes the instrument's max quantity) are streamed to the venue and drive matching on an L1
+book, bar execution is off (bars only feed signals), the venue's native liquidation is on
+(`liquidation_enabled`, trigger ratio 1.0, open orders cancelled first) with the standard margin model
+(maintenance = notional x the rate, not divided by leverage), and the instruments carry the two rates.
+An active contract whose export holds no quotes is `QUOTES_MISSING`. The quotes count in the consumed
+events. The summary names the environment (`execution`) and its limitations state the model, which is
+declared, not the exchange's: equity is valued at the cached best bid/ask, not the mark price; the
+maintenance margin is fixed at the position's average entry price; fills take the best price with no
+depth; the quotes themselves are an inference from trades (see `market/README.md`).
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
@@ -286,7 +288,7 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 
 ## History
 
-`runtime.image.LAYOUTS` knows only `replay-contract@v6`; no image or seal of an earlier contract is read
+`runtime.image.LAYOUTS` knows only `replay-contract@v7`; no image or seal of an earlier contract is read
 or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at
 [`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);

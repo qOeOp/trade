@@ -31,7 +31,7 @@ REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
 # The modules and source paths of each runtime contract inside its image. The refactor keeps no
 # compatibility: an image built before a layout change is no longer supported.
 LAYOUTS = {
-    "replay-contract@v6": {"runner_module": "engine.run", "audit_module": "engine.audit",
+    "replay-contract@v7": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
                            "source_paths": {"config_source_sha256": "engine/config.py",
                                             "runner_source_sha256": "engine/run.py",

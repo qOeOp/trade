@@ -9,7 +9,7 @@ import gzip
 import io
 import json
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from pathlib import Path
 
@@ -152,11 +152,11 @@ def summary_statistics(returns_series: dict[int, float], trade_start_ns: int, en
     }
 
 
-def fixed_limitations(identity: dict) -> list[str]:
-    """engine.fixed_limitations: the environment's standing limitations by execution mode (the strategy identity
-    says whether the source declared quote execution and which margin rates)."""
-    if identity.get("strategy_quote_execution"):
-        initial, maintenance = identity.get("strategy_margin_rates") or ("undeclared", "undeclared")
+def fixed_limitations(account: Mapping) -> list[str]:
+    """engine.fixed_limitations: the environment's standing limitations by execution mode (the account contract
+    names the mode and, for quotes, the margin rates)."""
+    if account["execution"] == "quotes":
+        initial, maintenance = account["initial_margin_rate"], account["maintenance_margin_rate"]
         execution = ("Quotes drive matching: an order fills whole at the best bid or ask in force, one QuoteTick per "
                      "stored quote state and no depth, so a fill never moves the price; the quotes are inferred from "
                      "aggTrades by the import rule, a declared approximation of the exchange's book, not its record")
@@ -250,6 +250,7 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
         "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(instruments)} strategies sharing portfolio capital",
+        "execution": account["execution"],  # bars | quotes, the environment of the effective configuration
         "native_risk_submit_rate": account["max_order_submit_rate"],
         "sizing": {"mode": "strategy_source"},
         **statistics,
@@ -272,7 +273,7 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
             for row in instruments
         ],
         "limitations": [
-            *fixed_limitations(identity),
+            *fixed_limitations(account),
             *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
                f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
               if getattr(replay.observer, "carried", None) else []),

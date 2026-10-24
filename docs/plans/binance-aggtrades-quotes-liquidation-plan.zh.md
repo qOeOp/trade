@@ -120,6 +120,18 @@ CREATE TABLE quote (
   四天都在同一笔报价附近触发；差异来自过时一侧的报价在真实点差内外的位置，方向不固定。100 万名义下现金差最大 246 USDT。
 - **第 7 步报告 skill**：`nautilus-report-analysis` 新增报价环境规则与 `references/depth.md`（Binance `bookDepth` 归档、按成交方向取 ±1% 档、报告超深度笔数与其中的强平笔、不按深度缩放）；评测用例 `evals/nautilus-report-analysis/fill-size-vs-book-depth`。分支 `feat/report-depth-rule`。
 
+## 执行环境进入运行身份（2026-10-25，Codex 发现，用户授权）
+
+Codex 指出：第 4 步把环境选择放在策略源的 `QUOTE_EXECUTION` 声明里，而 `check_comparable` 只比镜像摘要、有效配置（runtime_contract、窗口、symbols、account 合同）和输入身份，声明不在其中，同镜像同数据同窗口下一边报价强平、一边 K 线环境会被当作同条件通过。核实属实，且有效配置里的 `account` 合同是常量，报价模式下运行记录仍写 `bar_execution: True`，对环境失实。根因：注册时的环境身份来自镜像 `--describe` 探针，探针不加载策略，放在源里的声明永远进不了身份。
+
+改法（合同升到 `replay-contract@v7`）：
+
+- 执行环境改为运行器参数 `--execution bars|quotes`，报价环境再带 `--initial-margin`、`--maintenance-margin`（十进制，0 < 维持 ≤ 初始 < 1，`MARGIN_RATES_INVALID`；K 线环境不收费率）。参数与窗口、symbols 一样经 `runner_argv` 传入，注册、探针、回放走同一条路。
+- 有效配置的 `account` 合同按环境真实生成（`engine.execution_account`：撮合方式、强平开关、保证金模型、两档费率），于是探针、执行绑定校验、`check_comparable`、复现比对一行不改就区分两种环境；同一镜像同输入下两种环境或不同费率都是 `COMPARABILITY_MISMATCH`。
+- 删掉策略源的 `QUOTE_EXECUTION`/费率声明；源里再出现即 `ENVIRONMENT_DECLARED` 拒绝。摘要新增 `execution` 键，limitations 按环境陈述。
+- 旧 v6 镜像与账本里的 v6 候选不再兼容（重构期不留兼容层）。
+- 待办：等 CI 出 v7 镜像后，用 `replay explore -- … --execution quotes --initial-margin … --maintenance-margin …` 在镜像里跑一次报价环境的正式回放，作为第 6 步在产品路径上的收尾。
+
 ## 已授权并完成的项
 
 - 新表 `quote`：用户 2026-10-24 按评审 DDL 批准，活动市场库已建（提交 36pnsnhs）。
