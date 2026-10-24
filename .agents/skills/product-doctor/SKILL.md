@@ -18,6 +18,16 @@ research conclusions and experiment selection belong to `research-round`.
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority.
 - Use current product names and evidence in findings; do not keep a mechanism catalogue here.
+- A full audit runs in a fresh session on a different host from the research session (Codex or
+  Claude Code; [hosts.md](references/hosts.md) tells them apart by transcript path), so that it
+  shares no context with the round and uses another model family. When the transcript to audit is
+  this session's or one of its sub-agents', or the research session ran on this host, stop before
+  step 1 and give the user the steps: end the research session; open a new session on the other
+  host; hand it the transcript paths (main and sub-agents), the ledger commit range and the checkout
+  commit, and no account of the round from this session; invoke this skill there. The audit reads
+  the transcript files, never excerpts or the research session's own summary. Focused diagnosis
+  inside a research session is unaffected; focused questions that together cover the session are a
+  full audit.
 
 ## Scope
 

@@ -9,6 +9,7 @@ record once it is written. Later state belongs in the index.
 | Item | Value |
 |---|---|
 | Sessions | host, transcript file name, start and end time |
+| Audit session | host, model and session id of this diagnosis; unknown where the host does not show it |
 | Checkout / ledger | commit; ledger commits from … to … |
 | Coverage | assigned workstreams, examined paths and explicit gaps |
 | Time split | measured research / discovery / repair / waiting; unknown where not attributable |
@@ -29,9 +30,13 @@ User decisions on authority items, with the date.
 ```
 
 `docs/plans/doctor/index.zh.md` holds one table of open items. Each row has the id, the finding,
-the action, the status (`open`, `in PR`, `fixed <commit>`, `rejected`, `recurred`), and the
-records where the item was first and last seen. When an item is fixed, its row moves to the closed
-section with the commit. A second table lists the doctor misses: problems the user pointed out
+the action, the status (`open`, `in PR`, `fixed <commit>`, `verified <record>`, `unobserved`,
+`recurred`, `rejected`), and the records where the item was first and last seen. `fixed <commit>`
+says only that the change merged. The next diagnosis of a research session reports every such row:
+`verified <record>` when the session reached the path and the failure did not recur, `recurred`
+when it did, `unobserved` when the session never reached the path, which is not verification. A
+row moves to the closed section at `verified`, with the commit and the verifying record, or at
+`rejected`. A second table lists the doctor misses: problems the user pointed out
 before a diagnosis found them, each with the date, the lens that should have caught it and its
 status. A finding id is the date plus a number, written `<yyyymmdd>-<number>`.
 
