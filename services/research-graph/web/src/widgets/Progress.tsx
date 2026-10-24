@@ -13,9 +13,9 @@ import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
 // The top margin holds the legend (the panel names the chart); the plot starts right of the tick labels' gutter, the
-// labels and the readout pill ending GUTTER short of it (as in the scatter). The gutter is at least MIN_LEFT wide and
+// labels and the readout pill's text ending GUTTER short of it (as in the scatter). The gutter is at least MIN_LEFT wide and
 // widens to fit the widest label or readout (a minus sign, three digits) with 8px to the island's edge.
-const TOP = 40, BOTTOM = 16, MIN_LEFT = 64, RIGHT = 12, GUTTER = 6;
+const TOP = 40, BOTTOM = 16, MIN_LEFT = 64, RIGHT = 12, GUTTER = 8;
 // Bars fill 70% of a trial's slot up to 24px, flat; the far end is rounded, the foot on the axis square.
 const SLOT = 0.7, MAX_BAR = 24, R = 3;
 const LEGEND: readonly [ColorRole, string][] = [["meets", "达到目标"], ["bar", "正收益未达标"], ["misses", "亏损"]];
@@ -105,7 +105,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
                                    stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">目标 {pct(target)}</text>}
           <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="end">
             {ticks.filter((t) => readout == null || Math.abs(y(t) - readout) > PILL_H + 2).map((t) => (
-              <text key={t} x={left - GUTTER} y={y(t) + 4}>{pct(t)}</text>
+              <text key={t} x={left - GUTTER} y={y(t) + 3.5}>{pct(t)}</text>
             ))}
           </g>
           {near && readout != null && <ChartPill x={left - GUTTER} y={readout - PILL_H / 2} text={pct(near.annual_return)} anchor="end" min={8} />}
