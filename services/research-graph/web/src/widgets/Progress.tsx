@@ -9,7 +9,8 @@ import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
 const TOP = 26, BOTTOM = 22;
-// The run under the pointer stands on a larger grey bar, this much wider and taller on every side.
+// The run under the pointer stands on a larger bar in the selection tone, this much wider on each side
+// and longer at its far end; it starts at zero like the bar, so it never crosses the axis.
 const HALO = 4;
 // The legend: each entry keeps its swatch and words together; a narrow island wraps whole entries.
 const LEGEND: readonly [ColorRole, string][] = [["meets", "达到目标"], ["bar", "正收益未达标"], ["misses", "亏损"]];
@@ -20,7 +21,7 @@ function Swatch({ role }: { role: ColorRole }) {
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for a
 // gain, down for a loss), coloured against the target, with the target as a dashed line. It pans with
-// the canvas; the run at the crosshair's trial stands on a larger grey bar and is read out above it.
+// the canvas; the run at the crosshair's trial stands on a larger bar in the selection tone and is read out above it.
 export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
   const { x0, unit } = useAxisView();
@@ -49,8 +50,11 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
             <text x={width - 8} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")} className="font-mono">目标 {pct(target)}</text>
           </>}
           {near && (() => {
-            const top = Math.min(y(0), y(near.annual_return)), h = Math.abs(y(near.annual_return) - y(0));
-            return <rect x={sx(near.trial_id) - barWidth / 2 - HALO} y={top - HALO} width={barWidth + 2 * HALO} height={Math.max(1, h) + 2 * HALO} rx={3} fill={v("pressed")} pointerEvents="none" />;
+            // From the axis out past the bar's end, rounded only at that end.
+            const x = sx(near.trial_id) - barWidth / 2 - HALO, w = barWidth + 2 * HALO, r = 3;
+            const base = y(0), up = near.annual_return >= 0, end = y(near.annual_return) + (up ? -HALO : HALO), s = up ? 1 : -1;
+            return <path d={`M${x} ${base} V${end + s * r} Q${x} ${end} ${x + r} ${end} H${x + w - r} Q${x + w} ${end} ${x + w} ${end + s * r} V${base} Z`}
+                         fill={v("selection")} pointerEvents="none" />;
           })()}
           {points.map((p) => {
             const x = sx(p.trial_id), y0 = y(0), y1 = y(p.annual_return), w = barWidth;

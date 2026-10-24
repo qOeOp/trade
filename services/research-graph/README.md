@@ -66,7 +66,7 @@ children), no gridlines (the ruler gives the trials), a brand-blue underline whe
 wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
 puts the trials that ran one version on a rounded tinted block, and marks the trial under the pointer. Over the canvas the
 pointer is a crosshair as in TradingView: faint dashed lines, sparser near a small reticle, drawn under the versions and lines; in
-研究进展 the run at that trial stands on a larger grey bar instead. Reading badges
+研究进展 the run at that trial stands on a larger bar in the selection tone, from the axis out, instead. Reading badges
 are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
 widgets (研究线, 账本提交 and 当前推荐, whose menu lists every version the recommendation rested on), the
 recommendation's readout, search and settings (theme, layout reset), its controls the size of the stripe buttons and its ends
