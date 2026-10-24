@@ -16,10 +16,10 @@ const col = columns<Trial>();
 // the number is highlighted (and marked when it misses its target).
 function Metric({ label, value, ok, format }: { label: string; value?: number | null; ok: boolean | null; format: Format }) {
   return (
-    <span className="whitespace-nowrap">
+    <div className="whitespace-nowrap py-1.5 text-center">
       <span className="faint">{label} </span>
       <span style={{ color: readingColor(ok) }}>{value == null ? "—" : <NumberFlow value={value} format={format} />}</span>
-    </span>
+    </div>
   );
 }
 
@@ -61,7 +61,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
           )}
         </div>
       </header>
-      <div className="grid grid-cols-4 border-b px-3 py-1.5 text-center text-[12px]" style={{ borderColor: "var(--rule)" }}>
+      <div className="grid grid-cols-4 divide-x divide-[color:var(--rule)] border-b text-[12px]" style={{ borderColor: "var(--rule)" }}>
         <Metric label="年化" value={last.annual_return} ok={meets(last.annual_return, targets?.annual_return, true)} format={percent} />
         <Metric label="最大回撤" value={last.max_drawdown} ok={meets(last.max_drawdown, targets?.max_drawdown, false)} format={percent} />
         <Metric label="夏普" value={last.sharpe} ok={null} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />

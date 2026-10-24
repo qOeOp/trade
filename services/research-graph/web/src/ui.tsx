@@ -47,17 +47,18 @@ export function RoleMark({ role, size = 14 }: { role: Role | null | undefined; s
   return <svg width={size} height={size} className="shrink-0" aria-label={role ? ROLE[role].label : undefined}>{shape}</svg>;
 }
 
-/** A section of the inspector, open by default, with an animated chevron. */
+/** A section of the inspector, open by default: its title on the content's left edge, the chevron at the right. */
 export function Section({ title, aside, children, open: initial = true }: {
   title: string; aside?: ReactNode; children: ReactNode; open?: boolean;
 }) {
   const [open, setOpen] = useState(initial);
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} className="border-b" style={{ borderColor: "var(--rule)" }}>
-      <Collapsible.Trigger className="press flex w-full items-center gap-1.5 px-3 py-1.5 text-left">
-        <ChevronRight size={12} className="faint transition-transform duration-150" style={{ transform: open ? "rotate(90deg)" : undefined }} />
+      <Collapsible.Trigger className="press flex w-full items-center gap-2 !rounded-none px-3 py-1.5 text-left">
         <span className="label">{title}</span>
         {aside != null && <span className="ml-auto text-[11px] faint">{aside}</span>}
+        <ChevronRight size={12} className={`faint transition-transform duration-150 ${aside == null ? "ml-auto" : ""}`}
+                      style={{ transform: open ? "rotate(90deg)" : undefined }} />
       </Collapsible.Trigger>
       <Collapsible.Content className="px-3 pb-2.5 pt-0.5">{children}</Collapsible.Content>
     </Collapsible.Root>
