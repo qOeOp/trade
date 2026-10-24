@@ -22,7 +22,7 @@ import re
 from ledger import admin, db, execution, metrics, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from registration import register
+from registration import register, validation
 
 
 # Finding codes and their meaning (findings are reported, never stored).
@@ -44,8 +44,8 @@ FINDINGS = {
     "REGISTRATION_AFTER_TRIAL": "A registration attempt's registration was recorded no earlier than its trial.",
     "SOURCE_NOT_IN_GRID": "A registration attempt consumed a source outside the registration's locked grid.",
     "REGISTRATION_UNREADABLE": "A registration bundle of an attempt cannot be read.",
-    "WITNESS_MISSING": "A validation registration commit has no verified timestamp token.",
-    "WITNESS_LATE": "A validation registration's timestamp is not before its window start.",
+    "WITNESS_MISSING": "The original validation registration commit has no verified timestamp token.",
+    "WITNESS_LATE": "The original validation registration's timestamp is not before its window start.",
     "VALIDATION_BINDING_INVALID": "A validation binding binds a trial that is not a validation trial, or a validation "
                                   "trial is bound other than once.",
 }
@@ -271,23 +271,28 @@ def _registration_findings(conn: db.LedgerConnection, commit: str) -> tuple[list
 
 def _validation_findings(conn: db.LedgerConnection, commit: str) -> tuple[list[dict], int]:
     found = []
-    registrations = conn.dicts("SELECT g.registration_id, g.window_start, d.to_commit FROM validation_registration g "
+    registrations = conn.dicts("SELECT g.registration_id, g.window_start, g.retry_of, d.to_commit "
+                               "FROM validation_registration g "
                                "LEFT JOIN dolt_diff_validation_registration d ON d.to_registration_id = g.registration_id "
                                "AND d.diff_type = 'added' ORDER BY g.registration_id")
+    commits = {row["registration_id"]: row["to_commit"] for row in registrations}
     for row in registrations:
+        origin = validation.original_registration(conn, row)
+        origin_commit = commits[origin["registration_id"]]
+        identity = f"original registration {origin['registration_id']}"
         try:
-            stamped = witness.stamped_at(conn, row["to_commit"]) if row["to_commit"] else None
+            stamped = witness.stamped_at(conn, origin_commit) if origin_commit else None
         except Refusal as exc:
             stamped = None
             detail = f"{exc.code}: {exc.message}"
         else:
             detail = "no timestamp token for the registration commit"
         if stamped is None:
-            found.append(_finding("WITNESS_MISSING", "validation_registration", row["registration_id"], row["to_commit"],
-                                  detail))
-        elif not stamped.replace(tzinfo=None) < row["window_start"]:
-            found.append(_finding("WITNESS_LATE", "validation_registration", row["registration_id"], row["to_commit"],
-                                  f"stamped at {stamped}, the window starts {row['window_start']}"))
+            found.append(_finding("WITNESS_MISSING", "validation_registration", row["registration_id"], origin_commit,
+                                  f"{identity}: {detail}"))
+        elif not stamped.replace(tzinfo=None) < origin["window_start"]:
+            found.append(_finding("WITNESS_LATE", "validation_registration", row["registration_id"], origin_commit,
+                                  f"{identity}: stamped at {stamped}, the window starts {origin['window_start']}"))
     for trial_id, purpose, bound in conn.rows(
             "SELECT t.trial_id, t.purpose, COUNT(b.registration_id) FROM trial t LEFT JOIN validation_binding b ON "
             "b.trial_id = t.trial_id WHERE t.purpose = 'validation' OR b.trial_id IS NOT NULL GROUP BY t.trial_id, "

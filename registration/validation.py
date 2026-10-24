@@ -180,7 +180,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
             if (original is None or (original["strategy_id"], original["revision"]) != (row["strategy_id"], row["revision"])
                     or (original["window_start"], original["window_end"]) != (start, end)
                     or original["universe_rule"] != universe_rule
-                    or _design(_origin(conn, original)) != dict(design) or not _retry_allowed(conn, original)):
+                    or _design(original_registration(conn, original)) != dict(design) or not _retry_allowed(conn, original)):
                 raise refuse("RETRY_NOT_ALLOWED", f"registration {retry_of} cannot be retried", missing=(str(retry_of),))
         payload = {"candidate": f"{row['strategy_id']}@{row['revision']}", "market_commit": market_commit,
                    "universe_rule": universe_rule, "window_start": start.isoformat(), "window_end": end.isoformat(),
@@ -225,7 +225,8 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
             "replayed": written["replayed"]}
 
 
-def _origin(conn: db.LedgerConnection, registration: dict) -> dict:
+def original_registration(conn: db.LedgerConnection, registration: dict) -> dict:
+    """Follow retry_of to the registration whose preregistration boundary admission and reports use."""
     while registration["retry_of"] is not None:
         original = _registration(conn, registration["retry_of"])
         assert original is not None  # the foreign key on retry_of keeps the original registration
@@ -256,7 +257,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
     if registration is None:
         raise refuse("REGISTRATION_UNKNOWN", f"no validation registration {registration_id!r}",
                      missing=(str(registration_id),))
-    origin = _origin(conn, registration)
+    origin = original_registration(conn, registration)
     if _design(registration) != _design(origin):
         raise refuse("RETRY_NOT_ALLOWED", f"registration {registration_id} changed the original test design",
                      missing=("design",))

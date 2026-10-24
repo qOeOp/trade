@@ -13,9 +13,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ledger import trials, witness
+from ledger import db, trials, witness
 from ledger.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
+from report import comparison, review as ledger_review
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context,
                                product_bundle, sha, source)
 from tests.ledger.tsa import LocalAuthority
@@ -166,7 +167,8 @@ class ValidationTests(unittest.TestCase):
         cls.unrun = world.publish("never researched", parent=None)
         # One-second windows, one per registration: an unbound registration reserves its own window.
         labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
-                  "retry-baseline", "retry-members", "corrected", "successful", "legacy-design", "released")
+                  "retry-baseline", "retry-members", "corrected", "successful", "legacy-design", "witness-report",
+                  "released")
         first = (datetime.now(UTC) + timedelta(seconds=5)).replace(microsecond=0)
         cls.windows = {label: (first + timedelta(seconds=k), first + timedelta(seconds=k + 1))
                        for k, label in enumerate(labels)}
@@ -388,6 +390,80 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.code(self.register, "interrupted-retry", **retry), "RETRY_NOT_ALLOWED")
         capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
         self.assertEqual(self.register("interrupted-retry", **retry)["witness"]["status"], "stamped")
+
+    def test_retry_reports_use_the_original_witness_even_when_a_later_stamp_fails(self):
+        original = previous = self.registered["witness-report"]
+        start, end = self.windows["witness-report"]
+        trial_id = self.bind("witness-report")
+        capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
+        (commit,), = self.world.service.sql(self.world.profile,
+            "SELECT to_commit FROM dolt_diff_validation_registration WHERE to_registration_id = %s "
+            "AND diff_type = 'added'", (original["registration_id"],))
+        registrations = {str(original["registration_id"])}
+
+        def audit_findings(at=None):
+            with db.connect(self.world.profile, "reader") as conn:
+                audited = ledger_review.review_all(conn, at, trial_ids=[])
+            return [item for item in audited["findings"] if item["code"].startswith("WITNESS_")
+                    and item["record_id"] in registrations]
+
+        with patch.object(witness, "_roots", return_value=self.authority.roots):
+            expected = comparison.validation_report(self.world.profile, original["registration_id"])["witness"]
+            self.assertEqual((expected["registration_id"], expected["commit_hash"], expected["verified"]),
+                             (original["registration_id"], commit, True))
+            self.assertEqual(expected["stamped_at"], original["witness"]["stamped_at"])
+            self.assertLess(expected["stamped_at"], start)
+            historical = db.head_commit(self.conn)
+            for index in range(2):
+                label = f"witness-retry-{index}"
+                post = self.authority.respond if index == 0 else OSError("offline")
+                with patch.object(witness, "_post", side_effect=post):
+                    retry = self.register(label, retry_of=previous["registration_id"],
+                                          window_start=start, window_end=end)
+                if index == 0:
+                    self.assertEqual(retry["witness"]["status"], "stamped")
+                    self.assertGreaterEqual(retry["witness"]["stamped_at"], start)
+                else:
+                    self.assertEqual(retry["witness"]["status"], "failed")
+                self.registered[label], self.windows[label] = retry, (start, end)
+                registrations.add(str(retry["registration_id"]))
+                trial_id = self.bind(label)
+                capture(self.conn, trial_id, source("root"), purpose="validation", outcome="interrupted")
+                with patch.object(witness, "_post", side_effect=AssertionError("report must verify offline")):
+                    found = comparison.validation_report(self.world.profile, retry["registration_id"])
+                    self.assertEqual(audit_findings(), [])
+                self.assertEqual(found["witness"], expected)
+                self.assertEqual(found["registration"]["retry_of"], previous["registration_id"])
+                self.assertEqual(found["binding"]["trial_id"], trial_id)
+                self.assertFalse(any(item.startswith("UNWITNESSED") for item in found["limitations"]))
+                previous = retry
+            with patch.object(witness, "token_time", side_effect=Refusal("WITNESS_INVALID", "invalid fixture",
+                                                                       write_status="not_written")):
+                invalid = comparison.validation_report(self.world.profile, previous["registration_id"])
+            self.assertEqual(invalid["witness"], {**expected, "verified": False, "stamped_at": None})
+            self.assertTrue(any(item.startswith("UNWITNESSED") for item in invalid["limitations"]))
+            # A report at the original ledger version uses that version's existing relationship.
+            self.assertEqual(comparison.validation_report(self.world.profile, original["registration_id"],
+                                                          historical)["witness"], expected)
+            self.assertEqual(audit_findings(historical), [])
+            read_stamp = witness.stamped_at
+            for stamp, code in ((None, "WITNESS_MISSING"), (start, "WITNESS_LATE"),
+                                (start + timedelta(microseconds=1), "WITNESS_LATE"),
+                                (Refusal("WITNESS_INVALID", "invalid original token", write_status="not_written"),
+                                 "WITNESS_MISSING")):
+                with self.subTest(original_stamp=stamp):
+                    def original_stamp(conn, target, *args, **kwargs):
+                        if target != commit:
+                            return read_stamp(conn, target, *args, **kwargs)
+                        if isinstance(stamp, Refusal):
+                            raise stamp
+                        return stamp
+                    with patch.object(witness, "stamped_at", side_effect=original_stamp):
+                        findings = audit_findings()
+                    self.assertEqual({item["record_id"] for item in findings}, registrations)
+                    self.assertTrue(all(item["code"] == code and item["commit"] == commit for item in findings))
+                    self.assertTrue(all(f"original registration {original['registration_id']}" in item["detail"]
+                                        for item in findings))
 
     def test_the_same_op_id_with_other_content_conflicts(self):
         start, end = self.windows["bound"]

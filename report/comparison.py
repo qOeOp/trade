@@ -25,7 +25,7 @@ from ledger import db, metrics, strategies, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
-from registration import comparability, register
+from registration import comparability, register, validation
 from report import attribution as report_attribution, measures, runs
 
 
@@ -565,6 +565,8 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         source = conn.one("SELECT source_sha256 FROM candidate WHERE strategy_id = %s AND revision = %s",
                           (row["strategy_id"], row["revision"]))
         limitations = list(VALIDATION_LIMITATIONS)
+        origin = validation.original_registration(conn, row)
+        witness_commit = _registration_commit(conn, origin["registration_id"])
         output: dict
         output = {"registration_id": registration_id, "ledger_commit": db.head_commit(conn),
                   "metrics_revision": availability.report_revision(),
@@ -573,10 +575,11 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                                    "window_start": row["window_start"], "window_end": row["window_end"],
                                    "universe_rule": row["universe_rule"], "market_commit": row["market_commit"],
                                    "design": design, "registered_at": row["created_at"], "retry_of": row["retry_of"]},
-                  "witness": _witness(conn, _registration_commit(conn, registration_id)),
+                  "witness": {"registration_id": origin["registration_id"], "commit_hash": witness_commit,
+                              **_witness(conn, witness_commit)},
                   "binding": None, "availability": None, "metrics": None, "single": None}
         if output["witness"]["stamped_at"] is None:
-            limitations.append("UNWITNESSED: the registration commit has no verified timestamp token")
+            limitations.append("UNWITNESSED: the original registration commit has no verified timestamp token")
         binding, run = _bound(conn, registration_id)
         family_rows = conn.dicts("SELECT registration_id, strategy_id, revision, design FROM validation_registration "
                                  "WHERE window_start = %s AND window_end = %s AND universe_rule = %s ORDER BY "
