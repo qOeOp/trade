@@ -5,61 +5,64 @@ groups. Duty definitions: research-round `references/duty-directory.md`.
 
 ```text
 """
-<策略名>：<一句话写清收益机制>
-出处：<DOI / arXiv / URL，加版本或日期>；来源证据包 <bundle 名>
+<Strategy name>: <one sentence on the return mechanism>
+Source: <DOI / arXiv / URL, with version or date>; source bundle <bundle name>
 
-职责立场：每行「编号 立场 | 一句理由 | 来源」
-立场 ∈ 采用 / 缺省 / 不适用；来源 ∈ 出处 / 实现者 / 研究者（把出处规则搬到别的市场、周期或品种）
+Duty stances: one line each, "id stance | one-sentence reason | source label"
+stance in adopted / default / not applicable; source label in source / implementer / researcher
+(researcher: a rule from the source carried to another market, timeframe or instrument)
 
-[A 对象与适用性]
-A1 可投资对象与资格：<立场> | <理由> | <来源>
-A2 动态选择与替换：<立场> | <理由> | <来源>
-A3 机制适用的市场结构／条件过滤：<立场> | <理由> | <来源>
+[A Instruments and applicability]
+A1 Investable instruments and eligibility: <stance> | <reason> | <source label>
+A2 Dynamic selection and replacement: <stance> | <reason> | <source label>
+A3 Market-structure / condition filter for the mechanism: <stance> | <reason> | <source label>
 
-[B 预测与学习]
-B1 预期收益／相对错价：<立场> | <理由> | <来源>
-B2 预测期限与衰减：<立场> | <理由> | <来源>
-B3 信号组合与估计更新：<立场> | <理由> | <来源>
+[B Forecasting and learning]
+B1 Expected return / relative mispricing: <stance> | <reason> | <source label>
+B2 Forecast horizon and decay: <stance> | <reason> | <source label>
+B3 Signal combination and estimate updating: <stance> | <reason> | <source label>
 
-[C 首次行动与记忆]
-C1 首次进入与触发方式：<立场> | <理由> | <来源>
-C2 不行动、重入与历史依赖：<立场> | <理由> | <来源>
+[C First action and memory]
+C1 First entry and trigger: <stance> | <reason> | <source label>
+C2 Inaction, re-entry and path dependence: <stance> | <reason> | <source label>
 
-[D 经济构型]
-D1 单腿／多腿经济构型：<立场> | <理由> | <来源>
-D2 对冲与非线性暴露：<立场> | <理由> | <来源>
+[D Economic structure]
+D1 Single-leg / multi-leg structure: <stance> | <reason> | <source label>
+D2 Hedging and nonlinear exposure: <stance> | <reason> | <source label>
 
-[E 风险与分配]
-E1 单机会的风险与数量：<立场> | <理由> | <来源>  ← 硬契约，不得写不适用
-E2 组合敞口、集中与共同风险：<立场> | <理由> | <来源>
-E3 净值变化后的风险预算：<立场> | <理由> | <来源>
-E4 多机会／多策略资源分配：<立场> | <理由> | <来源>  ← 硬契约，不得写不适用
+[E Risk and allocation]
+E1 Per-opportunity risk and size: <stance> | <reason> | <source label>  <- hard contract, never not applicable
+E2 Portfolio exposure, concentration and common risk: <stance> | <reason> | <source label>
+E3 Risk budget after equity changes: <stance> | <reason> | <source label>
+E4 Allocation across opportunities / strategies: <stance> | <reason> | <source label>  <- hard contract, never not applicable
 
-[F 持仓路径]
-F1 主动分批建立与增持：<立场> | <理由> | <来源>
-F2 主动减持与持仓路径：<立场> | <理由> | <来源>
-F3 动态保护／获利边界：<立场> | <理由> | <来源>
-F4 完全退出、到时退出与结束后清理：<立场> | <理由> | <来源>
-F5 成员／模型改变时的存量处置：<立场> | <理由> | <来源>  ← 硬契约，不得写不适用
+[F Position path]
+F1 Active scaling in and adding: <stance> | <reason> | <source label>
+F2 Active reduction and position path: <stance> | <reason> | <source label>
+F3 Dynamic protective / profit boundaries: <stance> | <reason> | <source label>
+F4 Full exit, timed exit and post-exit cleanup: <stance> | <reason> | <source label>
+F5 Handling existing holdings on membership / model change: <stance> | <reason> | <source label>  <- hard contract, never not applicable
 
-[G 实施]
-G1 经济执行方式与价格：<立场> | <理由> | <来源>
-G2 等待、刷新与成交后的反馈：<立场> | <理由> | <来源>
-G3 冲击、容量与实施速度：<立场> | <理由> | <来源>
+[G Implementation]
+G1 Execution style and price: <stance> | <reason> | <source label>
+G2 Waiting, refreshing and post-fill feedback: <stance> | <reason> | <source label>
+G3 Impact, capacity and implementation speed: <stance> | <reason> | <source label>
 
-[H 资本]
-H1 现金、融资及持有成本：<立场> | <理由> | <来源>
-H2 保证金、抵押与缓冲：<立场> | <理由> | <来源>  ← 硬契约，不得写不适用
-H3 做空可获得性与融资中断：<立场> | <理由> | <来源>
+[H Capital]
+H1 Cash, financing and carry costs: <stance> | <reason> | <source label>
+H2 Margin, collateral and buffers: <stance> | <reason> | <source label>  <- hard contract, never not applicable
+H3 Short availability and financing disruption: <stance> | <reason> | <source label>
 
-[I 生命周期与可行性]
-I1 合约／事件生命周期：<立场> | <理由> | <来源>
-I2 退出可行性与未来资源：<立场> | <理由> | <来源>
+[I Lifecycle and feasibility]
+I1 Contract / event lifecycle: <stance> | <reason> | <source label>
+I2 Exit feasibility and future resources: <stance> | <reason> | <source label>
 
 """
 ```
 
-Write the header line by line from this template: each of the 27 duties with its stance
-(采用 / 缺省 / 不适用), one reason and its source (出处 / 实现者 / 研究者). The four hard contracts,
-E1 single-opportunity risk and quantity, E4 allocation across opportunities, F5 disposal of holdings
-when membership changes and H2 margin buffer, are never 不适用.
+Write the header line by line from this template, in English: each of the 27 duties with its stance
+(`adopted` / `default` / `not applicable`), one reason and its source label (`source` / `implementer` /
+`researcher`). The four hard contracts, E1 per-opportunity risk and size, E4 allocation across
+opportunities, F5 handling existing holdings on membership change and H2 margin buffer, are never
+`not applicable`. A header kept from a parent keeps its unchanged lines byte for byte, whatever
+their language.

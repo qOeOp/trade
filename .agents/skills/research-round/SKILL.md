@@ -68,6 +68,11 @@ options through `research-start`. Trial counts and budgets do not reject a resea
   instead of copying measures, counts or eligibility; working reports may display cited product
   values. To the user, name each object by its kind and product id (`trial 67`, `recommendation
   judgment 253`, `ema-fixed-dailyspec@1`), never a bare `#N`.
+- Write every free text the ledger keeps (candidate descriptions and differences, conjectures,
+  predictions, judgment, evidence and review bodies, line notes and summaries) in English, whatever
+  language the conversation uses. Structure anything longer than two sentences for a reader who
+  has not seen the conversation: a lead sentence, then short paragraphs or a `- ` list, one point
+  each, separated by blank lines. Text kept byte for byte from a parent stays as it is.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,
   correction and reason. Present the original with its correction; working copies and session
   memory do not replace either. When a run whose measures the user has seen loses economic

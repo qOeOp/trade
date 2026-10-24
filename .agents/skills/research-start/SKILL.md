@@ -41,6 +41,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
 then published, prechecked and reviewed (research-round's template.md, First report). Record the
 choice once with `line select` (`--help`), its note stating the user's two research targets.
+Line notes and summaries follow research-round's rule for ledger text (English, structured).
 The targets are the reference for reading reports; ask for nothing else (no coins, sizing,
 budgets or stages).
 
