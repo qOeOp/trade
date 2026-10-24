@@ -1,6 +1,6 @@
 ---
 name: nautilus-report-analysis
-description: Derives descriptive statistics from a sealed run's stored cycles, daily returns and reproduced native reports (ratios, deflated Sharpe, capital use, exit-reason splits, per-instrument or per-month tables, holding times) beyond the product's single-run and comparison reports. Use before computing any such number from tables() of a run, and before comparing two runs trade by trade or by drawdown.
+description: Derives descriptive statistics from a sealed run's stored cycles, daily returns and reproduced native reports (ratios, deflated Sharpe, capital use, exit-reason splits, per-instrument or per-month tables, holding times) beyond the product's single-run and comparison reports. Use before computing any such number from tables() of a run, before comparing two runs trade by trade or by drawdown, and before reading fill sizes, liquidation prices or slippage of a quote-execution run (they are checked against Binance's published depth).
 ---
 
 # Native report analysis
@@ -54,6 +54,14 @@ and returned fields.
   entry parents, then split by the strategy's own tags before reading cancels as lost
   opportunities. Only one order's own event order is causal.
 
+- Under quote execution (`strategy_quote_execution` true in the run's summary), every fill, liquidation
+  fills included, took its whole quantity at the best bid or ask with no depth. Before reading fill
+  sizes, liquidation prices or slippage, check each fill against the venue's published depth
+  ([depth.md](references/depth.md)): count the fills whose quantity exceeds the resting quantity
+  within 1% on the side they hit, report that count beside the total and the liquidation fills among
+  them, and state that the environment fills at the best price without depth. Never scale a fill or
+  its price by the depth: the number is a flag on the run's realism, not a correction.
+
 ## References
 
 - [ratios.md](references/ratios.md): before Sharpe, Sortino, Calmar or similar ratios (whole
@@ -62,3 +70,5 @@ and returned fields.
   capacity.
 - [exit-reasons.md](references/exit-reasons.md): before an entry-plan × exit-reason table or
   splitting contributions by exit.
+- [depth.md](references/depth.md): before reading fill sizes, liquidation prices or slippage of a
+  quote-execution run.
