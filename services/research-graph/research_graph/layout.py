@@ -11,7 +11,7 @@ known; so trials and what happened between them never share a position. Rows fol
 children in order of their first trial. A renderer maps these units to its own pixels and colours.
 
 The recommendation judgments form a trail over the recommended versions' rows (one segment per
-stretch the recommendation stayed on one version); `progress/1` holds the research runs' annual
+stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress/1` holds the research runs' annual
 returns on the same x.
 """
 from __future__ import annotations
@@ -181,7 +181,9 @@ def build_view(graph: dict) -> dict:
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
-         "trail": trail},
+         "trail": trail,
+         "trials": sorted(({"trial_id": t["trial_id"], "candidate": c["id"], "purpose": t["purpose"]}
+                           for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
         {"id": "progress", "type": "progress/1", "slot": "main", "title": "研究进展", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],

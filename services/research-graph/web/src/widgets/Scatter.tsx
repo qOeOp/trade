@@ -1,36 +1,25 @@
-import { useEffect, useRef, useState } from "react";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
-import type { ScatterWidget } from "../types";
-import { pct } from "../format";
-import { hoverProps, requestFocus, useHovered } from "../store";
-import { Tip } from "../ui";
-
-function useSize() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useEffect(() => {
-    if (!ref.current) return;
-    const observer = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
-    observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, size] as const;
-}
+import type { ScatterWidget } from "../model/types";
+import { pct } from "../lib/format";
+import { v } from "../theme/roles";
+import { hoverProps, requestFocus, useHovered } from "../state/linking";
+import { select, useSelection } from "../state/selection";
+import { useSize } from "../components/hooks/useSize";
+import { Tip } from "../components/Tip";
 
 const M = { top: 22, right: 18, bottom: 34, left: 58 };
-const axis = { stroke: "var(--rule-2)", tickStroke: "var(--rule-2)" };
-const tickFont = { fill: "var(--ink-3)", fontSize: 10, fontFamily: "JetBrains Mono Variable, ui-monospace, monospace" };
+const axis = { stroke: v("axis"), tickStroke: v("axis") };
+const tickFont = { fill: v("fg-faint"), fontSize: 10, fontFamily: "JetBrains Mono Variable, ui-monospace, monospace" };
 const leftLabel = () => ({ ...tickFont, textAnchor: "end" as const, dx: -6, dy: 3 });
 const bottomLabel = () => ({ ...tickFont, textAnchor: "middle" as const, dy: 2 });
 
 // Research runs by annual return against max drawdown: the region meeting both targets, the
 // non-dominated runs joined as a frontier (less drawdown and more return cannot both improve), and
 // on hover a crosshair that reads the point's values off both axes.
-export function Scatter({ widget, selected, onSelect }: {
-  widget: ScatterWidget; selected: string | null; onSelect: (id: string) => void;
-}) {
+export function Scatter({ widget }: { widget: ScatterWidget }) {
+  const selected = useSelection();
   const [ref, { width, height }] = useSize();
   const hovered = useHovered();
   const t = widget.targets ?? {};
@@ -51,18 +40,18 @@ export function Scatter({ widget, selected, onSelect }: {
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label="研究运行的年化与最大回撤">
           <Group left={M.left} top={M.top}>
-            {y.ticks(5).map((v) => <line key={`y${v}`} x1={0} x2={w} y1={y(v)} y2={y(v)} stroke="var(--rule)" />)}
-            {x.ticks(6).map((v) => <line key={`x${v}`} x1={x(v)} x2={x(v)} y1={0} y2={h} stroke="var(--rule)" />)}
+            {y.ticks(5).map((n) => <line key={`y${n}`} x1={0} x2={w} y1={y(n)} y2={y(n)} stroke={v("grid")} />)}
+            {x.ticks(6).map((n) => <line key={`x${n}`} x1={x(n)} x2={x(n)} y1={0} y2={h} stroke={v("grid")} />)}
             {t.max_drawdown != null && t.annual_return != null && (
-              <rect x={0} y={0} width={x(t.max_drawdown)} height={y(t.annual_return)} fill="var(--meet)" opacity={0.06} />
+              <rect x={0} y={0} width={x(t.max_drawdown)} height={y(t.annual_return)} fill={v("meets")} opacity={0.06} />
             )}
-            {t.max_drawdown != null && <line x1={x(t.max_drawdown)} x2={x(t.max_drawdown)} y1={0} y2={h} stroke="var(--meet)" strokeDasharray="5 3" />}
-            {t.annual_return != null && <line x1={0} x2={w} y1={y(t.annual_return)} y2={y(t.annual_return)} stroke="var(--meet)" strokeDasharray="5 3" />}
+            {t.max_drawdown != null && <line x1={x(t.max_drawdown)} x2={x(t.max_drawdown)} y1={0} y2={h} stroke={v("meets")} strokeDasharray="5 3" />}
+            {t.annual_return != null && <line x1={0} x2={w} y1={y(t.annual_return)} y2={y(t.annual_return)} stroke={v("meets")} strokeDasharray="5 3" />}
             {frontier.length > 1 && (
               <path d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
-                    fill="none" stroke="var(--ink-3)" strokeWidth={1} strokeDasharray="2 3" />
+                    fill="none" stroke={v("fg-faint")} strokeWidth={1} strokeDasharray="2 3" />
             )}
-            {focus && <g pointerEvents="none" stroke="var(--ink-2)" strokeWidth={0.75} strokeDasharray="2 2">
+            {focus && <g pointerEvents="none" stroke={v("fg-muted")} strokeWidth={0.75} strokeDasharray="2 2">
               <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />
               <line x1={0} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={y(focus.annual_return)} />
             </g>}
@@ -71,14 +60,14 @@ export function Scatter({ widget, selected, onSelect }: {
               const recommended = p.status === "recommended", on = p.id === selected;
               return (
                 <Tip key={`${p.id}-${p.trial_id}`} content={
-                  <div className="space-y-0.5"><div className="mono font-semibold">{p.id}</div>
-                    <div className="mono">trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
-                    {p.eligible === false && <div style={{ color: "var(--fail)" }}>失去资格</div>}</div>}>
-                  <g {...hoverProps(p.id)} className="cursor-pointer" onClick={() => { onSelect(p.id); requestFocus(p.id); }}>
-                    {on && <circle cx={cx} cy={cy} r={8.5} fill="none" stroke="var(--ink-1)" strokeWidth={1.25} />}
+                  <div className="space-y-0.5"><div className="font-mono font-semibold">{p.id}</div>
+                    <div className="font-mono">trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
+                    {p.eligible === false && <div className="text-fail">失去资格</div>}</div>}>
+                  <g {...hoverProps(p.id)} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
+                    {on && <circle cx={cx} cy={cy} r={8.5} fill="none" stroke={v("fg")} strokeWidth={1.25} />}
                     <circle cx={cx} cy={cy} r={recommended ? 5 : 3.5}
-                            fill={p.eligible === false ? "var(--panel)" : recommended ? "var(--accent)" : "var(--ink-3)"}
-                            stroke={recommended ? "var(--panel)" : "var(--ink-3)"} strokeWidth={recommended ? 1.5 : 1} />
+                            fill={p.eligible === false ? v("island") : recommended ? v("recommended") : v("fg-faint")}
+                            stroke={recommended ? v("island") : v("fg-faint")} strokeWidth={recommended ? 1.5 : 1} />
                   </g>
                 </Tip>
               );
@@ -86,18 +75,18 @@ export function Scatter({ widget, selected, onSelect }: {
             <AxisLeft scale={y} numTicks={5} tickFormat={(v) => `${Math.round(Number(v) * 100)}%`} {...axis} tickLabelProps={leftLabel} hideZero={false} />
             <AxisBottom top={h} scale={x} numTicks={6} tickFormat={(v) => `${Math.round(Number(v) * 100)}%`} {...axis} tickLabelProps={bottomLabel} />
             {focus && <g pointerEvents="none" fontSize={10} fontFamily="JetBrains Mono Variable, ui-monospace, monospace">
-              <rect x={x(focus.max_drawdown) - 26} y={h + 3} width={52} height={15} rx={3} fill="var(--ink-1)" />
-              <text x={x(focus.max_drawdown)} y={h + 14} textAnchor="middle" fill="var(--panel)">{pct(focus.max_drawdown)}</text>
-              <rect x={-50} y={y(focus.annual_return) - 7.5} width={47} height={15} rx={3} fill="var(--ink-1)" />
-              <text x={-6} y={y(focus.annual_return) + 3.5} textAnchor="end" fill="var(--panel)">{pct(focus.annual_return)}</text>
+              <rect x={x(focus.max_drawdown) - 26} y={h + 3} width={52} height={15} rx={3} fill={v("fg")} />
+              <text x={x(focus.max_drawdown)} y={h + 14} textAnchor="middle" fill={v("island")}>{pct(focus.max_drawdown)}</text>
+              <rect x={-50} y={y(focus.annual_return) - 7.5} width={47} height={15} rx={3} fill={v("fg")} />
+              <text x={-6} y={y(focus.annual_return) + 3.5} textAnchor="end" fill={v("island")}>{pct(focus.annual_return)}</text>
             </g>}
           </Group>
-          <text x={M.left + w} y={height - 4} textAnchor="end" fontSize={10.5} fill="var(--ink-3)">最大回撤 →</text>
-          <text x={M.left - 8} y={12} fontSize={10.5} fill="var(--ink-3)" textAnchor="end">年化 ↑</text>
+          <text x={M.left + w} y={height - 4} textAnchor="end" fontSize={10.5} fill={v("fg-faint")}>最大回撤 →</text>
+          <text x={M.left - 8} y={12} fontSize={10.5} fill={v("fg-faint")} textAnchor="end">年化 ↑</text>
         </svg>
       )}
-      <div className="pointer-events-none absolute right-5 top-3 text-right text-[11px] faint">
-        {points.length} 次研究运行 · 点线为不被支配的前沿 · 蓝区为两项目标都达到
+      <div className="pointer-events-none absolute right-5 top-3 text-right text-small text-fg-faint">
+        {points.length} 次研究运行 · 点线为不被支配的前沿 · 绿区为两项目标都达到
       </div>
     </div>
   );

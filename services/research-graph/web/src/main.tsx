@@ -1,14 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import type { View } from "./types";
-import "./styles.css";
+import type { DetailWidget, LineageWidget, View } from "./model/types";
+import { initSelection } from "./state/selection";
+import "./index.css";
 
-const source = document.getElementById("research-graph-view")?.textContent ?? "";
 const root = createRoot(document.getElementById("root")!);
 try {
-  const view = JSON.parse(source) as View;
+  const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View;
+  const lineage = view.widgets.find((w) => w.type === "lineage/2") as LineageWidget | undefined;
+  const detail = view.widgets.find((w) => w.type === "candidate-detail/1") as DetailWidget | undefined;
+  initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   root.render(<StrictMode><App view={view} /></StrictMode>);
 } catch {
-  root.render(<p style={{ padding: 24 }}>没有可读的视图数据：请用 graph.py render --renderer web 生成本页。</p>);
+  root.render(<p style={{ padding: 24 }}>没有可读的视图数据：请用 graph.py render 生成本页。</p>);
 }

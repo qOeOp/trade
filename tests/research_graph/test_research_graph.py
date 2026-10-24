@@ -73,6 +73,8 @@ class LayoutTests(unittest.TestCase):
         segment, = tree["trail"]
         self.assertEqual((segment["candidate"], segment["x1"]), ("a@1", tree["axis"]["max"]))
         self.assertEqual(segment["x0"], 4.5, "a timed event sits halfway through the gap after its last trial")
+        self.assertEqual([(t["trial_id"], t["candidate"]) for t in tree["trials"]],
+                         [(1, "root@1"), (2, "root@1"), (3, "a@1"), (4, "a@1"), (5, "b@1")])
         progress = widgets["progress"]
         self.assertEqual(progress["recommended"], ["a@1"])
         self.assertEqual([p["eligible"] for p in progress["points"]], [False, True, True])

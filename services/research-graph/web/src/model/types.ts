@@ -1,4 +1,4 @@
-// The view model (research-graph-view/1) as research_graph/layout.py writes it; the lineage is lineage/2.
+// The view model (research-graph-view/1) as research_graph/layout.py writes it.
 
 export type Status = "recommended" | "meets_targets" | "below_targets" | "masked" | "precheck_failed" | "unrun";
 export type Prediction = "held" | "failed" | "mixed" | "none";
@@ -76,6 +76,7 @@ export type LineageWidget = Widget & {
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
   trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
+  trials: { trial_id: number; candidate: string; purpose: string }[];
 };
 
 export type ProgressWidget = Widget & {
