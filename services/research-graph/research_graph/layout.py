@@ -185,8 +185,7 @@ def build_view(graph: dict) -> dict:
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
-                    for c in candidates for t in research_runs(c)
-                    if t.get("annual_return") is not None or t.get("eligible") is False],
+                    for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
          "recommended": sorted({t["candidate"] for t in trail})},
         {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
          "targets": targets,
