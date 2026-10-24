@@ -6,13 +6,16 @@ import { v, wash } from "../../theme/roles";
 import { hoverProps, requestFocus, useAxisView, useCrosshair } from "../../state/linking";
 import { useSize } from "../../components/hooks/useSize";
 import { Tip } from "../../components/Tip";
+import { ChartPill, PILL_H } from "../../components/ChartPill";
 import { RULER } from "./geometry";
 
-const BLOCK_Y = 4, BLOCK_H = RULER - 8, NUM_Y = RULER / 2 + 3.5;
+const BLOCK_Y = 4, BLOCK_H = RULER - 8, NUM_Y = RULER / 2 + 4, TICK = 3;
+// Numbers every LABEL trials (as a time axis labels round values); the rest are minor ticks.
+const LABEL = 5;
 
-/** The trial axis: every trial's number over its column, the trial where a version sits on the canvas
- *  in the text colour and the rest faint; the trials that ran one version on a rounded tinted block
- *  (brand blue for the current recommendation); the trial under the pointer inverted. */
+/** The trial axis: a number every five trials and a minor tick at the rest, the tick darker where a
+ *  version sits on the canvas; the trials that ran one version on a rounded tinted block (brand blue for
+ *  the current recommendation); the trial under the pointer as a dark pill with its number. */
 export function Ruler({ lineage }: { lineage: LineageWidget }) {
   const [ref, { width }] = useSize();
   const { x0, unit } = useAxisView();
@@ -43,16 +46,13 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
             </Tip>
           );
         })}
-        {visible.map((t) => {
-          const here = t === at;
-          return (
-            <g key={t} data-ruler-trial={t} pointerEvents="none">
-              {here && <rect x={sx(t) - unit / 2 + 3} y={BLOCK_Y + 1} width={unit - 6} height={BLOCK_H - 2} rx={4} fill={v("fg")} />}
-              <text x={sx(t)} y={NUM_Y} textAnchor="middle" fontSize={9.5}
-                    fill={v(here ? "island" : anchors.has(t) ? "fg" : "fg-ghost")}>{t}</text>
-            </g>
-          );
-        })}
+        {visible.map((t) => (
+          <g key={t} data-ruler-trial={t} pointerEvents="none">
+            {t === at ? <ChartPill x={sx(t)} y={(RULER - PILL_H) / 2} text={String(t)} />
+              : t % LABEL === 0 ? <text x={sx(t)} y={NUM_Y} textAnchor="middle" fontSize={11} fill={v(anchors.has(t) ? "fg" : "fg-muted")}>{t}</text>
+              : <line x1={sx(t)} x2={sx(t)} y1={RULER - BLOCK_Y - TICK} y2={RULER - BLOCK_Y} stroke={v(anchors.has(t) ? "fg-muted" : "fg-ghost")} />}
+          </g>
+        ))}
       </svg>
     </div>
   );

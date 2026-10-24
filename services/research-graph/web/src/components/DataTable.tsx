@@ -18,7 +18,8 @@ export const columns = <T extends RowData>() => createColumnHelper<typeof featur
 type Meta = { numeric?: boolean; align?: "right" } | undefined;
 const right = (meta: unknown) => !!((meta as Meta)?.numeric || (meta as Meta)?.align === "right");
 
-/** A dense, sortable table in one face, size and weight: muted headers, values in the text colour,
+/** A dense, sortable table in one face, size and weight: 24px rows split by hairlines and spacing only
+ *  (no column rules), muted headers aligned with their values, values in the text colour,
  *  a sticky header (unless `sticky` is false, e.g. inside a card), rows linked to a version on hover.
  *  With `fixed`, columns share the width equally. */
 export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed, sticky = true, wrapRow }: {
@@ -61,7 +62,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
             <tr key={row.id} {...hoverProps(id)} onClick={() => onRow?.(row.original)} data-selected={id && id === selected ? "" : undefined}
                 className={onRow ? "cursor-pointer transition-colors hover:bg-row-hover active:bg-hover" : undefined}>
               {row.getAllCells().map((cell) => (
-                <td key={cell.id} className={`whitespace-nowrap border-b border-line px-2 py-1 ${right(cell.column.columnDef.meta) ? "text-right" : ""}`}>
+                <td key={cell.id} className={`h-6 whitespace-nowrap border-b border-line px-2 py-0 ${right(cell.column.columnDef.meta) ? "text-right" : ""}`}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

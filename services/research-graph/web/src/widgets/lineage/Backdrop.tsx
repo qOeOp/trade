@@ -6,7 +6,8 @@ import { bounds, ROW, UNIT } from "./geometry";
 
 type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
 
-/** Under the versions and edges: row stripes, the before-scope shading,
+/** Under the versions and edges (rows unstriped, so the background behind the data stays even; the
+ *  crosshair marks the row under the pointer): the before-scope shading,
  *  and the recommendation trail as a brand-blue underline on the recommended version's row for the
  *  stretch it held, with a dotted handover to the next. Portalled into the viewport, not a node. */
 export function Backdrop({ widget }: { widget: LineageWidget }) {
@@ -19,9 +20,6 @@ export function Backdrop({ widget }: { widget: LineageWidget }) {
   if (!viewport) return null;
   return createPortal(
     <svg data-backdrop data-rows={widget.rows.length} width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
-      {widget.rows.filter((r) => r.row % 2).map((r) => (
-        <rect key={r.id} x={0} y={Y(r.row) - ROW / 2} width={width} height={ROW} fill={v("island-alt")} />
-      ))}
       {scope != null && <rect x={0} y={0} width={X(scope)} height={height} fill={v("scope")} />}
       {trail.map((t, i) => {
         const prev = trail[i - 1];

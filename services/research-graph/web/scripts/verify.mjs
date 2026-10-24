@@ -45,6 +45,8 @@ try {
       const lines = [...document.querySelectorAll("[data-version-line]")].map((l) => {
         const at = (p) => l.querySelector('[data-part="' + p + '"]');
         const L = r(l).left, badge = at("badge"), ret = at("ret"), dd = at("dd"), mark = at("mark"), pred = at("pred"), name = at("name");
+        // a version that lost eligibility has no badge; the rest of its line keeps the same gaps
+        if (!badge) return { mark: +(r(mark).left - L).toFixed(1), name: +(r(name).left - r(pred).right).toFixed(1), gaps: null, sameFont: true };
         const B = r(badge), font = (e) => e && [getComputedStyle(e).fontFamily, getComputedStyle(e).fontSize, getComputedStyle(e).fontWeight].join("|");
         const gaps = ret && dd ? (() => { const a = text(ret), b = text(dd), D = r(dd).left;
           return [a.left - B.left - 1, D - a.right, b.left - D - 1, B.right - 1 - b.right].map((x) => +x.toFixed(1)); })() : null;
@@ -85,7 +87,7 @@ try {
     expect(f.bar.filter((b) => b.height !== first.height).length <= 1, `${scheme}: toolbar controls differ in height from the stripe buttons`);
     expect(near(f.crumb, f.status) && near(f.crumb, first.left + 8), `${scheme}: status bar text is ${f.crumb.toFixed(1)}px and ${f.status.toFixed(1)}px from the window's edges, not ${first.left + 8}`);
     expect(m.offCentre < 0.6, `${scheme}: a canvas node's content is ${m.offCentre}px off its vertical centre`);
-    const unique = (k) => [...new Set(m.lines.map((l) => JSON.stringify(l[k])))];
+    const unique = (k) => [...new Set(m.lines.filter((l) => k in l).map((l) => JSON.stringify(l[k])))];
     expect(m.lines.length > 0, `${scheme}: no VersionLine rendered`);
     for (const k of ["mark", "badge", "afterBadge", "name"]) expect(unique(k).length === 1, `${scheme}: VersionLine ${k} gaps differ: ${unique(k).join(" ")}`);
     const gaps = [...new Set(m.lines.flatMap((l) => l.gaps ?? []).map((g) => Math.round(g)))];

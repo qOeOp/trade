@@ -1,9 +1,11 @@
 import { createPortal } from "react-dom";
 import { useStore } from "@xyflow/react";
 import { v } from "../../theme/roles";
+import { ROW } from "./geometry";
 
-// TradingView's crosshair: faint dashed lines through a reticle at the pointer. Near the reticle the
-// dashes thin out, and they stop short of it, so the point itself stays clear.
+// TradingView's crosshair in its magnet mode: faint dashed lines through a reticle, the vertical one on
+// the trial and the horizontal one on the version row nearest the pointer. Near the reticle the dashes
+// thin out, and they stop short of it, so the point itself stays clear.
 const NEAR = 40, CLEAR = 7, DENSE = "3 3", SPARSE = "1 5";
 
 /** One line from `from` to `to` along an axis, broken around `at` (null: unbroken). */
@@ -15,13 +17,13 @@ function runs(from: number, to: number, at: number | null): [number, number, str
 }
 
 /** On a canvas of `width` × `height` (screen pixels): the vertical line at `x` (a snapped trial), the
- *  horizontal one at `y` and the reticle where they meet when the pointer is here (`y` null: only the
+ *  horizontal one on the row nearest `y` and the reticle where they meet when the pointer is here (`y` null: only the
  *  vertical line). Portalled into the viewport above the backdrop and under the versions and edges, so
  *  the lines never strike through a version's text. */
 export function Crosshair({ x, y, width, height, reticle = true }: { x: number; y: number | null; width: number; height: number; reticle?: boolean }) {
   const viewport = useStore((s) => s.domNode?.querySelector(".react-flow__viewport") ?? null);
   const [tx, ty] = useStore((s) => s.transform);
-  const X = Math.round(x) + 0.5, Y = y == null ? null : Math.round(y) + 0.5;
+  const X = Math.round(x) + 0.5, Y = y == null ? null : Math.round(Math.round((y - ty) / ROW) * ROW + ty) + 0.5;
   const stroke = { stroke: v("crosshair"), strokeOpacity: 0.75 };
   if (!viewport) return null;
   return createPortal(

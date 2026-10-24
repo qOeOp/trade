@@ -67,12 +67,20 @@ canvas that pans but never zooms and only as far as its content (trial 0 and the
 last row at its bottom; focusing a version centres it only as far as that allows, and opening or closing a side
 leaves the canvas where it is), with each version's role shown by its mark's shape, parent-to-child
 lines drawn as git graphs draw them (recessive, except the selected version's lineage: root to it and on to its
-children), no gridlines (the ruler gives the trials), a brand-blue underline where a version stayed recommended and a red
-wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
-puts the trials that ran one version on a rounded tinted block, and marks the trial under the pointer. Over the canvas the
-pointer is a crosshair as in TradingView: faint dashed lines, sparser near a small reticle, drawn under the versions and lines; in
-研究进展 the run at that trial stands on a larger bar in the selection tone, from the axis out, with its return
-under the axis. Reading badges
+children), no gridlines or row stripes (the ruler gives the trials), a brand-blue underline where a version stayed
+recommended, and a version that lost eligibility faded to 40% with no badge and only its mark in red; a ruler above numbers
+every fifth trial with minor ticks between (darker where a version sits), puts the trials that ran one version on a rounded
+tinted block, and shows the trial under the pointer as a dark pill. Over the canvas the pointer is a crosshair as in
+TradingView's magnet mode: faint dashed lines on the nearest trial and version row, sparser near a small reticle, drawn under
+the versions and lines. The charts follow the design spec: solid hairline gridlines along the value axis only, no tick marks,
+dashes only for the crosshair and target lines, grey data with colour kept for what the chart is about, labels in text
+colours (a coloured mark beside them gives identity), headroom above the data and readouts as dark pills on the axes. In
+研究进展 bars fill 70% of a trial (at most 24px), rounded only at their far end, over a faint band from zero to the target;
+the selected version's runs stand on a deeper selection-tone bar and the run at the crosshair's trial on a lighter one, its
+return read out under the axis. In 年化 vs 回撤 the dominated runs are translucent grey, the frontier blue with its ends and
+the recommendation named, and the corner meeting both targets tinted green and labelled. Hovering a mark dims every other
+version mark to 30%; Tab reaches either chart and the arrow keys step from run to run (Enter selects, Escape lets go).
+Reading badges
 are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
 widgets (研究线, 账本提交 and 当前推荐, whose menu lists every version the recommendation rested on), the
 recommendation's readout, search and settings (theme, layout reset), its controls the size of the stripe buttons and its ends
@@ -82,7 +90,7 @@ it) and the version under the pointer. The editor keeps at least 45% of the widt
 sides first. As in IntelliJ, a stripe on each side opens tool windows, one per side:
 版本树 (the versions as a tree by lineage) on the left, 详情 (the selected version as cards in groups) on the right, and
 研究进展 (research-run returns as bars from zero on the canvas's x), 年化 vs 回撤 (the scatter with the non-dominated
-frontier), 版本表 and 数据缺口 as tabs at the bottom; each island has the same header with its actions (locate, expand
+frontier), 版本表 and 数据缺口 at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
 all, collapse all, hide). `⌥1`–`⌥6` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. A version opened

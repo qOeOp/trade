@@ -15,8 +15,8 @@ export function RoleMark({ role, size = 14 }: { role: Role | null | undefined; s
       </>;
       case "kept_reference": return <circle cx={c} cy={c} r={c - 3} fill={v("island")} stroke={v("fg")} strokeWidth={1.75} />;
       case "masked": return <>
-        <circle cx={c} cy={c} r={c - 3} fill="none" stroke={v("masked")} strokeWidth={1.25} />
-        <line x1={3} y1={size - 3} x2={size - 3} y2={3} stroke={v("masked")} strokeWidth={1.25} />
+        <circle cx={c} cy={c} r={c - 3} fill="none" stroke={v("fail")} strokeWidth={1.25} />
+        <line x1={3} y1={size - 3} x2={size - 3} y2={3} stroke={v("fail")} strokeWidth={1.25} />
       </>;
       case "precheck_failed":
         return <path d={`M4 4 L${size - 4} ${size - 4} M${size - 4} 4 L4 ${size - 4}`} stroke={v("fail")} strokeWidth={1.75} strokeLinecap="square" />;
