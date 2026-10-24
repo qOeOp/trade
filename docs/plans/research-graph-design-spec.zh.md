@@ -255,8 +255,8 @@
 
 - **行条纹**：降到几乎看不见，或只在悬停行显示（[Few 规则 1](https://www.perceptualedge.com/articles/visual_business_intelligence/rules_for_using_color.pdf)：数据背后的背景保持一致）。
 - **标尺**：
-  - 只标每 5 或 10 个 trial 的数字，其余为小刻度。
-  - 当前 trial 用深色胶囊显示在标尺上（TradingView 的时间轴标签做法）。
+  - 每个 trial 都标数字，版本所在的 trial 用正文色，其余淡色。每个 trial 占一列 32px，放得下数字；只标每 5 个、其余画小刻度的做法试过，色块里没了数字、小刻度成了杂点，用户评审后退回（10-24）。
+  - 指针所在的 trial 反色显示：深色格子与版本色块等高，数字字号不变（用图表读数胶囊会比旁边的数字大一号、显得跳）。
   - 版本占用的 trial 段保持浅色块。
 - **准星吸附**：横线吸附到最近的版本行，竖线吸附到 trial（TradingView 的 Magnet 模式，[CrosshairMode](https://tradingview.github.io/lightweight-charts/docs/api/enumerations/CrosshairMode)）。
 - **失格版本**：去掉文字徽章，整行降到 40% 不透明度，红色只留在图标上。

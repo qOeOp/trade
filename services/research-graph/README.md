@@ -69,8 +69,8 @@ leaves the canvas where it is), with each version's role shown by its mark's sha
 lines drawn as git graphs draw them (recessive, except the selected version's lineage: root to it and on to its
 children), no gridlines or row stripes (the ruler gives the trials), a brand-blue underline where a version stayed
 recommended, and a version that lost eligibility faded to 40% with no badge and only its mark in red; a ruler above numbers
-every fifth trial with minor ticks between (darker where a version sits), puts the trials that ran one version on a rounded
-tinted block, and shows the trial under the pointer as a dark pill. Over the canvas the pointer is a crosshair as in
+every trial (the trial where a version sits in the text colour, the rest faint), puts the trials that ran one version on a rounded
+tinted block, and inverts the trial under the pointer. Over the canvas the pointer is a crosshair as in
 TradingView's magnet mode: faint dashed lines on the nearest trial and version row, sparser near a small reticle, drawn under
 the versions and lines. The charts follow the design spec: solid hairline gridlines along the value axis only, no tick marks,
 dashes only for the crosshair and target lines, grey data with colour kept for what the chart is about, labels in text
