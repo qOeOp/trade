@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useAtom } from "../state/atom";
 import { activeIsland } from "../state/shell";
+import { ScrollArea } from "../components/ScrollArea";
 
 /** One region of the window: a rounded island on the frame, with an optional header (a PanelHeader).
  *  The island the user last worked in is active, which colours its selection (base.css). */
@@ -12,7 +13,7 @@ export function Island({ id, header, children }: { id: string; header?: ReactNod
       <section data-island={id} data-island-active={active ? "" : undefined} onPointerDownCapture={() => activeIsland.set(id)}
                className="flex h-full min-h-0 flex-col overflow-hidden rounded-island bg-island">
         {header}
-        <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+        <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>
       </section>
     </div>
   );

@@ -9,7 +9,7 @@ export function EditorTabStrip({ tabs, active, onActivate, onClose }: {
   tabs: readonly EditorTab[]; active: string; onActivate: (id: string) => void; onClose: (id: string) => void;
 }) {
   return (
-    <div role="tablist" className="flex h-(--header-h) shrink-0 items-center gap-0.5 overflow-x-auto px-2">
+    <div role="tablist" className="flex h-(--header-h) shrink-0 items-center gap-0.5 overflow-x-auto px-2 [scrollbar-width:none]">
       {tabs.map((t) => (
         <div key={t.id} role="tab" aria-selected={t.id === active} tabIndex={0} onClick={() => onActivate(t.id)}
              onKeyDown={(e) => { if (e.key === "Enter") onActivate(t.id); }}

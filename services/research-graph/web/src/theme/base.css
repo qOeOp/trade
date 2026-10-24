@@ -47,3 +47,23 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
+
+/* Scrollbars: a thin line on the scrolled region's edge (components/ScrollArea.tsx), widening under the
+   pointer; it shows while the pointer is in the region and takes no space. Native ones elsewhere are thin. */
+.os-theme-island {
+  --os-size: 10px;
+  --os-padding-perpendicular: 0px;
+  --os-padding-axis: var(--half-gap);
+  --os-track-border-radius: 0;
+  --os-handle-border-radius: 2px;
+  --os-handle-perpendicular-size: 2px;
+  --os-handle-perpendicular-size-hover: 4px;
+  --os-handle-perpendicular-size-active: 4px;
+  --os-handle-interactive-area-offset: 4px;
+  --os-handle-min-size: 28px;
+  --os-handle-bg: var(--scrollbar);
+  --os-handle-bg-hover: var(--scrollbar-hover);
+  --os-handle-bg-active: var(--scrollbar-hover);
+}
+.os-theme-island .os-scrollbar-handle { transition: width 120ms, height 120ms, background-color 120ms; }
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }

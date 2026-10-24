@@ -1,7 +1,8 @@
 // Verifies a rendered page in headless Chrome over CDP (Node's built-in WebSocket; no dependency):
 // screenshots in light and dark, and the layout invariants of the Islands shell and VersionLine
 // (fixed gaps between its parts; each badge number the same padding from the edges and the divider),
-// and that a narrow window keeps every island inside it and still while the pointer moves.
+// that a narrow window keeps every island inside it and still while the pointer moves, and that
+// scrollbars are thin overlay lines on the island edges.
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -88,6 +89,14 @@ try {
   for (const [x, y] of rows) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }); await sleep(20); layouts.add(await evaluate(layout)); }
   expect(rows.length > 0, "narrow: no version tree rows to hover");
   expect(layouts.size === 1, `narrow: hovering ${rows.length} tree rows produced ${layouts.size} different layouts`);
+  // Scrollbars are overlay lines on the island's edge: none native, and the tree's a 2px line at its right edge.
+  const bars = await evaluate(`(() => {
+    const isl = document.querySelector("[data-island=left]"), h = isl.querySelector(".os-scrollbar-vertical .os-scrollbar-handle");
+    const native = [...document.querySelectorAll("[data-island] *")].filter((e) => e.offsetWidth - e.clientWidth > 2 && e.scrollHeight > e.clientHeight).length;
+    return { native, edge: isl.getBoundingClientRect().right, right: h?.getBoundingClientRect().right, width: h?.getBoundingClientRect().width };
+  })()`);
+  expect(bars.native === 0, `scrollbars: ${bars.native} native scrollbars inside islands`);
+  expect(bars.width === 2 && Math.abs(bars.right - bars.edge) < 0.6, `scrollbars: the tree's handle is ${bars.width}px wide, ${(bars.edge - bars.right).toFixed(1)}px from the island edge`);
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
   console.log(`verify: ${report.dark.islands.length} islands, ${report.dark.lines.length} version lines; badge at ${first?.badge}px, number padding ${first?.gaps}, name ${first?.name}px after the prediction slot`);

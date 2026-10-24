@@ -28,6 +28,8 @@
   --icon: light-dark(#6C707E, #CED0D6);
   --focus: var(--fg);
   --scrim: light-dark(#00000020, #00000045);
+  --scrollbar: light-dark(#00000030, #FFFFFF38);
+  --scrollbar-hover: light-dark(#00000060, #FFFFFF70);
 
   /* data: four hues, the same in both themes */
   --recommended: #3871E1;

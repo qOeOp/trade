@@ -103,7 +103,8 @@ the validated set. `scripts/verify.mjs <page>
 <out> [#version]` screenshots a rendered page in light and dark and checks that islands are 10px-rounded and 6px apart,
 the canvas and the bottom island share their left edge and width, canvas nodes are vertically centred, and every
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
-in a 1000px window every island stays inside it and hovering tree rows never moves one.
+in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
+2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with 1.25-unit strokes (1.5 at 12px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,
