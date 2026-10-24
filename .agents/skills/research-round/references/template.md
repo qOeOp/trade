@@ -9,8 +9,34 @@ EMA crossover, Supertrend, Donchian/Turtle system 1, Turtle system 2, Channel Br
 Thrust, Keltner breakout, Bollinger Bands, RSI, Connors RSI(2), single-instrument time-series
 momentum, Pivot Reversal. Each trades one instrument.
 
-- Transcribe only templates on this list. One whose source cannot be verified moves to a waiting
-  list with the reason; never relax the source requirement to keep it.
+- For the first batch, transcribe only templates on the user-confirmed list above, unless the user
+  explicitly approves a roster replacement. Later batches follow the scope below. One whose source cannot be verified waits with the reason and leaves a
+  gap; never relax the source requirement or replace it automatically to fill the batch.
+- The Agent discovers, verifies and nominates replacements, presenting the mechanism, primary
+  source, parameter verification, replacement reason and unresolved questions. Keep originals and
+  verification notes in existing evidence bundles; do not add a candidate table or scheduler.
+  The user decides both roster replacement and use of the template, and may authorize both once.
+  Within that authorization, continue transcription, publishing, precheck, independent review and
+  the first replay through the existing process without asking for the same authority again.
+
+## Later batches
+
+- Cross-sectional momentum, pairs and funding carry are research directions, not admitted templates
+  or a fixed second roster. Nominate concrete templates on demand under the source and user-authority
+  rules above. Enable them individually after at least one first-batch template has completed the
+  First report workflow below; neither all 12 first-batch templates nor all later directions must
+  be ready. A user may authorize admission and use once, conditional on the required evidence.
+- Before enabling a template, use the existing native precheck and independent review, with the
+  smallest sufficient probe for unobserved behavior, to verify what it needs: cross-sectional
+  selection, shared-capital allocation and old positions/orders on membership changes; for two-leg
+  structures also verify one leg filling before the other, an unfilled leg and loss of eligibility.
+  Multiple contracts running together, two independent replays or normal two-leg fills alone do not
+  establish these behaviors. Probes never replace registration and the first formal replay;
+  Nautilus still owns orders, fills, settlement and account state.
+- Defer a template lacking required data, instrument support or native evidence. Perpetual inputs
+  and a per-contract strategy instance do not establish spot support or two-leg coordination.
+  Spot/perpetual carry waits for a verified spot data and execution path; never stand in a
+  perpetual price or a separate replay for the spot leg.
 
 ## Transcription
 
@@ -33,6 +59,22 @@ momentum, Pivot Reversal. Each trades one instrument.
 
 ## First report
 
+- Choose the native precheck's smallest sufficient window and contract set for the technical
+  behavior: a single-instrument defect may need one contract; allocation, membership transitions
+  and two-leg exceptions need their relevant scenarios. Never choose a window for its return.
+  Existing identity, exposure and independent-review requirements still apply. Report unobserved
+  behavior as unverified; a passed short precheck is not the formal first report or proof of a
+  larger scope. Do not introduce a separate pilot-first-report stage.
+- The formal first report covers the selected line's full development window and chosen contract
+  scope, locked in the registration's input identity: all of the pool when chosen, or the explicit
+  subset when chosen, not a universal all-pool requirement. If environment, data or capacity blocks
+  it, report the concrete blocker and affected scope; never silently drop contracts, shorten the
+  window or substitute a short run. The user may choose bounded formal research through the
+  existing line-selection and registration process. Its report applies only to that scope;
+  expansion requires a new registration, and a different development window follows line selection.
+  Never reuse an old registration or extrapolate the bounded result to the full pool.
+  New registration is necessary, not guaranteed: existing prior-exposure and retry checks still
+  apply. A passed bounded run is not a retry exemption for expanding the same source.
 - Publish the root without a parent (`candidate publish`), precheck and review it. A repair
   before its first report is published again without `--parent` (the repair in the description),
   prechecked and reviewed again; the line starts at the revision whose review passed

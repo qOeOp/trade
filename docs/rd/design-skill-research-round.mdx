@@ -70,15 +70,15 @@
 
 **触发**　从策略库模板或人造根转写、发布新根并做首份报告时
 
-首批名单、参数逐项定位、照出处重写不加料、文件头出处与推广标注、人造根缺省参数、新根首份报告（首报前的修复仍按根重发，路线从审查通过的那一版开始）
+首批名单、第二批按需提名与逐个验证、参数逐项定位、照出处重写不加料、文件头出处与推广标注、人造根缺省参数、新根首份报告（首报前的修复仍按根重发，路线从审查通过的那一版开始）
 
 <ol className="rd-skill-rules">
-<li id="def-rule-L-1-1-2">首批只转写名单内 12 个单品种形态，核实不了移候补不放宽 <span className="rd-rule-links"><Ref id="L.1.1.2">L.1.1.2</Ref></span><span className="rd-eval">eval <code>template-first-batch-only</code>：转写的模板名都在 template.md 首批 12 个名单内；出处核实不了的列入候补，未放宽出处要求</span></li>
+<li id="def-rule-L-1-1-2">首批名单由用户确认；第二批按需提名、逐个验证，用户定收录与启用，核实不了不放宽 <span className="rd-rule-links"><Ref id="L.1.1.2">L.1.1.2</Ref></span><span className="rd-eval">eval <code>template-first-batch-only</code>：转写的模板名都在 template.md 首批 12 个名单内；出处核实不了的列入候补，未放宽出处要求；<code>template-waiting-list-proposal</code> 与 <code>template-waiting-list-authorized</code> 分别检查未授权只提名、已授权不重复询问；<code>template-second-batch-ready</code>、<code>template-second-batch-native-gaps</code>、<code>template-second-batch-spot-waits</code> 检查逐个启动、所需原生证据和现货缺口</span></li>
 <li id="def-rule-L-1-2-1">每个默认参数定位到出处页码或锚点，任一定位不了即弃模板 <span className="rd-rule-links"><Ref id="L.1.2.1">L.1.2.1</Ref></span><span className="rd-eval">eval <code>template-params-verified-or-dropped</code>：定位表逐项有出处位置，缺定位的模板被弃</span></li>
 <li id="def-rule-L-1-3-1">照出处从头重写，不补无出处的止损、过滤或参数，实现者选择列明 <span className="rd-rule-links"><Ref id="L.1.3.1">L.1.3.1</Ref></span><span className="rd-eval">eval <code>template-no-unsourced-additions</code>：规则与参数相对出处无增删改，三项实现者选择各有理由</span></li>
 <li id="def-rule-L-1-3-3">文件头按模板写出处与 27 项职责立场，搬到别处的规则标研究者推广 <span className="rd-rule-links"><Ref id="L.1.3.3">L.1.3.3</Ref></span><span className="rd-eval">eval <code>template-header-27-duties</code>：27 项职责各一行、每行有来源标注，搬用到别的市场、周期或品种的行标为研究者推广</span></li>
 <li id="def-rule-L-1-4-2">人造根缺的参数列为实现者缺省，不弃模板也不标为出处原话 <span className="rd-rule-links"><Ref id="L.1.4.2">L.1.4.2</Ref></span><span className="rd-eval">eval <code>template-attribution-not-backing</code>：缺省参数标为实现者缺省，收录说明、文件头与发布说明未把出处写成参数依据</span></li>
-<li id="def-rule-L-2-2-1">新根无父无对照登记回放一次作首份报告；首报前的修复不带父版本重发、重审，仍按根登记，路线从审查通过的那一版开始 <span className="rd-rule-links"><Ref id="L.2.2.1">L.2.2.1</Ref></span><span className="rd-eval">eval <code>root-registered-without-control</code>：新根有一次 purpose=research 的登记回放作首份报告，没有以探索回放代替</span><span className="rd-eval">eval <code>root-repair-stays-root</code>：修复后的源码不带父版本重新发布，重新预检并经审查；审查通过后才记研究路线，起点是审查通过的新版本；按根登记（无父、无对照、changed_duties 为空）再回放一次；不保留任何派生写法</span></li>
+<li id="def-rule-L-2-2-1">最小充分预检不替代首报；新根按已选完整范围无父无对照登记回放，首报前修复重发重审，路线从审查通过版开始 <span className="rd-rule-links"><Ref id="L.2.2.1">L.2.2.1</Ref></span><span className="rd-eval">eval <code>root-registered-without-control</code>：新根有一次 purpose=research 的登记回放作首份报告，没有以探索回放代替</span><span className="rd-eval">eval <code>root-scope-precheck-full</code>、<code>root-scope-blocked</code>、<code>root-scope-bounded-choice</code>：按技术行为选择预检；首报覆盖已选范围，受阻不擅自缩小，用户选择有界正式研究后不强制全池</span><span className="rd-eval">eval <code>root-repair-stays-root</code>：修复后的源码不带父版本重新发布，重新预检并经审查；审查通过后才记研究路线，起点是审查通过的新版本；按根登记（无父、无对照、changed_duties 为空）再回放一次；不保留任何派生写法</span></li>
 </ol>
 
 ## `references/diagnosis.md` [#def-file-research-round-references-diagnosis-md]
