@@ -8,7 +8,8 @@ import { useSize } from "../components/hooks/useSize";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
-const TOP = 26, BOTTOM = 22;
+// The bottom margin holds the hovered run's reading (under the lowest bar, with its highlight), then the legend.
+const TOP = 26, BOTTOM = 44;
 // The run under the pointer stands on a larger bar in the selection tone, this much wider on each side
 // and longer at its far end; it starts at zero like the bar, so it never crosses the axis.
 const HALO = 4;
@@ -21,7 +22,8 @@ function Swatch({ role }: { role: ColorRole }) {
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for a
 // gain, down for a loss), coloured against the target, with the target as a dashed line. It pans with
-// the canvas; the run at the crosshair's trial stands on a larger bar in the selection tone and is read out above it.
+// the canvas; the run at the crosshair's trial stands on a larger bar in the selection tone, its return read out under
+// the axis (the ruler already marks the trial).
 export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
   const { x0, unit } = useAxisView();
@@ -30,7 +32,8 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const { points } = widget;
   const target = widget.targets?.annual_return ?? null;
   const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
-  const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [Math.max(TOP + 1, height - BOTTOM), TOP], nice: true });
+  const floor = Math.max(TOP + 1, height - BOTTOM);
+  const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [floor, TOP], nice: true });
   const sx = (t: number) => x0 + t * unit;
   const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
   const recommended = new Set(widget.recommended);
@@ -72,11 +75,14 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
           {near && (
             <g pointerEvents="none">
               {(() => {
-                const label = `trial ${near.trial_id} · ${pct(near.annual_return)}`, w = label.length * 6.6 + 12;
-                const at = sx(near.trial_id), x = at + w + 10 < width ? at + 6 : at - w - 6;
+                // As a chart's x-axis label: centred just under the bar's foot (the axis for a gain, the
+                // highlight's end for a loss), kept inside the chart.
+                const foot = near.annual_return >= 0 ? y(0) : y(near.annual_return) + HALO;
+                const label = pct(near.annual_return), w = label.length * 6.6 + 12, top = foot + 3;
+                const x = Math.min(Math.max(0, sx(near.trial_id) - w / 2), width - w);
                 return <>
-                  <rect x={x} y={TOP - 4} width={w} height={16} rx={3} fill={v("fg")} />
-                  <text x={x + w / 2} y={TOP + 7.5} textAnchor="middle" className="font-mono" fontSize={10} fill={v("island")}>{label}</text>
+                  <rect x={x} y={top} width={w} height={16} rx={3} fill={v("fg")} />
+                  <text x={x + w / 2} y={top + 11.5} textAnchor="middle" className="font-mono" fontSize={10} fill={v("island")}>{label}</text>
                 </>;
               })()}
             </g>
