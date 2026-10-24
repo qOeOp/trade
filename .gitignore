@@ -30,4 +30,4 @@ __pycache__/
 
 # Generated documentation site
 /_site/
-/evals/results/
+/.agents/evals/results/

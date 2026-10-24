@@ -1,5 +1,0 @@
-{
-  "name": "trade-research",
-  "description": "This repository's skills in .agents/skills, loaded as one plugin so that claude plugin eval runs the suites under evals/.",
-  "skills": ["./.agents/skills/"]
-}

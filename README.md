@@ -113,7 +113,7 @@ export is `docs-site/out`.
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and where things go.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence`, `research-graph` and `product-doctor`; `.claude/skills` links here.
-- [`evals/`](evals/): one eval suite per skill (`evals/<skill>/<case>/`), run with `claude plugin eval .` from the repository root, whose [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) loads `.agents/skills` as one plugin; results go to the ignored `evals/results/`.
+- [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents --no-publish --trust-plugin` and `ANTHROPIC_API_KEY` unset (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`cli/`](cli/): the command line, the one entry Agents use; it holds no product logic.
