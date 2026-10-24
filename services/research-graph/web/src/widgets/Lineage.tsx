@@ -14,10 +14,10 @@ import { RoleMark, Tip } from "../ui";
 import { Legend } from "./Legend";
 
 // One figure on one x, the trial number, at a fixed scale: the canvas pans but never zooms, so
-// marks and text keep their size. Events are washes, not marks: under the versions, the stretch
-// where a version stayed recommended is a violet band on its row and a version that lost
-// eligibility gets a red band on its row from that moment on. The ruler above shares the x, washes
-// the gaps where events happened and reads out the trial under the pointer.
+// marks and text keep their size. Events are washes, not marks: the stretch where a version stayed
+// recommended is a violet band on its row, and a version that lost eligibility is wrapped in red
+// where it stands. The ruler above shares the x, washes the gaps where events happened (when a
+// batch lost eligibility, say) and reads out the trial under the pointer.
 export const UNIT = 24, ROW = 30, RULER = 38;
 const KIND_COLOR: Record<AxisEvent["kind"], string> = { recommendation: "var(--accent)", eligibility_change: "var(--fail)", line_change: "var(--ink-2)" };
 
@@ -50,7 +50,8 @@ const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
   return (
     <Tip content={<NodeTip data={data} />} side="bottom">
       <div {...hoverProps(data.id)} className="rounded-[5px] px-1 py-[2px] transition-colors duration-150"
-           style={data.selected ? { background: "var(--accent-wash)", boxShadow: "inset 0 0 0 1px var(--accent-line)" } : undefined}>
+           style={data.selected ? { background: "var(--accent-wash)", boxShadow: "inset 0 0 0 1px var(--accent-line)" }
+             : data.role === "masked" ? { background: "color-mix(in srgb, var(--fail) 13%, transparent)" } : undefined}>
         <div className="flex items-center gap-1.5 whitespace-nowrap" style={{ opacity: data.role === "masked" ? 0.45 : 1 }}>
           <Handle type="target" position={Position.Left} className="!opacity-0" />
           <RoleMark role={data.role} />
@@ -113,10 +114,6 @@ function Backdrop({ widget }: { widget: LineageWidget }) {
       {scope != null && <rect x={0} y={0} width={X(scope)} height={height} fill="var(--scope)" opacity={0.7} />}
       {steps(widget.axis.min - 40, widget.axis.max + 40, 5).map((t) => (
         <line key={t} x1={X(t) + 0.5} x2={X(t) + 0.5} y1={0} y2={height} stroke="var(--rule)" strokeDasharray={t % 10 ? "2 4" : undefined} />
-      ))}
-      {widget.marks.map((m, i) => (
-        <rect key={`m${i}`} x={X(m.x)} y={Y(m.row) - 12} width={X(widget.axis.max + 40) - X(m.x)} height={24} rx={4}
-              fill="var(--fail)" opacity={0.1} />
       ))}
       {trail.map((t, i) => (
         <g key={i}>

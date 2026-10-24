@@ -22,7 +22,7 @@ export function Legend() {
       <div className="label mb-1.5 mt-3">事件</div>
       <ul className="space-y-1.5 leading-relaxed">
         <li className="flex gap-2"><Wash color="var(--accent)" />推荐保持在这一版的区间；点线连接前后两任推荐。</li>
-        <li className="flex gap-2"><Wash color="var(--fail)" />这一版从此时起失去资格（源码审阅失败）。</li>
+        <li className="flex gap-2"><Wash color="var(--fail)" />这一版已失去资格（源码审阅失败）；何时失去看刻度尺上的红格。</li>
         <li>刻度尺上着色的格子是发生事件的区间：紫色推荐换了版本，红色有版本失去资格（数字是个数），灰色选线。悬停查看、点击定位。</li>
         <li>底部"研究进展"与谱系同一横轴：每次研究运行的年化画成从 0 出发的柱（向上盈利、向下亏损），虚线是年化目标。</li>
         <li>画布固定比例：滚轮或拖动平移，十字线读出所在试验。</li>
