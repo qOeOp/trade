@@ -127,6 +127,8 @@ class ImportQuotesTests(unittest.TestCase):
                          [("2025-01", quotes.RULE, ["BTCUSDT"])])
         self.assertEqual(sorted(done[0]["archives"]["BTCUSDT"])[:2], ["2024-12-31", "2025-01-01"])  # the eve and the days
         self.assertEqual(len(done[0]["archives"]["BTCUSDT"]["2025-01-01"]), 64)
+        self.assertEqual(done[0]["readings"]["BTCUSDT"]["2025-01-01"],
+                         {"trades": 2880, "quote_changes": 2880, "stale_side_adjustments": 0, "trade_gap_max_ms": 59_900})
         self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote commits are not bar imports
 
     def test_a_month_imports_once_and_a_sequence_gap_stores_nothing(self):

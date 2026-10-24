@@ -857,7 +857,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
 
 def quote_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
     """The quote import commits reachable from `ref`, oldest first: {commit, month, through, quote_rule, symbols,
-    archives (the archive SHA-256 of every day read)}."""
+    archives (the archive SHA-256 of every day read), readings (each day's trades, states, adjustments, largest gap)}."""
     found = []
     for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
         try:
@@ -866,7 +866,7 @@ def quote_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
             continue
         if isinstance(value, dict) and value.get("import") == QUOTE_IMPORT:
             found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "quote_rule",
-                                                                               "symbols", "archives")}})
+                                                                               "symbols", "archives", "readings")}})
     return found[::-1]
 
 
@@ -950,25 +950,34 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
         archives[symbol] = {day: _published_sha(path) for day, path in zip(days, paths, strict=True)}
         if eve_path is not None:
             archives[symbol][eve] = _published_sha(eve_path)
-        rows: list[tuple] = []
         readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                     "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
+        daily: dict[str, dict] = {}
+        written = 0
+        # One day at a time: derive, scale, insert, drop (a month of BTCUSDT is tens of millions of states).
         for day, path in zip(days, paths, strict=True):
             found, day_readings = quotes.derive(sources.aggtrades_table(path), tick, state, f"{symbol} {day}")
-            rows += found
+            scaled_rows = quotes.scaled_rows(symbol, found, PRICE_SCALE)
+            del found
+            for offset in range(0, len(scaled_rows), INSERT_ROWS):
+                chunk = scaled_rows[offset:offset + INSERT_ROWS]
+                conn.execute("INSERT INTO quote VALUES " + ",".join(f"('{symbol}',{ts},{identity},{bid},{ask})"
+                                                                     for _, ts, identity, bid, ask in chunk))
+            written += len(scaled_rows)
+            del scaled_rows
             for key, value in day_readings.items():
                 readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
-        scaled_rows = quotes.scaled_rows(symbol, rows, PRICE_SCALE)
-        for offset in range(0, len(scaled_rows), INSERT_ROWS):
-            chunk = scaled_rows[offset:offset + INSERT_ROWS]
-            conn.execute("INSERT INTO quote VALUES " + ",".join(f"('{symbol}',{ts},{identity},{bid},{ask})"
-                                                                 for _, ts, identity, bid, ask in chunk))
-        total += len(scaled_rows)
-        per_symbol[symbol] = {**readings, "quotes": len(scaled_rows), "eve_archive": eve_path is not None,
-                              "days": len(days)}
-        log(f"{symbol}: {len(scaled_rows)} quotes from {readings['trades']} trades")
+            daily[day] = {key: day_readings[key] for key in ("trades", "quote_changes", "stale_side_adjustments",
+                                                             "trade_gap_max_ms")}
+        total += written
+        per_symbol[symbol] = {**readings, "quotes": written, "eve_archive": eve_path is not None, "days": len(days),
+                              "daily": daily}
+        log(f"{symbol}: {written} quotes from {readings['trades']} trades")
+    # The commit message is the import's receipt: the rule, every archive's published SHA-256 and each day's
+    # readings (trades, states, stale-side adjustments, largest trade gap), so the derivation can be audited later.
     message = json.dumps({"import": QUOTE_IMPORT, "month": label, "through": series._ms_day(end_ms).isoformat(),
-                          "quote_rule": quotes.RULE, "symbols": scope, "archives": archives},
+                          "quote_rule": quotes.RULE, "symbols": scope, "archives": archives,
+                          "readings": {symbol: per_symbol[symbol]["daily"] for symbol in scope}},
                          separators=(",", ":"), ensure_ascii=False)
     commit = _commit(conn, message)
     return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE, "symbols": scope, "quote_rows": total, "per_symbol": per_symbol, "archives": archives, "market_commit": commit,
