@@ -332,9 +332,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Register the research line's window exactly (read it with `research state`); replay a "
                          "validation only inside its registered window after it has ended.",)),
     "CONFIG_MISMATCH": ("A grid point's runtime contract differs from the execution identity, or a validation's "
-                        "account terms differ from the candidate's latest valid research run (or it has none).",
-                        ("Publish the grid for the probed runtime contract; replay the candidate's research run "
-                         "under the validation's runtime first.",)),
+                        "account terms differ from the candidate's latest passed research run at the original "
+                        "validation registration commit (or no such run existed then).",
+                        ("Publish the grid for the probed runtime contract. For validation, keep the original "
+                         "registration's account terms; later research cannot replace that baseline. If terms "
+                         "must change, stop and ask the user about a new future-window registration.",)),
     "SOURCE_ALREADY_EXPOSED": ("A grid source was already run outside its consumed retry chain, cited short "
                                "prechecks or verified reproductions of an explicitly linked runtime rebuild.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
@@ -405,11 +407,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "replay of a retried validation registration, was neither interrupted (by its original "
                           "capture) nor invalid and has economic evidence without qualifying as a fixed-question "
                           "research rebuild on a different image; or the retried validation registration "
-                          "does not exist, differs in candidate, window or universe rule, or was never bound.",
+                          "does not exist, differs in candidate, window, universe rule or original test design, "
+                          "or was never bound.",
                           ("Retry only attempts whose replay was interrupted, invalid or without economic "
                            "evidence. For a research runtime rebuild, keep the declarations, source grid, "
                            "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
-                           "control first. A poor result is no reason to retry.",)),
+                           "control first. Validation retries keep the original candidate, window, universe "
+                           "rule and test design. A poor result is no reason to retry.",)),
     "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
                              ("List validation registrations with `research status`.",)),
     "REGISTRATION_CONSUMED": ("The validation registration was already bound, or the trial is bound to another "

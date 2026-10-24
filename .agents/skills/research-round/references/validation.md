@@ -5,6 +5,18 @@ candidate (`strategy_id@revision`, not necessarily the recommended one), the win
 universe rule. Register it with `validation registration`, run it with `replay run --validation
 ID` and read it with `validation report`, as their `--help` describes.
 
+- Keep the original registration when unused window data is completed or corrected and still
+  meets its admission checks; cite the old/new market commits and correction evidence. Binding
+  keeps the account baseline and membership boundary of the original registration, including on
+  retries. A retry also keeps its candidate, window, universe rule and test design, and is only
+  available for the existing interrupted, invalid or economically unavailable outcomes. An
+  economically available passed result does not become retryable merely for corrected data:
+  disclose the original and the correction's impact, without replacing it or declaring another
+  independent validation.
+  Before changing runtime images, perform the native pairing in AGENTS.md within its proven
+  scope; changed matching, margin or other substantive terms stop the old validation. Record the
+  reason through existing evidence/judgments, retain the registration and window reservation,
+  and ask the user about a new future window. There is no cancellation or automatic release.
 - Before suggesting a window, tell the user how concentrated the candidate's development PnL is
   (one year, a few days, a few contracts) and its capital use, each with the identity of the
   reading, then suggest a window length from its plan frequency so that one interval can resolve
