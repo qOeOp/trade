@@ -19,6 +19,11 @@ let counter = 0;
 export const requestFocus = (id: string) => focusRequest.set({ id, n: ++counter });
 export const useFocusRequest = () => useAtom(focusRequest);
 
+/** The canvas pans so trial 0 sits at screen x `x0` (as far as its content allows); `n` makes a repeated request distinct. */
+export const panRequest = atom<{ x0: number; n: number } | null>(null);
+export const requestPan = (x0: number) => panRequest.set({ x0, n: ++counter });
+export const usePanRequest = () => useAtom(panRequest);
+
 /** Screen x of trial 0 on the canvas and pixels per trial, shared by everything on the trial axis. */
 export const axisView = atom<{ x0: number; unit: number }>({ x0: 0, unit: 32 });
 export const useAxisView = () => useAtom(axisView);

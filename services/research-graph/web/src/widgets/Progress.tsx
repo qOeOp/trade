@@ -1,6 +1,6 @@
 import { scaleLinear } from "@visx/scale";
 import type { ProgressWidget } from "../model/types";
-import { pct } from "../lib/format";
+import { pct, pctShort } from "../lib/format";
 import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
 import { select, useSelection } from "../state/selection";
@@ -8,10 +8,12 @@ import { useSize } from "../components/hooks/useSize";
 import { ChartPill, PILL_H } from "../components/ChartPill";
 import { chartKeys } from "../components/chartKeys";
 import { EventTip } from "../components/EventTip";
+import { Overview, OVERVIEW_H } from "./ProgressOverview";
 import { Tip } from "../components/Tip";
 
-// The top margin holds the title and the legend; the bottom one the hovered run's readout under the axis.
-const TOP = 40, BOTTOM = PILL_H + 8;
+// The top margin holds the title and the legend, then the overview strip; the bottom one the hovered
+// run's readout under the axis.
+const STRIP_Y = 26, TOP = STRIP_Y + OVERVIEW_H + 14, BOTTOM = PILL_H + 8;
 // A highlighted run stands on a larger bar, this much wider on each side and longer at its far end;
 // it starts at zero like the bar, so it never crosses the axis.
 const HALO = 4;
@@ -87,7 +89,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
           {target != null && (
             <g pointerEvents="none">
               <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke={v("meets")} strokeDasharray="6 4" />
-              <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}>目标 {pct(target)}</text>
+              <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}>目标 {pctShort(target)}</text>
             </g>
           )}
         </svg>
@@ -105,6 +107,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
                      text={pct(near.annual_return)} min={0} max={width} />
         </svg>
       )}
+      <div className="absolute left-14 right-3" style={{ top: STRIP_Y }} onMouseMove={(e) => { e.stopPropagation(); crosshair.set(null); }}><Overview widget={widget} chart={width} tone={tone} /></div>
       <div className="pointer-events-none absolute inset-x-3 top-1.5 flex items-baseline justify-between gap-3 text-small">
         <span className="shrink-0 font-medium text-fg-muted">研究运行年化</span>
         <span className="flex min-w-0 flex-wrap justify-end gap-x-3.5 text-fg-muted">
