@@ -17,7 +17,7 @@ import { Tip } from "../components/Tip";
 
 type Point = ScatterWidget["points"][number];
 
-// The bottom margin holds the tick labels, the axis title right-aligned on their line in place of the last.
+// The bottom margin holds the tick labels; the top one the legend. The axes need no titles: the panel names them.
 const M = { top: 32, right: 28, bottom: 28, left: 64 };
 // Value labels and the readout pill end GUTTER short of the plot (visx sets labels 8px out already).
 const GUTTER = 6;
@@ -68,7 +68,8 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const byDrawdown = [...points].sort((a, b) => a.max_drawdown - b.max_drawdown);
   const byReturn = [...points].sort((a, b) => a.annual_return - b.annual_return);
   const pinned = focus && shows(focus) ? focus : null;
-  const zone = `年化 ≥ ${pctShort(t.annual_return)} · 回撤 ≤ ${pctShort(t.max_drawdown)}`;
+  // The targets in the legend, out of the plot; full-width punctuation keeps the monospace face's wide spaces out.
+  const zone = t.annual_return != null && t.max_drawdown != null ? `目标：年化≥${pctShort(t.annual_return)}，回撤≤${pctShort(t.max_drawdown)}` : null;
   // Runs within 1.5px of one another are one marker (the one drawn last in `order`), counting the rest.
   const groups = new Map<string, Point[]>();
   for (const p of order) {
@@ -113,10 +114,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
             <g clipPath={`url(#${clip})`}>
             {t.max_drawdown != null && t.annual_return != null && (() => {
               const left = Math.max(0, x(whole.x[0])), top = Math.max(0, y(whole.y[1])), right = Math.min(w, x(t.max_drawdown)), foot = Math.min(h, y(t.annual_return));
-              return right > left && foot > top && <>
-                <rect x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />
-                {right - left > zone.length * 7 + 12 && foot - top > 22 && <text x={left + 6} y={top + 15} fontSize={11} fill={v("fg-muted")}>{zone}</text>}
-              </>;
+              return right > left && foot > top && <rect x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />;
             })()}
             {/* The grid over the zone's fill, as Highcharts draws plot bands under it. */}
             <g className="chart-grid" stroke={v("grid")}>{y.ticks(count).filter((n) => n !== 0).map((n) => <line key={n} x1={0} x2={w} y1={Math.round(y(n)) + 0.5} y2={Math.round(y(n)) + 0.5} />)}</g>
@@ -155,21 +153,20 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
             {/* Ticks under a readout pill give way to it; the pill sits on their line (17px below the plot). */}
             <AxisLeft scale={y} tickValues={y.ticks(count).filter((n) => !pinned || Math.abs(y(n) - y(pinned.annual_return)) > PILL_H + 2)}
                       tickFormat={percent} hideAxisLine hideTicks tickLabelProps={leftLabel} hideZero={false} />
-            <AxisBottom top={h} scale={x} tickValues={x.ticks(6).slice(0, -1).filter((n) => !pinned || Math.abs(x(n) - x(pinned.max_drawdown)) > pillWidth(pct(pinned.max_drawdown)) / 2 + 14)}
+            <AxisBottom top={h} scale={x} tickValues={x.ticks(6).filter((n) => !pinned || Math.abs(x(n) - x(pinned.max_drawdown)) > pillWidth(pct(pinned.max_drawdown)) / 2 + 14)}
                         tickFormat={percent} hideAxisLine hideTicks tickLabelProps={bottomLabel} />
             {pinned && <>
               <ChartPill x={x(pinned.max_drawdown)} y={h + 17 - PILL_H / 2} text={pct(pinned.max_drawdown)} min={8 - M.left} max={w + M.right - 8} />
               <ChartPill x={-GUTTER} y={y(pinned.annual_return) - PILL_H / 2} text={pct(pinned.annual_return)} anchor="end" min={8 - M.left} />
             </>}
           </Group>
-          <g className="chart-axis-titles" fontSize={11} fill={v("fg-muted")}>
-            <text x={M.left + w + M.right - 12} y={M.top + h + 21} textAnchor="end">最大回撤 →</text>
-            <text x={12} y={19}>年化 ↑</text>
-          </g>
         </svg>
       )}
       <div className="absolute right-3 top-1.5 flex items-center gap-3 text-small text-fg-muted">
         {zoom.zoomed && <TextButton onClick={zoom.reset} title="双击图表也可复原">复原缩放</TextButton>}
+        {zone && <span className="pointer-events-none flex items-center gap-1.5">
+          <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={tint("meets", 24)} /></svg>{zone}
+        </span>}
         <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={14} height={8} className="shrink-0"><line x1={0} x2={14} y1={4} y2={4} stroke={v("recommended")} strokeWidth={2} /></svg>
           不被支配的前沿

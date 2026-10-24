@@ -22,7 +22,7 @@ export const RENDERERS = {
   tree: r("版本树", VersionTree),
   detail: r("详情", Detail),
   progress: r("研究进展", Progress),
-  scatter: r("年化 vs 回撤", Scatter),
+  scatter: r("年化与回撤", Scatter),
   table: r("版本表", VersionTable),
   notes: r("数据缺口", Notes),
 } as const;

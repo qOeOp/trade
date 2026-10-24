@@ -1,10 +1,10 @@
 import { v } from "../theme/roles";
 
 // A chart's readout of the value under the pointer, as TradingView labels its crosshair on an axis: a
-// muted-ink pill with 11px figures, 4px by 2px padding and 4px corners. Its width follows the text (tabular
-// figures, so an estimate per character holds); `min` and `max` keep it inside the chart.
+// muted-ink pill with 11px figures, 4px by 2px padding and 4px corners. Its width follows the text (one
+// monospace face, 0.6em a character); `min` and `max` keep it inside the chart.
 export const PILL_H = 16;
-const CHAR = 6.4, PAD = 4;
+const CHAR = 6.6, PAD = 4;
 
 export const pillWidth = (text: string) => text.length * CHAR + 2 * PAD;
 

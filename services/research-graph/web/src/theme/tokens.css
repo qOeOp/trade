@@ -121,8 +121,8 @@
   --color-crosshair: var(--crosshair);
 
   --font-*: initial;
-  --font-sans: "Inter Variable", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Supply", "Inter Variable", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Supply", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* IntelliJ's scale, relative to its 13px default: H1 +5, H2 +3, dense -1, small -2 (the floor). */
   --text-*: initial;
