@@ -55,16 +55,6 @@ class ContractTests(unittest.TestCase):
 
 
 class LayoutTests(unittest.TestCase):
-    def test_an_eligibility_change_marks_the_row_of_the_reviewed_version(self):
-        graph = copy.deepcopy(GRAPH)
-        graph["candidates"][0]["reviews"] = [{"bundle": "source-review-9", "verdict": "failed"}]
-        graph["events"].append({"at": "2026-01-01T12:20:00Z", "kind": "eligibility_change", "ref": "source-review-9",
-                                "text": "failed source review"})
-        tree = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "lineage")
-        mark, = tree["marks"]
-        self.assertEqual((mark["candidate"], mark["row"]), ("root@1", 0))
-        self.assertEqual(mark["x"], 4.5, "in the gap between the trials around the review time")
-
     def test_versions_sit_at_their_first_trial_in_lineage_rows(self):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
@@ -82,8 +72,6 @@ class LayoutTests(unittest.TestCase):
         segment, = tree["trail"]
         self.assertEqual((segment["candidate"], segment["x1"]), ("a@1", tree["axis"]["max"]))
         self.assertEqual(segment["x0"], 4.5, "a timed event sits halfway through the gap after its last trial")
-        self.assertEqual({e["kind"]: e["candidate"] for e in tree["rug"]},
-                         {"recommendation": "a@1", "line_change": None}, "every event sits once on the axis")
         progress = widgets["progress"]
         self.assertEqual(progress["recommended"], ["a@1"])
         self.assertEqual([p["eligible"] for p in progress["points"]], [False, True, True])

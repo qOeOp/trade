@@ -53,10 +53,6 @@ export type LineageNode = {
   reading: { annual_return: number | null; max_drawdown: number | null };
 };
 
-export type AxisEvent = {
-  kind: "recommendation" | "eligibility_change" | "line_change";
-  x: number | null; at: string; ref?: string | null; text?: string | null; candidate: string | null;
-};
 
 export type Widget = { id: string; type: string; slot?: string; title?: string } & Record<string, unknown>;
 
@@ -80,8 +76,6 @@ export type LineageWidget = Widget & {
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
   trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
-  marks: { kind: string; candidate: string; row: number; x: number; at: string; ref?: string | null; text?: string | null }[];
-  rug: AxisEvent[];
 };
 
 export type ProgressWidget = Widget & {

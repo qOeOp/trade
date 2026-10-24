@@ -10,10 +10,9 @@ gap after the last trial before it, n + 0.5, found by interpolating between tria
 known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
 children in order of their first trial. A renderer maps these units to its own pixels and colours.
 
-Events are placed where they belong rather than in lanes of their own: the recommendation judgments
-form a trail over the recommended versions' rows, an eligibility change marks the row of the version
-whose source review caused it, and a line change marks the axis. Every event also appears once in a
-`rug` on the axis; `progress/1` holds the research runs' annual returns on the same x.
+The recommendation judgments form a trail over the recommended versions' rows (one segment per
+stretch the recommendation stayed on one version); `progress/1` holds the research runs' annual
+returns on the same x.
 """
 from __future__ import annotations
 
@@ -138,15 +137,10 @@ def build_view(graph: dict) -> dict:
                       "prediction": prediction(c),
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
     events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
-    reviewed = {r["bundle"]: c["id"] for c in candidates for r in c.get("reviews") or [] if r.get("bundle")}
-    rug = []
-    for e in events:
-        about = e.get("recommends") if e["kind"] == "recommendation" else reviewed.get(e.get("ref") or "")
-        rug.append({"kind": e["kind"], "x": gap(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
-                    "candidate": about if about in row else None})
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
                   key=lambda e: seconds(e["at"]))
-    xs = [n["x"] for n in nodes if n["x"] is not None] + [e["x"] for e in rug if e["x"] is not None]
+    timed = [gap(e["at"]) for e in events]
+    xs = [n["x"] for n in nodes if n["x"] is not None] + [x for x in timed if x is not None]
     lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
     trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
     for e in recs:
@@ -157,9 +151,6 @@ def build_view(graph: dict) -> dict:
             trail.append({"candidate": e["recommends"], "row": row[e["recommends"]], "x0": x, "judgments": [x]})
     for a, b in zip(trail, [*trail[1:], None][:len(trail)], strict=True):
         a["x1"] = b["x0"] if b else hi
-    marks = [{"kind": e["kind"], "candidate": e["candidate"], "row": row[e["candidate"]], "x": e["x"], "at": e["at"],
-              "ref": e["ref"], "text": e["text"]}
-             for e in rug if e["kind"] == "eligibility_change" and e["candidate"] is not None and e["x"] is not None]
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
     current = recs[-1]["recommends"] if recs else None
@@ -189,7 +180,7 @@ def build_view(graph: dict) -> dict:
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
-         "trail": trail, "marks": marks, "rug": rug},
+         "trail": trail},
         {"id": "progress", "type": "progress/1", "slot": "main", "title": "研究进展", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],

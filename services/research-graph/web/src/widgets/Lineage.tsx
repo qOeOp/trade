@@ -5,21 +5,16 @@ import {
   useViewport, type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Crosshair, Info } from "lucide-react";
-import { Popover } from "radix-ui";
-import type { AxisEvent, LineageNode, LineageWidget } from "../types";
+import type { LineageNode, LineageWidget } from "../types";
 import { pct, PREDICTION, readingColor, ROLE, verdict, when } from "../format";
-import { axisView, crosshair, hoverProps, requestFocus, useAxisView, useCrosshair, useFocusRequest } from "../store";
+import { axisView, crosshair, hoverProps, useAxisView, useCrosshair, useFocusRequest } from "../store";
 import { RoleMark, Tip } from "../ui";
-import { Legend } from "./Legend";
 
 // One figure on one x, the trial number, at a fixed scale: the canvas pans but never zooms, so
 // marks and text keep their size. Events are washes, not marks: the stretch where a version stayed
 // recommended is a violet band on its row, and a version that lost eligibility is wrapped in red
-// where it stands. The ruler above shares the x, washes the gaps where events happened (when a
-// batch lost eligibility, say) and reads out the trial under the pointer.
-export const UNIT = 24, ROW = 30, RULER = 38;
-const KIND_COLOR: Record<AxisEvent["kind"], string> = { recommendation: "var(--accent)", eligibility_change: "var(--fail)", line_change: "var(--ink-2)" };
+// where it stands. The ruler above numbers the trials on the same x and marks the one under the pointer.
+export const UNIT = 24, ROW = 30, RULER = 20;
 
 type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
 type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
@@ -154,88 +149,25 @@ export function useSize() {
   return [ref, size] as const;
 }
 
-/** A trial-axis ruler like an editor's: a tick per trial, labels every ten, the trial under the
- *  pointer read out, and the events as the same glyphs the canvas uses, on one baseline. */
-function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode }) {
+/** The trial axis as numbers: every trial's number over its column (tens strongest), and the
+ *  trial under the pointer shown inverted. */
+function Ruler() {
   const [ref, { width }] = useSize();
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
-  const sx = (t: number) => x0 + t * unit;
-  const ticks = steps(Math.floor(-x0 / unit) - 1, Math.ceil((width - x0) / unit) + 1, 1);
-  const H = RULER, base = H - 0.5;
-  // The gaps where something happened, washed in the colour of what happened: the recommendation
-  // moving to another version, versions losing eligibility, the line being selected. A judgment that
-  // kept the same version is already the band on the canvas and is not repeated here.
-  const cells = new Map<string, { kind: AxisEvent["kind"]; x: number; events: AxisEvent[] }>();
-  let last: string | null = null;
-  for (const e of [...events].filter((e) => e.x != null).sort((a, b) => a.x! - b.x!)) {
-    if (e.kind === "recommendation") { if (e.candidate === last) continue; last = e.candidate; }
-    const key = `${e.kind}:${e.x}`;
-    cells.set(key, { kind: e.kind, x: e.x!, events: [...(cells.get(key)?.events ?? []), e] });
-  }
-  const byGap = new Map<number, AxisEvent["kind"][]>();
-  for (const c of cells.values()) byGap.set(c.x, [...(byGap.get(c.x) ?? []), c.kind]);
-  const label = { recommendation: "推荐换到", eligibility_change: "失去资格", line_change: "选线" } as const;
+  const sx = (t: number) => x0 + t * unit + 0.5;
+  const trials = steps(Math.floor(-x0 / unit), Math.ceil((width - x0) / unit), 1);
   return (
-    <div ref={ref} className="relative select-none" style={{ height: H, background: "var(--panel)" }}>
-      <svg width={width} height={H} className="absolute inset-0">
-        {[...cells.values()].map((c, i) => {
-          const kinds = byGap.get(c.x)!, k = kinds.indexOf(c.kind), band = (base - 15) / kinds.length;
-          const x = sx(c.x - 0.5) + 0.5;
-          if (x + unit < 40 || x > width) return null;
-          const ids = c.events.map((e) => e.candidate);
-          const tip = (
-            <div className="space-y-1">
-              <div className="font-semibold">{label[c.kind]}{c.events.length > 1 && ` · ${c.events.length} 个版本`}</div>
-              <div className="mono faint">{when(c.events[0].at)}{c.events.length > 1 && ` – ${when(c.events.at(-1)!.at).slice(11)}`}</div>
-              {c.kind === "line_change" ? <div className="muted">{c.events[0].text}</div> : (
-                <div className={`mono grid gap-x-4 ${c.events.length > 10 ? "grid-cols-2" : "grid-cols-1"}`}>
-                  {c.events.slice(0, 30).map((e, j) => <span key={j}>{e.candidate ?? e.ref}</span>)}
-                </div>
-              )}
-            </div>
-          );
-          return (
-            <Tip key={i} content={tip}>
-              <g {...hoverProps(ids)} className="cursor-pointer" onClick={() => ids[0] && requestFocus(ids[0])}>
-                <rect x={x} y={15 + k * band} width={unit} height={band} fill={KIND_COLOR[c.kind]} opacity={0.22} />
-                {c.events.length > 1 && (
-                  <text x={x + unit / 2} y={15 + k * band + band / 2 + 3.5} textAnchor="middle" className="mono" fontSize={9.5}
-                        fill={KIND_COLOR[c.kind]}>{c.events.length}</text>
-                )}
-              </g>
-            </Tip>
-          );
-        })}
-        <line x1={0} x2={width} y1={base} y2={base} stroke="var(--rule-2)" />
-        {ticks.map((t) => {
-          const size = t % 10 === 0 ? 9 : t % 5 === 0 ? 6 : 3;
-          return <line key={t} x1={sx(t) + 0.5} x2={sx(t) + 0.5} y1={base - size} y2={base}
-                       stroke={t % 10 === 0 ? "var(--ink-3)" : "var(--ink-4)"} />;
-        })}
-        {ticks.filter((t) => t % 10 === 0).map((t) => (
-          <text key={`l${t}`} x={sx(t) + 0.5} y={12} textAnchor="middle" className="mono" fontSize={10} fill="var(--ink-2)">{t}</text>
+    <div ref={ref} className="relative select-none" style={{ height: RULER, background: "var(--panel)" }}>
+      <svg width={width} height={RULER} className="absolute inset-0">
+        {at != null && <rect x={sx(at) - unit / 2 + 1} y={2} width={unit - 2} height={RULER - 4} rx={3} fill="var(--ink-1)" />}
+        {trials.map((t) => (
+          <text key={t} x={sx(t)} y={RULER / 2 + 3.5} textAnchor="middle" className="mono"
+                fontSize={t % 10 === 0 ? 10 : 9} fontWeight={t % 10 === 0 ? 600 : 400}
+                fill={t === at ? "var(--panel)" : t % 10 === 0 ? "var(--ink-1)" : t % 5 === 0 ? "var(--ink-3)" : "var(--ink-4)"}>{t}</text>
         ))}
-        {at != null && sx(at) > 40 && (
-          <g pointerEvents="none">
-            <line x1={sx(at) + 0.5} x2={sx(at) + 0.5} y1={15} y2={H} stroke="var(--ink-2)" />
-            <rect x={sx(at) + 0.5 - 17} y={1} width={34} height={14} rx={3} fill="var(--ink-1)" />
-            <text x={sx(at) + 0.5} y={11.5} textAnchor="middle" className="mono" fontSize={10} fill="var(--panel)">{at}</text>
-          </g>
-        )}
       </svg>
-      <span className="label absolute left-0 top-0 flex h-full w-10 items-end pb-[3px] pl-2 !normal-case"
-            style={{ background: "linear-gradient(90deg, var(--panel) 80%, transparent)" }}>trial</span>
-      {tools && <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md pl-1" style={{ background: "var(--panel)" }}>{tools}</div>}
     </div>
-  );
-}
-
-function ToolButton({ label, keys, onClick, children }: { label: string; keys?: string; onClick?: () => void; children: React.ReactNode }) {
-  return (
-    <Tip content={<span>{label}{keys && <span className="kbd ml-2">{keys}</span>}</span>} side="bottom">
-      <button className="press grid h-[22px] w-[22px] place-items-center muted" onClick={onClick} aria-label={label}>{children}</button>
-    </Tip>
   );
 }
 
@@ -278,23 +210,12 @@ export function Lineage({ widget, selected, onSelect }: {
   const box = useRef<HTMLDivElement>(null);
   const at = useCrosshair();
   const { x0 } = useAxisView();
-  const current = widget.trail.at(-1)?.candidate;
 
   return (
     <ReactFlowProvider>
       <div className="flex h-full flex-col">
         <div className="shrink-0 border-b" style={{ borderColor: "var(--rule-2)" }}>
-          <Ruler events={widget.rug} tools={<>
-            {current && <ToolButton label="定位当前推荐" keys="." onClick={() => requestFocus(current)}><Crosshair size={13} /></ToolButton>}
-            <Popover.Root>
-              <Tip content="图例" side="bottom">
-                <Popover.Trigger asChild>
-                  <button className="press grid h-[22px] w-[22px] place-items-center muted" aria-label="图例"><Info size={13} /></button>
-                </Popover.Trigger>
-              </Tip>
-              <Popover.Portal><Popover.Content align="end" sideOffset={6} className="z-50"><Legend /></Popover.Content></Popover.Portal>
-            </Popover.Root>
-          </>} />
+          <Ruler />
         </div>
         <div ref={box} className="relative min-h-0 flex-1"
              onMouseMove={(e) => { const r = box.current!.getBoundingClientRect(); crosshair.set(Math.round((e.clientX - r.left - x0) / UNIT)); }}

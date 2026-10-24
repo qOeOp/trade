@@ -2,7 +2,6 @@ import NumberFlow from "@number-flow/react";
 type Format = React.ComponentProps<typeof NumberFlow>["format"];
 import type { SummaryWidget } from "../types";
 import { meets, readingColor } from "../format";
-import { requestFocus } from "../store";
 import { RoleMark, Tip } from "../ui";
 
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
@@ -25,10 +24,10 @@ export function SummaryBar({ widget }: { widget: SummaryWidget }) {
   return (
     <div className="flex min-w-0 items-center gap-x-5 overflow-hidden">
       {widget.recommended && (
-        <button className="press inline-flex items-center gap-1.5 px-1 py-0.5" onClick={() => requestFocus(widget.recommended!)}>
+        <span className="inline-flex items-center gap-1.5 px-1 py-0.5">
           <RoleMark role="recommended" size={12} />
           <span className="mono text-[12.5px] font-semibold">{widget.recommended}</span>
-        </button>
+        </span>
       )}
       <Metric label="年化" tip={`目标 ≥ ${t.annual_return != null ? (t.annual_return * 100).toFixed(2) + "%" : "—"}`}>
         <span style={{ color: readingColor(meets(r.annual_return, t.annual_return, true)) }}>{num(r.annual_return, percent)}</span>

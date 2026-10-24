@@ -143,9 +143,7 @@ export function App({ view }: { view: View }) {
   const across = useDefaultLayout({ id: "rg-across", storage }), down = useDefaultLayout({ id: "rg-down", storage });
   const ctx = { selected, onSelect: (id: string) => { setSelected(id); drawerRef.current?.expand(); }, targets: view.targets };
   const toggle = (ref: typeof dockRef) => () => (ref.current?.isCollapsed() ? ref.current.expand() : ref.current?.collapse());
-  const current = lineage?.trail.at(-1)?.candidate;
   const actions = [
-    ...(current ? [{ label: "定位当前推荐", keys: ".", run: () => requestFocus(current) }] : []),
     { label: "回到横轴起点", keys: "Home", run: () => requestFocus("") },
     { label: drawerOpen ? "收起详情" : "展开详情", keys: "⌘B", run: toggle(drawerRef) },
     { label: dockOpen ? "收起底部面板" : "展开底部面板", keys: "⌘J", run: toggle(dockRef) },
@@ -157,9 +155,8 @@ export function App({ view }: { view: View }) {
     "$mod+KeyK": (e) => { e.preventDefault(); setPalette((open) => !open); },
     "$mod+KeyB": (e) => { e.preventDefault(); toggle(drawerRef)(); },
     "$mod+KeyJ": (e) => { e.preventDefault(); toggle(dockRef)(); },
-    Period: (e) => { if (!typing(e) && current) requestFocus(current); },
     Home: (e) => { if (!typing(e)) requestFocus(""); },
-  }), [current]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }), []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Tooltip.Provider delayDuration={500} skipDelayDuration={300}>
