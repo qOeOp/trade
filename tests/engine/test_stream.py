@@ -185,21 +185,30 @@ def series(seed, minutes):
     return bars
 
 
-def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0):
-    """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/."""
+def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0, quotes=False, margins=None):
+    """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/. With
+    `quotes`, two best bid/ask states a minute (at the minute's low, then at its high); `margins` writes the
+    instrument with those (initial, maintenance) rates, as the runner applies a QUOTE_EXECUTION source's."""
     index = 1 if episode is not None else None
     path = root / symbol
     catalog_path = path / "episode-1" if index else path
     catalog_path.mkdir(parents=True)
     store = ParquetDataCatalog(str(catalog_path))
     native = export.native_symbol(symbol, index)["instrument_id"]
-    store.write_instruments([instrument.build_instrument(symbol, TERMS, 2, native)[0]])
+    made = instrument.build_instrument(symbol, TERMS, 2, native)[0]
+    store.write_instruments([run.with_margins(made, margins) if margins else made])
     iid = InstrumentId.from_str(native)
     bars = series(seed, minutes)
     counts = {"last": export.write_bars(store, f"{iid}-1-MINUTE-LAST-EXTERNAL", bars, MIN, 2, 3, 8, 4),
               "mark": export.write_marks(store, iid, bars, MIN, 8, 8),
               "funding": export.write_funding(catalog_path, str(iid),
                                               [(at, Decimal("0.0001")) for at in sorted(funding)])}
+    if quotes:
+        tick = 10**6  # 0.01 at scale 8
+        rows = []
+        for at, low, high in zip(bars["ts_open"].tolist(), bars["low"].tolist(), bars["high"].tolist(), strict=True):
+            rows += [(at + 20_000, low, low + tick), (at + 40_000, high - tick, high)]
+        counts["quote"] = export.write_quotes(store, iid, [rows], 2, "1000", 3, 8)
     if episode is not None:
         counts.update(lifecycle.write_lifecycle_events(catalog_path, episode, START * 10**6, END * 10**6, 2))
     piece = {"index": index, "instrument_id": str(iid), "catalog_dir": "episode-1" if index else "", "counts": counts,
@@ -211,13 +220,14 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
     (path / "export.json").write_text(json.dumps(receipt))
 
 
-def market(root: Path) -> list[str]:
+def market(root: Path, quotes: bool = False, margins=None) -> list[str]:
     every = np.arange(DAYS * 1440)
     eight = [START + hour * 3_600_000 for hour in range(0, DAYS * 24, 8)]
-    contract(root, "AAAUSDT", every, eight + [START + DAY + 6 * 3_600_000 - 1], seed=1)  # funding on a bar close
+    contract(root, "AAAUSDT", every, eight + [START + DAY + 6 * 3_600_000 - 1], seed=1, quotes=quotes,
+             margins=margins)  # funding on a bar close
     keep = np.random.default_rng(7).random(len(every)) > 0.1
     keep[(every >= 600) & (every < 1500)] = False  # a gap longer than a session window
-    contract(root, "币安USDT", every[keep], eight, seed=2)
+    contract(root, "币安USDT", every[keep], eight, seed=2, quotes=quotes, margins=margins)
     iid = InstrumentId.from_str(export.native_symbol("CCCUSDT", 1)["instrument_id"])
     pre, settled = (START + DAY + 10 * MIN - 1) * 10**6, (START + DAY + 12 * 3_600_000) * 10**6
     events = [InstrumentStatus(iid, MarketStatusAction.PRE_CLOSE, pre, pre).to_dict(),
@@ -227,7 +237,8 @@ def market(root: Path) -> list[str]:
     episode = {"symbol": "CCCUSDT", "instrument_id": str(iid), "start_ns": (START + 3 * MIN) * 10**6,
                "events": events, "sources": ["notice"]}
     minutes = every[(every >= 3) & (every < 1440 + 720)]
-    contract(root, "CCCUSDT", minutes, [at for at in eight if at < START + DAY + 12 * 3_600_000], episode, seed=3)
+    contract(root, "CCCUSDT", minutes, [at for at in eight if at < START + DAY + 12 * 3_600_000], episode, seed=3,
+             quotes=quotes, margins=margins)
     return ["AAAUSDT", "币安USDT", "CCCUSDT"]
 
 
@@ -250,13 +261,16 @@ def node_replay(rows, window, loaded, universe, output, chunk):
     from nautilus_trader.common import ImportableActorConfig, LoggerConfig, LogLevel
     from nautilus_trader.config import ImportableStrategyConfig
     from nautilus_trader.data import DataEngineConfig
-    from nautilus_trader.model import AccountType, BookType, Currency, OmsType, TraderId
+    from nautilus_trader.model import AccountType, BookType, Currency, OmsType, StandardMarginModel, TraderId
     from nautilus_trader.risk import RiskEngineConfig
     account, data = ACCOUNT_CONTRACT, []
+    quote_mode = loaded.quote_execution
     for row in rows:
         iid, path = row["instrument_id"], str(row["catalog_path"])
-        data += [BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=path, instrument_id=iid),
-                 BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=path, instrument_id=iid),
+        data += [BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=path, instrument_id=iid)]
+        if quote_mode and row["counts"].get("quote"):
+            data.append(BacktestDataConfig(data_type="QuoteTick", catalog_path=path, instrument_id=iid))
+        data += [BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=path, instrument_id=iid),
                  BacktestDataConfig(data_type="Bar", catalog_path=path, instrument_id=iid,
                                     bar_types=[f"{iid}-1-MINUTE-LAST-EXTERNAL"])]
         for key, kind in (("instrument_status", "InstrumentStatus"), ("instrument_close", "InstrumentClose")):
@@ -270,7 +284,8 @@ def node_replay(rows, window, loaded, universe, output, chunk):
             starting_balances=[f"{account['starting_balance_usdt']} {account['base_currency']}"],
             default_leverage=Decimal(account["default_leverage"]), support_gtd_orders=account["support_gtd_orders"],
             support_contingent_orders=account["support_contingent_orders"], reject_stop_orders=account["reject_stop_orders"],
-            bar_execution=account["bar_execution"],
+            bar_execution=False if quote_mode else account["bar_execution"],
+            margin_model=StandardMarginModel() if quote_mode else None, liquidation_enabled=quote_mode,
             bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=run.fill_model(account),
             liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"])],
         data=data,
@@ -308,6 +323,49 @@ def node_replay(rows, window, loaded, universe, output, chunk):
             "account": normal(node.generate_account_report(config.id, venue=run.Venue("BINANCE"))),
             "seen": {key: value.seen for key, value in run.STRATEGIES.items()},
             "observer": (observer.timestamps, list(observer.findings), observer.lifecycle)}
+
+
+LEVERED = '''
+from decimal import Decimal
+from nautilus_trader.model import BarType, OrderSide
+from nautilus_trader.trading import Strategy, StrategyConfig
+
+
+class Levered(Strategy):
+    """Quote execution: one large market short on AAAUSDT at its trading start, then nothing; the venue's
+    native liquidation closes it when the quotes carry the price far enough (seed 1 rises 15%)."""
+    USES_STOP_LOSS = False
+    QUOTE_EXECUTION = True
+    INITIAL_MARGIN_RATE = "0.02"
+    MAINTENANCE_MARGIN_RATE = "0.01"
+
+    def __init__(self, instrument_id, daily_bar_type, **kw):
+        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        self.iid, self.trade_start, self.sent, self.quotes, self.seen = instrument_id, kw["trade_start_ns"], False, 0, []
+
+    def on_start(self):
+        self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
+        self.subscribe_quotes(self.iid)
+
+    def on_quote(self, quote):
+        self.quotes += 1
+
+    def on_bar(self, bar):
+        if bar.ts_event < self.trade_start or self.sent or not str(self.iid).startswith("AAAUSDT"):
+            return  # one levered short on one contract; the others only watch
+        self.sent = True
+        self.submit_order(self.order_factory.market(self.iid, OrderSide.SELL, self.cache.instrument(self.iid).make_qty(
+            Decimal("QUANTITY"))))
+
+    def on_order_event(self, event):
+        self.seen.append((type(event).__name__, str(event.client_order_id)[:11], event.ts_event))
+
+    def replay_diagnostics(self):
+        return {"quotes": self.quotes}
+
+    def replay_integrity_findings(self, orders_denied_or_rejected):
+        return []
+'''
 
 
 class StreamTests(unittest.TestCase):
@@ -382,6 +440,48 @@ class StreamTests(unittest.TestCase):
         strip = [[line.split(",", 2)[0] + "," + line.split(",", 2)[2] for line in table] for table in exposures]
         self.assertEqual(strip[1], strip[0])
 
+
+    def test_quote_execution_is_liquidated_natively_and_equals_backtest_node(self):
+        """A QUOTE_EXECUTION source: quotes drive the book and the liquidation, bars only feed signals; the
+        streamed replay and BacktestNode agree, the liquidation shows as a LIQUIDATION fill and iterations count
+        the quotes. The same inputs without quotes exported are refused."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            symbols = market(root / "market", quotes=True, margins=("0.02", "0.01"))
+            source = root / "levered.py"
+            source.write_text(LEVERED.replace("QUANTITY", "30000"))  # about 31x the 100,000 USDT at these prices
+            loaded = load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
+            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
+                                  utc_text(END * 10**6))
+            rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            universe = read_universe(None, symbols)
+            (root / "node").mkdir()
+            (root / "stream").mkdir()
+            node = node_replay(rows, window, loaded, universe, root / "node", 1_000)
+            finished, strategies, _ = run.replay(rows, window, loaded, universe, root / "stream")
+            try:
+                streamed = {"iterations": finished.result.iterations, "orders": normal(finished.orders()),
+                            "fills": normal(finished.fills()), "positions": normal(finished.positions()),
+                            "account": normal(finished.account(run.Venue("BINANCE"))),
+                            "seen": {key: value.seen for key, value in run.STRATEGIES.items()}}
+                fills = finished.fills().reset_index()
+                liquidations = [row for row in fills.to_dict("records") if str(row["client_order_id"]).startswith("LIQUIDATION")]
+                quotes_seen = {key: value.quotes for key, value in run.STRATEGIES.items()}
+            finally:
+                finished.engine.dispose()
+            expected = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
+            self.assertEqual((node["iterations"], streamed["iterations"]), (expected, expected))
+            self.assertTrue(liquidations, "the levered short was not liquidated on these inputs")
+            self.assertTrue(all(count > 0 for count in quotes_seen.values()), quotes_seen)
+            for key in ("orders", "fills", "positions", "account", "seen"):
+                with self.subTest(key=key):
+                    self.assertEqual(streamed[key], node[key])
+            # The same source on an export without quotes is refused before anything runs.
+            bare = market(root / "bare")
+            rows = read_market(root / "bare", bare, "c" * 32, START * 10**6, END * 10**6)
+            with self.assertRaises(Refusal) as caught:
+                run.replay(rows, window, loaded, universe, root / "stream")
+            self.assertEqual(caught.exception.code, "QUOTES_MISSING")
 
     def test_each_exported_piece_is_its_numbered_episode_directory(self):
         with tempfile.TemporaryDirectory() as temp:

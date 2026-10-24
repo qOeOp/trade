@@ -210,7 +210,7 @@ class ImportTests(unittest.TestCase):
         done = export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)
         receipt = done["receipts"]["BTCUSDT"]
         piece, = receipt["pieces"]
-        self.assertEqual(piece["counts"], {"last": 2880, "mark": 2880, "funding": 6, "daily": 61,
+        self.assertEqual(piece["counts"], {"last": 2880, "mark": 2880, "quote": 0, "funding": 6, "daily": 61,
                                            "instrument_close": 0, "instrument_status": 0})
         self.assertEqual((piece["instrument_id"], piece["catalog_dir"], piece["price_precision"],
                           piece["mark_precision"], receipt["timeframe"]), ("BTCUSDT-PERP.BINANCE", "", 2, 8, "1m"))

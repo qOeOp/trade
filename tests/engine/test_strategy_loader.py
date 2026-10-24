@@ -243,6 +243,30 @@ class StrategyLoaderTests(unittest.TestCase):
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
         self.assertIs(strategy_metadata(loaded)["strategy_uses_stop_loss"], False)
 
+    def test_quote_execution_declaration_needs_valid_margin_rates_and_reaches_the_identity(self):
+        head = "from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n"
+        hooks = ("    def replay_diagnostics(self):\n        return {}\n"
+                 "    def replay_integrity_findings(self, failed=False):\n        return []\n")
+        for body, message in (("    QUOTE_EXECUTION = 1\n", "^DECLARATION_NOT_BOOL: .*QUOTE_EXECUTION"),
+                              ("    QUOTE_EXECUTION = True\n", "^MARGIN_DECLARATION_INVALID: .*INITIAL_MARGIN_RATE"),
+                              ("    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = 0.02\n    MAINTENANCE_MARGIN_RATE = '0.01'\n",
+                               "INITIAL_MARGIN_RATE"),
+                              ("    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = '0.02'\n    MAINTENANCE_MARGIN_RATE = '1'\n",
+                               "MAINTENANCE_MARGIN_RATE"),
+                              ("    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = '0.01'\n    MAINTENANCE_MARGIN_RATE = '0.02'\n",
+                               "must not exceed")):
+            self.source.write_text(head + body + hooks)
+            with self.subTest(message=message), self.assertRaisesRegex(Refusal, message):
+                self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        self.source.write_text(SOURCE)
+        self.assertIs(strategy_metadata(self.load())["strategy_quote_execution"], False)
+        self.assertIsNone(strategy_metadata(self.load())["strategy_margin_rates"])
+        self.source.write_text(head + "    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = '0.02'\n"
+                               "    MAINTENANCE_MARGIN_RATE = '0.010'\n" + hooks)
+        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        self.assertEqual((loaded.quote_execution, loaded.margin_rates), (True, ("0.02", "0.010")))
+        self.assertEqual(strategy_metadata(loaded)["strategy_margin_rates"], ["0.02", "0.010"])
+
     def test_runner_takes_no_strategy_parameter(self):
         # A variant is a new source revision; the runner cannot be configured into another strategy.
         for extra in (["--signal-variant", "x"], ["--exit-variant", "x"], ["--daily-warmup"],
