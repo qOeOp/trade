@@ -130,7 +130,7 @@ Codex 指出：第 4 步把环境选择放在策略源的 `QUOTE_EXECUTION` 声�
 - 有效配置的 `account` 合同按环境真实生成（`engine.execution_account`：撮合方式、强平开关、保证金模型、两档费率），于是探针、执行绑定校验、`check_comparable`、复现比对一行不改就区分两种环境；同一镜像同输入下两种环境或不同费率都是 `COMPARABILITY_MISMATCH`。
 - 删掉策略源的 `QUOTE_EXECUTION`/费率声明；源里再出现即 `ENVIRONMENT_DECLARED` 拒绝。摘要新增 `execution` 键，limitations 按环境陈述。
 - 旧 v6 镜像与账本里的 v6 候选不再兼容（重构期不留兼容层）。
-- 待办：等 CI 出 v7 镜像后，用 `replay explore -- … --execution quotes --initial-margin … --maintenance-margin …` 在镜像里跑一次报价环境的正式回放，作为第 6 步在产品路径上的收尾。
+- **正式回放已完成（2026-10-25，#1669 合并后的 v7 镜像）**：`replay explore -- --symbols BTCUSDT --start 2025-10-09T00:00:00Z --trade-start 2025-10-10T00:00:00Z --end 2025-10-12T00:00:00Z --execution quotes --initial-margin 0.05 --maintenance-margin 0.025`，探针为第 6 步的 10 倍多头（源里不再有环境声明）。账本探索试验 198（passed），镜像 `sha256:8d373a4e…`、合同 `replay-contract@v7`、市场提交 53tgna1p；执行绑定里的 `account` 合同记为 `execution: quotes`、`bar_execution: false`、`liquidation_enabled: true`、`StandardMarginModel`、费率 0.05/0.025。结果与工作树原生回放逐项相同：10-10 00:00:59.999 以 121,601.5 买 8.224 BTC，21:13:05.183 被 `LIQUIDATION-BINANCE-…` 以 112,535.40 全平，期末权益 24,429.15 USDT，完整性检查通过；limitations 按报价环境陈述。本机坑：Docker Desktop 的凭据助手（`credsStore: desktop`）让匿名拉取 GHCR 公共镜像卡住，产品 300 s 超时报 `RUNTIME_UNAVAILABLE`；用一个没有 `credsStore` 的 `DOCKER_CONFIG` 目录即可，14 s 拉完。
 
 ## 已授权并完成的项
 
