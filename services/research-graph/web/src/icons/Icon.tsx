@@ -1,30 +1,20 @@
 import { v, type ColorRole } from "../theme/roles";
 import { ICONS, type IconName } from "./registry";
 
-// JetBrains draws its icons in fixed greys with a light inner fill for two-tone shapes and an accent
-// on status icons; the page takes the greys from the text colour and the rest from the theme, so icons
-// follow light and dark.
-const GREYS = /#(6C707E|818594|A8ADBD|CED0D6|8C8C8C)\b/gi;
-const FILL = /#EBECF0\b/gi;
-// Status icons carry one accent each; they take the page's data colours instead.
-const STATUS: readonly [RegExp, string][] = [
-  [/#4682FA\b/gi, v("recommended")], [/#55A76A\b/gi, v("meets")], [/#FFAF0F\b/gi, v("misses")], [/#DB5C5C\b/gi, v("fail")],
-];
+// Lucide draws on a 24-unit grid in strokes of the current colour. The page draws them thin, as the
+// Islands UI does: 1.25 units at 16 and 20px (0.83 and 1.04px), 1.5 at 12px so small ones stay legible.
+const STROKE = { 12: 1.5, 16: 1.25, 20: 1.25 } as const;
+const BODIES = new Map<IconName, string>((Object.keys(ICONS) as IconName[]).map((name) =>
+  [name, ICONS[name].svg.replace(/<!--[\s\S]*?-->/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
 
-function recolour(svg: string): string {
-  const body = svg.replace(/<!--[\s\S]*?-->/g, "").replace(/<\/?svg[^>]*>/g, "").replace(GREYS, "currentColor").replace(FILL, v("icon-fill"));
-  return STATUS.reduce((b, [re, to]) => b.replace(re, to), body);
-}
-
-const BODIES = new Map<IconName, string>((Object.keys(ICONS) as IconName[]).map((name) => [name, recolour(ICONS[name].svg)]));
-
-export function Icon({ name, size = 16, tone, className = "" }: {
-  name: IconName; size?: 12 | 16 | 20; tone?: ColorRole; className?: string;
-}) {
-  const box = ICONS[name].size;
+/** An icon in the text colour, or in `tone` (a status icon's own role when none is given). */
+export function Icon({ name, size = 16, tone, className = "" }: { name: IconName; size?: 12 | 16 | 20; tone?: ColorRole; className?: string }) {
+  const icon = ICONS[name];
+  const colour = tone ?? ("tone" in icon ? icon.tone : undefined);
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${box} ${box}`} fill="none" aria-hidden
-         className={`inline-block shrink-0 ${className}`} style={tone ? { color: v(tone) } : undefined}
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={STROKE[size]}
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`inline-block shrink-0 ${className}`}
+         style={colour ? { color: v(colour) } : undefined}
          dangerouslySetInnerHTML={{ __html: BODIES.get(name) ?? "" }} />
   );
 }

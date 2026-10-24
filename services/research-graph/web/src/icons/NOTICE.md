@@ -1,25 +1,11 @@
 # Icons
 
-The SVGs under `expui/` are from the IntelliJ Platform's New UI icon set:
+The icons are [Lucide](https://lucide.dev)'s, from the npm package `lucide-static` (the exact version is pinned in
+`package.json` and `package-lock.json`); `registry.ts` imports each SVG from it by name.
 
-- Source: [JetBrains/intellij-community](https://github.com/JetBrains/intellij-community), `platform/icons/src/expui`
-- Commit: `b861a2178f97eb14e27a8c282a4ea71a3025faa4`
-- Copyright © JetBrains s.r.o. and contributors; licensed under the Apache License 2.0 (`LICENSE` here).
-- Kept byte for byte at their upstream paths; the page recolours them to the theme at render time.
+- Copyright © Lucide Icons and Contributors, ISC License; the icons Lucide derives from Feather are
+  Copyright © 2013-present Cole Bemis, MIT License. Both texts are in `LICENSE` here, copied from the package.
+- The page draws them in the text colour with thin strokes (`Icon.tsx`); the paths are unchanged.
 
-To add one: download it from
-`https://raw.githubusercontent.com/JetBrains/intellij-community/<commit>/platform/icons/src/expui/<path>` into the same path
-here, register it in `registry.ts` and list it below. `scripts/check-rules.mjs` fails on unregistered or missing files.
-
-Files:
-
-- actions/checked.svg, actions/moveToBottomLeft.svg, actions/moveToRightTop.svg
-- general/chevronDown.svg, general/chevronRight.svg, general/chevronUp.svg, general/close.svg, general/closeSmall.svg,
-  general/collapseAll.svg, general/copy.svg,
-  general/down.svg, general/expandAll.svg, general/hide.svg, general/locate.svg, general/moreVertical.svg,
-  general/remove.svg, general/search.svg, general/settings.svg, general/up.svg, general/vcs.svg
-- graph/graphLayout.svg
-- nodes/dataTables.svg
-- status/info.svg, status/success.svg, status/warning.svg
-- toolwindows/commit.svg, toolwindows/hierarchy@20x20.svg, toolwindows/palette.svg, toolwindows/problems@20x20.svg,
-  toolwindows/profiler@20x20.svg, toolwindows/structure@20x20.svg, toolwindows/toolWindowDataView@20x20.svg
+To add one: find it on lucide.dev, import `lucide-static/icons/<name>.svg?raw` in `registry.ts` under the page's
+own name for it, and use that name.

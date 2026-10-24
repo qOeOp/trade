@@ -26,7 +26,6 @@
   --fg-faint: #73767C;
   --fg-ghost: light-dark(#9FA2A8, #4C4F56);
   --icon: light-dark(#6C707E, #CED0D6);
-  --icon-fill: light-dark(#EBECF0, #43454A);
   --focus: var(--fg);
   --scrim: light-dark(#00000020, #00000045);
 
@@ -81,7 +80,6 @@
   --color-fg-faint: var(--fg-faint);
   --color-fg-ghost: var(--fg-ghost);
   --color-icon: var(--icon);
-  --color-icon-fill: var(--icon-fill);
   --color-scrim: var(--scrim);
   --color-recommended: var(--recommended);
   --color-meets: var(--meets);

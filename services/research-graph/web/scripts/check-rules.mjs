@@ -28,8 +28,7 @@ const lines = (f, re, rule) => f.text.split("\n").forEach((l, i) => { if (re.tes
 const withoutClasses = (t) => t.replace(/className=(\{`[^`]*`\}|"[^"]*")/g, "className=\"\"");
 
 for (const f of all) {
-  // icons/Icon.tsx names JetBrains' fixed greys to recolour the vendored SVGs.
-  if (f.rel !== "theme/tokens.css" && f.rel !== "icons/Icon.tsx" && !f.rel.startsWith("icons/expui/") && /\.(ts|tsx|css)$/.test(f.rel))
+  if (f.rel !== "theme/tokens.css" && /\.(ts|tsx|css)$/.test(f.rel))
     lines(f, /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![\w-])|\brgba?\(|\bhsla?\(/, "colour literal outside theme/tokens.css");
 }
 for (const f of code) {
@@ -52,11 +51,6 @@ for (const f of code) {
 const tokens = readFileSync(join(SRC, "theme/tokens.css"), "utf8");
 const data = ["recommended", "meets", "misses", "fail"].map((r) => tokens.match(new RegExp(`--${r}:\\s*(#[0-9A-Fa-f]{6})`))?.[1]?.toUpperCase());
 if (data.join() !== VALIDATED.join()) failures.push(`theme/tokens.css  data roles ${data.join(",")} differ from the validated ${VALIDATED.join(",")}: revalidate and update both`);
-const registry = readFileSync(join(SRC, "icons/registry.ts"), "utf8");
-const registered = new Set([...registry.matchAll(/from "\.\/(expui\/[^"?]+)\?raw"/g)].map((m) => m[1]));
-for (const f of all.filter((x) => x.rel.startsWith("icons/expui/"))) if (!registered.has(f.rel.slice("icons/".length))) fail(f, "icon not registered in icons/registry.ts");
-const notice = readFileSync(join(SRC, "icons/NOTICE.md"), "utf8");
-for (const r of registered) if (!notice.includes(r.slice("expui/".length))) failures.push(`icons/NOTICE.md  does not list ${r}`);
 
 if (failures.length) { console.error(`check-rules: ${failures.length} failure(s)\n  ${failures.join("\n  ")}`); process.exit(1); }
 console.log(`check-rules: ${code.length} source files pass`);

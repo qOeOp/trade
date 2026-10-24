@@ -1,71 +1,72 @@
-// Every icon the page uses, by name. Explicit ?raw imports: a missing file fails the build.
-// Files are the IntelliJ Platform's New UI icons at their upstream paths (see NOTICE.md).
-import checked from "./expui/actions/checked.svg?raw";
-import moveToBottomLeft from "./expui/actions/moveToBottomLeft.svg?raw";
-import moveToRightTop from "./expui/actions/moveToRightTop.svg?raw";
-import chevronDown from "./expui/general/chevronDown.svg?raw";
-import chevronRight from "./expui/general/chevronRight.svg?raw";
-import chevronUp from "./expui/general/chevronUp.svg?raw";
-import close from "./expui/general/close.svg?raw";
-import down from "./expui/general/down.svg?raw";
-import remove from "./expui/general/remove.svg?raw";
-import search from "./expui/general/search.svg?raw";
-import settings from "./expui/general/settings.svg?raw";
-import up from "./expui/general/up.svg?raw";
-import vcs from "./expui/general/vcs.svg?raw";
-import commit from "./expui/toolwindows/commit.svg?raw";
-import closeSmall from "./expui/general/closeSmall.svg?raw";
-import collapseAll from "./expui/general/collapseAll.svg?raw";
-import copy from "./expui/general/copy.svg?raw";
-import expandAll from "./expui/general/expandAll.svg?raw";
-import hide from "./expui/general/hide.svg?raw";
-import locate from "./expui/general/locate.svg?raw";
-import moreVertical from "./expui/general/moreVertical.svg?raw";
-import graphLayout from "./expui/graph/graphLayout.svg?raw";
-import dataTables from "./expui/nodes/dataTables.svg?raw";
-import info from "./expui/status/info.svg?raw";
-import success from "./expui/status/success.svg?raw";
-import warning from "./expui/status/warning.svg?raw";
-import hierarchy20 from "./expui/toolwindows/hierarchy@20x20.svg?raw";
-import problems20 from "./expui/toolwindows/problems@20x20.svg?raw";
-import profiler20 from "./expui/toolwindows/profiler@20x20.svg?raw";
-import structure20 from "./expui/toolwindows/structure@20x20.svg?raw";
-import dataView20 from "./expui/toolwindows/toolWindowDataView@20x20.svg?raw";
-import palette from "./expui/toolwindows/palette.svg?raw";
+// Every icon the page uses, by name: Lucide's line icons (lucide-static, pinned in package.json; see
+// NOTICE.md). Explicit ?raw imports, so a missing file fails the build. A status icon names the data
+// role it is drawn in; the rest take the text colour of where they sit. Each file keeps its
+// "@license lucide-static" comment in the built page.
+import type { ColorRole } from "../theme/roles";
+import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
+import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
+import chartColumn from "lucide-static/icons/chart-column.svg?raw";
+import chartScatter from "lucide-static/icons/chart-scatter.svg?raw";
+import check from "lucide-static/icons/check.svg?raw";
+import chevronDown from "lucide-static/icons/chevron-down.svg?raw";
+import chevronRight from "lucide-static/icons/chevron-right.svg?raw";
+import chevronUp from "lucide-static/icons/chevron-up.svg?raw";
+import chevronsDownUp from "lucide-static/icons/chevrons-down-up.svg?raw";
+import chevronsUpDown from "lucide-static/icons/chevrons-up-down.svg?raw";
+import circleAlert from "lucide-static/icons/circle-alert.svg?raw";
+import circleCheck from "lucide-static/icons/circle-check.svg?raw";
+import contrast from "lucide-static/icons/contrast.svg?raw";
+import copy from "lucide-static/icons/copy.svg?raw";
+import ellipsisVertical from "lucide-static/icons/ellipsis-vertical.svg?raw";
+import fileText from "lucide-static/icons/file-text.svg?raw";
+import gitBranch from "lucide-static/icons/git-branch.svg?raw";
+import gitCommitHorizontal from "lucide-static/icons/git-commit-horizontal.svg?raw";
+import gitGraph from "lucide-static/icons/git-graph.svg?raw";
+import info from "lucide-static/icons/info.svg?raw";
+import listTree from "lucide-static/icons/list-tree.svg?raw";
+import locate from "lucide-static/icons/locate.svg?raw";
+import minus from "lucide-static/icons/minus.svg?raw";
+import panelBottom from "lucide-static/icons/panel-bottom.svg?raw";
+import panelRight from "lucide-static/icons/panel-right.svg?raw";
+import search from "lucide-static/icons/search.svg?raw";
+import settings from "lucide-static/icons/settings.svg?raw";
+import table from "lucide-static/icons/table.svg?raw";
+import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
+import x from "lucide-static/icons/x.svg?raw";
 
 export const ICONS = {
-  check: { svg: checked, size: 16 },
-  close: { svg: close, size: 16 },
-  minus: { svg: remove, size: 16 },
-  "arrow-up": { svg: up, size: 16 },
-  "arrow-down": { svg: down, size: 16 },
-  "chevron-down": { svg: chevronDown, size: 16 },
-  "chevron-right": { svg: chevronRight, size: 16 },
-  "chevron-up": { svg: chevronUp, size: 16 },
-  search: { svg: search, size: 16 },
-  commit: { svg: commit, size: 16 },
-  theme: { svg: palette, size: 16 },
-  "panel-bottom": { svg: moveToBottomLeft, size: 16 },
-  "panel-right": { svg: moveToRightTop, size: 16 },
-  locate: { svg: locate, size: 16 },
-  "expand-all": { svg: expandAll, size: 16 },
-  "collapse-all": { svg: collapseAll, size: 16 },
-  more: { svg: moreVertical, size: 16 },
-  hide: { svg: hide, size: 16 },
-  copy: { svg: copy, size: 16 },
-  settings: { svg: settings, size: 16 },
-  ledger: { svg: vcs, size: 16 },
-  "close-small": { svg: closeSmall, size: 16 },
-  lineage: { svg: graphLayout, size: 16 },
-  info: { svg: info, size: 16 },
-  success: { svg: success, size: 16 },
-  warning: { svg: warning, size: 16 },
-  "tool.versions": { svg: hierarchy20, size: 20 },
-  "tool.inspector": { svg: structure20, size: 20 },
-  "tool.progress": { svg: profiler20, size: 20 },
-  "tool.readings": { svg: dataView20, size: 20 },
-  "tool.table": { svg: dataTables, size: 16 },
-  "tool.gaps": { svg: problems20, size: 20 },
-} as const satisfies Record<string, { svg: string; size: 16 | 20 }>;
+  check: { svg: check },
+  close: { svg: x },
+  minus: { svg: minus },
+  "arrow-up": { svg: arrowUp },
+  "arrow-down": { svg: arrowDown },
+  "chevron-down": { svg: chevronDown },
+  "chevron-right": { svg: chevronRight },
+  "chevron-up": { svg: chevronUp },
+  search: { svg: search },
+  commit: { svg: gitCommitHorizontal },
+  theme: { svg: contrast },
+  "panel-bottom": { svg: panelBottom },
+  "panel-right": { svg: panelRight },
+  locate: { svg: locate },
+  "expand-all": { svg: chevronsUpDown },
+  "collapse-all": { svg: chevronsDownUp },
+  more: { svg: ellipsisVertical },
+  hide: { svg: minus },
+  copy: { svg: copy },
+  settings: { svg: settings },
+  ledger: { svg: gitBranch },
+  "close-small": { svg: x },
+  lineage: { svg: gitGraph },
+  info: { svg: info, tone: "recommended" },
+  success: { svg: circleCheck, tone: "meets" },
+  warning: { svg: triangleAlert, tone: "misses" },
+  "tool.versions": { svg: listTree },
+  "tool.inspector": { svg: fileText },
+  "tool.progress": { svg: chartColumn },
+  "tool.readings": { svg: chartScatter },
+  "tool.table": { svg: table },
+  "tool.gaps": { svg: circleAlert },
+} as const satisfies Record<string, { svg: string; tone?: ColorRole }>;
 
 export type IconName = keyof typeof ICONS;

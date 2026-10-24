@@ -90,7 +90,7 @@ JavaScript, so it opens in a browser. A new widget type is a renderer in `web/sr
 | `theme/` | `tokens.css` (the only colour literals: IntelliJ Islands surfaces and four validated data hues), `base.css`, `roles.ts` (role names, `v()`, `wash()`, `textClass()`) | nothing |
 | `lib/` | pure helpers: formatting, guarded storage, key bindings, ranges | nothing |
 | `model/` | view types, semantics (roles, predictions, targets), the view context, the lineage tree | lib |
-| `icons/` | vendored IntelliJ icons, their registry, `Icon`, `RoleMark`, `PredictionMark` | theme, model |
+| `icons/` | the icon registry (Lucide), `Icon`, `RoleMark`, `PredictionMark` | theme, model |
 | `state/` | small atoms: hover linking, focus requests, axis, crosshair, selection (mirrored in `#<version>`), theme, shell | lib, model |
 | `components/` | every control and shared view part (`IconButton`, `Tip`, `DataTable`, `ReadingBadge`, `VersionLine`, ...) | theme, icons, lib, model, state |
 | `widgets/` | one renderer per view-model widget type (`registry.ts`) | the above |
@@ -100,11 +100,12 @@ JavaScript, so it opens in a browser. A new widget type is a renderer in `web/sr
 `tokens.css`, `var(--…)` in TypeScript outside `roles.ts` (role classes and `v()` instead), `<svg>` outside icons and the
 chart widgets, a `<button>` or colour inline style outside `components/`, arbitrary `text-[…]`/`rounded-[…]` classes,
 storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
-the validated set, and an icon file that is not registered or listed in `icons/NOTICE.md`. `scripts/verify.mjs <page>
+the validated set. `scripts/verify.mjs <page>
 <out> [#version]` screenshots a rendered page in light and dark and checks that islands are 10px-rounded and 6px apart,
 the canvas and the bottom island share their left edge and width, canvas nodes are vertically centred, and every
-`VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider.
+`VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
+in a 1000px window every island stays inside it and hovering tree rows never moves one.
 
-Icons are from the IntelliJ Platform's New UI set ([JetBrains/intellij-community](https://github.com/JetBrains/intellij-community),
-`platform/icons/src/expui`, commit `b861a2178f`), Apache License 2.0, © JetBrains s.r.o. and contributors; the
-SVGs, the Apache-2.0 text and a notice are in `web/src/icons/`.
+Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
+with 1.25-unit strokes (1.5 at 12px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,
+© Cole Bemis. The licence text and a notice are in `web/src/icons/`.

@@ -21,6 +21,7 @@
     "@visx/shape": "^4.0.0",
     "@xyflow/react": "12.11.3",
     "cmdk": "^1.1.1",
+    "lucide-static": "1.61.0",
     "radix-ui": "^1.8.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
