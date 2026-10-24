@@ -1,5 +1,5 @@
 // Verifies a rendered page in headless Chrome over CDP (Node's built-in WebSocket; no dependency):
-// screenshots in light and dark, and the layout invariants of the Islands shell and VersionLine
+// screenshots in light and dark, and the layout invariants of the Islands shell (frame corners included) and VersionLine
 // (fixed gaps between its parts; each badge number the same padding from the edges and the divider),
 // that a narrow window keeps every island inside it and still while the pointer moves, and that
 // scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
@@ -54,7 +54,14 @@ try {
         const w = r(n.firstElementChild), l = r(n.querySelector("[data-version-line]"));
         return +Math.abs((w.top + w.bottom) / 2 - (l.top + l.bottom) / 2).toFixed(2);
       });
-      return { islands, lines, offCentre: Math.max(0, ...offCentre) };
+      // the frame's corners: stripe buttons, toolbar controls and status text share the window's edges
+      const nav = (side) => [...document.querySelectorAll('nav[aria-label="' + side + '"] button')].map((e) => r(e).toJSON());
+      const bar = [...document.querySelector("header").querySelectorAll("button")].map((e) => r(e).toJSON());
+      const crumb = (() => { const b = document.querySelector('footer nav button'); const g = document.createRange(); g.selectNodeContents(b); return g.getBoundingClientRect(); })();
+      const status = (() => { const e = document.querySelector("footer").lastElementChild.lastElementChild; const g = document.createRange(); g.selectNodeContents(e); return g.getBoundingClientRect(); })();
+      const frame = { left: nav("左侧工具窗"), right: nav("右侧工具窗"), bar: bar.map((b) => ({ left: b.left, right: b.right, height: b.height })),
+                      crumb: crumb.left, status: innerWidth - status.right, island: r(document.querySelector("[data-island=left]")).toJSON() };
+      return { islands, lines, offCentre: Math.max(0, ...offCentre), frame };
     })()`);
     report[scheme] = m;
     const shot = await send("Page.captureScreenshot", { format: "png" });
@@ -68,6 +75,12 @@ try {
     }
     if (by.editor && by.right) expect(Math.abs(by.right.left - by.editor.right - 6) < 0.6, `${scheme}: editor-right gap ${(by.right.left - by.editor.right).toFixed(1)}`);
     if (by.editor && by.left) expect(Math.abs(by.editor.left - by.left.right - 6) < 0.6, `${scheme}: left-editor gap ${(by.editor.left - by.left.right).toFixed(1)}`);
+    const f = m.frame, first = f.left[0], last = f.left.at(-1), near = (a, b) => Math.abs(a - b) < 0.6;
+    expect(near((first.top + first.bottom) / 2, f.island.top + 20), `${scheme}: the first stripe button is off the island header's centre`);
+    expect(near(f.island.bottom - last.bottom, first.top - f.island.top), `${scheme}: the stripe's last button is not inset from the island's foot as its first is from its top`);
+    expect(near(f.bar[0].left, first.left) && near(f.bar.at(-1).right, f.right[0].right), `${scheme}: the toolbar's ends do not line up with the stripe buttons`);
+    expect(f.bar.filter((b) => b.height !== first.height).length <= 1, `${scheme}: toolbar controls differ in height from the stripe buttons`);
+    expect(near(f.crumb, f.status) && near(f.crumb, first.left + 8), `${scheme}: status bar text is ${f.crumb.toFixed(1)}px and ${f.status.toFixed(1)}px from the window's edges, not ${first.left + 8}`);
     expect(m.offCentre < 0.6, `${scheme}: a canvas node's content is ${m.offCentre}px off its vertical centre`);
     const unique = (k) => [...new Set(m.lines.map((l) => JSON.stringify(l[k])))];
     expect(m.lines.length > 0, `${scheme}: no VersionLine rendered`);
@@ -135,14 +148,15 @@ try {
     // canvas draws trial t's cell from (t - 0.5) * 32px and row r from (r - 0.5) * 30px.
     const edges = `(() => { const c = document.querySelector("[data-island=editor] .react-flow").getBoundingClientRect();
       const [x, y] = document.querySelector(".react-flow__viewport").style.transform.match(/-?[\\d.]+/g).map(Number);
-      const rows = +document.querySelector("[data-backdrop]").dataset.rows;
+      const backdrop = document.querySelector("[data-backdrop]"); if (!backdrop) return null;
+      const rows = +backdrop.dataset.rows;
       return { left: x - 16, top: y - 15, bottom: c.height - (y + (rows - 0.5) * 30) }; })()`;
     const wheel = async (deltaX, deltaY) => { for (let i = 0; i < 40; i++) await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX, deltaY }); await sleep(300); };
     await wheel(-4000, -4000);
-    const corner = await evaluate(edges);
+    const corner = await evaluate(edges) ?? { left: NaN, top: NaN };
     expect(Math.abs(corner.left) < 0.6 && Math.abs(corner.top) < 0.6, `canvas: at the start trial 0 and the first row are ${corner.left.toFixed(1)}px, ${corner.top.toFixed(1)}px from the top-left corner`);
     await wheel(0, 4000);
-    const end = await evaluate(edges);
+    const end = await evaluate(edges) ?? { bottom: NaN };
     expect(Math.abs(end.bottom) < 0.6, `canvas: at the end the last row is ${end.bottom.toFixed(1)}px from the bottom`);
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));

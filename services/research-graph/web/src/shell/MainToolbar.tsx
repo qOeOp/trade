@@ -16,16 +16,16 @@ export function MainToolbar() {
   const { open } = useShell();
   const Readout = RENDERERS.summary.Component;
   return (
-    <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-2">
+    <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-(--frame-inset)">
       <LineWidget />
       <LedgerWidget />
       <span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
       <RecommendationWidget />
       <div className="ml-3 min-w-0 flex-1">{summary && <Readout widget={summary} />}</div>
       <SearchTrigger label="跳转…" onOpen={() => paletteOpen.set(true)} />
-      <div className="ml-2 flex shrink-0 items-center gap-0.5">
-        <IconButton icon="panel-bottom" label="底部工具窗" keys="⌘J" active={!!open.bottom} onClick={() => toggleSide("bottom")} />
-        <IconButton icon="panel-right" label="右侧工具窗" keys="⌘B" active={!!open.right} onClick={() => toggleSide("right")} />
+      <div className="ml-2 flex shrink-0 items-center gap-1">
+        <IconButton frame icon="panel-bottom" label="底部工具窗" keys="⌘J" active={!!open.bottom} onClick={() => toggleSide("bottom")} />
+        <IconButton frame icon="panel-right" label="右侧工具窗" keys="⌘B" active={!!open.right} onClick={() => toggleSide("right")} />
         <SettingsMenu />
       </div>
     </header>

@@ -12,7 +12,7 @@ export function Stripe({ side, windows }: { side: "left" | "right"; windows: rea
   );
   const at = (s: Side) => windows.filter((w) => w.side === s).map(button);
   return (
-    <nav aria-label={side === "left" ? "左侧工具窗" : "右侧工具窗"} className="flex w-10 shrink-0 flex-col items-center gap-1 py-1">
+    <nav aria-label={side === "left" ? "左侧工具窗" : "右侧工具窗"} className="flex w-(--stripe-w) shrink-0 flex-col items-center gap-1 py-(--stripe-pad)">
       {at(side)}
       {side === "left" && <div className="mt-auto flex flex-col items-center gap-1">{at("bottom")}</div>}
     </nav>

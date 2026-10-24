@@ -53,6 +53,13 @@
   --toolbar-h: 40px;
   --status-h: 28px;
   --header-h: 40px;
+  /* The frame's controls (toolbar, stripes) are one size and share the window's edges: each sits
+     --frame-inset from the edge, centred in its stripe; a stripe's first and last buttons centre on
+     the header row of the island beside them. Text on the frame starts 8px further in. */
+  --stripe-w: 40px;
+  --frame-control: 32px;
+  --frame-inset: calc((var(--stripe-w) - var(--frame-control)) / 2);
+  --stripe-pad: calc(var(--half-gap) + (var(--header-h) - var(--frame-control)) / 2);
   --row-h: 24px;
   --indent: 20px;
   /* reading badge: the same padding from each number to the edges and to the divider */

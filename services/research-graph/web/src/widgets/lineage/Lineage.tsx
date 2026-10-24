@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { LineageWidget } from "../../model/types";
@@ -9,6 +9,7 @@ import { ancestors, lineageTree } from "../../model/lineageTree";
 import { useResolvedTheme } from "../../state/theme";
 import { AxisDriver } from "./AxisDriver";
 import { Backdrop } from "./Backdrop";
+import { Crosshair } from "./Crosshair";
 import { Elbow } from "./Elbow";
 import { bounds, HOME, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
 import { useSize } from "../../components/hooks/useSize";
@@ -42,6 +43,9 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
   const { left, top, right, bottom } = bounds(widget);
   const extent: [[number, number], [number, number]] = [[left, top], [Math.max(right, left + size.width), Math.max(bottom, top + size.height)]];
   const at = useCrosshair();
+  // The pointer over this canvas (else the crosshair comes from a linked chart and is only its trial);
+  // over a version the system cursor shows instead of the reticle.
+  const [pointer, setPointer] = useState<{ y: number; onVersion: boolean } | null>(null);
   const { x0 } = useAxisView();
   const colorMode = useResolvedTheme();
 
@@ -49,9 +53,14 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
     <ReactFlowProvider>
       <div className="flex h-full flex-col">
         <div className="shrink-0 border-b border-line"><Ruler lineage={widget} /></div>
-        <div ref={box} className="relative min-h-0 flex-1"
-             onMouseMove={(e) => { const r = box.current?.getBoundingClientRect(); if (r) crosshair.set(Math.round((e.clientX - r.left - x0) / UNIT)); }}
-             onMouseLeave={() => crosshair.set(null)}>
+        <div ref={box} data-crosshair={pointer && !pointer.onVersion ? "" : undefined} className="relative min-h-0 flex-1"
+             onMouseMove={(e) => {
+               const r = box.current?.getBoundingClientRect();
+               if (!r) return;
+               crosshair.set(Math.round((e.clientX - r.left - x0) / UNIT));
+               setPointer({ y: e.clientY - r.top, onVersion: !!(e.target as Element).closest(".react-flow__node") });
+             }}
+             onMouseLeave={() => { crosshair.set(null); setPointer(null); }}>
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES} colorMode={colorMode}
                      minZoom={1} maxZoom={1} zoomOnScroll={false} zoomOnPinch={false} zoomOnDoubleClick={false}
                      panOnScroll panOnDrag translateExtent={extent} nodesDraggable={false} nodesConnectable={false}
@@ -63,8 +72,8 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                      onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openVersionTab(node.id)}>
             <Backdrop widget={widget} />
             <AxisDriver positions={positions} />
+            {at != null && <Crosshair x={x0 + at * UNIT} y={pointer?.y ?? null} width={size.width} height={size.height} reticle={!pointer?.onVersion} />}
           </ReactFlow>
-          {at != null && <div className="pointer-events-none absolute inset-y-0 w-px bg-crosshair opacity-60" style={{ left: x0 + at * UNIT }} />}
         </div>
       </div>
     </ReactFlowProvider>

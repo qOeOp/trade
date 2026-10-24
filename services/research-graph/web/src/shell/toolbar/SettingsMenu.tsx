@@ -9,7 +9,7 @@ const THEMES = (Object.keys(THEME_LABEL) as ThemeChoice[]).map((value) => ({ val
 export function SettingsMenu() {
   const choice = useTheme();
   return (
-    <Dropdown label="设置" align="end" trigger={<span className="text-icon"><Icon name="settings" /></span>}>
+    <Dropdown label="设置" align="end" variant="icon" trigger={<span className="text-icon"><Icon name="settings" size={20} /></span>}>
       <DropdownLabel>主题</DropdownLabel>
       <DropdownRadio value={choice} options={THEMES} onChange={(v) => theme.set(v)} />
       <DropdownSeparator />
