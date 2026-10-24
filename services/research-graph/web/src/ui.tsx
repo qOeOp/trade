@@ -98,10 +98,13 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
               const numeric = (header.column.columnDef.meta as { numeric?: boolean } | undefined)?.numeric;
               return (
                 <th key={header.id} onClick={header.column.getToggleSortingHandler()}
-                    className={`cursor-pointer select-none whitespace-nowrap border-b px-2 py-1 font-medium faint ${numeric ? "text-right" : "text-left"}`}
+                    className={`cursor-pointer select-none whitespace-nowrap border-b px-2 py-1 font-normal faint ${numeric ? "text-right" : "text-left"}`}
                     style={{ borderColor: "var(--rule-2)" }}>
-                  {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  <span className="ml-0.5 inline-block w-2 ghost">{dir === "asc" ? "↑" : dir === "desc" ? "↓" : ""}</span>
+                  {/* the sort arrow sits outside the label, so headers line up with their column's values */}
+                  <span className="relative">
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    {dir && <span className={`absolute top-0 ghost ${numeric ? "right-full mr-0.5" : "left-full ml-0.5"}`}>{dir === "asc" ? "↑" : "↓"}</span>}
+                  </span>
                 </th>
               );
             })}
@@ -116,9 +119,9 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
                 className={onRow ? "cursor-pointer transition-colors duration-100 hover:bg-[var(--hover)]" : undefined}
                 style={id && id === selected ? { background: "var(--accent-wash)" } : undefined}>
               {row.getAllCells().map((cell) => {
-                const numeric = (cell.column.columnDef.meta as { numeric?: boolean } | undefined)?.numeric;
+                const meta = cell.column.columnDef.meta as { numeric?: boolean; mono?: boolean } | undefined;
                 return (
-                  <td key={cell.id} className={`whitespace-nowrap border-b px-2 py-[3px] ${numeric ? "mono text-right" : ""}`}
+                  <td key={cell.id} className={`whitespace-nowrap border-b px-2 py-[3px] ${meta?.numeric ? "mono text-right" : meta?.mono ? "mono" : ""}`}
                       style={{ borderColor: "var(--rule)" }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>

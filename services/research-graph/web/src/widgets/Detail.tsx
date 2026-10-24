@@ -16,7 +16,7 @@ const col = columns<Trial>();
 // the number is highlighted (and marked when it misses its target).
 function Metric({ label, value, ok, format }: { label: string; value?: number | null; ok: boolean | null; format: Format }) {
   return (
-    <div className="whitespace-nowrap py-1.5 text-center">
+    <div className="whitespace-nowrap px-3 py-1.5">
       <span className="faint">{label} </span>
       <span style={{ color: readingColor(ok) }}>{value == null ? "—" : <NumberFlow value={value} format={format} />}</span>
     </div>
@@ -31,7 +31,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
   const cmp = c.comparison;
   const role = c.status ?? null;
   const trialColumns: Column<Trial>[] = [
-    col.accessor("trial_id", { header: "trial", meta: { numeric: true } }) as Column<Trial>,
+    col.accessor("trial_id", { header: "trial", meta: { mono: true } }) as Column<Trial>,
     col.accessor("purpose", { header: "用途", cell: (x) => PURPOSE[x.getValue() as string] ?? x.getValue() }) as Column<Trial>,
     col.accessor("annual_return", { header: "年化", meta: { numeric: true }, sortUndefined: "last",
       cell: (x) => <span style={{ color: readingColor(meets(x.getValue() as number, targets?.annual_return, true)) }}>{pct(x.getValue() as number)}</span> }) as Column<Trial>,
@@ -45,7 +45,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
     } }) as Column<Trial>,
   ];
   return (
-    <div className="text-[12.5px]">
+    <div className="text-[12px]">
       <header className="sticky top-0 z-10 border-b px-3 pb-2 pt-2.5" style={{ borderColor: "var(--rule)", background: "var(--panel)" }}>
         <div className="flex items-center gap-2">
           <RoleMark role={role} size={16} />
