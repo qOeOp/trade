@@ -1083,7 +1083,9 @@ def _parser() -> Parser:
     validation = verbs("validation", "out-of-sample validations: registration, report")
     command = validation.add_parser("registration", help="register one out-of-sample validation")
     command.epilog = ("Records the user's candidate, window and universe rule and requests an RFC 3161 timestamp; "
-                      "ledger witness retries a missing one. replay run --validation runs it once.")
+                      "ledger witness retries a missing one. replay run --validation runs it once. "
+                      "Binding derives account terms from research sealed at the original registration commit; "
+                      "later research and retry registrations cannot replace that baseline.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
@@ -1092,7 +1094,9 @@ def _parser() -> Parser:
     command.add_argument("--universe-rule", required=True, help="the market commit's universe rule")
     command.add_argument("--market-at", help="market commit, tag or branch (default: main)")
     command.add_argument("--design", required=True, help="JSON file of the validation design")
-    command.add_argument("--retry-of", type=int, help="the registration ID this retries")
+    command.add_argument("--retry-of", type=int,
+                         help="a bound interrupted, invalid or economically unavailable registration; keep its "
+                              "candidate, window, universe rule and original test design")
     _op_id(command)
     command.add_argument("--tsa-url", help="RFC 3161 timestamp authority URL (default: the built-in one)")
     command = validation.add_parser("report", help="the out-of-sample report of a registration")

@@ -826,7 +826,7 @@ The binder ledger.open_trial calls for a research replay of one grid point.
 |---|---|
 | <Ref id="registration.membership_unchanged">membership_unchanged</Ref> | 核对本次回放的共同可交易范围与登记一致：范围规则相同；登记前各月成员在登记提交与本次提交下逐行相同；窗口月份存在且交给策略的成员路径未剔除成员；不一致抛 MEMBERSHIP_CHANGED |
 | <Ref id="registration.require_fresh">require_fresh</Ref> | 核产品 checkout 的 HEAD 含远端 main 最新提交；工作树里的本地改动不核对；只由样本外绑定调用 |
-| <Ref id="registration.validation_bind">validation_bind</Ref> | 样本外回放启动前，在试验写事务内核对源码、范围、窗口与覆盖、凭证、账户条款与运行环境都与登记一致，并写 validation_binding；第二次绑定拒绝 |
+| <Ref id="registration.validation_bind">validation_bind</Ref> | 样本外回放启动前，按最初登记核对源码、范围、窗口、检验设计与账户基准，再核覆盖、凭证和正式构建；同事务写 validation_binding，第二次绑定拒绝 |
 | <Ref id="registration.validation_register">validation_register</Ref> | 唯一写入 validation_registration：核候选、检验条件、窗口与重试条件，一事务一提交写登记，提交后对该提交取凭证；凭证失败时登记仍在 |
 
 ### `membership_unchanged` [#def-registration-membership_unchanged]
@@ -898,7 +898,7 @@ def require_fresh(checkout: Path | None, remote: str) -> None
 
 ### `validation_bind` [#def-registration-validation_bind]
 
-样本外回放启动前，在试验写事务内核对源码、范围、窗口与覆盖、凭证、账户条款与运行环境都与登记一致，并写 validation_binding；第二次绑定拒绝
+样本外回放启动前，按最初登记核对源码、范围、窗口、检验设计与账户基准，再核覆盖、凭证和正式构建；同事务写 validation_binding，第二次绑定拒绝
 
 ```python
 def validation_bind(
@@ -906,17 +906,17 @@ def validation_bind(
     registration_id: int,
     trial_id: int,
     source_sha256: str,
-    inputs: MarketInputs,
-    identity: RuntimeIdentity,
-    inspection: RuntimeInspection,
-    market: MarketProfile,
-    checkout: Path,
-    remote: str,
-    tsa_roots: Path,
+    identity: Mapping,
+    inspection: Mapping,
+    *,
+    market,
+    checkout: Path | None = None,
+    remote: str = "origin",
+    tsa_roots: Path | None = None,
 ) -> None
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：市场提交、范围规则、成员路径、合约集、交易窗口、覆盖回执" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场库档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品 checkout，供 require_fresh 核对其 HEAD" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场库档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品 checkout，供 require_fresh 核对其 HEAD" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
 
 **返回**　None；全部核对通过后在同事务写 validation_binding 一行；任一项不一致抛拒绝，由调用方回滚整个试验事务且不启动容器
 
@@ -925,10 +925,11 @@ def validation_bind(
 1. 运行环境与产品代码：registration.require_fresh（STALE_CHECKOUT）；runtime.require_main_build(identity, inspection)（RUNTIME_NOT_MAIN）；trial.image_digest 须等于 identity 摘要。
 2. 实际身份：输入取本试验的开始回执，不由调用方给；trial.source_sha256 须等于登记候选的源码哈希（SOURCE_MISMATCH），试验行合约集须等于按本次市场提交推出的成员集（MEMBERSHIP_CHANGED）。
 3. 登记与源码：读 validation_registration，不存在即 REGISTRATION_UNKNOWN；ledger.read_candidate 取登记候选的源码内容哈希，不等于 source_sha256 即 SOURCE_MISMATCH。
-4. 范围：调用 registration.membership_unchanged，不一致即 MEMBERSHIP_CHANGED；窗口内下架由 market.validate_lifecycle 校验的引擎原生事件结算并出回执。
+4. 范围：沿 retry_of 取最初登记，以其市场提交、登记月份与范围规则调用 registration.membership_unchanged，不一致即 MEMBERSHIP_CHANGED；窗口内下架由 market.validate_lifecycle 校验的引擎原生事件结算并出回执。
 5. 窗口与覆盖：trial.trade_start 与 trial.trade_end 须分别等于登记的 window_start 与 window_end，且 trial.created_at > window_end，否则 WINDOW_MISMATCH（与提交校验 validation_runs_match_their_registration 一致）；replay.input_coverage 的回执须覆盖每个成员合约的预热与交易区间，否则 COVERAGE_INCOMPLETE。
-6. 凭证与账户条款：ledger.stamped_at 读登记提交（重试沿 retry_of 链取最初登记提交）的 genTime，无凭证或不早于 window_start 即 REGISTRATION_TOO_LATE；取该候选最近一次有效的研究回放运行，经 registration.config_key 比较其有效配置与 inspection 中影响经济的账户条款（engine.account_contract 规定的账户与撮合常量、保证金、手续费、资金费、标记价来源），不等或无此运行即 CONFIG_MISMATCH。
-7. 写绑定：插入 validation_binding(registration_id, trial_id, op_id)；主键或唯一键冲突即 REGISTRATION_CONSUMED。登记一经绑定即消耗，回放中断、审计无效或无实质活动也不释放。
+6. 凭证与账户条款：ledger.stamped_at 读登记提交（重试沿 retry_of 链取最初登记提交）的 genTime，无凭证或不早于 window_start 即 REGISTRATION_TOO_LATE；用 ledger.read_as_of 读取最初登记的诞生提交，由 ledger.latest_research 按结果入账顺序选当时该源码最近一次通过的研究运行，经 registration.config_key 比较开始回执中的 account 条款（含执行方式、撮合、强平和保证金率）；不等或当时无此运行即 CONFIG_MISMATCH。后续研究、重试提交和事后补跑均不能替换基准，不新增存储列。
+7. 检验设计：重试登记的完整 design 须与最初登记相同，否则 RETRY_NOT_ALLOWED；也覆盖旧版本已写入但尚未执行的重试。
+8. 写绑定：插入 validation_binding(registration_id, trial_id, op_id)；主键或唯一键冲突即 REGISTRATION_CONSUMED。登记一经绑定即消耗，回放中断、审计无效或无实质活动也不释放。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -940,7 +941,8 @@ def validation_bind(
 | `WINDOW_MISMATCH` | 交易窗口不等于登记窗口，或试验时间不晚于窗口结束 |
 | `COVERAGE_INCOMPLETE` | 任一成员合约的输入区间缺覆盖回执 |
 | `REGISTRATION_TOO_LATE` | 登记提交无凭证，或凭证 genTime 不早于 window_start |
-| `CONFIG_MISMATCH` | 账户条款与该候选最近一次有效的研究回放运行不同，或该候选没有有效的研究回放运行 |
+| `CONFIG_MISMATCH` | 账户条款与最初登记提交中该源码最近一次通过的研究运行不同，或当时不存在此运行 |
+| `RETRY_NOT_ALLOWED` | 重试的检验设计与最初登记不同 |
 | `REGISTRATION_CONSUMED` | 该登记已绑定过回放，或该试验已绑定别的登记 |
 | `CONCURRENT_WRITE` | 两事务改同格为不同值，后到者回滚 |
 
@@ -979,7 +981,7 @@ def validation_register(
 
 1. 核输入：ledger.read_candidate 解析 candidate，不存在或未发布即 CANDIDATE_UNKNOWN；registration.validate_design 校验 design，不合即 DESIGN_INVALID；时间非 UTC 或 window_start 不早于 window_end 即 WINDOW_INVALID。
 2. 定范围身份：market.resolve_commit 把 market 解析成唯一市场提交，与 universe_rule 一并写入登记行；窗口内月份此时不存在，不在此刻核对。
-3. 重试核对（给了 retry_of）：原登记须同候选、同窗口、同 universe_rule，且已被 validation_binding 绑定，其试验中断无运行（须有原始执行封存记下中断或宿主失败，没有封存不算中断）、运行无效，或 qualification.assess 判为无经济证据资格；否则 RETRY_NOT_ALLOWED。
+3. 重试核对（给了 retry_of）：原登记须同候选、同窗口、同 universe_rule，完整 design 还须等于 retry_of 链最初登记的设计，且已被 validation_binding 绑定，其试验中断无运行（须有原始执行封存记下中断或宿主失败，没有封存不算中断）、运行无效，或 qualification.assess 判为无经济证据资格；否则 RETRY_NOT_ALLOWED。
 4. 写登记：ledger.write 一事务插入一行并提交，事务内读回服务器写入的 created_at；非重试且 window_start 不晚于 created_at 即回滚并 REGISTRATION_TOO_LATE；同 op_id 已存在且载荷相同返回原行，载荷不同即 OP_ID_CONFLICT。
 5. 取凭证：由 dolt_diff_validation_registration 中该行 added 的 to_commit 定位登记提交，ledger.witness 对它取 RFC 3161 凭证写入 witness，只发送哈希、按提交幂等。
 6. 凭证失败不回滚登记：返回 status=failed 与 error，由 cli.ledger_witness 在窗口起点前补取；绑定时按 genTime 早于窗口起点准入（重试沿 retry_of 链取最初登记的凭证）。
@@ -990,7 +992,7 @@ def validation_register(
 | `CANDIDATE_UNKNOWN` | candidate 无法解析为已发布的候选 |
 | `DESIGN_INVALID` | 检验条件字段缺失、多余或取值非法 |
 | `WINDOW_INVALID` | window_start 不早于 window_end，或任一不是带时区的 UTC 时间 |
-| `RETRY_NOT_ALLOWED` | retry_of 指向的登记不存在、候选／窗口／范围规则不同、尚未绑定回放，或其运行有效且有经济证据资格（结果不好看不是重试理由） |
+| `RETRY_NOT_ALLOWED` | retry_of 指向的登记不存在、候选／窗口／范围规则／最初检验设计不同、尚未绑定回放，或其运行有效且有经济证据资格（结果不好看不是重试理由） |
 | `REGISTRATION_TOO_LATE` | 非重试登记的 window_start 不晚于服务器写入的 created_at |
 | `CONCURRENT_WRITE` | 写事务与另一事务改同格为不同值，后到者回滚 |
 | `OP_ID_CONFLICT` | op_id 已存在而载荷不同 |

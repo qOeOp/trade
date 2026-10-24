@@ -16,7 +16,8 @@ from unittest.mock import patch
 from ledger import trials, witness
 from ledger.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, sha, source
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context,
+                               product_bundle, sha, source)
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import (DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, coverage_bytes,
                                       months_rows)
@@ -164,7 +165,8 @@ class ValidationTests(unittest.TestCase):
         world.seal_run(world.research_trial("registration-root", source("root")))
         cls.unrun = world.publish("never researched", parent=None)
         # One-second windows, one per registration: an unbound registration reserves its own window.
-        labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "released")
+        labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
+                  "retry-baseline", "retry-members", "corrected", "successful", "legacy-design", "released")
         first = (datetime.now(UTC) + timedelta(seconds=5)).replace(microsecond=0)
         cls.windows = {label: (first + timedelta(seconds=k), first + timedelta(seconds=k + 1))
                        for k, label in enumerate(labels)}
@@ -225,6 +227,97 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.world.seq(), seq, "a refused binding writes no trial")
         return code
 
+    def later_research(self, data: bytes, account: dict) -> int:
+        """Append sealed research facts in this isolated fixture, without exercising registration
+        admission again; the validation binder must not adopt these later account terms."""
+        execution = self.world.plan("registration-root")["execution"]
+        execution = {**execution, "effective_config": {**execution["effective_config"], "account": account}}
+        bundle = f"registration-later-{self.world.counter + 1}"
+        product_bundle(self.conn, bundle, {"research-plan.json": b"{}"})
+        trial_id = self.world.research_trial("registration-root", data, execution=execution,
+                                             binder=attempt_binder(bundle, sha(data)))
+        return self.world.seal_run(trial_id)
+
+    def test_account_terms_stay_at_registration_even_when_later_research_changes_them(self):
+        changed = {**config()["account"], "starting_balance_usdt": "5000"}
+        later = self.later_research(source("root"), changed)
+        self.assertEqual(trials.latest_research(self.conn, sha(source("root"))), later)
+        self.assertEqual(self.refused_bind("baseline", inspection={"effective_config": config(account=changed)}),
+                         "CONFIG_MISMATCH")
+        self.bind("baseline")  # Original terms still bind, despite the newer research run.
+
+    def test_retries_keep_the_original_account_baseline_across_multiple_hops(self):
+        original = self.registered["retry-baseline"]
+        trial_id = self.bind("retry-baseline")
+        self.world.seal_run(trial_id, "invalid")
+        changed = {**config()["account"], "fees": "changed-after-registration"}
+        self.later_research(source("root"), changed)
+        start, end = self.windows["retry-baseline"]
+        for index in range(2):
+            label = f"baseline-retry-{index}"
+            retry = self.register(label, retry_of=original["registration_id"], window_start=start, window_end=end)
+            self.registered[label], self.windows[label] = retry, (start, end)
+            self.assertEqual(self.refused_bind(label, inspection={"effective_config": config(account=changed)}),
+                             "CONFIG_MISMATCH")
+            trial_id = self.bind(label)
+            self.world.seal_run(trial_id, "invalid")
+            original = retry
+
+    def test_later_research_cannot_supply_a_missing_original_baseline(self):
+        self.later_research(self.unrun["source"], config()["account"])
+        self.assertEqual(self.refused_bind("unrun", data=self.unrun["source"]), "CONFIG_MISMATCH")
+
+    def test_corrected_input_identity_can_bind_the_original_unused_registration(self):
+        corrected = "c" * 32
+        self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
+        start, end = self.windows["corrected"]
+        window = {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)}
+        inputs = registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
+                                                   None, True)
+        self.assertNotEqual(inputs["identity"]["export_content_sha256"],
+                            self.market_inputs(start, end)["identity"]["export_content_sha256"])
+        self.bind("corrected", inputs=inputs)
+        self.assertEqual(self.refused_bind("corrected", inputs=inputs), "REGISTRATION_CONSUMED")
+
+    def test_retry_market_commit_cannot_rebase_the_original_membership_check(self):
+        trial_id = self.bind("retry-members")
+        self.world.seal_run(trial_id, "invalid")
+        changed = "d" * 32
+        self.world.market.commits[changed] = self.world.market.commits[MARKET_COMMIT][1:]
+        start, end = self.windows["retry-members"]
+        retry = self.register("members-retry", retry_of=self.registered["retry-members"]["registration_id"],
+                              window_start=start, window_end=end, market=changed)
+        self.registered["members-retry"], self.windows["members-retry"] = retry, (start, end)
+        window = {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)}
+        inputs = registration_inputs.market_inputs(self.world.market, changed, window, {"universe": True}, None,
+                                                   True)
+        self.assertEqual(self.refused_bind("members-retry", inputs=inputs), "MEMBERSHIP_CHANGED")
+        self.bind("members-retry")  # The refused trial did not consume the retry.
+
+    def test_data_correction_does_not_make_a_successful_validation_retryable(self):
+        trial_id = self.bind("successful")
+        self.world.seal_run(trial_id)
+        start, end = self.windows["successful"]
+        corrected = "e" * 32
+        self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
+        seq = self.world.seq()
+        self.assertEqual(self.code(self.register, "successful-retry", market=corrected,
+                                   retry_of=self.registered["successful"]["registration_id"],
+                                   window_start=start, window_end=end), "RETRY_NOT_ALLOWED")
+        self.assertEqual(self.world.seq(), seq)
+
+    def test_a_legacy_unbound_retry_with_changed_design_cannot_bind(self):
+        trial_id = self.bind("legacy-design")
+        self.world.seal_run(trial_id, "invalid")
+        start, end = self.windows["legacy-design"]
+        # Model the previous release's admission only while creating an old-style retry;
+        # binding below uses the real checks and leaves that historical record intact.
+        with patch.object(validation, "_design", return_value={**DESIGN, "seed": 8}):
+            retry = self.register("legacy-retry", retry_of=self.registered["legacy-design"]["registration_id"],
+                                  window_start=start, window_end=end, design={**DESIGN, "seed": 8})
+        self.registered["legacy-retry"], self.windows["legacy-retry"] = retry, (start, end)
+        self.assertEqual(self.refused_bind("legacy-retry"), "RETRY_NOT_ALLOWED")
+
     def test_a_registration_is_witnessed_and_its_one_replay_binds_it(self):
         registered, start = self.registered["bound"], self.windows["bound"][0]
         self.assertEqual(registered["witness"]["status"], "stamped")
@@ -274,6 +367,14 @@ class ValidationTests(unittest.TestCase):
         trial_id = self.bind("consumed")
         self.world.seal_run(trial_id, "invalid")
         start, end = self.windows["consumed"]
+        seq = self.world.seq()
+        for field, value in (("seed", 8), ("alpha", 0.01), ("minimum_effect", 0.02),
+                             ("design_reason", "a different rationale after seeing the window")):
+            with self.subTest(field=field):
+                self.assertEqual(self.code(self.register, f"retry-changed-{field}",
+                                           retry_of=original["registration_id"], window_start=start, window_end=end,
+                                           design={**DESIGN, field: value}), "RETRY_NOT_ALLOWED")
+                self.assertEqual(self.world.seq(), seq)
         retry = self.register("retry", retry_of=original["registration_id"], window_start=start, window_end=end)
         self.assertEqual(retry["witness"]["status"], "stamped")
         self.registered["retry"], self.windows["retry"] = retry, (start, end)

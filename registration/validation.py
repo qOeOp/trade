@@ -3,8 +3,9 @@
 
 The user starts a validation: one candidate, a window that begins after the registration is both
 recorded and witnessed by an RFC 3161 token, a universe rule and a declared design. The one replay
-bound to it must match the registration in source, universe, window, coverage, account terms and
-runtime; binding consumes the registration whatever the replay's outcome.
+bound to it keeps the original registration's source, universe, window, test design and account
+baseline, with complete coverage and a verified main runtime; binding consumes the registration
+whatever the replay's outcome.
 """
 
 from __future__ import annotations
@@ -134,11 +135,15 @@ def _retry_allowed(conn: db.LedgerConnection, original: dict) -> bool:
     return bound is not None and register.retryable(conn, bound["trial_id"])
 
 
+def _design(registration: Mapping) -> dict:
+    value = registration["design"]
+    return json.loads(value) if isinstance(value, str) else dict(value)
+
+
 def _same_registration(prior: Mapping, payload: Mapping) -> bool:
-    design = json.loads(prior["design"]) if isinstance(prior["design"], str) else prior["design"]
     return ({"candidate": f"{prior['strategy_id']}@{prior['revision']}", "market_commit": prior["market_commit"],
              "universe_rule": prior["universe_rule"], "window_start": prior["window_start"].isoformat(),
-             "window_end": prior["window_end"].isoformat(), "design": design, "retry_of": prior["retry_of"]}
+             "window_end": prior["window_end"].isoformat(), "design": _design(prior), "retry_of": prior["retry_of"]}
             == dict(payload))
 
 
@@ -174,7 +179,8 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
             original = _registration(conn, retry_of)
             if (original is None or (original["strategy_id"], original["revision"]) != (row["strategy_id"], row["revision"])
                     or (original["window_start"], original["window_end"]) != (start, end)
-                    or original["universe_rule"] != universe_rule or not _retry_allowed(conn, original)):
+                    or original["universe_rule"] != universe_rule
+                    or _design(_origin(conn, original)) != dict(design) or not _retry_allowed(conn, original)):
                 raise refuse("RETRY_NOT_ALLOWED", f"registration {retry_of} cannot be retried", missing=(str(retry_of),))
         payload = {"candidate": f"{row['strategy_id']}@{row['revision']}", "market_commit": market_commit,
                    "universe_rule": universe_rule, "window_start": start.isoformat(), "window_end": end.isoformat(),
@@ -250,6 +256,10 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
     if registration is None:
         raise refuse("REGISTRATION_UNKNOWN", f"no validation registration {registration_id!r}",
                      missing=(str(registration_id),))
+    origin = _origin(conn, registration)
+    if _design(registration) != _design(origin):
+        raise refuse("RETRY_NOT_ALLOWED", f"registration {registration_id} changed the original test design",
+                     missing=("design",))
     candidate = strategies.read_candidate(conn, f"{registration['strategy_id']}@{registration['revision']}")
     if candidate["source_sha256"] != source_sha256 or trial["source_sha256"] != source_sha256:
         raise refuse("SOURCE_MISMATCH", f"source {trial['source_sha256']} is not the registered candidate's",
@@ -263,7 +273,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
             or not isinstance(started.get("membership"), Mapping) or set(started["membership"]) != set(instruments)):
         raise refuse("MEMBERSHIP_CHANGED", f"trial {trial_id} trades instruments other than its recorded membership",
                      missing=("instruments",))
-    membership_unchanged(market, registration, {"identity": started})
+    membership_unchanged(market, origin, {"identity": started})
     start, end = registration["window_start"], registration["window_end"]
     if not (trial["trade_start"] == start and trial["trade_end"] == end and trial["created_at"] > end):
         raise refuse("WINDOW_MISMATCH", f"trial {trial_id} trades [{trial['trade_start']}, {trial['trade_end']}) at "
@@ -278,20 +288,23 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
     if uncovered:
         raise refuse("COVERAGE_INCOMPLETE", "members without a covering receipt: " + ", ".join(uncovered),
                      missing=tuple(uncovered))
-    origin = _origin(conn, registration)
     commit = _birth_commit(conn, origin["registration_id"])
     stamped = witness.stamped_at(conn, commit, tsa_roots) if commit else None
     if stamped is None or not stamped < start.replace(tzinfo=UTC):
         raise refuse("REGISTRATION_TOO_LATE", f"registration {origin['registration_id']} has no witness before the "
                                               f"window starts at {start}", missing=(str(origin["registration_id"]),))
-    latest = trials.latest_research(conn, source_sha256)
-    if latest is None:
-        raise refuse("CONFIG_MISMATCH", "the candidate has no valid research run to compare account terms with",
-                     missing=("research run",))
-    research = register.control_trial(conn, latest)
+    # Derive the baseline from the original registration's immutable snapshot, not later research
+    # or a retry's newer commit. No duplicate account/configuration identity is stored.
+    with db.read_as_of(conn.profile, commit) as registered:
+        latest = trials.latest_research(registered, source_sha256)
+        if latest is None:
+            raise refuse("CONFIG_MISMATCH", f"the candidate had no passed research run at original registration "
+                                           f"{origin['registration_id']} ({commit})", missing=("research run",))
+        research = register.control_trial(registered, latest)
     if comparability.config_key(research["effective_config"])["account"] != comparability.config_key(
             coverage.get("effective_config"))["account"]:
-        raise refuse("CONFIG_MISMATCH", f"the account terms differ from research run {latest}",
+        raise refuse("CONFIG_MISMATCH", f"the account terms differ from research run {latest} fixed at original "
+                                       f"registration {origin['registration_id']} ({commit})",
                      missing=("account",))
     if conn.rows("SELECT 1 FROM validation_binding WHERE registration_id = %s OR trial_id = %s",
                  (registration_id, trial_id)):
