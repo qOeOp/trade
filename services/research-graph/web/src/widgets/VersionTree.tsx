@@ -66,7 +66,7 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
         return (
           <VersionMenu key={id} id={id}>
           <div {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openVersionTab(id)} data-selected={item.isSelected() ? "" : undefined}
-               className={`relative flex h-(--row-h) cursor-default items-center gap-1 pr-3 outline-none transition-colors hover:bg-row-hover ${item.isFocused() ? "ring-1 ring-line-strong ring-inset" : ""}`}
+               className={`relative flex h-(--row-h) cursor-default items-center gap-1 pr-3 outline-none transition-colors hover:bg-row-hover focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset`}
                style={{ paddingLeft: 8 + level * INDENT }}>
             {Array.from({ length: level }, (_, l) => (
               <span key={l} className="pointer-events-none absolute inset-y-0 w-px bg-guide" style={{ left: 8 + l * INDENT + 8 }} />

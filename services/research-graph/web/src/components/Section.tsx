@@ -9,8 +9,8 @@ export function Section({ title, aside, children, open: initial = true }: {
 }) {
   const [open, setOpen] = useState(initial);
   return (
-    <Collapsible.Root open={open} onOpenChange={setOpen} className="rounded-popup bg-island-alt">
-      <Collapsible.Trigger className="flex w-full items-center gap-2 rounded-popup px-3 py-2 text-left transition-colors hover:bg-row-hover">
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="rounded-card border border-card-border bg-island-alt">
+      <Collapsible.Trigger className="flex w-full items-center gap-2 rounded-card px-3 py-2 text-left transition-colors hover:bg-row-hover active:bg-hover">
         <span className="font-semibold text-fg">{title}</span>
         {aside != null && <span className="ml-auto text-fg-faint">{aside}</span>}
         <span className={`grid text-icon transition-transform ${aside == null ? "ml-auto" : ""} ${open ? "rotate-90" : ""}`}>
@@ -27,7 +27,7 @@ export function Section({ title, aside, children, open: initial = true }: {
 export function CardGroup({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
   return (
     <section className={`space-y-2 pt-3 not-first:pt-6 ${className}`}>
-      <h3 className="px-1 text-fg-faint">{title}</h3>
+      <h3 className="px-1 text-h2 font-semibold text-fg">{title}</h3>
       {children}
     </section>
   );

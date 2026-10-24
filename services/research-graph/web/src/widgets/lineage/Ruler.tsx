@@ -36,7 +36,7 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
           return (
             <Tip key={first.trial_id} content={
               <div className="space-y-0.5"><div className="font-mono font-semibold">{first.candidate}</div>
-                <div className="font-mono text-fg-muted">{g.map((t) => `${t.trial_id} ${PURPOSE[t.purpose] ?? t.purpose}`).join(" · ")}</div></div>}>
+                <div className="text-fg-muted">{g.map((t) => `${t.trial_id} ${PURPOSE[t.purpose] ?? t.purpose}`).join(" · ")}</div></div>}>
               <rect {...hoverProps(first.candidate)} className="cursor-pointer" onClick={() => requestFocus(first.candidate)}
                     x={x1} y={BLOCK_Y} width={x2 - x1} height={BLOCK_H} rx={5}
                     fill={current ? wash("recommended", 22) : v("hover")} />
@@ -48,7 +48,7 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
           return (
             <g key={t} data-ruler-trial={t} pointerEvents="none">
               {here && <rect x={sx(t) - unit / 2 + 3} y={BLOCK_Y + 1} width={unit - 6} height={BLOCK_H - 2} rx={4} fill={v("fg")} />}
-              <text x={sx(t)} y={NUM_Y} textAnchor="middle" className="font-mono" fontSize={9.5}
+              <text x={sx(t)} y={NUM_Y} textAnchor="middle" fontSize={9.5}
                     fill={v(here ? "island" : anchors.has(t) ? "fg" : "fg-ghost")}>{t}</text>
             </g>
           );

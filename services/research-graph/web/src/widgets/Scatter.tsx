@@ -11,7 +11,7 @@ import { Tip } from "../components/Tip";
 
 const M = { top: 22, right: 18, bottom: 34, left: 58 };
 const axis = { stroke: v("axis"), tickStroke: v("axis") };
-const tickFont = { fill: v("fg-faint"), fontSize: 10, fontFamily: "JetBrains Mono Variable, ui-monospace, monospace" };
+const tickFont = { fill: v("fg-faint"), fontSize: 10 };
 const leftLabel = () => ({ ...tickFont, textAnchor: "end" as const, dx: -6, dy: 3 });
 const bottomLabel = () => ({ ...tickFont, textAnchor: "middle" as const, dy: 2 });
 
@@ -61,7 +61,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
               return (
                 <Tip key={`${p.id}-${p.trial_id}`} content={
                   <div className="space-y-0.5"><div className="font-mono font-semibold">{p.id}</div>
-                    <div className="font-mono">trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
+                    <div>trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
                     {p.eligible === false && <div className="text-fail">失去资格</div>}</div>}>
                   <g {...hoverProps(p.id)} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
                     {on && <circle cx={cx} cy={cy} r={8.5} fill="none" stroke={v("fg")} strokeWidth={1.25} />}
@@ -74,7 +74,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
             })}
             <AxisLeft scale={y} numTicks={5} tickFormat={(v) => `${Math.round(Number(v) * 100)}%`} {...axis} tickLabelProps={leftLabel} hideZero={false} />
             <AxisBottom top={h} scale={x} numTicks={6} tickFormat={(v) => `${Math.round(Number(v) * 100)}%`} {...axis} tickLabelProps={bottomLabel} />
-            {focus && <g pointerEvents="none" fontSize={10} fontFamily="JetBrains Mono Variable, ui-monospace, monospace">
+            {focus && <g pointerEvents="none" fontSize={10}>
               <rect x={x(focus.max_drawdown) - 26} y={h + 3} width={52} height={15} rx={3} fill={v("fg")} />
               <text x={x(focus.max_drawdown)} y={h + 14} textAnchor="middle" fill={v("island")}>{pct(focus.max_drawdown)}</text>
               <rect x={-50} y={y(focus.annual_return) - 7.5} width={47} height={15} rx={3} fill={v("fg")} />

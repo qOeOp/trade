@@ -8,7 +8,7 @@ export function EventTip({ kind, version, at, record, note }: {
     <div className="space-y-0.5">
       <div className="font-semibold">{kind}</div>
       {version && <div className="font-mono">{version}</div>}
-      <div className="font-mono text-fg-faint">{[when(at), record].filter(Boolean).join(" · ")}</div>
+      <div className="text-fg-faint">{[when(at), record].filter(Boolean).join(" · ")}</div>
       {note && <div className="line-clamp-4 text-fg-muted">{note}</div>}
     </div>
   );

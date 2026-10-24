@@ -73,9 +73,9 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
       <Section title="与对照比较">
         {cmp ? (
           <KeyValues items={[
-            ["对照", cmp.vs_trial != null ? <span className="font-mono">trial {cmp.vs_trial}</span> : null],
-            ["日均对数差", cmp.mean_daily_log_difference != null ? <span className="font-mono">{cmp.mean_daily_log_difference.toPrecision(3)}</span> : null],
-            ["可检出差", <Tip content="按现有样本，80% 把握能检出的最小日均对数差"><span className="font-mono">{cmp.detectable?.toPrecision(3) ?? "-"}</span></Tip>],
+            ["对照", cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null],
+            ["日均对数差", cmp.mean_daily_log_difference != null ? <span>{cmp.mean_daily_log_difference.toPrecision(3)}</span> : null],
+            ["可检出差", <Tip content="按现有样本，80% 把握能检出的最小日均对数差"><span>{cmp.detectable?.toPrecision(3) ?? "-"}</span></Tip>],
             ["差值区间", cmp.interval_crosses_zero == null ? null : cmp.interval_crosses_zero
               ? <span className="text-misses">跨零：不能说明好于对照</span> : <span className="text-meets">不跨零</span>],
           ]} />
@@ -89,7 +89,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
               return (
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2">
                   <span className={cls}>{label}</span>
-                  <span className="min-w-0"><span className="font-mono text-fg-faint">{when(r.at)}</span>
+                  <span className="min-w-0"><span className="text-fg-faint">{when(r.at)}</span>
                     {!!r.failed_items?.length && <span className="ml-2">失败项 {r.failed_items.join("、")}</span>}
                     {r.note && <span className="block text-fg-muted">{r.note}</span>}</span>
                 </div>
