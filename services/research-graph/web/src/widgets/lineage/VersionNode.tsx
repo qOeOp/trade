@@ -31,7 +31,7 @@ function NodeTip({ data }: { data: VersionData }) {
   );
 }
 
-/** A version on the canvas: its VersionLine, selectable, wrapped in red when it lost eligibility. */
+/** A version on the canvas: its VersionLine, selectable, faded when it lost eligibility. */
 export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<VersionData>>) {
   const selected = useIsSelected(data.id);
   const masked = data.role === "masked";
@@ -39,7 +39,7 @@ export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<Ve
     // The context menu takes the node's box and the tooltip its line, so each has its own element.
     <VersionMenu id={data.id}>
       <div {...hoverProps(data.id)} data-selected={selected ? "" : undefined}
-           className={`flex items-center rounded-control px-1 py-0.5 transition-colors ${masked && !selected ? "bg-[color-mix(in_srgb,var(--fail)_13%,transparent)]" : ""}`}>
+           className="flex items-center rounded-control px-1 py-0.5 transition-colors">
         <Handle type="target" position={Position.Left} className="!opacity-0" />
         <Tip content={<NodeTip data={data} />} side="bottom">
           <span className="inline-flex"><VersionLine node={data} targets={data.targets} dim={masked} /></span>

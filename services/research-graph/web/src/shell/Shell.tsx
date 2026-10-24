@@ -40,7 +40,7 @@ export function Shell() {
   };
   const side = (s: Side, w: NonNullable<typeof left>) => (
     <Panel id={s} panelRef={refs[s]} defaultSize={size[s]} minSize={MIN[s]}>
-      <ToolWindowIsland side={s} open={w} windows={windows} />
+      <ToolWindowIsland side={s} open={w} />
     </Panel>
   );
 

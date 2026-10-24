@@ -33,6 +33,8 @@
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --icon: light-dark(oklch(0.53 var(--n-c) var(--n-h)), oklch(0.86 var(--n-c) var(--n-h)));
   --focus: #3574F0;
+  /* the selected mark in a chart: the selection fill a step deeper, so it reads beside a hovered one */
+  --selection-strong: light-dark(#A9C4F8, #3E5B94);
   --scrim: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.13), oklch(0 0 0 / 0.27));
   --scrollbar: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.19), oklch(0.9 var(--n-c) var(--n-h) / 0.22));
   --scrollbar-hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.38), oklch(0.9 var(--n-c) var(--n-h) / 0.44));
@@ -53,7 +55,7 @@
   --edge-path: light-dark(oklch(0.64 var(--n-c) var(--n-h)), oklch(0.66 var(--n-c) var(--n-h)));
   --bar: light-dark(oklch(0.83 var(--n-c) var(--n-h)), oklch(0.43 var(--n-c) var(--n-h)));
   /* Gridlines: solid hairlines, the text colour at a tenth, as Observable Plot and TradingView draw them. */
-  --grid: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.08), oklch(0.9 var(--n-c) var(--n-h) / 0.08));
+  --grid: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0.9 var(--n-c) var(--n-h) / 0.1));
   --axis: var(--line-strong);
   --scope: var(--island-alt);
   --crosshair: var(--fg-faint);
@@ -98,6 +100,7 @@
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-focus: var(--focus);
+  --color-selection-strong: var(--selection-strong);
   --color-guide: var(--guide);
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
