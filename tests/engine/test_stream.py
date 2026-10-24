@@ -18,7 +18,7 @@ from nautilus_trader.model import (
 from nautilus_trader.persistence import ParquetDataCatalog
 
 from engine import run
-from engine.config import ACCOUNT_CONTRACT, Refusal, parse_window, utc_text
+from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_window, utc_text
 from engine.load import load_strategy, read_market, read_universe
 from market import export, instrument, lifecycle
 
@@ -188,7 +188,7 @@ def series(seed, minutes):
 def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0, quotes=False, margins=None):
     """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/. With
     `quotes`, two best bid/ask states a minute (at the minute's low, then at its high); `margins` writes the
-    instrument with those (initial, maintenance) rates, as the runner applies a QUOTE_EXECUTION source's."""
+    instrument with those (initial, maintenance) rates, as the runner applies the quote environment's."""
     index = 1 if episode is not None else None
     path = root / symbol
     catalog_path = path / "episode-1" if index else path
@@ -254,7 +254,7 @@ def normal(frame) -> list[str]:
                   for row in rows.to_dict("records"))
 
 
-def node_replay(rows, window, loaded, universe, output, chunk):
+def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_CONTRACT):
     from nautilus_trader.backtest import (
         BacktestDataConfig, BacktestEngineConfig, BacktestNode, BacktestRunConfig, BacktestVenueConfig,
     )
@@ -263,8 +263,8 @@ def node_replay(rows, window, loaded, universe, output, chunk):
     from nautilus_trader.data import DataEngineConfig
     from nautilus_trader.model import AccountType, BookType, Currency, OmsType, StandardMarginModel, TraderId
     from nautilus_trader.risk import RiskEngineConfig
-    account, data = ACCOUNT_CONTRACT, []
-    quote_mode = loaded.quote_execution
+    data = []
+    quote_mode = account["execution"] == "quotes"
     for row in rows:
         iid, path = row["instrument_id"], str(row["catalog_path"])
         data += [BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=path, instrument_id=iid)]
@@ -284,8 +284,9 @@ def node_replay(rows, window, loaded, universe, output, chunk):
             starting_balances=[f"{account['starting_balance_usdt']} {account['base_currency']}"],
             default_leverage=Decimal(account["default_leverage"]), support_gtd_orders=account["support_gtd_orders"],
             support_contingent_orders=account["support_contingent_orders"], reject_stop_orders=account["reject_stop_orders"],
-            bar_execution=False if quote_mode else account["bar_execution"],
-            margin_model=StandardMarginModel() if quote_mode else None, liquidation_enabled=quote_mode,
+            bar_execution=account["bar_execution"],
+            margin_model=StandardMarginModel() if account["margin_model"] == "StandardMarginModel" else None,
+            liquidation_enabled=account["liquidation_enabled"],
             bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=run.fill_model(account),
             liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"])],
         data=data,
@@ -332,12 +333,9 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 
 
 class Levered(Strategy):
-    """Quote execution: one large market short on AAAUSDT at its trading start, then nothing; the venue's
+    """Quote environment: one large market short on AAAUSDT at its trading start, then nothing; the venue's
     native liquidation closes it when the quotes carry the price far enough (seed 1 rises 15%)."""
     USES_STOP_LOSS = False
-    QUOTE_EXECUTION = True
-    INITIAL_MARGIN_RATE = "0.02"
-    MAINTENANCE_MARGIN_RATE = "0.01"
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
         super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
@@ -442,9 +440,10 @@ class StreamTests(unittest.TestCase):
 
 
     def test_quote_execution_is_liquidated_natively_and_equals_backtest_node(self):
-        """A QUOTE_EXECUTION source: quotes drive the book and the liquidation, bars only feed signals; the
-        streamed replay and BacktestNode agree, the liquidation shows as a LIQUIDATION fill and iterations count
-        the quotes. The same inputs without quotes exported are refused."""
+        """The quote environment (--execution quotes with its margin rates): quotes drive the book and the
+        liquidation, bars only feed signals; the streamed replay and BacktestNode agree, the liquidation shows as a
+        LIQUIDATION fill and iterations count the quotes. The same inputs without quotes exported are refused, and
+        a source that declares the environment itself is refused."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             symbols = market(root / "market", quotes=True, margins=("0.02", "0.01"))
@@ -457,8 +456,9 @@ class StreamTests(unittest.TestCase):
             universe = read_universe(None, symbols)
             (root / "node").mkdir()
             (root / "stream").mkdir()
-            node = node_replay(rows, window, loaded, universe, root / "node", 1_000)
-            finished, strategies, _ = run.replay(rows, window, loaded, universe, root / "stream")
+            account = execution_account("quotes", ("0.02", "0.01"))
+            node = node_replay(rows, window, loaded, universe, root / "node", 1_000, account)
+            finished, strategies, _ = run.replay(rows, window, loaded, universe, root / "stream", account)
             try:
                 streamed = {"iterations": finished.result.iterations, "orders": normal(finished.orders()),
                             "fills": normal(finished.fills()), "positions": normal(finished.positions()),
@@ -476,12 +476,18 @@ class StreamTests(unittest.TestCase):
             for key in ("orders", "fills", "positions", "account", "seen"):
                 with self.subTest(key=key):
                     self.assertEqual(streamed[key], node[key])
-            # The same source on an export without quotes is refused before anything runs.
+            # The same environment on an export without quotes is refused before anything runs.
             bare = market(root / "bare")
             rows = read_market(root / "bare", bare, "c" * 32, START * 10**6, END * 10**6)
             with self.assertRaises(Refusal) as caught:
-                run.replay(rows, window, loaded, universe, root / "stream")
+                run.replay(rows, window, loaded, universe, root / "stream", account)
             self.assertEqual(caught.exception.code, "QUOTES_MISSING")
+            # A source that declares the environment is refused: the environment is the runner's, not the source's.
+            source.write_text(LEVERED.replace("QUANTITY", "30000").replace("    USES_STOP_LOSS = False\n",
+                                                                           "    USES_STOP_LOSS = False\n    QUOTE_EXECUTION = True\n"))
+            with self.assertRaises(Refusal) as caught:
+                load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
+            self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
 
     def test_each_exported_piece_is_its_numbered_episode_directory(self):
         with tempfile.TemporaryDirectory() as temp:

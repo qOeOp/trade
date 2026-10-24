@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-run 7312 是报价撮合环境的运行（summary 里 `strategy_quote_execution` 为 true，账本提交 `5e6f7a8`）。我想知道它的成交规模靠不靠谱，尤其那笔强平。`tables(7312, at="5e6f7a8")` 的 fills：
+run 7312 是报价撮合环境的运行（summary 里 `execution` 为 quotes，账本提交 `5e6f7a8`）。我想知道它的成交规模靠不靠谱，尤其那笔强平。`tables(7312, at="5e6f7a8")` 的 fills：
 
 | client_order_id | side | last_qty | last_px | ts_event |
 | --- | --- | ---: | ---: | --- |

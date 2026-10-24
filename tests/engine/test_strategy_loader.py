@@ -243,29 +243,45 @@ class StrategyLoaderTests(unittest.TestCase):
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
         self.assertIs(strategy_metadata(loaded)["strategy_uses_stop_loss"], False)
 
-    def test_quote_execution_declaration_needs_valid_margin_rates_and_reaches_the_identity(self):
+    def test_the_execution_environment_is_a_runner_argument_in_the_effective_configuration(self):
+        """--execution quotes needs both margin rates in (0, 1) with maintenance <= initial; bars takes none; the
+        environment changes the effective configuration's account (so its digest and the comparability of runs),
+        and a source declaring it is refused."""
+        for extra, message in ((["--execution", "quotes"], "--initial-margin"),
+                               (["--execution", "quotes", "--initial-margin", "0.02"], "--maintenance-margin"),
+                               (["--execution", "quotes", "--initial-margin", "x", "--maintenance-margin", "0.01"], "--initial-margin"),
+                               (["--execution", "quotes", "--initial-margin", "0.02", "--maintenance-margin", "1"], "--maintenance-margin"),
+                               (["--execution", "quotes", "--initial-margin", "0.01", "--maintenance-margin", "0.02"], "must not exceed"),
+                               (["--initial-margin", "0.02"], "bars takes no margin rates")):
+            with self.subTest(extra=extra), self.assertRaisesRegex(Refusal, message) as caught:
+                self.configuration(extra)
+            self.assertEqual(caught.exception.code, "MARGIN_RATES_INVALID")
+        with self.assertRaises(Refusal) as caught:
+            self.configuration(["--execution", "depth"])
+        self.assertEqual(caught.exception.code, "REPLAY_ARGUMENT_MISSING")  # argparse's invalid choice
+        bars = effective_configuration(self.configuration())
+        quotes = effective_configuration(self.configuration(["--execution", "quotes", "--initial-margin", "0.02",
+                                                             "--maintenance-margin", "0.010"]))
+        self.assertEqual((bars.values["account"]["execution"], bars.values["account"]["bar_execution"],
+                          bars.values["account"]["liquidation_enabled"], bars.values["account"]["initial_margin_rate"]),
+                         ("bars", True, False, None))
+        self.assertEqual({key: quotes.values["account"][key] for key in ("execution", "bar_execution", "liquidation_enabled",
+                                                                          "margin_model", "initial_margin_rate",
+                                                                          "maintenance_margin_rate")},
+                         {"execution": "quotes", "bar_execution": False, "liquidation_enabled": True,
+                          "margin_model": "StandardMarginModel", "initial_margin_rate": "0.02",
+                          "maintenance_margin_rate": "0.010"})
+        self.assertNotEqual(bars.digest, quotes.digest)
+        self.assertNotIn("strategy_quote_execution", strategy_metadata(self.load()))
         head = "from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n"
         hooks = ("    def replay_diagnostics(self):\n        return {}\n"
                  "    def replay_integrity_findings(self, failed=False):\n        return []\n")
-        for body, message in (("    QUOTE_EXECUTION = 1\n", "^DECLARATION_NOT_BOOL: .*QUOTE_EXECUTION"),
-                              ("    QUOTE_EXECUTION = True\n", "^MARGIN_DECLARATION_INVALID: .*INITIAL_MARGIN_RATE"),
-                              ("    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = 0.02\n    MAINTENANCE_MARGIN_RATE = '0.01'\n",
-                               "INITIAL_MARGIN_RATE"),
-                              ("    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = '0.02'\n    MAINTENANCE_MARGIN_RATE = '1'\n",
-                               "MAINTENANCE_MARGIN_RATE"),
-                              ("    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = '0.01'\n    MAINTENANCE_MARGIN_RATE = '0.02'\n",
-                               "must not exceed")):
+        for body in ("    QUOTE_EXECUTION = True\n", "    MAINTENANCE_MARGIN_RATE = '0.01'\n"):
             self.source.write_text(head + body + hooks)
-            with self.subTest(message=message), self.assertRaisesRegex(Refusal, message):
+            with self.subTest(body=body), self.assertRaises(Refusal) as caught:
                 self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+            self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
         self.source.write_text(SOURCE)
-        self.assertIs(strategy_metadata(self.load())["strategy_quote_execution"], False)
-        self.assertIsNone(strategy_metadata(self.load())["strategy_margin_rates"])
-        self.source.write_text(head + "    QUOTE_EXECUTION = True\n    INITIAL_MARGIN_RATE = '0.02'\n"
-                               "    MAINTENANCE_MARGIN_RATE = '0.010'\n" + hooks)
-        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        self.assertEqual((loaded.quote_execution, loaded.margin_rates), (True, ("0.02", "0.010")))
-        self.assertEqual(strategy_metadata(loaded)["strategy_margin_rates"], ["0.02", "0.010"])
 
     def test_runner_takes_no_strategy_parameter(self):
         # A variant is a new source revision; the runner cannot be configured into another strategy.

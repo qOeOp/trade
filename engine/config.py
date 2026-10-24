@@ -11,6 +11,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
+from decimal import Decimal, InvalidOperation
 import importlib.metadata
 import json
 import os
@@ -22,11 +23,14 @@ from types import MappingProxyType
 from typing import TypedDict
 
 
-# replay-contract@v6: one-minute execution bars and the constructor's `universe_membership`. A source written
-# for another contract is refused, not run on these inputs. A source declaring QUOTE_EXECUTION = True (with its
-# INITIAL_MARGIN_RATE and MAINTENANCE_MARGIN_RATE) runs the quote environment instead: the exported best bid/ask
-# quotes drive matching and the native liquidation, bars only feed signals (engine.run.add_venue).
-RUNTIME_CONTRACT = "replay-contract@v6"
+# replay-contract@v7: the constructor's `universe_membership` and one of two execution environments, chosen by
+# the runner argument `--execution` (never by the source): `bars`, one-minute execution bars; `quotes`, the
+# exported best bid/ask quotes drive matching and the native liquidation with the `--initial-margin` and
+# `--maintenance-margin` rates, bars only feed signals (engine.run.add_venue). The environment is part of the
+# account contract, so it enters the effective configuration and the comparability of runs. A source written
+# for another contract is refused, not run on these inputs.
+RUNTIME_CONTRACT = "replay-contract@v7"
+EXECUTIONS = ("bars", "quotes")
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
 
@@ -43,6 +47,11 @@ AUDIT_PATH = "engine/audit.py"
 
 
 class AccountContract(TypedDict):
+    execution: str  # bars | quotes
+    liquidation_enabled: bool
+    margin_model: str  # the venue's margin model: Nautilus's default or StandardMarginModel
+    initial_margin_rate: str | None  # quotes: the instruments' rates; bars: None, the Catalog instrument's
+    maintenance_margin_rate: str | None
     """The value types of ACCOUNT_CONTRACT's terms."""
     venue: str
     oms_type: str
@@ -80,7 +89,12 @@ ACCOUNT_CONTRACT: AccountContract = {
     "support_gtd_orders": True,
     "support_contingent_orders": True,
     "reject_stop_orders": False,
+    "execution": "bars",
     "bar_execution": True,
+    "liquidation_enabled": False,
+    "margin_model": "default",
+    "initial_margin_rate": None,
+    "maintenance_margin_rate": None,
     # Fill model (Nautilus 2.0.0rc3 DefaultFillModel; user decision 2026-10-20): a resting limit fills only
     # when a bar trades through its price, never on a touch alone (prob_fill_on_limit 0); no model slippage
     # (prob_slippage 0). Both probabilities are 0, so the model draws no random numbers and needs no seed.
@@ -102,8 +116,21 @@ ACCOUNT_CONTRACT: AccountContract = {
 
 
 def account_contract() -> MappingProxyType:
-    """The fixed account and matching terms every candidate shares (engine.account_contract)."""
+    """The fixed account and matching terms of the bar environment (engine.account_contract)."""
     return MappingProxyType(ACCOUNT_CONTRACT)
+
+
+def execution_account(execution: str, margin_rates: tuple[str, str] | None) -> AccountContract:
+    """engine.execution_account: the account and matching terms of one execution environment. `quotes`: the
+    exported quotes drive matching on the L1 book (bar execution off), the native liquidation is on with the
+    standard margin model (maintenance = notional x the rate, not divided by leverage) and the instruments
+    carry the (initial, maintenance) rates; `bars`: ACCOUNT_CONTRACT as it is."""
+    if execution == "bars":
+        return ACCOUNT_CONTRACT.copy()
+    assert execution == "quotes" and margin_rates is not None  # parse_configuration checked both
+    return {**ACCOUNT_CONTRACT, "execution": "quotes", "bar_execution": False, "liquidation_enabled": True,
+            "margin_model": "StandardMarginModel", "initial_margin_rate": margin_rates[0],
+            "maintenance_margin_rate": margin_rates[1]}
 
 
 # Refusals. Every code the runner raises (here, in engine.load, engine.run and engine.report) and
@@ -132,7 +159,7 @@ REFUSALS: dict[str, str] = {
     "INSTRUMENT_NOT_UNIQUE": "An exported Catalog does not hold exactly one USDT instrument of the receipt's ID.",
     "CONTRACT_NAME_COLLISION": "Two contracts share a short name or strategy identifier.",
     "NO_ACTIVE_INSTRUMENT": "No contract's lifecycle intersects the input window.",
-    "QUOTES_MISSING": "The source declares QUOTE_EXECUTION but an active contract's export holds no quotes.",
+    "QUOTES_MISSING": "The quote environment is chosen but an active contract's export holds no quotes.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
@@ -148,9 +175,11 @@ REFUSALS: dict[str, str] = {
     "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
-    "DECLARATION_NOT_BOOL": "DAILY_WARMUP, USES_STOP_LOSS or QUOTE_EXECUTION is not a bool.",
-    "MARGIN_DECLARATION_INVALID": "A QUOTE_EXECUTION source's INITIAL_MARGIN_RATE or MAINTENANCE_MARGIN_RATE is not a "
-                                  "decimal string with 0 < maintenance <= initial < 1.",
+    "DECLARATION_NOT_BOOL": "DAILY_WARMUP or USES_STOP_LOSS is not a bool.",
+    "ENVIRONMENT_DECLARED": "The source declares QUOTE_EXECUTION or a margin rate; the execution environment is the "
+                            "runner's --execution, --initial-margin and --maintenance-margin, never the source's.",
+    "MARGIN_RATES_INVALID": "--execution quotes needs --initial-margin and --maintenance-margin as decimal strings with "
+                            "0 < maintenance <= initial < 1; --execution bars takes none (the instrument's rates).",
     # engine.warmup_daily_bars and engine.mark_timestamps
     "WARMUP_NOT_ADJACENT": "No daily bar closes 1 ms before the input start.",
     "WARMUP_INSUFFICIENT": "Too few contiguous daily bars end at the input start (no contract can start).",
@@ -288,6 +317,12 @@ def build_parser() -> argparse.ArgumentParser:
     window.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
     window.add_argument("--end", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
     window.add_argument("--trade-start", help="ISO-8601 datetime with explicit Z or UTC offset")
+    environment = parser.add_argument_group("execution environment (part of the effective configuration)")
+    environment.add_argument("--execution", choices=EXECUTIONS, default="bars",
+                             help="bars: one-minute execution bars; quotes: exported best bid/ask quotes drive "
+                                  "matching and the native liquidation")
+    environment.add_argument("--initial-margin", help="quotes only: the instruments' initial margin rate, e.g. 0.05")
+    environment.add_argument("--maintenance-margin", help="quotes only: the maintenance margin rate, e.g. 0.025")
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -305,6 +340,29 @@ class RunnerConfiguration:
     symbols: tuple[str, ...]
     window: Window
     output: Path | None
+    execution: str = "bars"
+    margin_rates: tuple[str, str] | None = None  # (initial, maintenance) decimal strings, quotes only
+
+
+def margin_rates_of(execution: str, initial: str | None, maintenance: str | None) -> tuple[str, str] | None:
+    """The (initial, maintenance) rates of the quote environment, decimal strings with 0 < maintenance <= initial
+    < 1 (the Binance bracket of the strategy's largest position); None for bars, which take none."""
+    if execution == "bars":
+        if initial is not None or maintenance is not None:
+            raise Refusal("MARGIN_RATES_INVALID", "--execution bars takes no margin rates: the Catalog instrument's apply")
+        return None
+    values = []
+    for name, text in (("--initial-margin", initial), ("--maintenance-margin", maintenance)):
+        try:
+            value = Decimal(text) if text is not None else None
+        except InvalidOperation:
+            value = None
+        if value is None or not value.is_finite() or not 0 < value < 1:
+            raise Refusal("MARGIN_RATES_INVALID", f"{name} must be a decimal in (0, 1), got {text!r}")
+        values.append(value)
+    if values[1] > values[0]:
+        raise Refusal("MARGIN_RATES_INVALID", "--maintenance-margin must not exceed --initial-margin")
+    return format(values[0], "f"), format(values[1], "f")
 
 
 def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
@@ -321,7 +379,8 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
         raise Refusal("SYMBOL_DUPLICATE", "--symbols must be unique")
     return RunnerConfiguration(args.describe, args.strategy_file, args.strategy_class, args.strategy_sha256,
                                args.execution_binding, args.market_root, args.market_commit,
-                               args.universe, tuple(args.symbols), window, args.output)
+                               args.universe, tuple(args.symbols), window, args.output, args.execution,
+                               margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin))
 
 
 def read_universe_bytes(path: Path) -> bytes:
@@ -375,7 +434,7 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
         "start": config.window.start,
         "trade_start": config.window.trade_start,
         "end": config.window.end,
-        "account": ACCOUNT_CONTRACT.copy(),
+        "account": execution_account(config.execution, config.margin_rates),
     }
     return EffectiveConfiguration(values, config_sha256(values))
 

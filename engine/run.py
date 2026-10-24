@@ -55,6 +55,8 @@ from nautilus_trader.trading import Strategy
 from engine import report
 from engine.config import (
     ACCOUNT_CONTRACT,
+    AccountContract,
+    execution_account,
     EXECUTION_BAR_MINUTES,
     EXECUTION_BINDING_FIELDS,
     MINUTE_NS,
@@ -809,28 +811,28 @@ def fill_model(account) -> DefaultFillModel:
                             prob_slippage=float(account["prob_slippage"]))
 
 
-def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT, quote_execution: bool = False) -> None:
-    """engine.add_venue: the one simulated venue with the account and matching terms. With `quote_execution`
-    the exported quotes drive matching and the native liquidation (bar execution off, liquidation on, the
-    standard margin model: maintenance = notional x the instrument's rate, not divided by leverage)."""
+def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
+    """engine.add_venue: the one simulated venue with the account and matching terms of the chosen execution
+    environment (engine.execution_account): in the quote environment the exported quotes drive matching and the
+    native liquidation (bar execution off, liquidation on, the standard margin model: maintenance = notional x
+    the instrument's rate, not divided by leverage)."""
     currency = Currency.from_str(account["base_currency"])
     engine.add_venue(
         Venue(account["venue"]), getattr(OmsType, account["oms_type"]), getattr(AccountType, account["account_type"]),
         # The pinned Money takes the amount through __float__, as the stub's float says; the value stays a Decimal.
         [Money(Decimal(account["starting_balance_usdt"]), currency)], base_currency=currency,  # type: ignore[arg-type]
         default_leverage=Decimal(account["default_leverage"]), book_type=getattr(BookType, account["book_type"]),
-        margin_model=StandardMarginModel() if quote_execution else None,
+        margin_model=StandardMarginModel() if account["margin_model"] == "StandardMarginModel" else None,
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
-        support_contingent_orders=account["support_contingent_orders"],
-        bar_execution=False if quote_execution else account["bar_execution"],
+        support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=fill_model(account),
         liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"],
-        liquidation_enabled=quote_execution)
+        liquidation_enabled=account["liquidation_enabled"])
 
 
 def with_margins(made: CryptoPerpetual, rates: tuple[str, str]) -> CryptoPerpetual:
-    """engine.with_margins: the exported instrument with the source's declared (initial, maintenance) margin
-    rates; every other term stays the Catalog's."""
+    """engine.with_margins: the exported instrument with the environment's (initial, maintenance) margin rates;
+    every other term stays the Catalog's."""
     return CryptoPerpetual(
         instrument_id=made.id, raw_symbol=made.raw_symbol, base_currency=made.base_currency,
         quote_currency=made.quote_currency, settlement_currency=made.settlement_currency, is_inverse=made.is_inverse,
@@ -842,16 +844,18 @@ def with_margins(made: CryptoPerpetual, rates: tuple[str, str]) -> CryptoPerpetu
         maker_fee=made.maker_fee, taker_fee=made.taker_fee)
 
 
-def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path):
-    """engine.replay: one venue and engine, each contract's one-minute bars, MARK and funding updates and
-    lifecycle events streamed in time order, one strategy instance per contract whose lifecycle (and
-    daily warm-up) holds in the window, and exactly one capital observer; afterwards the native result
-    is checked against the receipts. Returns (Replay, instances by coin, limitations)."""
+def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path,
+           account: AccountContract = ACCOUNT_CONTRACT):
+    """engine.replay: one venue and engine of the `account` environment, each contract's one-minute bars, MARK
+    and funding updates, lifecycle events and (quote environment) quotes streamed in time order, one strategy
+    instance per contract whose lifecycle (and daily warm-up) holds in the window, and exactly one capital
+    observer; afterwards the native result is checked against the receipts. Returns (Replay, instances by
+    coin, limitations)."""
     planned, limitations = plan_instances(rows, window, strategy)
     # Keep the trusted plan outside source instances: their attributes and diagnostics are mutable.
     trade_start_by_strategy = {row["strategy_id"]: start for row, _, start in planned}
     limitations += terms_approximations(rows, window.end_ns)
-    account = ACCOUNT_CONTRACT
+    quotes = account["execution"] == "quotes"
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]),
         logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
@@ -862,13 +866,17 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         ),
         risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
     ))
-    add_venue(engine, account, strategy.quote_execution)
-    rates = strategy.margin_rates if strategy.quote_execution else None  # load_strategy requires them with QUOTE_EXECUTION
-    if strategy.quote_execution:
+    add_venue(engine, account)
+    rates: tuple[str, str] | None = None
+    if quotes:
+        initial, maintenance = account["initial_margin_rate"], account["maintenance_margin_rate"]
+        assert initial is not None and maintenance is not None  # execution_account sets both for quotes
+        rates = (initial, maintenance)
+    if quotes:
         for row, _, _ in planned:
             if not row["counts"].get("quote"):
-                raise Refusal("QUOTES_MISSING", f"{row['symbol']}: the source declares QUOTE_EXECUTION but the export "
-                                                "holds no quotes for this contract in the window")
+                raise Refusal("QUOTES_MISSING", f"{row['symbol']}: the quote environment is chosen but the export holds "
+                                                "no quotes for this contract in the window")
     for row in rows:
         engine.add_instrument(with_margins(row["instrument"], rates) if rates is not None else row["instrument"])
     STRATEGIES.clear()
@@ -886,10 +894,9 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         )))
     engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
-    stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=strategy.quote_execution),
-           account["chunk_size"])
+    stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=quotes), account["chunk_size"])
     result = engine.get_result()
-    skipped = ("daily",) if strategy.quote_execution else ("daily", "quote")
+    skipped = ("daily",) if quotes else ("daily", "quote")
     expected_iterations = sum(sum(value for key, value in row["counts"].items() if key not in skipped) for row in rows)
     if result.iterations != expected_iterations:
         raise Refusal("DATA_COUNT_MISMATCH", f"the engine consumed {result.iterations} events, the export receipts "
@@ -931,7 +938,8 @@ def main(argv: list[str] | None = None) -> None:
         universe = read_universe(config.universe_path, list(config.symbols))
         config.output.mkdir(parents=True, exist_ok=True)
         stage = "replay"
-        finished, strategies, limitations = replay(rows, window, strategy, universe, config.output)
+        account = execution_account(config.execution, config.margin_rates)
+        finished, strategies, limitations = replay(rows, window, strategy, universe, config.output, account)
         stage = "reports"
         identity = {
             **strategy_metadata(strategy), **runtime_source_metadata(), **executed,
@@ -941,7 +949,7 @@ def main(argv: list[str] | None = None) -> None:
             "strategy": strategy.entry_class,
         }
         _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,
-                                                  ACCOUNT_CONTRACT, limitations, mark_timestamps(rows))
+                                                  account, limitations, mark_timestamps(rows))
     except Exception as exc:
         execution_failure(stage, exc, None)
         raise
