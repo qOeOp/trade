@@ -50,10 +50,10 @@ export function Shell() {
       <MainToolbar />
       <div className="flex min-h-0 min-w-0">
         <Stripe side="left" windows={windows} />
-        <Group key={`${!!left}${!!right}`} orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
+        <Group orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
           {left && <>{side("left", left)}<Separator /></>}
           <Panel id="centre" minSize={EDITOR_MIN}>
-            <Group key={`${!!bottom}`} orientation="vertical" onLayoutChanged={keep}>
+            <Group orientation="vertical" onLayoutChanged={keep}>
               <Panel id="editor" minSize="25%">
                 <Editor />
               </Panel>

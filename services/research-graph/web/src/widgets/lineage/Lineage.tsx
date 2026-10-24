@@ -11,7 +11,7 @@ import { AxisDriver } from "./AxisDriver";
 import { Backdrop } from "./Backdrop";
 import { Crosshair } from "./Crosshair";
 import { Elbow } from "./Elbow";
-import { bounds, HOME, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
+import { bounds, centredOn, HOME, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
 import { useSize } from "../../components/hooks/useSize";
 import { Ruler } from "./Ruler";
 import { VersionNode, type VersionData } from "./VersionNode";
@@ -66,12 +66,12 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                      panOnScroll panOnDrag translateExtent={extent} nodesDraggable={false} nodesConnectable={false}
                      proOptions={{ hideAttribution: true }}
                      onInit={(flow) => {
-                       const id = selection.get(), p = id ? positions.get(id) : undefined;
-                       if (p) void flow.setCenter(p.x + 200, p.y, { zoom: 1 }); else void flow.setViewport({ ...HOME, zoom: 1 });
+                       const id = selection.get(), p = id ? positions.get(id) : undefined, r = box.current?.getBoundingClientRect();
+                       void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height) : HOME), zoom: 1 });
                      }}
                      onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openVersionTab(node.id)}>
             <Backdrop widget={widget} />
-            <AxisDriver positions={positions} />
+            <AxisDriver widget={widget} positions={positions} />
             {at != null && <Crosshair x={x0 + at * UNIT} y={pointer?.y ?? null} width={size.width} height={size.height} reticle={!pointer?.onVersion} />}
           </ReactFlow>
         </div>
