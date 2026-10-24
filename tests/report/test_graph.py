@@ -92,8 +92,8 @@ class ResearchGraphTests(unittest.TestCase):
         status = {c["id"]: c["status"] for c in found["candidates"]}
         self.assertEqual((status[first], status[second]), ("unrun", "precheck_failed"),
                          "the second version's source review failed in test 2")
-        lineage = next(w for w in layout.build_view(found)["widgets"] if w["type"] == "lineage/1")
-        self.assertEqual(lineage["bands"], [], "a line without a recommendation still lays out")
+        lineage = next(w for w in layout.build_view(found)["widgets"] if w["type"] == "lineage/2")
+        self.assertEqual(lineage["trail"], [], "a line without a recommendation still lays out")
         old = graph.research_graph(self.world.profile, self.world.line["bundle"])
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))
 

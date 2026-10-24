@@ -1,0 +1,118 @@
+/* The only file with colour literals. Surface values follow IntelliJ's Islands theme
+   (ManyIslands{Light,Dark}.theme.json, JetBrains/intellij-community @ b861a21, Apache 2.0); the four
+   data hues are validated for colour-vision deficiency on both island surfaces (dataviz validator,
+   all pairs) and must stay equal to the set checked by scripts/check-rules.mjs. Light first, dark second. */
+:root { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+:root {
+  --frame: light-dark(#E9EAEE, #26282C);
+  --island: light-dark(#FFFFFF, #191A1C);
+  --island-alt: light-dark(#F7F8F9, #212326);
+  --popup: light-dark(#FFFFFF, #26282C);
+  --popup-border: light-dark(#D1D3D9, #33353B);
+  --tooltip: light-dark(#FFFFFF, #33353B);
+  --hover: light-dark(#00000012, #FFFFFF17);
+  --pressed: light-dark(#00000020, #FFFFFF29);
+  --row-hover: light-dark(#00000008, #FFFFFF10);
+  --selection: light-dark(#D0DFFE, #2A4371);
+  --selection-inactive: light-dark(#E9EAEE, #33353B);
+  --line: light-dark(#E9EAEE, #26282C);
+  --line-strong: light-dark(#D1D3D9, #40434A);
+  --guide: light-dark(#E9EAEE, #33353B);
+  --fg: light-dark(#000000, #D1D3D9);
+  --fg-muted: light-dark(#5F6269, #9FA2A8);
+  --fg-faint: #73767C;
+  --fg-ghost: light-dark(#9FA2A8, #4C4F56);
+  --icon: light-dark(#6C707E, #CED0D6);
+  --focus: var(--fg);
+  --scrim: light-dark(#00000020, #00000045);
+  --scrollbar: light-dark(#00000030, #FFFFFF38);
+  --scrollbar-hover: light-dark(#00000060, #FFFFFF70);
+
+  /* data: four hues, the same in both themes */
+  --recommended: #3871E1;
+  --meets: #4E9D6C;
+  --misses: #C28013;
+  --fail: #B0464F;
+  --masked: var(--fg-faint);
+
+  /* charts */
+  --edge: light-dark(#B5B7BD, #5F6269);
+  --bar: light-dark(#C3C5CB, #4C4F56);
+  --grid: var(--guide);
+  --axis: var(--line-strong);
+  --scope: var(--island-alt);
+  --crosshair: var(--fg-faint);
+
+  /* metrics */
+  --gap: 6px;
+  --half-gap: 3px;
+  --toolbar-h: 40px;
+  --status-h: 28px;
+  --header-h: 40px;
+  --row-h: 24px;
+  --indent: 20px;
+  /* reading badge: the same padding from each number to the edges and to the divider */
+  --rb-pad: 6px;
+  --pred-slot: 13px;
+  --vl-gap: 6px;
+}
+
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-frame: var(--frame);
+  --color-island: var(--island);
+  --color-island-alt: var(--island-alt);
+  --color-popup: var(--popup);
+  --color-popup-border: var(--popup-border);
+  --color-tooltip: var(--tooltip);
+  --color-hover: var(--hover);
+  --color-pressed: var(--pressed);
+  --color-row-hover: var(--row-hover);
+  --color-selection: var(--selection);
+  --color-selection-inactive: var(--selection-inactive);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-guide: var(--guide);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-fg-ghost: var(--fg-ghost);
+  --color-icon: var(--icon);
+  --color-scrim: var(--scrim);
+  --color-recommended: var(--recommended);
+  --color-meets: var(--meets);
+  --color-misses: var(--misses);
+  --color-fail: var(--fail);
+  --color-masked: var(--masked);
+  --color-edge: var(--edge);
+  --color-bar: var(--bar);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-scope: var(--scope);
+  --color-crosshair: var(--crosshair);
+
+  --font-*: initial;
+  --font-sans: "Inter Variable", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --text-*: initial;
+  --text-ui: 13px;
+  --text-ui--line-height: 1.45;
+  --text-dense: 12px;
+  --text-dense--line-height: 1.5;
+  --text-small: 11px;
+  --text-small--line-height: 1.4;
+  --text-badge: 10.5px;
+  --text-badge--line-height: 16px;
+
+  --radius-*: initial;
+  --radius-island: 10px;
+  --radius-popup: 8px;
+  --radius-control: 6px;
+  --radius-badge: 4px;
+  --radius-full: 9999px;
+}

@@ -1,10 +1,13 @@
-import type { NotesWidget } from "../types";
+import type { NotesWidget } from "../model/types";
 
+/** What the graph does not hold, numbered. */
 export function Notes({ widget }: { widget: NotesWidget }) {
-  if (!widget.items.length) return <p className="faint">无</p>;
+  if (!widget.items.length) return <p className="p-3 text-fg-faint">无</p>;
   return (
-    <ul className="list-disc space-y-1 pl-5 muted">
-      {widget.items.map((item, i) => <li key={i}>{item}</li>)}
-    </ul>
+    <ol className="space-y-1.5 p-3 text-dense text-fg-muted">
+      {widget.items.map((item, i) => (
+        <li key={i} className="grid grid-cols-[1.5rem_1fr]"><span className="font-mono text-fg-faint">{String(i + 1).padStart(2, "0")}</span><span>{item}</span></li>
+      ))}
+    </ol>
   );
 }

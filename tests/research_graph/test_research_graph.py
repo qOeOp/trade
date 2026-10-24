@@ -55,27 +55,34 @@ class ContractTests(unittest.TestCase):
 
 
 class LayoutTests(unittest.TestCase):
-    def test_versions_sit_at_their_first_trial_in_lineage_rows(self):
+    def test_versions_sit_at_their_first_research_run_in_lineage_rows(self):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
-                         [("summary/1", "top"), ("lineage/1", "main"), ("scatter/1", "main"), ("notes/1", "main"),
+                         [("summary/1", "top"), ("lineage/2", "main"), ("progress/1", "main"), ("scatter/1", "main"), ("table/1", "main"), ("notes/1", "main"),
                           ("candidate-detail/1", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([r["id"] for r in tree["rows"]], ["root@1", "a@1", "b@1"])
-        self.assertEqual((nodes["root@1"]["x"], nodes["a@1"]["x"], nodes["b@1"]["x"]), (1.0, 3.0, 5.0))
+        self.assertEqual((nodes["root@1"]["x"], nodes["a@1"]["x"], nodes["b@1"]["x"]), (2.0, 4.0, 5.0),
+                         "a version sits at its first research run, over its bar")
         self.assertEqual({i: n["status"] for i, n in nodes.items()},
                          {"root@1": "masked", "a@1": "recommended", "b@1": "below_targets"})
         self.assertEqual((nodes["a@1"]["prediction"], nodes["b@1"]["prediction"], nodes["root@1"]["prediction"]),
                          ("held", "mixed", "none"))
-        band, = tree["bands"]
-        self.assertEqual((band["candidate"], band["x1"]), ("a@1", tree["axis"]["max"]))
-        self.assertTrue(4 < band["x0"] < 5, "a timed event sits between the trials around its time")
-        lanes = {lane["kind"]: lane["events"] for lane in tree["lanes"]}
-        self.assertEqual(len(lanes["line_change"]), 1)
+        segment, = tree["trail"]
+        self.assertEqual((segment["candidate"], segment["x1"]), ("a@1", tree["axis"]["max"]))
+        self.assertEqual(segment["x0"], 4.5, "a timed event sits halfway through the gap after its last trial")
+        self.assertEqual([(t["trial_id"], t["candidate"]) for t in tree["trials"]],
+                         [(1, "root@1"), (2, "root@1"), (3, "a@1"), (4, "a@1"), (5, "b@1")])
+        progress = widgets["progress"]
+        self.assertEqual(progress["recommended"], ["a@1"])
+        self.assertEqual([p["eligible"] for p in progress["points"]], [False, True, True])
+        self.assertEqual(progress["axis"]["max"], tree["axis"]["max"], "the same x as the lineage")
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
+        self.assertEqual({r["id"]: (r["role"], r["runs"], r["annual_return"]) for r in widgets["versions"]["rows"]},
+                         {"root@1": (None, 1, 0.1), "a@1": ("recommended", 1, 0.25), "b@1": (None, 1, 0.18)})
         summary = widgets["summary"]
         self.assertEqual((summary["recommended"], summary["runs_since_recommendation_changed"], summary["masked_runs"]),
                          ("a@1", 1, 1), "one research run (trial 5) since a@1 became the recommendation")

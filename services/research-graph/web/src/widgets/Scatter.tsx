@@ -1,60 +1,93 @@
-import type { ScatterWidget } from "../types";
-import { pct, STATUS } from "../format";
+import { AxisBottom, AxisLeft } from "@visx/axis";
+import { Group } from "@visx/group";
+import { scaleLinear } from "@visx/scale";
+import type { ScatterWidget } from "../model/types";
+import { pct } from "../lib/format";
+import { v } from "../theme/roles";
+import { hoverProps, requestFocus, useHovered } from "../state/linking";
+import { select, useSelection } from "../state/selection";
+import { useSize } from "../components/hooks/useSize";
+import { Tip } from "../components/Tip";
 
-export function Scatter({ widget, selected, onSelect }: {
-  widget: ScatterWidget; selected: string | null; onSelect: (id: string) => void;
-}) {
-  const { points } = widget;
+const M = { top: 22, right: 18, bottom: 34, left: 58 };
+const axis = { stroke: v("axis"), tickStroke: v("axis") };
+const tickFont = { fill: v("fg-faint"), fontSize: 10, fontFamily: "JetBrains Mono Variable, ui-monospace, monospace" };
+const leftLabel = () => ({ ...tickFont, textAnchor: "end" as const, dx: -6, dy: 3 });
+const bottomLabel = () => ({ ...tickFont, textAnchor: "middle" as const, dy: 2 });
+
+// Research runs by annual return against max drawdown: the region meeting both targets, the
+// non-dominated runs joined as a frontier (less drawdown and more return cannot both improve), and
+// on hover a crosshair that reads the point's values off both axes.
+export function Scatter({ widget }: { widget: ScatterWidget }) {
+  const selected = useSelection();
+  const [ref, { width, height }] = useSize();
+  const hovered = useHovered();
   const t = widget.targets ?? {};
-  const W = 640, H = 380, L = 56, B = 40, T = 22, R = 14;
-  const xmax = Math.max(...points.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.12 || 0.3;
-  const ys = [...points.map((p) => p.annual_return), t.annual_return ?? 0];
-  const ymin = Math.min(0, ...ys) * 1.1, ymax = Math.max(...ys) * 1.12 || 0.3;
-  const sx = (v: number) => L + (W - L - R) * (v / xmax);
-  const sy = (v: number) => H - B - (H - B - T) * ((v - ymin) / (ymax - ymin || 1));
-  const ticks = [0, 1, 2, 3, 4, 5];
-  const ordered = [...points].sort((a, b) =>
-    Number(a.id === selected) - Number(b.id === selected) || Number(a.status === "recommended") - Number(b.status === "recommended"));
+  const points = widget.points;
+  const w = Math.max(0, width - M.left - M.right), h = Math.max(0, height - M.top - M.bottom);
+  const x = scaleLinear<number>({ domain: [0, Math.max(...points.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.08], range: [0, w], nice: true });
+  const ys = [...points.map((p) => p.annual_return), t.annual_return ?? 0, 0];
+  const y = scaleLinear<number>({ domain: [Math.min(...ys), Math.max(...ys) * 1.06], range: [h, 0], nice: true });
+  const frontier = points.filter((p) => p.eligible !== false)
+    .filter((p, _, all) => !all.some((q) => q !== p && q.max_drawdown <= p.max_drawdown && q.annual_return >= p.annual_return
+                                       && (q.max_drawdown < p.max_drawdown || q.annual_return > p.annual_return)))
+    .sort((a, b) => a.max_drawdown - b.max_drawdown);
+  const lone = hovered?.length === 1 ? hovered[0] : null;
+  const focus = points.filter((p) => p.id === lone).at(-1) ?? points.filter((p) => p.id === selected).at(-1);
+  const order = [...points].sort((a, b) => Number(a.status === "recommended") - Number(b.status === "recommended"));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-full max-h-[310px] w-auto" role="img" aria-label="研究运行的年化与最大回撤">
-      {ticks.map((i) => {
-        const vx = (xmax * i) / 5, vy = ymin + ((ymax - ymin) * i) / 5;
-        return (
-          <g key={i} fontSize="10" fill="var(--ink-3)">
-            <line x1={sx(vx)} x2={sx(vx)} y1={T} y2={H - B} stroke="var(--rule)" />
-            <text x={sx(vx)} y={H - B + 15} textAnchor="middle">{pct(vx)}</text>
-            <line x1={L} x2={W - R} y1={sy(vy)} y2={sy(vy)} stroke="var(--rule)" />
-            <text x={L - 6} y={sy(vy) + 3} textAnchor="end">{pct(vy)}</text>
-          </g>
-        );
-      })}
-      {t.max_drawdown != null && t.annual_return != null && (
-        <g fontSize="10" fill="var(--ink-3)">
-          <rect x={L} y={T} width={sx(t.max_drawdown) - L} height={sy(t.annual_return) - T} fill="var(--ok-zone)" opacity={0.09} />
-          <line x1={sx(t.max_drawdown)} x2={sx(t.max_drawdown)} y1={T} y2={H - B} stroke="var(--ink-2)" strokeDasharray="4 4" />
-          <line x1={L} x2={W - R} y1={sy(t.annual_return)} y2={sy(t.annual_return)} stroke="var(--ink-2)" strokeDasharray="4 4" />
-          <text x={L + 8} y={T + 13}>达到两个目标</text>
-          <text x={sx(t.max_drawdown) + 5} y={T + 13}>回撤上限 {pct(t.max_drawdown)}</text>
-          <text x={W - R - 4} y={sy(t.annual_return) - 6} textAnchor="end">年化下限 {pct(t.annual_return)}</text>
-        </g>
-      )}
-      <text x={(L + W - R) / 2} y={H - 6} fontSize="10" fill="var(--ink-3)" textAnchor="middle">最大回撤 →</text>
-      <text x={L} y={T - 8} fontSize="10" fill="var(--ink-3)">↑ 年化收益</text>
-      {ordered.map((p) => {
-        const x = sx(p.max_drawdown), y = sy(p.annual_return), on = p.id === selected;
-        return (
-          <g key={`${p.id}-${p.trial_id}`} className="cursor-pointer" onClick={() => onSelect(p.id)}>
-            <title>{`${p.id} · trial ${p.trial_id}：年化 ${pct(p.annual_return)} · 回撤 ${pct(p.max_drawdown)}${p.eligible === false ? "（失去资格）" : ""}`}</title>
-            {on && <circle cx={x} cy={y} r={10} fill="none" stroke="var(--ink-1)" strokeWidth={1.5} />}
-            {p.eligible === false
-              ? <circle cx={x} cy={y} r={5} fill="none" stroke="var(--ink-3)" strokeWidth={1.25} />
-              : <circle cx={x} cy={y} r={p.status === "recommended" ? 6.5 : 5} fill={STATUS[p.status].color} stroke="var(--ink-1)" strokeWidth={1} />}
-            {(on || p.status === "recommended") && (
-              <text x={x + 12} y={y - 8} fontSize="10.5" fill="var(--ink-2)" className="mono">{p.id}</text>
+    <div ref={ref} className="relative h-full w-full">
+      {width > 0 && (
+        <svg width={width} height={height} role="img" aria-label="研究运行的年化与最大回撤">
+          <Group left={M.left} top={M.top}>
+            {y.ticks(5).map((n) => <line key={`y${n}`} x1={0} x2={w} y1={y(n)} y2={y(n)} stroke={v("grid")} />)}
+            {x.ticks(6).map((n) => <line key={`x${n}`} x1={x(n)} x2={x(n)} y1={0} y2={h} stroke={v("grid")} />)}
+            {t.max_drawdown != null && t.annual_return != null && (
+              <rect x={0} y={0} width={x(t.max_drawdown)} height={y(t.annual_return)} fill={v("meets")} opacity={0.06} />
             )}
-          </g>
-        );
-      })}
-    </svg>
+            {t.max_drawdown != null && <line x1={x(t.max_drawdown)} x2={x(t.max_drawdown)} y1={0} y2={h} stroke={v("meets")} strokeDasharray="5 3" />}
+            {t.annual_return != null && <line x1={0} x2={w} y1={y(t.annual_return)} y2={y(t.annual_return)} stroke={v("meets")} strokeDasharray="5 3" />}
+            {frontier.length > 1 && (
+              <path d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
+                    fill="none" stroke={v("fg-faint")} strokeWidth={1} strokeDasharray="2 3" />
+            )}
+            {focus && <g pointerEvents="none" stroke={v("fg-muted")} strokeWidth={0.75} strokeDasharray="2 2">
+              <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />
+              <line x1={0} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={y(focus.annual_return)} />
+            </g>}
+            {order.map((p) => {
+              const cx = x(p.max_drawdown), cy = y(p.annual_return);
+              const recommended = p.status === "recommended", on = p.id === selected;
+              return (
+                <Tip key={`${p.id}-${p.trial_id}`} content={
+                  <div className="space-y-0.5"><div className="font-mono font-semibold">{p.id}</div>
+                    <div className="font-mono">trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
+                    {p.eligible === false && <div className="text-fail">失去资格</div>}</div>}>
+                  <g {...hoverProps(p.id)} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
+                    {on && <circle cx={cx} cy={cy} r={8.5} fill="none" stroke={v("fg")} strokeWidth={1.25} />}
+                    <circle cx={cx} cy={cy} r={recommended ? 5 : 3.5}
+                            fill={p.eligible === false ? v("island") : recommended ? v("recommended") : v("fg-faint")}
+                            stroke={recommended ? v("island") : v("fg-faint")} strokeWidth={recommended ? 1.5 : 1} />
+                  </g>
+                </Tip>
+              );
+            })}
+            <AxisLeft scale={y} numTicks={5} tickFormat={(v) => `${Math.round(Number(v) * 100)}%`} {...axis} tickLabelProps={leftLabel} hideZero={false} />
+            <AxisBottom top={h} scale={x} numTicks={6} tickFormat={(v) => `${Math.round(Number(v) * 100)}%`} {...axis} tickLabelProps={bottomLabel} />
+            {focus && <g pointerEvents="none" fontSize={10} fontFamily="JetBrains Mono Variable, ui-monospace, monospace">
+              <rect x={x(focus.max_drawdown) - 26} y={h + 3} width={52} height={15} rx={3} fill={v("fg")} />
+              <text x={x(focus.max_drawdown)} y={h + 14} textAnchor="middle" fill={v("island")}>{pct(focus.max_drawdown)}</text>
+              <rect x={-50} y={y(focus.annual_return) - 7.5} width={47} height={15} rx={3} fill={v("fg")} />
+              <text x={-6} y={y(focus.annual_return) + 3.5} textAnchor="end" fill={v("island")}>{pct(focus.annual_return)}</text>
+            </g>}
+          </Group>
+          <text x={M.left + w} y={height - 4} textAnchor="end" fontSize={10.5} fill={v("fg-faint")}>最大回撤 →</text>
+          <text x={M.left - 8} y={12} fontSize={10.5} fill={v("fg-faint")} textAnchor="end">年化 ↑</text>
+        </svg>
+      )}
+      <div className="pointer-events-none absolute right-5 top-3 text-right text-small text-fg-faint">
+        {points.length} 次研究运行 · 点线为不被支配的前沿 · 绿区为两项目标都达到
+      </div>
+    </div>
   );
 }

@@ -1,20 +1,27 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (summary/1, lineage/1, scatter/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
+versioned type (summary/1, lineage/2, progress/1, scatter/1, table/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
-x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
-placed by interpolating between trials whose times are known. Rows follow the lineage depth first,
+x is research progress in trial numbers: a whole number is a trial, and a candidate sits at its first
+research run (or its first trial, a precheck, when it has none). Anything timed (an event, a version without trials, the scope start) sits halfway through the
+gap after the last trial before it, n + 0.5, found by interpolating between trials whose times are
+known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
 children in order of their first trial. A renderer maps these units to its own pixels and colours.
+
+The recommendation judgments form a trail over the recommended versions' rows (one segment per
+stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress/1` holds the research runs' annual
+returns on the same x.
 """
 from __future__ import annotations
 
+import math
 from bisect import bisect_left
 from datetime import datetime, timezone
 
 VIEW_FORMAT = "research-graph-view/1"
-LANES = ("recommendation", "eligibility_change", "line_change")
+EVENT_KINDS = ("recommendation", "eligibility_change", "line_change")
 
 
 def seconds(value: str) -> float:
@@ -111,40 +118,47 @@ def build_view(graph: dict) -> dict:
     candidates = graph["candidates"]
     targets = (graph["line"].get("targets") or {})
     clock = Clock(candidates)
+
+    def gap(at: str) -> float | None:
+        x = clock(at)
+        return None if x is None else math.floor(x) + 0.5
     row = rows(candidates)
 
     def x_of(c: dict) -> float | None:
-        trial = first_trial(c)
-        return float(trial) if trial is not None else (clock(c["created_at"]) if c.get("created_at") else None)
+        runs = research_runs(c)  # over its own bar on the progress chart, when it has one
+        trial = runs[0]["trial_id"] if runs else first_trial(c)
+        return float(trial) if trial is not None else (gap(c["created_at"]) if c.get("created_at") else None)
 
     nodes = []
     for c in candidates:
         runs = research_runs(c)
         last = runs[-1] if runs else {}
         nodes.append({"id": c["id"], "row": row[c["id"]], "x": x_of(c), "status": status(c, targets),
-                      "change": c.get("change"),
+                      "role": c.get("status"), "change": c.get("change"),
                       "prediction": prediction(c),
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
-    events = [e for e in graph["events"] if e.get("at")]
-    lanes: dict[str, list[dict]] = {kind: [] for kind in LANES}
-    for e in events:
-        kind = e["kind"]
-        if kind in lanes:
-            lanes[kind].append({"x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
-                                "recommends": e.get("recommends")})
+    events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
                   key=lambda e: seconds(e["at"]))
-    xs = [n["x"] for n in nodes if n["x"] is not None] + [e["x"] for lane in lanes.values() for e in lane if e["x"] is not None]
+    timed = [gap(e["at"]) for e in events]
+    xs = [n["x"] for n in nodes if n["x"] is not None] + [x for x in timed if x is not None]
     lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
-    bands = [{"candidate": a["recommends"], "row": row[a["recommends"]], "x0": clock(a["at"]),
-              "x1": clock(b["at"]) if b else hi, "ref": a.get("ref")} for a, b in zip(recs, [*recs[1:], None][:len(recs)], strict=True)]
+    trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
+    for e in recs:
+        x = gap(e["at"])
+        if trail and trail[-1]["candidate"] == e["recommends"]:
+            trail[-1]["judgments"].append(x)
+        else:
+            trail.append({"candidate": e["recommends"], "row": row[e["recommends"]], "x0": x, "judgments": [x]})
+    for a, b in zip(trail, [*trail[1:], None][:len(trail)], strict=True):
+        a["x1"] = b["x0"] if b else hi
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
     current = recs[-1]["recommends"] if recs else None
     streak = len(recs)
     while streak > 0 and recs[streak - 1]["recommends"] == current:
         streak -= 1
-    held_since = clock(recs[streak]["at"]) if recs else None
+    held_since = gap(recs[streak]["at"]) if recs else None
     runs = [t for c in candidates for t in research_runs(c)]
     best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
@@ -161,26 +175,38 @@ def build_view(graph: dict) -> dict:
                                 and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
                                 and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
                                                                 and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
-        {"id": "lineage", "type": "lineage/1", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
+        {"id": "lineage", "type": "lineage/2", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
-                  "scope_start": clock(start) if start else None},
+                  "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
-         "bands": bands,
-         "lanes": [{"kind": kind, "events": lanes[kind]} for kind in LANES]},
+         "trail": trail,
+         "trials": sorted(({"trial_id": t["trial_id"], "candidate": c["id"], "purpose": t["purpose"]}
+                           for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
+        {"id": "progress", "type": "progress/1", "slot": "main", "title": "研究进展", "targets": targets,
+         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
+         "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
+                     "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
+                    for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
+         "recommended": sorted({t["candidate"] for t in trail})},
         {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
          "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t["max_drawdown"], "eligible": t.get("eligible"), "status": status_of[c["id"]]}
                     for c in candidates for t in research_runs(c)
                     if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
+        {"id": "versions", "type": "table/1", "slot": "main", "title": "版本表", "targets": targets,
+         "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
+                   "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
+                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}}
+                  for c in candidates]},
         {"id": "gaps", "type": "notes/1", "slot": "main", "title": "这份数据缺什么", "items": graph["gaps"]},
         {"id": "details", "type": "candidate-detail/1", "slot": "side",
          "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
          "items": [{**c, "status_class": status_of[c["id"]], "prediction_class": prediction_of[c["id"]]}
                    for c in candidates]},
     ]
-    return {"format": VIEW_FORMAT, "source": graph["source"], "line": graph["line"], "targets": targets,
+    return {"format": VIEW_FORMAT, "source": graph["source"], "scope": graph.get("scope"), "line": graph["line"], "targets": targets,
             "counts": {"candidates": len(candidates), "research_runs": sum(len(research_runs(c)) for c in candidates)},
             "widgets": widgets}

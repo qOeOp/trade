@@ -2,6 +2,7 @@
 
 export type Status = "recommended" | "meets_targets" | "below_targets" | "masked" | "precheck_failed" | "unrun";
 export type Prediction = "held" | "failed" | "mixed" | "none";
+export type Role = "recommended" | "kept_reference" | "superseded" | "masked" | "precheck_failed" | "unrun";
 export type Targets = { max_drawdown?: number | null; annual_return?: number | null };
 
 export type Trial = {
@@ -36,6 +37,7 @@ export type Candidate = {
   } | null;
   reviews?: { verdict?: string | null; failed_items?: string[] | null; at?: string | null; note?: string | null }[] | null;
   interpretation?: string | null;
+  status?: Role | null;
   status_class: Status;
   prediction_class: Prediction;
 };
@@ -45,12 +47,12 @@ export type LineageNode = {
   row: number;
   x: number | null;
   status: Status;
+  role: Role;
   prediction: Prediction;
   change?: string | null;
   reading: { annual_return: number | null; max_drawdown: number | null };
 };
 
-export type LaneEvent = { x: number | null; at: string; ref?: string | null; text?: string | null; recommends?: string | null };
 
 export type Widget = { id: string; type: string; slot?: string; title?: string } & Record<string, unknown>;
 
@@ -73,8 +75,15 @@ export type LineageWidget = Widget & {
   rows: { id: string; row: number }[];
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
-  bands: { candidate: string; row: number; x0: number | null; x1: number | null; ref?: string | null }[];
-  lanes: { kind: string; events: LaneEvent[] }[];
+  trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
+  trials: { trial_id: number; candidate: string; purpose: string }[];
+};
+
+export type ProgressWidget = Widget & {
+  targets: Targets | null;
+  axis: { min: number; max: number; scope_start: number | null };
+  points: { id: string; trial_id: number; annual_return: number; max_drawdown?: number | null; eligible: boolean | null }[];
+  recommended: string[];
 };
 
 export type ScatterWidget = Widget & {
@@ -82,12 +91,20 @@ export type ScatterWidget = Widget & {
   points: { id: string; trial_id: number; annual_return: number; max_drawdown: number; eligible: boolean | null; status: Status }[];
 };
 
+export type TableRow = {
+  id: string; parent?: string | null; role?: Role | null; status: Status; prediction: Prediction;
+  first_trial: number | null; runs: number;
+  annual_return?: number | null; max_drawdown?: number | null; sharpe?: number | null; win_rate?: number | null;
+};
+export type TableWidget = Widget & { targets: Targets | null; rows: TableRow[] };
+
 export type NotesWidget = Widget & { items: string[] };
 export type DetailWidget = Widget & { default: string | null; items: Candidate[] };
 
 export type View = {
   format: string;
   source: "ledger" | "session";
+  scope?: { ledger_commit?: string | null; start?: string | null; end?: string | null } | null;
   line: { bundle: string; start?: string | null; window?: string[] | null; market_commit?: string | null };
   targets: Targets | null;
   counts: { candidates: number; research_runs: number };
