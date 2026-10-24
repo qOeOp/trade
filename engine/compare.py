@@ -6,8 +6,11 @@ writes only FILE. Two replays of the same run give the same fingerprint even tho
 fresh UUIDs every run.
 
 - Random identifiers (event, initialization, position-snapshot and settlement UUIDs) are renumbered
-  in the order they first appear, walking the order event history first (orders by client order ID,
-  each order's events in engine order), then the other tables. The same identifier gets the same
+  in the order they first appear, walking the order event history first (orders by client order ID
+  with any random part masked, orders of one masked ID by their first event's time and instrument,
+  each order's events in engine order), then the other tables. A liquidation order's client order ID
+  (``LIQUIDATION-<venue>-<uuid>``) is fresh every run, so its place in the walk comes from when it
+  happened, not from the UUID; IDs without a random part walk in plain ID order as before. The same identifier gets the same
   number everywhere, so fills stay linked to positions and events to orders. Trade IDs
   (``T-<hex>-<n>``) are derived from the venue, the order and the execution counter in the pinned
   Nautilus, so they are kept as they are and an exchange of two executions shows.
@@ -100,8 +103,17 @@ def report_fingerprint(directory: Path) -> dict:
     numbers: dict[str, str] = {}
     for name in NUMBERING_ORDER:
         rows, found = tables[name], texts[name]
-        walk = (sorted(range(len(rows)), key=lambda index: (rows[index]["client_order_id"], rows[index]["seq"]))
-                if name == "order_events" else sorted(range(len(rows)), key=lambda index: RANDOM.sub("~", found[index])))
+        if name == "order_events":
+            # Orders by client order ID with its random part masked (a liquidation order's ID carries a fresh
+            # UUID every run), orders of one masked ID by the time of their first event and their instrument,
+            # then each order's events in engine order. IDs without a random part keep the plain ID order.
+            first: dict[str, tuple] = {}
+            for row in rows:
+                first.setdefault(row["client_order_id"], (row.get("ts_event"), row.get("instrument_id", "")))
+            walk = sorted(range(len(rows)), key=lambda index: (RANDOM.sub("~", rows[index]["client_order_id"]),
+                                                               *first[rows[index]["client_order_id"]], rows[index]["seq"]))
+        else:
+            walk = sorted(range(len(rows)), key=lambda index: RANDOM.sub("~", found[index]))
         for index in walk:
             for match in RANDOM.finditer(found[index]):
                 numbers.setdefault(match.group(0), f"#{len(numbers) + 1}")
