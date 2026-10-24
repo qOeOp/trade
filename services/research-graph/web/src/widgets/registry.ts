@@ -20,7 +20,7 @@ const r = <W extends Widget>(region: Region, title: string, Component: Component
 export const RENDERERS: Record<string, Renderer> = {
   "summary/1": r("toolbar", "当前推荐", Recommendation),
   "lineage/2": r("editor", "策略谱系", Lineage),
-  "candidate-detail/1": r("inspector", "版本详情", Detail),
+  "candidate-detail/1": r("inspector", "详情", Detail),
   "progress/1": r("dock", "研究进展", Progress),
   "scatter/1": r("dock", "年化 vs 回撤", Scatter),
   "table/1": r("dock", "版本表", VersionTable),

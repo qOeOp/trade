@@ -19,16 +19,17 @@ type Meta = { numeric?: boolean; align?: "right" } | undefined;
 const right = (meta: unknown) => !!((meta as Meta)?.numeric || (meta as Meta)?.align === "right");
 
 /** A dense, sortable table in one face, size and weight: muted headers, values in the text colour,
- *  a sticky header, rows linked to a version on hover. With `fixed`, columns share the width equally. */
-export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed }: {
+ *  a sticky header (unless `sticky` is false, e.g. inside a card), rows linked to a version on hover.
+ *  With `fixed`, columns share the width equally. */
+export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed, sticky = true }: {
   data: T[]; columns: Column<T>[]; rowId: (row: T) => string; version?: (row: T) => string | null;
-  onRow?: (row: T) => void; selected?: string | null; initialSort?: SortingState; fixed?: boolean;
+  onRow?: (row: T) => void; selected?: string | null; initialSort?: SortingState; fixed?: boolean; sticky?: boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const table = useTable({ features, columns: cols, data, getRowId: rowId, state: { sorting }, onSortingChange: setSorting });
   return (
     <table className={`w-full border-separate border-spacing-0 text-dense ${fixed ? "table-fixed" : ""}`}>
-      <thead className="sticky top-0 z-10 bg-island">
+      <thead className={sticky ? "sticky top-0 z-10 bg-island" : undefined}>
         {table.getHeaderGroups().map((group) => (
           <tr key={group.id}>
             {group.headers.map((header) => {

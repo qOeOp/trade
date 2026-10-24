@@ -7,7 +7,7 @@ import { useSelection } from "../../state/selection";
 import { KeyValues } from "../../components/KeyValues";
 import { MetricStrip } from "../../components/MetricStrip";
 import { Missing } from "../../components/Missing";
-import { Section } from "../../components/Section";
+import { CardGroup, Section } from "../../components/Section";
 import { Tip } from "../../components/Tip";
 import { Header } from "./Header";
 import { ReplayTable } from "./ReplayTable";
@@ -25,14 +25,16 @@ function Inspector({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const last: Partial<Trial> = runs.at(-1) ?? {};
   const cmp = c.comparison;
   return (
-    <div className="text-dense">
-      <Header c={c} />
+    <div className="space-y-3 px-2 pb-3 text-dense">
+      <Header c={c}>
       <MetricStrip items={[
         { label: "年化", value: last.annual_return, format: percent, tone: meets(last.annual_return, targets?.annual_return, true) === false ? "misses" : "fg" },
         { label: "最大回撤", value: last.max_drawdown, format: percent, tone: meets(last.max_drawdown, targets?.max_drawdown, false) === false ? "misses" : "fg" },
         { label: "夏普", value: last.sharpe, format: two },
         { label: "胜率", value: last.win_rate, format: percent },
       ]} />
+      </Header>
+      <CardGroup title="改动与预期">
       <Section title="改了什么">{prose(c.change)}</Section>
       <Section title="假设">{prose(c.hypothesis)}</Section>
       {!!c.predictions?.length && (
@@ -55,6 +57,8 @@ function Inspector({ c, targets }: { c: Candidate; targets: Targets | null }) {
           </tbody></table>
         </Section>
       )}
+      </CardGroup>
+      <CardGroup title="证据">
       <Section title="回放" aside={`${runs.length} 次研究运行 · 共 ${(c.trials ?? []).length} 次试验`}>
         <ReplayTable trials={c.trials ?? []} targets={targets} />
       </Section>
@@ -86,6 +90,8 @@ function Inspector({ c, targets }: { c: Candidate; targets: Targets | null }) {
           </div>
         </Section>
       )}
+      </CardGroup>
+      <CardGroup title="结论">
       <Section title="解释与决策">{prose(c.interpretation)}</Section>
       <Section title="登记" open={false}>
         <KeyValues items={[
@@ -93,6 +99,7 @@ function Inspector({ c, targets }: { c: Candidate; targets: Targets | null }) {
           ["职责", (c.duties ?? []).join(" ") || null],
         ]} />
       </Section>
+      </CardGroup>
     </div>
   );
 }

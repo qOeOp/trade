@@ -27,5 +27,5 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
       return t.eligible ? <Icon name="check" tone="meets" className="align-middle" /> : <Missing />;
     } }) as Column<Trial>,
   ];
-  return <div className="-mx-2"><DataTable data={trials} columns={cols} rowId={(t) => String(t.trial_id)} fixed /></div>;
+  return <div className="-mx-2"><DataTable data={trials} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} /></div>;
 }

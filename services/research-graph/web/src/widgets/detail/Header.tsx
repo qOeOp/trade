@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Candidate } from "../../model/types";
 import { PREDICTION, ROLE } from "../../model/semantics";
 import { when } from "../../lib/format";
@@ -10,14 +11,15 @@ import { Tip } from "../../components/Tip";
 
 const PREDICTION_TEXT = { meets: "text-meets", misses: "text-misses", "fg-muted": "text-fg-muted", "fg-faint": "text-fg-faint" } as const;
 
-/** The selected version: mark and name, role, prediction verdict, when it was published, its parent. */
-export function Header({ c }: { c: Candidate }) {
+/** The selected version's card: mark and name, role, prediction verdict, when it was published, its
+ *  parent; its readings follow in the same card. */
+export function Header({ c, children }: { c: Candidate; children?: ReactNode }) {
   const role = c.status ?? null;
   return (
-    <header className="sticky top-0 z-10 border-b border-line bg-island px-3 pb-2 pt-2.5">
+    <header className="rounded-popup bg-island-alt px-3 pt-2.5">
       <div className="flex items-center gap-2">
         <RoleMark role={role} size={16} />
-        <h2 className="min-w-0 truncate font-mono text-ui font-semibold">{c.id}</h2>
+        <h2 className="min-w-0 truncate font-mono font-semibold">{c.id}</h2>
         <TextButton className="ml-auto shrink-0 text-small text-fg-faint" onClick={() => requestFocus(c.id)}>在图中定位</TextButton>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-dense text-fg-faint">
@@ -30,6 +32,7 @@ export function Header({ c }: { c: Candidate }) {
           </TextButton>
         )}
       </div>
+      <div className="mt-2.5">{children}</div>
     </header>
   );
 }

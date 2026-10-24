@@ -60,7 +60,9 @@ export function Shell() {
         <Separator />
         <Panel id="inspector" panelRef={inspectorRef} defaultSize="27" minSize="18" collapsible collapsedSize={0}
                onResize={(size) => setInspectorOpen(size.inPixels > 1)}>
-          {of("inspector").map(({ widget, renderer: { Component } }) => <Island key={widget.id} id="inspector"><Component widget={widget} /></Island>)}
+          {of("inspector").map(({ widget, renderer: { title, Component } }) => (
+            <Island key={widget.id} id="inspector" header={<h2 className="text-ui font-semibold">{title}</h2>}><Component widget={widget} /></Island>
+          ))}
         </Panel>
       </Group>
       <StatusBar />
