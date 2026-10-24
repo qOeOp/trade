@@ -48,3 +48,6 @@ export function setSideSize(side: Side, px: number): void {
 
 export const activeIsland = atom<string>("editor");
 export const paletteOpen = atom<boolean>(false);
+
+/** Back to the default sides and sizes. */
+export const resetShell = () => shell.set(DEFAULTS);

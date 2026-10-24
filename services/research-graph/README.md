@@ -63,8 +63,10 @@ canvas that pans but never zooms, with each version's role shown by its mark's s
 lines drawn as git graphs draw them, a brand-blue underline where a version stayed recommended and a red
 wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
 puts the trials that ran one version on a rounded tinted block, and marks the trial under the pointer. Reading badges
-are as wide as their numbers, with the same padding to the edges and to the divider. A title bar carries the current recommendation's
-readout and a status bar sits at the foot. As in IntelliJ, a stripe on each side opens tool windows, one per side:
+are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
+widgets (研究线, 账本提交 and 当前推荐, whose menu lists every version the recommendation rested on), the
+recommendation's readout, search and settings (theme, layout reset); the status bar shows the path to the selected
+version (line › ancestors › version, each clickable) and the version under the pointer. As in IntelliJ, a stripe on each side opens tool windows, one per side:
 版本树 (the versions as a tree by lineage) on the left, 详情 (the selected version as cards in groups) on the right, and
 研究进展 (research-run returns as bars from zero on the canvas's x), 年化 vs 回撤 (the scatter with the non-dominated
 frontier), 版本表 and 数据缺口 as tabs at the bottom; each island has the same header with its actions (locate, expand

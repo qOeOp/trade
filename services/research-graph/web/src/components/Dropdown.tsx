@@ -1,0 +1,66 @@
+import type { ReactNode } from "react";
+import { DropdownMenu } from "radix-ui";
+import { Icon } from "../icons/Icon";
+import type { IconName } from "../icons/registry";
+
+// IntelliJ's toolbar widgets: a borderless trigger (content and a chevron) that opens a popup menu.
+
+export function Dropdown({ trigger, label, children, align = "start" }: {
+  trigger: ReactNode; label: string; children: ReactNode; align?: "start" | "end";
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger aria-label={label}
+        className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-control px-2 outline-none transition-colors hover:bg-hover data-[state=open]:bg-pressed">
+        {trigger}<span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align={align} sideOffset={4} collisionPadding={8}
+          className="enter z-50 max-h-[70vh] min-w-56 overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-xl">
+          {children}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+export function DropdownItem({ icon, children, hint, onSelect }: { icon?: IconName; children: ReactNode; hint?: ReactNode; onSelect: () => void }) {
+  return (
+    <DropdownMenu.Item onSelect={onSelect}
+      className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
+      <span className="grid w-4 shrink-0 place-items-center text-icon">{icon && <Icon name={icon} />}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+      {hint != null && <span className="shrink-0 text-fg-faint">{hint}</span>}
+    </DropdownMenu.Item>
+  );
+}
+
+export function DropdownRadio<T extends string>({ value, options, onChange }: {
+  value: T; options: readonly { value: T; label: string }[]; onChange: (v: T) => void;
+}) {
+  return (
+    <DropdownMenu.RadioGroup value={value} onValueChange={(v) => onChange(v as T)}>
+      {options.map((o) => (
+        <DropdownMenu.RadioItem key={o.value} value={o.value}
+          className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
+          <span className="grid w-4 shrink-0 place-items-center text-icon">
+            <DropdownMenu.ItemIndicator><Icon name="check" /></DropdownMenu.ItemIndicator>
+          </span>
+          {o.label}
+        </DropdownMenu.RadioItem>
+      ))}
+    </DropdownMenu.RadioGroup>
+  );
+}
+
+export const DropdownLabel = ({ children }: { children: ReactNode }) => <DropdownMenu.Label className="px-2 pb-1 pt-1.5 text-small text-fg-faint">{children}</DropdownMenu.Label>;
+export const DropdownSeparator = () => <DropdownMenu.Separator className="my-1 h-px bg-line-strong" />;
+
+/** Facts in a menu, as label/value rows that are not actions. */
+export function DropdownFacts({ items }: { items: readonly (readonly [string, ReactNode])[] }) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 px-2 py-1.5">
+      {items.map(([k, v]) => <div key={k} className="contents"><dt className="text-fg-faint">{k}</dt><dd className="min-w-0 break-all font-mono">{v}</dd></div>)}
+    </dl>
+  );
+}

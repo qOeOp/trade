@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type { SummaryWidget } from "../model/types";
 import { meets } from "../model/semantics";
 import { pct } from "../lib/format";
-import { RoleMark } from "../icons/marks";
 import { Missing } from "../components/Missing";
 import { Tip } from "../components/Tip";
 
@@ -21,17 +20,14 @@ function Metric({ label, children, unit, tip, miss = false }: { label: string; c
   return tip ? <Tip content={tip} side="bottom">{body}</Tip> : body;
 }
 
-// The current recommendation against the targets, how many runs it was chosen from (the
-// multiple-testing context of "best") and how long it has held.
+// The current recommendation's readout against the targets, how many runs it was chosen from (the
+// multiple-testing context of "best") and how long it has held. The toolbar names the version itself.
 export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading;
   const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} />);
   return (
     <div className="flex min-w-0 items-center gap-x-5 overflow-hidden text-dense">
-      {widget.recommended && (
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><RoleMark role="recommended" size={12} />{widget.recommended}</span>
-      )}
       <Metric label="年化" tip={`目标 ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
       <Metric label="回撤" tip={`目标 ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>
       <Metric label="夏普">{num(r?.sharpe, two)}</Metric>

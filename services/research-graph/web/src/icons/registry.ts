@@ -10,9 +10,12 @@ import close from "./expui/general/close.svg?raw";
 import down from "./expui/general/down.svg?raw";
 import remove from "./expui/general/remove.svg?raw";
 import search from "./expui/general/search.svg?raw";
+import settings from "./expui/general/settings.svg?raw";
 import up from "./expui/general/up.svg?raw";
+import vcs from "./expui/general/vcs.svg?raw";
 import commit from "./expui/toolwindows/commit.svg?raw";
 import collapseAll from "./expui/general/collapseAll.svg?raw";
+import copy from "./expui/general/copy.svg?raw";
 import expandAll from "./expui/general/expandAll.svg?raw";
 import hide from "./expui/general/hide.svg?raw";
 import locate from "./expui/general/locate.svg?raw";
@@ -44,6 +47,9 @@ export const ICONS = {
   "collapse-all": { svg: collapseAll, size: 16 },
   more: { svg: moreVertical, size: 16 },
   hide: { svg: hide, size: 16 },
+  copy: { svg: copy, size: 16 },
+  settings: { svg: settings, size: 16 },
+  ledger: { svg: vcs, size: 16 },
   "tool.versions": { svg: hierarchy20, size: 20 },
   "tool.inspector": { svg: structure20, size: 20 },
   "tool.progress": { svg: profiler20, size: 20 },
