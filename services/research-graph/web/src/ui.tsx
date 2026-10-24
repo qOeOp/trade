@@ -82,20 +82,26 @@ export type Column<T extends RowData> = ColumnDef<typeof features, T, any>;  // 
 export const columns = <T extends RowData>() => createColumnHelper<typeof features, T>();
 
 /** A dense, sortable table: sticky header, tabular numbers, rows that link to a version on hover. */
-export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [] }: {
+/** Column meta: `numeric` and `align: "right"` right-align a column (header included). One font,
+ *  size and weight throughout; headers are muted and values carry the ink. With `fixed`, columns
+ *  share the width equally. */
+type Meta = { numeric?: boolean; align?: "right" } | undefined;
+const right = (meta: unknown) => !!((meta as Meta)?.numeric || (meta as Meta)?.align === "right");
+
+export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed }: {
   data: T[]; columns: Column<T>[]; rowId: (row: T) => string; version?: (row: T) => string | null;
-  onRow?: (row: T) => void; selected?: string | null; initialSort?: SortingState;
+  onRow?: (row: T) => void; selected?: string | null; initialSort?: SortingState; fixed?: boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const table = useTable({ features, columns: cols, data, getRowId: rowId, state: { sorting }, onSortingChange: setSorting });
   return (
-    <table className="w-full border-separate border-spacing-0 text-[12px]">
+    <table className={`w-full border-separate border-spacing-0 text-[12px] ${fixed ? "table-fixed" : ""}`}>
       <thead className="sticky top-0 z-10" style={{ background: "var(--panel)" }}>
         {table.getHeaderGroups().map((group) => (
           <tr key={group.id}>
             {group.headers.map((header) => {
               const dir = header.column.getIsSorted();
-              const numeric = (header.column.columnDef.meta as { numeric?: boolean } | undefined)?.numeric;
+              const numeric = right(header.column.columnDef.meta);
               return (
                 <th key={header.id} onClick={header.column.getToggleSortingHandler()}
                     className={`cursor-pointer select-none whitespace-nowrap border-b px-2 py-1 font-normal faint ${numeric ? "text-right" : "text-left"}`}
@@ -119,9 +125,8 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
                 className={onRow ? "cursor-pointer transition-colors duration-100 hover:bg-[var(--hover)]" : undefined}
                 style={id && id === selected ? { background: "var(--accent-wash)" } : undefined}>
               {row.getAllCells().map((cell) => {
-                const meta = cell.column.columnDef.meta as { numeric?: boolean; mono?: boolean } | undefined;
                 return (
-                  <td key={cell.id} className={`whitespace-nowrap border-b px-2 py-[3px] ${meta?.numeric ? "mono text-right" : meta?.mono ? "mono" : ""}`}
+                  <td key={cell.id} className={`whitespace-nowrap border-b px-2 py-1 ${right(cell.column.columnDef.meta) ? "text-right" : ""}`}
                       style={{ borderColor: "var(--rule)" }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>

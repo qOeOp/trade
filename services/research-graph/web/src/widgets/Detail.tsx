@@ -30,17 +30,20 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
   const last: Partial<Trial> = runs[runs.length - 1] ?? {};
   const cmp = c.comparison;
   const role = c.status ?? null;
+  const value = (v: number | null | undefined, text: string, ok: boolean | null = null) =>
+    v == null ? <span className="ghost">—</span> : <span style={{ color: readingColor(ok) }}>{text}</span>;
   const trialColumns: Column<Trial>[] = [
-    col.accessor("trial_id", { header: "trial", meta: { mono: true } }) as Column<Trial>,
+    col.accessor("trial_id", { header: "trial" }) as Column<Trial>,
     col.accessor("purpose", { header: "用途", cell: (x) => PURPOSE[x.getValue() as string] ?? x.getValue() }) as Column<Trial>,
     col.accessor("annual_return", { header: "年化", meta: { numeric: true }, sortUndefined: "last",
-      cell: (x) => <span style={{ color: readingColor(meets(x.getValue() as number, targets?.annual_return, true)) }}>{pct(x.getValue() as number)}</span> }) as Column<Trial>,
+      cell: (x) => value(x.getValue() as number, pct(x.getValue() as number), meets(x.getValue() as number, targets?.annual_return, true)) }) as Column<Trial>,
     col.accessor("max_drawdown", { header: "回撤", meta: { numeric: true }, sortUndefined: "last",
-      cell: (x) => <span style={{ color: readingColor(meets(x.getValue() as number, targets?.max_drawdown, false)) }}>{pct(x.getValue() as number)}</span> }) as Column<Trial>,
-    col.accessor("sharpe", { header: "夏普", meta: { numeric: true }, sortUndefined: "last", cell: (x) => ratio(x.getValue() as number) }) as Column<Trial>,
-    col.accessor("eligible", { header: "资格", cell: (x) => {
+      cell: (x) => value(x.getValue() as number, pct(x.getValue() as number), meets(x.getValue() as number, targets?.max_drawdown, false)) }) as Column<Trial>,
+    col.accessor("sharpe", { header: "夏普", meta: { numeric: true }, sortUndefined: "last",
+      cell: (x) => value(x.getValue() as number, ratio(x.getValue() as number)) }) as Column<Trial>,
+    col.accessor("eligible", { header: "资格", meta: { align: "right" }, cell: (x) => {
       const t = x.row.original;
-      if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "失去资格"}><span style={{ color: "var(--fail)" }}>✗ 失去</span></Tip>;
+      if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "失去资格"}><span style={{ color: "var(--fail)" }}>失去</span></Tip>;
       return t.eligible ? <span style={{ color: "var(--meet)" }}>✓</span> : <span className="ghost">—</span>;
     } }) as Column<Trial>,
   ];
@@ -86,7 +89,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
         </Section>
       )}
       <Section title="回放" aside={`${runs.length} 次研究运行 · 共 ${(c.trials ?? []).length} 次试验`}>
-        <div className="-mx-2"><DataTable data={c.trials ?? []} columns={trialColumns} rowId={(t) => String(t.trial_id)} /></div>
+        <div className="-mx-2"><DataTable data={c.trials ?? []} columns={trialColumns} rowId={(t) => String(t.trial_id)} fixed /></div>
       </Section>
       <Section title="与对照比较">
         {cmp ? (
