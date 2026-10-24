@@ -15,6 +15,9 @@ export type ColorRole = SurfaceRole | TextRole | DataRole | ChartRole;
 /** The CSS value of a colour role. */
 export const v = (role: ColorRole) => `var(--${role})` as const;
 
+/** A data colour at `pct` percent mixed into the island: opaque, so a label's halo can match it. */
+export const tint = (role: DataRole, pct: number) => `color-mix(in oklab, var(--${role}) ${pct}%, var(--island))` as const;
+
 /** A data colour at `pct` percent over whatever is beneath it. */
 export const wash = (role: DataRole, pct: number) => `color-mix(in srgb, var(--${role}) ${pct}%, transparent)` as const;
 

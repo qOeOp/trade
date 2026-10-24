@@ -74,15 +74,16 @@ every trial (the trial where a version sits in the text colour, the rest faint),
 tinted block, and inverts the trial under the pointer. Over the canvas the pointer is a crosshair as in
 TradingView's magnet mode: faint dashed lines on the nearest trial and version row, sparser near a small reticle, drawn under
 the versions and lines. The charts follow the design spec: solid hairline gridlines along the value axis only, no tick marks,
-dashes only for the crosshair and target lines, grey data with colour kept for what the chart is about, labels in text
-colours (a coloured mark beside them gives identity), headroom above the data and readouts as dark pills on the axes. In
-研究进展 an overview strip above the chart shows every research run of the line with a frame over the trials the canvas
-shows; dragging the frame (or pressing elsewhere on the strip) pans the canvas. Its bars fill 70% of a trial (at most 24px), rounded only at their far end, over a faint band from zero to the target;
-the selected version's runs stand on a deeper selection-tone bar and the run at the crosshair's trial on a lighter one, its
-return read out under the axis. In 年化 vs 回撤 the dominated runs are translucent grey, the frontier blue with its ends and
-the recommendation named, and the corner meeting both targets tinted green and labelled; where runs crowd, the wheel zooms in around the pointer, a drag
+a dotted line only for the crosshair (target lines are solid), grey data with colour kept for what the chart is about,
+labels in text colours (a coloured mark beside them gives identity), headroom above the data and readouts as pills on
+the axes that the tick labels make way for; each chart's SVG is layered in named groups (plot bands, grid, series, plot
+lines, axis labels) in paint order. In 研究进展 bars fill 70% of a trial (at most 24px), flat, rounded only at their far
+end, under a thin solid target line; the crosshair's trial is a shaded column behind the
+bars, and the hovered run's return is read out on the value axis. In 年化 vs 回撤 the dominated runs
+are light grey, the frontier a blue line with its ends and the recommendation named above their points, the corner
+meeting both targets a green band that states them; where runs crowd, the wheel zooms in around the pointer, a drag
 pans and a double-click (or 复原缩放) shows them all again. Hovering a mark dims every other
-version mark to 30%; Tab reaches either chart and the arrow keys step from run to run (Enter selects, Escape lets go).
+version mark to 30% (the light grey bars to 55%); Tab reaches either chart and the arrow keys step from run to run (Enter selects, Escape lets go).
 Reading badges
 are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
 widgets (研究线, 账本提交 and 当前推荐, whose menu lists every version the recommendation rested on), the
