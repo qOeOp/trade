@@ -81,7 +81,7 @@ export type LineageWidget = Widget & {
 export type ProgressWidget = Widget & {
   targets: Targets | null;
   axis: { min: number; max: number; scope_start: number | null };
-  points: { id: string; trial_id: number; annual_return: number; max_drawdown?: number | null; eligible: boolean | null }[];
+  points: { id: string; trial_id: number; annual_return: number | null; max_drawdown?: number | null; eligible: boolean | null }[];
   recommended: string[];
 };
 
