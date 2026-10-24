@@ -1,0 +1,7 @@
+{
+  "name": "trade-research",
+  "description": "This repository's skills, loaded as one plugin so that claude plugin eval runs the suites under evals/. The plugin root is .agents/ (skills/ and evals/ side by side), kept apart from the checkout so the runner's directory scan stays small.",
+  "skills": [
+    "./skills/"
+  ]
+}

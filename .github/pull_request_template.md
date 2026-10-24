@@ -10,7 +10,8 @@
 
 <!-- List checks actually run and their results. For strategy/data/dependency changes,
      link the paired native replay and inspect orders, fees, funding and account economics.
-     State checks that could not run and why. -->
+     For eval results give the command with its case filter, ablation, runs and judge model,
+     and the pass count per arm. State checks that could not run and why. -->
 
 ## Evidence and limitations
 

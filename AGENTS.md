@@ -51,8 +51,9 @@ ledger: publication is append-only.
   included), never with direct SQL or another account. No strategy bodies or experiment receipts in
   Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
-  a symlink to it), holding runtime content only; their eval suites live in `evals/<skill>/`
-  (`claude plugin eval .`, the root `.claude-plugin/plugin.json`).
+  a symlink to it), holding runtime content only; their eval suites live beside them in
+  `.agents/evals/<skill>/` (`claude plugin eval .agents` from the repository root; the runner needs the
+  suites physically under the plugin root `.agents/`, whose manifest is `.agents/.claude-plugin/plugin.json`).
 
 ## Nautilus and parity
 
