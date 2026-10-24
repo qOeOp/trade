@@ -7,7 +7,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 | Module | Holds |
 |---|---|
-| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, and the `v_universe` view |
+| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, and the `v_universe` view |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
@@ -17,6 +17,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`) |
+| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE`, the per-second thinning and the checks a quote import applies (`derive`, `thin`, `scaled_rows`) |
 
 ## The database
 
@@ -54,6 +55,32 @@ Commands without `--market` use the active market profile.
   both hold must agree on every field. Minutes no source holds stay missing and are reported.
 - **Terms.** exchangeInfo's filters verbatim with the classification, a new row when they change; a
   contract that left exchangeInfo before its first import gets `inferred` increments.
+
+## Quotes
+
+Binance no longer publishes best bid/ask archives (bookTicker ended in 2024-04), and the native backtest's
+liquidation reads cached quotes only. `quote` therefore holds best bid/ask **inferred** from the public
+daily `aggTrades` archives under one declared rule, `quotes.RULE` (`binance-aggtrades-bbo-v1`): a trade
+whose buyer is the maker hit the best bid, so its price is the bid at that moment; a buyer-taker trade
+lifted the best ask; each side is carried forward until it trades again; a stale side that crosses the
+fresh one is pushed one price increment off it (counted in the import result, never silent). The states
+are thinned to each UTC second's lowest-bid, highest-ask and last state. Sizes are not observable and
+not stored; the exporter fills the instrument's `max_quantity` ("no depth modeled").
+
+```bash
+uv run --frozen python -m cli.main market upgrade                      # the administrator: add tables the database lacks
+uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbols BTCUSDT ...]
+```
+
+`market import-quotes --month` appends one UTC month per contract (default: the month's universe members)
+in one transaction and one commit whose message carries `quote_rule`; a later import under another rule is
+`RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Each day's archive is checked against its
+`.CHECKSUM`; the `agg_trade_id` sequence must be contiguous within the day and continue the day before
+(`SEQUENCE_GAP`), the eve's archive is read for the carried state, times must not go backwards. The result
+reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract
+that trades in few seconds has stale inferred quotes, which the readings expose and no rule hides.
+Measured against Binance's native bookTicker on four first-of-month days the inferred BTCUSDT mid is within
+0.7 bps at p99 (`docs/plans/binance-aggtrades-quotes-liquidation-plan.zh.md`).
 
 ## Import and freshness
 

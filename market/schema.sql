@@ -78,3 +78,18 @@ CREATE TABLE universe_month (
 CREATE VIEW v_universe AS
 SELECT universe_rule, month, symbol
 FROM universe_month;
+
+-- Best bid and ask inferred from Binance aggTrades under one declared rule (market/quotes.py: the rule's
+-- name is in every quote import's commit message), thinned to each UTC second's lowest bid, highest ask
+-- and last state. `agg_trade_id` is the aggTrade that produced the state: it separates the rows of one
+-- millisecond and lets a row be checked against a re-downloaded archive. Sizes are not observable and are
+-- not stored (the exporter fills the instrument's max quantity: no depth modeled). Prices x 10^price_scale.
+CREATE TABLE quote (
+  symbol VARCHAR(40) NOT NULL,
+  ts BIGINT NOT NULL,
+  agg_trade_id BIGINT NOT NULL,
+  bid BIGINT NOT NULL,
+  ask BIGINT NOT NULL,
+  PRIMARY KEY (symbol, ts, agg_trade_id),
+  CHECK (bid > 0 AND ask > bid)
+);
