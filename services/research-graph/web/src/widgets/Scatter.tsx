@@ -72,7 +72,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const byDrawdown = [...points].sort((a, b) => a.max_drawdown - b.max_drawdown);
   const byReturn = [...points].sort((a, b) => a.annual_return - b.annual_return);
   const pinned = focus && shows(focus) ? focus : null;
-  // The targets in the legend, out of the plot; full-width punctuation keeps the monospace face's wide spaces out.
+  // The targets in the legend, out of the plot.
   const zone = t.annual_return != null && t.max_drawdown != null ? `Target: return ≥ ${pct(t.annual_return)}, drawdown ≤ ${pct(t.max_drawdown)}` : null;
   // Runs within 1.5px of one another are one marker (the one drawn last in `order`), counting the rest.
   const groups = new Map<string, Point[]>();
@@ -116,7 +116,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     const last = p === frontier.at(-1) && end < w && (!inZone(p) || end < edge), left = first || last || cx < 140;
     const below = first && cy + 18 < h - 14, dy = below ? 18 : first || last ? 4 : -10;
     const tx = cx + (first && !below ? 12 : last || first ? 9 : left ? 4 : -4);
-    return { p, tx, ty: cy + dy, width, anchor: left ? "start" as const : "end" as const, plate: (left ? tx : tx - width) - 2 };
+    return { p, tx, ty: cy + dy, width, anchor: left ? "start" as const : "end" as const };
   });
   return (
     <div ref={ref} tabIndex={0} onKeyDown={keys} onBlur={() => { setKbd(null); hoveredAtom.set(null); }} {...zoom.handlers}
@@ -143,11 +143,6 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
               <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />
               <line x1={0} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={y(focus.annual_return)} />
             </g>}
-            {/* Over the crosshair and the grid but under every run, a plate in the colour beneath each name (the
-                island, or the target zone's tint) keeps those lines from showing between its letters. */}
-            <g className="chart-label-plates" pointerEvents="none">{labels.map((l) => (
-              <rect key={l.p.id} x={l.plate} y={l.ty - 10} width={l.width + 4} height={13} rx={2} fill={inZone(l.p) ? tint("meets", 12) : v("island")} data-v={l.p.id} data-keep="" />
-            ))}</g>
             <g className="chart-series-dominated">{marks.filter((m) => !onFrontier.has(m.p)).map(dot)}</g>
             {frontier.length > 1 && (
               // It stays lit while a run is hovered, as the reference.
