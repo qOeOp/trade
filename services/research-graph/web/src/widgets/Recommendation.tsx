@@ -29,11 +29,11 @@ export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} />);
   return (
     <div className="flex h-[1lh] min-w-0 flex-wrap items-center gap-x-5 overflow-hidden text-dense">
-      <Metric label="年化" tip={`目标 ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
-      <Metric label="回撤" tip={`目标 ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>
-      <Metric label="夏普">{num(r?.sharpe, two)}</Metric>
-      <Metric label="选自" unit="次运行" tip="被推荐的读数是从这么多次研究运行里挑出来的；挑得越多，最好的那个越可能偏高。">{widget.research_runs}</Metric>
-      <Metric label="推荐未变" unit="次运行" tip={`最近 ${widget.recommendations_unchanged} / ${widget.recommendations} 条推荐判断没有换版本`}>
+      <Metric label="Return" tip={`Target ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
+      <Metric label="Drawdown" tip={`Target ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>
+      <Metric label="Sharpe">{num(r?.sharpe, two)}</Metric>
+      <Metric label="Picked from" unit="runs" tip="The recommended reading was picked from this many research runs; the more picked from, the more the best one is likely to overstate.">{widget.research_runs}</Metric>
+      <Metric label="Unchanged for" unit="runs" tip={`The last ${widget.recommendations_unchanged} of ${widget.recommendations} recommendation judgments kept the version`}>
         {widget.runs_since_recommendation_changed}
       </Metric>
     </div>

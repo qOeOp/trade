@@ -9,18 +9,18 @@ export type Action = { id: string; label: string; icon?: IconName; keys?: string
 
 export function commands(windows: readonly ToolWindow[]): Action[] {
   return [
-    { id: "palette", label: "跳转或执行命令", keys: "⌘K", binding: "$mod+KeyK", whileTyping: true, run: () => paletteOpen.set(!paletteOpen.get()) },
-    { id: "axis-start", label: "回到横轴起点", keys: "Home", binding: "Home", run: () => requestFocus("") },
+    { id: "palette", label: "Go to a version or run a command", keys: "⌘K", binding: "$mod+KeyK", whileTyping: true, run: () => paletteOpen.set(!paletteOpen.get()) },
+    { id: "axis-start", label: "Back to the axis start", keys: "Home", binding: "Home", run: () => requestFocus("") },
     ...windows.map((w): Action => ({
-      id: `tool:${w.id}`, label: `开关${w.renderer.title}`, icon: w.icon, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
+      id: `tool:${w.id}`, label: `Toggle ${w.renderer.title}`, icon: w.icon, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
       run: () => toggleToolWindow(w.id, w.side),
     })),
-    { id: "side:right", label: "开关右侧工具窗", icon: "panel-right", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },
-    { id: "side:bottom", label: "开关底部工具窗", icon: "panel-bottom", keys: "⌘J", binding: "$mod+KeyJ", run: () => toggleSide("bottom") },
-    { id: "hide-active", label: "隐藏当前工具窗", keys: "⇧Esc", binding: "Shift+Escape", run: () => {
+    { id: "side:right", label: "Toggle right tool windows", icon: "panel-right", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },
+    { id: "side:bottom", label: "Toggle bottom tool windows", icon: "panel-bottom", keys: "⌘J", binding: "$mod+KeyJ", run: () => toggleSide("bottom") },
+    { id: "hide-active", label: "Hide active tool window", keys: "⇧Esc", binding: "Shift+Escape", run: () => {
       const side = activeIsland.get() as Side;
       if (SIDES.includes(side)) { hideSide(side); activeIsland.set("editor"); }
     } },
-    { id: "theme", label: `切换主题（现在：${THEME_LABEL[theme.get()]}）`, icon: "theme", run: cycleTheme },
+    { id: "theme", label: `Switch theme (now: ${THEME_LABEL[theme.get()]})`, icon: "theme", run: cycleTheme },
   ];
 }

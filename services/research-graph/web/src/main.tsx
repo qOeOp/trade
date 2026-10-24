@@ -13,5 +13,5 @@ try {
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   root.render(<StrictMode><App view={view} /></StrictMode>);
 } catch {
-  root.render(<p style={{ padding: 24 }}>没有可读的视图数据：请用 graph.py render 生成本页。</p>);
+  root.render(<p style={{ padding: 24 }}>No view data to read: generate this page with graph.py render.</p>);
 }

@@ -15,7 +15,7 @@ export function VersionLine({ node, targets, children, dim = false }: {
   return (
     <span data-version-line className="inline-flex items-center gap-(--vl-gap) whitespace-nowrap">
       <span data-part="mark" className="grid"><RoleMark role={node.role} /></span>
-      {node.role !== "masked" && <ReadingBadge reading={node.reading} targets={targets} status={ROLE[node.role]?.label} />}
+      {node.role !== "masked" && <ReadingBadge reading={node.reading} targets={targets} status={ROLE[node.role]?.short} hint={ROLE[node.role]?.label} />}
       <span data-part="pred" className={`grid w-(--pred-slot) shrink-0 place-items-center ${fade}`}><PredictionMark prediction={node.prediction} /></span>
       <span data-part="name" className={`font-mono text-small ${fade} ${node.role === "superseded" ? "text-fg-muted" : "text-fg"}`}>
         {name}<span className="text-fg-faint">@{revision}</span>

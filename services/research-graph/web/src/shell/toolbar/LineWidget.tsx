@@ -8,17 +8,17 @@ import { Dropdown, DropdownFacts, DropdownItem, DropdownSeparator } from "../../
 export function LineWidget() {
   const { line, scope } = useView();
   return (
-    <Dropdown label="研究线" trigger={<span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>}>
+    <Dropdown label="Research line" trigger={<span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>}>
       <DropdownFacts items={[
-        ["研究线", line.bundle],
-        ["起点", line.start ?? "-"],
-        ["开发窗口", line.window?.join(" → ") ?? "-"],
-        ["市场提交", shortSha(line.market_commit)],
-        ["研究范围起", scope?.start ?? "全部"],
+        ["Research line", line.bundle],
+        ["Start", line.start ?? "-"],
+        ["Development window", line.window?.join(" → ") ?? "-"],
+        ["Market commit", shortSha(line.market_commit)],
+        ["Scope from", scope?.start ?? "All"],
       ]} />
       <DropdownSeparator />
-      <DropdownItem icon="copy" onSelect={() => void copyText(line.bundle)}>复制研究线名</DropdownItem>
-      <DropdownItem onSelect={() => requestFocus("")} hint="Home">回到横轴起点</DropdownItem>
+      <DropdownItem icon="copy" onSelect={() => void copyText(line.bundle)}>Copy line name</DropdownItem>
+      <DropdownItem onSelect={() => requestFocus("")} hint="Home">Back to the axis start</DropdownItem>
     </Dropdown>
   );
 }

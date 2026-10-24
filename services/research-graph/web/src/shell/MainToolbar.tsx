@@ -22,10 +22,10 @@ export function MainToolbar() {
       <span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
       <RecommendationWidget />
       <div className="ml-3 min-w-0 flex-1">{summary && <Readout widget={summary} />}</div>
-      <SearchTrigger label="跳转…" onOpen={() => paletteOpen.set(true)} />
+      <SearchTrigger label="Go to…" onOpen={() => paletteOpen.set(true)} />
       <div className="ml-2 flex shrink-0 items-center gap-1">
-        <IconButton frame icon="panel-bottom" label="底部工具窗" keys="⌘J" active={!!open.bottom} onClick={() => toggleSide("bottom")} />
-        <IconButton frame icon="panel-right" label="右侧工具窗" keys="⌘B" active={!!open.right} onClick={() => toggleSide("right")} />
+        <IconButton frame icon="panel-bottom" label="Bottom tool windows" keys="⌘J" active={!!open.bottom} onClick={() => toggleSide("bottom")} />
+        <IconButton frame icon="panel-right" label="Right tool windows" keys="⌘B" active={!!open.right} onClick={() => toggleSide("right")} />
         <SettingsMenu />
       </div>
     </header>

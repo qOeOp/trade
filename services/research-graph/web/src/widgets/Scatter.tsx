@@ -3,7 +3,7 @@ import { AxisBottom, AxisLeft } from "@visx/axis";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import type { ScatterWidget } from "../model/types";
-import { pct, pctShort } from "../lib/format";
+import { pct, plural } from "../lib/format";
 import { valueDomain } from "../lib/valueDomain";
 import { tint, v } from "../theme/roles";
 import { hovered as hoveredAtom, hoverProps, requestFocus, useHovered } from "../state/linking";
@@ -17,14 +17,14 @@ import { Tip } from "../components/Tip";
 
 type Point = ScatterWidget["points"][number];
 
-// The bottom margin holds the tick labels, the axis title right-aligned on their line in place of the last.
-const M = { top: 32, right: 28, bottom: 28, left: 64 };
-// Value labels and the readout pill end GUTTER short of the plot (visx sets labels 8px out already).
-const GUTTER = 6;
+// The bottom margin holds the tick labels; the top one the legend. The axes need no titles: the panel names them.
+const M = { top: 32, right: 32, bottom: 36, left: 64 };
+// Value labels and the readout pill's text end GUTTER short of the plot, the pill's fill 4px short (visx sets labels 8px out already).
+const GUTTER = 8;
 const tickFont = { fill: v("fg-muted"), fontSize: 11, className: "tabular-nums" };
 const leftLabel = () => ({ ...tickFont, textAnchor: "end" as const, dx: 8 - GUTTER, dy: 3.5 });
 const bottomLabel = () => ({ ...tickFont, textAnchor: "middle" as const, dy: 2 });
-const percent = (n: unknown) => pctShort(Math.round(Number(n) * 100) / 100);
+const percent = (n: unknown) => pct(Number(n));
 // Points: 4px; the frontier in the accent colour with a 2px island ring where it meets its line, the
 // rest an opaque grey (so overlaps do not darken) with a 1px ring; the selected one ringed in 2px, 1.5px clear of its island ring.
 const R = 4, RING = 2;
@@ -43,14 +43,18 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const w = Math.max(0, width - M.left - M.right), h = Math.max(0, height - M.top - M.bottom);
   // As many return ticks as fit 28px apart, up to 8 (5% steps for a usual range).
   const count = Math.max(3, Math.min(8, Math.floor(h / 28)));
+  // Two-decimal labels are about 40px wide: about 6 along the bottom, every other one dropped while they are under 56px apart.
+  const xCount = Math.max(2, Math.min(6, Math.floor(w / 72)));
   const ys = [...points.map((p) => p.annual_return), t.annual_return ?? 0, 0];
   const whole = {
     // Nice to the same tick counts the axes draw, so the frame ends on a tick.
-    x: scaleLinear<number>({ domain: [0, Math.max(...points.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.08], nice: 6 }).domain() as [number, number],
+    x: scaleLinear<number>({ domain: [0, Math.max(...points.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.08], nice: xCount }).domain() as [number, number],
     y: valueDomain(Math.min(...ys), Math.max(...ys), count, 1.08),
   };
   const zoom = useZoom(ref, whole, { left: M.left, top: M.top, w, h });
   const x = scaleLinear<number>({ domain: [...zoom.x], range: [0, w] }), y = scaleLinear<number>({ domain: [...zoom.y], range: [h, 0] });
+  const xAll = x.ticks(xCount), gap = xAll.length > 1 ? x(xAll[1]!) - x(xAll[0]!) : Infinity;
+  const xTicks = xAll.filter((_, i) => i % Math.max(1, Math.ceil(56 / gap)) === 0);
   const shows = (p: Point) => p.max_drawdown >= zoom.x[0] && p.max_drawdown <= zoom.x[1] && p.annual_return >= zoom.y[0] && p.annual_return <= zoom.y[1];
   const clip = useId(), pad = zoom.zoomed ? 0 : R + RING + 2;
   const frontier = points.filter((p) => p.eligible !== false)
@@ -68,7 +72,8 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const byDrawdown = [...points].sort((a, b) => a.max_drawdown - b.max_drawdown);
   const byReturn = [...points].sort((a, b) => a.annual_return - b.annual_return);
   const pinned = focus && shows(focus) ? focus : null;
-  const zone = `年化 ≥ ${pctShort(t.annual_return)} · 回撤 ≤ ${pctShort(t.max_drawdown)}`;
+  // The targets in the legend, out of the plot.
+  const zone = t.annual_return != null && t.max_drawdown != null ? `Target: return ≥ ${pct(t.annual_return)}, drawdown ≤ ${pct(t.max_drawdown)}` : null;
   // Runs within 1.5px of one another are one marker (the one drawn last in `order`), counting the rest.
   const groups = new Map<string, Point[]>();
   for (const p of order) {
@@ -82,10 +87,10 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     return (
       <Tip key={`${p.id}-${p.trial_id}`} content={
         <div className="space-y-0.5"><div className="font-mono font-semibold">{p.id}</div>
-          <div>trial {p.trial_id} · 年化 {pct(p.annual_return)} · 回撤 {pct(p.max_drawdown)}</div>
-          {front && <div className="text-fg-muted">在不被支配的前沿上</div>}
-          {p.eligible === false && <div className="text-fail">失去资格</div>}
-          {more > 0 && <div className="text-fg-muted">另有 {more} 个运行与它重合</div>}</div>}>
+          <div>trial {p.trial_id} · return {pct(p.annual_return)} · drawdown {pct(p.max_drawdown)}</div>
+          {front && <div className="text-fg-muted">On the Pareto frontier</div>}
+          {p.eligible === false && <div className="text-fail">Ineligible</div>}
+          {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
         <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
           {p.id === selected && <circle cx={cx} cy={cy} r={R + 4.5} fill="none" stroke={v("selection-strong")} strokeWidth={2} />}
           <circle cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
@@ -102,21 +107,29 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     enter: (p) => { select(p.id); requestFocus(p.id); },
     leave: () => { setKbd(null); hoveredAtom.set(null); },
   });
+  // Named directly: the frontier rises to the right, so above-left of a point is clear. The first point is named
+  // below-right where that fits (else beside it, under the rising line), the rest above-left; the last has nothing to its
+  // right, so it is named there when the name stays on one side of the target zone's edge (11px monospace: 6.6px a letter).
+  const labels = named.filter(shows).map((p) => {
+    const cx = x(p.max_drawdown), cy = y(p.annual_return), first = p === frontier[0] && p !== recommendedRun, width = p.id.length * 6.6;
+    const end = cx + 9 + width, edge = t.max_drawdown != null ? x(t.max_drawdown) : Infinity;
+    const last = p === frontier.at(-1) && end < w && (!inZone(p) || end < edge), left = first || last || cx < 140;
+    const below = first && cy + 18 < h - 14, dy = below ? 18 : first || last ? 4 : -10;
+    const tx = cx + (first && !below ? 12 : last || first ? 9 : left ? 4 : -4);
+    return { p, tx, ty: cy + dy, width, anchor: left ? "start" as const : "end" as const };
+  });
   return (
     <div ref={ref} tabIndex={0} onKeyDown={keys} onBlur={() => { setKbd(null); hoveredAtom.set(null); }} {...zoom.handlers}
          className={`relative h-full w-full touch-none select-none rounded-island -outline-offset-4 ${zoom.zoomed ? "cursor-grab active:cursor-grabbing" : ""}`}>
       {width > 0 && (
-        <svg width={width} height={height} role="img" aria-label="研究运行的年化与最大回撤，方向键逐个读取">
+        <svg width={width} height={height} role="img" aria-label="Annual return against max drawdown of research runs; arrow keys step through them">
           {/* Zoomed in, marks stop at the plot's edges; showing everything, they may overhang them by a point's width. */}
           <defs><clipPath id={clip}><rect x={-pad} y={-pad} width={w + 2 * pad} height={h + 2 * pad} /></clipPath></defs>
           <Group left={M.left} top={M.top}>
             <g clipPath={`url(#${clip})`}>
             {t.max_drawdown != null && t.annual_return != null && (() => {
               const left = Math.max(0, x(whole.x[0])), top = Math.max(0, y(whole.y[1])), right = Math.min(w, x(t.max_drawdown)), foot = Math.min(h, y(t.annual_return));
-              return right > left && foot > top && <>
-                <rect x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />
-                {right - left > zone.length * 7 + 12 && foot - top > 22 && <text x={left + 6} y={top + 15} fontSize={11} fill={v("fg-muted")}>{zone}</text>}
-              </>;
+              return right > left && foot > top && <rect x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />;
             })()}
             {/* The grid over the zone's fill, as Highcharts draws plot bands under it. */}
             <g className="chart-grid" stroke={v("grid")}>{y.ticks(count).filter((n) => n !== 0).map((n) => <line key={n} x1={0} x2={w} y1={Math.round(y(n)) + 0.5} y2={Math.round(y(n)) + 0.5} />)}</g>
@@ -126,53 +139,41 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
               {t.annual_return != null && t.max_drawdown == null && <line x1={0} x2={w} y1={y(t.annual_return)} y2={y(t.annual_return)} />}
             </g>
             {zoom.y[0] < 0 && <line className="chart-zero" x1={0} x2={w} y1={Math.round(y(0)) + 0.5} y2={Math.round(y(0)) + 0.5} stroke={v("axis")} />}
+            {focus && <g className="chart-crosshair" pointerEvents="none" stroke={v("crosshair")} strokeDasharray="1 2">
+              <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />
+              <line x1={0} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={y(focus.annual_return)} />
+            </g>}
             <g className="chart-series-dominated">{marks.filter((m) => !onFrontier.has(m.p)).map(dot)}</g>
             {frontier.length > 1 && (
               // It stays lit while a run is hovered, as the reference.
               <path className="chart-frontier" pointerEvents="none" d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
                     fill="none" stroke={v("recommended")} strokeWidth={2} strokeLinejoin="round" />
             )}
-            {focus && <g className="chart-crosshair" pointerEvents="none" stroke={v("crosshair")} strokeDasharray="1 2">
-              <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />
-              <line x1={0} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={y(focus.annual_return)} />
-            </g>}
             <g className="chart-series-frontier">{marks.filter((m) => onFrontier.has(m.p)).map(dot)}</g>
-            {named.filter(shows).map((p) => {
-              // The frontier rises to the right, so above-left of a point is clear: the first point is named
-              // below-right where that fits (else beside it, under the rising line), the rest above-left; the last has nothing to its
-              // right, so it is named there when the name fits.
-              const cx = x(p.max_drawdown), cy = y(p.annual_return), first = p === frontier[0] && p !== recommendedRun;
-              // Beside the last point only where the name stays on one side of the target zone's edge.
-              const end = cx + 9 + p.id.length * 6.6, edge = t.max_drawdown != null ? x(t.max_drawdown) : Infinity;
-              const last = p === frontier.at(-1) && end < w && (!inZone(p) || end < edge), left = first || last || cx < 140;
-              const below = first && cy + 18 < h - 14, dy = below ? 18 : first || last ? 4 : -10;
-              // A halo in the colour beneath (the island, or the target zone's tint) keeps lines from striking through.
-              return <text key={p.id} x={cx + (first && !below ? 12 : last || first ? 9 : left ? 4 : -4)} y={cy + dy} textAnchor={left ? "start" : "end"}
-                           fontSize={11} fill={v("fg-muted")} stroke={inZone(p) ? tint("meets", 12) : v("island")} strokeWidth={3} strokeLinejoin="round"
-                           paintOrder="stroke" data-v={p.id} data-keep="" className="pointer-events-none font-mono">{p.id}</text>;
-            })}
+            <g className="chart-labels" pointerEvents="none">{labels.map((l) => (
+              <text key={l.p.id} x={l.tx} y={l.ty} textAnchor={l.anchor} fontSize={11} fill={v("fg-muted")} data-v={l.p.id} data-keep="" className="font-mono">{l.p.id}</text>
+            ))}</g>
             </g>
             {/* Ticks under a readout pill give way to it; the pill sits on their line (17px below the plot). */}
             <AxisLeft scale={y} tickValues={y.ticks(count).filter((n) => !pinned || Math.abs(y(n) - y(pinned.annual_return)) > PILL_H + 2)}
                       tickFormat={percent} hideAxisLine hideTicks tickLabelProps={leftLabel} hideZero={false} />
-            <AxisBottom top={h} scale={x} tickValues={x.ticks(6).slice(0, -1).filter((n) => !pinned || Math.abs(x(n) - x(pinned.max_drawdown)) > pillWidth(pct(pinned.max_drawdown)) / 2 + 14)}
+            <AxisBottom top={h} scale={x} tickValues={xTicks.filter((n) => !pinned || Math.abs(x(n) - x(pinned.max_drawdown)) > pillWidth(pct(pinned.max_drawdown)) / 2 + 14)}
                         tickFormat={percent} hideAxisLine hideTicks tickLabelProps={bottomLabel} />
             {pinned && <>
               <ChartPill x={x(pinned.max_drawdown)} y={h + 17 - PILL_H / 2} text={pct(pinned.max_drawdown)} min={8 - M.left} max={w + M.right - 8} />
               <ChartPill x={-GUTTER} y={y(pinned.annual_return) - PILL_H / 2} text={pct(pinned.annual_return)} anchor="end" min={8 - M.left} />
             </>}
           </Group>
-          <g className="chart-axis-titles" fontSize={11} fill={v("fg-muted")}>
-            <text x={M.left + w + M.right - 12} y={M.top + h + 21} textAnchor="end">最大回撤 →</text>
-            <text x={12} y={19}>年化 ↑</text>
-          </g>
         </svg>
       )}
-      <div className="absolute right-3 top-1.5 flex items-center gap-3 text-small text-fg-muted">
-        {zoom.zoomed && <TextButton onClick={zoom.reset} title="双击图表也可复原">复原缩放</TextButton>}
+      <div className="absolute left-3 right-3 top-1.5 flex flex-wrap items-center justify-end gap-x-3.5 text-small text-fg-muted">
+        {zoom.zoomed && <TextButton onClick={zoom.reset} title="Double-click the chart to reset too">Reset zoom</TextButton>}
+        {zone && <span className="pointer-events-none flex items-center gap-1.5">
+          <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={tint("meets", 24)} /></svg>{zone}
+        </span>}
         <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={14} height={8} className="shrink-0"><line x1={0} x2={14} y1={4} y2={4} stroke={v("recommended")} strokeWidth={2} /></svg>
-          不被支配的前沿
+          Pareto frontier
         </span>
       </div>
     </div>

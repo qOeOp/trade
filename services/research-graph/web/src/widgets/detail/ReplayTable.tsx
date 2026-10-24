@@ -14,16 +14,16 @@ const value = (x: number | null | undefined, text: string, ok: boolean | null = 
 /** A version's trials: purpose, readings against the targets, and whether each kept its evidence. */
 export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Targets | null }) {
   const cols: Column<Trial>[] = [
-    col.accessor("trial_id", { header: "trial" }) as Column<Trial>,
-    col.accessor("purpose", { header: "用途", cell: (x) => PURPOSE[x.getValue()] ?? x.getValue() }) as Column<Trial>,
-    col.accessor("annual_return", { header: "年化", meta: { numeric: true }, sortUndefined: "last",
+    col.accessor("trial_id", { header: "Trial" }) as Column<Trial>,
+    col.accessor("purpose", { header: "Use", cell: (x) => PURPOSE[x.getValue()] ?? x.getValue() }) as Column<Trial>,
+    col.accessor("annual_return", { header: "Return", meta: { numeric: true }, sortUndefined: "last",
       cell: (x) => value(x.getValue(), pct(x.getValue()), meets(x.getValue(), targets?.annual_return, true)) }) as Column<Trial>,
-    col.accessor("max_drawdown", { header: "回撤", meta: { numeric: true }, sortUndefined: "last",
+    col.accessor("max_drawdown", { header: "Drawdown", meta: { numeric: true }, sortUndefined: "last",
       cell: (x) => value(x.getValue(), pct(x.getValue()), meets(x.getValue(), targets?.max_drawdown, false)) }) as Column<Trial>,
-    col.accessor("sharpe", { header: "夏普", meta: { numeric: true }, sortUndefined: "last", cell: (x) => value(x.getValue(), ratio(x.getValue())) }) as Column<Trial>,
-    col.accessor("eligible", { header: "资格", meta: { align: "right" }, cell: (x) => {
+    col.accessor("sharpe", { header: "Sharpe", meta: { numeric: true }, sortUndefined: "last", cell: (x) => value(x.getValue(), ratio(x.getValue())) }) as Column<Trial>,
+    col.accessor("eligible", { header: "Elig.", meta: { align: "right" }, cell: (x) => {
       const t = x.row.original;
-      if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "失去资格"}><span className="text-fail">失去</span></Tip>;
+      if (t.eligible === false) return <Tip content={t.ineligible_reason ?? "Ineligible"}><span className="text-fail">Lost</span></Tip>;
       return t.eligible ? <Icon name="check" tone="meets" className="align-middle" /> : <Missing />;
     } }) as Column<Trial>,
   ];

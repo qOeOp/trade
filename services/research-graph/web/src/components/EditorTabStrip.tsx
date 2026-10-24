@@ -18,7 +18,7 @@ export function EditorTabStrip({ tabs, active, onActivate, onClose }: {
           <Icon name={t.icon} />
           <span className="font-mono">{t.label}</span>
           {t.closable && (
-            <button type="button" aria-label={`关闭 ${t.label}`} onClick={(e) => { e.stopPropagation(); onClose(t.id); }}
+            <button type="button" aria-label={`Close ${t.label}`} onClick={(e) => { e.stopPropagation(); onClose(t.id); }}
                     className="grid size-5 place-items-center rounded-badge text-icon opacity-60 transition hover:bg-hover active:bg-pressed hover:opacity-100">
               <Icon name="close-small" />
             </button>

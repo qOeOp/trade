@@ -56,12 +56,12 @@ type; a changed widget is a new version of its type.
 A renderer is a package under `research_graph/renderers/` whose `render.py` defines
 `render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
 `web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
-primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets only; its own npm
+primitives, TanStack Table, visx, cmdk; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks; its own npm
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 4px apart on the
 window frame, following the design rules in
 [`docs/plans/research-graph-design-spec.zh.md`](../../docs/plans/research-graph-design-spec.zh.md): warm low-chroma
-OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, Inter with tabular
-figures for numbers and JetBrains Mono only for version names, hashes and code, one shadow for popups, a blue ring for
+OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Supply) for
+letters and digits alike, so a reading's digits, point and % share a height, one shadow for popups, a blue ring for
 keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms and only as far as its content (trial 0 and the first row at its top-left, the
 last row at its bottom, and on the right no further than the longest-reaching version name, so it never opens on
@@ -77,31 +77,31 @@ the versions and lines. The charts follow the design spec: solid hairline gridli
 a dotted line only for the crosshair (target lines are solid), grey data with colour kept for what the chart is about,
 labels in text colours (a coloured mark beside them gives identity), headroom above the data and readouts as pills on
 the axes that the tick labels make way for; each chart's SVG is layered in named groups (plot bands, grid, series, plot
-lines, axis labels) in paint order. In 研究进展 bars fill 70% of a trial (at most 24px), flat, rounded only at their far
+lines, axis labels) in paint order. In Progress bars fill 70% of a trial (at most 24px), flat, rounded only at their far
 end, under a thin solid target line; the crosshair's trial is a shaded column behind the
-bars, and the hovered run's return is read out on the value axis. In 年化 vs 回撤 the dominated runs
+bars, and the hovered run's return is read out on the value axis. In Return vs drawdown the dominated runs
 are light grey, the frontier a blue line with its ends and the recommendation named above their points, the corner
-meeting both targets a green band that states them; where runs crowd, the wheel zooms in around the pointer, a drag
-pans and a double-click (or 复原缩放) shows them all again. Hovering a mark dims every other
+meeting both targets a green band, its thresholds stated in the legend (no axis titles on either chart: the panel names them); where runs crowd, the wheel zooms in around the pointer, a drag
+pans and a double-click (or Reset zoom) shows them all again. Hovering a mark dims every other
 version mark to 30% (the light grey bars to 55%); Tab reaches either chart and the arrow keys step from run to run (Enter selects, Escape lets go).
 Reading badges
 are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
-widgets (研究线, 账本提交 and 当前推荐, whose menu lists every version the recommendation rested on), the
+widgets (Research line, Ledger commit and Recommended, whose menu lists every version the recommendation rested on), the
 recommendation's readout, search and settings (theme, layout reset), its controls the size of the stripe buttons and its ends
 in line with them; the status bar shows the path to the selected
 version (line › ancestors › version, each clickable; the middle of a long path folds into a … step whose menu lists
 it) and the version under the pointer. The editor keeps at least 45% of the width, so a narrower window shrinks the
 sides first. As in IntelliJ, a stripe on each side opens tool windows, one per side:
-版本树 (the versions as a tree by lineage) on the left, 详情 (the selected version as cards in groups: long text as its first
-sentence with the rest behind 展开全文, a registration as a chip cut in the middle that copies on click) on the right, and
-研究进展 (research-run returns as bars from zero on the canvas's x), 年化 vs 回撤 (the scatter with the non-dominated
-frontier), 版本表 and 数据缺口 at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
+Versions (the versions as a tree by lineage) on the left, Details (the selected version as cards in groups: long text in paragraphs and
+lists, folded to its first paragraph or sentence with the rest behind Show more, a registration as a chip cut in the middle that copies on click) on the right, and
+Progress (research-run returns as bars from zero on the canvas's x), Return vs drawdown (the scatter with the non-dominated
+frontier), Version table and Data gaps at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
 all, collapse all, hide). `⌥1`–`⌥6` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. A version opened
 in its own tab (double-click, or the context menu) shows its detail with what changed and the conclusion beside the
-evidence where the tab is wide enough; the tab strip appears once one is open. Right-clicking a version anywhere (canvas, tree, table) offers 在图中定位, 在详情中显示, 在新标签打开, 复制版本名
-and 复制链接. Tool-window sides, sizes
+evidence where the tab is wide enough; the tab strip appears once one is open. Right-clicking a version anywhere (canvas, tree, table) offers Locate in graph, Show in details, Open in new tab, Copy version name
+and Copy link. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs

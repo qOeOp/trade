@@ -63,7 +63,7 @@ try {
       const bar = [...document.querySelector("header").querySelectorAll("button")].map((e) => r(e).toJSON());
       const crumb = (() => { const b = document.querySelector('footer nav button'); const g = document.createRange(); g.selectNodeContents(b); return g.getBoundingClientRect(); })();
       const status = (() => { const e = document.querySelector("footer").lastElementChild.lastElementChild; const g = document.createRange(); g.selectNodeContents(e); return g.getBoundingClientRect(); })();
-      const frame = { left: nav("左侧工具窗"), right: nav("右侧工具窗"), bar: bar.map((b) => ({ left: b.left, right: b.right, height: b.height })),
+      const frame = { left: nav("Left tool windows"), right: nav("Right tool windows"), bar: bar.map((b) => ({ left: b.left, right: b.right, height: b.height })),
                       crumb: crumb.left, status: innerWidth - status.right, island: r(document.querySelector("[data-island=left]")).toJSON() };
       return { islands, lines, offCentre: Math.max(0, ...offCentre), frame };
     })()`);
@@ -134,15 +134,16 @@ try {
   await key("ArrowDown", "ArrowDown", 40); await key("ArrowDown", "ArrowDown", 40); await sleep(300);
   expect((await evaluate("location.hash")) !== before, "tree: the arrow keys did not move the selection");
   // The status bar folds the middle of a long path into one step whose menu lists it.
-  const fold = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="路径"] [aria-label^="另外"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+  const fold = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="Path"] [aria-label$="more levels"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
   if (fold) {
     await click(fold[0], fold[1]); await sleep(300);
     expect((await evaluate(`document.querySelectorAll('[role="menuitem"]').length`)) > 0, "status bar: the folded step's menu is empty");
     await key("Escape", "Escape", 27);
   }
-  // A canvas version: right-click gives its menu, double-click opens it in a tab, the wheel pans.
+  // A canvas version: right-click gives its menu, double-click opens it in a tab, the wheel pans. It is taken
+  // 60px clear of the canvas's top, so the tab strip the double-click adds does not push it under the ruler.
   const node = await evaluate(`(() => { const box = document.querySelector("[data-island=editor] .react-flow").getBoundingClientRect();
-    const n = [...document.querySelectorAll(".react-flow__node [data-part=name]")].map((e) => e.getBoundingClientRect()).find((b) => b.left > box.left + 8 && b.left + 40 < box.right && b.top > box.top && b.bottom < box.bottom);
+    const n = [...document.querySelectorAll(".react-flow__node [data-part=name]")].map((e) => e.getBoundingClientRect()).find((b) => b.left > box.left + 8 && b.left + 40 < box.right && b.top > box.top + 60 && b.bottom < box.bottom);
     return n && [n.left + 20, n.top + n.height / 2]; })()`);
   expect(node, "canvas: no version in view");
   if (node) {
@@ -176,7 +177,7 @@ try {
     const canvas = `(() => { const rf = document.querySelector("[data-island=editor] .react-flow"); return { same: rf.dataset.probe === "1", at: rf.querySelector(".react-flow__viewport").style.transform }; })()`;
     await evaluate(`document.querySelector("[data-island=editor] .react-flow").dataset.probe = "1"`);
     const still = await evaluate(canvas);
-    const stripe = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="左侧工具窗"] button[aria-pressed="true"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+    const stripe = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="Left tool windows"] button[aria-pressed="true"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
     expect(stripe, "canvas: no open left tool window to close");
     if (stripe) {
       await click(stripe[0], stripe[1]); await sleep(500);

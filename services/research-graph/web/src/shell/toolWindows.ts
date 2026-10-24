@@ -15,19 +15,19 @@ export type ToolWindow = {
   source: string; renderer: Renderer; actions: () => HeaderAction[];
 };
 
-const hide = (side: Side): HeaderAction => ({ id: "hide", icon: "hide", label: "隐藏", keys: "⇧Esc", run: () => hideSide(side) });
+const hide = (side: Side): HeaderAction => ({ id: "hide", icon: "hide", label: "Hide", keys: "⇧Esc", run: () => hideSide(side) });
 const alt = (n: number) => ({ keys: `⌥${n}`, binding: `Alt+Digit${n}` });
 
 const SPECS: readonly ToolWindow[] = [
   { id: "versions", side: "left", icon: "tool.versions", shortcut: alt(1), source: "lineage/2", renderer: RENDERERS.tree,
     actions: () => [
-      { id: "locate", icon: "locate", label: "在树中定位选中的版本", run: () => versionTreeControl.get()?.revealSelected() },
-      { id: "expand", icon: "expand-all", label: "全部展开", run: () => versionTreeControl.get()?.expandAll() },
-      { id: "collapse", icon: "collapse-all", label: "全部折叠", run: () => versionTreeControl.get()?.collapseAll() },
+      { id: "locate", icon: "locate", label: "Locate the selected version in the tree", run: () => versionTreeControl.get()?.revealSelected() },
+      { id: "expand", icon: "expand-all", label: "Expand all", run: () => versionTreeControl.get()?.expandAll() },
+      { id: "collapse", icon: "collapse-all", label: "Collapse all", run: () => versionTreeControl.get()?.collapseAll() },
       hide("left"),
     ] },
   { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail/1", renderer: RENDERERS.detail,
-    actions: () => [{ id: "locate", icon: "locate", label: "在图中定位", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
+    actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
   { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress/1", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
   { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter/1", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
   { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table/1", renderer: RENDERERS.table, actions: () => [hide("bottom")] },
