@@ -18,6 +18,7 @@ import { Legend } from "./Legend";
 // before-scope shading and the recommendation trail; a glyph layer over them holds the events, each
 // on the row it is about. The ruler above shares the x and reads out the trial under the pointer.
 export const UNIT = 24, ROW = 30, RULER = 38;
+const KIND_COLOR: Record<AxisEvent["kind"], string> = { recommendation: "var(--accent)", eligibility_change: "var(--fail)", line_change: "var(--ink-2)" };
 
 type VersionData = LineageNode & { selected: boolean; targets: LineageWidget["targets"] };
 type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
@@ -197,6 +198,13 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
   const sx = (t: number) => x0 + t * unit;
   const ticks = steps(Math.floor(-x0 / unit) - 1, Math.ceil((width - x0) / unit) + 1, 1);
   const H = RULER, base = H - 0.5, lane = 22;
+  // Events of one kind at the same moment (a batch of reviews, say) share one glyph with a count.
+  const stacks: AxisEvent[][] = [];
+  for (const e of [...events].filter((e) => e.x != null).sort((a, b) => a.kind.localeCompare(b.kind) || a.x! - b.x!)) {
+    const last = stacks.at(-1);
+    if (last && e.kind !== "line_change" && last[0].kind === e.kind && e.x! - last[last.length - 1].x! < 0.25) last.push(e);
+    else stacks.push([e]);
+  }
   const firsts = new Set<number | null>();  // a recommendation that moved to another version gets the diamond
   let last: string | null = null;
   for (const e of events.filter((e) => e.kind === "recommendation")) { if (e.candidate !== last) firsts.add(e.x); last = e.candidate; }
@@ -212,10 +220,11 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
         {ticks.filter((t) => t % 10 === 0).map((t) => (
           <text key={`l${t}`} x={sx(t) + 3.5} y={11} className="mono" fontSize={10} fill="var(--ink-2)">{t}</text>
         ))}
-        {events.map((e, i) => {
-          if (e.x == null) return null;
-          const x = sx(e.x);
+        {stacks.map((group, i) => {
+          const e = group[0];
+          const x = sx(e.x!);
           if (x < 40 || x > width - 8) return null;
+          const many = group.length > 1;
           const glyph = e.kind === "line_change"
             ? <><line x1={x} x2={x} y1={15} y2={base} stroke="var(--ink-2)" /><text x={x + 3} y={lane + 3.5} fontSize={10} fill="var(--ink-2)">选线</text></>
             : e.kind === "eligibility_change"
@@ -224,10 +233,21 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
                 ? <rect x={x - 3} y={lane - 3} width={6} height={6} fill="var(--accent)" transform={`rotate(45 ${x} ${lane})`} />
                 : <circle cx={x} cy={lane} r={1.6} fill="var(--accent)" />;
           const kind = e.kind === "recommendation" ? (firsts.has(e.x) ? "推荐换到" : "推荐判断 · 保持") : e.kind === "line_change" ? "选线" : "失去资格";
+          const tip = many ? (
+            <div className="space-y-1">
+              <div className="font-semibold">{kind} · {group.length} 条</div>
+              <div className="mono faint">{when(group[0].at)} – {when(group[group.length - 1].at).slice(11)}</div>
+              <div className="mono grid max-h-64 grid-cols-1 overflow-hidden">
+                {group.slice(0, 24).map((g, j) => <span key={j}>{g.candidate ?? g.ref}</span>)}
+                {group.length > 24 && <span className="faint">…另 {group.length - 24} 条</span>}
+              </div>
+            </div>
+          ) : <EventTip kind={kind} version={e.candidate} at={e.at} refName={e.ref} note={e.kind === "line_change" ? e.text : undefined} />;
           return (
-            <Tip key={i} content={<EventTip kind={kind} version={e.candidate} at={e.at} refName={e.ref} note={e.kind === "line_change" ? e.text : undefined} />}>
-              <g {...hoverProps(e.candidate)} className="cursor-pointer" onClick={() => e.candidate && requestFocus(e.candidate)}>
-                <rect x={x - 5} y={lane - 7} width={10} height={14} fill="transparent" />{glyph}
+            <Tip key={i} content={tip}>
+              <g {...(many ? {} : hoverProps(e.candidate))} className="cursor-pointer" onClick={() => e.candidate && requestFocus(e.candidate)}>
+                <rect x={x - 5} y={lane - 7} width={many ? 28 : 10} height={14} fill="transparent" />{glyph}
+                {many && <text x={x + 5.5} y={lane + 3.5} className="mono" fontSize={9.5} fill={KIND_COLOR[e.kind]}>×{group.length}</text>}
               </g>
             </Tip>
           );
