@@ -6,8 +6,9 @@ import { VersionDetail } from "../widgets/detail/Detail";
 import { RENDERERS } from "../widgets/registry";
 import { Island } from "./Island";
 
-/** The editor island: tabs at the top (the lineage always, versions opened by double-click or the
- *  context menu); the lineage stays mounted while a version tab shows, so its view is kept. */
+/** The editor island: the lineage, and versions opened in tabs by double-click or the context menu.
+ *  The tab strip shows only once a version tab is open (a lone lineage tab says nothing); the lineage
+ *  stays mounted while a version tab shows, so its view is kept. */
 export function Editor() {
   const { targets } = useView();
   const lineage = useWidget<LineageWidget>("lineage/2");
@@ -16,7 +17,7 @@ export function Editor() {
   const Lineage = RENDERERS.lineage.Component;
   const version = active === LINEAGE_TAB ? null : detail?.items.find((c) => c.id === active);
   return (
-    <Island id="editor" header={
+    <Island id="editor" header={tabs.length > 1 &&
       <EditorTabStrip active={active} onActivate={activateTab} onClose={closeTab}
                       tabs={tabs.map((id) => id === LINEAGE_TAB
                         ? { id, label: RENDERERS.lineage.title, icon: "lineage" as const, closable: false }

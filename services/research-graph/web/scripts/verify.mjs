@@ -1,6 +1,7 @@
 // Verifies a rendered page in headless Chrome over CDP (Node's built-in WebSocket; no dependency):
 // screenshots in light and dark, and the layout invariants of the Islands shell and VersionLine
-// (fixed gaps between its parts; each badge number the same padding from the edges and the divider).
+// (fixed gaps between its parts; each badge number the same padding from the edges and the divider),
+// and that a narrow window keeps every island inside it and still while the pointer moves.
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -58,11 +59,13 @@ try {
     writeFileSync(join(outDir, `${scheme}.png`), Buffer.from(shot.data, "base64"));
     for (const i of m.islands) expect(i.radius === "10px", `${scheme}: island ${i.id} radius ${i.radius}`);
     const by = Object.fromEntries(m.islands.map((i) => [i.id, i]));
-    if (by.editor && by.dock) {
-      expect(Math.abs(by.dock.top - by.editor.bottom - 6) < 0.6, `${scheme}: editor-dock gap ${(by.dock.top - by.editor.bottom).toFixed(1)}`);
-      expect(Math.abs(by.dock.left - by.editor.left) < 0.6 && Math.abs(by.dock.width - by.editor.width) < 0.6, `${scheme}: editor and dock differ in left edge or width`);
+    for (const id of ["editor", "left", "right", "bottom"]) expect(by[id], `${scheme}: no ${id} island`);
+    if (by.editor && by.bottom) {
+      expect(Math.abs(by.bottom.top - by.editor.bottom - 6) < 0.6, `${scheme}: editor-bottom gap ${(by.bottom.top - by.editor.bottom).toFixed(1)}`);
+      expect(Math.abs(by.bottom.left - by.editor.left) < 0.6 && Math.abs(by.bottom.width - by.editor.width) < 0.6, `${scheme}: editor and bottom differ in left edge or width`);
     }
-    if (by.editor && by.inspector) expect(Math.abs(by.inspector.left - by.editor.right - 6) < 0.6, `${scheme}: editor-inspector gap ${(by.inspector.left - by.editor.right).toFixed(1)}`);
+    if (by.editor && by.right) expect(Math.abs(by.right.left - by.editor.right - 6) < 0.6, `${scheme}: editor-right gap ${(by.right.left - by.editor.right).toFixed(1)}`);
+    if (by.editor && by.left) expect(Math.abs(by.editor.left - by.left.right - 6) < 0.6, `${scheme}: left-editor gap ${(by.editor.left - by.left.right).toFixed(1)}`);
     expect(m.offCentre < 0.6, `${scheme}: a canvas node's content is ${m.offCentre}px off its vertical centre`);
     const unique = (k) => [...new Set(m.lines.map((l) => JSON.stringify(l[k])))];
     expect(m.lines.length > 0, `${scheme}: no VersionLine rendered`);
@@ -71,6 +74,20 @@ try {
     expect(gaps.length === 1, `${scheme}: badge padding to edges and divider differs: ${gaps.join(" ")}`);
     expect(m.lines.every((l) => l.sameFont), `${scheme}: badge cells differ in font`);
   }
+  // A narrow window: every island stays inside it, and hovering version after version in the tree
+  // (which changes the status bar's readout) never moves an island.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 640, deviceScaleFactor: 1, mobile: false });
+  await send("Page.navigate", { url: `file://${resolve(page)}${hash}` });
+  await sleep(2500);
+  const layout = `JSON.stringify({ page: document.documentElement.scrollWidth, islands: [...document.querySelectorAll("[data-island]")].map((e) => { const b = e.getBoundingClientRect(); return [e.dataset.island, Math.round(b.left), Math.round(b.right)]; }) })`;
+  const narrow = JSON.parse(await evaluate(layout));
+  expect(narrow.page <= 1000, `narrow: the page is ${narrow.page}px wide in a 1000px window`);
+  for (const [id, , right] of narrow.islands) expect(right <= 1000, `narrow: island ${id} ends at ${right}px, past the 1000px window`);
+  const rows = await evaluate(`[...document.querySelectorAll("[data-island=left] [data-version-line]")].slice(0, 30).map((e) => { const b = e.getBoundingClientRect(); return [b.left + 40, b.top + b.height / 2]; })`);
+  const layouts = new Set([JSON.stringify(narrow)]);
+  for (const [x, y] of rows) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }); await sleep(20); layouts.add(await evaluate(layout)); }
+  expect(rows.length > 0, "narrow: no version tree rows to hover");
+  expect(layouts.size === 1, `narrow: hovering ${rows.length} tree rows produced ${layouts.size} different layouts`);
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
   console.log(`verify: ${report.dark.islands.length} islands, ${report.dark.lines.length} version lines; badge at ${first?.badge}px, number padding ${first?.gaps}, name ${first?.name}px after the prediction slot`);

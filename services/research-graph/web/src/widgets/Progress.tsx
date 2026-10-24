@@ -10,6 +10,8 @@ import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
 const TOP = 26, BOTTOM = 22;
+// The legend: each entry keeps its swatch and words together; a narrow island wraps whole entries.
+const LEGEND: readonly [ColorRole, string][] = [["meets", "达到目标"], ["bar", "正收益未达标"], ["misses", "亏损"]];
 
 function Swatch({ role }: { role: ColorRole }) {
   return <svg width={9} height={9} className="shrink-0"><rect width={9} height={9} rx={1.5} fill={v(role)} /></svg>;
@@ -80,9 +82,9 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
         ))}
       </div>
       <div className="pointer-events-none absolute left-3 top-1.5 text-small font-medium text-fg-muted">研究运行年化</div>
-      <div className="pointer-events-none absolute bottom-1 right-3 flex items-center gap-1.5 text-small text-fg-faint">
-        <Swatch role="meets" />达到目标<span className="w-2" /><Swatch role="bar" />正收益未达标<span className="w-2" /><Swatch role="misses" />亏损
-        <span className="w-2" /><svg width={14} height={8}><line x1={0} x2={14} y1={4} y2={4} stroke={v("meets")} strokeDasharray="3 2" /></svg>年化目标
+      <div className="pointer-events-none absolute bottom-1 left-14 right-3 flex flex-wrap justify-end gap-x-3.5 text-small text-fg-faint">
+        {LEGEND.map(([role, label]) => <span key={label} className="flex items-center gap-1.5 whitespace-nowrap"><Swatch role={role} />{label}</span>)}
+        <span className="flex items-center gap-1.5 whitespace-nowrap"><svg width={14} height={8}><line x1={0} x2={14} y1={4} y2={4} stroke={v("meets")} strokeDasharray="3 2" /></svg>年化目标</span>
       </div>
     </div>
   );

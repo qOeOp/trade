@@ -16,7 +16,7 @@ export function MainToolbar() {
   const { open } = useShell();
   const Readout = RENDERERS.summary.Component;
   return (
-    <header className="flex h-(--toolbar-h) shrink-0 items-center gap-1 px-2">
+    <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-2">
       <LineWidget />
       <LedgerWidget />
       <span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />

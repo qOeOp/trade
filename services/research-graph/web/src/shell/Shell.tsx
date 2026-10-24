@@ -21,7 +21,8 @@ const MIN: Record<Side, number> = { left: 240, right: 300, bottom: 140 };
 // The window as IntelliJ lays it out: toolbar and status bar on the frame; between them a stripe on
 // each side and the islands: the open left tool window, the editor (the lineage canvas) with the open
 // bottom tool window under it, and the open right tool window. A hidden side takes no space; sizes are
-// pixels and come back when a side reopens.
+// pixels and come back when a side reopens. The window's width bounds every row, so a long name or
+// a wide table scrolls or truncates inside its island instead of pushing the sides off screen.
 export function Shell() {
   const view = useView();
   const lineage = useWidget<LineageWidget>("lineage/2");
@@ -45,10 +46,10 @@ export function Shell() {
   );
 
   return (
-    <div className="grid h-full grid-rows-[auto_1fr_auto] bg-frame">
+    <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-frame">
       <Dimming />
       <MainToolbar />
-      <div className="flex min-h-0">
+      <div className="flex min-h-0 min-w-0">
         <Stripe side="left" windows={windows} />
         <Group key={`${!!left}${!!right}`} orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
           {left && <>{side("left", left)}<Separator /></>}
