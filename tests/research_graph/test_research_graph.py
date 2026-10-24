@@ -55,7 +55,7 @@ class ContractTests(unittest.TestCase):
 
 
 class LayoutTests(unittest.TestCase):
-    def test_versions_sit_at_their_first_trial_in_lineage_rows(self):
+    def test_versions_sit_at_their_first_research_run_in_lineage_rows(self):
         view = layout.build_view(GRAPH)
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
@@ -64,7 +64,8 @@ class LayoutTests(unittest.TestCase):
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([r["id"] for r in tree["rows"]], ["root@1", "a@1", "b@1"])
-        self.assertEqual((nodes["root@1"]["x"], nodes["a@1"]["x"], nodes["b@1"]["x"]), (1.0, 3.0, 5.0))
+        self.assertEqual((nodes["root@1"]["x"], nodes["a@1"]["x"], nodes["b@1"]["x"]), (2.0, 4.0, 5.0),
+                         "a version sits at its first research run, over its bar")
         self.assertEqual({i: n["status"] for i, n in nodes.items()},
                          {"root@1": "masked", "a@1": "recommended", "b@1": "below_targets"})
         self.assertEqual((nodes["a@1"]["prediction"], nodes["b@1"]["prediction"], nodes["root@1"]["prediction"]),

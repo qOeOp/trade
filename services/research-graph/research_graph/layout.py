@@ -5,7 +5,7 @@ versioned type (summary/1, lineage/2, progress/1, scatter/1, table/1, notes/1, c
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a whole number is a trial, and a candidate sits at its first
-trial. Anything timed (an event, a version without trials, the scope start) sits halfway through the
+research run (or its first trial, a precheck, when it has none). Anything timed (an event, a version without trials, the scope start) sits halfway through the
 gap after the last trial before it, n + 0.5, found by interpolating between trials whose times are
 known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
 children in order of their first trial. A renderer maps these units to its own pixels and colours.
@@ -125,7 +125,8 @@ def build_view(graph: dict) -> dict:
     row = rows(candidates)
 
     def x_of(c: dict) -> float | None:
-        trial = first_trial(c)
+        runs = research_runs(c)  # over its own bar on the progress chart, when it has one
+        trial = runs[0]["trial_id"] if runs else first_trial(c)
         return float(trial) if trial is not None else (gap(c["created_at"]) if c.get("created_at") else None)
 
     nodes = []

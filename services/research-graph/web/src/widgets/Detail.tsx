@@ -16,8 +16,8 @@ const col = columns<Trial>();
 // the number is highlighted (and marked when it misses its target).
 function Metric({ label, value, ok, format }: { label: string; value?: number | null; ok: boolean | null; format: Format }) {
   return (
-    <div className="whitespace-nowrap px-3 py-1.5">
-      <span className="faint">{label} </span>
+    <div className="flex items-baseline justify-between gap-2 whitespace-nowrap px-3 py-1.5">
+      <span className="faint">{label}</span>
       <span style={{ color: readingColor(ok) }}>{value == null ? "—" : <NumberFlow value={value} format={format} />}</span>
     </div>
   );
