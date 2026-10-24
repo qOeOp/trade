@@ -237,7 +237,7 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
             <div className="space-y-1">
               <div className="font-semibold">{kind} · {group.length} 条</div>
               <div className="mono faint">{when(group[0].at)} – {when(group[group.length - 1].at).slice(11)}</div>
-              <div className="mono grid max-h-64 grid-cols-1 overflow-hidden">
+              <div className={`mono grid gap-x-4 ${group.length > 10 ? "grid-cols-2" : "grid-cols-1"}`}>
                 {group.slice(0, 24).map((g, j) => <span key={j}>{g.candidate ?? g.ref}</span>)}
                 {group.length > 24 && <span className="faint">…另 {group.length - 24} 条</span>}
               </div>
@@ -245,7 +245,7 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
           ) : <EventTip kind={kind} version={e.candidate} at={e.at} refName={e.ref} note={e.kind === "line_change" ? e.text : undefined} />;
           return (
             <Tip key={i} content={tip}>
-              <g {...(many ? {} : hoverProps(e.candidate))} className="cursor-pointer" onClick={() => e.candidate && requestFocus(e.candidate)}>
+              <g {...(many ? hoverProps(group.map((g) => g.candidate)) : hoverProps(e.candidate))} className="cursor-pointer" onClick={() => e.candidate && requestFocus(e.candidate)}>
                 <rect x={x - 5} y={lane - 7} width={many ? 28 : 10} height={14} fill="transparent" />{glyph}
                 {many && <text x={x + 5.5} y={lane + 3.5} className="mono" fontSize={9.5} fill={KIND_COLOR[e.kind]}>×{group.length}</text>}
               </g>

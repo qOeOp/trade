@@ -43,7 +43,8 @@ export function Scatter({ widget, selected, onSelect }: {
     .filter((p, _, all) => !all.some((q) => q !== p && q.max_drawdown <= p.max_drawdown && q.annual_return >= p.annual_return
                                        && (q.max_drawdown < p.max_drawdown || q.annual_return > p.annual_return)))
     .sort((a, b) => a.max_drawdown - b.max_drawdown);
-  const focus = points.filter((p) => p.id === hovered).at(-1) ?? points.filter((p) => p.id === selected).at(-1);
+  const lone = hovered?.length === 1 ? hovered[0] : null;
+  const focus = points.filter((p) => p.id === lone).at(-1) ?? points.filter((p) => p.id === selected).at(-1);
   const order = [...points].sort((a, b) => Number(a.status === "recommended") - Number(b.status === "recommended"));
   return (
     <div ref={ref} className="relative h-full w-full">

@@ -38,9 +38,9 @@ function useTheme() {
 
 function Dimming() {
   const hovered = useHovered();
-  if (!hovered) return null;
-  const id = CSS.escape(hovered);
-  return <style>{`.rg [data-v]{opacity:.22} .rg [data-v="${id}"]{opacity:1} .rg .react-flow__edge{opacity:.25}`}</style>;
+  if (!hovered?.length) return null;
+  const lit = hovered.map((id) => `.rg [data-v="${CSS.escape(id)}"]`).join(",");
+  return <style>{`.rg [data-v]{opacity:.22} ${lit}{opacity:1} .rg .react-flow__edge{opacity:.25}`}</style>;
 }
 
 function IconButton({ label, keys, active, onClick, children }: {
@@ -102,7 +102,7 @@ function Palette({ open, onOpenChange, lineage, onSelect, actions }: {
 
 function StatusBar({ view, lineage, summary, selected }: { view: View; lineage?: LineageWidget; summary?: SummaryWidget; selected: string | null }) {
   const hovered = useHovered();
-  const focus = lineage?.nodes.find((n) => n.id === (hovered ?? selected));
+  const focus = hovered && hovered.length > 1 ? null : lineage?.nodes.find((n) => n.id === (hovered?.[0] ?? selected));
   const ok = focus ? verdict(focus.reading, lineage?.targets ?? null) : null;
   const commit = view.scope?.ledger_commit;
   return (
@@ -111,6 +111,7 @@ function StatusBar({ view, lineage, summary, selected }: { view: View; lineage?:
       {commit && <Tip content={`账本提交 ${commit}`}><span className="mono">{commit.slice(0, 8)}</span></Tip>}
       {view.line.window && <span className="mono">{view.line.window.join(" → ")}</span>}
       {summary && <span>{summary.versions} 个版本 · {summary.research_runs} 次研究运行 · {summary.masked_runs} 次失去资格</span>}
+      {hovered && hovered.length > 1 && <span className="ml-auto muted">{hovered.length} 个版本</span>}
       {focus && (
         <span className="ml-auto inline-flex items-center gap-1.5 muted">
           <RoleMark role={focus.role} size={11} />

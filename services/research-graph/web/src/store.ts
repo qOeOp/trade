@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
-// Page-wide state that many widgets read without re-rendering one another: the version under the
-// pointer (elements carry data-v and one style rule dims the rest) and requests to bring a version
+// Page-wide state that many widgets read without re-rendering one another: the versions under the
+// pointer, one or a group (elements carry data-v and one style rule dims the rest) and requests to bring a version
 // into view on the canvas (from the palette, the table or a keyboard shortcut).
 type Listener = () => void;
 
@@ -15,12 +15,16 @@ function atom<T>(initial: T) {
   };
 }
 
-export const hovered = atom<string | null>(null);
+export const hovered = atom<readonly string[] | null>(null);
 export const useHovered = () => useSyncExternalStore(hovered.subscribe, hovered.get);
 
-export const hoverProps = (id: string | null | undefined) => id ? {
-  "data-v": id, onMouseEnter: () => hovered.set(id), onMouseLeave: () => hovered.set(null),
-} : {};
+/** Hover handlers for a mark of one version (which also dims with the rest) or of a group of them. */
+export function hoverProps(ids: string | readonly (string | null)[] | null | undefined) {
+  if (!ids) return {};
+  if (typeof ids === "string") return { "data-v": ids, onMouseEnter: () => hovered.set([ids]), onMouseLeave: () => hovered.set(null) };
+  const group = [...new Set(ids.filter((id): id is string => !!id))];
+  return group.length ? { onMouseEnter: () => hovered.set(group), onMouseLeave: () => hovered.set(null) } : {};
+}
 
 // A focus request: the canvas centres on `id` ("" means the start of the axis); `n` makes repeats distinct.
 export const focusRequest = atom<{ id: string; n: number } | null>(null);
