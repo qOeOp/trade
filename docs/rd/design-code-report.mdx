@@ -230,7 +230,7 @@ Every registration attempt with its run and the run's availability now; LEDGER_C
 | <Ref id="report.paired">paired</Ref> | 配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨效应与固定局限句；不返回任何裁决字段 |
 | <Ref id="registration_id">registration_id</Ref> | 样本外报告：从绑定的封存运行读与开发报告同口径的绩效指标并经同一经济证据资格视图遮蔽；单序列区间与 p；同窗口登记族的 Holm 校正；列出登记内容、凭证时间、绑定试验与审计状态、同一候选的全部样本外登记；无裁决字段；资金使用率由 Agent 从封存敞口表自算，报告只给其读口位置 |
 | <Ref id="report.single">single</Ref> | 单序列循环块自助：对样本外窗口内账户日收益报日对数收益均值与年化夏普的基本区间、嵌套学生化区间、半倍／一倍／两倍块长敏感性，以及均值不大于零的单侧 p；缺日或不足两个完整块即不可用；不返回裁决 |
-| <Ref id="report.validation_report">validation_report</Ref> | 样本外报告：读绑定运行的单运行报告与读时派生量，与开发报告同口径并经同一资格视图遮蔽；附单序列区间与 p、同窗口登记族的 Holm 校正与登记清单；无裁决字段 |
+| <Ref id="report.validation_report">validation_report</Ref> | 样本外报告：读绑定运行的单运行报告与读时派生量，与开发报告同口径并经同一资格视图遮蔽；附最初登记的凭证身份、单序列区间与 p、同窗口登记族的 Holm 校正与登记清单；无裁决字段 |
 
 ### `compare` [#def-report-compare]
 
@@ -413,7 +413,7 @@ def single(
 
 ### `validation_report` [#def-report-validation_report]
 
-样本外报告：读绑定运行的单运行报告与读时派生量，与开发报告同口径并经同一资格视图遮蔽；附单序列区间与 p、同窗口登记族的 Holm 校正与登记清单；无裁决字段
+样本外报告：读绑定运行的单运行报告与读时派生量，与开发报告同口径并经同一资格视图遮蔽；附最初登记的凭证身份、单序列区间与 p、同窗口登记族的 Holm 校正与登记清单；无裁决字段
 
 ```python
 def validation_report(
@@ -425,13 +425,13 @@ def validation_report(
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "registration_id": { type: "str", description: "样本外登记标识（validation_registration 主键）" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签），缺省为当前 HEAD" } }} />
 
-**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate（strategy_id@revision）, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{stamped_at | None, verified\}, binding\{trial_id, purpose（恒为 validation）, status, audit_status, bound_at\} | None, availability | None, metrics | None（与开发报告同口径并经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 为封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, size, members[\{registration_id, candidate, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}；无裁决、通过或推荐字段
+**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate（strategy_id@revision）, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{registration_id（最初登记）, commit_hash | None（该登记诞生提交）, stamped_at | None, verified\}, binding\{trial_id, purpose（恒为 validation）, status, audit_status, bound_at\} | None, availability | None, metrics | None（与开发报告同口径并经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 为封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, size, members[\{registration_id, candidate, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}；无裁决、通过或推荐字段
 
 **期望行为**
 
 1. 读样本外登记与绑定试验；未绑定即只给登记与局限。
 2. 有绑定时经 report.run_report 读同口径的单运行报告（含资金使用），经资格视图遮蔽，不可用只留原因。
-3. 经 report.single 给单序列区间与 p，按同窗口登记族做 Holm 校正；列出登记内容、凭证时间与同一候选的全部样本外登记；不写账本。
+3. 经 report.single 给单序列区间与 p，按同窗口登记族做 Holm 校正；列出登记内容、凭证时间与同一候选的全部样本外登记；不写账本。凭证沿所读账本版本中的 retry_of 追溯至最初登记，与绑定检查共用追溯逻辑，离线验签并返回所属 registration_id 与 commit_hash。无重试时即当前登记；缺失或无效时保留身份、verified=false、stamped_at=null，并列出 UNWITNESSED。verified 仅代表验签，不是时间准入裁决。
 4. 族内每个成员的单序列 p 按它自己登记的检验条件（种子、块长、重抽次数）算，Holm 只在有 p 的成员间校正；已绑定但还没有运行的成员读作 unfinished。
 
 | 拒绝码 | 条件 |
@@ -873,11 +873,11 @@ def compare_runs(
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="report.review_all">review_all</Ref> | 读账号按精确版本运行整体复核：提交测试、逐表只追加、单运行报告与持仓周期和逐日序列一致、登记早于试验且源码在网格内、指纹在位、凭证在位、样本外一对一；差异只报发现 |
+| <Ref id="report.review_all">review_all</Ref> | 读账号按精确版本运行整体复核：提交测试、逐表只追加、单运行报告与持仓周期和逐日序列一致、登记早于试验且源码在网格内、指纹在位、最初登记的凭证有效且早于窗口、样本外一对一；差异只报发现 |
 
 ### `review_all` [#def-report-review_all]
 
-读账号按精确版本运行整体复核：提交测试、逐表只追加、单运行报告与持仓周期和逐日序列一致、登记早于试验且源码在网格内、指纹在位、凭证在位、样本外一对一；差异只报发现
+读账号按精确版本运行整体复核：提交测试、逐表只追加、单运行报告与持仓周期和逐日序列一致、登记早于试验且源码在网格内、指纹在位、最初登记的凭证有效且早于窗口、样本外一对一；差异只报发现
 
 ```python
 def review_all(
@@ -899,7 +899,7 @@ def review_all(
 3. 核对最近一次备份的头提交仍是当前头的祖先，否则记发现 HISTORY_REWRITTEN（备份头由 dolt 命令行把备份还原到临时目录读出，读不了记 BACKUP_UNREADABLE；没有备份时不记发现，但在 limitations 写 HISTORY_UNCHECKED）：写账号能改写刚做的提交，改写会让原提交从历史里消失。
 4. 对每个通过的运行，用封存行重算：利润来源（价格 − 手续费 ＋ 资金费 ＋ 未平标记）须等于期末减期初权益（容差内），持仓周期与逐日数的计数、逐日序列逐 UTC 日恰好一次并复利到终值；封存的计划核对通过时不应有无计划标签的周期；不符记 READING_MISMATCH。
 5. 核每个通过的运行都有报告指纹与执行封存；深度复核按复现清单经 replay.reproduce 重放并比对指纹。
-6. 核登记先于试验、源码在网格内、凭证在位、样本外一对一；全程不开写事务。
+6. 核登记先于试验、源码在网格内、样本外一对一；时间戳沿 retry_of 使用最初登记的凭证，与绑定和报告共用追溯逻辑。原始凭证缺失或无效记 WITNESS_MISSING，时间恰在或晚于原始窗口起点记 WITNESS_LATE；合法重试自身的晚签或缺失不替代原始凭证，也不单独产生这两项发现。发现保留当前登记的 record_id，commit 指向原始登记诞生提交，detail 标明原始登记身份；全程不开写事务。
 
 | 拒绝码 | 条件 |
 |---|---|

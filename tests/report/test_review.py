@@ -142,6 +142,8 @@ class TamperTests(unittest.TestCase):
         found = comparison.validation_report(self.profile, self.witnessed["registration_id"])
         self.assertEqual(found["registration"]["candidate"], "rsi@1")
         self.assertTrue(found["witness"]["verified"])
+        self.assertEqual(found["witness"]["registration_id"], self.witnessed["registration_id"])
+        self.assertEqual(found["witness"]["commit_hash"], self.witnessed["ledger_commit"])
         self.assertEqual((found["binding"], found["metrics"], found["single"]), (None, None, None))
         self.assertTrue(any(item.startswith("UNBOUND") for item in found["limitations"]))
         self.assertEqual([member["registration_id"] for member in found["family"]["members"]],
@@ -150,6 +152,10 @@ class TamperTests(unittest.TestCase):
         self.assertEqual([item["status"] for item in found["same_candidate_registrations"]], ["unbound"])
         unwitnessed = comparison.validation_report(self.profile, self.unwitnessed["registration_id"])
         self.assertFalse(unwitnessed["witness"]["verified"])
+        self.assertEqual(unwitnessed["witness"]["registration_id"], self.unwitnessed["registration_id"])
+        self.assertEqual(unwitnessed["witness"]["commit_hash"], self.unwitnessed["ledger_commit"])
+        self.assertIsNone(unwitnessed["witness"]["stamped_at"])
+        self.assertTrue(any(item.startswith("UNWITNESSED") for item in unwitnessed["limitations"]))
         self.assertEqual(refused(comparison.validation_report, self.profile, 999).code, "REGISTRATION_UNKNOWN")
 
     def test_4_a_run_without_its_recorded_identity_cannot_be_compared_by_identity(self):

@@ -225,14 +225,14 @@ engine.lifecycle_events, the same implementation the auditor runs, its refusals 
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.connect">connect</Ref> | 按角色取凭据建立账本连接；writer 只能插入且只对固定研究 branch 有写权，reader 只读 |
+| <Ref id="ledger.connect">connect</Ref> | 按角色建立账本连接；writer 请求分支须逐字等于档案的固定研究分支，reader 只读；数据库授权与匹配限制见接口正文 |
 | <Ref id="ledger.init">init</Ref> | 建库与全部表，写模式与并发守卫单行，装提交校验组，建 writer/reader 最小权限账号与 branch 写权 |
 | <Ref id="ledger.read_as_of">read_as_of</Ref> | 按账本提交、标签或 branch 给出钉在精确提交上的只读连接 |
 | <Ref id="ledger.write">write</Ref> | 单事务写入并提交；同载荷重试返回原记录；并发写冲突拒绝 |
 
 ### `connect` [#def-ledger-connect]
 
-按角色取凭据建立账本连接；writer 只能插入且只对固定研究 branch 有写权，reader 只读
+按角色建立账本连接；writer 请求分支须逐字等于档案的固定研究分支，reader 只读；数据库授权与匹配限制见接口正文
 
 ```python
 def connect(
@@ -253,7 +253,7 @@ def connect(
 3. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝；连接本身失败时套接字也关闭，不泄漏（pymysql 1.1.2 这时不关它），拒绝码不变。
 4. 读 ledger_schema 单行，version 不等于本代码期望的模式版本即关闭连接并拒绝。
 5. 返回带角色属性的连接；ledger.write 据此拒绝只读连接。
-6. 已知限制（Dolt 2.4.2 实测）：分支权限表按 LIKE 匹配库名、分支名与账号名，下划线是通配符且无法转义，所以研究分支名里的下划线会顺带匹配同形的其他分支；只有管理账号能建分支，SQL 授权按库名逐字匹配，暴露面很小。
+6. 已知限制（Dolt 2.4.2 实测）：分支权限表按 LIKE 匹配库名、分支名与账号名，下划线是通配符，反斜杠转义不生效，所以研究分支名里的下划线会顺带匹配同形的其他分支；只有管理账号能建分支，SQL 授权按库名逐字匹配。应用层的分支逐字核对与数据库的模式匹配是两个边界，不能据前者宣称原生分支权限已经逐字隔离。
 7. 连接时同样核对提交校验组设置为 commit，不是即拒绝 COMMIT_CHECKS_DISABLED。
 8. 已知限制（Dolt 2.4.2 实测）：写账号仍能 DOLT_COMMIT --amend 与 --date、临时关外键检查、插入 dolt_tests 与 dolt_ignore 行，任何账号都能改全局提交校验设置；这些不靠权限挡住，由写入前核对与整体复核发现（见第 13 章待定事项）。
 
