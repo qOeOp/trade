@@ -856,7 +856,8 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
 # Quotes (market.import_quotes): best bid/ask inferred from Binance aggTrades under quotes.RULE
 
 def quote_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
-    """The quote import commits reachable from `ref`, oldest first: {commit, month, through, quote_rule, symbols}."""
+    """The quote import commits reachable from `ref`, oldest first: {commit, month, through, quote_rule, thinned,
+    symbols, archives (the archive SHA-256 of every day read)}."""
     found = []
     for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
         try:
@@ -865,14 +866,16 @@ def quote_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
             continue
         if isinstance(value, dict) and value.get("import") == QUOTE_IMPORT:
             found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "quote_rule",
-                                                                               "symbols")}})
+                                                                               "thinned", "symbols", "archives")}})
     return found[::-1]
 
 
 def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
-                  log=print) -> dict:
+                  log=print, thin: bool = False) -> dict:
     """market.import_quotes: append one UTC month of inferred best bid/ask (quotes.RULE) of `symbols`
-    (default: the month's universe members) as one market commit; insert only, one month per symbol."""
+    (default: the month's universe members) as one market commit; insert only, one month per symbol.
+    `thin` keeps each second's lowest-bid, highest-ask and last state only: a liquidation then fills at
+    the second's adverse extreme up to a second late, so the full sequence is the baseline."""
     started = time.monotonic()
     scope = _scope(symbols, profile)
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
@@ -884,7 +887,7 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4
     conn = connect(profile, "import")
     try:
         lock(conn)
-        return _import_quotes(conn, month, start_ms, end_ms, Path(cache_root), workers, scope, log, started)
+        return _import_quotes(conn, month, start_ms, end_ms, Path(cache_root), workers, scope, log, started, thin)
     except BaseException:
         try:
             conn.raw.rollback()
@@ -896,7 +899,7 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4
 
 
 def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
-                   scope: list[str] | None, log, started: float) -> dict:
+                   scope: list[str] | None, log, started: float, thin: bool) -> dict:
     label = f"{month:%Y-%m}"
     if conn.empty:
         raise _refuse("the market database holds no bars yet; quotes need the contracts' terms", "MARKET_EMPTY")
@@ -910,6 +913,10 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
     if any(item["quote_rule"] != quotes.RULE for item in done):
         raise _refuse(f"earlier quote imports used rule {done[-1]['quote_rule']}, this code {quotes.RULE}",
                       "RULE_VERSION_MISMATCH", missing=(str(done[-1]["quote_rule"]),))
+    if any(bool(item["thinned"]) != thin for item in done):
+        raise _refuse(f"earlier quote imports were {'thinned' if done[-1]['thinned'] else 'full'}, this one "
+                      f"{'thinned' if thin else 'full'}; one database holds one form", "RULE_VERSION_MISMATCH",
+                      missing=("--thin",))
     if scope is None:
         scope = [symbol for (symbol,) in conn.rows("SELECT symbol FROM universe_month WHERE universe_rule = %s "
                                                      "AND month = %s ORDER BY symbol", (conn.universe_rule, month))]
@@ -924,6 +931,7 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
     days = [series._ms_day(at).isoformat() for at in range(start_ms, end_ms, DAY)]
     eve = series._ms_day(start_ms - DAY).isoformat()
     per_symbol: dict[str, dict] = {}
+    archives: dict[str, dict[str, str]] = {}  # the input identity: each day's archive SHA-256 (its .CHECKSUM)
     total = 0
     for symbol in scope:
         # The newest stored terms: like the bar import, the price increment is the one observed at import time.
@@ -943,12 +951,15 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
         if eve_path is not None:
             quotes.derive(sources.aggtrades_table(eve_path), tick, state, f"{symbol} {eve}")
         paths = sources.fetch_all(cache, [sources.aggtrades_key(symbol, day) for day in days], workers)
+        archives[symbol] = {day: _published_sha(path) for day, path in zip(days, paths, strict=True)}
+        if eve_path is not None:
+            archives[symbol][eve] = _published_sha(eve_path)
         rows: list[tuple] = []
         readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                     "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
         for day, path in zip(days, paths, strict=True):
             found, day_readings = quotes.derive(sources.aggtrades_table(path), tick, state, f"{symbol} {day}")
-            rows += quotes.thin(found)
+            rows += quotes.thin(found) if thin else found
             for key, value in day_readings.items():
                 readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
         scaled_rows = quotes.scaled_rows(symbol, rows, PRICE_SCALE)
@@ -961,8 +972,14 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
                               "days": len(days)}
         log(f"{symbol}: {len(scaled_rows)} quotes from {readings['trades']} trades")
     message = json.dumps({"import": QUOTE_IMPORT, "month": label, "through": series._ms_day(end_ms).isoformat(),
-                          "quote_rule": quotes.RULE, "symbols": scope}, separators=(",", ":"), ensure_ascii=False)
+                          "quote_rule": quotes.RULE, "thinned": thin, "symbols": scope, "archives": archives},
+                         separators=(",", ":"), ensure_ascii=False)
     commit = _commit(conn, message)
-    return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE, "symbols": scope,
-            "quote_rows": total, "per_symbol": per_symbol, "market_commit": commit,
+    return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE, "thinned": thin,
+            "symbols": scope, "quote_rows": total, "per_symbol": per_symbol, "archives": archives, "market_commit": commit,
             "seconds": round(time.monotonic() - started)}
+
+
+def _published_sha(path: Path) -> str:
+    """The SHA-256 the exchange published beside a cached archive (fetch_archive verified it)."""
+    return (Path(path).with_name(Path(path).name + ".CHECKSUM")).read_text(encoding="utf-8").split()[0]

@@ -116,7 +116,7 @@ class ImportQuotesTests(unittest.TestCase):
         return caught.exception
 
     def test_one_month_of_quotes_is_one_commit_with_the_rule_in_its_message(self):
-        self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute survive the thinning
+        self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute, stored in full
         readings = self.result["per_symbol"]["BTCUSDT"]
         self.assertEqual((readings["trades"], readings["stale_side_adjustments"], readings["eve_archive"]), (31 * 2880, 0, True))
         self.assertEqual(readings["minutes_with_trades"], 31 * 1440)
@@ -130,8 +130,10 @@ class ImportQuotesTests(unittest.TestCase):
         bid = round(2000.0 - 0.02 * 1440, 2)  # the walk continues from the eve: no stale side, no adjustment
         self.assertEqual(first, [(day_ms(JAN) + 100, eve_trades + 1, round(bid * 10**8), round((bid + 0.03) * 10**8)),
                                  (day_ms(JAN) + 200, eve_trades + 2, round(bid * 10**8), round((bid + 0.01) * 10**8))])
-        self.assertEqual([(item["month"], item["quote_rule"], item["symbols"]) for item in done],
-                         [("2025-01", quotes.RULE, ["BTCUSDT"])])
+        self.assertEqual([(item["month"], item["quote_rule"], item["thinned"], item["symbols"]) for item in done],
+                         [("2025-01", quotes.RULE, False, ["BTCUSDT"])])
+        self.assertEqual(sorted(done[0]["archives"]["BTCUSDT"])[:2], ["2024-12-31", "2025-01-01"])  # the eve and the days
+        self.assertEqual(len(done[0]["archives"]["BTCUSDT"]["2025-01-01"]), 64)
         self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote commits are not bar imports
 
     def test_a_month_imports_once_and_a_sequence_gap_stores_nothing(self):
@@ -142,6 +144,8 @@ class ImportQuotesTests(unittest.TestCase):
             with patch.object(quotes, "RULE", "another-rule-v9"):
                 self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.profile, FEB, self.cache, 1, ["BTCUSDT"],
                              log=lambda _: None)
+            self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.profile, FEB, self.cache, 1, ["BTCUSDT"],
+                         log=lambda _: None, thin=True)  # one database holds one form
         with store.connect(self.profile, "reader") as conn:
             (count,), = conn.rows("SELECT COUNT(*) FROM quote WHERE ts >= %s", (day_ms(FEB),))
             dirty = conn.rows("SELECT table_name FROM dolt_status")
