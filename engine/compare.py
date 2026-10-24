@@ -107,7 +107,7 @@ def report_fingerprint(directory: Path) -> dict:
             # Orders by client order ID with its random part masked (a liquidation order's ID carries a fresh
             # UUID every run), orders of one masked ID by the time of their first event and their instrument,
             # then each order's events in engine order. IDs without a random part keep the plain ID order.
-            first = {}
+            first: dict[str, tuple] = {}
             for row in rows:
                 first.setdefault(row["client_order_id"], (row.get("ts_event"), row.get("instrument_id", "")))
             walk = sorted(range(len(rows)), key=lambda index: (RANDOM.sub("~", rows[index]["client_order_id"]),
