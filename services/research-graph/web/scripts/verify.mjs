@@ -4,7 +4,8 @@
 // that a narrow window keeps every island inside it and still while the pointer moves, the detail and
 // the toolbar readings inside their bounds, and that
 // scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
-// the folded path, a version's context menu, opening it in a tab, panning the canvas to its edges).
+// the folded path, a version's context menu, opening it in a tab, panning the canvas to its edges, a side
+// closing without moving the canvas, focusing the earliest version without showing space before it).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -168,6 +169,23 @@ try {
     await wheel(0, 4000);
     const end = await evaluate(edges) ?? { bottom: NaN };
     expect(Math.abs(end.bottom) < 0.6, `canvas: at the end the last row is ${end.bottom.toFixed(1)}px from the bottom`);
+    // Closing a side neither remounts nor moves the canvas.
+    const canvas = `(() => { const rf = document.querySelector("[data-island=editor] .react-flow"); return { same: rf.dataset.probe === "1", at: rf.querySelector(".react-flow__viewport").style.transform }; })()`;
+    await evaluate(`document.querySelector("[data-island=editor] .react-flow").dataset.probe = "1"`);
+    const still = await evaluate(canvas);
+    const stripe = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="左侧工具窗"] button[aria-pressed="true"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+    expect(stripe, "canvas: no open left tool window to close");
+    if (stripe) {
+      await click(stripe[0], stripe[1]); await sleep(500);
+      const after = await evaluate(canvas);
+      expect(after.same && after.at === still.at, `canvas: closing the left tool window ${after.same ? "" : "remounted the canvas and "}moved it from ${still.at} to ${after.at}`);
+    }
+    // Focusing the earliest version centres it only as far as the content allows: nothing before trial 0
+    // or above the first row shows.
+    const earliest = await evaluate(`[...document.querySelectorAll(".react-flow__node")].map((n) => [n.dataset.id, new DOMMatrix(getComputedStyle(n).transform).m41]).sort((a, b) => a[1] - b[1])[0]?.[0]`);
+    await evaluate(`location.hash = ${JSON.stringify(earliest)}`); await sleep(600);
+    const start = await evaluate(edges) ?? { left: NaN, top: NaN };
+    expect(start.left < 0.6 && start.top < 0.6, `canvas: focusing ${earliest} leaves ${start.left.toFixed(1)}px before trial 0 and ${start.top.toFixed(1)}px above the first row`);
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];

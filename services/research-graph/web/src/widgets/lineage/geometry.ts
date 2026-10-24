@@ -17,6 +17,14 @@ export function bounds(widget: LineageWidget) {
 /** The pan that puts the content's top-left corner at the canvas's. */
 export const HOME = { x: UNIT / 2, y: ROW / 2 };
 
+/** The pan that centres a version's mark and the name to its right in a canvas of `width` × `height`,
+ *  clamped so nothing beyond the content shows: content smaller than the canvas stays at its top-left. */
+export function centredOn(widget: LineageWidget, mark: { x: number; y: number }, width: number, height: number) {
+  const { left, top, right, bottom } = bounds(widget);
+  const clamp = (v: number, low: number, high: number) => Math.min(high, Math.max(Math.min(low, high), v));
+  return { x: clamp(width / 2 - (mark.x + 200), width - right, -left), y: clamp(height / 2 - mark.y, height - bottom, -top) };
+}
+
 /** Canvas position of each placed version's mark. */
 export function positions(widget: LineageWidget): Map<string, { x: number; y: number }> {
   return new Map(widget.nodes.flatMap((n) => (n.x == null ? [] : [[n.id, { x: n.x * UNIT, y: n.row * ROW }] as const])));

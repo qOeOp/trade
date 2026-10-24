@@ -60,7 +60,8 @@ primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets 
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 6px apart on the
 window frame. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms and only as far as its content (trial 0 and the first row at its top-left, the
-last row at its bottom), with each version's role shown by its mark's shape, parent-to-child
+last row at its bottom; focusing a version centres it only as far as that allows, and opening or closing a side
+leaves the canvas where it is), with each version's role shown by its mark's shape, parent-to-child
 lines drawn as git graphs draw them (recessive, except the selected version's lineage: root to it and on to its
 children), no gridlines (the ruler gives the trials), a brand-blue underline where a version stayed recommended and a red
 wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
