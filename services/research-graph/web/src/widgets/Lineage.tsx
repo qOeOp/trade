@@ -52,16 +52,21 @@ const Version = memo(function Version({ data }: NodeProps<Node<VersionData>>) {
           <Handle type="target" position={Position.Left} className="!opacity-0" />
           <RoleMark role={data.role} />
           {read ? (
-            <span className="mono inline-flex shrink-0 items-center rounded-[4px] border text-[10.5px] leading-[16px]"
+            // Two cells of fixed character width with equal padding, the rule being the second cell's
+            // left border: every badge has the same width and its rule in the same place.
+            <span className="mono inline-flex shrink-0 items-stretch overflow-hidden rounded-[4px] border text-[10.5px] leading-[16px]"
                   style={{ borderColor: "var(--rule-2)", background: "var(--raised)" }}>
-              <span className="w-[52px] px-1 text-right" style={{ color: readingColor(ok.ret) }}>{pct(data.reading.annual_return)}</span>
-              <span className="h-3 w-px" style={{ background: "var(--rule-2)" }} />
-              <span className="w-[46px] px-1 text-right" style={{ color: readingColor(ok.dd) }}>{pct(data.reading.max_drawdown)}</span>
+              <span className="box-content w-[7ch] px-1.5 text-right" style={{ color: readingColor(ok.ret) }}>{pct(data.reading.annual_return)}</span>
+              <span className="box-content w-[6ch] border-l px-1.5 text-right" style={{ borderColor: "var(--rule-2)", color: readingColor(ok.dd) }}>
+                {pct(data.reading.max_drawdown)}</span>
             </span>
           ) : (
-            <span className="shrink-0 rounded-[4px] border px-1.5 text-[10.5px] leading-[16px] faint" style={{ borderColor: "var(--rule)" }}>{ROLE[data.role]?.label ?? "-"}</span>
+            <span className="mono shrink-0 rounded-[4px] border text-center text-[10.5px] leading-[16px] faint"
+                  style={{ borderColor: "var(--rule)", width: "calc(13ch + 27px)" }}>{ROLE[data.role]?.label ?? "-"}</span>
           )}
-          {prediction.glyph && <Icon name={prediction.glyph} color={prediction.color} size={13} />}
+          <span className="grid w-[13px] shrink-0 place-items-center">
+            {prediction.glyph && <Icon name={prediction.glyph} color={prediction.color} size={13} />}
+          </span>
           <span className="mono text-[11.5px]" style={{ color: data.role === "superseded" ? "var(--ink-2)" : "var(--ink-1)" }}>
             {name}<span className="faint">@{revision}</span>
           </span>
