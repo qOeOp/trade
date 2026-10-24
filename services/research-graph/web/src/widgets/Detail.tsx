@@ -12,14 +12,14 @@ const VERDICT: Record<string, [string, string]> = { passed: ["✓ 通过", "var(
 const PURPOSE: Record<string, string> = { research: "研究", precheck: "预检", explore: "探索", validation: "验证" };
 const col = columns<Trial>();
 
+// One reading in the inspector's one-line strip: label and number share font, size and weight; only
+// the number is highlighted (and marked when it misses its target).
 function Metric({ label, value, ok, format }: { label: string; value?: number | null; ok: boolean | null; format: Format }) {
   return (
-    <div className="px-3 py-2">
-      <div className="text-[10.5px] faint">{label}</div>
-      <div className="mono text-[15px] font-medium" style={{ color: readingColor(ok) }}>
-        {value == null ? "—" : <NumberFlow value={value} format={format} />}
-      </div>
-    </div>
+    <span className="whitespace-nowrap">
+      <span className="faint">{label} </span>
+      <span style={{ color: readingColor(ok) }}>{value == null ? "—" : <NumberFlow value={value} format={format} />}</span>
+    </span>
   );
 }
 
@@ -61,7 +61,7 @@ function Inspector({ c, targets, onSelect }: { c: Candidate; targets: Targets | 
           )}
         </div>
       </header>
-      <div className="grid grid-cols-4 divide-x border-b" style={{ borderColor: "var(--rule)" }}>
+      <div className="flex flex-wrap gap-x-4 gap-y-0.5 border-b px-3 py-1.5 text-[12px]" style={{ borderColor: "var(--rule)" }}>
         <Metric label="年化" value={last.annual_return} ok={meets(last.annual_return, targets?.annual_return, true)} format={percent} />
         <Metric label="最大回撤" value={last.max_drawdown} ok={meets(last.max_drawdown, targets?.max_drawdown, false)} format={percent} />
         <Metric label="夏普" value={last.sharpe} ok={null} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />
