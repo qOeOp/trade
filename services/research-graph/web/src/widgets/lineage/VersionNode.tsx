@@ -37,7 +37,7 @@ export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<Ve
   return (
     <Tip content={<NodeTip data={data} />} side="bottom">
       <div {...hoverProps(data.id)} data-selected={selected ? "" : undefined}
-           className={`rounded-control px-1 py-0.5 transition-colors ${masked && !selected ? "bg-[color-mix(in_srgb,var(--fail)_13%,transparent)]" : ""}`}>
+           className={`flex items-center rounded-control px-1 py-0.5 transition-colors ${masked && !selected ? "bg-[color-mix(in_srgb,var(--fail)_13%,transparent)]" : ""}`}>
         <Handle type="target" position={Position.Left} className="!opacity-0" />
         <VersionLine node={data} targets={data.targets} dim={masked} />
         <Handle type="source" position={Position.Bottom} className="!opacity-0" style={{ left: MARK_CENTRE }} />

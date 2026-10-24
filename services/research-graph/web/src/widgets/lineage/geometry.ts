@@ -2,7 +2,7 @@
 // version's mark sits inside its node. Shared by the lineage files only.
 import type { LineageWidget } from "../../model/types";
 
-export const UNIT = 24;
+export const UNIT = 32;
 export const ROW = 30;
 export const RULER = 26;
 /** The mark's centre from the node's left edge: 4px padding + half a 14px mark. */

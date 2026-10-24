@@ -42,7 +42,12 @@ try {
                  cells: ret && dd ? [+r(ret).width.toFixed(1), +r(dd).width.toFixed(1)] : null, sameFont: !ret || font(ret) === font(dd),
                  rightAligned: !ret || (getComputedStyle(ret).textAlign === "right" && getComputedStyle(dd).textAlign === "right") };
       });
-      return { islands, lines };
+      // a canvas node's content must sit at its wrapper's vertical centre (the selection fill is the wrapper)
+      const offCentre = [...document.querySelectorAll(".react-flow__node")].map((n) => {
+        const w = r(n.firstElementChild), l = r(n.querySelector("[data-version-line]"));
+        return +Math.abs((w.top + w.bottom) / 2 - (l.top + l.bottom) / 2).toFixed(2);
+      });
+      return { islands, lines, offCentre: Math.max(0, ...offCentre) };
     })()`);
     report[scheme] = m;
     const shot = await send("Page.captureScreenshot", { format: "png" });
@@ -54,6 +59,7 @@ try {
       expect(Math.abs(by.dock.left - by.editor.left) < 0.6 && Math.abs(by.dock.width - by.editor.width) < 0.6, `${scheme}: editor and dock differ in left edge or width`);
     }
     if (by.editor && by.inspector) expect(Math.abs(by.inspector.left - by.editor.right - 6) < 0.6, `${scheme}: editor-inspector gap ${(by.inspector.left - by.editor.right).toFixed(1)}`);
+    expect(m.offCentre < 0.6, `${scheme}: a canvas node's content is ${m.offCentre}px off its vertical centre`);
     const unique = (k) => [...new Set(m.lines.map((l) => JSON.stringify(l[k])))];
     expect(m.lines.length > 0, `${scheme}: no VersionLine rendered`);
     for (const k of ["badge", "width", "name"]) expect(unique(k).length === 1, `${scheme}: VersionLine ${k} offsets differ: ${unique(k).join(" ")}`);
