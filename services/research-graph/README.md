@@ -59,7 +59,8 @@ A renderer is a package under `research_graph/renderers/` whose `render.py` defi
 primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets only; its own npm
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 6px apart on the
 window frame. The lineage is one figure on the trial axis at a fixed scale: a
-canvas that pans but never zooms, with each version's role shown by its mark's shape, parent-to-child
+canvas that pans but never zooms and only as far as its content (trial 0 and the first row at its top-left, the
+last row at its bottom), with each version's role shown by its mark's shape, parent-to-child
 lines drawn as git graphs draw them (recessive, except the selected version's lineage: root to it and on to its
 children), no gridlines (the ruler gives the trials), a brand-blue underline where a version stayed recommended and a red
 wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
@@ -109,7 +110,7 @@ the canvas and the bottom island share their left edge and width, canvas nodes a
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
 2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
 There it also drives the tree's arrow keys, the folded path's menu, a canvas version's context menu (5 items),
-double-click opening a tab, and the wheel panning the canvas.
+double-click opening a tab, and the wheel panning the canvas to its edges.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with 1.25-unit strokes (1.5 at 12px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

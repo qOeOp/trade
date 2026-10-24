@@ -2,7 +2,7 @@ import { createPortal } from "react-dom";
 import { useStore } from "@xyflow/react";
 import type { LineageWidget } from "../../model/types";
 import { v } from "../../theme/roles";
-import { frame, ROW, UNIT } from "./geometry";
+import { bounds, ROW, UNIT } from "./geometry";
 
 type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
 
@@ -11,13 +11,14 @@ type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
  *  stretch it held, with a dotted handover to the next. Portalled into the viewport, not a node. */
 export function Backdrop({ widget }: { widget: LineageWidget }) {
   const viewport = useStore((s) => s.domNode?.querySelector(".react-flow__viewport") ?? null);
-  const { left, top, width, height } = frame(widget);
+  const { left, top, right, bottom } = bounds(widget);
+  const width = right - left, height = bottom - top;
   const X = (t: number) => t * UNIT - left, Y = (row: number) => row * ROW - top;
   const scope = widget.axis.scope_start;
   const trail = widget.trail.filter((t): t is Span => t.x0 != null && t.x1 != null);
   if (!viewport) return null;
   return createPortal(
-    <svg width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
+    <svg data-backdrop data-rows={widget.rows.length} width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
       {widget.rows.filter((r) => r.row % 2).map((r) => (
         <rect key={r.id} x={0} y={Y(r.row) - ROW / 2} width={width} height={ROW} fill={v("island-alt")} />
       ))}

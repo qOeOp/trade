@@ -3,7 +3,7 @@
 // (fixed gaps between its parts; each badge number the same padding from the edges and the divider),
 // that a narrow window keeps every island inside it and still while the pointer moves, and that
 // scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
-// the folded path, a version's context menu, opening it in a tab, panning the canvas).
+// the folded path, a version's context menu, opening it in a tab, panning the canvas to its edges).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -130,6 +130,20 @@ try {
     const at = `document.querySelector(".react-flow__viewport").style.transform`, from = await evaluate(at);
     await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX: 0, deltaY: 120 }); await sleep(300);
     expect((await evaluate(at)) !== from, "canvas: the wheel did not pan");
+    // Panned as far as it goes, the content meets the canvas's corners: trial 0's cell and the first row at
+    // the top-left (so the ruler starts at 0), the last row at the bottom. Read from the pan itself: the
+    // canvas draws trial t's cell from (t - 0.5) * 32px and row r from (r - 0.5) * 30px.
+    const edges = `(() => { const c = document.querySelector("[data-island=editor] .react-flow").getBoundingClientRect();
+      const [x, y] = document.querySelector(".react-flow__viewport").style.transform.match(/-?[\\d.]+/g).map(Number);
+      const rows = +document.querySelector("[data-backdrop]").dataset.rows;
+      return { left: x - 16, top: y - 15, bottom: c.height - (y + (rows - 0.5) * 30) }; })()`;
+    const wheel = async (deltaX, deltaY) => { for (let i = 0; i < 40; i++) await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX, deltaY }); await sleep(300); };
+    await wheel(-4000, -4000);
+    const corner = await evaluate(edges);
+    expect(Math.abs(corner.left) < 0.6 && Math.abs(corner.top) < 0.6, `canvas: at the start trial 0 and the first row are ${corner.left.toFixed(1)}px, ${corner.top.toFixed(1)}px from the top-left corner`);
+    await wheel(0, 4000);
+    const end = await evaluate(edges);
+    expect(Math.abs(end.bottom) < 0.6, `canvas: at the end the last row is ${end.bottom.toFixed(1)}px from the bottom`);
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
