@@ -1,7 +1,8 @@
 // Verifies a rendered page in headless Chrome over CDP (Node's built-in WebSocket; no dependency):
 // screenshots in light and dark, and the layout invariants of the Islands shell (frame corners included) and VersionLine
 // (fixed gaps between its parts; each badge number the same padding from the edges and the divider),
-// that a narrow window keeps every island inside it and still while the pointer moves, and that
+// that a narrow window keeps every island inside it and still while the pointer moves, the detail and
+// the toolbar readings inside their bounds, and that
 // scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
 // the folded path, a version's context menu, opening it in a tab, panning the canvas to its edges).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
@@ -111,6 +112,15 @@ try {
   })()`);
   expect(bars.native === 0, `scrollbars: ${bars.native} native scrollbars inside islands`);
   expect(bars.width === 2 && Math.abs(bars.right - bars.edge) < 0.6, `scrollbars: the tree's handle is ${bars.width}px wide, ${(bars.edge - bars.right).toFixed(1)}px from the island edge`);
+  // Nothing spills: no detail content past its island's right edge, and every toolbar reading either
+  // whole in the readout or wrapped out of sight, never cut.
+  const spill = `(() => { const isl = document.querySelector("[data-island=right]"), edge = isl.getBoundingClientRect().right;
+    return [...isl.querySelectorAll("*")].map((e) => e.getBoundingClientRect()).filter((b) => b.width && b.right > edge + 0.5).length; })()`;
+  const spilled = await evaluate(spill);
+  expect(spilled === 0, `narrow: ${spilled} elements of the detail run past its island's edge`);
+  const cut = await evaluate(`(() => { const box = document.querySelector("header .text-dense"); if (!box) return -1; const b = box.getBoundingClientRect();
+    return [...box.children].map((e) => e.getBoundingClientRect()).filter((r) => r.top < b.bottom && r.right > b.right + 0.5).length; })()`);
+  expect(cut === 0, `narrow: ${cut} toolbar readings cut at the readout's edge`);
   // Interactions, still in the narrow window.
   const key = async (k, code, vk) => { for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: k, code, windowsVirtualKeyCode: vk }); await sleep(200); };
   const click = async (x, y, button = "left", clickCount = 1) => { for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button, clickCount }); };

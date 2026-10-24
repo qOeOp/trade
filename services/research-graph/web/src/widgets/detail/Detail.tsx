@@ -18,10 +18,12 @@ const OUTCOME: Record<string, [string, string]> = {
 const VERDICT: Record<string, [string, string]> = { passed: ["通过", "text-meets"], failed: ["失败", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
-const prose = (text?: string | null) => <p className="leading-relaxed">{text ?? <Missing />}</p>;
+// Long tokens (hashes, paths) break anywhere rather than widen the card.
+const prose = (text?: string | null) => <p className="leading-relaxed wrap-anywhere">{text ?? <Missing />}</p>;
 
 // Where the region is wide (an editor tab), the groups sit in two columns: what changed and the
 // conclusion on the left, the evidence on the right; narrower (the inspector), one column in order.
+// Columns never grow past the region for their content.
 const SIDE = "@3xl:pt-0";
 
 /** One version's detail; the inspector shows the selected one, an editor tab a chosen one. */
@@ -39,7 +41,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         { label: "胜率", value: last.win_rate, format: percent },
       ]} />
       </Header>
-      <div className="grid items-start gap-x-5 @3xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
       <CardGroup title="改动与预期" className={SIDE}>
       <Section title="改了什么">{prose(c.change)}</Section>
       <Section title="假设">{prose(c.hypothesis)}</Section>

@@ -47,7 +47,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
           {y.ticks(4).filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={y(t)} y2={y(t)} stroke={v("grid")} strokeDasharray="2 4" />)}
           {target != null && <>
             <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke={v("meets")} strokeDasharray="6 4" />
-            <text x={width - 8} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")} className="font-mono">目标 {pct(target)}</text>
+            <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")} className="font-mono">目标 {pct(target)}</text>
           </>}
           {near && (() => {
             // From the axis out past the bar's end, rounded only at that end.
