@@ -5,14 +5,15 @@ import type { IconName } from "../icons/registry";
 
 // IntelliJ's toolbar widgets: a borderless trigger (content and a chevron) that opens a popup menu.
 
-export function Dropdown({ trigger, label, children, align = "start" }: {
-  trigger: ReactNode; label: string; children: ReactNode; align?: "start" | "end";
+/** `compact` is the inline form (a breadcrumb step): a short trigger without the chevron. */
+export function Dropdown({ trigger, label, children, align = "start", compact = false }: {
+  trigger: ReactNode; label: string; children: ReactNode; align?: "start" | "end"; compact?: boolean;
 }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger aria-label={label}
-        className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-control px-2 outline-none transition-colors hover:bg-hover data-[state=open]:bg-pressed">
-        {trigger}<span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>
+        className={`inline-flex min-w-0 shrink items-center gap-1.5 rounded-control outline-none transition-colors hover:bg-hover data-[state=open]:bg-pressed ${compact ? "px-1" : "h-7 px-2"}`}>
+        {trigger}{!compact && <span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align={align} sideOffset={4} collisionPadding={8}

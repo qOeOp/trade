@@ -60,21 +60,24 @@ primitives, TanStack Table, visx, cmdk; Inter and JetBrains Mono, Latin subsets 
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 6px apart on the
 window frame. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms, with each version's role shown by its mark's shape, parent-to-child
-lines drawn as git graphs draw them, a brand-blue underline where a version stayed recommended and a red
+lines drawn as git graphs draw them (recessive, except the selected version's lineage: root to it and on to its
+children), no gridlines (the ruler gives the trials), a brand-blue underline where a version stayed recommended and a red
 wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
 puts the trials that ran one version on a rounded tinted block, and marks the trial under the pointer. Reading badges
 are as wide as their numbers, with the same padding to the edges and to the divider. The main toolbar carries IntelliJ-style
 widgets (研究线, 账本提交 and 当前推荐, whose menu lists every version the recommendation rested on), the
 recommendation's readout, search and settings (theme, layout reset); the status bar shows the path to the selected
-version (line › ancestors › version, each clickable) and the version under the pointer. As in IntelliJ, a stripe on each side opens tool windows, one per side:
+version (line › ancestors › version, each clickable; the middle of a long path folds into a … step whose menu lists
+it) and the version under the pointer. The editor keeps at least 45% of the width, so a narrower window shrinks the
+sides first. As in IntelliJ, a stripe on each side opens tool windows, one per side:
 版本树 (the versions as a tree by lineage) on the left, 详情 (the selected version as cards in groups) on the right, and
 研究进展 (research-run returns as bars from zero on the canvas's x), 年化 vs 回撤 (the scatter with the non-dominated
 frontier), 版本表 and 数据缺口 as tabs at the bottom; each island has the same header with its actions (locate, expand
 all, collapse all, hide). `⌥1`–`⌥6` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. A version opened
-in its own tab (double-click, or the context menu) shows its detail at full width; the tab strip appears once one is
-open. Right-clicking a version anywhere (canvas, tree, table) offers 在图中定位, 在详情中显示, 在新标签打开, 复制版本名
+in its own tab (double-click, or the context menu) shows its detail with what changed and the conclusion beside the
+evidence where the tab is wide enough; the tab strip appears once one is open. Right-clicking a version anywhere (canvas, tree, table) offers 在图中定位, 在详情中显示, 在新标签打开, 复制版本名
 and 复制链接. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
@@ -105,6 +108,8 @@ the canvas and the bottom island share their left edge and width, canvas nodes a
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
 2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
+There it also drives the tree's arrow keys, the folded path's menu, a canvas version's context menu (5 items),
+double-click opening a tab, and the wheel panning the canvas.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with 1.25-unit strokes (1.5 at 12px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

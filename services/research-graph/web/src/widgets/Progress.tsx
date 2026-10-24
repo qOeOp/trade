@@ -1,7 +1,6 @@
 import { scaleLinear } from "@visx/scale";
 import type { ProgressWidget } from "../model/types";
 import { pct } from "../lib/format";
-import { steps } from "../lib/range";
 import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
 import { useSelection } from "../state/selection";
@@ -30,7 +29,6 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
   const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [Math.max(TOP + 1, height - BOTTOM), TOP], nice: true });
   const sx = (t: number) => x0 + t * unit;
-  const grid = steps(Math.floor(-x0 / unit / 5) * 5 - 5, Math.ceil((width - x0) / unit) + 5, 5);
   const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
   const recommended = new Set(widget.recommended);
   const scope = widget.axis.scope_start;
@@ -42,7 +40,6 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
       {width > 0 && height > 0 && (
         <svg width={width} height={height} className="absolute inset-0">
           {scope != null && <rect x={0} y={0} width={Math.max(0, sx(scope))} height={height} fill={v("scope")} />}
-          {grid.map((t) => <line key={t} x1={sx(t) + 0.5} x2={sx(t) + 0.5} y1={TOP - 6} y2={height - BOTTOM} stroke={v("grid")} strokeDasharray={t % 10 ? "2 4" : undefined} />)}
           {y.ticks(4).filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={y(t)} y2={y(t)} stroke={v("grid")} strokeDasharray="2 4" />)}
           {target != null && <>
             <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke={v("meets")} strokeDasharray="6 4" />

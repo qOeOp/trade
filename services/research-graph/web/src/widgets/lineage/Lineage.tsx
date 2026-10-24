@@ -4,7 +4,8 @@ import "@xyflow/react/dist/style.css";
 import type { LineageWidget } from "../../model/types";
 import { crosshair, useAxisView, useCrosshair } from "../../state/linking";
 import { openVersionTab } from "../../state/editors";
-import { select, selection } from "../../state/selection";
+import { select, selection, useSelection } from "../../state/selection";
+import { ancestors, lineageTree } from "../../model/lineageTree";
 import { useResolvedTheme } from "../../state/theme";
 import { AxisDriver } from "./AxisDriver";
 import { Backdrop } from "./Backdrop";
@@ -19,16 +20,24 @@ const EDGE_TYPES = { elbow: Elbow };
 // The lineage on the trial axis at a fixed scale: the canvas pans but never zooms. A version sits at
 // its first research run on its lineage row; the ruler above and the progress chart below share the x.
 export function Lineage({ widget }: { widget: LineageWidget }) {
-  const { nodes, edges, positions, extent } = useMemo(() => {
+  const { nodes, tree, positions, extent } = useMemo(() => {
     const nodes: Node<VersionData>[] = widget.nodes.flatMap((n) => n.x == null ? [] : [{
       id: n.id, type: "version", position: { x: n.x * UNIT - MARK_CENTRE, y: n.row * ROW - 11 },
       data: { ...n, targets: widget.targets }, draggable: false, connectable: false,
     }]);
-    const edges: Edge[] = widget.edges.map((e) => ({ id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "elbow", focusable: false }));
     const extent: [[number, number], [number, number]] = [
       [(widget.axis.min - 4) * UNIT, -3 * ROW], [(widget.axis.max + 30) * UNIT, (widget.rows.length + 3) * ROW]];
-    return { nodes, edges, positions: place(widget), extent };
+    return { nodes, tree: lineageTree(widget), positions: place(widget), extent };
   }, [widget]);
+  // Edges are recessive; those on the selected version's lineage are drawn on top and stand out.
+  const selected = useSelection();
+  const edges = useMemo(() => {
+    const path = new Set(selected ? [...ancestors(tree, selected), selected] : []);
+    return widget.edges.map((e): Edge => {
+      const on = path.has(e.to) || e.from === selected;
+      return { id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "elbow", focusable: false, className: on ? "on-path" : undefined, zIndex: on ? 1 : 0 };
+    });
+  }, [widget, tree, selected]);
   const box = useRef<HTMLDivElement>(null);
   const at = useCrosshair();
   const { x0 } = useAxisView();

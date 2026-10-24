@@ -40,6 +40,8 @@ body {
 .react-flow { --xy-background-color: var(--island); }
 .react-flow__attribution { display: none; }
 .react-flow__edge-path { stroke: var(--edge); stroke-width: 1.1; }
+/* The selected version's lineage (root to it, and on to its children) stands out of the recessive rest. */
+.react-flow__edge.on-path .react-flow__edge-path { stroke: var(--edge-path); stroke-width: 1.25; }
 .react-flow__node { transition: opacity var(--t-fast) var(--ease); }
 [cmdk-item][data-selected="true"] { background: var(--selection); color: var(--fg); }
 [cmdk-group-heading] { padding: 8px 10px 4px; font-size: 11px; color: var(--fg-faint); font-weight: 600; }

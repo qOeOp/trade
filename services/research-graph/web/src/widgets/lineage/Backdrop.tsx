@@ -1,13 +1,12 @@
 import { createPortal } from "react-dom";
 import { useStore } from "@xyflow/react";
 import type { LineageWidget } from "../../model/types";
-import { steps } from "../../lib/range";
 import { v } from "../../theme/roles";
 import { frame, ROW, UNIT } from "./geometry";
 
 type Span = LineageWidget["trail"][number] & { x0: number; x1: number };
 
-/** Under the versions and edges: row stripes, gridlines every five trials, the before-scope shading,
+/** Under the versions and edges: row stripes, the before-scope shading,
  *  and the recommendation trail as a brand-blue underline on the recommended version's row for the
  *  stretch it held, with a dotted handover to the next. Portalled into the viewport, not a node. */
 export function Backdrop({ widget }: { widget: LineageWidget }) {
@@ -23,9 +22,6 @@ export function Backdrop({ widget }: { widget: LineageWidget }) {
         <rect key={r.id} x={0} y={Y(r.row) - ROW / 2} width={width} height={ROW} fill={v("island-alt")} />
       ))}
       {scope != null && <rect x={0} y={0} width={X(scope)} height={height} fill={v("scope")} />}
-      {steps(widget.axis.min - 40, widget.axis.max + 40, 5).map((t) => (
-        <line key={t} x1={X(t) + 0.5} x2={X(t) + 0.5} y1={0} y2={height} stroke={v("grid")} strokeDasharray={t % 10 ? "2 4" : undefined} />
-      ))}
       {trail.map((t, i) => {
         const prev = trail[i - 1];
         return (

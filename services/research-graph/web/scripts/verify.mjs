@@ -2,7 +2,8 @@
 // screenshots in light and dark, and the layout invariants of the Islands shell and VersionLine
 // (fixed gaps between its parts; each badge number the same padding from the edges and the divider),
 // that a narrow window keeps every island inside it and still while the pointer moves, and that
-// scrollbars are thin overlay lines on the island edges.
+// scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
+// the folded path, a version's context menu, opening it in a tab, panning the canvas).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -97,6 +98,39 @@ try {
   })()`);
   expect(bars.native === 0, `scrollbars: ${bars.native} native scrollbars inside islands`);
   expect(bars.width === 2 && Math.abs(bars.right - bars.edge) < 0.6, `scrollbars: the tree's handle is ${bars.width}px wide, ${(bars.edge - bars.right).toFixed(1)}px from the island edge`);
+  // Interactions, still in the narrow window.
+  const key = async (k, code, vk) => { for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: k, code, windowsVirtualKeyCode: vk }); await sleep(200); };
+  const click = async (x, y, button = "left", clickCount = 1) => { for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button, clickCount }); };
+  // The version tree: the arrow keys move the selection.
+  const before = await evaluate("location.hash");
+  await evaluate(`document.querySelector('[data-island="left"] [role="treeitem"][data-selected]')?.focus()`);
+  await key("ArrowDown", "ArrowDown", 40); await key("ArrowDown", "ArrowDown", 40); await sleep(300);
+  expect((await evaluate("location.hash")) !== before, "tree: the arrow keys did not move the selection");
+  // The status bar folds the middle of a long path into one step whose menu lists it.
+  const fold = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="路径"] [aria-label^="另外"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+  if (fold) {
+    await click(fold[0], fold[1]); await sleep(300);
+    expect((await evaluate(`document.querySelectorAll('[role="menuitem"]').length`)) > 0, "status bar: the folded step's menu is empty");
+    await key("Escape", "Escape", 27);
+  }
+  // A canvas version: right-click gives its menu, double-click opens it in a tab, the wheel pans.
+  const node = await evaluate(`(() => { const box = document.querySelector("[data-island=editor] .react-flow").getBoundingClientRect();
+    const n = [...document.querySelectorAll(".react-flow__node [data-part=name]")].map((e) => e.getBoundingClientRect()).find((b) => b.left > box.left + 8 && b.left + 40 < box.right && b.top > box.top && b.bottom < box.bottom);
+    return n && [n.left + 20, n.top + n.height / 2]; })()`);
+  expect(node, "canvas: no version in view");
+  if (node) {
+    await click(node[0], node[1], "right"); await sleep(400);
+    const items = await evaluate(`document.querySelectorAll('[role="menuitem"]').length`);
+    expect(items === 5, `canvas: the context menu has ${items} items, not 5`);
+    await key("Escape", "Escape", 27);
+    await click(node[0], node[1], "left", 1); await click(node[0], node[1], "left", 2); await sleep(400);
+    const tabs = await evaluate(`[...document.querySelectorAll('[data-island=editor] [role="tab"]')].map((t) => t.getAttribute("aria-selected"))`);
+    expect(tabs.length === 2 && tabs[1] === "true", `canvas: double-click left the editor tabs at ${JSON.stringify(tabs)}`);
+    await evaluate(`document.querySelector('[data-island=editor] [role="tab"]').click()`); await sleep(300);
+    const at = `document.querySelector(".react-flow__viewport").style.transform`, from = await evaluate(at);
+    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX: 0, deltaY: 120 }); await sleep(300);
+    expect((await evaluate(at)) !== from, "canvas: the wheel did not pan");
+  }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
   console.log(`verify: ${report.dark.islands.length} islands, ${report.dark.lines.length} version lines; badge at ${first?.badge}px, number padding ${first?.gaps}, name ${first?.name}px after the prediction slot`);

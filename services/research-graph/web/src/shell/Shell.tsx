@@ -14,7 +14,9 @@ import { Stripe } from "./Stripe";
 import { ToolWindowIsland } from "./ToolWindowIsland";
 import { toolWindows } from "./toolWindows";
 
-const MIN: Record<Side, number> = { left: 240, right: 300, bottom: 140 };
+const MIN: Record<Side, number> = { left: 200, right: 260, bottom: 140 };
+// The editor keeps at least this share of the width: a narrower window shrinks the sides first.
+const EDITOR_MIN = "45%";
 
 // The window as IntelliJ lays it out: toolbar and status bar on the frame; between them a stripe on
 // each side and the islands: the open left tool window, the editor (the lineage canvas) with the open
@@ -50,7 +52,7 @@ export function Shell() {
         <Stripe side="left" windows={windows} />
         <Group key={`${!!left}${!!right}`} orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
           {left && <>{side("left", left)}<Separator /></>}
-          <Panel id="centre" minSize="30%">
+          <Panel id="centre" minSize={EDITOR_MIN}>
             <Group key={`${!!bottom}`} orientation="vertical" onLayoutChanged={keep}>
               <Panel id="editor" minSize="25%">
                 <Editor />
