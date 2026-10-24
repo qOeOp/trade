@@ -50,6 +50,9 @@ savings; leave uncertain attribution unknown. Product code remedies follow AGENT
 
 Evaluate the whole current product against external norms, beyond the paths reached by the
 session. Check the rules themselves independently of the behavior review's compliance assessment.
+External norms include, for the research method the product encodes (what the ledger stores, what
+reports and comparisons compute, how evidence qualifies), the research-methodology literature read
+through `research-sources`.
 
 For refusals, audits, eligibility, gates and skill rules, distinguish: should have fired; fired
 without value; fired usefully; silent but uniquely protective; silent with no distinct value.

@@ -73,3 +73,6 @@ ledger: publication is append-only.
 - PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
   `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
   `.github/pull_request_template.md` and reports only checks actually run.
+- A fix for a doctor finding starts from the diagnosis record and the index, never from the
+  auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
+  its own finding's eval case and leaves every other grader alone; a grader change is its own PR.
