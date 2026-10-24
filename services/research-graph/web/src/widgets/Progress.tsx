@@ -73,15 +73,23 @@ export function Progress({ widget, selected }: { widget: ProgressWidget; selecte
           <span key={v} className="mono absolute right-2 -translate-y-1/2 text-[10px] faint" style={{ top: y(v) }}>{Math.round(v * 100)}%</span>
         ))}
       </div>
-      <div className="pointer-events-none absolute left-3 top-1.5 flex items-center gap-4 text-[11px] faint">
-        <span className="font-medium muted">研究运行年化</span>
-        <span className="inline-flex items-center gap-1.5"><svg width={7} height={10}><rect width={7} height={10} rx={1.5} fill="var(--meet)" /></svg>达到目标</span>
-        <span className="inline-flex items-center gap-1.5"><svg width={7} height={10}><rect width={7} height={10} rx={1.5} fill="var(--ink-4)" /></svg>正收益未达标</span>
-        <span className="inline-flex items-center gap-1.5"><svg width={7} height={10}><rect width={7} height={10} rx={1.5} fill="var(--miss)" /></svg>亏损</span>
-        <span className="inline-flex items-center gap-1.5"><svg width={8} height={11}><rect x={0.5} y={0.5} width={7} height={10} rx={1.5} fill="none" stroke="var(--ink-3)" strokeDasharray="2 1.5" /></svg>失去资格</span>
-        <span className="inline-flex items-center gap-1.5"><svg width={16} height={8}><line x1={0} x2={16} y1={4} y2={4} stroke="var(--meet)" strokeDasharray="4 3" /></svg>年化目标</span>
+      <div className="pointer-events-none absolute left-3 top-1.5 text-[11px] font-medium muted">研究运行年化</div>
+      <div className="pointer-events-none absolute bottom-1 right-3 flex items-center gap-3.5 text-[10.5px] faint">
+        <Swatch fill="var(--meet)" />达到目标
+        <Swatch fill="var(--ink-4)" />正收益未达标
+        <Swatch fill="var(--miss)" />亏损
+        <Swatch dashed />失去资格
+        <span className="inline-flex items-center gap-1.5"><svg width={14} height={8}><line x1={0} x2={14} y1={4} y2={4} stroke="var(--meet)" strokeDasharray="3 2" /></svg>年化目标</span>
       </div>
-      <div className="pointer-events-none absolute bottom-1 right-3 text-[10.5px] faint">与上方谱系同一横轴 · trial</div>
     </div>
+  );
+}
+
+function Swatch({ fill, dashed }: { fill?: string; dashed?: boolean }) {
+  return (
+    <svg width={9} height={9} className="-mr-2">
+      {dashed ? <rect x={0.5} y={0.5} width={8} height={8} rx={1.5} fill="none" stroke="var(--ink-3)" strokeDasharray="2 1.5" />
+        : <rect width={9} height={9} rx={1.5} fill={fill} />}
+    </svg>
   );
 }
