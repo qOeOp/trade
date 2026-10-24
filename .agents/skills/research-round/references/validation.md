@@ -12,8 +12,19 @@ ID` and read it with `validation report`, as their `--help` describes.
 - Report the result as it is and go to the user as soon as it exists. Whatever it shows, do not
   register another window or universe, do not pick among several validations of one candidate,
   and never put development measures in place of out-of-sample ones.
-- State that the measures approximate live trading and in which direction: simulated fills, a
-  limit fills only when traded through (conservative), no slippage and market orders not limited
-  by volume (optimistic); name the execution style the result rests on, and give the window length
-  and the effect it could resolve. A short window can refute an obvious failure, never establish a
-  high return.
+- Before finalizing a validation conclusion, obtain one independent reading by a second agent
+  who did not author this strategy or conclusion. Give it the registration, ledger commit,
+  official validation report and any development reports cited in the conclusion, without the
+  research conversation or author's reasoning. It first reads the evidence, then checks the draft
+  for omitted results, unknowns, model limitations and claims beyond the window or statistical
+  support. Describe the actual input scope; a new conversation alone proves no isolation.
+  Disclose raw results immediately even when this reading is pending or unavailable; label the
+  conclusion's review status and preserve unresolved disagreements instead of declaring consensus
+  or changing the window or rerunning. This reviews interpretation, not economic eligibility or
+  a second independent market sample. Do not recalculate product measures; agent-computed
+  statistics retain their existing independent-recomputation requirement.
+- Read execution approximations from the formal report for the chosen environment, name that
+  environment and explain only the bias directions the evidence supports. Do not carry bar-path
+  or volume assumptions into quote execution, or infer actual order styles not supplied by the
+  report. Give the window length and the effect it could resolve, leaving missing information
+  unknown. A short window can refute an obvious failure, never establish a high return.
