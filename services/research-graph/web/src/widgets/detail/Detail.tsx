@@ -22,7 +22,7 @@ const prose = (text?: string | null) => <p className="leading-relaxed">{text ?? 
 
 // Where the region is wide (an editor tab), the groups sit in two columns: what changed and the
 // conclusion on the left, the evidence on the right; narrower (the inspector), one column in order.
-const SIDE = "@3xl:border-t-0 @3xl:pt-0";
+const SIDE = "@3xl:pt-0";
 
 /** One version's detail; the inspector shows the selected one, an editor tab a chosen one. */
 export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
@@ -97,7 +97,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         </Section>
       )}
       </CardGroup>
-      <CardGroup title="结论" className="@3xl:col-start-1 @3xl:mt-3">
+      <CardGroup title="结论" className="@3xl:col-start-1">
       <Section title="解释与决策">{prose(c.interpretation)}</Section>
       <Section title="登记" open={false}>
         <KeyValues items={[

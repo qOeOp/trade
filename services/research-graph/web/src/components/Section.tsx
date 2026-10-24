@@ -22,11 +22,11 @@ export function Section({ title, aside, children, open: initial = true }: {
   );
 }
 
-/** A group of cards under a muted heading; groups after the first are set off by a rule, except where
- *  a layout places them side by side (`className` positions it in that layout). */
+/** A group of cards under a muted heading; groups after the first are set off by space, not a rule (the
+ *  heading already names the group). `className` positions it in a layout that sets groups side by side. */
 export function CardGroup({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
   return (
-    <section className={`space-y-2 border-line pt-3 not-first:border-t ${className}`}>
+    <section className={`space-y-2 pt-3 not-first:pt-6 ${className}`}>
       <h3 className="px-1 text-fg-faint">{title}</h3>
       {children}
     </section>
