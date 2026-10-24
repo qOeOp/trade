@@ -17,7 +17,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`) |
-| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE`, the per-second thinning and the checks a quote import applies (`derive`, `thin`, `scaled_rows`) |
+| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
 
 ## The database
 
@@ -64,9 +64,9 @@ daily `aggTrades` archives under one declared rule, `quotes.RULE` (`binance-aggt
 whose buyer is the maker hit the best bid, so its price is the bid at that moment; a buyer-taker trade
 lifted the best ask; each side is carried forward until it trades again; a stale side that crosses the
 fresh one is pushed one price increment off it (counted in the import result, never silent). Every state
-change is stored; `--thin` keeps each UTC second's lowest-bid, highest-ask and last state only, and a
-liquidation then fills at the second's adverse extreme up to a second late (measured on 2025-10-01: 84 USDT
-worse, 0.9 s later), so one database holds one form and the full sequence is the baseline. Sizes are not
+change is stored: thinning to each second's extremes was measured to move a liquidation to the second's
+adverse extreme up to a second late (2025-10-01: 84 USDT worse, 0.9 s later), so there is no thinned form.
+About 0.9M rows a day for BTCUSDT, 4–6 GB a contract-year in Dolt for the most active contracts. Sizes are not
 observable and not stored; the exporter fills the instrument's `max_quantity` ("no depth modeled"). This is a
 declared approximate quote model: between two trades a side's true quote may have moved, and the error is
 two-sided (a stale side can sit inside the true spread).
@@ -77,9 +77,9 @@ uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbo
 ```
 
 `market import-quotes --month` appends one UTC month per contract (default: the month's universe members)
-in one transaction and one commit whose message carries `quote_rule`, `thinned` and the SHA-256 the exchange
+in one transaction and one commit whose message carries `quote_rule` and the SHA-256 the exchange
 published for every archive read (the input identity an audit re-checks a re-download against); a later import
-under another rule or form is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Each day's archive is checked against its
+under another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Each day's archive is checked against its
 `.CHECKSUM`; the `agg_trade_id` sequence must be contiguous within the day and continue the day before
 (`SEQUENCE_GAP`), the eve's archive is read for the carried state, times must not go backwards. The result
 reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract

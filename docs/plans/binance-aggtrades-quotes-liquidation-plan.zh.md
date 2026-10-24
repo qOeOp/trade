@@ -9,7 +9,7 @@
 1. 研究场所仍是 Binance USDT 永续；不切换交易所，不混用其他交易所的合约条款、费率、资金费。
 2. 分钟内买卖价来源：Binance 官方公开归档 `data.binance.vision` 期货 USDⓈ-M 每日 `aggTrades`。按 `is_buyer_maker` 推最优买卖价（规则见下），全年每天都有文件、带 `.CHECKSUM`、`agg_trade_id` 逐条连续。
 3. 接受 Nautilus 2.0.0rc3 的简化强平模型，并在模型声明里写明：按缓存买卖价估值触发（不用标记价）；维持保证金按净持仓开仓均价一次算定、不随行情重估；默认零观测与下单延迟、无滑点、不消耗流动性。
-4. 不存 400 档全深度。强平与市价单按最优价成交，不模拟深度。**2026-10-24 晚修正**：原定"每秒留三条"的抽稀不是无损的，同一夹具在真实 2025-10-01 数据上，完整序列于 08:50:12.033 以 116211.4 强平，抽稀序列于 08:50:12.959 以 116295.8 强平，期末权益低 1,482 USDT（`/tmp/trade-okx-official/measure-day/full-vs-thinned-liquidation.json`）：抽稀让强平在该秒的最不利极值成交、最多晚一秒。基线改为**存完整推算序列**（BTCUSDT 约 90 万行/天、约 4.4 GB/标的年 Dolt），`--thin` 为显式选项且一个库只能用一种形式；是否对多标的启用抽稀及其声明，待用户按体积决定。
+4. 不存 400 档全深度。强平与市价单按最优价成交，不模拟深度。**存完整推算序列，不抽稀（用户 2026-10-24 晚决定）**：原定"每秒留三条"的抽稀不是无损的，同一夹具在真实 2025-10-01 数据上，完整序列于 08:50:12.033 以 116211.4 强平，抽稀序列于 08:50:12.959 以 116295.8 强平，期末权益低 1,482 USDT（`/tmp/trade-okx-official/measure-day/full-vs-thinned-liquidation.json`）。体积：BTCUSDT 约 90 万行/天、约 4.4 GB/标的年 Dolt，ETH 约 6 GB，中小币 0.04–0.7 GB；50 个标的一年估 20–25 GB Dolt、备份同量级、Catalog 约 20 GB。抽稀选项已从代码删除。
 5. 不新增价差标注；OKX 代理方案取消。报告层改为"成交量对照当分钟 ±1% 价带挂单量"的提示（见第 7 步）。
 
 ## 推导规则（写入数据合同）
@@ -79,7 +79,7 @@ CREATE TABLE quote (
 
 - 第 5 步比较器：PR #1661（`fix(engine)`），遍历键遮罩随机串、按首个事件时间与合约排序；97 个引擎测试通过。
 - 第 2、3 步表与导入：PR #1663（分支 `feat/market-quotes`）：`market/schema.sql` 新增 `quote` 表（评审 DDL）；`market/quotes.py` 推导、抽稀、定标与拒绝；`market/sources.py` aggTrades 归档读取（含 `.CHECKSUM`）；`market/store.py` `import_quotes`（按月一事务一提交，提交信息带 `quote_rule`，`MONTH_EXISTS`/`RULE_VERSION_MISMATCH`/`SEQUENCE_GAP`/`UNIVERSE_UNKNOWN`/`TERMS_UNKNOWN`）；`ledger/db.py` `upgrade_market`（给已有库补建缺失表，管理员，一次提交）；CLI `market upgrade`、`market import-quotes`；测试 `tests/market/test_quotes.py`（规则、抽稀、定标、拒绝、一次性 Dolt 上整月导入与升级）。产品模块对真实 2025-10-01 归档的结果与探针逐项相同（53,697 条抽稀报价、900,635 次状态变化、13,723 次推开）。活动市场库尚未执行 `market upgrade`，待用户下令。
-- Codex 审阅（2026-10-24 晚）指出四点，均已采纳：抽稀改为显式选项、基线存完整序列（已用真实数据证实差异）；措辞改为近似报价模型、误差双向、增加对真实 bookTicker 的强平结果比对；归档哈希写入提交信息；第 4 步必须 `bar_execution=False` 并验证同时间戳顺序。
+- Codex 审阅（2026-10-24 晚）指出四点，均已采纳：抽稀证实有损后用户决定全部存完整，抽稀代码删除；措辞改为近似报价模型、误差双向、增加对真实 bookTicker 的强平结果比对；归档哈希写入提交信息；第 4 步必须 `bar_execution=False` 并验证同时间戳顺序。
 - 第 4、6、7 步未开始。
 
 ## 仍需用户授权的项

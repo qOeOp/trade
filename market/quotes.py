@@ -3,8 +3,9 @@
 The rule `RULE`: a trade whose buyer is the maker was a sell hitting the best bid, so its price is the
 best bid at that moment; a trade whose buyer is the taker lifted the best ask. Each side is carried
 forward until that side trades again. When the carried side has gone stale and crosses the fresh one,
-the stale side is pushed one price increment off the fresh side (counted, never silent). The
-inferred states are thinned to each UTC second's lowest-bid state, highest-ask state and last state.
+the stale side is pushed one price increment off the fresh side (counted, never silent). Every state
+change is kept: thinning to per-second extremes was measured to move a liquidation to the second's adverse
+extreme up to a second late.
 
 Nothing here is a strategy or an exchange rule: it is the declared derivation an import applies to
 the official archives before storing rows, with the checks that refuse a day the derivation cannot
@@ -23,7 +24,6 @@ from market.sources import _refuse
 
 
 RULE = "binance-aggtrades-bbo-v1"
-SECOND = 1_000
 
 
 @dataclass
@@ -82,25 +82,6 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
                 "trade_gap_max_ms": int(gaps.max()) if len(gaps) else 0,
                 "trade_gap_p99_ms": int(np.percentile(gaps, 99)) if len(gaps) else 0}
     return rows, readings
-
-
-def thin(rows: list[tuple]) -> list[tuple]:
-    """Each UTC second's lowest-bid state, highest-ask state and last state (one row when they coincide);
-    `rows` are (agg_trade_id, ts, bid, ask) in time order."""
-    if not rows:
-        return []
-    keep: set[int] = set()
-    start = 0
-    while start < len(rows):
-        second = rows[start][1] // SECOND
-        end = start
-        while end < len(rows) and rows[end][1] // SECOND == second:
-            end += 1
-        keep.add(min(range(start, end), key=lambda index: rows[index][2]))
-        keep.add(max(range(start, end), key=lambda index: rows[index][3]))
-        keep.add(end - 1)
-        start = end
-    return [rows[index] for index in sorted(keep)]
 
 
 def scaled_rows(symbol: str, rows: list[tuple], scale: int) -> list[tuple]:

@@ -795,7 +795,7 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
 
 
 def market_import_quotes(market: dict, month: str, cache_root: str | None, workers: int,
-                         symbols: list[str] | None = None, thin: bool = False) -> dict:
+                         symbols: list[str] | None = None) -> dict:
     """market import-quotes: one UTC month of best bid/ask inferred from Binance aggTrades (market.quotes.RULE)
     as one market commit; `symbols` defaults to the month's universe members."""
     from market import store
@@ -808,7 +808,7 @@ def market_import_quotes(market: dict, month: str, cache_root: str | None, worke
     if first > datetime.now(timezone.utc).date():
         raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
     return store.import_quotes(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
-                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True), thin=thin)
+                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
 def market_upgrade(market: dict) -> dict:
@@ -1180,8 +1180,6 @@ def _parser() -> Parser:
     command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
     command.add_argument("--workers", type=int, default=4, help="parallel archive downloads (default: 4)")
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
-    command.add_argument("--thin", action="store_true", help="keep each second's lowest-bid, highest-ask and last state "
-                                                             "only (liquidations then fill at the second's adverse extreme)")
     command = market.add_parser("upgrade", help="create the market tables the database lacks (administrator)")
     _market_option(command)
     command = market.add_parser("lifecycle", help="write the lifecycle bundle of a market commit")
@@ -1228,7 +1226,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
     if key == ("market", "import-quotes"):
         return market_import_quotes(market_profile(args.market), args.month, args.cache_root, args.workers,
-                                    args.symbols, args.thin), 0
+                                    args.symbols), 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "coverage"):

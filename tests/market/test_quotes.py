@@ -1,4 +1,4 @@
-"""Best bid/ask inferred from aggTrades (market.quotes) and its import: the rule, the thinning, the refusals,
+"""Best bid/ask inferred from aggTrades (market.quotes) and its import: the rule, the refusals,
 one month imported as one commit, and `market upgrade` adding the table to an existing database."""
 
 from datetime import UTC, date, datetime
@@ -59,13 +59,6 @@ class RuleTests(unittest.TestCase):
                           quotes.State(), "t")
         self.assertEqual(reversed_time.exception.code, "SOURCE_SHAPE")
 
-    def test_thinning_keeps_each_seconds_lowest_bid_highest_ask_and_last_state(self):
-        rows = [(1, 1_000, Decimal("10"), Decimal("12")), (2, 1_100, Decimal("9"), Decimal("12")),
-                (3, 1_200, Decimal("9"), Decimal("13")), (4, 1_300, Decimal("10"), Decimal("11")),
-                (5, 2_000, Decimal("10"), Decimal("11"))]
-        self.assertEqual(quotes.thin(rows), [rows[1], rows[2], rows[3], rows[4]])
-        self.assertEqual(quotes.thin([]), [])
-
     def test_scaled_rows_are_exact_integers_or_refused(self):
         self.assertEqual(quotes.scaled_rows("X", [(7, 5, Decimal("1.5"), Decimal("1.51"))], 8),
                          [("X", 5, 7, 150_000_000, 151_000_000)])
@@ -116,7 +109,7 @@ class ImportQuotesTests(unittest.TestCase):
         return caught.exception
 
     def test_one_month_of_quotes_is_one_commit_with_the_rule_in_its_message(self):
-        self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute, stored in full
+        self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute
         readings = self.result["per_symbol"]["BTCUSDT"]
         self.assertEqual((readings["trades"], readings["stale_side_adjustments"], readings["eve_archive"]), (31 * 2880, 0, True))
         self.assertEqual(readings["minutes_with_trades"], 31 * 1440)
@@ -130,8 +123,8 @@ class ImportQuotesTests(unittest.TestCase):
         bid = round(2000.0 - 0.02 * 1440, 2)  # the walk continues from the eve: no stale side, no adjustment
         self.assertEqual(first, [(day_ms(JAN) + 100, eve_trades + 1, round(bid * 10**8), round((bid + 0.03) * 10**8)),
                                  (day_ms(JAN) + 200, eve_trades + 2, round(bid * 10**8), round((bid + 0.01) * 10**8))])
-        self.assertEqual([(item["month"], item["quote_rule"], item["thinned"], item["symbols"]) for item in done],
-                         [("2025-01", quotes.RULE, False, ["BTCUSDT"])])
+        self.assertEqual([(item["month"], item["quote_rule"], item["symbols"]) for item in done],
+                         [("2025-01", quotes.RULE, ["BTCUSDT"])])
         self.assertEqual(sorted(done[0]["archives"]["BTCUSDT"])[:2], ["2024-12-31", "2025-01-01"])  # the eve and the days
         self.assertEqual(len(done[0]["archives"]["BTCUSDT"]["2025-01-01"]), 64)
         self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote commits are not bar imports
@@ -144,8 +137,6 @@ class ImportQuotesTests(unittest.TestCase):
             with patch.object(quotes, "RULE", "another-rule-v9"):
                 self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.profile, FEB, self.cache, 1, ["BTCUSDT"],
                              log=lambda _: None)
-            self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.profile, FEB, self.cache, 1, ["BTCUSDT"],
-                         log=lambda _: None, thin=True)  # one database holds one form
         with store.connect(self.profile, "reader") as conn:
             (count,), = conn.rows("SELECT COUNT(*) FROM quote WHERE ts >= %s", (day_ms(FEB),))
             dirty = conn.rows("SELECT table_name FROM dolt_status")
