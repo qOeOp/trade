@@ -26,7 +26,6 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-resizable-panels": "^4.14.8",
-    "sonner": "^2.0.8",
     "tinykeys": "^4.0.1"
   },
   "devDependencies": {

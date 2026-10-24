@@ -3,8 +3,6 @@ import { Group, Panel, Separator, usePanelRef, type LayoutChangedMeta } from "re
 import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
-import { Toaster } from "../components/Toaster";
-import { useLoadNotices } from "./notices";
 import { setSideSize, useShell, type Side } from "../state/shell";
 import { CommandPalette } from "./CommandPalette";
 import { commands } from "./commands";
@@ -29,7 +27,6 @@ export function Shell() {
   const windows = useMemo(() => toolWindows(view.widgets), [view]);
   const { open, size } = useShell();
   const actions = useMemo(() => commands(windows), [windows]);
-  useLoadNotices();
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);
   const left = shown("left"), right = shown("right"), bottom = shown("bottom");
@@ -67,7 +64,6 @@ export function Shell() {
       </div>
       <StatusBar />
       <CommandPalette lineage={lineage} actions={actions} />
-      <Toaster />
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import type { ReactElement } from "react";
 import { ContextMenu } from "radix-ui";
 import { copyText } from "../lib/clipboard";
-import { notify } from "../lib/notify";
 import { Icon } from "../icons/Icon";
 import type { IconName } from "../icons/registry";
 import { openVersionTab } from "../state/editors";
@@ -19,11 +18,6 @@ function Item({ icon, label, run }: { icon?: IconName; label: string; run: () =>
   );
 }
 
-async function copy(text: string, what: string) {
-  const ok = await copyText(text);
-  notify(ok ? { kind: "success", title: `已复制${what}`, detail: text } : { kind: "warning", title: `没能复制${what}`, detail: "浏览器拒绝了剪贴板访问" });
-}
-
 /** The right-click menu of a version, the same wherever the version appears. */
 export function VersionMenu({ id, children }: { id: string; children: ReactElement }) {
   const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
@@ -37,8 +31,8 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           <Item icon="tool.inspector" label="在详情中显示" run={() => { select(id); showToolWindow("inspector", "right"); }} />
           <Item icon="lineage" label="在新标签打开" run={() => openVersionTab(id)} />
           <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
-          <Item icon="copy" label="复制版本名" run={() => void copy(id, "版本名")} />
-          <Item label="复制链接" run={() => void copy(link, "链接")} />
+          <Item icon="copy" label="复制版本名" run={() => void copyText(id)} />
+          <Item label="复制链接" run={() => void copyText(link)} />
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

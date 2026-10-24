@@ -7,14 +7,12 @@ const STROKE = { 12: 1.5, 16: 1.25, 20: 1.25 } as const;
 const BODIES = new Map<IconName, string>((Object.keys(ICONS) as IconName[]).map((name) =>
   [name, ICONS[name].svg.replace(/<!--[\s\S]*?-->/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
 
-/** An icon in the text colour, or in `tone` (a status icon's own role when none is given). */
+/** An icon in the text colour, or in `tone`. */
 export function Icon({ name, size = 16, tone, className = "" }: { name: IconName; size?: 12 | 16 | 20; tone?: ColorRole; className?: string }) {
-  const icon = ICONS[name];
-  const colour = tone ?? ("tone" in icon ? icon.tone : undefined);
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={STROKE[size]}
          strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`inline-block shrink-0 ${className}`}
-         style={colour ? { color: v(colour) } : undefined}
+         style={tone ? { color: v(tone) } : undefined}
          dangerouslySetInnerHTML={{ __html: BODIES.get(name) ?? "" }} />
   );
 }
