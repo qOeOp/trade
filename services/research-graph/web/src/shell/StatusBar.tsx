@@ -21,12 +21,12 @@ export function StatusBar() {
   const focus = lineage?.nodes.find((n) => n.id === id);
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   return (
-    <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-3 text-small text-fg-faint">
+    <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
       <Breadcrumbs items={[
         { id: "line", label: line.bundle.replace(/^research-line-/, ""), onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />
-      <span className="ml-auto flex shrink-0 items-center gap-4">
+      <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {hovered && hovered.length > 1 ? <span className="text-fg-muted">{hovered.length} 个版本</span>
           : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />}
         {summary && <span>{summary.versions} 个版本 · {summary.research_runs} 次研究运行 · {summary.masked_runs} 次失去资格</span>}

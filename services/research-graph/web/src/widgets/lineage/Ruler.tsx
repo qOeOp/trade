@@ -18,7 +18,7 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
   const sx = (t: number) => x0 + t * unit + 0.5;
-  const visible = steps(Math.floor(-x0 / unit), Math.ceil((width - x0) / unit), 1);
+  const visible = steps(Math.max(0, Math.floor(-x0 / unit)), Math.ceil((width - x0) / unit), 1);
   const { groups, anchors } = useMemo(() => ({
     groups: runs(lineage.trials, (t) => t.candidate, (a, b) => b.trial_id === a.trial_id + 1),
     anchors: new Set(lineage.nodes.flatMap((n) => (n.x != null && Number.isInteger(n.x) ? [n.x] : []))),
@@ -46,7 +46,7 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
         {visible.map((t) => {
           const here = t === at;
           return (
-            <g key={t} pointerEvents="none">
+            <g key={t} data-ruler-trial={t} pointerEvents="none">
               {here && <rect x={sx(t) - unit / 2 + 3} y={BLOCK_Y + 1} width={unit - 6} height={BLOCK_H - 2} rx={4} fill={v("fg")} />}
               <text x={sx(t)} y={NUM_Y} textAnchor="middle" className="font-mono" fontSize={9.5}
                     fill={v(here ? "island" : anchors.has(t) ? "fg" : "fg-ghost")}>{t}</text>

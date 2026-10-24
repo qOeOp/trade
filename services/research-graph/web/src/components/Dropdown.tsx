@@ -5,14 +5,22 @@ import type { IconName } from "../icons/registry";
 
 // IntelliJ's toolbar widgets: a borderless trigger (content and a chevron) that opens a popup menu.
 
-export function Dropdown({ trigger, label, children, align = "start" }: {
-  trigger: ReactNode; label: string; children: ReactNode; align?: "start" | "end";
+// A toolbar widget (content and a chevron), a frame icon (a square the size of the frame's controls),
+// or inline (a breadcrumb step, no chevron).
+const TRIGGER = {
+  widget: "h-(--frame-control) px-2",
+  icon: "size-(--frame-control) justify-center",
+  inline: "px-1",
+} as const;
+
+export function Dropdown({ trigger, label, children, align = "start", variant = "widget" }: {
+  trigger: ReactNode; label: string; children: ReactNode; align?: "start" | "end"; variant?: keyof typeof TRIGGER;
 }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger aria-label={label}
-        className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-control px-2 outline-none transition-colors hover:bg-hover data-[state=open]:bg-pressed">
-        {trigger}<span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>
+        className={`inline-flex min-w-0 shrink items-center gap-1.5 rounded-control outline-none transition-colors hover:bg-hover data-[state=open]:bg-pressed ${TRIGGER[variant]}`}>
+        {trigger}{variant === "widget" && <span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align={align} sideOffset={4} collisionPadding={8}

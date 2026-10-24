@@ -25,8 +25,8 @@ export function Header({ c, children }: { c: Candidate; children?: ReactNode }) 
         <span className={PREDICTION_TEXT[PREDICTION[c.prediction_class].tone]}>{PREDICTION[c.prediction_class].label}</span>
         <span className="font-mono">{when(c.created_at)}</span>
         {c.parent && (
-          <TextButton className="font-mono" onClick={() => { const p = c.parent!; select(p, { reveal: true }); }}>
-            <Icon name="arrow-up" size={12} />{c.parent}
+          <TextButton className="min-w-0 max-w-full font-mono" title={c.parent} onClick={() => { const p = c.parent!; select(p, { reveal: true }); }}>
+            <Icon name="arrow-up" size={12} /><span className="truncate">{c.parent}</span>
           </TextButton>
         )}
       </div>

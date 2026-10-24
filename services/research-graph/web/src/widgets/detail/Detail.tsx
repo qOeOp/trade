@@ -18,7 +18,13 @@ const OUTCOME: Record<string, [string, string]> = {
 const VERDICT: Record<string, [string, string]> = { passed: ["通过", "text-meets"], failed: ["失败", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
-const prose = (text?: string | null) => <p className="leading-relaxed">{text ?? <Missing />}</p>;
+// Long tokens (hashes, paths) break anywhere rather than widen the card.
+const prose = (text?: string | null) => <p className="leading-relaxed wrap-anywhere">{text ?? <Missing />}</p>;
+
+// Where the region is wide (an editor tab), the groups sit in two columns: what changed and the
+// conclusion on the left, the evidence on the right; narrower (the inspector), one column in order.
+// Columns never grow past the region for their content.
+const SIDE = "@3xl:pt-0";
 
 /** One version's detail; the inspector shows the selected one, an editor tab a chosen one. */
 export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
@@ -26,7 +32,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
   const last: Partial<Trial> = runs.at(-1) ?? {};
   const cmp = c.comparison;
   return (
-    <div className="space-y-3 px-2 pb-3 text-dense">
+    <div className="@container space-y-3 px-2 pb-3 text-dense">
       <Header c={c}>
       <MetricStrip items={[
         { label: "年化", value: last.annual_return, format: percent, tone: meets(last.annual_return, targets?.annual_return, true) === false ? "misses" : "fg" },
@@ -35,7 +41,8 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         { label: "胜率", value: last.win_rate, format: percent },
       ]} />
       </Header>
-      <CardGroup title="改动与预期">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
+      <CardGroup title="改动与预期" className={SIDE}>
       <Section title="改了什么">{prose(c.change)}</Section>
       <Section title="假设">{prose(c.hypothesis)}</Section>
       {!!c.predictions?.length && (
@@ -59,7 +66,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         </Section>
       )}
       </CardGroup>
-      <CardGroup title="证据">
+      <CardGroup title="证据" className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
       <Section title="回放" aside={`${runs.length} 次研究运行 · 共 ${(c.trials ?? []).length} 次试验`}>
         <ReplayTable trials={c.trials ?? []} targets={targets} />
       </Section>
@@ -92,7 +99,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         </Section>
       )}
       </CardGroup>
-      <CardGroup title="结论">
+      <CardGroup title="结论" className="@3xl:col-start-1">
       <Section title="解释与决策">{prose(c.interpretation)}</Section>
       <Section title="登记" open={false}>
         <KeyValues items={[
@@ -101,6 +108,7 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
         ]} />
       </Section>
       </CardGroup>
+      </div>
     </div>
   );
 }

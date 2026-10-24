@@ -1,7 +1,6 @@
 import { scaleLinear } from "@visx/scale";
 import type { ProgressWidget } from "../model/types";
 import { pct } from "../lib/format";
-import { steps } from "../lib/range";
 import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
 import { useSelection } from "../state/selection";
@@ -9,7 +8,11 @@ import { useSize } from "../components/hooks/useSize";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
-const TOP = 26, BOTTOM = 22;
+// The bottom margin holds the hovered run's reading (under the lowest bar, with its highlight), then the legend.
+const TOP = 26, BOTTOM = 44;
+// The run under the pointer stands on a larger bar in the selection tone, this much wider on each side
+// and longer at its far end; it starts at zero like the bar, so it never crosses the axis.
+const HALO = 4;
 // The legend: each entry keeps its swatch and words together; a narrow island wraps whole entries.
 const LEGEND: readonly [ColorRole, string][] = [["meets", "达到目标"], ["bar", "正收益未达标"], ["misses", "亏损"]];
 
@@ -19,7 +22,8 @@ function Swatch({ role }: { role: ColorRole }) {
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for a
 // gain, down for a loss), coloured against the target, with the target as a dashed line. It pans with
-// the canvas, and the crosshair reads out the run under the pointer.
+// the canvas; the run at the crosshair's trial stands on a larger bar in the selection tone, its return read out under
+// the axis (the ruler already marks the trial).
 export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
   const { x0, unit } = useAxisView();
@@ -28,12 +32,13 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const { points } = widget;
   const target = widget.targets?.annual_return ?? null;
   const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
-  const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [Math.max(TOP + 1, height - BOTTOM), TOP], nice: true });
+  const floor = Math.max(TOP + 1, height - BOTTOM);
+  const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [floor, TOP], nice: true });
   const sx = (t: number) => x0 + t * unit;
-  const grid = steps(Math.floor(-x0 / unit / 5) * 5 - 5, Math.ceil((width - x0) / unit) + 5, 5);
   const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
   const recommended = new Set(widget.recommended);
   const scope = widget.axis.scope_start;
+  const barWidth = Math.max(3, unit * 0.56);
   const tone = (r: number): ColorRole => (r < 0 ? "misses" : target != null && r >= target ? "meets" : "bar");
   return (
     <div ref={ref} className="relative h-full w-full select-none"
@@ -42,14 +47,20 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
       {width > 0 && height > 0 && (
         <svg width={width} height={height} className="absolute inset-0">
           {scope != null && <rect x={0} y={0} width={Math.max(0, sx(scope))} height={height} fill={v("scope")} />}
-          {grid.map((t) => <line key={t} x1={sx(t) + 0.5} x2={sx(t) + 0.5} y1={TOP - 6} y2={height - BOTTOM} stroke={v("grid")} strokeDasharray={t % 10 ? "2 4" : undefined} />)}
           {y.ticks(4).filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={y(t)} y2={y(t)} stroke={v("grid")} strokeDasharray="2 4" />)}
           {target != null && <>
             <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke={v("meets")} strokeDasharray="6 4" />
-            <text x={width - 8} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")} className="font-mono">目标 {pct(target)}</text>
+            <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={10.5} fill={v("meets")} className="font-mono">目标 {pct(target)}</text>
           </>}
+          {near && (() => {
+            // From the axis out past the bar's end, rounded only at that end.
+            const x = sx(near.trial_id) - barWidth / 2 - HALO, w = barWidth + 2 * HALO, r = 3;
+            const base = y(0), up = near.annual_return >= 0, end = y(near.annual_return) + (up ? -HALO : HALO), s = up ? 1 : -1;
+            return <path d={`M${x} ${base} V${end + s * r} Q${x} ${end} ${x + r} ${end} H${x + w - r} Q${x + w} ${end} ${x + w} ${end + s * r} V${base} Z`}
+                         fill={v("selection")} pointerEvents="none" />;
+          })()}
           {points.map((p) => {
-            const x = sx(p.trial_id), y0 = y(0), y1 = y(p.annual_return), w = Math.max(3, unit * 0.56);
+            const x = sx(p.trial_id), y0 = y(0), y1 = y(p.annual_return), w = barWidth;
             return (
               <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · 研究运行`} version={p.id}
                 note={`年化 ${pct(p.annual_return)}${p.max_drawdown != null ? ` · 回撤 ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · 曾被推荐" : ""}`} />}>
@@ -61,15 +72,17 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
             );
           })}
           <line x1={0} x2={width} y1={y(0)} y2={y(0)} stroke={v("axis")} />
-          {at != null && (
+          {near && (
             <g pointerEvents="none">
-              <line x1={sx(at) + 0.5} x2={sx(at) + 0.5} y1={TOP - 6} y2={height - BOTTOM} stroke={v("crosshair")} />
-              {near && (() => {
-                const label = `trial ${near.trial_id} · ${pct(near.annual_return)}`, w = label.length * 6.6 + 12;
-                const x = sx(at) + w + 10 < width ? sx(at) + 6 : sx(at) - w - 6;
+              {(() => {
+                // As a chart's x-axis label: centred just under the bar's foot (the axis for a gain, the
+                // highlight's end for a loss), kept inside the chart.
+                const foot = near.annual_return >= 0 ? y(0) : y(near.annual_return) + HALO;
+                const label = pct(near.annual_return), w = label.length * 6.6 + 12, top = foot + 3;
+                const x = Math.min(Math.max(0, sx(near.trial_id) - w / 2), width - w);
                 return <>
-                  <rect x={x} y={TOP - 4} width={w} height={16} rx={3} fill={v("fg")} />
-                  <text x={x + w / 2} y={TOP + 7.5} textAnchor="middle" className="font-mono" fontSize={10} fill={v("island")}>{label}</text>
+                  <rect x={x} y={top} width={w} height={16} rx={3} fill={v("fg")} />
+                  <text x={x + w / 2} y={top + 11.5} textAnchor="middle" className="font-mono" fontSize={10} fill={v("island")}>{label}</text>
                 </>;
               })()}
             </g>

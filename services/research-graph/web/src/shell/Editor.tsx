@@ -23,7 +23,7 @@ export function Editor() {
                         ? { id, label: RENDERERS.lineage.title, icon: "lineage" as const, closable: false }
                         : { id, label: id, icon: "tool.inspector" as const, closable: true })} />}>
       <div className={active === LINEAGE_TAB ? "h-full" : "hidden"}>{lineage && <Lineage widget={lineage} />}</div>
-      {version && <div className="mx-auto max-w-3xl py-2"><VersionDetail c={version} targets={targets} /></div>}
+      {version && <div className="mx-auto max-w-6xl px-2 py-2"><VersionDetail c={version} targets={targets} /></div>}
     </Island>
   );
 }

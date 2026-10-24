@@ -22,12 +22,13 @@ function Metric({ label, children, unit, tip, miss = false }: { label: string; c
 
 // The current recommendation's readout against the targets, how many runs it was chosen from (the
 // multiple-testing context of "best") and how long it has held. The toolbar names the version itself.
+// One line high: readings that do not fit wrap onto a hidden second line, so none shows cut in half.
 export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading;
   const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} />);
   return (
-    <div className="flex min-w-0 items-center gap-x-5 overflow-hidden text-dense">
+    <div className="flex h-[1lh] min-w-0 flex-wrap items-center gap-x-5 overflow-hidden text-dense">
       <Metric label="年化" tip={`目标 ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
       <Metric label="回撤" tip={`目标 ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>
       <Metric label="夏普">{num(r?.sharpe, two)}</Metric>
