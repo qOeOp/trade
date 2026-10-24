@@ -153,7 +153,6 @@ def build_view(graph: dict) -> dict:
     marks = [{"kind": e["kind"], "candidate": e["candidate"], "row": row[e["candidate"]], "x": e["x"], "at": e["at"],
               "ref": e["ref"], "text": e["text"]}
              for e in rug if e["kind"] == "eligibility_change" and e["candidate"] is not None and e["x"] is not None]
-    reading_of = {n["id"]: n["reading"]["annual_return"] for n in nodes}
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
     current = recs[-1]["recommends"] if recs else None
@@ -189,8 +188,7 @@ def build_view(graph: dict) -> dict:
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
                     for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
-         "steps": [{"candidate": t["candidate"], "x0": t["x0"], "x1": t["x1"],
-                    "annual_return": reading_of.get(t["candidate"])} for t in trail]},
+         "recommended": sorted({t["candidate"] for t in trail})},
         {"id": "readings", "type": "scatter/1", "slot": "main", "title": "回放读数：年化 vs 最大回撤（研究运行）",
          "targets": targets,
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],

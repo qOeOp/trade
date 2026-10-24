@@ -41,7 +41,7 @@ research units, never pixels.
 |---|---|
 | `summary/1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
 | `lineage/2` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `marks` (eligibility changes on the row of the reviewed version), `rug` (every event once on the axis, with the version it is about) |
-| `progress/1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns by trial) and `steps` (the recommended version's return over each trail segment) |
+| `progress/1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns by trial) and `recommended` (the versions the trail passed through) |
 | `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `table/1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
 | `notes/1` | `items`: plain notes (the graph's `gaps`) |
@@ -62,7 +62,7 @@ canvas that pans but never zooms, with each version's role shown by its mark's s
 lines drawn as git graphs draw them, the recommendation trail and the events on the rows they concern,
 and a ruler above with every event and the trial under the pointer. A title bar carries the current recommendation's
 readout, a resizable bottom panel holds the research progress on the canvas's x (research-run returns,
-the recommended version's return and the target), the return/drawdown scatter (with the
+as bars from zero, against the target), the return/drawdown scatter (with the
 non-dominated frontier), the version table and the data gaps, and an inspector on the right holds the selected version.
 Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `.`
 centres the current recommendation and `Home` goes back to the start of the axis; `#<version>` in the address opens on that version. Panel sizes

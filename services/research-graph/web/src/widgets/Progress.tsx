@@ -6,29 +6,22 @@ import { Tip } from "../ui";
 import { EventTip, steps as range, useSize } from "./Lineage";
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for
-// a gain, down for a loss, longer for more), coloured against the target; the recommended version's
-// return as a step line (the "best so far" an optimiser history draws) and the target line. It pans
-// with the canvas above, and the crosshair reads out the run under the pointer.
+// a gain, down for a loss, longer for more), coloured against the target, with the target as a dashed
+// line. It pans with the canvas above, and the crosshair reads out the run under the pointer.
 export function Progress({ widget, selected }: { widget: ProgressWidget; selected: string | null }) {
   const [ref, { width, height }] = useSize();
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
-  const { points, steps } = widget;
+  const { points } = widget;
   const target = widget.targets?.annual_return ?? null;
-  const values = [...points.map((p) => p.annual_return), ...steps.map((s) => s.annual_return ?? 0), target ?? 0, 0];
+  const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
   const top = 26, bottom = 22;
   const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [Math.max(top + 1, height - bottom), top], nice: true });
   const sx = (t: number) => x0 + t * unit;
   const ticks = range(Math.floor(-x0 / unit / 5) * 5 - 5, Math.ceil((width - x0) / unit) + 5, 5);
-  let line = "", joined = false;  // a step without a reading (a masked version) breaks the line
-  for (const s of steps) {
-    if (s.x0 == null || s.x1 == null || s.annual_return == null) { joined = false; continue; }
-    line += `${joined ? `V${y(s.annual_return)}` : `M${sx(s.x0)} ${y(s.annual_return)}`} H${sx(s.x1)} `;
-    joined = true;
-  }
   const near = at == null ? null : points.reduce<(typeof points)[number] | null>(
     (best, p) => (Math.abs(p.trial_id - at) < 1.5 && (!best || Math.abs(p.trial_id - at) < Math.abs(best.trial_id - at)) ? p : best), null);
-  const recommended = new Set(steps.map((s) => s.candidate));
+  const recommended = new Set(widget.recommended);
   const scope = widget.axis.scope_start;
   return (
     <div ref={ref} className="relative h-full w-full select-none"
@@ -60,7 +53,6 @@ export function Progress({ widget, selected }: { widget: ProgressWidget; selecte
             );
           })}
           <line x1={0} x2={width} y1={y(0)} y2={y(0)} stroke="var(--ink-3)" />
-          {line && <path d={line} fill="none" stroke="var(--accent)" strokeWidth={2} strokeLinejoin="round" />}
           {at != null && (
             <g pointerEvents="none">
               <line x1={sx(at) + 0.5} x2={sx(at) + 0.5} y1={top - 6} y2={height - bottom} stroke="var(--ink-4)" />
@@ -87,7 +79,6 @@ export function Progress({ widget, selected }: { widget: ProgressWidget; selecte
         <span className="inline-flex items-center gap-1.5"><svg width={7} height={10}><rect width={7} height={10} rx={1.5} fill="var(--ink-4)" /></svg>正收益未达标</span>
         <span className="inline-flex items-center gap-1.5"><svg width={7} height={10}><rect width={7} height={10} rx={1.5} fill="var(--miss)" /></svg>亏损</span>
         <span className="inline-flex items-center gap-1.5"><svg width={8} height={11}><rect x={0.5} y={0.5} width={7} height={10} rx={1.5} fill="none" stroke="var(--ink-3)" strokeDasharray="2 1.5" /></svg>失去资格</span>
-        <span className="inline-flex items-center gap-1.5"><svg width={16} height={8}><path d="M0 6 H7 V2 H16" fill="none" stroke="var(--accent)" strokeWidth={2} /></svg>当时推荐的版本</span>
         <span className="inline-flex items-center gap-1.5"><svg width={16} height={8}><line x1={0} x2={16} y1={4} y2={4} stroke="var(--meet)" strokeDasharray="4 3" /></svg>年化目标</span>
       </div>
       <div className="pointer-events-none absolute bottom-1 right-3 text-[10.5px] faint">与上方谱系同一横轴 · trial</div>

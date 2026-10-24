@@ -85,7 +85,7 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual({e["kind"]: e["candidate"] for e in tree["rug"]},
                          {"recommendation": "a@1", "line_change": None}, "every event sits once on the axis")
         progress = widgets["progress"]
-        self.assertEqual(progress["steps"][0]["annual_return"], 0.25, "the trail carries its version's reading")
+        self.assertEqual(progress["recommended"], ["a@1"])
         self.assertEqual([p["eligible"] for p in progress["points"]], [False, True, True])
         self.assertEqual(progress["axis"]["max"], tree["axis"]["max"], "the same x as the lineage")
         self.assertEqual(len(widgets["readings"]["points"]), 3)
