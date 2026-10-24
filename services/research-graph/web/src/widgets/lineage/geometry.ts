@@ -8,10 +8,15 @@ export const RULER = 26;
 /** The mark's centre from the node's left edge: 4px padding + half a 14px mark. */
 export const MARK_CENTRE = 11;
 
+/** Room a version's line takes right of its mark: mark, badge and prediction slot, then the name. */
+const lineWidth = (id: string) => 160 + id.length * 7.5;
+
 /** The canvas's content in canvas pixels: from trial 0's cell and the first row's stripe to the last
- *  row's stripe, and past the last trial far enough for its names. Nothing is drawn or panned beyond it. */
+ *  row's stripe, and right to the end of the last trial or of the longest-reaching version's name.
+ *  Nothing is drawn or panned beyond it, so the canvas never opens on empty trials past the content. */
 export function bounds(widget: LineageWidget) {
-  return { left: -UNIT / 2, top: -ROW / 2, right: (widget.axis.max + 30) * UNIT, bottom: (widget.rows.length - 0.5) * ROW };
+  const names = widget.nodes.map((n) => (n.x == null ? 0 : n.x * UNIT + lineWidth(n.id)));
+  return { left: -UNIT / 2, top: -ROW / 2, right: Math.max((widget.axis.max + 0.5) * UNIT, ...names) + UNIT, bottom: (widget.rows.length - 0.5) * ROW };
 }
 
 /** The pan that puts the content's top-left corner at the canvas's. */
