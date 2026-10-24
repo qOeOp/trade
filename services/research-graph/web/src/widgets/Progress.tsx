@@ -1,67 +1,68 @@
+import { useId } from "react";
 import { scaleLinear } from "@visx/scale";
 import type { ProgressWidget } from "../model/types";
-import { pct } from "../lib/format";
+import { pct, pctShort } from "../lib/format";
+import { valueDomain } from "../lib/valueDomain";
 import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
-import { select, useSelection } from "../state/selection";
+import { select } from "../state/selection";
 import { useSize } from "../components/hooks/useSize";
 import { ChartPill, PILL_H } from "../components/ChartPill";
 import { chartKeys } from "../components/chartKeys";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
-// The top margin holds the title and the legend; the bottom one the hovered run's readout under the axis.
-const TOP = 40, BOTTOM = PILL_H + 8;
-// A highlighted run stands on a larger bar, this much wider on each side and longer at its far end;
-// it starts at zero like the bar, so it never crosses the axis.
-const HALO = 4;
-// Bars fill 70% of a trial's slot up to 24px; the far end is rounded, the foot on the axis square.
-const SLOT = 0.7, MAX_BAR = 24, R = 2;
+// The top margin holds the title and the legend; the plot starts right of the tick labels' gutter, the
+// labels and the readout pill ending GUTTER short of it (as in the scatter).
+const TOP = 40, BOTTOM = 16, LEFT = 64, RIGHT = 12, GUTTER = 6;
+// Bars fill 70% of a trial's slot up to 24px, flat; the far end is rounded, the foot on the axis square.
+const SLOT = 0.7, MAX_BAR = 24, R = 3;
 const LEGEND: readonly [ColorRole, string][] = [["meets", "达到目标"], ["bar", "正收益未达标"], ["misses", "亏损"]];
+const crisp = (n: number) => Math.round(n) + 0.5;
 
-/** A bar from `base` to `end` (screen y), rounded only at `end`. */
+/** A bar from `base` to `end` (screen y), rounded only at `end` (square once too small to show it). */
 function bar(x: number, w: number, base: number, end: number, r: number) {
-  const s = end < base ? 1 : -1, rr = Math.min(r, Math.abs(base - end), w / 2);
+  const s = end < base ? 1 : -1, rr = w <= 5 || Math.abs(base - end) <= 5 ? 0 : Math.min(r, Math.abs(base - end), w / 2);
   return `M${x} ${base} V${end + s * rr} Q${x} ${end} ${x + rr} ${end} H${x + w - rr} Q${x + w} ${end} ${x + w} ${end + s * rr} V${base} Z`;
 }
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for a
 // gain, down for a loss) in grey, green where it meets the target and amber for a loss; the target as a
-// dashed reference line over a faint band from zero to it. It pans with the canvas. The selected
-// version's runs stand on a deeper selection-tone bar, the run at the crosshair's trial on a lighter
-// one with its return read out under the axis (the ruler already marks the trial).
+// thin plot line. It pans with the canvas (which marks the selected version above). The trial at the
+// crosshair is a shaded column behind the bars, its run's return read out on the value axis along a
+// dotted line from its bar. Layers are named groups in paint order, as Highcharts draws them.
 export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
+  const id = useId();
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
-  const selected = useSelection();
   const { points } = widget;
   const target = widget.targets?.annual_return ?? null;
   const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
-  // Headroom above the tallest bar and below the deepest, so no bar meets the frame.
   const floor = Math.max(TOP + 1, height - BOTTOM);
-  const y = scaleLinear<number>({ domain: [Math.min(...values) * 1.15, Math.max(...values) * 1.15], range: [floor, TOP], nice: true });
+  // As many ticks as fit 28px apart, up to 8 (5% steps for a usual range), the frame ending on them.
+  const count = Math.max(3, Math.min(8, Math.floor((floor - TOP) / 28)));
+  const y = scaleLinear<number>({ domain: valueDomain(Math.min(...values), Math.max(...values), count), range: [floor, TOP] });
+  const ticks = y.ticks(count);
   const sx = (t: number) => x0 + t * unit;
   const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
   const recommended = new Set(widget.recommended);
   const scope = widget.axis.scope_start;
   const barWidth = Math.min(MAX_BAR, Math.max(3, unit * SLOT));
   const tone = (r: number): ColorRole => (r < 0 ? "misses" : target != null && r >= target ? "meets" : "bar");
-  const halo = (p: (typeof points)[number], fill: ColorRole) => {
-    const up = p.annual_return >= 0;
-    return <path key={`h${p.trial_id}`} d={bar(sx(p.trial_id) - barWidth / 2 - HALO, barWidth + 2 * HALO, y(0), y(p.annual_return) + (up ? -HALO : HALO), 3)}
-                 fill={v(fill)} pointerEvents="none" />;
-  };
+  const column = (p: (typeof points)[number], fill: string) =>
+    <rect key={`c${p.trial_id}`} x={sx(p.trial_id) - unit / 2} y={TOP} width={unit} height={Math.max(y(0), y(p.annual_return)) - TOP} fill={fill} />;
   const byTrial = [...points].sort((a, b) => a.trial_id - b.trial_id);
   const keys = chartKeys({
     along: byTrial, at: (list) => list.findIndex((p) => p.trial_id === at),
     move: (p) => {
       crosshair.set(p.trial_id); hovered.set([p.id]);
-      if (sx(p.trial_id) < 0 || sx(p.trial_id) > width) requestFocus(p.id);
+      if (sx(p.trial_id) < LEFT || sx(p.trial_id) > width) requestFocus(p.id);
     },
     enter: (p) => { select(p.id); requestFocus(p.id); },
     leave: () => { crosshair.set(null); hovered.set(null); },
   });
+  const readout = near ? y(near.annual_return) : null;
   return (
     <div ref={ref} tabIndex={0} aria-label="研究运行年化，方向键逐个读取" onKeyDown={keys}
          onBlur={() => { crosshair.set(null); hovered.set(null); }}
@@ -70,47 +71,50 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
          onMouseLeave={() => crosshair.set(null)}>
       {width > 0 && height > 0 && (
         <svg width={width} height={height} className="absolute inset-0">
-          {scope != null && <rect x={0} y={0} width={Math.max(0, sx(scope))} height={height} fill={v("scope")} />}
-          {target != null && target > 0 && <rect x={0} y={y(target)} width={width} height={y(0) - y(target)} fill={v("row-hover")} />}
-          {y.ticks(4).filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={y(t)} y2={y(t)} stroke={v("grid")} />)}
-          {points.filter((p) => p.id === selected && p.trial_id !== near?.trial_id).map((p) => halo(p, "selection-strong"))}
-          {near && halo(near, near.id === selected ? "selection-strong" : "selection")}
-          {points.map((p) => (
-            <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · 研究运行`} version={p.id}
-              note={`年化 ${pct(p.annual_return)}${p.max_drawdown != null ? ` · 回撤 ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · 曾被推荐" : ""}`} />}>
-              <path {...hoverProps(p.id)} className="cursor-pointer" onClick={() => requestFocus(p.id)}
-                    d={bar(sx(p.trial_id) - barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)}
-                    fill={v(tone(p.annual_return))} />
-            </Tip>
-          ))}
-          <line x1={0} x2={width} y1={y(0)} y2={y(0)} stroke={v("axis")} />
-          {target != null && (
-            <g pointerEvents="none">
-              <line x1={0} x2={width} y1={y(target)} y2={y(target)} stroke={v("meets")} strokeDasharray="6 4" />
-              <text x={width - 12} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}>目标 {pct(target)}</text>
+          <defs><clipPath id={`${id}-plot`}><rect x={LEFT} y={0} width={width - LEFT} height={floor + 1} /></clipPath></defs>
+          <g className="chart-plot" clipPath={`url(#${id}-plot)`}>
+            <g className="chart-plot-bands">
+              {scope != null && <rect x={0} y={TOP} width={Math.max(0, sx(scope))} height={floor - TOP} fill={v("scope")} />}
             </g>
-          )}
+            <g className="chart-column-bands" pointerEvents="none">
+              {near && column(near, v("row-hover"))}
+            </g>
+            <g className="chart-grid" stroke={v("grid")}>
+              {ticks.filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={crisp(y(t))} y2={crisp(y(t))} />)}
+            </g>
+            {near && readout != null && <line className="chart-crosshair" x1={0} x2={sx(near.trial_id) - barWidth / 2} y1={crisp(readout)} y2={crisp(readout)}
+                                      stroke={v("crosshair")} strokeDasharray="1 2" pointerEvents="none" />}
+            <g className="chart-series">
+              {points.map((p) => (
+                <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · 研究运行`} version={p.id}
+                  note={`年化 ${pct(p.annual_return)}${p.max_drawdown != null ? ` · 回撤 ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · 曾被推荐" : ""}`} />}>
+                  <path {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="cursor-pointer" onClick={() => requestFocus(p.id)}
+                        d={bar(sx(p.trial_id) - barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)}
+                        fill={v(tone(p.annual_return))} />
+                </Tip>
+              ))}
+            </g>
+            <g className="chart-plot-lines" pointerEvents="none">
+              <line x1={0} x2={width} y1={crisp(y(0))} y2={crisp(y(0))} stroke={v("axis")} />
+              {target != null && <line x1={0} x2={width} y1={crisp(y(target))} y2={crisp(y(target))} stroke={v("meets")} strokeOpacity={0.55} />}
+            </g>
+          </g>
+          {target != null && <text className="chart-plot-line-label" x={width - RIGHT} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}
+                                   stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">目标 {pctShort(target)}</text>}
+          <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="end">
+            {ticks.filter((t) => readout == null || Math.abs(y(t) - readout) > PILL_H + 2).map((t) => (
+              <text key={t} x={LEFT - GUTTER} y={y(t) + 4}>{pctShort(t)}</text>
+            ))}
+          </g>
+          {near && readout != null && <ChartPill x={LEFT - GUTTER} y={readout - PILL_H / 2} text={pct(near.annual_return)} anchor="end" min={8} />}
         </svg>
       )}
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-14 bg-linear-to-r from-island from-65% to-transparent">
-        {height > 0 && y.ticks(4).map((t) => (
-          <span key={t} className="absolute right-2 -translate-y-1/2 text-small text-fg-muted" style={{ top: y(t) }}>{Math.round(t * 100)}%</span>
-        ))}
-      </div>
-      {near && width > 0 && (
-        // As a chart's x-axis label: centred under the bar's foot (the axis for a gain, the highlight's
-        // end for a loss), kept inside the chart and drawn over the tick labels' fade.
-        <svg width={width} height={height} className="pointer-events-none absolute inset-0">
-          <ChartPill x={sx(near.trial_id)} y={(near.annual_return >= 0 ? y(0) : y(near.annual_return) + HALO) + 3}
-                     text={pct(near.annual_return)} min={0} max={width} />
-        </svg>
-      )}
-      <div className="pointer-events-none absolute inset-x-3 top-1.5 flex items-baseline justify-between gap-3 text-small">
-        <span className="shrink-0 font-medium text-fg-muted">研究运行年化</span>
+      <div className="pointer-events-none absolute inset-x-3 top-1.5 flex items-baseline justify-between gap-3 text-small text-fg-muted">
+        <span className="shrink-0">研究运行年化</span>
         <span className="flex min-w-0 flex-wrap justify-end gap-x-3.5 text-fg-muted">
-          {LEGEND.map(([role, label]) => (
+          {LEGEND.filter(([role]) => points.some((p) => tone(p.annual_return) === role)).map(([role, label]) => (
             <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">
-              <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={R} fill={v(role)} /></svg>{label}
+              <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={v(role)} /></svg>{label}
             </span>
           ))}
         </span>

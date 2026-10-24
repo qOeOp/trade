@@ -163,7 +163,6 @@
   - 时长分 100 / 150 / 200 / 250ms 四档；界面动画不超过 250ms（[Material 3 Durations](https://api.flutter.dev/flutter/material/Durations-class.html)、Emil Kowalski）。
   - 缓动默认 ease-out `cubic-bezier(0.2, 0, 0, 1)`。
 - **要动的**：
-  - 侧栏开合（200ms，宽度用 transform 实现）。
   - 选中底色（100ms）。
   - 画布定位平移（250ms）。
   - 悬停联动的变暗（100ms）。
@@ -208,8 +207,9 @@
 - **轴**：
   - 不画刻度线。
   - 轴文字 11px、次要文字色、等宽数字。
-  - 轴标题放在轴端，带方向箭头（「年化 ↑」「最大回撤 →」，Plot 的默认做法）。
-- **虚线**：只留给准星和参考线（目标线），网格永远是实线（TradingView 正是这样分工：网格实线，准星和最新价线虚线，见上方 Grid 与 Crosshair 链接）。
+  - 轴标题放在轴端，带方向箭头（「年化 ↑」「最大回撤 →」，Plot 的默认做法）：横轴标题和刻度同一行、右对齐，顶替最后一个刻度；纵轴标题和图例同一行。
+  - 负数用真正的减号（U+2212），不用连字符。
+- **虚线**：只留给准星（1px 点线 `1 2`），网格和目标线都是实线（目标线用达标绿 55% 不透明度）。准星和目标线贴得很近时，两条相近的虚线会混在一起，10-24 审美复查后改成只有准星用点线。
 - **配色**：
   - 灰色是主色，大部分数据用灰，强调色只给要讲的那一点（[Datawrapper 配色](https://www.datawrapper.de/blog/colors-for-data-vis-style-guides)）。
   - 小标记可以饱和，大面积必须淡。
@@ -218,10 +218,10 @@
   - 只用两种字号，不旋转标签（[Datawrapper 文字](https://www.datawrapper.de/blog/text-in-data-visualizations)）。
   - 能直接标注的就不放远处的图例。
 - **悬停**：
-  - 当前项保持原样，其余降到 30% 不透明度（[Vega-Lite 示例](https://vega.github.io/vega-lite/examples/interactive_bar_select_highlight.html)）。
+  - 当前项保持原样，其余降到 30% 不透明度（[Vega-Lite 示例](https://vega.github.io/vega-lite/examples/interactive_bar_select_highlight.html)）；本来就浅的灰柱降到 55%，否则 30% 的浅灰贴近底色、看不见了。
   - 三张图和版本树联动（已有机制，补齐变暗）。
-- **读数胶囊**：沿用现在的深色胶囊，统一圆角 4px、字号 11px、内边距 6×2；TradingView 准星的轴标签就是这种做法（[CrosshairLineOptions](https://tradingview.github.io/lightweight-charts/docs/api/interfaces/CrosshairLineOptions)）。
-- **留白**：数据不顶到边框，数值轴上方留 10–20% 余量（TradingView price scale 的 scaleMargins）。
+- **读数胶囊**：次要文字色底、岛色字，统一圆角 4px、字号 11px、内边距 6×2；TradingView 准星的轴标签就是这种做法（[CrosshairLineOptions](https://tradingview.github.io/lightweight-charts/docs/api/interfaces/CrosshairLineOptions)）。胶囊所在位置的刻度文字让开，胶囊离岛边至少 8px。
+- **留白**：数据不顶到边框，数值轴上方留 10–20% 余量（TradingView price scale 的 scaleMargins）；下方没有负值就从 0 开始，有负值就到最低值为止，不为一点小亏损多开一整行刻度。刻度数按图高定：相邻刻度至少 28px，最多 8 个，坐标范围取整到同样的刻度数，边框落在刻度上。
 - **键盘**：Tab 进入图表，方向键逐点移动，焦点样式等同悬停（[Chartability](https://chartability.fizz.studio/)）。
 
 ### 4.2 研究进展柱状图
@@ -229,22 +229,28 @@
 - **柱子**：
   - 宽度不超过 24px，占槽位 60–80%（库默认 60%–90%，没有权威比例，**未查到一手依据**）。
   - 柱顶 2px 圆角，底部贴基线处为直角（全圆角会模糊柱端，[The Data School](https://thedataschool.co.uk/jonathan-allenby/the-dangers-of-rounded-bar-charts)）。
-- **选中**：取消描边（描边是非数据墨水），改为选中色的外框条，与悬停高亮同一机制、颜色更深。
-- **目标**：保留目标线（虚线，参考线），并在 0 到目标之间铺极淡的「未达标区」底带（Tufte 迷你图的「正常范围灰带」，[sparkline theory](https://www.edwardtufte.com/notebook/sparkline-theory-and-practice-edward-tufte/)）。
-- **全历史概览条**（新增，**需确认**）：
-  - 主图跟着画布平移，视野里常常只有几根柱子。
-  - 在主图上方加一条约 24px 高的迷你图，画出全部研究运行，并用一个可拖动的视野框表示画布当前范围，拖动它就平移画布。
-  - 这是 TradingView、IDE 小地图式的能力，也是现在「没有高级特性」的主要缺口。
+- **选中**：取消描边（描边是非数据墨水）。准星所在 trial 铺一列行悬停色底色，到柱脚（亏损到柱端）为止，柱子本身保持平涂；选中版本不再在图里另做标记，画布上方已标出它（10-24 审美复查后去掉）。外框条试过：蓝框套绿柱像表单焦点框，10-24 审美复查后去掉。
+- **读数**：悬停的运行沿一条点线读到数值轴上的胶囊（年化是纵轴的值，横轴的 trial 由标尺给出）。
+- **目标**：保留目标线（实线，见 4.1）。0 到目标之间的底带去掉（10-24 审美复查）：灰柱本身已经说明未达标，底带只是重复。
+- **全历史概览条**（做过，10-24 用户评审后去掉）：迷你柱图加视野框做出来是第二套柱状图，和主图重复；平移画布直接拖画布就行。不为填充复杂度加作用不大的内容。
 - **图例**：改为直接标注，三种状态的说明移到图标题行右侧。
 
 ### 4.3 年化 vs 回撤散点
 
 - **点**：
-  - 被支配的点用灰色、60% 不透明度，外圈 2px 岛色描边且保持 100% 不透明度，解决重叠（[Datawrapper](https://www.datawrapper.de/blog/colors-for-data-vis-style-guides)、[Optuna 帕累托图](https://raw.githubusercontent.com/optuna/optuna/master/optuna/visualization/_pareto_front.py)）。
+  - 被支配的点用不透明的浅灰（半透明点叠在一起会变成深色团块），外圈 2px 岛色描边，解决重叠（[Datawrapper](https://www.datawrapper.de/blog/colors-for-data-vis-style-guides)、[Optuna 帕累托图](https://raw.githubusercontent.com/optuna/optuna/master/optuna/visualization/_pareto_front.py)）。
   - 半径至少 4px。
 - **前沿**：
-  - 前沿上的点用强调色，前沿线 1.5px 实线（现在是 1px 虚线）。
-  - 前沿两端和当前推荐直接标版本名。
+  - 前沿上的点用强调色，前沿线 2px 实线折线。阶梯线试过（理由是两点之间没有运行），线段多、拐角多，比折线乱，用户评审后退回（10-24）。
+  - 前沿两端和当前推荐直接标版本名：折线向右上升，点的左上方是空的；第一个点标在右下方（放不下就标在右侧），最后一个点右侧放得下就标在右侧。
+  - 选中的点外加 1.5px 选中色圆环；当前推荐不再放大（放大加两层圆环像发光）。
+  - 坐标范围按轴的刻度数取整，边框落在刻度上。
+  - 两个目标都有时不画目标线，达标角落的填色（达标绿 12% 混入岛色，不透明，区内标签的描边用同一颜色）边缘就是阈值，区内写明两个目标（「年化 ≥ 20% · 回撤 ≤ 15%」），像 Highcharts 的 plotBand；只有一个目标时画一条横贯全图的线。
+  - 0% 用轴色画，绘图区底边不画线。
+  - 前沿是比较的参照，悬停其它运行时前沿线、前沿点和它们的名字都不变暗；画的顺序是被支配的点、前沿线、前沿点，灰点的岛色外圈不切断前沿线。
+  - 相距不到 1.5px 的运行合成一个点，悬停提示里写「另有 N 个运行与它重合」（重叠的空心点会叠成一团杂纹）。
+  - 被支配的点和研究进展的灰柱用同一个灰（`bar`）。灰点外圈 1px（2px 会把重叠的灰点切成月牙），前沿点 2px。
+  - 图例是一段 2px 线，和前沿线一致。
 - **达标区**：两项都达标的角落铺 8–10% 的达标绿，区内写「两项都达标」（Artificial Analysis 的「Most attractive quadrant」做法，[示例](https://artificialanalysis.ai/models)；具体不透明度**未查到一手依据**）。
 - **其它**：
   - 只保留 y 方向网格，去掉刻度线。
@@ -260,7 +266,7 @@
   - 版本占用的 trial 段保持浅色块。
 - **准星吸附**：横线吸附到最近的版本行，竖线吸附到 trial（TradingView 的 Magnet 模式，[CrosshairMode](https://tradingview.github.io/lightweight-charts/docs/api/enumerations/CrosshairMode)）。
 - **失格版本**：去掉文字徽章，整行降到 40% 不透明度，红色只留在图标上。
-- **空白**：配合 4.2 的全历史概览条。打开页面时把有内容的区段放进视野，而不是停在一片空行上。
+- **空白**：打开页面时把有内容的区段放进视野，而不是停在一片空行上；画布右侧最多平移到最远的版本名。
 
 ### 4.5 表格（版本表、回放表、数据缺口）
 
@@ -271,10 +277,10 @@
 ## 5. 实施顺序
 
 1. **令牌**：OKLCH 中性色阶、字号字重、间距、圆角、阴影、时长。只改 `theme/`，整页随之变化，截图对比。
-2. **组件状态**：按 3.7 补全每个组件；菜单去掉动画。侧栏开合过渡挪到第 4 步：现在开合一侧会重建面板组，要先让布局不重建才能过渡。
-3. **图表**：先做 4.1 的共用部分，再逐张做 4.2–4.4；概览条单独一步。
+2. **组件状态**：按 3.7 补全每个组件；菜单去掉动画。侧栏开合不加过渡（10-24 定）：IntelliJ 打开工具窗本身是瞬时的，过渡期间画布和图表每一帧都要重排，还可能引回 #1660 修掉的画布闪动。
+3. **图表**：先做 4.1 的共用部分，再逐张做 4.2–4.4。
 4. **内容**：详情摘要与折叠、胶囊化的长串、失格版本的表达。
-5. **验收**：每一步与 IntelliJ / Linear 截图并排评审。`verify.mjs` 只为能证明产品真坏的回归加检查（越界、对齐、交互），不为样式数值加检查。
+5. **验收**：每一步与 IntelliJ / Linear 截图并排评审；交给用户前，先由带审美技能（dataviz、artifact-design）的独立子代理看亮暗两套截图复查，合格才交付。`verify.mjs` 只为能证明产品真坏的回归加检查（越界、对齐、交互），不为样式数值加检查。
 
 ## 6. 不做的事
 

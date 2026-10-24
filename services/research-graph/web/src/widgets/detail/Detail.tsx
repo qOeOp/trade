@@ -7,8 +7,10 @@ import { useSelection } from "../../state/selection";
 import { KeyValues } from "../../components/KeyValues";
 import { MetricStrip } from "../../components/MetricStrip";
 import { Missing } from "../../components/Missing";
+import { Prose } from "../../components/Prose";
 import { CardGroup, Section } from "../../components/Section";
 import { Tip } from "../../components/Tip";
+import { Token } from "../../components/Token";
 import { Header } from "./Header";
 import { ReplayTable } from "./ReplayTable";
 
@@ -18,8 +20,6 @@ const OUTCOME: Record<string, [string, string]> = {
 const VERDICT: Record<string, [string, string]> = { passed: ["通过", "text-meets"], failed: ["失败", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
-// Long tokens (hashes, paths) break anywhere rather than widen the card.
-const prose = (text?: string | null) => <p className="leading-relaxed wrap-anywhere">{text ?? <Missing />}</p>;
 
 // Where the region is wide (an editor tab), the groups sit in two columns: what changed and the
 // conclusion on the left, the evidence on the right; narrower (the inspector), one column in order.
@@ -43,8 +43,8 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
       </Header>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
       <CardGroup title="改动与预期" className={SIDE}>
-      <Section title="改了什么">{prose(c.change)}</Section>
-      <Section title="假设">{prose(c.hypothesis)}</Section>
+      <Section title="改了什么"><Prose text={c.change} /></Section>
+      <Section title="假设"><Prose text={c.hypothesis} /></Section>
       {!!c.predictions?.length && (
         <Section title="预测" aside={`${c.predictions.length} 条`}>
           <table className="w-full"><tbody>
@@ -100,10 +100,10 @@ export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets |
       )}
       </CardGroup>
       <CardGroup title="结论" className="@3xl:col-start-1">
-      <Section title="解释与决策">{prose(c.interpretation)}</Section>
+      <Section title="解释与决策"><Prose text={c.interpretation} /></Section>
       <Section title="登记" open={false}>
         <KeyValues items={[
-          ["登记", c.registration ? <Tip content={c.registration}><span className="block truncate font-mono">{c.registration}</span></Tip> : null],
+          ["登记", c.registration ? <Token value={c.registration} /> : null],
           ["职责", (c.duties ?? []).join(" ") || null],
         ]} />
       </Section>
