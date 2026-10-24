@@ -184,5 +184,18 @@ class ReportRefusalTests(unittest.TestCase):
         self.assertEqual(len(blown["statistics_notes"]), 2)
 
 
+class FixedLimitationsTests(unittest.TestCase):
+    def test_the_limitations_state_the_execution_mode_of_the_run(self):
+        from engine.report import fixed_limitations
+        bars = fixed_limitations({"strategy_quote_execution": False, "strategy_margin_rates": None})
+        quotes = fixed_limitations({"strategy_quote_execution": True, "strategy_margin_rates": ["0.05", "0.025"]})
+        self.assertEqual(len(bars), len(quotes))
+        self.assertIn("Liquidation is not modelled", bars)
+        self.assertTrue(bars[0].startswith("One-minute execution bars"))
+        self.assertNotIn("Liquidation is not modelled", quotes)
+        self.assertTrue(quotes[0].startswith("Quotes drive matching") and "no depth" in quotes[0])
+        self.assertIn("declared rate (0.025; initial 0.05)", quotes[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

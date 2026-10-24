@@ -100,7 +100,25 @@ CREATE TABLE quote (
 
   流式导入后峰值内存随当月最忙的一天走（2026-02 为 3.9 GB），不再随整月增长。
 - **第 4 步（分支 `feat/quote-execution`，基于 #1663，等其合并后再开 PR，不叠 PR）**：导出器按片写 QuoteTick（`market.write_quotes`，数量填 `instrument.max_quantity`，回执 `counts.quote`、`quote_size`）；运行器把 `QuoteTick` 加入流式回放（配置序：MARK、报价、资金费、K 线、状态、收盘），只在源声明 `QUOTE_EXECUTION = True` 时流入；该声明下 venue 为 `bar_execution=False`、`liquidation_enabled=True`、`StandardMarginModel`，合约带源声明的 `INITIAL_MARGIN_RATE`/`MAINTENANCE_MARGIN_RATE`；无声明则一切照旧。拒绝：`QUOTES_MISSING`、`MARGIN_DECLARATION_INVALID`、`QUOTE_INEXACT`、`QUOTES_UNSORTED`。测试：带杠杆空头在流式回放里被场所原生强平，与 BacktestNode 结果一致；全套 498 项通过。
-- 第 6 步（真实数据的多空验收回放、每月 1 日对真实 bookTicker 的强平对照）、第 7 步（报告 skill 的 bookDepth ±1% 深度标记）未开始。
+- **第 6 步验收回放（2026-10-25 凌晨）**：在工作树原生跑 `engine.run`，输入由 `market.export_catalogs` 从活动市场库提交 53tgna1p 导出（含报价），产物只在临时目录，未写账本。探针源声明 `QUOTE_EXECUTION`、初始 5%、维持 2.5%，交易窗首根 K 线后市价开 100 万 USDT 名义（10 倍权益）并挂一张 ±30% 的远端限价单，之后不再动作。
+  - 多头（2025-10-09 至 10-12，10-10 跌 16.5%）：10-10 00:00:59.999 以 121,601.5 买 8.224 BTC；21:13:05.183 由 `LIQUIDATION-BINANCE-…` 单（市价、IOC、只减仓、tag `LIQUIDATION_BINANCE_CLOSE`）以 112,535.4 一次全平，远端挂单同一时刻撤销；期末权益 24,429 USDT（维持保证金 25,001），完整性检查通过。
+  - 空头（2026-02-05 至 02-08，02-06 涨 14%）：02-06 00:00:59.999 以 63,007.7 卖 15.871 BTC；14:33:24.545 以 67,693.8 被强平；期末 24,449 USDT。
+  - 健康对照（2 倍名义，同窗口）：多空都未触发，期末 81,721 / 79,893 USDT（含浮亏），远端挂单仍挂着。
+  - 跳空负权益：维持 0.05% 的多头在 10-10 21:13:30.274 以 109,509.4 强平，两条报价之间的跳空使账户总额为 −444.23 USDT，如实写入 account.csv 与 summary。
+  - 同一输入重放两次，`engine.compare` 指纹逐字节相同。
+  - 规模：3 天 BTCUSDT 报价 631 万条（10 月窗口）/ 1,902 万条（2 月窗口），导出 19 s / 53 s，回放 7 s / 22 s。
+  - 真实数据暴露并修复两处（随 #1666）：导出器按固定行数切 Catalog 文件，同一毫秒的多条状态会跨两个文件，Nautilus 拒绝闭区间相接的文件（改为只在时间变化处切分，回归测试）；报告的 limitations 在报价环境仍写「K 线撮合」和「Liquidation is not modelled」（改为按执行模式陈述报价撮合与强平模型及声明的费率）。
+- **每月 1 日真实 bookTicker 对照（2026-10-25 凌晨）**：同一强平夹具（10 倍名义、维持率取当日 60% 的逆向幅度、`BacktestEngine` 直接跑）分别喂库内推算报价与 Tardis 免费公开的 Binance 真实 bookTicker（只取价格变化）。产物 `true-vs-inferred-liquidation.json`（临时目录）。
+
+| 日期 | 方向 | 当日幅度 | 推算状态数 / 真实价格变化数 | 强平时刻差（推算−真实） | 强平价差 | 期末现金差 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2025-10-01 | 空 | 4.07% | 900,634 / 302,746 | −2,000 ms | −0.35 bps | +36 USDT |
+| 2025-11-01 | 空 | 0.91% | 314,846 / 119,014 | −9 ms | −2.44 bps | +246 USDT |
+| 2026-02-01 | 多 | 3.89% | 2,770,022 / 1,264,151 | −1 ms | 0.00 bps | 0 |
+| 2026-08-01 | 多 | 1.00% | 194,513 / 55,774 | −1 ms | +0.02 bps | 0 |
+
+  四天都在同一笔报价附近触发；差异来自过时一侧的报价在真实点差内外的位置，方向不固定。100 万名义下现金差最大 246 USDT。
+- **第 7 步报告 skill**：`nautilus-report-analysis` 新增报价环境规则与 `references/depth.md`（Binance `bookDepth` 归档、按成交方向取 ±1% 档、报告超深度笔数与其中的强平笔、不按深度缩放）；评测用例 `evals/nautilus-report-analysis/fill-size-vs-book-depth`。分支 `feat/report-depth-rule`。
 
 ## 已授权并完成的项
 
