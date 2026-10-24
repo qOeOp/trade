@@ -1,202 +1,202 @@
 # Duty directory
 
 Read when unsure which stance a duty should take in a strategy header (strategy-header.md). Each
-duty gives its question, then I (inputs), S (state), O (output) and 钟 (clock), and its boundary.
-The four hard contracts (E1, E4, F5, H2) can never be 不适用.
+duty gives its question, then I (inputs), S (state), O (output) and clock, and its boundary.
+The four hard contracts (E1, E4, F5, H2) can never be `not applicable`.
 
 Duties locate policy responsibilities, not independent factors or implementation proofs. A stance
-names an explicit economic rule (采用), a relevant baseline choice (缺省), or a structural reason
-the economic question does not arise (不适用). Distinguish strategy decisions from engine
+names an explicit economic rule (`adopted`), a relevant baseline choice (`default`), or a structural reason
+the economic question does not arise (`not applicable`). Distinguish strategy decisions from engine
 guarantees, and apply the boundary of each duty when one action affects several responsibilities.
 
 ## Contents
 
-- A 对象与适用性: A1–A3
-- B 预测与学习: B1–B3
-- C 首次行动与记忆: C1–C2
-- D 经济构型: D1–D2
-- E 风险与分配: E1–E4
-- F 持仓路径: F1–F5
-- G 实施: G1–G3
-- H 资本: H1–H3
-- I 生命周期与可行性: I1–I2
+- A Instruments and applicability: A1–A3
+- B Forecasting and learning: B1–B3
+- C First action and memory: C1–C2
+- D Economic structure: D1–D2
+- E Risk and allocation: E1–E4
+- F Position path: F1–F5
+- G Implementation: G1–G3
+- H Capital: H1–H3
+- I Lifecycle and feasibility: I1–I2
 
-### A　对象与适用性
+### A Instruments and applicability
 
-#### A1 可投资对象与资格：哪些资产、合约或交易场所有资格承载机会？
+#### A1 Investable instruments and eligibility: which assets, contracts or venues are eligible to carry the opportunity?
 
-I=当时上市、价格、成交、借券和历史长度；S=当前资格集；O=允许研究/交易集合；钟=成员/合约事件或复核日。
+I=listing status at the time, prices, trades, borrow availability and history length; S=current eligible set; O=set allowed for research/trading; clock=membership/contract events or review date.
 
-**边界**　数据能提供的共同集合不是策略选择结果；资格不等于收益排序。影响B、D、H。
+**Boundary** The common set the data can supply is not a result of strategy selection; eligibility is not a return ranking. Affects B, D, H.
 
-#### A2 动态选择与替换：合格对象中选谁、舍谁、选择哪一到期月份？
+#### A2 Dynamic selection and replacement: among eligible instruments, which to pick, which to drop, and which expiry month to choose?
 
-I=横截面排名/距离/相对强弱与流动性；S=原成员、选中但未成交意图；O=新成员及变化理由；钟=形成期/再平衡/同时信号。
+I=cross-sectional rank/distance/relative strength and liquidity; S=existing members, intents selected but not yet filled; O=new members and the reasons for changes; clock=formation period/rebalance/simultaneous signals.
 
-**边界**　单资产方向信号不自动是选币；退出旧成员另由F决定。影响E资金竞争。
+**Boundary** A single-asset directional signal is not automatically coin selection; exiting old members is decided separately by F. Affects E competition for capital.
 
-#### A3 机制适用的市场结构／条件过滤：当前是否适合该类收益机制？
+#### A3 Market-structure / condition filter for the mechanism: does the current market suit this kind of return mechanism?
 
-I=趋势结构、残差回复速度、成交量、价差/深度；S=当前有效模型/条件；O=启用、降权、暂停新风险；钟=新观测/结构确认。
+I=trend structure, residual reversion speed, volume, spread/depth; S=currently active model/condition; O=enable, down-weight, pause new risk; clock=new observation/structure confirmation.
 
-**边界**　经济过滤不同于网络未连接或指标尚未预热。需说明对既有持仓是否另行处理。
+**Boundary** An economic filter is different from a network not being connected or an indicator not yet warmed up. State whether existing positions are handled separately.
 
-### B　预测与学习
+### B Forecasting and learning
 
-#### B1 预期收益／相对错价：未来哪种收益或收敛值得承担？
+#### B1 Expected return / relative mispricing: which future return or convergence is worth bearing?
 
-I=可得价格/财务/条款；S=估计模型；O=方向、强度、预期幅度和置信前提；钟=信号数据更新。
+I=available prices/financials/contract terms; S=estimation model; O=direction, strength, expected magnitude and the premises of confidence; clock=signal data update.
 
-**边界**　不是下单；时序方向、横截面相对排名、条件完成收益不能互相替代。
+**Boundary** This is not order placement; time-series direction, cross-sectional relative rank and returns conditional on an event completing cannot substitute for one another.
 
-#### B2 预测期限与衰减：收益能持续多久，等待是否消耗机会？
+#### B2 Forecast horizon and decay: how long does the return persist, and does waiting consume the opportunity?
 
-I=预测因子及回复速度；S=信号年龄、预期未来路径；O=期限相关目标与紧迫度；钟=因子/时间更新。
+I=forecasting factors and their reversion speed; S=signal age, expected future path; O=horizon-dependent target and urgency; clock=factor/time update.
 
-**边界**　持仓最长时间只是一个方法；会改变加减仓速度、交易成本容忍。
+**Boundary** A maximum holding time is only one method; the horizon changes the speed of adding and reducing and the tolerance for trading costs.
 
-#### B3 信号组合与估计更新：多个预测及对冲关系如何合成、何时重估？
+#### B3 Signal combination and estimate updating: how are multiple forecasts and hedge relationships combined, and when are they re-estimated?
 
-I=各因子、回归残差、协方差；S=滚动窗口/已拟合系数；O=组合预测、更新后的beta/风险模型；钟=估计日。
+I=individual factors, regression residuals, covariance; S=rolling window/fitted coefficients; O=combined forecast, updated beta/risk model; clock=estimation date.
 
-**边界**　组合alpha不同于跨策略资金分配；模型失效不能靠扩大“其他”吸收。
+**Boundary** Combining alpha is different from allocating capital across strategies; model failure cannot be absorbed by enlarging "other".
 
-### C　首次行动与记忆
+### C First action and memory
 
-#### C1 首次进入与触发方式：何时把机会转为新风险？
+#### C1 First entry and trigger: when is an opportunity turned into new risk?
 
-I=信号、阈值与价格；S=空仓/待入场；O=首次目标风险/触发意图；钟=收盘、报价、突破或事件。
+I=signal, threshold and price; S=flat/awaiting entry; O=initial target risk/trigger intent; clock=close, quote, breakout or event.
 
-**边界**　“有信号”不等于已成交；触发价与成交价分开。
+**Boundary** "Having a signal" does not mean being filled; keep trigger price and fill price separate.
 
-#### C2 不行动、重入与历史依赖：有机会时是否仍应等待，退出后何时能再做？
+#### C2 Inaction, re-entry and path dependence: should the strategy still wait when an opportunity exists, and when may it trade again after exiting?
 
-I=成本、目标偏差、上次突破结果；S=不交易带/止出单元/被跳过突破；O=保持、重新激活；钟=价格跨界/结果确认。
+I=costs, deviation from target, outcome of the last breakout; S=no-trade band/stopped-out units/skipped breakouts; O=hold, reactivate; clock=price crossing a boundary/outcome confirmation.
 
-**边界**　不交易是可观察决策；历史交易状态不是研究历史否决门。
+**Boundary** Not trading is an observable decision; historical trade state is not a research-history veto gate.
 
-### D　经济构型
+### D Economic structure
 
-#### D1 单腿／多腿经济构型：用哪些合约及数量比例实现所需收益？
+#### D1 Single-leg / multi-leg structure: which contracts, in what quantity ratios, realize the required return?
 
-I=beta、配对、换股比率/权利条款；S=目标腿组合与原生实际腿；O=联合目标向量、容许不平衡；钟=建构与条款/模型更新。
+I=beta, pairs, exchange ratio/rights terms; S=target leg combination and native actual legs; O=joint target vector, tolerated imbalance; clock=construction and terms/model update.
 
-**边界**　多资产并行不必然是多腿；原生部分成交只是执行事实，需F/H应对。
+**Boundary** Running several assets in parallel is not necessarily multi-leg; a native partial fill is only an execution fact, to be handled by F/H.
 
-#### D2 对冲与非线性暴露：是否、何时、用多少对冲风险，是否保留某些风险？
+#### D2 Hedging and nonlinear exposure: whether, when and how much to hedge risk, and whether to retain some risks?
 
-I=价格/时间/组合delta gamma、因子beta、成本；S=现有风险；O=目标对冲腿或容忍带；钟=价格/时间/风险变化。
+I=price/time/portfolio delta gamma, factor beta, cost; S=existing risk; O=target hedge leg or tolerance band; clock=price/time/risk change.
 
-**边界**　单一名义额不能概括非线性风险；全部合约为线性永续时，期权类方法不适用，但成本与持仓共同决定的对冲频率仍适用。
+**Boundary** A single notional amount cannot summarize nonlinear risk; when all contracts are linear perpetuals, option-type methods do not apply, but a hedging frequency set jointly by cost and position still applies.
 
-### E　风险与分配
+### E Risk and allocation
 
-#### E1 单机会的风险与数量（硬契约）：一笔机会承担多少数量／止损风险？
+#### E1 Per-opportunity risk and size (hard contract): how much size / stop risk does one opportunity bear?
 
-I=权益、N/波动、乘数、保护距离；S=已承诺单元；O=单元数量及风险预算；钟=建仓/主动加仓前。
+I=equity, N/volatility, multiplier, protection distance; S=committed units; O=unit size and risk budget; clock=before opening/before an active add.
 
-**边界**　止损距离与数量耦合，不能各算各的；不同于原生保证金余额。
+**Boundary** Stop distance and size are coupled and cannot be computed separately; distinct from the native margin balance.
 
-#### E2 组合敞口、集中与共同风险：全账户承担多少总、净、方向、相关组或因子风险？
+#### E2 Portfolio exposure, concentration and common risk: how much gross, net, directional, correlated-group or factor risk does the whole account bear?
 
-I=候选及持仓风险；S=全组合暴露；O=合成目标和可用风险预算；钟=任一候选/持仓变化。
+I=risk of candidates and positions; S=whole-portfolio exposure; O=combined target and available risk budget; clock=any candidate/position change.
 
-**边界**　多个单机会合法不代表合成合法；与H资金、D腿向量交互。
+**Boundary** Several individually valid opportunities do not make a valid combination; interacts with H capital and D leg vectors.
 
-#### E3 净值变化后的风险预算：亏损/盈利后是否改变未来风险规模？
+#### E3 Risk budget after equity changes: after losses/gains, does the scale of future risk change?
 
-I=原生权益历史与初始基准；S=有效名义账户规模；O=新 sizing 基准；钟=权益阈值/复核日。
+I=native equity history and initial baseline; S=effective notional account size; O=new sizing baseline; clock=equity threshold/review date.
 
-**边界**　研究用户目标不因此改变；与E1、H储备联动。
+**Boundary** The user's research targets do not change because of this; linked with E1 and H reserves.
 
-#### E4 多机会／多策略资源分配（硬契约）：同时争取同一风险、资金或流动性的候选谁先得到多少？
+#### E4 Allocation across opportunities / strategies (hard contract): among candidates competing at the same time for the same risk, capital or liquidity, which gets how much first?
 
-I=全体候选价值/成本/相关性；S=其他已占用与承诺；O=联合分配、未获资源机会；钟=同一决策批次。
+I=value/cost/correlation of all candidates; S=resources already occupied and committed by others; O=joint allocation, opportunities that received no resources; clock=same decision batch.
 
-**边界**　不能靠循环顺序或引擎拒单代替。
+**Boundary** Cannot be replaced by loop order or engine order rejection.
 
-### F　持仓路径
+### F Position path
 
-#### F1 主动分批建立与增持：是一次达到目标，还是市场确认后逐单元增加？
+#### F1 Active scaling in and adding: reach the target at once, or add unit by unit after market confirmation?
 
-I=价格路径、实际前次成交价、剩余预算；S=已成交批次/待执行批次；O=新批次目标；钟=新阈值/原生成交确认。
+I=price path, actual previous fill price, remaining budget; S=filled batches/pending batches; O=new batch target; clock=new threshold/native fill confirmation.
 
-**边界**　被动部分成交不计主动分批；直接给出按前次实际fill加码。
+**Boundary** Passive partial fills do not count as active scaling; state explicitly that adds are keyed to the previous actual fill.
 
-#### F2 主动减持与持仓路径：当前应减少多少、以何速度向新目标移动？
+#### F2 Active reduction and position path: how much should be reduced now, and how fast should the position move toward the new target?
 
-I=变化的alpha/成本/风险；S=原生当前持仓和已有承诺；O=目标变化、仅执行当前步；钟=每次重估。
+I=changing alpha/cost/risk; S=native current position and existing commitments; O=target change, executing only the current step; clock=each re-evaluation.
 
-**边界**　与一次性出场不同；成本可使仓位滞后于预测。
+**Boundary** Different from a one-off exit; costs can make the position lag the forecast.
 
-#### F3 动态保护／获利边界：持仓后损失或利润边界如何随路径、波动、加仓或新结构调整？
+#### F3 Dynamic protective / profit boundaries: once in a position, how do loss or profit boundaries adjust with the path, volatility, adds or new structure?
 
-I=市场路径、unit fills、N；S=各批保护、原生净持仓；O=新的退出边界和所需覆盖数量；钟=新结构/加仓确认。
+I=market path, unit fills, N; S=protection per batch, native net position; O=new exit boundaries and the quantity they must cover; clock=new structure/add confirmation.
 
-**边界**　这是经济边界选择；实际挂单覆盖/撤换是工程及执行义务。
+**Boundary** This is a choice of economic boundary; actual order coverage/replacement is an engineering and execution obligation.
 
-#### F4 完全退出、到时退出与结束后清理：收益逻辑结束、收敛、期限届满或事件失败时是否全部结束？
+#### F4 Full exit, timed exit and post-exit cleanup: when the return logic ends, converges, reaches its deadline or an event fails, is everything closed?
 
-I=对向结构、均衡、截止/事件结果；S=所有腿、意图及订单；O=清零目标、结束判据；钟=结构/时间/事件。
+I=opposite structure, equilibrium, deadline/event outcome; S=all legs, intents and orders; O=flatten target, termination criterion; clock=structure/time/event.
 
-**边界**　所有单位退出、组合收敛退出、下架退出是不同方法；原生平仓后残单清理不能冒充经济覆盖。
+**Boundary** Exiting all units, exiting on portfolio convergence and exiting on delisting are different methods; cleaning up leftover orders after a native close cannot pass for economic coverage.
 
-#### F5 成员／模型改变时的存量处置（硬契约）：新选币或失去模型资格后，旧仓/订单保留、减持还是退出？
+#### F5 Handling existing holdings on membership / model change (hard contract): after a new coin selection or loss of model eligibility, are old positions/orders kept, reduced or exited?
 
-I=A/B变化；S=旧成员持仓和挂单；O=旧资源释放/过渡目标；钟=成员/估计更新。
+I=A/B changes; S=positions and open orders of old members; O=release of old resources/transition target; clock=membership/estimate update.
 
-**边界**　A选择只决定未来集合，不能默默删除存量。
+**Boundary** An A selection only decides the future set and cannot silently remove existing holdings.
 
-### G　实施
+### G Implementation
 
-#### G1 经济执行方式与价格：吃单还是挂单、报价多远、哪侧多少、多少价格层？
+#### G1 Execution style and price: take or make, how far to quote, which side and how much, how many price levels?
 
-I=alpha紧迫度、库存、波动、深度和成本；S=原生挂单；O=报价/数量/层级目标；钟=行情/执行周期。
+I=alpha urgency, inventory, volatility, depth and cost; S=native open orders; O=quote/size/level targets; clock=market data/execution cycle.
 
-**边界**　库存做市的两侧报价不是传统独立买卖信号。
+**Boundary** The two-sided quotes of inventory market making are not traditional independent buy and sell signals.
 
-#### G2 等待、刷新与成交后的反馈：原报价是否仍值得等待、何时撤改、成交后是否冷却/保留另一侧？
+#### G2 Waiting, refreshing and post-fill feedback: is the original quote still worth waiting on, when to cancel/amend, and after a fill whether to cool down / keep the other side?
 
-I=新报价、订单年龄、成交；S=未决撤单与挂单配对；O=保留/撤换/延迟意图；钟=时钟/成交/报价变动。
+I=new quotes, order age, fills; S=pending cancels and paired open orders; O=keep/replace/delay intent; clock=timer/fill/quote change.
 
-**边界**　经济刷新容忍和冷却不同于必须等ack的状态安全。
+**Boundary** Economic refresh tolerance and cooldown differ from the state safety of having to wait for an ack.
 
-#### G3 冲击、容量与实施速度：建立/退出多快才划算，自己尚未消退的冲击是否改变目标？
+#### G3 Impact, capacity and implementation speed: how fast is it worth building/exiting, and does the strategy's own not-yet-decayed impact change the target?
 
-I=成本矩阵、市场量、冲击衰减；S=现有/预期冲击；O=当期交易量与未来规划；钟=每次重估。
+I=cost matrix, market volume, impact decay; S=existing/expected impact; O=trade quantity for the current period and future plan; clock=each re-evaluation.
 
-**边界**　不是重建撮合或私算实际成交。
+**Boundary** This is not rebuilding matching or privately computing actual fills.
 
-### H　资本
+### H Capital
 
-#### H1 现金、融资及持有成本：成本后的机会是否仍值得持有，现金保留多少？
+#### H1 Cash, financing and carry costs: after costs, is the opportunity still worth holding, and how much cash to keep?
 
-I=原生现金、借款/借券利率、持有费；S=所有占用与未结费用；O=成本调整目标及现金储备；钟=决策/融资结算。
+I=native cash, borrowing/stock-borrow rates, carry fees; S=all capital usage and unsettled fees; O=cost-adjusted target and cash reserve; clock=decision/financing settlement.
 
-**边界**　“零成本／零净名义”不等于零资金占用。
+**Boundary** "Zero cost / zero net notional" does not mean zero capital usage.
 
-#### H2 保证金、抵押与缓冲（硬契约）：未来新增风险用多少可用资本，如何为亏损/提高保证金留缓冲？
+#### H2 Margin, collateral and buffers (hard contract): how much available capital to use for future new risk, and how to keep a buffer for losses/higher margin?
 
-I=原生账户、保证金条款、压力变化；S=已占用/订单承诺；O=可用资本分配与减杠杆目标；钟=候选/权益/保证金变化。
+I=native account, margin terms, stress changes; S=occupied capital/order commitments; O=available capital allocation and deleveraging target; clock=candidate/equity/margin change.
 
-**边界**　引擎拒单是后果，不是分配规则；融资约束与gross notional独立。
+**Boundary** Engine order rejection is a consequence, not an allocation rule; financing constraints are independent of gross notional.
 
-#### H3 做空可获得性与融资中断：能否借到、借券回收/资金中断时怎样处置？
+#### H3 Short availability and financing disruption: can the asset be borrowed, and how to respond when a borrow is recalled / financing is disrupted?
 
-I=可得借券和融资条款；S=受影响腿；O=停止新增/替换对冲/退出目标；钟=可获得性/召回事件。
+I=available borrow and financing terms; S=affected legs; O=stop adding/replace hedge/exit target; clock=availability/recall event.
 
-**边界**　融资事件事实归引擎/数据；经济响应需要策略规则。线性永续候选的借券召回不适用；融资中断、保证金不足仍适用。
+**Boundary** The facts of financing events belong to the engine/data; the economic response needs a strategy rule. Borrow recall does not apply to linear perpetual candidates; financing disruption and insufficient margin still apply.
 
-### I　生命周期与可行性
+### I Lifecycle and feasibility
 
-#### I1 合约／事件生命周期：到期、换月、并购完成/取消、下架如何改变机会与合同？
+#### I1 Contract / event lifecycle: how do expiry, rolls, merger completion/cancellation and delisting change the opportunity and the contract?
 
-I=已知条款、交易/到期日、事件结果；S=对应腿/机会；O=换合约/转换/终止目标；钟=公告/事件/复核。
+I=known terms, trading/expiry dates, event outcomes; S=corresponding legs/opportunities; O=roll/convert/terminate target; clock=announcement/event/review.
 
-**边界**　强制结算属引擎事实；选择提前退出或换月才是经济职责。无固定到期只排除到期、行权与交割类方法；交易状态与下架对永续仍适用。
+**Boundary** Forced settlement is an engine fact; choosing to exit early or to roll is the economic duty. Having no fixed expiry only rules out expiry, exercise and delivery methods; trading status and delisting still apply to perpetuals.
 
-#### I2 退出可行性与未来资源：当前看似有利的头寸，未来能否平掉、会不会挤占后续机会？
+#### I2 Exit feasibility and future resources: can a position that looks favourable now be closed in the future, and will it crowd out later opportunities?
 
-I=预测成本/流动性/目标；S=持仓及规划期限；O=限制当前交易/终端目标；钟=规划更新。
+I=forecast cost/liquidity/target; S=positions and planning horizon; O=limits on current trading/terminal target; clock=plan update.
 
-**边界**　终端规划不等于真的在H期清仓。
+**Boundary** A terminal plan does not mean actually liquidating at horizon H.

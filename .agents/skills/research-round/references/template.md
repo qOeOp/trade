@@ -21,11 +21,11 @@ momentum, Pivot Reversal. Each trades one instrument.
 - Rewrite the rules and defaults from the source into one strategy file. Do not copy code that
   came with the source or any third-party code, and do not add stops, targets, filters,
   confirmation conditions or parameters the source does not have. What running needs and the
-  source leaves open is an implementer choice: one line of reason each, marked 实现者 缺省 in the
+  source leaves open is an implementer choice: one line of reason each, marked `implementer` `default` in the
   header.
 - The header starts with the source: DOI, arXiv id or URL with its version or date, and the
   source bundle name. Then the 27 duty lines in nine groups (strategy-header.md), each with its
-  source label; a rule carried to another market, timeframe or instrument is labelled 研究者.
+  source label; a rule carried to another market, timeframe or instrument is labelled `researcher`.
 - A source the user gives goes through the same steps. A parameter it does not give is an
   implementer default, listed as such; never label it the source's own words in the header, notes
   or publish description, and do not drop the source for it. The source line names the user's
