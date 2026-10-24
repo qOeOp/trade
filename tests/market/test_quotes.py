@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pyarrow as pa
 
 from ledger import db
-from market import quotes, sources, store, universe
+from market import quotes, store
 from market.sources import MarketError
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
