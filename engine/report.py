@@ -152,6 +152,33 @@ def summary_statistics(returns_series: dict[int, float], trade_start_ns: int, en
     }
 
 
+def fixed_limitations(identity: dict) -> list[str]:
+    """engine.fixed_limitations: the environment's standing limitations by execution mode (the strategy identity
+    says whether the source declared quote execution and which margin rates)."""
+    if identity.get("strategy_quote_execution"):
+        initial, maintenance = identity.get("strategy_margin_rates") or ("undeclared", "undeclared")
+        execution = ("Quotes drive matching: an order fills whole at the best bid or ask in force, one QuoteTick per "
+                     "stored quote state and no depth, so a fill never moves the price; the quotes are inferred from "
+                     "aggTrades by the import rule, a declared approximation of the exchange's book, not its record")
+        liquidation = (f"Liquidation follows the venue's model: positions are valued at the quotes, the maintenance "
+                       f"margin is the declared rate ({maintenance}; initial {initial}) on the entry notional and is "
+                       f"not re-marked, and a liquidation closes the whole position at the quote in force with no "
+                       f"latency; the rates are declared values, not Binance's tiers")
+    else:
+        execution = ("One-minute execution bars cannot resolve every intrabar order sequence; a resting limit fills "
+                     "only when a bar trades through its price, the bar extreme nearer the open is visited first, and "
+                     "stops trigger on the bar's traded prices")
+        liquidation = "Liquidation is not modelled"
+    return [
+        execution,
+        "Current contract terms approximate historical metadata; fees and margins are assumed values",
+        "Contracts are the ones passed in; universe membership is an input the strategy applies, not a runner rule",
+        "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
+        "not observed",
+        liquidation,
+    ]
+
+
 def write_native_reports(output: Path, replay, strategies: dict, instruments: list[dict], identity: dict,
                          window: Window, account: AccountContract, limitations: list[str],
                          expected_timestamps: int) -> tuple[dict, list[str]]:
@@ -245,14 +272,7 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
             for row in instruments
         ],
         "limitations": [
-            "One-minute execution bars cannot resolve every intrabar order sequence; a resting limit fills only "
-            "when a bar trades through its price, the bar extreme nearer the open is visited first, and stops "
-            "trigger on the bar's traded prices",
-            "Current contract terms approximate historical metadata; fees and margins are assumed values",
-            "Contracts are the ones passed in; universe membership is an input the strategy applies, not a runner rule",
-            "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are "
-            "not observed",
-            "Liquidation is not modelled",
+            *fixed_limitations(identity),
             *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
                f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
               if getattr(replay.observer, "carried", None) else []),

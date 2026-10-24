@@ -239,6 +239,16 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
     factor = 10 ** (NAUTILUS_SCALE - price_scale)
     quantity = Quantity.from_str(format(Decimal(size).quantize(Decimal(1).scaleb(-size_precision)), "f"))
     written, last = 0, None
+    pending = np.empty((0, 3), dtype=np.int64)
+
+    def flush(part: np.ndarray) -> None:
+        nonlocal written
+        ticks = [QuoteTick(instrument_id, Price.from_raw(int(bid) * factor, price_precision),
+                           Price.from_raw(int(ask) * factor, price_precision), quantity, quantity,
+                           int(ts) * 1_000_000, int(ts) * 1_000_000) for ts, bid, ask in part.tolist()]
+        catalog.write_quote_ticks(ticks)
+        written += len(ticks)
+
     for batch in rows:
         block = np.array(batch, dtype=np.int64).reshape(-1, 3)
         if not len(block):
@@ -249,13 +259,18 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
         if (last is not None and block[0, 0] < last) or np.any(np.diff(block[:, 0]) < 0):
             raise _refuse(f"{instrument_id}: quote times go backwards", "QUOTES_UNSORTED", missing=(str(instrument_id),))
         last = int(block[-1, 0])
-        for offset in range(0, len(block), chunk):
-            part = block[offset:offset + chunk]
-            ticks = [QuoteTick(instrument_id, Price.from_raw(int(bid) * factor, price_precision),
-                               Price.from_raw(int(ask) * factor, price_precision), quantity, quantity,
-                               int(ts) * 1_000_000, int(ts) * 1_000_000) for ts, bid, ask in part.tolist()]
-            catalog.write_quote_ticks(ticks)
-            written += len(ticks)
+        pending = np.concatenate((pending, block))
+        while len(pending) >= chunk:
+            # The catalog keeps each file's closed time interval disjoint from the others, so one millisecond's
+            # states (several per trade burst) never straddle two files: a file ends only where the time changes.
+            cut = int(np.flatnonzero(np.diff(pending[:chunk + 1, 0]) > 0)[-1]) + 1 if len(pending) > chunk \
+                else int(np.flatnonzero(np.diff(pending[:, 0]) > 0)[-1]) + 1 if np.any(np.diff(pending[:, 0]) > 0) else 0
+            if cut == 0:
+                break  # one millisecond longer than a chunk: wait for the time to change
+            flush(pending[:cut])
+            pending = pending[cut:]
+    if len(pending):
+        flush(pending)
     return written
 
 

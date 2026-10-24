@@ -88,6 +88,23 @@ def exchange() -> Exchange:
     return found
 
 
+    def test_a_chunk_boundary_never_splits_one_millisecond(self):
+        """Several states in one millisecond (a trade burst) straddling the writer's chunk size land in one catalog
+        file: the catalog refuses files whose closed time intervals touch."""
+        from nautilus_trader.model import InstrumentId
+        from nautilus_trader.persistence import ParquetDataCatalog
+        from market import export
+        iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+        rows = [(1_000, 100_00, 101_00), (1_000, 100_00, 102_00), (1_000, 99_00, 102_00), (1_001, 99_00, 103_00),
+                (1_002, 98_00, 103_00), (1_002, 98_00, 104_00), (1_002, 97_00, 104_00)]
+        with tempfile.TemporaryDirectory() as temp:
+            catalog = ParquetDataCatalog(temp)
+            written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3, 2, chunk=2)
+            back = catalog.query_quote_ticks([str(iid)])
+        self.assertEqual((written, [(q.ts_event // 10**6, str(q.bid_price), str(q.ask_price)) for q in back]),
+                         (7, [(ts, f"{bid / 100:.2f}", f"{ask / 100:.2f}") for ts, bid, ask in rows]))
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class ImportQuotesTests(unittest.TestCase):
     @classmethod
