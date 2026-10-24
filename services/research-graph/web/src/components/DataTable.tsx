@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import {
   createColumnHelper, createSortedRowModel, flexRender, rowSortingFeature, sortFn_alphanumeric, sortFn_basic, tableFeatures,
   useTable, type ColumnDef, type RowData, type SortingState,
@@ -21,9 +21,10 @@ const right = (meta: unknown) => !!((meta as Meta)?.numeric || (meta as Meta)?.a
 /** A dense, sortable table in one face, size and weight: muted headers, values in the text colour,
  *  a sticky header (unless `sticky` is false, e.g. inside a card), rows linked to a version on hover.
  *  With `fixed`, columns share the width equally. */
-export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed, sticky = true }: {
+export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed, sticky = true, wrapRow }: {
   data: T[]; columns: Column<T>[]; rowId: (row: T) => string; version?: (row: T) => string | null;
   onRow?: (row: T) => void; selected?: string | null; initialSort?: SortingState; fixed?: boolean; sticky?: boolean;
+  wrapRow?: (row: T, tr: ReactElement) => ReactElement;
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const table = useTable({ features, columns: cols, data, getRowId: rowId, state: { sorting }, onSortingChange: setSorting });
@@ -56,7 +57,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
       <tbody>
         {table.getRowModel().rows.map((row) => {
           const id = version?.(row.original) ?? null;
-          return (
+          const tr = (
             <tr key={row.id} {...hoverProps(id)} onClick={() => onRow?.(row.original)} data-selected={id && id === selected ? "" : undefined}
                 className={onRow ? "cursor-pointer transition-colors hover:bg-row-hover" : undefined}>
               {row.getAllCells().map((cell) => (
@@ -66,8 +67,11 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
               ))}
             </tr>
           );
+          return wrapRow ? <WrapKey key={row.id}>{wrapRow(row.original, tr)}</WrapKey> : tr;
         })}
       </tbody>
     </table>
   );
 }
+
+const WrapKey = ({ children }: { children: ReactElement }) => children;

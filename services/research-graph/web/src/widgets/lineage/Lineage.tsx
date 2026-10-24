@@ -3,6 +3,7 @@ import { ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/reac
 import "@xyflow/react/dist/style.css";
 import type { LineageWidget } from "../../model/types";
 import { crosshair, useAxisView, useCrosshair } from "../../state/linking";
+import { openVersionTab } from "../../state/editors";
 import { select, selection } from "../../state/selection";
 import { useResolvedTheme } from "../../state/theme";
 import { AxisDriver } from "./AxisDriver";
@@ -48,7 +49,7 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                        const id = selection.get(), p = id ? positions.get(id) : undefined;
                        if (p) void flow.setCenter(p.x + 200, p.y, { zoom: 1 }); else void flow.setViewport({ x: 56, y: 40, zoom: 1 });
                      }}
-                     onNodeClick={(_, node) => select(node.id)}>
+                     onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openVersionTab(node.id)}>
             <Backdrop widget={widget} />
             <AxisDriver positions={positions} start={widget.axis.min} />
           </ReactFlow>

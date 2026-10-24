@@ -72,7 +72,11 @@ version (line › ancestors › version, each clickable) and the version under t
 frontier), 版本表 and 数据缺口 as tabs at the bottom; each island has the same header with its actions (locate, expand
 all, collapse all, hide). `⌥1`–`⌥6` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
-back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. Tool-window sides, sizes
+back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. The editor has
+tabs: the lineage always, and a version opened in its own tab (double-click, or the context menu) shows its detail at
+full width. Right-clicking a version anywhere (canvas, tree, table) offers 在图中定位, 在详情中显示, 在新标签打开, 复制版本名
+and 复制链接. Notifications appear at the bottom right: copies, an address naming a version the line does not have, and
+once on opening how many gaps the graph has, with a way to read them. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs

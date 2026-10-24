@@ -20,7 +20,8 @@ const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDig
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const prose = (text?: string | null) => <p className="leading-relaxed">{text ?? <Missing />}</p>;
 
-function Inspector({ c, targets }: { c: Candidate; targets: Targets | null }) {
+/** One version's detail; the inspector shows the selected one, an editor tab a chosen one. */
+export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
   const last: Partial<Trial> = runs.at(-1) ?? {};
   const cmp = c.comparison;
@@ -109,5 +110,5 @@ export function Detail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
   const { targets } = useView();
   const c = widget.items.find((item) => item.id === (selected ?? widget.default));
-  return c ? <Inspector c={c} targets={targets} /> : <p className="p-4 text-fg-faint">在谱系、表格或散点图里点一个版本。</p>;
+  return c ? <VersionDetail c={c} targets={targets} /> : <p className="p-4 text-fg-faint">在谱系、表格或散点图里点一个版本。</p>;
 }

@@ -3,12 +3,13 @@ import { Group, Panel, Separator, usePanelRef, type LayoutChangedMeta } from "re
 import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
+import { Toaster } from "../components/Toaster";
+import { useLoadNotices } from "./notices";
 import { setSideSize, useShell, type Side } from "../state/shell";
-import { RENDERERS } from "../widgets/registry";
 import { CommandPalette } from "./CommandPalette";
 import { commands } from "./commands";
 import { Dimming } from "./Dimming";
-import { Island } from "./Island";
+import { Editor } from "./Editor";
 import { MainToolbar } from "./MainToolbar";
 import { StatusBar } from "./StatusBar";
 import { Stripe } from "./Stripe";
@@ -27,6 +28,7 @@ export function Shell() {
   const windows = useMemo(() => toolWindows(view.widgets), [view]);
   const { open, size } = useShell();
   const actions = useMemo(() => commands(windows), [windows]);
+  useLoadNotices();
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);
   const left = shown("left"), right = shown("right"), bottom = shown("bottom");
@@ -41,7 +43,6 @@ export function Shell() {
       <ToolWindowIsland side={s} open={w} windows={windows} />
     </Panel>
   );
-  const Lineage = RENDERERS.lineage.Component;
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr_auto] bg-frame">
@@ -54,7 +55,7 @@ export function Shell() {
           <Panel id="centre" minSize="30%">
             <Group key={`${!!bottom}`} orientation="vertical" onLayoutChanged={keep}>
               <Panel id="editor" minSize="25%">
-                <Island id="editor">{lineage && <Lineage widget={lineage} />}</Island>
+                <Editor />
               </Panel>
               {bottom && <><Separator />{side("bottom", bottom)}</>}
             </Group>
@@ -65,6 +66,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <CommandPalette lineage={lineage} actions={actions} />
+      <Toaster />
     </div>
   );
 }

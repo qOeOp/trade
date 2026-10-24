@@ -4,10 +4,12 @@ import { useTree } from "@headless-tree/react";
 import type { LineageNode, LineageWidget } from "../model/types";
 import { ancestors, descendants, lineageTree } from "../model/lineageTree";
 import { Icon } from "../icons/Icon";
+import { openVersionTab } from "../state/editors";
 import { hoverProps } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { versionTreeControl } from "../state/versionTree";
 import { VersionLine } from "../components/VersionLine";
+import { VersionMenu } from "../components/VersionMenu";
 
 const ROOT = "__root__";
 const INDENT = 20;
@@ -62,7 +64,8 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
         if (!node) return null;
         const level = item.getItemMeta().level, id = item.getId(), count = descendants(structure, id);
         return (
-          <div {...item.getProps()} {...hoverProps(id)} key={id} data-selected={item.isSelected() ? "" : undefined}
+          <VersionMenu key={id} id={id}>
+          <div {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openVersionTab(id)} data-selected={item.isSelected() ? "" : undefined}
                className={`relative flex h-(--row-h) cursor-default items-center gap-1 pr-3 outline-none transition-colors hover:bg-row-hover ${item.isFocused() ? "ring-1 ring-line-strong ring-inset" : ""}`}
                style={{ paddingLeft: 8 + level * INDENT }}>
             {Array.from({ length: level }, (_, l) => (
@@ -74,6 +77,7 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
             <VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} />
             {count > 0 && <span className="ml-1 text-fg-faint">{count}</span>}
           </div>
+          </VersionMenu>
         );
       })}
     </div>

@@ -14,13 +14,18 @@ import settings from "./expui/general/settings.svg?raw";
 import up from "./expui/general/up.svg?raw";
 import vcs from "./expui/general/vcs.svg?raw";
 import commit from "./expui/toolwindows/commit.svg?raw";
+import closeSmall from "./expui/general/closeSmall.svg?raw";
 import collapseAll from "./expui/general/collapseAll.svg?raw";
 import copy from "./expui/general/copy.svg?raw";
 import expandAll from "./expui/general/expandAll.svg?raw";
 import hide from "./expui/general/hide.svg?raw";
 import locate from "./expui/general/locate.svg?raw";
 import moreVertical from "./expui/general/moreVertical.svg?raw";
+import graphLayout from "./expui/graph/graphLayout.svg?raw";
 import dataTables from "./expui/nodes/dataTables.svg?raw";
+import info from "./expui/status/info.svg?raw";
+import success from "./expui/status/success.svg?raw";
+import warning from "./expui/status/warning.svg?raw";
 import hierarchy20 from "./expui/toolwindows/hierarchy@20x20.svg?raw";
 import problems20 from "./expui/toolwindows/problems@20x20.svg?raw";
 import profiler20 from "./expui/toolwindows/profiler@20x20.svg?raw";
@@ -50,6 +55,11 @@ export const ICONS = {
   copy: { svg: copy, size: 16 },
   settings: { svg: settings, size: 16 },
   ledger: { svg: vcs, size: 16 },
+  "close-small": { svg: closeSmall, size: 16 },
+  lineage: { svg: graphLayout, size: 16 },
+  info: { svg: info, size: 16 },
+  success: { svg: success, size: 16 },
+  warning: { svg: warning, size: 16 },
   "tool.versions": { svg: hierarchy20, size: 20 },
   "tool.inspector": { svg: structure20, size: 20 },
   "tool.progress": { svg: profiler20, size: 20 },

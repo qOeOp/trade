@@ -7,6 +7,7 @@ import { requestFocus } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { columns, DataTable, type Column } from "../components/DataTable";
 import { Missing } from "../components/Missing";
+import { VersionMenu } from "../components/VersionMenu";
 
 const col = columns<TableRow>();
 type Measure = "annual_return" | "max_drawdown" | "sharpe" | "win_rate";
@@ -46,6 +47,7 @@ export function VersionTable({ widget }: { widget: TableWidget }) {
   ];
   return (
     <DataTable data={widget.rows} columns={cols} rowId={(r) => r.id} version={(r) => r.id} selected={selected}
-               initialSort={[{ id: "first_trial", desc: true }]} onRow={(r) => { select(r.id); requestFocus(r.id); }} />
+               initialSort={[{ id: "first_trial", desc: true }]} onRow={(r) => { select(r.id); requestFocus(r.id); }}
+               wrapRow={(r, tr) => <VersionMenu id={r.id}>{tr}</VersionMenu>} />
   );
 }

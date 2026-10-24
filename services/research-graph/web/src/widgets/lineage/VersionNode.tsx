@@ -8,6 +8,7 @@ import { hoverProps } from "../../state/linking";
 import { useIsSelected } from "../../state/selection";
 import { Tip } from "../../components/Tip";
 import { VersionLine } from "../../components/VersionLine";
+import { VersionMenu } from "../../components/VersionMenu";
 import { MARK_CENTRE } from "./geometry";
 
 export type VersionData = LineageNode & { targets: Targets | null };
@@ -35,13 +36,16 @@ export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<Ve
   const selected = useIsSelected(data.id);
   const masked = data.role === "masked";
   return (
-    <Tip content={<NodeTip data={data} />} side="bottom">
+    // The context menu takes the node's box and the tooltip its line, so each has its own element.
+    <VersionMenu id={data.id}>
       <div {...hoverProps(data.id)} data-selected={selected ? "" : undefined}
            className={`flex items-center rounded-control px-1 py-0.5 transition-colors ${masked && !selected ? "bg-[color-mix(in_srgb,var(--fail)_13%,transparent)]" : ""}`}>
         <Handle type="target" position={Position.Left} className="!opacity-0" />
-        <VersionLine node={data} targets={data.targets} dim={masked} />
+        <Tip content={<NodeTip data={data} />} side="bottom">
+          <span className="inline-flex"><VersionLine node={data} targets={data.targets} dim={masked} /></span>
+        </Tip>
         <Handle type="source" position={Position.Bottom} className="!opacity-0" style={{ left: MARK_CENTRE }} />
       </div>
-    </Tip>
+    </VersionMenu>
   );
 });
