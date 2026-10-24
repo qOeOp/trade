@@ -149,7 +149,7 @@ export function useSize() {
   return [ref, size] as const;
 }
 
-/** The trial axis as numbers: every trial's number over its column (tens strongest), and the
+/** The trial axis as numbers: every trial's number over its column (tens and fives only brighter), and the
  *  trial under the pointer shown inverted. */
 function Ruler() {
   const [ref, { width }] = useSize();
@@ -162,8 +162,7 @@ function Ruler() {
       <svg width={width} height={RULER} className="absolute inset-0">
         {at != null && <rect x={sx(at) - unit / 2 + 1} y={2} width={unit - 2} height={RULER - 4} rx={3} fill="var(--ink-1)" />}
         {trials.map((t) => (
-          <text key={t} x={sx(t)} y={RULER / 2 + 3.5} textAnchor="middle" className="mono"
-                fontSize={t % 10 === 0 ? 10 : 9} fontWeight={t % 10 === 0 ? 600 : 400}
+          <text key={t} x={sx(t)} y={RULER / 2 + 3.5} textAnchor="middle" className="mono" fontSize={9.5}
                 fill={t === at ? "var(--panel)" : t % 10 === 0 ? "var(--ink-1)" : t % 5 === 0 ? "var(--ink-3)" : "var(--ink-4)"}>{t}</text>
         ))}
       </svg>
