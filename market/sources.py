@@ -491,3 +491,31 @@ def contract_terms(item: dict) -> dict:
         raise _refuse(f"exchangeInfo contract {found['symbol']!r} lacks its status or increments", "SOURCE_SHAPE",
                       missing=(str(found["symbol"]),))
     return found
+
+
+# aggTrades daily archives (the quote import's source)
+
+AGGTRADES_SCHEMA = pa.schema([("agg_trade_id", pa.int64()), ("price", pa.string()), ("quantity", pa.string()),
+                              ("first_trade_id", pa.int64()), ("last_trade_id", pa.int64()),
+                              ("transact_time", pa.int64()), ("is_buyer_maker", pa.bool_())])
+AGGTRADES_COLUMNS = ("agg_trade_id", "price", "transact_time", "is_buyer_maker")
+
+
+def aggtrades_key(symbol: str, day: str) -> str:
+    """The archive key of one UTC day's aggTrades of `symbol`."""
+    return f"{UM}/daily/aggTrades/{check_symbol(symbol)}/{symbol}-aggTrades-{day}.zip"
+
+
+def aggtrades_table(path: Path) -> pa.Table:
+    """An aggTrades archive as (agg_trade_id, price, transact_time, is_buyer_maker), the price as the
+    exchange's decimal string."""
+    raw = _csv(path)
+    header = raw.startswith(b"agg_trade_id")
+    try:
+        table = pcsv.read_csv(io.BytesIO(raw), read_options=pcsv.ReadOptions(
+            column_names=None if header else [field.name for field in AGGTRADES_SCHEMA]),
+            convert_options=pcsv.ConvertOptions(include_columns=list(AGGTRADES_COLUMNS),
+                                                column_types={field.name: field.type for field in AGGTRADES_SCHEMA}))
+    except pa.ArrowInvalid as exc:
+        raise _refuse(f"{path}: rows do not parse as aggTrades ({exc})", "SOURCE_SHAPE", missing=(str(path),)) from exc
+    return table.select(list(AGGTRADES_COLUMNS))
