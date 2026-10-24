@@ -760,7 +760,7 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
 def market_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None) -> dict:
     """market init: an empty market database (tables, import and reader accounts, profile with its
     backup directory, required for the active one); the first `market import` writes its schema row
-    and commit tests. Administration happens only here and in `market backup`."""
+    and commit tests. Administration happens only here, in `market upgrade` and in `market backup`."""
     database = name.replace("-", "_") if isinstance(name, str) else name
     return db.init_market(name, database, Path(service_root), kind, backup_root)
 
@@ -792,6 +792,28 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
         raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
     return store.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
+
+
+def market_import_quotes(market: dict, month: str, cache_root: str | None, workers: int,
+                         symbols: list[str] | None = None) -> dict:
+    """market import-quotes: one UTC month of best bid/ask inferred from Binance aggTrades (market.quotes.RULE)
+    as one market commit; `symbols` defaults to the month's universe members."""
+    from market import store
+    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
+    try:
+        first = date.fromisoformat(month + "-01")
+    except ValueError as exc:
+        raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
+    if first > datetime.now(timezone.utc).date():
+        raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
+    return store.import_quotes(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
+                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
+
+
+def market_upgrade(market: dict) -> dict:
+    """market upgrade: create the tables of market/schema.sql the market database lacks (the administrator)."""
+    return db.upgrade_market(market)
 
 
 def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str],
@@ -1135,7 +1157,7 @@ def _parser() -> Parser:
                       "Identically reproducing the precheck a registration cites adds no exposure; any other "
                       "reproduction or exploration of a source counts as its prior exposure.")
 
-    market = verbs("market", "market data: init, import, lifecycle, coverage, backup, review")
+    market = verbs("market", "market data: init, upgrade, import, import-quotes, lifecycle, coverage, backup, review")
     command = market.add_parser("init", help="create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
@@ -1152,6 +1174,14 @@ def _parser() -> Parser:
     command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
     command.add_argument("--workers", type=int, default=4, help="parallel import processes (default: 4)")
     command.add_argument("--symbols", nargs="+", help="engineering allowlist (isolated market databases only)")
+    command = market.add_parser("import-quotes", help="import one month of inferred best bid/ask as one market commit")
+    _market_option(command)
+    command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
+    command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
+    command.add_argument("--workers", type=int, default=4, help="parallel archive downloads (default: 4)")
+    command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
+    command = market.add_parser("upgrade", help="create the market tables the database lacks (administrator)")
+    _market_option(command)
     command = market.add_parser("lifecycle", help="write the lifecycle bundle of a market commit")
     _ledger_option(command)
     _market_option(command)
@@ -1194,6 +1224,11 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return found, 0 if found["ok"] else 1
     if key == ("market", "import"):
         return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
+    if key == ("market", "import-quotes"):
+        return market_import_quotes(market_profile(args.market), args.month, args.cache_root, args.workers,
+                                    args.symbols), 0
+    if key == ("market", "upgrade"):
+        return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0

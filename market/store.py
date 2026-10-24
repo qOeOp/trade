@@ -35,7 +35,7 @@ import pymysql
 import pymysql.constants.CR
 import pymysql.cursors
 
-from market import instrument, series, sources, universe
+from market import instrument, quotes, series, sources, universe
 from market.sources import MINUTE, MarketError, _refuse
 
 
@@ -49,6 +49,7 @@ HASH_PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 WORKING_SETS = ("WORKING", "STAGED")
 IMPORT = "binance-public"
+QUOTE_IMPORT = "binance-aggtrades-bbo"  # quote imports: their commit messages carry quotes.RULE
 
 # The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
 # milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
@@ -850,3 +851,139 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
             "latest_complete_month": complete_month,
             "current_month_through": None if covered is None or at_month_start else covered,
             "scope": done[-1]["scope"] if done else None}
+
+
+# Quotes (market.import_quotes): best bid/ask inferred from Binance aggTrades under quotes.RULE
+
+def quote_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
+    """The quote import commits reachable from `ref`, oldest first: {commit, month, through, quote_rule, symbols,
+    archives (the archive SHA-256 of every day read), readings (each day's trades, states, adjustments, largest gap)}."""
+    found = []
+    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
+        try:
+            value = json.loads(message)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("import") == QUOTE_IMPORT:
+            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "quote_rule",
+                                                                               "symbols", "archives", "readings")}})
+    return found[::-1]
+
+
+def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
+                  log=print) -> dict:
+    """market.import_quotes: append one UTC month of inferred best bid/ask (quotes.RULE) of `symbols`
+    (default: the month's universe members) as one market commit; insert only, one month per symbol.
+    Every state change is stored: thinning to per-second extremes moves a liquidation to the second's
+    adverse extreme up to a second late (measured), so there is no thinned form."""
+    started = time.monotonic()
+    scope = _scope(symbols, profile)
+    if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
+        raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
+    today = datetime.now(UTC).date()
+    start_ms, end_ms = _month_ms(month), min(_month_ms(universe.next_month(month)), series._day_ms(today))
+    if start_ms >= end_ms:
+        raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+    conn = connect(profile, "import")
+    try:
+        lock(conn)
+        return _import_quotes(conn, month, start_ms, end_ms, Path(cache_root), workers, scope, log, started)
+    except BaseException:
+        try:
+            conn.raw.rollback()
+        except pymysql.MySQLError:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
+                   scope: list[str] | None, log, started: float) -> dict:
+    label = f"{month:%Y-%m}"
+    if conn.empty:
+        raise _refuse("the market database holds no bars yet; quotes need the contracts' terms", "MARKET_EMPTY")
+    if conn.rows("SELECT table_name FROM dolt_status"):
+        raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
+    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
+    if "commit" not in str(groups or "").split(","):
+        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
+                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
+    done = quote_imports(conn)
+    if any(item["quote_rule"] != quotes.RULE for item in done):
+        raise _refuse(f"earlier quote imports used rule {done[-1]['quote_rule']}, this code {quotes.RULE}",
+                      "RULE_VERSION_MISMATCH", missing=(str(done[-1]["quote_rule"]),))
+    if scope is None:
+        scope = [symbol for (symbol,) in conn.rows("SELECT symbol FROM universe_month WHERE universe_rule = %s "
+                                                     "AND month = %s ORDER BY symbol", (conn.universe_rule, month))]
+        if not scope:
+            raise _refuse(f"{label} has no universe members in the market database; import its bars first or name "
+                          "--symbols", "UNIVERSE_UNKNOWN", missing=(label,))
+    stored = dict(conn.rows("SELECT symbol, COUNT(*) FROM quote WHERE ts >= %s AND ts < %s GROUP BY symbol",
+                            (start_ms, end_ms)))
+    if any(symbol in stored for symbol in scope):
+        raise _refuse(f"the market database already holds {label} quotes of "
+                      f"{sorted(symbol for symbol in scope if symbol in stored)}", "MONTH_EXISTS", missing=(label,))
+    days = [series._ms_day(at).isoformat() for at in range(start_ms, end_ms, DAY)]
+    eve = series._ms_day(start_ms - DAY).isoformat()
+    per_symbol: dict[str, dict] = {}
+    archives: dict[str, dict[str, str]] = {}  # the input identity: each day's archive SHA-256 (its .CHECKSUM)
+    total = 0
+    for symbol in scope:
+        # The newest stored terms: like the bar import, the price increment is the one observed at import time.
+        terms = conn.rows("SELECT price_increment FROM instrument WHERE symbol = %s ORDER BY observed_at DESC LIMIT 1",
+                          (symbol,))
+        if not terms:
+            raise _refuse(f"{symbol}: the market database holds no contract terms", "TERMS_UNKNOWN", missing=(symbol,))
+        tick = Decimal(terms[0][0])
+        (earlier,), = conn.rows("SELECT COUNT(*) FROM quote WHERE symbol = %s AND ts < %s", (symbol, start_ms))
+        state = quotes.State()
+        try:
+            eve_path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, eve))
+        except MarketError as exc:
+            if exc.code != "ARCHIVE_NOT_PUBLISHED" or earlier:
+                raise
+            eve_path = None  # the contract's first archive: the inference starts cold on the first day
+        if eve_path is not None:
+            quotes.derive(sources.aggtrades_table(eve_path), tick, state, f"{symbol} {eve}")
+        paths = sources.fetch_all(cache, [sources.aggtrades_key(symbol, day) for day in days], workers)
+        archives[symbol] = {day: _published_sha(path) for day, path in zip(days, paths, strict=True)}
+        if eve_path is not None:
+            archives[symbol][eve] = _published_sha(eve_path)
+        readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
+                    "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
+        daily: dict[str, dict] = {}
+        written = 0
+        # One day at a time: derive, scale, insert, drop (a month of BTCUSDT is tens of millions of states).
+        for day, path in zip(days, paths, strict=True):
+            found, day_readings = quotes.derive(sources.aggtrades_table(path), tick, state, f"{symbol} {day}")
+            scaled_rows = quotes.scaled_rows(symbol, found, PRICE_SCALE)
+            del found
+            for offset in range(0, len(scaled_rows), INSERT_ROWS):
+                chunk = scaled_rows[offset:offset + INSERT_ROWS]
+                conn.execute("INSERT INTO quote VALUES " + ",".join(f"('{symbol}',{ts},{identity},{bid},{ask})"
+                                                                     for _, ts, identity, bid, ask in chunk))
+            written += len(scaled_rows)
+            del scaled_rows
+            for key, value in day_readings.items():
+                readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
+            daily[day] = {key: day_readings[key] for key in ("trades", "quote_changes", "stale_side_adjustments",
+                                                             "trade_gap_max_ms")}
+        total += written
+        per_symbol[symbol] = {**readings, "quotes": written, "eve_archive": eve_path is not None, "days": len(days),
+                              "daily": daily}
+        log(f"{symbol}: {written} quotes from {readings['trades']} trades")
+    # The commit message is the import's receipt: the rule, every archive's published SHA-256 and each day's
+    # readings (trades, states, stale-side adjustments, largest trade gap), so the derivation can be audited later.
+    message = json.dumps({"import": QUOTE_IMPORT, "month": label, "through": series._ms_day(end_ms).isoformat(),
+                          "quote_rule": quotes.RULE, "symbols": scope, "archives": archives,
+                          "readings": {symbol: per_symbol[symbol]["daily"] for symbol in scope}},
+                         separators=(",", ":"), ensure_ascii=False)
+    commit = _commit(conn, message)
+    return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE, "symbols": scope, "quote_rows": total, "per_symbol": per_symbol, "archives": archives, "market_commit": commit,
+            "seconds": round(time.monotonic() - started)}
+
+
+def _published_sha(path: Path) -> str:
+    """The SHA-256 the exchange published beside a cached archive (fetch_archive verified it)."""
+    return (Path(path).with_name(Path(path).name + ".CHECKSUM")).read_text(encoding="utf-8").split()[0]

@@ -579,8 +579,18 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MONTH_EXISTS": ("The market database already holds that month through its end, or the sources reread for the "
                      "month's stored part differ from the stored rows.",
                      ("Import the next month; a stored month is never rewritten.",)),
-    "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version than this code.",
+    "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version, or holds quotes of another "
+                              "quote rule version, than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
+    "SEQUENCE_GAP": ("An aggTrades archive's agg_trade_id sequence is not contiguous within the day or does not continue "
+                     "the day before, so the inferred quotes of that month cannot be trusted; nothing was stored.",
+                     ("Re-download the day with `market import-quotes --month YYYY-MM` after clearing its cached archive; "
+                      "a gap the exchange published stays a gap and the month stays unimported.",)),
+    "UNIVERSE_UNKNOWN": ("The month has no universe members in the market database and no --symbols were named.",
+                         ("Import the month's bars first (`market import --month YYYY-MM`) or name --symbols.",)),
+    "TERMS_UNKNOWN": ("The market database holds no contract terms for a symbol the quote import needs (the price "
+                      "increment that pushes a stale side).",
+                      ("Import the contract's bars first; terms come from the bar import's exchangeInfo observation.",)),
     "IMPORT_SCOPE": ("The engineering symbol allowlist is empty, repeats or malforms a contract, differs from the "
                      "scope of the earlier imports.",
                      ("Import every month of a market database with the scope its first import set; a different "

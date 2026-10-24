@@ -49,6 +49,25 @@ def kline_csv(rows: list[tuple]) -> str:
     return head + "".join(f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]},{r[6]},{r[7]},1,0,0,0\n" for r in rows)
 
 
+def aggtrades_csv(rows: list[tuple]) -> str:
+    """aggTrades rows (agg_trade_id, price, quantity, first_trade_id, last_trade_id, transact_time, is_buyer_maker)."""
+    head = "agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker\n"
+    return head + "".join(f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]},{'true' if r[6] else 'false'}\n" for r in rows)
+
+
+def two_sided_trades(start_ms: int, end_ms: int, first_id: int, base: float = 2000.0, step: float = -0.02) -> list[tuple]:
+    """Two trades a minute: a sell hitting the bid at a price walking `step` a minute, then a buy lifting the
+    ask one cent above it; aggTrade ids contiguous from `first_id`."""
+    rows = []
+    identity = first_id
+    for at in range(start_ms, end_ms, MINUTE):
+        price = round(base + step * ((at - start_ms) // MINUTE), 2)
+        rows.append((identity, f"{price:.2f}", "0.5", identity, identity, at + 100, True))
+        rows.append((identity + 1, f"{price + 0.01:.2f}", "0.5", identity + 1, identity + 1, at + 200, False))
+        identity += 2
+    return rows
+
+
 def daily_native(rows: list[tuple]) -> list[list]:
     """The exchange's own daily klines of LAST minute rows (the derivation rule applied independently)."""
     by_day: dict[int, list[tuple]] = {}
@@ -90,6 +109,9 @@ class Exchange:
         kind = sources.KIND_OF[price_type]
         stem = f"{symbol}-1m-{period}"
         self.put(f"{sources.UM}/{frequency}/{kind}/{symbol}/1m/{stem}.zip", zipped(stem + ".csv", kline_csv(rows)))
+
+    def aggtrades(self, symbol: str, day: str, rows: list[tuple]) -> None:
+        self.put(sources.aggtrades_key(symbol, day), zipped(f"{symbol}-aggTrades-{day}.csv", aggtrades_csv(rows)))
 
     def funding_month(self, symbol: str, month: str, rows: list[tuple[int, str]]) -> None:
         stem = f"{symbol}-fundingRate-{month}"

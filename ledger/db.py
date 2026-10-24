@@ -820,3 +820,35 @@ def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
     except pymysql.MySQLError as exc:
         raise _sql_error(exc, operation_id=op) from exc
     return {"record": record, "op_id": op, "commit": commit, "replayed": False, "write_status": "written"}
+
+
+def upgrade_market(profile: dict) -> dict:
+    """market upgrade: create the tables of market/schema.sql that the market database lacks (the
+    administrator, one commit that skips the data tests: tables only). Existing tables, rows, accounts
+    and grants are untouched; a clean working set is required."""
+    service_root = Path(profile["service"])
+    config = _known_service(service_root)
+    start_service(service_root)
+    database = profile["database"]
+    conn = _admin(config, database=database)
+    created: list[str] = []
+    commit = None
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT table_name FROM dolt_status")
+            if cursor.fetchall():
+                raise refuse("DIRTY_WORKING_SET", f"market database {database} has uncommitted changes")
+            cursor.execute("SHOW TABLES")
+            existing = {row[0].lower() for row in cursor.fetchall()}
+            for statement in _statements(MARKET_SCHEMA.read_text(encoding="utf-8")):
+                table = re.match(r"CREATE TABLE\s+`?(\w+)`?", statement, re.IGNORECASE)
+                if table and table.group(1).lower() not in existing:
+                    cursor.execute(statement)
+                    created.append(table.group(1))
+            if created:
+                cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', %s)",
+                               ("market tables: " + ", ".join(created),))
+                (commit,), = cursor.fetchall()
+    finally:
+        conn.close()
+    return {"database": database, "created": created, "commit": commit}
