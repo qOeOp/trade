@@ -19,13 +19,12 @@ export function Progress({ widget, selected }: { widget: ProgressWidget; selecte
   const y = scaleLinear<number>({ domain: [Math.min(...values), Math.max(...values)], range: [Math.max(top + 1, height - bottom), top], nice: true });
   const sx = (t: number) => x0 + t * unit;
   const ticks = range(Math.floor(-x0 / unit / 5) * 5 - 5, Math.ceil((width - x0) / unit) + 5, 5);
-  const near = at == null ? null : points.reduce<(typeof points)[number] | null>(
-    (best, p) => (Math.abs(p.trial_id - at) < 1.5 && (!best || Math.abs(p.trial_id - at) < Math.abs(best.trial_id - at)) ? p : best), null);
+  const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
   const recommended = new Set(widget.recommended);
   const scope = widget.axis.scope_start;
   return (
     <div ref={ref} className="relative h-full w-full select-none"
-         onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); crosshair.set((e.clientX - r.left - x0) / unit); }}
+         onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); crosshair.set(Math.round((e.clientX - r.left - x0) / unit)); }}
          onMouseLeave={() => crosshair.set(null)}>
       {width > 0 && height > 0 && (
         <svg width={width} height={height} className="absolute inset-0">

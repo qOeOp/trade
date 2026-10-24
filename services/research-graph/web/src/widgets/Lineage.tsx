@@ -205,6 +205,11 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
     if (last && e.kind !== "line_change" && last[0].kind === e.kind && e.x! - last[last.length - 1].x! < 0.25) last.push(e);
     else stacks.push([e]);
   }
+  // Different kinds in one gap sit side by side around its centre.
+  const offsets = new Map<AxisEvent[], number>();
+  const byGap = new Map<number, AxisEvent[][]>();
+  for (const g of stacks) if (g[0].kind !== "line_change") byGap.set(g[0].x!, [...(byGap.get(g[0].x!) ?? []), g]);
+  for (const groups of byGap.values()) groups.forEach((g, k) => offsets.set(g, (k - (groups.length - 1) / 2) * 9));
   const firsts = new Set<number | null>();  // a recommendation that moved to another version gets the diamond
   let last: string | null = null;
   for (const e of events.filter((e) => e.kind === "recommendation")) { if (e.candidate !== last) firsts.add(e.x); last = e.candidate; }
@@ -218,11 +223,11 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
                        stroke={t % 10 === 0 ? "var(--ink-3)" : "var(--ink-4)"} />;
         })}
         {ticks.filter((t) => t % 10 === 0).map((t) => (
-          <text key={`l${t}`} x={sx(t) + 3.5} y={11} className="mono" fontSize={10} fill="var(--ink-2)">{t}</text>
+          <text key={`l${t}`} x={sx(t) + 0.5} y={12} textAnchor="middle" className="mono" fontSize={10} fill="var(--ink-2)">{t}</text>
         ))}
         {stacks.map((group, i) => {
           const e = group[0];
-          const x = sx(e.x!);
+          const x = sx(e.x!) + (offsets.get(group) ?? 0);
           if (x < 40 || x > width - 8) return null;
           const many = group.length > 1;
           const glyph = e.kind === "line_change"
@@ -254,9 +259,9 @@ function Ruler({ events, tools }: { events: AxisEvent[]; tools?: React.ReactNode
         })}
         {at != null && sx(at) > 40 && (
           <g pointerEvents="none">
-            <line x1={sx(at) + 0.5} x2={sx(at) + 0.5} y1={14} y2={H} stroke="var(--ink-2)" />
-            <rect x={sx(at) - 17} y={0} width={34} height={14} rx={3} fill="var(--ink-1)" />
-            <text x={sx(at)} y={10.5} textAnchor="middle" className="mono" fontSize={10} fill="var(--panel)">{Math.round(at)}</text>
+            <line x1={sx(at) + 0.5} x2={sx(at) + 0.5} y1={15} y2={H} stroke="var(--ink-2)" />
+            <rect x={sx(at) + 0.5 - 17} y={1} width={34} height={14} rx={3} fill="var(--ink-1)" />
+            <text x={sx(at) + 0.5} y={11.5} textAnchor="middle" className="mono" fontSize={10} fill="var(--panel)">{at}</text>
           </g>
         )}
       </svg>
@@ -333,7 +338,7 @@ export function Lineage({ widget, selected, onSelect }: {
           </>} />
         </div>
         <div ref={box} className="relative min-h-0 flex-1"
-             onMouseMove={(e) => { const r = box.current!.getBoundingClientRect(); crosshair.set((e.clientX - r.left - x0) / UNIT); }}
+             onMouseMove={(e) => { const r = box.current!.getBoundingClientRect(); crosshair.set(Math.round((e.clientX - r.left - x0) / UNIT)); }}
              onMouseLeave={() => crosshair.set(null)}>
           <ReactFlow
             nodes={nodes} edges={edges}
@@ -352,7 +357,7 @@ export function Lineage({ widget, selected, onSelect }: {
             <AxisDriver positions={positions} start={widget.axis.min} />
           </ReactFlow>
           {at != null && (
-            <div className="pointer-events-none absolute inset-y-0 w-px" style={{ left: x0 + at * UNIT, background: "var(--ink-4)" }} />
+            <div className="pointer-events-none absolute inset-y-0 w-px" style={{ left: x0 + at * UNIT, background: "var(--ink-3)", opacity: 0.6 }} />
           )}
         </div>
       </div>

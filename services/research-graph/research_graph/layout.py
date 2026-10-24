@@ -4,8 +4,10 @@ The view is a manifest (line, targets, counts) and a list of widgets. Each widge
 versioned type (summary/1, lineage/2, progress/1, scatter/1, table/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
-x is research progress in trial numbers: a candidate sits at its first trial, and a timed event is
-placed by interpolating between trials whose times are known. Rows follow the lineage depth first,
+x is research progress in trial numbers: a whole number is a trial, and a candidate sits at its first
+trial. Anything timed (an event, a version without trials, the scope start) sits halfway through the
+gap after the last trial before it, n + 0.5, found by interpolating between trials whose times are
+known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
 children in order of their first trial. A renderer maps these units to its own pixels and colours.
 
 Events are placed where they belong rather than in lanes of their own: the recommendation judgments
@@ -15,6 +17,7 @@ whose source review caused it, and a line change marks the axis. Every event als
 """
 from __future__ import annotations
 
+import math
 from bisect import bisect_left
 from datetime import datetime, timezone
 
@@ -116,11 +119,15 @@ def build_view(graph: dict) -> dict:
     candidates = graph["candidates"]
     targets = (graph["line"].get("targets") or {})
     clock = Clock(candidates)
+
+    def gap(at: str) -> float | None:
+        x = clock(at)
+        return None if x is None else math.floor(x) + 0.5
     row = rows(candidates)
 
     def x_of(c: dict) -> float | None:
         trial = first_trial(c)
-        return float(trial) if trial is not None else (clock(c["created_at"]) if c.get("created_at") else None)
+        return float(trial) if trial is not None else (gap(c["created_at"]) if c.get("created_at") else None)
 
     nodes = []
     for c in candidates:
@@ -135,7 +142,7 @@ def build_view(graph: dict) -> dict:
     rug = []
     for e in events:
         about = e.get("recommends") if e["kind"] == "recommendation" else reviewed.get(e.get("ref") or "")
-        rug.append({"kind": e["kind"], "x": clock(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
+        rug.append({"kind": e["kind"], "x": gap(e["at"]), "at": e["at"], "ref": e.get("ref"), "text": e.get("text"),
                     "candidate": about if about in row else None})
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
                   key=lambda e: seconds(e["at"]))
@@ -143,7 +150,7 @@ def build_view(graph: dict) -> dict:
     lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
     trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
     for e in recs:
-        x = clock(e["at"])
+        x = gap(e["at"])
         if trail and trail[-1]["candidate"] == e["recommends"]:
             trail[-1]["judgments"].append(x)
         else:
@@ -159,7 +166,7 @@ def build_view(graph: dict) -> dict:
     streak = len(recs)
     while streak > 0 and recs[streak - 1]["recommends"] == current:
         streak -= 1
-    held_since = clock(recs[streak]["at"]) if recs else None
+    held_since = gap(recs[streak]["at"]) if recs else None
     runs = [t for c in candidates for t in research_runs(c)]
     best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
@@ -178,13 +185,13 @@ def build_view(graph: dict) -> dict:
                                                                 and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
         {"id": "lineage", "type": "lineage/2", "slot": "main", "title": "策略谱系 · 按试验编号推进", "targets": targets,
          "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
-                  "scope_start": clock(start) if start else None},
+                  "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
          "trail": trail, "marks": marks, "rug": rug},
         {"id": "progress", "type": "progress/1", "slot": "main", "title": "研究进展", "targets": targets,
-         "axis": {"min": lo, "max": hi, "scope_start": clock(start) if start else None},
+         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
                      "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
                     for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],

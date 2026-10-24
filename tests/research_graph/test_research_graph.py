@@ -63,7 +63,7 @@ class LayoutTests(unittest.TestCase):
         tree = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "lineage")
         mark, = tree["marks"]
         self.assertEqual((mark["candidate"], mark["row"]), ("root@1", 0))
-        self.assertTrue(4 < mark["x"] < 5, "placed at the review time, between the trials around it")
+        self.assertEqual(mark["x"], 4.5, "in the gap between the trials around the review time")
 
     def test_versions_sit_at_their_first_trial_in_lineage_rows(self):
         view = layout.build_view(GRAPH)
@@ -81,7 +81,7 @@ class LayoutTests(unittest.TestCase):
                          ("held", "mixed", "none"))
         segment, = tree["trail"]
         self.assertEqual((segment["candidate"], segment["x1"]), ("a@1", tree["axis"]["max"]))
-        self.assertTrue(4 < segment["x0"] < 5, "a timed event sits between the trials around its time")
+        self.assertEqual(segment["x0"], 4.5, "a timed event sits halfway through the gap after its last trial")
         self.assertEqual({e["kind"]: e["candidate"] for e in tree["rug"]},
                          {"recommendation": "a@1", "line_change": None}, "every event sits once on the axis")
         progress = widgets["progress"]
