@@ -77,18 +77,12 @@ export function Progress({ widget, selected }: { widget: ProgressWidget; selecte
         <Swatch fill="var(--meet)" />达到目标
         <Swatch fill="var(--ink-4)" />正收益未达标
         <Swatch fill="var(--miss)" />亏损
-        <Swatch dashed />失去资格
         <span className="inline-flex items-center gap-1.5"><svg width={14} height={8}><line x1={0} x2={14} y1={4} y2={4} stroke="var(--meet)" strokeDasharray="3 2" /></svg>年化目标</span>
       </div>
     </div>
   );
 }
 
-function Swatch({ fill, dashed }: { fill?: string; dashed?: boolean }) {
-  return (
-    <svg width={9} height={9} className="-mr-2">
-      {dashed ? <rect x={0.5} y={0.5} width={8} height={8} rx={1.5} fill="none" stroke="var(--ink-3)" strokeDasharray="2 1.5" />
-        : <rect width={9} height={9} rx={1.5} fill={fill} />}
-    </svg>
-  );
+function Swatch({ fill }: { fill: string }) {
+  return <svg width={9} height={9} className="-mr-2"><rect width={9} height={9} rx={1.5} fill={fill} /></svg>;
 }
