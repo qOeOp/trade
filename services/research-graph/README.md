@@ -61,19 +61,21 @@ toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are ro
 window frame. The lineage is one figure on the trial axis at a fixed scale: a
 canvas that pans but never zooms, with each version's role shown by its mark's shape, parent-to-child
 lines drawn as git graphs draw them, a brand-blue underline where a version stayed recommended and a red
-wrap on a version that lost eligibility; a ruler of trial numbers above sets the trial where each version sits on a
-rounded fill, groups the trials that ran one version under a bar, and marks the trial under the pointer. A title bar carries the current recommendation's
-readout, a resizable bottom panel holds the research progress on the canvas's x (research-run returns,
-as bars from zero, against the target), the return/drawdown scatter (with the
-non-dominated frontier), the version table and the data gaps, and an inspector on the right holds the selected version.
-Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home`
-goes back to the start of the axis; `#<version>` in the address opens on that version. Panel sizes
+wrap on a version that lost eligibility; a ruler of trial numbers above shows the trial where each version sits in the text colour (the rest faint),
+puts the trials that ran one version on a rounded tinted block, and marks the trial under the pointer. Reading badges
+are as wide as their numbers, with the same padding to the edges and to the divider. A title bar carries the current recommendation's
+readout and a status bar sits at the foot. As in IntelliJ, a stripe on each side opens tool windows, one per side:
+版本树 (the versions as a tree by lineage) on the left, 详情 (the selected version as cards in groups) on the right, and
+研究进展 (research-run returns as bars from zero on the canvas's x), 年化 vs 回撤 (the scatter with the non-dominated
+frontier), 版本表 and 数据缺口 as tabs at the bottom; each island has the same header with its actions (locate, expand
+all, collapse all, hide). `⌥1`–`⌥6` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
+active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
+back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
-JavaScript, so it opens in a browser. A new widget type is a component registered in `web/src/widgets/registry.tsx`
-with the region it lives in (bar, canvas, drawer or dock); a type the page does not know becomes a
-dock tab that names it.
+JavaScript, so it opens in a browser. A new widget type is a renderer in `web/src/widgets/registry.ts` and a tool window in
+`web/src/shell/toolWindows.ts`; a type the page does not know becomes a bottom tool window that names it.
 
 ### Code layout and rules (`web/src`)
 
@@ -94,8 +96,8 @@ chart widgets, a `<button>` or colour inline style outside `components/`, arbitr
 storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
 the validated set, and an icon file that is not registered or listed in `icons/NOTICE.md`. `scripts/verify.mjs <page>
 <out> [#version]` screenshots a rendered page in light and dark and checks that islands are 10px-rounded and 6px apart,
-the canvas and the bottom island share their left edge and width, and every `VersionLine` puts its badge, badge cells and
-name at the same offsets in one font.
+the canvas and the bottom island share their left edge and width, canvas nodes are vertically centred, and every
+`VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider.
 
 Icons are from the IntelliJ Platform's New UI set ([JetBrains/intellij-community](https://github.com/JetBrains/intellij-community),
 `platform/icons/src/expui`, commit `b861a2178f`), Apache License 2.0, © JetBrains s.r.o. and contributors; the

@@ -2,17 +2,17 @@ import { useMemo } from "react";
 import type { LineageWidget } from "../../model/types";
 import { PURPOSE } from "../../model/semantics";
 import { runs, steps } from "../../lib/range";
-import { v } from "../../theme/roles";
+import { v, wash } from "../../theme/roles";
 import { hoverProps, requestFocus, useAxisView, useCrosshair } from "../../state/linking";
 import { useSize } from "../../components/hooks/useSize";
 import { Tip } from "../../components/Tip";
 import { RULER } from "./geometry";
 
-const NUM_Y = 11, BAR_Y = RULER - 6;
+const BLOCK_Y = 4, BLOCK_H = RULER - 8, NUM_Y = RULER / 2 + 3.5;
 
-/** The trial axis: every trial's number over its column (tens and fives brighter); the trial where a
- *  version sits on the canvas set on a rounded fill; under the numbers, a bar grouping the trials that
- *  ran one version; the trial under the pointer inverted. */
+/** The trial axis: every trial's number over its column, the trial where a version sits on the canvas
+ *  in the text colour and the rest faint; the trials that ran one version on a rounded tinted block
+ *  (brand blue for the current recommendation); the trial under the pointer inverted. */
 export function Ruler({ lineage }: { lineage: LineageWidget }) {
   const [ref, { width }] = useSize();
   const { x0, unit } = useAxisView();
@@ -30,26 +30,26 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
         {groups.map((g) => {
           const first = g[0], last = g.at(-1);
           if (!first || !last) return null;
-          const x1 = sx(first.trial_id) - unit / 2 + 5, x2 = sx(last.trial_id) + unit / 2 - 5;
+          const x1 = sx(first.trial_id) - unit / 2 + 2, x2 = sx(last.trial_id) + unit / 2 - 2;
           if (x2 < 0 || x1 > width) return null;
+          const current = first.candidate === recommended;
           return (
             <Tip key={first.trial_id} content={
               <div className="space-y-0.5"><div className="font-mono font-semibold">{first.candidate}</div>
                 <div className="font-mono text-fg-muted">{g.map((t) => `${t.trial_id} ${PURPOSE[t.purpose] ?? t.purpose}`).join(" · ")}</div></div>}>
-              <g {...hoverProps(first.candidate)} className="cursor-pointer" onClick={() => requestFocus(first.candidate)}>
-                <rect x={x1} y={BAR_Y - 4} width={x2 - x1} height={10} fill="transparent" />
-                <rect x={x1} y={BAR_Y} width={x2 - x1} height={2} rx={1} fill={v(first.candidate === recommended ? "recommended" : "fg-faint")} />
-              </g>
+              <rect {...hoverProps(first.candidate)} className="cursor-pointer" onClick={() => requestFocus(first.candidate)}
+                    x={x1} y={BLOCK_Y} width={x2 - x1} height={BLOCK_H} rx={5}
+                    fill={current ? wash("recommended", 22) : v("hover")} />
             </Tip>
           );
         })}
         {visible.map((t) => {
-          const anchor = anchors.has(t), here = t === at, w = Math.max(16, String(t).length * 6 + 8);
-          const fill = here ? v("island") : anchor ? v("fg") : t % 10 === 0 ? v("fg-muted") : t % 5 === 0 ? v("fg-faint") : v("fg-ghost");
+          const here = t === at;
           return (
             <g key={t} pointerEvents="none">
-              {(anchor || here) && <rect x={sx(t) - w / 2} y={NUM_Y - 8} width={w} height={15} rx={7.5} fill={v(here ? "fg" : "line-strong")} />}
-              <text x={sx(t)} y={NUM_Y + 3.5} textAnchor="middle" className="font-mono" fontSize={9.5} fill={fill}>{t}</text>
+              {here && <rect x={sx(t) - unit / 2 + 3} y={BLOCK_Y + 1} width={unit - 6} height={BLOCK_H - 2} rx={4} fill={v("fg")} />}
+              <text x={sx(t)} y={NUM_Y} textAnchor="middle" className="font-mono" fontSize={9.5}
+                    fill={v(here ? "island" : anchors.has(t) ? "fg" : "fg-ghost")}>{t}</text>
             </g>
           );
         })}

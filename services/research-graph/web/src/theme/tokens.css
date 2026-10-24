@@ -53,11 +53,8 @@
   --header-h: 40px;
   --row-h: 24px;
   --indent: 20px;
-  /* reading badge: two fixed character cells, equal padding, the divider being the second cell's border */
-  --rb-ret: 7ch;
-  --rb-dd: 6ch;
+  /* reading badge: the same padding from each number to the edges and to the divider */
   --rb-pad: 6px;
-  --rb-w: calc(var(--rb-ret) + var(--rb-dd) + 4 * var(--rb-pad) + 3px);
   --pred-slot: 13px;
   --vl-gap: 6px;
 }

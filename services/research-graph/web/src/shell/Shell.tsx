@@ -1,70 +1,68 @@
-import { useEffect, useMemo, useState } from "react";
-import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from "react-resizable-panels";
+import { useEffect, useMemo } from "react";
+import { Group, Panel, Separator, usePanelRef, type LayoutChangedMeta } from "react-resizable-panels";
 import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
-import { storage } from "../lib/storage";
-import { TabStrip } from "../components/TabStrip";
-import { rendererOf } from "../widgets/registry";
+import { setSideSize, useShell, type Side } from "../state/shell";
+import { RENDERERS } from "../widgets/registry";
 import { CommandPalette } from "./CommandPalette";
 import { commands } from "./commands";
 import { Dimming } from "./Dimming";
 import { Island } from "./Island";
 import { MainToolbar } from "./MainToolbar";
 import { StatusBar } from "./StatusBar";
+import { Stripe } from "./Stripe";
+import { ToolWindowIsland } from "./ToolWindowIsland";
+import { toolWindows } from "./toolWindows";
 
-const layoutStorage = { getItem: storage.get, setItem: storage.set };
-const COLLAPSED_DOCK = 40;  // the dock collapses to its header row
+const MIN: Record<Side, number> = { left: 240, right: 300, bottom: 140 };
 
-// The window: toolbar and status bar on the frame, and between them the regions as rounded islands
-// 6px apart — the canvas (editor), the dock below it and the inspector beside them; dragging the
-// boundary between two islands resizes them. (Step 2 replaces the fixed regions with tool windows.)
+// The window as IntelliJ lays it out: toolbar and status bar on the frame; between them a stripe on
+// each side and the islands: the open left tool window, the editor (the lineage canvas) with the open
+// bottom tool window under it, and the open right tool window. A hidden side takes no space; sizes are
+// pixels and come back when a side reopens.
 export function Shell() {
   const view = useView();
   const lineage = useWidget<LineageWidget>("lineage/2");
-  const placed = view.widgets.map((w) => ({ widget: w, renderer: rendererOf(w) }));
-  const of = (region: string) => placed.filter((p) => p.renderer.region === region);
-  const dock = of("dock");
-  const [tab, setTab] = useState(dock[0]?.widget.id ?? null);
-  const dockRef = usePanelRef(), inspectorRef = usePanelRef();
-  const [dockOpen, setDockOpen] = useState(true), [inspectorOpen, setInspectorOpen] = useState(true);
-  const across = useDefaultLayout({ id: "rg-islands-across", storage: layoutStorage });
-  const down = useDefaultLayout({ id: "rg-islands-down", storage: layoutStorage });
-  const actions = useMemo(() => {
-    const toggle = (ref: typeof dockRef) => () => (ref.current?.isCollapsed() ? ref.current.expand() : ref.current?.collapse());
-    return commands({ toggleDock: toggle(dockRef), toggleInspector: toggle(inspectorRef) });
-  }, [dockRef, inspectorRef]);
-  useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.id === "palette" }] : []))), [actions]);
-  const active = dock.find((d) => d.widget.id === tab) ?? dock[0];
+  const windows = useMemo(() => toolWindows(view.widgets), [view]);
+  const { open, size } = useShell();
+  const actions = useMemo(() => commands(windows), [windows]);
+  useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
+  const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);
+  const left = shown("left"), right = shown("right"), bottom = shown("bottom");
+  const refs = { left: usePanelRef(), right: usePanelRef(), bottom: usePanelRef() };
+  // Sizes are kept only when the user drags a boundary; re-layouts from opening or closing a side are not.
+  const keep = (_: unknown, meta: LayoutChangedMeta) => {
+    if (!meta.isUserInteraction) return;
+    for (const s of ["left", "right", "bottom"] as const) { const px = refs[s].current?.getSize().inPixels; if (px) setSideSize(s, px); }
+  };
+  const side = (s: Side, w: NonNullable<typeof left>) => (
+    <Panel id={s} panelRef={refs[s]} defaultSize={size[s]} minSize={MIN[s]}>
+      <ToolWindowIsland side={s} open={w} windows={windows} />
+    </Panel>
+  );
+  const Lineage = RENDERERS.lineage.Component;
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr_auto] bg-frame">
       <Dimming />
-      <MainToolbar actions={actions} dockOpen={dockOpen} inspectorOpen={inspectorOpen} />
-      <Group orientation="horizontal" className="min-h-0 px-(--half-gap)" defaultLayout={across.defaultLayout} onLayoutChanged={across.onLayoutChanged}>
-        <Panel id="main" minSize="35">
-          <Group orientation="vertical" defaultLayout={down.defaultLayout} onLayoutChanged={down.onLayoutChanged}>
-            <Panel id="editor" minSize="25">
-              {of("editor").map(({ widget, renderer: { Component } }) => <Island key={widget.id} id="editor"><Component widget={widget} /></Island>)}
-            </Panel>
-            <Separator />
-            <Panel id="dock" panelRef={dockRef} defaultSize="32" minSize="14" collapsible collapsedSize={COLLAPSED_DOCK}
-                   onResize={(size) => setDockOpen(size.inPixels > COLLAPSED_DOCK + 1)}>
-              <Island id="dock" header={<TabStrip items={dock.map((d) => ({ id: d.widget.id, label: d.renderer.title }))} active={active?.widget.id ?? null}
-                                                 onSelect={(id) => { setTab(id); dockRef.current?.expand(); }} />}>
-                {active && <active.renderer.Component widget={active.widget} />}
-              </Island>
-            </Panel>
-          </Group>
-        </Panel>
-        <Separator />
-        <Panel id="inspector" panelRef={inspectorRef} defaultSize="27" minSize="18" collapsible collapsedSize={0}
-               onResize={(size) => setInspectorOpen(size.inPixels > 1)}>
-          {of("inspector").map(({ widget, renderer: { title, Component } }) => (
-            <Island key={widget.id} id="inspector" header={<h2 className="text-ui font-semibold">{title}</h2>}><Component widget={widget} /></Island>
-          ))}
-        </Panel>
-      </Group>
+      <MainToolbar />
+      <div className="flex min-h-0">
+        <Stripe side="left" windows={windows} />
+        <Group key={`${!!left}${!!right}`} orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
+          {left && <>{side("left", left)}<Separator /></>}
+          <Panel id="centre" minSize="30%">
+            <Group key={`${!!bottom}`} orientation="vertical" onLayoutChanged={keep}>
+              <Panel id="editor" minSize="25%">
+                <Island id="editor">{lineage && <Lineage widget={lineage} />}</Island>
+              </Panel>
+              {bottom && <><Separator />{side("bottom", bottom)}</>}
+            </Group>
+          </Panel>
+          {right && <><Separator />{side("right", right)}</>}
+        </Group>
+        <Stripe side="right" windows={windows} />
+      </div>
       <StatusBar />
       <CommandPalette lineage={lineage} actions={actions} />
     </div>

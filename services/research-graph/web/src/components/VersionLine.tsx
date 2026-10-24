@@ -5,8 +5,7 @@ import { PredictionMark, RoleMark } from "../icons/marks";
 import { ReadingBadge } from "./ReadingBadge";
 
 // One version on one line, the same wherever it appears (canvas, tree, palette, status bar): role
-// mark, reading badge, a fixed slot for the prediction mark, then the name; so badges and names line
-// up across rows whatever a version has.
+// mark, reading badge, a fixed slot for the prediction mark, then the name, at fixed gaps.
 export function VersionLine({ node, targets, children, dim = false }: {
   node: Pick<LineageNode, "id" | "role" | "prediction" | "reading">; targets: Targets | null; children?: ReactNode; dim?: boolean;
 }) {

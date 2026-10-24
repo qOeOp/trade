@@ -14,6 +14,9 @@ here, register it in `registry.ts` and list it below. `scripts/check-rules.mjs` 
 Files:
 
 - actions/checked.svg, actions/moveToBottomLeft.svg, actions/moveToRightTop.svg
-- general/chevronDown.svg, general/chevronRight.svg, general/chevronUp.svg, general/close.svg, general/down.svg,
+- general/chevronDown.svg, general/chevronRight.svg, general/chevronUp.svg, general/close.svg, general/collapseAll.svg,
+  general/down.svg, general/expandAll.svg, general/hide.svg, general/locate.svg, general/moreVertical.svg,
   general/remove.svg, general/search.svg, general/up.svg
-- toolwindows/commit.svg, toolwindows/palette.svg
+- nodes/dataTables.svg
+- toolwindows/commit.svg, toolwindows/hierarchy@20x20.svg, toolwindows/palette.svg, toolwindows/problems@20x20.svg,
+  toolwindows/profiler@20x20.svg, toolwindows/structure@20x20.svg, toolwindows/toolWindowDataView@20x20.svg

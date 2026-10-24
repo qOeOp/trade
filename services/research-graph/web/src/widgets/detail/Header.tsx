@@ -4,7 +4,6 @@ import { PREDICTION, ROLE } from "../../model/semantics";
 import { when } from "../../lib/format";
 import { Icon } from "../../icons/Icon";
 import { RoleMark } from "../../icons/marks";
-import { requestFocus } from "../../state/linking";
 import { select } from "../../state/selection";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
@@ -20,7 +19,6 @@ export function Header({ c, children }: { c: Candidate; children?: ReactNode }) 
       <div className="flex items-center gap-2">
         <RoleMark role={role} size={16} />
         <h2 className="min-w-0 truncate font-mono font-semibold">{c.id}</h2>
-        <TextButton className="ml-auto shrink-0 text-small text-fg-faint" onClick={() => requestFocus(c.id)}>在图中定位</TextButton>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-dense text-fg-faint">
         <Tip content={role ? ROLE[role].hint : undefined}><span className="text-fg-muted">{role ? ROLE[role].label : "-"}</span></Tip>

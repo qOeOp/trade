@@ -19,7 +19,7 @@ export function initSelection(known: ReadonlySet<string>, fallback: string | nul
 
 export function select(id: string, options: { reveal?: boolean } = {}): void {
   selection.set(id);
-  history.replaceState(null, "", `#${encodeURIComponent(id)}`);
+  history.replaceState(null, "", `#${encodeURI(id)}`);
   if (options.reveal) requestFocus(id);
 }
 

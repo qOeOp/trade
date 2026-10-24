@@ -12,6 +12,17 @@ import remove from "./expui/general/remove.svg?raw";
 import search from "./expui/general/search.svg?raw";
 import up from "./expui/general/up.svg?raw";
 import commit from "./expui/toolwindows/commit.svg?raw";
+import collapseAll from "./expui/general/collapseAll.svg?raw";
+import expandAll from "./expui/general/expandAll.svg?raw";
+import hide from "./expui/general/hide.svg?raw";
+import locate from "./expui/general/locate.svg?raw";
+import moreVertical from "./expui/general/moreVertical.svg?raw";
+import dataTables from "./expui/nodes/dataTables.svg?raw";
+import hierarchy20 from "./expui/toolwindows/hierarchy@20x20.svg?raw";
+import problems20 from "./expui/toolwindows/problems@20x20.svg?raw";
+import profiler20 from "./expui/toolwindows/profiler@20x20.svg?raw";
+import structure20 from "./expui/toolwindows/structure@20x20.svg?raw";
+import dataView20 from "./expui/toolwindows/toolWindowDataView@20x20.svg?raw";
 import palette from "./expui/toolwindows/palette.svg?raw";
 
 export const ICONS = {
@@ -28,6 +39,17 @@ export const ICONS = {
   theme: { svg: palette, size: 16 },
   "panel-bottom": { svg: moveToBottomLeft, size: 16 },
   "panel-right": { svg: moveToRightTop, size: 16 },
+  locate: { svg: locate, size: 16 },
+  "expand-all": { svg: expandAll, size: 16 },
+  "collapse-all": { svg: collapseAll, size: 16 },
+  more: { svg: moreVertical, size: 16 },
+  hide: { svg: hide, size: 16 },
+  "tool.versions": { svg: hierarchy20, size: 20 },
+  "tool.inspector": { svg: structure20, size: 20 },
+  "tool.progress": { svg: profiler20, size: 20 },
+  "tool.readings": { svg: dataView20, size: 20 },
+  "tool.table": { svg: dataTables, size: 16 },
+  "tool.gaps": { svg: problems20, size: 20 },
 } as const satisfies Record<string, { svg: string; size: 16 | 20 }>;
 
 export type IconName = keyof typeof ICONS;

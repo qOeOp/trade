@@ -1,5 +1,6 @@
 // Verifies a rendered page in headless Chrome over CDP (Node's built-in WebSocket; no dependency):
-// screenshots in light and dark, and the layout invariants of the Islands shell and VersionLine.
+// screenshots in light and dark, and the layout invariants of the Islands shell and VersionLine
+// (fixed gaps between its parts; each badge number the same padding from the edges and the divider).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -34,13 +35,16 @@ try {
     const m = await evaluate(`(() => {
       const r = (e) => e.getBoundingClientRect();
       const islands = [...document.querySelectorAll("[data-island]")].map((e) => ({ id: e.dataset.island, radius: getComputedStyle(e).borderTopLeftRadius, ...r(e).toJSON() }));
+      // per badge: the gap from each number to the badge's edges and to the divider (text box to box)
+      const text = (e) => { const g = document.createRange(); g.selectNodeContents(e); return g.getBoundingClientRect(); };
       const lines = [...document.querySelectorAll("[data-version-line]")].map((l) => {
         const at = (p) => l.querySelector('[data-part="' + p + '"]');
-        const L = r(l).left, badge = at("badge"), ret = at("ret"), dd = at("dd"), name = at("name");
-        const font = (e) => e && [getComputedStyle(e).fontFamily, getComputedStyle(e).fontSize, getComputedStyle(e).fontWeight].join("|");
-        return { badge: +(r(badge).left - L).toFixed(1), width: +r(badge).width.toFixed(1), name: +(r(name).left - L).toFixed(1),
-                 cells: ret && dd ? [+r(ret).width.toFixed(1), +r(dd).width.toFixed(1)] : null, sameFont: !ret || font(ret) === font(dd),
-                 rightAligned: !ret || (getComputedStyle(ret).textAlign === "right" && getComputedStyle(dd).textAlign === "right") };
+        const L = r(l).left, badge = at("badge"), ret = at("ret"), dd = at("dd"), mark = at("mark"), pred = at("pred"), name = at("name");
+        const B = r(badge), font = (e) => e && [getComputedStyle(e).fontFamily, getComputedStyle(e).fontSize, getComputedStyle(e).fontWeight].join("|");
+        const gaps = ret && dd ? (() => { const a = text(ret), b = text(dd), D = r(dd).left;
+          return [a.left - B.left - 1, D - a.right, b.left - D - 1, B.right - 1 - b.right].map((x) => +x.toFixed(1)); })() : null;
+        return { badge: +(B.left - L).toFixed(1), afterBadge: +(r(pred).left - B.right).toFixed(1), name: +(r(name).left - r(pred).right).toFixed(1),
+                 mark: +(r(mark).left - L).toFixed(1), gaps, sameFont: !ret || font(ret) === font(dd) };
       });
       // a canvas node's content must sit at its wrapper's vertical centre (the selection fill is the wrapper)
       const offCentre = [...document.querySelectorAll(".react-flow__node")].map((n) => {
@@ -62,13 +66,14 @@ try {
     expect(m.offCentre < 0.6, `${scheme}: a canvas node's content is ${m.offCentre}px off its vertical centre`);
     const unique = (k) => [...new Set(m.lines.map((l) => JSON.stringify(l[k])))];
     expect(m.lines.length > 0, `${scheme}: no VersionLine rendered`);
-    for (const k of ["badge", "width", "name"]) expect(unique(k).length === 1, `${scheme}: VersionLine ${k} offsets differ: ${unique(k).join(" ")}`);
-    expect(unique("cells").filter((c) => c !== "null").length <= 1, `${scheme}: badge cells differ: ${unique("cells").join(" ")}`);
-    expect(m.lines.every((l) => l.sameFont && l.rightAligned), `${scheme}: badge cells differ in font or alignment`);
+    for (const k of ["mark", "badge", "afterBadge", "name"]) expect(unique(k).length === 1, `${scheme}: VersionLine ${k} gaps differ: ${unique(k).join(" ")}`);
+    const gaps = [...new Set(m.lines.flatMap((l) => l.gaps ?? []).map((g) => Math.round(g)))];
+    expect(gaps.length === 1, `${scheme}: badge padding to edges and divider differs: ${gaps.join(" ")}`);
+    expect(m.lines.every((l) => l.sameFont), `${scheme}: badge cells differ in font`);
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
-  const first = report.dark.lines.find((l) => l.cells) ?? report.dark.lines[0];
-  console.log(`verify: ${report.dark.islands.length} islands, ${report.dark.lines.length} version lines; badge ${first?.badge}px, width ${first?.width}px, name ${first?.name}px, cells ${first?.cells}`);
+  const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
+  console.log(`verify: ${report.dark.islands.length} islands, ${report.dark.lines.length} version lines; badge at ${first?.badge}px, number padding ${first?.gaps}, name ${first?.name}px after the prediction slot`);
 } finally {
   const exited = new Promise((r) => chrome.once("exit", r));
   chrome.kill();
