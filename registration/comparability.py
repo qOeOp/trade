@@ -18,6 +18,45 @@ INPUT_KEYS = ("market_commit", "universe_rule", "export_content_sha256")
 COMPARABLE_PURPOSES = ("research", "validation")
 
 
+def contract_migration(previous: object, current: object) -> bool:
+    """The declared source ABI migration; this never makes executions economically comparable."""
+    return (previous, current) == ("replay-contract@v6", "replay-contract@v7")
+
+
+def source_contract_supported(source: str, runtime: object) -> bool:
+    """v7 retains the v6 strategy constructor and callbacks. Its image still needs a fresh review."""
+    return source == runtime or contract_migration(source, runtime)
+
+
+def rebuild_identity_matches(previous: Mapping, current: Mapping) -> bool:
+    """Technical continuity, not parity: keep market selection and account terms across v6 -> v7.
+
+    v7 exports new quote metadata and declares the existing bars environment explicitly. Its
+    export bytes and exporter identity are pinned afresh; comparisons still require exact identity.
+    Same-contract rebuilds retain their original, stricter artifact identity requirement.
+    """
+    old_config, new_config = config_key(previous.get("effective_config")), config_key(current.get("effective_config"))
+    old_inputs, new_inputs = input_key(previous.get("input_identity")), input_key(current.get("input_identity"))
+    old_contract, new_contract = previous.get("runtime_contract"), current.get("runtime_contract")
+    if old_contract == new_contract:
+        return old_config == new_config and old_inputs == new_inputs
+    if not contract_migration(old_contract, new_contract):
+        return False
+    if old_config["runtime_contract"] != old_contract or new_config["runtime_contract"] != new_contract:
+        return False
+    old_config["runtime_contract"] = new_contract
+    account = old_config.get("account")
+    if not isinstance(account, dict) or account.get("bar_execution") is not True:
+        return False
+    for name, value in {"execution": "bars", "liquidation_enabled": False, "margin_model": "default",
+                        "initial_margin_rate": None, "maintenance_margin_rate": None}.items():
+        account.setdefault(name, value)
+    for values in (old_inputs, new_inputs):
+        for name in ("export_content_sha256", "exporter_source_sha256"):
+            values.pop(name, None)
+    return old_config == new_config and old_inputs == new_inputs
+
+
 def _host_location(key: str) -> bool:
     return key.endswith("_root") or key.endswith("_path")
 

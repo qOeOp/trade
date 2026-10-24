@@ -6,6 +6,7 @@
 
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
+| 20261022-03 | 固定源码跨 v6→v7 契约的基线和对照重建无准入（[聚焦迁移](2026-10-25-v7-source-migration.zh.md)；先前同契约修复 #1635 保留） | fix + skill | open；用户已授权，隔离消费者与原生技术预检通过，待交付及活动迁移验证 | 2026-10-22 | 2026-10-25 |
 | 20261025-01 | 固定在 quote 表诞生前的市场提交无法导出 bars（[聚焦诊断](2026-10-25-historical-quote-export.zh.md)） | fix | open；已在隔离环境复现，修复待交付 | 2026-10-25 | 2026-10-25 |
 | 20261022-10 | 换线规则触发条件（“线内无改动能超过可检出差”）不可观测，从未触发；推荐冻结后又跑 41 版、11.6 h（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | authority（改用户已批文字为可观测触发，并写入 Goal 停止规则） | fixed 10bd4bfa5（#1644：推荐连续 REVIEW_DUE 次数不变且各次差在可检出差内即经 research-start 回问；Goal 停止规则同步；eval 3/3）；待真实会话验证 | 2026-10-22 | 2026-10-23 |
 | 20261022-11 | 每版本 8–17 分钟；本轮升至平均 12.1M token，43/43 运行无条件复现（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill + measure | skill 部分已随 #1639 合入；fresh 复算代理随 #1646 / 9a517d545；审阅命中率与无条件复现的价值仍待测 | 2026-10-22 | 2026-10-23 |
@@ -68,7 +69,6 @@
 | 20261021-24 | doctor stored-field 授权文字与根规则不一致（[复审](2026-10-21-economics-duties-pa.zh.md)） | none：用户 2026-10-22 定问题在于是否重复记录；该句不重复 AGENTS.md，保留（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261022-04 | 严格一对零或一的 trial/run 使用两套编号，消费者需反复翻译身份 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261022-05 | 成功预检的可再生原生表永久存储；缓存再生须接通技术审查及严格暴露豁免 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
-| 20261022-03 | 固定源码的新运行时基准及消融被旧预检／复现暴露和有效重试拒绝阻塞（[诊断与授权](2026-10-22-runtime-registration-continuity.zh.md)） | #1635 / f7e7c1df9；后续会话固定源码运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261021-04 | 过长预检技术 passed，却到登记才说明超出暴露豁免；拒绝还给出没有消耗登记时不适用的 retry_of 建议 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261021-05 | candidate export 帮助只说新文件，未说明同目录候选说明文件也必须不存在 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261021-06 | ledger sql EXPLAIN 因 Dolt/PyMySQL 的 NULL 数值转换抛出未捕获 ValueError，破坏 JSON 错误契约 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |

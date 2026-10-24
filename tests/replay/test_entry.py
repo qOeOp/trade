@@ -213,6 +213,24 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(precheck.require_precheck(self.world.conn, review["bundle"], published["source_sha256"],
                                                    checked["image_ref"], checked["input_key"]), checked["trial_id"])
 
+    def test_a_v6_source_is_prechecked_and_sealed_on_v7_without_republishing(self):
+        from ledger import strategies
+        with patch.object(strategies, "RUNTIME_CONTRACT", "replay-contract@v6"):
+            published = self.world.publish("legacy-v6", parent=None)
+        short = ONE.copy()
+        short[short.index("--end") + 1] = "2026-01-03T00:00:00Z"
+        with contextlib.redirect_stderr(io.StringIO()):
+            checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, published["candidate"],
+                                     None, short, self.world.output("v6-precheck"))
+        review = precheck.record_review(self.world.profile, self.world.review_body(checked["trial_id"]), "reviewer-v7")
+        body = self.world.body([published["candidate"]], {published["candidate"]: review["bundle"]}, comparison=None)
+        self.world.register("registration-v6-on-v7", body, runner_argv=ONE)
+        result = entry.run(self.world.profile, self.world.market, MARKET_COMMIT, published["candidate"], None,
+                           ONE, hypothesis="registration-v6-on-v7")
+        self.assertEqual((checked["status"], result["status"]), ("passed", "passed"))
+        self.assertEqual(strategies.read_candidate(self.world.conn, published["candidate"])["runtime_contract"],
+                         "replay-contract@v6", "the published candidate is not rewritten")
+
     def test_precheck_reports_window_exposure_before_execution_without_refusing_long_windows(self):
         for end, eligible in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):
             with self.subTest(end=end):

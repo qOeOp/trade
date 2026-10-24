@@ -288,8 +288,10 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 
 ## History
 
-`runtime.image.LAYOUTS` knows only `replay-contract@v7`; no image or seal of an earlier contract is read
-or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
+`runtime.image.LAYOUTS` knows only `replay-contract@v7`; earlier images are not executed. Historical
+sealed reports remain readable. v6 candidate bytes can be prechecked and reviewed anew on v7 and
+rebuilt through an explicitly linked registration; this neither rewrites the candidate nor makes
+old and new results comparable. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at
 [`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);
 they accept their own historical implementations, not later execution paths. The H23a–H27a paired

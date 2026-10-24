@@ -42,7 +42,7 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(image.validate_identity({**IDENTITY, "build_revision": "1" * 40})["build_revision"], "1" * 40)
 
     def test_layout_of_an_undeclared_contract_is_refused(self):
-        for contract in ("replay-contract@v5", "r1-native-v6"):
+        for contract in ("replay-contract@v5", "replay-contract@v6", "r1-native-v6"):
             with self.subTest(contract=contract):
                 refused(self, "RUNTIME_UNSUPPORTED", image.layout, contract)
         self.assertEqual(set(image.layout(None)), {"replay-contract@v7"})

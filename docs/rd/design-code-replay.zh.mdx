@@ -166,7 +166,7 @@ def precheck(
 
 **期望行为**
 
-1. 核对：经 ledger.read_candidate 读候选；经 ledger.temporary_path 核对 output；runner_argv 不含保留选项；经 runtime.resolve 解析运行环境，构建源码版本为空即拒绝；候选 runtime_contract 等于镜像运行契约。任一不符即拒绝，不启动任何进程。
+1. 核对：经 ledger.read_candidate 读候选；经 ledger.temporary_path 核对 output；runner_argv 不含保留选项；经 runtime.resolve 解析运行环境，构建源码版本为空即拒绝；候选 runtime_contract 等于镜像运行契约，或属于支持的 v6→v7 源码 ABI 迁移。任一不符即拒绝，不启动任何进程。
 2. 按 at 以 registration.market_inputs 新鲜导出输入（与登记同一导出器、同一提交），算 registration.input_key；经 runtime.inspect_runtime 在镜像内读出有效配置，算 registration.config_key。
 3. 建工作目录 source/、reports/，写入源码原字节、运行环境检视结果与 replay.input_coverage 覆盖回执，并与研究封存回放一样写 source/execution.json 执行绑定、以 --execution-binding 交给运行器，使预检与正式回放走同一条加载路径，执行绑定不符在预检即暴露。
 4. 在一个写事务里经 ledger.open_trial 写 purpose=precheck 的试验行（不带登记绑定器），并经 ledger.start_receipt 写开始回执（用途 precheck、源码哈希、运行环境、input_key、config_key）；事务成功后才启动容器。
@@ -180,7 +180,7 @@ def precheck(
 | `PATH_EXISTS` | output 已存在 |
 | `RUNNER_OPTION_RESERVED` | runner_argv 含入口自己写入的选项（策略文件、策略类、源码哈希、执行绑定、输出目录） |
 | `RUNTIME_NOT_CI_BUILT` | 运行环境镜像缺构建源码版本标签，不是 CI 构建 |
-| `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像运行契约不一致 |
+| `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像不同且不属于支持的源码 ABI 迁移 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="ledger.temporary_path" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="registration.config_key" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="replay.execute" />、<Ref id="ledger.seal_capture" />、<Ref id="ledger.audit_problems" />、<Ref id="report.directory_report" />、<Ref id="table:v_candidates" />、<Ref id="table:v_trials" />
 
@@ -260,7 +260,7 @@ def seal(
 
 **期望行为**
 
-1. 核对 hypothesis 与 validation 恰给其一；读账本头提交（table:ledger_head）；runtime.resolve 解析身份，候选运行契约不等于镜像契约即拒绝；runtime.inspect_runtime 取有效配置并由 registration.config_key 算配置身份
+1. 核对 hypothesis 与 validation 恰给其一；读账本头提交（table:ledger_head）；runtime.resolve 解析身份，候选运行契约与镜像不同且不属于支持的 v6→v7 源码 ABI 迁移即拒绝；runtime.inspect_runtime 取有效配置并由 registration.config_key 算配置身份
 2. registration.export_fingerprint 语义模式结果须等于 inputs.identity 的导出内容哈希，否则拒绝；同时记下原始模式指纹
 3. 新建临时工作目录，写 source/strategy.py、execution.json（运行环境身份、有效配置及其哈希；与探索、预检、复现同一写法）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
@@ -271,7 +271,7 @@ def seal(
 | 拒绝码 | 条件 |
 |---|---|
 | `REGISTRATION_REQUIRED` | hypothesis 与 validation 都未给或都给出 |
-| `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像运行契约不一致 |
+| `RUNTIME_CONTRACT_MISMATCH` | 候选运行契约与镜像不同且不属于支持的源码 ABI 迁移 |
 | `EXPORT_CHANGED_BEFORE_EXECUTION` | 执行前导出语义指纹不等于输入身份记录的导出内容哈希 |
 
 **使用**　<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="registration.config_key" />、<Ref id="registration.export_fingerprint" />、<Ref id="replay.input_coverage" />、<Ref id="ledger.open_trial" />、<Ref id="ledger.start_receipt" />、<Ref id="registration.bind" />、<Ref id="registration.validation_bind" />、<Ref id="replay.execute" />、<Ref id="ledger.summary_problems" />、<Ref id="ledger.audit_problems" />、<Ref id="ledger.ingest_run" />、<Ref id="table:ledger_head" />

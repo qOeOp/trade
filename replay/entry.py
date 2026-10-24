@@ -368,7 +368,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     if not identity.get("build_revision"):
         raise refuse("RUNTIME_NOT_CI_BUILT", f"{identity['image_ref']} carries no build source revision label",
                      missing=("org.opencontainers.image.revision",))
-    if revision["runtime_contract"] != identity["runtime_contract"]:
+    if not comparability.source_contract_supported(revision["runtime_contract"], identity["runtime_contract"]):
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"{candidate} needs contract {revision['runtime_contract']}, the "
                                                   f"image is {identity['runtime_contract']}",
                      expected=revision["runtime_contract"])
@@ -447,7 +447,7 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
     checkout = registration_seams.current.checkout()
     metrics.metrics_revision(checkout)  # a passed run records it; outside a checkout this raises before any trial
     identity = _resolve(runtime)
-    if revision["runtime_contract"] != identity["runtime_contract"]:
+    if not comparability.source_contract_supported(revision["runtime_contract"], identity["runtime_contract"]):
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
                                                   f"image is {identity['runtime_contract']}",
                      expected=revision["runtime_contract"])

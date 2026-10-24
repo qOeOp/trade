@@ -702,13 +702,13 @@ def validate(
 5. 核 prediction：mechanism 每项的职责在 changed_duties 里，切面与标量在归因目录里（切面为空时须有理由）；changed_duties 每项至少一项预测；根登记的 mechanism 可为空。
 6. 核父与对照：parent 为空则 control_trial_id 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_trial_id 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_trial_id 为空只允许在 rationale.local 引用父运行的故障或零活动
 7. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
-8. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
+8. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract，或属于显式支持的 v6→v7 源码 ABI 迁移（仍需新镜像审查）
 9. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
 10. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
 11. prechecks 是映射 \{网格候选 strategy_id@revision: source-review-* 审查包名\}；某格缺项，或所指包名不在 source-review-* 命名空间，即 SOURCE_PRECHECK_REQUIRED。该命名空间只由 registration.record_review 写，Agent 另起名字放的审查文件不被采信。
 12. before_replay=True（绑定前重验）时，暴露核对跳过正被绑定的试验和同一登记先前的尝试：它们的消耗由 GRID_ALREADY_ATTEMPTED 判定，不算源码暴露。
 13. 无对照的派生登记：代码只核 rationale.local 非空；它是否确实引用了父运行的故障或零活动，由开题审阅判断。
-14. research 的 retry_of 沿链传递：暴露核对跳过链上任一登记下的尝试；通常只有链上被消耗的尝试中断、无效或经 qualification.assess 判为无经济证据资格时才可重试。另允许明确关联的运行时迁移：镜像摘要不同，研究声明、源码网格、运行契约、有效配置和输入内容身份均相同；只可替换预检审查、retry_of，以及同源码且在新身份下可比、有经济证据的重建对照。该迁移不是新的独立假设。同镜像的有效成功尝试仍拒绝重试，不能改完声明后借迁移重跑。
+14. research 的 retry_of 沿链传递：暴露核对跳过链上任一登记下的尝试；通常只有链上被消耗的尝试中断、无效或经 qualification.assess 判为无经济证据资格时才可重试。另允许明确关联的运行时迁移：镜像摘要不同，研究声明与源码网格固定；同契约时有效配置和全部输入身份相同。v6→v7 bars 迁移只将旧 bars 默认值明示为新配置，保持市场库、提交、成员、范围、窗口和账户条款，重新固定导出器与产物摘要。可替换预检审查、retry_of，以及同源码且在新身份下可比、有经济证据的重建对照；原对照已失去经济证据时，可将 control_trial_id 和 comparison 置空来建立基线，其余声明不改，旧比较留在原登记。该迁移不证明 parity 或旧比较，也不是新的独立假设。同镜像的有效成功尝试仍拒绝重试，不能改完声明后借迁移重跑。
 15. 迁移只免除关联登记原已引用且在其原身份下符合短窗豁免的预检，以及关联旧运行的已验证复现。复现须与更早的有效运行同源码、镜像、窗口、合约、配置和输入；原件与复现均完整完成 native、audit、fingerprint 三阶段且无运行错误，所封存指纹文件的哈希相同。其他探索、未引用预检、缺指纹或指纹不符的尝试仍算暴露。新镜像仍须有新预检和独立审查，不改写旧运行。
 
 | 拒绝码 | 条件 |
@@ -717,7 +717,7 @@ def validate(
 | `RESEARCH_LINE_REQUIRED` | 账本里没有当前研究路线记录，窗口无从核对 |
 | `WINDOW_MISMATCH` | body.window 与研究路线记录的开发窗口起止不逐字相等 |
 | `LINEAGE_MISMATCH` | 某网格点的父版本或改动说明不等于登记的 parent / change |
-| `CONFIG_MISMATCH` | 某网格点的 runtime_contract 与执行身份的运行契约不一致 |
+| `CONFIG_MISMATCH` | 某网格点的 runtime_contract 与执行身份不同，且不属于支持的源码 ABI 迁移 |
 | `SOURCE_ALREADY_EXPOSED` | 某网格源码已被非免除的探索（purpose=explore）或封存回放执行过，且登记未以 retry_of 指向实际消耗它的先前登记 |
 | `SOURCE_PRECHECK_REQUIRED` | 某网格源码没有绑定同源码、同镜像摘要的独立预检审查件 |
 | `SOURCE_PRECHECK_FAILED` | 审查件存在但原生或审计退出非零，或四项中有 failed / unresolved |

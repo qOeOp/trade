@@ -295,7 +295,7 @@ def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) ->
         if parent != body["parent"] or row["difference"] != body["change"]:
             raise refuse("LINEAGE_MISMATCH", f"grid candidate {point['candidate']} has parent {parent} and another "
                                              "difference than the registration", missing=(point["candidate"],))
-        if row["runtime_contract"] != execution.get("runtime_contract"):
+        if not comparability.source_contract_supported(row["runtime_contract"], execution.get("runtime_contract")):
             raise refuse("CONFIG_MISMATCH", f"grid candidate {point['candidate']} needs runtime contract "
                                             f"{row['runtime_contract']}, the execution has "
                                             f"{execution.get('runtime_contract')}", missing=(point["candidate"],))
@@ -344,22 +344,29 @@ def _retry_chain(conn: db.LedgerConnection, retry_of) -> list[str]:
 
 
 def _runtime_transition(conn: db.LedgerConnection, body: Mapping, execution: Mapping, prior: Mapping) -> bool:
-    """An explicitly linked technical rebuild: only the image, precheck reviews and the equivalent
-    rebuilt control may differ. All research declarations, grid, configuration and inputs stay fixed.
-    This recognizes continuity, not an independent hypothesis or cross-image economic comparison."""
+    """A linked fixed-source rebuild, with fresh reviews and a comparable rebuilt control.
+
+    v6 -> v7 can establish an unpaired baseline where the original control lost economic evidence.
+    This preserves the old declaration in its linked plan and makes no new claim against that control.
+    """
     old, previous = prior["body"], prior["execution"]
     if not execution.get("image_digest") or execution["image_digest"] == previous.get("image_digest"):
         return False
-    if (execution.get("runtime_contract") != previous.get("runtime_contract")
-            or comparability.config_key(execution.get("effective_config"))
-            != comparability.config_key(previous.get("effective_config"))
-            or comparability.input_key(execution.get("input_identity"))
-            != comparability.input_key(previous.get("input_identity"))):
-        return False
-    movable = {"retry_of", "prechecks", "control_trial_id"}
-    if {k: v for k, v in body.items() if k not in movable} != {k: v for k, v in old.items() if k not in movable}:
+    if not comparability.rebuild_identity_matches(previous, execution):
         return False
     control, old_control = body["control_trial_id"], old["control_trial_id"]
+    baseline = (comparability.contract_migration(previous.get("runtime_contract"), execution.get("runtime_contract"))
+                and control is None and old_control is not None and body["comparison"] is None)
+    if baseline and seams.current.qualification_assess(conn, control_trial(conn, old_control))[
+            "economic_evidence_available"]:
+        return False
+    movable = {"retry_of", "prechecks", "control_trial_id"}
+    if baseline:
+        movable.add("comparison")
+    if {k: v for k, v in body.items() if k not in movable} != {k: v for k, v in old.items() if k not in movable}:
+        return False
+    if baseline:
+        return True
     if control is None or old_control is None:
         return control is old_control
     # _check_lineage has already required the new control to be comparable and economically available.
