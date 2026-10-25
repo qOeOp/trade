@@ -19,7 +19,7 @@ export const highlighted = atom<JournalLine | null>(null);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
 /** The tab the trades card shows; a click on a chart marker turns it to the events. */
-export const tradesTab = atom<"trades" | "events">("trades");
+export const tradesTab = atom<"trades" | "events" | "reconcile">("trades");
 /** The month (YYYY-MM) the calendar shows, or null for the run's latest. */
 export const calendarMonth = atom<string | null>(null);
 /** The event categories the Events list shows. */

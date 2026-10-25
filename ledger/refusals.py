@@ -740,6 +740,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed invalid with the "
                            "error in runner.log.",
                            ("Read the error, repair the runtime or Docker, then start a new run.",)),
+    # Paper reconciliation (paper/reconcile.py)
+    "PAPER_RECONCILE_EMPTY": ("The sealed run's capture names no input start or stop, or it stopped before its first "
+                              "bar closed: there is no interval to replay.",
+                              ("Reconcile a run that received at least one bar.",)),
+    "PAPER_RECONCILE_UNCOVERED": ("The market commit does not hold every minute of the run's interval yet.",
+                                  ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                                   "contract scope once its days are archived, then reconcile at the new commit.",)),
 }
 
 

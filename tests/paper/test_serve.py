@@ -66,6 +66,18 @@ class GateTests(unittest.TestCase):
                                 **{"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"})
         self.assertEqual((status, found), (200, {"paper_id": 1}))
 
+    def test_a_reconciliation_starts_only_from_the_ides_own_page(self):
+        self.daemon.reconcile.return_value = {"paper_id": 3, "state": "reconciling"}
+        self.daemon.reconciliation.return_value = {"paper_id": 3, "state": "none"}
+        json_body = {"Content-Type": "application/json"}
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/reconcile", b"{}",
+                                 **json_body, **{"Sec-Fetch-Site": "cross-site"})[0], 403)
+        self.daemon.reconcile.assert_not_called()
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/reconcile", b"{}", **json_body),
+                         (202, {"paper_id": 3, "state": "reconciling"}))
+        self.daemon.reconcile.assert_called_once_with(3)
+        self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/reconcile"), (200, {"paper_id": 3, "state": "none"}))
+
     def test_a_start_names_a_candidate_and_binance_symbols(self):
         daemon = serve.Daemon.__new__(serve.Daemon)
         for body in ({}, {"candidate": "a@1", "symbols": ["btc usdt"]}, {"candidate": "a@1", "symbols": []},

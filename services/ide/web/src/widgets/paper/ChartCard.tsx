@@ -6,8 +6,10 @@ import { heldOf, priceLines, spans as spansOf, type Fill } from "../../model/pap
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Segmented, type Segment } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
-import type { Stream } from "../../state/paperStream";
+import { tradesTab, type Stream } from "../../state/paperStream";
+import { useAtom } from "../../state/atom";
 import { paperTab } from "../../state/paper";
+import { useReconciliation } from "../../state/reconcile";
 import { CandleChart } from "./CandleChart";
 import { EquityChart } from "./EquityChart";
 
@@ -47,6 +49,9 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const period = chosen ?? autoPeriod(minutes);
   const of = digits.get(symbol) ?? { price: 2, size: -1 };
   const startedNs = run.seal?.started_ns ?? run.live?.started_ns ?? null;
+  // The replay's equity shows while the trades card shows the reconciliation it belongs to.
+  const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";
+  const replay = useMemo(() => (reconciling && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [r, run.paper_id, reconciling]);
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
 
   return (
@@ -70,7 +75,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
       </div>
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {equity ? (
-          <EquityChart path={a?.path ?? []} starting={a?.starting ?? 100_000} start={a?.start ?? null} limit={targets.limit} annual={targets.annual} />
+          <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} limit={targets.limit} annual={targets.annual} />
         ) : (
           <CandleChart key={symbol} symbol={symbol} bars={bars} minutes={PERIODS.find((p) => p.id === period)!.minutes}
                        places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} openFrom={openFrom}

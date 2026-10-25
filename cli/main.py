@@ -852,7 +852,7 @@ MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "
 READS = {("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
          ("research", "state"), ("research", "graph"), ("validation", "report"), ("replay", "report"),
-         ("market", "coverage"), ("market", "bars")}
+         ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
 def _market_ledger(market: dict) -> db.LedgerProfile:
@@ -1447,6 +1447,17 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "readings, and answers a start or stop with that command's result",
         "USAGE_ERROR (a --host that is not loopback); over HTTP: FORBIDDEN (a Host or origin not allowed), "
         "NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the start, stop and seal refusals"),
+    ("paper", "reconcile"): (
+        "the sealed paper run, its candidate and its capture (reader); the market at --at (default main), exported "
+        "into a reused cache under the temporary directory; the run's own runtime image",
+        "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
+        "reports and audit, reconcile.json); never publishes",
+        "path, summary {paper_fills, replay_fills, same, price, quantity, time, paper_only, replay_only, "
+        "look_ahead_suspects, missing_bars, differing_bars, late_bars, equity_max_difference}, replay {status, "
+        "problems, path}",
+        "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed); PAPER_RECONCILE_EMPTY (no interval); "
+        "PAPER_RECONCILE_UNCOVERED (the market lacks the interval's minutes); NOT_TEMPORARY_PATH, PATH_EXISTS "
+        "(--output); RUNTIME_UNAVAILABLE"),
 }
 
 
@@ -1819,7 +1830,8 @@ def _parser() -> Parser:
                          help="most bar periods returned inline (default: 1440, one day of minutes)")
     command.add_argument("--output", help="new JSON file under the temporary root for the whole interval")
 
-    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list, serve")
+    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list, "
+                           "reconcile, serve")
     command = verb(paper, "start", "declare a paper run of a candidate and start its containers")
     command.epilog = textwrap.fill(
         "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
@@ -1846,6 +1858,17 @@ def _parser() -> Parser:
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "list", "every paper run with its state and seal readings")
     _ledger_option(command)
+    command = verb(paper, "reconcile", "replay a sealed paper run on the archive and compare it order by order")
+    command.epilog = textwrap.fill(
+        "The replay takes the run's source, runtime image, contracts and the interval its runner received bars for; "
+        "only the market commit is chosen here. It is no trial and adds no exposure; nothing reaches the ledger "
+        "(paper.reconcile).", 100)
+    _ledger_option(command)
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
+    command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
     command = verb(paper, "serve", "serve the ledger's paper runs to the trade IDE's Paper panel")
     command.epilog = ("Listens on loopback only (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
                       "seals run this command line, and runs that end on their own are sealed as they are found.")
@@ -2012,6 +2035,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.seal(profile, args.paper_id), 0
         if args.verb == "list":
             return paper_runs.listing(profile), 0
+        if args.verb == "reconcile":
+            from paper import reconcile
+            return reconcile.reconcile(profile, market_profile(args.market), args.at, args.paper_id, Path(args.output),
+                                       args.timeout_seconds), 0
         if args.verb == "serve":
             from paper import serve
             serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
