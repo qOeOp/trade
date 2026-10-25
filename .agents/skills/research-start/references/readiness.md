@@ -8,7 +8,7 @@ A completed replay does not discharge the coverage-reporting duties below.
 
 ## Coverage disposition
 
-When reporting any coverage anomaly, include all four parts in the final answer, even when the
+When reporting any coverage anomaly, include the parts below in the final answer, even when the
 user asks only how to record it or what to do next. A diagnosis or a plan to inspect positions is
 not a substitute for the disposition.
 
@@ -27,18 +27,21 @@ not a substitute for the disposition.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
-4. **User choice.** End with a direct question choosing how to resolve the data/scope block:
-   obtain or verify the missing source evidence while keeping the selection, or choose a different
-   supported data range through the existing line-change rules. Make unknown ranges conditional
-   on first obtaining coverage. Never choose a coin removal, shorter window, replacement input or
-   changed commit yourself, or recommend one because an anomaly coincides with losses. A question
-   about writing records, permission to inspect, or which investigation to start does not replace
-   this data/scope choice. Do not present filling with zero, interpolation or other invented data
-   as an option to fix the gap.
+4. **User choice.** Ask only when an anomaly falls inside the development window or on an input
+   value the strategy reads (for example a warm-up close an indicator uses); otherwise say where it
+   lies, report parts 1–3 and continue. When asking, end with a direct question choosing how to
+   resolve the data/scope block: obtain or verify the missing source evidence while keeping the
+   selection, or choose a different supported data range through the existing line-change rules.
+   Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
+   shorter window, replacement input or changed commit yourself, or recommend one because an
+   anomaly coincides with losses. A question about writing records, permission to inspect, or
+   which investigation to start does not replace this data/scope choice. Do not present filling
+   with zero, interpolation or other invented data as an option to fix the gap.
 
-Before sending, check that both the runnable-range statement (with explicit unknowns where
-needed) and the final data/scope question are present. Keep the three facts and their unproven
-causes separate; none is an economic failure or a reason to alter the research universe.
+Before sending, check that the runnable-range statement (with explicit unknowns where needed)
+is present, and the final data/scope question when part 4 calls for one. Keep the three facts
+and their unproven causes separate; none is an economic failure or a reason to alter the
+research universe.
 
 ## Before replay and on new data
 

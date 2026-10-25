@@ -64,7 +64,8 @@ for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
   before research. Never set a token budget unless
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 - An active Goal continues a turn that ends with a question without waiting for the user. Under it,
-  ask only what blocks the line (a due line change, an authority item); decide anything else within
+  ask only what blocks the line (a due line change, an authority item, a data/scope choice that
+  readiness.md calls for); decide anything else within
   your authority and say so in one line. Use the host's pause tool before asking only if it
   exists and the host currently permits it, including any required explicit user request; a tool
   is not permission. Otherwise combine the pause request/instructions and the blocking choice in
@@ -78,7 +79,7 @@ for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
 
 A coverage/readiness question within a selected line is not a new research session. Read
 [readiness.md](references/readiness.md) and return its full coverage disposition, including the
-runnable range and final data/scope choice when an anomaly is reported, even after a completed
+runnable range and, when it calls for one, the final data/scope choice, even after a completed
 replay. Keep the current line and its existing authority; do not restart selection or Goal setup
 just to answer this check.
 
