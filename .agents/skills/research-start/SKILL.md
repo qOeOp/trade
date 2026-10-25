@@ -37,6 +37,10 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
+- A due line change (research-round) is offered here too, after the ledger reads above: this
+  line beside the lines the ledger's other candidates could start (`candidate list`), each with
+  the readings recommendation.md lists. New scopes or starting points inside this line are only
+  some of the options.
 - List template roots (research-round's [template.md](../research-round/references/template.md))
   only when the ledger has no candidate or the user says to leave every existing line, each with
   its first report on the current development window or marked not yet replayed. A loss, an
