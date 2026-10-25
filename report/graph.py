@@ -1,4 +1,4 @@
-"""A research line as a research-graph/1 document, read from the ledger only (`research graph`).
+"""A research line as a research-graph/2 document, read from the ledger only (`research graph`).
 
 It composes the product's own readers (candidates, the line record, run measures and availability,
 registration plans, the comparison, source reviews and judgments) and adds no rule of its own, so
@@ -18,7 +18,7 @@ from registration import register
 from report import candidates as report_candidates
 from report import comparison, measures, runs, seams, status
 
-FORMAT = "research-graph/1"
+FORMAT = "research-graph/2"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
@@ -90,7 +90,7 @@ def _reusing(read: Callable) -> Callable:
 
 def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
                    max_drawdown: float | None = None, annual_return: float | None = None) -> dict:
-    """The research-graph/1 document of a line at a ledger version. The targets are the user's, read
+    """The research-graph/2 document of a line at a ledger version. The targets are the user's, read
     by the caller from the line note; `since` marks where the scope under study starts."""
     with seams.use(market_returns=_reusing(seams.current.market_returns)):
         return _document(profile, line_bundle, at, since, max_drawdown, annual_return)
@@ -112,6 +112,10 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
                    if row["trial_id"] in on_line}
         seeds = {record["start"]} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
         members = _lineage(rows, seeds)
+        source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
+        wanted = set(source_of.values())
+        text_of = {r["source_sha256"]: bytes(r["source"]).decode()
+                   for r in conn.dicts("SELECT source_sha256, source FROM candidate") if r["source_sha256"] in wanted}
         records = availability.review_records(conn)
         bundle_times = {row["bundle"]: row["created_at"] for row in conn.dicts(
             "SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'source-review-%%' OR bundle LIKE 'research-line-%%'")}
@@ -128,7 +132,6 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         since_at = None
         if since is not None:
             since_at = conn.one("SELECT date FROM dolt_log WHERE commit_hash = %s", (db.resolve_commit(conn, since),))
-        source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
         trials_of: dict[str, list[dict]] = {key: [] for key in source_of}
         owner = {sha: key for key, sha in source_of.items()}
         for row in conn.dicts("SELECT t.trial_id, t.purpose, t.source_sha256, t.created_at, r.status FROM trial t "
@@ -204,6 +207,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         candidates.append({
             "id": key, "parent": f"{row['parent_strategy_id']}@{row['parent_revision']}" if row["parent_strategy_id"] else None,
             "created_at": _iso(row["created_at"]), "change": row["difference"] or row["description"],
+            "source": text_of[source_of[key]],
             "duties": body.get("changed_duties"), "hypothesis": rationale.get("conjecture"),
             "predictions": predictions, "registration": bundle, "control_trial": body.get("control_trial_id"),
             "trials": trials, "comparison": comparison_value, "reviews": reviews, "interpretation": interpretation,

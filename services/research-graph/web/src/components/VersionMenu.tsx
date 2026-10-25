@@ -3,7 +3,7 @@ import { ContextMenu } from "radix-ui";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import type { IconName } from "../icons/registry";
-import { openVersionTab } from "../state/editors";
+import { openSourceTab, openVersionTab } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
 import { showToolWindow } from "../state/shell";
@@ -30,6 +30,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           <Item icon="locate" label="Locate in graph" run={() => { select(id); requestFocus(id); }} />
           <Item icon="tool.inspector" label="Show in details" run={() => { select(id); showToolWindow("inspector", "right"); }} />
           <Item icon="lineage" label="Open in new tab" run={() => openVersionTab(id)} />
+          <Item icon="file.python" label="Open source" run={() => openSourceTab(id)} />
           <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
           <Item icon="copy" label="Copy version name" run={() => void copyText(id)} />
           <Item label="Copy link" run={() => void copyText(link)} />

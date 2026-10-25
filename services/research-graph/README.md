@@ -22,10 +22,10 @@ python3 services/research-graph/graph.py compare LEDGER.json SESSION.json --unti
 
 Stages hand over only through these files, so each can be replaced alone.
 
-## Graph (`research-graph/1`)
+## Graph (`research-graph/2`)
 
 One research line from one source: the line and its targets, candidate versions with parent,
-change, duties, hypothesis, predictions and outcomes, registration, control, trials with
+change, complete strategy source, duties, hypothesis, predictions and outcomes, registration, control, trials with
 readings and eligibility, comparison, source reviews, interpretation and status; timed events
 (judgments, line changes, eligibility changes); and `gaps`. It holds no conversation or host state.
 Unknown values are null. The schema is authoritative.
@@ -45,7 +45,8 @@ research units, never pixels.
 | `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `table/1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
 | `notes/1` | `items`: plain notes (the graph's `gaps`) |
-| `candidate-detail/1` | `default` and `items`: the graph's candidate records with `status_class` and `prediction_class` |
+| `candidate-detail/1` | `default` and `items`: the graph's candidate records (without their source) with `status_class` and `prediction_class` |
+| `sources/1` | `items`: each version's `id`, `parent` (null when it is not in the graph) and `source` (null when the graph holds none), by id |
 
 `status` is one of `recommended`, `meets_targets`, `below_targets`, `masked`, `precheck_failed`,
 `unrun`; `prediction` one of `held`, `failed`, `mixed`, `none`. A new kind of chart is a new widget
@@ -56,7 +57,7 @@ type; a changed widget is a new version of its type.
 A renderer is a package under `research_graph/renderers/` whose `render.py` defines
 `render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
 `web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
-primitives, TanStack Table, visx, cmdk; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks; its own npm
+primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks; its own npm
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 4px apart on the
 window frame, following the design rules in
 [`docs/plans/research-graph-design-spec.zh.md`](../../docs/plans/research-graph-design-spec.zh.md): warm low-chroma
@@ -92,16 +93,20 @@ in line with them; the status bar shows the path to the selected
 version (line › ancestors › version, each clickable; the middle of a long path folds into a … step whose menu lists
 it) and the version under the pointer. The editor keeps at least 45% of the width, so a narrower window shrinks the
 sides first. As in IntelliJ, a stripe on each side opens tool windows, one per side:
-Versions (the versions as a tree by lineage) on the left, Details (the selected version as cards in groups: long text in paragraphs and
+Versions (the versions as a tree by lineage) and Sources (one `<version>.py` file per version, a strategy with several
+revisions a folder of them) on the left, Details (the selected version as cards in groups: long text in paragraphs and
 lists, folded to its first paragraph or sentence with the rest behind Show more, a registration as a chip cut in the middle that copies on click) on the right, and
 Progress (research-run returns as bars from zero on the canvas's x), Return vs drawdown (the scatter with the non-dominated
 frontier), Version table and Data gaps at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
-all, collapse all, hide). `⌥1`–`⌥6` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
+all, collapse all, hide). `⌥1`–`⌥7` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. A version opened
 in its own tab (double-click, or the context menu) shows its detail with what changed and the conclusion beside the
-evidence where the tab is wide enough; the tab strip appears once one is open. Right-clicking a version anywhere (canvas, tree, table) offers Locate in graph, Show in details, Open in new tab, Copy version name
-and Copy link. Tool-window sides, sizes
+evidence where the tab is wide enough; the tab strip appears once one is open. A version's source opens in a tab of its own (double-click or Enter in Sources,
+or the context menu): read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling
+it; Compare with parent turns it into a unified diff against its parent's source (deleted lines red, inserted green, long
+unchanged stretches folded). Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph, Show in details,
+Open in new tab, Open source, Copy version name and Copy link. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
@@ -112,7 +117,7 @@ JavaScript, so it opens in a browser. A new widget type is a renderer in `web/sr
 
 | Folder | Holds | May import |
 |---|---|---|
-| `theme/` | `tokens.css` (the only colour literals: IntelliJ Islands surfaces and four validated data hues), `base.css`, `roles.ts` (role names, `v()`, `wash()`, `textClass()`) | nothing |
+| `theme/` | `tokens.css` (the only colour literals: IntelliJ Islands surfaces, four validated data hues and IntelliJ's Python colours), `base.css`, `code.css` (the source view), `roles.ts` (role names, `v()`, `wash()`, `textClass()`) | nothing |
 | `lib/` | pure helpers: formatting, guarded storage, key bindings, ranges | nothing |
 | `model/` | view types, semantics (roles, predictions, targets), the view context, the lineage tree | lib |
 | `icons/` | the icon registry (Lucide), `Icon`, `RoleMark`, `PredictionMark` | theme, model |
@@ -131,8 +136,9 @@ the canvas and the bottom island share their left edge and width, canvas nodes a
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
 2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
-There it also drives the tree's arrow keys, the folded path's menu, a canvas version's context menu (5 items),
-double-click opening a tab, and the wheel panning the canvas to its edges.
+There it also drives the tree's arrow keys, the folded path's menu, a canvas version's context menu (6 items),
+double-click opening a tab, the wheel panning the canvas to its edges, and a Sources file opening as highlighted source
+that the island scrolls, then as its diff.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with strokes that draw one pixel wide at every size (2 units at 12px, 1.5 at 16px, 1.2 at 20px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

@@ -1,5 +1,5 @@
 """If this fails, `research graph` no longer rebuilds a line from the ledger alone as a valid,
-repeatable research-graph/1 document: versions with their runs and measures, the recommendation,
+repeatable research-graph/2 document: versions with their source, runs and measures, the recommendation,
 a failed review that masks a run, the judgments as events, and only the line's own runs. A
 throwaway ledger, never the active one."""
 
@@ -58,6 +58,9 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual((run["trial_id"], run["eligible"]), (self.runs[second]["trial_id"], True))
         self.assertIsNotNone(run["annual_return"], "an eligible run carries its measures")
         self.assertEqual(by_id[second]["registration"], "registration-pair")
+        with db.read_as_of(self.world.profile) as conn:
+            self.assertEqual(by_id[second]["source"], strategies.read_candidate(conn, second)["source"].decode(),
+                             "a version carries its registered source")
         self.assertIsNotNone(by_id[second]["interpretation"])
         recommendation = [e for e in found["events"] if e["kind"] == "recommendation"]
         self.assertEqual(recommendation[-1]["recommends"], first)

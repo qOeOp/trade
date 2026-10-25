@@ -100,6 +100,9 @@ export type TableWidget = Widget & { targets: Targets | null; rows: TableRow[] }
 
 export type NotesWidget = Widget & { items: string[] };
 export type DetailWidget = Widget & { default: string | null; items: Candidate[] };
+/** A version's registered strategy source (null when the graph does not hold it) and its parent in the graph. */
+export type SourceItem = { id: string; parent: string | null; source: string | null };
+export type SourcesWidget = Widget & { items: SourceItem[] };
 
 export type View = {
   format: string;
