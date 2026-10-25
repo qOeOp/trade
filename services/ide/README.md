@@ -116,8 +116,8 @@ last row at its bottom, and on the right no further than the longest-reaching ve
 empty trials; focusing a version centres it only as far as that allows, and opening or closing a side
 leaves the canvas where it is), with each version's role shown by its mark's shape, parent-to-child
 lines drawn as git graphs draw them (recessive, except the selected version's lineage: root to it and on to its
-children), no gridlines or row stripes (the ruler gives the trials), a brand-blue underline where a version stayed
-recommended, and a version that lost eligibility faded to 40% with no badge and only its mark in red; a ruler above numbers
+children), no gridlines or row stripes (the ruler gives the trials), the recommendation shown only by its version's mark (its
+history is in the Recommended menu), and a version that lost eligibility faded to 40% with no badge and only its mark in red; a ruler above numbers
 every trial (the trial where a version sits in the text colour, the rest faint), puts the trials that ran one version on a rounded
 tinted block, and inverts the trial under the pointer. Over the canvas the pointer is a crosshair as in
 TradingView's magnet mode: faint dashed lines on the nearest trial and version row, sparser near a small reticle, drawn under
