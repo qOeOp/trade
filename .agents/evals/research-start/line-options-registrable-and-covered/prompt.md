@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, line options offered at a due line change are checked before they are offered; a frozen candidate whose source already ran is not offered as the start of a research line on a new or longer window (it goes only through out-of-sample validation at the user's request), and no window reaching months the market database does not hold is offered; the agent proposes no change to a check and waits for the choice.
+description: Rule check — with the skill, line options offered at a due line change are checked before they are offered; a frozen candidate whose source already ran is not offered as the start of a research line on a new or longer window (it goes only through out-of-sample validation at the user's request), and no window reaching months the market database does not hold is offered as ready (importing them is a separate step); the agent proposes no change to a check and waits for the choice.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
