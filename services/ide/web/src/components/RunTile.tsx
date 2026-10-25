@@ -19,6 +19,7 @@ const SEALED = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short"
 export function health(run: PaperRun, now: number): { tone: DataRole; text: string; late: boolean } {
   const lastBar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null;
   if (run.state === "running") {
+    if (run.live?.exceptions) return { tone: "fail", text: `${run.live.exceptions}+ exceptions`, late: false };
     if (lastBar !== null && now - lastBar > LAG_MS) return { tone: "misses", text: `No bar for ${Math.round((now - lastBar) / 60_000)} min`, late: true };
     return { tone: "meets", text: lastBar === null ? "Waiting for the first bar" : "Running", late: false };
   }

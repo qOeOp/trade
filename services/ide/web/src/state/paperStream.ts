@@ -1,14 +1,14 @@
 // The journal of the run the Paper page shows, as it grows: one stream from the daemon for the run and
-// the contract its chart shows (every line but other contracts' bars), with state.json and the
-// readings. The page's links: the time the chart should show and the event to highlight, the trades
-// card's tab, and the day picked in the calendar.
-import { streamUrl, type JournalLine, type Live, type PaperState, type Seal } from "../lib/paperApi";
+// the contract its chart shows (every line but other contracts' bars), with state.json, the readings
+// and the exceptions its strategy raised. The page's links: the time the chart should show and the
+// event to highlight, the trades card's tab, and the day picked in the calendar.
+import { streamUrl, type JournalLine, type Live, type PaperState, type RuntimeFailure, type Seal } from "../lib/paperApi";
 import { CATEGORIES, type Category } from "../model/paper";
 import { atom, useAtom } from "./atom";
 
 export type Stream = {
   paperId: number; symbol: string | null; lines: JournalLine[]; bars: JournalLine[];
-  state: PaperState | null; readings: Live | null; seal: Seal | null; connected: boolean;
+  state: PaperState | null; readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; connected: boolean;
 };
 export const stream = atom<Stream | null>(null);
 export const useStream = () => useAtom(stream);
@@ -19,7 +19,7 @@ export const highlighted = atom<JournalLine | null>(null);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
 /** The tab the trades card shows; a click on a chart marker turns it to the events. */
-export const tradesTab = atom<"trades" | "events" | "reconcile">("trades");
+export const tradesTab = atom<"trades" | "events" | "exceptions" | "reconcile">("trades");
 /** The month (YYYY-MM) the calendar shows, or null for the run's latest. */
 export const calendarMonth = atom<string | null>(null);
 /** The event categories the Events list shows. */
@@ -40,7 +40,7 @@ export function follow(paperId: number | null, symbol: string | null): void {
   // Lines of the same run carry over while another contract's stream starts; its bars do not.
   const kept = now?.paperId === paperId ? now : null;
   stream.set({ paperId, symbol, lines: kept?.lines ?? [], bars: [], state: kept?.state ?? null,
-               readings: kept?.readings ?? null, seal: kept?.seal ?? null, connected: false });
+               readings: kept?.readings ?? null, seal: kept?.seal ?? null, failures: kept?.failures ?? [], connected: false });
   const events = new EventSource(streamUrl(paperId, symbol));
   source = events;
   let first = true;
@@ -53,6 +53,7 @@ export function follow(paperId: number | null, symbol: string | null): void {
     first = false;
   });
   events.addEventListener("state", (event) => update((s) => ({ ...s, state: JSON.parse((event as MessageEvent).data) })));
+  events.addEventListener("failures", (event) => update((s) => ({ ...s, failures: JSON.parse((event as MessageEvent).data) })));
   events.addEventListener("readings", (event) => update((s) => ({ ...s, readings: JSON.parse((event as MessageEvent).data) })));
   events.addEventListener("end", (event) => {
     update((s) => ({ ...s, seal: JSON.parse((event as MessageEvent).data) }));

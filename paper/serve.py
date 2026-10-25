@@ -47,6 +47,7 @@ RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's re
 # What a command line child gets of this process's environment: the docker client's and the product's own.
 CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
+FAILURES = "runtime_failures.jsonl"
 STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|reconcile)\Z")
 
 
@@ -106,8 +107,29 @@ def live_readings(row: dict, journal: Journal) -> dict:
         "equity": [[minute, float(equity)] for minute, equity in path]}
 
 
+def failure_records(data: bytes | None) -> list[dict]:
+    """The records of a runtime_failures.jsonl (engine/run.py: one per distinct exception, with its count
+    and first traceback). A line cut by the capture's tail or by a write in progress is left out."""
+    found = []
+    for raw in (data or b"").splitlines():
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and isinstance(value.get("count"), int):
+            found.append(value)
+    return found
+
+
+def _read_bytes(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
 def _changed(live: dict) -> tuple:
-    return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"]
+    return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"], live["exceptions"]
 
 
 def _wanted(line: dict, instrument: str | None) -> bool:
@@ -280,14 +302,20 @@ class Daemon:
                 self.journals.pop(run["paper_id"], None)
             else:
                 run["live"] = live_readings(rows[run["paper_id"]], self.journal(run["paper_id"]))
+                failures = _read_bytes(runs.run_dir(self.profile, run["paper_id"]) / "out" / FAILURES)
+                # How often the strategy raised so far; the runner rewrites the file at each power of two.
+                run["live"]["exceptions"] = sum(item["count"] for item in failure_records(failures))
         found["starting"] = sorted(self.starting)
         self.listed = (time.monotonic(), found)
         return found
 
-    def sealed_lines(self, paper_id: int, instrument: str | None) -> list[dict]:
-        import gzip
+    def bundle(self, paper_id: int) -> dict[str, bytes]:
         with db.connect(self.profile, "reader") as conn:
-            files = records.evidence.load_bundle(conn, records.bundle_name(paper_id))["files"]
+            return records.evidence.load_bundle(conn, records.bundle_name(paper_id))["files"]
+
+    def sealed_lines(self, paper_id: int, instrument: str | None, files: dict[str, bytes] | None = None) -> list[dict]:
+        import gzip
+        files = self.bundle(paper_id) if files is None else files
         lines: list[dict] = []
         for name in sorted(name for name in files if name.startswith("events/")):
             found, _ = records.journal_lines(gzip.decompress(files[name]))
@@ -379,12 +407,14 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
 
         def stream(self, paper_id: int, instrument: str | None) -> None:
             """Server-sent events: `lines` (the journal so far, then what is appended: every line but the bars
-            of other contracts), `state` (state.json as it is replaced), `readings` (live_readings, as they
-            change) and `end` (the seal) once the run is sealed."""
+            of other contracts), `state` (state.json as it is replaced), `failures` (the strategy's runtime
+            failure records as the runner rewrites them, or the sealed capture's), `readings`
+            (live_readings, as they change) and `end` (the seal) once the run is sealed."""
             with db.connect(daemon.profile, "reader") as conn:
                 row = records.read_paper_run(conn, paper_id)
                 sealed = records.seal_of(conn, paper_id)
-            lines = daemon.sealed_lines(paper_id, instrument) if sealed else None
+            files = daemon.bundle(paper_id) if sealed else {}
+            lines = daemon.sealed_lines(paper_id, instrument, files) if sealed else None
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
@@ -393,11 +423,14 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 if sealed is not None:
                     journal = Journal(lines=[line for line in lines or [] if line["kind"] != "bar"])
                     self.send_event("lines", lines)
-                    self.send_event("readings", live_readings(row, journal))
+                    failures = failure_records(files.get(FAILURES))
+                    self.send_event("failures", failures)
+                    self.send_event("readings", live_readings(row, journal) | {
+                        "exceptions": sum(item["count"] for item in failures)})
                     self.send_event("end", sealed)
                     return
                 directory = runs.run_dir(daemon.profile, row["paper_id"]) / "out"
-                offset, state_seen, beat, first, shown = 0, 0.0, time.monotonic(), True, None
+                offset, state_seen, failures_seen, beat, first, shown = 0, 0.0, 0.0, time.monotonic(), True, None
                 while True:
                     offset, lines, _ = read_lines(directory / "events.jsonl", offset)
                     kept = [line for line in lines if _wanted(line, instrument)]
@@ -410,6 +443,13 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                             state_seen = modified
                             self.send_event("state", json.loads((directory / "state.json").read_text()))
                     except (FileNotFoundError, ValueError):
+                        pass
+                    try:
+                        modified = (directory / FAILURES).stat().st_mtime
+                        if modified != failures_seen:
+                            failures_seen = modified
+                            self.send_event("failures", failure_records(_read_bytes(directory / FAILURES)))
+                    except FileNotFoundError:
                         pass
                     if time.monotonic() - beat > HEARTBEAT_SECONDS:
                         self.wfile.write(b": heartbeat\n\n")
