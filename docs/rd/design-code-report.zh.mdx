@@ -1238,15 +1238,16 @@ def comparison_table(
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<date>-<slug>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
 
-**返回**　dict：\{line, window_start, window_end, universe_rule, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, measures, dominated_by: [trial_id…], non_dominated\}], candidates（表里的候选，去重排序）, without_economic_evidence: [\{candidate, trial_id, reasons\}]（同窗口、已通过但无经济证据资格的运行，只有原因、没有度量）\}
+**返回**　dict：\{line, window_start, window_end, universe_rule, execution_identity（路线的执行身份，见第 6 条；路线还没有自己的试验时为 null）, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, execution_identity: \{runtime_contract, execution, image_digest, key\} | null, measures, dominated_by: [trial_id…], non_dominated\}], candidates（有路线执行身份运行的候选，去重排序；推荐须全部点名）, without_economic_evidence: [\{candidate, trial_id, execution_identity, reasons\}]（同窗口、已通过但无经济证据资格的运行，只有原因、没有度量）\}
 
 **期望行为**
 
 1. 经 ledger.read_line 读路线的开发窗口与范围规则；路线不存在或损坏即拒绝。
 2. 取全部 purpose=research、status=passed 的运行；交易段等于开发窗口、开始回执输入身份里的 universe_rule 等于路线的才进表，再按资格视图（qualification.assess 同一判据）只留有经济证据资格的；其余列入 without_economic_evidence，附资格原因，供读者知道哪些候选不在表里、为什么。
 3. 四项度量由 report.derive_measures 算，与单运行报告的标题指标同一算法；只有回撤是封存时存下的值，其余三项每次从存下的逐日序列与持仓周期算。
-4. 支配：A 在四项上都不差于 B（回撤越小越好，其余越大越好），且至少一项更好。dominated_by 列出压过它的运行；任一项缺值的运行不参与比较，non_dominated 为 null。
+4. 支配只在同一执行身份的运行之间算：A 在四项上都不差于 B（回撤越小越好，其余越大越好），且至少一项更好。dominated_by 列出同身份里压过它的运行；任一项缺值或读不出执行身份的运行不参与比较，non_dominated 为 null。
 5. 只读，不写账本；表里没有分数、排名或门槛。
+6. 执行身份读时派生、不存储，正是 registration.check_comparable 比的三类身份：开始回执 execution.json 里运行时身份的镜像摘要、input-coverage.json 的有效配置去掉宿主路径（含 runtime_contract 与账户条款里的执行环境 execution）、输入身份去掉宿主根、检查时间与导出器源码哈希；key 是三者的哈希，runtime_contract、execution、image_digest 是给人读的标注。路线的执行身份是选定路线之后加入的最近一次研究试验的身份（report.line_identity）；换契约或执行环境即换线，同一条线里重建镜像后以新镜像为准。别的身份的运行照列、标注，只作历史，不与路线的运行比支配，也不进 candidates（finding 20261025-25，用户 2026-10-25 授权）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1280,7 +1281,7 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
-**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N：同一开发窗口与市场提交上的全部研究试验，换线而窗口不变时也计入旧路线的试验，因为它们是同一份开发数据上的搜索暴露）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，targets 为账本默认值或 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、execution_identity（路线的执行身份，见下第 5 条；没有路线时为 null）、unreviewed_trials、trials_on_line（多重比较的 N：同一开发窗口与市场提交上的全部研究试验，换线而窗口不变时也计入旧路线的试验，因为它们是同一份开发数据上的搜索暴露）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，targets 为账本默认值或 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
@@ -1288,9 +1289,9 @@ def research_state(
 2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
 3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 在 full 时返回全部未被取代的，缺省只返回编号大于当前推荐的（没有推荐时全部返回），更早的只在 earlier 里计数。完整读取用于关闭路线写总结与回看历史。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
-5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、且属于本路线市场提交与开发窗口的试验；没有推荐时为本路线全部试验。
+5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 at 之间 added、属于本路线市场提交与开发窗口、且执行身份等于路线执行身份（report.line_identity，同时给出为 execution_identity）的试验；没有推荐时为本路线这一身份的全部试验；路线还没有自己的试验时为空。trials_on_line 仍计全部身份，同一份开发数据上的搜索都算。
 6. full 时 facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status；缺省为 null，这两项由 candidate list 与 research status 各自读取。
-7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出；gates 列出 registration.require_line_records 当前会拒绝的项。路线接续的候选（当前 recommendation 与 priority 里 recommended、parent、control 角色的候选，都没有时取路线起点）发布时的 runtime_contract 不在 runtime.layout 之内时，gates 再加一项 RUNTIME_UNSUPPORTED，missing 列出这些候选；预检与封存要求运行与候选同契约、登记要求与对照同契约，所以这条线在当前运行环境上既不能重放也不能比较。读时派生，不存储；用户 2026-10-25 定，契约升级即关闭旧线、在新契约上新开。
+7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出（unreviewed_trials 再按执行身份筛）；gates 列出 registration.require_line_records 当前会拒绝的项。路线接续的候选（当前 recommendation 与 priority 里 recommended、parent、control 角色的候选，都没有时取路线起点）发布时的 runtime_contract 不在 runtime.layout 之内时，gates 再加一项 RUNTIME_UNSUPPORTED，missing 列出这些候选；预检与封存要求运行与候选同契约、登记要求与对照同契约，所以这条线在当前运行环境上既不能重放也不能比较。读时派生，不存储；用户 2026-10-25 定，契约升级即关闭旧线、在新契约上新开。
 8. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 
 | 拒绝码 | 条件 |

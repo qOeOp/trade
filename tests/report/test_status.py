@@ -1,7 +1,8 @@
 """The trial counts of `research status` (user decision 2026-10-20): reproductions and trials the
 product stopped before the strategy ran are listed apart and left out of the multiple-testing
-counts; its comparison table and the recommendation that names every candidate in it. A throwaway
-ledger with the stand-in runtime; never the active ledger."""
+counts; its comparison table, split by execution identity, and the recommendation that names every
+candidate of the line's identity in it. A throwaway ledger with the stand-in runtime; never the
+active ledger."""
 
 from __future__ import annotations
 
@@ -11,12 +12,12 @@ from unittest import mock
 
 from ledger.errors import Refusal
 from ledger import db, judgments, strategies
-from registration import precheck
+from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import measures, runs, status
 from runtime import image
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
-from tests.registration.world import RUNNER_ARGV
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP
+from tests.registration.world import RUNNER_ARGV, capture as capture_fixture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
@@ -214,6 +215,100 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertFalse(any("at the research head" in item
                              for item in runs.run_report(self.world.profile, self.runs[first]["trial_id"], before)
                              ["limitations"]), "a run the head still qualifies carries no such note")
+
+OTHER_DIGEST = "sha256:" + "c" * 64
+OTHER_IDENTITY = {**IDENTITY, "image_ref": "ghcr.io/qoeop/trade-runtime@" + OTHER_DIGEST, "image_digest": OTHER_DIGEST}
+BETTER_RETURNS = [0.004, -0.0002, 0.003, -0.0001, 0.002]  # beats CANDIDATE_RETURNS on every measure it moves
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class ExecutionIdentityTests(unittest.TestCase):
+    """Two runs on the line's first image, then a better one on a rebuilt image (finding 20261025-25):
+    rows carry their identity, dominance stays within one, and the recommendation and the unreviewed
+    trials follow the line's latest identity."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = world = ReplayWorld("identity")
+        cls.addClassCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        cls.selected = db.head_commit(world.conn)
+        cls.refs = registered_grid(world, ["first", "second"], "registration-pair")
+        cls.trials = {}
+        for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
+            world.scenario = {"returns": returns} if returns else {}
+            cls.trials[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                                        hypothesis="registration-pair")["trial_id"]
+            world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.trials[ref]}])
+        cls.before = db.head_commit(world.conn)
+        published = world.publish("third", parent=None)
+        cls.third = published["candidate"]
+        precheck_id = world.open_precheck(published["source"], runtime={**RUNTIME, **OTHER_IDENTITY})
+        capture_fixture(world.conn, precheck_id, published["source"])
+        review = precheck.record_review(world.profile, world.review_body(precheck_id), "reviewer-b")["bundle"]
+        with registration_seams.use(resolve_runtime=lambda ref: dict(OTHER_IDENTITY)):
+            world.register("registration-other", world.body([cls.third], {cls.third: review}))
+            world.scenario = {"returns": BETTER_RETURNS}
+            cls.trials[cls.third] = entry.run(world.profile, world.market, MARKET_COMMIT, cls.third, None,
+                                              RUNNER_ARGV, hypothesis="registration-other")["trial_id"]
+        world.scenario = {}
+        world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.trials[cls.third]}])
+
+    def test_a_rows_carry_their_identity_and_dominance_stays_within_one(self):
+        table = status.research_status(self.world.profile)["comparison"]
+        rows = {item["candidate"]: item for item in table["runs"]}
+        by_trial = {item["trial_id"]: item for item in table["runs"]}
+        first, second = (rows[ref]["execution_identity"] for ref in self.refs)
+        third = rows[self.third]["execution_identity"]
+        self.assertEqual(first, second)
+        self.assertEqual((first["runtime_contract"], first["image_digest"]),
+                         (IDENTITY["runtime_contract"], IDENTITY["image_digest"]))
+        self.assertEqual((third["runtime_contract"], third["image_digest"]),
+                         (IDENTITY["runtime_contract"], OTHER_DIGEST))
+        self.assertNotEqual(first["key"], third["key"])
+        with db.read_as_of(self.world.profile) as conn:
+            effective = register.control_trial(conn, self.trials[self.third])["effective_config"]
+        self.assertEqual(third["execution"], effective["account"].get("execution"))
+        better, worse = rows[self.third], rows[self.refs[1]]
+        self.assertTrue(status._dominates(better["measures"], worse["measures"]),
+                        "the rebuilt image's run would dominate the old one if they were compared")
+        self.assertNotIn(better["trial_id"], worse["dominated_by"])
+        for item in table["runs"]:
+            for other in item["dominated_by"]:
+                self.assertEqual(by_trial[other]["execution_identity"]["key"],
+                                 item["execution_identity"]["key"])
+        self.assertTrue(better["non_dominated"], "alone in its identity")
+        self.assertEqual(table["execution_identity"], third, "the line's latest trial sets its identity")
+        self.assertEqual(table["candidates"], [self.third])
+
+    def test_b_a_recommendation_names_the_candidates_of_the_lines_identity_at_its_commit(self):
+        world = self.world
+        self.assertEqual(status.compared_candidates(world.profile, world.line["bundle"], self.before), sorted(self.refs))
+        self.assertEqual(status.compared_candidates(world.profile, world.line["bundle"], self.selected), [],
+                         "a line without a trial of its own has no identity yet")
+        with self.assertRaises(Refusal) as caught:
+            judgments.add_judgment(world.profile, "recommendation", world.line["bundle"], self.before, "old image",
+                                   subjects=[{"role": "recommended", "candidate": self.third}],
+                                   compared=lambda line, at: status.compared_candidates(world.profile, line, at))
+        self.assertEqual((caught.exception.code, caught.exception.missing),
+                         ("RECOMMENDATION_INCOMPLETE", tuple(sorted(self.refs))))
+
+    def test_c_the_unreviewed_trials_are_those_of_the_lines_identity_and_the_count_keeps_every_one(self):
+        with db.connect(self.world.profile, "reader") as conn:
+            empty = status.research_state(conn, at=self.selected)
+            old = status.research_state(conn, at=self.before)
+            new = status.research_state(conn)
+        self.assertEqual((empty["execution_identity"], empty["unreviewed_trials"]), (None, []))
+        self.assertEqual(old["unreviewed_trials"], [self.trials[ref] for ref in self.refs])
+        self.assertEqual(new["unreviewed_trials"], [self.trials[self.third]])
+        self.assertEqual(new["execution_identity"]["image_digest"], OTHER_DIGEST)
+        self.assertEqual(new["trials_on_line"], 3, "the trial count still counts every identity")
+
+    def test_d_a_recommendation_of_the_new_identity_need_not_name_the_old_one(self):
+        self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": self.third}])
+        with db.connect(self.world.profile, "reader") as conn:
+            self.assertEqual(status.research_state(conn)["unreviewed_trials"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
