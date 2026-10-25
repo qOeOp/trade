@@ -1,5 +1,5 @@
 ---
-type: llm
+type: tool_used
+tool: Skill
+input_match: '"skill"\s*:\s*"(?:[\w-]+:)?research-round"'
 ---
-
-PASS if the agent reads the research-round validation reference and applies its input/runtime-change boundary. FAIL otherwise.
