@@ -40,7 +40,8 @@ ledger: publication is append-only.
 
 ## Where things go
 
-- Persistent research data lives only in the Dolt ledger (and its `dolt_backup` copy), and only
+- Persistent research data lives only in the Dolt ledger (with its `dolt_backup` copy and its public
+  DoltHub copy; all of it is public), and only
   what a replay cannot give back: decisions and declarations (registrations, judgments, source
   reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
   logs, source originals, timestamp tokens, market data); the minimal identity to reproduce the

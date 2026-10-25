@@ -31,7 +31,9 @@ administrator, holding the import lock; outside the service directory and any Gi
 refuses to overwrite a backup whose head is no commit of the market history (`BACKUP_DIVERGED`:
 dolt_backup would replace it silently). `market review` reports whether the backup's head is still
 an ancestor of `main` (`HISTORY_REWRITTEN` when not: the import account can amend its last commit,
-which drops a pinned market commit; without a backup, `HISTORY_UNCHECKED`). The import
+which drops a pinned market commit; without a backup, `HISTORY_UNCHECKED`). `market publish [--remote
+URL]` pushes `main` and its tags to the public DoltHub copy without force, holding the import lock;
+imports and upgrades publish by themselves. The import
 account may insert, call `dolt_commit` on `main` and update `market_schema` only to step its import
 sequence by one (a trigger guards the other columns: Dolt 2.4.2 has no column grants); the reader
 only selects. The first `market import` on the empty database writes the
