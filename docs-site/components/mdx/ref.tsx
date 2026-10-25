@@ -79,7 +79,7 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
                 <div className="font-medium text-fd-foreground">{entry.title}</div>
               </>
             )}
-            <p className="mt-1 line-clamp-6 leading-relaxed text-fd-muted-foreground">{withInlineCode(entry.body)}</p>
+            {entry.body ? <p className="mt-1 line-clamp-6 leading-relaxed text-fd-muted-foreground">{withInlineCode(entry.body)}</p> : null}
             <Link href={href} className="mt-2 inline-block text-xs text-fd-primary no-underline outline-none hover:underline">
               {lang === 'zh' ? '跳转到定义 →' : 'Go to definition →'}
             </Link>
