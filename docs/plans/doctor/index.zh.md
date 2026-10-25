@@ -8,6 +8,9 @@
 
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
+| 20261026-01 | 回补月份导入时前一分钟未入库，`resumed` 为假，缺口从首个已有分钟算起（`market/series.py:188`、`market/store.py:649-651`），月初缺口不识别、不走日归档与 REST，也不报；市场提交 `tgppcog4…` 有 9 个合约 2021-07-01 MARK 各 1,440 分钟、6 个合约 2022-04-01..03 LAST 各 2,880 分钟缺失（`market coverage` 只读复查；BTC 当天官方月包自 07-02 起、REST 有完整 1,440 条；2021-07 于 DoltHub 提交 `20em56ij18` 先于 2021-06 回补）；研究会话据此提议放宽 `MONTH_EXISTS` | fix（导入按上市时间或月初计缺口；已存月份的修复路径需用户授权） | open | attach 01a173b3 | 2026-10-26 |
+| 20261026-02 | 用户指出：研究会话 17 分钟、三轮、三次等用户回复，始终没有 Goal，研究没开始。research-start 只在 `line select` 之后建 Goal（SKILL.md「Before continuing into research-round」），而换线、补数在 `line select` 之前；宿主有 Goal 工具（会话内 goal 查询返回 null）；首轮选项 A 不是一条线，而是「先研究再提线」，多出一轮 | skill（待完整审计定：Goal 何时建、选项是否必须是可登记的线；参见 20261025-24） | open | attach 01a173b3 | 2026-10-26 |
+| 20261026-03 | 用户指出：零成交量没处理。会话核实 BTC 369 个零成交量分钟与官方原始 OHLCV 一致，仍报「成因与经济影响未知」，没说策略是否在这些分钟决策或成交；readiness.md 第 1 部分要求一律称成因与经济影响未证明，没给确立途径 | skill 或 measure（待完整审计定） | open | attach 01a173b3 | 2026-10-26 |
 | 20261020-21 | 封存运行的 `metrics_revision` 记宿主检出 HEAD；本线六个正式运行都记未合入、远端分支已删的 `8c5cd561f`（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | skill（readiness 确认检出在 `origin/main` 且干净）+ measure（`research status` 报其是否在 main）；加检出拒绝需授权，补推归档标签需用户同意 | recurred（上次以归档标签 `archive/metrics-revision-12849814c` 处理） | 2026-10-20 | 2026-10-25 |
 | 20261025-23 | 选以旧契约候选重启时，不告诉用户该规则不能原样再测、重启是新规则且首报无对照；“选B”执行成了另一条规则（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | skill | open | 2026-10-25 | 2026-10-25 |
 | 20261025-24 | 换线时给出并推荐产品必拒的方案（冻结源码换窗口、市场库没有的多年历史）；`line select` 不查起点能否登记（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | skill（列线前查可登记与覆盖；冻结规则换窗口只走样本外） | open | 2026-10-25 | 2026-10-25 |
