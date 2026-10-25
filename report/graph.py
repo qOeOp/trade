@@ -7,7 +7,8 @@ research-graph tool (services/research-graph) checks, lays out, renders and comp
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+import copy
 
 from ledger import db, lines
 from ledger.errors import Refusal
@@ -15,7 +16,7 @@ from ledger.refusals import refuse
 from qualification import availability
 from registration import register
 from report import candidates as report_candidates
-from report import comparison, measures, runs, status
+from report import comparison, measures, runs, seams, status
 
 FORMAT = "research-graph/1"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
@@ -74,10 +75,29 @@ def _comparison(profile, bundle: str, trial_id: int, at: str) -> tuple[dict | No
              "interval_crosses_zero": crosses, "summary": None}, predictions)
 
 
+def _reusing(read: Callable) -> Callable:
+    """`read` (seams.market_returns) answering a repeated window from its first answer: a market commit
+    is immutable, so one graph reads each window once instead of once per comparison. Failures are not
+    kept; every caller gets its own copy."""
+    answers: dict = {}
+
+    def market_returns(*window):
+        if window not in answers:
+            answers[window] = read(*window)
+        return copy.deepcopy(answers[window])
+    return market_returns
+
+
 def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
                    max_drawdown: float | None = None, annual_return: float | None = None) -> dict:
     """The research-graph/1 document of a line at a ledger version. The targets are the user's, read
     by the caller from the line note; `since` marks where the scope under study starts."""
+    with seams.use(market_returns=_reusing(seams.current.market_returns)):
+        return _document(profile, line_bundle, at, since, max_drawdown, annual_return)
+
+
+def _document(profile, line_bundle: str | None, at: str | None, since: str | None, max_drawdown: float | None,
+              annual_return: float | None) -> dict:
     profile = runs.profile_of(profile)
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
