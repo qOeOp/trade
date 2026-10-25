@@ -129,6 +129,13 @@
 - **放在哪**：聊天用的按钮、输入框、卡片放 `components/`（`check-rules.mjs` 只许那里出现 `<button>` 和 Radix
   trigger），用 `asChild` 套现有的 `IconButton`、`TextButton`；面板本身放 `shell/`。每个文件不超过 200 行，
   颜色只经 `roles.ts`，图标进 `icons/registry.ts`（`bot`、`arrow-up`、`square`、`copy`、`rotate-ccw`）。
+- **尺寸与主按钮**（10-26 用户复核后改）：表单控件（输入框、分段选择、按钮）一律 28px 高，即 IntelliJ 的
+  控件高度；岛内工具类控件（图标按钮、模型选择器）24px。每个表单只有一个主按钮，照 IntelliJ 的默认按钮
+  用蓝色实底（`--primary*` 记号），不能按时是浅蓝；其余按钮只描边。Cancel 在左、Done 在最右。消息框的
+  Send/Stop 也是主按钮，框为空时浅蓝。
+- **服务商标志**：DeepSeek、OpenAI、Anthropic 的标志取自 LobeHub 的图标包（`@lobehub/icons-static-svg`，
+  MIT，钉版本），经 `icons/brands.ts` 和 `BrandMark` 画。Agent 卡片和分段选择里选中的那个用品牌色
+  （`--brand-*`），12px 的地方（模型选择器、回答上方的模型名）用文字色，免得和蓝色的 Send、焦点框抢。
 - **消息**：不用聊天气泡，照 IntelliJ AI Assistant 的样子。用户的话是一张 L2 卡片（色阶 3 加半透明描边），
   回答直接排在岛面上；模型名用注释字号的次要文字。工具调用卡片也是 L2，用 Radix `Collapsible` 折叠；
   原始 JSON 放等宽的 `<pre>`（最高 320px，岛的覆盖式滚动条），不为它加 CodeMirror 的 JSON 语言包。

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Checklist, FormButton, Segmented, TextField } from "../../components/chat/Field";
 import { agentApi, ApiError, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
 import { replaceAgent } from "../../state/agent";
+import { BRAND_TONE } from "../../icons/brands";
+import { BrandMark } from "../../icons/Icon";
 
 // Adding or editing an agent. The key is write-only: an existing agent shows only its last four
 // characters and an empty field keeps it. Models come from the provider's own list once the key is
@@ -47,16 +49,17 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
   };
 
   return (
-    <div className="space-y-3 rounded-card border border-card-border bg-island-alt px-3 py-3">
+    <div className="space-y-3 rounded-card border border-card-border bg-island-alt p-3">
       <h3 className="font-semibold">{agent ? `Edit ${agent.name}` : "Add an agent"}</h3>
+      {/* The chosen provider's mark in its own colour, the others in the text colour. */}
       <Segmented label="Provider" value={provider} onChange={(p) => { setProvider(p); if (!saved) setListed([]); }}
-        options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))} />
+        options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p], mark: <BrandMark name={p} tone={p === provider ? BRAND_TONE[p] : undefined} /> }))} />
       <TextField label="Name" value={name} suggest={PROVIDER_LABEL[provider]} onValue={setName} />
       <TextField label="API key" type="password" autoComplete="off" value={key} onValue={setKey}
         placeholder={saved ? `stored, ends ${saved.keyHint} (leave empty to keep)` : "kept by the chat service, never shown again"} />
       <TextField label="Base URL" value={baseURL} suggest={URL_HINT[provider]} onValue={setBaseURL}
         hint="Only for a proxy or a compatible gateway." />
-      <FormButton icon="retry" disabled={busy || (!saved && key.trim().length < 8)} onClick={() => void saveAndList()}>
+      <FormButton icon={saved ? "retry" : undefined} disabled={busy || (!saved && key.trim().length < 8)} onClick={() => void saveAndList()}>
         {saved ? "Save and list models again" : "Save and list models"}
       </FormButton>
       {listed.length > 0 && (
@@ -66,9 +69,10 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
         </div>
       )}
       {error && <p className="text-dense break-words text-fail">{error}</p>}
-      <div className="flex gap-2">
-        <FormButton primary disabled={busy || !saved || models.size === 0} onClick={() => void finish()}>Done</FormButton>
+      {/* macOS order: Cancel, then the default action at the far right. */}
+      <div className="flex justify-end gap-2 pt-1">
         <FormButton disabled={busy} onClick={() => onDone(saved)}>Cancel</FormButton>
+        <FormButton primary disabled={busy || !saved || models.size === 0} onClick={() => void finish()}>Done</FormButton>
       </div>
     </div>
   );

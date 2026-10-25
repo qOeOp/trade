@@ -2,8 +2,8 @@ import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes,
 import { Icon } from "../../icons/Icon";
 import { Kbd } from "../Kbd";
 
-// The agent form's controls: a labelled text field, a segmented choice, a checklist and a bordered
-// action (the form's one strong control; the panel's other actions are icon buttons).
+// The agent form's controls: a labelled text field, a segmented choice, a checklist and a button.
+// Fields, the segmented choice and buttons share one height, 28px, IntelliJ's control height.
 type FieldProps = { label: string; hint?: ReactNode; value: string; onValue: (value: string) => void; suggest?: string }
   & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">;
 
@@ -34,7 +34,7 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
       <span className="text-dense text-fg-muted">{label}</span>
       <span className="relative block">
         <input {...input} value={value} placeholder={placeholder ?? suggest} onKeyDown={fill} onChange={(e) => { stop(); onValue(e.target.value); }}
-          className={`peer block w-full rounded-control border border-line-strong bg-island px-2 py-1 outline-none placeholder:text-fg-ghost focus:border-focus ${fillable ? "pr-11" : ""}`} />
+          className={`peer block h-7 w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus focus:ring-1 focus:ring-focus ${fillable ? "pr-11" : ""}`} />
         {fillable && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-1.5 hidden items-center peer-focus:flex"><Kbd>Tab</Kbd></span>}
       </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}
@@ -43,16 +43,16 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
 }
 
 export function Segmented<T extends string>({ label, value, options, onChange }: {
-  label: string; value: T; options: readonly { value: T; label: string }[]; onChange: (v: T) => void;
+  label: string; value: T; options: readonly { value: T; label: string; mark?: ReactNode }[]; onChange: (v: T) => void;
 }) {
   return (
     <div className="space-y-1">
       <span className="text-dense text-fg-muted">{label}</span>
-      <div role="radiogroup" aria-label={label} className="flex gap-0.5 rounded-control border border-line-strong p-0.5">
+      <div role="radiogroup" aria-label={label} className="flex h-7 gap-0.5 rounded-control border border-line-strong p-0.5">
         {options.map((o) => (
           <button key={o.value} type="button" role="radio" aria-checked={o.value === value} onClick={() => onChange(o.value)}
-            className={`flex-1 rounded-badge px-2 py-0.5 transition-colors hover:bg-hover ${o.value === value ? "bg-pressed text-fg" : "text-fg-muted"}`}>
-            {o.label}
+            className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-badge px-2 transition-colors hover:bg-hover ${o.value === value ? "bg-pressed text-fg" : "text-fg-muted"}`}>
+            {o.mark}<span className="truncate">{o.label}</span>
           </button>
         ))}
       </div>
@@ -66,14 +66,16 @@ export function Checklist({ items, checked, onToggle, star, onStar }: {
   return (
     <ul className="max-h-56 overflow-auto rounded-control border border-line-strong py-0.5">
       {items.map((item) => (
-        <li key={item} className="flex items-center gap-2 px-2 hover:bg-row-hover">
-          <label className="flex min-w-0 flex-1 cursor-default items-center gap-2 py-0.5">
+        <li key={item} className="group flex h-(--row-h) items-center gap-2 px-2 hover:bg-row-hover">
+          <label className="flex min-w-0 flex-1 cursor-default items-center gap-2">
             <input type="checkbox" checked={checked.has(item)} onChange={() => onToggle(item)} className="accent-(--focus)" />
             <span className="truncate font-mono text-dense">{item}</span>
           </label>
-          {checked.has(item) && (
-            <button type="button" onClick={() => onStar(item)} className={`shrink-0 rounded-badge px-1 text-small hover:bg-hover ${item === star ? "text-fg" : "text-fg-faint hover:text-fg"}`}>
-              {item === star ? "default" : "make default"}
+          {/* The default is a label; another chosen model offers "make default" on hover or keyboard focus. */}
+          {item === star ? <span className="shrink-0 text-small text-fg-muted">default</span> : checked.has(item) && (
+            <button type="button" onClick={() => onStar(item)}
+              className="shrink-0 rounded-badge px-1 text-small text-fg-faint opacity-0 transition-colors group-hover:opacity-100 hover:bg-hover hover:text-fg focus-visible:opacity-100">
+              make default
             </button>
           )}
         </li>
@@ -82,11 +84,15 @@ export function Checklist({ items, checked, onToggle, star, onStar }: {
   );
 }
 
-/** A bordered action; `primary` (the one that commits) has the focus colour's border. */
+/** A 28px button: `primary` (the one that commits) is filled blue, pale while it cannot be pressed;
+ *  the others are outlined. */
 export function FormButton({ children, icon, primary = false, className = "", ...rest }: { children: ReactNode; icon?: Parameters<typeof Icon>[0]["name"]; primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  const look = primary
+    ? "border-transparent bg-primary text-primary-fg hover:bg-primary-hover active:bg-primary-pressed disabled:bg-primary-disabled disabled:text-primary-disabled-fg"
+    : "border-line-strong hover:bg-hover active:bg-pressed disabled:text-fg-ghost disabled:hover:bg-transparent disabled:active:bg-transparent";
   return (
     <button type="button" {...rest}
-      className={`inline-flex items-center gap-1.5 rounded-control border ${primary ? "border-focus" : "border-line-strong"} px-2 py-0.5 transition-colors hover:bg-hover active:bg-pressed disabled:opacity-50 disabled:hover:bg-transparent ${className}`}>
+      className={`inline-flex h-7 min-w-18 shrink-0 items-center justify-center gap-1.5 rounded-control border px-3 transition-colors disabled:cursor-default ${look} ${className}`}>
       {icon && <Icon name={icon} />}{children}
     </button>
   );

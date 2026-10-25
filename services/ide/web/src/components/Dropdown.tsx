@@ -5,10 +5,11 @@ import type { IconName } from "../icons/registry";
 
 // IntelliJ's toolbar widgets: a borderless trigger (content and a chevron) that opens a popup menu.
 
-// A toolbar widget (content and a chevron), a frame icon (a square the size of the frame's controls),
-// or inline (a breadcrumb step, no chevron).
+// A toolbar widget (content and a chevron), the same at an island's 24px control size (`compact`), a
+// frame icon (a square the size of the frame's controls), or inline (a breadcrumb step, no chevron).
 const TRIGGER = {
   widget: "h-(--frame-control) px-2",
+  compact: "h-6 px-1.5",
   icon: "size-(--frame-control) justify-center",
   inline: "px-1",
 } as const;
@@ -20,7 +21,7 @@ export function Dropdown({ trigger, label, children, align = "start", variant = 
     <DropdownMenu.Root>
       <DropdownMenu.Trigger aria-label={label}
         className={`inline-flex min-w-0 shrink items-center gap-1.5 rounded-control transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${TRIGGER[variant]}`}>
-        {trigger}{variant === "widget" && <span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>}
+        {trigger}{(variant === "widget" || variant === "compact") && <span className="shrink-0 text-icon"><Icon name="chevron-down" size={variant === "compact" ? 12 : 16} /></span>}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align={align} sideOffset={4} collisionPadding={8}

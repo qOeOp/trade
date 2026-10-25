@@ -1,4 +1,5 @@
 import { v, type ColorRole } from "../theme/roles";
+import { BRANDS, type BrandName } from "./brands";
 import { ICONS, type IconName } from "./registry";
 
 // Lucide draws on a 24-unit grid in strokes of the current colour. The stroke is chosen per size so
@@ -14,5 +15,17 @@ export function Icon({ name, size = 16, tone, className = "" }: { name: IconName
          strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`inline-block shrink-0 ${className}`}
          style={tone ? { color: v(tone) } : undefined}
          dangerouslySetInnerHTML={{ __html: BODIES.get(name) ?? "" }} />
+  );
+}
+
+const BRAND_BODIES = new Map<BrandName, string>((Object.keys(BRANDS) as BrandName[]).map((name) =>
+  [name, BRANDS[name].replace(/<title>[\s\S]*?<\/title>/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
+
+/** A model provider's mark, filled in the text colour or in `tone`. */
+export function BrandMark({ name, size = 16, tone, className = "" }: { name: BrandName; size?: 12 | 16 | 20; tone?: ColorRole; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden
+         className={`inline-block shrink-0 ${className}`} style={tone ? { color: v(tone) } : undefined}
+         dangerouslySetInnerHTML={{ __html: BRAND_BODIES.get(name) ?? "" }} />
   );
 }
