@@ -16,7 +16,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
-| `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`) |
+| `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
 
 ## The database
@@ -175,6 +175,18 @@ the run's summary, and so to its reports. The commit test `universe_members_have
 that every member has terms at the commit (the user's decision); a live month-by-month import observes
 the terms during the month and so meets the stricter form as well.
 
+## Reading prices
+
+`market bars --symbol S [--price-type LAST|MARK] [--timeframe 1m|1d] --start T --end T [--at C]
+[--limit N | --output FILE]` gives a source reviewer the prices a replay of commit C reads, without a
+trial or an exposure: the stored 1-minute LAST or MARK bars, or the daily LAST bars the export
+derives (whole UTC days only), and the funding settlements of the interval, each bar with the time
+the Catalog delivers it (`ts_event_ms`, its close). It reads through the exporter's own functions
+(`read_bars`, `daily_bars`, `read_funding`) as the reader account at the exact commit, prints at most
+`--limit` bar periods (default 1440) with `next_start` for the rest, or writes the whole interval to
+a new JSON file under the temporary root. It writes nothing and never publishes. `ledger sql` stays
+refused on a market profile (`LEDGER_KIND`); `--help` states the full contract.
+
 ## Decisions and measurements
 
 - Only 1-minute LAST and MARK are stored; every other timeframe would be a second copy that can
@@ -201,5 +213,5 @@ the terms during the month and so meets the stricter form as well.
 `tests/market/exchange.py`, stitching, gaps, derivation, scaling, the universe rule, native names,
 writers). `tests/market/test_store.py` starts a throwaway service (`RESEARCH_DOLT_BINARY`, fixture
 `tests/market/dolt.py`) and imports three months from the stand-in exchange: schema initialization,
-the universe, the import's refusals, freshness, membership, coverage, daily returns and an export the
-engine streams whole.
+the universe, the import's refusals, freshness, membership, coverage, daily returns, stored bars and an
+export the engine streams whole.

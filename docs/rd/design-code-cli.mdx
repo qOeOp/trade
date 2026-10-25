@@ -41,6 +41,7 @@
 | <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注）及用户为它给的两个研究目标，把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
 | <Ref id="cli.line_targets">line_targets</Ref> | 命令行 line targets：记录用户为当前路线或账本默认值给出的两个研究目标；改目标取代原来生效的，同值不写 |
 | <Ref id="cli.main">main</Ref> | 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达 |
+| <Ref id="cli.market_bars">market_bars</Ref> | 命令行入口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，内联至多 --limit 个周期或整段写进新的临时文件；源码审查者的价格读口 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
@@ -887,11 +888,57 @@ def main(argv: list[str]) -> int 退出码
 | `USAGE_ERROR` | 名词或动词不在分派表，或必填参数缺失、类型不符 |
 | `LEDGER_UNAVAILABLE` | 按档案连接账本服务失败 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="cli.ledger_init" />、<Ref id="cli.ledger_service" />、<Ref id="cli.ledger_temp" />、<Ref id="cli.ledger_sql" />、<Ref id="cli.ledger_witness" />、<Ref id="cli.ledger_review" />、<Ref id="cli.ledger_export" />、<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="cli.candidate_export" />、<Ref id="cli.evidence_add" />、<Ref id="cli.evidence_export" />、<Ref id="cli.line_select" />、<Ref id="cli.line_targets" />、<Ref id="cli.ledger_upgrade" />、<Ref id="cli.registration_add" />、<Ref id="cli.registration_compare" />、<Ref id="cli.candidate_list" />、<Ref id="cli.research_status" />、<Ref id="cli.source_review" />、<Ref id="cli.execution_recover" />、<Ref id="cli.validation_registration" />、<Ref id="cli.validation_report" />、<Ref id="cli.replay_run" />、<Ref id="cli.replay_explore" />、<Ref id="cli.replay_precheck" />、<Ref id="cli.replay_report" />、<Ref id="cli.market_import" />、<Ref id="cli.market_coverage" />、<Ref id="cli.ledger_publish" />、<Ref id="cli.market_publish" />、<Ref id="cli.publish_after" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="cli.ledger_init" />、<Ref id="cli.ledger_service" />、<Ref id="cli.ledger_temp" />、<Ref id="cli.ledger_sql" />、<Ref id="cli.ledger_witness" />、<Ref id="cli.ledger_review" />、<Ref id="cli.ledger_export" />、<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="cli.candidate_export" />、<Ref id="cli.evidence_add" />、<Ref id="cli.evidence_export" />、<Ref id="cli.line_select" />、<Ref id="cli.line_targets" />、<Ref id="cli.ledger_upgrade" />、<Ref id="cli.registration_add" />、<Ref id="cli.registration_compare" />、<Ref id="cli.candidate_list" />、<Ref id="cli.research_status" />、<Ref id="cli.source_review" />、<Ref id="cli.execution_recover" />、<Ref id="cli.validation_registration" />、<Ref id="cli.validation_report" />、<Ref id="cli.replay_run" />、<Ref id="cli.replay_explore" />、<Ref id="cli.replay_precheck" />、<Ref id="cli.replay_report" />、<Ref id="cli.market_import" />、<Ref id="cli.market_coverage" />、<Ref id="cli.market_bars" />、<Ref id="cli.ledger_publish" />、<Ref id="cli.market_publish" />、<Ref id="cli.publish_after" />
 
 <div className="rd-meta">
 
 **关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref>
+
+</div>
+
+### `market_bars` [#def-cli-market_bars]
+
+命令行入口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，内联至多 --limit 个周期或整段写进新的临时文件；源码审查者的价格读口
+
+```python
+def market_bars(
+    market: dict,
+    at: str | None,
+    symbol: str,
+    price_type: str,
+    timeframe: str,
+    start: str,
+    end: str,
+    limit: int,
+    output: str | None,
+) -> dict
+```
+
+<TypeTable type={{ "market": { type: "dict", description: "市场库档案（--market，缺省活动市场库）" }, "at": { type: "str | None", description: "市场提交、标签或分支，缺省 main" }, "symbol": { type: "str", description: "一个合约，如 BTCUSDT" }, "price_type": { type: "str", description: "LAST（缺省）或 MARK" }, "timeframe": { type: "str", description: "1m（缺省）已存分钟线，或 1d 导出器的日线（只有 LAST）" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z" }, "end": { type: "str", description: "区间终点（不含），UTC ISO-8601 带 Z" }, "limit": { type: "int", description: "内联最多几个 K 线周期，缺省 1440（一天的分钟）；给了 output 时不用" }, "output": { type: "str | None", description: "临时根下一个新的 JSON 文件，写入整段区间" } }} />
+
+**返回**　market.stored_bars 的结果加 output：\{commit, symbol, price_type, timeframe, interval, next_start, bars:\{columns, count, rows\}, funding:\{columns, count, rows\}, output\}；给了 output 时文件里是含 rows 的整段结果，打印的只留计数
+
+**期望行为**
+
+1. 1d 配 MARK 是用法错误。
+2. 给了 output 时先经 ledger.temporary_path 确认它在临时根下且不存在，再读整段区间写入该文件；否则读至多 limit 个周期内联返回，next_start 指出其余部分的起点。
+3. 读取全由 market.stored_bars 完成：导出器自己的 read_bars、daily_bars、read_funding，读账号，AS OF 精确提交。
+4. 只读命令，在 READS 里，cli.publish_after 不发布；不写账本、不开试验、不算源码暴露。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `USAGE_ERROR` | 1d 配 MARK，或参数缺失、类型不符 |
+| `INTERVAL_INVALID` | 起止不是 UTC 整分钟或 start >= end；1d 不是整 UTC 日（由 market.stored_bars 传出） |
+| `NO_TERMS` | 合约在该提交下不存在（由 market.stored_bars 传出） |
+| `UNKNOWN_REF` | 市场提交引用无法解析（由 market.resolve_commit 传出） |
+| `NOT_TEMPORARY_PATH` | output 不在临时根下 |
+| `PATH_EXISTS` | output 已存在 |
+
+**使用**　<Ref id="market.stored_bars" />、<Ref id="market.resolve_commit" />、<Ref id="cli.publish_after" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="C.6.2.1">C.6.2.1</Ref>
 
 </div>
 
