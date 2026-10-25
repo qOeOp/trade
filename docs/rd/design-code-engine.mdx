@@ -550,19 +550,36 @@ def compare_reports(
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="engine.account_contract">account_contract</Ref> | 所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、按离开盘价近的高低点先走、限价单穿价才成交、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项 |
+| <Ref id="engine.execution_account">execution_account</Ref> | 选择 bars／quotes 的账户、撮合、保证金与原生强平合同 |
+| <Ref id="engine.account_contract">account_contract</Ref> | 默认 K 线环境的固定账户与撮合常量；报价环境由 execution_account 从它生成另一份合同，而非全局关闭强平。K 线默认值为：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、按离开盘价近的高低点先走、限价单穿价才成交、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项 |
 | <Ref id="engine.build_parser">build_parser</Ref> | 构造运行器唯一的命令行定义：策略引用、输入、窗口、输出目录与探针开关；没有任何策略参数选项，仓位、单笔风险、名义上限、周期等全部归源码。 |
 | <Ref id="engine.describe">describe</Ref> | 镜像内身份探针：从正在执行的镜像自身读出运行环境身份，供宿主与清单身份、源码布局和执行绑定逐字核对 |
 | <Ref id="engine.effective_configuration">effective_configuration</Ref> | 由运行器配置生成有效配置及其去宿主路径的哈希，使宿主写出的执行绑定与容器内运行器解析的结果可逐字比对 |
 | <Ref id="engine.parse_configuration">parse_configuration</Ref> | 把命令行解析成运行器配置：核对必要参数、窗口与合约集，不执行源码、不打开市场目录或账本；任何策略参数都在这里被拒绝。 |
 | <Ref id="engine.parse_window">parse_window</Ref> | 把三个 ISO-8601 边界解析成回放窗口：预热段 [start, trade_start) 与交易段 [trade_start, end)，显式 UTC、左闭右开、整分钟对齐，换算为引擎纳秒时钟；不读宿主时区。 |
 
-### `account_contract` [#def-engine-account_contract]
+### `execution_account` [#def-engine-execution_account]
 
-所有候选共用的固定账户与撮合常量，作为运行器交给引擎的配置：净额（NETTING）保证金账户、固定本金、杠杆 1、K 线撮合、按离开盘价近的高低点先走、限价单穿价才成交、K 线收盘为事件时间、支持括号单与 GTD、不拒止损单、不配置撮合与延迟模型、不开强平；策略源码不能改动其中任何一项
+从运行器已校验的环境选择生成账户合同，进入有效配置与执行身份。
 
 ```python
-def account_contract() -> 只读映射
+def execution_account(execution: str, margin_rates: tuple[str, str] | None) -> AccountContract:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/engine/config.py#L123)
+
+`bars` 返回默认账户合同的副本；`quotes` 复制默认值并设置 `execution="quotes"`、`bar_execution=False`、`liquidation_enabled=True`、`margin_model="StandardMarginModel"`，写入传入的初始和维持保证金率。参数组合由 <Ref id="engine.parse_configuration" /> 先行核对，函数内部使用既有断言，不新增拒绝码。
+
+本金仍为 100000 USDT。默认 K 线环境与报价环境的区别沿用 <Ref id="W.4.2.1" />，头寸与实际敞口仍由策略源码决定，环境身份不同的运行不混作同环境比较。
+
+**消费关系**　<Ref id="engine.add_venue" /> 使用此合同；运行器在报价环境给原生合约设置保证金率，只对有效片段检查 `counts.quote`，缺报价为 `QUOTES_MISSING`。`market_events(..., quotes=True)` 流式消费原生 QuoteTick；K 线环境不消费报价，以免报价改变 K 线之间的盘口。原生 Nautilus 负责撮合、账户与强平，本页不定义另一套引擎。
+
+### `account_contract` [#def-engine-account_contract]
+
+默认 K 线环境的固定账户与撮合常量，以只读映射返回；报价环境由 <Ref id="engine.execution_account" /> 生成对应合同。下面只描述默认 K 线值，策略源码不能改动这些环境常量。
+
+```python
+def account_contract() -> MappingProxyType:
 ```
 
 **返回**　只读映射（MappingProxyType），键固定、值为字串、整数或布尔，可直接进入规范 JSON 与有效配置哈希
@@ -572,7 +589,7 @@ def account_contract() -> 只读映射
 1. 账户：场所标识、oms_type=NETTING、account_type=MARGIN、book_type=L1_MBP、基础货币 USDT、固定本金 10 万 USDT（用户定的设计常量）、default_leverage=1、固定 trader_id。
 2. 撮合：bar_execution=True、bar_adaptive_high_low_ordering=True（离开盘价近的高低点先走，Nautilus 文档说明的确定性启发式）、time_bars_timestamp_on_close=True、不跳过首根非完整 K 线、validate_data_sequence=True、固定下单速率上限。
 3. 订单能力：support_gtd_orders=True、support_contingent_orders=True（括号单 bracket order / OCO）、reject_stop_orders=False。
-4. fill_model=DefaultFillModel(prob_fill_on_limit=0, prob_slippage=0)：只触及的限价单不成交，穿过才按限价成交；不抽随机数，回放确定，一处改动只移动它真正改变的成交。不设 latency_model、fee_model 与任何 liquidation_* 键（强平关闭）；liquidity_consumption 与 queue_position 保持关闭（实测在 K 线上分别会拒单、使限价单永不成交）。市价单仍不受 K 线成交量限制，超出四分之一量的余量只差一个价位，写入局限；随机滑点暂不启用（审计：对主流币几乎无差、不随单量、会让限价单成交在限价之外、破坏逐合约归因）。手续费与保证金率来自导出合约上的假设条款（market.build_instrument）。
+4. fill_model=DefaultFillModel(prob_fill_on_limit=0, prob_slippage=0)：只触及的限价单不成交，穿过才按限价成交；不抽随机数，回放确定，一处改动只移动它真正改变的成交。不设 latency_model、fee_model；默认合同显式设置 liquidation_enabled=False（K 线环境强平关闭）；liquidity_consumption 与 queue_position 保持关闭（实测在 K 线上分别会拒单、使限价单永不成交）。市价单仍不受 K 线成交量限制，超出四分之一量的余量只差一个价位，写入局限；随机滑点暂不启用（审计：对主流币几乎无差、不随单量、会让限价单成交在限价之外、破坏逐合约归因）。手续费与保证金率来自导出合约上的假设条款（market.build_instrument）。
 5. 返回不可变映射，不接受任何外部输入。无输入、无拒绝：常量映射总能返回，参数非法由 engine.parse_configuration 在命令行层拒绝。
 
 **使用**　<Ref id="market.build_instrument" />
@@ -687,7 +704,7 @@ def parse_configuration(argv: list[str] | None) -> RunnerConfiguration
 
 <TypeTable type={{ "argv": { type: "list[str] | None", description: "命令行参数；None 表示取进程参数" } }} />
 
-**返回**　RunnerConfiguration（冻结数据类）：describe 标志、strategy_file / strategy_class / strategy_sha256 / execution_binding、market_root / market_commit / universe_path / symbols（保持给定顺序的元组）、window（Window）、output
+**返回**　RunnerConfiguration（冻结数据类）：describe 标志、strategy_file / strategy_class / strategy_sha256 / execution_binding、market_root / market_commit / universe_path / symbols（保持给定顺序的元组）、window（Window）、output、execution、margin_rates
 
 **期望行为**
 
@@ -711,6 +728,9 @@ def parse_configuration(argv: list[str] | None) -> RunnerConfiguration
 **关联章节**　<Ref id="C.1.2.1">C.1.2.1</Ref> <Ref id="W.2.1.1">W.2.1.1</Ref> <Ref id="W.4.1.2">W.4.1.2</Ref>
 
 </div>
+
+
+报价环境选择及两项保证金率由这里解析，交 <Ref id="engine.execution_account" /> 生成有效账户合同；不由策略源码改变。
 
 ### `parse_window` [#def-engine-parse_window]
 
@@ -1464,32 +1484,17 @@ The exposure table as gzip CSV with a fixed header time, written row by row as t
 
 ### `add_venue` [#def-engine-add_venue]
 
-按 engine.account_contract 在引擎上建唯一场所：账户、撮合、高低点顺序与 engine.fill_model
+按所选 execution_account 在原生引擎中建立唯一模拟场所。
 
 ```python
-def add_venue(engine: BacktestEngine) -> None
+def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
 ```
 
-<TypeTable type={{ "engine": { type: "BacktestEngine", description: "回放引擎" } }} />
+[源码](https://github.com/qOeOp/trade/blob/main/engine/run.py#L814)
 
-**返回**　None
+默认参数为 K 线账户合同；运行器传入已解析的账户，读取本金、NETTING／MARGIN、L1_MBP、订单能力及确定性 fill_model。报价合同选择 StandardMarginModel、关闭 bar_execution 并开启 liquidation_enabled；维持保证金按原生模型的名义额与合约费率计算，不再除以杠杆。代码不模拟额外深度、排队或延迟。
 
-**期望行为**
-
-1. 以账户合约的常量建场所，成交模型取 engine.fill_model；回放与测试共用这一处，不另建场所。
-
-**使用**　<Ref id="engine.account_contract" />、<Ref id="engine.fill_model" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.5.1.2">W.5.1.2</Ref>
-
-**依据**
-
-- [NautilusTrader — Fill models（prob_fill_on_limit 缺省 1.0、prob_slippage 缺省 0.0；缺省 DefaultFillModel；MakerTakerFeeModel 可配）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-models/)　官方文档
-- [NautilusTrader — Fill prices and matching（假设价格连续穿越触发价；市价类订单耗尽 L1 量后余量差一档）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-prices-and-matching/)　官方文档
-
-</div>
+**使用**　<Ref id="engine.execution_account" />、<Ref id="engine.account_contract" />、<Ref id="engine.fill_model" />。已确认语义与局限见 <Ref id="W.4.2.1" />、<Ref id="W.5.1.2" />。
 
 ### `capital_findings` [#def-engine-capital_findings]
 
@@ -1947,10 +1952,10 @@ One finished engine run: its native reports, cache, portfolio, result and observ
 #### `market_events` [#impl-engine-run-py-market_events]
 
 ```python
-def market_events(rows: list[dict], start: int, end: int, batch: int=SESSION_BATCH)
+def market_events(rows: list[dict], start: int, end: int, batch: int=SESSION_BATCH, quotes: bool=False):
 ```
 
-Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end` bound the exported events' ts_init.
+输入事件按原生配置顺序流式归并，start/end 限制 ts_init。quotes=True 时加入导出的 QuoteTick；默认 K 线环境不加入报价，日线预热不作为执行事件回放。
 
 [Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L695)
 
