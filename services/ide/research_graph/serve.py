@@ -15,6 +15,11 @@ the service stops pulling and reports it rather than reset anything.
 With an agent URL (the trade IDE's chat service, `services/ide/agent`), requests under `/api/agent/`
 pass the same Host and cross-site checks and are then forwarded to it as they are, the answer
 streamed back as it arrives; without one those paths do not exist and the page shows no agent.
+
+With a paper URL (the paper daemon, `python -m cli.main paper serve`), requests under `/api/paper/` are
+forwarded the same way, and the Paper panel can start and stop paper runs. A POST there must also come
+from the page itself (`Sec-Fetch-Site: same-origin`) and carry the token this service generated at start
+and put in the page (`X-Trade-Paper-Token`), so a page on another port of this host cannot start a run.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import secrets
 import subprocess
 import sys
 import threading
@@ -38,6 +44,9 @@ HEARTBEAT = 15.0
 AGENT = "/api/agent/"
 AGENT_BODY = 16 * 1024 * 1024  # a chat request carries the whole thread, tool outputs included
 AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
+PAPER = "/api/paper/"
+PAPER_BODY = 64 * 1024
+PAPER_TOKEN = "X-Trade-Paper-Token"
 REWRITTEN = 3  # the pull command's exit status for a remote whose history was rewritten
 
 
@@ -298,9 +307,15 @@ def _page() -> bytes:
     return page.replace(render.PLACEHOLDER, "null").encode()
 
 
-def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None) -> type[BaseHTTPRequestHandler]:
+def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
+            paper: str | None = None) -> type[BaseHTTPRequestHandler]:
+    token = secrets.token_urlsafe(24)
     page = _page()
-    target = urlsplit(agent) if agent else None
+    if paper:
+        page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
+    # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
+    targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
+        (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -329,13 +344,19 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None) -> type[B
             self.close_connection = True
             self.json(status, failure)
 
-        def forward(self) -> None:
-            """The request to the chat service as it is, its answer streamed back until it ends."""
-            if target is None:
+        def forward(self, prefix: str) -> None:
+            """The request to the service under `prefix` as it is, its answer streamed back until it ends."""
+            if prefix not in targets:
                 self.refuse(404, _failure("NOT_FOUND", urlsplit(self.path).path))
                 return
+            target, limit, absent = targets[prefix]
+            if prefix == PAPER and self.command != "GET" and (
+                    self.headers.get("Sec-Fetch-Site") != "same-origin"
+                    or not secrets.compare_digest(self.headers.get(PAPER_TOKEN, ""), token)):
+                self.refuse(403, _failure("FORBIDDEN", "paper runs start and stop from the page itself"))
+                return
             length = int(self.headers.get("Content-Length") or 0)
-            if length > AGENT_BODY:
+            if length > limit:
                 self.refuse(413, _failure("TOO_LARGE", f"{length} bytes"))
                 return
             body = self.rfile.read(length) if length else None
@@ -347,7 +368,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None) -> type[B
                 response = upstream.getresponse()
             except OSError as exc:
                 upstream.close()
-                self.json(502, _failure("AGENT_UNAVAILABLE", f"the chat service did not answer: {exc}"))
+                self.json(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
                 return
             try:
                 self.send_response(response.status)
@@ -368,8 +389,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None) -> type[B
         def do_POST(self) -> None:  # noqa: N802 (http.server's name)
             if not self.admitted():
                 return
-            if self.path.startswith(AGENT):
-                self.forward()
+            if prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
+                self.forward(prefix)
             else:
                 self.refuse(404, _failure("NOT_FOUND", self.path))
 
@@ -378,8 +399,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None) -> type[B
         def do_GET(self) -> None:  # noqa: N802 (http.server's name)
             if not self.admitted():
                 return
-            if self.path.startswith(AGENT):
-                self.forward()
+            if prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
+                self.forward(prefix)
                 return
             url = urlsplit(self.path)
             query = {name: values[0] for name, values in parse_qs(url.query).items() if values and values[0]}
@@ -425,9 +446,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None) -> type[B
 
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str], pull: str | None,
-          poll: float, agent: str | None = None) -> None:
+          poll: float, agent: str | None = None, paper: str | None = None) -> None:
     hub = Hub(product, build, pull, poll)
-    server = ThreadingHTTPServer((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent))
+    server = ThreadingHTTPServer((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper))
     server.daemon_threads = True
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()

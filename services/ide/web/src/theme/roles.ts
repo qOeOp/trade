@@ -27,3 +27,26 @@ const TEXT_CLASS: Record<TextRole | DataRole, string> = {
   recommended: "text-recommended", meets: "text-meets", misses: "text-misses", fail: "text-fail", masked: "text-masked",
 };
 export const textClass = (role: TextRole | DataRole) => TEXT_CLASS[role];
+
+let probe: { element: HTMLSpanElement; context: CanvasRenderingContext2D } | null = null;
+const hex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
+
+/** A colour role (or a data role at `alpha`) as #rrggbbaa, for canvas libraries that cannot read CSS
+ *  variables or light-dark(): resolved against the theme shown now, so read it again when it changes. */
+export function canvasColor(role: ColorRole, alpha = 1): string {
+  if (!probe) {
+    const element = document.createElement("span");
+    element.style.display = "none";
+    document.body.appendChild(element);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    probe = { element, context: canvas.getContext("2d", { willReadFrequently: true })! };
+  }
+  probe.element.style.color = v(role);
+  const { context } = probe;
+  context.clearRect(0, 0, 1, 1);
+  context.fillStyle = getComputedStyle(probe.element).color;
+  context.fillRect(0, 0, 1, 1);
+  const [r = 0, g = 0, b = 0, a = 255] = context.getImageData(0, 0, 1, 1).data;
+  return `#${hex(r)}${hex(g)}${hex(b)}${hex(a * alpha)}`;
+}

@@ -4,6 +4,7 @@ import { App } from "./App";
 import { follow } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
+import { detectPaperService } from "./state/paper";
 import { initSelection } from "./state/selection";
 import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
@@ -23,7 +24,7 @@ const status = (text: string) => root.render(<p style={{ padding: 24 }}>{text}</
 try {
   const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View | null;
   // A live page (served, not rendered to a file) may have a chat service beside it.
-  if (view === null) { follow(show, status); void detectAgentService(); }
+  if (view === null) { follow(show, status); void detectAgentService(); void detectPaperService(); }
   else show(view);
 } catch {
   status("No view data to read: generate this page with ide.py render.");

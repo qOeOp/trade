@@ -1,0 +1,394 @@
+"""The paper daemon (`paper serve`): one ledger's paper runs over HTTP, for the trade IDE's Paper panel.
+
+It listens on loopback only; the IDE service in front proxies ``/api/paper/`` to it and adds the page's
+token (services/ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
+run's journal as it grows, a version's last research replay. Every write (start, stop, seal) is the
+command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
+and published only through it. A run that ended on its own (its duration, a crash) is sealed when found.
+
+A request's Host must be an allowed one; a browser request from another origin is refused, and a POST
+carries JSON, which a page elsewhere cannot send without a preflight this server never answers.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import threading
+import time
+from urllib.parse import parse_qs, urlsplit
+
+from ledger import db, paper as records, strategies
+from ledger.errors import Refusal
+from ledger.refusals import refuse
+from paper import runs
+
+
+PREFIX = "/api/paper"
+BODY_LIMIT = 64 * 1024
+LIST_SECONDS = 2.0  # how long a runs listing is reused
+SEAL_SECONDS = 15.0  # between looks for runs that ended on their own
+ORPHAN_SECONDS = 600  # a declared run with no containers this long after its start is sealed
+STREAM_SECONDS = 1.0
+READINGS_SECONDS = 5.0
+HEARTBEAT_SECONDS = 15.0
+CLI_SECONDS = 900
+# What a command line child gets of this process's environment: the docker client's and the product's own.
+CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH")
+SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
+STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop)\Z")
+
+
+class Failure(Exception):
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(message)
+        self.status, self.body = status, {"code": code, "message": message}
+
+
+def _instrument(symbol: str) -> str:
+    return f"{symbol}-PERP.BINANCE"
+
+
+def read_lines(path: Path, offset: int) -> tuple[int, list[dict], int]:
+    """The complete journal lines appended after `offset`: the new offset, the lines, the unreadable count.
+    A line still being written is read next time."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(offset)
+            data = stream.read()
+    except FileNotFoundError:
+        return offset, [], 0
+    end = data.rfind(b"\n") + 1
+    lines, unreadable = records.journal_lines(data[:end])
+    return offset + end, lines, unreadable
+
+
+@dataclass
+class Journal:
+    """A run's journal read so far: its lines except bars (kept as a count)."""
+    offset: int = 0
+    lines: list[dict] = field(default_factory=list)
+    bars: int = 0
+    last_bar_ns: int | None = None
+    unreadable: int = 0
+
+    def read(self, path: Path) -> None:
+        self.offset, lines, unreadable = read_lines(path, self.offset)
+        self.unreadable += unreadable
+        for line in lines:
+            if line["kind"] == "bar":
+                self.bars += 1
+                self.last_bar_ns = max(self.last_bar_ns or 0, line.get("ts_event") or 0)
+            else:
+                self.lines.append(line)
+
+
+def live_readings(row: dict, journal: Journal) -> dict:
+    """The readings a seal would compute from the journal so far, with the equity path behind them."""
+    found = records.readings(row, journal.lines, journal.unreadable, None, None, None)
+    path, _ = records.equity_path(journal.lines)
+    return {key: found[key] for key in ("total_return", "max_drawdown", "final_equity_usdt", "funding_usdt",
+                                        "fills", "orders_submitted", "positions_closed", "missing_bars",
+                                        "late_bars", "protection_gaps", "started_ns")} | {
+        "bars": journal.bars, "last_bar_ns": journal.last_bar_ns,
+        "starting_balance_usdt": found["starting_balance_usdt"],
+        "equity": [[minute, float(equity)] for minute, equity in path]}
+
+
+def _changed(live: dict) -> tuple:
+    return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"]
+
+
+def _wanted(line: dict, instrument: str | None) -> bool:
+    return line["kind"] != "bar" or line.get("instrument_id") == instrument
+
+
+class Daemon:
+    def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None):
+        from cli.main import ledger_profile
+        self.ledger, self.market, self.product, self.runtime = ledger, market, product, runtime
+        self.profile = ledger_profile(ledger)
+        self.lock = threading.Lock()
+        self.reading = threading.Lock()
+        self.starting: set[str] = set()
+        self.stopping: set[int] = set()
+        self.journals: dict[int, Journal] = {}
+        self.listed: tuple[float, dict] | None = None
+
+    # Writes: the command line
+
+    def cli(self, *argv: str) -> dict:
+        command = [sys.executable, "-m", "cli.main", "paper", *argv, *(["--ledger", self.ledger] if self.ledger else [])]
+        env = {name: os.environ[name] for name in CHILD_ENV if name in os.environ}
+        done = subprocess.run(command, cwd=self.product, capture_output=True, text=True, timeout=CLI_SECONDS,
+                              check=False, env=env)
+        try:
+            found = json.loads(done.stdout if done.returncode == 0 else done.stderr)
+        except ValueError:
+            raise Failure(500, "PAPER_FAILED", (done.stderr or done.stdout).strip()[-2000:]) from None
+        if done.returncode:
+            raise Failure(409, found.get("code", "PAPER_FAILED"), found.get("message", ""))
+        self.listed = None
+        return found
+
+    def start(self, body: dict) -> dict:
+        candidate, symbols, universe = body.get("candidate"), body.get("symbols"), body.get("universe")
+        if not isinstance(candidate, str) or not candidate:
+            raise Failure(400, "USAGE_ERROR", "the body names a candidate")
+        if universe not in (None, "pool") or (symbols is not None and (
+                not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and SYMBOL.fullmatch(s)
+                                                                       for s in symbols))):
+            raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
+        if symbols is None and universe is None:
+            last = self.last_config(candidate)
+            if last is None:
+                raise Failure(409, "NO_LAST_REPLAY", f"{candidate} has no research replay to take contracts from")
+            symbols = last["symbols"]
+        with self.lock:
+            if candidate in self.starting:
+                raise Failure(409, "PAPER_RUN_ACTIVE", f"{candidate} is already starting")
+            self.starting.add(candidate)
+        try:
+            scope = ["--universe", "pool"] if universe else ["--symbols", *(symbols or [])]
+            market = ["--market", self.market] if self.market else []
+            runtime = ["--runtime", self.runtime] if self.runtime else []
+            return self.cli("start", "--candidate", candidate, *scope, *market, *runtime)
+        finally:
+            with self.lock:
+                self.starting.discard(candidate)
+
+    def stop(self, paper_id: int) -> dict:
+        with self.lock:
+            if paper_id in self.stopping:
+                return {"paper_id": paper_id, "state": "stopping"}
+            self.stopping.add(paper_id)
+
+        def run() -> None:
+            try:
+                self.cli("stop", "--paper-id", str(paper_id))
+            except Failure as exc:
+                print(f"paper stop {paper_id}: {exc.body}", file=sys.stderr, flush=True)
+            finally:
+                with self.lock:
+                    self.stopping.discard(paper_id)
+                self.listed = None
+
+        threading.Thread(target=run, daemon=True).start()
+        return {"paper_id": paper_id, "state": "stopping"}
+
+    def seal_ended(self) -> None:
+        """Seals the runs whose runner exited on its own, and those left with no containers."""
+        while True:
+            time.sleep(SEAL_SECONDS)
+            try:
+                found = self.runs()
+            except Refusal as exc:
+                print(f"paper listing: {exc}", file=sys.stderr, flush=True)
+                continue
+            now = time.time()
+            for run in found["runs"]:
+                orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
+                if (run["state"] == "ended" or orphan) and run["paper_id"] not in self.stopping:
+                    try:
+                        self.cli("seal", "--paper-id", str(run["paper_id"]))
+                    except Failure as exc:
+                        print(f"paper seal {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
+
+    # Reads
+
+    def last_config(self, candidate: str) -> dict | None:
+        with db.connect(self.profile, "reader") as conn:
+            found = strategies.read_candidate(conn, candidate)
+            return records.last_research_symbols(conn, found["source_sha256"])
+
+    def journal(self, paper_id: int) -> Journal:
+        journal = self.journals.setdefault(paper_id, Journal())
+        journal.read(runs.run_dir(self.profile, paper_id) / "out" / "events.jsonl")
+        return journal
+
+    def runs(self) -> dict:
+        with self.reading:  # one reader at a time moves the journals' offsets
+            if self.listed and time.monotonic() - self.listed[0] < LIST_SECONDS:
+                return self.listed[1]
+            return self._runs()
+
+    def _runs(self) -> dict:
+        found = runs.listing(self.profile)
+        with db.connect(self.profile, "reader") as conn:
+            rows = {row["paper_id"]: row for row in records.paper_runs(conn)}
+        for run in found["runs"]:
+            if run["paper_id"] in self.stopping and run["state"] in ("running", "ended"):
+                run["state"] = "stopping"
+            if run["state"] == "sealed":
+                run["seal"] = rows[run["paper_id"]]["seal"]
+                self.journals.pop(run["paper_id"], None)
+            else:
+                run["live"] = live_readings(rows[run["paper_id"]], self.journal(run["paper_id"]))
+        found["starting"] = sorted(self.starting)
+        self.listed = (time.monotonic(), found)
+        return found
+
+    def sealed_lines(self, paper_id: int, instrument: str | None) -> list[dict]:
+        import gzip
+        with db.connect(self.profile, "reader") as conn:
+            files = records.evidence.load_bundle(conn, records.bundle_name(paper_id))["files"]
+        lines: list[dict] = []
+        for name in sorted(name for name in files if name.startswith("events/")):
+            found, _ = records.journal_lines(gzip.decompress(files[name]))
+            lines += [line for line in found if _wanted(line, instrument)]
+        return lines
+
+
+def _epoch(value) -> float:
+    return value.timestamp() if hasattr(value, "timestamp") else 0.0
+
+
+def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def json(self, status: int, value) -> None:
+            body = json.dumps(value, default=str, ensure_ascii=False).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def refuse(self, failure: Failure) -> None:
+            self.close_connection = True
+            self.json(failure.status, failure.body)
+
+        def admitted(self) -> bool:
+            if self.headers.get("Host") not in hosts or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+                self.refuse(Failure(403, "FORBIDDEN", "requests come from the trade IDE's own page"))
+                return False
+            return True
+
+        def do_GET(self) -> None:  # noqa: N802 (http.server's name)
+            if not self.admitted():
+                return
+            url = urlsplit(self.path)
+            query = {name: values[0] for name, values in parse_qs(url.query).items() if values}
+            try:
+                if url.path == f"{PREFIX}/health":
+                    self.json(200, {"ledger": daemon.profile.database, "limit": runs.MAX_RUNNING})
+                elif url.path == f"{PREFIX}/runs":
+                    self.json(200, daemon.runs())
+                elif url.path == f"{PREFIX}/defaults":
+                    self.json(200, {"last": daemon.last_config(query.get("candidate", ""))})
+                elif (found := STREAM.fullmatch(url.path)) and found[2] == "stream":
+                    symbol = query.get("symbol")
+                    if symbol is not None and not SYMBOL.fullmatch(symbol):
+                        raise Failure(400, "USAGE_ERROR", "symbol is a Binance symbol such as BTCUSDT")
+                    self.stream(int(found[1]), _instrument(symbol) if symbol else None)
+                else:
+                    raise Failure(404, "NOT_FOUND", url.path)
+            except Failure as exc:
+                self.refuse(exc)
+            except Refusal as exc:
+                self.refuse(Failure(409, exc.code, str(exc)))
+
+        def do_POST(self) -> None:  # noqa: N802 (http.server's name)
+            if not self.admitted():
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if not (self.headers.get("Content-Type") or "").startswith("application/json") or length > BODY_LIMIT:
+                    raise Failure(415, "USAGE_ERROR", "a POST carries a JSON body of at most 64 KiB")
+                body = json.loads(self.rfile.read(length) or b"{}")
+                found = STREAM.fullmatch(urlsplit(self.path).path)
+                if self.path == f"{PREFIX}/runs" and isinstance(body, dict):
+                    self.json(200, daemon.start(body))
+                elif found and found[2] == "stop":
+                    self.json(202, daemon.stop(int(found[1])))
+                else:
+                    raise Failure(404, "NOT_FOUND", self.path)
+            except ValueError:
+                self.refuse(Failure(400, "USAGE_ERROR", "the body is not JSON"))
+            except Failure as exc:
+                self.refuse(exc)
+            except Refusal as exc:
+                self.refuse(Failure(409, exc.code, str(exc)))
+
+        def send_event(self, kind: str, value) -> None:
+            self.wfile.write(f"event: {kind}\ndata: {json.dumps(value, default=str)}\n\n".encode())
+            self.wfile.flush()
+
+        def stream(self, paper_id: int, instrument: str | None) -> None:
+            """Server-sent events: `lines` (the journal so far, then what is appended: every line but the bars
+            of other contracts), `state` (state.json as it is replaced), `readings` (live_readings, as they
+            change) and `end` (the seal) once the run is sealed."""
+            with db.connect(daemon.profile, "reader") as conn:
+                row = records.read_paper_run(conn, paper_id)
+                sealed = records.seal_of(conn, paper_id)
+            lines = daemon.sealed_lines(paper_id, instrument) if sealed else None
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                if sealed is not None:
+                    journal = Journal(lines=[line for line in lines or [] if line["kind"] != "bar"])
+                    self.send_event("lines", lines)
+                    self.send_event("readings", live_readings(row, journal))
+                    self.send_event("end", sealed)
+                    return
+                directory = runs.run_dir(daemon.profile, row["paper_id"]) / "out"
+                offset, state_seen, beat, first, shown = 0, 0.0, time.monotonic(), True, None
+                while True:
+                    offset, lines, _ = read_lines(directory / "events.jsonl", offset)
+                    kept = [line for line in lines if _wanted(line, instrument)]
+                    if kept or first:
+                        self.send_event("lines", kept)
+                        beat, first = time.monotonic(), False
+                    try:
+                        modified = (directory / "state.json").stat().st_mtime
+                        if modified != state_seen:
+                            state_seen = modified
+                            self.send_event("state", json.loads((directory / "state.json").read_text()))
+                    except (FileNotFoundError, ValueError):
+                        pass
+                    if time.monotonic() - beat > HEARTBEAT_SECONDS:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                        beat = time.monotonic()
+                    listed = next((run for run in daemon.runs()["runs"] if run["paper_id"] == paper_id), None)
+                    if listed is not None and listed["state"] == "sealed":
+                        self.send_event("end", listed["seal"])
+                        return
+                    live = (listed or {}).get("live")
+                    if live is not None and _changed(live) != shown:  # a new minute, bar or fill
+                        shown = _changed(live)
+                        self.send_event("readings", live)
+                    time.sleep(STREAM_SECONDS)
+            except OSError:
+                pass  # the page went away
+            finally:
+                self.close_connection = True
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A002 (http.server's name)
+            sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
+
+    return Handler
+
+
+def serve(ledger: str | None, market: str | None, host: str, port: int, hosts: list[str], product: Path,
+          runtime: str | None = None) -> None:
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise refuse("USAGE_ERROR", "the paper daemon listens on loopback only")
+    daemon = Daemon(ledger, market, product, runtime)
+    allowed = frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}", f"host.docker.internal:{port}"])
+    server = ThreadingHTTPServer((host, port), handler(daemon, allowed))
+    server.daemon_threads = True
+    threading.Thread(target=daemon.seal_ended, daemon=True).start()
+    print(f"paper runs of {daemon.profile.database} at http://{host}:{port}{PREFIX}/", file=sys.stderr, flush=True)
+    server.serve_forever()

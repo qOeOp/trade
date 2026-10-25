@@ -1,11 +1,12 @@
 """If these fail, the served research graph no longer follows the ledger: a page asking for a graph gets
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
-rewritten public copy stops the pulling instead of being reset, and another site cannot make the
-browser fetch graphs. The product is a stand-in; no ledger or network is used."""
+rewritten public copy stops the pulling instead of being reset, another site cannot make the
+browser fetch graphs, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
 
 import copy
 import http.client
 import json
+import re
 from pathlib import Path
 import sys
 import threading
@@ -217,6 +218,67 @@ class AgentForwardTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/chat", b"{}", Host="elsewhere:1").status, 403)
         self.assertEqual(self.post("/api/view", b"{}").status, 404, "only agent paths take a body")
         self.assertEqual(self.seen, [])
+
+
+class PaperForwardTests(unittest.TestCase):
+    """A stand-in paper daemon records what reaches it."""
+
+    def setUp(self):
+        self.seen: list[dict] = []
+        seen = self.seen
+
+        class Paper(serve.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def answer(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                seen.append({"method": self.command, "path": self.path, "body": body,
+                             "token": self.headers.get(serve.PAPER_TOKEN)})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            do_GET = do_POST = answer  # noqa: N815
+
+            def log_message(self, *args):
+                pass
+        self.paper = serve.ThreadingHTTPServer(("127.0.0.1", 0), Paper)
+        threading.Thread(target=self.paper.serve_forever, daemon=True).start()
+        self.addCleanup(self.paper.server_close)
+        self.addCleanup(self.paper.shutdown)
+        url = "http://%s:%d" % self.paper.server_address
+        with mock.patch.object(serve, "_page", return_value=b"<html><head></head>page</html>"):
+            self.server = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.handler(
+                serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, url))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def call(self, method, path, body=None, **headers):
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request(method, path, body=body, headers={"Host": "here:1", "Content-Type": "application/json", **headers})
+        return conn.getresponse()
+
+    def token(self) -> str:
+        page = self.call("GET", "/").read().decode()
+        return re.search(r'name="trade-paper-token" content="([^"]+)"', page)[1]
+
+    def test_only_the_page_with_its_token_starts_a_run(self):
+        token = self.token()
+        refused = [self.call("POST", "/api/paper/runs", b"{}", **{"Sec-Fetch-Site": "same-origin"}),
+                   self.call("POST", "/api/paper/runs", b"{}", **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: "x"}),
+                   self.call("POST", "/api/paper/runs", b"{}", **{"Sec-Fetch-Site": "same-site", serve.PAPER_TOKEN: token})]
+        self.assertEqual([response.status for response in refused], [403, 403, 403])
+        self.assertEqual(self.seen, [])
+        sent = self.call("POST", "/api/paper/runs", b'{"candidate": "a@1"}',
+                         **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: token})
+        self.assertEqual(sent.status, 200)
+        self.assertEqual(self.call("GET", "/api/paper/runs").status, 200)
+        self.assertEqual(self.seen, [{"method": "POST", "path": "/api/paper/runs", "body": b'{"candidate": "a@1"}', "token": None},
+                                     {"method": "GET", "path": "/api/paper/runs", "body": b"", "token": None}])
 
 
 if __name__ == "__main__":

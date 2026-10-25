@@ -10,5 +10,8 @@ services:
     volumes:
       - trade-ide-data:/data
     restart: unless-stopped
+    # The Paper panel reaches the host's paper daemon (python -m cli.main paper serve, loopback port 8767)
+    # through Docker Desktop's host.docker.internal; without the daemon the page shows no Paper panel.
+    command: ["--paper=http://host.docker.internal:8767"]
 volumes:
   trade-ide-data:

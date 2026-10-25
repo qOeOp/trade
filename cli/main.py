@@ -1348,6 +1348,18 @@ def _parser() -> Parser:
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = paper.add_parser("list", help="every paper run with its state and seal readings")
     _ledger_option(command)
+    command = paper.add_parser("serve", help="serve the ledger's paper runs to the trade IDE's Paper panel")
+    command.epilog = textwrap.fill(
+        "Listens on loopback only (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
+        "seals run this command line, and runs that end on their own are sealed as they are found.", 100)
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--host", default="127.0.0.1", help="loopback address to listen on")
+    command.add_argument("--port", type=int, default=8767)
+    command.add_argument("--allow-host", action="append", default=[], dest="hosts",
+                         help="Host header a request may carry (default: 127.0.0.1, localhost and "
+                              "host.docker.internal at PORT); repeatable")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
     return parser
 
 
@@ -1493,6 +1505,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.seal(profile, args.paper_id), 0
         if args.verb == "list":
             return paper_runs.listing(profile), 0
+        if args.verb == "serve":
+            from paper import serve
+            serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
+                        args.runtime)
     raise UsageError(f"unknown command {args.noun} {args.verb}")
 
 

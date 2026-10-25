@@ -272,8 +272,28 @@ class PaperInputs:
     historical_daily_bars: list = field(default_factory=list)
 
 
+# The attributes of Nautilus order and position events the live view draws from (fills as markers, working
+# orders as price lines, positions as shading); an event without one leaves it out.
+EVENT_FIELDS = ("client_order_id", "venue_order_id", "order_side", "order_type", "quantity", "price", "trigger_price",
+                "reduce_only", "contingency_type", "parent_order_id", "linked_order_ids", "order_list_id", "tags",
+                "time_in_force", "last_qty", "last_px", "commission", "liquidity_side", "trade_id", "position_id",
+                "reason", "side", "signed_qty", "avg_px_open", "avg_px_close", "realized_pnl", "opening_order_id",
+                "closing_order_id")
+
+
+def _field(value):
+    if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value]
+    return str(value)
+
+
 def _event_fields(event) -> dict:
-    return {"type": type(event).__name__, "instrument_id": str(getattr(event, "instrument_id", "")),
+    """engine.paper._event_fields: an order or position event's journal fields, its repr included."""
+    fields = {name: _field(getattr(event, name)) for name in EVENT_FIELDS
+              if getattr(event, name, None) is not None}
+    return {**fields, "type": type(event).__name__, "instrument_id": str(getattr(event, "instrument_id", "")),
             "ts_event": getattr(event, "ts_event", None), "event": repr(event)}
 
 

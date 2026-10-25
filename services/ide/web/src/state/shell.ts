@@ -39,6 +39,9 @@ export function toggleSide(side: Side): void {
   update((s) => ({ ...s, open: { ...s.open, [side]: s.open[side] ? null : s.last[side] } }));
 }
 
+/** The Paper panel in the editor: no left tool window, as the panel is the whole view (shell/Editor.tsx). */
+export const showPaperPanel = () => update((s) => ({ ...s, open: { ...s.open, left: null }, last: { ...s.last, left: "paper" } }));
+
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
 
 export function setSideSize(side: Side, px: number): void {

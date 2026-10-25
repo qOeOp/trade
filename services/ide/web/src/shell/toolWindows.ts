@@ -13,6 +13,10 @@ import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
 import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
 import { AgentWindow } from "./agent/AgentWindow";
+import { Calendar } from "../widgets/paper/Calendar";
+import { Events } from "../widgets/paper/Events";
+import { RunDetails } from "../widgets/paper/RunDetails";
+import { Orders, Positions } from "../widgets/paper/Trades";
 
 export type ToolWindow = {
   id: string; side: Side; icon: IconName; shortcut?: { keys: string; binding: string };
@@ -56,12 +60,24 @@ const AGENT: ToolWindow = {
   ],
 };
 
+// The Paper panel's tool windows, fed by the paper daemon like the Agent window by the chat service.
+const paperWindow = (id: string, side: Side, icon: IconName, title: string, Component: Renderer["Component"], shortcut?: ToolWindow["shortcut"]): ToolWindow =>
+  ({ id, side, icon, shortcut, source: id, renderer: { title, Component }, actions: () => [hide(side)] });
+const PAPER = [
+  paperWindow("events", "bottom", "tool.events", "Events", Events, alt(9)),
+  paperWindow("orders", "bottom", "tool.orders", "Orders", Orders),
+  paperWindow("positions", "bottom", "tool.positions", "Positions", Positions),
+];
+const CALENDAR = paperWindow("calendar", "bottom", "tool.calendar", "Calendar", Calendar);
+const RUN = paperWindow("paper-run", "right", "tool.run", "Paper run", RunDetails);
+
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
 export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
 /** The tool windows this view feeds, in stripe order, each with the widget it shows; with a chat
- *  service, the Agent window last on the right. */
-export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWindow & { widget: Widget })[] {
+ *  service, the Agent window last on the right; with a paper daemon, the Paper panel's (the Calendar
+ *  once the open run is a week old). */
+export function toolWindows(widgets: readonly Widget[], agent = false, paper: { calendar: boolean } | null = null): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     return widget ? [{ ...s, widget }] : [];
@@ -71,5 +87,7 @@ export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWin
     id: `unknown:${widget.type}`, side: "bottom" as const, icon: "tool.gaps" as const, source: widget.type,
     renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
   }));
-  return [...known, ...(agent ? [{ ...AGENT, widget: { id: "agent", type: "agent" } }] : []), ...unknown];
+  const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
+  const papers = paper ? [...PAPER, ...(paper.calendar ? [CALENDAR] : []), RUN].map(own) : [];
+  return [...known, ...papers, ...(agent ? [own(AGENT)] : []), ...unknown];
 }

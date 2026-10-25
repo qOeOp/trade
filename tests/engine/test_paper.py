@@ -1,5 +1,5 @@
 """engine.paper without a network: the credential refusal, the replay cadence of the live feed, the daily
-warm-up from public klines and the instances a run plans."""
+warm-up from public klines, the instances a run plans and the event fields the live view draws from."""
 
 import unittest
 from datetime import UTC, datetime
@@ -118,3 +118,29 @@ class PlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrderFilled:
+    """The attributes of a Nautilus fill the journal reads (a stand-in: the class name is what it records)."""
+    instrument_id = IID
+    client_order_id = "O-1"
+    order_side = "BUY"
+    order_type = "STOP_MARKET"
+    last_px = Price.from_str("100.5")
+    last_qty = Decimal("0.010")
+    reduce_only = True
+    linked_order_ids = ("O-2", "O-3")
+    trigger_price = None
+    ts_event = DAY
+
+
+class EventFieldTests(unittest.TestCase):
+    def test_an_event_keeps_its_side_price_quantity_and_ids_as_fields(self):
+        found = paper._event_fields(OrderFilled())
+        self.assertEqual({key: found[key] for key in ("type", "instrument_id", "client_order_id", "order_side",
+                                                      "order_type", "last_px", "last_qty", "reduce_only",
+                                                      "linked_order_ids", "ts_event")},
+                         {"type": "OrderFilled", "instrument_id": str(IID), "client_order_id": "O-1",
+                          "order_side": "BUY", "order_type": "STOP_MARKET", "last_px": "100.5", "last_qty": "0.010",
+                          "reduce_only": True, "linked_order_ids": ["O-2", "O-3"], "ts_event": DAY})
+        self.assertNotIn("trigger_price", found)
