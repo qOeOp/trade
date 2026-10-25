@@ -6,17 +6,25 @@ universe rule. Register it with `validation registration`, run it with `replay r
 ID` and read it with `validation report`, as their `--help` describes.
 
 - Keep the original registration when unused window data is completed or corrected and still
-  meets its admission checks; cite the old/new market commits and correction evidence. Binding
-  keeps the account baseline and membership boundary of the original registration, including on
-  retries. A retry also keeps its candidate, window, universe rule and test design, and is only
-  available for the existing interrupted, invalid or economically unavailable outcomes. An
-  economically available passed result does not become retryable merely for corrected data:
-  disclose the original and the correction's impact, without replacing it or declaring another
-  independent validation.
-  Before changing runtime images, perform the native pairing in AGENTS.md within its proven
-  scope; changed matching, margin or other substantive terms stop the old validation. Record the
-  reason through existing evidence/judgments, retain the registration and window reservation,
-  and ask the user about a new future window. There is no cancellation or automatic release.
+  meets its admission checks; cite the old/new market commits and correction evidence. Binding,
+  retries included, keeps the original registration's membership boundary and account baseline:
+  the account of the candidate's latest passed research run at that registration's commit, which
+  later research runs never replace. A retry also keeps its candidate, window, universe rule and
+  complete test design, and is only available for the existing interrupted, invalid or
+  economically unavailable outcomes. A refused binding writes nothing and does not consume the
+  registration. An economically available passed result does not become retryable merely for
+  corrected data: disclose the original and the correction's impact, without replacing it or
+  declaring another independent validation.
+  Before changing runtime images, perform the native pairing in AGENTS.md; it covers only what
+  was paired, and a clean run on the new image proves nothing. When the validation could run only
+  with changed matching, margin or other substantive terms, or on an image whose compatibility
+  you cannot show, stop the old validation; otherwise it binds on its original terms. Record the
+  reason through existing evidence/judgments citing the registration, ledger commit, affected
+  market commits and both image identities; retain the registration and window reservation, and
+  ask the user about a new future window. There is no cancellation or automatic release.
+  Code refuses a binding whose build, source, design, membership, window, coverage or account
+  differs from the original registration. No code judges image compatibility or the effect of a
+  data correction: you do, state what stays unknown, and hand a stopped validation to the user.
 - Before suggesting a window, tell the user how concentrated the candidate's development PnL is
   (one year, a few days, a few contracts) and its capital use, each with the identity of the
   reading, then suggest a window length from its plan frequency so that one interval can resolve
