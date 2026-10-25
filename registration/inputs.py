@@ -4,7 +4,7 @@
 A replay's market inputs are exported AS OF one pinned market commit into an immutable directory,
 with a membership file holding only the exported instruments. Their identity is content, not
 location: the export content hash ignores where and when it was exported, and the exporter hash
-names the code that exported it. Registration and replay each export once and compare the same
+names the code that exported it (provenance only: input_key does not compare it). Registration and replay each export once and compare the same
 identity. Nothing here writes the ledger, drops an instrument, shortens a window or fills data.
 """
 

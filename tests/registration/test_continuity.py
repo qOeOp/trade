@@ -77,6 +77,24 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE trial_id = %s",
                                             (self.old_run,))["status"], "passed")
 
+    def test_an_exporter_source_only_change_keeps_the_rebuild(self):
+        """An exporter edit that exports the same bytes (say a dependency lock change) is no input change:
+        the rebuild on a new image is admitted and the new hash is still recorded."""
+        self.reproduction({"fixture": "same"})
+        old = self.world.plan("registration-old")["execution"]["input_identity"]
+        with self.on_new_runtime(), patch("registration.inputs.exporter_sha256", lambda: "0" * 64):
+            self.world.register("registration-new", self.migrated_body())
+            new = self.world.plan("registration-new")["execution"]["input_identity"]
+            self.assertEqual(new["exporter_source_sha256"], "0" * 64)
+            self.assertNotEqual(old["exporter_source_sha256"], new["exporter_source_sha256"])
+            self.assertEqual(old["export_content_sha256"], new["export_content_sha256"])
+            # A later exporter edit between registration and replay still binds.
+            replayed = {**self.world.plan("registration-new")["execution"],
+                        "input_identity": {**new, "exporter_source_sha256": "1" * 64}}
+            trial_id = self.world.research_trial("registration-new", self.data, replayed, runtime=OTHER_RUNTIME)
+            capture(self.world.conn, trial_id, self.data, purpose="research")
+            self.world.seal_run(trial_id)
+
     def test_migration_requires_a_new_review_and_explicit_retry_link(self):
         body = self.migrated_body()
         with self.on_new_runtime():
