@@ -624,6 +624,8 @@ def main(argv: list[str] | None = None) -> None:
     if loaded.daily_warmup:
         journal("waiting", until_ns=start_ns)
         while time.time_ns() < start_ns + 5_000_000_000:  # the day's kline is final a moment after it closes
+            if (args.output / "STOP").exists():
+                request_stop("STOP_FILE")
             if STOP.wait(1):
                 journal("stopped_before_start", reason=STOP_REASON[0])
                 return

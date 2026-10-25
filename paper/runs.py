@@ -33,7 +33,8 @@ MAX_RUNNING = 4
 RUNNER_MEMORY = "4g"  # an uncalibrated example value
 EGRESS_MEMORY = "256m"
 EGRESS_PORT = 3128
-STOP_SECONDS = 60  # SIGTERM to SIGKILL: the runner cancels its orders and writes its summary
+STOP_SECONDS = 60  # the STOP file to SIGTERM: the runner cancels its orders and writes its summary
+STOP_KILL_SECONDS = 30  # SIGTERM to SIGKILL
 DOCKER_SECONDS = 120
 EGRESS_START_SECONDS = 3
 LOG_TAIL_LINES = "20000"
@@ -212,6 +213,10 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
     """paper seal: capture an ended run into the ledger, then remove its containers and network."""
     with db.connect(profile, "reader") as conn:
         row = records.read_paper_run(conn, paper_id)
+        stored = records.seal_of(conn, paper_id)
+    if stored is not None:  # its containers are gone, so a new capture would differ: the seal stands
+        return {"paper_id": paper_id, "bundle": records.bundle_name(paper_id), "seal": stored,
+                "write_status": "replayed"}
     named = names(profile, paper_id)
     if _running(named["runner"]):
         raise refuse("PAPER_RUN_ACTIVE", f"paper run {paper_id} is still running; stop it first",
@@ -227,13 +232,22 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
 
 
 def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECONDS) -> dict:
-    """paper stop: SIGTERM the runner (it cancels its orders and writes its summary; SIGKILL after
-    `wait_seconds`), then seal the run."""
+    """paper stop: ask the runner to stop through its STOP file (it cancels its working orders, journals
+    the cancels and writes its summary), SIGTERM it after `wait_seconds` and SIGKILL after STOP_KILL_SECONDS
+    more, then seal the run. SIGTERM is only the fallback: the node then shuts down on its own as well,
+    and the strategy no longer receives the cancels (measured 2026-10-25)."""
     with db.connect(profile, "reader") as conn:
         records.read_paper_run(conn, paper_id)
     named = names(profile, paper_id)
     if _running(named["runner"]):
-        _checked("stop", "--time", str(wait_seconds), named["runner"], timeout=wait_seconds + DOCKER_SECONDS)
+        (run_dir(profile, paper_id) / "out" / "STOP").touch()
+        env = {name: os.environ[name] for name in DOCKER_ENV if name in os.environ}
+        try:
+            subprocess.run(["docker", "wait", named["runner"]], capture_output=True, check=False,
+                           timeout=wait_seconds, env=env)
+        except subprocess.TimeoutExpired:
+            _checked("stop", "--time", str(STOP_KILL_SECONDS), named["runner"],
+                     timeout=STOP_KILL_SECONDS + DOCKER_SECONDS)
     return seal(profile, paper_id)
 
 
