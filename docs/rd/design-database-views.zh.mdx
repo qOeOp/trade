@@ -2,6 +2,8 @@
 
 汇集候选、试验、运行、判断、证据和样本外登记的读取视图，以及跨研究线的历史查询。视图是派生读口，不是额外存储或访问边界。
 
+历史视图按 `库/提交` 同时固定定义和数据；视图 `AS OF` 只取旧数据，仍用当前定义。Dolt 2.4.2 的[隔离验证](https://github.com/qOeOp/trade/blob/main/docs/plans/dolt-history-view-semantics-verification.zh.md)已核对这一差异及现有 `read_as_of` 普通／流式读取与重启行为；仅覆盖单层合成视图，不代表本页全部视图、嵌套／跨库依赖和报告路径已全面验证。
+
 [数据库总览](/zh/docs/design-ledger/)
 
 ### `v_candidates` [#def-table-v_candidates]

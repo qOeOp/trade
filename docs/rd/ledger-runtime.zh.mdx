@@ -327,7 +327,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 #### 复现历史结果一律走当时的修订库，用当时的视图定义 [#J-2-9-2]
 
-要复现某一时刻的结果，就按「库/提交」形式的修订库去读视图，拿到的是那次提交时的视图定义和数据。按版本读（AS OF）会套用现在的视图定义，所以不用来复现。某次提交之后新增了哪些试验，用两次提交之间的差异表函数算出。
+要复现某一时刻的结果，就按「库/提交」形式的修订库去读视图，拿到的是那次提交时的视图定义和数据。对视图按版本读（AS OF）会套用现在的视图定义，所以不用来复现。某次提交之后新增了哪些试验，用两次提交之间的差异表函数算出。
 
 视图定义后来可能改过，用现在的定义读旧数据，读出来的就不是当时看到的数。
 
@@ -337,9 +337,9 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<p className="rd-note">Dolt 2.3.1 本地实测：修订库保留当时定义、AS OF 用当前定义；2.4.2 未验证。</p>
+<p className="rd-note">Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/main/docs/plans/dolt-history-view-semantics-verification.zh.md)：只改视图定义、再只改底表数据的三个提交中，修订库保留当时定义和数据，视图 AS OF 使用当前定义计算旧数据；现有 `read_as_of` 普通／流式读取、主分支推进后的固定连接及重启后读数均通过，共 12 个对照组合，已有相关测试 2 项通过、无跳过。仅覆盖单层合成视图；嵌套视图、跨库依赖、其他 schema 演进和所有报告路径未全面验证，不关闭 J.2.9.1 的结构读取口径一致性缺口。</p>
 
 #### 保留只读 SQL；报告遮蔽不是数据访问隔离 [#J-2-9-3]
 
