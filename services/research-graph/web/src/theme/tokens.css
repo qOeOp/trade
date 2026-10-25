@@ -152,6 +152,8 @@
   --text-small--line-height: 1.4;
   --text-badge: 11px;
   --text-badge--line-height: 16px;
+  /* Chinese paragraphs open up to 1.6 (W3C clreq §7.1.1); single UI lines keep their size's height. */
+  --leading-zh: 1.6;
 
   /* Radii step down with nesting: island, popup, card, control, badge. */
   --radius-*: initial;
