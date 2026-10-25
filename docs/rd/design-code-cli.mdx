@@ -1057,9 +1057,9 @@ def _publish_after(args: Namespace, result: dict) -> dict
 **期望行为**
 
 1. cli.main 在子命令返回结果后调用；子命令被拒时不调用。
-2. market import、market import-quotes 和 market upgrade 持导入锁发布市场库的 main；其余带 --ledger 的命令发布研究账本的研究分支；ledger service、ledger publish、market publish 和别的命令不发布。
+2. market import、market import-quotes 和 market upgrade 持导入锁发布市场库的 main；其余带 --ledger 的命令发布研究账本的研究分支；只读命令（ledger sql、ledger export、ledger review、candidate show/export/list、evidence export、hypothesis compare、research status/state/graph、validation report、replay report、market coverage）、ledger service、ledger publish、market publish 和别的命令不发布，所以轮询账本的读者不会和写入方抢推。
 3. 档案没有种类（只读副本的档案）不发布；ledger.unpublished 为 false（没有 origin，或 origin 已是本地头）不发布；否则调一次 ledger.publish。
-4. 发布被拒不改退出码，也不回滚写入：结果里报 publish_failed，下一条命令或 ledger publish / market publish 补推。
+4. 发布被拒不改退出码，也不回滚写入：结果里报 publish_failed，下一条写命令或 ledger publish / market publish 补推。
 
 **使用**　<Ref id="ledger.unpublished" />、<Ref id="ledger.publish" />、<Ref id="cli.ledger_publish" />、<Ref id="cli.market_publish" />
 

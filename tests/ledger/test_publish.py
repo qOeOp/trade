@@ -4,9 +4,9 @@ with nothing pushed after it; concurrent publishes of one head serialized and al
 rejected push judged by the remote's head after a fetch; an isolated database kept off public
 remotes; the `dolt login` key
 installed in the service's own Dolt home, with a restart named while the service runs without it;
-a command publishing what origin lacks; and the market
-published only while no import holds its lock. Local file
-remotes only, never DoltHub or the active ledger."""
+a write command publishing what origin lacks, a read command publishing nothing; and the market
+published only while no import holds its lock. Local file remotes only, never DoltHub or the active
+ledger."""
 
 from __future__ import annotations
 
@@ -154,20 +154,33 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(self.code(publish.publish, self.profile, "main"), "PUBLISH_FAILED",
                              "another publish holds the lock")
 
-    def test_a_command_publishes_what_origin_lacks_once(self):
+    def write(self, tag: str) -> dict:
+        """candidate publish through the command line: a ledger write."""
+        folder = Path(tempfile.mkdtemp(prefix="src-", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        (folder / "strategy.py").write_bytes(source(tag))
+        return self.command("candidate", "publish", "--file", str(folder / "strategy.py"), "--strategy-id", tag,
+                            "--entry-class", "Fixture", "--description", "a write")
+
+    def test_a_write_publishes_what_origin_lacks_once_and_a_read_never_publishes(self):
         publish.set_remote(self.profile, self.url)
-        self.assertEqual(self.command("ledger", "sql", "SELECT 1")["published"]["previous_head"], None,
+        for read in (("ledger", "sql", "SELECT 1"), ("candidate", "list"), ("research", "status")):
+            found = self.command(*read)
+            self.assertFalse({"published", "publish_failed"} & set(found), f"{read[:2]} only reads")
+        self.assertTrue(publish.unpublished(self.profile, "main"), "a read leaves origin behind")
+        self.assertEqual(self.write("first")["published"]["previous_head"], None,
                          "a new origin lacks the whole history")
-        self.assertNotIn("published", self.command("ledger", "sql", "SELECT 1"), "nothing left to publish")
-        strategies.publish_candidate(self.profile, source("first"), "first", "Fixture", "a write")
-        caught_up = self.command("ledger", "sql", "SELECT 1")
-        self.assertEqual(caught_up["published"]["head"], self.head(), "the next command publishes an earlier write")
-        self.assertNotIn("published", self.command("ledger", "sql", "SELECT 1"))
+        self.assertEqual(self.remote_state()[0], self.head())
         strategies.publish_candidate(self.profile, source("second"), "second", "Fixture", "a write")
+        self.assertNotIn("published", self.command("ledger", "sql", "SELECT 1"), "a read never publishes")
         with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "offline")):
-            failed = self.command("ledger", "sql", "SELECT 1")
+            failed = self.write("third")
         self.assertEqual(failed["publish_failed"]["code"], "PUBLISH_FAILED", "the command itself still succeeds")
         self.assertTrue(publish.unpublished(self.profile, "main"))
+        caught_up = self.write("fourth")
+        self.assertEqual(caught_up["published"]["head"], self.head(), "the next write publishes earlier writes")
+        self.assertEqual(self.remote_state()[0], self.head())
+        strategies.publish_candidate(self.profile, source("fifth"), "fifth", "Fixture", "a write")
         self.assertEqual(self.command("ledger", "publish")["head"], self.head())
 
     def test_the_dolt_login_key_is_installed_in_the_service_home(self):

@@ -105,8 +105,9 @@ run binds the strategy revision, actual image manifest digest, platform, inputs
 and resolved configuration.
 
 Both databases are public on DoltHub. After `dolt login`, name each one's repository once (the
-administrator copies the login key into the service's own Dolt home); every command that changes a
-database then publishes it, and `ledger publish` or `market publish` reruns a failed publish:
+administrator copies the login key into the service's own Dolt home); every command that may change a
+database then publishes it, read commands never publish, and the next such command or `ledger publish` (or
+`market publish`) reruns a failed publish:
 
 ```bash
 uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research
