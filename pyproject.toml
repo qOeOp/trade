@@ -24,7 +24,8 @@ requires = ["uv_build>=0.12.1,<0.14"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime"]
+module-name = ["cli", "engine", "ledger", "market", "paper", "qualification", "registration", "replay", "report",
+               "runtime"]
 module-root = ""
 
 [tool.ruff]
@@ -47,7 +48,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.14"
-files = ["cli", "engine", "ledger", "market", "qualification", "registration", "replay", "report", "runtime",
+files = ["cli", "engine", "ledger", "market", "paper", "qualification", "registration", "replay", "report", "runtime",
          "services/ide/research_graph"]
 
 [[tool.mypy.overrides]]

@@ -1320,6 +1320,34 @@ def _parser() -> Parser:
     command.add_argument("--end", required=True, help="input interval end, UTC ISO-8601 with Z")
     _ledger_option(command)
     command.add_argument("--lifecycle-bundle", help="lifecycle-<commit> bundle to add lifecycle episodes (needs --ledger)")
+
+    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list")
+    command = paper.add_parser("start", help="declare a paper run of a candidate and start its containers")
+    command.epilog = textwrap.fill(
+        "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
+        "reaches the network only through an egress proxy that admits Binance's public USD-M hosts. Membership "
+        "is the current month's at the market commit. Paper runs add no trial count and no exposure.", 100)
+    _ledger_option(command)
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    scope = command.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
+    scope.add_argument("--universe", choices=("pool",), help="every member of the current month")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
+    command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
+    _op_id(command)
+    command = paper.add_parser("stop", help="stop a running paper run and seal it")
+    _ledger_option(command)
+    command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
+    command.add_argument("--wait-seconds", type=int, default=60, help="seconds the runner gets to cancel its orders "
+                                                                      "and write its summary before it is killed")
+    command = paper.add_parser("seal", help="seal an ended paper run into the ledger")
+    _ledger_option(command)
+    command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
+    command = paper.add_parser("list", help="every paper run with its state and seal readings")
+    _ledger_option(command)
     return parser
 
 
@@ -1453,6 +1481,18 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "lifecycle"):
         return market_lifecycle(profile, market_profile(args.market), args.at, args.manifest, args.notices,
                                 args.op_id), 0
+    if args.noun == "paper":
+        from paper import runs as paper_runs
+        if args.verb == "start":
+            return paper_runs.start(profile, market_profile(args.market), args.at, args.candidate,
+                                    None if args.universe else args.symbols, args.runtime, args.memory,
+                                    args.duration_seconds, args.op_id), 0
+        if args.verb == "stop":
+            return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
+        if args.verb == "seal":
+            return paper_runs.seal(profile, args.paper_id), 0
+        if args.verb == "list":
+            return paper_runs.listing(profile), 0
     raise UsageError(f"unknown command {args.noun} {args.verb}")
 
 
