@@ -6,10 +6,11 @@ earlier runs no longer share the execution identity of new ones.
 For an ongoing out-of-sample validation, follow [validation.md](validation.md); the rebuild
 registrations below concern development research, not another validation opportunity.
 
-- When the runtime contract changes, the line's runs are history: never rebuild them across
-  contracts or adapt a registration to fit. The line cannot continue; return to `research-start`
-  to offer a new line on the new contract. Selecting it (`line select`) ends the old line, which
-  `research-start` then closes. The new line starts from a template root or a candidate revision
+- When earlier runs cannot be rebuilt under the new identity by a `retry_of` registration with
+  the same conditions (the runtime contract, the exported content or the market data changed),
+  the line's runs are history: never rebuild them across identities or adapt a registration to
+  fit. The line cannot continue; return to `research-start` to offer a new line under the new
+  identity. Selecting it (`line select`) ends the old line, which `research-start` then closes. The new line starts from a template root or a candidate revision
   with a substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the
   exposure check.
 - When only the image changes (same contract, configuration and inputs), replay the current
