@@ -321,6 +321,16 @@ Sandbox settles no funding; `events.jsonl` records each settlement with the posi
 waits for the cancels and stops the node; positions stay open and are valued at their latest MARK in
 `summary.json`.
 
+`python -m cli.main paper start|stop|seal|list` runs it as the product does
+(`paper/runs.py`): the run is declared in the ledger (`paper_run`), then the runner container starts on a
+Docker network of its own with no route out, beside an egress proxy (`python -m engine.egress`) that is the
+only container also on the outbound bridge and tunnels to `fapi.binance.com` and `fstream.binance.com` on
+443 alone. Docker gets an allowlisted environment and passes no host variable into either container.
+`paper stop` sends SIGTERM and seals; `paper seal` captures a run that ended by itself. The capture is
+the bundle `paper-<id>-capture`: the journal by UTC day, the summary, the egress and runner logs and
+`seal.json`, whose readings add the funding the Sandbox does not settle
+(`docs/plans/paper-run-storage-decision.zh.md`). At most four runs per ledger run at once, one per source.
+
 ## History
 
 `runtime.image.LAYOUTS` knows only `replay-contract@v7`; no image or seal of an earlier contract is read

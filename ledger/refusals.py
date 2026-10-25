@@ -728,6 +728,16 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("List the commit's contracts with `market coverage` over the universe.",)),
     "MARKET_RETURNS_WINDOW": ("The window for the market's daily returns holds no whole UTC day.",
                               ("Report market measures only for runs with a whole trading day.",)),
+    # Paper runs (ledger/paper.py, paper/runs.py)
+    "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
+                          ("List the runs with `paper list`.",)),
+    "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, or the run to seal is still running.",
+                         ("Stop it with `paper stop --paper-id N`, which also seals it.",)),
+    "PAPER_CONCURRENCY_LIMIT": ("The ledger already has the most paper runs running at once.",
+                                ("Stop a running one with `paper stop --paper-id N`, then start again.",)),
+    "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed invalid with the "
+                           "error in runner.log.",
+                           ("Read the error, repair the runtime or Docker, then start a new run.",)),
 }
 
 

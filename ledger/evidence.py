@@ -4,7 +4,7 @@ A bundle is a named set of files, each naming its content by SHA-256. Every dist
 stored once (`evidence_content`) and the ledger derives its hash, so a writer cannot pair altered
 bytes with an old hash, and every read recomputes it.
 Agents name their own bundles through `add_bundle`; the product namespaces (replay receipts and
-seals, registrations, source reviews, research lines, lifecycle facts) are written only by
+seals, registrations, source reviews, research lines, lifecycle facts, paper run captures) are written only by
 product code through `write_files`. A bundle name is its identity: it is never replaced.
 """
 
@@ -21,7 +21,7 @@ from ledger.refusals import refuse
 
 BUNDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}\Z")
 RESERVED = re.compile(r"(trial-[0-9]+-(execution|execution-start|recovery(-.*)?)|registration-.*|source-review-.*"
-                      r"|research-line-.*|lifecycle-[0-9a-v]{32})\Z")
+                      r"|research-line-.*|lifecycle-[0-9a-v]{32}|paper-[0-9]+-capture)\Z")
 PATH_LIMIT = 512
 MAX_FILE_BYTES = 64 * 1024 * 1024  # uncalibrated example value
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".mp3", ".wav", ".aac", ".opus",
