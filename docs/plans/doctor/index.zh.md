@@ -15,7 +15,9 @@
 | 20261025-26 | 研究图把推荐的每个 `about` 对象标为 kept_reference，75 个版本 50 个显示为保留参考（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)，保真测试） | fix（去掉或如实改名） | open | 2026-10-25 | 2026-10-25 |
 | 20261025-27 | 43 个 CLI 子命令中 30 个 `--help` 无描述，未交付所称契约；会话读产品源码 89 次（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | fix | open | 2026-10-25 | 2026-10-25 |
 | 20261025-28 | 无受支持的市场行情读取命令，源码审查者写脚本导入 `market.store`（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | skill 或 measure | open | 2026-10-25 | 2026-10-25 |
-| 20261025-29 | 评测 `validation-input-runtime-change` 留在顶层 `evals/`，不在插件根下不运行，设计站仍引为证据（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | fix（单独 PR） | open | 2026-10-25 | 2026-10-25 |
+| 20261025-29 | 评测 `validation-input-runtime-change` 留在顶层 `evals/`，不在插件根下不运行，设计站仍引为证据（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | fix（单独 PR） | fixed 74eb13a5c（[#1743](https://github.com/qOeOp/trade/pull/1743)）；首次真实运行即失败，见 20261025-36/-37 | 2026-10-25 | 2026-10-25 |
+| 20261025-36 | research-round 的 validation.md 没写 X.1.3.2 交给 skill 的分工：代码只核构建、源码、设计、成员、窗口、覆盖与账户，镜像兼容与修正影响由 Agent 判断；拒绝的绑定不消耗登记；停止记录引用的身份；账户基准是哪次运行。评测 with 臂因此常把兼容判断归给代码（[聚焦诊断](2026-10-25-validation-input-eval.zh.md)） | skill | in PR | 2026-10-25 | 2026-10-25 |
+| 20261025-37 | 评测 `validation-input-runtime-change` 的 `skill-fired` 用 llm 看回答而不看调用，无插件臂无工具调用也判 PASS 并计分（[聚焦诊断](2026-10-25-validation-input-eval.zh.md)） | fix（grader 单独 PR） | in PR | 2026-10-25 | 2026-10-25 |
 | 20261025-30 | README 称市场自 2020-01、R1 回放 37 个合约；research-start 设计页未随 #1729/#1734 更新（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | fix | open | 2026-10-25 | 2026-10-25 |
 | 20261025-32 | 每次写入同步发布，连续写间隔 15–17 s（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | measure | open | 2026-10-25 | 2026-10-25 |
 | 20261025-33 | 逐 UTC 日指纹每运行约 96 KB，产品只比较整体相等（[完整审计](2026-10-25-codex-v7-restart-full-audit.zh.md)） | measure | open | 2026-10-25 | 2026-10-25 |
