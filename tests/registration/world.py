@@ -284,12 +284,18 @@ class World:
              "input_coverage": coverage_bytes(actual["effective_config"], input_identity=actual["input_identity"])},
             window or LINE_WINDOW, context(data, self.workdir()), binder or register.binder(bundle, sha(data)))["trial_id"]
 
-    def seal_run(self, trial_id: int, status: str = "passed") -> int:
+    def seal_run(self, trial_id: int, status: str = "passed", fills: int | None = None) -> int:
+        """A run row; `fills` also seals a result whose real_fills@1 fact counts that many fills."""
         def insert(conn, op):
             passed = status == "passed"
             conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
                       "VALUES (%s, %s, %s, '{}', %s, %s, UTC_TIMESTAMP(6))",
                       (trial_id, status, None if passed else '[{"code": "AUDIT"}]', '{}' if passed else None, op))
+            if fills is not None:
+                fact = {"passed": fills > 0, "code": None if fills else "NO_FILLS", "count": fills}
+                conn.rows("INSERT INTO run_sealed (trial_id, metrics_revision, report, op_id, created_at) "
+                          "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6))",
+                          (trial_id, "f" * 40, json.dumps({"activity": {"real_fills@1": fact}}), op))
             return {"trial_id": trial_id}
         return db.write(self.conn, "ingest_fixture", {"trial_id": trial_id}, "run", insert)["record"]["trial_id"]
 

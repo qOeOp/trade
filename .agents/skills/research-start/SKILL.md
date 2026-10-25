@@ -25,7 +25,11 @@ selected (`line select`); everything inside it follows `research-round`.
   runtime contract this product no longer runs. Tell the user plainly that the line is on the old
   contract and can only be closed and research restarted on the new one; never offer to continue
   it, continue it after an interruption, or establish a Goal for it. Closing it is leaving the
-  line (Offer lines and wait); the new line's `line select` ends it for `line close`.
+  line (Offer lines and wait); the new line's `line select` ends it for `line close`. Research
+  restarted on the new contract begins as a root ([template.md](../research-round/references/template.md)):
+  published without a parent and registered with no parent, no control and empty `changed_duties`,
+  its rationale carrying the old candidate's idea. An old-contract candidate is never its parent,
+  since its runs can be neither replayed nor compared.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
   background sub-agent (on a host without one, do it before the session ends). For each line, read
   it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its

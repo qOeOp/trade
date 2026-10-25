@@ -87,7 +87,8 @@ def plan_schema() -> dict:
                                       "a root.", "anyOf": [_REF, {"type": "null"}]},
             "control_trial_id": {"description": "The trial_id of the comparison control, a passed, sealed, comparable run "
                                            "with economic evidence; null for a root, or for a derived registration "
-                                           "whose rationale.local cites the parent run's fault or zero activity.",
+                                           "whose parent's research runs are each invalid or without fills and "
+                                           "whose rationale.local cites that fault or zero activity.",
                             "anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
             "change": {"description": "The one rule change, word for word the difference of every grid candidate; "
                                       "null for a root.", "anyOf": [_TEXT, {"type": "null"}]},
@@ -253,7 +254,26 @@ def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
             "input_identity": capture["start"].get("input_identity")}
 
 
-def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping) -> None:
+def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
+    """Whether the parent's research runs show its fault or zero activity: it has at least one, and
+    each is invalid or its latest sealed result records no fills (real_fills@1 failed)."""
+    runs = conn.rows("SELECT r.trial_id, r.status FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+                     "WHERE t.source_sha256 = %s AND t.purpose = 'research'", (source_sha256,))
+    for trial_id, status in runs:
+        if status == "invalid":
+            continue
+        found = conn.rows("SELECT report FROM run_sealed WHERE trial_id = %s ORDER BY created_at DESC, "
+                          "metrics_revision DESC LIMIT 1", (trial_id,))
+        report = found[0][0] if found else None
+        report = json.loads(report) if isinstance(report, (str, bytes)) else report
+        activity = report.get("activity") if isinstance(report, Mapping) else None
+        fills = activity.get("real_fills@1") if isinstance(activity, Mapping) else None
+        if not isinstance(fills, Mapping) or fills.get("passed") is not False:
+            return False
+    return bool(runs)
+
+
+def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping, before_replay: bool) -> None:
     parent, control, change = body["parent"], body["control_trial_id"], body["change"]
     if parent is None:
         if control is not None or change is not None:
@@ -261,8 +281,14 @@ def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping)
         return
     if change is None:
         raise _invalid("a derived registration states its one change", "change")
-    _candidate(conn, parent, "parent")
+    row = _candidate(conn, parent, "parent")
     if control is None:
+        # Checked when registering only: a stored registration is not judged again at binding.
+        if not before_replay and not _parent_failed(conn, row["source_sha256"]):
+            raise _invalid(f"a derived registration without a control run needs the research runs of {parent} to "
+                           "show its fault or zero activity (each run invalid or without fills); otherwise name a "
+                           "comparable control run, or register a restart (as on a new runtime contract) as a root "
+                           "with no parent, control or change", "control_trial_id")
         if not body["rationale"]["local"].strip():
             raise _invalid("without a control run, rationale.local cites the parent run's fault or zero activity",
                            "rationale.local")
@@ -473,7 +499,7 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     chain = _retry_chain(conn, body.get("retry_of"))
     _check_duties(body)
     _check_prediction(body)
-    _check_lineage(conn, body, execution)
+    _check_lineage(conn, body, execution, before_replay)
     line = _check_window(conn, body)
     points = _check_grid(conn, body, execution)
     reviews = body.get("prechecks") or {}

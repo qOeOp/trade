@@ -31,7 +31,8 @@ def refused(function, *args, **kwargs) -> Refusal:
 
 @unittest.skipUnless(BINARY, SKIP)
 class RegisterTests(unittest.TestCase):
-    """Registrations of roots and of children of rsi@1; no research trial completes here."""
+    """Registrations of roots and of children of rsi@1, whose one research run is invalid (so a child
+    may register without a control); no other research trial completes here."""
 
     @classmethod
     def setUpClass(cls):
@@ -42,6 +43,8 @@ class RegisterTests(unittest.TestCase):
         cls.child_review = world.prechecked(cls.child["source"])
         cls.registered = world.register("registration-root", world.body(["rsi@1"], {"rsi@1": cls.root_review},
                                                                           comparison=None))
+        world.seal_run(world.research_trial("registration-root", source("root")), "invalid")
+        world.judge("interpretation", subjects=[{"role": "about", "registration_bundle": "registration-root"}])
 
     def setUp(self):
         self.world = self.__class__.world
@@ -143,7 +146,7 @@ class RegisterTests(unittest.TestCase):
         self.world.register("registration-no-slice", without_slice)
 
     def test_a_root_may_predict_mechanisms_on_any_duty(self):
-        root = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
+        root = self.world.body(["rsi@1"], {"rsi@1": self.root_review}, retry_of="registration-root")
         root["prediction"]["mechanism"] = [{"slice": "by_period", "measure": "months_won_share", "direction": "up",
                                             "duty": "B1", "reason": "the mispricing persists across months"}]
         self.assertFalse(self.world.register("registration-root-predicted", root)["replayed"])
@@ -411,7 +414,9 @@ class LineRecordTests(unittest.TestCase):
                                                          for item in batch}))
         for item in batch[:-1]:  # with the root trial, one research trial short of the breaker (none completed)
             world.research_trial("registration-batch", item["source"])
-        world.register("registration-unfinished", self.derived())  # the root trial has no run: not completed yet
+        unfinished = world.publish("unfinished", parent=None)  # the root trial has no run: not completed yet
+        world.register("registration-unfinished", world.body([unfinished["candidate"]], {
+            unfinished["candidate"]: world.prechecked(unfinished["source"])}))
         trial_id = world.seal_run(self.root_trial)
         another = world.publish("second child")
         review = world.prechecked(another["source"])
@@ -461,6 +466,36 @@ class LineRecordTests(unittest.TestCase):
         blank_run = world.seal_run(trial_id)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
         self.assertEqual(self.code(self.derived(control_trial_id=blank_run)), "IDENTITY_MALFORMED")
+
+    def test_without_a_control_the_parents_runs_show_its_fault_or_zero_activity(self):
+        world = self.world
+        world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
+        restart = self.derived(rationale={"external": "", "local": "the parent's runtime contract no longer runs",
+                                          "conjecture": "the same idea holds on the new contract"})
+        exc = refused(world.register, "registration-child", restart)
+        self.assertEqual((exc.code, exc.missing), ("REGISTRATION_INVALID", ("control_trial_id",)),
+                         "a parent without a completed research run shows no fault")
+        world.seal_run(self.root_trial, fills=3)
+        exc = refused(world.register, "registration-child", restart)
+        self.assertEqual((exc.code, exc.missing), ("REGISTRATION_INVALID", ("control_trial_id",)),
+                         "another reason, such as a contract that no longer runs, does not excuse the control")
+        self.assertIn("as a root", exc.message)
+        root = world.publish("restart", parent=None)
+        registered = world.register("registration-restart", world.body([root["candidate"]], {
+            root["candidate"]: world.prechecked(root["source"])}, comparison=None, rationale=restart["rationale"]))
+        self.assertFalse(registered["replayed"], "a root registers without parent or control as before")
+
+    def test_a_parent_run_with_zero_activity_admits_a_child_without_a_control(self):
+        self.world.seal_run(self.root_trial, fills=0)
+        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
+        registered = self.world.register("registration-child", self.derived(comparison=None))
+        self.assertIsNone(self.world.plan("registration-child")["body"]["comparison"])
+        self.assertFalse(registered["replayed"])
+
+    def test_a_faulted_parent_run_admits_a_child_without_a_control(self):
+        self.world.seal_run(self.root_trial, "invalid")
+        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
+        self.assertFalse(self.world.register("registration-child", self.derived())["replayed"])
 
 
 @unittest.skipUnless(BINARY, SKIP)
