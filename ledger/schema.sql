@@ -213,6 +213,25 @@ CREATE TABLE judgment_subject (
   CHECK (role NOT IN ('recommended', 'parent', 'control') OR strategy_id IS NOT NULL)
 );
 
+-- The user's two research targets for one line, or the ledger default (line_bundle NULL). A change is
+-- a new row superseding the one in force for the same scope, so the targets in force are the end of
+-- that chain (ledger/targets.py). Added to generation 3 by `ledger upgrade`; a version without this
+-- table holds no targets.
+CREATE TABLE line_target (
+  target_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  line_bundle VARCHAR(160) NULL,
+  max_drawdown DECIMAL(7,4) NOT NULL,
+  annual_return DECIMAL(7,4) NOT NULL,
+  supersedes BIGINT NULL UNIQUE,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  FOREIGN KEY (line_bundle) REFERENCES evidence_bundle (bundle),
+  FOREIGN KEY (supersedes) REFERENCES line_target (target_id),
+  CHECK (line_bundle IS NULL OR line_bundle LIKE 'research-line-%'),
+  CHECK (max_drawdown > 0 AND max_drawdown < 1),
+  CHECK (annual_return > 0)
+);
+
 -- RFC 3161 token of a validation registration's birth commit (ledger/witness.py); its time is
 -- the token's genTime, verified offline against the pinned roots.
 CREATE TABLE witness (
@@ -332,6 +351,7 @@ CREATE TRIGGER run_created BEFORE INSERT ON run FOR EACH ROW SET NEW.created_at 
 CREATE TRIGGER run_sealed_created BEFORE INSERT ON run_sealed FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER validation_registration_created BEFORE INSERT ON validation_registration FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER judgment_created BEFORE INSERT ON judgment FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER line_target_created BEFORE INSERT ON line_target FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 
 -- Commit verification (group `commit`, set service-wide by `ledger.init`): guards the normal path;
 -- `--skip-verification` bypasses it, so it is not a trust boundary. Each query counts violations.

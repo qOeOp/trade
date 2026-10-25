@@ -1,7 +1,7 @@
 """If this fails, `research graph` no longer rebuilds a line from the ledger alone as a valid,
 repeatable research-graph/2 document: versions with their source, runs and measures, the recommendation,
-a failed review that masks a run, the judgments as events, and only the line's own runs. A
-throwaway ledger, never the active one."""
+a failed review that masks a run, the judgments as events, the targets in force for the line and
+only the line's own runs. A throwaway ledger, never the active one."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import unittest
 
-from ledger import db, lines, strategies
+from ledger import db, lines, strategies, targets
 from qualification import availability
 from registration import precheck
 from replay import entry
@@ -42,9 +42,11 @@ class ResearchGraphTests(unittest.TestCase):
         first, second = cls.refs
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                 {"role": "about", "candidate": second}])
+        with db.connect(world.profile, "writer") as conn:
+            targets.set_targets(conn, None, 0.15, 0.2)
 
     def graph(self, **options):
-        return graph.research_graph(self.world.profile, max_drawdown=0.15, annual_return=0.2, **options)
+        return graph.research_graph(self.world.profile, **options)
 
     def test_1_the_line_is_a_valid_repeatable_graph_from_the_ledger(self):
         found = self.graph()

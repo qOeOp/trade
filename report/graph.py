@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 import copy
 
 from ledger import db, lines
+from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -88,16 +89,14 @@ def _reusing(read: Callable) -> Callable:
     return market_returns
 
 
-def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
-                   max_drawdown: float | None = None, annual_return: float | None = None) -> dict:
-    """The research-graph/2 document of a line at a ledger version. The targets are the user's, read
-    by the caller from the line note; `since` marks where the scope under study starts."""
+def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None) -> dict:
+    """The research-graph/2 document of a line at a ledger version, with the user's targets in force for
+    the line at that version (ledger.targets); `since` marks where the scope under study starts."""
     with seams.use(market_returns=_reusing(seams.current.market_returns)):
-        return _document(profile, line_bundle, at, since, max_drawdown, annual_return)
+        return _document(profile, line_bundle, at, since)
 
 
-def _document(profile, line_bundle: str | None, at: str | None, since: str | None, max_drawdown: float | None,
-              annual_return: float | None) -> dict:
+def _document(profile, line_bundle: str | None, at: str | None, since: str | None) -> dict:
     profile = runs.profile_of(profile)
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
@@ -106,6 +105,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         if line is None:
             raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record", missing=("research-line",))
         record = lines.read_line(conn, line, None)
+        in_force = line_targets.targets_for(conn, line)
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
         on_line = set(lines.line_trials(conn, line)["trials"])
         sources = {row["source_sha256"] for row in conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
@@ -222,8 +222,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     events.append({"at": _iso(bundle_times.get(line)), "kind": "line_change", "ref": line,
                    "text": f"line selected; start {record['start']}", "recommends": None})
     events.sort(key=lambda e: e["at"] or "")
-    targets = None if max_drawdown is None and annual_return is None else {"max_drawdown": max_drawdown,
-                                                                          "annual_return": annual_return}
+    targets = None if in_force is None else {key: in_force[key] for key in ("max_drawdown", "annual_return")}
     return {
         "format": FORMAT, "source": "ledger",
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
@@ -239,5 +238,5 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
             "Out-of-sample validation registrations and verdicts are not drawn.",
             "Times are the ledger's UTC times without a zone.",
-        ] + ([] if targets else ["No targets were given; they live in the line note and are passed by the caller."]),
+        ] + ([] if targets else ["No targets are set for this line or as the ledger default at this version."]),
     }

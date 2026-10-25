@@ -30,7 +30,7 @@ from typing import Literal
 
 import pymysql
 
-from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, witness
+from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, targets, witness
 from ledger.errors import Refusal, refusal
 from ledger.refusals import CATALOGUE, refuse
 
@@ -595,17 +595,38 @@ def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str,
                                   compared=lambda line_bundle, at: status.compared_candidates(profile, line_bundle, at))
 
 
+def _targets_options(command, omitted: str | None) -> None:
+    command.add_argument("--max-drawdown", required=omitted is None,
+                         help="the user's maximum drawdown as a fraction (0.15 for 15%%)" + (f"; {omitted}" if omitted else ""))
+    command.add_argument("--annual-return", required=omitted is None,
+                         help="the user's minimum annual return as a fraction (0.20 for 20%%)")
+
+
+def _targets(args) -> tuple[str, str] | None:
+    """(maximum drawdown, minimum annual return) as given, None when both are omitted."""
+    given = (args.max_drawdown, args.annual_return)
+    if given == (None, None):
+        return None
+    if None in given:
+        raise refuse("TARGETS_INVALID", "give both research targets or neither",
+                     expected="--max-drawdown and --annual-return together")
+    return given
+
+
 def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
-                market_at: str | None, note: str | None, slug: str) -> dict:
-    """line select: the user's research line (start candidate, development window, pinned market commit)."""
+                market_at: str | None, note: str | None, slug: str, line_targets: tuple | None = None) -> dict:
+    """line select: the user's research line (start candidate, development window, pinned market commit)
+    and, when given, the user's targets for it."""
     from qualification import availability
     first, last = _utc_day(window_start), _utc_day(window_end)
     selected = lines.select_line(conn, market["database"], market_at or "main", first, last, start, note, slug=slug,
-                                 market=_market_facts(market), reviews=availability.review_records)
+                                 market=_market_facts(market), reviews=availability.review_records,
+                                 targets=line_targets)
     return {"bundle": selected["bundle"], "start": start,
             "window": {"start": first.isoformat(), "end": last.isoformat()},
             "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
-            "content_sha256": selected["content_sha256"], "created": selected["created"]}
+            "content_sha256": selected["content_sha256"], "created": selected["created"],
+            "targets": selected["targets"]}
 
 
 # registration, hypothesis
@@ -899,7 +920,7 @@ def _parser() -> Parser:
         return group.add_parser(name, help=help_text, description=help_text, epilog=RUNNER_EPILOG,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export")
+    ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export")
     command = ledger.add_parser("init", help="initialize a new research ledger profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
@@ -929,6 +950,10 @@ def _parser() -> Parser:
     _at(command)
     command.add_argument("--trial-id", type=int, action="append", dest="trial_ids",
                          help="a run to list in the manifest (repeatable; default: every run)")
+    command = ledger.add_parser("upgrade", help="add the tables this product version writes (administrator)")
+    command.epilog = ("Creates the tables and triggers of ledger/schema.sql the research branch lacks, in one commit "
+                      "through the commit checks. Existing tables, rows, accounts and grants are untouched.")
+    _ledger_option(command)
 
     candidate = verbs("candidate", "candidates: publish, show, export, new, list")
     command = candidate.add_parser("publish", help="publish one single-file source as a candidate")
@@ -995,7 +1020,7 @@ def _parser() -> Parser:
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
 
-    line = verbs("line", "research lines: select, close")
+    line = verbs("line", "research lines: select, targets, close")
     command = line.add_parser("select", help="record the user's research line")
     command.epilog = ("One record per choice: a later change of start, window or market commit is a new line "
                       "record, never an edit. The UTC date and --slug name the line and its closing tag.")
@@ -1006,10 +1031,19 @@ def _parser() -> Parser:
     command.add_argument("--window-start", required=True, help="development window start, YYYY-MM-DD UTC")
     command.add_argument("--window-end", required=True, help="development window end (exclusive), YYYY-MM-DD UTC")
     command.add_argument("--market-at", help="market commit, tag or branch to pin (default: main)")
-    command.add_argument("--note", help="the user's two research targets (maximum drawdown, minimum annual return) "
-                                        "and other context")
+    command.add_argument("--note", help="the user's context for the line")
+    _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
                          help="the line's direction as lowercase words joined by hyphens")
+    command = line.add_parser("targets", help="record the user's research targets for the current line or the default")
+    command.epilog = ("The targets are the user's, recorded only as the user states them; they guide reading reports, "
+                      "never candidate eligibility. A change supersedes the targets in force, and the same targets "
+                      "again write nothing. A line without its own targets reads the ledger default.")
+    _ledger_option(command)
+    scope = command.add_mutually_exclusive_group()
+    scope.add_argument("--line", help="the current research line (default: the current line)")
+    scope.add_argument("--default", action="store_true", help="the ledger default for lines without their own")
+    _targets_options(command, None)
     command = line.add_parser("close", help="tag an ended line's last commit with its summary")
     _ledger_option(command)
     command.add_argument("--line", required=True, help="an ended line research state lists under unclosed_lines")
@@ -1058,13 +1092,12 @@ def _parser() -> Parser:
     _at(command)
     command = research.add_parser("graph", help="the line as a research-graph/2 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
-                      "targets are the user's, read from the line note; --since marks where the scope under study "
-                      "starts. Check, render and compare it with services/research-graph/graph.py. Writes nothing.")
+                      "targets are the ones in force for the line at that commit (`line targets`); --since marks "
+                      "where the scope under study starts. Check, render and compare it with "
+                      "services/research-graph/graph.py. Writes nothing.")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the current line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")
-    command.add_argument("--max-drawdown", type=float, help="the user's maximum drawdown target as a fraction (0.15)")
-    command.add_argument("--annual-return", type=float, help="the user's minimum annual return target as a fraction (0.20)")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -1244,6 +1277,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
                                            args.output), 0
     profile = ledger_profile(args.ledger)
+    if key == ("ledger", "upgrade"):
+        return db.upgrade(profile), 0
     if key == ("ledger", "service"):
         return ledger_service(profile, args.action), 0
     if key == ("ledger", "sql"):
@@ -1281,7 +1316,14 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         market = market_profile(args.market)
         with db.connect(profile, "writer") as conn:
             return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
-                               args.note, args.slug), 0
+                               args.note, args.slug, _targets(args)), 0
+    if key == ("line", "targets"):
+        with db.connect(profile, "writer") as conn:
+            line_bundle = None if args.default else args.line or (lines.current_line(conn) or {}).get("bundle")
+            if line_bundle is None and not args.default:
+                raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record",
+                             missing=("research-line",))
+            return targets.set_targets(conn, line_bundle, args.max_drawdown, args.annual_return), 0
     if key == ("line", "close"):
         return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
     if key == ("registration", "add"):
@@ -1297,8 +1339,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                   history_before=args.history_before, full=args.full), 0
     if key == ("research", "graph"):
         from report import graph
-        return graph.research_graph(profile, args.line, args.at, since=args.since, max_drawdown=args.max_drawdown,
-                                    annual_return=args.annual_return), 0
+        return graph.research_graph(profile, args.line, args.at, since=args.since), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

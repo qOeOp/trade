@@ -31,9 +31,11 @@
 | <Ref id="cli.ledger_service">ledger_service</Ref> | 启动、停止、查看账本数据库服务 |
 | <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本 |
 | <Ref id="cli.ledger_temp">ledger_temp</Ref> | 在临时根下起一个隔离的测试账本 |
+| <Ref id="cli.ledger_upgrade">ledger_upgrade</Ref> | 命令行入口 ledger upgrade（管理员）：补建研究分支上缺的表与触发器，一次提交；模式代数与已有记录不变 |
 | <Ref id="cli.ledger_witness">ledger_witness</Ref> | 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证 |
 | <Ref id="cli.line_close">line_close</Ref> | 命令行 line close：给一条已结束的研究路线封盘，总结写进 tag 消息 |
-| <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注），把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
+| <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注）及用户为它给的两个研究目标，把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
+| <Ref id="cli.line_targets">line_targets</Ref> | 命令行 line targets：记录用户为当前路线或账本默认值给出的两个研究目标；改目标取代原来生效的，同值不写 |
 | <Ref id="cli.main">main</Ref> | 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，是写市场库的唯一入口 |
@@ -43,7 +45,7 @@
 | <Ref id="cli.replay_report">replay_report</Ref> | 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图 |
 | <Ref id="cli.replay_run">replay_run</Ref> | 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration） |
 | <Ref id="cli.research_state">research_state</Ref> | 命令 research state：调用 report.research_state，输出 JSON |
-| research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph/1 JSON；--max-drawdown/--annual-return 传入用户目标，--since 标出范围起点 |
+| research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph/1 JSON；用户目标取该提交上这条路线生效的那一组，--since 标出范围起点 |
 | <Ref id="cli.research_status">research_status</Ref> | 命令行读研究事实计数与一条路线的对照表：research status [--line \<路线>] [--at \<版本>]，JSON 原样输出 |
 | <Ref id="cli.source_review">source_review</Ref> | 命令行入口：追加独立源码审查结论，绑定候选源码与运行环境身份及其原生预检试验 |
 | <Ref id="cli.validation_registration">validation_registration</Ref> | 命令行入口：登记一次样本外验证并取凭证，JSON 输出 |
@@ -653,6 +655,34 @@ def ledger_temp(root: path | None) -> {profile
 
 </div>
 
+### `ledger upgrade` [#def-cli-ledger_upgrade]
+
+命令行入口 ledger upgrade（管理员）：补建研究分支上缺的表与触发器，一次提交；已有表、行、账号与授权不变
+
+此命令由 CLI 分发逻辑直接调用 `ledger.db.upgrade`，没有独立的 `ledger_upgrade` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案" } }} />
+
+**返回**　JSON：\{database, branch, created, commit\}；没有可建的时 created 为空、commit 为 null
+
+**期望行为**
+
+1. 以服务管理员连接研究 branch，按模式文件补建库里没有的表与触发器，一次提交并经提交校验组；不改 ledger_schema 的代数。拒绝码原样输出。
+2. 产品新版本要写的表账本里还没有时，写命令拒绝 LEDGER_UPGRADE_REQUIRED，next_actions 指向本命令；跑完后重跑原命令。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_UNKNOWN` | 服务目录下没有服务配置 |
+| `DIRTY_WORKING_SET` | 研究 branch 的工作集有未提交改动 |
+
+**使用**　<Ref id="ledger.upgrade" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.3.1">J.3.3.1</Ref>
+
+</div>
+
 ### `ledger_witness` [#def-cli-ledger_witness]
 
 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证
@@ -708,7 +738,7 @@ def ledger_witness(profile: path, tsa_url: str | None) -> JSON {checked
 
 ### `line_select` [#def-cli-line_select]
 
-命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注），把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。
+命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注）及用户为它给的两个研究目标，把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。
 
 ```python
 def line_select(
@@ -720,18 +750,20 @@ def line_select(
     market_at: str,
     note: str | None,
     slug: str,
+    max_drawdown: str | None,
+    annual_return: str | None,
 ) -> JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本服务地址与数据库名，经 ledger.connect 以写账号打开一条连接" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本服务地址与数据库名，经 ledger.connect 以写账号打开一条连接" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "max_drawdown": { type: "str | None", description: "用户为这条路线给的最大回撤上限，比例（0.15 即 15%）；与 annual_return 同给或同缺" }, "annual_return": { type: "str | None", description: "用户为这条路线给的最低年化收益，比例（0.20 即 20%）；两者都缺时路线读账本默认值" } }} />
 
-**返回**　JSON：\{bundle, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created\}；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
+**返回**　JSON：\{bundle, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created, targets\}；targets 为这条路线生效的目标（ledger.targets_for 的形态，或 null）；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
 
 **期望行为**
 
-1. 解析参数：两个日期须为 YYYY-MM-DD 的 UTC 日，格式不符即拒绝 WINDOW_INVALID，不读宿主时区。
+1. 解析参数：两个日期须为 YYYY-MM-DD 的 UTC 日，格式不符即拒绝 WINDOW_INVALID，不读宿主时区；两个目标只给一个即 TARGETS_INVALID。
 2. 经 ledger.connect 以写账号打开一条账本连接。
-3. 调用 ledger.select_line，起点、窗口、市场提交与备注原样传入，并传入 qualification.review_records 供起点审查核对；不在命令行层做任何改写。
+3. 调用 ledger.select_line，起点、窗口、市场提交、备注与目标原样传入，并传入 qualification.review_records 供起点审查核对；目标与路线在同一提交写入；不在命令行层做任何改写。
 4. 把返回或拒绝码按 cli.main 的统一格式输出为 JSON，并写明是否已写入。
 
 | 拒绝码 | 条件 |
@@ -743,12 +775,46 @@ def line_select(
 | `WINDOW_OUT_OF_COVERAGE` | 由 select_line 返回：窗口终点晚于钉住提交的最新完整日 |
 | `LINE_SLUG_INVALID` | 由 select_line 返回：slug 形态不合 |
 | `LINE_CONFLICT` | 由 select_line 返回：同一天、同一 slug 的路线已存在且选择不同 |
+| `TARGETS_INVALID` | 只给了一个目标，或由 select_line 返回：目标超出范围 |
+| `LEDGER_UPGRADE_REQUIRED` | 由 select_line 返回：给了目标而账本还没有 line_target 表 |
 
 **使用**　<Ref id="cli.main" />、<Ref id="ledger.connect" />、<Ref id="ledger.select_line" />
 
 <div className="rd-meta">
 
 **关联章节**　<Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="J.6.3.1">J.6.3.1</Ref>
+
+</div>
+
+### `line targets` [#def-cli-line_targets]
+
+命令行 line targets：记录用户为当前路线或账本默认值给出的两个研究目标，把参数交给 ledger.set_targets
+
+此命令由 CLI 分发逻辑直接调用 `ledger.targets.set_targets`，没有独立的 `line_targets` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案，以写账号打开一条连接" }, "line": { type: "str | None", description: "当前研究路线包名；缺省取当前路线；与 --default 互斥" }, "default": { type: "bool", description: "写账本默认值，供没有自己目标的路线读" }, "max_drawdown": { type: "str", description: "用户的最大回撤上限，比例（0.15 即 15%），必填" }, "annual_return": { type: "str", description: "用户的最低年化收益，比例（0.20 即 20%），必填" } }} />
+
+**返回**　JSON：\{max_drawdown, annual_return, source, target_id, created_at, line, written, commit\}；与生效的目标同值时 written=false
+
+**期望行为**
+
+1. 两个目标须同时给出；没有 --line 也没有 --default 时取当前路线，账本还没有路线即 RESEARCH_LINE_REQUIRED。
+2. 调用 ledger.set_targets；拒绝码原样输出。
+3. 目标是用户的：Agent 只照用户的话写，不自己改；它们只作读报告的参照，不参与候选资格。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TARGETS_INVALID` | 少给一个目标，或目标超出范围 |
+| `RESEARCH_LINE_REQUIRED` | 未给 --default 而账本还没有研究路线 |
+| `LINE_UNKNOWN` | 由 set_targets 返回：--line 不是已有路线 |
+| `LINE_ENDED` | 由 set_targets 返回：--line 是已结束的路线 |
+| `LEDGER_UPGRADE_REQUIRED` | 由 set_targets 返回：账本还没有 line_target 表 |
+
+**使用**　<Ref id="ledger.set_targets" />、<Ref id="ledger.current_line" />、<Ref id="table:line_target" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.4.1.1">E.4.1.1</Ref> <Ref id="A.2.3.3">A.2.3.3</Ref>
 
 </div>
 
@@ -767,7 +833,7 @@ def main(argv: list[str]) -> int 退出码
 **期望行为**
 
 1. 调用方式：在仓库根目录运行 `uv run --frozen python -m cli.main <名词> <动词> …`；名词与动词取自各子命令定义的函数名，如 registration add、hypothesis compare、source review、execution recover、validation registration、market lifecycle。不设控制台入口。
-2. 解析名词与动词，查分派表取子命令：ledger witness、evidence add、line select 在此以写账号开连接，ledger review、research state 以读账号开连接，其余命令只拿到解析好的账本档案与市场档案，连接由下层自开；`--` 之后的运行器参数只交给 replay explore / precheck / run 与 registration add，其他命令带了即 USAGE_ERROR；未知命令或缺必填参数即 USAGE_ERROR。
+2. 解析名词与动词，查分派表取子命令：ledger witness、evidence add、line select、line targets 在此以写账号开连接，ledger review、research state 以读账号开连接，其余命令只拿到解析好的账本档案与市场档案，连接由下层自开；`--` 之后的运行器参数只交给 replay explore / precheck / run 与 registration add，其他命令带了即 USAGE_ERROR；未知命令或缺必填参数即 USAGE_ERROR。
 3. 需要连接时按角色调用 ledger.connect 打开一条连接交给子命令；账本服务不可达即 LEDGER_UNAVAILABLE。
 4. 调用子命令，把返回字典序列化为 JSON 写标准输出，退出 0。
 5. 捕获 ledger.refusal：把拒绝码（含下层的 CONCURRENT_WRITE、DIRTY_WORKING_SET、LEDGER_PERMISSION 等）、说明、下一步动作与写入状态写标准错误，退出 1；事务未提交为 not_written，连接在提交时中断为 unknown。
@@ -778,7 +844,7 @@ def main(argv: list[str]) -> int 退出码
 | `USAGE_ERROR` | 名词或动词不在分派表，或必填参数缺失、类型不符 |
 | `LEDGER_UNAVAILABLE` | 按档案连接账本服务失败 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="cli.ledger_init" />、<Ref id="cli.ledger_service" />、<Ref id="cli.ledger_temp" />、<Ref id="cli.ledger_sql" />、<Ref id="cli.ledger_witness" />、<Ref id="cli.ledger_review" />、<Ref id="cli.ledger_export" />、<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="cli.candidate_export" />、<Ref id="cli.evidence_add" />、<Ref id="cli.evidence_export" />、<Ref id="cli.line_select" />、<Ref id="cli.registration_add" />、<Ref id="cli.registration_compare" />、<Ref id="cli.candidate_list" />、<Ref id="cli.research_status" />、<Ref id="cli.source_review" />、<Ref id="cli.execution_recover" />、<Ref id="cli.validation_registration" />、<Ref id="cli.validation_report" />、<Ref id="cli.replay_run" />、<Ref id="cli.replay_explore" />、<Ref id="cli.replay_precheck" />、<Ref id="cli.replay_report" />、<Ref id="cli.market_import" />、<Ref id="cli.market_coverage" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="cli.ledger_init" />、<Ref id="cli.ledger_service" />、<Ref id="cli.ledger_temp" />、<Ref id="cli.ledger_sql" />、<Ref id="cli.ledger_witness" />、<Ref id="cli.ledger_review" />、<Ref id="cli.ledger_export" />、<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="cli.candidate_export" />、<Ref id="cli.evidence_add" />、<Ref id="cli.evidence_export" />、<Ref id="cli.line_select" />、<Ref id="cli.line_targets" />、<Ref id="cli.ledger_upgrade" />、<Ref id="cli.registration_add" />、<Ref id="cli.registration_compare" />、<Ref id="cli.candidate_list" />、<Ref id="cli.research_status" />、<Ref id="cli.source_review" />、<Ref id="cli.execution_recover" />、<Ref id="cli.validation_registration" />、<Ref id="cli.validation_report" />、<Ref id="cli.replay_run" />、<Ref id="cli.replay_explore" />、<Ref id="cli.replay_precheck" />、<Ref id="cli.replay_report" />、<Ref id="cli.market_import" />、<Ref id="cli.market_coverage" />
 
 <div className="rd-meta">
 
@@ -1359,7 +1425,7 @@ def market_init(name: str, kind: Kind, service_root: Path, backup_root: Path | N
 
 market init: an empty market database (tables, import and reader accounts, profile with its backup directory, required for the active one); the first `market import` writes its schema row and commit tests. Administration happens only here and in `market backup`.
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L760)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L781)
 
 #### `market_backup` [#impl-cli-main-py-market_backup]
 
@@ -1369,7 +1435,7 @@ def market_backup(market: dict) -> dict
 
 market backup: the incremental dolt_backup sync of the market database to its profile's backup directory (ledger.market_backup).
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L768)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L789)
 
 #### `market_review` [#impl-cli-main-py-market_review]
 
@@ -1379,7 +1445,7 @@ def market_review(market: dict) -> dict
 
 market review: whether the latest market backup's head is still an ancestor of main; findings only.
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L774)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L795)
 
 #### `market_lifecycle` [#impl-cli-main-py-market_lifecycle]
 
@@ -1389,7 +1455,7 @@ def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, ma
 
 market lifecycle: the lifecycle evidence bundle lifecycle-&lt;commit&gt; of a market commit, from its manifest and the exchange notices it cites (registration.record_lifecycle).
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L797)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L818)
 
 #### `Parser` [#impl-cli-main-py-Parser]
 
@@ -1397,7 +1463,7 @@ market lifecycle: the lifecycle evidence bundle lifecycle-&lt;commit&gt; of a ma
 class Parser(argparse.ArgumentParser)
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L829)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L850)
 
 
 ## `cli/replay.py` [#def-mod-cli-replay-py]
