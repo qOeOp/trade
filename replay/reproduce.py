@@ -56,6 +56,11 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
                        _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
         if recorded.get("lifecycle_bundle"):
             runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
+        effective = (stored["capture"].get("input_coverage") or {}).get("effective_config")
+        account = comparability.config_key(effective)["account"]
+        if account.get("execution") == "quotes":
+            runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
+                            "--maintenance-margin", account["maintenance_margin_rate"]]
         identity = entry._resolve(trial["image_ref"])
         exported = None
         try:
@@ -66,8 +71,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
                 raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {trial_id} differ from the "
                                                       "recorded input identity", missing=("input_identity",))
             inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
-            if comparability.config_key(inspection.get("effective_config")) != comparability.config_key(
-                    (stored["capture"].get("input_coverage") or {}).get("effective_config")):
+            if comparability.config_key(inspection.get("effective_config")) != comparability.config_key(effective):
                 raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
                              missing=("effective_config",))
             coverage = entry._prepare(output, revision["source"], inspection, exported)
