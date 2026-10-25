@@ -7,8 +7,8 @@
 2. 所有数据公开，不存在私有存储：研究账本和市场库都推到公开的 DoltHub。
 3. 研究图谱网页做成 Docker 服务，从 Dolt 读数据渲染，不再一次性生成到 `/tmp`。
 
-本文是动手前的方案，已经过两轮独立子代理审阅（记录见文末）。**待用户定的两件事**：账本默认目标的数值
-（第 1 节），以及第 4 节的 4a 授权。
+本文是动手前的方案，已经过两轮独立子代理审阅（记录见文末）。同日用户又确认两件事：账本默认目标为回撤 0.15、
+年化 0.20；授权第 4 节的 4a（环境故障时 `research graph` 拒绝出图）。
 
 ## 起因与实测
 
@@ -71,7 +71,7 @@
   触发器和授权，一次提交并跑提交校验组。
 - 迁移后：给当前 EMA 路线写一条路线目标（回撤 0.15、年化 0.20），出自它说明里用户的原话
   「最大回撤不超过15%，最低年化收益20%」。
-- **账本默认值等用户确认数值后再写。**
+- 再写一条账本默认值：回撤 0.15、年化 0.20（用户 10-25 确认）。
 
 ## 2. 数据公开到 DoltHub
 
@@ -156,18 +156,17 @@
 - **4b**：在 `research_graph` 内用 `seams.use` 按 `(市场库, 提交, 规则, 起止)` 复用市场日收益，只在这一次
   调用内有效，不影响其他命令和测试替身；调用方只读结果，返回副本；异常不缓存。预期从约 75 s 降到约 25 s。
   验证方法：改前改后对同一提交取图，`graph.json` 逐字节相同。
-- **4a，需用户授权**：账本或市场库连不上时，`research graph` 现在会静默出一张缺比较的图，服务一缓存就一直给
+- **4a（用户 10-25 已授权）**：账本或市场库连不上时，`research graph` 现在会静默出一张缺比较的图，服务一缓存就一直给
   错图。改为只在 `research_graph` 里，遇到 `LEDGER_UNAVAILABLE`、`LEDGER_PERMISSION`、`SCHEMA_MISMATCH`、
-  `MARKET_UNREACHABLE` 就拒绝出图。无对照、不可比这类比较事实照旧。这收紧了一条拒绝路径。
-  不授权的退路：服务不缓存，每次都现取。
+  `MARKET_UNREACHABLE` 就拒绝出图。无对照、不可比这类比较事实照旧。
 
 ## 交付顺序
 
 1. `docs(plans)`：本文。
 2. `perf(report)`：4b，附 `graph.json` 逐字节一致的证据。
 3. `feat(ledger)`：`line_target`、`ledger upgrade`、`line select/targets`、`research state/graph` 读目标、
-   相关 skill 与评测。等用户确认默认值数值后开工。
-4. `fix(report)`：4a，等授权。
+   相关 skill 与评测。
+4. `fix(report)`：4a。
 5. `feat(ledger)`：`ledger publish` / `market publish`、写后自动发布、AGENTS.md 那一句。需要用户先建好两个
    公开库并 `dolt login`。
 6. `feat(research-graph)`：镜像、compose、`graph.py serve`、页面拉取模式。验收：`docker compose up` 后打开
