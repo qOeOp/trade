@@ -118,8 +118,11 @@ Any finding or any denied or rejected order fails the run.
 - When a bracket entry ends after a partial fill (GTD expiry, `cancel_order`, a modify down to the
   filled quantity), Nautilus keeps its stop and target, resized to the filled quantity; a second
   protection for that part doubles the exit orders. When the entry's fill bar also reaches the stop,
-  the stop fills and the target is canceled. `tests/engine/test_partial_entry_protection.py` replays
-  both natively.
+  the stop fills and the target is canceled. An OTO child follows its entry's fill: a child built
+  smaller than the entry (a partial target) is resized to the whole fill, so submit a partial exit as
+  its own reduce-only order after the entry fills; Nautilus then trims the open reduce-only stop to
+  the remaining position. An order dictionary marks no contingency with `None`.
+  `tests/engine/test_partial_entry_protection.py` replays these natively.
 - Nautilus owns fills, fees, funding, positions and the account. React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger. Size from native state: portfolio equity, the instrument's

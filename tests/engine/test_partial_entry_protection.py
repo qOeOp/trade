@@ -5,7 +5,9 @@ A native BacktestEngine replays on one-minute bars, with the pinned Nautilus:
   target, resized to the filled quantity, and the audit passes the bare bracket (before 2.0.0rc7 the venue
   canceled them and left the filled quantity unprotected);
 - an entry whose fill bar also reaches the stop: the stop fills and the target is canceled (before 2.0.0rc7
-  the target was rejected, which fails a run).
+  the target was rejected, which fails a run);
+- an OTO child smaller than its entry is resized to the entry's fill (before 2.0.0rc5 it kept its own
+  quantity), so a partial target is its own reduce-only order after the fill.
 """
 
 import contextlib
@@ -151,6 +153,48 @@ class SameBarStop(Strategy):
                 tp_price=Price.from_str("101.50")))
 
 
+class HalfTarget(Strategy):
+    """A market entry of 1.000 with a stop and a 0.500 target: an OTO child, or its own order after the fill."""
+
+    def __init__(self, as_child):
+        super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+        self.as_child, self.bars, self.entry_id = as_child, 0, None
+
+    def on_start(self):
+        self.subscribe_bars(BAR_TYPE)
+
+    def target(self):
+        return self.order_factory.limit(INSTRUMENT_ID, OrderSide.SELL, Quantity.from_str("0.500"),
+                                        Price.from_str("100.40"), reduce_only=True)
+
+    def on_bar(self, bar):
+        self.bars += 1
+        if self.bars != 2:
+            return
+        factory = self.order_factory
+        entry = factory.market(INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("1.000"))
+        children = [factory.stop_market(INSTRUMENT_ID, OrderSide.SELL, Quantity.from_str("1.000"),
+                                        Price.from_str("97.00"), reduce_only=True)]
+        if self.as_child:
+            children.append(self.target())
+        list_id = str(factory.generate_order_list_id())
+        data = entry.to_dict()
+        data.update(contingency_type="OTO", order_list_id=list_id,
+                    linked_order_ids=[str(child.client_order_id) for child in children])
+        entry = type(entry).from_dict(data)
+        self.entry_id = entry.client_order_id
+        linked = []
+        for child in children:
+            data = child.to_dict()
+            data.update(order_list_id=list_id, parent_order_id=str(entry.client_order_id))
+            linked.append(type(child).from_dict(data))
+        self.submit_order_list([entry, *linked])
+
+    def on_order_filled(self, event):
+        if not self.as_child and event.client_order_id == self.entry_id:
+            self.submit_order(self.target())
+
+
 class PartialEntryProtectionTests(unittest.TestCase):
     def stops(self, output: Path) -> list[tuple[str, str, str]]:
         with (output / "orders.csv").open(encoding="utf-8") as stream:
@@ -190,6 +234,31 @@ class PartialEntryProtectionTests(unittest.TestCase):
         engine.run()
         self.assertEqual(sorted((str(order.order_type), str(order.status)) for order in engine.cache.orders()),
                          [("LIMIT", "CANCELED"), ("LIMIT", "FILLED"), ("STOP_MARKET", "FILLED")])
+
+    def test_an_oto_child_follows_the_entry_fill_and_a_later_target_keeps_its_size(self):
+        for as_child, target, position in ((True, "1.000", "0.000"), (False, "0.500", "0.500")):
+            with self.subTest(as_child=as_child):
+                engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
+                                                             logging=LoggerConfig(stdout_level=LogLevel.OFF)))
+                try:
+                    add_venue(engine, fees())
+                    engine.add_instrument(INSTRUMENT)
+                    engine.add_strategy(HalfTarget(as_child))
+                    data = []
+                    for index in range(8):
+                        prices = [Price.from_str(value) for value in ("100.00", "100.50", "99.80", "100.00")]
+                        ts = int(START.timestamp() * 1e9) + (index + 1) * BAR_NS - 1_000_000
+                        data += [Bar(BAR_TYPE, *prices, Quantity.from_str("1000.000"), ts, ts),
+                                 MarkPriceUpdate(INSTRUMENT_ID, prices[3], ts, ts)]
+                    engine.add_data(data)
+                    engine.run()
+                    limits = [(str(order.quantity), str(order.status)) for order in engine.cache.orders()
+                              if order.order_type == OrderType.LIMIT]
+                    open_quantity = sum((p.quantity.as_decimal() for p in engine.cache.positions_open()), Decimal(0))
+                finally:
+                    engine.dispose()
+                self.assertEqual(limits, [(target, "FILLED")])
+                self.assertEqual(open_quantity, Decimal(position))
 
 
 if __name__ == "__main__":

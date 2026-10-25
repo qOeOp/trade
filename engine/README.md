@@ -101,10 +101,10 @@ lifecycle events are read whole. Events of one `ts_init` keep the node's order (
 by contract: MARK, funding, bars, status, close) and the engine gets the node's chunks (50,000
 events, extended to the last event's `ts_init`). On the same inputs this gives the node's reports,
 event history, exposures and fingerprint; the runner adds each instrument once where the node added
-it once per configuration, which renumbers the venue order and trade IDs only. Six months of 40
-contracts take 1.3 GiB. The capital observer writes exposure rows as it values them and prints one
-JSON progress line to standard error every minute of wall time (simulation time, MARK updates,
-valued timestamps, RSS).
+it once per configuration, which renumbers the venue order and trade IDs only. Six months of 23
+contracts on one-minute bars peak at 0.7 GiB (0.9 GiB with the earlier seven-day reader). The
+capital observer writes exposure rows as it values them and prints one JSON progress line to
+standard error every minute of wall time (simulation time, MARK updates, valued timestamps, RSS).
 
 ## Explore a source
 
@@ -291,8 +291,13 @@ When the contract changes, the source must accept both constructors, and the ref
 checkout of the reference commit, whose `replay explore` passes that runner its own arguments. Inspect orders, fills, positions, fees, funding
 adjustments, account rows, returns and per-coin diagnostics, plus each run's audit. A clean exit is
 not parity. Before 2.0.0rc7, Nautilus rejected a bracket's target when the entry's fill bar reached its
-stop and canceled a partially filled entry's stop and target when the entry ended;
-`tests/engine/test_partial_entry_protection.py` replays both paths natively and fails if either returns.
+stop and canceled a partially filled entry's stop and target when the entry ended, and before
+2.0.0rc5 an OTO child kept a quantity smaller than its entry's fill (rc7 resizes it to the fill);
+`tests/engine/test_partial_entry_protection.py` replays these paths natively and fails if one returns.
+Across rc3 and rc7 the comparator also reports two representation changes that carry no economics:
+the orders report writes an absent contingency or emulation trigger as empty (rc3:
+`NO_CONTINGENCY`, `NO_TRIGGER`), and the account report no longer repeats each funding
+settlement's state as a second `reported=False` row.
 
 ## History
 
