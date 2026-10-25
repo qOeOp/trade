@@ -15,7 +15,10 @@ selected (`line select`); everything inside it follows `research-round`.
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
   (`research status`), the research state and the current line record (`research state`), whose
   `targets` are the user's two research targets in force for the line (its own, else the ledger
-  default). After an interruption, or when the user
+  default). `candidate list`, `research state` and `research status` print large JSON: redirect
+  each to a file under /tmp and read only the keys you need (for example with `jq`), such as
+  `line`, `targets`, `gates`, `unclosed_lines`, `recommendation` and `unreviewed_trials`, never
+  the whole output. After an interruption, or when the user
   says to continue, continue that line under `research-round` without asking. A new session started
   with only `research-start` asks once: continue the current line (its state and next step) or
   choose another line (Offer lines and wait).
