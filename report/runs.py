@@ -193,7 +193,8 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
     plan_tag, closing_order_type, closing_order_tag), daily_returns (ts_event_ns, native_return,
     mean_gross_notional), reconciled (closed-cycle totals), availability, metrics_revision,
     ledger_commit, limitations, and orders, fills, account, exposures, order_events, reproduction
-    (None without a reproduction; account and exposures only when asked)."""
+    (None without a reproduction; account and exposures only when asked), and null_reasons (by table
+    name, why each of those native tables is None and the step that fills it)."""
     profile = profile_of(ledger)
     with db.read_as_of(profile, at) as conn:
         facts = measures.run_facts(conn, trial_id)
@@ -242,8 +243,26 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
             recovered["realized_pnl_source"] = "verified-native-reproduction"
         found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction,
                      positions=_typed_cycles(native))
+    found["null_reasons"] = _native_null_reasons(found, trial_id, account, exposures)
     found["limitations"] = dedupe(limitations)
     return found
+
+
+def _native_null_reasons(found: dict, trial_id: int, account: bool, exposures: bool) -> dict:
+    """Why each native table of `found` is None, naming the step that fills it."""
+    asked = {"account": account, "exposures": exposures}
+    reasons = {}
+    for name in ("orders", "fills", "account", "exposures", "order_events"):
+        if found[name] is not None:
+            continue
+        if found["reproduction"] is None:
+            reasons[name] = (f"REPRODUCTION_REQUIRED: native {name} come only from a verified reproduction; run "
+                             f"`replay reproduce --trial-id {trial_id} --output <new /tmp directory>` (it records an "
+                             f"explore trial) and pass its directory as --reproduction and its "
+                             f"reproduction_trial_id as --reproduction-trial")
+        elif not asked.get(name, True):
+            reasons[name] = f"NOT_REQUESTED: pass --{name}"
+    return reasons
 
 
 def _mismatch(directory: Path, trial_id: int, why: str, *missing: str) -> Refusal:
