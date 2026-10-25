@@ -1,6 +1,6 @@
 # 代码设计：账本
 
-`ledger/`　研究账本：连接与单事务写入、候选发布、证据包、试验与运行入账、执行封存、原生绩效指标、研究计数、时间戳凭证、导出与整体复核。所有写入经 CLI 到达这里。
+`ledger/`　研究账本：连接与单事务写入、候选发布、证据包、试验与运行入账、执行封存、原生绩效指标、研究计数、时间戳凭证、导出、公开发布与整体复核。所有写入经 CLI 到达这里。
 
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
@@ -17,6 +17,7 @@
   <File name="metrics.py" />
   <File name="paths.py" />
   <File name="problems.py" />
+  <File name="publish.py" />
   <File name="refusals.py" />
   <File name="strategies.py" />
   <File name="targets.py" />
@@ -2154,6 +2155,119 @@ def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None=N
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/problems.py#L259)
 
+
+## `ledger/publish.py` [#def-mod-ledger-publish-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.publish">publish</Ref> | 管理员把库的一个分支普通推送到 origin，抓取核对远端头等于本地头后，再逐个推送全部标签；不强推，远端历史在别处被改过即拒绝 |
+| <Ref id="ledger.set_remote">set_remote</Ref> | 给库命名一次 origin 远端；DoltHub 远端同时把用户 `dolt login` 的密钥装进服务自己的 Dolt 主目录 |
+| <Ref id="ledger.unpublished">unpublished</Ref> | 只读本地：库有 origin，且 origin 的跟踪头不等于本地分支头 |
+
+### `publish` [#def-ledger-publish]
+
+管理员把库的一个分支普通推送到 origin，抓取核对远端头等于本地头后，再逐个推送全部标签；不强推，远端历史在别处被改过即拒绝
+
+```python
+def publish(profile: LedgerProfile, branch: str, lock: str | None = None) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本或市场库的档案；以服务管理员连接" }, "branch": { type: "str", description: "要推送的分支：研究账本的固定研究分支，市场库的 main" }, "lock": { type: "str | None = None", description: "市场库的导入锁 market-import:<库名>；给出时推送期间持锁，没有导入能落地" } }} />
+
+**返回**　dict：\{database, remote, branch, head, previous_head, tags\}；previous_head 是推送前 origin 的跟踪头（第一次发布为 null），tags 是推送的标签数
+
+**期望行为**
+
+1. 读 origin 远端，没有即 REMOTE_UNSET；远端须合乎库的种类，规则同 ledger.set_remote。
+2. 给了 lock 时以 GET_LOCK(lock, 0) 取锁，取不到即 CONCURRENT_IMPORT，什么都不推；连接关闭时释放。
+3. 普通推送 branch，不强推：远端历史不是本地历史的祖先即 PUBLISH_REJECTED，之后什么都不推；其他推送失败即 PUBLISH_FAILED。
+4. DOLT_FETCH 后核对 origin 的跟踪头等于推送前读到的本地头；抓取失败或不等即 PUBLISH_FAILED。
+5. 分支核对通过后按名字逐个推送 refs/tags/\<名字>：Dolt 2.4.2 没有 --tags；推送的标签会无提示地替换远端同名而内容不同的标签（实测），产品从不移动标签，所以只在分支核对过之后推。
+6. 失败不回滚本地写入，重跑即补推。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REMOTE_UNSET` | 库没有 origin 远端 |
+| `PUBLISH_FORBIDDEN / REMOTE_INVALID` | origin 不合乎库的种类（同 ledger.set_remote） |
+| `CONCURRENT_IMPORT` | 给了 lock，而一个导入正持有它 |
+| `PUBLISH_REJECTED` | 远端历史不是本地历史的祖先（公开副本在别处被改过）；不强推，标签也不推 |
+| `PUBLISH_FAILED` | 推送或抓取失败（网络、凭据或 DoltHub），或抓取后的远端头不是本地头 |
+| `LEDGER_UNAVAILABLE` | 服务管理员连不上 |
+
+**使用**　<Ref id="ledger.set_remote" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref>
+
+**依据**
+
+- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+
+</div>
+
+### `set_remote` [#def-ledger-set_remote]
+
+给库命名一次 origin 远端；DoltHub 远端同时把用户 `dolt login` 的密钥装进服务自己的 Dolt 主目录
+
+```python
+def set_remote(profile: LedgerProfile, url: str) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本或市场库的档案；以服务管理员连接" }, "url": { type: "str", description: "DoltHub 仓库 https://doltremoteapi.dolthub.com/<owner>/<repository>，或本地 file:// 远端" } }} />
+
+**返回**　dict：\{database, remote, credentials, added\}；credentials 是装入的密钥名（file:// 远端为 null），origin 已是这个地址时 added=false
+
+**期望行为**
+
+1. file:// 远端任何库都能用；其余远端只给活动库，隔离库和临时库即 PUBLISH_FORBIDDEN；活动库的远端须是 DoltHub 仓库地址，否则 REMOTE_INVALID。
+2. DoltHub 远端：服务以 `<服务目录>/home` 为 Dolt 主目录，看不到用户的 `~/.dolt`。从用户的 Dolt 主目录（DOLT_ROOT_PATH，缺省为用户主目录）读 config_global.json 的 user.creds 和对应的 creds/\<密钥>.jwk，复制到 `<服务目录>/home/.dolt/creds`（权限 0600），再把那里 config_global.json 的 user.creds 设为这个密钥；读不到即 DOLTHUB_CREDENTIALS。
+3. 以服务管理员读 dolt_remotes：没有 origin 即 DOLT_REMOTE('add', 'origin', url)；已是同一地址不变；是别的地址即 REMOTE_MISMATCH，不替换，换公开副本要用户授权。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PUBLISH_FORBIDDEN` | 隔离库或临时库给了 file:// 之外的远端 |
+| `REMOTE_INVALID` | 活动库的远端既不是 DoltHub 仓库也不是 file:// |
+| `DOLTHUB_CREDENTIALS` | 用户的 Dolt 主目录里没有 `dolt login` 的密钥 |
+| `REMOTE_MISMATCH` | 库已有指向别处的 origin |
+| `LEDGER_UNAVAILABLE` | 服务管理员连不上 |
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref>
+
+**依据**
+
+- [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+
+</div>
+
+### `unpublished` [#def-ledger-unpublished]
+
+只读本地：库有 origin，且 origin 的跟踪头不等于本地分支头
+
+```python
+def unpublished(profile: LedgerProfile, branch: str) -> bool
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本或市场库的档案；以服务管理员连接" }, "branch": { type: "str", description: "要比较的本地分支" } }} />
+
+**返回**　bool：有 origin 且 remotes/origin/\<branch> 的跟踪头不等于本地 branch 头时为 true；没有 origin 为 false
+
+**期望行为**
+
+1. 只读本地的 dolt_remotes、dolt_branches 和 dolt_remote_branches，不连网络；跟踪头是上一次推送或抓取记下的。
+2. 命令写完后据此决定要不要发布（cli.publish_after）。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_UNAVAILABLE` | 服务管理员连不上 |
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref>
+
+</div>
 
 ## `ledger/refusals.py` [#def-mod-ledger-refusals-py]
 
