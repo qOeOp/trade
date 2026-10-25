@@ -21,6 +21,16 @@ ordinary strategy errors through [diagnosis.md](references/diagnosis.md). For a 
 defect, pass the observed behavior and conflicting product contract to `product-doctor` for focused
 diagnosis; attribution may remain unresolved.
 
+For a coverage gap, zero-volume minutes, missing funding or an inferred-quote contract, period or
+liquidation use not yet validated, load `research-start` through the host's skill invocation tool
+(reuse it if already loaded for this check), then read its
+[readiness rules](../research-start/references/readiness.md). Do not substitute a reference-only
+read: the entry defines how this check retains the current line and authority. If the host has no
+skill invocation tool, read both its entry and readiness reference. Return the full coverage
+disposition before interpreting the anomaly or choosing a response, including after a completed
+replay. This is an input-evidence check inside the selected line, not a new session or a request
+to reselect it.
+
 | Stage | Commands | Read for this stage |
 |---|---|---|
 | Sources and hypothesis | `evidence export`, `evidence add` | [hypothesis.md](references/hypothesis.md), `research-sources` |

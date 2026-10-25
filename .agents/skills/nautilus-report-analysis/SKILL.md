@@ -1,6 +1,6 @@
 ---
 name: nautilus-report-analysis
-description: Derives descriptive statistics from a sealed run's stored cycles, daily returns and reproduced native reports (ratios, deflated Sharpe, capital use, exit-reason splits, per-instrument or per-month tables, holding times) beyond the product's single-run and comparison reports. Use before computing any such number from tables() of a run, before comparing two runs trade by trade or by drawdown, and before reading fill sizes, liquidation prices or slippage of a quote-execution run (they are checked against Binance's published depth).
+description: Derives descriptive statistics from a sealed run's stored cycles, daily returns and reproduced native reports (ratios, deflated Sharpe, capital use, exit-reason splits, per-instrument or per-month tables, holding times) beyond the product's single-run and comparison reports. Use before computing any such number from tables() of a run, before comparing two runs trade by trade or by drawdown, and before interpreting liquidation outcomes, fill sizes, liquidation prices or slippage of a quote-execution run (check both quote suitability and Binance's published depth).
 ---
 
 # Native report analysis
@@ -54,6 +54,12 @@ and returned fields.
   entry parents, then split by the strategy's own tags before reading cancels as lost
   opportunities. Only one order's own event order is causal.
 
+- Before interpreting liquidation occurrence, timing, prices or account outcomes under inferred
+  quotes, read research-start's [quote readiness](../research-start/references/readiness.md#inferred-quotes-and-low-activity).
+  State the contract, period and use actually validated and any missing observed BBO or matched
+  native comparison. Depth checks do not validate quote freshness; native success, minute decisions
+  and BTC-only evidence cannot certify another scope. Report unverified claims explicitly without
+  correcting the run's fills, prices, measures or eligibility.
 - Under quote execution (`execution` is `quotes` in the run's summary), every fill, liquidation
   fills included, took its whole quantity at the best bid or ask with no depth. Before reading fill
   sizes, liquidation prices or slippage, check each fill against the venue's published depth

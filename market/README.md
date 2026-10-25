@@ -83,7 +83,12 @@ under another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EX
 `.CHECKSUM`; the `agg_trade_id` sequence must be contiguous within the day and continue the day before
 (`SEQUENCE_GAP`), the eve's archive is read for the carried state, times must not go backwards. The result
 reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract
-that trades in few seconds has stale inferred quotes, which the readings expose and no rule hides.
+with sparse trades may carry old inferred sides. These diagnostics are not per-side quote age or
+an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggregate p99 returned
+is the maximum daily p99, not a pooled monthly percentile. Validate suitability for each contract,
+period and intended liquidation use against observed BBO and matched native replay evidence;
+report missing evidence without automatically dropping contracts or shortening the window. See
+research-start's `references/readiness.md` for the boundary.
 Measured against Binance's native bookTicker on four first-of-month days the inferred BTCUSDT mid is within
 0.7 bps at p99 (`docs/plans/binance-aggtrades-quotes-liquidation-plan.zh.md`).
 

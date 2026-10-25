@@ -1,21 +1,85 @@
 # Readiness
 
-Read before the first replay of a line, when a coverage receipt shows a gap, zero volume or
-missing funding, and when a new month of data arrives. Read coverage facts with `market coverage`
-at the line's pinned commit (`--help` for its output).
+Read before the first replay of a line, whenever coverage or lifecycle receipts show a gap,
+zero-volume minutes or missing funding (including after a completed replay), when a new month
+arrives, and before inferred quotes are used for a new contract, period or liquidation scenario.
+Read coverage facts with `market coverage` at the line's pinned commit (`--help` for its output).
+A completed replay does not discharge the coverage-reporting duties below.
+
+## Coverage disposition
+
+When reporting any coverage anomaly, include all four parts in the final answer, even when the
+user asks only how to record it or what to do next. A diagnosis or a plan to inspect positions is
+not a substitute for the disposition.
+
+1. **Facts and block.** Separate bar gaps, zero-volume minutes and missing funding. Identify the
+   market commit, contracts, UTC intervals and counts the evidence gives; say the causes and any
+   economic effect are unproven. Distinguish a known missing input from an unreadable receipt or
+   missing verification. Do not infer a new product refusal or change a sealed run's eligibility.
+2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
+   contract and interval, and whether the full selected universe/window can be confirmed. Give
+   the supported range even when narrower than the selection, as information for the user, not a
+   chosen new scope. If only a gap is known, the periods outside it are only free of that specific
+   gap, conditional on other coverage; label that limitation. If funding dates, receipts or other
+   inputs are missing, say which part of the runnable range cannot yet be established and what
+   evidence would establish it. Do not invent a verified range, turn zero volume into missing
+   bars, or silently exclude a whole month because particular settlement times are unknown.
+3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
+   runs retained for resuming; do not consume a registration, overwrite a run or write a new line
+   while presenting options. Missing coverage does not make the candidate failed or the line invalid.
+4. **User choice.** End with a direct question choosing how to resolve the data/scope block:
+   obtain or verify the missing source evidence while keeping the selection, or choose a different
+   supported data range through the existing line-change rules. Make unknown ranges conditional
+   on first obtaining coverage. Never choose a coin removal, shorter window, replacement input or
+   changed commit yourself, or recommend one because an anomaly coincides with losses. A question
+   about writing records, permission to inspect, or which investigation to start does not replace
+   this data/scope choice. Do not present filling with zero, interpolation or other invented data
+   as an option to fix the gap.
+
+Before sending, check that both the runnable-range statement (with explicit unknowns where
+needed) and the final data/scope question are present. Keep the three facts and their unproven
+causes separate; none is an economic failure or a reason to alter the research universe.
+
+## Before replay and on new data
 
 - Before a replay, check four things: `research state` lists no `RUNTIME_UNSUPPORTED` gate
   (SKILL.md); the runtime reference resolves to exactly one image; the market database has every
-  month of the development window; every contract's coverage can be read. When anything is
-  missing, report the exact block (image, market commit, contracts and intervals), the range that can run without changing anything and the state kept for resuming,
-  then ask. Never drop coins, shorten the window, fill data or change the commit or the window
-  yourself, and never call the block a failed candidate or an invalid line.
-- Keep coverage gaps, zero-volume minutes and missing funding apart, each a fact with the cause not
-  yet proven. None of them is an economic failure or a reason to drop coins, shorten the window
-  or fill data; the runnable range and the block go to the user to choose. Candidate identity and
-  the line's validity do not change because of them.
+  month of the development window; every contract's coverage can be read. Report any missing item
+  through the coverage disposition above. Never fill data, drop coins, shorten the window or
+  change the pinned commit yourself.
 - When a new month arrives, read the latest complete month and compare it with the line's window
-  and pinned commit. Report only how far the window could extend and the exact blocks (missing
-  image, market commit or coverage receipt, and which part each affects), then end by asking the
-  user to choose the market commit and the development window. Do not change the window, register
-  or replay meanwhile. The user's choice is one new line record; the old record stays.
+  and pinned commit. Report how far the window could extend and the exact blocks, with coverage
+  and unknowns separated as above. End by asking the user to choose the market commit and the
+  development window. Do not change the window, register or replay meanwhile. The user's choice
+  is one new line record; the old record stays.
+
+## Inferred quotes and low activity
+
+Coverage and import diagnostics establish input availability and integrity, not suitability for
+liquidation research. In the aggTrades model, each bid or ask is carried until a trade updates it
+(or a crossing forces the stale side one tick away). Sparse trades can leave an old inferred price;
+the resulting liquidation error can go either way. Minute decisions do not validate intraminute
+liquidation inputs. A native replay passing does not establish that those inputs represent the book.
+
+- Validate the actual contract, UTC period and intended use (including leverage/exposure and the
+  liquidation scenarios), with the pinned market commit, quote rule and runtime identified. Do not
+  extend BTC evidence, a sampled day or an earlier period to other contracts, unsampled periods or
+  a different use. Reuse evidence only within its demonstrated scope; low activity alone is not a
+  blanket ban or a reason to repeat a completed, applicable comparison.
+- Use independent observed bid/ask evidence where available: report its source, time semantics,
+  coverage and gaps, quote discrepancies and their distribution over the relevant intervals. In
+  matched native replays, change only the quote input and compare liquidation occurrence, timing,
+  price and account results under the same strategy, configuration and runtime. No liquidation in
+  the compared sample does not validate liquidation behavior outside it. Keep reports and derived
+  comparisons in /tmp and identify their inputs; do not change stored runs or canonical inputs.
+- Trade-gap p99/max, activity and stale-side-adjustment counts are diagnostics, not an acceptance
+  threshold or per-side quote age. State the scope of each reading (including daily aggregation);
+  do not invent a fixed freshness cutoff, classify a contract as safe from an uncalibrated number,
+  expire quotes or synthesize replacements to make the comparison pass.
+- When evidence is insufficient, report the exact contract/interval/use that is unverified, what
+  was actually checked, the missing evidence and which liquidation claims it prevents. Keep
+  technically runnable coverage separate from demonstrated suitability; do not label a data
+  evidence gap as candidate failure or silently mark existing product measures ineligible. Continue
+  only claims supported by the evidence. Do not automatically drop coins, shorten windows or
+  change the pinned inputs. If the gap blocks the intended research, ask the user to choose obtaining
+  the missing evidence or changing the research scope, under the existing line-change rules.
