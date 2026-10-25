@@ -7,7 +7,7 @@ import { useResolvedTheme } from "../../state/theme";
 import { pnlClass } from "../../theme/roles";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 
-type Api = { chart: IChartApi; equity: ISeriesApi<"Baseline">; pace: ISeriesApi<"Line">; below: ISeriesApi<"Baseline">; lines: [ISeriesApi<"Baseline">, IPriceLine][] };
+type Api = { chart: IChartApi; equity: ISeriesApi<"Baseline">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">; below: ISeriesApi<"Baseline">; lines: [ISeriesApi<"Baseline">, IPriceLine][] };
 const YEAR_S = 365 * 86_400;
 const DRAWDOWN_PX = 56;
 const MOST = 2400;  // the chart draws at most this many of the run's minutes, evenly spaced
@@ -20,10 +20,11 @@ const DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", 
 /** The account over the run: equity each minute (balance, open profit and funding) in the text colour,
  *  washed green above its starting balance and red below; the pace the line's minimum annual return
  *  asks for, compounding from the start, as a dashed line; and in a low pane beneath, how far equity is
- *  below its running peak, scaled to the run's own deepest, with the drawdown limit once it is near. The legend
- *  names the three, and under the pointer gives their values. */
-export function EquityChart({ path, starting, start, limit, annual }: {
-  path: readonly [number, number][]; starting: number; start: number | null; limit: number | null; annual: number | null;
+ *  below its running peak, scaled to the run's own deepest, with the drawdown limit once it is near. Once
+ *  a sealed run is reconciled, and while its reconciliation shows, the replay's equity on the archive as
+ *  a fine dotted line in the text colour. The legend names them, and under the pointer gives their values. */
+export function EquityChart({ path, replay = null, starting, start, limit, annual }: {
+  path: readonly [number, number][]; replay?: readonly [number, number][] | null; starting: number; start: number | null; limit: number | null; annual: number | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
@@ -51,13 +52,14 @@ export function EquityChart({ path, starting, start, limit, annual }: {
   useEffect(() => {
     const chart = createChart(host.current!, chartOptions({ rightOffset: 2, minBarSpacing: 0.2, maxBarSpacing: 16, lockVisibleTimeRangeOnResize: true }));
     const pace = chart.addSeries(LineSeries, { lineWidth: 1, lineStyle: LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, priceFormat: priceFormat(0) });
+    const replay = chart.addSeries(LineSeries, { lineWidth: 1, lineStyle: LineStyle.Dotted, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, priceFormat: priceFormat(2, 0) });
     const equity = chart.addSeries(BaselineSeries, { lineWidth: 1.5 as LineWidth, priceLineVisible: false, priceFormat: priceFormat(2, 0) });
     equity.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: 0.06 } });
     const below = chart.addSeries(BaselineSeries, { baseValue: { type: "price", price: 0 }, lineWidth: 1, priceLineVisible: false, priceFormat: percent,
       autoscaleInfoProvider: () => ({ priceRange: { minValue: -bounds.current.deepest, maxValue: bounds.current.deepest * 0.15 } }) }, 1);
     chart.panes()[1]?.setHeight(DRAWDOWN_PX);
     chart.subscribeCrosshairMove((param) => setHover(param.logical === undefined || !param.point ? null : Math.round(param.logical)));
-    api.current = { chart, equity, pace, below, lines: [] };
+    api.current = { chart, equity, pace, replay, below, lines: [] };
     return () => { chart.remove(); api.current = null; };
   }, []);
 
@@ -68,6 +70,7 @@ export function EquityChart({ path, starting, start, limit, annual }: {
     apply();
     afterFonts(apply);
     a.pace.applyOptions({ color: c.muted, visible: annual !== null });
+    a.replay.applyOptions({ color: c.equity });
     a.equity.applyOptions({ baseValue: { type: "price", price: starting }, topLineColor: c.equity, topFillColor1: c.upWash, topFillColor2: c.none,
                             bottomLineColor: c.equity, bottomFillColor1: c.none, bottomFillColor2: c.belowWash });
     a.below.applyOptions({ topLineColor: c.none, topFillColor1: c.none, topFillColor2: c.none, bottomLineColor: c.drawdownLine, bottomFillColor1: c.drawdownWash, bottomFillColor2: c.drawdownDeep });
@@ -87,6 +90,11 @@ export function EquityChart({ path, starting, start, limit, annual }: {
     if (points.length && fitted.current !== points[0]!.time) { fitted.current = points[0]!.time; a.chart.timeScale().fitContent(); }
   }, [points, annual, start, starting]);
 
+  const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
+  useEffect(() => {
+    api.current?.replay.setData(points.filter((p) => replayed.has(p.time)).map((p) => ({ time: at(p.time), value: replayed.get(p.time)! })));
+  }, [points, replayed]);
+
   useEffect(() => {
     const a = api.current;
     if (!a || !day || !points.length) return;
@@ -102,10 +110,12 @@ export function EquityChart({ path, starting, start, limit, annual }: {
         {p ? <>
           <span className="text-fg-faint">{DATE.format(p.time * 1000)}</span>
           <span className="text-fg">{fixed(p.value, 2)}</span>
+          {replayed.has(p.time) && <span><span className="mr-1 text-fg-faint">replay</span>{fixed(replayed.get(p.time)!, 2)}</span>}
           <span className={pnlClass(p.value - starting)}>{p.value >= starting ? "+" : "−"}{number(Math.abs(p.value / starting - 1) * 100, 2)}%</span>
           <span><span className="mr-1 text-fg-faint">below peak</span>{number(-p.below, 2)}%</span>
         </> : <>
           <span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-3 rounded-full bg-fg" />Equity</span>
+          {replayed.size > 0 && <span className="inline-flex items-center gap-1.5"><i className="w-3 border-t border-dotted border-fg" />Replay</span>}
           {annual !== null && <span className="inline-flex items-center gap-1.5"><i className="w-3 border-t border-dashed border-fg-muted" />Pace for {number(annual * 100, 0)}% a year</span>}
           <span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-3 rounded-full bg-pnl-down" />Below the peak</span>
         </>}

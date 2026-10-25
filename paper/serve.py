@@ -6,6 +6,9 @@ run's journal as it grows, a version's last research replay. Every write (start,
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
 and published only through it. A run that ended on its own (its duration, a crash) is sealed when found.
 
+A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
+directory and is read back from there; it writes nothing to the ledger.
+
 A request's Host must be an allowed one; a browser request from another origin is refused, and a POST
 carries JSON, which a page elsewhere cannot send without a preflight this server never answers.
 """
@@ -20,6 +23,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from urllib.parse import parse_qs, urlsplit
@@ -39,10 +43,11 @@ STREAM_SECONDS = 1.0
 READINGS_SECONDS = 5.0
 HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
+RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's replay is stopped after this long
 # What a command line child gets of this process's environment: the docker client's and the product's own.
 CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
-STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop)\Z")
+STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|reconcile)\Z")
 
 
 class Failure(Exception):
@@ -120,13 +125,14 @@ class Daemon:
         self.stopping: set[int] = set()
         self.journals: dict[int, Journal] = {}
         self.listed: tuple[float, dict] | None = None
+        self.reconciling: dict[int, dict] = {}
 
     # Writes: the command line
 
-    def cli(self, *argv: str) -> dict:
+    def cli(self, *argv: str, timeout: float = CLI_SECONDS) -> dict:
         command = [sys.executable, "-m", "cli.main", "paper", *argv, *(["--ledger", self.ledger] if self.ledger else [])]
         env = {name: os.environ[name] for name in CHILD_ENV if name in os.environ}
-        done = subprocess.run(command, cwd=self.product, capture_output=True, text=True, timeout=CLI_SECONDS,
+        done = subprocess.run(command, cwd=self.product, capture_output=True, text=True, timeout=timeout,
                               check=False, env=env)
         try:
             found = json.loads(done.stdout if done.returncode == 0 else done.stderr)
@@ -181,6 +187,50 @@ class Daemon:
 
         threading.Thread(target=run, daemon=True).start()
         return {"paper_id": paper_id, "state": "stopping"}
+
+    def reconcile_root(self) -> Path:
+        return Path(tempfile.gettempdir()) / f"trade-paper-reconcile-{runs.ledger_key(self.profile)}"
+
+    def reconcile(self, paper_id: int) -> dict:
+        """Start `paper reconcile` of a sealed run in the background; its result is read with reconciliation()."""
+        with db.connect(self.profile, "reader") as conn:
+            records.read_paper_run(conn, paper_id)
+            if records.seal_of(conn, paper_id) is None:
+                raise Failure(409, "PAPER_RUN_ACTIVE", f"paper run {paper_id} is not sealed")
+        with self.lock:
+            if (self.reconciling.get(paper_id) or {}).get("state") == "reconciling":
+                return {"paper_id": paper_id, "state": "reconciling"}
+            self.reconciling[paper_id] = {"state": "reconciling", "started": time.time()}
+        root = self.reconcile_root()
+        root.mkdir(mode=0o700, exist_ok=True)
+        output = root / f"{paper_id}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+
+        def run() -> None:
+            try:
+                market = ["--market", self.market] if self.market else []
+                self.cli("reconcile", "--paper-id", str(paper_id), "--output", str(output), *market,
+                         "--timeout-seconds", str(RECONCILE_SECONDS - 60), timeout=RECONCILE_SECONDS)
+                found = {"state": "done"}
+            except Failure as exc:
+                found = {"state": "failed", "error": exc.body}
+            except subprocess.TimeoutExpired:
+                found = {"state": "failed", "error": {"code": "PAPER_FAILED", "message": "the reconciliation timed out"}}
+            with self.lock:
+                self.reconciling[paper_id] = found
+
+        threading.Thread(target=run, daemon=True).start()
+        return {"paper_id": paper_id, "state": "reconciling"}
+
+    def reconciliation(self, paper_id: int) -> dict:
+        """A run's latest reconciliation: {state: none, reconciling, failed (with error) or done (with result)}."""
+        with self.lock:
+            found = dict(self.reconciling.get(paper_id) or {})
+        if found.get("state") in ("reconciling", "failed"):
+            return {"paper_id": paper_id, **found}
+        done = sorted(self.reconcile_root().glob(f"{paper_id}-*/reconcile.json"))
+        if not done:
+            return {"paper_id": paper_id, "state": "none"}
+        return {"paper_id": paper_id, "state": "done", "result": json.loads(done[-1].read_text(encoding="utf-8"))}
 
     def seal_ended(self) -> None:
         """Seals the runs whose runner exited on its own, and those left with no containers."""
@@ -290,6 +340,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     if symbol is not None and not SYMBOL.fullmatch(symbol):
                         raise Failure(400, "USAGE_ERROR", "symbol is a Binance symbol such as BTCUSDT")
                     self.stream(int(found[1]), _instrument(symbol) if symbol else None)
+                elif found and found[2] == "reconcile":
+                    self.json(200, daemon.reconciliation(int(found[1])))
                 else:
                     raise Failure(404, "NOT_FOUND", url.path)
             except Failure as exc:
@@ -310,6 +362,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.json(200, daemon.start(body))
                 elif found and found[2] == "stop":
                     self.json(202, daemon.stop(int(found[1])))
+                elif found and found[2] == "reconcile":
+                    self.json(202, daemon.reconcile(int(found[1])))
                 else:
                     raise Failure(404, "NOT_FOUND", self.path)
             except ValueError:

@@ -7,6 +7,7 @@ import { useView, useWidget } from "../../model/view";
 import { useAtom } from "../../state/atom";
 import { paperTab, selectedRun, usePaperRuns } from "../../state/paper";
 import { follow, pickedDay, useStream } from "../../state/paperStream";
+import { followReconciliation } from "../../state/reconcile";
 import { Calendar } from "./Calendar";
 import { ChartCard } from "./ChartCard";
 import { Performance } from "./Performance";
@@ -30,6 +31,7 @@ export function PaperPage() {
   const shown = tab === "equity" || (tab && run?.symbols.includes(tab)) ? tab : "equity";
   useEffect(() => { follow(run?.paper_id ?? null, shown === "equity" ? null : shown); }, [run?.paper_id, shown]);
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);
+  useEffect(() => { followReconciliation(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
   const stream = useStream();
   const s = stream && stream.paperId === run?.paper_id ? stream : null;
   // The first view of a run: the contract it holds, once its state says which.

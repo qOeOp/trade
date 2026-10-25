@@ -1,5 +1,5 @@
 """The one replay entry (`replay.explore`, `replay.precheck`, `replay.run`, `replay.seal`, `replay.execute`,
-`replay.input_coverage`, `replay.audit_problems`, `replay.summary_problems`).
+`replay.replay_unrecorded`, `replay.input_coverage`, `replay.audit_problems`, `replay.summary_problems`).
 
 Every replay goes the same way: resolve the pinned runtime image, export the market inputs of one
 market commit and compute their identity, probe the image for its effective configuration, write the
@@ -224,6 +224,35 @@ def _stop(name: str) -> None:
         print(f"container {name} could not be stopped: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
+def _stage(command: list[str], container: str, workdir: Path, name: str, left: float | None,
+           timeout: float | None) -> int:
+    """Run one stage's container to its end with its logs in `workdir`; an interrupt or the timeout stops it."""
+    logs = workdir / f"{name}.stdout.txt", workdir / f"{name}.stderr.txt"
+    try:
+        with logs[0].open("wb") as out, logs[1].open("wb") as err:
+            try:
+                return seams.current.run(command, out, err, left)
+            except OSError as exc:
+                err.write(str(exc).encode("utf-8", errors="replace"))
+                return 127
+            except subprocess.TimeoutExpired as exc:
+                _stop(container)
+                raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
+            except BaseException:
+                _stop(container)
+                raise
+    finally:
+        for log in logs:
+            if log.is_file():
+                bound_log(log)
+
+
+def _audit_stage(workdir: Path) -> tuple[list[tuple[Path, str, bool]], list[str]]:
+    """The auditor's mounts and arguments: the native reports and the coverage receipt in, audit/ out."""
+    return ([(workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, AUDIT_COVERAGE_MOUNT, True),
+             (workdir / AUDIT, REPORTS_MOUNT, False)], ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/audit.json"])
+
+
 def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: list[tuple[Path, str, bool]],
             workdir: Path, runner_args: list[str], conn: db.LedgerConnection | None, purpose: str,
             timeout: float | None = None) -> tuple:
@@ -260,24 +289,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         process["commands"][name] = command
         stages[name] = {"state": "started", "exit_code": None}
         record()
-        logs = workdir / f"{name}.stdout.txt", workdir / f"{name}.stderr.txt"
-        try:
-            with logs[0].open("wb") as out, logs[1].open("wb") as err:
-                try:
-                    code = seams.current.run(command, out, err, left)
-                except OSError as exc:
-                    err.write(str(exc).encode("utf-8", errors="replace"))
-                    code = 127
-                except subprocess.TimeoutExpired as exc:
-                    _stop(container)
-                    raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
-                except BaseException:
-                    _stop(container)
-                    raise
-        finally:
-            for log in logs:
-                if log.is_file():
-                    bound_log(log)
+        code = _stage(command, container, workdir, name, left, timeout)
         stages[name] = {"state": "exited", "exit_code": code}
         record()
         return code
@@ -286,10 +298,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     try:
         native_exit = run("native", layout["runner_module"], mounts, list(runner_args))
         if _reports_complete(workdir):
-            audit_exit = run("audit", layout["audit_module"], [
-                (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / COVERAGE, AUDIT_COVERAGE_MOUNT, True),
-                (workdir / AUDIT, REPORTS_MOUNT, False)],
-                ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/audit.json"])
+            audit_exit = run("audit", layout["audit_module"], *_audit_stage(workdir))
             run("fingerprint", layout["fingerprint_module"], [
                 (workdir / REPORTS, NATIVE_MOUNT, True), (workdir / FINGERPRINT, REPORTS_MOUNT, False)],
                 ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/fingerprint.json"])
@@ -320,6 +329,42 @@ def _store_capture_refusal(ledger: db.LedgerProfile, conn: db.LedgerConnection |
             trials.ingest_capture_refusal(own, trial_id, workdir, refusal.as_dict())
         return
     trials.ingest_capture_refusal(conn, trial_id, workdir, refusal.as_dict())
+
+
+# Replays that are no trial
+
+def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, runtime: str, runner_argv: list[str],
+                      output: Path, name: str, timeout: float | None = None) -> dict:
+    """Replay a source into `output` (a new temporary directory) as every replay does (pinned image, exported
+    inputs, probed configuration, coverage receipt, runner and auditor), but as no trial: nothing reaches a
+    ledger. Only a paper reconciliation calls it (paper.reconcile), whose source, image, contracts and window
+    come from a paper run's declaration (user decision 2026-10-26). `name` prefixes the stage containers."""
+    output = paths.temporary_path(output)
+    source_sha256 = hashlib.sha256(source).hexdigest()
+    identity = _resolve(runtime)
+    layout = seams.current.layout(identity["runtime_contract"])
+    exported = None
+    try:
+        runner, exported = _export(market, at, runner_argv, False, None)
+        inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
+        _prepare(output, source, inspection, exported)
+        argv, mounts = _mounts(output, exported, runner_argv)
+        argv += _strategy_argv(output, identity, inspection, entry_class, source_sha256)
+        deadline = None if timeout is None else time.monotonic() + timeout
+
+        def run(stage: str, module: str, stage_mounts: list, stage_argv: list[str]) -> int:
+            left = None if deadline is None else max(1.0, deadline - time.monotonic())
+            container = re.sub(r"[^A-Za-z0-9_.-]", "-", f"{name}-{stage}")
+            command = seams.current.container_command(identity, stage_mounts, module, list(stage_argv), container)
+            return _stage(command, container, output, stage, left, timeout)
+
+        native_exit = run("native", layout["runner_module"], mounts, argv)
+        audit_exit = run("audit", layout["audit_module"], *_audit_stage(output)) if _reports_complete(output) else None
+        found, _ = audit_problems(output, native_exit, audit_exit)
+        return {"status": "passed" if not found else "invalid", "problems": found, "path": str(output),
+                "image_ref": identity["image_ref"], "market": exported["identity"], "window": runner["window"]}
+    finally:
+        _cleanup(exported)
 
 
 # Explorations and prechecks
