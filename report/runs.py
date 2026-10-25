@@ -23,6 +23,7 @@ from ledger.refusals import refuse
 from qualification import availability
 from registration import duties
 from report import measures
+from runtime import image
 
 
 UNVERIFIED = "unsealed, source unverified, not evidence"
@@ -243,19 +244,25 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
             recovered["realized_pnl_source"] = "verified-native-reproduction"
         found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction,
                      positions=_typed_cycles(native))
-    found["null_reasons"] = _native_null_reasons(found, trial_id, account, exposures)
+    contract = ((facts["capture"].get("start") or {}).get("runtime_identity") or {}).get("runtime_contract")
+    found["null_reasons"] = _native_null_reasons(found, trial_id, contract, account, exposures)
     found["limitations"] = dedupe(limitations)
     return found
 
 
-def _native_null_reasons(found: dict, trial_id: int, account: bool, exposures: bool) -> dict:
-    """Why each native table of `found` is None, naming the step that fills it."""
+def _native_null_reasons(found: dict, trial_id: int, contract: str | None, account: bool, exposures: bool) -> dict:
+    """Why each native table of `found` is None, naming the step that fills it, or that none can when the
+    run's runtime contract is one this product no longer replays (its reproduction is refused)."""
     asked = {"account": account, "exposures": exposures}
     reasons = {}
     for name in ("orders", "fills", "account", "exposures", "order_events"):
         if found[name] is not None:
             continue
-        if found["reproduction"] is None:
+        if found["reproduction"] is None and contract is not None and contract not in image.LAYOUTS:
+            reasons[name] = (f"RUNTIME_UNSUPPORTED: native {name} come only from a verified reproduction, and run "
+                             f"{trial_id} is on {contract}, which this product cannot replay (it runs "
+                             f"{', '.join(sorted(image.LAYOUTS))}); the table is unavailable under the current product")
+        elif found["reproduction"] is None:
             reasons[name] = (f"REPRODUCTION_REQUIRED: native {name} come only from a verified reproduction; run "
                              f"`replay reproduce --trial-id {trial_id} --output <new /tmp directory>` (it records an "
                              f"explore trial) and pass its directory as --reproduction and its "
