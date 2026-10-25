@@ -207,6 +207,11 @@ class ReportTests(unittest.TestCase):
         self.assertIn(f"replay reproduce --trial-id {self.control['trial_id']}", found["null_reasons"]["exposures"],
                       "a null native table names the step that fills it")
         self.assertTrue(found["null_reasons"]["exposures"].startswith("REPRODUCTION_REQUIRED"))
+        with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
+            retired = runs.tables(self.control["trial_id"], self.profile, exposures=True)["null_reasons"]["exposures"]
+        self.assertTrue(retired.startswith("RUNTIME_UNSUPPORTED"), retired)
+        self.assertNotIn("replay reproduce", retired, "a run of a retired contract is never told to run a step "
+                                                      "the product always refuses")
         self.assertEqual(refused(runs.tables, self.bad["trial_id"], self.profile).code, "RUN_NOT_PASSED")
         self.assertEqual(refused(runs.tables, self.bare["trial_id"], self.profile).code, "ECONOMIC_EVIDENCE_UNAVAILABLE")
         done = reproduce.reproduce(self.control["trial_id"], self.world.output("drill"), ledger=self.profile,

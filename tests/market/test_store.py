@@ -201,6 +201,39 @@ class ImportTests(unittest.TestCase):
         self.refused("RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.commits[MAR], "other-v1",
                      datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
 
+    def test_stored_bars_are_the_exporters_reads_at_the_pinned_commit_with_their_catalog_times(self):
+        commit, day = self.commits[MAR], day_ms(date(2025, 3, 2))
+        found = read.stored_bars(self.profile, commit[:12], "BTCUSDT", "MARK", "1m", "2025-03-02T00:00:00Z",
+                                 "2025-03-02T00:05:00Z", 3)
+        price = f"{100 + (day // MINUTE) % 997 / 100:.2f}345678"
+        self.assertEqual((found["commit"], found["bars"]["count"], found["next_start"]),
+                         (commit, 3, "2025-03-02T00:03:00Z"))
+        self.assertEqual(found["bars"]["rows"][0], [day, day + MINUTE - 1, price, price, price, price, "0.0000"])
+        whole = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+                                 "2025-03-03T00:00:00Z", None)
+        with store.connect(self.profile, "reader") as conn:
+            minutes_ = coverage.read_bars(conn, commit, "BTCUSDT", "LAST", day, day + DAY)
+            daily = export.daily_bars(conn, commit, "BTCUSDT", 0, None, day + DAY)
+        self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
+                         (minutes_["ts_open"].tolist(), None))
+        self.assertEqual(whole["funding"]["rows"], [[day + 3 + EIGHT_HOURS * k, "0.0001"] for k in range(3)])
+        days = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1d", "2025-03-01T00:00:00Z",
+                                "2025-03-03T00:00:00Z", None)
+        self.assertEqual([[row[0], row[1], row[5]] for row in days["bars"]["rows"]],
+                         [[opened, opened + DAY - 1, f"{close / 10**store.PRICE_SCALE:.8f}"]
+                          for opened, close in zip(daily["ts_open"][-2:].tolist(), daily["close"][-2:].tolist(), strict=True)],
+                         "the Catalog's daily LAST bars, each stamped on its close")
+        earlier = read.stored_bars(self.profile, self.commits[FEB], "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+                                   "2025-03-02T00:05:00Z", None)
+        self.assertEqual((earlier["bars"]["count"], earlier["funding"]["count"]), (0, 0))
+        window = ("2025-03-02T00:00:00Z", "2025-03-03T00:00:00Z")
+        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, commit, "BTCUSDT", "LAST", "1d",
+                     "2025-03-02T06:00:00Z", window[1], None)
+        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, commit, "BTCUSDT", "MARK", "1d", *window, None)
+        self.refused("NO_TERMS", read.stored_bars, self.profile, commit, "ZZZUSDT", "LAST", "1m", *window, None)
+        self.refused("UNKNOWN_REF", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
+                     None)
+
     def test_an_export_loads_whole_into_the_engine_stream(self):
         from engine import run
         from engine.load import read_market
@@ -498,6 +531,103 @@ class LaterImportTests(unittest.TestCase):
         drop = ("market_commit", "seconds")
         self.assertEqual([{k: v for k, v in r.items() if k not in drop} for r in many],
                          [{k: v for k, v in r.items() if k not in drop} for r in one])
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class BackfillTests(unittest.TestCase):
+    """The month just before the earliest stored one, imported after the fact: insert only, the stored
+    commits untouched, and the result the forward import from that month gives."""
+
+    SCOPE = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
+    TABLES = ("bar", "funding", "universe_month")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = TemporaryMarket("market_backfill")
+        cls.addClassCleanup(cls.fixture.close)
+        cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        cls.addClassCleanup(shutil.rmtree, cls.cache, True)
+        cls.exchange = exchange()
+        cls.forward = cls.fixture.add("market_forward")
+        cls.backfilled = cls.fixture.add("market_backfilled")
+        with serving(cls.exchange):
+            for month in (JAN, FEB, MAR):
+                cls.imported(cls.forward, month)
+            cls.feb = cls.imported(cls.backfilled, FEB)
+            cls.jan = cls.imported(cls.backfilled, JAN)
+            cls.mar = cls.imported(cls.backfilled, MAR)
+        cls.count = 0
+
+    @classmethod
+    def imported(cls, profile: dict, month: date, scope=None) -> dict:
+        return store.import_month(profile, month, cls.cache, 1, scope or cls.SCOPE, log=lambda line: None)
+
+    def sql(self, profile: dict, statement: str, params=None) -> list[tuple]:
+        return self.fixture.admin(profile, statement, params)
+
+    def head(self, profile: dict) -> str:
+        return self.sql(profile, "SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0]
+
+    def refused(self, code: str, profile: dict, month: date, scope=None) -> MarketError:
+        before = self.head(profile)
+        with serving(self.exchange), self.assertRaises(MarketError) as caught:
+            self.imported(profile, month, scope)
+        self.assertEqual(caught.exception.code, code, caught.exception.message)
+        self.assertEqual(self.head(profile), before)
+        return caught.exception
+
+    def database(self, *months: date) -> dict:
+        type(self).count += 1
+        profile = self.fixture.add(f"market_backfill_{self.count}")
+        with serving(self.exchange):
+            for month in months:
+                self.imported(profile, month)
+        return profile
+
+    def committed(self, profile: dict, statement: str, params=None) -> None:
+        self.sql(profile, statement, params)
+        self.sql(profile, "CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'changed by hand')")
+
+    def test_a_backfill_ends_where_the_forward_import_does(self):
+        for table in self.TABLES:
+            with self.subTest(table=table):
+                self.assertEqual(self.sql(self.backfilled, "SELECT DOLT_HASHOF_TABLE(%s)", (table,)),
+                                 self.sql(self.forward, "SELECT DOLT_HASHOF_TABLE(%s)", (table,)))
+        terms = "SELECT * FROM instrument ORDER BY symbol, observed_at"  # equal but for when they were observed
+        self.assertEqual([row[:1] + row[2:] for row in self.sql(self.backfilled, terms)],
+                         [row[:1] + row[2:] for row in self.sql(self.forward, terms)])
+        self.assertEqual(self.jan["universe_members"], [])  # the new first month
+        self.assertEqual(self.jan["universe_filled"], {"2025-02": ["BTCUSDT", "CCCUSDT"]})
+        self.assertEqual(self.jan["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
+        self.assertEqual(self.mar["universe_members"], ["BBBUSDT", "BTCUSDT"])
+        self.assertEqual(store.freshness(self.backfilled)["universe_months"], ["2025-02", "2025-03"])
+
+    def test_the_stored_commits_stay_as_they_were(self):
+        feb = self.feb["market_commit"]
+        self.assertEqual(self.feb["universe_members"], [])
+        self.assertEqual(self.sql(self.backfilled, f"SELECT COUNT(*) FROM universe_month AS OF '{feb}'"), [(0,)])
+        self.assertEqual(self.sql(self.backfilled, f"SELECT MIN(ts_open) FROM bar AS OF '{feb}'"), [(day_ms(FEB),)])
+        self.assertEqual(self.sql(self.backfilled, "SELECT DOLT_MERGE_BASE(%s, 'main')", (feb,)), [(feb,)])
+        with store.connect(self.backfilled, "reader") as conn:
+            self.assertEqual([item["month"] for item in store.imports(conn)], ["2025-02", "2025-01", "2025-03"])
+
+    def test_months_extend_only_at_either_end(self):
+        self.refused("MONTH_EXISTS", self.backfilled, JAN)
+        self.refused("MONTH_INVALID", self.backfilled, date(2024, 11, 1))  # a month left out
+        self.refused("IMPORT_SCOPE", self.backfilled, date(2024, 12, 1), scope=["BTCUSDT"])
+        later = self.database(MAR)
+        self.refused("MONTH_INVALID", later, JAN)
+
+    def test_a_backfill_refuses_rows_already_in_its_month(self):
+        profile = self.database(FEB)
+        self.committed(profile, "INSERT INTO funding VALUES ('BTCUSDT', %s, 0.0001)", (day_ms(JAN) + 3,))
+        failed = self.refused("MONTH_EXISTS", profile, JAN)
+        self.assertEqual(failed.missing, ("2025-01", "BTCUSDT"))
+
+    def test_a_backfill_refuses_members_a_month_had_before_its_look_back(self):
+        profile = self.database(FEB, MAR)
+        self.committed(profile, "INSERT INTO universe_month VALUES (%s, '2025-02-01', 'BTCUSDT')", (universe.RULE,))
+        self.refused("UNIVERSE_CHANGED", profile, JAN)
 
 
 if __name__ == "__main__":

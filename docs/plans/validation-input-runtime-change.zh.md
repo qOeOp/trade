@@ -23,7 +23,7 @@
 
 定向测试使用独立 Dolt 2.4.2 服务和本地时间戳机构，市场、研究运行和正式镜像验证为测试替身；不连接交易所、不读写活动账本或 canonical Catalog。这证明绑定／重试契约，不代表真实未来窗口、行情修正质量或两镜像经济行为一致。
 
-`evals/research-round/validation-input-runtime-change/` 是只读教学夹具，覆盖未执行修正、失败重试、成功结果和实质环境变化。结构检查与行为评分分开记录；当前已知 Claude API 所属组织停用，不把未运行的新用例称作通过。
+`.agents/evals/research-round/validation-input-runtime-change/` 是只读教学夹具，覆盖未执行修正、失败重试、成功结果和实质环境变化。结构检查与行为评分分开记录；当前已知 Claude API 所属组织停用，不把未运行的新用例称作通过。
 
 ## 验证结果
 

@@ -11,13 +11,11 @@ limits and known failures: [papers.md](references/papers.md) for papers,
 
 ## Keys
 
-Keys sit in the main checkout's `.env` next to exchange credentials. This skill uses
-`OPENALEX_API_KEY`, `SEMANTIC_SCHOLAR_API_KEY`, `FRED_API_KEY` and the contact address
-`RESEARCH_CONTACT_EMAIL` (sent only to Crossref; it stays out of Git, as the repository is public).
-Other entries in the file are not for this skill. Read only the value a request needs, inside the
-command that uses it. Never `source` or print the file, never echo, log or store a value, and send a
-key in a header wherever the API accepts one. Run from inside the repository checkout; a helper file
-may define `key`, never hold a value.
+AGENTS.md says who reads keys and how. This skill uses `OPENALEX_API_KEY`,
+`SEMANTIC_SCHOLAR_API_KEY`, `FRED_API_KEY` and the contact address `RESEARCH_CONTACT_EMAIL` (sent
+only to Crossref; it stays out of Git, as the repository is public) from the main checkout's
+`.env`. Send a key in a header wherever the API accepts one. Run from inside the repository
+checkout; a helper file may define `key`, never hold a value.
 
 ```bash
 ENV="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"

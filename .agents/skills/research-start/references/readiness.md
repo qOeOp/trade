@@ -1,6 +1,6 @@
 # Readiness
 
-Read before the first replay of a line, whenever coverage or lifecycle receipts show a gap,
+Read before the first replay of a line or of a session, whenever coverage or lifecycle receipts show a gap,
 zero-volume minutes or missing funding (including after a completed replay), when a new month
 arrives, and before inferred quotes are used for a new contract, period or liquidation scenario.
 Read coverage facts with `market coverage` at the line's pinned commit (`--help` for its output).
@@ -50,6 +50,11 @@ research universe.
   month of the development window; every contract's coverage can be read. Report any missing item
   through the coverage disposition above. Never fill data, drop coins, shorten the window or
   change the pinned commit yourself.
+- Before the first replay of a line or of a session, also check the checkout: `HEAD` is a commit
+  on `origin/main` (after `git fetch origin main`, `git merge-base --is-ancestor HEAD origin/main`
+  succeeds) and the working tree is clean (`git status --porcelain` prints nothing). Sealing
+  records the checkout's commit as the revision of its readings. Otherwise do not register or
+  replay; tell the user the commit and any uncommitted paths.
 - When a new month arrives, read the latest complete month and compare it with the line's window
   and pinned commit. Report how far the window could extend and the exact blocks, with coverage
   and unknowns separated as above. End by asking the user to choose the market commit and the

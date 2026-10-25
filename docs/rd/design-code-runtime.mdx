@@ -8,8 +8,10 @@
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
 <Files>
+<Folder name=".github/workflows" defaultOpen>
+  <File name="runtime-image.yml" />
+</Folder>
 <Folder name="runtime" defaultOpen>
-  <File name="ci/runtime_image.yml" />
   <File name="container.py" />
   <File name="image.py" />
 </Folder>
@@ -17,7 +19,7 @@
 
 `runtime_contract` uses `replay-contract@v7`: the name identifies the replay contract and `v7` its version. The image digest separately pins its implementation. The publisher, host layout and image declaration must agree exactly; retained records keep their original identities.
 
-## `runtime/ci/runtime_image.yml` [#def-mod-runtime-ci-runtime_image-yml]
+## `.github/workflows/runtime-image.yml` [#def-mod-github-workflows-runtime-image-yml]
 
 | 函数 | 用途 |
 |---|---|
@@ -233,18 +235,20 @@ def require_main_build(
 ) -> build_revision
 ```
 
-<TypeTable type={{ "identity": { type: "dict", description: "经 validate_identity 核对的身份，须含 build_revision" }, "inspection": { type: "dict", description: "runtime.inspect_runtime 返回的检视（取 source_files_sha256、source_file_paths、audit_source_sha256、dependency_lock_sha256）" } }} />
+<TypeTable type={{ "identity": { type: "dict", description: "经 validate_identity 核对的镜像身份；build_revision 来自镜像标签，未携带该字段时由函数读取镜像标签" }, "inspection": { type: "dict", description: "runtime.inspect_runtime 返回的检视（取 source_files_sha256、source_file_paths、audit_source_sha256、dependency_lock_sha256）" } }} />
 
-**返回**　build_revision：在 main 上的构建源码版本（Git 提交哈希），随样本外运行行记为 image_revision
+**返回**　build_revision：在 main 上的构建源码版本（Git 提交哈希）；函数本身不写账本。运行身份的构建版本保存在开始凭证的 runtime_identity.build_revision 中，没有独立的 image_revision 存储列。
 
 **期望行为**
 
 1. 经 runtime.validate_identity 核身份形态，不过即 RUNTIME_IDENTITY_INVALID。
 2. 核 image_ref 所在的镜像注册表 registry 与命名空间等于产品镜像注册表。
-3. 取 identity.build_revision；缺失即拒绝（身份只从镜像标签读出，不接受调用方补写）。
+3. 取来自镜像标签的 identity.build_revision；该字段未携带时读取镜像标签；无法取得有效构建提交即拒绝。
 4. 核该版本是产品源码托管远端 main 的祖先：先本地判定，失败则抓取一次远端 main 再判定；每次 git 调用（抓取在内）120 秒内未结束即拒绝 RUNTIME_UNAVAILABLE，与 docker 调用的超时一样。
 5. 按 runtime.layout 取运行器各源码、审计器、指纹代码（engine/compare.py）与依赖锁路径，读该版本下每个文件字节算 sha256，逐项等于检视中对应哈希；任一不等即拒绝（防重贴标签的镜像）。
 6. 返回 build_revision；不写账本。
+
+<p className="rd-note">[隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)已用真实 main／PR 镜像和原生探针接入 Dolt 2.4.2 绑定事务，当前 rc7 与历史 rc3 两组各 35 个检查点通过；非 main 与七类哈希异常拒绝并回滚，合法绑定仅一次成功。既有相关测试 8 项通过、无跳过；市场、研究基线与 TSA 使用夹具，不代表完整真实样本外回放或报告验收。</p>
 
 | 拒绝码 | 条件 |
 |---|---|

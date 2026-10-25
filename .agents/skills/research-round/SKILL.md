@@ -8,7 +8,7 @@ description: Advances strategy research on a user-selected research line through
 Work within the line selected through `research-start`: its starting candidate, development window
 and market commit. Choose hypotheses, parents, controls and priorities within that scope. Follow
 AGENTS.md's authority boundaries and design-variable ownership; stop and explain before a listed
-action. Host process termination or configuration changes also require the user's authority.
+action.
 
 ## Research loop
 
@@ -43,7 +43,8 @@ to reselect it.
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
-verified report cache (`replay report`) and api/causal/activity/readiness items, keeps the review
+verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
+reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
 after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
 evidence.
@@ -61,7 +62,10 @@ them for every contract across the window and the readiness check above supports
 
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
-submission; a daily signal guard or a passed run audit does not cover other inputs. Report
+submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
+prices with `market bars` at the precheck's market commit: the stored bars and funding the
+Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close). Compare
+those times with submission; never script against the market package. Report
 unobserved branches as such. Native execution-state and lifecycle reactions retain their own
 event-ordering contracts.
 An input-clock failure follows [diagnosis.md](references/diagnosis.md): publish a repaired source,

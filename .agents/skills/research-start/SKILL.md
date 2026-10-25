@@ -15,7 +15,10 @@ selected (`line select`); everything inside it follows `research-round`.
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
   (`research status`), the research state and the current line record (`research state`), whose
   `targets` are the user's two research targets in force for the line (its own, else the ledger
-  default). After an interruption, or when the user
+  default). `candidate list`, `research state` and `research status` print large JSON: redirect
+  each to a file under /tmp and read only the keys you need (for example with `jq`), such as
+  `line`, `targets`, `gates`, `unclosed_lines`, `recommendation` and `unreviewed_trials`, never
+  the whole output. After an interruption, or when the user
   says to continue, continue that line under `research-round` without asking. A new session started
   with only `research-start` asks once: continue the current line (its state and next step) or
   choose another line (Offer lines and wait).
@@ -29,7 +32,9 @@ selected (`line select`); everything inside it follows `research-round`.
   restarted on the new contract begins as a root ([template.md](../research-round/references/template.md)):
   published without a parent and registered with no parent, no control and empty `changed_duties`,
   its rationale carrying the old candidate's idea. An old-contract candidate is never its parent,
-  since its runs can be neither replayed nor compared.
+  since its runs can be neither replayed nor compared. An option that restarts from an
+  old-contract candidate tells the user three things: the restart is a new rule, not the old one
+  run again; its first report has no control; the old rule's results cannot be tested again.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
   background sub-agent (on a host without one, do it before the session ends). For each line, read
   it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its
@@ -93,9 +98,9 @@ just to answer this check.
 
 ## When to read the references
 
-- [readiness.md](references/readiness.md): before the first replay of a line, when a coverage
-  receipt shows a gap, zero volume or missing funding, when a new month of data arrives, and
-  before using inferred quotes for a new contract, period or liquidation scenario.
+- [readiness.md](references/readiness.md): before the first replay of a line or of a session,
+  when a coverage receipt shows a gap, zero volume or missing funding, when a new month of data
+  arrives, and before using inferred quotes for a new contract, period or liquidation scenario.
 - [recommendation.md](references/recommendation.md): whenever the entry presents the
   recommendation and line options.
 - [selection.md](references/selection.md): when the user's choice comes with an idea, a source or

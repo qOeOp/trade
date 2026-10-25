@@ -5,7 +5,7 @@ description: Draws a research line from the research ledger as a graph - the lin
 
 # Research graph
 
-`research graph` (`--help`) reads a line from the ledger only and prints a `research-graph@2`
+`research graph` (`--help`) reads a line from the ledger only and prints a `research-graph@3`
 document; the same ledger commit always gives the same graph. `python3
 services/ide/ide.py` checks, renders and compares graphs. Work in
 `/tmp/research-graph-<line>/`; graphs and pages are working copies, never ledger records.

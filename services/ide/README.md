@@ -77,7 +77,7 @@ the host with `uv run python -m cli.main paper serve` to get the Paper panel.
 
 Stages hand over only through these files, so each can be replaced alone.
 
-## Graph (`research-graph@2`)
+## Graph (`research-graph@3`)
 
 One research line from one source: the line and its targets, candidate versions with parent,
 change, complete strategy source, duties, hypothesis, predictions and outcomes, registration, control, trials with

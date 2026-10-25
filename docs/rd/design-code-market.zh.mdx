@@ -866,6 +866,7 @@ def scaled_rows(symbol: str, rows: list[tuple], scale: int) -> list[tuple]:
 | 函数 | 用途 |
 |---|---|
 | <Ref id="market.daily_returns">daily_returns</Ref> | 按市场提交读 BTC 永续与共同可交易范围等权篮子的 UTC 日收益，供市场暴露一栏使用 |
+| <Ref id="market.stored_bars">stored_bars</Ref> | 源码审查者的价格读口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，即导出器自己读出、写进 Catalog 的那些，每根带 Catalog 交付给策略的时刻 |
 
 ### `daily_returns` [#def-market-daily_returns]
 
@@ -901,6 +902,51 @@ def daily_returns(
 - [Jensen 1968, The Journal of Finance](https://doi.org/10.1111/j.1540-6261.1968.tb00815.x)　论文
 - [Dimson 1979, Journal of Financial Economics](https://doi.org/10.1016/0304-405X(79)90013-8)　论文
 - [Newey & West 1987, Econometrica；滞后阶数按 Newey & West 1994, Review of Economic Studies](https://doi.org/10.2307/1913610)　论文
+
+</div>
+
+
+### `stored_bars` [#def-market-stored_bars]
+
+源码审查者的价格读口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，即导出器自己读出、写进 Catalog 的那些，每根带 Catalog 交付给策略的时刻
+
+```python
+def stored_bars(
+    profile: dict,
+    at: str | None,
+    symbol: str,
+    price_type: str,
+    timeframe: str,
+    start: str,
+    end: str,
+    limit: int | None,
+) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "dict", description: "市场库档案" }, "at": { type: "str | None", description: "市场提交、标签或分支，缺省 main" }, "symbol": { type: "str", description: "一个合约的公开名" }, "price_type": { type: "str", description: "LAST 或 MARK；1d 只有 LAST" }, "timeframe": { type: "str", description: "1m 已存分钟线，或 1d 由已存分钟线导出的完整 UTC 日线" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z，整分钟（1d 为整日）" }, "end": { type: "str", description: "区间终点（不含），同上" }, "limit": { type: "int | None", description: "最多读多少个 K 线周期；None 读完整个区间" } }} />
+
+**返回**　dict：\{commit, symbol, price_type, timeframe, interval:\{start, end, ms:[start, end]\}, next_start, bars:\{columns:[ts_open_ms, ts_event_ms, open, high, low, close, volume], count, rows\}, funding:\{columns:[funding_time_ms, rate], count, rows\}\}；价格与成交量是按库内整数刻度还原的十进制字符串
+
+**期望行为**
+
+1. 起止按 UTC 整分钟校验（同 market.diagnose_coverage）；1d 另要求整 UTC 日且只给 LAST。
+2. 经 market.resolve_commit 解析 at 为精确提交，经 market.terms 确认合约在该提交下存在，从 market_schema 读价格与成交量刻度。
+3. 1m 调 market.read_bars，1d 调 market.daily_bars（导出器的日线预热：只含区间终点前的完整 UTC 日），资金费调 market.read_funding；不另写 SQL，读到的就是同一提交导出时写进 Catalog 的数值。
+4. ts_event_ms 是 Catalog 给这根 K 线盖的时刻：收盘，即 ts_open_ms 加周期减 1 毫秒；资金费在 funding_time_ms 交付。
+5. 给了 limit 时只读从 start 起 limit 个周期，next_start 指出其余部分的起点，读完整个区间时为 null。
+6. 不应用生命周期片段，只读不写，不开试验、不算暴露。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INTERVAL_INVALID` | 起止不是 UTC 整分钟或 start >= end；1d 不是整 UTC 日或不是 LAST |
+| `NO_TERMS` | 合约在该提交下没有条款行（由 market.terms 传出） |
+| `UNKNOWN_REF` | 市场提交引用无法解析（由 market.resolve_commit 传出） |
+
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.terms" />、<Ref id="implementation:impl-market-coverage-py-read_bars" />、<Ref id="implementation:impl-market-export-py-daily_bars" />、<Ref id="implementation:impl-market-coverage-py-read_funding" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="C.6.2.1">C.6.2.1</Ref>
 
 </div>
 
@@ -1464,7 +1510,7 @@ One exchangeInfo contract as ContractTerms (its filters verbatim).
 |---|---|
 | <Ref id="market.connect">connect</Ref> | 按市场档案与角色打开市场库连接并核对模式代数；导入、新鲜度、导出与覆盖读口共用 |
 | <Ref id="market.freshness">freshness</Ref> | 按市场提交 AS OF 读成员月份、合约数、最新完整日与最新完整月；只读事实 |
-| <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场提交：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化 |
+| <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场提交（最新月份之后，或补录最早月份的前一个月）：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化 |
 | <Ref id="market.import_quotes">import_quotes</Ref> | 完整推算报价按月、按事务只追加 |
 | <Ref id="market.quote_imports">quote_imports</Ref> | 读提交消息中的来源与日读数回执 |
 | <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的市场提交哈希 |
@@ -1550,7 +1596,7 @@ def freshness(profile: MarketProfile, ref: str) -> dict {commit
 
 ### `import_month` [#def-market-import_month]
 
-一次导入一个月成一个市场提交：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化
+一次导入一个月成一个市场提交（最新月份之后，或补录最早月份的前一个月）：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化
 
 ```python
 def import_month(
@@ -1570,14 +1616,14 @@ def import_month(
 1. 经 market.connect 以导入账号打开市场库；连接标记为空库时，在本次事务内先写 market_schema 单行与 market.dolt_tests 用例（模式初始化，此后导入只运行不改）；核对 market_schema.universe_rule 等于代码的范围规则版本（否则 RULE_VERSION_MISMATCH）、工作集干净（否则 DIRTY_WORKING_SET）；该月已完整则 MONTH_EXISTS，未完整只允许追加已存最后一分钟之后的尾段
 2. 取条款：market.rest_exchange_info 的原文连同该月归档里出现的合约交给 market.classify_contract 得到合格合约与逐合约排除原因；条款与 instrument 最新一行不同者按观测时刻追加（exchange_info），已移除、无原文的合约按成交推断步长追加（inferred）；条款状态为交易中的合约以 trading=true 拼接
 3. 拼数据：对每个合格合约、每个价格类型调用 market.stitch_series；资金费由 market.monthly_archives 与 market.rest_funding 按实际结算时刻同法拼接，同一结算时刻两来源不等即 SOURCE_CONFLICT；来源函数与拼接的任何拒绝指明合约、价格类型与时刻并拒绝整次导入；缺失区间记入返回值
-4. 算范围：只算本次导入的月份。K 线只追加、月份乱序即拒绝，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。同一当月再次导入时，名单须等于已存行，否则 UNIVERSE_CHANGED。
+4. 算范围：只算本次导入的月份。K 线只追加，每月的回看都在它之前，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。同一当月再次导入时，名单须等于已存行，否则 UNIVERSE_CHANGED。
 5. 写入：一个事务里向 universe_month、instrument、bar、funding 只做 INSERT（与已存行主键重叠而字段相等的行跳过），market_schema.import_seq 加 1；运行 market.dolt_tests，任一失败即回滚并 DATA_TESTS_FAILED；全部通过后一次 DOLT_COMMIT，提交信息记月份与范围规则版本
 6. 任何拒绝都在提交前发生并回滚全部追加，市场库停在导入前的提交；并发导入在 import_seq 上冲突时后到者回滚
 7. 再次导入未完整的当月时，整月重新拼接：已存部分逐字段（K 线按存储整数、资金费逐次结算）与来源重读结果比较，任一不同即 MONTH_EXISTS，不让先前从公开接口补的值悄悄留下；只追加最后一根已存分钟之后的尾段。
 8. 资金费跨来源去重：结算时刻归到最近的整点，同一整点里两个来源的费率须相同（保留先到来源的时刻）；同一来源在一个整点里有两次结算即 SOURCE_SHAPE。
 9. 整个导入持有 GET_LOCK('market-import:\<库名>')，第二个并发导入拒绝 CONCURRENT_IMPORT：Dolt 2.4.2 会合并相同值的写入，import_seq 本身挡不住并发。
 10. 提交校验只在 DOLT_COMMIT 里跑一次，失败映射为 DATA_TESTS_FAILED 并给出失败的测试名；服务的提交校验组不是 commit 即拒绝。
-11. 月份须按顺序导入，乱序即拒绝；首个导入月没有名单（缺上市天数的回看）。
+11. 月份只在两端延伸：补完最新月份、导入它的下一个月，或补录最早月份的前一个月；其他月份即 MONTH_INVALID。首个导入月没有名单（缺上市天数的回看）。补录只插不改，已存提交和钉在它们上的回放都不变：补录月份里不得已有任何合约的 K 线或资金费行（否则 MONTH_EXISTS）；它成为新的首月，没有名单；回看因此补齐的已存月份（原来因缺历史而没有名单）此时算出并写入名单，已有名单即 UNIVERSE_CHANGED。逐月倒着补完的库，与从该月向后导入的库逐行相同，只差条款的观测时刻；提交信息与向后导入同一格式，是否补录由提交顺序推出。
 12. 工程期可给合约清单（--symbols），由市场库的首次导入定下（用户定 10-20，正式库也可）：名单只在清单内计算，之后每月必须相同，写进每次导入的提交信息，freshness 以 scope 报出；正式库不给清单。
 13. 导入账号经 market_schema 上的更新触发器只能把 import_seq 加一，改不了范围规则与模式代数（Dolt 2.4.2 不支持列级授权）。
 
@@ -1585,14 +1631,15 @@ def import_month(
 |---|---|
 | `RULE_VERSION_MISMATCH` | market_schema.universe_rule 与代码的范围规则版本不同；改规则必须先出新版本并记入市场库自述 |
 | `DIRTY_WORKING_SET` | 导入前市场库工作集有未提交改动 |
-| `MONTH_EXISTS` | 该月已存且已是完整月；或该月未完整但本次数据在已存最后一分钟之前有不同的行 |
+| `MONTH_INVALID` | 不是最新月份、它的下一个月或最早月份的前一个月 |
+| `MONTH_EXISTS` | 该月已存且已是完整月；或该月未完整但本次数据在已存最后一分钟之前有不同的行；或补录月份里已有行 |
 | `CHECKSUM_MISMATCH` | 某归档文件与交易所随文件发布的 SHA-256 不符（由 market.fetch_archive 触发） |
 | `SOURCE_CONFLICT` | 同一分钟或同一资金费结算时刻被两个来源同时持有且字段不等 |
 | `SOURCE_SHAPE` | 来源给出非整分钟对齐的 K 线或无法解析的行，或归档目录列举里有条目没有键、某页标为未完却无从续读（由 market.stitch_series 或来源函数触发） |
 | `SOURCE_UNREACHABLE` | 交易所归档或公开接口重试耗尽仍不可达（来自来源函数或 market.stitch_series） |
 | `SOURCE_UNKNOWN_SYMBOL` | 合约仍在交易而公开接口不识别（来自来源函数或 market.stitch_series） |
 | `PRICE_TYPE_UNKNOWN` | 传给拼接的价格类型不是 LAST 或 MARK（来自 market.stitch_series） |
-| `UNIVERSE_CHANGED` | 重算后任一已存月份的范围与 universe_month 已存行不一致 |
+| `UNIVERSE_CHANGED` | 重算后任一已存月份的范围与 universe_month 已存行不一致；或补录要补名单的月份已有名单 |
 | `DATA_TESTS_FAILED` | 提交前 market.dolt_tests 任一用例失败 |
 | `CONCURRENT_IMPORT` | 另一个导入正持有该市场库的导入锁 |
 | `IMPORT_SCOPE` | 合约清单为空、重复或格式不对，或与首次导入定下的清单不同 |

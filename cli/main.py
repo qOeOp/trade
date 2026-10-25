@@ -844,7 +844,7 @@ MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "
 READS = {("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
          ("research", "state"), ("research", "graph"), ("validation", "report"), ("replay", "report"),
-         ("market", "coverage")}
+         ("market", "coverage"), ("market", "bars")}
 
 
 def _market_ledger(market: dict) -> db.LedgerProfile:
@@ -925,6 +925,22 @@ def market_coverage(market: dict, at: str | None, symbols: list[str] | None, sta
     return found
 
 
+def market_bars(market: dict, at: str | None, symbol: str, price_type: str, timeframe: str, start: str, end: str,
+                limit: int, output: str | None) -> dict:
+    """market bars: one contract's stored bars and funding settlements at a market commit, inline up to
+    --limit bar periods or whole into a new temporary file."""
+    from market import read
+    if timeframe == "1d" and price_type != "LAST":
+        raise UsageError("market bars --timeframe 1d gives the daily LAST bars only; drop --price-type MARK")
+    target = _new_temporary(output) if output else None
+    found = read.stored_bars(market, at, symbol, price_type, timeframe, start, end, None if target else limit)
+    if target is None:
+        return {**found, "output": None}
+    target.write_text(json.dumps(found, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {**found, "output": str(target), "bars": {key: value for key, value in found["bars"].items() if key != "rows"},
+            "funding": {key: value for key, value in found["funding"].items() if key != "rows"}}
+
+
 # The dispatch table
 
 class Parser(argparse.ArgumentParser):
@@ -951,6 +967,12 @@ def _workers(text: str) -> int:
     return int(text)
 
 
+def _count(text: str) -> int:
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError(f"must be a whole number of at least 1, got {text!r}")
+    return int(text)
+
+
 def _op_id(parser) -> None:
     parser.add_argument("--op-id", help="operation ID; the same ID and content again is a replay (default: derived "
                                         "from the content)")
@@ -970,6 +992,25 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
 output keys: commit, scope, input_interval_ms, coverage (per contract), lifecycle,
 lifecycle_missing, interpretation; coverage[].funding.event_times_ms is most of the output"""
+BARS_EPILOG = """reads    bar, funding, instrument and market_schema at --at (reader), through the exporter's own reads
+         (market.read_bars, market.daily_bars, market.read_funding)
+writes   nothing in any database; with --output, one new file under the temporary root; never publishes
+returns  commit, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns,
+         count, rows}, funding {columns, count, rows}, output
+refuses  INTERVAL_INVALID (not UTC whole minutes, start not before end; 1d: not whole UTC days);
+         NO_TERMS (no such contract at the commit); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS
+         (--output); USAGE_ERROR (1d with MARK)
+
+The source reviewer's price read: no trial, no exposure. Prices and volumes are decimals at the
+stored scale. ts_event_ms is when the Catalog delivers the bar to a strategy: its close, ts_open_ms
+plus the period minus 1 ms. 1m MARK bars become one mark price per minute at that close. 1d bars are
+the Catalog's daily LAST bars, the complete UTC days derived from the stored minutes, which a
+DAILY_WARMUP strategy receives before its input start; inside the window the engine aggregates the
+minutes natively, stamped on close. Funding rows are the settlements in the same interval, each
+delivered at its funding_time_ms. Without --output at most --limit bar periods from --start are
+returned and next_start names where the rest begins (null when the interval is complete); with
+--output the whole interval goes to the file, rows included, and the printed result keeps only the
+counts. Lifecycle episodes are not applied (one contract as stored)."""
 
 
 def _parser() -> Parser:
@@ -1163,7 +1204,7 @@ def _parser() -> Parser:
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
     _at(command)
-    command = research.add_parser("graph", help="the line as a research-graph@2 document, read from the ledger only")
+    command = research.add_parser("graph", help="the line as a research-graph@3 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
                       "where the scope under study starts. Check, render and compare it with "
@@ -1273,8 +1314,8 @@ def _parser() -> Parser:
                       "Identically reproducing the precheck a registration cites adds no exposure; any other "
                       "reproduction or exploration of a source counts as its prior exposure.")
 
-    market = verbs("market", "market data: init, upgrade, import, import-quotes, lifecycle, coverage, backup, review, "
-                             "publish")
+    market = verbs("market", "market data: init, upgrade, import, import-quotes, lifecycle, coverage, bars, backup, "
+                             "review, publish")
     command = market.add_parser("init", help="create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
@@ -1320,6 +1361,22 @@ def _parser() -> Parser:
     command.add_argument("--end", required=True, help="input interval end, UTC ISO-8601 with Z")
     _ledger_option(command)
     command.add_argument("--lifecycle-bundle", help="lifecycle-<commit> bundle to add lifecycle episodes (needs --ledger)")
+
+    command = market.add_parser("bars", help="one contract's stored bars and funding at a market commit",
+                                description="one contract's stored bars and funding at a market commit",
+                                epilog=BARS_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
+    _market_option(command)
+    _at(command, "market")
+    command.add_argument("--symbol", required=True, help="one Binance symbol such as BTCUSDT")
+    command.add_argument("--price-type", choices=("LAST", "MARK"), default="LAST",
+                         help="LAST trade bars or MARK price bars (default: LAST; 1d is LAST only)")
+    command.add_argument("--timeframe", choices=("1m", "1d"), default="1m",
+                         help="1m stored minutes or 1d derived daily bars (default: 1m)")
+    command.add_argument("--start", required=True, help="interval start, UTC ISO-8601 with Z")
+    command.add_argument("--end", required=True, help="interval end (exclusive), UTC ISO-8601 with Z")
+    command.add_argument("--limit", type=_count, default=1440,
+                         help="most bar periods returned inline (default: 1440, one day of minutes)")
+    command.add_argument("--output", help="new JSON file under the temporary root for the whole interval")
 
     paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list")
     command = paper.add_parser("start", help="declare a paper run of a candidate and start its containers")
@@ -1396,6 +1453,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0
+    if key == ("market", "bars"):
+        return market_bars(market_profile(args.market), args.at, args.symbol, args.price_type, args.timeframe,
+                           args.start, args.end, args.limit, args.output), 0
     if key == ("replay", "reproduce"):
         from cli import replay as cli_replay
         return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
