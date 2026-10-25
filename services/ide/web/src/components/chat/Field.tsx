@@ -1,13 +1,42 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "../../icons/Icon";
+import { Kbd } from "../Kbd";
 
 // The agent form's controls: a labelled text field, a segmented choice, a checklist and a bordered
 // action (the form's one strong control; the panel's other actions are icon buttons).
-export function TextField({ label, hint, ...input }: { label: string; hint?: ReactNode } & InputHTMLAttributes<HTMLInputElement>) {
+type FieldProps = { label: string; hint?: ReactNode; value: string; onValue: (value: string) => void; suggest?: string }
+  & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">;
+
+/**
+ * A labelled text field. A `suggest`ion shows as the placeholder; Tab, while the field is empty or
+ * holds the suggestion's start, types the rest in (0.4 s at most, at once under reduced motion)
+ * instead of moving on, and Tab again moves on.
+ */
+export function TextField({ label, hint, value, onValue, suggest, placeholder, ...input }: FieldProps) {
+  const typing = useRef<number | null>(null);
+  const stop = () => { if (typing.current != null) clearInterval(typing.current); typing.current = null; };
+  useEffect(() => stop, []);
+  const fillable = suggest != null && value !== suggest && suggest.startsWith(value);
+  const fill = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Tab" || e.shiftKey || !fillable) return;
+    e.preventDefault(); stop();
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { onValue(suggest); return; }
+    const step = Math.max(1, Math.ceil((suggest.length - value.length) / 14));
+    let at = value.length;
+    typing.current = window.setInterval(() => {
+      at = Math.min(suggest.length, at + step);
+      onValue(suggest.slice(0, at));
+      if (at === suggest.length) stop();
+    }, 28);
+  };
   return (
     <label className="block space-y-1">
       <span className="text-dense text-fg-muted">{label}</span>
-      <input {...input} className="block w-full rounded-control border border-line-strong bg-island px-2 py-1 outline-none placeholder:text-fg-ghost focus:border-focus" />
+      <span className="relative block">
+        <input {...input} value={value} placeholder={placeholder ?? suggest} onKeyDown={fill} onChange={(e) => { stop(); onValue(e.target.value); }}
+          className={`peer block w-full rounded-control border border-line-strong bg-island px-2 py-1 outline-none placeholder:text-fg-ghost focus:border-focus ${fillable ? "pr-11" : ""}`} />
+        {fillable && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-1.5 hidden items-center peer-focus:flex"><Kbd>Tab</Kbd></span>}
+      </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}
     </label>
   );

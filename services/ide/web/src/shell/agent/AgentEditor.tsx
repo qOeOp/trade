@@ -51,10 +51,10 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
       <h3 className="font-semibold">{agent ? `Edit ${agent.name}` : "Add an agent"}</h3>
       <Segmented label="Provider" value={provider} onChange={(p) => { setProvider(p); if (!saved) setListed([]); }}
         options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))} />
-      <TextField label="Name" value={name} placeholder={PROVIDER_LABEL[provider]} onChange={(e) => setName(e.target.value)} />
-      <TextField label="API key" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
+      <TextField label="Name" value={name} suggest={PROVIDER_LABEL[provider]} onValue={setName} />
+      <TextField label="API key" type="password" autoComplete="off" value={key} onValue={setKey}
         placeholder={saved ? `stored, ends ${saved.keyHint} (leave empty to keep)` : "kept by the chat service, never shown again"} />
-      <TextField label="Base URL" value={baseURL} placeholder={URL_HINT[provider]} onChange={(e) => setBaseURL(e.target.value)}
+      <TextField label="Base URL" value={baseURL} suggest={URL_HINT[provider]} onValue={setBaseURL}
         hint="Only for a proxy or a compatible gateway." />
       <FormButton icon="retry" disabled={busy || (!saved && key.trim().length < 8)} onClick={() => void saveAndList()}>
         {saved ? "Save and list models again" : "Save and list models"}
