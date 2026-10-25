@@ -36,6 +36,17 @@ def market_returns(market_database, commit, universe_rule, start, end) -> dict:
             "btc": [0.005 * ((k % 3) - 1) for k in range(31)], "members_per_day": [2] * 31}
 
 
+def unreachable(*window):
+    """A market whose service refuses the connection."""
+    cause = MarketError("connection refused", code="MARKET_UNREACHABLE")
+    raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{cause.code}: {cause.message}") from cause
+
+
+def unprofiled(*window):
+    """A ledger profile directory without a market profile."""
+    raise refuse("MARKET_RETURNS_UNAVAILABLE", "no market profile for database (the active one)")
+
+
 def refused(function, *args, **kwargs) -> Refusal:
     try:
         function(*args, **kwargs)
@@ -299,17 +310,19 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(part["slices"], found["attribution"]["slices"])
 
     def test_the_research_graph_refuses_an_unreachable_market_and_not_a_missing_market_profile(self):
-        def unreachable(*window):
-            cause = MarketError("connection refused", code="MARKET_UNREACHABLE")
-            raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{cause.code}: {cause.message}") from cause
+        for workers in (1, 3):
+            with self.subTest(workers=workers):
+                with seams.use(market_returns=unreachable):
+                    self.assertEqual(refused(graph.research_graph, self.profile, workers=workers).code,
+                                     "MARKET_UNREACHABLE", "a graph without the market would show its comparisons' "
+                                     "market measures as missing")
+                with seams.use(market_returns=unprofiled):
+                    self.assertEqual(graph.research_graph(self.profile, workers=workers)["format"], graph.FORMAT)
 
-        def unprofiled(*window):
-            raise refuse("MARKET_RETURNS_UNAVAILABLE", "no market profile for database (the active one)")
-        with seams.use(market_returns=unreachable):
-            self.assertEqual(refused(graph.research_graph, self.profile).code, "MARKET_UNREACHABLE",
-                             "a graph without the market would show its comparisons' market measures as missing")
-        with seams.use(market_returns=unprofiled):
-            self.assertEqual(graph.research_graph(self.profile)["format"], graph.FORMAT)
+    def test_the_research_graph_is_the_same_from_one_process_or_several(self):
+        one = graph.research_graph(self.profile, workers=1)
+        self.assertGreater(sum(c["comparison"] is not None for c in one["candidates"]), 0, "a comparison is drawn")
+        self.assertEqual(json.dumps(graph.research_graph(self.profile, workers=4)), json.dumps(one))
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, "registration-root", self.control["trial_id"])

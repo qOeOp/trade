@@ -1320,6 +1320,7 @@ def research_graph(
     line_bundle: str | None,
     at: str | None,
     since: str | None,
+    workers: int = 1,
 ) -> dict
 ```
 
@@ -1333,6 +1334,7 @@ def research_graph(
 4. 账本或市场库连不上、拒绝账号或结构代数不对时整张图拒绝，不出一张缺比较或缺市场读数的图：比较入口与市场日收益读取会把这类故障吞成缺项，读口在本次调用内记下它们，取完后拒绝。
 5. 两个研究目标经 ledger.targets_for 读出该提交上这条路线生效的那一组（路线自己的，否则账本默认值），line.targets 只带 max_drawdown 与 annual_return；都没有时为 null，gaps 写明未设目标；since 标出所研究范围的起点。
 6. 同一账本提交永远给出同一份文档；不写账本。
+7. workers 大于 1 时各版本的比较分到这么多个进程（spawn 启动，每个进程每个市场窗口只读一次）里算，按原顺序合回；文档逐字节与一个进程时相同，第一个拒绝按版本顺序抛出，各进程记下的环境故障一并拒绝。此时生效的 seams 须可序列化；默认 1 在本进程里算。
 
 | 拒绝码 | 条件 |
 |---|---|
