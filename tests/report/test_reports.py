@@ -203,6 +203,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual((len(found["positions"]), len(found["daily_returns"])), (1, 31))
         self.assertEqual(found["reconciled"]["realized_pnl_usdt"], "9.80000000")
         self.assertIsNone(found["orders"])
+        self.assertEqual(set(found["null_reasons"]), {"orders", "fills", "account", "exposures", "order_events"})
+        self.assertIn(f"replay reproduce --trial-id {self.control['trial_id']}", found["null_reasons"]["exposures"],
+                      "a null native table names the step that fills it")
+        self.assertTrue(found["null_reasons"]["exposures"].startswith("REPRODUCTION_REQUIRED"))
         self.assertEqual(refused(runs.tables, self.bad["trial_id"], self.profile).code, "RUN_NOT_PASSED")
         self.assertEqual(refused(runs.tables, self.bare["trial_id"], self.profile).code, "ECONOMIC_EVIDENCE_UNAVAILABLE")
         done = reproduce.reproduce(self.control["trial_id"], self.world.output("drill"), ledger=self.profile,
@@ -217,6 +221,7 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(all(row["realized_pnl_source"] == "verified-native-reproduction"
                             for row in detail["positions"]))
         self.assertEqual((len(detail["account"]), detail["reproduction"]), (3, done["reproduction_trial_id"]))
+        self.assertEqual(detail["null_reasons"], {"exposures": "NOT_REQUESTED: pass --exposures"})
         exc = refused(runs.tables, self.control["trial_id"], self.profile, directory=directory)
         self.assertEqual((exc.code, exc.missing), ("REPRODUCTION_MISMATCH", ("reproduction",)),
                          "no native detail without the reproduction trial")
