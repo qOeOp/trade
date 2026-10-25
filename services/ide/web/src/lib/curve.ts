@@ -1,41 +1,43 @@
-// A smooth SVG path through points that never overshoots them (monotone cubic interpolation along x,
-// Fritsch–Carlson), so a small chart's curve reads as smooth yet each peak and trough stays where the
-// data puts it.
+// A small chart's trend rather than its every tick: the path averaged into equal time buckets, those
+// smoothed with a Gaussian, and drawn as a uniform cubic B-spline in Bézier segments (as d3's
+// curveBasis), which bends near the points without passing through each, so noise never shows as
+// kinks or spikes.
 export type Point = readonly [number, number];
 
-/** The path through `points` (sorted by x): "M x,y C …", or a straight line for two or fewer. */
-export function monotonePath(points: readonly Point[]): string {
-  const n = points.length;
-  if (n === 0) return "";
-  const f = (v: number) => v.toFixed(1);
-  if (n < 3) return points.map(([x, y], i) => `${i ? "L" : "M"}${f(x)},${f(y)}`).join("");
-  const dx: number[] = [], slope: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    dx.push(points[i + 1]![0] - points[i]![0]);
-    slope.push(dx[i]! ? (points[i + 1]![1] - points[i]![1]) / dx[i]! : 0);
-  }
-  // Tangents: the mean of the neighbouring slopes, zero at a turn, then limited so no segment overshoots.
-  const m = points.map((_, i) => (i === 0 ? slope[0]! : i === n - 1 ? slope[n - 2]! : slope[i - 1]! * slope[i]! <= 0 ? 0 : (slope[i - 1]! + slope[i]!) / 2));
-  for (let i = 0; i < n - 1; i++) {
-    if (!slope[i]) { m[i] = 0; m[i + 1] = 0; continue; }
-    const a = m[i]! / slope[i]!, b = m[i + 1]! / slope[i]!, h = a * a + b * b;
-    if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * slope[i]!; m[i + 1] = t * b * slope[i]!; }
-  }
-  let d = `M${f(points[0]![0])},${f(points[0]![1])}`;
-  for (let i = 0; i < n - 1; i++) {
-    const [x0, y0] = points[i]!, [x1, y1] = points[i + 1]!, h = dx[i]! / 3;
-    d += `C${f(x0 + h)},${f(y0 + m[i]! * h)} ${f(x1 - h)},${f(y1 - m[i + 1]! * h)} ${f(x1)},${f(y1)}`;
-  }
-  return d;
+const BUCKETS = 48;  // a path is averaged into at most this many equal spans of time
+const SIGMA = 3;     // the Gaussian's width in buckets, narrower in proportion for a shorter path
+
+/** The trend of `points` (sorted by x): bucket means, then a Gaussian over them; its ends smoothed too. */
+export function trend(points: readonly Point[]): Point[] {
+  const means = bucketMeans(points), sigma = SIGMA * Math.min(1, means.length / BUCKETS);
+  if (sigma < 0.5) return means;
+  const r = Math.ceil(sigma * 2.5), w = Array.from({ length: 2 * r + 1 }, (_, k) => Math.exp(-((k - r) ** 2) / (2 * sigma * sigma)));
+  return means.map(([x], i) => {
+    let sum = 0, weight = 0;
+    for (let k = -r; k <= r; k++) { const p = means[i + k]; if (p) { sum += p[1] * w[k + r]!; weight += w[k + r]!; } }
+    return [x, sum / weight];
+  });
 }
 
-/** At most `most` points of a path, evenly spaced, keeping its last; the lowest and highest stay in. */
-export function thin<T extends Point>(points: readonly T[], most: number): T[] {
-  if (points.length <= most) return [...points];
-  const step = (points.length - 1) / (most - 1);
-  const keep = new Set(Array.from({ length: most }, (_, i) => Math.round(i * step)));
-  let lo = 0, hi = 0;
-  points.forEach(([, y], i) => { if (y < points[lo]![1]) lo = i; if (y > points[hi]![1]) hi = i; });
-  keep.add(lo).add(hi);
-  return [...keep].sort((a, b) => a - b).map((i) => points[i]!);
+/** Each of BUCKETS equal spans of time as the mean of its points, at their mean time. */
+function bucketMeans(points: readonly Point[]): Point[] {
+  if (points.length <= BUCKETS) return [...points];
+  const t0 = points[0]![0], span = points[points.length - 1]![0] - t0 || 1;
+  const sums = Array.from({ length: BUCKETS }, () => [0, 0, 0]);
+  for (const [x, y] of points) { const s = sums[Math.min(BUCKETS - 1, Math.floor(((x - t0) / span) * BUCKETS))]!; s[0]! += x; s[1]! += y; s[2]! += 1; }
+  return sums.filter(([, , n]) => n).map(([x, y, n]) => [x! / n!, y! / n!]);
+}
+
+/** The B-spline's path: "M x,y …", starting and ending on the end points; a polyline for two or fewer. */
+export function basisPath(points: readonly Point[]): string {
+  const f = (v: number) => v.toFixed(1);
+  if (points.length < 3) return points.map(([x, y], i) => `${i ? "L" : "M"}${f(x)},${f(y)}`).join("");
+  let [x0, y0] = points[0]!, [x1, y1] = points[1]!;
+  let d = `M${f(x0)},${f(y0)}L${f((5 * x0 + x1) / 6)},${f((5 * y0 + y1) / 6)}`;
+  const bend = (x: number, y: number) => {
+    d += `C${f((2 * x0 + x1) / 3)},${f((2 * y0 + y1) / 3)} ${f((x0 + 2 * x1) / 3)},${f((y0 + 2 * y1) / 3)} ${f((x0 + 4 * x1 + x) / 6)},${f((y0 + 4 * y1 + y) / 6)}`;
+  };
+  for (const [x, y] of points.slice(2)) { bend(x, y); [x0, y0, x1, y1] = [x1, y1, x, y]; }
+  bend(x1, y1);
+  return `${d}L${f(x1)},${f(y1)}`;
 }
