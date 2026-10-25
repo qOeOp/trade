@@ -1332,9 +1332,16 @@ def research_graph(
 
 1. 按 at 读取（AS OF）。成员是路线起点与路线上研究试验的候选，再沿父版本和同一策略 id 的修订扩展。
 2. 只组合已有读口：候选与试验、qualification.assess 的资格、report.derive_measures 的标题指标、registration.load_plan 的登记、report.compare 的比较与预测核对、qualification.review_records 的源码审阅、判断与其主体；不加自己的规则。
-3. 无经济证据的运行不给指标，只留原因；比较被拒时预测结果留空。
-4. 两个研究目标经 ledger.targets_for 读出该提交上这条路线生效的那一组（路线自己的，否则账本默认值），line.targets 只带 max_drawdown 与 annual_return；都没有时为 null，gaps 写明未设目标；since 标出所研究范围的起点。
-5. 同一账本提交永远给出同一份文档；不写账本。
+3. 无经济证据的运行不给指标，只留原因；比较因比较事实被拒（无对照、不可比）时预测结果留空。
+4. 账本或市场库连不上、拒绝账号或结构代数不对时整张图拒绝，不出一张缺比较或缺市场读数的图：比较入口与市场日收益读取会把这类故障吞成缺项，读口在本次调用内记下它们，取完后拒绝。
+5. 两个研究目标经 ledger.targets_for 读出该提交上这条路线生效的那一组（路线自己的，否则账本默认值），line.targets 只带 max_drawdown 与 annual_return；都没有时为 null，gaps 写明未设目标；since 标出所研究范围的起点。
+6. 同一账本提交永远给出同一份文档；不写账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RESEARCH_LINE_REQUIRED` | 没有给路线，账本也没有当前路线 |
+| `LEDGER_UNAVAILABLE`、`LEDGER_PERMISSION`、`SCHEMA_MISMATCH` | 账本服务连不上、拒绝账号或结构代数不是本代码读的那一代，包括比较入口在取图途中遇到的 |
+| `MARKET_UNREACHABLE` | 市场库服务连不上、库不存在或拒绝账号（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
 
 ### `research_status` [#def-report-research_status]
 
