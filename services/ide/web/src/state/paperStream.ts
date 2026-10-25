@@ -1,7 +1,7 @@
-// The journal of the run the Paper panel shows, as it grows: one stream from the daemon for the run and
-// the open contract tab (every line but other contracts' bars), with state.json and the readings. The
-// panel's links: the time the chart should show and the event to highlight, and the day picked in the
-// calendar.
+// The journal of the run the Paper page shows, as it grows: one stream from the daemon for the run and
+// the contract its chart shows (every line but other contracts' bars), with state.json and the
+// readings. The page's links: the time the chart should show and the event to highlight, the trades
+// card's tab, and the day picked in the calendar.
 import { streamUrl, type JournalLine, type Live, type PaperState, type Seal } from "../lib/paperApi";
 import { CATEGORIES, type Category } from "../model/paper";
 import { atom, useAtom } from "./atom";
@@ -18,6 +18,10 @@ export const chartTime = atom<{ ms: number; n: number } | null>(null);
 export const highlighted = atom<JournalLine | null>(null);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
+/** The tab the trades card shows; a click on a chart marker turns it to the events. */
+export const tradesTab = atom<"trades" | "events">("trades");
+/** The month (YYYY-MM) the calendar shows, or null for the run's latest. */
+export const calendarMonth = atom<string | null>(null);
 /** The event categories the Events list shows. */
 export const shownCategories = atom<ReadonlySet<Category>>(new Set(CATEGORIES));
 

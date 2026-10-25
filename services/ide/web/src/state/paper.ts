@@ -1,5 +1,5 @@
 // Paper runs on the page: whether the page's server reaches a paper daemon, the runs it lists (read
-// every few seconds while it does), the run and tab the Paper panel shows, starts and stops in flight,
+// every few seconds while it does), the run and view the Paper page shows, starts and stops in flight,
 // the dialogs that ask before one, and the last notice for the status bar.
 import { ApiError } from "../lib/agentApi";
 import { paperApi, type Listing, type PaperRun } from "../lib/paperApi";
@@ -12,11 +12,10 @@ export const ACTIVE = new Set(["running", "stopping", "ended", "unsealed"]);
 
 export const paperService = atom<"checking" | "absent" | "present">("checking");
 export const paperRuns = atom<Listing | null>(null);
-/** The run the Paper panel shows, and its tab: a contract, or null for the account. */
+/** The run the Paper page shows, and what its chart shows: "equity", or a contract (null until the
+ *  page picks one). The trades and events follow the chart: a contract's alone, or all on Equity. */
 export const selectedRun = atom<number | null>(null);
 export const paperTab = atom<string | null>(null);
-/** On a contract tab, whether Events and Positions show every contract instead of the tab's alone. */
-export const allContracts = atom(false);
 /** Versions being started from this page, and runs being stopped. */
 export const starting = atom<ReadonlySet<string>>(new Set());
 export const stopping = atom<ReadonlySet<number>>(new Set());

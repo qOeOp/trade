@@ -4,10 +4,9 @@ import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
 import { useAgentService } from "../state/agent";
-import { useAtom } from "../state/atom";
-import { selectedRun, usePaperRuns, usePaperService } from "../state/paper";
+import { usePaperService } from "../state/paper";
 import { PaperDialogs } from "../components/PaperDialogs";
-import { CALENDAR_DAYS } from "../widgets/paper/Calendar";
+import { PaperPage } from "../widgets/paper/PaperPage";
 import { setSideSize, useShell, type Side } from "../state/shell";
 import { AgentRuntime } from "./agent/AgentRuntime";
 import { CommandPalette } from "./CommandPalette";
@@ -26,7 +25,8 @@ const EDITOR_MIN = "45%";
 
 // The window as IntelliJ lays it out: toolbar and status bar on the frame; between them a stripe on
 // each side and the islands: the open left tool window, the editor (the lineage canvas) with the open
-// bottom tool window under it, and the open right tool window. A hidden side takes no space; sizes are
+// bottom tool window under it, and the open right tool window; on the Paper page its own cards take the
+// editor's and the bottom's place (the lineage stays mounted, hidden). A hidden side takes no space; sizes are
 // pixels and come back when a side reopens. The window's width bounds every row, so a long name or
 // a wide table scrolls or truncates inside its island instead of pushing the sides off screen.
 export function Shell() {
@@ -34,13 +34,9 @@ export function Shell() {
   const lineage = useWidget<LineageWidget>("lineage@2");
   const agent = useAgentService() === "present";
   const paper = usePaperService() === "present";
-  const paperId = useAtom(selectedRun);
-  const run = usePaperRuns()?.runs.find((r) => r.paper_id === paperId);
-  const started = run?.seal?.started_ns ?? run?.live?.started_ns ?? null;
-  const calendar = started !== null && (run?.seal?.stopped_ns ?? Date.now() * 1e6) - started >= CALENDAR_DAYS * 86_400e9;
   const { open, last, size } = useShell();
   const page = paper && last.left === "paper";
-  const windows = useMemo(() => toolWindows(view.widgets, agent, page ? { calendar } : null), [view, agent, page, calendar]);
+  const windows = useMemo(() => toolWindows(view.widgets, agent, page), [view, agent, page]);
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);
@@ -66,7 +62,8 @@ export function Shell() {
         <Group orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>
           {left && <>{side("left", left)}<Separator /></>}
           <Panel id="centre" minSize={EDITOR_MIN}>
-            <Group orientation="vertical" onLayoutChanged={keep}>
+            {page && <PaperPage />}
+            <Group orientation="vertical" onLayoutChanged={keep} className={page ? "hidden!" : undefined}>
               <Panel id="editor" minSize="25%">
                 <Editor />
               </Panel>

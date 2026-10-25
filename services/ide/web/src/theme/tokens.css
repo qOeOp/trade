@@ -29,7 +29,7 @@
   --guide: var(--line);
   --fg: light-dark(oklch(0.22 var(--n-c) var(--n-h)), oklch(0.9 var(--n-c) var(--n-h)));
   --fg-muted: light-dark(oklch(0.5 var(--n-c) var(--n-h)), oklch(0.72 var(--n-c) var(--n-h)));
-  --fg-faint: oklch(0.58 var(--n-c) var(--n-h));
+  --fg-faint: light-dark(oklch(0.555 var(--n-c) var(--n-h)), oklch(0.62 var(--n-c) var(--n-h)));
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --icon: light-dark(oklch(0.53 var(--n-c) var(--n-h)), oklch(0.86 var(--n-c) var(--n-h)));
   --focus: #3574F0;
@@ -70,6 +70,23 @@
   --crosshair: var(--fg-faint);
   /* the selected run in a scatter: a bright yellow fill, deeper on white so it still reads */
   --selected-mark: light-dark(#E6B000, #FFD43B);
+  /* The market on a contract chart: filled candles in a teal green and a brick red, as trading charts
+     draw them (validated as a pair for colour-vision deficiency, 3:1 on the island in both themes);
+     profit and loss take the same two. */
+  --candle-up: light-dark(#0DA081, #33A587);
+  --candle-down: light-dark(#BA2B2E, #C44844);
+  --pnl-up: var(--candle-up);
+  --pnl-down: var(--candle-down);
+  /* a calendar day's tile in three steps of its return's size, the same steps for profit and loss */
+  /* the cards behind a stack's front card, opaque so they read as cards in both themes */
+  --stack-1: color-mix(in oklab, var(--island) 60%, var(--frame));
+  --stack-2: color-mix(in oklab, var(--island) 30%, var(--frame));
+  --cal-up-1: light-dark(color-mix(in oklab, var(--pnl-up) 10%, var(--island)), color-mix(in oklab, var(--pnl-up) 16%, var(--island)));
+  --cal-up-2: light-dark(color-mix(in oklab, var(--pnl-up) 20%, var(--island)), color-mix(in oklab, var(--pnl-up) 30%, var(--island)));
+  --cal-up-3: light-dark(color-mix(in oklab, var(--pnl-up) 34%, var(--island)), color-mix(in oklab, var(--pnl-up) 46%, var(--island)));
+  --cal-down-1: light-dark(color-mix(in oklab, var(--pnl-down) 10%, var(--island)), color-mix(in oklab, var(--pnl-down) 16%, var(--island)));
+  --cal-down-2: light-dark(color-mix(in oklab, var(--pnl-down) 20%, var(--island)), color-mix(in oklab, var(--pnl-down) 30%, var(--island)));
+  --cal-down-3: light-dark(color-mix(in oklab, var(--pnl-down) 34%, var(--island)), color-mix(in oklab, var(--pnl-down) 46%, var(--island)));
 
   /* code: IntelliJ's Python colours (Islands light, dark); a diff tints lines with the meets and fail hues */
   --code-keyword: light-dark(#0033B3, #CF8E6D);
@@ -116,6 +133,8 @@
   --color-popup: var(--popup);
   --color-popup-border: var(--popup-border);
   --color-card-border: var(--card-border);
+  --color-stack-1: var(--stack-1);
+  --color-stack-2: var(--stack-2);
   --color-tooltip: var(--tooltip);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
@@ -149,13 +168,26 @@
   --color-axis: var(--axis);
   --color-scope: var(--scope);
   --color-crosshair: var(--crosshair);
+  --color-pnl-up: var(--pnl-up);
+  --color-pnl-down: var(--pnl-down);
+  --color-cal-up-1: var(--cal-up-1);
+  --color-cal-up-2: var(--cal-up-2);
+  --color-cal-up-3: var(--cal-up-3);
+  --color-cal-down-1: var(--cal-down-1);
+  --color-cal-down-2: var(--cal-down-2);
+  --color-cal-down-3: var(--cal-down-3);
 
   --font-*: initial;
   --font-sans: "Supply", "Inter Variable", "HarmonyOS Sans SC", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Supply", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* IntelliJ's scale, relative to its 13px default: H1 +5, H2 +3, dense -1, small -2 (the floor). */
+  /* IntelliJ's scale, relative to its 13px default: H1 +5, H2 +3, dense -1, small -2 (the floor); and
+     two sizes for figures read at a glance, as account pages set them: an account's equity, a reading. */
   --text-*: initial;
+  --text-figure: 24px;
+  --text-figure--line-height: 1.15;
+  --text-value: 15px;
+  --text-value--line-height: 1.35;
   --text-h1: 18px;
   --text-h1--line-height: 1.35;
   --text-h2: 16px;
@@ -182,4 +214,12 @@
 
   --shadow-*: initial;
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
+  /* a segment raised out of its track, a hairline's worth */
+  --shadow-raised: 0 1px 2px var(--shadow-near);
+
+  /* a card coming to the front of a stack: up from the one behind it */
+  --animate-stack-in: stack-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  @keyframes stack-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  }
 }

@@ -1,13 +1,10 @@
 // Every icon the page uses, by name: Lucide's line icons (lucide-static, pinned in package.json; see
 // NOTICE.md). Explicit ?raw imports, so a missing file fails the build. Each file keeps its
 // "@license lucide-static" comment in the built page.
-import activity from "lucide-static/icons/activity.svg?raw";
+import chartCandlestick from "lucide-static/icons/chart-candlestick.svg?raw";
+import chevronLeft from "lucide-static/icons/chevron-left.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
-import calendarDays from "lucide-static/icons/calendar-days.svg?raw";
-import info from "lucide-static/icons/info.svg?raw";
 import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
-import wallet from "lucide-static/icons/wallet.svg?raw";
-import scrollText from "lucide-static/icons/scroll-text.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
 import circleCheck from "lucide-static/icons/circle-check.svg?raw";
@@ -58,6 +55,7 @@ export const ICONS = {
   "arrow-up": { svg: arrowUp },
   "arrow-down": { svg: arrowDown },
   "chevron-down": { svg: chevronDown },
+  "chevron-left": { svg: chevronLeft },
   "chevron-right": { svg: chevronRight },
   "chevron-up": { svg: chevronUp },
   search: { svg: search },
@@ -90,12 +88,8 @@ export const ICONS = {
   "new-chat": { svg: messageSquarePlus },
   history: { svg: history },
   plus: { svg: plus },
-  "tool.paper": { svg: activity },
-  "tool.events": { svg: scrollText },
-  "tool.positions": { svg: wallet },
+  "tool.paper": { svg: chartCandlestick },
   warning: { svg: triangleAlert },
-  "tool.calendar": { svg: calendarDays },
-  "tool.run": { svg: info },
   // IntelliJ's run and pause marks, filled: Lucide's outlines read as media controls.
   run: { svg: '<svg><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></svg>' },
   pause: { svg: '<svg><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/></svg>' },
