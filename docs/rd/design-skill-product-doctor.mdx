@@ -44,9 +44,9 @@
 
 <ol className="rd-skill-rules">
 <li id="def-rule-K-1">只读会话、checkout、CI 和产品查询；重生成输出只到 /tmp，不写账本或市场库，不读凭据 <span className="rd-rule-links">K.1</span></li>
-<li id="def-rule-K-2">诊断使用当前产品名称与证据，沿实际输出、消费、解释和决策验证；不在 skill 累积机制或历史缺陷清单 <span className="rd-rule-links">K.2</span></li>
+<li id="def-rule-K-2">诊断使用当前产品名称与证据，沿实际输出、消费、解释和决策验证；不在 skill 累积机制或历史缺陷清单 <span className="rd-rule-links">K.2</span><span className="rd-eval">eval <code>finding-needs-proof</code>：发现须有会话位置与当前 checkout 上的产品证明，否则标为未核实或删去；main 已修的注明；改拒绝列为待用户授权项，不直接改</span></li>
 <li id="def-rule-K-3">AGENTS.md 是通用权限与实现边界的所有者，doctor 引用而不复述；保留 doctor 对存储字段改动逐项请求授权的额外限制，诊断本身不授予实施权限 <span className="rd-rule-links">K.3</span></li>
-<li id="def-rule-K-4">整体审计在与研究会话不同宿主的全新会话里进行；要审的会话是本会话或其子代理、或与本会话同宿主时，在第 1 步之前停下给出正确步骤，不开始审计 <span className="rd-rule-links">K.4</span></li>
+<li id="def-rule-K-4">整体审计在与研究会话不同宿主的全新会话里进行；要审的会话是本会话或其子代理、或与本会话同宿主时，在第 1 步之前停下给出正确步骤，不开始审计 <span className="rd-rule-links">K.4</span><span className="rd-eval">eval <code>audits-own-session-refused</code>：在产出研究的会话里、或同宿主的另一窗口里要求整体审计时，停下给出另一宿主全新会话的步骤与交接项，并拒收本会话对这一轮的叙述</span></li>
 </ol>
 
 ## `references/hosts.md` [#def-file-product-doctor-references-hosts-md]

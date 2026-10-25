@@ -8,8 +8,10 @@
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
 <Files>
+<Folder name=".github/workflows" defaultOpen>
+  <File name="runtime-image.yml" />
+</Folder>
 <Folder name="runtime" defaultOpen>
-  <File name="ci/runtime_image.yml" />
   <File name="container.py" />
   <File name="image.py" />
 </Folder>
@@ -17,7 +19,7 @@
 
 `runtime_contract` uses `replay-contract@v7`: the name identifies the replay contract and `v7` its version. The image digest separately pins its implementation. The publisher, host layout and image declaration must agree exactly; retained records keep their original identities.
 
-## `runtime/ci/runtime_image.yml` [#def-mod-runtime-ci-runtime_image-yml]
+## `.github/workflows/runtime-image.yml` [#def-mod-github-workflows-runtime-image-yml]
 
 | 函数 | 用途 |
 |---|---|
