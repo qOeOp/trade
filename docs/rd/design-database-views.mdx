@@ -2,6 +2,8 @@
 
 Business and research-history views derive a reading surface from stored facts. They add neither stored facts nor an access boundary.
 
+Current product readers mainly query base tables and joins and reuse shared functions. An [isolated cross-reader verification](https://github.com/qOeOp/trade/blob/main/docs/plans/structure-read-consistency-verification.zh.md) checked the distinct scopes of raw trials, trial counts and trials on a research line, subject rows versus aggregated judgments, and report qualification and masking. Stored readings in `v_run_history` remain available for historical diagnosis; formal readers determine economic evidence availability. Positive out-of-sample flows, complex lineage, concurrency and all report paths remain incompletely covered.
+
 Reading `database/commit` pins both the historical view definition and data; a view queried with `AS OF` reads historical data through the current definition. An [isolated Dolt 2.4.2 verification](https://github.com/qOeOp/trade/blob/main/docs/plans/dolt-history-view-semantics-verification.zh.md) confirmed this difference, the existing `read_as_of` buffered and streaming reads, and reads after a service restart. It covers a synthetic single-level view, not every view on this page, nested or cross-database dependencies, or every report path.
 
 [Database overview](/en/docs/design-ledger/)
