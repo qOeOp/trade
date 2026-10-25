@@ -100,13 +100,14 @@ Progress (research-run returns as bars from zero on the canvas's x), Return vs d
 frontier), Version table and Data gaps at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
 all, collapse all, hide). `⌥1`–`⌥7` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
-back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. A version opened
-in its own tab (double-click, or the context menu) shows its detail with what changed and the conclusion beside the
-evidence where the tab is wide enough; the tab strip appears once one is open. A version's source opens in a tab of its own (double-click or Enter in Sources,
-or the context menu): read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling
-it; Compare with parent turns it into a unified diff against its parent's source (deleted lines red, inserted green, long
-unchanged stretches folded). Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph, Show in details,
-Open in new tab, Open source, Copy version name and Copy link. Tool-window sides, sizes
+back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. The editor
+follows the left tool window last chosen: with Versions it shows the lineage, with Sources the open files in tabs.
+Double-clicking a version anywhere (canvas, Versions, Sources, or Enter in Sources), or Open source in its context menu,
+switches the left side to Sources and opens the version's source, or brings its tab to the front when it is open:
+read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling it; Compare with parent
+opens its unified diff against its parent's source (deleted lines red and plain, inserted green, long unchanged stretches
+folded). Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph (back to Versions and the
+lineage), Show in details, Open source, Copy version name and Copy link. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
@@ -136,9 +137,10 @@ the canvas and the bottom island share their left edge and width, canvas nodes a
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
 2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
-There it also drives the tree's arrow keys, the folded path's menu, a canvas version's context menu (6 items),
-double-click opening a tab, the wheel panning the canvas to its edges, and a Sources file opening as highlighted source
-that the island scrolls, then as its diff.
+There it also drives the tree's arrow keys and its header's Collapse all and Expand all, the folded path's menu, a canvas version's context menu (5 items),
+double-click opening its source and `⌥1` bringing the lineage back, the wheel panning the canvas to its edges, and a Sources file opening as highlighted source
+that the island scrolls, opened once however often it is double-clicked, then as its diff, and its menu's Locate in graph
+bringing Versions and the lineage back.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with strokes that draw one pixel wide at every size (2 units at 12px, 1.5 at 16px, 1.2 at 20px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

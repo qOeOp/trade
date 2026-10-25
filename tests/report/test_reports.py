@@ -13,10 +13,12 @@ from unittest import mock
 
 from ledger import db, metrics, strategies
 from ledger.errors import Refusal
+from ledger.refusals import refuse
+from market.sources import MarketError
 from qualification import availability
 from registration import duties, precheck, register
 from replay import entry, reproduce
-from report import attribution, candidates, comparison, measures, runs, seams, status
+from report import attribution, candidates, comparison, graph, measures, runs, seams, status
 from runtime import image
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
@@ -295,6 +297,19 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(again["evidence"], evidence, "recomputed from stored rows and the locked seed")
         part = attribution.attribution(self.profile, "registration-child", self.candidate["trial_id"])
         self.assertEqual(part["slices"], found["attribution"]["slices"])
+
+    def test_the_research_graph_refuses_an_unreachable_market_and_not_a_missing_market_profile(self):
+        def unreachable(*window):
+            cause = MarketError("connection refused", code="MARKET_UNREACHABLE")
+            raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{cause.code}: {cause.message}") from cause
+
+        def unprofiled(*window):
+            raise refuse("MARKET_RETURNS_UNAVAILABLE", "no market profile for database (the active one)")
+        with seams.use(market_returns=unreachable):
+            self.assertEqual(refused(graph.research_graph, self.profile).code, "MARKET_UNREACHABLE",
+                             "a graph without the market would show its comparisons' market measures as missing")
+        with seams.use(market_returns=unprofiled):
+            self.assertEqual(graph.research_graph(self.profile)["format"], graph.FORMAT)
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, "registration-root", self.control["trial_id"])

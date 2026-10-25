@@ -13,8 +13,9 @@ selected (`line select`); everything inside it follows `research-round`.
 
 - At every start or return from an interruption, read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
-  (`research status`), the research state and the current line record (`research state`). A line
-  record holds the user's two research targets in its note. After an interruption, or when the user
+  (`research status`), the research state and the current line record (`research state`), whose
+  `targets` are the user's two research targets in force for the line (its own, else the ledger
+  default). After an interruption, or when the user
   says to continue, continue that line under `research-round` without asking. A new session started
   with only `research-start` asks once: continue the current line (its state and next step) or
   choose another line (Offer lines and wait).
@@ -45,10 +46,12 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
 then published, prechecked and reviewed (research-round's template.md, First report). Record the
-choice once with `line select` (`--help`), its note stating the user's two research targets.
-Line notes and summaries follow research-round's rule for ledger text (English, structured).
-The targets are the reference for reading reports; ask for nothing else (no coins, sizing,
-budgets or stages).
+choice once with `line select` (`--help`), with the user's two research targets as
+`--max-drawdown` and `--annual-return` when the user states targets for this line; otherwise the
+line reads the ledger default. When neither exists, ask the user for them. Record a later change
+the user states with `line targets`, and never change targets on your own. Line notes and summaries
+follow research-round's rule for ledger text (English, structured). The targets are the reference
+for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
 
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,

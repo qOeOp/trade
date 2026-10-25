@@ -1,6 +1,6 @@
 # 市场数据与交易范围
 
-保存合约规格、成交价与标记价 K 线、资金费率和逐月共同交易范围。
+保存合约规格、成交价与标记价 K 线、推算买卖报价、资金费率和逐月共同交易范围。
 
 [数据库总览](/zh/docs/design-ledger/)
 
@@ -68,6 +68,26 @@
 - [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）](https://arxiv.org/abs/2212.06888)　论文
 
 </div>
+
+### `quote` [#def-table-quote]
+
+保存声明规则从 aggTrades 推算的完整买卖价状态变化；来源是近似报价，不是逐档盘口或真实可成交深度。
+
+<TypeTable type={{"symbol": {"type": "VARCHAR(40)", "description": "公开合约名；与同提交条款及生命周期片段对应", "required": true}, "ts": {"type": "BIGINT", "description": "产生此状态的 aggTrade transact_time，UTC 毫秒；允许同毫秒多行", "required": true}, "agg_trade_id": {"type": "BIGINT", "description": "产生此状态的成交编号；区分同毫秒状态并用于来源核对，状态变化筛选后编号不必逐行连续", "required": true}, "bid": {"type": "BIGINT", "description": "推算买价 × 10^market_schema.price_scale；不是观测盘口", "required": true}, "ask": {"type": "BIGINT", "description": "推算卖价，采用同一定标", "required": true}}} />
+
+**键与约束**
+
+- 主键　`symbol`, `ts`, `agg_trade_id`；读取按 `ts, agg_trade_id` 排序，同毫秒状态不合并。
+- CHECK　`bid > 0 AND ask > bid`。
+- 五列均为 NOT NULL。没有 bid_size／ask_size、档位、逐侧年龄或来源文件列；导出用合约 max_quantity 填两侧数量，不等于实际盘口深度。
+
+**职责与来源**　只追加输入状态，不存订单、成交、仓位或账户。`quote_rule`、实际读取的每日归档 SHA-256（含用于续接的前日）和日诊断读数保存在对应 Dolt 提交消息，由 <Ref id="market.quote_imports" /> 读取，不复制成表字段；市场提交钉住输入版本。归档 zip 在下载缓存，不因有哈希就声称原件已存入此表或完成独立备份。
+
+**写入方**　<Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" />；推算与定标分别由 <Ref id="market.derive" />、<Ref id="market.scaled_rows" /> 负责。一个月一次事务／提交；同合约同月已有报价时拒绝，历史行不覆盖。
+
+**读取方**　<Ref id="market.quote_rows" /> 按市场提交 AS OF 流式读取，经 <Ref id="market.write_quotes" /> 写为原生 QuoteTick，<Ref id="market.export_episode" /> 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 <Ref id="engine.execution_account" /> 选择。早于该表创建的历史提交读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
+
+**关联与边界**　`symbol` 在应用读取时与 instrument 条款、universe_month 成员及生命周期片段关联，DDL 没有为它新增外键。推算规则和逐合约／时段／用途的证据边界沿用 <Ref id="W.1.2.1" />，原生强平环境沿用 <Ref id="W.4.2.1" />。本页记录既有存储，不增加字段或规则。
 
 ### `funding` [#def-table-funding]
 

@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 import copy
 
 from ledger import db, lines
+from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -23,6 +24,8 @@ MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_draw
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
                "search_exposure": "other"}
+# A service the graph reads is down, refuses the account or holds another schema generation.
+ENVIRONMENT = frozenset({"LEDGER_UNAVAILABLE", "LEDGER_PERMISSION", "SCHEMA_MISMATCH", "MARKET_UNREACHABLE"})
 
 
 def _iso(value) -> str | None:
@@ -55,10 +58,14 @@ def _lineage(rows: list[dict], seeds: set[str]) -> list[dict]:
 
 
 def _comparison(profile, bundle: str, trial_id: int, at: str) -> tuple[dict | None, list[dict] | None]:
-    """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses."""
+    """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses
+    for a comparison fact (no control, not comparable); an environment failure refuses the graph."""
     try:
         found = comparison.compare(profile, bundle, trial_id, at)
-    except Refusal:
+    except Refusal as exc:
+        failure = _environment_failure(exc)
+        if failure is not None:
+            raise failure from exc
         return None, None
     evidence = found.get("evidence") or None
     attribution = found.get("attribution") or {}
@@ -75,29 +82,50 @@ def _comparison(profile, bundle: str, trial_id: int, at: str) -> tuple[dict | No
              "interval_crosses_zero": crosses, "summary": None}, predictions)
 
 
-def _reusing(read: Callable) -> Callable:
+def _environment_failure(exc: Refusal) -> Refusal | None:
+    """The refusal for a service the graph needs being unreachable, refusing the account or holding
+    another schema generation (the market's under a MARKET_RETURNS_UNAVAILABLE), else None: a graph
+    drawn without it would be wrong, not just incomplete."""
+    if exc.code in ENVIRONMENT:
+        return exc
+    cause = getattr(exc.__cause__, "code", None)
+    return refuse(cause, f"{exc.code}: {exc.message}") if cause in ENVIRONMENT else None
+
+
+def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     """`read` (seams.market_returns) answering a repeated window from its first answer: a market commit
     is immutable, so one graph reads each window once instead of once per comparison. Failures are not
-    kept; every caller gets its own copy."""
+    kept, but environment failures are noted in `failures`, since the readers turn a refusal into a
+    missing measure; every caller gets its own copy."""
     answers: dict = {}
 
     def market_returns(*window):
         if window not in answers:
-            answers[window] = read(*window)
+            try:
+                answers[window] = read(*window)
+            except Refusal as exc:
+                failure = _environment_failure(exc)
+                if failure is not None:
+                    failures.append(failure)
+                raise
         return copy.deepcopy(answers[window])
     return market_returns
 
 
-def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
-                   max_drawdown: float | None = None, annual_return: float | None = None) -> dict:
-    """The research-graph@2 document of a line at a ledger version. The targets are the user's, read
-    by the caller from the line note; `since` marks where the scope under study starts."""
-    with seams.use(market_returns=_reusing(seams.current.market_returns)):
-        return _document(profile, line_bundle, at, since, max_drawdown, annual_return)
+def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None) -> dict:
+    """The research-graph@2 document of a line at a ledger version, with the user's targets in force for
+    the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
+    ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
+    whose missing comparisons and measures would look like research facts."""
+    failures: list[Refusal] = []
+    with seams.use(market_returns=_reusing(seams.current.market_returns, failures)):
+        document = _document(profile, line_bundle, at, since)
+    if failures:
+        raise failures[0]
+    return document
 
 
-def _document(profile, line_bundle: str | None, at: str | None, since: str | None, max_drawdown: float | None,
-              annual_return: float | None) -> dict:
+def _document(profile, line_bundle: str | None, at: str | None, since: str | None) -> dict:
     profile = runs.profile_of(profile)
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
@@ -106,6 +134,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         if line is None:
             raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record", missing=("research-line",))
         record = lines.read_line(conn, line, None)
+        in_force = line_targets.targets_for(conn, line)
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
         on_line = set(lines.line_trials(conn, line)["trials"])
         sources = {row["source_sha256"] for row in conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
@@ -113,9 +142,10 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         seeds = {record["start"]} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
         members = _lineage(rows, seeds)
         source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
-        wanted = set(source_of.values())
-        text_of = {r["source_sha256"]: bytes(r["source"]).decode()
-                   for r in conn.dicts("SELECT source_sha256, source FROM candidate") if r["source_sha256"] in wanted}
+        wanted = sorted(set(source_of.values()))
+        text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(
+            f"SELECT source_sha256, source FROM candidate WHERE source_sha256 IN ({', '.join(['%s'] * len(wanted))})",
+            tuple(wanted))} if wanted else {}
         records = availability.review_records(conn)
         bundle_times = {row["bundle"]: row["created_at"] for row in conn.dicts(
             "SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'source-review-%%' OR bundle LIKE 'research-line-%%'")}
@@ -222,8 +252,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     events.append({"at": _iso(bundle_times.get(line)), "kind": "line_change", "ref": line,
                    "text": f"line selected; start {record['start']}", "recommends": None})
     events.sort(key=lambda e: e["at"] or "")
-    targets = None if max_drawdown is None and annual_return is None else {"max_drawdown": max_drawdown,
-                                                                          "annual_return": annual_return}
+    targets = None if in_force is None else {key: in_force[key] for key in ("max_drawdown", "annual_return")}
     return {
         "format": FORMAT, "source": "ledger",
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
@@ -239,5 +268,5 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
             "Out-of-sample validation registrations and verdicts are not drawn.",
             "Times are the ledger's UTC times without a zone.",
-        ] + ([] if targets else ["No targets were given; they live in the line note and are passed by the caller."]),
+        ] + ([] if targets else ["No targets are set for this line or as the ledger default at this version."]),
     }

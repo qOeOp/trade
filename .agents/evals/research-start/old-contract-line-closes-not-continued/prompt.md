@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 （新会话）research-start
 
-账本状态：当前路线 `research-line-20261022-ema-cross-btc-daily`（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01），路线记录 note 写着目标「最大回撤不超过 15%，年化不低于 20%」。最新推荐是 judgment 257，推荐 `ema-entryvar@2` 与 `ema-fixed-dailyspec@1`；最新优先级 judgment 254 以 `ema-fixed-dailyspec@1` 为对照。`unclosed_lines` 为空。`research state` 的 `gates` 只有一项：
+账本状态：当前路线 `research-line-20261022-ema-cross-btc-daily`（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01），`research state` 的 `targets` 为该路线自己的目标（最大回撤 0.15，年化收益 0.20）。最新推荐是 judgment 257，推荐 `ema-entryvar@2` 与 `ema-fixed-dailyspec@1`；最新优先级 judgment 254 以 `ema-fixed-dailyspec@1` 为对照。`unclosed_lines` 为空。`research state` 的 `gates` 只有一项：
 
 ```json
 {"code": "RUNTIME_UNSUPPORTED", "message": "the line's candidates and their runs are on replay-contract@v6, which this product cannot replay (it runs replay-contract@v7); the line can only be closed and research restarted on replay-contract@v7", "missing": ["ema-entryvar@2", "ema-fixed-dailyspec@1"]}

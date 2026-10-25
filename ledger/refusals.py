@@ -154,6 +154,15 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LINE_UNKNOWN": ("The research line bundle does not exist or is not a research-line-* bundle.",
                      ("Name an existing research-line-<date>-<slug> bundle, or omit --line to read the current line; "
                       "select a line with `line select`.",)),
+    "LINE_ENDED": ("The research line has ended (a later line was selected); its closing tag is its final snapshot.",
+                   ("Set targets on the current line (`research state` names it) or as the ledger default "
+                    "(`line targets --default`).",)),
+    "TARGETS_INVALID": ("A research target is missing or out of range: maximum drawdown is a fraction between 0 "
+                        "and 1, minimum annual return a positive fraction.",
+                        ("Pass both targets as the user stated them, as fractions (0.15 for 15%).",)),
+    "LEDGER_UPGRADE_REQUIRED": ("The ledger lacks a table this product version writes.",
+                                ("Run `ledger upgrade` (the service administrator adds the missing tables), then "
+                                 "rerun the same command.",)),
     # Trials
     "BINDING_NOT_ALLOWED": ("The binder does not fit the replay's purpose: an exploration or precheck was given "
                             "a registration binder, or a non-validation trial a validation binder.",

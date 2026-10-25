@@ -3,7 +3,7 @@ import { ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/reac
 import "@xyflow/react/dist/style.css";
 import type { LineageWidget } from "../../model/types";
 import { crosshair, useAxisView, useCrosshair } from "../../state/linking";
-import { openVersionTab } from "../../state/editors";
+import { openSourceTab } from "../../state/editors";
 import { select, selection, useSelection } from "../../state/selection";
 import { ancestors, lineageTree } from "../../model/lineageTree";
 import { useResolvedTheme } from "../../state/theme";
@@ -69,7 +69,7 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                        const id = selection.get(), p = id ? positions.get(id) : undefined, r = box.current?.getBoundingClientRect();
                        void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height) : HOME), zoom: 1 });
                      }}
-                     onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openVersionTab(node.id)}>
+                     onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openSourceTab(node.id)}>
             <Backdrop widget={widget} />
             <AxisDriver widget={widget} positions={positions} />
             {at != null && <Crosshair x={x0 + at * UNIT} y={pointer?.y ?? null} width={size.width} height={size.height} reticle={!pointer?.onVersion} />}

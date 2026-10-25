@@ -8,7 +8,7 @@
 
 账本模式代数单行；初始化时写
 
-<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "version": { type: "INT", description: "模式代数；建库时写代码的 SCHEMA_VERSION（当前为 2）；代数变了不迁移，正式账本按 README 以同名重建", required: true } }} />
+<TypeTable type={{ "singleton": { type: "TINYINT", description: "恒 1", required: true }, "version": { type: "INT", description: "模式代数；建库时写代码的 SCHEMA_VERSION（当前为 3）；同一代里新加的表与触发器由 ledger upgrade 补建，不改代数；代数变了不迁移，正式账本按 README 以同名重建", required: true } }} />
 
 **键与约束**
 

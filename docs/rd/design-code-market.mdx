@@ -3,7 +3,7 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
+`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
 
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
@@ -13,6 +13,7 @@
   <File name="export.py" />
   <File name="instrument.py" />
   <File name="lifecycle.py" />
+  <File name="quotes.py" />
   <File name="read.py" />
   <File name="series.py" />
   <File name="sources.py" />
@@ -20,6 +21,12 @@
   <File name="universe.py" />
 </Folder>
 </Files>
+
+## 报价链路
+
+<Mermaid chart={"%%{init: {\"flowchart\": {\"rankSpacing\": 20}}}%%\nflowchart TB\n  A[\"aggTrades 原始归档<br/>sources 校验与读取\"] --> B[\"quotes 推算与定标<br/>import_quotes 事务追加\"]\n  B --> C[\"quote 表／市场提交<br/>来源与读数回执\"]\n  C --> D[\"quote_rows 读取<br/>write_quotes 导出\"]\n  D --> E[\"原生 QuoteTick<br/>报价撮合与强平\"]"} />
+
+写入由 <Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" /> 进入；数据由 <Ref id="table:quote" /> → <Ref id="market.export_episode" /> → <Ref id="engine.execution_account" /> 对应的报价环境消费。图中的箭头是调用与数据流，不是数据库外键。来源身份保留在市场提交消息；输入可用与研究适用性边界见 <Ref id="W.1.2.1" />。
 
 ## `market/coverage.py` [#def-mod-market-coverage-py]
 
@@ -158,11 +165,13 @@ Every universe member of the months [start, end) touches, at the commit `at` nam
 | 函数 | 用途 |
 |---|---|
 | <Ref id="market.export_catalogs">export_catalogs</Ref> | 按提交 AS OF 导出范围内每合约的 Catalog 与覆盖回执，缓存按提交与窗口键，生命周期原件一并写入导出根 |
-| <Ref id="market.export_episode">export_episode</Ref> | 每个片段一个 Catalog：条款、成交价 K 线、标记价、资金费、起点前完整日线、生命周期事件；记覆盖与近似标记 |
+| <Ref id="market.export_episode">export_episode</Ref> | 每个片段一个 Catalog：条款、成交价 K 线、标记价、推算报价、资金费、起点前完整日线、生命周期事件；记覆盖与近似标记 |
 | <Ref id="market.native_symbol">native_symbol</Ref> | 片段编号与非 ASCII 币名的确定 ASCII 别名；报告用的合约短名 |
 | <Ref id="market.split_episodes">split_episodes</Ref> | ticker 重用按权威生命周期拆成按时间编号的独立原生合约片段；跨越边界的半截分钟不供给 |
 | <Ref id="market.write_bars">write_bars</Ref> | 把 1 分钟成交价 K 线（或预热用日线）写为引擎外部聚合 Bar，事件时间等于收盘时刻；无序或不精确即拒绝 |
 | <Ref id="market.write_funding">write_funding</Ref> | 按实际结算时刻逐条写引擎 FundingRateUpdate，使引擎恰在该时刻结算一次 |
+| <Ref id="market.write_quotes">write_quotes</Ref> | 存储报价写成原生 QuoteTick，无深度近似 |
+| <Ref id="market.quote_rows">quote_rows</Ref> | 按提交和同毫秒编号顺序流式读 quote |
 | <Ref id="market.write_marks">write_marks</Ref> | 每根标记价 1 分钟 K 线的收盘写为一条引擎 MarkPriceUpdate，与同分钟成交价 K 线对齐 |
 
 ### `export_catalogs` [#def-market-export_catalogs]
@@ -170,18 +179,7 @@ Every universe member of the months [start, end) touches, at the commit `at` nam
 按提交 AS OF 导出范围内每合约的 Catalog 与覆盖回执，缓存按提交与窗口键，生命周期原件一并写入导出根
 
 ```python
-def export_catalogs(
-    profile: dict,
-    at: str | None,
-    symbols: list[str],
-    start_ns: int,
-    end_ns: int,
-    episodes: dict[str, list[dict]] | None,
-    lifecycle_files: dict[str, bytes] | None,
-    fresh: bool,
-    root: Path | None,
-    workers: int,
-) -> dict {commit
+def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int, episodes: dict[str, list[dict]] | None=None, lifecycle_files: dict[str, bytes] | None=None, fresh: bool=False, root: Path | None=None, workers: int=4) -> dict:
 ```
 
 <TypeTable type={{ "profile": { type: "dict", description: "市场库连接档案（只读账号）" }, "at": { type: "str | None", description: "市场提交引用（哈希、标签或 None 取 HEAD），经 resolve_commit 解析为固定提交" }, "symbols": { type: "list[str]", description: "公开合约名清单，来自成员时间路径；顺序即回执顺序" }, "start_ns": { type: "int", description: "输入区间起点（含预热），UTC 纳秒，整分钟" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒，整分钟" }, "episodes": { type: "dict[str, list[dict]] | None", description: "每个公开名的权威生命周期片段（已经 validate_lifecycle 校验、绑定同一提交）；None 表示无生命周期证据" }, "lifecycle_files": { type: "dict[str, bytes] | None", description: "生命周期证据包原件（相对路径 → 内容），原样写入导出根 lifecycle-evidence/" }, "fresh": { type: "bool", description: "True 时导出到新的临时目录，不读不写缓存" }, "root": { type: "Path | None", description: "缓存根目录；None 用默认临时缓存" }, "workers": { type: "int", description: "并行导出的进程数" } }} />
@@ -215,22 +213,22 @@ def export_catalogs(
 
 ### `export_episode` [#def-market-export_episode]
 
-每个片段一个 Catalog：条款、成交价 K 线、标记价、资金费、起点前完整日线、生命周期事件；记覆盖与近似标记
+每个片段一个 Catalog：条款、成交价 K 线、标记价、推算报价、资金费、起点前完整日线、生命周期事件；记覆盖与近似标记
 
 ```python
-def export_episode(job: dict) -> dict 合约回执
+def export_episode(job: dict) -> dict:
 ```
 
 <TypeTable type={{ "job": { type: "dict", description: "{profile, commit, symbol, start_ns, end_ns, path, scales: (price_scale, volume_scale), episodes: list[dict] | None}；一个公开合约一个作业" } }} />
 
-**返回**　dict 合约回执（写为 \<path>/export.json）：\{format: market-coverage-v1, symbol, commit, start_ns, end_ns, coverage（coverage_facts 去掉 funding.event_times_ms）, terms_source, terms_observed_at, historical_terms: CURRENT_SNAPSHOT_APPROXIMATION, assumed, pieces: [\{index, instrument_id, catalog_dir, counts: \{last, mark, funding, daily, instrument_close, instrument_status\}, first_bar_ns, last_bar_ns, missing_minutes, last_mark_unmatched, price_precision, price_precision_widened, episode\}]\}
+**返回**　dict 合约回执（写为 \<path>/export.json）：\{format: market-coverage-v1, symbol, commit, start_ns, end_ns, coverage（coverage_facts 去掉 funding.event_times_ms）, terms_source, terms_observed_at, historical_terms: CURRENT_SNAPSHOT_APPROXIMATION, assumed, pieces: [\{index, instrument_id, catalog_dir, counts: \{last, mark, quote, funding, daily, instrument_close, instrument_status\}, first_bar_ns, last_bar_ns, missing_minutes, last_mark_unmatched, price_precision, price_precision_widened, mark_precision, quote_size, episode\}]\}
 
 **期望行为**
 
 1. 清空并重建 path；以只读账号连接市场库，terms 取提交上该合约最新观测的条款行（无则拒绝 NO_TERMS），AS OF 提交读 [start_ns, end_ns) 的 LAST 与 MARK 1 分钟 K 线、start 前全部 LAST 分钟（预热日线来源）与窗口内资金费。
 2. 按公开名在原始序列上调用 coverage_facts（缺口、零量、成交价与标记价对齐、资金费条数与首末时刻、成员月份、上市下架的数据边界代理），覆盖按原名记录，不按片段拆分；写进回执前去掉资金费逐笔时刻（receipt_coverage）：它们留在钉住的提交里，market coverage 仍会列出。
 3. split_episodes 得到片段；每个片段：derive_bars 把预热来源聚合为日线并只留收盘早于片段起点的完整日；价格精度取条款精度与数据所需精度的较大者（放宽即记 price_precision_widened）；build_instrument 用片段原生身份与假设条款生成合约；有生命周期时 require_native_price 核对窗口内结算价落在合约精度网格上。
-4. 每个片段在 \<path>/\<catalog_dir>/ 建一个 Catalog：写合约，write_bars 写 1 分钟成交价 K 线（外部聚合，事件时间为收盘）与预热日线，write_marks 写标记价更新，write_funding 写资金费，write_lifecycle_events 写窗口内 InstrumentStatus / InstrumentClose；记各类条数。
+4. 每个片段在 \<path>/\<catalog_dir>/ 建一个 Catalog：写合约，write_bars 写 1 分钟成交价 K 线（外部聚合，事件时间为收盘）与预热日线，write_marks 写标记价更新，write_quotes 写逐状态原生报价，write_funding 写资金费，write_lifecycle_events 写窗口内 InstrumentStatus / InstrumentClose；记各类条数。
 5. 每片段记首末 K 线时刻、缺失分钟数、成交价与标记价时刻不匹配数；合约级记条款来源与观测时刻、historical_terms 近似标记与假设手续费率、保证金率。
 6. 最后写 export.json（写在最后即表示完整，半截导出不被缓存当作完整）并返回回执。
 
@@ -250,6 +248,8 @@ def export_episode(job: dict) -> dict 合约回执
 **关联章节**　<Ref id="W.3.2.3">W.3.2.3</Ref> <Ref id="W.2.2.1">W.2.2.1</Ref> <Ref id="W.4.2.2">W.4.2.2</Ref> <Ref id="W.5.1.1">W.5.1.1</Ref> <Ref id="W.5.2.3">W.5.2.3</Ref>
 
 </div>
+
+导出报价从 <Ref id="table:quote" /> 按相同提交读取；有 max_quantity 条款时才写，未导入报价、历史提交还没有 quote 表或缺 max_quantity 时 `counts.quote=0`、`quote_size=None`。这不阻止默认 K 线导出；是否允许报价执行由运行器的既有检查决定。`mark_precision` 独立记录，标记价更新不冒充 QuoteTick。
 
 ### `native_symbol` [#def-market-native_symbol]
 
@@ -413,6 +413,38 @@ def write_funding(
 - [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888](https://arxiv.org/abs/2212.06888)　论文
 
 </div>
+
+### `write_quotes` [#def-market-write_quotes]
+
+按存储报价生成原生 QuoteTick；同毫秒的状态不跨 Catalog 文件拆开。
+
+```python
+def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int, price_scale: int, chunk: int=CHUNK) -> int:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L233)
+
+**输入与返回**　`rows` 逐批给出时间非减的 `(ts_ms, bid, ask)` 整数行；`size` 为合约 `max_quantity` 字串，`size_precision` 为数量精度。返回写入条数，进入片段回执 `counts.quote`。
+
+价格从 `price_scale` 转到 `price_precision` 必须精确（否则 `QUOTE_INEXACT`）；批内或跨批时间倒序为 `QUOTES_UNSORTED`。事件与初始化时间都等于 `ts_ms × 1_000_000`，零额外接收延迟。同毫秒多行保留读取顺序，分块写入在时间变化处切分，避免 Catalog 文件的闭合时间区间重叠。
+
+bid_size 与 ask_size 都用传入的合约最大数量，不是观测深度。沿用 <Ref id="W.5.1.1" /> 的无深度近似，不在这里修正成交价格或数量。
+
+**读取方**　<Ref id="market.export_episode" />；原始行来自 <Ref id="market.quote_rows" />，交原生 Catalog，再由报价环境消费。
+
+### `quote_rows` [#def-market-quote_rows]
+
+按钉住的市场提交流式读报价，保留同毫秒 aggTrade 顺序。
+
+```python
+def quote_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int=CHUNK):
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L277)
+
+查询 <Ref id="table:quote" /> 的 `[low_ms, min(high_ms, end_ms))`（`high_ms=None` 时到 `end_ms`），按 `ts, agg_trade_id` 排序，逐批返回 `(ts, bid, ask)`。编号用于排序和来源核对，不变成原生 QuoteTick 的新字段。
+
+先检查该历史提交是否存在 quote 表：早于报价存储的提交返回空流，继续支持旧 K 线导出；不回退读取当前表，也不伪造报价。报价环境缺少有效报价时由现有 `QUOTES_MISSING` 检查拒绝，见 <Ref id="engine.execution_account" />。
 
 ### `write_marks` [#def-market-write_marks]
 
@@ -776,6 +808,62 @@ The engine Catalog's file name for data with ts_init in [first, last].
 [Source](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L140)
 
 
+## `market/quotes.py` [#def-mod-market-quotes-py]
+
+声明规则 `binance-aggtrades-bbo-v1`：从公开 aggTrades 推断买卖报价，保留每次状态变化；这不是原始盘口，也不判断具体合约的强平适用性，证据边界沿用 <Ref id="W.1.2.1" />。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-quotes-py-State">State</Ref> | 在逐日处理间沿用两侧价格与最后成交编号 |
+| <Ref id="market.derive">derive</Ref> | 校验成交连续性并推断完整报价状态序列、返回日诊断读数 |
+| <Ref id="market.scaled_rows">scaled_rows</Ref> | 把 Decimal 价格精确转为既有 quote 表的整数定标 |
+
+### `State` [#impl-market-quotes-py-State]
+
+一个合约在相邻日期之间沿用的临时推算状态，不是另一张表，也不写研究账本。
+
+```python
+@dataclass
+class State:
+    bid: Decimal | None = None
+    ask: Decimal | None = None
+    last_id: int | None = None
+```
+
+两侧尚未齐全时不输出报价；`last_id` 核对下日首笔与前日末笔编号连续。状态没有逐侧更新时间字段，不能从成交间隔推断逐侧报价年龄。
+
+### `derive` [#def-market-derive]
+
+逐日校验 aggTrades 并输出每次买卖价变化，原地续写 State；不抽稀。
+
+```python
+def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[list[tuple], dict]:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/quotes.py#L37)
+
+**输入与返回**　Arrow 表含 `agg_trade_id`、`price`、`transact_time`、`is_buyer_maker`；`tick` 是正 Decimal 最小价位，`label` 只作错误定位。返回 `(rows, readings)`；每行是 `(agg_trade_id, ts, bid, ask)`，价格仍为 Decimal。
+
+**现有行为**
+
+1. 拒绝空归档、非正 tick、非正价格、日内时间倒序（`SOURCE_SHAPE`），编号在日内及跨日衔接不连续为 `SEQUENCE_GAP`。同毫秒多条成交允许，保留原顺序。
+2. 买方为 maker 的成交更新 bid，否则更新 ask；另一侧沿用。两侧齐全且交叉时，把旧侧推到新侧外一个 tick，增加 `stale_side_adjustments`，只在状态变化时追加行。
+3. 日读数为 `trades`、`quote_changes`、`stale_side_adjustments`、`minutes_with_trades`、`trade_gap_max_ms`、`trade_gap_p99_ms`。间隔来自当日成交时间差，不含跨日空档；这些不是逐侧报价年龄或准入阈值。
+
+**写入关系**　由 <Ref id="market.import_quotes" /> 调用；行经 <Ref id="market.scaled_rows" /> 后写 <Ref id="table:quote" />。
+
+### `scaled_rows` [#def-market-scaled_rows]
+
+精确生成 `(symbol, ts, agg_trade_id, bid, ask)`，与 quote 表的列序一致。
+
+```python
+def scaled_rows(symbol: str, rows: list[tuple], scale: int) -> list[tuple]:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/quotes.py#L87)
+
+价格乘以 `10^scale` 后必须为整数，否则 `SCALE_LOSS`；不截断或舍入。返回列表交 <Ref id="market.import_quotes" /> 批量插入 <Ref id="table:quote" />；本函数不连接数据库。
+
 ## `market/read.py` [#def-mod-market-read-py]
 
 | 函数 | 用途 |
@@ -1022,6 +1110,8 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 | 函数 | 用途 |
 |---|---|
 | <Ref id="market.fetch_archive">fetch_archive</Ref> | 下载一个月或日归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是月归档与日归档共用的取数原语 |
+| <Ref id="market.aggtrades_key">aggtrades_key</Ref> | 官方逐日 aggTrades 归档定位 |
+| <Ref id="market.aggtrades_table">aggtrades_table</Ref> | CSV 解析为推算使用的四列 |
 | <Ref id="market.monthly_archives">monthly_archives</Ref> | 取已发布的月归档，作为 1 分钟 K 线与资金费的主来源；未发布的月份不在结果里，由 market.stitch_series 改用日归档或公开接口补 |
 | <Ref id="market.rest_exchange_info">rest_exchange_info</Ref> | 读交易所公开合约条款原文（合约类型、标的类型、基础与计价资产、状态、步长与限额），供 market.classify_contract 判合格与 instrument 追加行 |
 | <Ref id="market.rest_funding">rest_funding</Ref> | 用当月公开接口补资金费归档尚未发布的尾段；资金费无日归档，尾段只能由此补，按交易所实际结算时刻返回 |
@@ -1062,6 +1152,30 @@ def fetch_archive(cache_root: Path, key: str) -> Path
 - [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)　开源实现
 
 </div>
+
+### `aggtrades_key` [#def-market-aggtrades_key]
+
+定位一个合约一个 UTC 日的官方 aggTrades 归档。
+
+```python
+def aggtrades_key(symbol: str, day: str) -> str:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/sources.py#L504)
+
+经现有 `check_symbol` 核对名称后生成公开日归档 key，交 <Ref id="market.fetch_archive" /> 或 fetch_all 下载；不连接交易场所或使用交易凭证。
+
+### `aggtrades_table` [#def-market-aggtrades_table]
+
+读取 aggTrades zip 中的 CSV，保留交易所原始价格字符串。
+
+```python
+def aggtrades_table(path: Path) -> pa.Table:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/sources.py#L509)
+
+兼容有表头或无表头归档，返回四列 Arrow 表：`agg_trade_id`、`price`、`transact_time`、`is_buyer_maker`。CSV 解析错误为 `SOURCE_SHAPE`。编号与时间连续性由 <Ref id="market.derive" /> 核对；校验和由下载层处理，不在这里补行或排序修复。
 
 ### `monthly_archives` [#def-market-monthly_archives]
 
@@ -1354,6 +1468,8 @@ One exchangeInfo contract as ContractTerms (its filters verbatim).
 | <Ref id="market.connect">connect</Ref> | 按市场档案与角色打开市场库连接并核对模式代数；导入、新鲜度、导出与覆盖读口共用 |
 | <Ref id="market.freshness">freshness</Ref> | 按市场提交 AS OF 读成员月份、合约数、最新完整日与最新完整月；只读事实 |
 | <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场提交：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化 |
+| <Ref id="market.import_quotes">import_quotes</Ref> | 完整推算报价按月、按事务只追加 |
+| <Ref id="market.quote_imports">quote_imports</Ref> | 读提交消息中的来源与日读数回执 |
 | <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的市场提交哈希 |
 
 ### `connect` [#def-market-connect]
@@ -1495,6 +1611,48 @@ def import_month(
 - [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)　开源实现
 
 </div>
+
+### `quote_imports` [#def-market-quote_imports]
+
+从指定引用可达的 Dolt 提交消息读取报价导入回执，按先后顺序返回。
+
+```python
+def quote_imports(conn: MarketConnection, ref: str='main') -> list[dict]:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L858)
+
+只选择 `import` 为报价导入标识的消息，返回 `commit`、`month`、`through`、`quote_rule`、`symbols`、`archives`、`readings`。归档 SHA-256 与逐日读数在提交消息中，不是 quote 表的重复列；早期消息没有的读数不补造。由 <Ref id="market.import_quotes" /> 核对规则版本。
+
+### `import_quotes` [#def-market-import_quotes]
+
+把一个 UTC 月的完整推算报价按合约追加为一个市场提交，与 K 线导入分开。
+
+```python
+def import_quotes(profile: dict, month: date, cache_root: Path, workers: int=4, symbols: list[str] | None=None, log=print) -> dict:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L873)
+
+**输入与返回**　`month` 为月首 date，区间截到今天之前已闭合的 UTC 日；`symbols=None` 采用该月已存 universe 成员。返回 `month, through, quote_rule, symbols, quote_rows, per_symbol, archives, market_commit, seconds`。
+
+**现有写入路径**
+
+1. 使用导入账号与现有导入锁；库须已有基础数据和条款、工作集干净、提交校验启用。核对历史报价导入规则和本月合约是否已存报价。
+2. 读导入时最新观测条款的 price_increment；先处理前一日归档以续接状态与编号。仅在前日归档未发布且该合约此前没有报价时冷启动，否则保留拒绝。
+3. 经 <Ref id="market.aggtrades_key" />、<Ref id="market.fetch_archive" />／fetch_all 下载并校验归档，由 <Ref id="market.aggtrades_table" /> 解析，逐日 <Ref id="market.derive" />、<Ref id="market.scaled_rows" /> 后分批插入 <Ref id="table:quote" />；不整月积攒报价、不覆盖旧行。
+4. 同一事务内追加，并通过现有提交检查产生一个市场提交；异常回滚。提交消息保留规则、逐日归档（含实际读取的前日）SHA-256，以及逐日 `trades, quote_changes, stale_side_adjustments, trade_gap_max_ms`。归档原件在下载缓存，哈希回执不等于把 zip 字节存进 quote 表。
+5. 返回的计数相加；两种 trade_gap 读数取各日最大值，因此汇总 p99 是最大日 p99，不能写成整月合并分位数。规则已定不等于所有合约已适用，见 <Ref id="W.1.2.1" />。
+
+| 现有拒绝码 | 条件 |
+|---|---|
+| `MONTH_INVALID` | 月首参数不合法，或尚无闭合 UTC 日 |
+| `MARKET_EMPTY / TERMS_UNKNOWN / UNIVERSE_UNKNOWN` | 缺基础数据、合约条款或所需月份成员 |
+| `DIRTY_WORKING_SET / COMMIT_CHECKS_DISABLED` | 工作集不干净或提交校验未启用 |
+| `RULE_VERSION_MISMATCH / MONTH_EXISTS` | 已有导入的规则不同，或目标合约本月已有报价 |
+| `SEQUENCE_GAP / SOURCE_SHAPE / SCALE_LOSS` | 推算或精确定标失败 |
+
+下载校验、权限、锁及提交检查的拒绝按现有下层实现上抛，不新增或变更检查。读写账号与备份沿用现有市场库机制。
 
 ### `resolve_commit` [#def-market-resolve_commit]
 

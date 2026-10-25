@@ -1,36 +1,38 @@
-// The editor's tabs: the lineage is always open; a version can open in its own tabs: its detail at full
-// width, its source, and its source's change from its parent's. One tab is active.
+// The editor's file tabs: a version's source, or its source's change from its parent's. Opening a file
+// that is open activates its tab. The editor shows them while Sources is the left tool window last
+// chosen; while Versions is, it shows the lineage instead (shell/Editor.tsx).
 import { atom, useAtom } from "./atom";
+import { showToolWindow } from "./shell";
 
-export const LINEAGE_TAB = "lineage";
-// tab ids: "lineage", a version id (its detail), "source:<version>" or "diff:<version>"
-export type EditorTabs = { tabs: readonly string[]; active: string };
-export type TabKind = "lineage" | "detail" | "source" | "diff";
+// tab ids: "source:<version>" or "diff:<version>"
+export type EditorTabs = { tabs: readonly string[]; active: string | null };
+export type TabKind = "source" | "diff";
 
-export const editors = atom<EditorTabs>({ tabs: [LINEAGE_TAB], active: LINEAGE_TAB });
+export const editors = atom<EditorTabs>({ tabs: [], active: null });
 export const useEditors = () => useAtom(editors);
 
 /** What a tab shows and of which version. */
 export function parseTab(tab: string): { kind: TabKind; id: string } {
-  if (tab === LINEAGE_TAB) return { kind: "lineage", id: "" };
-  const m = /^(source|diff):(.+)$/.exec(tab);
-  return m ? { kind: m[1] as "source" | "diff", id: m[2] ?? "" } : { kind: "detail", id: tab };
+  const at = tab.indexOf(":");
+  return { kind: tab.slice(0, at) as TabKind, id: tab.slice(at + 1) };
 }
 
 function openTab(tab: string): void {
   const { tabs } = editors.get();
   editors.set({ tabs: tabs.includes(tab) ? tabs : [...tabs, tab], active: tab });
+  showToolWindow("sources", "left");
 }
 
-export const openVersionTab = (id: string) => openTab(id);
 export const openSourceTab = (id: string) => openTab(`source:${id}`);
 export const openDiffTab = (id: string) => openTab(`diff:${id}`);
+
+/** Back to the lineage: Versions on the left, the canvas in the editor. */
+export const showLineage = () => showToolWindow("versions", "left");
 
 export const activateTab = (id: string) => editors.set({ ...editors.get(), active: id });
 
 export function closeTab(id: string): void {
-  if (id === LINEAGE_TAB) return;
   const { tabs, active } = editors.get();
   const i = tabs.indexOf(id), rest = tabs.filter((t) => t !== id);
-  editors.set({ tabs: rest, active: active === id ? rest[Math.max(0, i - 1)] ?? LINEAGE_TAB : active });
+  editors.set({ tabs: rest, active: active === id ? rest[Math.max(0, i - 1)] ?? null : active });
 }

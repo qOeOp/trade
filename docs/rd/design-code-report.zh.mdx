@@ -1280,11 +1280,11 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
-**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N：同一开发窗口与市场提交上的全部研究试验，换线而窗口不变时也计入旧路线的试验，因为它们是同一份开发数据上的搜索暴露）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
+**返回**　dict：at、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、unreviewed_trials、trials_on_line（多重比较的 N：同一开发窗口与市场提交上的全部研究试验，换线而窗口不变时也计入旧路线的试验，因为它们是同一份开发数据上的搜索暴露）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，targets 为账本默认值或 null，判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与下一步 line select
 
 **期望行为**
 
-1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line。
+1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line；同一提交上经 ledger.targets_for 读出生效的目标，作为 targets。
 2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
 3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 在 full 时返回全部未被取代的，缺省只返回编号大于当前推荐的（没有推荐时全部返回），更早的只在 earlier 里计数。完整读取用于关闭路线写总结与回看历史。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
@@ -1300,7 +1300,7 @@ def research_state(
 | `LINE_CORRUPT` | 路线记录读回哈希与存储哈希不符，或包内缺 research-line.json（由 ledger.read_line 抛出） |
 | `LINE_FORMAT_UNSUPPORTED` | 路线记录的 format 不是 research-line-v2（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />
+**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />、<Ref id="ledger.targets_for" />
 
 <div className="rd-meta">
 
@@ -1320,8 +1320,6 @@ def research_graph(
     line_bundle: str | None,
     at: str | None,
     since: str | None,
-    max_drawdown: float | None,
-    annual_return: float | None,
 ) -> dict
 ```
 
@@ -1331,9 +1329,16 @@ def research_graph(
 
 1. 按 at 读取（AS OF）。成员是路线起点与路线上研究试验的候选，再沿父版本和同一策略 id 的修订扩展。
 2. 只组合已有读口：候选与试验、qualification.assess 的资格、report.derive_measures 的标题指标、registration.load_plan 的登记、report.compare 的比较与预测核对、qualification.review_records 的源码审阅、判断与其主体；不加自己的规则。
-3. 无经济证据的运行不给指标，只留原因；比较被拒时预测结果留空。
-4. 两个研究目标由调用者从路线备注读出后传入，产品不解析备注文字；since 标出所研究范围的起点。
-5. 同一账本提交永远给出同一份文档；不写账本。
+3. 无经济证据的运行不给指标，只留原因；比较因比较事实被拒（无对照、不可比）时预测结果留空。
+4. 账本或市场库连不上、拒绝账号或结构代数不对时整张图拒绝，不出一张缺比较或缺市场读数的图：比较入口与市场日收益读取会把这类故障吞成缺项，读口在本次调用内记下它们，取完后拒绝。
+5. 两个研究目标经 ledger.targets_for 读出该提交上这条路线生效的那一组（路线自己的，否则账本默认值），line.targets 只带 max_drawdown 与 annual_return；都没有时为 null，gaps 写明未设目标；since 标出所研究范围的起点。
+6. 同一账本提交永远给出同一份文档；不写账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RESEARCH_LINE_REQUIRED` | 没有给路线，账本也没有当前路线 |
+| `LEDGER_UNAVAILABLE`、`LEDGER_PERMISSION`、`SCHEMA_MISMATCH` | 账本服务连不上、拒绝账号或结构代数不是本代码读的那一代，包括比较入口在取图途中遇到的 |
+| `MARKET_UNREACHABLE` | 市场库服务连不上、库不存在或拒绝账号（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
 
 ### `research_status` [#def-report-research_status]
 
@@ -1389,7 +1394,7 @@ def failure_stages(data: bytes) -> set[str] | None
 
 The stages of runtime failure receipt bytes; None when a line is no structured receipt.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L59)
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L60)
 
 #### `stopped_before_strategy` [#impl-report-status-py-stopped_before_strategy]
 
@@ -1399,7 +1404,7 @@ def stopped_before_strategy(capture: Mapping | None, failures: bytes | None) -> 
 
 Whether a sealed capture shows the runner stopped before any strategy result existed: the replay completed on the host, the native runner exited nonzero without writing its summary, and every runtime failure it recorded (if any) is of a stage before the strategy trades (binding, load, inputs: problems.PRE_STRATEGY_STAGES).
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L75)
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L76)
 
 #### `counted_trials` [#impl-report-status-py-counted_trials]
 
@@ -1409,7 +1414,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict
 
 The trials that count as tests of a strategy, and the ones that do not (user decision 2026-10-20): a reproduction (an explore trial replaying an earlier trial that has a run, with the same source, image digest, windows, instruments and inputs, as replay.reproduce writes) and a trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the stored trial rows and capture manifests; nothing is marked.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L103)
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L104)
 
 
 ## `report/profit.py` [#def-mod-report-profit-py]

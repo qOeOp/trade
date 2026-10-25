@@ -19,6 +19,7 @@
   <File name="problems.py" />
   <File name="refusals.py" />
   <File name="strategies.py" />
+  <File name="targets.py" />
   <File name="trials.py" />
   <File name="witness.py" />
   <File name="reproduction.py" />
@@ -228,6 +229,7 @@ engine.lifecycle_events, the same implementation the auditor runs, its refusals 
 | <Ref id="ledger.connect">connect</Ref> | 按角色建立账本连接；writer 请求分支须逐字等于档案的固定研究分支，reader 只读；数据库授权与匹配限制见接口正文 |
 | <Ref id="ledger.init">init</Ref> | 建库与全部表，写模式与并发守卫单行，装提交校验组，建 writer/reader 最小权限账号与 branch 写权 |
 | <Ref id="ledger.read_as_of">read_as_of</Ref> | 按账本提交、标签或 branch 给出钉在精确提交上的只读连接 |
+| <Ref id="ledger.upgrade">upgrade</Ref> | 管理员命令 ledger upgrade：补建研究分支上缺的表与触发器，一次提交；模式版本与已有表、行、账号和授权不变 |
 | <Ref id="ledger.write">write</Ref> | 单事务写入并提交；同载荷重试返回原记录；并发写冲突拒绝 |
 
 ### `connect` [#def-ledger-connect]
@@ -373,6 +375,38 @@ def read_as_of(
 
 - [Dolt — Transactions](https://www.dolthub.com/docs/concepts/dolt/sql/transaction)　官方文档
 - [Dolt — SQL procedures（DOLT_COMMIT）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
+
+</div>
+
+### `upgrade` [#def-ledger-upgrade]
+
+管理员命令 ledger upgrade：补建研究分支上缺的表与触发器，一次提交并经提交校验组；模式版本与已有表、行、账号和授权不变
+
+```python
+def upgrade(profile: LedgerProfile) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案；以服务管理员连接它的研究 branch" } }} />
+
+**返回**　dict：\{database, branch, created（本次建的表与触发器名，按模式文件顺序）, commit（没有可建的为 null）\}
+
+**期望行为**
+
+1. 服务目录须有服务配置，否则拒绝 LEDGER_UNKNOWN；按需启动服务，以服务管理员连接 \<库名>/\<研究 branch>；工作集有未提交改动即拒绝 DIRTY_WORKING_SET。
+2. 按模式文件逐条比对 CREATE TABLE 与 CREATE TRIGGER，只执行库里还没有同名对象的那几条；已有的表、行、账号与授权不动（两个账号的授权是整库的，新表随之可读、可写）。
+3. 有新建的就以 DOLT_COMMIT -A 一次提交（消息 schema: 加上新建名单），经提交校验组；没有可建的不提交，commit 为 null，重跑无副作用。
+4. 不改 ledger_schema 的版本（仍是第 3 代）：只加表不升代，迁移前的提交与 line/… 标签照常可读；某个提交上没有新加的表，读取按该版本没有这类记录处理（如 ledger.targets_for 返回 None）。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_UNKNOWN` | 服务目录下没有服务配置 |
+| `DIRTY_WORKING_SET` | 研究 branch 的工作集有未提交改动 |
+
+**使用**　<Ref id="table:ledger_schema" />、<Ref id="table:dolt_tests" />、<Ref id="table:line_target" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.3.1">J.3.3.1</Ref>
 
 </div>
 
@@ -1111,7 +1145,7 @@ def add_judgment(
 | <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
 | <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径 |
 | <Ref id="ledger.read_line">read_line</Ref> | 按包名读一条研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交，附包的创建时间与所读提交 |
-| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。 |
+| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包，用户给了目标时同一提交写入；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。 |
 
 ### `close_line` [#def-ledger-close_line]
 
@@ -1271,12 +1305,13 @@ def select_line(
     note: str | None,
     slug: str,
     reviews: Callable[[LedgerConnection], list[dict]],
+    targets: tuple[float, float] | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_database": { type: "str", description: "交易所数据库名；与账本同一服务上的第二个数据库，跨库只传提交哈希" }, "market_at": { type: "str", description: "用户给的市场提交引用（Dolt 引用名或提交哈希，缺省 main）；函数内解析成唯一提交哈希后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连，至多 48 字符；与选定当天的 UTC 日期一起组成包名与封盘 tag 名" }, "reviews": { type: "Callable[[LedgerConnection], list[dict]]", description: "qualification.review_records：读这条连接所见当前头的源码审查记录；由命令行传入，账本层不导入资格层" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_database": { type: "str", description: "交易所数据库名；与账本同一服务上的第二个数据库，跨库只传提交哈希" }, "market_at": { type: "str", description: "用户给的市场提交引用（Dolt 引用名或提交哈希，缺省 main）；函数内解析成唯一提交哈希后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连，至多 48 字符；与选定当天的 UTC 日期一起组成包名与封盘 tag 名" }, "reviews": { type: "Callable[[LedgerConnection], list[dict]]", description: "qualification.review_records：读这条连接所见当前头的源码审查记录；由命令行传入，账本层不导入资格层" }, "targets": { type: "tuple[float, float] | None", description: "用户为这条路线给的（最大回撤上限, 最低年化收益），比例；缺省时路线取账本默认值" } }} />
 
-**返回**　dict：\{bundle: 'research-line-\<UTC 日期>-\<slug>', market_commit, universe_rule, content_sha256, op_id, created: bool\}；同载荷重试返回原记录且 created=False
+**返回**　dict：\{bundle: 'research-line-\<UTC 日期>-\<slug>', market_commit, universe_rule, content_sha256, op_id, created: bool, targets\}；targets 为 ledger.targets_for 读出的这条路线生效的目标（或 None）；同载荷重试返回原记录且 created=False
 
 **期望行为**
 
@@ -1288,6 +1323,7 @@ def select_line(
 6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包（同一天、同一 slug）内容哈希不同拒绝 LINE_CONFLICT，不覆盖，由 Agent 换一个更准确的 slug。
 7. 返回包名与写入身份；此后每次登记的窗口核对与可比核对都读这条记录。
 8. 最新路线与本次选择完全相同时（不论 slug）不写新记录，返回该路线并标 created=false；选择不同才写新路线。
+9. targets 给出时先核对范围（TARGETS_INVALID）与账本有 line_target 表（LEDGER_UPGRADE_REQUIRED），再在写路线包的同一事务里经 ledger.set_targets 写路线目标，新路线不会有落到默认值的空档；重选同一条路线时目标照 ledger.set_targets 记（同值不写）。不给 targets 时不写目标，路线读账本默认值。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1298,8 +1334,10 @@ def select_line(
 | `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |
 | `LINE_SLUG_INVALID` | slug 不是至多 48 字符的小写 ASCII 单词连字符串 |
 | `LINE_CONFLICT` | 同一天、同一 slug 的路线已存在且选择不同 |
+| `TARGETS_INVALID` | 所给目标缺失或超出范围 |
+| `LEDGER_UPGRADE_REQUIRED` | 给了目标而账本还没有 line_target 表 |
 
-**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="ledger.set_targets" />、<Ref id="ledger.targets_for" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -1312,6 +1350,16 @@ def select_line(
 
 下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
 
+#### `line_bundles` [#impl-ledger-lines-py-line_bundles]
+
+```python
+def line_bundles(conn: db.LedgerConnection) -> list[str]
+```
+
+Every research line bundle the connection sees, oldest first.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L71)
+
 #### `tag_name` [#impl-ledger-lines-py-tag_name]
 
 ```python
@@ -1320,7 +1368,7 @@ def tag_name(bundle: str) -> str
 
 The closing tag of a line: line/&lt;UTC date&gt;-&lt;slug&gt;.
 
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L203)
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L225)
 
 #### `unclosed_lines` [#impl-ledger-lines-py-unclosed_lines]
 
@@ -1330,7 +1378,7 @@ def unclosed_lines(conn: db.LedgerConnection) -> list[dict]
 
 The ended lines (every line but the latest) without their closing tag, oldest first, each with its closing commit (\{line, tag, commit, ended_by\}).
 
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L208)
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L230)
 
 #### `closing_commit` [#impl-ledger-lines-py-closing_commit]
 
@@ -1340,7 +1388,7 @@ def closing_commit(conn: db.LedgerConnection, bundle: str) -> dict
 
 \{tag, commit, ended_by\} of an ended line: the parent of the commit that added the next line (the research branch is linear). LINE_UNKNOWN for no line, LINE_OPEN for the current one.
 
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L216)
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L238)
 
 
 ## `ledger/metrics.py` [#def-mod-ledger-metrics-py]
@@ -2149,7 +2197,7 @@ def refuse(code: str, message: str, *, missing: tuple[str, ...]=(), expected: st
 
 A refusal whose repair commands come from the catalogue (an unknown code is a KeyError).
 
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/refusals.py#L690)
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/refusals.py#L699)
 
 
 ## `ledger/strategies.py` [#def-mod-ledger-strategies-py]
@@ -2294,6 +2342,111 @@ def parse_ref(ref) -> tuple[str, int]
 ```
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/strategies.py#L45)
+
+
+## `ledger/targets.py` [#def-mod-ledger-targets-py]
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="ledger.set_targets">set_targets</Ref> | 记录用户为当前路线或账本默认值给出的两个研究目标；改目标是追加一行取代原来生效的那一行，同值不写 |
+| <Ref id="ledger.targets_for">targets_for</Ref> | 读某个账本版本上一条路线生效的两个研究目标：路线自己的，否则账本默认值，否则 None |
+
+### `set_targets` [#def-ledger-set_targets]
+
+记录用户为当前路线或账本默认值给出的两个研究目标；改目标是追加一行取代原来生效的那一行，同值不写
+
+```python
+def set_targets(
+    conn: LedgerConnection,
+    line: str | None,
+    max_drawdown: float | str,
+    annual_return: float | str,
+) -> dict
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接；在别的写事务内调用（如 ledger.select_line）时并入那个事务，看得见它尚未提交的路线" }, "line": { type: "str | None", description: "当前研究路线包名；None 为账本默认值" }, "max_drawdown": { type: "float | str", description: "用户的最大回撤上限，比例（0.15 即 15%），0 < x < 1" }, "annual_return": { type: "float | str", description: "用户的最低年化收益，比例（0.20 即 20%），0 < x < 1000" } }} />
+
+**返回**　dict：\{max_drawdown, annual_return, source（line 或 default）, target_id, created_at, line, written, commit\}；同值时 written=false、commit 为 null
+
+**期望行为**
+
+1. 两个值按四位小数取整后核对范围，不合即 TARGETS_INVALID；所读版本没有 line_target 表即 LEDGER_UPGRADE_REQUIRED。
+2. line 给出时须是当前路线：不是任何路线即 LINE_UNKNOWN，是已结束的路线即 LINE_ENDED（它的封盘 tag 是终态快照）。
+3. 取同一范围（这条路线或默认值）链末端的那一行；与它同值即返回它，不写。
+4. 否则经 ledger.write 追加一行 line_target，supersedes 指向原末端（没有则为 null）；created_at 由触发器取服务器 UTC。
+5. 目标是用户的决定：只照用户的话写，只作读报告的参照，不参与候选资格。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TARGETS_INVALID` | 目标缺失、不是有限数或超出范围 |
+| `LEDGER_UPGRADE_REQUIRED` | 账本还没有 line_target 表（先运行 ledger upgrade） |
+| `LINE_UNKNOWN` | line 不是已有的研究路线 |
+| `LINE_ENDED` | line 已结束（之后选过别的路线） |
+| `LEDGER_CORRUPT` | 同一范围有不止一行生效 |
+
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.current_line" />、<Ref id="table:line_target" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.4.1.1">E.4.1.1</Ref> <Ref id="A.2.3.3">A.2.3.3</Ref>
+
+</div>
+
+### `targets_for` [#def-ledger-targets_for]
+
+读某个账本版本上一条路线生效的两个研究目标：路线自己的，否则账本默认值，否则 None
+
+```python
+def targets_for(conn: LedgerConnection, line: str | None) -> dict | None
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本连接；读它所见的版本（ledger.read_as_of 钉住的提交，或写事务内含未提交的行）" }, "line": { type: "str | None", description: "研究路线包名；None 只读账本默认值" } }} />
+
+**返回**　dict | None：\{max_drawdown, annual_return（float）, source（line 或 default）, target_id, created_at\}；路线与账本都没有目标时为 None
+
+**期望行为**
+
+1. 所读版本没有 line_target 表即返回 None（ledger upgrade 之前的提交）。
+2. 生效的一行是该范围里没有被任何一行 supersedes 指向的那一行，不靠时间排序；同一范围有不止一行生效即 LEDGER_CORRUPT。
+3. 先取这条路线的链末端，没有再取默认值（line_bundle 为 NULL）的链末端；source 标明取自哪一个。
+4. 只读。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_CORRUPT` | 同一范围有不止一行生效 |
+
+**使用**　<Ref id="table:line_target" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.1.1">E.1.1.1</Ref>
+
+</div>
+
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `check` [#impl-ledger-targets-py-check]
+
+```python
+def check(max_drawdown, annual_return) -> tuple[Decimal, Decimal]
+```
+
+The targets as stored (four decimal places), or TARGETS_INVALID.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/targets.py#L40)
+
+#### `held` [#impl-ledger-targets-py-held]
+
+```python
+def held(conn: db.LedgerConnection) -> bool
+```
+
+Whether the version this connection reads has the targets table.
+
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/targets.py#L45)
 
 
 ## `ledger/trials.py` [#def-mod-ledger-trials-py]
