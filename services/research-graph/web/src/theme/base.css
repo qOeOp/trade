@@ -5,8 +5,8 @@
   src: url("../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
 }
 /* PP Supply Mono (fonts/, from Pangram Pangram) sets every Latin letter and digit, so a reading's
-   digits, point and % share one height; Chinese falls through to the system face and the few
-   symbols Supply lacks to Inter. Regular, Medium for the 600 headings, Bold for anything heavier. */
+   digits, point and % share one height; the few symbols Supply lacks fall through to Inter and Chinese
+   to HarmonyOS Sans SC (declared in vite.config.ts). Regular, Medium for the 600 headings, Bold for anything heavier. */
 @font-face { font-family: "Supply"; font-style: normal; font-display: block; font-weight: 100 449; src: url("../../fonts/Supply-Regular.otf") format("opentype"); }
 @font-face { font-family: "Supply"; font-style: normal; font-display: block; font-weight: 450 649; src: url("../../fonts/Supply-Medium.otf") format("opentype"); }
 @font-face { font-family: "Supply"; font-style: normal; font-display: block; font-weight: 650 900; src: url("../../fonts/Supply-Bold.otf") format("opentype"); }

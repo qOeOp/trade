@@ -57,7 +57,9 @@ type; a changed widget is a new version of its type.
 A renderer is a package under `research_graph/renderers/` whose `render.py` defines
 `render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
 `web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
-primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks; its own npm
+primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks,
+HarmonyOS Sans SC for Chinese, whose unicode-range slices load from jsDelivr only for the characters on screen
+(offline, Chinese falls back to the system face); its own npm
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 4px apart on the
 window frame, following the design rules in
 [`docs/plans/research-graph-design-spec.zh.md`](../../docs/plans/research-graph-design-spec.zh.md): warm low-chroma

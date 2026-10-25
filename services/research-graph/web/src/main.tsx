@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { initSelection } from "./state/selection";
+import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
 
 const root = createRoot(document.getElementById("root")!);
