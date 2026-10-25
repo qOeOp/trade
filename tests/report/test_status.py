@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 
 from ledger.errors import Refusal
 from ledger import db, judgments, strategies
 from registration import precheck
 from replay import entry, reproduce
 from report import measures, runs, status
+from runtime import image
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
@@ -160,6 +162,18 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, caught.exception.missing), ("RECOMMENDATION_INCOMPLETE", (second,)))
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                      {"role": "about", "candidate": second}])
+
+    def test_x_a_line_whose_candidates_are_on_a_contract_without_layout_is_gated(self):
+        first, second = self.refs
+        self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
+                                               {"role": "control", "candidate": second}])
+        with db.connect(self.world.profile, "reader") as conn:
+            self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]])
+            with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
+                gate = status.research_state(conn)["gates"][-1]
+        self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", sorted(self.refs)))
+        self.assertIn(strategies.RUNTIME_CONTRACT, gate["message"])
+        self.assertIn("replay-contract@v99", gate["message"])
 
     def test_y_the_default_state_keeps_the_judgments_after_the_recommendation(self):
         first, second = self.refs

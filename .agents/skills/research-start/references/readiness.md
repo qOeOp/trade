@@ -4,10 +4,10 @@ Read before the first replay of a line, when a coverage receipt shows a gap, zer
 missing funding, and when a new month of data arrives. Read coverage facts with `market coverage`
 at the line's pinned commit (`--help` for its output).
 
-- Before a replay, check three things: the runtime reference resolves to exactly one image; the
-  market database has every month of the development window; every contract's coverage can be
-  read. When anything is missing, report the exact block (image, market commit, contracts and
-  intervals), the range that can run without changing anything and the state kept for resuming,
+- Before a replay, check four things: `research state` lists no `RUNTIME_UNSUPPORTED` gate
+  (SKILL.md); the runtime reference resolves to exactly one image; the market database has every
+  month of the development window; every contract's coverage can be read. When anything is
+  missing, report the exact block (image, market commit, contracts and intervals), the range that can run without changing anything and the state kept for resuming,
   then ask. Never drop coins, shorten the window, fill data or change the commit or the window
   yourself, and never call the block a failed candidate or an invalid line.
 - Keep coverage gaps, zero-volume minutes and missing funding apart, each a fact with the cause not
