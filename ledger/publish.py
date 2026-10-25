@@ -2,8 +2,12 @@
 
 The research ledger and the market database are public: each is pushed to its DoltHub repository
 by the service administrator after it changes. A publish pushes the branch without force and then
-fetches to check that the remote's head is the local one; a remote whose history is not an ancestor
-of the local one rejects the push and nothing is pushed after it. Tags follow the branch one by one
+fetches to check that the remote's head is the local one. Publishes of one database are serialized
+on its service by a named lock (`<database>/publish`), so concurrent commands do not race their pushes;
+one that finds the head already published by another skips the branch push after the fetch confirms
+it. A rejected push is judged by that fetch too: a remote already at the local head is published, a
+remote whose history is not an ancestor of the local one is refused (`PUBLISH_REJECTED`) and nothing
+is pushed after it, and anything else is `PUBLISH_FAILED`, to publish again. Tags follow the branch one by one
 (Dolt 2.4.2 has no `--tags` push), only once the branch is published: a pushed tag replaces a
 different remote tag of the same name without a warning (measured), and the product never moves a
 tag, so a differing remote tag can only follow a remote whose branch the check has already refused.
@@ -12,7 +16,7 @@ The service runs with its own Dolt home (`<service>/home`), so the user's DoltHu
 login` is copied there when an https remote is set. The service reads that key only when it starts
 (measured on 2.4.2), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
 a local `file://` remote, never to a public one. The market database is published holding its
-import lock, so no import lands during the push.
+import lock as well, taken after the publish lock, so no import lands during the push.
 """
 
 from __future__ import annotations
@@ -26,10 +30,12 @@ import shutil
 import pymysql
 
 from ledger import db
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
 REMOTE = "origin"
+PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the database; a DoltHub push takes ~10 s
 DOLTHUB = re.compile(r"https://doltremoteapi\.dolthub\.com/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+")
 
 
@@ -162,9 +168,31 @@ def unpublished(profile: db.LedgerProfile, branch: str) -> bool:
         conn.close()
 
 
+def _remote_head(cursor, branch: str) -> str | None:
+    found = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{REMOTE}/{branch}",))
+    return found[0][0] if found else None
+
+
+def _fetch(cursor, url: str, branch: str) -> str | None:
+    try:
+        cursor.execute("CALL DOLT_FETCH(%s)", (REMOTE,))
+        cursor.fetchall()
+    except pymysql.MySQLError as exc:
+        raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push", missing=(url,)) from exc
+    return _remote_head(cursor, branch)
+
+
+def _ancestor(cursor, older: str, newer: str) -> bool:
+    try:
+        return _rows(cursor, "SELECT DOLT_MERGE_BASE(%s, %s)", (older, newer))[0][0] == older
+    except pymysql.MySQLError:  # unrelated histories have no merge base
+        return False
+
+
 def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> dict:
     """Push `branch` and then every tag to origin, and check by a fetch that the remote's head is the
-    local one. With `lock` (the market import lock) no write lands during the push."""
+    local one, holding the database's publish lock. With `lock` (the market import lock) no write
+    lands during the push."""
     conn = _admin(profile)
     try:
         with conn.cursor() as cursor:
@@ -172,28 +200,36 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
             if url is None:
                 raise refuse("REMOTE_UNSET", f"{profile.database} has no {REMOTE} remote", missing=(REMOTE,))
             _allowed(profile, url)
+            serial = f"{profile.database}/publish"
+            if _rows(cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
+                raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
+                             f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
             if lock is not None:
                 if _rows(cursor, "SELECT GET_LOCK(%s, 0)", (lock,))[0][0] != 1:
                     raise refuse("CONCURRENT_IMPORT", f"an import of {profile.database} holds {lock}; nothing was "
                                  "published", missing=(lock,))
             (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (branch,))
-            before = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
-                           (f"remotes/{REMOTE}/{branch}",))
-            _push(cursor, profile, url, branch)
-            try:
-                cursor.execute("CALL DOLT_FETCH(%s)", (REMOTE,))
-                cursor.fetchall()
-            except pymysql.MySQLError as exc:
-                raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push", missing=(url,)) from exc
-            published = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
-                              (f"remotes/{REMOTE}/{branch}",))
-            if published != [(head,)]:
-                raise refuse("PUBLISH_FAILED", f"the head of {branch} at {url} is {published or 'missing'}, not {head}",
-                             missing=(url,))
+            before = _remote_head(cursor, branch)
+            # A head another publish has pushed is confirmed by a fetch before its tags follow.
+            published = _fetch(cursor, url, branch) if before == head else before
+            if published != head:
+                rejected = None
+                try:
+                    _push(cursor, profile, url, branch)
+                except Refusal as exc:
+                    if exc.code != "PUBLISH_REJECTED":
+                        raise
+                    rejected = exc
+                published = _fetch(cursor, url, branch)
+                if published != head:
+                    if rejected is not None and published is not None and not _ancestor(cursor, published, head):
+                        raise rejected
+                    raise refuse("PUBLISH_FAILED", f"the head of {branch} at {url} is {published or 'missing'}, "
+                                 f"not {head}", missing=(url,))
             tags = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             for name in tags:
                 _push(cursor, profile, url, f"refs/tags/{name}")
     finally:
-        conn.close()  # also releases the import lock
+        conn.close()  # also releases the publish and import locks
     return {"database": profile.database, "remote": url, "branch": branch, "head": head,
-            "previous_head": before[0][0] if before else None, "tags": len(tags)}
+            "previous_head": before, "tags": len(tags)}
