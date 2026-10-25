@@ -6,7 +6,7 @@ import { v, type ColorRole } from "../../theme/roles";
 const SPAN = 0.002;  // the scale spans at least ±0.2% of the start, so cents of noise stay flat
 type Props = { path: readonly [number, number][]; starting: number; tone: ColorRole; live: boolean; large?: boolean };
 
-/** A run's equity as its trend (lib/curve: bucket means, smoothed, drawn as a B-spline), a 1.25px line
+/** A run's equity as its trend (lib/curve: bucket means drawn as a B-spline), a 1.25px line
  *  in its return's colour over a wash of the same that fades to nothing at the foot, the starting
  *  balance as a faint dashed line, and while it runs a dot at the trend's end. 80 × 32 in the runs' list; `large` fills the box it is given (the card in
  *  front). */

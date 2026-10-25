@@ -1,26 +1,13 @@
-// A small chart's trend rather than its every tick: the path averaged into equal time buckets, those
-// smoothed with a Gaussian, and drawn as a uniform cubic B-spline in Bézier segments (as d3's
-// curveBasis), which bends near the points without passing through each, so noise never shows as
-// kinks or spikes.
+// A small chart's trend rather than its every tick: the path averaged into equal time buckets and drawn
+// as a uniform cubic B-spline in Bézier segments (as d3's curveBasis), which bends near the points
+// without passing through each, so noise never shows as kinks or spikes.
 export type Point = readonly [number, number];
 
-const BUCKETS = 48;  // a path is averaged into at most this many equal spans of time
-const SIGMA = 3;     // the Gaussian's width in buckets, narrower in proportion for a shorter path
+const BUCKETS = 24;  // a path is averaged into at most this many equal spans of time
 
-/** The trend of `points` (sorted by x): bucket means, then a Gaussian over them; its ends smoothed too. */
+/** The trend of `points` (sorted by x): each of BUCKETS equal spans of time as the mean of its points,
+ *  at their mean time. */
 export function trend(points: readonly Point[]): Point[] {
-  const means = bucketMeans(points), sigma = SIGMA * Math.min(1, means.length / BUCKETS);
-  if (sigma < 0.5) return means;
-  const r = Math.ceil(sigma * 2.5), w = Array.from({ length: 2 * r + 1 }, (_, k) => Math.exp(-((k - r) ** 2) / (2 * sigma * sigma)));
-  return means.map(([x], i) => {
-    let sum = 0, weight = 0;
-    for (let k = -r; k <= r; k++) { const p = means[i + k]; if (p) { sum += p[1] * w[k + r]!; weight += w[k + r]!; } }
-    return [x, sum / weight];
-  });
-}
-
-/** Each of BUCKETS equal spans of time as the mean of its points, at their mean time. */
-function bucketMeans(points: readonly Point[]): Point[] {
   if (points.length <= BUCKETS) return [...points];
   const t0 = points[0]![0], span = points[points.length - 1]![0] - t0 || 1;
   const sums = Array.from({ length: BUCKETS }, () => [0, 0, 0]);
