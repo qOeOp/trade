@@ -40,6 +40,13 @@ only selects. The first `market import` on the empty database writes the
 `market_schema` row and the commit tests (`dolt_tests`, group `commit`); later imports only run them.
 Commands without `--market` use the active market profile.
 
+The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
+found all cached originals still present with matching hashes, but found no matching original copies
+in the inventoried backup files and paths; recovery was not attempted. `market backup` syncs database
+history, while original ZIPs remain in the external cache. This inventory does not certify raw-file
+backup recovery or database-backup health; offline, cloud-only, unmounted and permission-limited
+locations remain unverified. No existing backup, cache or rule was changed.
+
 - **Universe** (`usdt-perp-listed30d-v1`): USDT perpetuals of coins; index contracts
   (`underlyingType` INDEX, or by name once exchangeInfo has dropped them: ALL, BLUEBIRD, BTCDOM,
   DEFI, FOOTBALL), other contract types (TRADIFI perpetuals, delivery), non-coin underlyings and
