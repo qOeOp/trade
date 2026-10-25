@@ -80,10 +80,19 @@ resolving them by changing authority. Keep diagnosis and implementation decision
 For every touched mechanism, rule, command, field or test, ask:
 1. What concrete risk does it guard? For a test, would its failure mean the product is broken?
 2. What other check covers that risk?
-3. Did the session expose protection, ceremony or an unreached path?
+3. What did evidence matching its responsibility show: protection, ceremony or an unreached path?
 
-Propose removal only when no distinct protection remains. Keep a uniquely useful boundary even if
-it never fired. Changes to refusals or audits remain authority items under AGENTS.md.
+Match evidence to the responsibility: native probes, reports, ledger audits and isolated tests for
+execution or identity boundaries; source originals and actual tool calls, session behavior and
+independent checks for source verification, authority and interpretation; observed errors, repeated
+work and downstream decisions for workflow effects. Ledger visibility or replay alone is not the
+only test, and a passing eval vote never replaces inspecting the relevant behavior.
+
+Unreached paths and insufficient evidence stay unverified; neither alone justifies deletion.
+Propose removal or merging only after confirming no distinct protection remains, another mechanism
+fully covers it, or it adds only useless ceremony. Keep a uniquely useful boundary even if it
+never fired. Changes to refusals, audits or authority boundaries remain authority items under
+AGENTS.md.
 
 For skill text, retain necessary runtime guidance; confirm any claimed replacement in actual
 product output before deleting it. Express recurring needs as general principles, not examples or

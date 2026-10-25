@@ -6,24 +6,29 @@
 
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
-| 20261025-01 | 固定在 quote 表诞生前的市场提交无法导出 bars（[聚焦诊断](2026-10-25-historical-quote-export.zh.md)） | fix | open；已在隔离环境复现，修复待交付 | 2026-10-25 | 2026-10-25 |
-| 20261022-10 | 换线规则触发条件（“线内无改动能超过可检出差”）不可观测，从未触发；推荐冻结后又跑 41 版、11.6 h（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | authority（改用户已批文字为可观测触发，并写入 Goal 停止规则） | fixed 10bd4bfa5（#1644：推荐连续 REVIEW_DUE 次数不变且各次差在可检出差内即经 research-start 回问；Goal 停止规则同步；eval 3/3）；待真实会话验证 | 2026-10-22 | 2026-10-23 |
+| 20261022-03 | 运行身份一变（契约升级或导出器改动），固定源码就没有续线路径：重建要求契约、配置键、含导出器哈希的输入键全等；v6→v7 卡住账本唯一一条线（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)；同契约换镜像的修复 #1635 保留） | skill（契约升级即关线新开） | 用户 2026-10-25 定：契约升级即关闭旧线、在新契约上新开，不改代码、不删检查；#1680 已关闭；skill 与设计站改写见 20261025-04 | 2026-10-22 | 2026-10-25 |
+| 20261025-03 | `research state`/readiness 不提示线已不能在当前镜像上跑；`report.affected_runs` 无调用者（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | fix（研究入口直接说明该线停在旧契约，只能关闭后新开） | in PR #1684（`research state` 在 gates 里派生 RUNTIME_UNSUPPORTED，research-start 据此只给关线重开；删去无调用者的 `affected_runs`） | 2026-10-25 | 2026-10-25 |
+| 20261025-04 | `changes.md` 与设计站的跨契约重建处方必被产品拒绝（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | skill（`changes.md` 与设计站改为契约升级即关线新开；新线起点用模板根或有实质改动的版本，不为绕过 SOURCE_EXISTS 或暴露检查做无关字节改动） | in PR #1683 | 2026-10-25 | 2026-10-25 |
+| 20261025-05 | 授权请求没说清要改产品代码，用户以为是数据迁移（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | skill（AGENTS.md 授权一节加一句） | in PR（用户 2026-10-25 定加：授权请求写明改动类别、现在拒绝什么、改后允许什么、有无不改的替代） | 2026-10-25 | 2026-10-25 |
+| 20261025-06 | research-start 要求自行暂停 Goal，Codex 宿主禁止，每次提问空转两轮（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | skill | open | 2026-10-25 | 2026-10-25 |
+| 20261025-01 | 固定在 quote 表诞生前的市场提交无法导出 bars（[聚焦诊断](2026-10-25-historical-quote-export.zh.md)，[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | fix | in PR #1679 | 2026-10-25 | 2026-10-25 |
+| 20261025-10 | 试验计数按市场提交加窗口统计，不按线；新线换用更新的市场提交时计数清零，同一段行情已被反复研究的事实不进多重检验修正（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)，用户 2026-10-25 定新开后提出） | measure（先量新开线换提交时的计数与 `line_trials`） | open | 2026-10-25 | 2026-10-25 |
+| 20261025-11 | 输入键含导出器源码哈希（`market/` 8 个模块加 `uv.lock`），导出字节不变的导出器改动也让此后运行与此前不可比，同契约换镜像重建、`bind` 与复现被拒；2026-10-19 至 10-24 有 13 次提交改过这些文件，#1679 合并即触发（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md) 20261022-03 与删除清单） | fix（authority：用户 2026-10-25 批准不再比对 `exporter_source_sha256`，只比导出内容哈希与选择；字段照常记录） | in PR | 2026-10-25 | 2026-10-25 |
+| 20261025-08 | 仓库无“不叠 PR”规则，叠 PR 拿不到质量 CI（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | authority（AGENTS.md 一句） | in PR（用户 2026-10-25 定加：PR 一律以 main 为基，不叠 PR） | 2026-10-25 | 2026-10-25 |
+| 20261022-10 | 换线规则触发条件（“线内无改动能超过可检出差”）不可观测，从未触发；推荐冻结后又跑 41 版、11.6 h（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | authority（改用户已批文字为可观测触发，并写入 Goal 停止规则） | fixed 10bd4bfa5（#1644：推荐连续 REVIEW_DUE 次数不变且各次差在可检出差内即经 research-start 回问；Goal 停止规则同步；eval 3/3）；待真实会话验证；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-22 | 2026-10-23 |
 | 20261022-11 | 每版本 8–17 分钟；本轮升至平均 12.1M token，43/43 运行无条件复现（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill + measure | skill 部分已随 #1639 合入；fresh 复算代理随 #1646 / 9a517d545；审阅命中率与无条件复现的价值仍待测 | 2026-10-22 | 2026-10-23 |
-| 20261022-13 | 因果规则只管决策 K 线，定量与最小名义价等订单输入不受约束；20 次 causal 失败继承自根，首轮审阅漏 19 次（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill（strategy-authoring 与骨架 docstring） | fixed ebc4772af（#1642：订单的全部行情输入须严格早于提交，审阅追溯每个输入时间戳）；待后续会话验证 | 2026-10-22 | 2026-10-23 |
-| 20261022-16 | help 未说明写入效果：`replay reproduce`/`replay explore` 写 trial、`source review` 失败会遮罩旧运行；设计站称每个 help 都写明（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix（help） | fixed 9a517d545（#1646：explore/reproduce/source review 的 help 写明写入与遮罩） | 2026-10-22 | 2026-10-23 |
-| 20261023-01 | 活动 Goal 下向用户的提问 15 ms 后被续跑吞掉，Agent 自行撤回并独跑 12 h；暂停后仍称“授权已收到”（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | fixed 10bd4bfa5（#1644；eval goal-question-waits 3/3）；宿主暂停目标的方式未实测，待真实会话验证 | 2026-10-23 | 2026-10-23 |
-| 20261023-02 | 已向用户展示、后被遮罩的读数未撤回；`research status` 只给遮罩计数；`replay report --at` 旧提交读出未遮罩数字不提示（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix + skill | fixed 10bd4bfa5（#1644：status 列 without_economic_evidence、`--at` 报告标注 head 已无资格、skill 点名撤回；eval 3/3）；待真实会话验证 | 2026-10-23 | 2026-10-23 |
-| 20261023-03 | 推荐正文逐版重抄全表（54,387 字节，TEXT 上限 65,535），16/23 条紧跟单次运行（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill + measure（溢出行为） | fixed a42866e9f（#1645：推荐只在 REVIEW_DUE 或版本变化时写、正文只权衡变化；eval 3/3）；已测：严格模式下超限写入被拒，不截断 | 2026-10-23 | 2026-10-23 |
-| 20261023-04 | 原生核查代理跨 52 版复用，93.7M token（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | fixed 9a517d545（#1646）；待真实会话验证 | 2026-10-23 | 2026-10-23 |
-| 20261023-05 | 向用户用裸 “#253” 指称 judgment，用户误为 lane（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | fixed 9a517d545（#1646）；待真实会话验证 | 2026-10-23 | 2026-10-23 |
-| 20261023-06 | 设计站仍把移入 AGENTS.md 的规则记为 skill 规则；#1641 新问法无 eval（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix | fixed 9a517d545（#1646：两条规则改标 AGENTS.md、补 #1641 eval）；#1644 新规则的设计站条目见本 PR | 2026-10-23 | 2026-10-23 |
+| 20261022-13 | 因果规则只管决策 K 线，定量与最小名义价等订单输入不受约束；20 次 causal 失败继承自根，首轮审阅漏 19 次（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill（strategy-authoring 与骨架 docstring） | fixed ebc4772af（#1642：订单的全部行情输入须严格早于提交，审阅追溯每个输入时间戳）；待后续会话验证；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-22 | 2026-10-23 |
+| 20261022-16 | help 未说明写入效果：`replay reproduce`/`replay explore` 写 trial、`source review` 失败会遮罩旧运行；设计站称每个 help 都写明（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix（help） | fixed 9a517d545（#1646：explore/reproduce/source review 的 help 写明写入与遮罩）；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-22 | 2026-10-23 |
+| 20261023-02 | 已向用户展示、后被遮罩的读数未撤回；`research status` 只给遮罩计数；`replay report --at` 旧提交读出未遮罩数字不提示（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix + skill | fixed 10bd4bfa5（#1644：status 列 without_economic_evidence、`--at` 报告标注 head 已无资格、skill 点名撤回；eval 3/3）；待真实会话验证；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-23 | 2026-10-23 |
+| 20261023-03 | 推荐正文逐版重抄全表（54,387 字节，TEXT 上限 65,535），16/23 条紧跟单次运行（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill + measure（溢出行为） | fixed a42866e9f（#1645：推荐只在 REVIEW_DUE 或版本变化时写、正文只权衡变化；eval 3/3）；已测：严格模式下超限写入被拒，不截断；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-23 | 2026-10-23 |
+| 20261023-04 | 原生核查代理跨 52 版复用，93.7M token（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | skill | fixed 9a517d545（#1646）；待真实会话验证；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-23 | 2026-10-23 |
+| 20261023-06 | 设计站仍把移入 AGENTS.md 的规则记为 skill 规则；#1641 新问法无 eval（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fix | fixed 9a517d545（#1646：两条规则改标 AGENTS.md、补 #1641 eval）；#1644 新规则的设计站条目见本 PR；unobserved（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | 2026-10-23 | 2026-10-23 |
 | 20261023-07 | 压缩后反复重读 skill 与 help（估算约 41M） | measure | open | 2026-10-23 | 2026-10-23 |
 | 20261020-38 | 审查子代理过早派出、继承作者提示或修复后复用（[第二次诊断](2026-10-20-doctor-run-2.zh.md)） | none（skill 已写清；产品无法验证审查者身份） | 新会话七次 fork_turns:none、修复后换人，未见复发；任务参数为密文，是否始终只给四项材料仍待观察（[本轮](2026-10-21-codex-ema-year.zh.md)） | 2026-10-20 | 2026-10-21 |
 | 20261020-39 | 拉镜像卡在凭据助手时仍要等满 300 秒 | measure | open | 2026-10-20 | 2026-10-20 |
 | 20261020-40 | 日线策略的一周预检碰不到退出逻辑；豁免只看窗口长度，不看位置 | measure | open；2026-10-22 会话未复发（预检在月界、≤7 天） | 2026-10-20 | 2026-10-22 |
 | M1 | `market coverage` 打印全部资金费时间戳，skill 要用 jq 删掉；先量一年、200 个合约的输出大小，再定 CLI 默认 | measure | open | 2026-10-20 | 2026-10-20 |
 | M2 | research-start 让用户手动输入 `/loop`，但在 Claude Code 里 Agent 可以自己调用 loop；先量自己调用是否可靠 | measure | open | 2026-10-20 | 2026-10-20 |
-| M3 | `research state` 输出随路线变长 | fix（默认摘要） | fixed a42866e9f（#1645：默认摘要，`--full` 给全部；活动账本 1.2 MB → 48 KB） | 2026-10-20 | 2026-10-23 |
 | 20261021-03 | video-evidence 仍缺设计页（源码缺失、公开页 404）；评测错误引用及 #1621/#1622 的设计页更新已由 #1623 / 18cd160cd 修复，83 个当前命名评测引用均存在 | fix | open（仅余 video 页；[回读](2026-10-21-codex-ema-year.zh.md)） | 2026-10-21 | 2026-10-22 |
 | 20261021-07 | 技术审阅原件混有经济结果和大输出；先测现有 capture/tables 的技术投影能否满足四项审阅 | measure | open；未证明经济暴露影响审阅结论 | 2026-10-21 | 2026-10-21 |
 | 20261021-13 | PA timing 被误读为规模无关能力（[复审](2026-10-21-economics-duties-pa.zh.md)） | fix | fixed 271e8bcc9（#1625；未逐项复核） | 2026-10-21 | 2026-10-22 |
@@ -35,6 +40,7 @@
 | 20261021-22 | 五轮复盘与每轮全推荐的信息价值边界不清（[复审](2026-10-21-economics-duties-pa.zh.md)） | skill | fixed 271e8bcc9（#1625；未逐项复核） | 2026-10-21 | 2026-10-22 |
 | 20261021-23 | correction/source反向发现与联读仍需审计 | measure | open；[三任务复审](2026-10-21-three-workstream-validation.zh.md)确认历史分页可读旧判断，但普通report/state未展开自由文本更正；先测新读者能否经现有关系发现，不改检查/权限/schema | 2026-10-21 | 2026-10-21 |
 | 20261021-25 | 九职责无 PA 直接映射；先辨明代理/约束/不可观测（[复审](2026-10-21-economics-duties-pa.zh.md)） | measure | open；未改变检查、权限或存储结构 | 2026-10-21 | 2026-10-21 |
+| 20261025-1686 | 报价环境复现遗漏执行方式与保证金率，被有效配置检查拒绝（原诊断草稿编号 20261025-01，交付统一为 20261025-1686，避免与并行诊断撞号；[定点诊断](2026-10-25-quote-reproduction.zh.md)） | fix（恢复封存环境，保留身份与指纹检查） | open；修复与定向、隔离 OCI 验收随本次变更交付，见[实施记录](../replay-determinism-boundary.zh.md)；合入后仍待真实会话验证 | 2026-10-25 | 2026-10-25 |
 
 本轮新会话已见正式预检、独立审阅、登记绑定、报告与重放顺利经过，也未证明已结缺陷复发；不能把未触发路径统称为已验证。04–20、26–37 的其余路径继续按新会话回读。上述新项及保留措施见 [2026-10-21 EMA 会话诊断](2026-10-21-codex-ema-year.zh.md)；-10、-11 是既有指导已覆盖的方法错误或旧版本问题，动作 none，不列为待修产品项。
 
@@ -44,6 +50,7 @@
 
 | id | 问题 | 用户指出 | 应发现的镜头 | 状态 |
 |---|---|---|---|---|
+| 20261025-05 | 用户问“迁移不是数据库迁移嘛 你还改上源码了？”：授权请求没说清改动类别 | 2026-10-25 | 行为与决策（未核对授权请求的措辞与随后动作是否一致） | in PR |
 | 20261023-05 | 用户问 “#253 是 lane 吗”：面向用户的对象命名 | 2026-10-23 | 行为与决策（未检查面向用户的报告） | fixed 9a517d545（#1646） |
 | 20261023-02 | 用户引用 12 小时前已被遮罩的数字追问 | 2026-10-23 | 行为与决策（未沿用户已见读数追踪资格变化） | fixed 10bd4bfa5（#1644） |
 | 20261022-04 | 用户指出结果无需独立 run_id | 2026-10-22 | 数据与产品契约 | 已修 #1636 |
@@ -60,6 +67,11 @@
 
 | id | 发现 | 处理 |
 |---|---|---|
+| 20261025-02 | 候选 `runtime_contract` 是发布时常量，三处检查无独立保护，只在升级时卡住全部候选（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | rejected：用户 2026-10-25 定：契约升级即关闭旧线、在新契约上新开，不改代码、不删检查；新发布的候选自动带 v7，此检查不挡新开路线，暂不动 |
+| 20261025-07 | #1680 的原生预检没走迁移路径，导出内容哈希变化未解释，引用的审阅只在临时账本（[v7 卡线](2026-10-25-codex-v7-stranding.zh.md)） | none：#1680 已关闭（用户 2026-10-25），其连续性主张不再需要证明 |
+| 20261023-01 | 活动 Goal 下向用户的提问 15 ms 后被续跑吞掉，Agent 自行撤回并独跑 12 h；暂停后仍称“授权已收到”（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fixed 10bd4bfa5（#1644）；verified [v7 卡线](2026-10-25-codex-v7-stranding.zh.md) |
+| 20261023-05 | 向用户用裸 “#253” 指称 judgment，用户误为 lane（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） | fixed 9a517d545（#1646）；verified [v7 卡线](2026-10-25-codex-v7-stranding.zh.md) |
+| M3 | `research state` 输出随路线变长 | fixed a42866e9f（#1645）；verified [v7 卡线](2026-10-25-codex-v7-stranding.zh.md) |
 | 20261022-09 | 比较输出不给回撤峰谷与区间持仓，Agent 预测落空区间 | #1639 / c20890092；hypothesis.md 消费者核对通过（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
 | 20261022-12 | price_pnl 舍入差未说明 | #1639 / c20890092；消费者核对通过（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
 | 20261022-15 | 测试 stderr 泄漏、mypy 跳过未注解函数体 | #1639 / c20890092；main CI 39801200436 测试日志无泄漏，mypy 无 note（[长 Goal](2026-10-23-codex-ema-long-goal.zh.md)） |
@@ -68,7 +80,6 @@
 | 20261021-24 | doctor stored-field 授权文字与根规则不一致（[复审](2026-10-21-economics-duties-pa.zh.md)） | none：用户 2026-10-22 定问题在于是否重复记录；该句不重复 AGENTS.md，保留（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261022-04 | 严格一对零或一的 trial/run 使用两套编号，消费者需反复翻译身份 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261022-05 | 成功预检的可再生原生表永久存储；缓存再生须接通技术审查及严格暴露豁免 | #1636 / 8d3afd2ed；后续会话统一 trial 编号与预检缓存运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
-| 20261022-03 | 固定源码的新运行时基准及消融被旧预检／复现暴露和有效重试拒绝阻塞（[诊断与授权](2026-10-22-runtime-registration-continuity.zh.md)） | #1635 / f7e7c1df9；后续会话固定源码运行正常（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261021-04 | 过长预检技术 passed，却到登记才说明超出暴露豁免；拒绝还给出没有消耗登记时不适用的 retry_of 建议 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261021-05 | candidate export 帮助只说新文件，未说明同目录候选说明文件也必须不存在 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |
 | 20261021-06 | ledger sql EXPLAIN 因 Dolt/PyMySQL 的 NULL 数值转换抛出未捕获 ValueError，破坏 JSON 错误契约 | #1625 / 271e8bcc9；主线抽查确认（[EMA 定仓分叉](2026-10-22-codex-ema-sizing-forks.zh.md)） |

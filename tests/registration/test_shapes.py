@@ -92,7 +92,7 @@ class ComparabilityTests(unittest.TestCase):
                 "symbols": ["AAAUSDT"], "membership": {"AAAUSDT": [[0, 1]]}, "export_content_sha256": "e" * 64,
                 "exporter_source_sha256": "f" * 64, **overrides}
 
-    def test_keys_drop_host_locations_and_check_times_only(self):
+    def test_keys_drop_host_locations_check_times_and_the_exporter_source(self):
         value = config(root="/tmp/a")
         key = comparability.config_key(value)
         self.assertNotIn("market_root", key)
@@ -101,9 +101,24 @@ class ComparabilityTests(unittest.TestCase):
         self.assertNotEqual(key, comparability.config_key(config(account={"balance_usdt": "1"})))
         self.assertIn("market_root", value)
         inputs = self.identity(export_root="/tmp/x", root="/tmp/y", checked="2026-01-01T00:00:00Z")
-        self.assertEqual(comparability.input_key(inputs), self.identity())
+        self.assertEqual(comparability.input_key(inputs),
+                         {k: v for k, v in self.identity().items() if k != "exporter_source_sha256"})
         self.assertNotEqual(comparability.input_key(self.identity(market_commit="n" * 32)),
                             comparability.input_key(self.identity()))
+
+    def test_the_exporter_source_alone_never_makes_inputs_incomparable(self):
+        """The exporter's code is provenance: an edit that exports the same bytes keeps the inputs, a
+        different export content does not."""
+        execution = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(),
+                     "input_identity": self.identity()}
+        run = {"trial_id": 1, "status": "passed", "purpose": "research", **execution,
+               "input_identity": self.identity(exporter_source_sha256="0" * 64)}
+        comparability.check_comparable(run, execution)
+        with self.assertRaises(Refusal) as caught:
+            comparability.check_comparable({**run, "input_identity": self.identity(
+                exporter_source_sha256="0" * 64, export_content_sha256="d" * 64)}, execution)
+        self.assertEqual((caught.exception.code, caught.exception.missing),
+                         ("COMPARABILITY_MISMATCH", ("input_identity",)))
 
     def test_malformed_identities_are_refused_not_compared(self):
         for value in (None, [], {k: v for k, v in config().items() if k != "account"}):

@@ -2,6 +2,7 @@ import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promis
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { entries, groups } from './lib/docs-entries.mjs';
+import { buildRdIndex } from './lib/rd-index.mjs';
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(siteRoot, '..');
@@ -55,12 +56,14 @@ function pagesFor(locale) {
 }
 await writeFile(join(outputRoot, 'meta.json'), JSON.stringify({ title: 'Research Chain', pages: pagesFor('en') }, null, 2));
 await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: '研发长链', pages: pagesFor('zh') }, null, 2));
-// Definition index for <Ref> hover previews, generated together with the chapters.
+// Definition index for <Ref> hover previews, built from the chapter sources; a dangling ref or a duplicate id fails here.
+const map = JSON.parse(await readFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), 'utf8'));
+const index = await buildRdIndex(entries, join(repositoryRoot, 'docs'), map);
 await mkdir(join(siteRoot, 'lib', 'generated'), { recursive: true });
-await copyFile(join(repositoryRoot, 'docs', 'rd', 'rd-index.json'), join(siteRoot, 'lib', 'generated', 'rd-index.json'));
+await writeFile(join(siteRoot, 'lib', 'generated', 'rd-index.json'), JSON.stringify(index));
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-groups.json'), JSON.stringify(groups));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot, 'lib', 'generated', 'rd-entries.json'));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), join(siteRoot, 'lib', 'generated', 'rd-map.json'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
-console.log(`Prepared ${entries.length} bilingual chapters.`);
+console.log(`Prepared ${entries.length} bilingual chapters and ${Object.keys(index.zh).length} index entries.`);

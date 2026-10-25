@@ -56,6 +56,8 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 长期保存的研究记录只有账本和它的备份，会话记忆、交接文件和工作副本都不算。入账的有候选源码、登记、试验和运行记录、原生报告和执行日志、来源与审查证据、研究状态清单和备注，后几类以证据包入账，包名就是身份。引用结论要给出证据包名、运行或登记编号和账本版本，判断里不抄数字；没入账的材料先入账再引用。
 
+入账清单中的样本外登记记录称 out-of-sample registrations；样本外验证流程称 out-of-sample validation，包含登记、回放和报告。
+
 只有入了账的东西有哈希、只追加，事后能查。入账形态、哈希和只追加由代码和账本强制；「结论只引用已入账的记录」靠 skill 指导，有评测用例检查。
 
 <div className="rd-example">
@@ -138,7 +140,9 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 ### 研究对象的记录 [#J-2-1]
 
-候选和登记由代码核对后入账，之后只能追加。
+候选、登记和研究路线由代码核对后入账，之后只能追加。
+
+研究路线沿用 `research-line-<UTC 日期>-<方向 slug>` 证据包，包内固定为 `research-line.json`，格式为 `research-line-v2`。起点候选及其源码哈希、开发窗口、市场数据库与提交、范围规则和备注保存在 Dolt 的既有证据表中，由 <Ref id="ledger.select_line">select_line</Ref> 写入、<Ref id="ledger.read_line">read_line</Ref> 读取，不另建路线表或双份保存。选择改变时仍追加新记录；当前路线的读取与既有封盘规则保持不变（<Ref id="ledger.current_line">current_line</Ref>、<Ref id="ledger.close_line">close_line</Ref>）。
 
 #### 候选是一份单文件源码的原字节，带内容哈希和谱系 [#J-2-1-1]
 
@@ -301,11 +305,11 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 ### 读取视图 [#J-2-9]
 
-各流程通过少数几个读取视图读账本；算出来的结果在读取入口里算，读历史按当时的版本读。
+数据库视图组织结构性查询；资格、绩效指标遮蔽和配对检验在读取入口计算，历史读取钉住账本版本。
 
-#### 各流程只经读取视图拿账本数据，底表只由少数入口直接读 [#J-2-9-1]
+#### 读取视图组织结构查询，资格与遮蔽由读取入口计算 [#J-2-9-1]
 
-结构性读取写成数据库视图：候选、试验、运行、当前判断、证据包、样本外和共同可交易范围。底表只有这几处直接读：写它的功能、视图定义本身，以及读源码、读证据原件、读原生报表的三个入口。资格、绩效指标遮蔽和配对检验在读取入口里算，读的也是这些视图。
+候选、试验、运行、判断、证据包和样本外等结构性查询可通过账本视图组织。产品写入、源码与证据读取、原生报表解析等入口需要直接读底表；诊断和历史核对也保留只读 SQL。经济证据资格、绩效指标遮蔽与配对检验由产品读取入口计算，不能由一个可查的视图或底表值替代。
 
 读取口径只在一处定义，各流程读到的是同一套数。视图定义随账本提交一起版本化，口径改过也查得到。
 
@@ -317,7 +321,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref> <Ref id="table:v_runs">v_runs</Ref> <Ref id="table:v_judgments">v_judgments</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">视图能力在 Dolt 2.3.1 本地实测成立；钉住的 2.4.2 未验证。</p>
+<p className="rd-note">Dolt 2.4.2 已隔离验证基本视图读权限；仍缺所有结构读取路径的口径一致性验证。</p>
 
 #### 复现历史结果一律走当时的修订库，用当时的视图定义 [#J-2-9-2]
 
@@ -335,21 +339,23 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <p className="rd-note">Dolt 2.3.1 本地实测：修订库保留当时定义、AS OF 用当前定义；2.4.2 未验证。</p>
 
-#### 视图不是访问边界：读账号能直接查底表 [#J-2-9-3]
+#### 保留只读 SQL；报告遮蔽不是数据访问隔离 [#J-2-9-3]
 
-读视图要同时有底表的读权限；以定义者身份执行的视图在 Dolt 里不起作用。所以遮蔽靠三条保证：产品的读取入口一律经视图并做遮蔽；结论只引用读取入口给出的结果；整体复核时再查。
+读账号保留库级 SELECT 和只读 SQL，供诊断与历史核对；写账号也具有读取权限。经济证据资格由正式读取入口判断，缺资格时遮蔽绩效指标；原始记录仍保留，能查到数值不等于它具有经济证据资格。
 
-读账号技术上能绕过视图直接查底表，不能假装它做不到。要变成硬约束，得让 Agent 的读账号只能调用读取命令、不能直接执行 SQL。
+研究结论依据正式读取入口给出的资格和报告（<Ref id="qualification.assess">assess</Ref>、<Ref id="qualification.mask">mask</Ref>、<Ref id="report.run_report">run_report</Ref>）；<Ref id="cli.ledger_sql">ledger sql</Ref> 返回的原始数据可作诊断，不能替代合格的经济证据。
+
+整体复核检查账本历史、记录与证据的一致性，不能证明 Agent 从未查询过原始数字。只关闭 SQL 命令，也不能阻止同一执行环境中的直连或内部函数调用；真正的数据访问隔离需要单独隔离凭据和执行边界。
 
 <div className="rd-example">
 
-比如一个没有经济证据资格的运行，读取入口会把它的绩效指标置空，但读账号直接查底表仍能看到原始数字。结论只能引用读取入口给出的结果，不能引用这种数字。
+一份已封存运行后来因源码审查失败而失去经济证据资格，正式报告会将绩效指标置空并说明原因；只读 SQL 仍可查到旧的封存读数。旧读数保留作诊断，不能因此把这份运行作为合格经济证据。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="report.review_all">review_all</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 <Ref id="cli.ledger_sql">ledger_sql</Ref> <Ref id="qualification.assess">assess</Ref> <Ref id="qualification.mask">mask</Ref> <Ref id="report.run_report">run_report</Ref> <Ref id="report.review_all">review_all</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-<p className="rd-note">Dolt 2.3.1 本地实测：只授视图被拒、SQL SECURITY DEFINER 不生效；2.4.2 未验证。</p>
+<p className="rd-note">Dolt 2.4.2 隔离实测：仅授视图 SELECT 时查询被拒；增加底表 SELECT 后，底表和视图均可读；撤回底表权限后再次拒绝。SQL SECURITY DEFINER 在本次探针中未提供免底表授权的读取能力。该实测验证权限行为，不证明完整研究流程的结论引用。</p>
 
 ## 13.3　写入保护：怎么证明没被改 [#J-3]
 
@@ -868,23 +874,23 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 ### 有意变更或证明不了时 [#J-5-4]
 
-旧身份下的记录永远能读回；受影响的运行只读查出，由 <Ref id="V.2" /> 恢复可比资格。
+旧身份下的记录永远能读回；同一契约内的变更由 <Ref id="V.2" /> 恢复可比资格，契约升级后研究状态直接说明当前路线只能关闭、在新契约上新开。
 
 <a id="J-5-4-1" />
 
 **有意变更或配对不一致时，旧运行原样保留、永远能读回**
 
-适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。受影响的范围按新身份只读查出，不排序，也不打标记。
+适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。不另存标记：当前路线接续的推荐、父本与对照候选停在本产品没有镜像布局的契约上时，<Ref id="report.research_state" /> 在 gates 里读时给出 RUNTIME_UNSUPPORTED 并列出这些候选；研究入口据此告诉用户这条线只能关闭、在新契约上新开，不提议续线，也不为它建 Goal。
 
 环境变了不代表旧结果错了，它在旧环境下仍然成立。旧运行环境按摘要保留，读回时还能核对；删除它要用户授权。
 
 <div className="rd-example">
 
-比如把引擎升级到新版本，资金费的算法有意改了。旧环境下 H01 到 H10 的运行都还在、都能读回；代码只读列出哪些运行和登记受影响，再由 <Ref id="V.2" /> 恢复可比资格。
+比如把引擎升级到新版本，资金费的算法有意改了。旧环境下 H01 到 H10 的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，研究状态列出 RUNTIME_UNSUPPORTED 与推荐、对照候选，用户关闭这条线，在新契约上新开。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.affected_runs">affected_runs</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_state">research_state</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 13.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 
@@ -1045,11 +1051,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 ## 待定事项 [#J-pending]
 
-**待用户定**
-
-- **AGENTS.md 与 research/records/README.md 入账清单中样本外条目的英文用词**　拟统一为 out-of-sample validations；<Ref id="J.1.1.1" /> 引用该清单，用词随用户定
-- **研究路线记录的载体：固定命名证据包 research-line.json 还是独立表**　<Ref id="J.2.1.2" /> 按证据包写；改为表须先按 AGENTS.md 做独立字段评审并记入 docs/plans/
-- **是否让 Agent 的读账号只能调用读取命令、不能直接执行 SQL**　这样遮蔽才是硬约束；属于收紧检查，须先在 Dolt 2.4.2 上确认权限能力。
+**本章暂无待用户定事项。**
 
 - **不进文档**　未来窗口的样本外登记须在窗口开始前取到凭证：窗口晚于凭证的规则归 <Ref id="X.1.2.2" />；<Ref id="J.4.2.2" /> 只提供凭证机制
 - **不进文档**　ticker 重用的分期映射与非 ASCII 合约的原生身份别名：属回放环境事实，归 <Ref id="W.3.2.3" />；本章只以生命周期证据包进入输入身份（<Ref id="J.6.1.3" />）

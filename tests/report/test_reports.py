@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import shutil
 import unittest
+from unittest import mock
 
 from ledger import db, metrics, strategies
 from ledger.errors import Refusal
@@ -16,6 +17,7 @@ from qualification import availability
 from registration import duties, precheck, register
 from replay import entry, reproduce
 from report import attribution, candidates, comparison, measures, runs, seams, status
+from runtime import image
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
@@ -349,29 +351,15 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(found["unreviewed_trials"]), 4, "without a recommendation every trial of the line")
         self.assertEqual(found["interpretations"][0]["facts"][0]["trial"]["trial_id"], self.control["trial_id"])
         self.assertIsNotNone(found["interpretations"][0]["facts"][0]["headline"])
-        self.assertEqual(found["gates"][0]["code"], "INTERPRETATION_REQUIRED")
+        self.assertEqual([gate["code"] for gate in found["gates"]], ["INTERPRETATION_REQUIRED"])
         self.assertEqual(found["review_every"], register.REVIEW_EVERY)
         self.assertEqual(found["facts"]["counts"]["research_attempts"], 4)
         with db.connect(self.profile, "reader") as conn:
             self.assertEqual(refused(status.research_state, conn, "research-line-20260101-none").code, "LINE_UNKNOWN")
-
-    def test_affected_runs_list_the_runs_of_another_identity(self):
-        other = {"runtime": {"image_digest": "sha256:" + "c" * 64}}
-        found = status.affected_runs(self.profile, other)
-        self.assertEqual({item["trial_id"] for item in found["runs"]},
-                         {self.control["trial_id"], self.candidate["trial_id"], self.bare["trial_id"], self.bad["trial_id"]})
-        self.assertEqual(found["runs"][0]["differs_in"], ["runtime.image_digest"])
-        self.assertIn("registration-child", found["evidence_bundles"], "it names the control run")
-        recorded = found["runs"][0]["recorded"]
-        same = status.affected_runs(self.profile, {"runtime": {"image_digest": recorded["image_digest"]},
-                                                   "effective_config": recorded["config_key"],
-                                                   "input": recorded["input_key"]})
-        self.assertEqual(same["runs"], [])
-        unrecorded = status.affected_runs(self.profile, {"runtime": {"engine_version": "2.0.0rc3"}})
-        self.assertEqual((unrecorded["runs"], unrecorded["unrecorded"]), ([], ["runtime.engine_version"]))
-        for query in ({}, {"runtime": {"tag": "x"}}, {"market": {}}):
-            with self.subTest(query=query):
-                self.assertEqual(refused(status.affected_runs, self.profile, query).code, "INVALID_QUERY")
+            with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
+                gate = status.research_state(conn)["gates"][-1]
+        self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", ["rsi@1"]),
+                         "without a recommendation or priority the line's start")
 
 
 class DirectoryTests(unittest.TestCase):

@@ -158,10 +158,6 @@ class TamperTests(unittest.TestCase):
         self.assertTrue(any(item.startswith("UNWITNESSED") for item in unwitnessed["limitations"]))
         self.assertEqual(refused(comparison.validation_report, self.profile, 999).code, "REGISTRATION_UNKNOWN")
 
-    def test_4_a_run_without_its_recorded_identity_cannot_be_compared_by_identity(self):
-        exc = refused(status.affected_runs, self.profile, {"runtime": {"image_digest": "sha256:" + "c" * 64}})
-        self.assertEqual(exc.code, "RUN_IDENTITY_MISSING")
-
     def test_5_tampering_through_the_administrator_is_found(self):
         self.admin_sql("UPDATE candidate SET description = 'rewritten' WHERE strategy_id = 'rsi' AND revision = 1",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: change a row')")
