@@ -1,6 +1,8 @@
 """If this fails, the public copy of a database is no longer pushed as it should be: the branch and
 then its tags without force, checked against the remote's head; a remote changed elsewhere refused
-with nothing pushed after it; an isolated database kept off public remotes; the `dolt login` key
+with nothing pushed after it; concurrent publishes of one head serialized and all published, a
+rejected push judged by the remote's head after a fetch; an isolated database kept off public
+remotes; the `dolt login` key
 installed in the service's own Dolt home, with a restart named while the service runs without it;
 a command publishing what origin lacks; and the market
 published only while no import holds its lock. Local file
@@ -16,6 +18,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -97,6 +100,59 @@ class PublishTests(unittest.TestCase):
         self.service.sql(self.profile, "CALL DOLT_TAG('line/second', 'main')")
         self.assertEqual(self.code(publish.publish, self.profile, "main"), "PUBLISH_REJECTED")
         self.assertEqual(self.remote_state(), (changed, ["line/first"]), "nothing forced, no tag after the refusal")
+
+    def test_concurrent_publishes_of_one_head_are_all_published(self):
+        publish.set_remote(self.profile, self.url)
+        for round in range(4):
+            strategies.publish_candidate(self.profile, source(f"r{round}"), f"r{round}", "Fixture", "a write")
+            barrier, outcomes = threading.Barrier(3), []
+
+            def run():
+                barrier.wait()
+                try:
+                    outcomes.append(publish.publish(self.profile, "main")["head"])
+                except Refusal as exc:
+                    outcomes.append(exc.code)
+            threads = [threading.Thread(target=run) for _ in range(3)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(outcomes, [self.head()] * 3, "a publish that lost the race is not a divergence")
+        self.assertEqual(self.remote_state(), (self.head(), []))
+
+    def test_a_rejected_push_is_judged_by_the_remote_head(self):
+        publish.set_remote(self.profile, self.url)
+        published = publish.publish(self.profile, "main")["head"]
+        strategies.publish_candidate(self.profile, source("later"), "later", "Fixture", "a write")
+        self.service.sql(self.profile, "CALL DOLT_TAG('line/first', 'main')")
+        push = publish._push
+
+        def rejected(pushed: bool):
+            def _push(cursor, profile, url, ref):
+                if ref == "main":
+                    if pushed:
+                        push(cursor, profile, url, ref)
+                    raise publish.refuse("PUBLISH_REJECTED", "lost a race")
+                push(cursor, profile, url, ref)
+            return _push
+        with patch.object(publish, "_push", rejected(pushed=False)):
+            code, message = self.code_and_message(publish.publish, self.profile, "main")
+        self.assertEqual(code, "PUBLISH_FAILED", "a remote behind the local head is retried, not a divergence")
+        self.assertIn(published, message)
+        self.assertEqual(self.remote_state(), (published, []), "no tag after a failed branch")
+        with patch.object(publish, "_push", rejected(pushed=True)):
+            found = publish.publish(self.profile, "main")
+        self.assertEqual((found["head"], found["tags"]), (self.head(), 1), "the remote already holds the head")
+        self.assertEqual(self.remote_state(), (self.head(), ["line/first"]))
+
+        holder = publish._admin(self.profile)
+        self.addCleanup(holder.close)
+        with holder.cursor() as cursor:
+            cursor.execute("SELECT GET_LOCK(%s, 0)", (f"{self.profile.database}/publish",))
+        with patch.object(publish, "PUBLISH_WAIT", 1):
+            self.assertEqual(self.code(publish.publish, self.profile, "main"), "PUBLISH_FAILED",
+                             "another publish holds the lock")
 
     def test_a_command_publishes_what_origin_lacks_once(self):
         publish.set_remote(self.profile, self.url)
