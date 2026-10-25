@@ -3,7 +3,7 @@ import { expandAllFeature, hotkeysCoreFeature, selectionFeature, syncDataLoaderF
 import { useTree } from "@headless-tree/react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
-import { openSourceTab } from "../../state/editors";
+import { openSource } from "../../state/editors";
 import { hoverProps } from "../../state/linking";
 import { select, useSelection } from "../../state/selection";
 import { sourceTreeControl } from "../../state/versionTree";
@@ -85,8 +85,8 @@ export function SourceTree({ widget }: { widget: SourcesWidget }) {
         const folder = entry.item === null;
         const row = (key?: string) => (
           <TreeRow key={key} {...item.getProps()} {...(folder ? {} : hoverProps(id))}
-                   onDoubleClick={() => { if (!folder) openSourceTab(id); }}
-                   onKeyDown={(e) => { if (e.key === "Enter" && !folder) openSourceTab(id); }}
+                   onDoubleClick={() => { if (!folder) openSource(id); }}
+                   onKeyDown={(e) => { if (e.key === "Enter" && !folder) openSource(id); }}
                    level={level} folder={folder} expanded={item.isExpanded()} selected={item.isSelected()}>
             <span className="grid w-4 shrink-0 place-items-center text-icon">
               <Icon name={folder ? (item.isExpanded() ? "folder-open" : "folder") : "file.python"} />

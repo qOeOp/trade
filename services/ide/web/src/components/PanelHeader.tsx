@@ -11,9 +11,11 @@ export function PanelHeader({ title, children, actions }: { title?: string; chil
     <div className="flex h-(--header-h) shrink-0 items-center gap-2 px-3">
       {title && <h2 className="shrink-0 font-semibold">{title}</h2>}
       {children}
-      <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        {actions.map((a) => <IconButton key={a.id} icon={a.icon} label={a.label} keys={a.keys} active={a.active} onClick={a.run} />)}
-      </div>
+      {actions.length > 0 && (
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {actions.map((a) => <IconButton key={a.id} icon={a.icon} label={a.label} keys={a.keys} active={a.active} onClick={a.run} />)}
+        </div>
+      )}
     </div>
   );
 }

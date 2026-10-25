@@ -163,13 +163,13 @@ try {
     await key("Escape", "Escape", 27);
     await click(node[0], node[1], "left", 1); await click(node[0], node[1], "left", 2); await sleep(400);
     const opened = await evaluate(`({ left: document.querySelector("[data-island=left] h2")?.textContent,
-      tabs: [...document.querySelectorAll('[data-island=editor] [role="tab"]')].map((t) => [t.textContent.trim(), t.getAttribute("aria-selected")]) })`);
-    expect(opened.left === "Sources" && opened.tabs.length === 1 && opened.tabs[0][0].endsWith(".py") && opened.tabs[0][1] === "true",
-           `canvas: double-click left ${opened.left} on the left and the editor tabs at ${JSON.stringify(opened.tabs)}`);
+      file: document.querySelector("[data-island=editor] [data-file]")?.textContent, tabs: document.querySelectorAll('[data-island=editor] [role="tab"]').length })`);
+    expect(opened.left === "Sources" && opened.file?.endsWith(".py") && opened.tabs === 0,
+           `canvas: double-click left ${opened.left} on the left, ${opened.file} in the editor's header and ${opened.tabs} tabs`);
     for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: "1", code: "Digit1", modifiers: 1, windowsVirtualKeyCode: 49 });
     await sleep(400);
-    expect(await evaluate(`!!document.querySelector("[data-island=editor] .react-flow")?.offsetParent && !document.querySelector('[data-island=editor] [role="tab"]')`),
-           "canvas: ⌥1 did not bring the lineage back without tabs");
+    expect(await evaluate(`!!document.querySelector("[data-island=editor] .react-flow")?.offsetParent && !document.querySelector("[data-island=editor] [data-file]")`),
+           "canvas: ⌥1 did not bring the lineage back without the file's header");
     const at = `document.querySelector(".react-flow__viewport").style.transform`, from = await evaluate(at);
     await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX: 0, deltaY: 120 }); await sleep(300);
     expect((await evaluate(at)) !== from, "canvas: the wheel did not pan");
@@ -206,8 +206,9 @@ try {
     const start = await evaluate(edges) ?? { left: NaN, top: NaN };
     expect(start.left < 0.6 && start.top < 0.6, `canvas: focusing ${earliest} leaves ${start.left.toFixed(1)}px before trial 0 and ${start.top.toFixed(1)}px above the first row`);
   }
-  // Sources (⌥7): a double-click opens a file as a highlighted, read-only source tab that the island scrolls
-  // (no native bar), and Compare with parent shows its change as a unified diff.
+  // Sources (⌥7): a double-click opens a file as highlighted, read-only source that the island scrolls (no
+  // native bar) under a header as tall as the other islands', and Compare with parent toggles its change as a
+  // unified diff.
   for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: "7", code: "Digit7", modifiers: 1, windowsVirtualKeyCode: 55 });
   await sleep(400);
   const file = await evaluate(`(() => { const r = [...document.querySelectorAll('[data-island="left"] [role="treeitem"]')].find((e) => e.textContent.endsWith(".py"))?.getBoundingClientRect(); return r && [r.left + 60, r.top + r.height / 2]; })()`);
@@ -216,19 +217,25 @@ try {
     await click(file[0], file[1], "left", 1); await click(file[0], file[1], "left", 2); await sleep(600);
     const code = await evaluate(`(() => { const e = document.querySelector("[data-island=editor] [data-code] .cm-editor"); if (!e) return null;
       return { tokens: e.querySelectorAll('[class*="tok-"]').length, lines: e.querySelectorAll(".cm-gutterElement").length,
-               overflow: getComputedStyle(e.querySelector(".cm-scroller")).overflow, tab: document.querySelector('[data-island=editor] [role="tab"][aria-selected="true"]')?.textContent.trim() }; })()`);
+               overflow: getComputedStyle(e.querySelector(".cm-scroller")).overflow, file: document.querySelector("[data-island=editor] [data-file]")?.textContent,
+               header: document.querySelector("[data-island=editor] > :first-child").offsetHeight, left: document.querySelector("[data-island=left] > :first-child").offsetHeight }; })()`);
     expect(code && code.tokens > 0 && code.lines > 1, `sources: the double-click opened ${JSON.stringify(code)}, not highlighted source`);
     expect(code?.overflow === "visible", `sources: the source scrolls itself (${code?.overflow}), not inside the island`);
-    expect(code?.tab?.endsWith(".py"), `sources: the active tab is ${code?.tab}`);
-    const tabCount = `document.querySelectorAll('[data-island=editor] [role="tab"]').length`, before = await evaluate(tabCount);
-    await click(file[0], file[1], "left", 1); await click(file[0], file[1], "left", 2); await sleep(400);
-    expect((await evaluate(tabCount)) === before, "sources: opening an open file added a tab");
+    expect(code?.file?.endsWith(".py"), `sources: the editor's header names ${code?.file}`);
+    expect(code?.header === code?.left, `sources: the editor's header is ${code?.header}px, the left island's ${code?.left}px`);
     writeFileSync(join(outDir, "source.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
-    const compare = await evaluate(`[...document.querySelectorAll("[data-island=editor] button")].some((b) => b.textContent.trim() === "Compare with parent" && (b.click(), true))`);
-    if (compare) {
+    const toggle = `(() => { const b = [...document.querySelectorAll("[data-island=editor] button")].find((b) => b.textContent.trim() === "Compare with parent");
+      return b && (b.click(), true); })()`;
+    const state = `({ pressed: [...document.querySelectorAll("[data-island=editor] button")].find((b) => b.textContent.trim() === "Compare with parent")?.getAttribute("aria-pressed"),
+      diff: !!document.querySelector("[data-island=editor] [data-code] .cm-merge-b") })`;
+    if (await evaluate(toggle)) {
       await sleep(600);
-      expect(await evaluate(`!!document.querySelector("[data-island=editor] [data-code] .cm-merge-b")`), "sources: Compare with parent shows no diff");
+      const on = await evaluate(state);
+      expect(on.pressed === "true" && on.diff, `sources: Compare with parent on is ${JSON.stringify(on)}`);
       writeFileSync(join(outDir, "diff.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+      await evaluate(toggle); await sleep(400);
+      const off = await evaluate(state);
+      expect(off.pressed === "false" && !off.diff, `sources: Compare with parent off is ${JSON.stringify(off)}`);
     }
     // Locate in graph from a file's context menu brings Versions and the lineage back.
     await click(file[0], file[1], "right"); await sleep(400);
