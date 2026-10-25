@@ -108,7 +108,7 @@ CREATE TABLE quote (
   - 同一输入重放两次，`engine.compare` 指纹逐字节相同。
   - 规模：3 天 BTCUSDT 报价 631 万条（10 月窗口）/ 1,902 万条（2 月窗口），导出 19 s / 53 s，回放 7 s / 22 s。
   - 真实数据暴露并修复两处（随 #1666）：导出器按固定行数切 Catalog 文件，同一毫秒的多条状态会跨两个文件，Nautilus 拒绝闭区间相接的文件（改为只在时间变化处切分，回归测试）；报告的 limitations 在报价环境仍写「K 线撮合」和「Liquidation is not modelled」（改为按执行模式陈述报价撮合与强平模型及声明的费率）。
-- **历史四个月首日真实 bookTicker 对照（2026-10-25 凌晨）**：同一强平夹具（10 倍名义、维持率取当日 60% 的逆向幅度、`BacktestEngine` 直接跑）分别喂库内推算报价与 Tardis 免费公开的 Binance 真实 bookTicker（只取价格变化）。产物 `true-vs-inferred-liquidation.json`（临时目录）。
+- **历史四个月首日真实 bookTicker 对照（2026-10-25 凌晨）**：同一强平夹具（约 10 倍名义，用全天逆向幅度的 60% 选择压力触发点、初始＝维持率，`BacktestEngine` 直接跑）分别喂库内推算报价与 Tardis 免费公开的 Binance 真实 bookTicker（只取价格变化）。产物 `true-vs-inferred-liquidation.json`（临时目录）。
 
 | 日期 | 方向 | 当日幅度 | 推算状态数 / 真实价格变化数 | 强平时刻差（推算−真实） | 强平价差 | 期末现金差 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
