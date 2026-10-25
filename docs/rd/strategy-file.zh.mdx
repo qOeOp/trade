@@ -561,7 +561,7 @@ Agent 读封存的预检原件，分清是没有交易机会还是实现出了�
 
 **另一个 Agent 按四项审查预检原件，都过了才能登记**
 
-审查者必须是没参与编写的 Agent，读的是预检的封存原件。接口、因果、活动、就绪四项各写结论和观察；当前审查不逐项认证全部 27 项职责的立场与源码一致。结论作为证据包只追加进账本，绑定源码和运行环境。登记和回放时，四项必须都是通过或无交易机会，否则拒绝。
+审查者必须是没参与编写的 Agent，读的是预检的封存原件。接口、因果、活动、就绪四项各写结论和观察；当前审查不逐项认证全部 27 项职责的立场与源码一致。结论作为证据包只追加进账本，绑定源码和运行环境。登记和回放时，四项必须都是通过或无交易机会，否则拒绝。因果项要追溯每个价格输入何时已知，审查者用 `market bars` 读同一市场提交的已存 K 线与资金费及其交付时刻，不开试验、不算暴露，不写脚本导入市场库内部模块。
 
 写代码的人最容易放过自己的错。换一个没参与的 Agent 照着原件逐项查，才能挡住前视、挂单写错这类审计查不出的问题。
 
@@ -571,7 +571,7 @@ Agent 读封存的预检原件，分清是没有交易机会还是实现出了�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">独立审查</span> <span className="rd-impl">实现 <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="registration.record_review">record_review</Ref> <Ref id="cli.source_review">source_review</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">独立审查</span> <span className="rd-impl">实现 <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="registration.record_review">record_review</Ref> <Ref id="cli.source_review">source_review</Ref> <Ref id="cli.market_bars">market_bars</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 已定边界与归属 [#C-pending]
 

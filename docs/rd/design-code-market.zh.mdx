@@ -866,6 +866,7 @@ def scaled_rows(symbol: str, rows: list[tuple], scale: int) -> list[tuple]:
 | 函数 | 用途 |
 |---|---|
 | <Ref id="market.daily_returns">daily_returns</Ref> | 按市场提交读 BTC 永续与共同可交易范围等权篮子的 UTC 日收益，供市场暴露一栏使用 |
+| <Ref id="market.stored_bars">stored_bars</Ref> | 源码审查者的价格读口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，即导出器自己读出、写进 Catalog 的那些，每根带 Catalog 交付给策略的时刻 |
 
 ### `daily_returns` [#def-market-daily_returns]
 
@@ -901,6 +902,51 @@ def daily_returns(
 - [Jensen 1968, The Journal of Finance](https://doi.org/10.1111/j.1540-6261.1968.tb00815.x)　论文
 - [Dimson 1979, Journal of Financial Economics](https://doi.org/10.1016/0304-405X(79)90013-8)　论文
 - [Newey & West 1987, Econometrica；滞后阶数按 Newey & West 1994, Review of Economic Studies](https://doi.org/10.2307/1913610)　论文
+
+</div>
+
+
+### `stored_bars` [#def-market-stored_bars]
+
+源码审查者的价格读口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，即导出器自己读出、写进 Catalog 的那些，每根带 Catalog 交付给策略的时刻
+
+```python
+def stored_bars(
+    profile: dict,
+    at: str | None,
+    symbol: str,
+    price_type: str,
+    timeframe: str,
+    start: str,
+    end: str,
+    limit: int | None,
+) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "dict", description: "市场库档案" }, "at": { type: "str | None", description: "市场提交、标签或分支，缺省 main" }, "symbol": { type: "str", description: "一个合约的公开名" }, "price_type": { type: "str", description: "LAST 或 MARK；1d 只有 LAST" }, "timeframe": { type: "str", description: "1m 已存分钟线，或 1d 由已存分钟线导出的完整 UTC 日线" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z，整分钟（1d 为整日）" }, "end": { type: "str", description: "区间终点（不含），同上" }, "limit": { type: "int | None", description: "最多读多少个 K 线周期；None 读完整个区间" } }} />
+
+**返回**　dict：\{commit, symbol, price_type, timeframe, interval:\{start, end, ms:[start, end]\}, next_start, bars:\{columns:[ts_open_ms, ts_event_ms, open, high, low, close, volume], count, rows\}, funding:\{columns:[funding_time_ms, rate], count, rows\}\}；价格与成交量是按库内整数刻度还原的十进制字符串
+
+**期望行为**
+
+1. 起止按 UTC 整分钟校验（同 market.diagnose_coverage）；1d 另要求整 UTC 日且只给 LAST。
+2. 经 market.resolve_commit 解析 at 为精确提交，经 market.terms 确认合约在该提交下存在，从 market_schema 读价格与成交量刻度。
+3. 1m 调 market.read_bars，1d 调 market.daily_bars（导出器的日线预热：只含区间终点前的完整 UTC 日），资金费调 market.read_funding；不另写 SQL，读到的就是同一提交导出时写进 Catalog 的数值。
+4. ts_event_ms 是 Catalog 给这根 K 线盖的时刻：收盘，即 ts_open_ms 加周期减 1 毫秒；资金费在 funding_time_ms 交付。
+5. 给了 limit 时只读从 start 起 limit 个周期，next_start 指出其余部分的起点，读完整个区间时为 null。
+6. 不应用生命周期片段，只读不写，不开试验、不算暴露。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INTERVAL_INVALID` | 起止不是 UTC 整分钟或 start >= end；1d 不是整 UTC 日或不是 LAST |
+| `NO_TERMS` | 合约在该提交下没有条款行（由 market.terms 传出） |
+| `UNKNOWN_REF` | 市场提交引用无法解析（由 market.resolve_commit 传出） |
+
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.terms" />、<Ref id="implementation:impl-market-coverage-py-read_bars" />、<Ref id="implementation:impl-market-export-py-daily_bars" />、<Ref id="implementation:impl-market-coverage-py-read_funding" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="C.6.2.1">C.6.2.1</Ref>
 
 </div>
 

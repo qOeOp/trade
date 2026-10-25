@@ -201,6 +201,39 @@ class ImportTests(unittest.TestCase):
         self.refused("RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.commits[MAR], "other-v1",
                      datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
 
+    def test_stored_bars_are_the_exporters_reads_at_the_pinned_commit_with_their_catalog_times(self):
+        commit, day = self.commits[MAR], day_ms(date(2025, 3, 2))
+        found = read.stored_bars(self.profile, commit[:12], "BTCUSDT", "MARK", "1m", "2025-03-02T00:00:00Z",
+                                 "2025-03-02T00:05:00Z", 3)
+        price = f"{100 + (day // MINUTE) % 997 / 100:.2f}345678"
+        self.assertEqual((found["commit"], found["bars"]["count"], found["next_start"]),
+                         (commit, 3, "2025-03-02T00:03:00Z"))
+        self.assertEqual(found["bars"]["rows"][0], [day, day + MINUTE - 1, price, price, price, price, "0.0000"])
+        whole = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+                                 "2025-03-03T00:00:00Z", None)
+        with store.connect(self.profile, "reader") as conn:
+            minutes_ = coverage.read_bars(conn, commit, "BTCUSDT", "LAST", day, day + DAY)
+            daily = export.daily_bars(conn, commit, "BTCUSDT", 0, None, day + DAY)
+        self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
+                         (minutes_["ts_open"].tolist(), None))
+        self.assertEqual(whole["funding"]["rows"], [[day + 3 + EIGHT_HOURS * k, "0.0001"] for k in range(3)])
+        days = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1d", "2025-03-01T00:00:00Z",
+                                "2025-03-03T00:00:00Z", None)
+        self.assertEqual([[row[0], row[1], row[5]] for row in days["bars"]["rows"]],
+                         [[opened, opened + DAY - 1, f"{close / 10**store.PRICE_SCALE:.8f}"]
+                          for opened, close in zip(daily["ts_open"][-2:].tolist(), daily["close"][-2:].tolist())],
+                         "the Catalog's daily LAST bars, each stamped on its close")
+        earlier = read.stored_bars(self.profile, self.commits[FEB], "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+                                   "2025-03-02T00:05:00Z", None)
+        self.assertEqual((earlier["bars"]["count"], earlier["funding"]["count"]), (0, 0))
+        window = ("2025-03-02T00:00:00Z", "2025-03-03T00:00:00Z")
+        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, commit, "BTCUSDT", "LAST", "1d",
+                     "2025-03-02T06:00:00Z", window[1], None)
+        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, commit, "BTCUSDT", "MARK", "1d", *window, None)
+        self.refused("NO_TERMS", read.stored_bars, self.profile, commit, "ZZZUSDT", "LAST", "1m", *window, None)
+        self.refused("UNKNOWN_REF", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
+                     None)
+
     def test_an_export_loads_whole_into_the_engine_stream(self):
         from engine import run
         from engine.load import read_market

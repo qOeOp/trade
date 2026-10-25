@@ -227,6 +227,25 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((listed["lifecycle_missing"], len(listed["lifecycle"]["BTCUSDT"])), ([], 1))
         self.refused("INTERVAL_INVALID", "market", "coverage", "--symbols", "BTCUSDT", "--start",
                      "2025-12-31T00:00:30Z", "--end", "2026-01-02T00:00:00Z")
+        bars = ("market", "bars", "--symbol", "BTCUSDT", "--start", "2026-01-01T00:00:00Z", "--end",
+                "2026-01-03T00:00:00Z")
+        page = self.ok(*bars, "--at", commit[:12])
+        jan = FIRST + 8 * DAY
+        self.assertEqual((page["commit"], page["bars"]["count"], page["next_start"], page["funding"]["count"]),
+                         (commit, 1440, "2026-01-02T00:00:00Z", 3))
+        self.assertEqual(page["bars"]["rows"][0], [jan, jan + MINUTE - 1, *["100055.30000000"] * 4, "0.0000"])
+        whole = self.ok(*bars, "--output", str(self.tmp / "bars.json"))
+        self.assertEqual((whole["bars"], whole["next_start"]), ({"columns": page["bars"]["columns"], "count": 2880}, None))
+        written = json.loads(Path(whole["output"]).read_text(encoding="utf-8"))
+        self.assertEqual((len(written["bars"]["rows"]), written["bars"]["rows"][:1440], written["funding"]["count"]),
+                         (2880, page["bars"]["rows"], 6))
+        daily = self.ok(*bars, "--timeframe", "1d")
+        self.assertEqual([row[:2] for row in daily["bars"]["rows"]], [[jan, jan + DAY - 1], [jan + DAY, jan + 2 * DAY - 1]])
+        self.refused("PATH_EXISTS", *bars, "--output", whole["output"])
+        self.refused("NOT_TEMPORARY_PATH", *bars, "--output", str(NOT_TEMPORARY / "bars.json"))
+        self.refused("USAGE_ERROR", *bars, "--timeframe", "1d", "--price-type", "MARK")
+        self.refused("NO_TERMS", "market", "bars", "--symbol", "ZZZUSDT", "--start", "2026-01-01T00:00:00Z", "--end",
+                     "2026-01-02T00:00:00Z")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2026-01")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # the January import's warm-up rows
