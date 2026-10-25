@@ -18,11 +18,13 @@ function tick(time: Time, type: TickMarkType): string {
   return CLOCK.format(d);
 }
 
-/** A series' price format: thousands separators and `places` decimals (81,190.5). Set on each series,
- *  since a chart-wide formatter would also take over the drawdown pane's percent. */
-export const priceFormat = (places: number) => ({
-  type: "custom" as const, minMove: 10 ** -places,
-  formatter: (x: number) => x.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places }),
+const number = (places: number) => (x: number) => x.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places });
+/** A series' price format: thousands separators and `places` decimals (81,190.50), the axis ticks with
+ *  `ticks` decimals. Set on each series, since a chart-wide formatter would also take over the drawdown
+ *  pane's percent. */
+export const priceFormat = (places: number, ticks = places) => ({
+  type: "custom" as const, minMove: 10 ** -places, formatter: number(places),
+  tickmarksFormatter: (prices: readonly number[]) => prices.map(number(ticks)),
 });
 
 /** The design's chart rules (docs/plans/research-graph-design-spec.zh.md §4.1): gridlines along the
@@ -39,7 +41,7 @@ export function chartOptions(): DeepPartial<ChartOptions> {
     },
     grid: { vertLines: { visible: false }, horzLines: { color: canvasColor("grid") } },
     rightPriceScale: { borderColor: canvasColor("line-strong") },
-    timeScale: { borderColor: canvasColor("line-strong"), timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: tick },
+    timeScale: { borderColor: canvasColor("line-strong"), timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: tick, allowBoldLabels: false },
     localization: { timeFormatter: (time: Time) => `${FULL.format(date(time)).replace(",", "")} UTC` },
     crosshair: {
       mode: CrosshairMode.Normal,
@@ -49,15 +51,17 @@ export function chartOptions(): DeepPartial<ChartOptions> {
   };
 }
 
-/** Series colours. Grey first: the market (candles, volume) recedes and colour is kept for the run's own
- *  trading (exits by reason, its working orders); a held position is one neutral band, its side carried
- *  by the entry marker. */
+/** Series colours. Grey first: the market recedes (hollow up candles, filled down ones, faint volume)
+ *  and colour is kept for the run's own trading (exits by reason, its working orders); a held position
+ *  is one neutral band, its side carried by the entry marker. The last price's pill is the text colour,
+ *  so it stands apart from the order pills. */
 export function seriesColors() {
   return {
-    up: canvasColor("fg-faint", 0.55), down: canvasColor("fg-muted"), volume: canvasColor("fg-faint", 0.18),
+    island: canvasColor("island"), candle: canvasColor("fg-muted"), volume: canvasColor("fg-faint", 0.18),
     entry: canvasColor("fg"), stop: canvasColor("fail"), target: canvasColor("meets"), other: canvasColor("fg-faint"),
-    held: canvasColor("scope"), average: canvasColor("fg-muted"),
-    equity: canvasColor("fg"), start: canvasColor("line-strong"), drawdown: canvasColor("fail", 0.18), drawdownLine: canvasColor("fail", 0.8),
+    held: canvasColor("scope"), average: canvasColor("fg-muted"), last: canvasColor("fg"), label: canvasColor("fg-muted"),
+    equity: canvasColor("fg"), equityFill: canvasColor("fg-faint", 0.08), none: canvasColor("island", 0),
+    drawdown: canvasColor("fail", 0.18), drawdownLine: canvasColor("fail", 0.8),
     limit: canvasColor("meets", 0.55), axisLabel: canvasColor("fg-muted"), axisText: canvasColor("island"),
   };
 }

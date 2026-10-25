@@ -4,26 +4,30 @@ import {
   type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type SeriesMarker, type Time, type UTCTimestamp,
 } from "lightweight-charts";
 import { candleOpen, candles as gather } from "../../lib/bars";
-import type { JournalLine } from "../../lib/paperApi";
+import { fixed, type JournalLine } from "../../lib/paperApi";
 import type { Fill, Held, PriceLine } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { chartTime, highlighted, pickedDay } from "../../state/paperStream";
 import { showToolWindow } from "../../state/shell";
 import { useResolvedTheme } from "../../state/theme";
-import { ChartLegend } from "./ChartLegend";
 import { afterFonts, chartOptions, priceFormat, seriesColors } from "./chartTheme";
+import { LineLabels } from "./lineLabels";
 
 type Api = {
   chart: IChartApi; candles: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; shade: ISeriesApi<"Area">;
-  markers: ISeriesMarkersPluginApi<Time>; lines: Map<string, IPriceLine>; shown: { length: number; last: number } | null;
+  markers: ISeriesMarkersPluginApi<Time>; lines: Map<string, IPriceLine>; last: IPriceLine; labels: LineLabels;
+  shown: { length: number; last: number } | null;
 };
-const VISIBLE = 160;  // candles in view when a contract first shows
+const VISIBLE = 160, FEWEST = 30;  // candle widths in view when a contract first shows: at most, and at least
 const at = (t: number) => t as UTCTimestamp;
+const signed = (n: number, digits: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), digits)}`;
+const away = (price: number, mark: number | null) => (mark ? ` ${signed((price / mark - 1) * 100, 2)}%` : "");
 
 /** A contract's candles of `minutes` in grey with volume faint under them, and the run's trading in
  *  colour on top: entries ▲▼, exits ○ by reason (stop red, target green, other grey), working orders and
- *  the held position's average entry as price lines (named in the legend), the time it held a position
- *  as one neutral band. A click on a marker finds its event. */
+ *  the held position's average entry as price lines named at their left end (an order by how far it is
+ *  from the last price), the time it held a position as one neutral band. The axis keeps a pill for
+ *  each order and the last price. A click on a marker finds its event. */
 export function CandleChart({ bars, minutes, places, size, fills, orders, held, spans }: {
   bars: readonly JournalLine[]; minutes: number; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
   held: Held | null; spans: readonly [number, number | null, boolean][];
@@ -41,24 +45,28 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
   useEffect(() => {
     const chart = createChart(host.current!, chartOptions());
     // The held band is an area on a hidden scale, so it fills the time between candles too.
-    const shade = chart.addSeries(AreaSeries, { priceScaleId: "spans", priceLineVisible: false, lastValueVisible: false, lineVisible: false, crosshairMarkerVisible: false });
+    const shade = chart.addSeries(AreaSeries, { priceScaleId: "spans", priceLineVisible: false, lastValueVisible: false, lineVisible: false, crosshairMarkerVisible: false,
+                                                autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 1 } }) });
     chart.priceScale("spans").applyOptions({ visible: false, scaleMargins: { top: 0, bottom: 0 } });
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: "", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false });
     volume.priceScale().applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
     // The scale takes in the working orders and the average entry too, so they stay in view.
-    const candles = chart.addSeries(CandlestickSeries, { borderVisible: false, priceLineVisible: false, autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
+    const candles = chart.addSeries(CandlestickSeries, { borderVisible: true, priceLineVisible: false, lastValueVisible: false, autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
       const found = base(), prices = levels.current;
       if (!found?.priceRange || !prices.length) return found;
       return { ...found, priceRange: { minValue: Math.min(found.priceRange.minValue, ...prices), maxValue: Math.max(found.priceRange.maxValue, ...prices) } };
     } });
     candles.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.2 } });
     const markers = createSeriesMarkers(candles, []);
+    const labels = new LineLabels();
+    candles.attachPrimitive(labels);
+    const last = candles.createPriceLine({ price: 0, lineVisible: false, axisLabelVisible: false, title: "" });
     chart.subscribeClick((param) => {
       const id = String(param.hoveredObjectId ?? "");
       const fill = id.startsWith("fill-") ? fillsRef.current[Number(id.slice(5))] : undefined;
       if (fill) { highlighted.set(fill.line); showToolWindow("events", "bottom"); }
     });
-    api.current = { chart, candles, volume, shade, markers, lines: new Map(), shown: null };
+    api.current = { chart, candles, volume, shade, markers, lines: new Map(), last, labels, shown: null };
     return () => { chart.remove(); api.current = null; };
   }, []);
 
@@ -69,8 +77,9 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     apply();
     afterFonts(apply);
     a.shade.applyOptions({ topColor: c.held, bottomColor: c.held });
-    a.candles.applyOptions({ upColor: c.up, downColor: c.down, wickUpColor: c.up, wickDownColor: c.down,
-                             priceFormat: priceFormat(Math.max(0, places)) });
+    a.candles.applyOptions({ upColor: c.island, borderUpColor: c.candle, wickUpColor: c.candle, downColor: c.candle, borderDownColor: c.candle,
+                             wickDownColor: c.candle, priceFormat: priceFormat(Math.max(0, places)) });
+    a.last.applyOptions({ axisLabelColor: c.last, axisLabelTextColor: c.island });
   }, [theme, places]);
 
   const data = useMemo(() => gather(bars, minutes), [bars, minutes]);
@@ -87,10 +96,12 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     } else {
       a.candles.setData(data.map((k) => ({ ...k, time: at(k.time) })));
       a.volume.setData(data.map(volume));
-      // As many candle widths as VISIBLE whatever the count, so a young run's few candles stay narrow at the right.
-      if (data.length) a.chart.timeScale().setVisibleLogicalRange({ from: data.length - VISIBLE, to: data.length + 4 });
+      // A young run's few candles fill the width (no fewer than FEWEST widths); an older run shows its latest VISIBLE.
+      if (data.length) a.chart.timeScale().setVisibleLogicalRange({ from: data.length - Math.min(VISIBLE, Math.max(data.length, FEWEST)), to: data.length + 4 });
     }
     a.shown = data.length ? { length: data.length, last: data[data.length - 1]!.time } : null;
+    const close = data[data.length - 1]?.close;
+    a.last.applyOptions(close == null ? { axisLabelVisible: false } : { price: close, axisLabelVisible: true });
     a.shade.setData(data.map((k) => {
       const ms = k.time * 1000, held = spans.some(([from, to]) => ms + minutes * 60_000 > from && (to === null || ms <= to));
       return held ? { time: at(k.time), value: 1 } : { time: at(k.time) };
@@ -112,15 +123,21 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     const a = api.current;
     if (!a) return;
     const c = seriesColors();
-    const wanted = [...orders.map((o) => ({ id: o.id, price: o.price, color: c[o.kind === "entry" ? "entry" : o.kind] })),
-                    ...(held ? [{ id: "average", price: held.average, color: c.average }] : [])];
+    const mark = data[data.length - 1]?.close ?? null;
+    const wanted = [
+      ...orders.map((o) => ({ id: o.id, price: o.price, color: c[o.kind === "entry" ? "entry" : o.kind], pill: true,
+                              text: o.kind === "entry" ? `${o.side === "BUY" ? "Buy" : "Sell"} ${fixed(o.quantity, size)}${away(o.price, mark)}` : `${o.label}${away(o.price, mark)}` })),
+      ...(held ? [{ id: "average", price: held.average, color: c.average, pill: false,
+                    text: `${held.long ? "Long" : "Short"} ${fixed(held.quantity, size)}${held.pnl == null ? "" : ` · ${signed(held.pnl, 2)} USDT`}` }] : []),
+    ];
     for (const [id, line] of a.lines) if (!wanted.some((w) => w.id === id)) { a.candles.removePriceLine(line); a.lines.delete(id); }
     for (const w of wanted) {
-      const options = { price: w.price, color: w.color, lineWidth: 1 as const, lineStyle: LineStyle.Solid, title: "", axisLabelVisible: true };
+      const options = { price: w.price, color: w.color, lineWidth: 1 as const, lineStyle: LineStyle.Solid, title: "", axisLabelVisible: w.pill };
       const line = a.lines.get(w.id);
       if (line) line.applyOptions(options); else a.lines.set(w.id, a.candles.createPriceLine(options));
     }
-  }, [orders, held, theme]);
+    a.labels.set(wanted, { text: c.label, halo: c.island, font: `11px ${getComputedStyle(document.body).fontFamily}` });
+  }, [orders, held, size, data, theme]);
 
   useEffect(() => {
     const a = api.current;
@@ -136,10 +153,5 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     a.chart.timeScale().setVisibleRange({ from: at(from), to: at(from + 86_400) });
   }, [day, data.length > 0]);
 
-  return (
-    <div className="relative h-full min-h-0 w-full">
-      <div ref={host} className="h-full w-full" />
-      <ChartLegend orders={orders} held={held} places={places} size={size} />
-    </div>
-  );
+  return <div ref={host} className="h-full min-h-0 w-full" />;
 }

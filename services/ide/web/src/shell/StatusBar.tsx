@@ -29,11 +29,12 @@ export function StatusBar() {
   const paper = useOnPaperPage();
   const runs = usePaperRuns()?.runs ?? [];
   if (paper) {
-    const running = runs.filter((r) => ACTIVE.has(r.state)).length;
+    // The run strip already counts the runs: the bar carries only notices, and runs missing data or protection.
+    const gapped = runs.filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
     return (
       <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
         {said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
-        <span className="ml-auto shrink-0 pr-2">{plural(runs.length, "paper run")} · {running} running</span>
+        {gapped > 0 && <span className="ml-auto shrink-0 pr-2 text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
       </footer>
     );
   }

@@ -3,6 +3,7 @@
 // panel's links: the time the chart should show and the event to highlight, and the day picked in the
 // calendar.
 import { streamUrl, type JournalLine, type Live, type PaperState, type Seal } from "../lib/paperApi";
+import { CATEGORIES, type Category } from "../model/paper";
 import { atom, useAtom } from "./atom";
 
 export type Stream = {
@@ -17,6 +18,8 @@ export const chartTime = atom<{ ms: number; n: number } | null>(null);
 export const highlighted = atom<JournalLine | null>(null);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
+/** The event categories the Events list shows. */
+export const shownCategories = atom<ReadonlySet<Category>>(new Set(CATEGORIES));
 
 let n = 0;
 export const showTime = (ms: number) => chartTime.set({ ms, n: ++n });

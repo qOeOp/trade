@@ -85,12 +85,13 @@ const places = (v: unknown): number => {
 };
 /** A contract's price and size decimals, -1 where the journal has not shown one yet. */
 export type Precision = { price: number; size: number };
-/** Each contract's decimals as the journal prints them: bars and orders carry the instrument's precision
- *  (average prices are floats and say nothing). */
+/** Each contract's decimals as the journal prints them: bars and accepted orders carry the instrument's
+ *  precision (average prices are floats and say nothing; a denied or rejected order may carry any). */
 export function precisions(lines: readonly JournalLine[]): Map<string, Precision> {
   const out = new Map<string, Precision>();
+  const failed = new Set(lines.filter((l) => l.type === "OrderDenied" || l.type === "OrderRejected").map((l) => l.client_order_id));
   for (const l of lines) {
-    if (l.kind !== "bar" && l.kind !== "order") continue;
+    if ((l.kind !== "bar" && l.kind !== "order") || (l.kind === "order" && failed.has(l.client_order_id))) continue;
     const symbol = symbolOf(l.instrument_id), p = out.get(symbol) ?? { price: -1, size: -1 };
     for (const key of l.kind === "bar" ? ["close"] : ["price", "trigger_price", "last_px"]) p.price = Math.max(p.price, places(l[key]));
     if (l.kind === "order") p.size = Math.max(p.size, places(l.quantity), places(l.last_qty));

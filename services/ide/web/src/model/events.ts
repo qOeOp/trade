@@ -1,13 +1,14 @@
 // The Events list's rows: lines in time order, the orders of one bracket (or other order list) folded
 // under one row that says what the bracket was and how it stands.
-import { amount, priceText, type JournalLine } from "../lib/paperApi";
-import { eventMs, last } from "./paper";
+import { amount, fixed, symbolOf, type JournalLine, type Precision } from "../lib/paperApi";
+import { eventMs, last, word } from "./paper";
 
 export type Item = { line: JournalLine; children?: JournalLine[]; key: string; at: number };
 /** A row's status, if it has one: failed (denied, rejected) stands out; the rest is quiet. */
 export type Status = { text: string; failed: boolean };
 
 const FAILED = new Set(["Denied", "Rejected"]);
+const WORKING = new Set(["Initialized", "Submitted", "Accepted", "Released", "Triggered"]);
 const status = (line: JournalLine): string => String(line.type ?? "").replace(/^Order/, "");
 
 /** Each event a row, or a bracket's events under one; rows sit at their (latest) event's time, oldest first. */
@@ -26,26 +27,41 @@ export function grouped(lines: readonly JournalLine[]): Item[] {
   return out.sort((a, b) => a.at - b.at);
 }
 
-/** A bracket in words from its orders' first events: "Bracket · Buy 0.01 market · TP 101.86 · SL 99.84". */
-export function bracket(children: readonly JournalLine[]): string {
+/** A bracket's legs from their orders' first events: the entry, its target and its stop. */
+function legs(children: readonly JournalLine[]) {
   const first = new Map<string, JournalLine>();
   for (const l of children) if (l.client_order_id && l.order_type && !first.has(String(l.client_order_id))) first.set(String(l.client_order_id), l);
-  const legs = [...first.values()];
-  const entry = legs.find((l) => !l.reduce_only), stop = legs.find((l) => last(l.order_type).includes("STOP")), target = legs.find((l) => l.reduce_only && !last(l.order_type).includes("STOP"));
-  const parts = [legs.length > 1 && stop && target ? "Bracket" : "Order list"];
-  if (entry) parts.push(`${last(entry.order_side) === "BUY" ? "Buy" : "Sell"} ${String(entry.quantity ?? "")} ${last(entry.order_type).toLowerCase().replace("_", " ")}${amount(entry.price) != null ? ` @ ${priceText(entry.price)}` : ""}`);
-  if (target) parts.push(`TP ${priceText(target.price)}`);
-  if (stop) parts.push(`SL ${priceText(stop.trigger_price)}`);
+  const all = [...first.values()];
+  return {
+    all, entry: all.find((l) => !l.reduce_only), stop: all.find((l) => last(l.order_type).includes("STOP")),
+    target: all.find((l) => l.reduce_only && !last(l.order_type).includes("STOP")),
+  };
+}
+
+/** A bracket in words, in the contract's decimals: "Bracket · Buy 0.010 market · TP 81,190.50 · SL 79,582.70". */
+export function bracket(children: readonly JournalLine[], digits: ReadonlyMap<string, Precision>): string {
+  const { all, entry, stop, target } = legs(children);
+  const d = digits.get(symbolOf(children[0]?.instrument_id)) ?? { price: -1, size: -1 };
+  const parts = [all.length > 1 && stop && target ? "Bracket" : "Order list"];
+  if (entry) parts.push(`${word(entry.order_side)} ${fixed(entry.quantity, d.size) ?? ""} ${word(entry.order_type).toLowerCase()}${amount(entry.price) != null ? ` @ ${fixed(entry.price, d.price)}` : ""}`);
+  if (target) parts.push(`TP ${fixed(target.price, d.price)}`);
+  if (stop) parts.push(`SL ${fixed(stop.trigger_price, d.price)}`);
   return parts.join(" · ");
 }
 
-/** A bracket's standing: a failure of any leg, else its entry's latest status. */
+/** How a bracket stands: a failure of any leg; else closed by its target or stop once one fills, open
+ *  while its entry is filled and its exits work, canceled once nothing works, or its entry's status. */
 export function bracketStatus(children: readonly JournalLine[]): Status {
   const failed = children.find((l) => FAILED.has(status(l)));
   if (failed) return { text: status(failed), failed: true };
-  const entry = children.find((l) => l.order_type && !l.reduce_only);
-  const latest = [...children].reverse().find((l) => entry && l.client_order_id === entry.client_order_id);
-  return { text: latest ? status(latest) : status(children[children.length - 1]!), failed: false };
+  const { entry, stop, target } = legs(children);
+  const latest = (leg: JournalLine | undefined) => leg && status([...children].reverse().find((l) => l.client_order_id === leg.client_order_id)!);
+  if (latest(target) === "Filled") return { text: "Closed by TP", failed: false };
+  if (latest(stop) === "Filled") return { text: "Closed by SL", failed: false };
+  const exits = [stop, target].filter(Boolean).map(latest);
+  if (latest(entry) === "Filled") return { text: exits.length && exits.every((s) => s === "Canceled") ? "Canceled" : "Open", failed: false };
+  const now = latest(entry) ?? status(children[children.length - 1]!);
+  return { text: WORKING.has(now) ? "Working" : now, failed: false };
 }
 
 /** A single order line's status chip, when it is one. */

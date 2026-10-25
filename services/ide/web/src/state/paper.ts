@@ -15,6 +15,8 @@ export const paperRuns = atom<Listing | null>(null);
 /** The run the Paper panel shows, and its tab: a contract, or null for the account. */
 export const selectedRun = atom<number | null>(null);
 export const paperTab = atom<string | null>(null);
+/** On a contract tab, whether Events and Positions show every contract instead of the tab's alone. */
+export const allContracts = atom(false);
 /** Versions being started from this page, and runs being stopped. */
 export const starting = atom<ReadonlySet<string>>(new Set());
 export const stopping = atom<ReadonlySet<number>>(new Set());

@@ -76,9 +76,10 @@ export function PaperPanel() {
         {run && <RunMetrics items={[
           { label: "Equity", value: amount(reading?.final_equity_usdt), format: MONEY, suffix: " USDT" },
           { label: "Open P&L", value: open, format: SIGNED, suffix: " USDT", text: run.state === "sealed" ? "Booked at end" : undefined },
-          { label: "Return", value: reading?.total_return == null ? null : +reading.total_return.toFixed(4) || 0, format: PERCENT },
-          { label: "Max drawdown", text: reading?.max_drawdown == null ? undefined : `${pct(reading.max_drawdown)}${target ? ` of ${pct(target)}` : ""}`,
-            warn: target != null && (reading?.max_drawdown ?? 0) > target },
+          // The run card's badge carries the return and the drawdown; the band says how much of the target it used.
+          target ? { label: "Drawdown budget", text: reading?.max_drawdown == null ? undefined : `${Math.round((reading.max_drawdown / target) * 100)}% of ${pct(target)} used`,
+                     warn: (reading?.max_drawdown ?? 0) > target }
+            : { label: "Max drawdown", text: reading?.max_drawdown == null ? undefined : pct(reading.max_drawdown) },
           { label: "Win rate", value: closed ? wins : null, format: PERCENT, suffix: closed ? ` of ${closed}` : undefined, text: closed ? undefined : "0 closed" },
           { label: run.state === "sealed" ? "Stopped" : "Last bar", warn: late,
             text: run.state === "sealed" ? (run.seal?.stopped_ns ? `${utc(run.seal.stopped_ns / 1e6).slice(11, 16)} UTC` : undefined)

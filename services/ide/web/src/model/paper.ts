@@ -1,6 +1,6 @@
 // What a paper run's journal means on the page: each line's category and description, the fills as
 // chart markers, the positions as spans, the working orders as price lines and the days as returns.
-import { amount, priceText, symbolOf, type JournalLine, type OpenOrder, type OpenPosition } from "../lib/paperApi";
+import { amount, fixed, symbolOf, type JournalLine, type OpenOrder, type OpenPosition, type Precision } from "../lib/paperApi";
 
 export type Category = "system" | "data" | "order" | "position" | "account" | "strategy" | "lifecycle";
 export const CATEGORIES: readonly Category[] = ["system", "data", "order", "position", "account", "strategy", "lifecycle"];
@@ -30,27 +30,30 @@ export function utc(ms: number): string {
 export const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 export const last = (value: unknown) => String(value ?? "").split(".").pop() ?? "";  // OrderSide.BUY → BUY
-const qtyPx = (qty: unknown, px: unknown) => `${qty ?? ""}${px != null && px !== "None" ? ` @ ${priceText(px)}` : ""}`;
+/** BUY → Buy, LONG → Long, STOP_MARKET → stop market. */
+export const word = (value: unknown) => { const w = last(value).toLowerCase().replace(/_/g, " "); return w.charAt(0).toUpperCase() + w.slice(1); };
+const NONE: Precision = { price: -1, size: -1 };
 
-/** One line in words, without its time, contract or category. */
-export function describe(line: JournalLine): string {
-  const f = line;
+/** One line in words, without its time, contract or category; prices and sizes in the contract's decimals. */
+export function describe(line: JournalLine, digits: ReadonlyMap<string, Precision> = new Map()): string {
+  const f = line, d = digits.get(symbolOf(line.instrument_id)) ?? NONE;
+  const qtyPx = (qty: unknown, px: unknown) => `${fixed(qty, d.size) ?? ""}${px != null && px !== "None" ? ` @ ${fixed(px, d.price)}` : ""}`;
   switch (line.kind) {
     case "order": {
       const what = String(f.type ?? "").replace(/^Order/, "");
-      if (what === "Filled") return `Filled ${last(f.order_side)} ${qtyPx(f.last_qty, f.last_px)} · ${last(f.order_type)}`;
-      if (what === "Initialized") return `New ${last(f.order_side)} ${last(f.order_type)} ${qtyPx(f.quantity, f.price ?? f.trigger_price)}${f.reduce_only ? " · reduce only" : ""}`;
+      if (what === "Filled") return `Filled ${word(f.order_side)} ${qtyPx(f.last_qty, f.last_px)} · ${word(f.order_type).toLowerCase()}`;
+      if (what === "Initialized") return `New ${word(f.order_side)} ${word(f.order_type).toLowerCase()} ${qtyPx(f.quantity, f.price ?? f.trigger_price)}${f.reduce_only ? " · reduce only" : ""}`;
       if (what === "Rejected" || what === "Denied") return String(f.reason ?? what);
       return what;
     }
     case "position": {
       const what = String(f.type ?? "").replace(/^Position/, "");
-      if (what === "Closed") return `Closed · realized ${String(f.realized_pnl ?? "")}`;
-      return `${what} ${last(f.side)} ${f.signed_qty ?? ""}${f.avg_px_open ? ` · avg ${priceText(f.avg_px_open)}` : ""}`;
+      if (what === "Closed") return `Closed · realized ${fixed(f.realized_pnl, 2) ?? ""} USDT`;
+      return `${what} ${word(f.side).toLowerCase()} ${fixed(Math.abs(amount(f.signed_qty) ?? 0), d.size)}${f.avg_px_open ? ` · avg ${fixed(f.avg_px_open, d.price)}` : ""}`;
     }
     case "data_gap": return `${f.missing_bars} one-minute bars missing`;
     case "late_bar": return `Bar ${Math.round(Number(f.late_ns) / 1e9)} s late`;
-    case "socket": return `${String(f.endpoint ?? "")} ${last(f.state)}`;
+    case "socket": return `${/binance/i.test(String(f.endpoint ?? "")) ? "Binance public streams" : String(f.endpoint ?? "")} ${word(f.state).toLowerCase()}`;
     case "funding_settlement": return `Funding settled at ${f.stream_rate}, mark ${f.mark ?? "unknown"}`;
     case "protection_gap": return `Position ${f.position} exceeds its stop orders (${f.stop_quantity})`;
     case "refusal": return `Refused: ${f.code}`;

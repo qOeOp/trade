@@ -2,6 +2,7 @@
 // its stripe icon and shortcut, and its header actions. A widget type with no tool window and no
 // other place becomes a bottom tool window that names it. The Agent window is fed by the chat
 // service instead of the view, so it appears only when the page's server has one.
+import type { ComponentType } from "react";
 import type { Widget } from "../model/types";
 import type { IconName } from "../icons/registry";
 import type { HeaderAction } from "../components/PanelHeader";
@@ -14,13 +15,16 @@ import { sourceTreeControl, versionTreeControl, type TreeControl } from "../stat
 import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
 import { AgentWindow } from "./agent/AgentWindow";
 import { Calendar } from "../widgets/paper/Calendar";
-import { Events } from "../widgets/paper/Events";
+import { ContractScope } from "../widgets/paper/ContractScope";
+import { Events, EventsTools } from "../widgets/paper/Events";
 import { RunDetails } from "../widgets/paper/RunDetails";
 import { Positions } from "../widgets/paper/Positions";
 
 export type ToolWindow = {
   id: string; side: Side; icon: IconName; shortcut?: { keys: string; binding: string };
   source: string; renderer: Renderer; actions: () => HeaderAction[];
+  /** Controls the header shows between its title and its actions. */
+  tools?: ComponentType;
   /** State the header actions read, so the header redraws when it changes. */
   watch?: Atom<unknown>;
 };
@@ -61,11 +65,11 @@ const AGENT: ToolWindow = {
 };
 
 // The Paper panel's tool windows, fed by the paper daemon like the Agent window by the chat service.
-const paperWindow = (id: string, side: Side, icon: IconName, title: string, Component: Renderer["Component"], shortcut?: ToolWindow["shortcut"]): ToolWindow =>
-  ({ id, side, icon, shortcut, source: id, renderer: { title, Component }, actions: () => [hide(side)] });
+const paperWindow = (id: string, side: Side, icon: IconName, title: string, Component: Renderer["Component"], shortcut?: ToolWindow["shortcut"], tools?: ComponentType): ToolWindow =>
+  ({ id, side, icon, shortcut, source: id, renderer: { title, Component }, actions: () => [hide(side)], tools });
 const PAPER = [
-  paperWindow("events", "bottom", "tool.events", "Events", Events, alt(9)),
-  paperWindow("positions", "bottom", "tool.positions", "Positions", Positions),
+  paperWindow("events", "bottom", "tool.events", "Events", Events, alt(9), EventsTools),
+  paperWindow("positions", "bottom", "tool.positions", "Positions", Positions, undefined, ContractScope),
 ];
 const CALENDAR = paperWindow("calendar", "bottom", "tool.calendar", "Calendar", Calendar);
 const RUN = paperWindow("paper-run", "right", "tool.run", "Paper run", RunDetails);
