@@ -11,6 +11,7 @@
   <File name="references/lenses.md" />
   <File name="references/record.md" />
   <File name="references/fidelity.md" />
+  <File name="references/attach.md" />
 </Folder>
 </Files>
 
@@ -22,7 +23,7 @@
 
 **工作过程**
 
-1. **固定证据**：整体审计在与研究会话不同宿主的全新会话里进行，不共享上下文、换一个模型家族；要审的会话是本会话或其子代理，或研究会话与本会话同宿主时，在第 1 步之前停下，给用户正确步骤（结束研究会话；在另一宿主开新会话；交 transcript 路径、账本提交区间、checkout 提交，不交本会话对这一轮的任何叙述；在那里调用本 skill），不开始审计；审计读 transcript 文件本身，不读摘录或研究会话的自述；若干聚焦问题合起来覆盖整个会话就是整体审计。否则标明会话路径、宿主、时间、checkout 与账本提交；读现有未结项及漏报索引，将主会话与子会话整理为共享的 /tmp 时间线。
+1. **固定证据**：整体审计在与研究会话不同宿主的全新会话里进行，不共享上下文、换一个模型家族；要审的会话是本会话或其子代理，或研究会话与本会话同宿主时，在第 1 步之前停下，给用户正确步骤（结束研究会话；在另一宿主开新会话；交 transcript 路径、账本提交区间、checkout 提交、跟读会话保留的原始证据目录，不交本会话对这一轮的任何叙述；在那里调用本 skill），不开始审计；审计读 transcript 文件本身，不读摘录或研究会话的自述；若干聚焦问题合起来覆盖整个会话就是整体审计。否则标明会话路径、宿主、时间、checkout 与账本提交；读现有未结项及漏报索引，将主会话与子会话整理为共享的 /tmp 时间线。
 2. **分配覆盖**：按 `references/lenses.md` 分配三个独立、全新、只读审查任务，只给证据路径、checkout 和问题，不给作者上下文或主审结论。只有独立的未决风险才拆分任务；原有六类责任全部保留，整体产品审查不限于会话触及路径。
 3. **验证链路**：沿实际产品输出、消费入口、解释和后续决策检查总体、单位、假设及证据范围。执行成功或流程合规不足以证明推断正确；修复也从同一消费路径复核。
 4. **核实排序**：每项须有会话调用或时间（或被违反的外部规范网址）及当前产品证明。主审亲自复核高优先级项；标明 main 已修或尚未核实。同一根因与补法合并，按观察到的代价与复发排序，区分实测影响和预期节省。
@@ -41,12 +42,13 @@
 - `prune-unobserved-boundary`：未触发或证据不足记为未验证，独自保护风险的边界不据此删除，也不新增逐条证明表。
 - `fidelity-classify-differences`：账本图与会话图的每处差异归入账本缺口、不属于记录、可推导、抽取遗漏四类并附判定证据；只有账本缺口作为发现，新增字段仍按 AGENTS.md 评审。
 - `audits-own-session-refused`：在产出研究的会话里、或同宿主的另一窗口里要求整体审计时，停下给出另一宿主全新会话的步骤与交接项，并拒收本会话对这一轮的叙述。
+- `attach-not-full-audit`：跟读结束后要求把跟读当整体审计收尾时拒绝；给出另一宿主全新会话的步骤并交证据目录，不交跟读笔记与结论；现场发现只作为未结项进索引，不把旧条目标为已验证。
 
 <ol className="rd-skill-rules">
 <li id="def-rule-K-1">只读会话、checkout、CI 和产品查询；重生成输出只到 /tmp，不写账本或市场库，不读凭据 <span className="rd-rule-links">K.1</span></li>
-<li id="def-rule-K-2">诊断使用当前产品名称与证据，沿实际输出、消费、解释和决策验证；不在 skill 累积机制或历史缺陷清单 <span className="rd-rule-links">K.2</span></li>
+<li id="def-rule-K-2">诊断使用当前产品名称与证据，沿实际输出、消费、解释和决策验证；不在 skill 累积机制或历史缺陷清单 <span className="rd-rule-links">K.2</span><span className="rd-eval">eval <code>finding-needs-proof</code>：发现须有会话位置与当前 checkout 上的产品证明，否则标为未核实或删去；main 已修的注明；改拒绝列为待用户授权项，不直接改</span></li>
 <li id="def-rule-K-3">AGENTS.md 是通用权限与实现边界的所有者，doctor 引用而不复述；保留 doctor 对存储字段改动逐项请求授权的额外限制，诊断本身不授予实施权限 <span className="rd-rule-links">K.3</span></li>
-<li id="def-rule-K-4">整体审计在与研究会话不同宿主的全新会话里进行；要审的会话是本会话或其子代理、或与本会话同宿主时，在第 1 步之前停下给出正确步骤，不开始审计 <span className="rd-rule-links">K.4</span></li>
+<li id="def-rule-K-4">整体审计在与研究会话不同宿主的全新会话里进行；要审的会话是本会话或其子代理、或与本会话同宿主时，在第 1 步之前停下给出正确步骤，不开始审计 <span className="rd-rule-links">K.4</span><span className="rd-eval">eval <code>audits-own-session-refused</code>：在产出研究的会话里、或同宿主的另一窗口里要求整体审计时，停下给出另一宿主全新会话的步骤与交接项，并拒收本会话对这一轮的叙述</span></li>
 </ol>
 
 ## `references/hosts.md` [#def-file-product-doctor-references-hosts-md]
@@ -81,7 +83,13 @@
 
 **Trigger**　An overall audit tests whether the ledger reconstructs a session, or a finding turns on what the ledger preserves.
 
-Two fresh read-only sub-agents each build a research-graph@2 graph, one from the ledger only (as the research-graph skill does) and one from the session transcripts only; neither sees the other, and what is missing stays null in gaps. Both pass the format check, `ide.py compare` covers one scope, and each difference is classed as a ledger gap, not a record, derivable or an extraction miss with the evidence that decides it; only a ledger gap is a finding, and a stored field it calls for still needs the AGENTS.md review and the user's decision.
+Two fresh read-only sub-agents each build a research-graph@3 graph, one from the ledger only (as the research-graph skill does) and one from the session transcripts only; neither sees the other, and what is missing stays null in gaps. Both pass the format check, `ide.py compare` covers one scope, and each difference is classed as a ledger gap, not a record, derivable or an extraction miss with the evidence that decides it; only a ledger gap is a finding, and a stored field it calls for still needs the AGENTS.md review and the user's decision.
+
+## `references/attach.md` [#def-file-product-doctor-references-attach-md]
+
+**Trigger**　Following a live research session read-only from the other host.
+
+The attaching session runs on the other host from the research session; it need not be fresh, and for that reason never runs the full audit afterwards. About once a minute it appends new complete transcript lines to a /tmp timeline and follows each new sub-agent session. It alerts the user only on a ledger or market write, a refusal code, a nonzero exit of a product command (apart from the agent's own scripts), a question to the user or a user message (an async question's acknowledgement is delivery: check the answer came before the next step), a turn end, abort or compaction, a new sub-agent session, and long silence (with the last entry type and running child processes); events arrive a minute or two late, so it reports after the fact. Raw evidence (service log increments of the modules the session touches, product command process samples, the IDE event stream, local, backup and public heads after each publish, copies of the agent's output files with modification time and SHA-256) goes to `/tmp/doctor-<session>/evidence/`, the attach notes and findings elsewhere; it never messages the research session, answers for the user, or starts, stops or signals a service or process. When the research session ends it stops watching, writes `evidence/manifest.md` and gives the user the full-audit steps with the evidence directory added, saying the full audit runs every step (its own timeline, three fresh workstream reviewers, the ledger fidelity test, the whole-product review), handing over no notes, timeline, findings or account. Attach writes no diagnosis record: each proved live finding enters the index as an `open` row (first seen as `attach <session id>`), the only way live findings leave the attach session; it changes no existing row (no verified, unobserved or rejected, no note or observation; a live finding matching one is left for the full audit to find in the evidence), is not the next diagnosis and makes no convergence claim. Sub-agent briefs stored encrypted, product actions without a log line, reasoning beyond summaries, files changed between polls and contact with the user outside the transcript stay gaps, never inferred.
 
 ## `references/record.md` [#def-file-product-doctor-references-record-md]
 

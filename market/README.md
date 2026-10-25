@@ -12,7 +12,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | connections, `resolve_commit`, `import_month` (one month, one transaction, one commit), exact scaling, `freshness` |
+| `store.py` | connections, `resolve_commit`, `import_month` (one month, one transaction, one commit; after the latest month or just before the earliest), exact scaling, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
@@ -120,9 +120,23 @@ uv run --frozen python -m cli.main market import --month 2026-09 [--symbols BTCU
 `market import --month` appends one UTC month (the current month through the last closed day) in
 one transaction and one commit, holding the database's import lock (`GET_LOCK('market-import:<db>')`;
 a second import is `CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
-universe of that month. Stored months cannot change (bars are insert-only, months import in order),
-so only the imported month's universe is computed, from its 30-day look-back; importing the current
-month again must give its stored members (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`.
+universe of that month. Months extend at either end: the latest month completed, the month after
+it, or the month just before the earliest (a backfill); any other month is `MONTH_INVALID`. Stored
+months cannot change (bars are insert-only, and a month's 30-day look-back lies before it), so only
+the imported month's universe is computed; importing the current month again must give its stored
+members (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`.
+
+A backfill inserts only, so every stored commit, and every replay pinned to one, stays as it was. The
+month must hold no bar or funding row of any contract yet (`MONTH_EXISTS`); it becomes the first
+month and has no members. The stored months whose look-back it completes (the month after a 31-day
+backfill) had none for want of history and get their members now (`universe_filled` in the result);
+one that already has members is `UNIVERSE_CHANGED`. Imported back month by month, the database ends
+with the rows a forward import from that month gives; only the terms' observation times differ. The
+commit message has the forward format: whether an import was a backfill follows from the commit order.
+A replay moved to a later commit gets a longer daily warm-up (the export derives it from a contract's
+first stored minute). Quotes (`market import-quotes`) are imported per contract and month in any order,
+but a replay of an earlier month needs its bars and members, so backfill the bars first.
+
 The current month imported again is stitched whole: its stored part is reread from the sources and
 compared with the stored rows (bars field by field, funding settlement by settlement), any difference
 is `MONTH_EXISTS`, and only the tail after the stored last minute is appended; nothing new returns the

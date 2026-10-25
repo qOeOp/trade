@@ -530,7 +530,8 @@ def _scope(symbols, profile: dict) -> list[str] | None:
 def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
                  log=print) -> dict:
     """market.import_month: append one UTC month (the current month through the last closed day) as one
-    market commit. `symbols` is the engineering allowlist of an isolated market database."""
+    market commit, after the latest stored month or, as a backfill, just before the earliest. `symbols` is
+    the engineering allowlist of an isolated market database."""
     started = time.monotonic()
     scope = _scope(symbols, profile)
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
@@ -592,16 +593,22 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
     if done and any(item["scope"] != (scope or "all") for item in done):
         raise _refuse(f"earlier imports cover scope {done[-1]['scope']}, this one {scope or 'all'}", "IMPORT_SCOPE",
                       missing=("--symbols",))
-    through = {item["month"]: item["through"] for item in done}
+    through = {item["month"]: item["through"] for item in done}  # a month imported twice: its latest import
     if through.get(label) == universe.next_month(month).isoformat():
         raise _refuse(f"the market database already holds {label} through its end", "MONTH_EXISTS", missing=(label,))
-    if done:
-        last = date.fromisoformat(done[-1]["month"] + "-01")
-        if month not in (last, universe.next_month(last)) or (month == universe.next_month(last) and through[
-                done[-1]["month"]] != month.isoformat()):
-            raise _refuse(f"the stored months end with {done[-1]['month']} through {done[-1]['through']}; import "
-                          f"the months in order", "MONTH_INVALID", missing=(done[-1]["month"],))
-    first_month = date.fromisoformat(done[0]["month"] + "-01") if done else month
+    held = sorted(through)
+    earliest, latest = (date.fromisoformat(held[i] + "-01") for i in (0, -1)) if done else (month, month)
+    # Months extend at either end: the latest month completed or the month after it, or the month just
+    # before the earliest (a backfill: insert only, so every stored commit and its rows stay as they are).
+    backfill = bool(done) and universe.next_month(month) == earliest
+    if done and not backfill and (month not in (latest, universe.next_month(latest)) or (
+            month == universe.next_month(latest) and through[held[-1]] != month.isoformat())):
+        raise _refuse(f"the stored months run from {held[0]} to {held[-1]} through {through[held[-1]]}; import "
+                      f"the month after {held[-1]} or the month before {held[0]}", "MONTH_INVALID",
+                      missing=(held[0], held[-1]))
+    first_month = month if backfill else earliest
+    if backfill:
+        _check_empty(conn, month, start_ms, end_ms)
 
     observed, listed = sources.rest_exchange_info()
     by_symbol = {item["symbol"]: item for item in listed}
@@ -633,8 +640,9 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
         item = by_symbol.get(symbol)
         plan = {}
         for price_type in ("LAST", "MARK"):
-            found = conn.rows("SELECT ts_open FROM bar WHERE symbol = %s AND price_type = %s ORDER BY ts_open DESC "
-                              "LIMIT 1", (symbol, price_type))
+            # The month's own minutes only: a backfilled month has later months stored after it.
+            found = conn.rows("SELECT ts_open FROM bar WHERE symbol = %s AND price_type = %s AND ts_open < %s "
+                              "ORDER BY ts_open DESC LIMIT 1", (symbol, price_type, end_ms))
             last_open = found[0][0] if found else None
             # The month is stitched whole: minutes up to the stored last one are reread and compared.
             within = last_open + MINUTE if last_open is not None and last_open >= start_ms else None
@@ -643,7 +651,7 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
             plan[price_type] = (bool(before), within)
             stored_through[(symbol, price_type)] = within
         found = conn.rows("SELECT funding_time FROM funding WHERE symbol = %s AND funding_time >= %s "
-                          "ORDER BY funding_time DESC LIMIT 1", (symbol, start_ms))
+                          "AND funding_time < %s ORDER BY funding_time DESC LIMIT 1", (symbol, start_ms, end_ms))
         funding_through = found[0][0] + 1 if found else None
         stored_through[(symbol, "funding")] = funding_through
         terms = listed_terms(item) if item is not None else stored_terms.get(symbol)
@@ -700,13 +708,16 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
                for symbol, at, terms in appended_terms])
 
     members, added = _universe(conn, month, first_month)
+    filled = _fill_universe(conn, month, earliest, latest) if backfill else {}
+    added += sum(len(found) for found in filled.values())
     result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
               "through": series._ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
               "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
               "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
               "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
               "derived_findings": dict(sorted(totals["derived_findings"].items())),
-              "per_symbol": dict(sorted(totals["per_symbol"].items()))}
+              "per_symbol": dict(sorted(totals["per_symbol"].items())),
+              "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
     if not conn.empty and not (appended_terms or totals["bar_rows"] or totals["funding_rows"] or added):
         conn.raw.rollback()  # the same month with nothing new: the stored commit, no new one
         return {**result, "market_commit": done[-1]["commit"], "seconds": round(time.monotonic() - started)}
@@ -787,15 +798,23 @@ def trading_days(conn: MarketConnection, symbols: list[str], low: date, high: da
     return found
 
 
-def _universe(conn: MarketConnection, month: date, first_month: date) -> tuple[list[str], int]:
-    """The universe of `month` alone: (members, rows inserted). Stored months cannot change (bars are
-    insert-only and months import in order), so only the imported month is computed; importing it again
-    must give the stored members (UNIVERSE_CHANGED otherwise). The first month has none: no history before
-    it is held."""
+def _first_members(first_month: date) -> date:
+    """The first month that can have members when `first_month` is the earliest held: its look-back of
+    listed_days lies inside the held months."""
     listed_days = universe.rule(universe.RULE)["listed_days"]
     first = first_month
     while first - timedelta(days=listed_days) < first_month:
         first = universe.next_month(first)
+    return first
+
+
+def _universe(conn: MarketConnection, month: date, first_month: date) -> tuple[list[str], int]:
+    """The universe of `month` alone: (members, rows inserted). Stored months cannot change (bars are
+    insert-only, and a month's look-back lies before it), so only the imported month is computed;
+    importing it again must give the stored members (UNIVERSE_CHANGED otherwise). The first month has
+    none: no history before it is held."""
+    listed_days = universe.rule(universe.RULE)["listed_days"]
+    first = _first_members(first_month)
     stored = {symbol for (symbol,) in conn.rows("SELECT symbol FROM universe_month WHERE universe_rule = %s AND "
                                                 "month = %s", (universe.RULE, month))}
     if month < first:
@@ -817,6 +836,33 @@ def _universe(conn: MarketConnection, month: date, first_month: date) -> tuple[l
     new = sorted(computed - stored)
     conn.many("INSERT INTO universe_month VALUES (%s, %s, %s)", [(universe.RULE, month, symbol) for symbol in new])
     return sorted(computed), len(new)
+
+
+def _check_empty(conn: MarketConnection, month: date, start_ms: int, end_ms: int) -> None:
+    """A backfilled month holds no bar or funding row of any contract yet (MONTH_EXISTS); its members are
+    checked by _universe."""
+    label = f"{month:%Y-%m}"
+    for (symbol,) in conn.rows("SELECT DISTINCT symbol FROM instrument ORDER BY symbol"):
+        for statement in ("SELECT 1 FROM bar WHERE symbol = %s AND price_type IN ('LAST', 'MARK') AND ts_open >= %s "
+                          "AND ts_open < %s LIMIT 1",
+                          "SELECT 1 FROM funding WHERE symbol = %s AND funding_time >= %s AND funding_time < %s LIMIT 1"):
+            if conn.rows(statement, (symbol, start_ms, end_ms)):
+                raise _refuse(f"the market database already holds {symbol} rows in {label}", "MONTH_EXISTS",
+                              missing=(label, symbol))
+
+
+def _fill_universe(conn: MarketConnection, month: date, earliest: date, latest: date) -> dict[date, list[str]]:
+    """After backfilling `month` before `earliest`: the members of the stored months whose look-back the
+    backfill completes, {month: members}. They had none for want of history; one that has any refuses
+    UNIVERSE_CHANGED. Later months already had their look-back and stay as stored."""
+    filled, at = {}, _first_members(month)
+    while at < _first_members(earliest) and at <= latest:
+        if conn.rows("SELECT 1 FROM universe_month WHERE month = %s LIMIT 1", (at,)):
+            raise _refuse(f"{at:%Y-%m} already has members, before its look-back was held", "UNIVERSE_CHANGED",
+                          missing=(f"{at:%Y-%m}",))
+        filled[at] = _universe(conn, at, month)[0]
+        at = universe.next_month(at)
+    return filled
 
 
 # market.freshness

@@ -26,10 +26,10 @@ taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's ass
 reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: bars, data gaps, socket state, orders, positions, funding
-settlements, one account snapshot a minute and protection gaps. ``<output>/state.json`` holds the latest
-snapshot, and ``<output>/summary.json`` is written at the end. Sandbox settles no funding (native probe,
-2026-10-25), so the journal records each settlement with the positions it applies to, and the sealing step
-accounts for it.
+settlements, the account totals once a minute and protection gaps. ``<output>/state.json`` holds the latest
+totals with the open positions and orders, and ``<output>/summary.json`` is written at the end. Sandbox
+settles no funding (native probe, 2026-10-25), so the journal records each settlement with the positions it
+applies to, and the sealing step accounts for it.
 
 Stopping (SIGTERM, SIGINT, ``<output>/STOP`` or ``--duration-seconds``) cancels every working order, waits up to
 STOP_CANCEL_SECONDS for the cancels, then stops the node. Positions stay open and are valued at their latest
@@ -449,13 +449,17 @@ class Recorder(DataActor):
                    "price": str(getattr(order, "price", None)), "trigger_price": str(getattr(order, "trigger_price", None)),
                    "reduce_only": order.is_reduce_only}
                   for order in self.cache.orders_open()]
-        snapshot = {"minute_ns": (self.minute or 0) * MINUTE_NS,
-                    "balance_total": str(account.balance_total(usdt)) if account else None,
-                    "balance_free": str(account.balance_free(usdt)) if account else None,
-                    "positions": positions, "orders": orders}
-        journal("snapshot", **snapshot)
+        unrealized = [item["unrealized_pnl"] for item in positions]
+        totals = {"minute_ns": (self.minute or 0) * MINUTE_NS,
+                  "balance_total": str(account.balance_total(usdt)) if account else None,
+                  "balance_free": str(account.balance_free(usdt)) if account else None,
+                  "unrealized_pnl": None if None in unrealized else str(sum(
+                      (Money.from_str(value).as_decimal() for value in unrealized if value is not None), Decimal(0)))}
+        # The journal keeps the account totals; the positions and orders behind them are already journalled
+        # as events, and state.json carries them for the live view.
+        journal("snapshot", **totals)
         if JOURNAL is not None:
-            JOURNAL.state(snapshot)
+            JOURNAL.state({**totals, "positions": positions, "orders": orders})
         if self.uses_stop_loss:
             self._protection(positions)
 
@@ -620,6 +624,8 @@ def main(argv: list[str] | None = None) -> None:
     if loaded.daily_warmup:
         journal("waiting", until_ns=start_ns)
         while time.time_ns() < start_ns + 5_000_000_000:  # the day's kline is final a moment after it closes
+            if (args.output / "STOP").exists():
+                request_stop("STOP_FILE")
             if STOP.wait(1):
                 journal("stopped_before_start", reason=STOP_REASON[0])
                 return

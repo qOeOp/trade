@@ -1,4 +1,4 @@
-"""A research line as a research-graph@2 document, read from the ledger only (`research graph`).
+"""A research line as a research-graph@3 document, read from the ledger only (`research graph`).
 
 It composes the product's own readers (candidates, the line record, run measures and availability,
 registration plans, the comparison, source reviews and judgments) and adds no rule of its own, so
@@ -22,7 +22,7 @@ from registration import register
 from report import candidates as report_candidates
 from report import comparison, measures, runs, seams, status
 
-FORMAT = "research-graph@2"
+FORMAT = "research-graph@3"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
@@ -145,7 +145,7 @@ def _comparisons(profile, jobs: list[tuple[str, int]], at: str, workers: int, ba
 
 def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
                    workers: int = 1) -> dict:
-    """The research-graph@2 document of a line at a ledger version, with the user's targets in force for
+    """The research-graph@3 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
     whose missing comparisons and measures would look like research facts. With `workers` above one the
@@ -226,7 +226,8 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     current = [row for row in judged if row["judgment_id"] not in replaced]
     recommendations = [row for row in current if row["kind"] == "recommendation"]
     latest = subjects.get(recommendations[-1]["judgment_id"], []) if recommendations else []
-    named = {f"{s['strategy_id']}@{s['revision']}": s["role"] for s in latest if s["strategy_id"] is not None}
+    chosen = {f"{s['strategy_id']}@{s['revision']}" for s in latest
+              if s["role"] == "recommended" and s["strategy_id"] is not None}
     candidates: list[dict] = []
     events: list[dict] = []
     bodies: list[Mapping] = []
@@ -258,14 +259,14 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
             s["trial_id"] in trial_ids or (bundle is not None and s["registration_bundle"] == bundle)
             for s in subjects.get(row["judgment_id"], []))), None)
-        if named.get(key) == "recommended":
+        if key in chosen:
             state = "recommended"
         elif research and research[-1]["eligible"] is False:
             state = "masked"
         elif not research:
             state = "precheck_failed" if any(r["verdict"] == "failed" for r in reviews) else "unrun"
         else:
-            state = "kept_reference" if key in named else "superseded"
+            state = "superseded"
         rationale = body.get("rationale") if isinstance(body.get("rationale"), Mapping) else {}
         candidates.append({
             "id": key, "parent": f"{row['parent_strategy_id']}@{row['parent_revision']}" if row["parent_strategy_id"] else None,
@@ -304,8 +305,9 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         "candidates": candidates, "events": events,
         "gaps": [
             "Runs without economic evidence carry no measures (the product masks them); their reasons are kept.",
-            "Status: recommended and kept_reference come from the latest recommendation's subjects; superseded is any "
-            "other version with economic evidence; masked, precheck_failed and unrun come from availability and reviews.",
+            "Status: recommended is the latest recommendation's recommended subject; superseded is any other version "
+            "with economic evidence, whether or not the recommendation names it; masked, precheck_failed and unrun come "
+            "from availability and reviews.",
             "Research runs are the line's own (its window and market commit); other trials of a version are kept "
             "by source.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",

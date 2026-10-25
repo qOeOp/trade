@@ -232,6 +232,25 @@ CREATE TABLE line_target (
   CHECK (annual_return > 0)
 );
 
+-- A paper run's declaration (ledger/paper.py), written before its container starts: the source, the
+-- runtime image, the contracts, the market commit its membership was read at and the effective
+-- configuration. The run starts at created_at; its journal, summary and sealing readings are the
+-- product bundle paper-<paper_id>-capture. Paper runs are not trials: no trial count, no exposure.
+-- Added to generation 3 by `ledger upgrade`.
+CREATE TABLE paper_run (
+  paper_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  source_sha256 CHAR(64) NOT NULL,
+  -- <repository>@sha256:<digest>, as trial.image_ref
+  image_ref VARCHAR(300) NOT NULL,
+  symbols JSON NOT NULL,
+  market_commit CHAR(32) NOT NULL,
+  config JSON NOT NULL,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
+  CHECK (LENGTH(market_commit) = 32)
+);
+
 -- RFC 3161 token of a validation registration's birth commit (ledger/witness.py); its time is
 -- the token's genTime, verified offline against the pinned roots.
 CREATE TABLE witness (
@@ -352,6 +371,7 @@ CREATE TRIGGER run_sealed_created BEFORE INSERT ON run_sealed FOR EACH ROW SET N
 CREATE TRIGGER validation_registration_created BEFORE INSERT ON validation_registration FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER judgment_created BEFORE INSERT ON judgment FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER line_target_created BEFORE INSERT ON line_target FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER paper_run_created BEFORE INSERT ON paper_run FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 
 -- Commit verification (group `commit`, set service-wide by `ledger.init`): guards the normal path;
 -- `--skip-verification` bypasses it, so it is not a trust boundary. Each query counts violations.

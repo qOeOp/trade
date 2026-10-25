@@ -610,12 +610,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "pass the hash.",)),
     "MARKET_COMMIT": ("The export's market reference does not resolve to a commit of the market database.",
                       ("Pass a commit, tag or branch of the market database named by --market.",)),
-    "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or does "
-                      "not follow the stored months in order.",
-                      ("Import the months in order, one `market import --month YYYY-MM` each.",)),
-    "MONTH_EXISTS": ("The market database already holds that month through its end, or the sources reread for the "
-                     "month's stored part differ from the stored rows.",
-                     ("Import the next month; a stored month is never rewritten.",)),
+    "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
+                      "neither the latest stored month, the month after it nor the month just before the earliest.",
+                      ("Import the month after the latest or the month before the earliest, one `market import "
+                       "--month YYYY-MM` each.",)),
+    "MONTH_EXISTS": ("The market database already holds that month through its end, the sources reread for the "
+                     "month's stored part differ from the stored rows, or a month to backfill already holds rows.",
+                     ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
     "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version, or holds quotes of another "
                               "quote rule version, than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
@@ -729,6 +730,16 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("List the commit's contracts with `market coverage` over the universe.",)),
     "MARKET_RETURNS_WINDOW": ("The window for the market's daily returns holds no whole UTC day.",
                               ("Report market measures only for runs with a whole trading day.",)),
+    # Paper runs (ledger/paper.py, paper/runs.py)
+    "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
+                          ("List the runs with `paper list`.",)),
+    "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, or the run to seal is still running.",
+                         ("Stop it with `paper stop --paper-id N`, which also seals it.",)),
+    "PAPER_CONCURRENCY_LIMIT": ("The ledger already has the most paper runs running at once.",
+                                ("Stop a running one with `paper stop --paper-id N`, then start again.",)),
+    "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed invalid with the "
+                           "error in runner.log.",
+                           ("Read the error, repair the runtime or Docker, then start a new run.",)),
 }
 
 

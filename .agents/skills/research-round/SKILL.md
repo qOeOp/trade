@@ -43,7 +43,8 @@ to reselect it.
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
-verified report cache (`replay report`) and api/causal/activity/readiness items, keeps the review
+verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
+reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
 after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
 evidence.

@@ -1,6 +1,6 @@
 ---
 name: product-doctor
-description: Diagnoses suspected product defects against contracts and evidence, and reviews proposed product mechanisms or skill rules. Use for focused product diagnosis or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
+description: Diagnoses suspected product defects against contracts and evidence, and reviews proposed product mechanisms or skill rules. Use for focused product diagnosis, for following a live research session from the other host (attach), or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
 ---
 
 # Product doctor
@@ -24,10 +24,10 @@ research conclusions and experiment selection belong to `research-round`.
   this session's or one of its sub-agents', or the research session ran on this host, stop before
   step 1 and give the user the steps: end the research session; open a new session on the other
   host; hand it the transcript paths (main and sub-agents), the ledger commit range and the checkout
-  commit, and no account of the round from this session; invoke this skill there. The audit reads
-  the transcript files, never excerpts or the research session's own summary. Focused diagnosis
-  inside a research session is unaffected; focused questions that together cover the session are a
-  full audit.
+  commit, any raw evidence directory an attach session kept, and no account of the round from this
+  session; invoke this skill there. The audit reads the transcript files, never excerpts or the
+  research session's own summary. Focused diagnosis inside a research session is unaffected;
+  focused questions that together cover the session are a full audit.
 
 ## Scope
 
@@ -35,6 +35,10 @@ Focused diagnosis uses steps 3–5 for one question: read only related calls, co
 report evidence, attribution or remaining uncertainty, and the next action. Read references only
 as needed. Use all steps and Convergence only when the task calls for overall product or session
 quality. Failure, delay or unresolved attribution alone does not expand the scope.
+
+Attach mode follows a live research session read-only and keeps raw evidence for the full audit
+([attach.md](references/attach.md)). It is never a full audit: when the session ends, the full
+audit still runs in a fresh session with every step, and attach output closes no item.
 
 ## Steps
 

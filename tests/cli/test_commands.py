@@ -229,7 +229,8 @@ class CommandTests(unittest.TestCase):
                      "2025-12-31T00:00:30Z", "--end", "2026-01-02T00:00:00Z")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2026-01")
-        self.refused("MONTH_INVALID", "market", "import", "--month", "2025-12")
+        self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # the January import's warm-up rows
+        self.refused("MONTH_INVALID", "market", "import", "--month", "2025-11")
 
         # An exploration
         explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
