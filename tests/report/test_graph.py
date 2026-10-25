@@ -1,5 +1,6 @@
 """If this fails, `research graph` no longer rebuilds a line from the ledger alone as a valid,
-repeatable research-graph@2 document: versions with their source, runs and measures, the recommendation,
+repeatable research-graph@3 document: versions with their source, runs and measures, the recommendation
+(a version the recommendation only names as `about` is not marked kept),
 a failed review that masks a run, the judgments as events, the targets in force for the line and
 only the line's own runs; or a graph is drawn while the ledger service is unreachable, whose missing
 comparisons would read as research facts. A throwaway ledger, never the
@@ -60,7 +61,8 @@ class ResearchGraphTests(unittest.TestCase):
         first, second = self.refs
         by_id = {c["id"]: c for c in found["candidates"]}
         self.assertLessEqual({first, second}, set(by_id))
-        self.assertEqual((by_id[first]["status"], by_id[second]["status"]), ("recommended", "kept_reference"))
+        self.assertEqual((by_id[first]["status"], by_id[second]["status"]), ("recommended", "superseded"),
+                         "a version the recommendation names only as `about` is not kept as a reference")
         run = next(t for t in by_id[second]["trials"] if t["purpose"] == "research")
         self.assertEqual((run["trial_id"], run["eligible"]), (self.runs[second]["trial_id"], True))
         self.assertIsNotNone(run["annual_return"], "an eligible run carries its measures")

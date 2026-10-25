@@ -3,8 +3,8 @@ import { PREDICTION, ROLE } from "../model/semantics";
 import { v } from "../theme/roles";
 import { Icon } from "./Icon";
 
-/** A version's role by shape first, colour second: filled ring = recommended, ring = kept reference,
- *  small dot = superseded, struck ring = masked, dashed ring = unrun, cross = failed review. */
+/** A version's role by shape first, colour second: filled ring = recommended, small dot = superseded,
+ *  struck ring = masked, dashed ring = unrun, cross = failed review. */
 export function RoleMark({ role, size = 14 }: { role: Role | null | undefined; size?: number }) {
   const c = size / 2;
   const shape = (() => {
@@ -13,7 +13,6 @@ export function RoleMark({ role, size = 14 }: { role: Role | null | undefined; s
         <circle cx={c} cy={c} r={c - 1} fill="none" stroke={v("recommended")} strokeWidth={1.5} />
         <circle cx={c} cy={c} r={c - 4} fill={v("recommended")} />
       </>;
-      case "kept_reference": return <circle cx={c} cy={c} r={c - 3} fill={v("island")} stroke={v("fg")} strokeWidth={1.75} />;
       case "masked": return <>
         <circle cx={c} cy={c} r={c - 3} fill="none" stroke={v("fail")} strokeWidth={1.25} />
         <line x1={3} y1={size - 3} x2={size - 3} y2={3} stroke={v("fail")} strokeWidth={1.25} />

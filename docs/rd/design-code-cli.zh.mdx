@@ -49,7 +49,7 @@
 | <Ref id="cli.replay_report">replay_report</Ref> | 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图 |
 | <Ref id="cli.replay_run">replay_run</Ref> | 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration） |
 | <Ref id="cli.research_state">research_state</Ref> | 命令 research state：调用 report.research_state，输出 JSON |
-| research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph@2 JSON；用户目标取该提交上这条路线生效的那一组，--since 标出范围起点；--workers 是算比较的进程数（默认 8 与 CPU 数取小，1 在本进程里算），图不变 |
+| research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph@3 JSON；用户目标取该提交上这条路线生效的那一组，--since 标出范围起点；--workers 是算比较的进程数（默认 8 与 CPU 数取小，1 在本进程里算），图不变 |
 | <Ref id="cli.research_status">research_status</Ref> | 命令行读研究事实计数与一条路线的对照表：research status [--line \<路线>] [--at \<版本>]，JSON 原样输出 |
 | <Ref id="cli.source_review">source_review</Ref> | 命令行入口：追加独立源码审查结论，绑定候选源码与运行环境身份及其原生预检试验 |
 | <Ref id="cli.validation_registration">validation_registration</Ref> | 命令行入口：登记一次样本外验证并取凭证，JSON 输出 |

@@ -2,7 +2,7 @@
 
 export type Status = "recommended" | "meets_targets" | "below_targets" | "masked" | "precheck_failed" | "unrun";
 export type Prediction = "held" | "failed" | "mixed" | "none";
-export type Role = "recommended" | "kept_reference" | "superseded" | "masked" | "precheck_failed" | "unrun";
+export type Role = "recommended" | "superseded" | "masked" | "precheck_failed" | "unrun";
 export type Targets = { max_drawdown?: number | null; annual_return?: number | null };
 
 export type Trial = {
