@@ -24,6 +24,7 @@ import re
 import pymysql
 
 from ledger import db, evidence, execution, strategies
+from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 
@@ -67,6 +68,11 @@ def _lines(conn: db.LedgerConnection, clause: str) -> list[str]:
     return [name for created, name in sorted((created, name) for name, created in rows if LINE.fullmatch(name))]
 
 
+def line_bundles(conn: db.LedgerConnection) -> list[str]:
+    """Every research line bundle the connection sees, oldest first."""
+    return _lines(conn, "")
+
+
 def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | None:
     """The latest research line record at `at` (default: what the connection sees), or None."""
     _, clause = db.as_of(conn, at)
@@ -79,16 +85,24 @@ def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | Non
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
                 window_end: date, start: str, note: str | None = None, *, slug: str,
                 market: Callable[[str, str], dict],
-                reviews: Callable[[db.LedgerConnection], list[dict]]) -> dict:
+                reviews: Callable[[db.LedgerConnection], list[dict]],
+                targets: tuple[float, float] | None = None) -> dict:
     """Append the user's chosen line as research-line-<UTC date>-<slug>; the same choice again
     (whatever its slug) is a replay of the current line. Another choice under a name already taken
-    is LINE_CONFLICT: the Agent names the direction more precisely.
+    is LINE_CONFLICT: the Agent names the direction more precisely. `targets` (maximum drawdown,
+    minimum annual return) are the user's for this line, written in the same commit; without them
+    the line reads the ledger default.
 
     `market(market_database, market_at)` returns {commit, universe_rule, latest_complete_day}
     (market.resolve_commit and market.freshness of the design, a later phase). `reviews(conn)` is
     qualification.review_records: the start revision needs a passed source review of its source
     hash and none failed, read at the head this connection sees.
     """
+    if targets is not None:
+        line_targets.check(*targets)
+        if not line_targets.held(conn):
+            raise refuse("LEDGER_UPGRADE_REQUIRED", f"the ledger has no {line_targets.TABLE} table",
+                         missing=(line_targets.TABLE,))
     if not isinstance(slug, str) or len(slug) > SLUG_LIMIT or not SLUG.fullmatch(slug):
         raise refuse("LINE_SLUG_INVALID", f"invalid line slug {slug!r}",
                      expected=f"lowercase ASCII words joined by hyphens, at most {SLUG_LIMIT} characters")
@@ -128,16 +142,24 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
         return {"bundle": latest["bundle"], "market_commit": latest["market_commit"],
                 "universe_rule": latest["universe_rule"], "content_sha256": content_sha256,
                 "op_id": db.derive_op_id("select_line", {"bundle": latest["bundle"], "content_sha256": content_sha256}),
-                "created": False}
+                "created": False,
+                "targets": line_targets.set_targets(conn, latest["bundle"], *targets) if targets is not None
+                else line_targets.targets_for(conn, latest["bundle"])}
     (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
     bundle = f"{PREFIX}{today.strftime('%Y%m%d')}-{slug}"
     content = _encode({"format": FORMAT, **choice})
     content_sha256 = hashlib.sha256(content).hexdigest()
     op = db.derive_op_id("select_line", {"bundle": bundle, "content_sha256": content_sha256})
+
+    def insert(c, operation):
+        written = evidence.write_files(c, bundle, {FILE: content}, operation)
+        if targets is not None:
+            line_targets.set_targets(c, bundle, *targets)
+        return written
+
     try:
         written = db.write(conn, "select_line", {"bundle": bundle, "content_sha256": content_sha256},
-                           "evidence_bundle", lambda c, operation: evidence.write_files(c, bundle, {FILE: content},
-                                                                                        operation), op_id=op)
+                           "evidence_bundle", insert, op_id=op)
     except Refusal as exc:
         if exc.code == "BUNDLE_EXISTS":
             raise refuse("LINE_CONFLICT", f"{bundle} already exists with another choice; name this direction "
@@ -145,7 +167,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
         raise
     return {"bundle": bundle, "market_commit": facts["commit"],
             "universe_rule": facts["universe_rule"], "content_sha256": content_sha256, "op_id": written["op_id"],
-            "created": not written["replayed"]}
+            "created": not written["replayed"], "targets": line_targets.targets_for(conn, bundle)}
 
 
 def _encode(record: dict) -> bytes:

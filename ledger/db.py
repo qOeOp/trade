@@ -822,6 +822,40 @@ def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
     return {"record": record, "op_id": op, "commit": commit, "replayed": False, "write_status": "written"}
 
 
+def upgrade(profile: LedgerProfile) -> dict:
+    """ledger upgrade: create the tables and triggers of ledger/schema.sql that the research branch lacks
+    (the administrator, one commit through the commit verification group). The schema version, existing
+    tables, rows, accounts and grants are untouched (the accounts' grants are database-wide); a clean
+    working set is required."""
+    config = _known_service(profile.service_root)
+    start_service(profile.service_root)
+    conn = _admin(config, database=f"{profile.database}/{profile.research_branch}")
+    created: list[str] = []
+    commit = None
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT table_name FROM dolt_status")
+            if cursor.fetchall():
+                raise refuse("DIRTY_WORKING_SET", f"ledger {profile.database} has uncommitted changes")
+            cursor.execute("SHOW TABLES")
+            existing = {"TABLE": {row[0].lower() for row in cursor.fetchall()}}
+            cursor.execute("SHOW TRIGGERS")
+            existing["TRIGGER"] = {row[0].lower() for row in cursor.fetchall()}
+            for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
+                found = re.match(r"CREATE\s+(TABLE|TRIGGER)\s+`?(\w+)`?", statement, re.IGNORECASE)
+                if found and found.group(2).lower() not in existing[found.group(1).upper()]:
+                    cursor.execute(statement)
+                    created.append(found.group(2))
+            if created:
+                cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", ("schema: " + ", ".join(created),))
+                (commit,), = cursor.fetchall()
+    except pymysql.MySQLError as exc:
+        raise _sql_error(exc) from exc
+    finally:
+        conn.close()
+    return {"database": profile.database, "branch": profile.research_branch, "created": created, "commit": commit}
+
+
 def upgrade_market(profile: dict) -> dict:
     """market upgrade: create the tables of market/schema.sql that the market database lacks (the
     administrator, one commit that skips the data tests: tables only). Existing tables, rows, accounts
