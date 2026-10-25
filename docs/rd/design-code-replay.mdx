@@ -170,7 +170,7 @@ def precheck(
 **期望行为**
 
 1. 核对：经 ledger.read_candidate 读候选；经 ledger.temporary_path 核对 output；runner_argv 不含保留选项；经 runtime.resolve 解析运行环境，构建源码版本为空即拒绝；候选 runtime_contract 等于镜像运行契约。任一不符即拒绝，不启动任何进程。
-2. 按 at 以 registration.market_inputs 新鲜导出输入（与登记同一导出器、同一提交），算 registration.input_key；经 runtime.inspect_runtime 在镜像内读出有效配置，算 registration.config_key。
+2. 按 at 以 registration.market_inputs 新鲜导出输入（与登记同一提交；导出器源码可以已改，input_key 只比导出内容与选择），算 registration.input_key；经 runtime.inspect_runtime 在镜像内读出有效配置，算 registration.config_key。
 3. 建工作目录 source/、reports/，写入源码原字节、运行环境检视结果与 replay.input_coverage 覆盖回执，并与研究封存回放一样写 source/execution.json 执行绑定、以 --execution-binding 交给运行器，使预检与正式回放走同一条加载路径，执行绑定不符在预检即暴露。
 4. 在一个写事务里经 ledger.open_trial 写 purpose=precheck 的试验行（不带登记绑定器），并经 ledger.start_receipt 写开始回执（用途 precheck、源码哈希、运行环境、input_key、config_key）；事务成功后才启动容器。
 5. 调用 replay.execute（标预检用途）：先运行器后审计器，结束时（含中断与宿主失败）由 ledger.seal_capture 封存原件；再由 ledger.audit_problems 给出问题清单，report.directory_report 读出工程诊断用绩效指标。
@@ -367,14 +367,15 @@ def reproduce(
 **期望行为**
 
 1. 按原 trial_id 读取正式结果或预检原 capture，取源码、镜像摘要、市场提交、配置、合约集、窗口和原指纹。
-2. 再生先开一条 purpose=explore 的试验并照常封存执行，不新增正式结果或审查。仅成功且完全等价于本次登记所引用豁免预检的再生获暴露豁免；其他失败或不匹配执行仍可能影响登记。
-3. 按同一身份导出输入，写与封存回放相同的 source/execution.json 执行绑定，在钉死的运行环境里重放。
+2. 按同一市场提交导出输入，从封存有效配置恢复执行环境；报价环境同时恢复原初始／维持保证金率。先核对输入与有效配置一致，不符即拒绝，不启动新试验。
+3. 核对通过后开一条 purpose=explore 的试验，写与封存回放相同的 source/execution.json 执行绑定，在钉死的环境里重放并封存执行，不新增正式结果或审查。仅成功且完全等价于本次登记所引用豁免预检的再生获暴露豁免；其他失败或不匹配执行仍可能影响登记。
 4. 镜像内计算语义指纹，与原正式结果行或预检 capture 的原指纹比较；两边执行须完整成功且身份一致。无指纹、不等价或执行失败均拒绝 REPRODUCTION_MISMATCH，保留新试验与目录；不覆盖原件。
 5. 目录不入账，用完由调用方清理。
+6. 正式回放保持单次封存，首次使用某种订单机制不自动调用本入口；首次封存本身不证明已验证可复现。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `REPRODUCTION_MISMATCH` | 重放出的原生报告与封存时记录的语义指纹不一致 |
+| `REPRODUCTION_MISMATCH` | 重建输入或有效配置与原身份不符，或重放出的报告指纹／执行事实与原记录不一致；前者在新试验前拒绝，后者保留新试验及目录 |
 
 **使用**　<Ref id="ledger.load_run" />、<Ref id="replay.execute" />、<Ref id="engine.report_fingerprint" />
 

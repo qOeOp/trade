@@ -184,6 +184,8 @@ class ImportQuotesTests(unittest.TestCase):
             with admin.cursor() as cursor:
                 cursor.execute("DROP TABLE quote")
                 cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'test: drop quote')")
+                cursor.execute("SELECT DOLT_HASHOF('HEAD')")
+                historical, = cursor.fetchone()
         finally:
             admin.close()
         made = db.upgrade_market(self.profile)
@@ -192,6 +194,15 @@ class ImportQuotesTests(unittest.TestCase):
         with store.connect(self.profile, "reader") as conn:
             self.assertEqual(conn.rows("SELECT COUNT(*) FROM quote"), [(0,)])
             self.assertEqual(conn.rows("SELECT table_name FROM dolt_status"), [])
+        from market import export
+        from engine.load import read_market
+        start, end = day_ms(JAN) * 10**6, (day_ms(JAN) + 2 * DAY) * 10**6
+        with tempfile.TemporaryDirectory() as temp:
+            made = export.export_catalogs(self.profile, historical, ["BTCUSDT"], start, end,
+                                          fresh=True, root=Path(temp))
+            piece, = made["receipts"]["BTCUSDT"]["pieces"]
+            self.assertEqual((piece["counts"]["quote"], piece["counts"]["last"]), (0, 2880))
+            self.assertTrue(read_market(Path(made["root"]), ["BTCUSDT"], historical, start, end))
 
 
 if __name__ == "__main__":

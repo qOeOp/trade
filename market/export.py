@@ -277,6 +277,10 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
 def quote_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int = CHUNK):
     """The stored quote states of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, bid, ask) batches."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
+    # Historical bar-only commits predate the quote table. They export no quote states; the
+    # quotes execution environment independently refuses a Catalog without quotes.
+    if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'quote'"):
+        return
     yield from conn.stream(f"SELECT ts, bid, ask FROM quote AS OF '{commit}' WHERE symbol = %s AND ts >= %s AND ts < %s "
                            "ORDER BY ts, agg_trade_id", (symbol, low_ms, stop), size=chunk)
 

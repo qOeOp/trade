@@ -257,10 +257,16 @@ The fingerprint stage (`python -m engine.compare`) reads the reports and writes 
 `fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
 the row count, a whole-table hash and one hash per UTC day, after renumbering the random event and
 snapshot UUIDs by first appearance (trade IDs are derived, and kept) and sorting every table by all its columns; the account,
-returns and exposures files also carry their byte hash. Two replays of one run give equal
-fingerprints; a run without one is stored invalid (`FINGERPRINT_MISSING`), and a sealed run is
+returns and exposures files also carry their byte hash. A formal replay executes once and seals its
+fingerprint after the independent audit; sealing alone does not verify repeatability. Native detail
+is regenerated on demand by `replay reproduce`, restoring the sealed execution environment and, for
+quotes, both margin rates. A run without a fingerprint is stored invalid (`FINGERPRINT_MISSING`), and a sealed run is
 reproduced only when they match. `engine/compare.py` is part of the runtime identity
 (`fingerprint_source_sha256`), so a freeze or confirmation checks its bytes against the image's revision.
+There is no automatic second execution on the first use of an order mechanism. Repeated execution
+under one identity checks repeatability for the scenarios exercised; changes to execution mechanisms
+need relevant engineering scenarios, and behavior-preserving changes use the paired acceptance below.
+Neither result establishes consistency for untested sources, windows or hosts.
 
 ## Paired acceptance
 

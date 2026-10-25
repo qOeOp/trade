@@ -9,7 +9,9 @@ video material: `video-evidence`). Retain originals, excerpts and query logs thr
 before citing them in a registration. Distinguish external evidence, local diagnosis and conjecture
 in rationale.external/local/conjecture. External support identifies its location and market,
 window, frequency, costs and validation conditions; unread conditions stay unknown. State whether
-it supports the mechanism, the parameter or only the method. Local evidence names run and commit.
+it supports the mechanism, the parameter or only the method. Explain how the source shapes the
+question, control, prediction or priority; if it is only background, explain why the local question
+still comes first without inventing an effect on the decision. Local evidence names run and commit.
 
 Describe the economic mechanism, who bears its cost and why it could persist under this line's
 conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
