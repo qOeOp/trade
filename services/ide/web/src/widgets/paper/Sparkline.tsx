@@ -7,7 +7,7 @@ const POINTS = 32;  // a tile's curve is drawn through at most this many points
 const SPAN = 0.002;  // the scale spans at least ±0.2% of the start, so cents of noise stay flat
 type Props = { path: readonly [number, number][]; starting: number; tone: ColorRole; live: boolean; large?: boolean };
 
-/** A run's equity: a smooth curve through the path in its return's colour over a wash of the same
+/** A run's equity: a smooth 1.25px curve through the path in its return's colour over a wash of the same
  *  that fades to nothing at the foot, the starting balance as a faint dashed line, and while it runs a
  *  dot at the latest value. 80 × 32 in the runs' list; `large` fills the box it is given (the card in
  *  front). */
@@ -41,8 +41,8 @@ function Curve({ path, starting, tone, live, large, width, height }: Props & { w
       </defs>
       <line x1="0" x2={width} y1={base} y2={base} stroke={v("fg-ghost")} strokeDasharray="2 2" />
       <path d={area} fill={`url(#${id}-wash)`} />
-      <path d={line} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      {live && <circle cx={end[0]} cy={end[1]} r={large ? 2.5 : 2} fill={color} />}
+      <path d={line} fill="none" stroke={color} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      {live && <circle cx={end[0]} cy={end[1]} r={large ? 2.25 : 2} fill={color} />}
     </svg>
   );
 }
