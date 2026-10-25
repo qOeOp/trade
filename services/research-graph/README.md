@@ -136,9 +136,9 @@ the canvas and the bottom island share their left edge and width, canvas nodes a
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
 2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
-There it also drives the tree's arrow keys, the folded path's menu, a canvas version's context menu (6 items),
+There it also drives the tree's arrow keys and its header's Collapse all and Expand all, the folded path's menu, a canvas version's context menu (6 items),
 double-click opening a tab, the wheel panning the canvas to its edges, and a Sources file opening as highlighted source
-that the island scrolls, then as its diff.
+that the island scrolls, then as its diff, and its menu's Locate in graph bringing the lineage back in front.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with strokes that draw one pixel wide at every size (2 units at 12px, 1.5 at 16px, 1.2 at 20px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

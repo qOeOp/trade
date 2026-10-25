@@ -7,6 +7,7 @@ import type { HeaderAction } from "../components/PanelHeader";
 import { requestFocus } from "../state/linking";
 import { selection } from "../state/selection";
 import { hideSide, type Side } from "../state/shell";
+import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
 import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
 
@@ -16,19 +17,20 @@ export type ToolWindow = {
 };
 
 const hide = (side: Side): HeaderAction => ({ id: "hide", icon: "hide", label: "Hide", keys: "⇧Esc", run: () => hideSide(side) });
-const treeActions = (tree: TreeControl | null): HeaderAction[] => [
-  { id: "locate", icon: "locate", label: "Locate the selected version in the tree", run: () => tree?.revealSelected() },
-  { id: "expand", icon: "expand-all", label: "Expand all", run: () => tree?.expandAll() },
-  { id: "collapse", icon: "collapse-all", label: "Collapse all", run: () => tree?.collapseAll() },
+// The tree registers its control after the header has rendered, so each action reads it when it runs.
+const treeActions = (tree: Atom<TreeControl | null>): HeaderAction[] => [
+  { id: "locate", icon: "locate", label: "Locate the selected version in the tree", run: () => tree.get()?.revealSelected() },
+  { id: "expand", icon: "expand-all", label: "Expand all", run: () => tree.get()?.expandAll() },
+  { id: "collapse", icon: "collapse-all", label: "Collapse all", run: () => tree.get()?.collapseAll() },
   hide("left"),
 ];
 const alt = (n: number) => ({ keys: `⌥${n}`, binding: `Alt+Digit${n}` });
 
 const SPECS: readonly ToolWindow[] = [
   { id: "versions", side: "left", icon: "tool.versions", shortcut: alt(1), source: "lineage/2", renderer: RENDERERS.tree,
-    actions: () => treeActions(versionTreeControl.get()) },
+    actions: () => treeActions(versionTreeControl) },
   { id: "sources", side: "left", icon: "tool.sources", shortcut: alt(7), source: "sources/1", renderer: RENDERERS.sources,
-    actions: () => treeActions(sourceTreeControl.get()) },
+    actions: () => treeActions(sourceTreeControl) },
   { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail/1", renderer: RENDERERS.detail,
     actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
   { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress/1", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },

@@ -7,10 +7,10 @@ import { openSourceTab } from "../../state/editors";
 import { hoverProps } from "../../state/linking";
 import { select, useSelection } from "../../state/selection";
 import { sourceTreeControl } from "../../state/versionTree";
+import { TREE_INDENT, TreeRow } from "../../components/TreeRow";
 import { VersionMenu } from "../../components/VersionMenu";
 
 const ROOT = "__root__";
-const INDENT = 20;
 const DIR = "dir:";
 
 type Entry = { id: string; label: string; item: SourceItem | null; children: string[] };
@@ -62,7 +62,7 @@ export function SourceTree({ widget }: { widget: SourcesWidget }) {
       if (isFile(id)) select(id, { reveal: true });
     },
     onPrimaryAction: (item) => { if (isFile(item.getId())) select(item.getId(), { reveal: true }); },
-    indent: INDENT,
+    indent: TREE_INDENT,
     features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature, expandAllFeature],
   });
 
@@ -83,26 +83,19 @@ export function SourceTree({ widget }: { widget: SourcesWidget }) {
       {tree.getItems().map((item) => {
         const entry = item.getItemData(), id = item.getId(), level = item.getItemMeta().level;
         const folder = entry.item === null;
-        const row = (
-          <div {...item.getProps()} {...(folder ? {} : hoverProps(id))} data-selected={item.isSelected() ? "" : undefined}
-               onDoubleClick={() => { if (!folder) openSourceTab(id); }}
-               onKeyDown={(e) => { if (e.key === "Enter" && !folder) openSourceTab(id); }}
-               className="relative flex h-(--row-h) cursor-default select-none items-center gap-1 pr-3 outline-none transition-colors hover:bg-row-hover focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
-               style={{ paddingLeft: 8 + level * INDENT }}>
-            {Array.from({ length: level }, (_, l) => (
-              <span key={l} className="pointer-events-none absolute inset-y-0 w-px bg-guide" style={{ left: 8 + l * INDENT + 8 }} />
-            ))}
-            <span className={`grid w-4 shrink-0 place-items-center text-icon transition-transform ${item.isExpanded() ? "rotate-90" : ""}`}>
-              {folder && <Icon name="chevron-right" />}
-            </span>
+        const row = (key?: string) => (
+          <TreeRow key={key} {...item.getProps()} {...(folder ? {} : hoverProps(id))}
+                   onDoubleClick={() => { if (!folder) openSourceTab(id); }}
+                   onKeyDown={(e) => { if (e.key === "Enter" && !folder) openSourceTab(id); }}
+                   level={level} folder={folder} expanded={item.isExpanded()} selected={item.isSelected()}>
             <span className="grid w-4 shrink-0 place-items-center text-icon">
               <Icon name={folder ? (item.isExpanded() ? "folder-open" : "folder") : "file.python"} />
             </span>
             <span className={`ml-1 font-mono ${folder || entry.item?.source != null ? "text-fg" : "text-fg-faint"}`}>{entry.label}</span>
             {folder && <span className="ml-1 text-fg-faint">{entry.children.length}</span>}
-          </div>
+          </TreeRow>
         );
-        return folder ? <div key={id}>{row}</div> : <VersionMenu key={id} id={id}>{row}</VersionMenu>;
+        return folder ? row(id) : <VersionMenu key={id} id={id}>{row()}</VersionMenu>;
       })}
     </div>
   );

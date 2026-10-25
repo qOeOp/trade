@@ -134,6 +134,14 @@ try {
   await evaluate(`document.querySelector('[data-island="left"] [role="treeitem"][data-selected]')?.focus()`);
   await key("ArrowDown", "ArrowDown", 40); await key("ArrowDown", "ArrowDown", 40); await sleep(300);
   expect((await evaluate("location.hash")) !== before, "tree: the arrow keys did not move the selection");
+  // The header's Collapse all and Expand all act on the tree mounted under it.
+  const treeRows = `document.querySelectorAll('[data-island="left"] [role="treeitem"]').length`;
+  const headerAction = (label) => evaluate(`document.querySelector('[data-island="left"] button[aria-label="${label}"]')?.click()`);
+  const open = await evaluate(treeRows);
+  await headerAction("Collapse all"); await sleep(300);
+  const collapsed = await evaluate(treeRows);
+  await headerAction("Expand all"); await sleep(300);
+  expect(collapsed < open && (await evaluate(treeRows)) === open, `tree: Collapse all and Expand all left ${open} rows at ${collapsed} and back`);
   // The status bar folds the middle of a long path into one step whose menu lists it.
   const fold = await evaluate(`(() => { const b = document.querySelector('nav[aria-label="Path"] [aria-label$="more levels"]')?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; })()`);
   if (fold) {
@@ -213,6 +221,11 @@ try {
       expect(await evaluate(`!!document.querySelector("[data-island=editor] [data-code] .cm-merge-b")`), "sources: Compare with parent shows no diff");
       writeFileSync(join(outDir, "diff.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
     }
+    // Locate in graph from a file's context menu brings the lineage back in front.
+    await click(file[0], file[1], "right"); await sleep(400);
+    await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find((m) => m.textContent.trim() === "Locate in graph")?.click()`); await sleep(400);
+    const front = await evaluate(`document.querySelector('[data-island=editor] [role="tab"][aria-selected="true"]')?.textContent.trim()`);
+    expect(front === "Lineage", `sources: Locate in graph left ${front} in front`);
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];

@@ -3,16 +3,15 @@ import { expandAllFeature, hotkeysCoreFeature, selectionFeature, syncDataLoaderF
 import { useTree } from "@headless-tree/react";
 import type { LineageNode, LineageWidget } from "../model/types";
 import { ancestors, descendants, lineageTree } from "../model/lineageTree";
-import { Icon } from "../icons/Icon";
 import { openVersionTab } from "../state/editors";
 import { hoverProps } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { versionTreeControl } from "../state/versionTree";
+import { TREE_INDENT, TreeRow } from "../components/TreeRow";
 import { VersionLine } from "../components/VersionLine";
 import { VersionMenu } from "../components/VersionMenu";
 
 const ROOT = "__root__";
-const INDENT = 20;
 
 // The versions as a tree by lineage, like IntelliJ's Project view: indent guides, a chevron per
 // parent, each version's VersionLine and how many versions descend from it. Selecting a row (by click
@@ -42,7 +41,7 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
     },
     setSelectedItems: (next) => { const ids = typeof next === "function" ? next(selected ? [selected] : []) : next; if (ids[0]) select(ids[0], { reveal: true }); },
     onPrimaryAction: (item) => select(item.getId(), { reveal: true }),
-    indent: INDENT,
+    indent: TREE_INDENT,
     features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature, expandAllFeature],
   });
 
@@ -65,18 +64,11 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
         const level = item.getItemMeta().level, id = item.getId(), count = descendants(structure, id);
         return (
           <VersionMenu key={id} id={id}>
-          <div {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openVersionTab(id)} data-selected={item.isSelected() ? "" : undefined}
-               className={`relative flex h-(--row-h) cursor-default items-center gap-1 pr-3 outline-none transition-colors hover:bg-row-hover focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset`}
-               style={{ paddingLeft: 8 + level * INDENT }}>
-            {Array.from({ length: level }, (_, l) => (
-              <span key={l} className="pointer-events-none absolute inset-y-0 w-px bg-guide" style={{ left: 8 + l * INDENT + 8 }} />
-            ))}
-            <span className={`grid w-4 shrink-0 place-items-center text-icon transition-transform ${item.isExpanded() ? "rotate-90" : ""}`}>
-              {item.isFolder() && <Icon name="chevron-right" />}
-            </span>
+          <TreeRow {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openVersionTab(id)}
+                   level={level} folder={item.isFolder()} expanded={item.isExpanded()} selected={item.isSelected()}>
             <VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} />
             {count > 0 && <span className="ml-1 text-fg-faint">{count}</span>}
-          </div>
+          </TreeRow>
           </VersionMenu>
         );
       })}
