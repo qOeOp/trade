@@ -31,6 +31,7 @@ from typing import Literal
 import pymysql
 
 from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, targets, witness
+from ledger import publish as publication
 from ledger.errors import Refusal, refusal
 from ledger.refusals import CATALOGUE, refuse
 
@@ -837,6 +838,56 @@ def market_upgrade(market: dict) -> dict:
     return db.upgrade_market(market)
 
 
+MARKET_BRANCH = "main"
+MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "upgrade")}
+
+
+def _market_ledger(market: dict) -> db.LedgerProfile:
+    return db.LedgerProfile.from_json(dict(market))
+
+
+def _market_lock(profile: db.LedgerProfile) -> str:
+    return f"market-import:{profile.database}"
+
+
+def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
+    """ledger publish: push the research branch and its tags to origin (named once with --remote)."""
+    named = publication.set_remote(profile, remote) if remote else None
+    return {**publication.publish(profile, profile.research_branch), "remote_set": named}
+
+
+def market_publish(market: dict, remote: str | None) -> dict:
+    """market publish: push the market database's main and tags to origin, holding its import lock."""
+    profile = _market_ledger(market)
+    named = publication.set_remote(profile, remote) if remote else None
+    return {**publication.publish(profile, MARKET_BRANCH, _market_lock(profile)), "remote_set": named}
+
+
+def _publish_after(args, result: dict) -> dict:
+    """After a command, publish the database it used once when origin is behind it: the ledger (any
+    command naming one) or the market (an import or upgrade). A failure leaves the write in place and
+    is reported as publish_failed; the next command or `ledger publish` publishes it. Profiles without
+    a kind (a read-only copy) never publish."""
+    key = (args.noun, args.verb)
+    if key in {("ledger", "publish"), ("market", "publish"), ("ledger", "service")} or not isinstance(result, dict):
+        return result
+    try:
+        lock: str | None = None
+        if key in MARKET_WRITES:
+            profile, branch = _market_ledger(market_profile(args.market)), MARKET_BRANCH
+            lock = _market_lock(profile)
+        elif hasattr(args, "ledger"):
+            profile = ledger_profile(args.ledger)
+            branch = profile.research_branch
+        else:
+            return result
+        if profile.kind is None or not publication.unpublished(profile, branch):
+            return result
+        return {**result, "published": publication.publish(profile, branch, lock)}
+    except Refusal as exc:
+        return {**result, "publish_failed": refusal_json(exc)}
+
+
 def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str],
                      op: str | None) -> dict:
     """market lifecycle: the lifecycle evidence bundle lifecycle-<commit> of a market commit, from its
@@ -920,7 +971,8 @@ def _parser() -> Parser:
         return group.add_parser(name, help=help_text, description=help_text, epilog=RUNNER_EPILOG,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export")
+    ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export, "
+                             "publish")
     command = ledger.add_parser("init", help="initialize a new research ledger profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
@@ -950,6 +1002,14 @@ def _parser() -> Parser:
     _at(command)
     command.add_argument("--trial-id", type=int, action="append", dest="trial_ids",
                          help="a run to list in the manifest (repeatable; default: every run)")
+    command = ledger.add_parser("publish", help="push the ledger to its public DoltHub copy (administrator)")
+    command.epilog = ("Pushes the research branch, checks the remote head by a fetch, then pushes every tag. Never "
+                      "forces: a remote changed elsewhere is PUBLISH_REJECTED. Commands that change the ledger "
+                      "publish it themselves; this reruns a failed publish. --remote names origin once and installs "
+                      "the `dolt login` key in the service's Dolt home.")
+    _ledger_option(command)
+    command.add_argument("--remote", help="the DoltHub repository URL, set once "
+                                          "(https://doltremoteapi.dolthub.com/<owner>/<repository>)")
     command = ledger.add_parser("upgrade", help="add the tables this product version writes (administrator)")
     command.epilog = ("Creates the tables and triggers of ledger/schema.sql the research branch lacks, in one commit "
                       "through the commit checks. Existing tables, rows, accounts and grants are untouched.")
@@ -1197,7 +1257,8 @@ def _parser() -> Parser:
                       "Identically reproducing the precheck a registration cites adds no exposure; any other "
                       "reproduction or exploration of a source counts as its prior exposure.")
 
-    market = verbs("market", "market data: init, upgrade, import, import-quotes, lifecycle, coverage, backup, review")
+    market = verbs("market", "market data: init, upgrade, import, import-quotes, lifecycle, coverage, backup, review, "
+                             "publish")
     command = market.add_parser("init", help="create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
@@ -1222,6 +1283,11 @@ def _parser() -> Parser:
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
     command = market.add_parser("upgrade", help="create the market tables the database lacks (administrator)")
     _market_option(command)
+    command = market.add_parser("publish", help="push the market database to its public DoltHub copy (administrator)")
+    command.epilog = ("Holds the import lock, pushes main, checks the remote head by a fetch, then pushes every tag; "
+                      "never forces. Imports and upgrades publish themselves; this reruns a failed publish.")
+    _market_option(command)
+    command.add_argument("--remote", help="the DoltHub repository URL, set once")
     command = market.add_parser("lifecycle", help="write the lifecycle bundle of a market commit")
     _ledger_option(command)
     _market_option(command)
@@ -1269,6 +1335,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                     args.symbols), 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
+    if key == ("market", "publish"):
+        return market_publish(market_profile(args.market), args.remote), 0
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0
@@ -1279,6 +1347,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     profile = ledger_profile(args.ledger)
     if key == ("ledger", "upgrade"):
         return db.upgrade(profile), 0
+    if key == ("ledger", "publish"):
+        return ledger_publish(profile, args.remote), 0
     if key == ("ledger", "service"):
         return ledger_service(profile, args.action), 0
     if key == ("ledger", "sql"):
@@ -1381,6 +1451,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
         result, code = _dispatch(args, runner_argv)
+        result = _publish_after(args, result)
     except UsageError as exc:
         found = refuse("USAGE_ERROR", str(exc))
         _print(sys.stderr, refusal_json(found))

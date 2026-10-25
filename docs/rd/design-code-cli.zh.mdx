@@ -27,6 +27,7 @@
 | <Ref id="cli.judgment_add">judgment_add</Ref> | 命令 judgment add：调用 ledger.add_judgment，输出 JSON |
 | <Ref id="cli.ledger_export">ledger_export</Ref> | 命令行入口：以读账号导出账本全史备份与复现清单，或把全史增量同步到档案声明的备份目标 |
 | <Ref id="cli.ledger_init">ledger_init</Ref> | 命令行入口 ledger init：初始化一个账本档案（账号、branch 写权、提交校验组），只在此命令内使用管理权限 |
+| <Ref id="cli.ledger_publish">ledger_publish</Ref> | 命令行入口 ledger publish（管理员）：把研究分支及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
 | <Ref id="cli.ledger_review">ledger_review</Ref> | 整体复核的命令入口：读账号按精确版本复核，只报发现 |
 | <Ref id="cli.ledger_service">ledger_service</Ref> | 启动、停止、查看账本数据库服务 |
 | <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本 |
@@ -40,6 +41,8 @@
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
+| <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
+| <Ref id="cli.publish_after">_publish_after</Ref> | 命令写完后发布它用的库：origin 落后于本地时推送一次；失败只在结果里报 publish_failed，写入照旧 |
 | <Ref id="cli.registration_add">registration_add</Ref> | 命令行登记入口：读入登记体并调 registration.register，把五样、检验条件、网格与执行身份锁进不可变登记证据包，以 JSON 输出结果或带码拒绝 |
 | <Ref id="cli.replay_explore">replay_explore</Ref> | 非登记探索回放（purpose=explore）的命令行入口：报告留在临时目录，账本只写试验行、开始回执与执行封存 |
 | <Ref id="cli.replay_precheck">replay_precheck</Ref> | 事前声明用途的原生预检的命令入口：把命令行参数交给 replay.precheck，输出结果 JSON，并按 status 设退出码 |
@@ -519,6 +522,42 @@ def ledger_init(
 
 </div>
 
+### `ledger_publish` [#def-cli-ledger_publish]
+
+命令行入口 ledger publish（管理员）：把研究分支及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin
+
+```python
+def ledger_publish(profile: LedgerProfile, remote: str | None) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "remote": { type: "str | None", description: "DoltHub 仓库 https://doltremoteapi.dolthub.com/<owner>/<repository>，只在第一次给；给出时先命名 origin 并装密钥" } }} />
+
+**返回**　JSON：ledger.publish 的 \{database, remote, branch, head, previous_head, tags\}，加 remote_set（给了 --remote 时是 ledger.set_remote 的结果，否则 null）
+
+**期望行为**
+
+1. 给了 --remote 先调 ledger.set_remote，再以研究分支调 ledger.publish；拒绝码原样输出。
+2. 改账本的命令写完会自己发布（cli.publish_after）；本命令用于第一次命名远端和重跑失败的发布。
+3. 从不强推：PUBLISH_REJECTED 说明公开副本在别处被改过，报给用户，替换它要用户授权。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REMOTE_UNSET` | 没给 --remote，库也还没有 origin（由 ledger.publish 返回） |
+| `REMOTE_INVALID` | --remote 既不是 DoltHub 仓库也不是 file://（由 ledger.set_remote 返回） |
+| `REMOTE_MISMATCH` | 库已有指向别处的 origin（由 ledger.set_remote 返回） |
+| `PUBLISH_FORBIDDEN` | 隔离库或临时库给了 file:// 之外的远端（由 ledger.set_remote 或 ledger.publish 返回） |
+| `DOLTHUB_CREDENTIALS` | 找不到 `dolt login` 的密钥（由 ledger.set_remote 返回） |
+| `PUBLISH_REJECTED` | 公开副本在别处被改过，推送被拒；不强推（由 ledger.publish 返回） |
+| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不是本地头（由 ledger.publish 返回） |
+
+**使用**　<Ref id="ledger.set_remote" />、<Ref id="ledger.publish" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref>
+
+</div>
+
 ### `ledger_review` [#def-cli-ledger_review]
 
 整体复核的命令入口：读账号按精确版本复核，只报发现
@@ -836,7 +875,7 @@ def main(argv: list[str]) -> int 退出码
 1. 调用方式：在仓库根目录运行 `uv run --frozen python -m cli.main <名词> <动词> …`；名词与动词取自各子命令定义的函数名，如 registration add、hypothesis compare、source review、execution recover、validation registration、market lifecycle。不设控制台入口。
 2. 解析名词与动词，查分派表取子命令：ledger witness、evidence add、line select、line targets 在此以写账号开连接，ledger review、research state 以读账号开连接，其余命令只拿到解析好的账本档案与市场档案，连接由下层自开；`--` 之后的运行器参数只交给 replay explore / precheck / run 与 registration add，其他命令带了即 USAGE_ERROR；未知命令或缺必填参数即 USAGE_ERROR。
 3. 需要连接时按角色调用 ledger.connect 打开一条连接交给子命令；账本服务不可达即 LEDGER_UNAVAILABLE。
-4. 调用子命令，把返回字典序列化为 JSON 写标准输出，退出 0。
+4. 调用子命令，经 cli.publish_after 发布它用过的库，把返回字典序列化为 JSON 写标准输出，退出 0。
 5. 捕获 ledger.refusal：把拒绝码（含下层的 CONCURRENT_WRITE、DIRTY_WORKING_SET、LEDGER_PERMISSION 等）、说明、下一步动作与写入状态写标准错误，退出 1；事务未提交为 not_written，连接在提交时中断为 unknown。
 6. 子命令结束后关闭连接；main 不重试，也不把多条命令拼成一个事务。
 
@@ -845,7 +884,7 @@ def main(argv: list[str]) -> int 退出码
 | `USAGE_ERROR` | 名词或动词不在分派表，或必填参数缺失、类型不符 |
 | `LEDGER_UNAVAILABLE` | 按档案连接账本服务失败 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="cli.ledger_init" />、<Ref id="cli.ledger_service" />、<Ref id="cli.ledger_temp" />、<Ref id="cli.ledger_sql" />、<Ref id="cli.ledger_witness" />、<Ref id="cli.ledger_review" />、<Ref id="cli.ledger_export" />、<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="cli.candidate_export" />、<Ref id="cli.evidence_add" />、<Ref id="cli.evidence_export" />、<Ref id="cli.line_select" />、<Ref id="cli.line_targets" />、<Ref id="cli.ledger_upgrade" />、<Ref id="cli.registration_add" />、<Ref id="cli.registration_compare" />、<Ref id="cli.candidate_list" />、<Ref id="cli.research_status" />、<Ref id="cli.source_review" />、<Ref id="cli.execution_recover" />、<Ref id="cli.validation_registration" />、<Ref id="cli.validation_report" />、<Ref id="cli.replay_run" />、<Ref id="cli.replay_explore" />、<Ref id="cli.replay_precheck" />、<Ref id="cli.replay_report" />、<Ref id="cli.market_import" />、<Ref id="cli.market_coverage" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.refusal" />、<Ref id="cli.ledger_init" />、<Ref id="cli.ledger_service" />、<Ref id="cli.ledger_temp" />、<Ref id="cli.ledger_sql" />、<Ref id="cli.ledger_witness" />、<Ref id="cli.ledger_review" />、<Ref id="cli.ledger_export" />、<Ref id="cli.candidate_publish" />、<Ref id="cli.candidate_show" />、<Ref id="cli.candidate_export" />、<Ref id="cli.evidence_add" />、<Ref id="cli.evidence_export" />、<Ref id="cli.line_select" />、<Ref id="cli.line_targets" />、<Ref id="cli.ledger_upgrade" />、<Ref id="cli.registration_add" />、<Ref id="cli.registration_compare" />、<Ref id="cli.candidate_list" />、<Ref id="cli.research_status" />、<Ref id="cli.source_review" />、<Ref id="cli.execution_recover" />、<Ref id="cli.validation_registration" />、<Ref id="cli.validation_report" />、<Ref id="cli.replay_run" />、<Ref id="cli.replay_explore" />、<Ref id="cli.replay_precheck" />、<Ref id="cli.replay_report" />、<Ref id="cli.market_import" />、<Ref id="cli.market_coverage" />、<Ref id="cli.ledger_publish" />、<Ref id="cli.market_publish" />、<Ref id="cli.publish_after" />
 
 <div className="rd-meta">
 
@@ -935,6 +974,7 @@ def market_import(
 3. 成功时输出导入事实；提交哈希供 market.resolve_commit 解析、供登记钉住市场数据
 4. 不接受直接 SQL 或其他写入路径；已完整导入的月份再导入即 MONTH_EXISTS；未结束的当月没有新数据时返回原提交
 5. 市场库同样有 dolt_backup 备份（用户 10-20 授权）：market init --backup-root 在建库时写入备份目录，正式库必填且不得在仓库或临时目录内；market backup 持导入锁同步，已有备份分叉即 BACKUP_DIVERGED；market review 核备份头仍是市场库 main 的祖先，否则记 HISTORY_REWRITTEN。
+6. 导入成功后经 cli.publish_after 把新提交推到公开的 DoltHub 副本；发布失败只报 publish_failed，导入照旧。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -960,6 +1000,69 @@ def market_import(
 **依据**
 
 - [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)　开源实现
+
+</div>
+
+### `market_publish` [#def-cli-market_publish]
+
+命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin
+
+```python
+def market_publish(market: dict, remote: str | None) -> dict
+```
+
+<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案" }, "remote": { type: "str | None", description: "DoltHub 仓库 https://doltremoteapi.dolthub.com/<owner>/<repository>，只在第一次给；给出时先命名 origin 并装密钥" } }} />
+
+**返回**　JSON：同 cli.ledger_publish，branch 为 main
+
+**期望行为**
+
+1. 市场档案按账本档案读（服务目录、库名、种类）；给了 --remote 先调 ledger.set_remote，再以 main 和导入锁 market-import:\<库名> 调 ledger.publish，推送期间没有导入能落地。
+2. market import、market import-quotes 和 market upgrade 写完会自己发布；本命令用于第一次命名远端和重跑失败的发布。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REMOTE_UNSET` | 没给 --remote，库也还没有 origin（由 ledger.publish 返回） |
+| `REMOTE_INVALID` | --remote 既不是 DoltHub 仓库也不是 file://（由 ledger.set_remote 返回） |
+| `REMOTE_MISMATCH` | 库已有指向别处的 origin（由 ledger.set_remote 返回） |
+| `PUBLISH_FORBIDDEN` | 隔离库或临时库给了 file:// 之外的远端（由 ledger.set_remote 或 ledger.publish 返回） |
+| `DOLTHUB_CREDENTIALS` | 找不到 `dolt login` 的密钥（由 ledger.set_remote 返回） |
+| `PUBLISH_REJECTED` | 公开副本在别处被改过，推送被拒；不强推（由 ledger.publish 返回） |
+| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不是本地头（由 ledger.publish 返回） |
+| `CONCURRENT_IMPORT` | 一个导入正持有导入锁；什么都没推（由 ledger.publish 返回） |
+
+**使用**　<Ref id="ledger.set_remote" />、<Ref id="ledger.publish" />、<Ref id="market.import_month" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref>
+
+</div>
+
+### `_publish_after` [#def-cli-publish_after]
+
+命令写完后发布它用的库：origin 落后于本地时推送一次；失败只在结果里报 publish_failed，写入照旧
+
+```python
+def _publish_after(args: Namespace, result: dict) -> dict
+```
+
+<TypeTable type={{ "args": { type: "Namespace", description: "解析好的命令参数：名词、动词和档案" }, "result": { type: "dict", description: "子命令的返回" } }} />
+
+**返回**　dict：result 原样；发布了加 published（ledger.publish 的返回），发布被拒加 publish_failed（拒绝的 JSON：code、message、next_actions 等）
+
+**期望行为**
+
+1. cli.main 在子命令返回结果后调用；子命令被拒时不调用。
+2. market import、market import-quotes 和 market upgrade 持导入锁发布市场库的 main；其余带 --ledger 的命令发布研究账本的研究分支；ledger service、ledger publish、market publish 和别的命令不发布。
+3. 档案没有种类（只读副本的档案）不发布；ledger.unpublished 为 false（没有 origin，或 origin 已是本地头）不发布；否则调一次 ledger.publish。
+4. 发布被拒不改退出码，也不回滚写入：结果里报 publish_failed，下一条命令或 ledger publish / market publish 补推。
+
+**使用**　<Ref id="ledger.unpublished" />、<Ref id="ledger.publish" />、<Ref id="cli.ledger_publish" />、<Ref id="cli.market_publish" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref>
 
 </div>
 

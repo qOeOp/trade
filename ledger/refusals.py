@@ -453,6 +453,27 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "synced.",
                         ("Run `ledger review` (or `market review`) and report the finding; a backup is replaced "
                          "only with the user's authority.",)),
+    # Publication (ledger/publish.py)
+    "REMOTE_UNSET": ("The database has no origin remote to publish to.",
+                     ("Name its DoltHub repository once with `ledger publish --remote URL` (or `market publish "
+                      "--remote URL`).",)),
+    "REMOTE_INVALID": ("The remote is neither a DoltHub repository nor a local file:// remote.",
+                       ("Pass https://doltremoteapi.dolthub.com/<owner>/<repository>.",)),
+    "REMOTE_MISMATCH": ("The database already publishes to another origin; it is not replaced.",
+                        ("Publish without --remote, or report it: changing the public copy needs the user's "
+                         "authority.",)),
+    "PUBLISH_FORBIDDEN": ("Only the active database publishes to a public remote; an isolated or temporary one "
+                          "publishes only to a local file:// remote.",
+                          ("Publish the active database, or give a file:// remote for an isolated one.",)),
+    "DOLTHUB_CREDENTIALS": ("No DoltHub key from `dolt login` was found to install in the service's Dolt home.",
+                            ("Ask the user to run `dolt login`, then rerun the same command.",)),
+    "PUBLISH_REJECTED": ("The remote refused the push: its history is not an ancestor of the local one. Nothing was "
+                         "forced and no tag was pushed.",
+                         ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
+                          "user's authority.",)),
+    "PUBLISH_FAILED": ("The push or the check of the remote's head failed (network, credentials or DoltHub). The "
+                       "local write stands.",
+                       ("Check the network and the DoltHub key, then run `ledger publish` (or `market publish`).",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",

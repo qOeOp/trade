@@ -100,9 +100,18 @@ uv run --frozen python -m cli.main market init --name market --kind active \
 ```
 
 Research needs no exchange trading credential. Persistent research data lives only in the Dolt research
-ledger and its `dolt_backup` copy; `/tmp` reports are working copies. A stored
+ledger, its `dolt_backup` copy and its public DoltHub copy; `/tmp` reports are working copies. A stored
 run binds the strategy revision, actual image manifest digest, platform, inputs
 and resolved configuration.
+
+Both databases are public on DoltHub. After `dolt login`, name each one's repository once (the
+administrator copies the login key into the service's own Dolt home); every command that changes a
+database then publishes it, and `ledger publish` or `market publish` reruns a failed publish:
+
+```bash
+uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research
+uv run --frozen python -m cli.main market publish --remote https://doltremoteapi.dolthub.com/vincent/trade-market
+```
 
 The documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/).
 Build the original Next.js/Fumadocs site locally with
