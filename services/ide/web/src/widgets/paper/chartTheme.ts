@@ -18,14 +18,17 @@ function tick(time: Time, type: TickMarkType): string {
   return CLOCK.format(d);
 }
 
-/** A price with thousands separators and `places` decimals: 81,190.5. */
-export const priceFormat = (places: number) => (x: number) =>
-  x.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places });
+/** A series' price format: thousands separators and `places` decimals (81,190.5). Set on each series,
+ *  since a chart-wide formatter would also take over the drawdown pane's percent. */
+export const priceFormat = (places: number) => ({
+  type: "custom" as const, minMove: 10 ** -places,
+  formatter: (x: number) => x.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places }),
+});
 
 /** The design's chart rules (docs/plans/research-graph-design-spec.zh.md §4.1): gridlines along the
  *  value axis only, axis text in the secondary colour, a dotted crosshair (the only dotted line), no logo
  *  on the canvas (the Paper run window credits the library). */
-export function chartOptions(places = 2): DeepPartial<ChartOptions> {
+export function chartOptions(): DeepPartial<ChartOptions> {
   const label = canvasColor("fg-muted");
   return {
     autoSize: true,
@@ -37,7 +40,7 @@ export function chartOptions(places = 2): DeepPartial<ChartOptions> {
     grid: { vertLines: { visible: false }, horzLines: { color: canvasColor("grid") } },
     rightPriceScale: { borderColor: canvasColor("line-strong") },
     timeScale: { borderColor: canvasColor("line-strong"), timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: tick },
-    localization: { timeFormatter: (time: Time) => `${FULL.format(date(time)).replace(",", "")} UTC`, priceFormatter: priceFormat(places) },
+    localization: { timeFormatter: (time: Time) => `${FULL.format(date(time)).replace(",", "")} UTC` },
     crosshair: {
       mode: CrosshairMode.Normal,
       vertLine: { color: canvasColor("crosshair"), style: LineStyle.Dotted, labelBackgroundColor: label },

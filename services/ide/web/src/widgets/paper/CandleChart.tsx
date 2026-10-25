@@ -11,7 +11,7 @@ import { chartTime, highlighted, pickedDay } from "../../state/paperStream";
 import { showToolWindow } from "../../state/shell";
 import { useResolvedTheme } from "../../state/theme";
 import { ChartLegend } from "./ChartLegend";
-import { afterFonts, chartOptions, seriesColors } from "./chartTheme";
+import { afterFonts, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 
 type Api = {
   chart: IChartApi; candles: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; shade: ISeriesApi<"Area">;
@@ -39,7 +39,7 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
   levels.current = [...orders.map((o) => o.price), ...(held ? [held.average] : [])];
 
   useEffect(() => {
-    const chart = createChart(host.current!, chartOptions(places));
+    const chart = createChart(host.current!, chartOptions());
     // The held band is an area on a hidden scale, so it fills the time between candles too.
     const shade = chart.addSeries(AreaSeries, { priceScaleId: "spans", priceLineVisible: false, lastValueVisible: false, lineVisible: false, crosshairMarkerVisible: false });
     chart.priceScale("spans").applyOptions({ visible: false, scaleMargins: { top: 0, bottom: 0 } });
@@ -65,12 +65,12 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
   useEffect(() => {
     const a = api.current;
     if (!a) return;
-    const c = seriesColors(), apply = () => api.current?.chart.applyOptions(chartOptions(places));
+    const c = seriesColors(), apply = () => api.current?.chart.applyOptions(chartOptions());
     apply();
     afterFonts(apply);
     a.shade.applyOptions({ topColor: c.held, bottomColor: c.held });
     a.candles.applyOptions({ upColor: c.up, downColor: c.down, wickUpColor: c.up, wickDownColor: c.down,
-                             priceFormat: { type: "price", precision: Math.max(0, places), minMove: 10 ** -Math.max(0, places) } });
+                             priceFormat: priceFormat(Math.max(0, places)) });
   }, [theme, places]);
 
   const data = useMemo(() => gather(bars, minutes), [bars, minutes]);

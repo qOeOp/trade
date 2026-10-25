@@ -3,7 +3,7 @@ import { AreaSeries, createChart, LineSeries, LineStyle, type AutoscaleInfo, typ
 import { useAtom } from "../../state/atom";
 import { pickedDay } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
-import { afterFonts, chartOptions, seriesColors } from "./chartTheme";
+import { afterFonts, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 
 type Api = { chart: IChartApi; equity: ISeriesApi<"Line">; drawdown: ISeriesApi<"Area">; start: IPriceLine | null; limit: IPriceLine | null };
 const at = (t: number) => t as UTCTimestamp;
@@ -22,9 +22,9 @@ export function EquityChart({ equity, starting, target }: { equity: readonly [nu
   const day = useAtom(pickedDay);
 
   useEffect(() => {
-    const options = () => ({ ...chartOptions(2), timeScale: { ...chartOptions(2).timeScale, rightOffset: 0 } });
+    const options = () => ({ ...chartOptions(), timeScale: { ...chartOptions().timeScale, rightOffset: 0 } });
     const chart = createChart(host.current!, options());
-    const line = chart.addSeries(LineSeries, { lineWidth: 2, priceLineVisible: false, autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
+    const line = chart.addSeries(LineSeries, { lineWidth: 2, priceLineVisible: false, priceFormat: priceFormat(2), autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
       const found = base(), s = bounds.current.starting;
       const lo = Math.min(found?.priceRange?.minValue ?? s, s * (1 - SPAN)), hi = Math.max(found?.priceRange?.maxValue ?? s, s * (1 + SPAN));
       return { priceRange: { minValue: lo, maxValue: hi } };
@@ -34,8 +34,9 @@ export function EquityChart({ equity, starting, target }: { equity: readonly [nu
         const t = bounds.current.target ?? 0.2;
         return { priceRange: { minValue: Math.min(-t * 1.1, base()?.priceRange?.minValue ?? 0), maxValue: 0 } };
       } }, 1);
-    drawdown.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0.04 } });
-    chart.panes()[1]?.setStretchFactor(0.35);
+    drawdown.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.04 } });
+    chart.panes()[0]?.setStretchFactor(0.7);
+    chart.panes()[1]?.setStretchFactor(0.3);
     api.current = { chart, equity: line, drawdown, start: null, limit: null };
     afterFonts(() => api.current?.chart.applyOptions(options()));
     return () => { chart.remove(); api.current = null; };
@@ -45,7 +46,7 @@ export function EquityChart({ equity, starting, target }: { equity: readonly [nu
     const a = api.current;
     if (!a) return;
     const c = seriesColors();
-    a.chart.applyOptions({ ...chartOptions(2), timeScale: { ...chartOptions(2).timeScale, rightOffset: 0 } });
+    a.chart.applyOptions({ ...chartOptions(), timeScale: { ...chartOptions().timeScale, rightOffset: 0 } });
     a.equity.applyOptions({ color: c.equity });
     a.drawdown.applyOptions({ lineColor: c.drawdownLine, topColor: c.drawdown, bottomColor: c.drawdown, invertFilledArea: true });
     if (a.start) a.equity.removePriceLine(a.start);
