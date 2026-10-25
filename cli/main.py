@@ -602,10 +602,10 @@ def _targets_options(command, omitted: str | None) -> None:
                          help="the user's minimum annual return as a fraction (0.20 for 20%%)")
 
 
-def _targets(args, *, required: bool) -> tuple[str, str] | None:
-    """(maximum drawdown, minimum annual return) as given, None when both are omitted and allowed."""
+def _targets(args) -> tuple[str, str] | None:
+    """(maximum drawdown, minimum annual return) as given, None when both are omitted."""
     given = (args.max_drawdown, args.annual_return)
-    if given == (None, None) and not required:
+    if given == (None, None):
         return None
     if None in given:
         raise refuse("TARGETS_INVALID", "give both research targets or neither",
@@ -1316,14 +1316,14 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         market = market_profile(args.market)
         with db.connect(profile, "writer") as conn:
             return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
-                               args.note, args.slug, _targets(args, required=False)), 0
+                               args.note, args.slug, _targets(args)), 0
     if key == ("line", "targets"):
         with db.connect(profile, "writer") as conn:
             line_bundle = None if args.default else args.line or (lines.current_line(conn) or {}).get("bundle")
             if line_bundle is None and not args.default:
                 raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record",
                              missing=("research-line",))
-            return targets.set_targets(conn, line_bundle, *_targets(args, required=True)), 0
+            return targets.set_targets(conn, line_bundle, args.max_drawdown, args.annual_return), 0
     if key == ("line", "close"):
         return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
     if key == ("registration", "add"):
