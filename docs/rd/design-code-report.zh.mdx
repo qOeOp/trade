@@ -1187,7 +1187,7 @@ The facts derive_measures reads, built from a directory's native reports (no led
 | <Ref id="report.compared_candidates">compared_candidates</Ref> | 某个账本提交上，一条路线对照表里的全部候选；recommendation 判断必须逐个点名它们 |
 | <Ref id="report.comparison_table">comparison_table</Ref> | 研究路线的对照表：交易段等于该路线开发窗口、范围规则等于该路线的、通过且有经济证据资格的研究运行（旧版本和别的路线上的也在内），每个附单运行报告里的四项度量，并标出它是否被表里别的运行全面压过；不打分、不排序、不入账 |
 | <Ref id="report.research_state">research_state</Ref> | 研究状态视图：当前判断加读时事实，以及尚未复盘的试验；不存储、不落后 |
-| research_graph | 研究图读口：一条研究线的 research-graph/1 文档，只读账本，同一提交给出同一份 |
+| research_graph | 研究图读口：一条研究线的 research-graph@2 文档，只读账本，同一提交给出同一份 |
 | <Ref id="report.research_status">research_status</Ref> | 研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表；无停止标志、目标与分数字段 |
 
 ### `compared_candidates` [#def-report-compared_candidates]
@@ -1312,7 +1312,7 @@ def research_state(
 
 ### `research_graph` [#def-report-research_graph]
 
-研究图读口：把一条研究线按 research-graph/1 读成一份文档，只读账本
+研究图读口：把一条研究线按 research-graph@2 读成一份文档，只读账本
 
 ```python
 def research_graph(
@@ -1323,7 +1323,7 @@ def research_graph(
 ) -> dict
 ```
 
-**返回**　dict（research-graph/1）：format、source=ledger、scope\{ledger_commit, start, end\}、line\{bundle, start, window, market_commit, targets\}、candidates（每个版本的父版本、改动、职责、假设、预测及其结果、登记、对照、全部试验的读数与资格、比较、源码审阅、解释、状态）、events（推荐、优先级、解释等判断，资格变化，选线）、gaps。
+**返回**　dict（research-graph@2）：format、source=ledger、scope\{ledger_commit, start, end\}、line\{bundle, start, window, market_commit, targets\}、candidates（每个版本的父版本、改动、职责、假设、预测及其结果、登记、对照、全部试验的读数与资格、比较、源码审阅、解释、状态）、events（推荐、优先级、解释等判断，资格变化，选线）、gaps。
 
 **期望行为**
 

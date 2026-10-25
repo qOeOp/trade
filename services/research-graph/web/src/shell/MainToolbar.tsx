@@ -12,7 +12,7 @@ import { SettingsMenu } from "./toolbar/SettingsMenu";
 /** The window's top row, on the frame, as IntelliJ's main toolbar: the line, ledger and recommendation
  *  widgets at the left, the recommendation's readout, then search, the side toggles and settings. */
 export function MainToolbar() {
-  const summary = useWidget<SummaryWidget>("summary/1");
+  const summary = useWidget<SummaryWidget>("summary@1");
   const { open } = useShell();
   const Readout = RENDERERS.summary.Component;
   return (

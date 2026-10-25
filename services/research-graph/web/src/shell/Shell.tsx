@@ -25,7 +25,7 @@ const EDITOR_MIN = "45%";
 // a wide table scrolls or truncates inside its island instead of pushing the sides off screen.
 export function Shell() {
   const view = useView();
-  const lineage = useWidget<LineageWidget>("lineage/2");
+  const lineage = useWidget<LineageWidget>("lineage@2");
   const windows = useMemo(() => toolWindows(view.widgets), [view]);
   const { open, size } = useShell();
   const actions = useMemo(() => commands(windows), [windows]);

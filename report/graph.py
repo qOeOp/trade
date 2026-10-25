@@ -1,4 +1,4 @@
-"""A research line as a research-graph/2 document, read from the ledger only (`research graph`).
+"""A research line as a research-graph@2 document, read from the ledger only (`research graph`).
 
 It composes the product's own readers (candidates, the line record, run measures and availability,
 registration plans, the comparison, source reviews and judgments) and adds no rule of its own, so
@@ -19,7 +19,7 @@ from registration import register
 from report import candidates as report_candidates
 from report import comparison, measures, runs, seams, status
 
-FORMAT = "research-graph/2"
+FORMAT = "research-graph@2"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
@@ -113,7 +113,7 @@ def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
 
 
 def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None) -> dict:
-    """The research-graph/2 document of a line at a ledger version, with the user's targets in force for
+    """The research-graph@2 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
     whose missing comparisons and measures would look like research facts."""

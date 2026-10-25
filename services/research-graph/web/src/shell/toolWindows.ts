@@ -27,20 +27,20 @@ const treeActions = (tree: Atom<TreeControl | null>): HeaderAction[] => [
 const alt = (n: number) => ({ keys: `⌥${n}`, binding: `Alt+Digit${n}` });
 
 const SPECS: readonly ToolWindow[] = [
-  { id: "versions", side: "left", icon: "tool.versions", shortcut: alt(1), source: "lineage/2", renderer: RENDERERS.tree,
+  { id: "versions", side: "left", icon: "tool.versions", shortcut: alt(1), source: "lineage@2", renderer: RENDERERS.tree,
     actions: () => treeActions(versionTreeControl) },
-  { id: "sources", side: "left", icon: "tool.sources", shortcut: alt(7), source: "sources/1", renderer: RENDERERS.sources,
+  { id: "sources", side: "left", icon: "tool.sources", shortcut: alt(7), source: "sources@1", renderer: RENDERERS.sources,
     actions: () => treeActions(sourceTreeControl) },
-  { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail/1", renderer: RENDERERS.detail,
+  { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail@1", renderer: RENDERERS.detail,
     actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
-  { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress/1", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
-  { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter/1", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
-  { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table/1", renderer: RENDERERS.table, actions: () => [hide("bottom")] },
-  { id: "gaps", side: "bottom", icon: "tool.gaps", shortcut: alt(6), source: "notes/1", renderer: RENDERERS.notes, actions: () => [hide("bottom")] },
+  { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress@1", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
+  { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter@1", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
+  { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table@1", renderer: RENDERERS.table, actions: () => [hide("bottom")] },
+  { id: "gaps", side: "bottom", icon: "tool.gaps", shortcut: alt(6), source: "notes@1", renderer: RENDERERS.notes, actions: () => [hide("bottom")] },
 ];
 
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
-export const PLACED_ELSEWHERE = new Set(["summary/1", "lineage/2"]);
+export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
 /** The tool windows this view feeds, in stripe order, each with the widget it shows. */
 export function toolWindows(widgets: readonly Widget[]): (ToolWindow & { widget: Widget })[] {

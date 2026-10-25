@@ -28,7 +28,7 @@ def run_render(graph_path: str, out: str, renderer: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="research-graph", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    command = sub.add_parser("check", help="check a graph against research-graph/2")
+    command = sub.add_parser("check", help="check a graph against research-graph@2")
     command.add_argument("graph")
     command = sub.add_parser("render", help="write view.json and the renderer's page into a directory")
     command.add_argument("graph")

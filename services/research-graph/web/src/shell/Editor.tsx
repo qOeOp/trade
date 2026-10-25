@@ -15,8 +15,8 @@ const LABEL: Record<TabKind, (id: string) => string> = { source: (id) => `${id}.
  *  with Versions it shows the lineage, with Sources the open files in tabs (a version's source, or its
  *  change from its parent). The lineage stays mounted while files show, so its view is kept. */
 export function Editor() {
-  const lineage = useWidget<LineageWidget>("lineage/2");
-  const sources = useWidget<SourcesWidget>("sources/1");
+  const lineage = useWidget<LineageWidget>("lineage@2");
+  const sources = useWidget<SourcesWidget>("sources@1");
   const { tabs, active } = useEditors();
   const files = useShell().last.left === "sources";
   const Lineage = RENDERERS.lineage.Component;

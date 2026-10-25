@@ -22,7 +22,7 @@ python3 services/research-graph/graph.py compare LEDGER.json SESSION.json --unti
 
 Stages hand over only through these files, so each can be replaced alone.
 
-## Graph (`research-graph/2`)
+## Graph (`research-graph@2`)
 
 One research line from one source: the line and its targets, candidate versions with parent,
 change, complete strategy source, duties, hypothesis, predictions and outcomes, registration, control, trials with
@@ -30,7 +30,7 @@ readings and eligibility, comparison, source reviews, interpretation and status;
 (judgments, line changes, eligibility changes); and `gaps`. It holds no conversation or host state.
 Unknown values are null. The schema is authoritative.
 
-## View model (`research-graph-view/1`)
+## View model (`research-graph-view@1`)
 
 Written next to every render as `view.json`: a manifest (`line`, `targets`, `counts`) and
 `widgets`. Each widget is self-contained, with an `id`, a versioned `type`, a `slot` (`top`, `main` or
@@ -39,14 +39,14 @@ research units, never pixels.
 
 | Type | Content |
 |---|---|
-| `summary/1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage/2` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its version and purpose) |
-| `progress/1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns by trial) and `recommended` (the versions the trail passed through) |
-| `scatter/1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
-| `table/1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
-| `notes/1` | `items`: plain notes (the graph's `gaps`) |
-| `candidate-detail/1` | `default` and `items`: the graph's candidate records (without their source) with `status_class` and `prediction_class` |
-| `sources/1` | `items`: each version's `id`, `parent` (null when it is not in the graph) and `source` (null when the graph holds none), by id |
+| `summary@1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
+| `lineage@2` | `targets`, `axis` (trial positions: `min`, `max`, `ticks`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its version and purpose) |
+| `progress@1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns by trial) and `recommended` (the versions the trail passed through) |
+| `scatter@1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
+| `table@1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
+| `notes@1` | `items`: plain notes (the graph's `gaps`) |
+| `candidate-detail@1` | `default` and `items`: the graph's candidate records (without their source) with `status_class` and `prediction_class` |
+| `sources@1` | `items`: each version's `id`, `parent` (null when it is not in the graph) and `source` (null when the graph holds none), by id |
 
 `status` is one of `recommended`, `meets_targets`, `below_targets`, `masked`, `precheck_failed`,
 `unrun`; `prediction` one of `held`, `failed`, `mixed`, `none`. A new kind of chart is a new widget

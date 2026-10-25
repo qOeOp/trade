@@ -18,8 +18,8 @@ Draws one research line from the research ledger as a graph: the lineage of stra
 | Stage | Input → output | Owns |
 |---|---|---|
 | Extract | ledger → graph.json | everything the ledger holds about one line: its versions, its own research runs (its window and market commit), reviews and judgments (the product command `research graph`) |
-| Contract | graph.json (research-graph/1) → problems | the shape of a graph (schema/graph.schema.json) |
-| Layout | graph.json → view.json (research-graph-view/1) | what to draw and where, in trial numbers and rows, no pixels; split into widgets (summary/1, lineage/2, scatter/1, notes/1, candidate-detail/1), each with its own type, version and slot |
+| Contract | graph.json (research-graph@2) → problems | the shape of a graph (schema/graph.schema.json) |
+| Layout | graph.json → view.json (research-graph-view@1) | what to draw and where, in trial numbers and rows, no pixels; split into widgets (summary@1, lineage@2, progress@1, scatter@1, table@1, notes@1, candidate-detail@1, sources@1), each with its own type, version and slot |
 | Render | view.json → files | pixels, colours, labels and interaction; the web renderer writes one self-contained HTML page, rebuilt whenever its sources change |
 | Compare | two graph.json → differences | which facts differ, without classing them (for product-doctor's fidelity test) |
 
