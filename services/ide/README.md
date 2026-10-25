@@ -132,12 +132,12 @@ frontier), Version table and Data gaps at the bottom, switched by the stripe as 
 all, collapse all, hide). `⌥1`–`⌥7` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. The editor
-follows the left tool window last chosen: with Versions it shows the lineage, with Sources the open files in tabs.
-Double-clicking a version anywhere (canvas, Versions, Sources, or Enter in Sources), or Open source in its context menu,
-switches the left side to Sources and opens the version's source, or brings its tab to the front when it is open:
-read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling it; Compare with parent
-opens its unified diff against its parent's source (deleted lines red and plain, inserted green, long unchanged stretches
-folded). Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph (back to Versions and the
+follows the left tool window last chosen: with Versions it shows the lineage, with Sources the open file, one at a time
+and without tabs, under a header naming it. Double-clicking a version anywhere (canvas, Versions, Sources, or Enter in
+Sources), or Open source in its context menu, switches the left side to Sources and opens the version's source in place
+of the open one: read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling it.
+Compare with parent in the header is a toggle: while on, the file shows as its unified diff against its parent's source
+(deleted lines red and plain, inserted green, long unchanged stretches folded), and it stays on as other versions open. Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph (back to Versions and the
 lineage), Show in details, Open source, Copy version name and Copy link. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
