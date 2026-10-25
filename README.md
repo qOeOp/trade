@@ -3,8 +3,9 @@
 Agents develop complete single-file Nautilus strategies in temporary directories
 and publish source bytes, revisions and derivation relations to Dolt. This
 repository maintains the Agent rules and skills, shared replay, evidence checks
-and runtime image build inputs. R1 replays 37 Binance USDⓈ-M perpetual
-instruments in one fixed-capital native margin account.
+and runtime image build inputs. A replay runs the Binance USDⓈ-M perpetuals its runner arguments
+name (`--symbols`, or every monthly universe member with `--universe pool`) in one fixed-capital
+native margin account.
 The published [NautilusTrader](https://nautilustrader.io/) package owns data,
 orders, fills, risk, execution, portfolio accounting and reports.
 
@@ -87,11 +88,11 @@ for `--ledger`) and stop it with `ledger service stop` before deleting the direc
 integration tests start their own throwaway services (`tests/ledger/dolt.py`) with the Dolt 2.4.2
 binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 
-Market data (Binance public USD-M perpetual data from 2020-01 and the monthly
-pool) lives in its own Dolt database beside the ledger
-([`market`](market/README.md)); a replay cites one commit of
-it. It is created the same way with its backup directory, synced with `market backup` and checked
-with `market review`:
+Market data (Binance public USD-M perpetual data, imported month by month, and the monthly
+pool) lives in its own Dolt database beside the ledger ([`market`](market/README.md)); a replay
+cites one commit of it. The active database holds months from 2025-01 (pool members from 2025-02:
+the first imported month has none); `market coverage` reports what a commit holds. It is created
+the same way with its backup directory, synced with `market backup` and checked with `market review`:
 
 ```bash
 uv run --frozen python -m cli.main market init --name market --kind active \
@@ -124,7 +125,7 @@ export is `docs-site/out`.
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and where things go.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence`, `research-graph` and `product-doctor`; `.claude/skills` links here.
 - [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents --no-publish --trust-plugin` and `ANTHROPIC_API_KEY` unset (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
-- [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`) and engineering parity (`compare_reports.py`).
+- [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`) and paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`cli/`](cli/): the command line, the one entry Agents use; it holds no product logic.
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
