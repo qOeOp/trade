@@ -41,7 +41,8 @@
 | <Ref id="cli.line_targets">line_targets</Ref> | 命令行 line targets：记录用户为当前路线或账本默认值给出的两个研究目标；改目标取代原来生效的，同值不写 |
 | <Ref id="cli.main">main</Ref> | 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
-| <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，是写市场库的唯一入口 |
+| <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
+| <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.registration_add">registration_add</Ref> | 命令行登记入口：读入登记体并调 registration.register，把五样、检验条件、网格与执行身份锁进不可变登记证据包，以 JSON 输出结果或带码拒绝 |
 | <Ref id="cli.replay_explore">replay_explore</Ref> | 非登记探索回放（purpose=explore）的命令行入口：报告留在临时目录，账本只写试验行、开始回执与执行封存 |
 | <Ref id="cli.replay_precheck">replay_precheck</Ref> | 事前声明用途的原生预检的命令入口：把命令行参数交给 replay.precheck，输出结果 JSON，并按 status 设退出码 |
@@ -901,9 +902,21 @@ def market_coverage(
 
 </div>
 
+### `market_import_quotes` [#def-cli-market_import_quotes]
+
+报价导入的命令行入口，与基础行情 market import 分工。
+
+```python
+def market_import_quotes(market: dict, month: str, cache_root: str | None, workers: int, symbols: list[str] | None=None) -> dict:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L797)
+
+校验 YYYY-MM 月份字串且不晚于当前 UTC 月，拒绝使用既有 `MONTH_INVALID`；解析为月首 date 后调用 <Ref id="market.import_quotes" />，原样返回结果及下层拒绝，进度写 stderr。可显式给 symbols，否则采用当月已存成员；参数用法以 `market import-quotes --help` 为准。它不决定合约是否适用于强平研究。
+
 ### `market_import` [#def-cli-market_import]
 
-命令行入口：导入一个月的交易所数据成一个市场提交，是写市场库的唯一入口
+命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加
 
 ```python
 def market_import(
