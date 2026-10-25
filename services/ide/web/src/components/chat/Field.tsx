@@ -4,7 +4,11 @@ import { Kbd } from "../Kbd";
 
 // The agent form's controls: a labelled text field, a segmented choice, a checklist and a button.
 // Fields, the segmented choice and buttons share one height, 28px, IntelliJ's control height.
-type FieldProps = { label: string; hint?: ReactNode; value: string; onValue: (value: string) => void; suggest?: string }
+/** A control's label above it: its own line, 6px clear of the control (the label's bottom margin
+ *  collapses with the control's 4px top margin), while a hint under the control stays 4px close. */
+export const FieldLabel = ({ children }: { children: ReactNode }) => <span className="mb-1.5 block text-dense text-fg-muted">{children}</span>;
+
+type FieldProps ={ label: string; hint?: ReactNode; value: string; onValue: (value: string) => void; suggest?: string }
   & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">;
 
 /**
@@ -31,7 +35,7 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
   };
   return (
     <label className="block space-y-1">
-      <span className="text-dense text-fg-muted">{label}</span>
+      <FieldLabel>{label}</FieldLabel>
       <span className="relative block">
         <input {...input} value={value} placeholder={placeholder ?? suggest} onKeyDown={fill} onChange={(e) => { stop(); onValue(e.target.value); }}
           className={`peer block h-7 w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus focus:ring-1 focus:ring-focus ${fillable ? "pr-11" : ""}`} />
@@ -47,7 +51,7 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
 }) {
   return (
     <div className="space-y-1">
-      <span className="text-dense text-fg-muted">{label}</span>
+      <FieldLabel>{label}</FieldLabel>
       {/* Options as wide as their content and spread out, so the first and last sit the same distance
           from the edges whatever their labels' lengths. */}
       <div role="radiogroup" aria-label={label} className="flex h-7 justify-between gap-0.5 rounded-control border border-line-strong p-0.5">
