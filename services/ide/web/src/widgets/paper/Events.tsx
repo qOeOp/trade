@@ -6,31 +6,27 @@ import { Icon } from "../../icons/Icon";
 import { Chips, PillButton } from "../../components/Tabs";
 import { useAtom } from "../../state/atom";
 import { highlighted, pickedDay, showTime, shownCategories, useStream } from "../../state/paperStream";
-import { ContractScope, useScope } from "./ContractScope";
 
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
 // One grid for every row: chevron gutter, time, contract, category, text with its status.
-const GRID = "grid h-6 cursor-default grid-cols-[1rem_4.5rem_6rem_5.5rem_minmax(0,1fr)] items-center gap-2 border-b border-line pl-1.5 pr-3 transition-colors hover:bg-row-hover";
-const clock = (ms: number) => utc(ms).slice(11);
+const GRID = "grid h-9 cursor-default grid-cols-[1rem_3rem_6rem_5.5rem_minmax(0,1fr)] items-center gap-2 border-t border-line pl-3 pr-5 transition-colors hover:bg-row-hover";
+const clock = (ms: number) => utc(ms).slice(11, 16);
+const DAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
 /** The run's events of the contract in scope (run-wide events always show). */
-function useScoped(lines: readonly JournalLine[]) {
-  const only = useScope();
+function useScoped(lines: readonly JournalLine[], only: string | null) {
   return useMemo(() => lines.filter((l) => categoryOf(l) !== null && (!only || !l.instrument_id || symbolOf(l.instrument_id) === only)), [lines, only]);
 }
 
-/** The Events header's controls: a chip per category with its count, and the contract scope. */
-export function EventsTools() {
+/** The events' filter: a chip per category with its count. */
+export function EventsTools({ only }: { only: string | null }) {
   const s = useStream();
   const on = useAtom(shownCategories);
-  const events = useScoped(s?.lines ?? []);
+  const events = useScoped(s?.lines ?? [], only);
   const counts = useMemo(() => new Map(CATEGORIES.map((c) => [c, events.filter((l) => categoryOf(l) === c).length])), [events]);
   return (
-    <>
-      <Chips items={CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], count: counts.get(c) ?? 0 }))} on={on}
-             onToggle={(c) => shownCategories.set(new Set(on.has(c) ? [...on].filter((x) => x !== c) : [...on, c]))} />
-      <ContractScope />
-    </>
+    <Chips items={CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], count: counts.get(c) ?? 0 }))} on={on}
+           onToggle={(c) => shownCategories.set(new Set(on.has(c) ? [...on].filter((x) => x !== c) : [...on, c]))} />
   );
 }
 
@@ -62,11 +58,11 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
 }
 
 /** The run's events, newest first under a row per UTC day, filtered by the header's categories and
- *  contract scope; a bracket's orders fold into one row that says what it was and how it stands, a
+ *  contract the chart shows; a bracket's orders fold into one row that says what it was and how it stands, a
  *  failed order marked. While the list is scrolled away from its top, new events wait behind "N new
  *  events" instead of moving it. A click shows the moment on the chart; a click on a chart marker
  *  highlights its event here. */
-export function Events() {
+export function Events({ only }: { only: string | null }) {
   const s = useStream();
   const day = useAtom(pickedDay);
   const picked = useAtom(highlighted);
@@ -82,7 +78,7 @@ export function Events() {
     viewport.addEventListener("scroll", scrolled);
     return () => viewport.removeEventListener("scroll", scrolled);
   }, [journal.length]);
-  const events = useScoped(held === null ? journal : journal.slice(0, held));
+  const events = useScoped(held === null ? journal : journal.slice(0, held), only);
   const digits = useMemo(() => precisions(journal), [journal]);
   const items = useMemo(() => grouped(events.filter((l) => on.has(categoryOf(l)!) && (!day || utcDay(eventMs(l)) === day)))
     .slice(-SHOWN).reverse(), [events, on, day]);
@@ -92,7 +88,7 @@ export function Events() {
     const item = picked && items.find((i) => i.children?.includes(picked));
     if (item) setOpen((o) => new Set([...o, item.key]));
   }, [picked, items]);
-  if (!s) return <p className="p-3 text-dense text-fg-faint">Open a paper run in the Paper panel</p>;
+  if (!s) return null;
   const toggle = (key: string) => setOpen(new Set(open.has(key) ? [...open].filter((k) => k !== key) : [...open, key]));
   return (
     <div ref={host} className="text-dense">
@@ -108,7 +104,7 @@ export function Events() {
       {items.map((item, i) => {
         const date = utcDay(item.at), next = items[i - 1];
         const separator = !next || utcDay(next.at) !== date
-          ? <div className="flex h-6 items-end border-b border-line px-3 pb-0.5 text-small font-semibold text-fg-muted">{date}</div> : null;
+          ? <div className="flex h-8 items-end border-t border-line px-5 pb-1 text-small font-medium text-fg-muted">{DAY.format(item.at).replace(",", "")}</div> : null;
         const children = item.children;
         if (!children || children.length < 2) {
           return <Fragment key={item.key}>{separator}<Row line={item.line} picked={item.line === picked} onClick={() => pick(item.line)} text={describe(item.line, digits)} status={lineStatus(item.line)} /></Fragment>;

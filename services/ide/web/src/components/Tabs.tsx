@@ -6,17 +6,20 @@ const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "b
 export type Tab<T> = { id: T; label: ReactNode; dot?: DataRole; hint?: string };
 
 /** Editor tabs as IntelliJ draws them: text tabs on the island, the open one underlined in the focus
- *  colour; a tab's dot says something is held there. `compact` is the small segmented row of a toolbar. */
-export function Tabs<T extends string | null>({ items, value, onChange, label, compact = false }: {
-  items: readonly Tab<T>[]; value: T; onChange: (id: T) => void; label: string; compact?: boolean;
+ *  colour; a tab's dot says something is held there. `compact` is the small segmented row of a toolbar;
+ *  `card` the tabs across a card's head, spaced wide, the open one underlined in the text colour. */
+export function Tabs<T extends string | null>({ items, value, onChange, label, compact = false, card = false }: {
+  items: readonly Tab<T>[]; value: T; onChange: (id: T) => void; label: string; compact?: boolean; card?: boolean;
 }) {
   return (
-    <div role="tablist" aria-label={label} className={`flex min-w-0 items-center ${compact ? "gap-0.5" : "gap-1 overflow-x-auto"}`}>
+    <div role="tablist" aria-label={label} className={`flex min-w-0 items-center ${compact ? "gap-0.5" : card ? "h-full items-stretch gap-5" : "gap-1 overflow-x-auto"}`}>
       {items.map((tab) => {
         const on = tab.id === value;
         return (
           <button key={String(tab.id)} type="button" role="tab" aria-selected={on} title={tab.hint} onClick={() => onChange(tab.id)}
-                  className={compact
+                  className={card
+                    ? `relative flex shrink-0 items-center gap-1.5 whitespace-nowrap text-dense transition-colors ${on ? "text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-fg" : "text-fg-muted hover:text-fg"}`
+                    : compact
                     ? `rounded-badge px-1.5 py-0.5 text-small transition-colors hover:bg-hover ${on ? "bg-pressed text-fg" : "text-fg-faint"}`
                     : `relative flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 transition-colors hover:bg-hover ${on ? "text-fg after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-focus" : "text-fg-muted"}`}>
             {tab.label}

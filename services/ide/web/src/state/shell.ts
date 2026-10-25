@@ -1,8 +1,9 @@
 // The shell's state: which tool window is open on each side (one per side, as IntelliJ without split
 // mode), the last one opened there, each side's size in pixels, the island the user last worked in,
 // and the command palette. Sides and sizes persist in browser storage when it is available. The Paper
-// panel is a page of its own: its bottom and right tool windows are its own, so the bottom and right
-// sides of the page not showing wait in `away` and come back when it shows again.
+// page is a page of its own, laid out in cards with no bottom tool window and only the Agent at the
+// right, so the bottom and right sides of the page not showing wait in `away` and come back when it
+// shows again.
 import { atom, persistedAtom, useAtom } from "./atom";
 
 export type Side = "left" | "right" | "bottom";
@@ -16,8 +17,8 @@ const DEFAULTS: ShellState = {
   last: { left: "versions", right: "inspector", bottom: "progress" },
   size: { left: 400, right: 420, bottom: 260 },
 };
-// The Paper page's sides before it first shows: its events under the panel, the run's details closed.
-const PAPER_AWAY: Away = { open: { right: null, bottom: "events" }, last: { right: "paper-run", bottom: "events" } };
+// The Paper page's sides before it first shows: both closed, the Agent ready at the right.
+const PAPER_AWAY: Away = { open: { right: null, bottom: null }, last: { right: "agent", bottom: DEFAULTS.last.bottom } };
 const onPaper = (s: ShellState) => s.last.left === "paper";
 
 const isState = (v: unknown): v is ShellState => {
@@ -26,7 +27,7 @@ const isState = (v: unknown): v is ShellState => {
     && (s.open?.[side] === null || typeof s.open?.[side] === "string"));
 };
 
-export const shell = persistedAtom<ShellState>("rg-shell@1", DEFAULTS, isState);
+export const shell = persistedAtom<ShellState>("rg-shell@2", DEFAULTS, isState);
 export const useShell = () => useAtom(shell);
 /** Whether the editor shows the Paper page (the graph's version context does not apply there). */
 export const useOnPaperPage = () => onPaper(useAtom(shell));
@@ -59,7 +60,7 @@ export function toggleSide(side: Side): void {
   update((s) => ({ ...s, open: { ...s.open, [side]: s.open[side] ? null : s.last[side] } }));
 }
 
-/** The Paper panel in the editor: no left tool window, as the panel is the whole view (shell/Editor.tsx). */
+/** The Paper page in place of the editor: no left tool window, as the page is the whole view (shell/Shell.tsx). */
 export const showPaperPanel = () => update((s) => ({ ...s, open: { ...s.open, left: null }, last: { ...s.last, left: "paper" } }));
 
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
