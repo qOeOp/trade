@@ -18,7 +18,7 @@ export function MetricStrip({ items }: { items: readonly Metric[] }) {
       {items.map((m) => (
         <div key={m.label} className="flex items-baseline justify-between gap-2.5 whitespace-nowrap border-l border-line-strong px-2.5 py-1.5">
           <span className="text-fg-faint">{m.label}</span>
-          <span style={{ color: v(m.tone ?? "fg") }}>{m.value == null ? <Missing /> : <NumberFlow value={m.value} format={m.format} />}</span>
+          <span style={{ color: v(m.tone ?? "fg") }}>{m.value == null ? <Missing /> : <NumberFlow value={m.value} format={m.format} locales="en-US" />}</span>
         </div>
       ))}
       </div>

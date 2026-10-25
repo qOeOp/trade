@@ -1438,6 +1438,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "runs [{paper_id, candidate, source_sha256, symbols, state (running, ended, unsealed or sealed), "
         "created_at, image_ref, status, reasons, total_return, max_drawdown}], running, limit",
         "RUNTIME_UNAVAILABLE (docker did not answer)"),
+    ("paper", "serve"): (
+        "the paper runs, their seals and a candidate's last research replay (reader); each run's directory and "
+        "capture bundle; this ledger's paper containers on Docker",
+        "nothing itself: a start, stop or seal from the page, and the seal of a run that ended on its own, run "
+        "paper start, stop or seal (their writes)",
+        "nothing until stopped; over HTTP on loopback, /api/paper/ lists the runs, streams a run's journal and "
+        "readings, and answers a start or stop with that command's result",
+        "USAGE_ERROR (a --host that is not loopback); over HTTP: FORBIDDEN (a Host or origin not allowed), "
+        "NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the start, stop and seal refusals"),
 }
 
 
@@ -1810,7 +1819,7 @@ def _parser() -> Parser:
                          help="most bar periods returned inline (default: 1440, one day of minutes)")
     command.add_argument("--output", help="new JSON file under the temporary root for the whole interval")
 
-    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list")
+    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list, serve")
     command = verb(paper, "start", "declare a paper run of a candidate and start its containers")
     command.epilog = textwrap.fill(
         "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
@@ -1837,6 +1846,17 @@ def _parser() -> Parser:
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "list", "every paper run with its state and seal readings")
     _ledger_option(command)
+    command = verb(paper, "serve", "serve the ledger's paper runs to the trade IDE's Paper panel")
+    command.epilog = ("Listens on loopback only (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
+                      "seals run this command line, and runs that end on their own are sealed as they are found.")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--host", default="127.0.0.1", help="loopback address to listen on")
+    command.add_argument("--port", type=int, default=8767)
+    command.add_argument("--allow-host", action="append", default=[], dest="hosts",
+                         help="Host header a request may carry (default: 127.0.0.1, localhost and "
+                              "host.docker.internal at PORT); repeatable")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
 
     for noun_name, group in groups.items():
         for verb_name, command in group.choices.items():
@@ -1992,6 +2012,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.seal(profile, args.paper_id), 0
         if args.verb == "list":
             return paper_runs.listing(profile), 0
+        if args.verb == "serve":
+            from paper import serve
+            serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
+                        args.runtime)
     raise UsageError(f"unknown command {args.noun} {args.verb}")
 
 

@@ -1,7 +1,13 @@
 // Every icon the page uses, by name: Lucide's line icons (lucide-static, pinned in package.json; see
 // NOTICE.md). Explicit ?raw imports, so a missing file fails the build. Each file keeps its
 // "@license lucide-static" comment in the built page.
+import activity from "lucide-static/icons/activity.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
+import calendarDays from "lucide-static/icons/calendar-days.svg?raw";
+import info from "lucide-static/icons/info.svg?raw";
+import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
+import wallet from "lucide-static/icons/wallet.svg?raw";
+import scrollText from "lucide-static/icons/scroll-text.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
 import circleCheck from "lucide-static/icons/circle-check.svg?raw";
@@ -84,6 +90,15 @@ export const ICONS = {
   "new-chat": { svg: messageSquarePlus },
   history: { svg: history },
   plus: { svg: plus },
+  "tool.paper": { svg: activity },
+  "tool.events": { svg: scrollText },
+  "tool.positions": { svg: wallet },
+  warning: { svg: triangleAlert },
+  "tool.calendar": { svg: calendarDays },
+  "tool.run": { svg: info },
+  // IntelliJ's run and pause marks, filled: Lucide's outlines read as media controls.
+  run: { svg: '<svg><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></svg>' },
+  pause: { svg: '<svg><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/></svg>' },
   // A filled square, as stop buttons draw it: Lucide's outline square reads as a checkbox.
   stop: { svg: '<svg><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></svg>' },
   edit: { svg: pencil },

@@ -4,6 +4,7 @@ import type { LineageWidget } from "../model/types";
 import { useAtom } from "../state/atom";
 import { select } from "../state/selection";
 import { paletteOpen } from "../state/shell";
+import { ACTIVE, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { Kbd } from "../components/Kbd";
 import { VersionLine } from "../components/VersionLine";
 import type { Action } from "./commands";
@@ -13,6 +14,9 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
   const open = useAtom(paletteOpen);
   const nodes = useMemo(() => [...(lineage?.nodes ?? [])].sort((a, b) => (b.x ?? -1) - (a.x ?? -1)), [lineage]);
   const close = (run: () => void) => () => { paletteOpen.set(false); run(); };
+  const paper = usePaperService() === "present";
+  const runs = usePaperRuns()?.runs.filter((r) => ACTIVE.has(r.state)) ?? [];
+  const busy = new Set(runs.map((r) => r.candidate));
   return (
     <Command.Dialog open={open} onOpenChange={paletteOpen.set} label="Go to a version or run a command"
                     overlayClassName="fixed inset-0 z-40 bg-scrim"
@@ -27,6 +31,18 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
             </Command.Item>
           ))}
         </Command.Group>
+        {paper && (
+          <Command.Group heading="Paper">
+            {runs.map((r) => (
+              <Command.Item key={`stop:${r.paper_id}`} value={`Stop paper: ${r.candidate}`} onSelect={close(() => stopDialog.set(r))}
+                            className="flex cursor-pointer items-center rounded-control px-2.5 py-1.5 text-fg-muted">Stop paper: {r.candidate}</Command.Item>
+            ))}
+            {nodes.filter((n) => !busy.has(n.id)).map((n) => (
+              <Command.Item key={`run:${n.id}`} value={`Run paper: ${n.id}`} onSelect={close(() => void startPaper(n.id))}
+                            className="flex cursor-pointer items-center rounded-control px-2.5 py-1.5 text-fg-muted">Run paper: {n.id}</Command.Item>
+            ))}
+          </Command.Group>
+        )}
         <Command.Group heading={`Versions · ${nodes.length}`}>
           {nodes.map((n) => (
             <Command.Item key={n.id} value={`${n.id} ${n.change ?? ""}`} onSelect={close(() => select(n.id, { reveal: true }))}

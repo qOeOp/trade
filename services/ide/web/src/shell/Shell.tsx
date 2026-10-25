@@ -4,6 +4,10 @@ import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
 import { useAgentService } from "../state/agent";
+import { useAtom } from "../state/atom";
+import { selectedRun, usePaperRuns, usePaperService } from "../state/paper";
+import { PaperDialogs } from "../components/PaperDialogs";
+import { CALENDAR_DAYS } from "../widgets/paper/Calendar";
 import { setSideSize, useShell, type Side } from "../state/shell";
 import { AgentRuntime } from "./agent/AgentRuntime";
 import { CommandPalette } from "./CommandPalette";
@@ -29,8 +33,14 @@ export function Shell() {
   const view = useView();
   const lineage = useWidget<LineageWidget>("lineage@2");
   const agent = useAgentService() === "present";
-  const windows = useMemo(() => toolWindows(view.widgets, agent), [view, agent]);
-  const { open, size } = useShell();
+  const paper = usePaperService() === "present";
+  const paperId = useAtom(selectedRun);
+  const run = usePaperRuns()?.runs.find((r) => r.paper_id === paperId);
+  const started = run?.seal?.started_ns ?? run?.live?.started_ns ?? null;
+  const calendar = started !== null && (run?.seal?.stopped_ns ?? Date.now() * 1e6) - started >= CALENDAR_DAYS * 86_400e9;
+  const { open, last, size } = useShell();
+  const page = paper && last.left === "paper";
+  const windows = useMemo(() => toolWindows(view.widgets, agent, page ? { calendar } : null), [view, agent, page, calendar]);
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);
@@ -69,6 +79,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <CommandPalette lineage={lineage} actions={actions} />
+      {paper && <PaperDialogs />}
     </div>
   );
   // The chat runtime sits above the islands, so a thread keeps streaming while its window is closed.

@@ -93,6 +93,18 @@ def paper_runs(conn: db.LedgerConnection) -> list[dict]:
     return [{**row, "seal": seal_of(conn, row["paper_id"])} for row in rows]
 
 
+def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict | None:
+    """The contracts of the source's latest research replay that ran ({trial_id, symbols}), or None: what a
+    paper run of the version's last configuration trades."""
+    found = conn.one("SELECT t.trial_id, t.instruments FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+                     "WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY t.trial_id DESC LIMIT 1",
+                     (source_sha256,))
+    if found is None:
+        return None
+    symbols = json.loads(found["instruments"]) if isinstance(found["instruments"], str) else found["instruments"]
+    return {"trial_id": found["trial_id"], "symbols": symbols}
+
+
 # Readings
 
 def _decimal(value) -> Decimal | None:
@@ -135,6 +147,27 @@ def _funding(settlement: dict) -> Decimal:
     return -held_qty * mark * rate
 
 
+def equity_path(lines: list[dict]) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
+    """The account's equity at each journalled minute (balance, open profit and the funding Sandbox does not
+    settle) and each settlement's funding cash flow, by time."""
+    settlements = sorted((line for line in lines if line["kind"] == "funding_settlement"),
+                         key=lambda line: line.get("settlement_ns") or 0)
+    funding_by_ns = [(line.get("settlement_ns") or 0, _funding(line)) for line in settlements]
+    path: list[tuple[int, Decimal]] = []
+    applied, funding = 0, Decimal(0)
+    for line in sorted((line for line in lines if line["kind"] == "snapshot"), key=lambda line: line.get("minute_ns") or 0):
+        balance, unrealized = _decimal(line.get("balance_total")), _decimal(line.get("unrealized_pnl"))
+        if balance is None or unrealized is None:
+            continue
+        minute = line.get("minute_ns") or 0
+        # A snapshot is taken as its minute ends: it carries every settlement up to that moment.
+        while applied < len(funding_by_ns) and funding_by_ns[applied][0] <= minute + 60 * 10**9:
+            funding += funding_by_ns[applied][1]
+            applied += 1
+        path.append((minute, balance + unrealized + funding))
+    return path, funding_by_ns
+
+
 def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None, exit_code: int | None,
              egress: bytes | None, start_failed: bool = False) -> dict:
     """seal.json: the run's status with its reasons, and the readings computed once at sealing."""
@@ -168,21 +201,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         reasons.append("EGRESS_DENIED")
 
     starting = _decimal(((summary or {}).get("account") or {}).get("starting_balance_usdt")) or Decimal(100000)
-    settlements = sorted((line for line in lines if line["kind"] == "funding_settlement"),
-                         key=lambda line: line.get("settlement_ns") or 0)
-    funding_by_ns = [(line.get("settlement_ns") or 0, _funding(line)) for line in settlements]
-    path: list[tuple[int, Decimal]] = []
-    applied, funding = 0, Decimal(0)
-    for line in sorted((line for line in lines if line["kind"] == "snapshot"), key=lambda line: line.get("minute_ns") or 0):
-        balance, unrealized = _decimal(line.get("balance_total")), _decimal(line.get("unrealized_pnl"))
-        if balance is None or unrealized is None:
-            continue
-        minute = line.get("minute_ns") or 0
-        # A snapshot is taken as its minute ends: it carries every settlement up to that moment.
-        while applied < len(funding_by_ns) and funding_by_ns[applied][0] <= minute + 60 * 10**9:
-            funding += funding_by_ns[applied][1]
-            applied += 1
-        path.append((minute, balance + unrealized + funding))
+    path, funding_by_ns = equity_path(lines)
     funding_total = sum((flow for _, flow in funding_by_ns), Decimal(0))
     final = None
     if summary is not None and _decimal(summary.get("balance_total")) is not None:
@@ -214,7 +233,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "stop_reason": stop_reason, "runner_exit_code": exit_code,
         "starting_balance_usdt": str(starting), "final_equity_usdt": str(final) if final is not None else None,
         "total_return": float(final / starting - 1) if final is not None else None,
-        "max_drawdown": float(drawdown), "funding_usdt": str(funding_total), "funding_settlements": len(settlements),
+        "max_drawdown": float(drawdown), "funding_usdt": str(funding_total), "funding_settlements": len(funding_by_ns),
         "daily_returns": returns, "fills": orders.get("OrderFilled", 0),
         "orders_submitted": orders.get("OrderSubmitted", 0),
         "orders_rejected_or_denied": orders.get("OrderRejected", 0) + orders.get("OrderDenied", 0),

@@ -265,6 +265,7 @@ def listing(profile: db.LedgerProfile) -> dict:
         runs.append({"paper_id": row["paper_id"], "candidate": row["config"].get("candidate"),
                      "source_sha256": row["source_sha256"], "symbols": row["symbols"], "state": state,
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
+                     "market_commit": row["market_commit"], "config": row["config"],
                      "status": seal_row.get("status"), "reasons": seal_row.get("reasons"),
                      "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown")})
     return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"), "limit": MAX_RUNNING}

@@ -10,7 +10,7 @@ node and npm:
 python3 services/ide/ide.py check GRAPH.json
 python3 services/ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 services/ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE] [--agent=URL]
+python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE] [--agent=URL] [--paper=URL]
 node services/ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 ```
 
@@ -42,6 +42,14 @@ list, and the model can do nothing else. It checks the same Host and cross-site 
 only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 [`docs/plans/product-agent-chat-design.zh.md`](../../docs/plans/product-agent-chat-design.zh.md).
 
+With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
+serve`, on the host, loopback port 8767 by default; `paper/serve.py`), and the page gets the Paper
+panel: ▶ and ⏸ on each version, the runs, their charts and events. A POST there must come from the
+page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
+put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
+stops and seals runs through the command line, and seals runs that ended on their own. Design:
+[`docs/plans/paper-trading-design.zh.md`](../../docs/plans/paper-trading-design.zh.md).
+
 The Docker image (`docker/`, built by CI as `ghcr.io/qoeop/trade-ide`) runs it on a
 read-only copy of the public DoltHub databases:
 
@@ -53,7 +61,9 @@ docker compose -f services/ide/docker/compose.yaml pull && docker compose -f ser
 The first start clones both databases into the `trade-ide-data` volume (the market is several
 GB); later starts reuse them. The image also runs the chat service on 127.0.0.1:8766 inside the
 container, with the reader-only accounts, so the database refuses any write; its agents and
-threads live in the same volume under `agent/`.
+threads live in the same volume under `agent/`. Its compose file points `--paper` at
+`host.docker.internal:8767` (Docker Desktop forwards it to the host's loopback); start the daemon on
+the host with `uv run python -m cli.main paper serve` to get the Paper panel.
 
 ## Stages
 

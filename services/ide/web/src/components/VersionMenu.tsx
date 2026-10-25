@@ -6,6 +6,7 @@ import type { IconName } from "../icons/registry";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
+import { activeRun, startDialog, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { showToolWindow } from "../state/shell";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
@@ -21,6 +22,8 @@ function Item({ icon, label, run }: { icon?: IconName; label: string; run: () =>
 /** The right-click menu of a version, the same wherever the version appears. */
 export function VersionMenu({ id, children }: { id: string; children: ReactElement }) {
   const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
+  const paper = usePaperService() === "present";
+  const run = activeRun(usePaperRuns(), id);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
@@ -30,6 +33,13 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           <Item icon="locate" label="Locate in graph" run={() => { select(id); showLineage(); requestFocus(id); }} />
           <Item icon="tool.inspector" label="Show in details" run={() => { select(id); showToolWindow("inspector", "right"); }} />
           <Item icon="file.python" label="Open source" run={() => openSource(id)} />
+          {paper && <>
+            <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
+            {run ? <Item icon="pause" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>
+              <Item icon="run" label="Run paper" run={() => void startPaper(id)} />
+              <Item label="Run paper with…" run={() => startDialog.set(id)} />
+            </>}
+          </>}
           <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
           <Item icon="copy" label="Copy version name" run={() => void copyText(id)} />
           <Item label="Copy link" run={() => void copyText(link)} />

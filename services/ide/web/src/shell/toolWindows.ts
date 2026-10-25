@@ -2,6 +2,7 @@
 // its stripe icon and shortcut, and its header actions. A widget type with no tool window and no
 // other place becomes a bottom tool window that names it. The Agent window is fed by the chat
 // service instead of the view, so it appears only when the page's server has one.
+import type { ComponentType } from "react";
 import type { Widget } from "../model/types";
 import type { IconName } from "../icons/registry";
 import type { HeaderAction } from "../components/PanelHeader";
@@ -13,10 +14,17 @@ import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
 import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
 import { AgentWindow } from "./agent/AgentWindow";
+import { Calendar } from "../widgets/paper/Calendar";
+import { ContractScope } from "../widgets/paper/ContractScope";
+import { Events, EventsTools } from "../widgets/paper/Events";
+import { RunDetails } from "../widgets/paper/RunDetails";
+import { Positions } from "../widgets/paper/Positions";
 
 export type ToolWindow = {
   id: string; side: Side; icon: IconName; shortcut?: { keys: string; binding: string };
   source: string; renderer: Renderer; actions: () => HeaderAction[];
+  /** Controls the header shows between its title and its actions. */
+  tools?: ComponentType;
   /** State the header actions read, so the header redraws when it changes. */
   watch?: Atom<unknown>;
 };
@@ -56,12 +64,23 @@ const AGENT: ToolWindow = {
   ],
 };
 
+// The Paper panel's tool windows, fed by the paper daemon like the Agent window by the chat service.
+const paperWindow = (id: string, side: Side, icon: IconName, title: string, Component: Renderer["Component"], shortcut?: ToolWindow["shortcut"], tools?: ComponentType): ToolWindow =>
+  ({ id, side, icon, shortcut, source: id, renderer: { title, Component }, actions: () => [hide(side)], tools });
+const PAPER = [
+  paperWindow("events", "bottom", "tool.events", "Events", Events, alt(9), EventsTools),
+  paperWindow("positions", "bottom", "tool.positions", "Positions", Positions, undefined, ContractScope),
+];
+const CALENDAR = paperWindow("calendar", "bottom", "tool.calendar", "Calendar", Calendar);
+const RUN = paperWindow("paper-run", "right", "tool.run", "Paper run", RunDetails);
+
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
 export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
-/** The tool windows this view feeds, in stripe order, each with the widget it shows; with a chat
- *  service, the Agent window last on the right. */
-export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWindow & { widget: Widget })[] {
+/** The tool windows of the page showing, in stripe order, each with the widget it shows: the left
+ *  side's on every page; then the graph's, or on the Paper page (`paper`) its own (the Calendar once
+ *  the open run is a week old); with a chat service, the Agent window last on the right. */
+export function toolWindows(widgets: readonly Widget[], agent = false, paper: { calendar: boolean } | null = null): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     return widget ? [{ ...s, widget }] : [];
@@ -71,5 +90,8 @@ export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWin
     id: `unknown:${widget.type}`, side: "bottom" as const, icon: "tool.gaps" as const, source: widget.type,
     renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
   }));
-  return [...known, ...(agent ? [{ ...AGENT, widget: { id: "agent", type: "agent" } }] : []), ...unknown];
+  const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
+  const agents = agent ? [own(AGENT)] : [];
+  if (!paper) return [...known, ...agents, ...unknown];
+  return [...known.filter((w) => w.side === "left"), ...[...PAPER, ...(paper.calendar ? [CALENDAR] : []), RUN].map(own), ...agents];
 }
