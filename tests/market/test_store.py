@@ -500,5 +500,102 @@ class LaterImportTests(unittest.TestCase):
                          [{k: v for k, v in r.items() if k not in drop} for r in one])
 
 
+@unittest.skipUnless(BINARY, SKIP)
+class BackfillTests(unittest.TestCase):
+    """The month just before the earliest stored one, imported after the fact: insert only, the stored
+    commits untouched, and the result the forward import from that month gives."""
+
+    SCOPE = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
+    TABLES = ("bar", "funding", "universe_month")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = TemporaryMarket("market_backfill")
+        cls.addClassCleanup(cls.fixture.close)
+        cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        cls.addClassCleanup(shutil.rmtree, cls.cache, True)
+        cls.exchange = exchange()
+        cls.forward = cls.fixture.add("market_forward")
+        cls.backfilled = cls.fixture.add("market_backfilled")
+        with serving(cls.exchange):
+            for month in (JAN, FEB, MAR):
+                cls.imported(cls.forward, month)
+            cls.feb = cls.imported(cls.backfilled, FEB)
+            cls.jan = cls.imported(cls.backfilled, JAN)
+            cls.mar = cls.imported(cls.backfilled, MAR)
+        cls.count = 0
+
+    @classmethod
+    def imported(cls, profile: dict, month: date, scope=None) -> dict:
+        return store.import_month(profile, month, cls.cache, 1, scope or cls.SCOPE, log=lambda line: None)
+
+    def sql(self, profile: dict, statement: str, params=None) -> list[tuple]:
+        return self.fixture.admin(profile, statement, params)
+
+    def head(self, profile: dict) -> str:
+        return self.sql(profile, "SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0]
+
+    def refused(self, code: str, profile: dict, month: date, scope=None) -> MarketError:
+        before = self.head(profile)
+        with serving(self.exchange), self.assertRaises(MarketError) as caught:
+            self.imported(profile, month, scope)
+        self.assertEqual(caught.exception.code, code, caught.exception.message)
+        self.assertEqual(self.head(profile), before)
+        return caught.exception
+
+    def database(self, *months: date) -> dict:
+        type(self).count += 1
+        profile = self.fixture.add(f"market_backfill_{self.count}")
+        with serving(self.exchange):
+            for month in months:
+                self.imported(profile, month)
+        return profile
+
+    def committed(self, profile: dict, statement: str, params=None) -> None:
+        self.sql(profile, statement, params)
+        self.sql(profile, "CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'changed by hand')")
+
+    def test_a_backfill_ends_where_the_forward_import_does(self):
+        for table in self.TABLES:
+            with self.subTest(table=table):
+                self.assertEqual(self.sql(self.backfilled, "SELECT DOLT_HASHOF_TABLE(%s)", (table,)),
+                                 self.sql(self.forward, "SELECT DOLT_HASHOF_TABLE(%s)", (table,)))
+        terms = "SELECT * FROM instrument ORDER BY symbol, observed_at"  # equal but for when they were observed
+        self.assertEqual([row[:1] + row[2:] for row in self.sql(self.backfilled, terms)],
+                         [row[:1] + row[2:] for row in self.sql(self.forward, terms)])
+        self.assertEqual(self.jan["universe_members"], [])  # the new first month
+        self.assertEqual(self.jan["universe_filled"], {"2025-02": ["BTCUSDT", "CCCUSDT"]})
+        self.assertEqual(self.jan["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
+        self.assertEqual(self.mar["universe_members"], ["BBBUSDT", "BTCUSDT"])
+        self.assertEqual(store.freshness(self.backfilled)["universe_months"], ["2025-02", "2025-03"])
+
+    def test_the_stored_commits_stay_as_they_were(self):
+        feb = self.feb["market_commit"]
+        self.assertEqual(self.feb["universe_members"], [])
+        self.assertEqual(self.sql(self.backfilled, f"SELECT COUNT(*) FROM universe_month AS OF '{feb}'"), [(0,)])
+        self.assertEqual(self.sql(self.backfilled, f"SELECT MIN(ts_open) FROM bar AS OF '{feb}'"), [(day_ms(FEB),)])
+        self.assertEqual(self.sql(self.backfilled, "SELECT DOLT_MERGE_BASE(%s, 'main')", (feb,)), [(feb,)])
+        with store.connect(self.backfilled, "reader") as conn:
+            self.assertEqual([item["month"] for item in store.imports(conn)], ["2025-02", "2025-01", "2025-03"])
+
+    def test_months_extend_only_at_either_end(self):
+        self.refused("MONTH_EXISTS", self.backfilled, JAN)
+        self.refused("MONTH_INVALID", self.backfilled, date(2024, 11, 1))  # a month left out
+        self.refused("IMPORT_SCOPE", self.backfilled, date(2024, 12, 1), scope=["BTCUSDT"])
+        later = self.database(MAR)
+        self.refused("MONTH_INVALID", later, JAN)
+
+    def test_a_backfill_refuses_rows_already_in_its_month(self):
+        profile = self.database(FEB)
+        self.committed(profile, "INSERT INTO funding VALUES ('BTCUSDT', %s, 0.0001)", (day_ms(JAN) + 3,))
+        failed = self.refused("MONTH_EXISTS", profile, JAN)
+        self.assertEqual(failed.missing, ("2025-01", "BTCUSDT"))
+
+    def test_a_backfill_refuses_members_a_month_had_before_its_look_back(self):
+        profile = self.database(FEB, MAR)
+        self.committed(profile, "INSERT INTO universe_month VALUES (%s, '2025-02-01', 'BTCUSDT')", (universe.RULE,))
+        self.refused("UNIVERSE_CHANGED", profile, JAN)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -609,12 +609,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "pass the hash.",)),
     "MARKET_COMMIT": ("The export's market reference does not resolve to a commit of the market database.",
                       ("Pass a commit, tag or branch of the market database named by --market.",)),
-    "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or does "
-                      "not follow the stored months in order.",
-                      ("Import the months in order, one `market import --month YYYY-MM` each.",)),
-    "MONTH_EXISTS": ("The market database already holds that month through its end, or the sources reread for the "
-                     "month's stored part differ from the stored rows.",
-                     ("Import the next month; a stored month is never rewritten.",)),
+    "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
+                      "neither the latest stored month, the month after it nor the month just before the earliest.",
+                      ("Import the month after the latest or the month before the earliest, one `market import "
+                       "--month YYYY-MM` each.",)),
+    "MONTH_EXISTS": ("The market database already holds that month through its end, the sources reread for the "
+                     "month's stored part differ from the stored rows, or a month to backfill already holds rows.",
+                     ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
     "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version, or holds quotes of another "
                               "quote rule version, than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
