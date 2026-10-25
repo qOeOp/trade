@@ -299,6 +299,28 @@ the orders report writes an absent contingency or emulation trigger as empty (rc
 `NO_CONTINGENCY`, `NO_TRIGGER`), and the account report no longer repeats each funding
 settlement's state as a second `reported=False` row.
 
+## Paper trading
+
+`python -m engine.paper` runs one complete strategy source, constructed as a replay constructs it, in a
+Nautilus `LiveNode` on live Binance USD-M public data (no key) with the Sandbox's simulated fills: the
+user's authorization of 2026-10-25 covers exactly this, and nothing else live
+(`docs/plans/paper-trading-design.zh.md`). It refuses to start while any exchange credential variable is
+in its environment, so start it with an allowlisted one:
+
+```bash
+env -i PATH="$PATH" HOME="$HOME" TMPDIR="$TMPDIR" uv run --frozen python -m engine.paper \
+  --strategy-file S.py --strategy-class C --strategy-sha256 H --symbols BTCUSDT \
+  --universe membership.json --maker-fee 0.0002 --taker-fee 0.0005 --output /tmp/paper-run
+```
+
+The Sandbox takes the replay's account, fill model, book type and bar ordering, and the given maker and
+taker rates (the market's assumption, which a replay reads from its export receipts). The strategy sees
+the replay's cadence: the first MARK update of each minute and one funding update per settlement. The
+Sandbox settles no funding; `events.jsonl` records each settlement with the positions it applies to.
+`STOP` in the output directory, SIGTERM, SIGINT or `--duration-seconds` cancels the working orders,
+waits for the cancels and stops the node; positions stay open and are valued at their latest MARK in
+`summary.json`.
+
 ## History
 
 `runtime.image.LAYOUTS` knows only `replay-contract@v7`; no image or seal of an earlier contract is read

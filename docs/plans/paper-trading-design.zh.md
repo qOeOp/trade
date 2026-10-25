@@ -10,7 +10,7 @@
 
 ## 结论
 
-- **能做，而且不用自己写撮合和账户。** 锁定的 `nautilus_trader==2.0.0rc3` 已经带齐了：实时节点 `LiveNode`；
+- **能做，而且不用自己写撮合和账户。** 锁定的 `nautilus_trader==2.0.0rc7`（10-25 从 rc3 升上来，#1722）已经带齐了：实时节点 `LiveNode`；
   Binance 行情客户端 `BinanceDataClientFactory`（`api_key` 可以不填，只读公开行情）；模拟成交客户端
   `SandboxExecutionClientFactory`，通过 `LiveNodeBuilder.add_simulated_exec_client` 接入，自带模拟账户、
   `bar_execution`、`fee_model`、`default_leverage`。回放里那个 `nautilus_trader.trading.Strategy` 子类原样
@@ -251,6 +251,18 @@ Agent 做不到的事。这里同时占了两条：
 | 9 | Sandbox 是否结算资金费 | **不结算**。持多 0.01 BTC 跨过 08:00 UTC，当期费率 +0.00006047，应付约 0.049 USDT；账户总额前后都是 99,999.597127 USDT | 资金费由封存读数补上：按实时收到的结算费率、结算时刻的持仓和标记价逐期算出，单列成一项。看盘面板的净值同样扣除；运行概要写明 Sandbox 账户本身不含资金费 |
 | 10 | 停止 | `LiveNode.handle().stop()` 正常退出，`on_stop` 会执行；但挂单和持仓留在 cache 里（`Residual …` 警告），Nautilus 不替我们撤 | ⏸ 的「撤挂单、持仓按最后成交价记账」由运行器在停止前做：先撤单，等撤单回报，再读持仓 |
 | 11 | 线程 | `PyLiveNode` 不可跨线程，在别的线程调 `node.handle()` 会让进程中止（pyo3 断言）。要先在主线程取到 handle，别的线程只调 `handle.stop()` | 守护进程停运行走信号或 handle，不碰 node 对象 |
+
+### 6.1 升到 2.0.0rc7 后重测（2026-10-25）
+
+rc3 的 Sandbox 在实时分发下启用 bracket 的止损和止盈时，节点还没记上入场成交，于是把这两张只减仓单当成加仓拒掉
+（上游 #5248，rc7 已修）。为此模拟盘暂停，先升级 Nautilus（#1722），再在 rc7 上用 `engine.paper` 本身重跑：
+
+- 市价入场成交后，止损和止盈都被接受，Sandbox 保持只减仓检查（`use_reduce_only` 默认开），运行器不再自己核对只减仓成交；
+- 费率不再挂在合约上，Sandbox 收 `fee_model`：运行器传入市场库假设的费率（`--maker-fee`、`--taker-fee`），0.01 BTC
+  市价单记 TAKER 佣金 0.401 USDT，与 0.0005 一致；`fill_model`、`book_type` 和 K 线高低点顺序也与回放相同；
+- 订单事件在 `on_bar` 提交时同步发出，此时策略对象还被借用，读 `self.strategy_id` 会抛 `Already mutably borrowed`；
+  记录订单和持仓事件改读事件自带的 `strategy_id`；
+- 停止时先撤两张挂单、等撤单回报，再停节点；持仓按最新标记价写进概要。
 
 没有探测、留给实现 PR：断线重连后会不会补发缺失的 K 线（要人为断网）；Sandbox 有没有强平（1 倍杠杆下很难
 触发）；跨月成员表的更新方式（§3）。
