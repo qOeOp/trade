@@ -270,6 +270,8 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 推荐版本连续若干次研究运行都没变（次数与 REVIEW_DUE 的固定次数相同），而且这几次比较的 `mean_daily_log_difference` 都落在各自的 `detectable_mean_log_difference_80pct_normal_approx` 以内，Agent 就停止登记线内变体，经 research-start 把这条线连同其他选项交给你选，等你回答。
 
+交给你选就是走 research-start 的列线：先读账本（`candidate list`、`research state` 里的最新推荐），把这条线和账本里其他候选能起的线一起列出，各带报告读数；Agent 自己想到的线内新范围或新起点只是其中几项，不能代替这份列表。
+
 条件只用已经发生的事实：推荐有没有变、每次差异是否小于可检出差。早先的写法是「线内已没有任何改动能超过可检出差」，那是对还没跑的实验下结论，Agent 永远无法确认，所以从来不触发。换线由你选，不是 Agent 宣布方向无效；它也不按次数或预算叫停（<Ref id="F.3.1.2" />）。
 
 <div className="rd-example">

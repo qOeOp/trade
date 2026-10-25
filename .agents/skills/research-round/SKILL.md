@@ -65,8 +65,9 @@ judgments do not end the loop. Stop only for the user, an authority boundary or 
 A line change is due when the recommended version has stayed the same across as many consecutive
 research runs as `REVIEW_DUE` counts and each of those runs' `mean_daily_log_difference` lies
 within its `detectable_mean_log_difference_80pct_normal_approx`
-([feedback.md](references/feedback.md)): stop registering and offer the line beside the other
-options through `research-start`. Trial counts and budgets do not reject a research direction;
+([feedback.md](references/feedback.md)): stop registering, read `research-start` and follow its
+Offer lines and wait, ledger reads included, before asking the user. Options you draft within
+this line do not replace its offer. Trial counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
 
 ## Evidence and records
