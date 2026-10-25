@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Checklist, FormButton, Segmented, TextField } from "../../components/chat/Field";
+import { Checklist, FieldLabel, FormButton, Segmented, TextField } from "../../components/chat/Field";
 import { agentApi, ApiError, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
 import { replaceAgent } from "../../state/agent";
 import { BRAND_TONE } from "../../icons/brands";
@@ -64,7 +64,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
       </FormButton>
       {listed.length > 0 && (
         <div className="space-y-1">
-          <span className="text-dense text-fg-muted">Models ({models.size} chosen)</span>
+          <FieldLabel>Models ({models.size} chosen)</FieldLabel>
           <Checklist items={listed} checked={models} onToggle={toggle} star={star} onStar={setStar} />
         </div>
       )}
