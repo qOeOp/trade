@@ -42,11 +42,12 @@ export function ToolCard({ toolName, result, status }: ToolCallMessagePartProps)
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} className="rounded-control border border-line">
       <Collapsible.Trigger disabled={running}
-        className="flex w-full min-w-0 items-center gap-2 rounded-control px-3 py-1 text-left text-dense transition-colors hover:bg-row-hover active:bg-hover disabled:hover:bg-transparent">
-        <Icon name={running ? "untested" : failed ? "failed" : "tool"} tone={failed ? "fail" : "icon"} />
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-control px-3 py-1 text-left text-dense transition-colors hover:bg-row-hover active:bg-hover disabled:hover:bg-transparent">
+        {/* 12px icons, as everywhere beside 12px text; the status icons take the wrench's place at the same size. */}
+        <Icon name={running ? "untested" : failed ? "failed" : "tool"} size={12} tone={failed ? "fail" : "icon"} />
         <span className="shrink-0 font-mono text-fg">{toolName}</span>
         <span className="min-w-0 truncate font-mono text-fg-faint">{running ? "running…" : own(done?.command ?? "")}</span>
-        {!running && <span className={`ml-auto grid text-icon transition-transform ${open ? "rotate-90" : ""}`}><Icon name="chevron-right" /></span>}
+        {!running && <span className={`ml-auto grid text-icon transition-transform ${open ? "rotate-90" : ""}`}><Icon name="chevron-right" size={12} /></span>}
       </Collapsible.Trigger>
       <Collapsible.Content className="space-y-1 px-3 pb-2">
         <div className="font-mono text-small [overflow-wrap:anywhere] text-fg-muted">{done?.command}</div>
