@@ -69,7 +69,7 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
                    level={level} folder={item.isFolder()} expanded={item.isExpanded()} selected={item.isSelected()}>
             <span className="relative inline-flex"><RunningDot id={id} /><VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} /></span>
             {count > 0 && <span className="ml-1 text-fg-faint">{count}</span>}
-            <span className="ml-auto pl-2"><PaperButton id={id} /></span>
+            <span className="row-end sticky right-0 ml-auto pr-1 pl-2"><PaperButton id={id} /></span>
           </TreeRow>
           </VersionMenu>
         );

@@ -38,8 +38,9 @@ export function Shell() {
   const run = usePaperRuns()?.runs.find((r) => r.paper_id === paperId);
   const started = run?.seal?.started_ns ?? run?.live?.started_ns ?? null;
   const calendar = started !== null && (run?.seal?.stopped_ns ?? Date.now() * 1e6) - started >= CALENDAR_DAYS * 86_400e9;
-  const windows = useMemo(() => toolWindows(view.widgets, agent, paper ? { calendar } : null), [view, agent, paper, calendar]);
-  const { open, size } = useShell();
+  const { open, last, size } = useShell();
+  const page = paper && last.left === "paper";
+  const windows = useMemo(() => toolWindows(view.widgets, agent, page ? { calendar } : null), [view, agent, page, calendar]);
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);

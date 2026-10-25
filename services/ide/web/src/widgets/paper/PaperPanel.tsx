@@ -37,7 +37,9 @@ export function PaperPanel() {
   const fills = useMemo(() => fillsOf(s?.lines ?? []), [s?.lines]);
   const mine = useMemo(() => fills.filter((f) => f.symbol === tab), [fills, tab]);
   const spans = useMemo(() => spansOf(fills, tab ?? ""), [fills, tab]);
-  const orders = useMemo(() => priceLines(s?.state?.orders ?? [], tab ?? ""), [s?.state, tab]);
+  // A sealed run's last snapshot is history: its orders were cancelled and its positions booked at the end.
+  const live = s?.state && !s.seal ? s.state : null;
+  const orders = useMemo(() => priceLines(live?.orders ?? [], tab ?? ""), [live, tab]);
   const wins = useMemo(() => winRate(s?.lines ?? []), [s?.lines]);
   const target = view.targets?.max_drawdown ?? lineage?.targets?.max_drawdown;
 
@@ -47,7 +49,7 @@ export function PaperPanel() {
   }
   const readings = s?.readings ?? run?.live ?? null;
   const reading = run?.state === "sealed" ? run.seal : readings;
-  const held = new Set((s?.state?.positions ?? []).map((p) => symbolOf(p.instrument_id)));
+  const held = new Set((live?.positions ?? []).map((p) => symbolOf(p.instrument_id)));
   const traded = new Set(fills.map((f) => f.symbol));
   const symbols = run?.symbols ?? [];
   const tabbed = symbols.filter((x) => symbols.length <= ALL_TABS || held.has(x) || traded.has(x) || pinned.has(x) || x === tab);

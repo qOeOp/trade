@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
   CandlestickSeries, createChart, createSeriesMarkers, HistogramSeries, LineStyle,
-  type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type SeriesMarker, type Time, type UTCTimestamp,
+  type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type SeriesMarker, type Time, type UTCTimestamp,
 } from "lightweight-charts";
 import { candleOpen, candles as gather } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
@@ -33,12 +33,19 @@ export function CandleChart({ bars, minutes, fills, orders, spans }: {
   const day = useAtom(pickedDay);
   const fillsRef = useRef(fills);
   fillsRef.current = fills;
+  const ordersRef = useRef(orders);
+  ordersRef.current = orders;
 
   useEffect(() => {
     const chart = createChart(host.current!, chartOptions());
     const shade = chart.addSeries(HistogramSeries, { priceScaleId: "spans", priceLineVisible: false, lastValueVisible: false });
     chart.priceScale("spans").applyOptions({ visible: false, scaleMargins: { top: 0, bottom: 0 } });
-    const candles = chart.addSeries(CandlestickSeries, { borderVisible: false, priceLineVisible: false });
+    // The scale takes in the working orders too, so a bracket's stop and target stay in view.
+    const candles = chart.addSeries(CandlestickSeries, { borderVisible: false, priceLineVisible: false, autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
+      const found = base(), prices = ordersRef.current.map((o) => o.price);
+      if (!found?.priceRange || !prices.length) return found;
+      return { ...found, priceRange: { minValue: Math.min(found.priceRange.minValue, ...prices), maxValue: Math.max(found.priceRange.maxValue, ...prices) } };
+    } });
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false }, 1);
     chart.panes()[1]?.setStretchFactor(0.22);
     const markers = createSeriesMarkers(candles, []);
@@ -73,7 +80,8 @@ export function CandleChart({ bars, minutes, fills, orders, spans }: {
     } else {
       a.candles.setData(data.map((k) => ({ ...k, time: at(k.time) })));
       a.volume.setData(data.map(volume));
-      if (data.length) a.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, data.length - VISIBLE), to: data.length + 4 });
+      // As many candle widths as VISIBLE whatever the count, so a young run's few candles stay narrow at the right.
+      if (data.length) a.chart.timeScale().setVisibleLogicalRange({ from: data.length - VISIBLE, to: data.length + 4 });
     }
     a.shown = data.length ? { length: data.length, last: data[data.length - 1]!.time } : null;
     a.shade.setData(data.map((k) => {

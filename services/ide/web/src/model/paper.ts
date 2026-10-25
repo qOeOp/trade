@@ -1,6 +1,6 @@
 // What a paper run's journal means on the page: each line's category and description, the fills as
 // chart markers, the positions as spans, the working orders as price lines and the days as returns.
-import { amount, symbolOf, type JournalLine, type OpenOrder } from "../lib/paperApi";
+import { amount, priceText, symbolOf, type JournalLine, type OpenOrder } from "../lib/paperApi";
 
 export type Category = "system" | "data" | "order" | "position" | "account" | "strategy" | "lifecycle";
 export const CATEGORIES: readonly Category[] = ["system", "data", "order", "position", "account", "strategy", "lifecycle"];
@@ -30,7 +30,7 @@ export function utc(ms: number): string {
 export const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 const last = (value: unknown) => String(value ?? "").split(".").pop() ?? "";  // OrderSide.BUY → BUY
-const qtyPx = (qty: unknown, px: unknown) => `${qty ?? ""}${px != null && px !== "None" ? ` @ ${String(px).split(" ")[0]}` : ""}`;
+const qtyPx = (qty: unknown, px: unknown) => `${qty ?? ""}${px != null && px !== "None" ? ` @ ${priceText(px)}` : ""}`;
 
 /** One line in words, without its time, contract or category. */
 export function describe(line: JournalLine): string {
@@ -46,7 +46,7 @@ export function describe(line: JournalLine): string {
     case "position": {
       const what = String(f.type ?? "").replace(/^Position/, "");
       if (what === "Closed") return `Closed · realized ${String(f.realized_pnl ?? "")}`;
-      return `${what} ${last(f.side)} ${f.signed_qty ?? ""}${f.avg_px_open ? ` · avg ${String(f.avg_px_open)}` : ""}`;
+      return `${what} ${last(f.side)} ${f.signed_qty ?? ""}${f.avg_px_open ? ` · avg ${priceText(f.avg_px_open)}` : ""}`;
     }
     case "data_gap": return `${f.missing_bars} one-minute bars missing`;
     case "late_bar": return `Bar ${Math.round(Number(f.late_ns) / 1e9)} s late`;

@@ -74,9 +74,9 @@ const RUN = paperWindow("paper-run", "right", "tool.run", "Paper run", RunDetail
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
 export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
-/** The tool windows this view feeds, in stripe order, each with the widget it shows; with a chat
- *  service, the Agent window last on the right; with a paper daemon, the Paper panel's (the Calendar
- *  once the open run is a week old). */
+/** The tool windows of the page showing, in stripe order, each with the widget it shows: the left
+ *  side's on every page; then the graph's, or on the Paper page (`paper`) its own (the Calendar once
+ *  the open run is a week old); with a chat service, the Agent window last on the right. */
 export function toolWindows(widgets: readonly Widget[], agent = false, paper: { calendar: boolean } | null = null): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
@@ -88,6 +88,7 @@ export function toolWindows(widgets: readonly Widget[], agent = false, paper: { 
     renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
   }));
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
-  const papers = paper ? [...PAPER, ...(paper.calendar ? [CALENDAR] : []), RUN].map(own) : [];
-  return [...known, ...papers, ...(agent ? [own(AGENT)] : []), ...unknown];
+  const agents = agent ? [own(AGENT)] : [];
+  if (!paper) return [...known, ...agents, ...unknown];
+  return [...known.filter((w) => w.side === "left"), ...[...PAPER, ...(paper.calendar ? [CALENDAR] : []), RUN].map(own), ...agents];
 }

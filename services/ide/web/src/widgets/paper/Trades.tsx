@@ -1,12 +1,12 @@
 import { useMemo } from "react";
-import { amount, symbolOf, type JournalLine } from "../../lib/paperApi";
+import { amount, priceText, symbolOf, type JournalLine } from "../../lib/paperApi";
 import { eventMs, utc } from "../../model/paper";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { Missing } from "../../components/Missing";
 import { useStream } from "../../state/paperStream";
 
 const last = (value: unknown) => (value == null ? "" : String(value).split(".").pop() ?? "");
-const price = (value: unknown) => (value == null || value === "None" ? <Missing /> : String(value).split(" ")[0]);
+const price = (value: unknown) => (value == null || value === "None" ? <Missing /> : priceText(value));
 const money = (value: unknown) => {
   const n = amount(value);
   return n == null ? <Missing /> : <span className={n < 0 ? "text-fail" : n > 0 ? "text-meets" : ""}>{n.toFixed(2)}</span>;
@@ -68,11 +68,22 @@ const POSITION_COLUMNS: Column<Position>[] = [
   position.accessor("ms", { header: "Since (UTC)", cell: (c) => <span className="font-mono text-small text-fg-faint">{utc(c.getValue())}</span> }) as Column<Position>,
 ];
 
-/** Open positions at the last minute, then the closed ones, newest first. */
+/** The positions a sealed run's journal leaves open: each one's latest event when it is not a close. */
+function openAtStop(lines: readonly JournalLine[]): Position[] {
+  const latest = new Map<string, JournalLine>();
+  for (const l of lines) if (l.kind === "position" && l.position_id) latest.set(String(l.position_id), l);
+  return [...latest.values()].filter((l) => l.type !== "PositionClosed").map((l) => ({
+    id: String(l.position_id), symbol: symbolOf(l.instrument_id), side: `${last(l.side)} · open at stop`, qty: String(l.signed_qty ?? l.quantity ?? ""),
+    open: l.avg_px_open, close: null, mark: null, unrealized: null, realized: l.realized_pnl, ms: eventMs(l), held: false,
+  }));
+}
+
+/** Open positions at the last minute, then the closed ones, newest first; a sealed run's positions open
+ *  at its stop (booked at the last price into its final equity) instead of the last minute's. */
 export function Positions() {
   const s = useStream();
   const rows = useMemo(() => {
-    const open: Position[] = (s?.state?.positions ?? []).map((p) => {
+    const open: Position[] = s?.seal ? openAtStop(s.lines) : (s?.state?.positions ?? []).map((p) => {
       const opened = s?.lines.find((l) => l.kind === "position" && l.position_id === p.position_id && l.type === "PositionOpened");
       return { id: p.position_id, symbol: symbolOf(p.instrument_id), side: (amount(p.signed_qty) ?? 0) >= 0 ? "LONG" : "SHORT", qty: p.signed_qty,
                open: p.avg_px_open, close: null, mark: p.mark, unrealized: p.unrealized_pnl, realized: p.realized_pnl, ms: opened ? eventMs(opened) : 0, held: true };
@@ -82,7 +93,7 @@ export function Positions() {
       open: l.avg_px_open, close: l.avg_px_close, mark: null, unrealized: null, realized: l.realized_pnl, ms: eventMs(l), held: false,
     })).reverse();
     return [...open, ...closed];
-  }, [s?.state, s?.lines]);
+  }, [s?.state, s?.lines, s?.seal]);
   if (!s) return empty("Open a paper run in the Paper panel");
   return rows.length ? <DataTable data={rows} columns={POSITION_COLUMNS} rowId={(p) => p.id} /> : empty("No positions yet");
 }

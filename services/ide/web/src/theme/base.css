@@ -34,6 +34,11 @@ body {
 /* Selection follows IntelliJ: the active island's selection is the brand fill, others are muted. */
 [data-selected] { background: var(--selection-inactive); }
 [data-island-active] [data-selected] { background: var(--selection); }
+/* A row's trailing control pinned to a scrolled panel's right edge (the ▶ of a version) covers the
+   text under it with the row's own fill while the row is hovered. */
+.group:hover > .row-end { background: linear-gradient(var(--row-hover), var(--row-hover)), var(--island); }
+.group:hover[data-selected] > .row-end { background: var(--selection-inactive); }
+[data-island-active] .group:hover[data-selected] > .row-end { background: var(--selection); }
 
 /* Linked highlight: marks carry data-v; one injected rule dims the rest (shell/Dimming). */
 [data-v] { transition: opacity var(--t-fast) var(--ease); }
