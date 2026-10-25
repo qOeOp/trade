@@ -221,7 +221,7 @@ class ImportTests(unittest.TestCase):
                                 "2025-03-03T00:00:00Z", None)
         self.assertEqual([[row[0], row[1], row[5]] for row in days["bars"]["rows"]],
                          [[opened, opened + DAY - 1, f"{close / 10**store.PRICE_SCALE:.8f}"]
-                          for opened, close in zip(daily["ts_open"][-2:].tolist(), daily["close"][-2:].tolist())],
+                          for opened, close in zip(daily["ts_open"][-2:].tolist(), daily["close"][-2:].tolist(), strict=True)],
                          "the Catalog's daily LAST bars, each stamped on its close")
         earlier = read.stored_bars(self.profile, self.commits[FEB], "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
                                    "2025-03-02T00:05:00Z", None)
