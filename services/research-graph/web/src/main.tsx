@@ -1,18 +1,28 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { follow } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { initSelection } from "./state/selection";
 import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
 
 const root = createRoot(document.getElementById("root")!);
-try {
-  const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View;
+
+/** Draws `view`, keeping the selected version when it is still in it. */
+function show(view: View): void {
   const lineage = view.widgets.find((w) => w.type === "lineage@2") as LineageWidget | undefined;
   const detail = view.widgets.find((w) => w.type === "candidate-detail@1") as DetailWidget | undefined;
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   root.render(<StrictMode><App view={view} /></StrictMode>);
+}
+
+const status = (text: string) => root.render(<p style={{ padding: 24 }}>{text}</p>);
+
+try {
+  const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View | null;
+  if (view === null) follow(show, status);
+  else show(view);
 } catch {
-  root.render(<p style={{ padding: 24 }}>No view data to read: generate this page with graph.py render.</p>);
+  status("No view data to read: generate this page with graph.py render.");
 }
