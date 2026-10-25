@@ -1,19 +1,21 @@
-# research-graph
+# ide
+
+The trade IDE: a local page onto the research. Its first view is the research graph.
 
 Draws one research line as a graph and compares graphs built from different sources. Used by the
 `research-graph` skill. Checking, layout and comparison use the standard library; rendering needs
 node and npm:
 
 ```bash
-python3 services/research-graph/graph.py check GRAPH.json
-python3 services/research-graph/graph.py render GRAPH.json --out /tmp/research-graph-X/out
-python3 services/research-graph/graph.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 services/research-graph/graph.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE]
+python3 services/ide/ide.py check GRAPH.json
+python3 services/ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
+python3 services/ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
+python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE]
 ```
 
 ## Service
 
-`graph.py serve` serves one ledger's graph as a page that follows the ledger
+`ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
 sql` for the head, `research graph --at=<hash>` for a graph) and imports no product package. The
 page is the web renderer's page with a null view: it reads `/api/view?line=&since=&at=` (200 a view,
@@ -26,15 +28,15 @@ new head, the latest only; the page replaces its view in place and keeps the sel
 last 8 views stay in memory. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
 
-The Docker image (`docker/`, built by CI as `ghcr.io/qoeop/trade-research-graph`) runs it on a
+The Docker image (`docker/`, built by CI as `ghcr.io/qoeop/trade-ide`) runs it on a
 read-only copy of the public DoltHub databases:
 
 ```bash
-docker compose -f services/research-graph/docker/compose.yaml up -d   # then open http://127.0.0.1:8765/
-docker compose -f services/research-graph/docker/compose.yaml pull && docker compose -f services/research-graph/docker/compose.yaml up -d
+docker compose -f services/ide/docker/compose.yaml up -d   # then open http://127.0.0.1:8765/
+docker compose -f services/ide/docker/compose.yaml pull && docker compose -f services/ide/docker/compose.yaml up -d
 ```
 
-The first start clones both databases into the `research-graph-data` volume (the market is several
+The first start clones both databases into the `trade-ide-data` volume (the market is several
 GB); later starts reuse them.
 
 ## Stages

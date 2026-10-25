@@ -1160,7 +1160,7 @@ def _parser() -> Parser:
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
                       "where the scope under study starts. Check, render and compare it with "
-                      "services/research-graph/graph.py. Writes nothing.")
+                      "services/ide/ide.py. Writes nothing.")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the current line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")

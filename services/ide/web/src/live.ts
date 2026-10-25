@@ -1,4 +1,4 @@
-// A served page (graph.py serve): the view comes from /api/view and follows /api/events, so the page
+// A served page (ide.py serve): the view comes from /api/view and follows /api/events, so the page
 // changes in place when the ledger does. A page rendered to a file carries its view and never asks.
 import type { View } from "./model/types";
 
@@ -32,7 +32,7 @@ export function follow(show: (view: View) => void, status: (text: string) => voi
         status(response.status === 202 ? waiting((body as State).state) : failed(body as Failure));
       }
     } catch (error) {
-      if (shown === null) status(`The graph service did not answer: ${String(error)}`);
+      if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
     } finally {
       loading = false;
     }

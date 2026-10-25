@@ -1,9 +1,9 @@
-# The research graph service: the product at the commit it was built from, Dolt, and the built page.
-# CI builds it (.github/workflows/research-graph-image.yml); the context is the repository root with
+# The trade IDE service (the research graph is its first view): the product at the commit it was built from, Dolt, and the built page.
+# CI builds it (.github/workflows/ide-image.yml); the context is the repository root with
 # its shallow .git, since the product reads its own revision with `git rev-parse HEAD`.
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
 WORKDIR /web
-COPY services/research-graph/web/ ./
+COPY services/ide/web/ ./
 RUN npm ci --no-audit --no-fund && npm run build
 
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
@@ -22,16 +22,16 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache --no-install-project
 COPY . ./
 RUN uv sync --frozen --no-dev --no-cache && git rev-parse HEAD
-COPY --from=web /web/dist services/research-graph/web/dist/
+COPY --from=web /web/dist services/ide/web/dist/
 # The page was built from exactly these sources; record their digest as the renderer does.
-RUN python3 -c "import sys; sys.path.insert(0, 'services/research-graph'); from research_graph.renderers.web import render as r; \
+RUN python3 -c "import sys; sys.path.insert(0, 'services/ide'); from research_graph.renderers.web import render as r; \
 (r.PAGE.parent / r.BUILT_FROM).write_text(r.digest(r.sources()) + '\n'); r.built_page()"
-COPY services/research-graph/docker/entrypoint.sh /usr/local/bin/research-graph-entrypoint
-COPY services/research-graph/docker/pull.sh /usr/local/bin/research-graph-pull
+COPY services/ide/docker/entrypoint.sh /usr/local/bin/trade-ide-entrypoint
+COPY services/ide/docker/pull.sh /usr/local/bin/trade-ide-pull
 
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1 \
     TRADE_LEDGER_HOME=/data/ledgers DOLT_ROOT_PATH=/data/dolt/home
 VOLUME /data
 EXPOSE 8765
-LABEL org.opencontainers.image.title="Trade research graph"
-ENTRYPOINT ["research-graph-entrypoint"]
+LABEL org.opencontainers.image.title="Trade IDE"
+ENTRYPOINT ["trade-ide-entrypoint"]

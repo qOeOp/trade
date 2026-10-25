@@ -1,5 +1,5 @@
 {
-  "name": "research-graph-web",
+  "name": "ide-web",
   "private": true,
   "type": "module",
   "description": "The web renderer of research-graph: one self-contained HTML page laid out like an IntelliJ IDE (Islands theme), into which research_graph/renderers/web injects a view model.",

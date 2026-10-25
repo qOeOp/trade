@@ -130,7 +130,7 @@ export is `docs-site/out`.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`market/`](market/): the Binance market database, its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
-- [`services/research-graph/`](services/research-graph/): the stdlib tool of the `research-graph` skill: the research graph format, the view-model layout, replaceable renderers and the ledger-versus-session comparison.
+- [`services/ide/`](services/ide/): the trade IDE, a local page onto the research; its first view is the research graph, the stdlib tool of the `research-graph` skill: the research graph format, the view-model layout, replaceable renderers and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
 

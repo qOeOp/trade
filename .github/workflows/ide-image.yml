@@ -1,6 +1,6 @@
-name: research-graph-image
+name: ide-image
 
-# The research graph service image is built here, never on a workstation: the graph it serves
+# The trade IDE service image is built here, never on a workstation: the graph it serves
 # names the product commit it was drawn with, so the image must hold exactly a commit of this
 # repository. A main build moves the `main` tag; a pull request build gets a `pr-N` tag. Every
 # image carries that commit in org.opencontainers.image.revision.
@@ -9,8 +9,8 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/research-graph-image.yml
-      - services/research-graph/**
+      - .github/workflows/ide-image.yml
+      - services/ide/**
       - cli/**
       - engine/**
       - ledger/**
@@ -25,8 +25,8 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - .github/workflows/research-graph-image.yml
-      - services/research-graph/**
+      - .github/workflows/ide-image.yml
+      - services/ide/**
       - cli/**
       - engine/**
       - ledger/**
@@ -45,7 +45,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: research-graph-image-${{ github.ref }}
+  group: ide-image-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -67,7 +67,7 @@ jobs:
         run: |
           # The image holds the checked-out commit (a pull request's merge commit), so that is its revision.
           revision="$(git rev-parse HEAD)"
-          image="ghcr.io/${OWNER,,}/trade-research-graph"
+          image="ghcr.io/${OWNER,,}/trade-ide"
           tags="$image:sha-$revision"
           if [ "$EVENT" = pull_request ]; then
             tags="$tags,$image:pr-$PR_NUMBER"
@@ -89,7 +89,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: services/research-graph/docker/Dockerfile
+          file: services/ide/docker/Dockerfile
           platforms: linux/arm64
           push: true
           provenance: false
@@ -98,8 +98,8 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=research-graph
-          cache-to: type=gha,mode=max,scope=research-graph
+          cache-from: type=gha,scope=ide
+          cache-to: type=gha,mode=max,scope=ide
       - name: Report the pushed digest
         env:
           IMAGE: ${{ steps.names.outputs.image }}

@@ -28,7 +28,7 @@ def run_render(graph_path: str, out: str, renderer: str) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="research-graph", description=__doc__)
+    parser = argparse.ArgumentParser(prog="ide.py", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     command = sub.add_parser("check", help="check a graph against research-graph@2")
     command.add_argument("graph")
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from . import serve
         product = Path(args.product)
-        build = os.environ.get("RESEARCH_GRAPH_BUILD") or subprocess.run(
+        build = os.environ.get("TRADE_IDE_BUILD") or subprocess.run(
             ["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
         serve.serve(serve.Product(product, args.ledger), build, args.host, args.port, args.hosts, args.pull, args.poll)
         return 0
