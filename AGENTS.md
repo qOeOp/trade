@@ -9,6 +9,9 @@ Blueprint: the research-chain design site, sources in `docs/rd/` (published at h
 Stop and ask before any of these:
 
 - Real trading, live venue connections or exchange trading credentials. Research never uses them.
+  The one authorized live connection (user, 2026-10-25) is paper trading (`engine.paper`): Binance
+  public market data, Nautilus Sandbox fills and no credential of any kind. Real accounts, testnet
+  and any credential still need explicit authority.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
   records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.

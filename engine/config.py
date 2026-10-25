@@ -204,6 +204,11 @@ REFUSALS: dict[str, str] = {
                                "engine version or the account metrics.",
     "SAME_REPORT_DIRECTORY": "The reference and candidate are the same report directory.",
     "INVALID_TOLERANCE": "The account tolerance is negative, not finite or not a decimal.",
+    # engine.paper (paper trading on live public data; see its module docstring)
+    "PAPER_CREDENTIALS_PRESENT": "An exchange credential variable is in the paper runner's environment; it starts "
+                                 "only with an allowlisted one.",
+    "PAPER_INSTRUMENT_UNKNOWN": "Binance lists no USD-M contract of a paper run's symbol.",
+    "PAPER_NOT_IN_UNIVERSE": "A paper run's contract is not in the universe at its input start.",
     # engine.main
     "NATIVE_EXECUTION_FAILED": "A strategy constructor or callback raised during the replay.",
     "INTEGRITY_FINDINGS": "The summary's integrity findings are not empty.",
@@ -217,6 +222,7 @@ INTEGRITY_CODES: dict[str, str] = {
     "CAPITAL_TIMESTAMP_COUNT_MISMATCH": "The observer valued another number of timestamps than the exported MARK "
                                         "files hold.",
     "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
+    "PAPER_EXEC_CLIENT_NOT_SANDBOX": "A paper run traded an account other than the Sandbox's; the run stopped.",
 }
 
 
