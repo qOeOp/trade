@@ -66,12 +66,14 @@ every step: its own timeline, the three fresh workstream reviewers, the ledger f
 the whole-product review. Hand over nothing else: no notes, timeline, findings or account of the
 session.
 
-Attach writes no diagnosis record. A proved live finding (SKILL.md step 4) enters
-`docs/plans/doctor/index.zh.md` only as an `open` row, first seen as `attach <session id>`. Attach
-never sets a row to `verified`, `unobserved` or `rejected`, never counts as the next diagnosis of
-the session ([record.md](record.md)) and makes no convergence claim. The full audit reads these
-rows in step 1 like any open item and writes the session's record. Evidence in /tmp is lost on a
-reboot; what the audit cannot read is a coverage gap in its record.
+Attach writes no diagnosis record. Enter each proved live finding (SKILL.md step 4) in
+`docs/plans/doctor/index.zh.md` as an `open` row, first seen as `attach <session id>`, so the full
+audit checks it; that is the only way live findings leave the attach session. Attach never changes
+an existing row (no `verified`, `unobserved` or `rejected`, no note or observation; a live finding
+that matches one is left for the full audit to find in the evidence), never counts
+as the next diagnosis of the session ([record.md](record.md)) and makes no convergence claim. The
+full audit reads these rows in step 1 like any open item and writes the session's record. Evidence
+in /tmp is lost on a reboot; what the audit cannot read is a coverage gap in its record.
 
 ## Unverifiable
 
