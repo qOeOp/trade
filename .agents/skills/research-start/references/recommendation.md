@@ -14,3 +14,12 @@ Read whenever the entry presents the recommendation and the line options.
 - The recommendation names the version, the readings it rests on and the trade-offs. The next
   experiment's parent and control get their own reasons: the recommended candidate is not the
   parent by default, and the control is an economically available run.
+- Before offering or recommending a line, confirm that its start can be registered on the chosen
+  window and that the market database covers every month the window needs (`market coverage` at
+  the commit to pin; the database adds only the next month, never earlier ones). Only a source
+  that has never run (a root or a revision with a substantive change), or a candidate whose
+  research runs are already on that window and commit, can start there: the exposure check
+  refuses a source that has already run. A line declares its full window once; a frozen rule is
+  tested again only by out-of-sample validation at the user's request, on a window after the
+  validation's registration (research-round's validation.md), never on earlier months. Offer no
+  option that fails these checks, and say why in one line.
