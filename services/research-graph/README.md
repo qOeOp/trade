@@ -84,7 +84,7 @@ lines, axis labels) in paint order. In Progress bars fill 70% of a trial (at mos
 end, under a thin solid target line; the crosshair's trial is a shaded column behind the
 bars, and the hovered run's return is read out on the value axis. In Return vs drawdown the dominated runs
 are light grey, the frontier a blue line with its ends and the recommendation named above their points, the corner
-meeting both targets a green band, its thresholds stated in the legend (no axis titles on either chart: the panel names them); where runs crowd, the wheel zooms in around the pointer, a drag
+meeting both targets a green band, its thresholds stated in the legend (no axis titles on either chart: the panel names them), and the selected version's runs filled bright yellow above every other point; where runs crowd, the wheel zooms in around the pointer, a drag
 pans and a double-click (or Reset zoom) shows them all again. Hovering a mark dims every other
 version mark to 30% (the light grey bars to 55%); Tab reaches either chart and the arrow keys step from run to run (Enter selects, Escape lets go).
 Reading badges

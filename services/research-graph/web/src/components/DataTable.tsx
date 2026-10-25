@@ -14,14 +14,15 @@ const features = tableFeatures({
 export type Column<T extends RowData> = ColumnDef<typeof features, T, any>;
 export const columns = <T extends RowData>() => createColumnHelper<typeof features, T>();
 
-/** Column meta: `numeric` or `align: "right"` right-aligns a column, header included. */
-type Meta = { numeric?: boolean; align?: "right" } | undefined;
+/** Column meta: `numeric` or `align: "right"` right-aligns a column, header included; `width` is a width
+ *  class for its header (with `fixed`, the columns without one share what is left equally). */
+type Meta = { numeric?: boolean; align?: "right"; width?: string } | undefined;
 const right = (meta: unknown) => !!((meta as Meta)?.numeric || (meta as Meta)?.align === "right");
 
 /** A dense, sortable table in one face, size and weight: 24px rows split by hairlines and spacing only
  *  (no column rules), muted headers aligned with their values, values in the text colour,
  *  a sticky header (unless `sticky` is false, e.g. inside a card), rows linked to a version on hover.
- *  With `fixed`, columns share the width equally. */
+ *  With `fixed`, the layout is fixed: columns take their `width`, the rest share equally. */
 export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed, sticky = true, wrapRow }: {
   data: T[]; columns: Column<T>[]; rowId: (row: T) => string; version?: (row: T) => string | null;
   onRow?: (row: T) => void; selected?: string | null; initialSort?: SortingState; fixed?: boolean; sticky?: boolean;
@@ -39,7 +40,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
               const numeric = right(header.column.columnDef.meta);
               return (
                 <th key={header.id} onClick={header.column.getToggleSortingHandler()}
-                    className={`cursor-pointer select-none whitespace-nowrap border-b border-line-strong px-2 py-1 font-normal text-fg-faint ${numeric ? "text-right" : "text-left"}`}>
+                    className={`cursor-pointer select-none whitespace-nowrap border-b border-line-strong px-2 py-1 font-normal text-fg-faint ${numeric ? "text-right" : "text-left"} ${(header.column.columnDef.meta as Meta)?.width ?? ""}`}>
                   {/* the sort arrow sits outside the label, so headers line up with their column's values */}
                   <span className="relative">
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
