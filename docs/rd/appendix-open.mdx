@@ -23,7 +23,7 @@
 
 - **W** 推算报价的逐合约适用性证据　<Ref id="W.1.2.1" /> 的边界已定；仍需按具体合约、时段、杠杆敞口与强平情景取得真实买卖报价对照及匹配的原生回放结果。BTCUSDT 十二个月首日已完成 12 组／24 次原生工程对照，四天旧数值复现；但 2026-05-01 参考源有约 12.37 秒采集断连，推算 T／观测 E 时间口径不同，旧参考原件哈希仍缺失，未标为全部验收通过，详见 [验证记录](https://github.com/qOeOp/trade/blob/main/docs/plans/monthly-quote-liquidation-validation.zh.md)。抽样不覆盖其他合约或全部时段；低活跃度不自动禁用，缺证据不自动删币缩窗，也不视为已验证。另完成 [2025-10／11 整月读数事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)：61 天、93,261,348 条推算状态与固定市场快照逐条一致；原提交未改，原始读数凭证、原件备份恢复及上述独立报价证据缺口继续保留。另见 [原件留存与备份盘点](https://github.com/qOeOp/trade/blob/main/docs/plans/market-archive-retention-inventory.zh.md)：62 份缓存原件哈希匹配，已核查范围内未找到备份副本，恢复未执行；离线、云端、未挂载或权限受限范围仍未验证，不标为备份恢复通过。
 
-- **W** 市场数据库备份覆盖　[原生恢复核验](https://github.com/qOeOp/trade/blob/main/docs/plans/market-backup-restore-verification.zh.md)确认现有备份在 `l1kfbo…` 点恢复通过，fsck 与同提交根身份一致；旧全池 `ebg4rg…`／`4aubs5…` 仍不可读。相对当前 `53tgna…`，缺 1 个报价表创建和 12 次月度报价导入；不认定最新快照或全池恢复通过，也不关闭外部 ZIP 原件的备份恢复缺口。
+- **W** 市场数据库备份覆盖　[固定报价快照核验](https://github.com/qOeOp/trade/blob/main/docs/plans/market-quote-backup-sync-verification.zh.md)已通过现有 CLI 从 `l1kfbo…` 同步至固定 `53tgna…`，副本原生恢复、fsck 和完整数据库／报价表哈希通过；467,914,411 条报价，72 条边界样本一致，旧点仍可读，原 24 个提交全部保留。此前 1 个报价表创建与 12 次月度报价导入的备份覆盖缺口仅在此提交上补齐；旧全池仍不可读，外部 ZIP、生命周期与行情适用性缺口保留，不外推后续提交或全池恢复。
 
 ## 待验证的能力
 

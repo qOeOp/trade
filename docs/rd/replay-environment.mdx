@@ -157,7 +157,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:market.dolt_tests">market.dolt_tests</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-<p className="rd-note">[市场备份恢复](https://github.com/qOeOp/trade/blob/main/docs/plans/market-backup-restore-verification.zh.md)已在 `l1kfbo…` 备份点通过原生恢复、fsck 与同提交内容身份核对。恢复库仍读不到旧全池提交，且相对当前 `53tgna…` 缺 1 个报价表创建和 12 次月度报价导入，不认定最新快照或全池恢复通过。数据库备份恢复不等于外部 ZIP 原件恢复。</p>
+<p className="rd-note">[报价备份同步与恢复](https://github.com/qOeOp/trade/blob/main/docs/plans/market-quote-backup-sync-verification.zh.md)已覆盖固定 `53tgna…`：467,914,411 条报价，完整数据库／报价表哈希和 fsck 通过，72 条边界样本一致，旧 `l1kfbo…` 根仍相同。此前缺 1 个建表和 12 次月度报价导入的覆盖缺口仅在此快照补齐；旧全池仍不可读，外部原件、生命周期与行情适用性缺口保留，不外推后续提交或全池恢复。</p>
 
 ## 6.2　划定窗口 [#W-2]
 
