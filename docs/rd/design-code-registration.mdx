@@ -104,16 +104,17 @@ def config_key(value: Mapping) -> dict
 def input_key(value: Mapping) -> dict
 ```
 
-<TypeTable type={{ "value": { type: "Mapping", description: "一份输入身份：registration.market_inputs 产出并随运行行存入 run.input_identity 或随登记存入执行身份的字典（market_database、market_commit、universe_rule、symbols、membership、export_content_sha256、exporter_sha256、lifecycle_bundle、导出根与核对用时等）" } }} />
+<TypeTable type={{ "value": { type: "Mapping", description: "一份输入身份：registration.market_inputs 产出并随运行行存入 run.input_identity 或随登记存入执行身份的字典（market_database、market_commit、universe_rule、symbols、membership、export_content_sha256、exporter_source_sha256、lifecycle_bundle、导出根与核对用时等）" } }} />
 
-**返回**　dict：去掉宿主路径键与导出用时后的输入身份；两侧返回值逐键相等即同一输入
+**返回**　dict：去掉宿主路径键、导出用时与导出器源码哈希后的输入身份；两侧返回值逐键相等即同一输入
 
 **期望行为**
 
 1. 核形态：value 不是映射，或缺 market_commit、universe_rule、export_content_sha256 任一键，以 IDENTITY_MALFORMED 拒绝
 2. 去宿主与时序键：删除所有 *_root 路径键和记录导出核对时刻的 checked 键；导出内容哈希本身已由 registration.export_fingerprint 按路径无关、排除用时的语义算出，这里不重算
-3. 保留全部内容键：市场库名、市场提交、范围规则版本、选币方式 selection（按范围规则或显式列表）、合约集、每合约成员时间路径、导出内容哈希、导出器实现哈希、生命周期证据包名
-4. 返回新字典，不修改入参；不区分策略实际交易子集，子集差异不是输入差异
+3. 去导出器源码哈希：exporter_source_sha256 照常记在输入身份里作来历，但不参与比较。引擎只读导出根（每合约 Catalog、回执、生命周期原件）与成员文件，两者全在导出内容哈希里；导出器代码或依赖锁改了而导出字节不变，仍是同一输入，导出字节变了则导出内容哈希不同
+4. 保留全部内容与选择键：市场库名、市场提交、范围规则版本、选币方式 selection（按范围规则或显式列表）、合约集、每合约成员时间路径、导出内容哈希、生命周期证据包名
+5. 返回新字典，不修改入参；不区分策略实际交易子集，子集差异不是输入差异
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -216,7 +217,7 @@ def export_fingerprint(
 
 <TypeTable type={{ "inputs": { type: "dict", description: "registration.market_inputs 的返回值；只读 root 与 membership_file" }, "semantic": { type: "bool", description: "True：回执文件先去掉 seconds 字段再按规范 JSON 重编码后哈希，得身份用语义哈希；False：原始字节哈希，供执行前后比对" } }} />
 
-**返回**　\{export_content_sha256, exporter_source_sha256\}：前者为导出内容身份（语义或原始），后者为导出器实现清单总哈希；两者与导出目录位置、导出时间、是否命中缓存无关
+**返回**　\{export_content_sha256, exporter_source_sha256\}：前者为导出内容身份（语义或原始），后者为导出器实现清单总哈希，只作来历记录，registration.input_key 不比较它；两者与导出目录位置、导出时间、是否命中缓存无关
 
 **期望行为**
 
