@@ -1,10 +1,12 @@
-"""Command line: check, view, render and compare research graphs (standard library only)."""
+"""Command line: check, render, compare and serve research graphs (standard library only)."""
 from __future__ import annotations
 
 import argparse
 import importlib
 import json
+import os
 import pkgutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -39,6 +41,17 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("b", help="normally the session graph")
     command.add_argument("--until", help="ignore candidates, runs and events after this time (ISO 8601)")
     command.add_argument("--json", action="store_true", help="print the structured differences instead")
+    command = sub.add_parser("serve", help="serve a ledger's research graph as a page that follows the ledger")
+    command.add_argument("--ledger", required=True, help="ledger profile the product reads (a read-only copy)")
+    command.add_argument("--product", default=str(Path(__file__).resolve().parents[3]),
+                         help="product checkout whose command line is run (default: this one)")
+    command.add_argument("--host", default="127.0.0.1", help="address to listen on")
+    command.add_argument("--port", type=int, default=8765)
+    command.add_argument("--allow-host", action="append", default=[], dest="hosts",
+                         help="Host header a page may use (default: 127.0.0.1:PORT and localhost:PORT); repeatable")
+    command.add_argument("--pull", help="executable run as `PULL ledger` before each head read and `PULL market` "
+                                        "before fetching at a new head")
+    command.add_argument("--poll", type=float, default=5.0, help="seconds between head reads while a page is open")
     args = parser.parse_args(argv)
     if args.command == "check":
         found = contract.check_graph(json.loads(Path(args.graph).read_text()))
@@ -46,6 +59,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if found else 0
     if args.command == "render":
         print(run_render(args.graph, args.out, args.renderer))
+        return 0
+    if args.command == "serve":
+        from . import serve
+        product = Path(args.product)
+        build = os.environ.get("RESEARCH_GRAPH_BUILD") or subprocess.run(
+            ["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        serve.serve(serve.Product(product, args.ledger), build, args.host, args.port, args.hosts, args.pull, args.poll)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
     print(json.dumps(diff, ensure_ascii=False, indent=1) if args.json else compare.markdown(diff))

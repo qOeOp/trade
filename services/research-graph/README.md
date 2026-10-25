@@ -8,7 +8,34 @@ node and npm:
 python3 services/research-graph/graph.py check GRAPH.json
 python3 services/research-graph/graph.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 services/research-graph/graph.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
+python3 services/research-graph/graph.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE]
 ```
+
+## Service
+
+`graph.py serve` serves one ledger's graph as a page that follows the ledger
+(`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
+sql` for the head, `research graph --at=<hash>` for a graph) and imports no product package. The
+page is the web renderer's page with a null view: it reads `/api/view?line=&since=&at=` (200 a view,
+202 a state, otherwise the refusal JSON) and follows `/api/events` (Server-Sent Events: the current
+state on connect, then `fetching`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
+15 s). While a page without `at` is open the head is read every 5 s, after `--pull` (run as `PULL
+ledger`, and `PULL market` before fetching at a new head; exit status 3 means the remote's history
+was rewritten, and pulling stops). When the head moves, each open page's graph is fetched once at the
+new head, the latest only; the page replaces its view in place and keeps the selected version. The
+last 8 views stay in memory. Only the configured Host is served, cross-site requests are refused
+and no CORS header is sent.
+
+The Docker image (`docker/`, built by CI as `ghcr.io/qoeop/trade-research-graph`) runs it on a
+read-only copy of the public DoltHub databases:
+
+```bash
+docker compose -f services/research-graph/docker/compose.yaml up -d   # then open http://127.0.0.1:8765/
+docker compose -f services/research-graph/docker/compose.yaml pull && docker compose -f services/research-graph/docker/compose.yaml up -d
+```
+
+The first start clones both databases into the `research-graph-data` volume (the market is several
+GB); later starts reuse them.
 
 ## Stages
 

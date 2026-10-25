@@ -1,0 +1,116 @@
+name: research-graph-image
+
+# The research graph service image is built here, never on a workstation: the graph it serves
+# names the product commit it was drawn with, so the image must hold exactly a commit of this
+# repository. A main build moves the `main` tag; a pull request build gets a `pr-N` tag. Every
+# image carries that commit in org.opencontainers.image.revision.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/research-graph-image.yml
+      - services/research-graph/**
+      - cli/**
+      - engine/**
+      - ledger/**
+      - market/**
+      - qualification/**
+      - registration/**
+      - replay/**
+      - report/**
+      - runtime/**
+      - pyproject.toml
+      - uv.lock
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/research-graph-image.yml
+      - services/research-graph/**
+      - cli/**
+      - engine/**
+      - ledger/**
+      - market/**
+      - qualification/**
+      - registration/**
+      - replay/**
+      - report/**
+      - runtime/**
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: research-graph-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  image:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Name the image and its tags
+        id: names
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          # The image holds the checked-out commit (a pull request's merge commit), so that is its revision.
+          revision="$(git rev-parse HEAD)"
+          image="ghcr.io/${OWNER,,}/trade-research-graph"
+          tags="$image:sha-$revision"
+          if [ "$EVENT" = pull_request ]; then
+            tags="$tags,$image:pr-$PR_NUMBER"
+          elif [ "$REF" = refs/heads/main ]; then
+            tags="$tags,$image:main"
+          fi
+          {
+            echo "image=$image"
+            echo "tags=$tags"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: services/research-graph/docker/Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.names.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=research-graph
+          cache-to: type=gha,mode=max,scope=research-graph
+      - name: Report the pushed digest
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.names.outputs.tags }}
+          REVISION: ${{ steps.names.outputs.revision }}
+        run: |
+          {
+            echo "image: \`$IMAGE@$DIGEST\`"
+            echo
+            echo "revision: \`$REVISION\`"
+            echo
+            echo "tags: \`$TAGS\`"
+          } >> "$GITHUB_STEP_SUMMARY"

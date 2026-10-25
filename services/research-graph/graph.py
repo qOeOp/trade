@@ -1,4 +1,4 @@
-"""Entry point: python3 services/research-graph/graph.py {check,render,compare} ... (standard library only)."""
+"""Entry point: python3 services/research-graph/graph.py {check,render,compare,serve} ... (standard library only)."""
 import sys
 from pathlib import Path
 

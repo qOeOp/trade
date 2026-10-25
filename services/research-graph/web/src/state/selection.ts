@@ -7,13 +7,19 @@ const fromHash = () => decodeURIComponent(window.location.hash.slice(1)) || null
 
 export const selection = atom<string | null>(null);
 
-/** Starts the selection from the address when it names a known version, else from `fallback`. */
-export function initSelection(known: ReadonlySet<string>, fallback: string | null): void {
-  const linked = fromHash();
-  selection.set(linked && known.has(linked) ? linked : fallback);
+let known: ReadonlySet<string> | null = null;
+
+/** Starts the selection from the address when it names a known version, else from `fallback`. On a
+ *  new view of a served page it keeps the selected version while that view still has it. */
+export function initSelection(versions: ReadonlySet<string>, fallback: string | null): void {
+  const first = known === null;
+  known = versions;
+  const current = first ? fromHash() : selection.get();
+  selection.set(current && versions.has(current) ? current : fallback);
+  if (!first) return;
   window.addEventListener("hashchange", () => {
     const id = fromHash();
-    if (id && known.has(id) && id !== selection.get()) { selection.set(id); requestFocus(id); }
+    if (id && known?.has(id) && id !== selection.get()) { selection.set(id); requestFocus(id); }
   });
 }
 
