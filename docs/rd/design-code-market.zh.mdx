@@ -1621,6 +1621,8 @@ def quote_imports(conn: MarketConnection, ref: str='main') -> list[dict]:
 
 只选择 `import` 为报价导入标识的消息，返回 `commit`、`month`、`through`、`quote_rule`、`symbols`、`archives`、`readings`。归档 SHA-256 与逐日读数在提交消息中，不是 quote 表的重复列；早期消息没有的读数不补造。由 <Ref id="market.import_quotes" /> 核对规则版本。
 
+历史例外：BTCUSDT 2025-10／11 原提交缺少 `readings`，只读 [整月事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)已重算并逐条对照固定快照，未回写旧消息。`quote_imports` 仍返回缺失值；临时补证不冒充原始导入回执，也不新增存储字段或改变读取行为。
+
 ### `import_quotes` [#def-market-import_quotes]
 
 把一个 UTC 月的完整推算报价按合约追加为一个市场提交，与 K 线导入分开。
