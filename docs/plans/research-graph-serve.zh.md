@@ -5,6 +5,8 @@
 1. 网页只是 Dolt 数据的展示，它要用的东西必须在 Dolt 里。两个研究目标（最大回撤上限、年化收益下限）入账，
    每条研究路线都能绑定，并有一个默认值。这推翻了 10-11「账本只存状态，不存目标」的决定。
 2. 所有数据公开，不存在私有存储：研究账本和市场库都推到公开的 DoltHub。
+   10-25 已建好两个空的公开库：[`vincent/trade-research`](https://www.dolthub.com/repositories/vincent/trade-research)
+   和 [`vincent/trade-market`](https://www.dolthub.com/repositories/vincent/trade-market)；本机 `dolt login` 已通过（账号 `vincent`）。
 3. 研究图谱网页做成 Docker 服务，从 Dolt 读数据渲染，不再一次性生成到 `/tmp`。
 
 本文是动手前的方案，已经过两轮独立子代理审阅（记录见文末）。同日用户又确认两件事：账本默认目标为回撤 0.15、
@@ -167,8 +169,8 @@
 3. `feat(ledger)`：`line_target`、`ledger upgrade`、`line select/targets`、`research state/graph` 读目标、
    相关 skill 与评测。
 4. `fix(report)`：4a。
-5. `feat(ledger)`：`ledger publish` / `market publish`、写后自动发布、AGENTS.md 那一句。需要用户先建好两个
-   公开库并 `dolt login`。
+5. `feat(ledger)`：`ledger publish` / `market publish`、写后自动发布、AGENTS.md 那一句。两个公开库
+   和 `dolt login` 已就绪。
 6. `feat(research-graph)`：镜像、compose、`graph.py serve`、页面拉取模式。验收：`docker compose up` 后打开
    `http://127.0.0.1:8765/`，能看到当前路线的图；本机写一条新记录后刷新，图跟着变。
 
