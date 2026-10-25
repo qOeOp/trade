@@ -1,19 +1,24 @@
 // The tool windows: what each shows (a renderer fed by a view-model widget type), where it docks,
 // its stripe icon and shortcut, and its header actions. A widget type with no tool window and no
-// other place becomes a bottom tool window that names it.
+// other place becomes a bottom tool window that names it. The Agent window is fed by the chat
+// service instead of the view, so it appears only when the page's server has one.
 import type { Widget } from "../model/types";
 import type { IconName } from "../icons/registry";
 import type { HeaderAction } from "../components/PanelHeader";
+import { agentPane, chatControl } from "../state/agent";
 import { requestFocus } from "../state/linking";
 import { selection } from "../state/selection";
 import { hideSide, type Side } from "../state/shell";
 import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
 import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
+import { AgentWindow } from "./agent/AgentWindow";
 
 export type ToolWindow = {
   id: string; side: Side; icon: IconName; shortcut?: { keys: string; binding: string };
   source: string; renderer: Renderer; actions: () => HeaderAction[];
+  /** State the header actions read, so the header redraws when it changes. */
+  watch?: Atom<unknown>;
 };
 
 const hide = (side: Side): HeaderAction => ({ id: "hide", icon: "hide", label: "Hide", keys: "⇧Esc", run: () => hideSide(side) });
@@ -39,11 +44,24 @@ const SPECS: readonly ToolWindow[] = [
   { id: "gaps", side: "bottom", icon: "tool.gaps", shortcut: alt(6), source: "notes@1", renderer: RENDERERS.notes, actions: () => [hide("bottom")] },
 ];
 
+const pane = (p: "history" | "settings") => () => agentPane.set(agentPane.get() === p ? "chat" : p);
+const AGENT: ToolWindow = {
+  id: "agent", side: "right", icon: "tool.agent", shortcut: alt(0), source: "agent",
+  renderer: { title: "Agent", Component: AgentWindow }, watch: agentPane as Atom<unknown>,
+  actions: () => [
+    { id: "new", icon: "new-chat", label: "New chat", run: () => { chatControl.get()?.newThread(); agentPane.set("chat"); } },
+    { id: "history", icon: "history", label: "Chats", active: agentPane.get() === "history", run: pane("history") },
+    { id: "settings", icon: "settings", label: "Agents", active: agentPane.get() === "settings", run: pane("settings") },
+    hide("right"),
+  ],
+};
+
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
 export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
-/** The tool windows this view feeds, in stripe order, each with the widget it shows. */
-export function toolWindows(widgets: readonly Widget[]): (ToolWindow & { widget: Widget })[] {
+/** The tool windows this view feeds, in stripe order, each with the widget it shows; with a chat
+ *  service, the Agent window last on the right. */
+export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     return widget ? [{ ...s, widget }] : [];
@@ -53,5 +71,5 @@ export function toolWindows(widgets: readonly Widget[]): (ToolWindow & { widget:
     id: `unknown:${widget.type}`, side: "bottom" as const, icon: "tool.gaps" as const, source: widget.type,
     renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
   }));
-  return [...known, ...unknown];
+  return [...known, ...(agent ? [{ ...AGENT, widget: { id: "agent", type: "agent" } }] : []), ...unknown];
 }

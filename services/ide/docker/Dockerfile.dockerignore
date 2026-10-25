@@ -14,6 +14,7 @@
 !runtime/
 !services/ide/
 services/ide/web/node_modules/
+services/ide/agent/node_modules/
 services/ide/web/dist/
 **/__pycache__/
 **/.mypy_cache/

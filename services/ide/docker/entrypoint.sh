@@ -3,7 +3,7 @@
 #
 # First start: clone both databases into /data (the market is several GB), create the service's
 # accounts and write its files. Every start: run Dolt's sql-server on the copy, with the ledger's
-# commit verification group the product requires of any service, then serve the page. The ledger
+# commit verification group the product requires of any service, then start the chat service and serve the page. The ledger
 # profile names no lifecycle (kind null), so the product never publishes from here, and the service
 # file holds only reader accounts; the administrator password is used only by trade-ide-pull.
 set -eu
@@ -83,6 +83,13 @@ cat > "$PROFILES/market.json" <<JSON
 {"name": "market", "kind": "market", "database": "market", "service": "$SERVICE"}
 JSON
 
+# The chat service listens inside the container only; the page reaches it through serve's /api/agent/.
+# Its agents (with their API keys) and threads stay in the volume, never in a database.
+mkdir -p /data/agent && chmod 700 /data/agent
+node /opt/trade/services/ide/agent/src/main.ts --product=/opt/trade --ledger=research --market=market \
+  --data=/data/agent --host=127.0.0.1 --port=8766 &
+
 exec python3 /opt/trade/services/ide/ide.py serve --ledger=research --product=/opt/trade \
   --host=0.0.0.0 --port=8765 --allow-host="127.0.0.1:${PUBLISHED_PORT:-8765}" \
-  --allow-host="localhost:${PUBLISHED_PORT:-8765}" --pull=/usr/local/bin/trade-ide-pull "$@"
+  --allow-host="localhost:${PUBLISHED_PORT:-8765}" --pull=/usr/local/bin/trade-ide-pull \
+  --agent=http://127.0.0.1:8766 "$@"

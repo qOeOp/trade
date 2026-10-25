@@ -12,7 +12,7 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
   return (
     <Tip side="bottom" content={<span className="inline-flex items-center gap-2">{label}{keys && <Kbd>{keys}</Kbd>}</span>}>
       <button ref={ref} type="button" aria-label={label} aria-pressed={active}
-              className={`grid shrink-0 place-items-center ${frame ? "size-(--frame-control)" : "size-6"} rounded-control transition-colors hover:bg-hover active:bg-pressed ${active ? "bg-pressed text-fg" : "text-icon"} ${className}`}
+              className={`grid shrink-0 place-items-center ${frame ? "size-(--frame-control)" : "size-6"} rounded-control transition-colors hover:bg-hover active:bg-pressed disabled:cursor-default disabled:text-fg-ghost disabled:hover:bg-transparent disabled:active:bg-transparent ${active ? "bg-pressed text-fg" : "text-icon"} ${className}`}
               {...rest}>
         <Icon name={icon} size={frame ? 20 : 16} />
       </button>

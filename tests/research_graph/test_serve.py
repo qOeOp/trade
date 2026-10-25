@@ -156,6 +156,68 @@ class HttpTests(unittest.TestCase):
         first = json.loads(response.fp.readline().decode().removeprefix("data: "))
         self.assertIn(first["state"], ("fetching", "queued", "computing", "ready"))
 
+    def test_without_a_chat_service_there_is_no_agent(self):
+        self.assertEqual(self.get("/api/agent/health").status, 404)
+
+
+class AgentForwardTests(unittest.TestCase):
+    """A stand-in chat service records what reaches it and streams its answer in two pieces."""
+
+    def setUp(self):
+        self.seen: list[dict] = []
+        seen = self.seen
+        release = self.release = threading.Event()
+
+        class Agent(serve.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):  # noqa: N802
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                seen.append({"path": self.path, "host": self.headers["Host"], "body": body})
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                for piece in (b"data: one\n\n", b"data: two\n\n"):
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
+                    self.wfile.flush()
+                    release.wait(5)
+                self.wfile.write(b"0\r\n\r\n")
+
+            def log_message(self, *args):
+                pass
+        self.agent = serve.ThreadingHTTPServer(("127.0.0.1", 0), Agent)
+        threading.Thread(target=self.agent.serve_forever, daemon=True).start()
+        self.addCleanup(self.agent.server_close)
+        self.addCleanup(self.agent.shutdown)
+        hub = serve.Hub(FakeProduct(), "build")
+        url = "http://%s:%d" % self.agent.server_address
+        with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
+            self.server = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def post(self, path, body, **headers):
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("POST", path, body=body, headers={"Host": "here:1", "Content-Type": "application/json", **headers})
+        return conn.getresponse()
+
+    def test_a_chat_request_reaches_the_service_and_its_answer_streams_back(self):
+        response = self.post("/api/agent/chat", b'{"q": 1}')
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.fp.readline(), b"data: one\n", "the first piece arrives before the answer ends")
+        self.release.set()
+        self.assertEqual(response.read(), b"\ndata: two\n\n")
+        self.assertEqual(self.seen, [{"path": "/api/agent/chat", "host": "%s:%d" % self.agent.server_address, "body": b'{"q": 1}'}])
+
+    def test_another_site_cannot_reach_the_service(self):
+        self.assertEqual(self.post("/api/agent/chat", b"{}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+        self.assertEqual(self.post("/api/agent/chat", b"{}", Host="elsewhere:1").status, 403)
+        self.assertEqual(self.post("/api/view", b"{}").status, 404, "only agent paths take a body")
+        self.assertEqual(self.seen, [])
+
 
 if __name__ == "__main__":
     unittest.main()
