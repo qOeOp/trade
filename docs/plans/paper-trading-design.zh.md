@@ -187,8 +187,9 @@ Agent 做不到的事。这里同时占了两条：
 
 - 运行器只构造 Sandbox 执行客户端。构造后断言执行客户端只有这一种，不是就拒绝，拒绝码
   `PAPER_EXEC_CLIENT_NOT_SANDBOX`。
-- 环境里只要有 `BINANCE_*` 等任何交易所凭据变量，就拒绝启动（`PAPER_CREDENTIALS_PRESENT`）。数据客户端的
-  `api_key`、`api_secret` 写死为 `None`。
+- 守护进程用白名单环境起容器，只传运行需要的几个变量，从不转发宿主环境。本机 shell 导出了 Binance 凭据
+  （§6 第 1 条），所以这一步是必需的。容器内再查一次：环境里出现任何交易所凭据变量（如 `BINANCE_*`）就拒绝
+  启动（`PAPER_CREDENTIALS_PRESENT`）。数据客户端的 `api_key`、`api_secret` 写死为 `None`。
 - 容器只能经白名单代理出网，白名单只有 Binance 公开行情域名（`fstream.binance.com`、`fapi.binance.com`），
   用 `BinanceDataClientConfig(proxy_url=…)` 指过去。测试网也要凭据，所以同样不用。
 - 图谱服务反代的启停接口沿用 serve 方案的防护：校验 `Host`、POST 只接受 `Sec-Fetch-Site: same-origin`、
@@ -227,17 +228,32 @@ Agent 做不到的事。这里同时占了两条：
 结果显示在 Account tab 的叠线和 Details 里的「与回放对账」卡片上。它也是 10-03 用户批准的「只记录的前向阶段」
 最自然的落地方式：前向证据来自真实时间，而且能回到研究链里对账。
 
-## 6. 动手前要原生探测的（锁定版本 2.0.0rc3）
+## 6. 原生探测（锁定版本 2.0.0rc3，2026-10-25）
 
-- 不填 `api_key` 时，`BinanceDataClient` 能否订阅 USDⓈ-M 永续的 1 分钟 K 线、标记价和资金费；1 分钟 K 线是不是
-  只在收盘时（`x=true`）才发出；断线重连后会不会补发缺失的 K 线。不补的话，§2.3 的缺口事件必须由运行器自己
-  检测。
-- Sandbox：会不会结算资金费；有没有强平；`fee_model` 能否沿用回放的 maker/taker；`bar_execution` 用实时外部
-  K 线时，撮合语义和回放的 `DefaultFillModel` 是否一致。不一致的地方写进运行概要的 limitations。
-- 策略按 `…-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL` 订阅的聚合在 `LiveNode` 里是否照常工作；
-  `LiveNode.add_strategy` 能否接收 Python 写的 `Strategy` 子类。
-- 实时环境的 instrument id 是否和回放一致（`BTCUSDT-PERP.BINANCE`）。
-- 跨月成员更新的做法（§3）。
+探测脚本是 Agent 的工作副本，没有进仓库；结论如下。两轮都在本机 `uv run --frozen` 的锁定环境里跑，合约是
+`BTCUSDT-PERP.BINANCE`：
+
+- 第一轮 5.5 分钟：市价单一张，bracket 一组，2 分钟内部聚合；
+- 第二轮 37 分钟：持多 0.01 BTC，跨过 08:00 UTC 的资金费结算。
+
+进程环境只带 `PATH` 和 `HOME`，见第 1 条。
+
+| # | 问题 | 结果 | 对实现的要求 |
+|---|---|---|---|
+| 1 | 凭据 | 本机 shell 导出了 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`。探测脚本的检查当场拒绝了启动；之后一律用 `env -i` 起进程 | 只在容器里检查、发现就拒绝，在这台机器上会次次拒绝。守护进程必须用白名单环境起容器（`docker run` 不继承宿主环境，只传指定的变量），容器内的检查留作第二道防线。Nautilus 在 `api_key=None` 时会不会回退读环境变量，我没有验证：验证就得把真 key 放进进程 |
+| 2 | 不填 key 能否订阅 USDⓈ-M 公开行情 | 能。`BinanceProductType.USD_M` + `BinanceEnvironment.LIVE`，`load_ids` 只载一个合约 | — |
+| 3 | instrument id 与费率 | `BTCUSDT-PERP.BINANCE`，与回放相同；`maker_fee` 0.0002、`taker_fee` 0.0005，与 `ACCOUNT_CONTRACT` 相同 | — |
+| 4 | 1 分钟 K 线语义 | 只发收盘的 K 线，`ts_event` 等于 Binance 的 `close_time`（开盘 + 60 s − 1 ms），和市场库导出的口径一样。到达延迟 73–829 ms；有一根比自己的 `close_time` 早 1.07 s 到。两轮共 42 根 1 分钟线没有缺口，第一轮 5 根与 `fapi/v1/klines` 逐字段相同（开高低收量），早到的那根也一样 | 「K 线迟到」事件以 `close_time` 加 2 s 为线；对账用 `close_time` 对齐 |
+| 5 | 内部聚合 | `2-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL` 正常；`ts_event` 落在整分钟（收盘时刻），比触发它的 1 分钟线晚 2–10 ms 到 | 策略的订阅写法不用改 |
+| 6 | Python 策略进 `LiveNode` | `LiveNode.add_strategy(<Strategy 子类实例>)` 可用；`StrategyConfig.strategy_id` 要传 `StrategyId` 对象 | 复用 `run.py` 的构造代码 |
+| 7 | Sandbox 撮合 | 市价单按触发它那根 1 分钟线的收盘价成交，记 TAKER，佣金＝数量×价×0.0005。`order_factory.bracket` 在这一版返回 list，`submit_order_list` 能直接收：入场单成交，`STOP_MARKET` 止损和 `LIMIT` 止盈（`post_only`、`reduce_only`）都被接受 | — |
+| 8 | 标记价与资金费的节奏 | 标记价流每秒一条，Nautilus 每秒发一个 `MarkPriceUpdate` 和一个 `FundingRateUpdate`（2,219 秒各 2,219 条）。回放每根 1 分钟 MARK 线只发一条 MARK，资金费只在存储的更新点发 | 策略收到的回调多了约 60 倍，处理办法实现时二选一：在运行器里把它降到回放的节奏（每分钟最后一条 MARK，资金费只在费率或下次结算时间变化时发）；或者原样交给策略，写进运行概要的 limitations。倾向前者，因为它让源码在两个环境里看到的是同一种输入 |
+| 9 | Sandbox 是否结算资金费 | **不结算**。持多 0.01 BTC 跨过 08:00 UTC，当期费率 +0.00006047，应付约 0.049 USDT；账户总额前后都是 99,999.597127 USDT | 资金费由封存读数补上：按实时收到的结算费率、结算时刻的持仓和标记价逐期算出，单列成一项。看盘面板的净值同样扣除；运行概要写明 Sandbox 账户本身不含资金费 |
+| 10 | 停止 | `LiveNode.handle().stop()` 正常退出，`on_stop` 会执行；但挂单和持仓留在 cache 里（`Residual …` 警告），Nautilus 不替我们撤 | ⏸ 的「撤挂单、持仓按最后成交价记账」由运行器在停止前做：先撤单，等撤单回报，再读持仓 |
+| 11 | 线程 | `PyLiveNode` 不可跨线程，在别的线程调 `node.handle()` 会让进程中止（pyo3 断言）。要先在主线程取到 handle，别的线程只调 `handle.stop()` | 守护进程停运行走信号或 handle，不碰 node 对象 |
+
+没有探测、留给实现 PR：断线重连后会不会补发缺失的 K 线（要人为断网）；Sandbox 有没有强平（1 倍杠杆下很难
+触发）；跨月成员表的更新方式（§3）。
 
 ## 7. 不做
 
@@ -250,7 +266,7 @@ Agent 做不到的事。这里同时占了两条：
 ## 8. 交付顺序
 
 1. `docs(plans)`：本文。
-2. 原生探测（§6），结论补进本文；在加账本表的 PR 之前，按 AGENTS.md 做存储字段的独立子代理审阅并记在 `docs/plans/`。
+2. 原生探测（§6，已完成）；在加账本表的 PR 之前，按 AGENTS.md 做存储字段的独立子代理审阅并记在 `docs/plans/`。
 3. 图谱 Docker 服务，即 `research-graph-serve.zh.md` 第 6 步，是前提。
 4. `feat(engine)`：`engine/paper.py`、记录 Actor、§6 的原生探测证据；新的镜像 digest。
 5. `feat(paper)`：守护进程，以及 `python -m cli.main paper start|stop|list|seal`，账本表和 `ledger upgrade`。
