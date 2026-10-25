@@ -1,5 +1,4 @@
-"""Research facts, the research state and runs affected by an identity change (`report.research_status`,
-`report.research_state`, `report.affected_runs`).
+"""Research facts and the research state (`report.research_status`, `report.research_state`).
 
 Counts are read from the ledger at an exact version, never from what an Agent remembers; the state
 puts the current judgments beside read-time facts and the trials no review has covered yet. Nothing
@@ -15,18 +14,17 @@ import hashlib
 import json
 import re
 
-from ledger import db, evidence, execution, lines, problems, reproduction, witness
+from ledger import db, evidence, execution, judgments, lines, problems, reproduction, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
 from registration import comparability, register
 from report import candidates as report_candidates, measures, runs
+from runtime import image
 
 
 SINGLE_KINDS = ("recommendation", "priority")
 MANY_KINDS = ("interpretation", "search_exposure")
-DIMENSIONS = ("runtime", "effective_config", "input")
-RUNTIME_KEYS = ("image_digest", "runtime_contract", "engine_version", "dependency_lock_sha256")
 # The comparison table's measures (the single-run report's), and those where less is better.
 TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
@@ -348,11 +346,37 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
     return {"registration_bundle": subject.get("registration_bundle")}
 
 
+def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Mapping) -> list[dict]:
+    """A gate when the candidates the line continues from were published for a runtime contract this
+    product has no image layout for: the recommended, parent and control candidates of the current
+    recommendation and priority, else the line's start. Precheck and sealing hold a run to its
+    candidate's contract and a registration to its control's, so the line cannot be replayed or
+    compared on the current runtime; a contract change closes the line (user decision 2026-10-25)."""
+    named = sorted({(subject["strategy_id"], subject["revision"]) for kind in SINGLE_KINDS for item in judged[kind]
+                    for subject in item["subjects"] if subject["role"] in judgments.CANDIDATE_ROLES})
+    if not named:
+        strategy_id, _, revision = record["start"].rpartition("@")
+        named = [(strategy_id, int(revision))]
+    rows = conn.rows("SELECT strategy_id, revision, runtime_contract FROM candidate WHERE "
+                     + " OR ".join(["(strategy_id = %s AND revision = %s)"] * len(named)),
+                     tuple(value for pair in named for value in pair))
+    old = sorted((contract, f"{strategy_id}@{revision}") for strategy_id, revision, contract in rows
+                 if contract not in image.LAYOUTS)
+    if not old:
+        return []
+    contracts, supported = ", ".join(sorted({contract for contract, _ in old})), ", ".join(sorted(image.LAYOUTS))
+    return [{"code": "RUNTIME_UNSUPPORTED",
+             "message": f"the line's candidates and their runs are on {contracts}, which this product cannot replay "
+                        f"(it runs {supported}); the line can only be closed and research restarted on {supported}",
+             "missing": [name for _, name in old]}]
+
+
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), the ended lines not yet closed (`unclosed_lines`, for `line close`), its current judgments with read-time facts, the fixed review cadence (`review_every`),
-    the trials since the last recommendation, the trial count of the line and the gates the next registration would meet. On
+    the trials since the last recommendation, the trial count of the line and the gates the next registration would meet
+    (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs). On
     a ledger without a research line: `line` null with the facts and `line select` as the next step.
 
     By default interpretations and search exposures are those after the current recommendation, with the
@@ -397,6 +421,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             gates: list[dict] = []
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
+        gates += _unsupported_contract(pinned, record, judged)
     return {"at": commit, "line": record, "unclosed_lines": unclosed,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
@@ -404,82 +429,3 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             "judgment_history": original, "earlier": earlier,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)} if full else None}
-
-
-# Runs affected by an identity change
-
-def _check_query(current) -> None:
-    if not isinstance(current, Mapping) or not current or set(current) - set(DIMENSIONS):
-        raise refuse("INVALID_QUERY", "current names at least one of runtime, effective_config, input and nothing else",
-                     expected="{runtime?, effective_config?, input?}")
-    runtime = current.get("runtime")
-    if "runtime" in current and (not isinstance(runtime, Mapping) or not runtime or set(runtime) - set(RUNTIME_KEYS)):
-        raise refuse("INVALID_QUERY", "runtime holds only " + ", ".join(RUNTIME_KEYS), expected=", ".join(RUNTIME_KEYS))
-
-
-def _retry_chain(conn: db.LedgerConnection, bundle: str) -> list[str]:
-    chain, seen = [], {bundle}
-    retry = register.load_plan(conn, bundle)[0]["body"].get("retry_of")
-    while retry is not None and retry not in seen:
-        chain.append(retry)
-        seen.add(retry)
-        retry = register.load_plan(conn, retry)[0]["body"].get("retry_of")
-    return chain
-
-
-def affected_runs(ledger, current: Mapping, at: str | None = None) -> dict:
-    """Sealed runs whose recorded execution identity differs from `current` in a given dimension, with
-    the registrations, validations and registration bundles that cite them; no priority or mark.
-    Only the dimensions given are compared; a runtime key the ledger does not record is listed in
-    `unrecorded` rather than guessed."""
-    _check_query(current)
-    with db.read_as_of(runs.profile_of(ledger), at) as conn:
-        commit = db.head_commit(conn)
-        affected, unrecorded = [], set()
-        for row in conn.dicts(f"SELECT r.trial_id, r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
-                              "t.trial_id = r.trial_id ORDER BY r.trial_id"):
-            record = register.control_trial(conn, row["trial_id"])
-            start = execution.read_capture(conn, row["trial_id"])["start"]
-            runtime = start.get("runtime_identity") or {}
-            if (row["image_digest"] is None or not isinstance(record.get("effective_config"), Mapping)
-                    or not isinstance(record.get("input_identity"), Mapping)):
-                raise refuse("RUN_IDENTITY_MISSING", f"run {row['trial_id']} lacks its runtime image, effective "
-                                                     "configuration or input identity; run the whole review",
-                             missing=(f"run {row['trial_id']}",))
-            recorded = {"image_digest": row["image_digest"], "runtime_contract": runtime.get("runtime_contract"),
-                        "engine_version": None, "dependency_lock_sha256": None,
-                        "config_key": comparability.config_key(record["effective_config"]),
-                        "input_key": comparability.input_key(record["input_identity"])}
-            differs = []
-            for name, value in (current.get("runtime") or {}).items():
-                if recorded[name] is None:
-                    unrecorded.add(f"runtime.{name}")
-                elif recorded[name] != value:
-                    differs.append(f"runtime.{name}")
-            if "effective_config" in current and recorded["config_key"] != comparability.config_key(
-                    current["effective_config"]):
-                differs.append("effective_config")
-            if "input" in current and recorded["input_key"] != comparability.input_key(current["input"]):
-                differs.append("input")
-            if differs:
-                affected.append({"trial_id": row["trial_id"], "status": row["status"],
-                                 "differs_in": differs, "recorded": recorded})
-        trial_ids = {item["trial_id"] for item in affected}
-        registrations, validation, cited = [], [], []
-        if trial_ids:
-            marks = ", ".join(["%s"] * len(trial_ids))
-            for bundle, source, trial_id in conn.rows(f"SELECT registration_bundle, source_sha256, trial_id FROM "
-                                                      f"registration_attempt WHERE trial_id IN ({marks}) ORDER BY trial_id",
-                                                      tuple(trial_ids)):
-                registrations.append({"bundle": bundle, "source_sha256": source, "trial_id": trial_id,
-                                      "retry_of_chain": _retry_chain(conn, bundle)})
-            validation = [{"registration_id": registration_id, "trial_id": trial_id} for registration_id, trial_id in conn.rows(
-                f"SELECT b.registration_id, r.trial_id FROM validation_binding b JOIN run r ON r.trial_id = b.trial_id WHERE "
-                f"b.trial_id IN ({marks}) ORDER BY b.registration_id", tuple(trial_ids))]
-            for (bundle,) in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE 'registration-%' ORDER BY "
-                                       "bundle"):
-                if register.load_plan(conn, bundle)[0]["body"].get("control_trial_id") in trial_ids:
-                    cited.append(bundle)
-    return {"ledger_commit": commit, "current": json.loads(json.dumps(current, default=str)), "runs": affected,
-            "registrations": registrations, "validation": validation, "evidence_bundles": cited,
-            "unrecorded": sorted(unrecorded)}
