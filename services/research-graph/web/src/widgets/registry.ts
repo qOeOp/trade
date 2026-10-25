@@ -8,6 +8,7 @@ import { Notes } from "./Notes";
 import { Progress } from "./Progress";
 import { Recommendation } from "./Recommendation";
 import { Scatter } from "./Scatter";
+import { SourceTree } from "./source/SourceTree";
 import { Unknown } from "./Unknown";
 import { VersionTable } from "./VersionTable";
 import { VersionTree } from "./VersionTree";
@@ -20,6 +21,7 @@ export const RENDERERS = {
   summary: r("Recommended", Recommendation),
   lineage: r("Lineage", Lineage),
   tree: r("Versions", VersionTree),
+  sources: r("Sources", SourceTree),
   detail: r("Details", Detail),
   progress: r("Progress", Progress),
   scatter: r("Return vs drawdown", Scatter),

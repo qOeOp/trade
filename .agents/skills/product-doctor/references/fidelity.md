@@ -1,7 +1,7 @@
 # Ledger fidelity test
 
 Tests whether the ledger alone reconstructs what a session did. Use it in an overall audit, or when
-a finding turns on what the ledger preserves. Both graphs follow the `research-graph/1` format
+a finding turns on what the ledger preserves. Both graphs follow the `research-graph/2` format
 and use the tool of the `research-graph` skill (`services/research-graph/graph.py`).
 
 1. **Ledger graph.** `research graph` at the session's last ledger commit (`--at`), as the
@@ -10,6 +10,7 @@ and use the tool of the `research-graph` skill (`services/research-graph/graph.p
    ([hosts.md](hosts.md)) and the schema: no ledger command, no files the session wrote under
    /tmp, no memory, no other graph. It takes ids, numbers, verdicts and times from tool outputs,
    and hypotheses, interpretations and decisions from the agent's messages, saying so in `gaps`.
+   A version's `source` is filled only from a tool output that shows the whole file, else null.
    It fills only the graph's fields (what the ledger should hold); conversation and host state
    are not part of a graph. `scope.end` is the last event read.
 3. **Check and compare.** `graph.py check` passes on both; fix an extraction, never the format.

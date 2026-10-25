@@ -1,7 +1,7 @@
 """Graph to view model (research-graph-view/1): what to draw and where, in research units, no pixels.
 
 The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
-versioned type (summary/1, lineage/2, progress/1, scatter/1, table/1, notes/1, candidate-detail/1) and a slot (top, main or side) and is
+versioned type (summary/1, lineage/2, progress/1, scatter/1, table/1, notes/1, candidate-detail/1, sources/1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
 x is research progress in trial numbers: a whole number is a trial, and a candidate sits at its first
@@ -204,8 +204,11 @@ def build_view(graph: dict) -> dict:
         {"id": "gaps", "type": "notes/1", "slot": "main", "title": "What this data lacks", "items": graph["gaps"]},
         {"id": "details", "type": "candidate-detail/1", "slot": "side",
          "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
-         "items": [{**c, "status_class": status_of[c["id"]], "prediction_class": prediction_of[c["id"]]}
-                   for c in candidates]},
+         "items": [{**{k: v for k, v in c.items() if k != "source"}, "status_class": status_of[c["id"]],
+                    "prediction_class": prediction_of[c["id"]]} for c in candidates]},
+        {"id": "sources", "type": "sources/1", "slot": "side", "title": "Sources",
+         "items": [{"id": c["id"], "parent": c.get("parent") if c.get("parent") in row else None, "source": c.get("source")}
+                   for c in sorted(candidates, key=lambda c: c["id"])]},
     ]
     return {"format": VIEW_FORMAT, "source": graph["source"], "scope": graph.get("scope"), "line": graph["line"], "targets": targets,
             "counts": {"candidates": len(candidates), "research_runs": sum(len(research_runs(c)) for c in candidates)},

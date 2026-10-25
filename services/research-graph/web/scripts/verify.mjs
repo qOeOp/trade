@@ -5,7 +5,8 @@
 // the toolbar readings inside their bounds, and that
 // scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
 // the folded path, a version's context menu, opening it in a tab, panning the canvas to its edges, a side
-// closing without moving the canvas, focusing the earliest version without showing space before it).
+// closing without moving the canvas, focusing the earliest version without showing space before it, and a
+// version's source opened from Sources: highlighted, growing inside the island's overlay scroll, and its diff).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -149,7 +150,7 @@ try {
   if (node) {
     await click(node[0], node[1], "right"); await sleep(400);
     const items = await evaluate(`document.querySelectorAll('[role="menuitem"]').length`);
-    expect(items === 5, `canvas: the context menu has ${items} items, not 5`);
+    expect(items === 6, `canvas: the context menu has ${items} items, not 6`);
     await key("Escape", "Escape", 27);
     await click(node[0], node[1], "left", 1); await click(node[0], node[1], "left", 2); await sleep(400);
     const tabs = await evaluate(`[...document.querySelectorAll('[data-island=editor] [role="tab"]')].map((t) => t.getAttribute("aria-selected"))`);
@@ -190,6 +191,28 @@ try {
     await evaluate(`location.hash = ${JSON.stringify(earliest)}`); await sleep(600);
     const start = await evaluate(edges) ?? { left: NaN, top: NaN };
     expect(start.left < 0.6 && start.top < 0.6, `canvas: focusing ${earliest} leaves ${start.left.toFixed(1)}px before trial 0 and ${start.top.toFixed(1)}px above the first row`);
+  }
+  // Sources (⌥7): a double-click opens a file as a highlighted, read-only source tab that the island scrolls
+  // (no native bar), and Compare with parent shows its change as a unified diff.
+  for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: "7", code: "Digit7", modifiers: 1, windowsVirtualKeyCode: 55 });
+  await sleep(400);
+  const file = await evaluate(`(() => { const r = [...document.querySelectorAll('[data-island="left"] [role="treeitem"]')].find((e) => e.textContent.endsWith(".py"))?.getBoundingClientRect(); return r && [r.left + 60, r.top + r.height / 2]; })()`);
+  expect(file, "sources: no file in the Sources tool window");
+  if (file) {
+    await click(file[0], file[1], "left", 1); await click(file[0], file[1], "left", 2); await sleep(600);
+    const code = await evaluate(`(() => { const e = document.querySelector("[data-island=editor] [data-code] .cm-editor"); if (!e) return null;
+      return { tokens: e.querySelectorAll('[class*="tok-"]').length, lines: e.querySelectorAll(".cm-gutterElement").length,
+               overflow: getComputedStyle(e.querySelector(".cm-scroller")).overflow, tab: document.querySelector('[data-island=editor] [role="tab"][aria-selected="true"]')?.textContent.trim() }; })()`);
+    expect(code && code.tokens > 0 && code.lines > 1, `sources: the double-click opened ${JSON.stringify(code)}, not highlighted source`);
+    expect(code?.overflow === "visible", `sources: the source scrolls itself (${code?.overflow}), not inside the island`);
+    expect(code?.tab?.endsWith(".py"), `sources: the active tab is ${code?.tab}`);
+    writeFileSync(join(outDir, "source.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    const compare = await evaluate(`[...document.querySelectorAll("[data-island=editor] button")].some((b) => b.textContent.trim() === "Compare with parent" && (b.click(), true))`);
+    if (compare) {
+      await sleep(600);
+      expect(await evaluate(`!!document.querySelector("[data-island=editor] [data-code] .cm-merge-b")`), "sources: Compare with parent shows no diff");
+      writeFileSync(join(outDir, "diff.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    }
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];

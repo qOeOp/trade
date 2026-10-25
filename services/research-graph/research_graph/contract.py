@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
-GRAPH_FORMAT = "research-graph/1"
+GRAPH_FORMAT = "research-graph/2"
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
 
 

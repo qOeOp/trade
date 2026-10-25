@@ -15,8 +15,13 @@ import circleAlert from "lucide-static/icons/circle-alert.svg?raw";
 import contrast from "lucide-static/icons/contrast.svg?raw";
 import copy from "lucide-static/icons/copy.svg?raw";
 import ellipsisVertical from "lucide-static/icons/ellipsis-vertical.svg?raw";
+import fileCode from "lucide-static/icons/file-code.svg?raw";
 import fileText from "lucide-static/icons/file-text.svg?raw";
+import folder from "lucide-static/icons/folder.svg?raw";
+import folderCode from "lucide-static/icons/folder-code.svg?raw";
+import folderOpen from "lucide-static/icons/folder-open.svg?raw";
 import gitBranch from "lucide-static/icons/git-branch.svg?raw";
+import gitCompare from "lucide-static/icons/git-compare.svg?raw";
 import gitCommitHorizontal from "lucide-static/icons/git-commit-horizontal.svg?raw";
 import gitGraph from "lucide-static/icons/git-graph.svg?raw";
 import listTree from "lucide-static/icons/list-tree.svg?raw";
@@ -53,8 +58,13 @@ export const ICONS = {
   ledger: { svg: gitBranch },
   "close-small": { svg: x },
   lineage: { svg: gitGraph },
+  "file.python": { svg: fileCode },
+  folder: { svg: folder },
+  "folder-open": { svg: folderOpen },
+  diff: { svg: gitCompare },
   "tool.versions": { svg: listTree },
   "tool.inspector": { svg: fileText },
+  "tool.sources": { svg: folderCode },
   "tool.progress": { svg: chartColumn },
   "tool.readings": { svg: chartScatter },
   "tool.table": { svg: table },

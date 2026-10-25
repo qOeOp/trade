@@ -1,0 +1,35 @@
+/* The source view (components/CodeView): CodeMirror, read-only, in the page's monospace face. It grows to
+   its content, so the editor island's ScrollArea scrolls it and no native bar shows. Token classes come
+   from CodeView's highlighter, colours from tokens.css; the selectors outrank CodeMirror's base theme. */
+[data-code] .cm-editor { background: transparent; color: var(--fg); }
+[data-code] .cm-editor.cm-focused { outline: none; }
+[data-code] .cm-editor .cm-scroller { font-family: inherit; font-size: inherit; line-height: 20px; overflow: visible; }
+[data-code] .cm-editor .cm-content { padding: 8px 0; }
+[data-code] .cm-editor .cm-line { padding: 0 24px 0 16px; }
+[data-code] .cm-editor .cm-gutters { background: var(--island); color: var(--code-gutter); border: none; }
+[data-code] .cm-editor .cm-lineNumbers .cm-gutterElement { min-width: 40px; padding: 0 4px 0 12px; }
+[data-code] .cm-editor ::selection { background: var(--selection); }
+
+.tok-keyword { color: var(--code-keyword); }
+.tok-string { color: var(--code-string); }
+.tok-escape { color: var(--code-escape); }
+.tok-number { color: var(--code-number); }
+.tok-comment { color: var(--code-comment); }
+.tok-function { color: var(--code-function); }
+.tok-decorator { color: var(--code-decorator); }
+
+/* A diff (unified, against the parent): inserted lines and characters green, deleted red, a bar of the
+   same hue in the change gutter; long unchanged stretches fold to a bar that opens on click. */
+[data-code] .cm-editor.cm-merge-b .cm-changedLine { background: var(--diff-inserted); }
+[data-code] .cm-editor.cm-merge-b .cm-changedText { background: var(--diff-inserted-text); }
+[data-code] .cm-editor .cm-deletedChunk { background: var(--diff-deleted); padding-left: 0; }
+[data-code] .cm-editor .cm-deletedChunk .cm-deletedLine { padding: 0 24px 0 16px; }
+[data-code] .cm-editor .cm-deletedChunk .cm-deletedText { background: var(--diff-deleted-text); }
+[data-code] .cm-editor .cm-changeGutter { width: 3px; padding-left: 0; }
+[data-code] .cm-editor .cm-changedLineGutter { background: var(--meets); }
+[data-code] .cm-editor .cm-deletedLineGutter { background: var(--fail); }
+[data-code] .cm-editor .cm-collapsedLines {
+  background: var(--island-alt); color: var(--fg-muted); padding: 2px 16px; font-size: 12px;
+  transition: background-color var(--t-fast) var(--ease);
+}
+[data-code] .cm-editor .cm-collapsedLines:hover { background: var(--hover); }

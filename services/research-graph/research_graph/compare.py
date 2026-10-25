@@ -10,7 +10,7 @@ from collections import Counter
 from .layout import research_runs, seconds
 
 MEASURES = ("annual_return", "max_drawdown", "sharpe", "win_rate")
-FIELDS = ("change", "hypothesis", "duties", "registration", "control_trial", "interpretation")
+FIELDS = ("change", "source", "hypothesis", "duties", "registration", "control_trial", "interpretation")
 
 
 def _within(graph: dict, cutoff: float | None) -> dict[str, dict]:
@@ -34,7 +34,7 @@ def compare(a: dict, b: dict, cutoff: str | None = None, tolerance: float = 5e-4
     out: dict = {"a": a["source"], "b": b["source"], "cutoff": cutoff,
                  "only_a": sorted(set(ca) - set(cb)), "only_b": sorted(set(cb) - set(ca)),
                  "parent": [], "runs_missing": [], "measures": [], "eligibility": [], "predictions": [],
-                 "reviews": [], "status": [], "fields": {}}
+                 "reviews": [], "status": [], "source": [], "fields": {}}
     for i in both:
         x, y = ca[i], cb[i]
         if x.get("parent") != y.get("parent"):
@@ -59,6 +59,8 @@ def compare(a: dict, b: dict, cutoff: str | None = None, tolerance: float = 5e-4
             out["reviews"].append({"id": i, "a": dict(_verdicts(x)), "b": dict(_verdicts(y))})
         if x.get("status") != y.get("status"):
             out["status"].append({"id": i, "a": x.get("status"), "b": y.get("status")})
+        if x.get("source") is not None and y.get("source") is not None and x["source"] != y["source"]:
+            out["source"].append(i)
     for f in FIELDS:
         out["fields"][f] = {"both": sum(1 for i in both if ca[i].get(f) and cb[i].get(f)),
                             "only_a": [i for i in both if ca[i].get(f) and not cb[i].get(f)],
@@ -103,6 +105,7 @@ def markdown(diff: dict) -> str:
     section("Predictions differ", diff["predictions"], lambda d: f"{d['id']}: {a} {d['a']} / {b} {d['b']}")
     section("Source reviews differ", diff["reviews"], lambda d: f"{d['id']}: {a} {d['a']} / {b} {d['b']}")
     section("Status differs", diff["status"], lambda d: f"{d['id']}: {a} {d['a']} / {b} {d['b']}")
+    section("Source differs", diff["source"], str)
     lines.append("## Field coverage")
     for f, v in diff["fields"].items():
         lines.append(f"- {f}: both {v['both']}, only {a} {len(v['only_a'])}, only {b} {len(v['only_b'])}")

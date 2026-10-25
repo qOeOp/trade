@@ -16,16 +16,16 @@ from research_graph import cli, compare, contract, layout  # noqa: E402
 from research_graph.renderers.web import render as render_web  # noqa: E402
 
 GRAPH = {
-    "format": "research-graph/1", "source": "ledger",
+    "format": "research-graph/2", "source": "ledger",
     "scope": {"start": "2026-01-01T10:00:00Z"},
     "line": {"bundle": "research-line-20260101-x", "start": "root@1", "window": ["2025-01-01", "2026-01-01"],
              "targets": {"max_drawdown": 0.15, "annual_return": 0.2}},
     "candidates": [
-        {"id": "root@1", "parent": None, "created_at": "2026-01-01T09:00:00",
+        {"id": "root@1", "parent": None, "created_at": "2026-01-01T09:00:00", "source": "class Root:\n    pass\n",
          "trials": [{"trial_id": 1, "purpose": "precheck"},
                     {"trial_id": 2, "purpose": "research", "annual_return": 0.1, "max_drawdown": 0.2, "eligible": False,
                      "ineligible_reason": "SOURCE_REVIEW_FAILED", "at": "2026-01-01T09:30:00"}]},
-        {"id": "a@1", "parent": "root@1", "created_at": "2026-01-01T11:00:00",
+        {"id": "a@1", "parent": "root@1", "created_at": "2026-01-01T11:00:00", "source": "class A:\n    pass\n",
          "predictions": [{"measure": "m", "direction": "up", "outcome": "held"}],
          "trials": [{"trial_id": 3, "purpose": "precheck"},
                     {"trial_id": 4, "purpose": "research", "annual_return": 0.25, "max_drawdown": 0.1, "eligible": True,
@@ -60,7 +60,7 @@ class LayoutTests(unittest.TestCase):
         widgets = {w["id"]: w for w in view["widgets"]}
         self.assertEqual([(w["type"], w["slot"]) for w in view["widgets"]],
                          [("summary/1", "top"), ("lineage/2", "main"), ("progress/1", "main"), ("scatter/1", "main"), ("table/1", "main"), ("notes/1", "main"),
-                          ("candidate-detail/1", "side")])
+                          ("candidate-detail/1", "side"), ("sources/1", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
         self.assertEqual([r["id"] for r in tree["rows"]], ["root@1", "a@1", "b@1"])
@@ -81,6 +81,9 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(progress["axis"]["max"], tree["axis"]["max"], "the same x as the lineage")
         self.assertEqual(len(widgets["readings"]["points"]), 3)
         self.assertEqual(widgets["details"]["default"], "a@1")
+        self.assertFalse(any("source" in c for c in widgets["details"]["items"]), "the source travels once, in sources/1")
+        self.assertEqual([(s["id"], s["parent"], s["source"]) for s in widgets["sources"]["items"]],
+                         [("a@1", "root@1", "class A:\n    pass\n"), ("b@1", "a@1", None), ("root@1", None, "class Root:\n    pass\n")])
         self.assertEqual({r["id"]: (r["role"], r["runs"], r["annual_return"]) for r in widgets["versions"]["rows"]},
                          {"root@1": (None, 1, 0.1), "a@1": ("recommended", 1, 0.25), "b@1": (None, 1, 0.18)})
         summary = widgets["summary"]
@@ -140,6 +143,8 @@ class CompareTests(unittest.TestCase):
         session["candidates"][1]["trials"][1]["annual_return"] = 0.2504
         session["candidates"][1]["trials"][1]["max_drawdown"] = 0.12
         session["candidates"][1]["predictions"] = []
+        session["candidates"][1]["source"] = "class A:\n    pass  # edited\n"
+        session["candidates"][0]["source"] = None
         session["candidates"].append({"id": "late@1", "parent": "a@1", "created_at": "2026-01-02T00:00:00Z"})
         diff = compare.compare(GRAPH, session, "2026-01-01T23:00:00Z")
         self.assertEqual(diff["only_b"], [], "a candidate after the cutoff is out of scope")
@@ -147,6 +152,8 @@ class CompareTests(unittest.TestCase):
         self.assertEqual([(d["measure"], d["b"]) for d in diff["measures"]], [("max_drawdown", 0.12)],
                          "a reading within the tolerance is not a difference")
         self.assertEqual(diff["predictions"], [{"id": "a@1", "a": {"held": 1}, "b": {}}])
+        self.assertEqual(diff["source"], ["a@1"], "a source one graph lacks is coverage, not a difference")
+        self.assertEqual(diff["fields"]["source"]["only_a"], ["root@1"])
         self.assertEqual(diff["events"]["a"], diff["events"]["b"])
         self.assertIn("## Parent differs (1)", compare.markdown(diff))
 

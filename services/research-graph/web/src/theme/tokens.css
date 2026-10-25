@@ -60,6 +60,20 @@
   --scope: var(--island-alt);
   --crosshair: var(--fg-faint);
 
+  /* code: IntelliJ's Python colours (Islands light, dark); a diff tints lines with the meets and fail hues */
+  --code-keyword: light-dark(#0033B3, #CF8E6D);
+  --code-string: light-dark(#067D17, #6AAB73);
+  --code-escape: light-dark(#0037A6, #CF8E6D);
+  --code-number: light-dark(#1750EB, #2AACB8);
+  --code-comment: light-dark(#8C8C8C, #7A7E85);
+  --code-function: light-dark(#00627A, #56A8F5);
+  --code-decorator: light-dark(#9E880D, #B3AE60);
+  --code-gutter: var(--fg-ghost);
+  --diff-inserted: color-mix(in oklch, var(--meets) 13%, transparent);
+  --diff-inserted-text: color-mix(in oklch, var(--meets) 32%, transparent);
+  --diff-deleted: color-mix(in oklch, var(--fail) 11%, transparent);
+  --diff-deleted-text: color-mix(in oklch, var(--fail) 30%, transparent);
+
   /* metrics */
   /* 4px grid; islands sit 4px apart as in IntelliJ's Islands theme */
   --gap: 4px;
