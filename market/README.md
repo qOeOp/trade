@@ -91,8 +91,12 @@ is the maximum daily p99, not a pooled monthly percentile. Validate suitability 
 period and intended liquidation use against observed BBO and matched native replay evidence;
 report missing evidence without automatically dropping contracts or shortening the window. See
 research-start's `references/readiness.md` for the boundary.
-Measured against Binance's native bookTicker on four first-of-month days the inferred BTCUSDT mid is within
-0.7 bps at p99 (`docs/plans/binance-aggtrades-quotes-liquidation-plan.zh.md`).
+The historical four-day probe reported inferred BTCUSDT mid deviations within 0.7 bps at p99;
+its original reference files and contemporary hashes were not found. The subsequent
+[twelve month-start native liquidation comparisons](../docs/plans/monthly-quote-liquidation-validation.zh.md)
+completed as engineering runs, not full suitability acceptance: the May reference has a confirmed
+collection disconnect, inferred T and observed E differ in time semantics, and historical byte identity
+remains unverified. Neither result establishes complete reference continuity or other-contract suitability.
 
 ## Import and freshness
 
