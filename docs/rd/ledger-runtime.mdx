@@ -877,23 +877,23 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 ### 有意变更或证明不了时 [#J-5-4]
 
-旧身份下的记录永远能读回；受影响的运行只读查出，由 <Ref id="V.2" /> 恢复可比资格。
+旧身份下的记录永远能读回；同一契约内的变更由 <Ref id="V.2" /> 恢复可比资格，契约升级后研究状态直接说明当前路线只能关闭、在新契约上新开。
 
 <a id="J-5-4-1" />
 
 **有意变更或配对不一致时，旧运行原样保留、永远能读回**
 
-适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。受影响的范围按新身份只读查出，不排序，也不打标记。
+适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。不另存标记：当前路线接续的推荐、父本与对照候选停在本产品没有镜像布局的契约上时，<Ref id="report.research_state" /> 在 gates 里读时给出 RUNTIME_UNSUPPORTED 并列出这些候选；研究入口据此告诉用户这条线只能关闭、在新契约上新开，不提议续线，也不为它建 Goal。
 
 环境变了不代表旧结果错了，它在旧环境下仍然成立。旧运行环境按摘要保留，读回时还能核对；删除它要用户授权。
 
 <div className="rd-example">
 
-比如把引擎升级到新版本，资金费的算法有意改了。旧环境下 H01 到 H10 的运行都还在、都能读回；代码只读列出哪些运行和登记受影响，再由 <Ref id="V.2" /> 恢复可比资格。
+比如把引擎升级到新版本，资金费的算法有意改了。旧环境下 H01 到 H10 的运行都还在、都能读回。契约没变时由 <Ref id="V.2" /> 恢复可比资格；契约随之升级时，研究状态列出 RUNTIME_UNSUPPORTED 与推荐、对照候选，用户关闭这条线，在新契约上新开。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.affected_runs">affected_runs</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_state">research_state</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 13.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 
