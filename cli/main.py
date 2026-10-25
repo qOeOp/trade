@@ -1152,8 +1152,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "one judgment row and its subject rows; the same content again is a replay; publishes",
         "judgment_id, ledger_commit, replayed",
         "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
-        "RECOMMENDATION_INCOMPLETE (a recommendation must name every candidate of the comparison table at "
-        "--based-on as a subject); SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
+        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's "
+        "execution identity in the comparison table at --based-on: its `candidates`); SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
         "the market database at --market-at (reader): commit, universe rule, latest complete day; the start "
@@ -1213,15 +1213,19 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "trading window); excluded_trials {reproductions, stopped_before_strategy} (left out of those counts); "
         "research_attempts and their outcomes (audit_passed, valid, diagnostic_only, invalid, unfinished); "
         "validation {registered, bound, unbound, unwitnessed}; unverified_runs; availability_checker; "
-        "metrics_revision; comparison (the line's comparison table: runs [{candidate, trial_id, measures, "
-        "dominated_by, non_dominated}], without_economic_evidence; null without a line)",
+        "metrics_revision; comparison (the line's comparison table: execution_identity (the line's, from its "
+        "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
+        "execution_identity {runtime_contract, execution, image_digest, key}, measures, dominated_by, "
+        "non_dominated}] (dominance only within one identity), candidates (those of the line's identity, which a "
+        "recommendation names), without_economic_evidence; null without a line)",
         "REFERENTIAL_GAP (a run or attempt names a missing trial); UNKNOWN_BUNDLE, LINE_CORRUPT (--line); "
         "UNKNOWN_REF (--at)"),
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); no market",
         "nothing; never publishes",
-        "at, line, targets, unclosed_lines, recommendation, priority, review_every, interpretations, "
-        "search_exposures, unreviewed_trials, trials_on_line, gates [{code, message, missing}] "
+        "at, line, execution_identity (the line's), targets, unclosed_lines, recommendation, priority, "
+        "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
+        "trials_on_line (every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, RESEARCH_LINE_REQUIRED: reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
         "line); large with --full",
