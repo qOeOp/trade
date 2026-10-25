@@ -121,7 +121,7 @@ def bars(lines: list[dict], archive: Mapping[str, list[list]], start: int, end: 
             late[symbol] = late.get(symbol, 0) + 1
     result = {}
     for symbol, rows in archive.items():
-        stored = {row[1] * 10**6: dict(zip(BAR_FIELDS, row[2:7])) for row in rows}
+        stored = {row[1] * 10**6: dict(zip(BAR_FIELDS, row[2:7], strict=True)) for row in rows}
         mine = live.get(symbol, {})
         differing = {}
         for close, bar in stored.items():
