@@ -3,7 +3,7 @@ import { expandAllFeature, hotkeysCoreFeature, selectionFeature, syncDataLoaderF
 import { useTree } from "@headless-tree/react";
 import type { LineageNode, LineageWidget } from "../model/types";
 import { ancestors, descendants, lineageTree } from "../model/lineageTree";
-import { openVersionTab } from "../state/editors";
+import { openSourceTab } from "../state/editors";
 import { hoverProps } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { versionTreeControl } from "../state/versionTree";
@@ -64,7 +64,7 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
         const level = item.getItemMeta().level, id = item.getId(), count = descendants(structure, id);
         return (
           <VersionMenu key={id} id={id}>
-          <TreeRow {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openVersionTab(id)}
+          <TreeRow {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openSourceTab(id)}
                    level={level} folder={item.isFolder()} expanded={item.isExpanded()} selected={item.isSelected()}>
             <VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} />
             {count > 0 && <span className="ml-1 text-fg-faint">{count}</span>}

@@ -21,13 +21,13 @@ const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-mee
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 
-// Where the region is wide (an editor tab), the groups sit in two columns: what changed and the
-// conclusion on the left, the evidence on the right; narrower (the inspector), one column in order.
+// Where the inspector is widened past 48rem, the groups sit in two columns: what changed and the
+// conclusion on the left, the evidence on the right; narrower, one column in order.
 // Columns never grow past the region for their content.
 const SIDE = "@3xl:pt-0";
 
-/** One version's detail; the inspector shows the selected one, an editor tab a chosen one. */
-export function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
+/** One version's detail, as the inspector shows the selected one. */
+function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
   const last: Partial<Trial> = runs.at(-1) ?? {};
   const cmp = c.comparison;

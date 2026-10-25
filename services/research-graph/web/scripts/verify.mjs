@@ -4,9 +4,10 @@
 // that a narrow window keeps every island inside it and still while the pointer moves, the detail and
 // the toolbar readings inside their bounds, and that
 // scrollbars are thin overlay lines on the island edges; then the main interactions there (tree keys,
-// the folded path, a version's context menu, opening it in a tab, panning the canvas to its edges, a side
+// the folded path, a version's context menu, a double-click opening its source, panning the canvas to its edges, a side
 // closing without moving the canvas, focusing the earliest version without showing space before it, and a
-// version's source opened from Sources: highlighted, growing inside the island's overlay scroll, and its diff).
+// version's source opened from Sources: highlighted, growing inside the island's overlay scroll, opened once
+// however often, and its diff).
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -149,8 +150,8 @@ try {
     expect((await evaluate(`document.querySelectorAll('[role="menuitem"]').length`)) > 0, "status bar: the folded step's menu is empty");
     await key("Escape", "Escape", 27);
   }
-  // A canvas version: right-click gives its menu, double-click opens it in a tab, the wheel pans. It is taken
-  // 60px clear of the canvas's top, so the tab strip the double-click adds does not push it under the ruler.
+  // A canvas version: right-click gives its menu, double-click opens its source (Sources on the left, the file
+  // in the editor) and ⌥1 brings the lineage back, the wheel pans. It is taken 60px clear of the canvas's top.
   const node = await evaluate(`(() => { const box = document.querySelector("[data-island=editor] .react-flow").getBoundingClientRect();
     const n = [...document.querySelectorAll(".react-flow__node [data-part=name]")].map((e) => e.getBoundingClientRect()).find((b) => b.left > box.left + 8 && b.left + 40 < box.right && b.top > box.top + 60 && b.bottom < box.bottom);
     return n && [n.left + 20, n.top + n.height / 2]; })()`);
@@ -158,12 +159,17 @@ try {
   if (node) {
     await click(node[0], node[1], "right"); await sleep(400);
     const items = await evaluate(`document.querySelectorAll('[role="menuitem"]').length`);
-    expect(items === 6, `canvas: the context menu has ${items} items, not 6`);
+    expect(items === 5, `canvas: the context menu has ${items} items, not 5`);
     await key("Escape", "Escape", 27);
     await click(node[0], node[1], "left", 1); await click(node[0], node[1], "left", 2); await sleep(400);
-    const tabs = await evaluate(`[...document.querySelectorAll('[data-island=editor] [role="tab"]')].map((t) => t.getAttribute("aria-selected"))`);
-    expect(tabs.length === 2 && tabs[1] === "true", `canvas: double-click left the editor tabs at ${JSON.stringify(tabs)}`);
-    await evaluate(`document.querySelector('[data-island=editor] [role="tab"]').click()`); await sleep(300);
+    const opened = await evaluate(`({ left: document.querySelector("[data-island=left] h2")?.textContent,
+      tabs: [...document.querySelectorAll('[data-island=editor] [role="tab"]')].map((t) => [t.textContent.trim(), t.getAttribute("aria-selected")]) })`);
+    expect(opened.left === "Sources" && opened.tabs.length === 1 && opened.tabs[0][0].endsWith(".py") && opened.tabs[0][1] === "true",
+           `canvas: double-click left ${opened.left} on the left and the editor tabs at ${JSON.stringify(opened.tabs)}`);
+    for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: "1", code: "Digit1", modifiers: 1, windowsVirtualKeyCode: 49 });
+    await sleep(400);
+    expect(await evaluate(`!!document.querySelector("[data-island=editor] .react-flow")?.offsetParent && !document.querySelector('[data-island=editor] [role="tab"]')`),
+           "canvas: ⌥1 did not bring the lineage back without tabs");
     const at = `document.querySelector(".react-flow__viewport").style.transform`, from = await evaluate(at);
     await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX: 0, deltaY: 120 }); await sleep(300);
     expect((await evaluate(at)) !== from, "canvas: the wheel did not pan");
@@ -214,6 +220,9 @@ try {
     expect(code && code.tokens > 0 && code.lines > 1, `sources: the double-click opened ${JSON.stringify(code)}, not highlighted source`);
     expect(code?.overflow === "visible", `sources: the source scrolls itself (${code?.overflow}), not inside the island`);
     expect(code?.tab?.endsWith(".py"), `sources: the active tab is ${code?.tab}`);
+    const tabCount = `document.querySelectorAll('[data-island=editor] [role="tab"]').length`, before = await evaluate(tabCount);
+    await click(file[0], file[1], "left", 1); await click(file[0], file[1], "left", 2); await sleep(400);
+    expect((await evaluate(tabCount)) === before, "sources: opening an open file added a tab");
     writeFileSync(join(outDir, "source.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
     const compare = await evaluate(`[...document.querySelectorAll("[data-island=editor] button")].some((b) => b.textContent.trim() === "Compare with parent" && (b.click(), true))`);
     if (compare) {
@@ -221,11 +230,11 @@ try {
       expect(await evaluate(`!!document.querySelector("[data-island=editor] [data-code] .cm-merge-b")`), "sources: Compare with parent shows no diff");
       writeFileSync(join(outDir, "diff.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
     }
-    // Locate in graph from a file's context menu brings the lineage back in front.
+    // Locate in graph from a file's context menu brings Versions and the lineage back.
     await click(file[0], file[1], "right"); await sleep(400);
     await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find((m) => m.textContent.trim() === "Locate in graph")?.click()`); await sleep(400);
-    const front = await evaluate(`document.querySelector('[data-island=editor] [role="tab"][aria-selected="true"]')?.textContent.trim()`);
-    expect(front === "Lineage", `sources: Locate in graph left ${front} in front`);
+    const front = await evaluate(`document.querySelector("[data-island=left] h2")?.textContent + (document.querySelector("[data-island=editor] .react-flow")?.offsetParent ? " + lineage" : "")`);
+    expect(front === "Versions + lineage", `sources: Locate in graph left ${front} in front`);
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
