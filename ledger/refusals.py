@@ -306,8 +306,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Supersede the current judgment of the same kind on the same line.",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
-    "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line's comparison table "
-                                  "at the commit it is based on.",
+    "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate with a run of the line's "
+                                  "execution identity in its comparison table at the commit it is based on.",
                                   ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "
                                    "each candidate the message lists.",)),
     # Witness
@@ -367,7 +367,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REVIEW_DUE": ("The line has run the product's fixed number of research trials since its last recommendation; "
                    "registrations stop until a review.",
                    ("Run `research status` and read its `comparison` table.",
-                    "Write a `recommendation` judgment naming every candidate in that table (`judgment add --kind "
+                    "Write a `recommendation` judgment naming every candidate of the line's `execution_identity` in that "
+                    "table (`judgment add --kind "
                     "recommendation --based-on COMMIT`), and a `priority` judgment for the next steps; the "
                     "recommendation clears the stop.")),
     # Comparability (registration/comparability.py)

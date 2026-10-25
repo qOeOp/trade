@@ -1113,7 +1113,7 @@ def add_judgment(
 3. 核对 line_bundle 是存在的 research-line-* 证据包。
 4. 逐个核对主体存在；登记包须在 registration_attempt 中出现过；role 与目标类型须匹配。
 5. 核对 supersedes 同 kind、同路线且未被取代过。
-6. kind 只有四种，由 judgment 表的 CHECK 约束；复盘停点是产品常数（registration.REVIEW_EVERY），不是判断。kind=recommendation 时，候选主体（任一角色）须覆盖 based_on_commit 上 compared 给出的每个候选，否则 RECOMMENDATION_INCOMPLETE 并列出缺的。
+6. kind 只有四种，由 judgment 表的 CHECK 约束；复盘停点是产品常数（registration.REVIEW_EVERY），不是判断。kind=recommendation 时，候选主体（任一角色）须覆盖 based_on_commit 上 compared 给出的每个候选（对照表里有路线执行身份运行的候选），否则 RECOMMENDATION_INCOMPLETE 并列出缺的。
 7. 写入 judgment 与 judgment_subject；同 op_id 同载荷幂等返回原行。
 
 | 拒绝码 | 条件 |
@@ -1125,7 +1125,7 @@ def add_judgment(
 | `SUBJECT_ROLE_MISMATCH` | role 为 recommended、parent 或 control 而目标不是候选 |
 | `SUPERSEDES_INVALID` | 被取代的判断不同 kind、不同路线或已被取代 |
 | `OP_ID_CONFLICT` | 同 op_id 载荷不同 |
-| `RECOMMENDATION_INCOMPLETE` | recommendation 没有点名所依据提交上对照表里的每个候选 |
+| `RECOMMENDATION_INCOMPLETE` | recommendation 没有点名所依据提交上对照表里路线执行身份下的每个候选 |
 
 **使用**　<Ref id="ledger.write" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:evidence_bundle" />、<Ref id="table:registration_attempt" />、<Ref id="table:candidate" />、<Ref id="table:trial" />
 

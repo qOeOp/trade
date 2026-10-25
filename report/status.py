@@ -55,6 +55,61 @@ def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, di
     return starts, captures
 
 
+def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[int, dict | None]:
+    """The execution identity of every trial with a start receipt, by trial ID: what
+    registration.check_comparable compares (the runtime image digest, the effective configuration
+    without host locations, the input identity without host roots, check times and the exporter's
+    source hash), read from the receipt's execution.json and input-coverage.json (one range read,
+    each hash checked). `key` hashes the three; runs compare only under one key. None when the
+    receipt holds no readable identity."""
+    coverages: dict[int, object] = {}
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+                                             "WHERE e.bundle LIKE %s AND e.path = %s",
+                                             ("trial-%-execution-start", execution.COVERAGE)):
+        found = TRIAL_MANIFEST.fullmatch(bundle)
+        if found is None:
+            continue
+        content = bytes(content)
+        if hashlib.sha256(content).hexdigest() != stored:
+            raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{execution.COVERAGE} differs from its content hash",
+                         missing=(f"{bundle}/{execution.COVERAGE}",))
+        try:
+            coverages[int(found.group(1))] = json.loads(content.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            pass
+    identities: dict[int, dict | None] = {}
+    for trial_id, start in starts.items():
+        coverage = coverages.get(trial_id)
+        runtime = start.get("runtime_identity") if isinstance(start.get("runtime_identity"), Mapping) else {}
+        try:
+            config = comparability.config_key(coverage.get("effective_config") if isinstance(coverage, Mapping) else None)
+            inputs = comparability.input_key(start.get("input_identity"))
+        except Refusal:
+            identities[trial_id] = None
+            continue
+        compared = {"image_digest": runtime.get("image_digest"), "effective_config": config, "input_identity": inputs}
+        account = config["account"] if isinstance(config["account"], Mapping) else {}
+        identities[trial_id] = {"runtime_contract": runtime.get("runtime_contract"), "execution": account.get("execution"),
+                                "image_digest": runtime.get("image_digest"),
+                                "key": hashlib.sha256(db.canonical_json(compared).encode("utf-8")).hexdigest()}
+    return identities
+
+
+def line_identity(conn: db.LedgerConnection, line_bundle: str, identities: Mapping[int, dict | None]) -> dict | None:
+    """The execution identity of a research line: that of its latest research trial added since the
+    line was selected (ledger.line_trials), None before the first. A contract or execution change
+    ends a line; within one, a rebuilt image replaces the identity (research-round's changes.md)."""
+    (selected,), = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s "
+                             "AND diff_type = 'added' LIMIT 1", (line_bundle,))
+    own = [identities.get(trial_id) for trial_id in lines.line_trials(conn, line_bundle, since_commit=selected)["trials"]]
+    own = [identity for identity in own if identity is not None]
+    return own[-1] if own else None
+
+
+def _same(identity: Mapping | None, other: Mapping | None) -> bool:
+    return identity is not None and other is not None and identity["key"] == other["key"]
+
+
 def failure_stages(data: bytes) -> set[str] | None:
     """The stages of runtime failure receipt bytes; None when a line is no structured receipt."""
     stages = set()
@@ -245,13 +300,18 @@ def _dominates(better: Mapping, worse: Mapping) -> bool:
 def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mapping, records: list) -> dict:
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
-    the four measures of its report and whether another run of the table dominates it on them.
-    `non_dominated` is null for a run missing a measure. Passed runs of that window without economic
-    evidence are listed apart with their reasons and no measures. Nothing is ranked, scored or stored."""
+    its execution identity (_identities), the four measures of its report and whether another run of
+    the same identity dominates it on them. `non_dominated` is null for a run missing a measure or
+    without a readable identity. `execution_identity` is the line's (line_identity) and `candidates`
+    the candidates with a run of it, which a recommendation must name. Passed runs of that window
+    without economic evidence are listed apart with their reasons and no measures. Nothing is
+    ranked, scored or stored."""
     line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
     window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
               datetime.combine(date.fromisoformat(line["window_end"]), time()))
     starts, _ = _manifests(conn)
+    identities = _identities(conn, starts)
+    current = line_identity(conn, line_bundle, identities)
     found, excluded = [], []
     for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
                           "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
@@ -260,24 +320,30 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
         if (row["trade_start"], row["trade_end"]) != window or identity.get("universe_rule") != line["universe_rule"]:
             continue
         assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
+        labelled = identities.get(row["trial_id"])
         if not assessed["economic_evidence_available"]:
             excluded.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
-                             "reasons": assessed["reasons"]})
+                             "execution_identity": labelled, "reasons": assessed["reasons"]})
             continue
-        found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"], "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)})
+        found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
+                      "execution_identity": labelled, "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)})
     for item in found:
         complete = all(item["measures"][measures.key(name)]["value"] is not None for name in TABLE_MEASURES)
         item["dominated_by"] = [other["trial_id"] for other in found if other is not item
+                                and _same(other["execution_identity"], item["execution_identity"])
                                 and _dominates(other["measures"], item["measures"])]
-        item["non_dominated"] = (not item["dominated_by"]) if complete else None
+        item["non_dominated"] = (not item["dominated_by"]) if complete and item["execution_identity"] else None
     return {"line": line_bundle, "window_start": line["window_start"], "window_end": line["window_end"],
-            "universe_rule": line["universe_rule"], "measures": [measures.key(name) for name in TABLE_MEASURES],
+            "universe_rule": line["universe_rule"], "execution_identity": current,
+            "measures": [measures.key(name) for name in TABLE_MEASURES],
             "lower_is_better": [measures.key(name) for name in LOWER_IS_BETTER], "runs": found,
-            "candidates": sorted({item["candidate"] for item in found}), "without_economic_evidence": excluded}
+            "candidates": sorted({item["candidate"] for item in found if _same(item["execution_identity"], current)}),
+            "without_economic_evidence": excluded}
 
 
 def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
-    """The candidates of the line's comparison table at `at` (what a recommendation must name)."""
+    """The candidates with a run of the line's execution identity in its comparison table at `at`
+    (what a recommendation must name)."""
     checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
         return comparison_table(conn, line_bundle, checker, availability.review_records(conn))["candidates"]
@@ -375,9 +441,10 @@ def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Ma
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
-    note), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
+    note), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
     null), the ended lines not yet closed (`unclosed_lines`, for `line close`), its current judgments with read-time facts, the fixed review cadence (`review_every`),
-    the trials since the last recommendation, the trial count of the line and the gates the next registration would meet
+    the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
+    the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs). On
     a ledger without a research line: `line` null with the facts and `line select` as the next step.
 
@@ -392,7 +459,8 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
             needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
                        "missing": ["research-line"]}]
-            return {"at": commit, "line": None, "targets": line_targets.targets_for(pinned, None), "unclosed_lines": [], **{kind: None for kind in SINGLE_KINDS},
+            return {"at": commit, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
+                    "unclosed_lines": [], **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
                     "gates": needed,
@@ -408,8 +476,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         unclosed = lines.unclosed_lines(pinned)
         original = _judgment_history(pinned, line, history or history_before is not None, history_before)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
-        unreviewed = (lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
-                      if recommendation else on_line["trials"])
+        identities = _identities(pinned, _manifests(pinned)[0])
+        current = line_identity(pinned, line, identities)
+        unreviewed = [trial_id for trial_id in (
+            lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
+            if recommendation else on_line["trials"]) if _same(identities.get(trial_id), current)]
         earlier = None
         if not full and recommendation is not None:
             earlier = {}
@@ -425,7 +496,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
-    return {"at": commit, "line": record, "targets": in_force, "unclosed_lines": unclosed,
+    return {"at": commit, "line": record, "execution_identity": current, "targets": in_force, "unclosed_lines": unclosed,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,

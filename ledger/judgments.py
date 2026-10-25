@@ -4,7 +4,8 @@ A judgment is the Agent's text (recommendation, priority, interpretation or sear
 attempted registrations. It cites records and never copies their facts; it is appended, and a
 newer judgment of the same kind on the same line supersedes it at most once. The review cadence is
 the product's (registration.REVIEW_EVERY), never a judgment. A recommendation names, among its
-candidate subjects, every candidate of the line's comparison table at the commit it is based on.
+candidate subjects, every candidate with a run of the line's execution identity in its comparison
+table at the commit it is based on.
 """
 
 from __future__ import annotations
@@ -70,8 +71,9 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
                  compared: Callable[[str, str], list[str]] | None = None) -> dict:
     """Append one judgment and its subjects in one write; the same payload again is a replay.
 
-    `compared(line_bundle, commit)` is report.compared_candidates: the candidates of the line's
-    comparison table at a commit, which a recommendation must all name (required for one)."""
+    `compared(line_bundle, commit)` is report.compared_candidates: the candidates with a run of the
+    line's execution identity in its comparison table at a commit, which a recommendation must all
+    name (required for one)."""
     if kind == "recommendation" and compared is None:
         raise ValueError("a recommendation needs the comparison table (compared=)")
     normalized = _subjects(subjects)
@@ -101,7 +103,8 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
                 missing = [ref for ref in compared(line_bundle, commit) if ref not in named]
                 if missing:
                     raise refuse("RECOMMENDATION_INCOMPLETE", "the recommendation does not name every candidate of "
-                                                              f"the comparison table at {commit}: " + ", ".join(missing),
+                                                              f"the line's execution identity in the comparison table at "
+                                                              f"{commit}: " + ", ".join(missing),
                                  missing=tuple(missing))
             if supersedes is not None:
                 old = c.one("SELECT kind, line_bundle FROM judgment WHERE judgment_id = %s",
