@@ -3,6 +3,17 @@
 // "@license lucide-static" comment in the built page.
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
+import bot from "lucide-static/icons/bot.svg?raw";
+import circleCheck from "lucide-static/icons/circle-check.svg?raw";
+import circleDashed from "lucide-static/icons/circle-dashed.svg?raw";
+import circleX from "lucide-static/icons/circle-x.svg?raw";
+import history from "lucide-static/icons/history.svg?raw";
+import messageSquarePlus from "lucide-static/icons/message-square-plus.svg?raw";
+import plus from "lucide-static/icons/plus.svg?raw";
+import rotateCcw from "lucide-static/icons/rotate-ccw.svg?raw";
+import pencil from "lucide-static/icons/pencil.svg?raw";
+import trash from "lucide-static/icons/trash-2.svg?raw";
+import wrench from "lucide-static/icons/wrench.svg?raw";
 import chartColumn from "lucide-static/icons/chart-column.svg?raw";
 import chartScatter from "lucide-static/icons/chart-scatter.svg?raw";
 import check from "lucide-static/icons/check.svg?raw";
@@ -69,6 +80,19 @@ export const ICONS = {
   "tool.readings": { svg: chartScatter },
   "tool.table": { svg: table },
   "tool.gaps": { svg: circleAlert },
+  "tool.agent": { svg: bot },
+  "new-chat": { svg: messageSquarePlus },
+  history: { svg: history },
+  plus: { svg: plus },
+  // A filled square, as stop buttons draw it: Lucide's outline square reads as a checkbox.
+  stop: { svg: '<svg><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></svg>' },
+  edit: { svg: pencil },
+  retry: { svg: rotateCcw },
+  delete: { svg: trash },
+  tool: { svg: wrench },
+  passed: { svg: circleCheck },
+  failed: { svg: circleX },
+  untested: { svg: circleDashed },
 } as const satisfies Record<string, { svg: string }>;
 
 export type IconName = keyof typeof ICONS;

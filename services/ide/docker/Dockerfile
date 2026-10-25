@@ -1,10 +1,16 @@
-# The trade IDE service (the research graph is its first view): the product at the commit it was built from, Dolt, and the built page.
+# The trade IDE service (the research graph is its first view): the product at the commit it was built from, Dolt, the built page and the chat service.
 # CI builds it (.github/workflows/ide-image.yml); the context is the repository root with
 # its shallow .git, since the product reads its own revision with `git rev-parse HEAD`.
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
 WORKDIR /web
 COPY services/ide/web/ ./
 RUN npm ci --no-audit --no-fund && npm run build
+
+# The chat service's production dependencies; it runs on the same Node, which strips types itself.
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS agent
+WORKDIR /agent
+COPY services/ide/agent/package.json services/ide/agent/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
 FROM python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2
@@ -23,6 +29,8 @@ RUN uv sync --frozen --no-dev --no-cache --no-install-project
 COPY . ./
 RUN uv sync --frozen --no-dev --no-cache && git rev-parse HEAD
 COPY --from=web /web/dist services/ide/web/dist/
+COPY --from=agent /usr/local/bin/node /usr/local/bin/node
+COPY --from=agent /agent/node_modules services/ide/agent/node_modules/
 # The page was built from exactly these sources; record their digest as the renderer does.
 RUN python3 -c "import sys; sys.path.insert(0, 'services/ide'); from research_graph.renderers.web import render as r; \
 (r.PAGE.parent / r.BUILT_FROM).write_text(r.digest(r.sources()) + '\n'); r.built_page()"

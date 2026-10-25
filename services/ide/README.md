@@ -10,7 +10,8 @@ node and npm:
 python3 services/ide/ide.py check GRAPH.json
 python3 services/ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 services/ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE]
+python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE] [--agent=URL]
+node services/ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 ```
 
 ## Service
@@ -28,6 +29,19 @@ new head, the latest only; the page replaces its view in place and keeps the sel
 last 8 views stay in memory. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
 
+With `--agent=URL`, requests under `/api/agent/` go to the chat service (`agent/`, Node 24 running
+TypeScript directly; Hono, the Vercel AI SDK and its DeepSeek, OpenAI and Anthropic providers),
+streamed back as they arrive; without it the page has no Agent window. The chat service keeps
+the agents (provider, key, models, last test) in `DIR/agents.json` (mode 0600, never sent back:
+the page sees the key's last four characters) and the threads in `DIR/threads/`. An agent is
+active once a model passes its test: the key lists models, the model replies, and it calls a tool
+and uses the result. Its tools are the product's read-only commands, run as `uv run python -m
+cli.main` with `--ledger=PROFILE` (`research state`, `research status`, `candidate list`,
+`candidate show`, `replay report`, `ledger sql`, `market coverage`); `agent/src/tools.ts` is the
+list, and the model can do nothing else. It checks the same Host and cross-site rules and takes
+only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
+[`docs/plans/product-agent-chat-design.zh.md`](../../docs/plans/product-agent-chat-design.zh.md).
+
 The Docker image (`docker/`, built by CI as `ghcr.io/qoeop/trade-ide`) runs it on a
 read-only copy of the public DoltHub databases:
 
@@ -37,7 +51,9 @@ docker compose -f services/ide/docker/compose.yaml pull && docker compose -f ser
 ```
 
 The first start clones both databases into the `trade-ide-data` volume (the market is several
-GB); later starts reuse them.
+GB); later starts reuse them. The image also runs the chat service on 127.0.0.1:8766 inside the
+container, with the reader-only accounts, so the database refuses any write; its agents and
+threads live in the same volume under `agent/`.
 
 ## Stages
 
@@ -129,7 +145,10 @@ revisions a folder of them) on the left, Details (the selected version as cards 
 lists, folded to its first paragraph or sentence with the rest behind Show more, a registration as a chip cut in the middle that copies on click) on the right, and
 Progress (research-run returns as bars from zero on the canvas's x), Return vs drawdown (the scatter with the non-dominated
 frontier), Version table and Data gaps at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
-all, collapse all, hide). `⌥1`–`⌥7` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
+all, collapse all, hide). Served with a chat service, the right side also has Agent (`⌥0`): the open
+thread with answers written as they stream, each under the model that wrote it, product commands as
+foldable cards with their JSON and known versions as links; the saved chats; and the agents with
+their tests. `⌥1`–`⌥7` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. The editor
 follows the left tool window last chosen: with Versions it shows the lineage, with Sources the open file, one at a time

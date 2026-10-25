@@ -3,7 +3,9 @@ import { Group, Panel, Separator, usePanelRef, type LayoutChangedMeta } from "re
 import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
+import { useAgentService } from "../state/agent";
 import { setSideSize, useShell, type Side } from "../state/shell";
+import { AgentRuntime } from "./agent/AgentRuntime";
 import { CommandPalette } from "./CommandPalette";
 import { commands } from "./commands";
 import { Dimming } from "./Dimming";
@@ -26,7 +28,8 @@ const EDITOR_MIN = "45%";
 export function Shell() {
   const view = useView();
   const lineage = useWidget<LineageWidget>("lineage@2");
-  const windows = useMemo(() => toolWindows(view.widgets), [view]);
+  const agent = useAgentService() === "present";
+  const windows = useMemo(() => toolWindows(view.widgets, agent), [view, agent]);
   const { open, size } = useShell();
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
@@ -44,7 +47,7 @@ export function Shell() {
     </Panel>
   );
 
-  return (
+  const frame = (
     <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-frame">
       <Dimming />
       <MainToolbar />
@@ -68,4 +71,6 @@ export function Shell() {
       <CommandPalette lineage={lineage} actions={actions} />
     </div>
   );
+  // The chat runtime sits above the islands, so a thread keeps streaming while its window is closed.
+  return agent ? <AgentRuntime>{frame}</AgentRuntime> : frame;
 }

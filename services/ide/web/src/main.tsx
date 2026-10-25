@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { follow } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
+import { detectAgentService } from "./state/agent";
 import { initSelection } from "./state/selection";
 import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
@@ -21,7 +22,8 @@ const status = (text: string) => root.render(<p style={{ padding: 24 }}>{text}</
 
 try {
   const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View | null;
-  if (view === null) follow(show, status);
+  // A live page (served, not rendered to a file) may have a chat service beside it.
+  if (view === null) { follow(show, status); void detectAgentService(); }
   else show(view);
 } catch {
   status("No view data to read: generate this page with ide.py render.");

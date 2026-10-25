@@ -9,6 +9,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@assistant-ui/ai-sdk": "0.0.15",
+    "@assistant-ui/react": "0.15.31",
+    "@assistant-ui/react-markdown": "0.14.24",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/language": "^6.13.1",
     "@codemirror/merge": "^6.12.3",
@@ -25,6 +28,8 @@
     "@visx/scale": "^4.0.0",
     "@visx/shape": "^4.0.0",
     "@xyflow/react": "12.11.3",
+    "ai": "7.0.153",
+    "assistant-stream": "0.3.54",
     "cmdk": "^1.1.1",
     "lucide-static": "1.61.0",
     "overlayscrollbars": "2.16.0",
@@ -32,6 +37,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-resizable-panels": "^4.14.8",
+    "remark-gfm": "4.0.1",
     "tinykeys": "^4.0.1"
   },
   "devDependencies": {

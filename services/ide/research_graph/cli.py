@@ -52,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--pull", help="executable run as `PULL ledger` before each head read and `PULL market` "
                                         "before fetching at a new head")
     command.add_argument("--poll", type=float, default=5.0, help="seconds between head reads while a page is open")
+    command.add_argument("--agent", help="URL of the chat service (services/ide/agent) that /api/agent/ requests go to")
     args = parser.parse_args(argv)
     if args.command == "check":
         found = contract.check_graph(json.loads(Path(args.graph).read_text()))
@@ -65,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         product = Path(args.product)
         build = os.environ.get("TRADE_IDE_BUILD") or subprocess.run(
             ["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        serve.serve(serve.Product(product, args.ledger), build, args.host, args.port, args.hosts, args.pull, args.poll)
+        serve.serve(serve.Product(product, args.ledger), build, args.host, args.port, args.hosts, args.pull, args.poll, args.agent)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
     print(json.dumps(diff, ensure_ascii=False, indent=1) if args.json else compare.markdown(diff))
