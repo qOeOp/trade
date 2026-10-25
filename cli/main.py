@@ -840,6 +840,11 @@ def market_upgrade(market: dict) -> dict:
 
 MARKET_BRANCH = "main"
 MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "upgrade")}
+# Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
+READS = {("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
+         ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
+         ("research", "state"), ("research", "graph"), ("validation", "report"), ("replay", "report"),
+         ("market", "coverage")}
 
 
 def _market_ledger(market: dict) -> db.LedgerProfile:
@@ -864,12 +869,14 @@ def market_publish(market: dict, remote: str | None) -> dict:
 
 
 def _publish_after(args, result: dict) -> dict:
-    """After a command, publish the database it used once when origin is behind it: the ledger (any
-    command naming one) or the market (an import or upgrade). A failure leaves the write in place and
-    is reported as publish_failed; the next command or `ledger publish` publishes it. Profiles without
-    a kind (a read-only copy) never publish."""
+    """After a command that may write, publish the database it used once when origin is behind it: the
+    ledger (any such command naming one) or the market (an import or upgrade). Read commands (READS)
+    never publish. A failure leaves the write in place and is reported as publish_failed; the next
+    ledger write or `ledger publish` publishes it. Profiles without a kind (a read-only copy) never
+    publish."""
     key = (args.noun, args.verb)
-    if key in {("ledger", "publish"), ("market", "publish"), ("ledger", "service")} or not isinstance(result, dict):
+    if (key in READS or key in {("ledger", "publish"), ("market", "publish"), ("ledger", "service")}
+            or not isinstance(result, dict)):
         return result
     try:
         lock: str | None = None
