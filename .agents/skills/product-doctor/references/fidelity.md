@@ -1,7 +1,7 @@
 # Ledger fidelity test
 
 Tests whether the ledger alone reconstructs what a session did. Use it in an overall audit, or when
-a finding turns on what the ledger preserves. Both graphs follow the `research-graph/2` format
+a finding turns on what the ledger preserves. Both graphs follow the `research-graph@2` format
 and use the tool of the `research-graph` skill (`services/research-graph/graph.py`).
 
 1. **Ledger graph.** `research graph` at the session's last ledger commit (`--at`), as the

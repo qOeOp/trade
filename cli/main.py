@@ -1056,7 +1056,7 @@ def _parser() -> Parser:
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
     _at(command)
-    command = research.add_parser("graph", help="the line as a research-graph/2 document, read from the ledger only")
+    command = research.add_parser("graph", help="the line as a research-graph@2 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the user's, read from the line note; --since marks where the scope under study "
                       "starts. Check, render and compare it with services/research-graph/graph.py. Writes nothing.")

@@ -9,8 +9,8 @@ import { plural } from "../../lib/format";
 /** The current recommendation, as IntelliJ's run-configuration widget; the menu lists every version
  *  the recommendation has rested on, latest first, and choosing one selects it. */
 export function RecommendationWidget() {
-  const summary = useWidget<SummaryWidget>("summary/1");
-  const lineage = useWidget<LineageWidget>("lineage/2");
+  const summary = useWidget<SummaryWidget>("summary@1");
+  const lineage = useWidget<LineageWidget>("lineage@2");
   if (!summary?.recommended || !lineage) return null;
   const nodes = new Map(lineage.nodes.map((n) => [n.id, n]));
   const history = [...lineage.trail].reverse();

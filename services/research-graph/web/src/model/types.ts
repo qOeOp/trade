@@ -1,4 +1,4 @@
-// The view model (research-graph-view/1) as research_graph/layout.py writes it.
+// The view model (research-graph-view@1) as research_graph/layout.py writes it.
 
 export type Status = "recommended" | "meets_targets" | "below_targets" | "masked" | "precheck_failed" | "unrun";
 export type Prediction = "held" | "failed" | "mixed" | "none";

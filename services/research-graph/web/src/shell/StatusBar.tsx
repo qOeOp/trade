@@ -13,8 +13,8 @@ import { plural } from "../lib/format";
  *  selected one, as its VersionLine and the line's counts at the right. */
 export function StatusBar() {
   const { line } = useView();
-  const lineage = useWidget<LineageWidget>("lineage/2");
-  const summary = useWidget<SummaryWidget>("summary/1");
+  const lineage = useWidget<LineageWidget>("lineage@2");
+  const summary = useWidget<SummaryWidget>("summary@1");
   const tree = useMemo(() => (lineage ? lineageTree(lineage) : null), [lineage]);
   const hovered = useHovered();
   const selected = useSelection();

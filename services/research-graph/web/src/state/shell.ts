@@ -18,7 +18,7 @@ const isState = (v: unknown): v is ShellState => {
     && (s.open?.[side] === null || typeof s.open?.[side] === "string"));
 };
 
-export const shell = persistedAtom<ShellState>("rg-shell/1", DEFAULTS, isState);
+export const shell = persistedAtom<ShellState>("rg-shell@1", DEFAULTS, isState);
 export const useShell = () => useAtom(shell);
 
 const update = (f: (s: ShellState) => ShellState) => shell.set(f(shell.get()));

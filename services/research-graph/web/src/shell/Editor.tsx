@@ -17,9 +17,9 @@ const LABEL: Record<"detail" | "source" | "diff", (id: string) => string> = { de
  *  mounted while another tab shows, so its view is kept. */
 export function Editor() {
   const { targets } = useView();
-  const lineage = useWidget<LineageWidget>("lineage/2");
-  const detail = useWidget<DetailWidget>("candidate-detail/1");
-  const sources = useWidget<SourcesWidget>("sources/1");
+  const lineage = useWidget<LineageWidget>("lineage@2");
+  const detail = useWidget<DetailWidget>("candidate-detail@1");
+  const sources = useWidget<SourcesWidget>("sources@1");
   const { tabs, active } = useEditors();
   const Lineage = RENDERERS.lineage.Component;
   const shown = parseTab(active);

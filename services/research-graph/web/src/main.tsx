@@ -8,8 +8,8 @@ import "./index.css";
 const root = createRoot(document.getElementById("root")!);
 try {
   const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View;
-  const lineage = view.widgets.find((w) => w.type === "lineage/2") as LineageWidget | undefined;
-  const detail = view.widgets.find((w) => w.type === "candidate-detail/1") as DetailWidget | undefined;
+  const lineage = view.widgets.find((w) => w.type === "lineage@2") as LineageWidget | undefined;
+  const detail = view.widgets.find((w) => w.type === "candidate-detail@1") as DetailWidget | undefined;
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   root.render(<StrictMode><App view={view} /></StrictMode>);
 } catch {
