@@ -360,6 +360,8 @@ def read_as_of(
 4. 切到 database/\<resolved_commit> 修订库，核对该版本的 ledger_schema.version 在本代码可读范围内，否则拒绝。
 5. 返回连接；其上任何写语句被服务端权限拒绝，结论引用 resolved_commit 而非 branch 名。
 
+<p className="rd-note">Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/main/docs/plans/dolt-history-view-semantics-verification.zh.md)已通过：普通／流式读取的 `DATABASE()`、`resolved_commit`、`head_commit` 与目标提交一致，历史视图使用当时定义；主分支推进后既有固定连接仍读旧值，重启后重新读取结果一致。12 个对照组合、已有相关测试 2 项通过且无跳过；未全面覆盖嵌套视图、跨库依赖、其他 schema 演进及所有报告路径。</p>
+
 | 拒绝码 | 条件 |
 |---|---|
 | `INVALID_REF` | at 为空串或含不允许的字符 |
