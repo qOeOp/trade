@@ -65,10 +65,14 @@ for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 - An active Goal continues a turn that ends with a question without waiting for the user. Under it,
   ask only what blocks the line (a due line change, an authority item); decide anything else within
-  your authority and say so in one line. Pause the Goal before such a question with the host's
-  tool, or ask the user in the same question to pause it when the host has none. Until the user
-  answers, a continuation does no work that depends on the answer: it repeats the question and
-  ends the turn. Never state an approval that no user message gives.
+  your authority and say so in one line. Use the host's pause tool before asking only if it
+  exists and the host currently permits it, including any required explicit user request; a tool
+  is not permission. Otherwise combine the pause request/instructions and the blocking choice in
+  one question and end the turn. On an unanswered continuation, keep that question pending and
+  do no work depending on its answer. Apply only Goal state changes allowed by the host's
+  permissions and thresholds (including `blocked`), then end the turn. Do not complete/recreate
+  the Goal or add polling loops to evade those limits. Report a pause only after it succeeds.
+  Never state an approval that no user message gives.
 
 ## Input checks inside an existing line
 
