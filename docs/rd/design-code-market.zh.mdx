@@ -1653,7 +1653,7 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int=4, 
 
 下载校验、权限、锁及提交检查的拒绝按现有下层实现上抛，不新增或变更检查。读写账号与备份沿用现有市场库机制。
 
-原件留存证据：[2025-10／11 所用 62 份 ZIP 的只读盘点](https://github.com/qOeOp/trade/blob/main/docs/plans/market-archive-retention-inventory.zh.md)确认缓存哈希全部匹配，但在已核查备份中未找到原件副本，恢复未执行。Dolt 数据库备份、回执 SHA 与外部 ZIP 缓存分别核对；未覆盖位置及权限限制保留，不据此新增检查或认定原件备份恢复已通过。
+原件留存证据：[2025-10／11 所用 62 份 ZIP 的只读盘点](https://github.com/qOeOp/trade/blob/main/docs/plans/market-archive-retention-inventory.zh.md)确认缓存哈希全部匹配，但在已核查备份中未找到原件副本，恢复未执行。Dolt 数据库备份、回执 SHA 与外部 ZIP 缓存分别核对；未覆盖位置及权限限制保留，不据此新增检查或认定原件备份恢复已通过。 后续[市场数据库备份恢复](https://github.com/qOeOp/trade/blob/main/docs/plans/market-backup-restore-verification.zh.md)在 `l1kfbo…` 备份点通过，旧全池仍不可读；缺 1 个报价表创建和 12 次月度报价导入，未覆盖当前 `53tgna…`。该数据库恢复不等于 62 份 ZIP 原件恢复，不认定最新快照或全池恢复通过。
 
 ### `resolve_commit` [#def-market-resolve_commit]
 

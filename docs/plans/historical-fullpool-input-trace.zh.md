@@ -60,3 +60,7 @@
 工作副本在 `/tmp/trade-historical-fullpool-trace/`：`report.zh.md`、`summary.json`、`symbol-scope-comparison.csv`、`monthly-scope-comparison.json`、`recoverability-and-gaps.json`、`recovered-historical-input-identity.json`、路径搜索、公开原响应、快照读数、来源指纹与交付清单均保留。逐项回执、CSV、脚本和研究原件不进 Git，本文只记工程发现。
 
 要恢复原身份，仍需找到可读回 `ebg4rg…` 的原库／备份，以及完整旧生命周期来源与 capture。按当前规则重新建全池会产生不同输入身份，须另行确认；本项未替用户选择，不自动补导入、删币缩窗或关闭待验证项。
+
+## 后续市场备份恢复核验
+
+[市场备份点恢复](market-backup-restore-verification.zh.md)随后用原生 Dolt 2.4.2 完成：这份备份可恢复至 `l1kfbo…`，fsck 与同提交根身份核对通过。恢复库仍读不到旧 `ebg4rg…`／`4aubs5…`，也不含当前 `53tgna…`；相对当前缺 1 个报价表创建和 12 次月度报价导入。本项此前“未执行恢复”只对应追溯时点，本次补证不改写原记录，不认定旧全池或最新快照恢复通过，生命周期及来源原件缺口保留。
