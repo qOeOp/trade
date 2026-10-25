@@ -461,19 +461,19 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 <p className="rd-note">已实现：research-start 已有目标与宿主授权兼容指导；正文及 [v7 会话诊断](https://github.com/qOeOp/trade/blob/main/docs/plans/doctor/2026-10-25-codex-v7-stranding.zh.md)已记录 Desktop 提供 `create_goal`、用户授权后创建 Goal。`start-sets-goal` 用例存在，本次未取得其当前完整执行结果；相关单问评测不代替该用例及所有宿主分支的端到端验证。</p>
 
-### Goal 激活时只问卡住工作的问题，问之前先让 Goal 停下 [#E-4-1-4]
+### Goal 激活时只问阻塞问题，按宿主权限暂停并等待答复 [#E-4-1-4]
 
-宿主的目标会在回合以提问结束后不等你回答就续跑。所以 Goal 激活时，Agent 只问会卡住这条线的问题（该换线了、需要你授权的事）；其余在自己权限内决定，用一句话告诉你。问之前先用宿主的工具暂停目标；宿主没有暂停工具时，在同一个问题里请你手动暂停。你没回答之前，续跑的回合不做任何依赖答案的事：只重复这个问题然后结束。没有你的消息，就不能说已获授权。
+宿主的目标会在回合以提问结束后不等你回答就续跑。所以 Goal 激活时，Agent 只问会卡住这条线的问题（该换线了、需要你授权的事）；其余在自己权限内决定，用一句话告诉你。只有宿主提供暂停工具且当前允许调用时，才在提问前用它暂停；若宿主要求用户明确提出暂停，就须先取得该请求。工具存在不等于有权暂停。没有工具或当前无权暂停时，把暂停请求／操作说明和阻塞选择合在同一次提问里，然后结束回合。未答的续跑保持原问题待答，不做依赖答案的工作；Goal 状态变更（包括 blocked）按宿主权限和阈值处理，然后结束回合，不通过完成、重建目标或额外轮询绕过。只有暂停成功才说已暂停，没有用户消息就不说已获授权。
 
 <div className="rd-example">
 
-一次 Codex 会话里，Agent 问你扩窗起点选哪个，15 毫秒后目标就续跑了；它随后自己撤回了问题，在旧窗口里又跑了 12 小时。按这条规则，它会请你先暂停目标，续跑时只重复问题。
+一次 Codex 会话里，Agent 问你扩窗起点选哪个，15 毫秒后目标就续跑了；它随后自己撤回了问题，在旧窗口里又跑了 12 小时。按这条规则，能否调用暂停工具先看宿主权限；需要你操作时，会把暂停说明与扩窗选择一起问。未答前不替你选窗口，续跑与状态变更遵守宿主规则。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.4">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">已实现且有历史评测：[#1644](https://github.com/qOeOp/trade/pull/1644) 的 `goal-question-waits` 为 3/3。v7 会话诊断已观察到两次提问未撤回、未做依赖答复的工作；这只验证了等待行为，宿主暂停限制与空续跑仍为 Doctor `20261025-06` 未结项，不能写成整个暂停／等待链路已通过。</p>
+<p className="rd-note">用户已确认按宿主权限修正暂停指导；新增 `goal-host-pause-permission` 离线评测本次 with 3/3、without 0/3，既有无工具用例回归 with 1/1、without 0/1，有 skill 的四次均实际触发且三票 PASS，详见 [实施记录](https://github.com/qOeOp/trade/blob/main/docs/plans/goal-host-pause-boundary.zh.md)。[#1644](https://github.com/qOeOp/trade/pull/1644) 的 `goal-question-waits` 历史结果为 3/3，v7 会话只局部观察到提问等待；Doctor `20261025-06` 仍待修订合入后的真实宿主场景验证，暂停是否即时中断另见 `20261021-29`，不把离线回答当作宿主已暂停。</p>
 
 ## 待定事项 [#E-pending]
 
