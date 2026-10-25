@@ -146,9 +146,10 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     """market.stitch_series: (minute table, gap intervals, rows taken per source) of one series in
     [start_ms, end_ms).
 
-    `resumed`: start_ms continues stored minutes, so gaps count from it; otherwise from the first held
-    minute. `trading`: the contract still trades, so minutes up to end_ms are expected; otherwise up to
-    the last held minute.
+    `resumed`: start_ms continues stored minutes, so gaps count from it; otherwise from the first minute
+    any source holds. `trading`: the contract still trades, so minutes up to end_ms are expected;
+    otherwise up to the last minute any source holds. The edges outside the held minutes are asked of
+    every source too: a listing or delisting month answers nothing there and reports no gap.
     """
     if price_type not in PRICE_TYPES:
         raise _refuse(f"price type {price_type!r} is neither LAST nor MARK", "PRICE_TYPE_UNKNOWN",
@@ -189,18 +190,27 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         high = end_ms if trading else int(times[-1]) + MINUTE
         return missing_intervals(times, low, high, MINUTE)["intervals"] if low < high else []
 
-    gaps = gaps_of(table)
-    if gaps:
-        add_days(sorted({day for a, b in gaps for day in _days(a - a % DAY, b)}))
+    def wanted_of(found: pa.Table) -> list[tuple[int, int]]:
+        """The gaps and the edges outside the held minutes that no gap counts: both asked of every source."""
+        wanted = gaps_of(found)
+        if found.num_rows:
+            first, after = int(found["open_time"][0].as_py()), int(found["open_time"][-1].as_py()) + MINUTE
+            wanted += [(start_ms, first)] if not resumed and start_ms < first else []
+            wanted += [(after, end_ms)] if not trading and after < end_ms else []
+        return wanted
+
+    wanted = wanted_of(table)
+    if wanted:
+        add_days(sorted({day for a, b in wanted for day in _days(a - a % DAY, b)}))
         table = _merge(parts, start_ms, end_ms, label)
-        gaps = gaps_of(table)
-    for a, b in gaps:
+        wanted = wanted_of(table)
+    for a, b in wanted:
         found = _rest(price_type, symbol, a, b, trading)
         if found.num_rows:
             parts.append(_tagged(found, 2))
-    if gaps:
+    if wanted:
         table = _merge(parts, start_ms, end_ms, label)
-        gaps = gaps_of(table)
+    gaps = gaps_of(table)
     counts = np.bincount(table["source"].to_numpy(), minlength=3) if table.num_rows else np.zeros(3, np.int64)
     return table.drop_columns(["source"]), gaps, {name: int(counts[i]) for i, name in enumerate(SOURCES)}
 

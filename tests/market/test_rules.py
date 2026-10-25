@@ -176,6 +176,22 @@ class StitchTests(Refusals):
         self.assertEqual(table["open_time"].to_pylist(), sorted(table["open_time"].to_pylist()))
         self.assertEqual(table.column_names, list(sources.COLUMNS))
 
+    def test_a_backfilled_month_asks_every_source_for_its_edges(self):
+        march = minutes(T0, T0 + 3 * DAY)
+        self.exchange.klines("monthly", "LAST", "BTCUSDT", "2025-03", march[1440:])  # the monthly file lacks day 1
+        self.exchange.klines("daily", "LAST", "BTCUSDT", "2025-03-01", march[:1440])
+        table, gaps, used = series.stitch_series(self.cache, "BTCUSDT", "LAST", T0, T0 + 3 * DAY, False, True)
+        self.assertEqual((table.num_rows, gaps, used["daily"]), (3 * 1440, [], 1440))
+        self.exchange.contract("ENDUSDT", status="SETTLING")
+        self.exchange.klines("monthly", "LAST", "ENDUSDT", "2025-03", march[:-1440])  # a delisted one lacks the last
+        self.exchange.rest[("LAST", "ENDUSDT")] = march[-1440:]
+        table, gaps, used = series.stitch_series(self.cache, "ENDUSDT", "LAST", T0, T0 + 3 * DAY, False, False)
+        self.assertEqual((table.num_rows, gaps, used["rest"]), (3 * 1440, [], 1440))
+        self.exchange.contract("NEWUSDT")
+        self.exchange.klines("monthly", "LAST", "NEWUSDT", "2025-03", march[1440:])  # listed on day 2
+        table, gaps, _ = series.stitch_series(self.cache, "NEWUSDT", "LAST", T0, T0 + 3 * DAY, False, True)
+        self.assertEqual((table["open_time"][0].as_py(), gaps), (T0 + DAY, []))
+
     def test_a_contract_unknown_to_rest_has_nothing_more_once_it_stopped_trading(self):
         self.exchange.klines("monthly", "LAST", "GONEUSDT", "2025-03", minutes(T0, T0 + 10 * MINUTE))
         table, gaps, _ = series.stitch_series(self.cache, "GONEUSDT", "LAST", T0, T0 + DAY, False, False)
