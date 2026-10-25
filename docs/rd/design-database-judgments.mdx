@@ -1,6 +1,6 @@
 # Research judgments and subjects
 
-Append-only judgments retain supersession links and the candidates, trials and registrations they refer to.
+Append-only judgments retain supersession links and the candidates, trials and registrations they refer to; the user's research targets for research lines are kept beside them.
 
 [Database overview](/en/docs/design-ledger/)
 
@@ -75,5 +75,36 @@ Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加�
 - [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
 - [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)　官方文档
 - [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+
+</div>
+
+### `line_target` [#def-table-line_target]
+
+用户给一条研究路线或整本账本（默认值）定的两个研究目标；只追加，改目标是新的一行取代同一范围里原来生效的那一行
+
+<TypeTable type={{ "target_id": { type: "BIGINT", description: "自增主键", required: true }, "line_bundle": { type: "VARCHAR(160)", description: "所属研究路线的 research-line-* 证据包；NULL 为账本默认值，没有自己目标的路线读它", required: false }, "max_drawdown": { type: "DECIMAL(7,4)", description: "用户的最大回撤上限，比例（0.15 即 15%）", required: true }, "annual_return": { type: "DECIMAL(7,4)", description: "用户的最低年化收益，比例（0.20 即 20%）", required: true }, "supersedes": { type: "BIGINT", description: "被取代的同一范围上一行；至多被取代一次；生效的是链末端，不靠时间排序", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "触发器 line_target_created 写入的服务器 UTC 时间", required: true } }} />
+
+**键与约束**
+
+- 主键　`target_id`
+- 唯一　`op_id`
+- 唯一　`supersedes`
+- 外键　`line_bundle` → <Ref id="table:evidence_bundle">evidence_bundle</Ref> `bundle`
+- 外键　`supersedes` → <Ref id="table:line_target">line_target</Ref> `target_id`
+- CHECK　`line_bundle IS NULL OR line_bundle LIKE 'research-line-%'`
+- CHECK　`max_drawdown > 0 AND max_drawdown < 1`
+- CHECK　`annual_return > 0`
+
+**Dolt 能力**
+
+- **dolt_diff_line_target**　只应出现 added
+- **AS OF**　按任一账本提交读当时生效的目标；ledger upgrade 补建本表之前的提交没有这张表，读作未设目标
+- **分支控制与账号**　写账号对本表只有 INSERT
+
+**写入方**　<Ref id="ledger.set_targets" />（经 <Ref id="ledger.select_line" /> 或 line targets）
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="A.2.3.3">A.2.3.3</Ref>
 
 </div>
