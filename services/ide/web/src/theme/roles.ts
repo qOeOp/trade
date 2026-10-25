@@ -5,12 +5,14 @@ export const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "ca
 export const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
 export const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
 export const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark"] as const;
+export const BRAND = ["brand-deepseek", "brand-openai", "brand-anthropic"] as const;
 
 export type SurfaceRole = (typeof SURFACE)[number];
 export type TextRole = (typeof TEXT)[number];
 export type DataRole = (typeof DATA)[number];
 export type ChartRole = (typeof CHART)[number];
-export type ColorRole = SurfaceRole | TextRole | DataRole | ChartRole;
+export type BrandRole = (typeof BRAND)[number];
+export type ColorRole = SurfaceRole | TextRole | DataRole | ChartRole | BrandRole;
 
 /** The CSS value of a colour role. */
 export const v = (role: ColorRole) => `var(--${role})` as const;

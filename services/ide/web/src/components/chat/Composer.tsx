@@ -10,14 +10,16 @@ export function Composer({ model, disabled }: { model: ReactNode; disabled: bool
       <ComposerPrimitive.Input disabled={disabled} submitMode="enter" rows={1} autoFocus
         placeholder={disabled ? "Add an agent and test it to start" : "Ask about strategies, runs or the ledger"}
         className="block max-h-48 w-full resize-none bg-transparent px-3 pt-2 pb-1 outline-none placeholder:text-fg-faint disabled:cursor-not-allowed" />
-      <div className="flex items-center gap-1 px-1 pb-1">
+      {/* Send is the box's default action, filled blue (pale while there is nothing to send); Stop takes its
+          place. `disabled` is passed only when set: a false one would override the library's empty-box state. */}
+      <div className="flex items-center gap-1 px-1.5 pb-1.5">
         {model}
         <div className="ml-auto">
           <AuiIf condition={(s) => !s.thread.isRunning}>
-            <ComposerPrimitive.Send asChild><IconButton icon="arrow-up" label="Send" keys="↵" disabled={disabled} /></ComposerPrimitive.Send>
+            <ComposerPrimitive.Send asChild><IconButton primary icon="arrow-up" label="Send" keys="↵" {...(disabled ? { disabled } : {})} /></ComposerPrimitive.Send>
           </AuiIf>
           <AuiIf condition={(s) => s.thread.isRunning}>
-            <ComposerPrimitive.Cancel asChild><IconButton icon="stop" label="Stop" /></ComposerPrimitive.Cancel>
+            <ComposerPrimitive.Cancel asChild><IconButton primary icon="stop" label="Stop" /></ComposerPrimitive.Cancel>
           </AuiIf>
         </div>
       </div>

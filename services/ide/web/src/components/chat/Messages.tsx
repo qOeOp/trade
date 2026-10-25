@@ -1,5 +1,6 @@
 import { ActionBarPrimitive, ErrorPrimitive, MessagePrimitive, useAuiState } from "@assistant-ui/react";
 import { PROVIDER_LABEL, type Provider } from "../../lib/agentApi";
+import { BrandMark } from "../../icons/Icon";
 import { IconButton } from "../IconButton";
 import { Markdown } from "./Markdown";
 import { ToolCard } from "./ToolCard";
@@ -23,8 +24,9 @@ function WrittenBy() {
   const provider = written.provider ? PROVIDER_LABEL[written.provider] : null;
   const agent = provider && !written.agent?.startsWith(provider) ? `${written.agent} · ${provider}` : written.agent;
   return (
-    <div className="flex min-w-0 items-baseline gap-1.5 text-small text-fg-faint">
-      <span className="whitespace-nowrap text-fg-muted">{written.model}</span>
+    <div className="flex min-w-0 items-center gap-1.5 text-small text-fg-faint">
+      {written.provider && <span className="text-fg-muted"><BrandMark name={written.provider} size={12} /></span>}
+      <span className="-ml-0.5 whitespace-nowrap text-fg-muted">{written.model}</span>
       {agent && <><span>·</span><span className="min-w-0 truncate">{agent}</span></>}
     </div>
   );

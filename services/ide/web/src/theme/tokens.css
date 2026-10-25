@@ -33,6 +33,17 @@
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --icon: light-dark(oklch(0.53 var(--n-c) var(--n-h)), oklch(0.86 var(--n-c) var(--n-h)));
   --focus: #3574F0;
+  /* IntelliJ's default button: the focus blue filled, darker on hover and press; disabled, a pale blue. */
+  --primary: #3574F0;
+  --primary-hover: light-dark(#3369D6, #366ACE);
+  --primary-pressed: light-dark(#315FBD, #375FAD);
+  --primary-fg: #FFFFFF;
+  --primary-disabled: light-dark(#C2D6FC, #2B3D63);
+  --primary-disabled-fg: light-dark(#FFFFFF, #7F90B5);
+  /* model providers' own colours, for their marks; OpenAI's is black or white, so the text colour */
+  --brand-deepseek: #4D6BFE;
+  --brand-anthropic: #D97757;
+  --brand-openai: var(--fg);
   --scrim: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.13), oklch(0 0 0 / 0.27));
   --scrollbar: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.19), oklch(0.9 var(--n-c) var(--n-h) / 0.22));
   --scrollbar-hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.38), oklch(0.9 var(--n-c) var(--n-h) / 0.44));
@@ -114,6 +125,12 @@
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-focus: var(--focus);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-pressed: var(--primary-pressed);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-disabled: var(--primary-disabled);
+  --color-primary-disabled-fg: var(--primary-disabled-fg);
   --color-guide: var(--guide);
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
