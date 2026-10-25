@@ -1,7 +1,8 @@
 """If this fails, the public copy of a database is no longer pushed as it should be: the branch and
 then its tags without force, checked against the remote's head; a remote changed elsewhere refused
 with nothing pushed after it; an isolated database kept off public remotes; the `dolt login` key
-installed in the service's own Dolt home; a command publishing what origin lacks; and the market
+installed in the service's own Dolt home, with a restart named while the service runs without it;
+a command publishing what origin lacks; and the market
 published only while no import holds its lock. Local file
 remotes only, never DoltHub or the active ledger."""
 
@@ -15,8 +16,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
+
+import pymysql
 
 from cli import main as cli
 from ledger import db, publish, strategies
@@ -39,6 +43,11 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(Refusal) as caught:
             function(*arguments)
         return caught.exception.code
+
+    def code_and_message(self, function, *arguments) -> tuple[str, str]:
+        with self.assertRaises(Refusal) as caught:
+            function(*arguments)
+        return caught.exception.code, caught.exception.message
 
     def head(self) -> str:
         return self.service.sql(self.profile, "SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0]
@@ -122,6 +131,23 @@ class PublishTests(unittest.TestCase):
         with patch.dict(os.environ, {"DOLT_ROOT_PATH": str(user / "none")}):
             self.assertEqual(self.code(publish._install_key, self.profile), "DOLTHUB_CREDENTIALS")
         self.assertTrue(db.connect(self.profile, "reader").close() is None, "the service still serves")
+
+        class Denied:
+            def execute(self, *arguments):
+                raise pymysql.err.OperationalError(1105, "rpc error: code = PermissionDenied desc = permission denied")
+        failed = lambda: self.code_and_message(publish._push, Denied(), self.profile, self.url, "main")  # noqa: E731
+        self.assertTrue(publish._key_after_start(self.profile), "the service started before the key")
+        self.assertIn("ledger service stop", failed()[1])
+        root = Path(self.profile.service_root)
+        db.stop_service(root)
+        time.sleep(0.01)
+        db.start_service(root)
+        self.assertFalse(publish._key_after_start(self.profile), "a restarted service has the key")
+        self.assertEqual(failed()[0], "PUBLISH_FAILED")
+        self.assertNotIn("ledger service stop", failed()[1])
+        with patch.dict(os.environ, {"DOLT_ROOT_PATH": str(user)}):
+            publish._install_key(self.profile)
+        self.assertFalse(publish._key_after_start(self.profile), "an unchanged key is not installed again")
 
 
     def test_the_market_publishes_holding_its_import_lock(self):

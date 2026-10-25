@@ -9,7 +9,8 @@ different remote tag of the same name without a warning (measured), and the prod
 tag, so a differing remote tag can only follow a remote whose branch the check has already refused.
 
 The service runs with its own Dolt home (`<service>/home`), so the user's DoltHub key from `dolt
-login` is copied there when an https remote is set. A database that is not active publishes only to
+login` is copied there when an https remote is set. The service reads that key only when it starts
+(measured on 2.4.2), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
 a local `file://` remote, never to a public one. The market database is published holding its
 import lock, so no import lands during the push.
 """
@@ -78,8 +79,9 @@ def _install_key(profile: db.LedgerProfile) -> str:
     home = Path(profile.service_root) / "home" / ".dolt"
     (home / "creds").mkdir(mode=0o700, parents=True, exist_ok=True)
     target = home / "creds" / f"{key}.jwk"
-    with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as stream:
-        stream.write(data)
+    if not target.exists() or target.read_bytes() != data:  # an unchanged key keeps its install time
+        with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as stream:
+            stream.write(data)
     config_path = home / "config_global.json"
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -94,9 +96,23 @@ def _install_key(profile: db.LedgerProfile) -> str:
     return key
 
 
+def _key_after_start(profile: db.LedgerProfile) -> bool:
+    """Whether the running service started before its DoltHub key was installed (`server.pid` is
+    written at start), so it does not have the key yet."""
+    root = Path(profile.service_root)
+    home = root / "home" / ".dolt"
+    try:
+        key = json.loads((home / "config_global.json").read_text(encoding="utf-8"))["user.creds"]
+        installed = max((home / "creds" / f"{key}.jwk").stat().st_mtime, (home / "config_global.json").stat().st_mtime)
+        return db._pid(root) is not None and installed > (root / "server.pid").stat().st_mtime
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def set_remote(profile: db.LedgerProfile, url: str) -> dict:
     """Name `url` the database's origin (once; another origin is REMOTE_MISMATCH) and, for DoltHub,
-    install the user's key in the service's Dolt home."""
+    install the user's key in the service's Dolt home; `restart_required` says the running service
+    must be restarted to use it."""
     _allowed(profile, url)
     key = _install_key(profile) if not url.startswith("file://") else None
     conn = _admin(profile)
@@ -110,7 +126,8 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
                 cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (REMOTE, url))
     finally:
         conn.close()
-    return {"database": profile.database, "remote": url, "credentials": key, "added": existing is None}
+    return {"database": profile.database, "remote": url, "credentials": key, "added": existing is None,
+            "restart_required": key is not None and _key_after_start(profile)}
 
 
 def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
@@ -122,7 +139,10 @@ def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
         if "rejected" in text or "non-fast-forward" in text:
             raise refuse("PUBLISH_REJECTED", f"{url} refused {ref} of {profile.database}: its history is not an "
                          "ancestor of the local one; nothing was forced", missing=(url,)) from exc
-        raise refuse("PUBLISH_FAILED", f"pushing {ref} of {profile.database} to {url} failed: {text.strip()}",
+        restart = (" The running service started before its DoltHub key was installed and reads it only at "
+                   "start: restart it (`ledger service stop`, then `ledger service start`) and publish again."
+                   if _key_after_start(profile) else "")
+        raise refuse("PUBLISH_FAILED", f"pushing {ref} of {profile.database} to {url} failed: {text.strip()}.{restart}",
                      missing=(url,)) from exc
 
 
