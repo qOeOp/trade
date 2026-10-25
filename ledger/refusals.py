@@ -473,7 +473,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "user's authority.",)),
     "PUBLISH_FAILED": ("The push or the check of the remote's head failed (network, credentials or DoltHub). The "
                        "local write stands.",
-                       ("Check the network and the DoltHub key, then run `ledger publish` (or `market publish`).",)),
+                       ("Check the network and the DoltHub key, then run `ledger publish` (or `market publish`).",
+                        "When the message says the service started before its key was installed, restart the service "
+                        "(`ledger service stop`, then `ledger service start`) first.")),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",

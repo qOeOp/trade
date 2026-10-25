@@ -2181,7 +2181,7 @@ def publish(profile: LedgerProfile, branch: str, lock: str | None = None) -> dic
 
 1. 读 origin 远端，没有即 REMOTE_UNSET；远端须合乎库的种类，规则同 ledger.set_remote。
 2. 给了 lock 时以 GET_LOCK(lock, 0) 取锁，取不到即 CONCURRENT_IMPORT，什么都不推；连接关闭时释放。
-3. 普通推送 branch，不强推：远端历史不是本地历史的祖先即 PUBLISH_REJECTED，之后什么都不推；其他推送失败即 PUBLISH_FAILED。
+3. 普通推送 branch，不强推：远端历史不是本地历史的祖先即 PUBLISH_REJECTED，之后什么都不推；其他推送失败即 PUBLISH_FAILED，运行中的服务早于其密钥装入启动时（见 ledger.set_remote）消息写明先重启服务（`ledger service stop`、`ledger service start`）。
 4. DOLT_FETCH 后核对 origin 的跟踪头等于推送前读到的本地头；抓取失败或不等即 PUBLISH_FAILED。
 5. 分支核对通过后按名字逐个推送 refs/tags/\<名字>：Dolt 2.4.2 没有 --tags；推送的标签会无提示地替换远端同名而内容不同的标签（实测），产品从不移动标签，所以只在分支核对过之后推。
 6. 失败不回滚本地写入，重跑即补推。
@@ -2217,12 +2217,12 @@ def set_remote(profile: LedgerProfile, url: str) -> dict
 
 <TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本或市场库的档案；以服务管理员连接" }, "url": { type: "str", description: "DoltHub 仓库 https://doltremoteapi.dolthub.com/<owner>/<repository>，或本地 file:// 远端" } }} />
 
-**返回**　dict：\{database, remote, credentials, added\}；credentials 是装入的密钥名（file:// 远端为 null），origin 已是这个地址时 added=false
+**返回**　dict：\{database, remote, credentials, added, restart_required\}；credentials 是装入的密钥名（file:// 远端为 null），origin 已是这个地址时 added=false；restart_required 表示运行中的服务早于密钥装入启动、要重启才用得上它
 
 **期望行为**
 
 1. file:// 远端任何库都能用；其余远端只给活动库，隔离库和临时库即 PUBLISH_FORBIDDEN；活动库的远端须是 DoltHub 仓库地址，否则 REMOTE_INVALID。
-2. DoltHub 远端：服务以 `<服务目录>/home` 为 Dolt 主目录，看不到用户的 `~/.dolt`。从用户的 Dolt 主目录（DOLT_ROOT_PATH，缺省为用户主目录）读 config_global.json 的 user.creds 和对应的 creds/\<密钥>.jwk，复制到 `<服务目录>/home/.dolt/creds`（权限 0600），再把那里 config_global.json 的 user.creds 设为这个密钥；读不到即 DOLTHUB_CREDENTIALS。
+2. DoltHub 远端：服务以 `<服务目录>/home` 为 Dolt 主目录，看不到用户的 `~/.dolt`。从用户的 Dolt 主目录（DOLT_ROOT_PATH，缺省为用户主目录）读 config_global.json 的 user.creds 和对应的 creds/\<密钥>.jwk，复制到 `<服务目录>/home/.dolt/creds`（权限 0600），再把那里 config_global.json 的 user.creds 设为这个密钥；读不到即 DOLTHUB_CREDENTIALS。内容相同的密钥不重写，保留装入时间。服务只在启动时读密钥（2.4.2 实测）：装入时间晚于 `server.pid`（启动时写）且服务在运行，即 restart_required。
 3. 以服务管理员读 dolt_remotes：没有 origin 即 DOLT_REMOTE('add', 'origin', url)；已是同一地址不变；是别的地址即 REMOTE_MISMATCH，不替换，换公开副本要用户授权。
 
 | 拒绝码 | 条件 |
