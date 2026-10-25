@@ -48,6 +48,17 @@ bound to the precheck trial, checks only those four and records `source review`;
 after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
 evidence.
 
+Choose the execution environment, the runner argument `--execution` (never the source), before a
+line's first precheck. Pass the same runner arguments to every precheck, registration and replay
+and name the environment in the registration's `conditions`. It is part of the effective
+configuration: a control and its candidate share it (`COMPARABILITY_MISMATCH` otherwise), and a
+switch later is an identity change ([changes.md](references/changes.md)). `bars` models no
+liquidation. Use `quotes` when the source can hold notional beyond account equity or otherwise
+lets margin decide survival, with `--initial-margin`/`--maintenance-margin` from Binance's bracket
+for the largest position. At lower exposure prefer `quotes` when the pinned market commit holds
+them for every contract across the window and the readiness check above supports the use. Use
+`bars` otherwise and report liquidation as unmodelled.
+
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Report

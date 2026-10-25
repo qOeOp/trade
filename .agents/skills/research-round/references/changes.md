@@ -1,13 +1,14 @@
 # Identity changes
 
-Read after the runtime image, the engine, the market data or the runtime contract changes, so that
-earlier runs no longer share the execution identity of new ones.
+Read after the runtime image, the engine, the market data, the runtime contract or the line's
+execution environment (`--execution`) changes, so that earlier runs no longer share the execution
+identity of new ones.
 
 For an ongoing out-of-sample validation, follow [validation.md](validation.md); the rebuild
 registrations below concern development research, not another validation opportunity.
 
 - When earlier runs cannot be rebuilt under the new identity by a `retry_of` registration with
-  the same conditions (the runtime contract, the exported content or the market data changed),
+  the same conditions (the runtime contract, the execution environment, the exported content or the market data changed),
   the line's runs are history: never rebuild them across identities or adapt a registration to
   fit. The line cannot continue; return to `research-start` to offer a new line under the new
   identity. Selecting it (`line select`) ends the old line, which `research-start` then closes. The new line starts from a template root or a candidate revision
