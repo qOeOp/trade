@@ -13,7 +13,7 @@ research conclusions and experiment selection belong to `research-round`.
 
 - Read only: transcripts, the checkout, CI logs, `ledger sql`, `ledger review`, `research status`,
   `research state` and `--help`. Never write the ledger or the market database (`replay
-  reproduce` records an explore trial), and never read credentials.
+  reproduce` records an explore trial).
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority.

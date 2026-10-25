@@ -86,5 +86,5 @@ Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg`
 - Use `fps=`, `-hwaccel`, `-noaccurate_seek` or the container duration for evidence frames.
 - Pass ASR any flag beyond the recipe's argv, even when the user asks or in scratch, or edit the raw
   transcript (corrections are a labeled layer).
-- Lower the 720p floor, use cookies, change the network path, install a plugin or upgrade a tool
-  without the user, or rerun a failed command more than twice.
+- Lower the 720p floor without the user, or rerun a failed command more than twice. Cookies, the
+  network path and installing or upgrading a tool are AGENTS.md authority items.
