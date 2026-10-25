@@ -60,6 +60,11 @@ research universe.
   and unknowns separated as above. End by asking the user to choose the market commit and the
   development window. Do not change the window, register or replay meanwhile. The user's choice
   is one new line record; the old record stays.
+- After the user confirms a new commit/window, follow [recommendation.md](recommendation.md)
+  to check that the start can be registered before writing the new line, registering or replaying.
+  Scope confirmation does not make frozen source eligible to rerun on a new development window:
+  use a substantive new version, or user-requested out-of-sample validation registered before its
+  window begins, under the existing validation rules.
 
 ## Inferred quotes and low activity
 
