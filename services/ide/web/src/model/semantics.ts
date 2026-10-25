@@ -5,8 +5,7 @@ import type { Prediction, Role, Targets } from "./types";
 // `short` is the label inside a version's reading badge when it has no readings to show.
 export const ROLE: Record<Role, { label: string; short: string; hint: string }> = {
   recommended: { label: "Recommended", short: "Recommended", hint: "The version the latest recommendation judgment recommends" },
-  kept_reference: { label: "Kept as reference", short: "Reference", hint: "Named by the latest recommendation judgment as a reference to keep" },
-  superseded: { label: "Superseded", short: "Superseded", hint: "Has economic evidence, but the latest recommendation judgment does not name it" },
+  superseded: { label: "Superseded", short: "Superseded", hint: "Has economic evidence, but the latest recommendation judgment does not recommend it" },
   masked: { label: "Ineligible", short: "Ineligible", hint: "Its runs no longer carry economic evidence (a failed source review or the like)" },
   precheck_failed: { label: "Precheck or review failed", short: "Failed", hint: "No research run; its review failed" },
   unrun: { label: "Not replayed", short: "Not run", hint: "No research run" },

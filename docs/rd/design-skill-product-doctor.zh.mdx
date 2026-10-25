@@ -79,7 +79,7 @@
 
 **触发**　整体审计需要检验账本能否还原会话，或某项发现取决于账本保存了什么时。
 
-两个全新只读子代理各建一张 research-graph@2 图：一个只读账本（按 research-graph skill），一个只读会话转录；互不参照，缺的留空写进 gaps。两图通过格式检查后用 `ide.py compare` 在同一范围对比，每处差异归入账本缺口、不属于记录、可推导、抽取遗漏四类，附判定证据；只有账本缺口作为发现，需要新增存储字段时仍按 AGENTS.md 评审并由用户决定。
+两个全新只读子代理各建一张 research-graph@3 图：一个只读账本（按 research-graph skill），一个只读会话转录；互不参照，缺的留空写进 gaps。两图通过格式检查后用 `ide.py compare` 在同一范围对比，每处差异归入账本缺口、不属于记录、可推导、抽取遗漏四类，附判定证据；只有账本缺口作为发现，需要新增存储字段时仍按 AGENTS.md 评审并由用户决定。
 
 ## `references/record.md` [#def-file-product-doctor-references-record-md]
 
