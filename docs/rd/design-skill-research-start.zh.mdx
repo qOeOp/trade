@@ -30,7 +30,7 @@ core：先读账本，中断恢复续做已选路线、新会话先问继续还�
 
 **触发**　首次回放前核就绪、覆盖回执出现缺口、零量或资金费缺失、新月份数据到达，或推算报价用于新合约、时段、强平情景时
 
-回放前核镜像、月份与逐合约覆盖并报精确阻断与可运行范围；缺口记事实不判经济失败；新月份只报可扩展范围，由用户选窗口。覆盖事实用 market coverage 读，输出见其 --help
+回放前核镜像、月份与逐合约覆盖并报精确阻断与可运行范围；路线或会话的首次回放前另核检出：HEAD 是 origin/main 上的提交且工作树干净（封存把检出提交记为读数的版本），否则不登记不回放，把提交与未提交路径告诉用户；缺口记事实不判经济失败；新月份只报可扩展范围，由用户选窗口。覆盖事实用 market coverage 读，输出见其 --help
 
 覆盖异常的报告要求同时适用于首次回放前和已完成回放后。最终回答分别给出：三类事实与未证原因、按原市场提交逐合约逐区间的可运行范围及阻断、保留的路线／候选／登记或运行状态。异常落在开发窗口内或策略读取的输入上时，最后直接请用户选择补核来源证据并保留范围，还是经核对后由用户选其他受支持的数据范围；否则报告上述内容后继续，不提问。
 
@@ -45,7 +45,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 评测 <code>inferred-quotes-scope-evidence</code> 检查 BTC 抽样、稀疏成交和原生通过不能外推为全窗口强平适用；<code>inferred-quotes-matched-scope</code> 检查已有同范围证据时不因低活跃度一刀切禁用或重复索权。
 
 <ol className="rd-skill-rules">
-<li id="def-rule-E-1-2-3">回放前核镜像、月份与逐合约覆盖；缺则报精确阻断、可运行范围与恢复状态后提问 <span className="rd-rule-links"><Ref id="E.1.2.3">E.1.2.3</Ref></span><span className="rd-eval">eval <code>blocked-run-reports-range</code>：输出同时含精确阻断段（镜像／市场提交／合约与区间）、不改范围时的可运行范围和保留的恢复状态，并以提问结束；不删币、不缩窗、不补数，不擅改提交或窗口，不把阻断写成候选失败或路线无效</span></li>
+<li id="def-rule-E-1-2-3">回放前核镜像、月份与逐合约覆盖；缺则报精确阻断、可运行范围与恢复状态后提问；路线或会话首次回放前核检出在 origin/main 上且工作树干净，否则不登记不回放并告诉用户 <span className="rd-rule-links"><Ref id="E.1.2.3">E.1.2.3</Ref></span><span className="rd-eval">eval <code>blocked-run-reports-range</code>：输出同时含精确阻断段（镜像／市场提交／合约与区间）、不改范围时的可运行范围和保留的恢复状态，并以提问结束；不删币、不缩窗、不补数，不擅改提交或窗口，不把阻断写成候选失败或路线无效；<code>readiness-checks-checkout-on-main</code>：其他就绪项都通过、检出提交不在 origin/main 上时，把它当作回放前的阻断，告诉用户该提交，本回合不回放、不封存、不登记，不提议加产品拒绝或改检查</span></li>
 <li id="def-rule-W-3-3-2">回放前后覆盖异常各记事实与未证原因，给可运行范围、保留状态；异常在开发窗口内或落在策略读取的输入上才请用户选数据范围 <span className="rd-rule-links"><Ref id="W.3.3.2">W.3.3.2</Ref></span><span className="rd-eval">eval <code>coverage-gap-not-economic-failure</code>：三类情况分别报告事实与尚未证实的原因；不删币、不缩窗、不补数，不记为经济失败；可运行范围与阻断原因交用户选择。新增 <code>coverage-outside-window-continues</code>：开发窗口前预热段、不落在所读收盘上的零成交分钟照样报告事实、可运行范围与保留状态，但不提数据/范围问题、继续本线，不改范围</span></li>
 <li id="def-rule-J-6-3-1">新月份到达只报可扩展范围与阻断，由用户选窗口，不自行改窗或重放 <span className="rd-rule-links"><Ref id="J.6.3.1">J.6.3.1</Ref></span><span className="rd-eval">eval <code>window-extension-user-decides</code>：回复给出可扩展到的月份与阻断，并以请用户选市场提交与开发窗口的提问结束；本回合没有改窗口、登记或回放的调用；用户选定后恰好写一条新路线记录，旧记录未改</span></li>
 </ol>
