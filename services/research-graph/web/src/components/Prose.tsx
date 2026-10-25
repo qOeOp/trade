@@ -10,6 +10,8 @@ const FIRST = /^[\s\S]*?(?:[。！？；]|[.;!?](?=\s|$))/;
 const LONG = /([\x21-\x7e]{24,})/;
 // A list item: a line starting with "- ", "* " or "• ".
 const ITEM = /^\s*[-*•]\s+/;
+// Text with any Chinese in it, set at the taller Chinese line height.
+const ZH = /[\u3400-\u9fff\uf900-\ufaff]/;
 
 /** `text` with each long run as a Token chip (split with a capture group, so the runs sit at odd indexes). */
 const withTokens = (text: string) => text.split(LONG).map((part, i) => (i % 2 ? <Token key={i} value={part} /> : part));
@@ -32,21 +34,23 @@ function Block({ text }: { text: string }) {
 export function Prose({ text }: { text?: string | null }) {
   const [open, setOpen] = useState(false);
   if (!text) return <p><Missing /></p>;
-  const blocks = text.trim().split(/\n\s*\n/);
+  const blocks = text.trim().split(/\n\s*\n/), leading = ZH.test(text) ? "leading-zh" : "leading-normal";
   const toggle = (className: string) =>
     <TextButton className={`align-baseline text-fg-muted ${className}`} onClick={() => setOpen(!open)}>{open ? "Show less" : "Show more"}</TextButton>;
   if (blocks.length > 1) return (
-    <div className="space-y-2.5 leading-normal wrap-anywhere">
+    <div className={`space-y-2.5 ${leading} wrap-anywhere`}>
       {(open ? blocks : blocks.slice(0, 1)).map((b, i) => <Block key={i} text={b} />)}
       {/* On its own line, its text flush with the paragraphs' (the button pads 4px each side). */}
       <div className="-ml-1">{toggle("")}</div>
     </div>
   );
   const first = FIRST.exec(text)?.[0] ?? text, folded = text.length - first.length > 0 && text.slice(first.length).trim() !== "";
+  // A Chinese stop already ends in half an em of blank, so Show more comes 2px closer instead of 4px further.
+  const gap = /[。！？；]$/.test(first) ? "-ml-0.5" : "ml-1";
   return (
-    <p className="leading-normal wrap-anywhere">
+    <p className={`${leading} wrap-anywhere`}>
       {withTokens(open || !folded ? text : first)}
-      {folded && toggle("ml-1")}
+      {folded && toggle(gap)}
     </p>
   );
 }

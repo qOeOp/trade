@@ -23,6 +23,8 @@ html, body, #root { height: 100%; }
 body {
   margin: 0; background: var(--frame); color: var(--fg);
   font: 13px/1.45 var(--font-sans); font-feature-settings: "tnum", "cv11", "ss02";
+  /* An eighth of an em between Chinese and Latin, so ledger text needs no typed spaces. */
+  text-autospace: normal;
   -webkit-font-smoothing: antialiased;
 }
 /* Keyboard focus is one blue ring; it sits in the base layer so a component that draws its own
