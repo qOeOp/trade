@@ -33,8 +33,6 @@
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --icon: light-dark(oklch(0.53 var(--n-c) var(--n-h)), oklch(0.86 var(--n-c) var(--n-h)));
   --focus: #3574F0;
-  /* the selected mark in a chart: the selection fill a step deeper, so it reads beside a hovered one */
-  --selection-strong: light-dark(#A9C4F8, #3E5B94);
   --scrim: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.13), oklch(0 0 0 / 0.27));
   --scrollbar: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.19), oklch(0.9 var(--n-c) var(--n-h) / 0.22));
   --scrollbar-hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.38), oklch(0.9 var(--n-c) var(--n-h) / 0.44));
@@ -59,6 +57,8 @@
   --axis: var(--line-strong);
   --scope: var(--island-alt);
   --crosshair: var(--fg-faint);
+  /* the selected run in a scatter: a bright yellow fill, deeper on white so it still reads */
+  --selected-mark: light-dark(#E6B000, #FFD43B);
 
   /* code: IntelliJ's Python colours (Islands light, dark); a diff tints lines with the meets and fail hues */
   --code-keyword: light-dark(#0033B3, #CF8E6D);
@@ -114,7 +114,6 @@
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-focus: var(--focus);
-  --color-selection-strong: var(--selection-strong);
   --color-guide: var(--guide);
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);

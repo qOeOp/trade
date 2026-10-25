@@ -1,10 +1,10 @@
 // Colour roles by name. Values live in tokens.css (light and dark); TypeScript only names them, and
 // v()/wash() are the only way a colour reaches TSX or SVG.
 export const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "card-border", "hover", "pressed", "row-hover",
-  "selection", "selection-inactive", "selection-strong", "line", "line-strong", "guide", "scrim", "focus"] as const;
+  "selection", "selection-inactive", "line", "line-strong", "guide", "scrim", "focus"] as const;
 export const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
 export const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
-export const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair"] as const;
+export const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark"] as const;
 
 export type SurfaceRole = (typeof SURFACE)[number];
 export type TextRole = (typeof TEXT)[number];

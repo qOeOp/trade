@@ -26,7 +26,7 @@ const leftLabel = () => ({ ...tickFont, textAnchor: "end" as const, dx: 8 - GUTT
 const bottomLabel = () => ({ ...tickFont, textAnchor: "middle" as const, dy: 2 });
 const percent = (n: unknown) => pct(Number(n));
 // Points: 4px; the frontier in the accent colour with a 2px island ring where it meets its line, the
-// rest an opaque grey (so overlaps do not darken) with a 1px ring; the selected one ringed in 2px, 1.5px clear of its island ring.
+// rest an opaque grey (so overlaps do not darken) with a 1px ring; the selected one filled bright yellow.
 const R = 4, RING = 2;
 
 // Research runs by annual return against max drawdown: the corner meeting both targets, the
@@ -63,12 +63,13 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     .sort((a, b) => a.max_drawdown - b.max_drawdown);
   const onFrontier = new Set(frontier);
   const lone = hovered?.length === 1 ? hovered[0] : null;
-  // Read out only under the pointer or the keyboard; at rest the selection ring alone marks the selected run.
+  // Read out only under the pointer or the keyboard; at rest the yellow fill alone marks the selected run.
   const focus = kbd ?? points.filter((p) => p.id === lone).at(-1);
   const recommendedRun = points.filter((p) => p.status === "recommended").at(-1);
   // Named directly: the frontier's two ends and the recommendation, one label per version.
   const named = [...new Map([frontier[0], frontier.at(-1), recommendedRun].flatMap((p) => (p ? [[p.id, p] as const] : []))).values()];
-  const order = [...points].sort((a, b) => Number(onFrontier.has(a)) - Number(onFrontier.has(b)) || Number(a.status === "recommended") - Number(b.status === "recommended"));
+  // Drawn last, and so the marker of its point: the selected run, then the recommendation, then the frontier.
+  const order = [...points].sort((a, b) => Number(a.id === selected) - Number(b.id === selected) || Number(onFrontier.has(a)) - Number(onFrontier.has(b)) || Number(a.status === "recommended") - Number(b.status === "recommended"));
   const byDrawdown = [...points].sort((a, b) => a.max_drawdown - b.max_drawdown);
   const byReturn = [...points].sort((a, b) => a.annual_return - b.annual_return);
   const pinned = focus && shows(focus) ? focus : null;
@@ -80,7 +81,10 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
     const k = `${Math.round(x(p.max_drawdown) / 1.5)}:${Math.round(y(p.annual_return) / 1.5)}`;
     groups.set(k, [...(groups.get(k) ?? []), p]);
   }
-  const marks = [...groups.values()].map((g) => ({ p: g[g.length - 1]!, more: g.length - 1 }));
+  // Drawn in their markers' order, so a marker drawn late is not overlapped by a group begun after its own.
+  const rank = new Map(order.map((p, i) => [p, i]));
+  const marks = [...groups.values()].map((g) => ({ p: g[g.length - 1]!, more: g.length - 1 }))
+    .sort((a, b) => rank.get(a.p)! - rank.get(b.p)!);
   const inZone = (p: Point) => t.max_drawdown != null && t.annual_return != null && p.max_drawdown <= t.max_drawdown && p.annual_return >= t.annual_return;
   const dot = ({ p, more }: { p: Point; more: number }) => {
     const cx = x(p.max_drawdown), cy = y(p.annual_return), front = onFrontier.has(p);
@@ -92,10 +96,9 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
           {p.eligible === false && <div className="text-fail">Ineligible</div>}
           {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
         <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
-          {p.id === selected && <circle cx={cx} cy={cy} r={R + 4.5} fill="none" stroke={v("selection-strong")} strokeWidth={2} />}
           <circle cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
-          {p.eligible === false
-            ? <circle cx={cx} cy={cy} r={R - 0.5} fill={v("island")} stroke={v("fg-faint")} strokeWidth={1} />
+          {p.id === selected ? <circle cx={cx} cy={cy} r={R} fill={v("selected-mark")} />
+            : p.eligible === false ? <circle cx={cx} cy={cy} r={R - 0.5} fill={v("island")} stroke={v("fg-faint")} strokeWidth={1} />
             : <circle cx={cx} cy={cy} r={R} fill={v(front ? "recommended" : "bar")} />}
         </g>
       </Tip>
@@ -143,13 +146,15 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
               <line x1={x(focus.max_drawdown)} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={h} />
               <line x1={0} x2={x(focus.max_drawdown)} y1={y(focus.annual_return)} y2={y(focus.annual_return)} />
             </g>}
-            <g className="chart-series-dominated">{marks.filter((m) => !onFrontier.has(m.p)).map(dot)}</g>
+            <g className="chart-series-dominated">{marks.filter((m) => !onFrontier.has(m.p) && m.p.id !== selected).map(dot)}</g>
             {frontier.length > 1 && (
               // It stays lit while a run is hovered, as the reference.
               <path className="chart-frontier" pointerEvents="none" d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
                     fill="none" stroke={v("recommended")} strokeWidth={2} strokeLinejoin="round" />
             )}
-            <g className="chart-series-frontier">{marks.filter((m) => onFrontier.has(m.p)).map(dot)}</g>
+            <g className="chart-series-frontier">{marks.filter((m) => onFrontier.has(m.p) && m.p.id !== selected).map(dot)}</g>
+            {/* the selected run over everything, whichever series it is in */}
+            <g className="chart-series-selected">{marks.filter((m) => m.p.id === selected).map(dot)}</g>
             <g className="chart-labels" pointerEvents="none">{labels.map((l) => (
               <text key={l.p.id} x={l.tx} y={l.ty} textAnchor={l.anchor} fontSize={11} fill={v("fg-muted")} data-v={l.p.id} data-keep="" className="font-mono">{l.p.id}</text>
             ))}</g>
