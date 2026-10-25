@@ -80,7 +80,8 @@ def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[i
     identities: dict[int, dict | None] = {}
     for trial_id, start in starts.items():
         coverage = coverages.get(trial_id)
-        runtime = start.get("runtime_identity") if isinstance(start.get("runtime_identity"), Mapping) else {}
+        recorded = start.get("runtime_identity")
+        runtime: Mapping = recorded if isinstance(recorded, Mapping) else {}
         try:
             config = comparability.config_key(coverage.get("effective_config") if isinstance(coverage, Mapping) else None)
             inputs = comparability.input_key(start.get("input_identity"))
