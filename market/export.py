@@ -38,7 +38,7 @@ from market.sources import MINUTE, _refuse
 
 
 DAY = 86_400_000
-NAUTILUS_SCALE = 16  # Nautilus high-precision raw: value x 10^16, little-endian int128
+NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
 CHUNK = 250_000
 TIMEFRAME = "1m"  # the replay's execution bars (engine.config.EXECUTION_BAR_MINUTES)
 FORMAT = coverage.FORMAT
@@ -131,13 +131,12 @@ def _exact(values: np.ndarray, scale: int, precision: int) -> bool:
     return precision >= scale or not len(values) or not np.any(values % 10 ** (scale - precision))
 
 
-def nautilus_raw(values: np.ndarray, scale: int) -> pa.Array:
-    """Integers at `scale` as Nautilus fixed-point raws (value x 10^16, int128 little-endian)."""
+def nautilus_decimal(values: np.ndarray, scale: int) -> pa.Array:
+    """Integers at `scale` as the Catalog's price and size column (decimal128(38, 16))."""
     words = np.empty((len(values), 2), np.int64)
     words[:, 0], words[:, 1] = values, values >> 63
     decimal = pa.Array.from_buffers(pa.decimal128(38, scale), len(values), [None, pa.py_buffer(words.tobytes())])
-    decimal = pc.cast(decimal, pa.decimal128(38, NAUTILUS_SCALE), safe=True)
-    return pa.Array.from_buffers(pa.binary(16), len(decimal), [None, decimal.buffers()[1]], offset=decimal.offset)
+    return pc.cast(decimal, pa.decimal128(38, NAUTILUS_SCALE), safe=True)
 
 
 def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int, price_precision: int,
@@ -158,10 +157,10 @@ def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int
     written = 0
     for offset in range(0, len(ts), CHUNK):
         part = slice(offset, offset + CHUNK)
-        table = pa.table({**{name: nautilus_raw(bars[name][part], price_scale) for name in ("open", "high", "low", "close")},
-                          "volume": nautilus_raw(bars["volume"][part], volume_scale),
-                          "ts_event": pa.array(ts[part].astype(np.uint64)),
-                          "ts_init": pa.array(ts[part].astype(np.uint64))}).replace_schema_metadata(
+        stamps = pa.array(ts[part], pa.int64()).cast(pa.timestamp("ns", "UTC"))
+        table = pa.table({**{name: nautilus_decimal(bars[name][part], price_scale) for name in ("open", "high", "low", "close")},
+                          "volume": nautilus_decimal(bars["volume"][part], volume_scale),
+                          "ts_event": stamps, "ts_init": stamps}).replace_schema_metadata(
             {"bar_type": bar_type, "instrument_id": instrument_id, "price_precision": str(price_precision),
              "size_precision": str(size_precision)})
         sink = pa.BufferOutputStream()
@@ -199,7 +198,8 @@ def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: in
 def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]]) -> int:
     """market.write_funding: one engine FundingRateUpdate per settlement, settled at its time.
 
-    rc3 has no Python writer for FundingRateUpdate: this is the schema BacktestNode's loader reads."""
+    The pinned Nautilus has no Python writer for FundingRateUpdate: this is its Catalog layout (the file under
+    data/funding_rates/<instrument>/, named by its first and last ts_init, that `ParquetDataCatalog.query` reads)."""
     if not rows:
         return 0
     times = np.array([row[0] for row in rows], dtype=np.int64) * 1_000_000
@@ -213,18 +213,17 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
                       missing=(instrument_id,)) from exc
     if not all(rate.is_finite() for rate in rates):
         raise _refuse(f"{instrument_id}: a funding rate is not finite", "FUNDING_RATE_SHAPE", missing=(instrument_id,))
-    times = times.astype(np.uint64)
+    stamps = pa.array(times, pa.int64()).cast(pa.timestamp("ns", "UTC"))
     table = pa.table({
-        "instrument_id": pa.array([instrument_id] * len(rows), pa.string()),
         "rate": pa.array([format(rate.normalize(), "f") for rate in rates], pa.string()),
-        "interval": pa.array([None] * len(rows), pa.uint64()), "next_funding_ns": pa.array(times, pa.uint64()),
-        "ts_event": pa.array(times, pa.uint64()), "ts_init": pa.array(times, pa.uint64()),
+        "interval": pa.array([None] * len(rows), pa.uint64()), "next_funding_ns": stamps, "ts_event": stamps,
+        "ts_init": stamps, "identifier": pa.array([instrument_id] * len(rows), pa.string()),
     }, schema=pa.schema([
-        pa.field("instrument_id", pa.string(), False), pa.field("rate", pa.string(), False),
-        pa.field("interval", pa.uint64()), pa.field("next_funding_ns", pa.uint64()),
-        pa.field("ts_event", pa.uint64(), False), pa.field("ts_init", pa.uint64(), False)],
-        metadata={"instrument_id": instrument_id, "type": "FundingRateUpdate"}))
-    directory = Path(root) / "data" / "funding_rate_update" / instrument_id
+        pa.field("rate", pa.string(), False), pa.field("interval", pa.uint64()),
+        pa.field("next_funding_ns", pa.timestamp("ns", "UTC")), pa.field("ts_event", pa.timestamp("ns", "UTC"), False),
+        pa.field("ts_init", pa.timestamp("ns", "UTC"), False), pa.field("identifier", pa.string())],
+        metadata={"type_name": "FundingRateUpdate", "instrument_id": instrument_id}))
+    directory = Path(root) / "data" / "funding_rates" / instrument_id
     directory.mkdir(parents=True, exist_ok=True)
     pq.write_table(table, directory / lifecycle.file_name(int(times[0]), int(times[-1])), compression="snappy")
     return len(rows)
@@ -384,7 +383,7 @@ def export_episode(job: dict) -> dict:
                                       price_scale, volume_scale),
                   "instrument_close": 0, "instrument_status": 0}
         if piece["episode"] is not None:
-            counts.update(lifecycle.write_lifecycle_events(root, piece["episode"], start_ns, end_ns, precision))
+            counts.update(lifecycle.write_lifecycle_events(catalog, piece["episode"], start_ns, end_ns))
         low = max(start, -(-piece["low_ns"] // 1_000_000 // MINUTE) * MINUTE)
         high = min(end, piece["high_ns"] // 1_000_000 // MINUTE * MINUTE) if piece["high_ns"] is not None else end
         held = series.missing_intervals(last["ts_open"], low, high, MINUTE) if low < high else {"missing_count": 0}

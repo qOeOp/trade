@@ -11,7 +11,7 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 from engine.audit import submission_findings
 from engine.config import ACCOUNT_CONTRACT, utc_text
 from engine.run import add_venue
-from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, FLAT, INSTRUMENT, INSTRUMENT_ID, START
+from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, FLAT, INSTRUMENT, INSTRUMENT_ID, START, fees
 
 
 TRADE_START = START + 2 * BAR_NS
@@ -65,7 +65,7 @@ def native_events(case):
     engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
                                                 logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
     try:
-        add_venue(engine)
+        add_venue(engine, fees())
         engine.add_instrument(INSTRUMENT)
         engine.add_strategy(SubmissionProbe(case))
         data = []

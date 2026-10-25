@@ -3,8 +3,8 @@
 A lifecycle manifest (lifecycle.json in the evidence bundle lifecycle-<market commit>) lists each
 contract's episodes: its native instrument ID, the listing time and the native InstrumentStatus and
 InstrumentClose events taken from the exchange's announcements, with the source files the bundle
-holds. The exporter writes the events of the replay window into the contract's Catalog in the
-engine's own Arrow layout, so BacktestNode delivers them natively: a PRE_CLOSE status (no new
+holds. The exporter writes the events of the replay window into the contract's Catalog with the
+Catalog's own writers, and the replay delivers them natively: a PRE_CLOSE status (no new
 positions), a CLOSE status (the market closes) and, only when the exchange published a settlement
 price, an InstrumentClose of type CONTRACT_EXPIRED that the engine settles at. No price is made up.
 """
@@ -14,17 +14,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from market.sources import MarketError
 
 
 FORMAT = "native-lifecycle-v1"
 EVENT_TYPES = ("InstrumentStatus", "InstrumentClose")
-NAUTILUS_SCALE = 16
 EPISODE_FIELDS = ("symbol", "instrument_id", "start_ns", "events", "sources")
 
 
@@ -145,45 +142,17 @@ def file_name(first: int, last: int) -> str:
     return f"{stamp(first)}_{stamp(last)}.parquet"
 
 
-def write_lifecycle_events(root: Path, episode: Mapping, start: int, end: int, price_precision: int) -> dict:
-    """market.write_lifecycle_events: the window's status and close events in the engine's Arrow layout
-    (`price_precision`, the exported instrument's, is the close prices' metadata the engine reads).
+def write_lifecycle_events(catalog, episode: Mapping, start: int, end: int) -> dict:
+    """market.write_lifecycle_events: the window's status and close events, written into `catalog` (a
+    ParquetDataCatalog) by its own writers.
 
     Returns {"instrument_close": n, "instrument_status": m}; a type without events writes no file.
     """
-    instrument_id = episode["instrument_id"]
     _require_close_status(episode, episode["symbol"])
-    counts = {"instrument_close": 0, "instrument_status": 0}
     status = [_native(event) for event in _window(episode, start, end, "InstrumentStatus")]
-    if status:
-        rows = [event.to_dict() for event in status]
-        fields = [pa.field("instrument_id", pa.string(), False), pa.field("action", pa.string(), False),
-                  pa.field("ts_event", pa.uint64(), False), pa.field("ts_init", pa.uint64(), False),
-                  pa.field("reason", pa.string()), pa.field("trading_event", pa.string()),
-                  pa.field("is_trading", pa.bool_()), pa.field("is_quoting", pa.bool_()),
-                  pa.field("is_short_sell_restricted", pa.bool_())]
-        table = pa.table({field.name: pa.array([row[field.name] for row in rows], field.type) for field in fields},
-                         schema=pa.schema(fields, metadata={"type": "InstrumentStatus", "instrument_id": instrument_id}))
-        directory = root / "data" / "instrument_status" / instrument_id
-        directory.mkdir(parents=True, exist_ok=True)
-        pq.write_table(table, directory / file_name(status[0].ts_event, status[-1].ts_event), compression="snappy")
-        counts["instrument_status"] = len(status)
     closes = [_native(event) for event in _window(episode, start, end, "InstrumentClose")]
+    if status:
+        catalog.write_instrument_statuses(status)
     if closes:
-        raws = []
-        for event in closes:
-            raw = int(event.close_price.as_decimal().scaleb(NAUTILUS_SCALE))
-            raws.append(raw.to_bytes(16, "little", signed=True))
-        fields = [pa.field("close_price", pa.binary(16), False), pa.field("close_type", pa.uint8(), False),
-                  pa.field("ts_event", pa.uint64(), False), pa.field("ts_init", pa.uint64(), False)]
-        table = pa.table({"close_price": pa.array(raws, pa.binary(16)),
-                          "close_type": pa.array([int(event.close_type.value) for event in closes], pa.uint8()),
-                          "ts_event": pa.array([event.ts_event for event in closes], pa.uint64()),
-                          "ts_init": pa.array([event.ts_init for event in closes], pa.uint64())},
-                         schema=pa.schema(fields, metadata={"instrument_id": instrument_id,
-                                                            "price_precision": str(price_precision)}))
-        directory = root / "data" / "instrument_closes" / instrument_id
-        directory.mkdir(parents=True, exist_ok=True)
-        pq.write_table(table, directory / file_name(closes[0].ts_event, closes[-1].ts_event), compression="snappy")
-        counts["instrument_close"] = len(closes)
-    return counts
+        catalog.write_instrument_closes(closes)
+    return {"instrument_close": len(closes), "instrument_status": len(status)}

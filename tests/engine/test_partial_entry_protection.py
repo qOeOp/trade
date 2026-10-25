@@ -1,10 +1,11 @@
-"""A partially filled bracket entry that expires keeps its filled quantity protected.
+"""A native bracket keeps its entry protected on the two paths earlier Nautilus releases broke.
 
-The pinned Nautilus cancels a bracket's stop and target when its entry expires or is canceled, even
-after a partial fill. A native BacktestEngine replays the D25 case on one-minute bars (0.25 of 16.339
-filled, then the GTD expiry 72 bars later) twice: with the bare bracket the audit refuses the run, and with the
-handler below, which the research-round strategy-authoring reference points strategies to, the same
-replay passes.
+A native BacktestEngine replays on one-minute bars, with the pinned Nautilus:
+- the D25 case (0.25 of 16.339 filled, then the GTD expiry 72 bars later): the bracket keeps its stop and
+  target, resized to the filled quantity, and the audit passes the bare bracket (before 2.0.0rc7 the venue
+  canceled them and left the filled quantity unprotected);
+- an entry whose fill bar also reaches the stop: the stop fills and the target is canceled (before 2.0.0rc7
+  the target was rejected, which fails a run).
 """
 
 import contextlib
@@ -21,7 +22,7 @@ from types import SimpleNamespace
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, BarType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, OrderSide, OrderStatus, OrderType, Price,
+    Bar, BarType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, OrderSide, OrderType, Price,
     Quantity, StrategyId, Symbol, TimeInForce, TraderId, Venue,
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
@@ -30,6 +31,7 @@ from engine import report
 from engine.audit import audit
 from engine.config import parse_window, utc_text
 from engine.run import ACCOUNT_CONTRACT, add_venue
+from tests.engine.test_fill_model import fees
 
 
 BAR_NS = 60_000_000_000
@@ -37,7 +39,7 @@ INSTRUMENT_ID = InstrumentId(Symbol("AAAUSDT-PERP"), Venue("BINANCE"))
 INSTRUMENT = CryptoPerpetual(
     INSTRUMENT_ID, Symbol("AAAUSDT"), Currency.from_str("BTC"), Currency.from_str("USDT"),
     Currency.from_str("USDT"), False, 2, 3, Price.from_str("0.01"), Quantity.from_str("0.001"), 0, 0,
-    maker_fee=Decimal("0.0002"), taker_fee=Decimal("0.0005"), margin_init=Decimal(0), margin_maint=Decimal(0),
+    margin_init=Decimal(0), margin_maint=Decimal(0),
 )
 BAR_TYPE = BarType.from_str(f"{INSTRUMENT_ID}-1-MINUTE-LAST-EXTERNAL")
 START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -45,11 +47,11 @@ ENTRY_BAR, EXPIRY_BAR, STOP_BAR, CLOSE_BAR, BARS = 3, 73, 78, 90, 96
 
 
 class TieredEntry(Strategy):
-    """Bracket tiers whose entries are GTD six hours; ``cover`` adds the reference's expiry handler."""
+    """Bracket tiers whose entries are GTD six hours."""
 
-    def __init__(self, cover: bool):
+    def __init__(self):
         super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
-        self.cover, self.tiers, self.bars = cover, (), 0
+        self.tiers, self.bars = (), 0
 
     def on_start(self):
         self.subscribe_bars(BAR_TYPE)
@@ -72,46 +74,6 @@ class TieredEntry(Strategy):
     def on_position_closed(self, event):
         self.cancel_all_orders(INSTRUMENT_ID)
 
-    # The re-protection handler that the strategy-authoring reference points strategies to.
-    def on_order_expired(self, event):
-        if self.cover:
-            self.cover_filled_entry(event.client_order_id)
-
-    def on_order_canceled(self, event):
-        if self.cover:
-            self.cover_filled_entry(event.client_order_id)
-
-    def cover_filled_entry(self, client_order_id):
-        """Re-protect what an ended bracket entry filled; Nautilus canceled its stop and target."""
-        entry = self.cache.order(client_order_id)
-        if entry.parent_order_id is not None or not entry.linked_order_ids or entry.filled_qty.as_decimal() == 0:
-            return
-        position = next(iter(self.cache.positions_open(instrument_id=entry.instrument_id, strategy_id=self.strategy_id)), None)
-        if position is None:
-            return
-        closing = OrderSide.SELL if position.is_long else OrderSide.BUY
-
-        def lives(order):  # a child lives while its entry is filled or still working with a fill
-            parent = self.cache.order(order.parent_order_id) if order.parent_order_id else None
-            return parent is None or (parent.filled_qty.as_decimal() > 0
-                                      and (parent.is_open or parent.status == OrderStatus.FILLED))
-
-        covered = sum((order.leaves_qty.as_decimal() for order in self.cache.orders_open(
-            instrument_id=entry.instrument_id, strategy_id=self.strategy_id)
-            if order.is_reduce_only and order.order_type == OrderType.STOP_MARKET and order.side == closing
-            and lives(order)), Decimal(0))
-        shortfall = position.quantity.as_decimal() - covered
-        if shortfall <= 0:
-            return
-        children = [self.cache.order(identity) for identity in entry.linked_order_ids]
-        stop = next(order for order in children if order.order_type == OrderType.STOP_MARKET)
-        target = next(order for order in children if order.order_type == OrderType.LIMIT)
-        quantity = self.cache.instrument(entry.instrument_id).make_qty(shortfall)
-        self.submit_order(self.order_factory.stop_market(
-            entry.instrument_id, closing, quantity, stop.trigger_price, reduce_only=True, tags=list(stop.tags)))
-        self.submit_order(self.order_factory.limit(
-            entry.instrument_id, closing, quantity, target.price, reduce_only=True, tags=list(target.tags)))
-
     def replay_diagnostics(self):
         return {}
 
@@ -133,14 +95,14 @@ def bars():
     return data
 
 
-def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
+def replay(output: Path, tiers=(("103.00", "16.339"),)) -> dict:
     account = ACCOUNT_CONTRACT
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]), logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
     try:
-        add_venue(engine)
+        add_venue(engine, fees())
         engine.add_instrument(INSTRUMENT)
-        strategy = TieredEntry(cover)
+        strategy = TieredEntry()
         strategy.tiers = tiers
         engine.add_strategy(strategy)
         engine.add_data(bars())
@@ -170,37 +132,64 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
     return audit(output)
 
 
-class PartialEntryProtectionTests(unittest.TestCase):
-    def test_expired_partial_entry_is_refused_bare_and_passes_with_the_reference_handler(self):
-        with tempfile.TemporaryDirectory() as temp:
-            bare = replay(False, Path(temp) / "bare")
-            covered = replay(True, Path(temp) / "covered")
-        self.assertFalse(bare["passed"])
-        self.assertEqual(len(bare["findings"]), 1, bare["findings"])
-        self.assertIn("UNPROTECTED_POSITION: AAAUSDT-PERP.BINANCE (R1-AAA): 0.250 held with 0 reduce-only stop",
-                      bare["findings"][0])
-        interval, = bare["uncovered_intervals"]
-        expired = int(START.timestamp() * 1e9) + (EXPIRY_BAR + 1) * BAR_NS - 1_000_000
-        closed = int(START.timestamp() * 1e9) + CLOSE_BAR * BAR_NS - 1_000_000  # submitted on bar CLOSE_BAR, filled in it
-        self.assertEqual((interval["start_ns"], interval["end_ns"], interval["position_quantity"]),
-                         (expired, closed, "0.250"))
-        self.assertEqual(len(interval["ended_stop_order_ids"]), 1)
-        self.assertTrue(covered["passed"], covered["findings"])
-        self.assertEqual(covered["uncovered_intervals"], [])
+class SameBarStop(Strategy):
+    """One limit bracket entry at 99.50 with its stop at 99.00, submitted on the second bar."""
 
-    def test_tiers_expiring_together_are_covered_once(self):
-        tiers = (("103.00", "8.000"), ("102.95", "8.000"))
+    def __init__(self):
+        super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+        self.bars = 0
+
+    def on_start(self):
+        self.subscribe_bars(BAR_TYPE)
+
+    def on_bar(self, bar):
+        self.bars += 1
+        if self.bars == 2:
+            self.submit_order_list(self.order_factory.bracket(
+                INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("1.000"), entry_order_type=OrderType.LIMIT,
+                entry_price=Price.from_str("99.50"), sl_trigger_price=Price.from_str("99.00"),
+                tp_price=Price.from_str("101.50")))
+
+
+class PartialEntryProtectionTests(unittest.TestCase):
+    def stops(self, output: Path) -> list[tuple[str, str, str]]:
+        with (output / "orders.csv").open(encoding="utf-8") as stream:
+            return [(row["quantity"], row["filled_qty"], row["status"]) for row in csv.DictReader(stream)
+                    if row["type"] == "STOP_MARKET"]
+
+    def test_an_expired_partial_entry_keeps_its_stop_for_the_filled_quantity(self):
         with tempfile.TemporaryDirectory() as temp:
-            bare = replay(False, Path(temp) / "bare", tiers)
-            covered = replay(True, Path(temp) / "covered", tiers)
-            with (Path(temp) / "covered" / "orders.csv").open(encoding="utf-8") as stream:
-                orders = list(csv.DictReader(stream))
-        interval, = bare["uncovered_intervals"]
-        self.assertEqual((interval["position_quantity"], len(interval["ended_stop_order_ids"])), ("0.500", 2))
-        self.assertTrue(covered["passed"], covered["findings"])
-        stops = [(row["quantity"], row["filled_qty"]) for row in orders
-                 if row["type"] == "STOP_MARKET" and row["status"] != "CANCELED"]
-        self.assertEqual(stops, [("0.500", "0.500")])
+            result = replay(Path(temp) / "bare")
+            stops = self.stops(Path(temp) / "bare")
+        self.assertTrue(result["passed"], result["findings"])
+        self.assertEqual(result["uncovered_intervals"], [])
+        self.assertEqual(stops, [("0.250", "0.250", "FILLED")])
+
+    def test_tiers_expiring_together_each_keep_their_stop(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = replay(Path(temp) / "bare", (("103.00", "8.000"), ("102.95", "8.000")))
+            stops = self.stops(Path(temp) / "bare")
+        self.assertTrue(result["passed"], result["findings"])
+        self.assertEqual(sorted(stops), [("0.250", "0.250", "FILLED")] * 2)
+
+    def test_an_entry_bar_that_reaches_the_stop_cancels_the_target(self):
+        engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
+                                                     logging=LoggerConfig(stdout_level=LogLevel.OFF)))
+        self.addCleanup(engine.dispose)
+        add_venue(engine, fees())
+        engine.add_instrument(INSTRUMENT)
+        engine.add_strategy(SameBarStop())
+        data = []
+        for index in range(8):  # the fourth bar fills the entry at 99.50 and reaches the stop
+            prices = [Price.from_str(value) for value in (("100.00", "100.50", "98.50", "99.20") if index == 3
+                                                           else ("100.00", "100.50", "99.80", "100.00"))]
+            ts = int(START.timestamp() * 1e9) + (index + 1) * BAR_NS - 1_000_000
+            data += [Bar(BAR_TYPE, *prices, Quantity.from_str("1000.000"), ts, ts),
+                     MarkPriceUpdate(INSTRUMENT_ID, prices[3], ts, ts)]
+        engine.add_data(data)
+        engine.run()
+        self.assertEqual(sorted((str(order.order_type), str(order.status)) for order in engine.cache.orders()),
+                         [("LIMIT", "CANCELED"), ("LIMIT", "FILLED"), ("STOP_MARKET", "FILLED")])
 
 
 if __name__ == "__main__":

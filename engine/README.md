@@ -45,14 +45,15 @@ The runner takes the strategy reference, the inputs, the window and the account,
   configuration holds them as `...Z` text.
 - **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus margin account
   shared by every instrument, leverage 1, one-minute bar execution (`execution_bar_minutes = 1`),
-  the exported instruments' assumed fees (maker 0.0002, taker 0.0005) and the stored funding. Fills
+  the venue's maker and taker rates from the export receipts' assumed fees (maker 0.0002, taker 0.0005;
+  a native `MakerTakerFeeModel`) and the stored funding. Fills
   use the native `DefaultFillModel` with both probabilities 0, so it draws no random numbers: a
   resting limit fills at its price only when a bar trades through it (a touch alone never fills),
   and the model adds no slippage (a market order still takes a quarter of the bar's volume at the
   close and the rest one tick worse). Each bar visits the extreme nearer its open first
   (`bar_adaptive_high_low_ordering`), which decides a bracket whose stop and target fall in one bar;
   consumed-liquidity and queue tracking stay off. The
-  published `nautilus_trader==2.0.0rc3` owns data replay, orders, fills, funding settlement, risk,
+  published `nautilus_trader==2.0.0rc7` owns data replay, orders, fills, funding settlement, risk,
   portfolio accounting and reports. No exchange trading credential is needed.
 
 The export holds the stored one-minute LAST bars, one MARK price update per one-minute MARK bar,
@@ -94,9 +95,9 @@ code of `config.REFUSALS`.
 and merge-sorts them before it streams to its engine, so its memory grows with the window: on
 one-minute bars, 40 contracts took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per
 million events. The runner therefore drives the pinned `BacktestEngine` itself. Bars and MARK
-updates come from the exported Parquet files through Nautilus's `DataBackendSession`, one session per
-seven days holding only that window's files and rows (a session reads ahead in every file it holds);
-funding and lifecycle events are read whole. Events of one `ts_init` keep the node's order (contract
+updates (and quotes) come from the exported Catalogs through `ParquetDataCatalog.query`, one query per
+data type and UTC day over only the files that hold rows of that day, merged by `ts_init`; funding and
+lifecycle events are read whole. Events of one `ts_init` keep the node's order (contract
 by contract: MARK, funding, bars, status, close) and the engine gets the node's chunks (50,000
 events, extended to the last event's `ts_init`). On the same inputs this gives the node's reports,
 event history, exposures and fingerprint; the runner adds each instrument once where the node added
@@ -195,8 +196,8 @@ instrument, native submissions/emulation/releases/updates/fills and each old ent
 A resting entry or partially filled entry must have its remainder ended by native cancellation/expiry
 at the cutoff, even if it never fills. Cancellation/expiry at the cutoff is allowed; an entry fill
 there still fails. There is no one-bar tolerance, forced exit at pool removal or automatic cancellation;
-rejoining the pool restores entry permission. A canceled partial bracket still needs its filled part
-re-protected because Nautilus cancels its children. The pinned PRE_CLOSE does not itself reject entry
+rejoining the pool restores entry permission. A canceled partial bracket keeps its stop and target,
+resized to its filled quantity. The pinned PRE_CLOSE does not itself reject entry
 orders; CLOSE rejects even exits. A GTD requested expiry between matching events can produce its
 native OrderExpired only at the next matching event: ensure the native cancellation/expiry is complete
 by the cutoff, do not substitute the requested deadline. Violations are
@@ -289,8 +290,9 @@ uv run --frozen python -m engine.compare_reports \
 When the contract changes, the source must accept both constructors, and the reference runs from a
 checkout of the reference commit, whose `replay explore` passes that runner its own arguments. Inspect orders, fills, positions, fees, funding
 adjustments, account rows, returns and per-coin diagnostics, plus each run's audit. A clean exit is
-not parity. The pinned rc3 Strategy activates its native take-profit child before the stop child to
-avoid a synchronous sibling rejection; recheck this before changing Nautilus.
+not parity. Before 2.0.0rc7, Nautilus rejected a bracket's target when the entry's fill bar reached its
+stop and canceled a partially filled entry's stop and target when the entry ended;
+`tests/engine/test_partial_entry_protection.py` replays both paths natively and fails if either returns.
 
 ## History
 
@@ -311,6 +313,8 @@ of the native reports, in the research ledger and its `dolt_backup` copy. It doe
 recovery needs the image (pull its digest from GHCR) and the market commit, which a new export
 turns into the same Catalogs. Historical local custody addresses are not product dependency paths.
 
-Upgrading Nautilus starts with the paired acceptance above: rc6 already changed the Catalog format
-and moved fees into the venue's fee model, and the funding and lifecycle files are written in the
-engine's internal Arrow layout (rc3 has no Python writer for them).
+Upgrading Nautilus starts with the paired acceptance above. The exported Catalogs follow the pinned
+Catalog format (decimal128 prices and sizes, UTC timestamp columns); the pinned release has no Python
+writer for funding updates, so the exporter writes those in the Catalog's own layout
+(`data/funding_rates/`). `uv.lock` is part of the export cache key, so a new pin never reuses an old
+export.

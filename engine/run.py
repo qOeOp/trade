@@ -26,7 +26,7 @@ from urllib.parse import unquote
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import DataActor, LoggerConfig, LogLevel
 from nautilus_trader.data import DataEngineConfig
-from nautilus_trader.execution import DefaultFillModel
+from nautilus_trader.execution import DefaultFillModel, MakerTakerFeeModel
 from nautilus_trader.model import (
     StandardMarginModel,
     CryptoPerpetual,
@@ -36,19 +36,16 @@ from nautilus_trader.model import (
     BarType,
     BookType,
     Currency,
-    FundingRateUpdate,
-    InstrumentClose,
-    InstrumentCloseType,
     InstrumentId,
-    InstrumentStatus,
     Money,
+    NautilusDataType,
     OmsType,
     Price,
     StrategyId,
     TraderId,
     Venue,
 )
-from nautilus_trader.persistence import DataBackendSession, NautilusDataType
+from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy
 
@@ -154,7 +151,7 @@ class _Configured:
                 if getattr(type(self), "DAILY_WARMUP", False) else []
             ),
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
-            strategy_id=StrategyId(config.strategy_id),
+            strategy_id=StrategyId(str(config.strategy_id)),  # a node's importable config passes a StrategyId
             universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
         )
         self._replay_input_start_ns = config.input_start_ns
@@ -615,20 +612,16 @@ class Replay:
 # The input stream. BacktestNode, given one data configuration per contract and type, loads every
 # configuration whole and merge-sorts them before streaming chunks to its engine, so its memory grows
 # with the window. The runner streams the same events in the same order straight from the exported
-# Parquet files: bars and MARK updates through Nautilus's DataBackendSession, which merges files by
-# ts_init, one session per SESSION_WINDOW of time with only the files and rows of that window (a
-# session reads ahead in every file it holds); the few funding and lifecycle events read whole. Equal
-# ts_init keep the order of the configurations the node would have had, contract by contract MARK,
-# funding, bars, status, close. The engine gets the node's chunks: chunk_size events, extended to
-# the last event's ts_init, each run up to it.
+# Catalogs: bars, MARK updates (and quotes) through ParquetDataCatalog queries, one per data type and
+# SESSION_WINDOW of time over only the files that hold it, each sorted by ts_init and merged; the few
+# funding and lifecycle events read whole. Equal ts_init keep the order of the configurations the node
+# would have had, contract by contract MARK, funding, bars, status, close. The engine gets the node's
+# chunks: chunk_size events, extended to the last event's ts_init, each run up to it.
 
 STREAM_TYPES = ("MarkPriceUpdate", "QuoteTick", "FundingRateUpdate", "Bar", "InstrumentStatus", "InstrumentClose")
-DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes",
-                    "FundingRateUpdate": "funding_rate_update", "InstrumentStatus": "instrument_status",
-                    "InstrumentClose": "instrument_closes"}
+DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes"}
 RUN_ID = "r1-native-replay"
-SESSION_BATCH = 5_000
-SESSION_WINDOW_NS = 7 * 86_400 * 10**9
+SESSION_WINDOW_NS = 86_400 * 10**9  # one day of every contract's minutes in memory at a time
 
 
 def _files(row: dict, kind: str) -> list[str]:
@@ -636,45 +629,25 @@ def _files(row: dict, kind: str) -> list[str]:
     return [str(path) for path in sorted(root.glob("*/*.parquet"))]
 
 
-CLOSE_TYPES = {variant.value: variant for variant in (InstrumentCloseType.END_OF_SESSION,
-                                                       InstrumentCloseType.CONTRACT_EXPIRED)}
+def _small_events(row: dict, kind: str) -> list:
+    """The funding, status or close events of one contract, in ts_init order."""
+    catalog = ParquetDataCatalog(str(row["catalog_path"]))
+    return catalog.query(getattr(NautilusDataType, kind), identifiers=[str(row["instrument_id"])])
 
 
-def _small_events(row: dict, kind: str):
-    """The funding, status or close events of one contract, in file order, built one at a time from the
-    columns the catalog stores (the exporter writes InstrumentClose.close_type as its uint8 value)."""
-    import pyarrow.parquet as parquet
-    for path in _files(row, kind):
-        table = parquet.read_table(path)
-        metadata = {key.decode(): value.decode() for key, value in (table.schema.metadata or {}).items()}
-        columns = {name: table.column(name).to_pylist() for name in table.column_names}
-        for index in range(table.num_rows):
-            item = {name: values[index] for name, values in columns.items()}
-            if kind == "FundingRateUpdate":
-                yield FundingRateUpdate(InstrumentId.from_str(item["instrument_id"]), Decimal(item["rate"]),
-                                        item["ts_event"], item["ts_init"], item["interval"], item["next_funding_ns"])
-            elif kind == "InstrumentStatus":
-                yield InstrumentStatus.from_dict({"type": "InstrumentStatus", **item})
-            else:
-                raw = int.from_bytes(item["close_price"], "little", signed=True)
-                yield InstrumentClose(InstrumentId.from_str(metadata["instrument_id"]),
-                                      Price.from_raw(raw, int(metadata["price_precision"])),
-                                      CLOSE_TYPES[item["close_type"]], item["ts_event"], item["ts_init"])
-
-
-def _windowed(files: list[tuple], start: int, end: int, batch: int):
-    """The bars and MARK updates of [start, end) in ts_init order, one DataBackendSession per window."""
+def _windowed(files: list[tuple], start: int, end: int):
+    """The bars, MARK updates and quotes of [start, end) in ts_init order: per SESSION_WINDOW of time, one
+    catalog query per data type over the files that hold rows of that window, merged."""
+    import heapq
     for low in range(start - start % SESSION_WINDOW_NS, end, SESSION_WINDOW_NS):
         high = low + SESSION_WINDOW_NS
-        session, added = DataBackendSession(chunk_size=batch), 0
-        for native, table, path, first, last in files:
-            if first < high and last >= low:
-                session.add_file(native, table, path, f"SELECT * FROM {table} WHERE ts_init >= {low} AND "
-                                                      f"ts_init < {high} ORDER BY ts_init")
-                added += 1
-        if added:
-            for chunk in session.to_query_result():
-                yield from chunk  # type: ignore[misc]  # stubbed Any | None; iteration ends instead of yielding None
+        parts = []
+        for native in dict.fromkeys(item[0] for item in files):
+            held = [path for kind, path, first, last in files if kind == native and first < high and last >= low]
+            if held:
+                parts.append(ParquetDataCatalog(str(Path(held[0]).parents[3])).query(
+                    native, files=held, start=low, end=high - 1))
+        yield from heapq.merge(*parts, key=lambda event: event.ts_init)
 
 
 def _keyed(events, order: int):
@@ -683,11 +656,12 @@ def _keyed(events, order: int):
         yield event.ts_init, order, sequence, event
 
 
-def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_BATCH, quotes: bool = False):
+def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
     """Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end`
     bound the exported events' ts_init. Exported quotes are streamed only with `quotes` (a QUOTE_EXECUTION
     source): in the bar environment they would move the venue's book between bars."""
     import heapq
+    import pyarrow as pa
     import pyarrow.parquet as parquet
     bars, marks, quote_order, small, files = {}, {}, {}, [], []
     for index, row in enumerate(rows):
@@ -700,13 +674,12 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
         if quotes:
             kinds.append(("QuoteTick", NautilusDataType.QuoteTick))
         for kind, native in kinds:
-            for number, path in enumerate(_files(row, kind)):
+            for path in _files(row, kind):
                 if kind == "Bar" and unquote(Path(path).parent.name) != str(bar_type):
                     continue  # the daily warm-up bars are the strategy's, never replayed (names are %-encoded)
-                column = parquet.read_table(path, columns=["ts_init"])["ts_init"]
+                column = parquet.read_table(path, columns=["ts_init"])["ts_init"].cast(pa.int64())
                 if len(column):
-                    files.append((native, f"{kind.lower()}_{index}_{number}", path, column[0].as_py(),
-                                  column[-1].as_py()))
+                    files.append((native, path, column[0].as_py(), column[-1].as_py()))
         for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"):
             small.append(_keyed(_small_events(row, kind), base + STREAM_TYPES.index(kind)))
     pending = heapq.merge(*small, key=lambda item: item[:3])  # each source is in file (ts_init) order
@@ -726,7 +699,7 @@ def market_events(rows: list[dict], start: int, end: int, batch: int = SESSION_B
 
     group: list[tuple[int, object]]
     group, ts = [], None
-    for event in _windowed(files, start, end, batch):
+    for event in _windowed(files, start, end):
         at = event.ts_init
         if at != ts:
             if group:
@@ -811,8 +784,15 @@ def fill_model(account) -> DefaultFillModel:
                             prob_slippage=float(account["prob_slippage"]))
 
 
-def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
-    """engine.add_venue: the one simulated venue with the account and matching terms of the chosen execution
+def fee_model(rows: list[dict]) -> MakerTakerFeeModel:
+    """engine.fee_model: the venue's maker and taker rates, each contract's from its export receipt's assumption."""
+    rates = {row["instrument_id"]: (Decimal(row["receipt"]["assumed"]["maker_fee"]),
+                                    Decimal(row["receipt"]["assumed"]["taker_fee"])) for row in rows}
+    return MakerTakerFeeModel(*next(iter(rates.values())), overrides=rates)
+
+
+def add_venue(engine: BacktestEngine, fees: MakerTakerFeeModel, account=ACCOUNT_CONTRACT) -> None:
+    """engine.add_venue: the one simulated venue, charging `fees`, with the account and matching terms of the chosen execution
     environment (engine.execution_account): in the quote environment the exported quotes drive matching and the
     native liquidation (bar execution off, liquidation on, the standard margin model: maintenance = notional x
     the instrument's rate, not divided by leverage)."""
@@ -826,6 +806,7 @@ def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
         support_contingent_orders=account["support_contingent_orders"], bar_execution=account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=fill_model(account),
+        fee_model=fees,
         liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"],
         liquidation_enabled=account["liquidation_enabled"])
 
@@ -840,8 +821,7 @@ def with_margins(made: CryptoPerpetual, rates: tuple[str, str]) -> CryptoPerpetu
         size_increment=made.size_increment, ts_event=made.ts_event, ts_init=made.ts_init, multiplier=made.multiplier,
         lot_size=made.lot_size, max_quantity=made.max_quantity, min_quantity=made.min_quantity,
         max_notional=made.max_notional, min_notional=made.min_notional, max_price=made.max_price,
-        min_price=made.min_price, margin_init=Decimal(rates[0]), margin_maint=Decimal(rates[1]),
-        maker_fee=made.maker_fee, taker_fee=made.taker_fee)
+        min_price=made.min_price, margin_init=Decimal(rates[0]), margin_maint=Decimal(rates[1]))
 
 
 def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path,
@@ -866,7 +846,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         ),
         risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
     ))
-    add_venue(engine, account)
+    add_venue(engine, fee_model(rows), account)
     rates: tuple[str, str] | None = None
     if quotes:
         initial, maintenance = account["initial_margin_rate"], account["maintenance_margin_rate"]

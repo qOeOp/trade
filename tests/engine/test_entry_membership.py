@@ -20,20 +20,17 @@ from engine.config import parse_window, utc_text
 from engine.load import entry_windows
 from engine.report import write_native_reports
 from engine.run import ACCOUNT_CONTRACT, Replay, add_venue
-from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, INSTRUMENT, INSTRUMENT_ID, START, Bar, MarkPriceUpdate
-from tests.engine.test_partial_entry_protection import TieredEntry
+from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, INSTRUMENT, INSTRUMENT_ID, START, Bar, MarkPriceUpdate, fees
 
 
 CUTOFF, END = START + 3 * BAR_NS - 1_000_000, START + 8 * BAR_NS
-PARTIAL = {"partial", "partial_cancel", "partial_expire", "partial_bracket", "partial_bracket_bare", "partial_bracket_cover"}
+PARTIAL = {"partial", "partial_cancel", "partial_expire", "partial_bracket", "partial_bracket_bare"}
 RESTING = PARTIAL | {"resting", "unfilled", "cancel", "cancel_late", "expire", "resting_rejoin", "emulated",
                      "expiry_between_bars", "fill_at_cut"}
 SEED = {"increase", "reduce", "unmarked_exit", "held", "stop", "target", "settlement"}
 
 
 class EntryProbe(Strategy):
-    cover_filled_entry = TieredEntry.cover_filled_entry
-
     def __init__(self, case, cutoff=CUTOFF):
         super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
         self.case, self.n, self.entry, self.lifecycle = case, 0, None, []
@@ -46,7 +43,7 @@ class EntryProbe(Strategy):
         self.subscribe_bars(BAR_TYPE)
         self.subscribe_instrument_status(INSTRUMENT_ID)
         self.subscribe_instrument_close(INSTRUMENT_ID)
-        at = self.cutoff if self.case in {"cancel", "partial_cancel", "partial_bracket_bare", "partial_bracket_cover"} else self.cutoff + 1
+        at = self.cutoff if self.case in {"cancel", "partial_cancel", "partial_bracket_bare"} else self.cutoff + 1
         if self.case == "rejoin":
             at = self.cutoff + 2 * BAR_NS
         self.clock.set_time_alert_ns("boundary", at, self.at_boundary)
@@ -88,16 +85,12 @@ class EntryProbe(Strategy):
                 self.submit_order(self.entry)
 
     def at_boundary(self, _):
-        if self.case in {"cancel", "cancel_late", "partial_cancel", "partial_bracket_bare", "partial_bracket_cover"}:
+        if self.case in {"cancel", "cancel_late", "partial_cancel", "partial_bracket_bare"}:
             self.cancel_order(self.entry.client_order_id)
         elif self.case in {"open", "increase", "rejoin", "closed"}:
             self.market(OrderSide.BUY)
         elif self.case in {"reduce", "unmarked_exit"}:
             self.market(OrderSide.SELL, self.case == "reduce")
-
-    def on_order_canceled(self, event):
-        if self.case == "partial_bracket_cover":
-            self.cover_filled_entry(event.client_order_id)
 
     def replay_diagnostics(self):
         return {}
@@ -110,7 +103,7 @@ def native_case(root, case, mode="preclose"):
     engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
                                                 logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
     try:
-        add_venue(engine)
+        add_venue(engine, fees())
         engine.add_instrument(INSTRUMENT)
         cutoff = CUTOFF + 10_000_000_000 if case == "expiry_between_bars" else CUTOFF
         source = EntryProbe(case)
@@ -123,7 +116,7 @@ def native_case(root, case, mode="preclose"):
                                or (case in {"resting", "cancel", "cancel_late", "expire"} and at > CUTOFF)
                                or (case == "resting_rejoin" and at > cutoff + BAR_NS)
                                or (case == "fill_at_cut" and at >= cutoff)) else "99.00"
-            if at == cutoff and case in {"partial_cancel", "partial_bracket_bare", "partial_bracket_cover"}:
+            if at == cutoff and case in {"partial_cancel", "partial_bracket_bare"}:
                 low = "99.00"  # the cancel at this timestamp has no concurrent entry fill
             prices = [Price.from_str(value) for value in ("100.00", "101.00", low, "100.00")]
             volume = "1.000" if case in PARTIAL and index == 1 else "40.000"
@@ -191,21 +184,18 @@ class EntryMembershipTests(unittest.TestCase):
 
     def test_cancellation_expiry_and_reduce_only_orders_pass_without_forcing_flat(self):
         for mode in ("preclose", "membership"):
-            for case in ("cancel", "expire", "partial_cancel", "partial_expire", "reduce", "held", "stop", "target", "partial_bracket_cover"):
+            for case in ("cancel", "expire", "partial_cancel", "partial_expire", "reduce", "held", "stop", "target",
+                         "partial_bracket_bare"):
                 with self.subTest(mode=mode, case=case):
                     result, events, _, summary = native_case(self.root, case, mode)
                     self.assertTrue(result["passed"], result["findings"])
-                    if case in {"partial_cancel", "partial_expire", "partial_bracket_cover"}:
+                    if case in {"partial_cancel", "partial_expire", "partial_bracket_bare"}:
                         self.assertTrue(any(event["type"] in {"OrderCanceled", "OrderExpired"}
                                             and event["ts_event"] == CUTOFF for event in events))
                     if case == "reduce":
                         self.assertEqual(sum(event["type"] == "OrderFilled" for event in events), 2)
                     if case == "held":
                         self.assertEqual(summary["closed_trades"], 0)
-
-    def test_canceling_partial_bracket_still_requires_reprotection(self):
-        result, _, _, _ = native_case(self.root, "partial_bracket_bare")
-        self.assertEqual({item.split(":", 1)[0] for item in result["findings"]}, {"UNPROTECTED_POSITION"})
 
     def test_reentry_is_allowed_but_resting_entry_cannot_survive_the_membership_gap(self):
         result, _, _, _ = native_case(self.root, "rejoin", "membership")

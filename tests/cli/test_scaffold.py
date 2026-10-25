@@ -20,6 +20,7 @@ from engine import run
 from engine.config import ACCOUNT_CONTRACT
 from engine.load import load_strategy
 from market.instrument import build_instrument
+from tests.engine.test_fill_model import fees
 
 
 TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": None, "min_quantity": "0.002",
@@ -53,7 +54,7 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual((strategy.trade_start_ns, str(strategy.config.strategy_id)), (123, "FRESH-BTC"))
 
     def test_the_sizing_helpers_read_quote_equity_and_refuse_quantities_below_the_terms(self):
-        run.add_venue(self.engine)
+        run.add_venue(self.engine, fees())
         self.engine.add_instrument(build_instrument("BTCUSDT", TERMS, 2, "BTCUSDT-PERP.BINANCE")[0])
         strategy = self._strategy()
         self.engine.run()

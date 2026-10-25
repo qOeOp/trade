@@ -166,9 +166,10 @@ the terms during the month and so meets the stricter form as well.
 - Only 1-minute LAST and MARK are stored; every other timeframe would be a second copy that can
   disagree. Fees, margins, instrument IDs and listing dates are not stored: they are exporter
   assumptions recorded in the receipt or are derived.
-- rc3 has no Python writer for `FundingRateUpdate`, `InstrumentStatus` or `InstrumentClose`: the
-  exporter writes the schema the engine's catalog decoder reads, and the runner checks the engine
-  consumed exactly the exported counts. Recheck both on a Nautilus upgrade.
+- The pinned Nautilus has no Python writer for `FundingRateUpdate`: the exporter writes the Catalog's
+  own layout for it, which `ParquetDataCatalog.query` reads; status and close events go through the
+  Catalog's writers. The runner checks the engine consumed exactly the exported counts. Recheck both
+  on a Nautilus upgrade.
 - pymysql's `autocommit=False` is not applied on Dolt 2.4.2 (the server reports autocommit off); the
   import account sets `autocommit = 0` itself so that one import is one transaction.
 - A commit-test bound taken from each row is no index range on Dolt 2.4.2: a range on `ts_open`
