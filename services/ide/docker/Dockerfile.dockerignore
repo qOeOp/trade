@@ -12,9 +12,9 @@
 !replay/
 !report/
 !runtime/
-!services/research-graph/
-services/research-graph/web/node_modules/
-services/research-graph/web/dist/
+!services/ide/
+services/ide/web/node_modules/
+services/ide/web/dist/
 **/__pycache__/
 **/.mypy_cache/
 **/.ruff_cache/

@@ -1,4 +1,4 @@
-"""`graph.py serve`: one ledger's research graph as a page that follows the ledger (standard library only).
+"""`ide.py serve`: one ledger's research graph as a page that follows the ledger (standard library only).
 
 The page is the web renderer's built page without a view: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger

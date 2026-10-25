@@ -24,5 +24,5 @@ try {
   if (view === null) follow(show, status);
   else show(view);
 } catch {
-  status("No view data to read: generate this page with graph.py render.");
+  status("No view data to read: generate this page with ide.py render.");
 }

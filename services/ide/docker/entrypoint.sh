@@ -1,11 +1,11 @@
 #!/bin/sh
-# Start the research graph service on a read-only copy of the public DoltHub databases.
+# Start the trade IDE service on a read-only copy of the public DoltHub databases.
 #
 # First start: clone both databases into /data (the market is several GB), create the service's
 # accounts and write its files. Every start: run Dolt's sql-server on the copy, with the ledger's
 # commit verification group the product requires of any service, then serve the page. The ledger
 # profile names no lifecycle (kind null), so the product never publishes from here, and the service
-# file holds only reader accounts; the administrator password is used only by research-graph-pull.
+# file holds only reader accounts; the administrator password is used only by trade-ide-pull.
 set -eu
 
 RESEARCH_REMOTE=${RESEARCH_REMOTE:-https://doltremoteapi.dolthub.com/vincent/trade-research}
@@ -17,7 +17,7 @@ chmod 700 "$SERVICE" "$PROFILES"
 
 if [ ! -f "$DOLT_ROOT_PATH/.dolt/config_global.json" ]; then
   dolt config --global --add user.name "Research graph copy"
-  dolt config --global --add user.email "research-graph@example.invalid"
+  dolt config --global --add user.email "trade-ide@example.invalid"
 fi
 clone() {  # database remote
   if [ ! -d "$SERVICE/data/$1/.dolt" ]; then
@@ -83,6 +83,6 @@ cat > "$PROFILES/market.json" <<JSON
 {"name": "market", "kind": "market", "database": "market", "service": "$SERVICE"}
 JSON
 
-exec python3 /opt/trade/services/research-graph/graph.py serve --ledger=research --product=/opt/trade \
+exec python3 /opt/trade/services/ide/ide.py serve --ledger=research --product=/opt/trade \
   --host=0.0.0.0 --port=8765 --allow-host="127.0.0.1:${PUBLISHED_PORT:-8765}" \
-  --allow-host="localhost:${PUBLISHED_PORT:-8765}" --pull=/usr/local/bin/research-graph-pull "$@"
+  --allow-host="localhost:${PUBLISHED_PORT:-8765}" --pull=/usr/local/bin/trade-ide-pull "$@"

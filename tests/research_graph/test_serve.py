@@ -14,7 +14,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "services/research-graph"))
+sys.path.insert(0, str(ROOT / "services/ide"))
 
 from research_graph import serve  # noqa: E402
 from tests.research_graph.test_research_graph import GRAPH  # noqa: E402

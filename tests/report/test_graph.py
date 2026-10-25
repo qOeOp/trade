@@ -25,7 +25,7 @@ from tests.registration.world import RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "services/research-graph"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "services/ide"))
 from research_graph import contract, layout  # noqa: E402
 
 

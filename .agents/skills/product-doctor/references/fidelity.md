@@ -2,7 +2,7 @@
 
 Tests whether the ledger alone reconstructs what a session did. Use it in an overall audit, or when
 a finding turns on what the ledger preserves. Both graphs follow the `research-graph@2` format
-and use the tool of the `research-graph` skill (`services/research-graph/graph.py`).
+and use the tool of the `research-graph` skill (`services/ide/ide.py`).
 
 1. **Ledger graph.** `research graph` at the session's last ledger commit (`--at`), as the
    `research-graph` skill runs it; it reads the ledger only.
@@ -13,8 +13,8 @@ and use the tool of the `research-graph` skill (`services/research-graph/graph.p
    A version's `source` is filled only from a tool output that shows the whole file, else null.
    It fills only the graph's fields (what the ledger should hold); conversation and host state
    are not part of a graph. `scope.end` is the last event read.
-3. **Check and compare.** `graph.py check` passes on both; fix an extraction, never the format.
-   `graph.py compare LEDGER SESSION --until END` lists the differences.
+3. **Check and compare.** `ide.py check` passes on both; fix an extraction, never the format.
+   `ide.py compare LEDGER SESSION --until END` lists the differences.
 
 Class each difference with the evidence that decides it:
 

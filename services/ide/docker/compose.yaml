@@ -1,0 +1,14 @@
+# docker compose -f services/ide/docker/compose.yaml up -d, then open http://127.0.0.1:8765/
+# Update with `docker compose pull && docker compose up -d`; the copies in the volume are kept.
+name: trade-ide
+services:
+  ide:
+    image: ghcr.io/qoeop/trade-ide:main
+    init: true
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - trade-ide-data:/data
+    restart: unless-stopped
+volumes:
+  trade-ide-data:
