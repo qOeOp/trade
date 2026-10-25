@@ -53,7 +53,7 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
     }
     case "data_gap": return `${f.missing_bars} one-minute bars missing`;
     case "late_bar": return `Bar ${Math.round(Number(f.late_ns) / 1e9)} s late`;
-    case "socket": return `${/binance/i.test(String(f.endpoint ?? "")) ? "Binance public streams" : String(f.endpoint ?? "")} ${word(f.state).toLowerCase()}`;
+    case "socket": return `${String(f.endpoint ?? "").replace(/^binance-futures-/, "Binance ").replace(/-/g, " ")} ${word(f.state).toLowerCase()}`;
     case "funding_settlement": return `Funding settled at ${f.stream_rate}, mark ${f.mark ?? "unknown"}`;
     case "protection_gap": return `Position ${f.position} exceeds its stop orders (${f.stop_quantity})`;
     case "refusal": return `Refused: ${f.code}`;

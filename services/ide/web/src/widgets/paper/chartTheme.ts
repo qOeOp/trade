@@ -59,7 +59,7 @@ export function seriesColors() {
   return {
     island: canvasColor("island"), candle: canvasColor("fg-muted"), volume: canvasColor("fg-faint", 0.18),
     entry: canvasColor("fg"), stop: canvasColor("fail"), target: canvasColor("meets"), other: canvasColor("fg-faint"),
-    held: canvasColor("scope"), average: canvasColor("fg-muted"), last: canvasColor("fg"), label: canvasColor("fg-muted"),
+    held: canvasColor("scope", 0.5), average: canvasColor("fg-muted"), last: canvasColor("fg"), label: canvasColor("fg-muted"),
     equity: canvasColor("fg"), equityFill: canvasColor("fg-faint", 0.08), none: canvasColor("island", 0),
     drawdown: canvasColor("fail", 0.18), drawdownLine: canvasColor("fail", 0.8),
     limit: canvasColor("meets", 0.55), axisLabel: canvasColor("fg-muted"), axisText: canvasColor("island"),

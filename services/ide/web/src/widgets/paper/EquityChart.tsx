@@ -8,6 +8,7 @@ import { afterFonts, chartOptions, priceFormat, seriesColors } from "./chartThem
 type Api = { chart: IChartApi; equity: ISeriesApi<"Baseline">; drawdown: ISeriesApi<"Baseline">; limit: IPriceLine | null };
 const at = (t: number) => t as UTCTimestamp;
 const percent = { type: "custom" as const, minMove: 0.0001, formatter: (x: number) => `${(+(x * 100).toFixed(2) || 0).toFixed(2)}%`.replace(/^-/, "−") };
+const LEFT = 24;  // px of room at the left, so the first time label is not cut at the edge
 const SPAN = 0.005;  // the equity scale spans at least ±0.5% of the start, so cents of noise stay flat
 
 /** The account: equity each minute (balance, open profit and funding) on the starting balance as its
@@ -69,7 +70,13 @@ export function EquityChart({ equity, starting, target }: { equity: readonly [nu
   useEffect(() => {
     const a = api.current;
     if (!a) return;
-    if (!day) { a.chart.timeScale().fitContent(); return; }
+    if (!day) {
+      // The whole run, with a label's width more at the left so the first time label is not cut at the edge.
+      const n = equity.length, width = a.chart.timeScale().width();
+      if (n && width > LEFT) a.chart.timeScale().setVisibleLogicalRange({ from: -(LEFT * (n - 1)) / (width - LEFT), to: n - 1 });
+      else a.chart.timeScale().fitContent();
+      return;
+    }
     const from = Date.parse(`${day}T00:00:00Z`) / 1000;
     a.chart.timeScale().setVisibleRange({ from: at(from), to: at(from + 86_400) });
   }, [day, equity.length > 0]);

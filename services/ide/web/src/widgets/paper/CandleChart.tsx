@@ -19,15 +19,17 @@ type Api = {
   shown: { length: number; last: number } | null;
 };
 const VISIBLE = 160, FEWEST = 30;  // candle widths in view when a contract first shows: at most, and at least
+const CLEAR = 12;  // px: a price tick this close to an axis pill gives way to it
 const at = (t: number) => t as UTCTimestamp;
 const signed = (n: number, digits: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), digits)}`;
 const away = (price: number, mark: number | null) => (mark ? ` ${signed((price / mark - 1) * 100, 2)}%` : "");
 
 /** A contract's candles of `minutes` in grey with volume faint under them, and the run's trading in
- *  colour on top: entries ▲▼, exits ○ by reason (stop red, target green, other grey), working orders and
- *  the held position's average entry as price lines named at their left end (an order by how far it is
- *  from the last price), the time it held a position as one neutral band. The axis keeps a pill for
- *  each order and the last price. A click on a marker finds its event. */
+ *  colour on top: entries ▲▼, exits ○ by reason (stop red, target green, other grey), working orders as
+ *  price lines named at their left end by how far they are from the last price, the held position's
+ *  average entry as a grey line (the panel names the position), the time it held a position as one
+ *  neutral band. The axis keeps a pill for each order and the last price, and a tick gives way to a
+ *  pill. A click on a marker finds its event. */
 export function CandleChart({ bars, minutes, places, size, fills, orders, held, spans }: {
   bars: readonly JournalLine[]; minutes: number; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
   held: Held | null; spans: readonly [number, number | null, boolean][];
@@ -41,6 +43,7 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
   fillsRef.current = fills;
   const levels = useRef<number[]>([]);
   levels.current = [...orders.map((o) => o.price), ...(held ? [held.average] : [])];
+  const pills = useRef<number[]>([]);
 
   useEffect(() => {
     const chart = createChart(host.current!, chartOptions());
@@ -77,8 +80,10 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     apply();
     afterFonts(apply);
     a.shade.applyOptions({ topColor: c.held, bottomColor: c.held });
-    a.candles.applyOptions({ upColor: c.island, borderUpColor: c.candle, wickUpColor: c.candle, downColor: c.candle, borderDownColor: c.candle,
-                             wickDownColor: c.candle, priceFormat: priceFormat(Math.max(0, places)) });
+    const format = priceFormat(Math.max(0, places)), y = (p: number) => api.current?.candles.priceToCoordinate(p) ?? null;
+    const clear = (tick: number) => { const at = y(tick); return at === null || pills.current.every((p) => { const py = y(p); return py === null || Math.abs(py - at) >= CLEAR; }); };
+    a.candles.applyOptions({ upColor: c.island, borderUpColor: c.candle, wickUpColor: c.candle, downColor: c.candle, borderDownColor: c.candle, wickDownColor: c.candle,
+                             priceFormat: { ...format, tickmarksFormatter: (ticks: readonly number[]) => ticks.map((t) => (clear(t) ? format.formatter(t) : "")) } });
     a.last.applyOptions({ axisLabelColor: c.last, axisLabelTextColor: c.island });
   }, [theme, places]);
 
@@ -97,7 +102,8 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
       a.candles.setData(data.map((k) => ({ ...k, time: at(k.time) })));
       a.volume.setData(data.map(volume));
       // A young run's few candles fill the width (no fewer than FEWEST widths); an older run shows its latest VISIBLE.
-      if (data.length) a.chart.timeScale().setVisibleLogicalRange({ from: data.length - Math.min(VISIBLE, Math.max(data.length, FEWEST)), to: data.length + 4 });
+      // Half a candle more at the left, so the first time label is not cut at the edge.
+      if (data.length) a.chart.timeScale().setVisibleLogicalRange({ from: data.length - Math.min(VISIBLE, Math.max(data.length, FEWEST)) - 1, to: data.length + 4 });
     }
     a.shown = data.length ? { length: data.length, last: data[data.length - 1]!.time } : null;
     const close = data[data.length - 1]?.close;
@@ -113,7 +119,7 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     if (!a) return;
     const c = seriesColors();
     const marks: SeriesMarker<Time>[] = fills.map((f, i) => ({
-      id: `fill-${i}`, time: at(candleOpen(f.ms * 1e6, minutes)), size: 1.2, position: f.buy ? "belowBar" as const : "aboveBar" as const,
+      id: `fill-${i}`, time: at(candleOpen(f.ms * 1e6, minutes)), size: 1, position: f.buy ? "belowBar" as const : "aboveBar" as const,
       ...(f.opening ? { shape: f.buy ? "arrowUp" as const : "arrowDown" as const, color: c.entry } : { shape: "circle" as const, color: c[f.exit ?? "other"] }),
     }));
     a.markers.setMarkers(marks.sort((x, y) => (x.time as number) - (y.time as number)));
@@ -127,16 +133,16 @@ export function CandleChart({ bars, minutes, places, size, fills, orders, held, 
     const wanted = [
       ...orders.map((o) => ({ id: o.id, price: o.price, color: c[o.kind === "entry" ? "entry" : o.kind], pill: true,
                               text: o.kind === "entry" ? `${o.side === "BUY" ? "Buy" : "Sell"} ${fixed(o.quantity, size)}${away(o.price, mark)}` : `${o.label}${away(o.price, mark)}` })),
-      ...(held ? [{ id: "average", price: held.average, color: c.average, pill: false,
-                    text: `${held.long ? "Long" : "Short"} ${fixed(held.quantity, size)}${held.pnl == null ? "" : ` · ${signed(held.pnl, 2)} USDT`}` }] : []),
+      ...(held ? [{ id: "average", price: held.average, color: c.average, pill: false, text: "" }] : []),
     ];
+    pills.current = [...orders.map((o) => o.price), ...(mark == null ? [] : [mark])];
     for (const [id, line] of a.lines) if (!wanted.some((w) => w.id === id)) { a.candles.removePriceLine(line); a.lines.delete(id); }
     for (const w of wanted) {
       const options = { price: w.price, color: w.color, lineWidth: 1 as const, lineStyle: LineStyle.Solid, title: "", axisLabelVisible: w.pill };
       const line = a.lines.get(w.id);
       if (line) line.applyOptions(options); else a.lines.set(w.id, a.candles.createPriceLine(options));
     }
-    a.labels.set(wanted, { text: c.label, halo: c.island, font: `11px ${getComputedStyle(document.body).fontFamily}` });
+    a.labels.set(wanted.filter((w) => w.text), { text: c.label, halo: c.island, font: `11px ${getComputedStyle(document.body).fontFamily}` });
   }, [orders, held, size, data, theme]);
 
   useEffect(() => {

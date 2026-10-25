@@ -34,11 +34,14 @@ export function EventsTools() {
   );
 }
 
+/** A row's status as a small chip after its text; a failure in the fail colour with its icon. */
 function Chip({ status }: { status: Status | null }) {
   if (!status) return null;
-  return status.failed
-    ? <span className="inline-flex shrink-0 items-center gap-1 text-small text-fail"><Icon name="warning" size={12} />{status.text}</span>
-    : <span className="shrink-0 text-small text-fg-faint">{status.text}</span>;
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-badge border px-1.5 text-small leading-4 ${status.failed ? "border-fail text-fail" : "border-line-strong text-fg-muted"}`}>
+      {status.failed && <Icon name="warning" size={12} />}{status.text}
+    </span>
+  );
 }
 
 function Row({ line, onClick, picked, gutter, category, text, status, title }: {

@@ -4,7 +4,7 @@ import { useView, useWidget } from "../../model/view";
 import { fills as fillsOf, heldOf, priceLines, spans as spansOf, utc, winRate } from "../../model/paper";
 import { PERIODS, type Period } from "../../lib/bars";
 import { pct } from "../../lib/format";
-import { amount, precisions, symbolOf } from "../../lib/paperApi";
+import { amount, fixed, precisions, symbolOf } from "../../lib/paperApi";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Tabs, type Tab } from "../../components/Tabs";
 import { useAtom } from "../../state/atom";
@@ -76,10 +76,9 @@ export function PaperPanel() {
         {run && <RunMetrics items={[
           { label: "Equity", value: amount(reading?.final_equity_usdt), format: MONEY, suffix: " USDT" },
           { label: "Open P&L", value: open, format: SIGNED, suffix: " USDT", text: run.state === "sealed" ? "Booked at end" : undefined },
-          // The run card's badge carries the return and the drawdown; the band says how much of the target it used.
-          target ? { label: "Drawdown budget", text: reading?.max_drawdown == null ? undefined : `${Math.round((reading.max_drawdown / target) * 100)}% of ${pct(target)} used`,
-                     warn: (reading?.max_drawdown ?? 0) > target }
-            : { label: "Max drawdown", text: reading?.max_drawdown == null ? undefined : pct(reading.max_drawdown) },
+          // The run card's badge carries the return; the band sets the drawdown against the line's target.
+          { label: target ? "Max drawdown vs target" : "Max drawdown", warn: target != null && (reading?.max_drawdown ?? 0) > target,
+            text: reading?.max_drawdown == null ? undefined : `${pct(reading.max_drawdown)}${target ? ` of ${pct(target)}` : ""}` },
           { label: "Win rate", value: closed ? wins : null, format: PERCENT, suffix: closed ? ` of ${closed}` : undefined, text: closed ? undefined : "0 closed" },
           { label: run.state === "sealed" ? "Stopped" : "Last bar", warn: late,
             text: run.state === "sealed" ? (run.seal?.stopped_ns ? `${utc(run.seal.stopped_ns / 1e6).slice(11, 16)} UTC` : undefined)
@@ -95,6 +94,10 @@ export function PaperPanel() {
             </Dropdown>
           )}
           <span className="ml-auto flex items-center gap-3 self-center">
+            {tab && held && <span className="font-mono text-small text-fg-muted">
+              {held.long ? "Long" : "Short"} {fixed(held.quantity, digitsOf.size)} @ {fixed(held.average, digitsOf.price)}
+              {held.pnl != null && <span className="text-fg"> · {held.pnl > 0 ? "+" : held.pnl < 0 ? "−" : ""}{fixed(Math.abs(held.pnl), 2)} USDT</span>}
+            </span>}
             {day && <span className="text-small text-fg-muted">{day} UTC</span>}
             {tab && <Tabs compact label="Candle period" items={PERIODS.map((p) => ({ id: p.id, label: p.id }))} value={period} onChange={setChosen} />}
           </span>
