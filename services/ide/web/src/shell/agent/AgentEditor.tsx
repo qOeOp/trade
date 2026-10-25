@@ -14,7 +14,7 @@ const URL_HINT: Record<Provider, string> = {
 
 export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (saved: Agent | null) => void }) {
   const [name, setName] = useState(agent?.name ?? "");
-  const [provider, setProvider] = useState<Provider>(agent?.provider ?? "anthropic");
+  const [provider, setProvider] = useState<Provider>(agent?.provider ?? PROVIDERS[0]);
   const [key, setKey] = useState("");
   const [baseURL, setBaseURL] = useState(agent?.baseURL ?? "");
   const [saved, setSaved] = useState<Agent | null>(agent);

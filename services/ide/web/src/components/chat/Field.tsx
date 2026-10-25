@@ -48,10 +48,12 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
   return (
     <div className="space-y-1">
       <span className="text-dense text-fg-muted">{label}</span>
-      <div role="radiogroup" aria-label={label} className="flex h-7 gap-0.5 rounded-control border border-line-strong p-0.5">
+      {/* Options as wide as their content and spread out, so the first and last sit the same distance
+          from the edges whatever their labels' lengths. */}
+      <div role="radiogroup" aria-label={label} className="flex h-7 justify-between gap-0.5 rounded-control border border-line-strong p-0.5">
         {options.map((o) => (
           <button key={o.value} type="button" role="radio" aria-checked={o.value === value} onClick={() => onChange(o.value)}
-            className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-badge px-2 transition-colors hover:bg-hover ${o.value === value ? "bg-pressed text-fg" : "text-fg-muted"}`}>
+            className={`inline-flex min-w-0 items-center gap-1.5 rounded-badge px-2 transition-colors hover:bg-hover ${o.value === value ? "bg-pressed text-fg" : "text-fg-muted"}`}>
             {o.mark}<span className="truncate">{o.label}</span>
           </button>
         ))}
