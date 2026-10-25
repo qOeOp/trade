@@ -176,6 +176,30 @@ class StitchTests(Refusals):
         self.assertEqual(table["open_time"].to_pylist(), sorted(table["open_time"].to_pylist()))
         self.assertEqual(table.column_names, list(sources.COLUMNS))
 
+    def test_minutes_before_the_first_or_after_the_last_held_are_sought_when_not_counted_as_gaps(self):
+        march = minutes(T0, T0 + 3 * DAY)
+        # A backfilled month (not resumed) whose monthly file starts on day 2: REST holds day 1.
+        self.exchange.klines("monthly", "LAST", "BTCUSDT", "2025-03", [row for row in march if row[0] >= T0 + DAY])
+        self.exchange.rest[("LAST", "BTCUSDT")] = march
+        table, gaps, used = series.stitch_series(self.cache, "BTCUSDT", "LAST", T0, T0 + 3 * DAY, False, True)
+        self.assertEqual((table.num_rows, gaps), (3 * 1440, []))
+        self.assertEqual(used, {"monthly": 2 * 1440, "daily": 0, "rest": 1440})
+        # A contract no longer trading whose monthly file ends a day early: the daily file holds day 3.
+        self.exchange.klines("monthly", "LAST", "GONEUSDT", "2025-03", [row for row in march if row[0] < T0 + 2 * DAY])
+        self.exchange.klines("daily", "LAST", "GONEUSDT", "2025-03-03", [row for row in march if row[0] >= T0 + 2 * DAY])
+        table, gaps, used = series.stitch_series(self.cache, "GONEUSDT", "LAST", T0, T0 + 3 * DAY, False, False)
+        self.assertEqual((table.num_rows, gaps), (3 * 1440, []))
+        self.assertEqual(used, {"monthly": 2 * 1440, "daily": 1440, "rest": 0})
+
+    def test_a_contract_listed_after_the_window_start_reports_no_gap_before_its_first_minute(self):
+        listed = minutes(T0 + DAY + 30 * MINUTE, T0 + 3 * DAY)
+        self.exchange.contract("NEWUSDT")
+        self.exchange.klines("monthly", "LAST", "NEWUSDT", "2025-03", listed)
+        self.exchange.rest[("LAST", "NEWUSDT")] = listed
+        table, gaps, used = series.stitch_series(self.cache, "NEWUSDT", "LAST", T0, T0 + 3 * DAY, False, True)
+        self.assertEqual((table.num_rows, gaps), (len(listed), []))
+        self.assertEqual(used["rest"], 0)
+
     def test_a_contract_unknown_to_rest_has_nothing_more_once_it_stopped_trading(self):
         self.exchange.klines("monthly", "LAST", "GONEUSDT", "2025-03", minutes(T0, T0 + 10 * MINUTE))
         table, gaps, _ = series.stitch_series(self.cache, "GONEUSDT", "LAST", T0, T0 + DAY, False, False)

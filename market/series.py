@@ -148,7 +148,8 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
 
     `resumed`: start_ms continues stored minutes, so gaps count from it; otherwise from the first held
     minute. `trading`: the contract still trades, so minutes up to end_ms are expected; otherwise up to
-    the last held minute.
+    the last held minute. Either way the minutes outside the held ones are first sought in the daily
+    archives and REST, so a monthly archive missing its first or last days is completed.
     """
     if price_type not in PRICE_TYPES:
         raise _refuse(f"price type {price_type!r} is neither LAST nor MARK", "PRICE_TYPE_UNKNOWN",
@@ -179,6 +180,26 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         # No archive at all (Binance publishes no markPriceKlines for some contracts, e.g. non-ASCII
         # ones, and none yet for a contract listed this month): public REST for the whole window.
         parts.append(_tagged(_rest(price_type, symbol, start_ms, end_ms, trading), 2))
+        table = _merge(parts, start_ms, end_ms, label)
+
+    def edges_of(found: pa.Table) -> list[tuple[int, int]]:
+        # The minutes before the first held one (not resumed) and after the last (no longer trading) are
+        # not counted as gaps, since the contract may not have traded then; the sources are still asked.
+        if not found.num_rows:
+            return []
+        times = found["open_time"].to_numpy()
+        head, tail = int(times[0]), int(times[-1]) + MINUTE
+        return [(a, b) for a, b, open_edge in ((start_ms, head, not resumed), (tail, end_ms, not trading))
+                if open_edge and a < b]
+
+    edges = edges_of(table)
+    if edges:
+        add_days(sorted({day for a, b in edges for day in _days(a - a % DAY, b)}))
+        table = _merge(parts, start_ms, end_ms, label)
+        edges = edges_of(table)
+    for a, b in edges:
+        parts.append(_tagged(_rest(price_type, symbol, a, b, trading), 2))
+    if edges:
         table = _merge(parts, start_ms, end_ms, label)
 
     def gaps_of(found: pa.Table) -> list[tuple[int, int]]:
