@@ -1,6 +1,6 @@
 ---
 name: research-start
-description: Starts or resumes strategy research in this repository - reads the ledger first, continues a selected research line after an interruption and offers it beside the other lines at a new session, otherwise presents the latest recommendation and line options (template roots only when there is no candidate or the user leaves every line), waits for the user's choice and records it, and checks readiness before the first replay or when new data arrives. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, and when work inside a line decides the line should change.
+description: Starts or resumes strategy research in this repository - reads the ledger first, continues a selected research line after an interruption and offers it beside the other lines at a new session, otherwise presents the latest recommendation and line options (template roots only when there is no candidate or the user leaves every line), waits for the user's choice and records it, and checks readiness before the first replay or when new data arrives. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, when work inside a line decides the line should change, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
 ---
 
 # Research start
@@ -67,10 +67,19 @@ budgets or stages).
   answers, a continuation does no work that depends on the answer: it repeats the question and
   ends the turn. Never state an approval that no user message gives.
 
+## Input checks inside an existing line
+
+A coverage/readiness question within a selected line is not a new research session. Read
+[readiness.md](references/readiness.md) and return its full coverage disposition, including the
+runnable range and final data/scope choice when an anomaly is reported, even after a completed
+replay. Keep the current line and its existing authority; do not restart selection or Goal setup
+just to answer this check.
+
 ## When to read the references
 
 - [readiness.md](references/readiness.md): before the first replay of a line, when a coverage
-  receipt shows a gap, zero volume or missing funding, and when a new month of data arrives.
+  receipt shows a gap, zero volume or missing funding, when a new month of data arrives, and
+  before using inferred quotes for a new contract, period or liquidation scenario.
 - [recommendation.md](references/recommendation.md): whenever the entry presents the
   recommendation and line options.
 - [selection.md](references/selection.md): when the user's choice comes with an idea, a source or

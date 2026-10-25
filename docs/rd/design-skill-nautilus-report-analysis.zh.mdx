@@ -8,14 +8,15 @@
   <File name="references/ratios.md" />
   <File name="references/capital.md" />
   <File name="references/exit-reasons.md" />
+  <File name="references/depth.md" />
 </Folder>
 </Files>
 
 ## `SKILL.md` [#def-file-nautilus-report-analysis-SKILL-md]
 
-**触发**　从任一运行的 tables() 自算任何数之前，或比较两次运行的单笔与回撤之前
+**触发**　从任一运行的 tables() 自算任何数之前，或比较两次运行的单笔与回撤、解读报价环境的强平与成交规模之前
 
-全程不变量：只从 tables() 取数并引用 ledger_commit；自算数注明总体、闭仓合计等于对账量、驱动决定的数要由第二个 Agent 复算；跨运行只配对账户日收益；读回撤必须并列资金使用率。另附三个 references 文件的索引，写明何时读哪个
+全程不变量：只从 tables() 取数并引用 ledger_commit；自算数注明总体、闭仓合计等于对账量、驱动决定的数要由第二个 Agent 复算；跨运行只配对账户日收益；读回撤必须并列资金使用率。另附四个 references 文件的索引，写明何时读哪个
 
 <ol className="rd-skill-rules">
 <li id="def-rule-R-1-2-1">只从 tables() 取数并引用 ledger_commit，不重解析原生文件 <span className="rd-rule-links"><Ref id="R.1.2.1">R.1.2.1</Ref></span><span className="rd-eval">eval <code>reads-through-tables</code>：所有自算数来自 tables() 并引用 ledger_commit；没有读原生文件，也没有直接查表；持仓时长用 ts_closed_ns − ts_opened_ns，出场用 closing_order_tag 或 closing_order_type；没有覆盖或补填任何绩效指标</span></li>
@@ -57,3 +58,11 @@
 <ol className="rd-skill-rules">
 <li id="def-rule-F-1-2-2">出场原因只读平仓订单标签或类型，未平仓位单列，不按盈亏或价位推断 <span className="rd-rule-links"><Ref id="F.1.2.2">F.1.2.2</Ref></span><span className="rd-eval">eval <code>exit-reason-split</code>：按入场计划标签（plan_tag）× 平仓订单的标签或类型（closing_order_tag、closing_order_type）列表，下架时无标签的平仓只按唯一对应归属、否则记未归属，未平仓位单列一行，合计等于产品闭仓拆分；用盈亏符号或价格水平判出场原因即不通过</span></li>
 </ol>
+
+## `references/depth.md` [#def-file-nautilus-report-analysis-references-depth-md]
+
+**触发**　解读报价环境的成交规模、强平价格或滑点之前
+
+报价环境整笔按最优买卖价成交，不模拟深度。用 Binance 公开深度快照，按成交侧与成交时刻之前最近的同日快照，对照 ±1% 档；超过两分钟或无此前快照的成交单列未核验。报告总数、超过档位的数量及其中强平成交数、不足证据数和最大数量比，不据此缩放成交、强平价或绩效。两分钟仅为深度快照匹配规则，不是报价新鲜度或强平适用性阈值。评测 <code>fill-size-vs-book-depth</code> 检查逐笔对照与不篡改结果。
+
+解读推算报价下强平是否发生、时间、价格和账户结果，还须读 [research-start 的就绪检查](design-skill-research-start.md#def-file-research-start-references-readiness-md)，列明实际验证的合约、时段和用途及证据缺口；深度对照不证明报价新鲜，原生通过不证明市场适用，不把 BTC 抽样外推为全池结论，不修改封存指标或资格。评测 <code>inferred-liquidation-evidence-gap</code> 检查不足证据时明确报告并保持原始结果。
