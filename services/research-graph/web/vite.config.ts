@@ -12,7 +12,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 // Chinese beside Supply's letters.
 const HARMONY = "https://cdn.jsdelivr.net/npm/harmonyos-sans-sc-webfont-splitted@1.1.0/dist/";
 const HARMONY_WEIGHTS = { Regular: "100 449", Medium: "450 900" };
-const HARMONY_SIZE = "94%";
+const HARMONY_SIZE = "96%";
 
 function harmonyOsSans(): Plugin {
   const id = "virtual:harmonyos-sans-sc.css";
