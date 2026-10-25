@@ -53,6 +53,10 @@ class Refusal(Exception):
     def __str__(self) -> str:
         return f"{self._code}: {self._message}"
 
+    def __reduce__(self):  # a refusal raised in a worker process reaches its caller whole
+        return (refusal, (self._code, self._message, self._missing, self._write_status, self._operation_id,
+                          self._expected, self._next_actions))
+
 
 def refusal(code: str, message: str, missing: tuple[str, ...] = (),
             write_status: Literal["not_written", "unknown", "written"] = "unknown",

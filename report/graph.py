@@ -8,7 +8,10 @@ research-graph tool (services/research-graph) checks, lays out, renders and comp
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from concurrent.futures import ProcessPoolExecutor
 import copy
+import dataclasses
+import multiprocessing
 
 from ledger import db, lines
 from ledger import targets as line_targets
@@ -112,20 +115,52 @@ def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     return market_returns
 
 
-def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None) -> dict:
+_WORKER_FAILURES: list[Refusal] = []
+
+
+def _start_worker(base: seams.Seams) -> None:
+    seams.current = dataclasses.replace(base, market_returns=_reusing(base.market_returns, _WORKER_FAILURES))
+
+
+def _worker_comparison(job: tuple) -> tuple:
+    _WORKER_FAILURES.clear()
+    return _comparison(*job), list(_WORKER_FAILURES)
+
+
+def _comparisons(profile, jobs: list[tuple[str, int]], at: str, workers: int, base: seams.Seams,
+                 failures: list[Refusal]) -> list[tuple[dict | None, list[dict] | None]]:
+    """`_comparison` of each (bundle, trial_id) in job order, in `workers` processes when there are more
+    than one: each reads a market window once, its environment failures join `failures`, and the first
+    refusal in job order refuses the graph, as in one process."""
+    if workers <= 1 or len(jobs) <= 1:
+        return [_comparison(profile, bundle, trial_id, at) for bundle, trial_id in jobs]
+    with ProcessPoolExecutor(min(workers, len(jobs)), mp_context=multiprocessing.get_context("spawn"),
+                             initializer=_start_worker, initargs=(base,)) as pool:
+        found = []
+        for value, noted in pool.map(_worker_comparison, [(profile, bundle, trial_id, at) for bundle, trial_id in jobs]):
+            found.append(value)
+            failures.extend(noted)
+        return found
+
+
+def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
+                   workers: int = 1) -> dict:
     """The research-graph@2 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
-    whose missing comparisons and measures would look like research facts."""
+    whose missing comparisons and measures would look like research facts. With `workers` above one the
+    comparisons run in that many processes (the seams in force must pickle); the document is the same."""
     failures: list[Refusal] = []
-    with seams.use(market_returns=_reusing(seams.current.market_returns, failures)):
-        document = _document(profile, line_bundle, at, since)
+    base = seams.current
+    with seams.use(market_returns=_reusing(base.market_returns, failures)):
+        document = _document(profile, line_bundle, at, since, workers, base, failures)
     if failures:
         raise failures[0]
     return document
 
 
-def _document(profile, line_bundle: str | None, at: str | None, since: str | None) -> dict:
+def _document(profile, line_bundle: str | None, at: str | None, since: str | None, workers: int,
+              base: seams.Seams, failures: list[Refusal]) -> dict:
     profile = runs.profile_of(profile)
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
@@ -192,7 +227,10 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     recommendations = [row for row in current if row["kind"] == "recommendation"]
     latest = subjects.get(recommendations[-1]["judgment_id"], []) if recommendations else []
     named = {f"{s['strategy_id']}@{s['revision']}": s["role"] for s in latest if s["strategy_id"] is not None}
-    candidates, events = [], []
+    candidates: list[dict] = []
+    events: list[dict] = []
+    bodies: list[Mapping] = []
+    jobs: list[tuple[int, str, int]] = []
     for row in members:
         key = f"{row['strategy_id']}@{row['revision']}"
         trials = trials_of[key]
@@ -214,13 +252,8 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
                                "text": f"failed source review of {key} ({', '.join(failed) or 'unspecified'}); "
                                        f"runs of this source lose economic evidence: {masked or 'none'}",
                                "recommends": None})
-        comparison_value, predictions = (None, None)
         if bundle is not None and research and research[-1]["status"] == "passed":
-            comparison_value, predictions = _comparison(profile, bundle, research[-1]["trial_id"], commit)
-        if predictions is None and isinstance(body.get("prediction"), Mapping):
-            predictions = [{"measure": f"{p.get('slice')}.{p.get('measure')}" if p.get("slice") else p.get("measure"),
-                            "direction": p.get("direction"), "outcome": None}
-                           for p in body["prediction"].get("mechanism") or []] or None
+            jobs.append((len(candidates), bundle, research[-1]["trial_id"]))
         trial_ids = {t["trial_id"] for t in trials}
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
             s["trial_id"] in trial_ids or (bundle is not None and s["registration_bundle"] == bundle)
@@ -239,9 +272,19 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             "created_at": _iso(row["created_at"]), "change": row["difference"] or row["description"],
             "source": text_of[source_of[key]],
             "duties": body.get("changed_duties"), "hypothesis": rationale.get("conjecture"),
-            "predictions": predictions, "registration": bundle, "control_trial": body.get("control_trial_id"),
-            "trials": trials, "comparison": comparison_value, "reviews": reviews, "interpretation": interpretation,
+            "predictions": None, "registration": bundle, "control_trial": body.get("control_trial_id"),
+            "trials": trials, "comparison": None, "reviews": reviews, "interpretation": interpretation,
             "status": state})
+        bodies.append(body)
+    found = _comparisons(profile, [(bundle, trial_id) for _, bundle, trial_id in jobs], commit, workers, base, failures)
+    for (index, _, _), (comparison_value, predictions) in zip(jobs, found, strict=True):
+        candidates[index].update(comparison=comparison_value, predictions=predictions)
+    for candidate, body in zip(candidates, bodies, strict=True):
+        if candidate["predictions"] is None and isinstance(body.get("prediction"), Mapping):
+            candidate["predictions"] = [
+                {"measure": f"{p.get('slice')}.{p.get('measure')}" if p.get("slice") else p.get("measure"),
+                 "direction": p.get("direction"), "outcome": None}
+                for p in body["prediction"].get("mechanism") or []] or None
     keys = {c["id"] for c in candidates}
     for row in judged:
         recommended = next((f"{s['strategy_id']}@{s['revision']}" for s in subjects.get(row["judgment_id"], [])

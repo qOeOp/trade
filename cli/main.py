@@ -938,6 +938,12 @@ def _at(parser, what: str = "ledger") -> None:
     parser.add_argument("--at", help=f"{what} commit, tag or branch (default: the head)")
 
 
+def _workers(text: str) -> int:
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError(f"workers must be a whole number of at least 1, got {text!r}")
+    return int(text)
+
+
 def _op_id(parser) -> None:
     parser.add_argument("--op-id", help="operation ID; the same ID and content again is a replay (default: derived "
                                         "from the content)")
@@ -1158,6 +1164,9 @@ def _parser() -> Parser:
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the current line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")
+    command.add_argument("--workers", type=_workers, default=min(8, os.cpu_count() or 1),
+                         help="processes computing the comparisons (default: 8 or the CPU count if fewer; 1 runs "
+                              "them in this process); the graph is the same")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -1409,7 +1418,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                   history_before=args.history_before, full=args.full), 0
     if key == ("research", "graph"):
         from report import graph
-        return graph.research_graph(profile, args.line, args.at, since=args.since), 0
+        return graph.research_graph(profile, args.line, args.at, since=args.since, workers=args.workers), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0
