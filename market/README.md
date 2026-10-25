@@ -98,6 +98,12 @@ completed as engineering runs, not full suitability acceptance: the May referenc
 collection disconnect, inferred T and observed E differ in time semantics, and historical byte identity
 remains unverified. Neither result establishes complete reference continuity or other-contract suitability.
 
+The [October/November 2025 post-hoc readings check](../docs/plans/quote-readings-posthoc-202510-11.zh.md)
+recomputed 61 days and matched all 93,261,348 stored quote states at one fixed market commit.
+The original import commits still lack `readings` and were not rewritten; temporary recomputation
+is separate evidence, not a recovered import-time receipt. It does not close the observed-BBO,
+liquidation-suitability or durable archive-retention gaps described in that record.
+
 ## Import and freshness
 
 ```bash
