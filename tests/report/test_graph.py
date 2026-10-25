@@ -1,7 +1,9 @@
 """If this fails, `research graph` no longer rebuilds a line from the ledger alone as a valid,
 repeatable research-graph/2 document: versions with their source, runs and measures, the recommendation,
 a failed review that masks a run, the judgments as events, the targets in force for the line and
-only the line's own runs. A throwaway ledger, never the active one."""
+only the line's own runs; or a graph is drawn while the ledger service is unreachable, whose missing
+comparisons would read as research facts. A throwaway ledger, never the
+active one."""
 
 from __future__ import annotations
 
@@ -9,12 +11,15 @@ from datetime import date
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 from ledger import db, lines, strategies, targets
+from ledger.errors import Refusal
+from ledger.refusals import refuse
 from qualification import availability
 from registration import precheck
 from replay import entry
-from report import graph
+from report import comparison, graph
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
 from tests.registration.world import RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
@@ -102,6 +107,16 @@ class ResearchGraphTests(unittest.TestCase):
         old = graph.research_graph(self.world.profile, self.world.line["bundle"])
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))
 
+    def test_4_an_unreachable_ledger_refuses_the_graph(self):
+        line = self.world.line["bundle"]
+
+        def ledger_down(*arguments):
+            raise refuse("LEDGER_UNAVAILABLE", "the ledger service is not running")
+        with patch.object(comparison, "compare", ledger_down), self.assertRaises(Refusal) as caught:
+            graph.research_graph(self.world.profile, line)
+        self.assertEqual(caught.exception.code, "LEDGER_UNAVAILABLE")
+        self.assertEqual(contract.check_graph(graph.research_graph(self.world.profile, line)), [],
+                         "a run without a control is a missing comparison, not a refused graph")
 
 if __name__ == "__main__":
     unittest.main()
