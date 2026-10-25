@@ -16,6 +16,10 @@ Stop and ask before any of these:
   skill, or either of the user's two research targets (maximum drawdown and minimum annual
   return), including to get past a failing check. Win rate is a report dimension, not a target.
 
+Ask in plain terms: name the kind of change (product code and its PR, ledger records, a stored
+field, configuration), what is refused now and what the change will allow, and any way to reach
+the goal without it.
+
 Position size, per-plan risk and notional limits are the Agent's design variables, set in strategy
 source. Changing them needs no authority and never turns them into user constraints.
 
@@ -73,6 +77,8 @@ ledger: publication is append-only.
 - PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
   `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
   `.github/pull_request_template.md` and reports only checks actually run.
+- Base every PR on `main`; never stack one PR on another, since the quality checks run only for
+  PRs into `main`.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
   auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
   its own finding's eval case and leaves every other grader alone; a grader change is its own PR.
