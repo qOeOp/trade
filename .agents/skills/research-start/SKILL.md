@@ -29,7 +29,9 @@ selected (`line select`); everything inside it follows `research-round`.
   restarted on the new contract begins as a root ([template.md](../research-round/references/template.md)):
   published without a parent and registered with no parent, no control and empty `changed_duties`,
   its rationale carrying the old candidate's idea. An old-contract candidate is never its parent,
-  since its runs can be neither replayed nor compared.
+  since its runs can be neither replayed nor compared. An option that restarts from an
+  old-contract candidate tells the user three things: the restart is a new rule, not the old one
+  run again; its first report has no control; the old rule's results cannot be tested again.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
   background sub-agent (on a host without one, do it before the session ends). For each line, read
   it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its
