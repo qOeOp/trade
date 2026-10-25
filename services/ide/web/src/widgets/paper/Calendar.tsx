@@ -30,7 +30,7 @@ function Month({ month, byDay, picked }: { month: string; byDay: ReadonlyMap<str
                  onClick={d ? () => pickedDay.set(picked === day ? null : day) : undefined}
                  className={`h-12 rounded-control border px-1.5 py-1 ${d ? `cursor-default transition-colors hover:border-line-strong ${tone}` : "text-fg-ghost"} ${picked === day ? "border-focus" : "border-line"}`}>
               <div className="text-fg-faint">{i + 1}</div>
-              {d && <div className="flex items-baseline justify-between"><span className={d.ret < 0 ? "text-fail" : "text-fg"}>{pct(d.ret)}</span><span className="text-fg-faint">{d.fills}</span></div>}
+              {d && <div className="flex items-baseline justify-between"><span className="text-fg">{pct(d.ret)}</span><span className="text-fg-faint">{d.fills}</span></div>}
             </div>
           );
         })}

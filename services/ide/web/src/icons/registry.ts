@@ -5,8 +5,8 @@ import activity from "lucide-static/icons/activity.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
 import calendarDays from "lucide-static/icons/calendar-days.svg?raw";
 import info from "lucide-static/icons/info.svg?raw";
-import layers from "lucide-static/icons/layers.svg?raw";
-import listOrdered from "lucide-static/icons/list-ordered.svg?raw";
+import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
+import wallet from "lucide-static/icons/wallet.svg?raw";
 import scrollText from "lucide-static/icons/scroll-text.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
@@ -92,8 +92,8 @@ export const ICONS = {
   plus: { svg: plus },
   "tool.paper": { svg: activity },
   "tool.events": { svg: scrollText },
-  "tool.orders": { svg: listOrdered },
-  "tool.positions": { svg: layers },
+  "tool.positions": { svg: wallet },
+  warning: { svg: triangleAlert },
   "tool.calendar": { svg: calendarDays },
   "tool.run": { svg: info },
   // IntelliJ's run and pause marks, filled: Lucide's outlines read as media controls.

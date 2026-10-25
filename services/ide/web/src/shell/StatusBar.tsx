@@ -7,12 +7,14 @@ import { Breadcrumbs } from "../components/Breadcrumbs";
 import { VersionLine } from "../components/VersionLine";
 import { useMemo } from "react";
 import { useAtom } from "../state/atom";
-import { notice } from "../state/paper";
+import { ACTIVE, notice, usePaperRuns } from "../state/paper";
+import { useOnPaperPage } from "../state/shell";
 import { plural } from "../lib/format";
 
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left; the version under the pointer, else the
- *  selected one, as its VersionLine and the line's counts at the right. */
+ *  selected one, as its VersionLine and the line's counts at the right. On the Paper page: its notices
+ *  and the count of runs. */
 export function StatusBar() {
   const { line } = useView();
   const lineage = useWidget<LineageWidget>("lineage@2");
@@ -24,6 +26,17 @@ export function StatusBar() {
   const focus = lineage?.nodes.find((n) => n.id === id);
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   const said = useAtom(notice);
+  const paper = useOnPaperPage();
+  const runs = usePaperRuns()?.runs ?? [];
+  if (paper) {
+    const running = runs.filter((r) => ACTIVE.has(r.state)).length;
+    return (
+      <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
+        {said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
+        <span className="ml-auto shrink-0 pr-2">{plural(runs.length, "paper run")} · {running} running</span>
+      </footer>
+    );
+  }
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
       <Breadcrumbs items={[

@@ -18,33 +18,46 @@ function tick(time: Time, type: TickMarkType): string {
   return CLOCK.format(d);
 }
 
-export function chartOptions(): DeepPartial<ChartOptions> {
+/** A price with thousands separators and `places` decimals: 81,190.5. */
+export const priceFormat = (places: number) => (x: number) =>
+  x.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places });
+
+/** The design's chart rules (docs/plans/research-graph-design-spec.zh.md §4.1): gridlines along the
+ *  value axis only, axis text in the secondary colour, a dotted crosshair (the only dotted line), no logo
+ *  on the canvas (the Paper run window credits the library). */
+export function chartOptions(places = 2): DeepPartial<ChartOptions> {
   const label = canvasColor("fg-muted");
   return {
     autoSize: true,
     layout: {
-      background: { type: ColorType.Solid, color: canvasColor("island") }, textColor: canvasColor("fg-faint"),
-      fontFamily: getComputedStyle(document.body).fontFamily, fontSize: 11, attributionLogo: true,
+      background: { type: ColorType.Solid, color: canvasColor("island") }, textColor: label,
+      fontFamily: getComputedStyle(document.body).fontFamily, fontSize: 11, attributionLogo: false,
       panes: { separatorColor: canvasColor("line"), separatorHoverColor: canvasColor("hover"), enableResize: true },
     },
-    grid: { vertLines: { color: canvasColor("grid") }, horzLines: { color: canvasColor("grid") } },
+    grid: { vertLines: { visible: false }, horzLines: { color: canvasColor("grid") } },
     rightPriceScale: { borderColor: canvasColor("line-strong") },
     timeScale: { borderColor: canvasColor("line-strong"), timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: tick },
-    localization: { timeFormatter: (time: Time) => `${FULL.format(date(time)).replace(",", "")} UTC` },
+    localization: { timeFormatter: (time: Time) => `${FULL.format(date(time)).replace(",", "")} UTC`, priceFormatter: priceFormat(places) },
     crosshair: {
       mode: CrosshairMode.Normal,
-      vertLine: { color: canvasColor("crosshair"), style: LineStyle.Dashed, labelBackgroundColor: label },
-      horzLine: { color: canvasColor("crosshair"), style: LineStyle.Dashed, labelBackgroundColor: label },
+      vertLine: { color: canvasColor("crosshair"), style: LineStyle.Dotted, labelBackgroundColor: label },
+      horzLine: { color: canvasColor("crosshair"), style: LineStyle.Dotted, labelBackgroundColor: label },
     },
   };
 }
 
-/** Series colours: candles up and down, volume, entries, exits by reason, working orders, positions. */
+/** Series colours. Grey first: the market (candles, volume) recedes and colour is kept for the run's own
+ *  trading (exits by reason, its working orders); a held position is one neutral band, its side carried
+ *  by the entry marker. */
 export function seriesColors() {
   return {
-    up: canvasColor("meets"), down: canvasColor("fail"), upVolume: canvasColor("meets", 0.35), downVolume: canvasColor("fail", 0.35),
-    entry: canvasColor("recommended"), stop: canvasColor("fail"), target: canvasColor("meets"), other: canvasColor("fg-faint"),
-    long: canvasColor("recommended", 0.08), short: canvasColor("misses", 0.1),
-    equity: canvasColor("fg"), drawdown: canvasColor("fail", 0.25), drawdownLine: canvasColor("fail"), limit: canvasColor("misses"),
+    up: canvasColor("fg-faint", 0.55), down: canvasColor("fg-muted"), volume: canvasColor("fg-faint", 0.18),
+    entry: canvasColor("fg"), stop: canvasColor("fail"), target: canvasColor("meets"), other: canvasColor("fg-faint"),
+    held: canvasColor("scope"), average: canvasColor("fg-muted"),
+    equity: canvasColor("fg"), start: canvasColor("line-strong"), drawdown: canvasColor("fail", 0.18), drawdownLine: canvasColor("fail", 0.8),
+    limit: canvasColor("meets", 0.55), axisLabel: canvasColor("fg-muted"), axisText: canvasColor("island"),
   };
 }
+
+/** Re-applies the options once the page's fonts have loaded, so canvas text is drawn in the face itself. */
+export const afterFonts = (apply: () => void) => { void document.fonts.ready.then(apply); };

@@ -26,7 +26,7 @@ function Metric({ label, children, unit, tip, miss = false }: { label: string; c
 export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading;
-  const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} />);
+  const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} locales="en-US" />);
   return (
     <div className="flex h-[1lh] min-w-0 flex-wrap items-center gap-x-5 overflow-hidden text-dense">
       <Metric label="Return" tip={`Target ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>

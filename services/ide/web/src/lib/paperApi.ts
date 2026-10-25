@@ -78,3 +78,29 @@ export const priceText = (value: unknown): string => {
 
 /** BTCUSDT-PERP.BINANCE → BTCUSDT. */
 export const symbolOf = (instrument: unknown) => String(instrument ?? "").split("-")[0] ?? "";
+
+const places = (v: unknown): number => {
+  const m = /^-?\d+(?:\.(\d+))?$/.exec(String(v ?? "").split(" ")[0] ?? "");
+  return m ? m[1]?.length ?? 0 : -1;
+};
+/** A contract's price and size decimals, -1 where the journal has not shown one yet. */
+export type Precision = { price: number; size: number };
+/** Each contract's decimals as the journal prints them: bars and orders carry the instrument's precision
+ *  (average prices are floats and say nothing). */
+export function precisions(lines: readonly JournalLine[]): Map<string, Precision> {
+  const out = new Map<string, Precision>();
+  for (const l of lines) {
+    if (l.kind !== "bar" && l.kind !== "order") continue;
+    const symbol = symbolOf(l.instrument_id), p = out.get(symbol) ?? { price: -1, size: -1 };
+    for (const key of l.kind === "bar" ? ["close"] : ["price", "trigger_price", "last_px"]) p.price = Math.max(p.price, places(l[key]));
+    if (l.kind === "order") p.size = Math.max(p.size, places(l.quantity), places(l.last_qty));
+    out.set(symbol, p);
+  }
+  return out;
+}
+/** A number with thousands separators and `digits` decimals (unknown: as few as it needs, up to 8). */
+export const fixed = (value: unknown, digits = -1): string | null => {
+  const n = amount(value);
+  if (n == null) return null;
+  return n.toLocaleString("en-US", digits < 0 ? { maximumFractionDigits: 8 } : { minimumFractionDigits: digits, maximumFractionDigits: digits });
+};

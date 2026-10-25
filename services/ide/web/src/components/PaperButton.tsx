@@ -22,7 +22,7 @@ export function PaperButton({ id }: { id: string }) {
     else if (e.altKey) startDialog.set(id);
     else void startPaper(id);
   };
-  const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop paper" : "Run paper";
+  const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper";
   return (
     <Tip side="bottom" content={run || busy ? label : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}>
       <button type="button" aria-label={label} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}

@@ -1,100 +1,115 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { symbolOf, type JournalLine } from "../../lib/paperApi";
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, describe, eventMs, utc, utcDay, type Category } from "../../model/paper";
+import { bracket, bracketStatus, grouped, lineStatus, type Status } from "../../model/events";
 import { Icon } from "../../icons/Icon";
 import { Chips, PillButton } from "../../components/Tabs";
 import { useAtom } from "../../state/atom";
+import { paperTab } from "../../state/paper";
 import { highlighted, pickedDay, showTime, useStream } from "../../state/paperStream";
 
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
-type Item = { line: JournalLine; children?: JournalLine[]; key: string; at: number };
+// One grid for every row: chevron gutter, time, contract, category, text, status.
+const GRID = "grid h-6 cursor-default grid-cols-[1rem_4.5rem_6rem_5.5rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-line pl-1.5 pr-3 transition-colors hover:bg-row-hover";
+const clock = (ms: number) => utc(ms).slice(11);
 
-/** The orders of one bracket (or other order list) under one row, from the lists their first events
- *  name; a group sits where its latest event does. */
-function grouped(lines: readonly JournalLine[]): Item[] {
-  const list = new Map<string, string>();
-  for (const l of lines) if (l.kind === "order" && l.order_list_id && l.client_order_id) list.set(String(l.client_order_id), String(l.order_list_id));
-  const groups = new Map<string, Item>();
-  const out: Item[] = [];
-  lines.forEach((line, i) => {
-    const id = line.kind === "order" ? list.get(String(line.client_order_id)) : undefined;
-    if (!id) { out.push({ line, key: `l${i}`, at: i }); return; }
-    const group = groups.get(id);
-    if (group) { group.children!.push(line); group.at = i; }
-    else { const item = { line, children: [line], key: `g${id}`, at: i }; groups.set(id, item); out.push(item); }
-  });
-  return out.sort((a, b) => a.at - b.at);
+function Chip({ status }: { status: Status | null }) {
+  if (!status) return <span />;
+  return status.failed
+    ? <span className="inline-flex items-center gap-1 text-small text-fail"><Icon name="warning" size={12} />{status.text}</span>
+    : <span className="text-small text-fg-faint">{status.text}</span>;
 }
 
-function Row({ line, onPick, picked, indent = false }: { line: JournalLine; onPick: () => void; picked: boolean; indent?: boolean }) {
+function Row({ line, onClick, picked, gutter, category, text, status, title }: {
+  line: JournalLine; onClick: () => void; picked: boolean; gutter?: ReactNode; category?: string; text: ReactNode; status: Status | null; title?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
-  const category = categoryOf(line);
+  const c = categoryOf(line);
   return (
-    <div ref={ref} role="row" onClick={onPick} data-selected={picked ? "" : undefined}
-         className={`grid h-6 cursor-default grid-cols-[9.5rem_6rem_5.5rem_minmax(0,1fr)] items-center gap-2 border-b border-line px-3 transition-colors hover:bg-row-hover ${picked ? "bg-selection" : ""}`}>
-      <span className="font-mono text-small text-fg-faint">{utc(eventMs(line))}</span>
+    <div ref={ref} role="row" onClick={onClick} title={title} data-selected={picked ? "" : undefined} className={GRID}>
+      <span className="grid place-items-center text-icon">{gutter}</span>
+      <span className="font-mono text-small text-fg-faint">{clock(eventMs(line))}</span>
       <span className="truncate font-mono text-small">{symbolOf(line.instrument_id) || ""}</span>
-      <span className={`text-small ${category === "strategy" || line.kind === "data_gap" ? "text-misses" : "text-fg-muted"}`}>{category ? CATEGORY_LABEL[category] : ""}</span>
-      <span className={`truncate ${indent ? "pl-4" : ""}`}>{describe(line)}</span>
+      <span className={`text-small ${c === "strategy" || line.kind === "data_gap" ? "text-misses" : "text-fg-muted"}`}>{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
+      <span className="truncate">{text}</span>
+      <Chip status={status} />
     </div>
   );
 }
 
-/** The run's events, newest first, filtered by category; a bracket's orders fold into one row. While the
- *  list is scrolled away from its top, new events wait behind "N new events" instead of moving it. A
- *  click shows the moment on the chart; a click on a chart marker highlights its event here. */
+/** The run's events, newest first under a row per UTC day, filtered by category and, on a contract
+ *  tab, by contract (run-wide events always show); a bracket's orders fold into one row that says what
+ *  it was and how it stands, a failed order marked. While the list is scrolled away from its top, new
+ *  events wait behind "N new events" instead of moving it. A click shows the moment on the chart; a
+ *  click on a chart marker highlights its event here. */
 export function Events() {
   const s = useStream();
   const day = useAtom(pickedDay);
   const picked = useAtom(highlighted);
+  const tab = useAtom(paperTab);
+  const [all, setAll] = useState(false);
   const [on, setOn] = useState<ReadonlySet<Category>>(new Set(CATEGORIES));
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [held, setHeld] = useState<number | null>(null);  // the count of lines shown while scrolled away
   const host = useRef<HTMLDivElement>(null);
-  const all = s?.lines ?? [];
+  const journal = s?.lines ?? [];
   useEffect(() => {
     const viewport = host.current?.closest<HTMLElement>(".overflow-auto");
     if (!viewport) return;
-    const scrolled = () => setHeld((h) => (viewport.scrollTop > 4 ? h ?? all.length : null));
+    const scrolled = () => setHeld((h) => (viewport.scrollTop > 4 ? h ?? journal.length : null));
     viewport.addEventListener("scroll", scrolled);
     return () => viewport.removeEventListener("scroll", scrolled);
-  }, [all.length]);
-  const lines = held === null ? all : all.slice(0, held);
-  const events = useMemo(() => lines.filter((l) => categoryOf(l) !== null), [lines]);
+  }, [journal.length]);
+  const only = tab && !all ? tab : null;
+  const lines = held === null ? journal : journal.slice(0, held);
+  const events = useMemo(() => lines.filter((l) => categoryOf(l) !== null && (!only || !l.instrument_id || symbolOf(l.instrument_id) === only)), [lines, only]);
   const counts = useMemo(() => new Map(CATEGORIES.map((c) => [c, events.filter((l) => categoryOf(l) === c).length])), [events]);
   const items = useMemo(() => grouped(events.filter((l) => on.has(categoryOf(l)!) && (!day || utcDay(eventMs(l)) === day)))
     .slice(-SHOWN).reverse(), [events, on, day]);
-  const waiting = held === null ? 0 : all.slice(held).filter((l) => categoryOf(l) !== null).length;
+  const waiting = held === null ? 0 : journal.slice(held).filter((l) => categoryOf(l) !== null).length;
   const pick = (line: JournalLine) => { highlighted.set(line); showTime(eventMs(line)); };
   useEffect(() => {  // a marker picked on the chart opens its bracket
     const item = picked && items.find((i) => i.children?.includes(picked));
     if (item) setOpen((o) => new Set([...o, item.key]));
   }, [picked, items]);
   if (!s) return <p className="p-3 text-dense text-fg-faint">Open a paper run in the Paper panel</p>;
+  const toggle = (key: string) => setOpen(new Set(open.has(key) ? [...open].filter((k) => k !== key) : [...open, key]));
   return (
     <div ref={host} className="text-dense">
       <div className="sticky top-0 z-10 flex items-center gap-2 bg-island px-3 py-1.5">
         <Chips items={CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], count: counts.get(c) ?? 0 }))} on={on}
                onToggle={(c) => setOn(new Set(on.has(c) ? [...on].filter((x) => x !== c) : [...on, c]))} />
         {day && <span className="text-small text-fg-muted">{day} only</span>}
-        {waiting > 0 && <span className="ml-auto"><PillButton onClick={() => { host.current?.closest(".overflow-auto")?.scrollTo({ top: 0 }); setHeld(null); }}>
-          <Icon name="arrow-up" size={12} />{waiting} new {waiting === 1 ? "event" : "events"}
-        </PillButton></span>}
+        <span className="ml-auto flex items-center gap-2">
+          {waiting > 0 && <PillButton onClick={() => { host.current?.closest(".overflow-auto")?.scrollTo({ top: 0 }); setHeld(null); }}>
+            <Icon name="arrow-up" size={12} />{waiting} new {waiting === 1 ? "event" : "events"}
+          </PillButton>}
+          {tab && <PillButton onClick={() => setAll(!all)}>{all ? `Only ${tab}` : "All contracts"}</PillButton>}
+        </span>
       </div>
       {items.length === 0 && <p className="px-3 py-2 text-fg-faint">No events{day ? " that day" : ""} in the chosen categories</p>}
-      {items.map((item) => item.children && item.children.length > 1 ? (
-        <div key={item.key}>
-          <div role="row" onClick={() => setOpen(new Set(open.has(item.key) ? [...open].filter((k) => k !== item.key) : [...open, item.key]))}
-               className="flex h-6 cursor-default items-center gap-1 border-b border-line px-2 transition-colors hover:bg-row-hover">
-            <span className={`grid text-icon transition-transform ${open.has(item.key) ? "rotate-90" : ""}`}><Icon name="chevron-right" size={12} /></span>
-            <span className="font-mono text-small text-fg-faint">{utc(eventMs(item.children[item.children.length - 1]!))}</span>
-            <span className="ml-2 font-mono text-small">{symbolOf(item.line.instrument_id)}</span>
-            <span className="ml-2 truncate">Order list {String(item.line.order_list_id ?? "")} · {item.children.length} events · {describe(item.children[item.children.length - 1]!)}</span>
-          </div>
-          {open.has(item.key) && [...item.children].reverse().map((line, i) => <Row key={i} line={line} indent picked={line === picked} onPick={() => pick(line)} />)}
-        </div>
-      ) : <Row key={item.key} line={item.line} picked={item.line === picked} onPick={() => pick(item.line)} />)}
+      {items.map((item, i) => {
+        const date = utcDay(item.at), next = items[i - 1];
+        const separator = !next || utcDay(next.at) !== date
+          ? <div className="flex h-6 items-end border-b border-line px-3 pb-0.5 text-small font-semibold text-fg-muted">{date}</div> : null;
+        const children = item.children;
+        if (!children || children.length < 2) {
+          return <Fragment key={item.key}>{separator}<Row line={item.line} picked={item.line === picked} onClick={() => pick(item.line)} text={describe(item.line)} status={lineStatus(item.line)} /></Fragment>;
+        }
+        const latest = children[children.length - 1]!;
+        return (
+          <Fragment key={item.key}>
+            {separator}
+            <Row line={latest} picked={false} onClick={() => toggle(item.key)} category="Orders" text={<>{bracket(children)} <span className="text-fg-faint">· {children.length} events</span></>}
+                 status={bracketStatus(children)} title={String(item.line.order_list_id ?? "")}
+                 gutter={<span className={`grid transition-transform ${open.has(item.key) ? "rotate-90" : ""}`}><Icon name="chevron-right" size={12} /></span>} />
+            {open.has(item.key) && [...children].reverse().map((line, j) => (
+              <Row key={j} line={line} picked={line === picked} onClick={() => pick(line)} text={<span className="pl-3 text-fg-muted">{describe(line)}</span>} status={lineStatus(line)} />
+            ))}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

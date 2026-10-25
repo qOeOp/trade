@@ -9,10 +9,11 @@ import { selectedRun, usePaperRuns } from "../../state/paper";
 import { useStream } from "../../state/paperStream";
 import { useNow } from "./RunStrip";
 
+const ALL = 8;  // more contracts than this are counted, not listed in the tabs
 const mono = (value: ReactNode) => <span className="break-all font-mono">{value}</span>;
 
-/** The selected paper run's record: how it was configured (what the ledger declared at its start), its
- *  health now, and once sealed, its outcome and reasons. */
+/** The selected paper run's record beyond what the card and tabs show: how it was configured (what the
+ *  ledger declared at its start), its health, once sealed its outcome and reasons, and its identity. */
 export function RunDetails() {
   const listing = usePaperRuns();
   const id = useAtom(selectedRun);
@@ -28,27 +29,18 @@ export function RunDetails() {
   const state = health(run, now);
   return (
     <div className="space-y-2 p-2 text-dense">
-      <Section title="Run" aside={`run ${run.paper_id}`}>
-        <KeyValues items={[
-          ["Version", mono(run.candidate)],
-          ["State", <span className={state.tone === "fail" ? "text-fail" : state.tone === "misses" ? "text-misses" : ""}>{state.text}</span>],
+      <Section title="Configuration">
+        <KeyValues labels="fixed" items={[
           ["Started", started ? `${utc(started / 1e6)} UTC` : null],
-          ["Contracts", run.symbols.length > 8 ? `${run.symbols.length} contracts` : run.symbols.join(", ")],
           ["Execution", config.execution === "paper-bars" ? "One-minute bars, Sandbox fills" : config.execution],
           ["Fees", config.fees ? `maker ${config.fees.maker} · taker ${config.fees.taker}` : null],
           ["Universe rule", config.universe_rule],
           ["Memory", config.memory],
+          ...(run.symbols.length > ALL ? [["Contracts", `${run.symbols.length} contracts`] as const] : []),
         ]} />
       </Section>
-      <Section title="Identity">
-        <KeyValues items={[
-          ["Image", mono(shortSha(digest.replace("sha256:", "")))],
-          ["Source", mono(shortSha(run.source_sha256))],
-          ["Market commit", mono(shortSha(run.market_commit))],
-        ]} />
-      </Section>
-      <Section title="Health">
-        <KeyValues items={[
+      <Section title="Health" aside={<span className={state.tone === "fail" ? "text-fail" : state.tone === "misses" ? "text-misses" : ""}>{state.text}</span>}>
+        <KeyValues labels="fixed" items={[
           ["Bars", live?.bars],
           ["Missing bars", live?.missing_bars],
           ["Late bars", live?.late_bars],
@@ -58,16 +50,21 @@ export function RunDetails() {
       </Section>
       {seal && (
         <Section title="Seal" aside={seal.status}>
-          <KeyValues items={[
+          <KeyValues labels="fixed" items={[
             ["Return", pct(seal.total_return)], ["Max drawdown", pct(seal.max_drawdown)], ["Stopped by", seal.stop_reason],
             ["Reasons", seal.reasons.length ? <span className="text-fail">{seal.reasons.join(", ")}</span> : "none"],
           ]} />
         </Section>
       )}
-      <Section title="Replay reconciliation" open={false}>
-        <p className="text-fg-muted">Once the run's days reach the market from Binance's archives, a replay of the same
-          source over the same window is compared fill by fill. Not available yet.</p>
+      <Section title="Identity" open={false}>
+        <KeyValues labels="fixed" items={[
+          ["Run", mono(run.paper_id)],
+          ["Image", mono(shortSha(digest.replace("sha256:", "")))],
+          ["Source", mono(shortSha(run.source_sha256))],
+          ["Market commit", mono(shortSha(run.market_commit))],
+        ]} />
       </Section>
+      <p className="px-1 pt-1 text-small text-fg-faint">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer" className="underline decoration-line-strong underline-offset-2 hover:text-fg-muted">TradingView Lightweight Charts™</a></p>
     </div>
   );
 }

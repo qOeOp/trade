@@ -16,7 +16,7 @@ import { AgentWindow } from "./agent/AgentWindow";
 import { Calendar } from "../widgets/paper/Calendar";
 import { Events } from "../widgets/paper/Events";
 import { RunDetails } from "../widgets/paper/RunDetails";
-import { Orders, Positions } from "../widgets/paper/Trades";
+import { Positions } from "../widgets/paper/Positions";
 
 export type ToolWindow = {
   id: string; side: Side; icon: IconName; shortcut?: { keys: string; binding: string };
@@ -65,7 +65,6 @@ const paperWindow = (id: string, side: Side, icon: IconName, title: string, Comp
   ({ id, side, icon, shortcut, source: id, renderer: { title, Component }, actions: () => [hide(side)] });
 const PAPER = [
   paperWindow("events", "bottom", "tool.events", "Events", Events, alt(9)),
-  paperWindow("orders", "bottom", "tool.orders", "Orders", Orders),
   paperWindow("positions", "bottom", "tool.positions", "Positions", Positions),
 ];
 const CALENDAR = paperWindow("calendar", "bottom", "tool.calendar", "Calendar", Calendar);

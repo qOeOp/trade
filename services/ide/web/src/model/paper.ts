@@ -1,6 +1,6 @@
 // What a paper run's journal means on the page: each line's category and description, the fills as
 // chart markers, the positions as spans, the working orders as price lines and the days as returns.
-import { amount, priceText, symbolOf, type JournalLine, type OpenOrder } from "../lib/paperApi";
+import { amount, priceText, symbolOf, type JournalLine, type OpenOrder, type OpenPosition } from "../lib/paperApi";
 
 export type Category = "system" | "data" | "order" | "position" | "account" | "strategy" | "lifecycle";
 export const CATEGORIES: readonly Category[] = ["system", "data", "order", "position", "account", "strategy", "lifecycle"];
@@ -29,7 +29,7 @@ export function utc(ms: number): string {
 }
 export const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-const last = (value: unknown) => String(value ?? "").split(".").pop() ?? "";  // OrderSide.BUY → BUY
+export const last = (value: unknown) => String(value ?? "").split(".").pop() ?? "";  // OrderSide.BUY → BUY
 const qtyPx = (qty: unknown, px: unknown) => `${qty ?? ""}${px != null && px !== "None" ? ` @ ${priceText(px)}` : ""}`;
 
 /** One line in words, without its time, contract or category. */
@@ -40,7 +40,7 @@ export function describe(line: JournalLine): string {
       const what = String(f.type ?? "").replace(/^Order/, "");
       if (what === "Filled") return `Filled ${last(f.order_side)} ${qtyPx(f.last_qty, f.last_px)} · ${last(f.order_type)}`;
       if (what === "Initialized") return `New ${last(f.order_side)} ${last(f.order_type)} ${qtyPx(f.quantity, f.price ?? f.trigger_price)}${f.reduce_only ? " · reduce only" : ""}`;
-      if (what === "Rejected" || what === "Denied") return `${what}: ${f.reason ?? ""}`;
+      if (what === "Rejected" || what === "Denied") return String(f.reason ?? what);
       return what;
     }
     case "position": {
@@ -112,7 +112,7 @@ export function winRate(lines: readonly JournalLine[]): number | null {
   return closed.length ? closed.filter((l) => (amount(l.realized_pnl) ?? 0) > 0).length / closed.length : null;
 }
 
-export type PriceLine = { id: string; price: number; kind: Exit | "entry"; label: string };
+export type PriceLine = { id: string; price: number; kind: Exit | "entry"; label: string; side: string; quantity: string };
 /** A contract's working orders as price lines: stops, targets (reduce-only limits) and limit entries. */
 export function priceLines(orders: readonly OpenOrder[], symbol: string): PriceLine[] {
   return orders.filter((o) => symbolOf(o.instrument_id) === symbol).flatMap((o) => {
@@ -120,8 +120,15 @@ export function priceLines(orders: readonly OpenOrder[], symbol: string): PriceL
     const price = amount(stop ? o.trigger_price : o.price) ?? amount(o.price);
     if (price == null) return [];
     const kind = stop ? "stop" : o.reduce_only ? "target" : "entry";
-    return [{ id: o.client_order_id, price, kind, label: `${kind === "entry" ? "Entry" : kind === "stop" ? "Stop" : "Target"} ${last(o.side)} ${o.quantity}` }];
+    return [{ id: o.client_order_id, price, kind, label: kind === "entry" ? "Entry" : kind === "stop" ? "SL" : "TP", side: last(o.side), quantity: o.quantity }];
   });
+}
+
+export type Held = { long: boolean; quantity: number; average: number; pnl: number | null };
+/** The contract's open position at the last minute, if it holds one. */
+export function heldOf(positions: readonly OpenPosition[], symbol: string): Held | null {
+  const p = positions.find((x) => symbolOf(x.instrument_id) === symbol), qty = amount(p?.signed_qty), average = amount(p?.avg_px_open);
+  return p && qty && average != null ? { long: qty > 0, quantity: Math.abs(qty), average, pnl: amount(p.unrealized_pnl) } : null;
 }
 
 export type Day = { day: string; ret: number; fills: number };

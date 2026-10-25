@@ -18,7 +18,7 @@ export function Tabs<T extends string | null>({ items, value, onChange, label, c
           <button key={String(tab.id)} type="button" role="tab" aria-selected={on} title={tab.hint} onClick={() => onChange(tab.id)}
                   className={compact
                     ? `rounded-badge px-1.5 py-0.5 text-small transition-colors hover:bg-hover ${on ? "bg-pressed text-fg" : "text-fg-faint"}`
-                    : `relative flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 transition-colors hover:bg-hover ${on ? "text-fg after:absolute after:inset-x-1 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-focus" : "text-fg-muted"}`}>
+                    : `relative flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 transition-colors hover:bg-hover ${on ? "text-fg after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-focus" : "text-fg-muted"}`}>
             {tab.label}
             {tab.dot && <span className={`size-1.5 rounded-full ${DOT[tab.dot]}`} />}
           </button>
@@ -28,15 +28,16 @@ export function Tabs<T extends string | null>({ items, value, onChange, label, c
   );
 }
 
-/** Filter chips: each toggles one category on or off, with its count. */
+/** Filter chips: each toggles one category on or off, with its count; an empty category has no chip.
+ *  An off chip is dashed and faint, so on and off differ in form as well as shade. */
 export function Chips<T extends string>({ items, on, onToggle }: {
   items: readonly { id: T; label: string; count: number }[]; on: ReadonlySet<T>; onToggle: (id: T) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {items.map((chip) => (
+      {items.filter((chip) => chip.count > 0).map((chip) => (
         <button key={chip.id} type="button" aria-pressed={on.has(chip.id)} onClick={() => onToggle(chip.id)}
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-px text-small transition-colors hover:bg-hover ${on.has(chip.id) ? "border-line-strong bg-pressed text-fg" : "border-line text-fg-faint"}`}>
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-px text-small transition-colors hover:bg-hover ${on.has(chip.id) ? "border-line-strong bg-pressed text-fg" : "border-dashed border-line-strong text-fg-faint"}`}>
           {chip.label}<span className="text-fg-faint">{chip.count}</span>
         </button>
       ))}

@@ -28,6 +28,8 @@ const isState = (v: unknown): v is ShellState => {
 
 export const shell = persistedAtom<ShellState>("rg-shell@1", DEFAULTS, isState);
 export const useShell = () => useAtom(shell);
+/** Whether the editor shows the Paper page (the graph's version context does not apply there). */
+export const useOnPaperPage = () => onPaper(useAtom(shell));
 
 /** `next` with the bottom and right sides of the page it shows: those of the page it left go away. */
 function turnPage(before: ShellState, next: ShellState): ShellState {

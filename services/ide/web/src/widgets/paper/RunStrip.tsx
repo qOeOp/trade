@@ -23,7 +23,7 @@ export function RunStrip({ runs, nodes, target }: { runs: readonly PaperRun[]; n
   const shown = runs.filter((r) => ACTIVE.has(r.state) || r.paper_id === selected);
   const open = (id: number) => { selectedRun.set(id); paperTab.set(null); };
   return (
-    <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-3 pb-2 pt-1">
+    <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-x-auto">
       {shown.map((run) => (
         <RunCard key={run.paper_id} run={run} node={nodes.get(run.candidate ?? "")} selected={run.paper_id === selected}
                  target={target} now={now} onSelect={() => open(run.paper_id)} />
