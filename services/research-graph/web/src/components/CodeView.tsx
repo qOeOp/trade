@@ -24,12 +24,13 @@ const READ_ONLY = [lineNumbers(), EditorState.readOnly.of(true), EditorView.edit
   syntaxHighlighting(highlighter)];
 
 /** Python source, read-only with line numbers; given `original`, its change from it as a unified diff
- *  whose long unchanged stretches fold away. */
+ *  whose long unchanged stretches fold away. Deleted lines stay plain: CodeMirror would highlight them
+ *  as fragments out of context, colouring a deleted docstring line as code. */
 export function CodeView({ source, original }: { source: string; original?: string }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const extensions = original === undefined ? READ_ONLY : [...READ_ONLY, unifiedMergeView({
-      original, mergeControls: false, gutter: true, collapseUnchanged: { margin: 3, minSize: 6 },
+      original, mergeControls: false, gutter: true, syntaxHighlightDeletions: false, collapseUnchanged: { margin: 3, minSize: 6 },
     })];
     const view = new EditorView({ parent: host.current!, state: EditorState.create({ doc: source, extensions }) });
     return () => view.destroy();

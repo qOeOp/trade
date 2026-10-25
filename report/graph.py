@@ -113,9 +113,10 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         seeds = {record["start"]} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
         members = _lineage(rows, seeds)
         source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
-        wanted = set(source_of.values())
-        text_of = {r["source_sha256"]: bytes(r["source"]).decode()
-                   for r in conn.dicts("SELECT source_sha256, source FROM candidate") if r["source_sha256"] in wanted}
+        wanted = sorted(set(source_of.values()))
+        text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(
+            f"SELECT source_sha256, source FROM candidate WHERE source_sha256 IN ({', '.join(['%s'] * len(wanted))})",
+            tuple(wanted))} if wanted else {}
         records = availability.review_records(conn)
         bundle_times = {row["bundle"]: row["created_at"] for row in conn.dicts(
             "SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'source-review-%%' OR bundle LIKE 'research-line-%%'")}
