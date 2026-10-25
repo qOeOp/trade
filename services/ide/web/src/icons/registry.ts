@@ -20,9 +20,9 @@ import fileText from "lucide-static/icons/file-text.svg?raw";
 import folder from "lucide-static/icons/folder.svg?raw";
 import folderCode from "lucide-static/icons/folder-code.svg?raw";
 import folderOpen from "lucide-static/icons/folder-open.svg?raw";
-import gitBranch from "lucide-static/icons/git-branch.svg?raw";
 import gitCompare from "lucide-static/icons/git-compare.svg?raw";
 import gitCommitHorizontal from "lucide-static/icons/git-commit-horizontal.svg?raw";
+import gitFork from "lucide-static/icons/git-fork.svg?raw";
 import gitGraph from "lucide-static/icons/git-graph.svg?raw";
 import listTree from "lucide-static/icons/list-tree.svg?raw";
 import locate from "lucide-static/icons/locate.svg?raw";
@@ -55,7 +55,7 @@ export const ICONS = {
   hide: { svg: minus },
   copy: { svg: copy },
   settings: { svg: settings },
-  ledger: { svg: gitBranch },
+  ledger: { svg: gitFork },
   "close-small": { svg: x },
   lineage: { svg: gitGraph },
   "file.python": { svg: fileCode },
