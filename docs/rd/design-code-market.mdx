@@ -1110,7 +1110,7 @@ def stitch_series(
 2. 裁到窗口之前先核形状：归档行落在其所属月或日之外、或不在分钟网格上（如微秒时间戳），即 SOURCE_SHAPE，不静默丢弃。
 3. 合并各来源：裁到窗口、按 open_time 排序；同一 open_time 出现多行时逐字段比较，任一字段不等即 SOURCE_CONFLICT 并指明时刻，相等则只留一行；close_time ≠ open_time + 1 分钟 − 1 毫秒的行即 SOURCE_SHAPE
 4. 用 market.missing_intervals 在 [low, high) 上求缺口：low 取 start_ms（resumed）或首个持有分钟，high 取 end_ms（trading）或末个持有分钟 + 1 分钟
-5. 对缺口覆盖的日期补取日归档并重新合并；仍缺的区间逐段经 market.rest_klines 从公开接口补取；完全没有归档且 trading 或 resumed 时整窗口经公开接口取；market.rest_klines 的 SOURCE_UNKNOWN_SYMBOL 在 trading 为 false（已下架）时视为无补充、返回空，trading 为 true 时原样上抛
+5. 对缺口覆盖的日期，以及持有分钟之外缺口不计的月份边缘（resumed 为 false 时首个持有分钟之前、trading 为 false 时末个持有分钟之后），补取日归档并重新合并；边缘与仍缺的区间逐段经 market.rest_klines 从公开接口补取；完全没有归档且 trading 或 resumed 时整窗口经公开接口取；market.rest_klines 的 SOURCE_UNKNOWN_SYMBOL 在 trading 为 false（已下架）时视为无补充、返回空，trading 为 true 时原样上抛
 6. 最终再合并一次并重算缺口，原样返回：不插值、不前值填充、不以标记价代替成交价；表中不记录来源，拼接对运行器与策略不可见
 7. start_ms ≥ end_ms 返回空表与空缺口，不拒绝
 8. 多来源同一分钟按存储刻度的数值比较；标记价 K 线带成交量即 SOURCE_SHAPE；公开接口只有错误码 -1121 视为未知合约。
