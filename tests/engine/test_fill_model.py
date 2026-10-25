@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
+from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.model import (
     Bar, BarType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, OrderSide, Price, Quantity, StrategyId,
     Symbol, TraderId, Venue,
@@ -21,9 +22,16 @@ BAR_NS = 60_000_000_000
 INSTRUMENT_ID = InstrumentId(Symbol("AAAUSDT-PERP"), Venue("BINANCE"))
 INSTRUMENT = CryptoPerpetual(
     INSTRUMENT_ID, Symbol("AAAUSDT"), Currency.from_str("BTC"), Currency.from_str("USDT"), Currency.from_str("USDT"),
-    False, 2, 3, Price.from_str("0.01"), Quantity.from_str("0.001"), 0, 0, maker_fee=Decimal("0.0002"),
-    taker_fee=Decimal("0.0005"), margin_init=Decimal(0), margin_maint=Decimal(0))
+    False, 2, 3, Price.from_str("0.01"), Quantity.from_str("0.001"), 0, 0, margin_init=Decimal(0),
+    margin_maint=Decimal(0))
 BAR_TYPE = BarType.from_str(f"{INSTRUMENT_ID}-1-MINUTE-LAST-EXTERNAL")
+
+
+def fees() -> MakerTakerFeeModel:
+    """The exporter's assumed rates (market.instrument.ASSUMED), as the replay's venue charges them."""
+    return MakerTakerFeeModel(Decimal("0.0002"), Decimal("0.0005"))
+
+
 START = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1e9)
 FLAT = ("100.00", "101.00", "99.00", "100.00")  # the open is as far from the high as from the low
 LOW_NEARER = ("100.00", "101.00", "99.60", "100.20")
@@ -58,7 +66,7 @@ def replay(case: str, ohlc=FLAT) -> list[dict]:
     engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
                                                  logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
     try:
-        add_venue(engine)
+        add_venue(engine, fees())
         engine.add_instrument(INSTRUMENT)
         engine.add_strategy(Orders(case))
         data = []

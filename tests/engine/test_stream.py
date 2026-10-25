@@ -210,13 +210,13 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
             rows += [(at + 20_000, low, low + tick), (at + 40_000, high - tick, high)]
         counts["quote"] = export.write_quotes(store, iid, [rows], 2, "1000", 3, 8)
     if episode is not None:
-        counts.update(lifecycle.write_lifecycle_events(catalog_path, episode, START * 10**6, END * 10**6, 2))
+        counts.update(lifecycle.write_lifecycle_events(store, episode, START * 10**6, END * 10**6))
     piece = {"index": index, "instrument_id": str(iid), "catalog_dir": "episode-1" if index else "", "counts": counts,
              "last_bar_ns": int((bars["ts_open"][-1] + MIN - 1) * 10**6) if len(minutes) else None, "episode": episode}
     receipt = {"format": "market-coverage-v1", "symbol": symbol, "commit": "c" * 32, "timeframe": "1m",
                "start_ns": START * 10**6, "end_ns": END * 10**6,
                "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "terms_observed_at": observed_at,
-               "pieces": [piece]}
+               "assumed": dict(instrument.ASSUMED), "pieces": [piece]}
     (path / "export.json").write_text(json.dumps(receipt))
 
 
@@ -261,21 +261,24 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
     from nautilus_trader.common import ImportableActorConfig, LoggerConfig, LogLevel
     from nautilus_trader.config import ImportableStrategyConfig
     from nautilus_trader.data import DataEngineConfig
-    from nautilus_trader.model import AccountType, BookType, Currency, OmsType, StandardMarginModel, TraderId
+    from nautilus_trader.model import (
+        AccountType, BookType, Currency, NautilusDataType, OmsType, StandardMarginModel, TraderId,
+    )
     from nautilus_trader.risk import RiskEngineConfig
     data = []
     quote_mode = account["execution"] == "quotes"
     for row in rows:
         iid, path = row["instrument_id"], str(row["catalog_path"])
-        data += [BacktestDataConfig(data_type="MarkPriceUpdate", catalog_path=path, instrument_id=iid)]
+        data += [BacktestDataConfig(data_type=NautilusDataType.MarkPriceUpdate, catalog_path=path, instrument_id=iid)]
         if quote_mode and row["counts"].get("quote"):
-            data.append(BacktestDataConfig(data_type="QuoteTick", catalog_path=path, instrument_id=iid))
-        data += [BacktestDataConfig(data_type="FundingRateUpdate", catalog_path=path, instrument_id=iid),
-                 BacktestDataConfig(data_type="Bar", catalog_path=path, instrument_id=iid,
+            data.append(BacktestDataConfig(data_type=NautilusDataType.QuoteTick, catalog_path=path, instrument_id=iid))
+        data += [BacktestDataConfig(data_type=NautilusDataType.FundingRateUpdate, catalog_path=path, instrument_id=iid),
+                 BacktestDataConfig(data_type=NautilusDataType.Bar, catalog_path=path, instrument_id=iid,
                                     bar_types=[f"{iid}-1-MINUTE-LAST-EXTERNAL"])]
         for key, kind in (("instrument_status", "InstrumentStatus"), ("instrument_close", "InstrumentClose")):
             if row["counts"].get(key):
-                data.append(BacktestDataConfig(data_type=kind, catalog_path=path, instrument_id=iid))
+                data.append(BacktestDataConfig(data_type=getattr(NautilusDataType, kind), catalog_path=path,
+                                               instrument_id=iid))
     config = BacktestRunConfig(
         venues=[BacktestVenueConfig(
             name=account["venue"], oms_type=getattr(OmsType, account["oms_type"]),
@@ -288,7 +291,8 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
             margin_model=StandardMarginModel() if account["margin_model"] == "StandardMarginModel" else None,
             liquidation_enabled=account["liquidation_enabled"],
             bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=run.fill_model(account),
-            liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"])],
+            liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"],
+            fee_model=run.fee_model(rows))],
         data=data,
         engine=BacktestEngineConfig(
             trader_id=TraderId(account["trader_id"]), logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),

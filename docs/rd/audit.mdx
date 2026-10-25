@@ -419,7 +419,7 @@
 
 逐订单检查原生初始化的只减仓标记、提交/模拟/释放/修改、成交量、原生总量和终态。每个违规订单记 `ENTRY_ORDER_OUTSIDE_MEMBERSHIP`，保留品种、策略、时刻和未成交量；整次运行无效。有订单从未成交，也不能留下活动入场量穿过禁新仓区间。缺少或非法覆盖回执、成员/生命周期、未知目标合约或非法只减仓标记记 `ENTRY_SCOPE_INVALID`，不回退为全部允许。
 
-固定 Nautilus 2.0.0rc3 的原生探针确认：PRE_CLOSE 不自动拒绝开仓，CLOSE 才拒绝订单且包括减仓。GTD 请求的到期时间也不等于已经收到原生到期确认；相邻撮合事件之间的到期请求可能到下一撮合事件才留下 OrderExpired，须安排原生撤销/到期在截止时完成，不能用请求时间改写事件。部分成交括号单撤销剩余入场量会连带撤保护子单，仍须按原生预检参考为已成交部分补回只减仓保护；裸仓检查继续独立执行。
+固定 Nautilus 2.0.0rc7 的原生探针确认：PRE_CLOSE 不自动拒绝开仓，CLOSE 才拒绝订单且包括减仓。GTD 请求的到期时间也不等于已经收到原生到期确认；相邻撮合事件之间的到期请求可能到下一撮合事件才留下 OrderExpired，须安排原生撤销/到期在截止时完成，不能用请求时间改写事件。部分成交括号单撤销剩余入场量时，原生保留止损与止盈并缩到已成交数量（2.0.0rc7 之前会连带撤掉）；裸仓检查继续独立执行。
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.entry_windows">entry_windows</Ref> <Ref id="engine.entry_findings">entry_findings</Ref> <Ref id="engine.episode_membership">episode_membership</Ref></span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
 

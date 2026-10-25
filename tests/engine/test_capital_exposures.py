@@ -59,7 +59,7 @@ class CapitalExposureTests(unittest.TestCase):
         self.addCleanup(engine.dispose)
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "exposures.csv.gz"
-            run.add_venue(engine)
+            run.add_venue(engine, native.fees())
             engine.add_instrument(native.INSTRUMENT)
             engine.add_strategy(Partial())
             observer = run.capital_observer((str(native.INSTRUMENT_ID),), path)

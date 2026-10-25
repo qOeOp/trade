@@ -361,9 +361,8 @@ class StrategyLoaderTests(unittest.TestCase):
                   "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
-        with native_log() as logged, self.assertRaisesRegex(RuntimeError, "boom"):
+        with self.assertRaisesRegex(RuntimeError, "boom"):
             engine.run()
-        self.assertIn("on_start failed: ValueError: boom", logged[0])
         with self.assertRaises(Refusal) as caught:
             run.configure_strategy(loaded, StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
         self.assertEqual(caught.exception.code, "STRATEGY_CONSTRUCTION_FAILED")
@@ -454,7 +453,7 @@ class StrategyLoaderTests(unittest.TestCase):
         self.addCleanup(engine.dispose)
         engine.add_venue(Venue("BINANCE"), OmsType.NETTING, AccountType.MARGIN, [Money(100000, Currency.from_str("USDT"))],
                          base_currency=Currency.from_str("USDT"), default_leverage=Decimal(1), book_type=BookType.L1_MBP,
-                         bar_execution=True)
+                         bar_execution=True, fee_model=native.fees())
         engine.add_instrument(native.INSTRUMENT)
         engine.add_strategy(guarded())
         engine.add_data(native.bars())

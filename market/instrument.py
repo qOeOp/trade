@@ -2,7 +2,8 @@
 
 A replay uses one terms snapshot per contract: the latest observed at the pinned market commit
 (CURRENT_SNAPSHOT_APPROXIMATION). Fees and margins are not exchange facts and are not stored: the
-exporter writes the assumption below into the engine instrument and records it.
+exporter writes the assumed margins into the engine instrument and records the whole assumption in the
+receipt, from which the replay takes the venue's maker and taker rates.
 """
 
 from __future__ import annotations
@@ -76,8 +77,7 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
         min_notional=(Money(float(Decimal(terms["min_notional"])), usdt) if terms.get("min_notional") is not None
                       else None),
         max_price=optional("max_price", Price.from_str), min_price=optional("min_price", Price.from_str),
-        margin_init=Decimal(ASSUMED["margin_init"]), margin_maint=Decimal(ASSUMED["margin_maint"]),
-        maker_fee=Decimal(ASSUMED["maker_fee"]), taker_fee=Decimal(ASSUMED["taker_fee"]))
+        margin_init=Decimal(ASSUMED["margin_init"]), margin_maint=Decimal(ASSUMED["margin_maint"]))
     record = {"terms_source": terms["terms_source"], "terms_observed_at": terms["observed_at"],
               "price_precision": price_precision, "price_precision_widened": price_precision != exchange,
               "assumed": dict(ASSUMED), "historical_terms": APPROXIMATION}

@@ -45,8 +45,8 @@ header template, the entry class, the two hooks and a sizing helper.
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
   contract outside these intervals takes no new positions. Use native `reduce_only=True` for every
   exit and protective order there, including an order intended only to close. End all non-reduce-only
-  entry orders and their partially filled remainders by the cutoff; canceling a bracket entry can
-  cancel its protection too, so re-protect the filled part with the reference handler below. The
+  entry orders and their partially filled remainders by the cutoff; a canceled bracket entry keeps
+  its stop and target for the part it filled. The
   independent audit checks the trusted intervals, native flags, submissions, fills and old residuals;
   any violation invalidates the run. Cancellation/expiry at the cutoff is allowed, a fill there is
   not. A GTD deadline alone is not a native expiry acknowledgement. Holding an old position does not
@@ -115,16 +115,14 @@ Any finding or any denied or rejected order fails the run.
   Shortfalls lasting at most one minute are neither refused nor listed as uncovered intervals;
   a passing audit does not prove continuous protection. This tolerance applies only to stop
   coverage; the entry cutoff above has no such grace period.
-- Two behaviours of the pinned Nautilus break protection; recheck both after any Nautilus change:
-  - It lists the stop first in the entry's `linked_order_ids` and activates children in that
-    order, so an entry bar that reaches the stop gets the target rejected and fails the run.
-    Rebuild the entry with the target first (edit `to_dict()`, then `type(entry).from_dict`);
-    reordering the submitted list does not help.
-  - When a bracket entry ends (GTD expiry, `cancel_order`, a modify down to the filled quantity)
-    after a partial fill, the venue cancels its stop and target and leaves the filled quantity
-    unprotected. Re-protect in `on_order_expired` and `on_order_canceled` with the handler
-    `cover_filled_entry` in `tests/engine/test_partial_entry_protection.py`, which that test
-    replays natively, and cancel the plan's remaining orders when the position goes flat.
+- When a bracket entry ends after a partial fill (GTD expiry, `cancel_order`, a modify down to the
+  filled quantity), Nautilus keeps its stop and target, resized to the filled quantity; a second
+  protection for that part doubles the exit orders. When the entry's fill bar also reaches the stop,
+  the stop fills and the target is canceled. An OTO child follows its entry's fill: a child built
+  smaller than the entry (a partial target) is resized to the whole fill, so submit a partial exit as
+  its own reduce-only order after the entry fills; Nautilus then trims the open reduce-only stop to
+  the remaining position. An order dictionary marks no contingency with `None`.
+  `tests/engine/test_partial_entry_protection.py` replays these natively.
 - Nautilus owns fills, fees, funding, positions and the account. React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger. Size from native state: portfolio equity, the instrument's
