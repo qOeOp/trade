@@ -1,6 +1,6 @@
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
-import { activateTab, LINEAGE_TAB, openDiffTab, openSourceTab } from "../../state/editors";
+import { openDiffTab, openSourceTab, showLineage } from "../../state/editors";
 import { requestFocus } from "../../state/linking";
 import { select } from "../../state/selection";
 import { CodeView } from "../../components/CodeView";
@@ -26,7 +26,7 @@ export function SourceBar({ id, diff, widget }: { id: string; diff: boolean; wid
       <span className="ml-auto" />
       {diff ? <TextButton onClick={() => openSourceTab(id)}><Icon name="file.python" />Open source</TextButton>
         : comparable && <TextButton onClick={() => openDiffTab(id)}><Icon name="diff" />Compare with parent</TextButton>}
-      <TextButton onClick={() => { select(id); activateTab(LINEAGE_TAB); requestFocus(id); }}><Icon name="locate" />Locate in graph</TextButton>
+      <TextButton onClick={() => { select(id); showLineage(); requestFocus(id); }}><Icon name="locate" />Locate in graph</TextButton>
     </div>
   );
 }
