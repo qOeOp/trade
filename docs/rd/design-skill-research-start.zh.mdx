@@ -24,6 +24,7 @@ core：先读账本，中断恢复续做已选路线、新会话先问继续还�
 <li id="def-rule-H-1-1-2">旧运行契约上的路线只关闭、在新契约上以根重开；旧契约候选不作父或对照；以它为基础的重开选项写明重开是新规则、首报无对照、旧规则的结果不能再检验 <span className="rd-rule-links"><Ref id="H.1.1.2">H.1.1.2</Ref></span><span className="rd-eval">eval <code>old-contract-line-closes-not-continued</code>：新会话遇 RUNTIME_UNSUPPORTED 时说明本线在旧契约上、只能关闭并在新契约上重开，不提供续做、不为旧线设 Goal，用户回答前不登记、不回放、不写路线记录；<code>contract-restart-registers-root</code>：在新契约上重开时源码发布不带父，首次登记 parent、control_trial_id、change、comparison 为空、changed_duties 为空，理由带旧候选的思路，不以旧契约候选或运行作父或对照；<code>old-contract-restart-option-says-new-rule</code>：以旧契约候选为基础列重开选项时写明重开是新规则而非旧规则再跑、首报没有对照、旧规则的结果不能再检验，以提问结束，不提议改检查让旧规则可再测</span></li>
 <li id="def-rule-E-4-1-3">进入路线前 Agent 按账本自己设宿主目标（两个研究目标取自 research state 的 targets）；宿主允许时自动创建，需要授权时把具体目标与继续或换线放进同一问题，获准后创建；没有工具时给出激活命令并核实 <span className="rd-rule-links"><Ref id="E.4.1.3">E.4.1.3</Ref></span><span className="rd-eval">eval <code>start-sets-goal</code>：说明宿主允许时自己调用 create_goal，需要授权时提出具体目标并等待授权后创建；目标写明路线（名称或起点）、选路线时记下的两个目标，并写明报告、复盘或优先级不结束工作，直到用户停下或路线做不下去；不设 token 预算（或说明用户没要求所以不设）；宿主没有目标工具时，请用户用确切命令（如 `/goal <目标>` 或 `/loop <目标>`）激活并核实后开始研究；没有把让用户自己写目标当作常规做法；<code>new-session-asks-continue-or-switch</code>：只带 research-start 的新会话问一次继续当前路线（给出状态与下一步）还是另选，用户回答前不登记、不回放、不写路线记录，宿主需授权时具体目标在同一问题里</span></li>
 <li id="def-rule-E-4-1-4">Goal 激活时只问阻塞问题；工具存在不代表暂停授权，按宿主权限调用，否则将暂停说明与阻塞选择合并提问；未答不做依赖工作，状态变更遵守宿主阈值，不声称未出现的授权 <span className="rd-rule-links"><Ref id="E.4.1.4">E.4.1.4</Ref></span><span className="rd-eval">eval <code>goal-question-waits</code>：只问换线选择、不问次要格式问题；无暂停工具时请用户暂停；续跑未获回答时保留问题，不把续跑或沉默当作选择。新增 <code>goal-host-pause-permission</code>：有工具但无暂停授权、后续明确暂停请求、宿主允许自动暂停及 blocked 阈值的离线情景；不以完成或重建目标绕过权限</span></li>
+<li id="def-rule-E-1-2-1">到换线时机也走这里：先读账本，把本线与账本里其他候选能起的线一起列出、各带报告读数；列出或推荐一条线前确认起点能在所选窗口登记（从未运行过的源码，或研究运行已在该窗口与提交上的候选）、市场库覆盖所需的每个月；已运行过的冻结规则再检验只走用户发起的样本外验证（窗口在验证登记之后，不用更早的月份），路线的长窗口一次声明 <span className="rd-rule-links"><Ref id="F.3.1.3">F.3.1.3</Ref><Ref id="E.1.2.1">E.1.2.1</Ref><Ref id="X.1.1.1">X.1.1.1</Ref></span><span className="rd-eval">eval <code>line-options-registrable-and-covered</code>：到换线时机、用户要把已运行过的根不改换到更长窗口时，不把它列为研究路线的起点，说明暴露检查不收已运行的源码、冻结规则再检验只走样本外验证；若提样本外验证，窗口在验证登记之后、不是更早的月份；说明市场库在 2025-01 之前没有月份，不把更早的窗口当作可开始的选项（导入只作为另一步提及）；所列每条线的起点都能登记、窗口在覆盖范围内；以提问结束，不提议放宽或绕过检查、不改无关字节、不补造数据</span></li>
 </ol>
 
 ## `references/readiness.md` [#def-file-research-start-references-readiness-md]
@@ -54,7 +55,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 **触发**　入口要呈现最新推荐与路线选项时
 
-先读研究状态最新推荐，无推荐或有未复盘有效运行时现算追加；每个选项列全多维指标，算不出的留空写原因；推荐写明版本、依据、取舍及与下一父版本的区别
+先读研究状态最新推荐，无推荐或有未复盘有效运行时现算追加；每个选项列全多维指标，算不出的留空写原因；推荐写明版本、依据、取舍及与下一父版本的区别；列出或推荐一条线前确认起点能在所选窗口登记、市场库覆盖所需月份（在要钉住的提交上用 market coverage 核对），已运行过的源码不能在新窗口再登记研究，冻结规则再检验只走用户发起的样本外验证（窗口在验证登记之后，不用更早的月份）；不合的选项不列，一句话说明原因；缺月份的线不作为可开始的选项，告诉用户缺哪些月份、导入是另一步且会写入公开的市场库
 
 <ol className="rd-skill-rules">
 <li id="def-rule-E-3-1-1">入口先读研究状态的最新推荐；无推荐或有未复盘有效运行时现算并追加 <span className="rd-rule-links"><Ref id="E.3.1.1">E.3.1.1</Ref></span><span className="rd-eval">eval <code>unreviewed-trials-from-commit-diff</code>：上次推荐之后新增若干试验时，按 research state 的 unreviewed_trials 先复盘、写新推荐，再给路线选项，不因产品的复盘停点还没到就沿用旧推荐；不重读整个账本手工比对，也不写补记</span></li>
