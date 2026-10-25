@@ -18,6 +18,12 @@ Stop and ask before any of these:
 - Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
   skill, or either of the user's two research targets (maximum drawdown and minimum annual
   return), including to get past a failing check. Win rate is a report dimension, not a target.
+- Terminating a host process or changing host configuration: Docker or system settings, credential
+  helpers, the network path, installing or upgrading host tools or plugins.
+- Reading any credential (browser cookies included) other than the research data keys
+  `research-sources` names. Those sit in the main checkout's `.env` beside exchange credentials:
+  read one named value inside the command that uses it, never source or print the file, never
+  echo, log or store a value. `product-doctor` reads none.
 
 Ask in plain terms: name the kind of change (product code and its PR, ledger records, a stored
 field, configuration), what is refused now and what the change will allow, and any way to reach

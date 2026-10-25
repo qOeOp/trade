@@ -924,6 +924,8 @@ def validation_bind(
 
 **返回**　None；全部核对通过后在同事务写 validation_binding 一行；任一项不一致抛拒绝，由调用方回滚整个试验事务且不启动容器
 
+<p className="rd-note">[隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)已用真实 main／PR 镜像和原生探针接入 Dolt 2.4.2 绑定事务，当前 rc7 与历史 rc3 两组各 35 个检查点通过；非 main 与七类哈希异常拒绝并回滚，合法绑定仅一次成功。既有相关测试 8 项通过、无跳过；市场、研究基线与 TSA 使用夹具，不代表完整真实样本外回放或报告验收。</p>
+
 **期望行为**
 
 1. 运行环境与产品代码：registration.require_fresh（STALE_CHECKOUT）；runtime.require_main_build(identity, inspection)（RUNTIME_NOT_MAIN）；trial.image_digest 须等于 identity 摘要。

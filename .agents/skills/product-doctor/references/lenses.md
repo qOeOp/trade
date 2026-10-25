@@ -52,7 +52,8 @@ Evaluate the whole current product against external norms, beyond the paths reac
 session. Check the rules themselves independently of the behavior review's compliance assessment.
 External norms include, for the research method the product encodes (what the ledger stores, what
 reports and comparisons compute, how evidence qualifies), the research-methodology literature read
-through `research-sources`.
+through `research-sources` with only the calls that need no key (AGENTS.md); a source left
+unsearched is a coverage gap.
 
 For refusals, audits, eligibility, gates and skill rules, distinguish: should have fired; fired
 without value; fired usefully; silent but uniquely protective; silent with no distinct value.
