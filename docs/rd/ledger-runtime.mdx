@@ -306,7 +306,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺：样本外路径调用两项核对并拒绝非 main 镜像与 HEAD 不含 main 最新提交的实测。</p>
+<p className="rd-note">Dolt 2.4.2 [核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)：真实 CI 镜像原生探针接入绑定事务，当前 Nautilus 2.0.0rc7 与历史 rc3 两组各 35 个脚本检查点通过，另有既有测试 8 项通过、无跳过。落后代码在导出前拒绝；非 main 镜像及七类哈希异常回滚、不消耗登记；合法绑定一次成功、重复绑定拒绝。市场、研究基线和 TSA 仍用隔离夹具；真实行情回放、样本外封存与完整报告交付未验证，保留待验证。</p>
 
 ### 读取视图 [#J-2-9]
 
@@ -316,17 +316,17 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 候选、试验、运行、判断、证据包和样本外等结构性查询可通过账本视图组织。产品写入、源码与证据读取、原生报表解析等入口需要直接读底表；诊断和历史核对也保留只读 SQL。经济证据资格、绩效指标遮蔽与配对检验由产品读取入口计算，不能由一个可查的视图或底表值替代。
 
-读取口径只在一处定义，各流程读到的是同一套数。视图定义随账本提交一起版本化，口径改过也查得到。
+当前正式入口主要从底表和关联查询读取，并复用共享函数；路线门槛与研究图共用 `line_trials`，`research state --full` 的候选和计数复用对应正式入口。相同事实按同一提交和定义核对；原始试验、统计计数和路线试验保留各自范围。视图定义随账本提交一起版本化，口径改过也查得到。
 
 <div className="rd-example">
 
-比如复盘和报告都要数一条路线的试验次数，两边读的是同一个试验视图，不会一边算上了中断的、另一边没算。
+一次隔离夹具有 7 条原始试验；统计计数排除复现和策略执行前中止的两条，得到 5 条；路线计数按研究用途、市场提交和窗口筛选，得到 3 条，包含其中的无效和未完成尝试。三个数分别回答不同问题；路线门槛与研究图的路线成员由同一个 `line_trials` 入口确定。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref> <Ref id="table:v_runs">v_runs</Ref> <Ref id="table:v_judgments">v_judgments</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">Dolt 2.4.2 已隔离验证基本视图读权限；仍缺所有结构读取路径的口径一致性验证。</p>
+<p className="rd-note">Dolt 2.4.2 [跨入口隔离核验](https://github.com/qOeOp/trade/blob/main/docs/plans/structure-read-consistency-verification.zh.md)覆盖候选、计数、路线、状态、图、报告、判断和证据的共有事实：4 次快照对照、234 个脚本检查点、20 次 CLI 读取通过，另有既有测试 12 项通过、无跳过。原始试验／统计计数／路线试验的范围及多主体展开粒度分别核对。市场、运行器等外部依赖使用替身；正向样本外、复杂谱系、并发和全部报告路径未全面覆盖，保留待验证，不代表完整真实研究验收。</p>
 
 #### 复现历史结果一律走当时的修订库，用当时的视图定义 [#J-2-9-2]
 
