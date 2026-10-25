@@ -1,6 +1,5 @@
 import type { LineageWidget, SummaryWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
-import { RoleMark } from "../../icons/marks";
 import { select } from "../../state/selection";
 import { Dropdown, DropdownItem, DropdownLabel } from "../../components/Dropdown";
 import { VersionLine } from "../../components/VersionLine";
@@ -15,8 +14,7 @@ export function RecommendationWidget() {
   const nodes = new Map(lineage.nodes.map((n) => [n.id, n]));
   const history = [...lineage.trail].reverse();
   return (
-    <Dropdown label="Recommended" trigger={<span className="inline-flex min-w-0 items-center gap-1.5"><RoleMark role="recommended" size={12} />
-      <span className="truncate font-mono">{summary.recommended}</span></span>}>
+    <Dropdown label="Recommended" trigger={<span className="truncate font-mono">{summary.recommended}</span>}>
       <DropdownLabel>Recommended versions · newest first</DropdownLabel>
       {history.map((t, i) => {
         const node = nodes.get(t.candidate);
