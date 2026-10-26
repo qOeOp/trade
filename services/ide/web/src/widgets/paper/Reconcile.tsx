@@ -7,7 +7,7 @@ import { FormButton } from "../../components/chat/Field";
 import { reconcile, type Cause, type FillClass, type Matched, type Reconciliation } from "../../state/reconcile";
 
 const RESULT: Record<FillClass, string> = { same: "Same", price: "Price", quantity: "Size", time: "Time", paper_only: "Paper only", replay_only: "Replay only" };
-const CAUSE: Record<Cause, string> = { live_gap: "a live bar was missing", bar_mismatch: "a live bar differed from the archive", window_end: "at the stop", unexplained: "unexplained" };
+const CAUSE: Record<Exclude<Cause, "consequence">, string> = { live_gap: "a live bar was missing", bar_mismatch: "a live bar differed from the archive", window_end: "at the stop", unexplained: "unexplained" };
 const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
 const CELL = "h-9 whitespace-nowrap px-3 first:pl-5 last:pr-5 border-t border-line";
 const HEAD = "sticky top-0 z-[1] h-8 whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint first:pl-5 last:pr-5";
@@ -35,11 +35,12 @@ const Count = ({ n, one, many = `${one}s`, tone }: { n: number; one: string; man
 const Dot = ({ tone }: { tone: string }) => <i className={`mr-1.5 inline-block size-1.5 rounded-full align-middle ${tone}`} />;
 
 function Row({ m, only, p }: { m: Matched; only: boolean; p: Precision }) {
-  const same = m.class === "same", suspect = !!m.look_ahead_suspect;
+  const same = m.class === "same", suspect = !!m.look_ahead_suspect, follows = m.cause === "consequence";
   const price = (fill: Matched["paper"]) => (fill ? fixed(fill.px, p.price) ?? fill.px : <span className="text-fg-ghost">{MISSING}</span>);
-  const bps = m.price_bps ?? null, at = (m.paper ?? m.replay)!;
+  // The earlier side, as the rows are ordered and a later difference names the one it follows.
+  const bps = m.price_bps ?? null, at = [m.paper, m.replay].filter((f) => f).sort((x, y) => x!.ts_ns - y!.ts_ns)[0]!;
   return (
-    <tr className={`transition-colors hover:bg-row-hover ${same ? "text-fg-muted" : ""}`}>
+    <tr className={`transition-colors hover:bg-row-hover ${same || follows ? "text-fg-muted" : ""}`}>
       {!only && <td className={`${CELL} text-left`}>{symbolOf(m.instrument)}</td>}
       <td className={`${CELL} text-left text-fg-muted`}>{m.side === "BUY" ? "Buy" : "Sell"} {ROLE[m.role] ?? m.role}</td>
       <td className={`${CELL} text-left text-fg-muted`}>{clock(at.ts)}</td>
@@ -49,10 +50,11 @@ function Row({ m, only, p }: { m: Matched; only: boolean; p: Precision }) {
       <td className={`${CELL} text-right ${bps ? "" : "text-fg-faint"}`}>{bps == null ? "" : bps === 0 ? "0" : `${bps > 0 ? "+" : "−"}${Math.abs(bps).toFixed(1)}`}</td>
       <td className={`${CELL} text-left`}>
         {same ? <span className="text-fg-faint">Same</span> : <>
-          <Dot tone={suspect ? "bg-fail" : "bg-misses"} />
-          <span className={suspect ? "text-fail" : "text-misses"}>{RESULT[m.class]}</span>
+          <Dot tone={suspect ? "bg-fail" : follows ? "bg-fg-muted" : "bg-misses"} />
+          <span className={suspect ? "text-fail" : follows ? "text-fg-muted" : "text-misses"}>{RESULT[m.class]}</span>
           {m.class === "quantity" && <span className="text-fg-muted"> {fixed(m.paper?.qty, p.size) ?? MISSING} vs {fixed(m.replay?.qty, p.size) ?? MISSING}</span>}
-          {m.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect" : CAUSE[m.cause]}</span>}
+          {m.cause && <span className="text-fg-muted"> · {suspect ? "look-ahead suspect"
+            : m.cause === "consequence" ? `after the difference at ${m.follows ? clock(m.follows) : MISSING}` : CAUSE[m.cause]}</span>}
         </>}
       </td>
     </tr>
@@ -71,7 +73,8 @@ function Prompt({ children, action, label }: { children: ReactNode; action?: () 
 /** A sealed run against its replay on the archive, in one line of counts and then each order filled on
  *  either side: what differs first (price in basis points of the replay's, delay of the paper fill)
  *  with why: a live bar missing or unlike the archive's before it, or neither, which for a fill only
- *  the replay made marks a look-ahead suspect. Differences are amber, suspects red. When nothing
+ *  the replay made marks a look-ahead suspect. Once a contract's paths part, its later differences follow
+ *  from the first and are grey. Differences are amber, suspects red. When nothing
  *  differs, the matching fills fold into one row. */
 export function Reconcile({ r, paperId, sealed, only, digits }: {
   r: Reconciliation | null; paperId: number; sealed: boolean; only: string | null; digits: ReadonlyMap<string, Precision>;
@@ -95,6 +98,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
   const missing = barsOf.reduce((n, b) => n + b!.missing.length, 0), unlike = barsOf.reduce((n, b) => n + b!.differing.length, 0);
   const count = (k: Matched["class"]) => mine.filter((m) => m.class === k).length;
   const suspects = mine.filter((m) => m.look_ahead_suspect).length;
+  const following = mine.filter((m) => m.cause === "consequence").length;
   const shown = differ.length || open ? [...differ, ...same] : differ;
   return (
     <div className="flex flex-col">
@@ -105,6 +109,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
           <Count key="paper" n={count("paper_only")} one="only on paper" many="only on paper" tone="text-misses" />,
           <Count key="replay" n={count("replay_only")} one="only in the replay" many="only in the replay" tone="text-misses" />,
           <Count key="suspects" n={suspects} one="look-ahead suspect" tone="text-fail" />,
+          ...(following ? [<span key="following" className="text-fg-faint">{following} after an earlier difference</span>] : []),
           <span key="bars" className="text-fg-faint">{plural(missing, "live bar")} missing, {unlike} unlike the archive</span>,
         ].flatMap((item, i) => (i ? [<span key={`sep-${i}`} className="text-fg-faint">·</span>, item] : [item]))}
       </p>
