@@ -9,8 +9,8 @@ reference date.
 ## FRED / ALFRED — economic, rate and liquidity series
 
 - `GET https://api.stlouisfed.org/fred/...` with `api_key=$(key FRED_API_KEY)&file_type=json`
-  (the key can only go in the query string, so never show the expanded URL). About 120 requests a
-  minute.
+  (the key can only go in the query string, so never show the expanded URL). No keyless access:
+  without the key every call returns 400. About 120 requests a minute.
 - `series/search?search_text=...` to find IDs; `series?series_id=` for units, frequency and
   release; `series/observations?series_id=...&observation_start=&observation_end=`. Liquidity
   series include `SOFR`, `DFF`, `RRPONTSYD` (reverse repo), `WTREGEN` (Treasury General Account,
