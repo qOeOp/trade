@@ -26,8 +26,10 @@ curl -sS -H "Authorization: Bearer $(key OPENALEX_API_KEY)" \
   | jq -c '.meta.count, (.results[] | [.publication_year, .display_name, .doi])'
 ```
 
-A missing key, 401, 403 or exhausted quota means the source was not searched, never that it has no
-results.
+Without a key, call each source keyless where it allows that (the references say which) and log
+"no key" with the query. A source answered without a key was searched; a call refused or throttled
+(key required, 401, 403, exhausted quota, 429 after the back-offs) means that source was not
+searched, never that it has no results.
 
 ## Which source
 

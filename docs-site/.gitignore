@@ -8,3 +8,8 @@
 *.tsbuildinfo
 next-env.d.ts
 /lib/generated/
+# npm owns the lockfile (package-lock.json); other package managers' lockfiles stay local
+/bun.lock
+/bun.lockb
+/pnpm-lock.yaml
+/yarn.lock
