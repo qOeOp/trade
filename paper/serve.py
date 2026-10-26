@@ -232,7 +232,7 @@ class Daemon:
                 market = ["--market", self.market] if self.market else []
                 self.cli("reconcile", "--paper-id", str(paper_id), "--output", str(output), *market,
                          "--timeout-seconds", str(RECONCILE_SECONDS - 60), timeout=RECONCILE_SECONDS)
-                found = {"state": "done"}
+                found: dict[str, object] = {"state": "done"}
             except Failure as exc:
                 found = {"state": "failed", "error": exc.body}
             except subprocess.TimeoutExpired:
