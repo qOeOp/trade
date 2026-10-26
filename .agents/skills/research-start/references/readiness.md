@@ -12,10 +12,25 @@ When reporting any coverage anomaly, include the parts below in the final answer
 user asks only how to record it or what to do next. A diagnosis or a plan to inspect positions is
 not a substitute for the disposition.
 
-1. **Facts and block.** Separate bar gaps, zero-volume minutes and missing funding. Identify the
-   market commit, contracts, UTC intervals and counts the evidence gives; say the causes and any
-   economic effect are unproven. Distinguish a known missing input from an unreadable receipt or
-   missing verification. Do not infer a new product refusal or change a sealed run's eligibility.
+1. **Facts and block.** Separate LAST gaps, MARK gaps, zero-volume minutes and missing funding.
+   Identify the market commit, contracts, UTC intervals and counts the evidence gives; say the
+   causes are unproven, and give the replay's treatment below instead of calling the effect
+   unknown. Distinguish a known missing input from an unreadable receipt or missing verification.
+   Do not infer a new product refusal or change a sealed run's eligibility. The treatment is one
+   fixed rule for every run, not a strategy switch; the market never holds synthetic rows, so a
+   minute no source holds stays a gap, and the strategy decides only how it reacts:
+   - **Zero-volume minute:** an observation, not an anomaly. Every stored bar is Binance's official
+     record (checksummed archives, then REST; sources holding the same minute must agree), so do
+     not export bars or download archives to re-verify or locate these minutes. The strategy
+     receives the bar; bar execution moves the last price through it but fills nothing, so an
+     order it crosses waits for the next traded bar.
+   - **LAST gap:** no bar for those minutes and nothing is matched; a derived bar is built from the
+     minutes present, and a bucket with none does not exist.
+   - **MARK gap:** an open position is valued at its latest MARK for up to 60 minutes (the
+     summary's `mark_carry`, a limitation). A longer gap while a position is open fails the run's
+     integrity (`CAPITAL_VALUATION_GAP`); with no position open it changes nothing.
+   - **Missing funding:** nothing settles at that time, so a held position's account result lacks
+     that payment.
 2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
    contract and interval, and whether the full selected universe/window can be confirmed. Give
    the supported range even when narrower than the selection, as information for the user, not a
@@ -27,10 +42,13 @@ not a substitute for the disposition.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
-4. **User choice.** Ask only when an anomaly falls inside the development window or on an input
-   value the strategy reads (for example a warm-up close an indicator uses); otherwise say where it
-   lies, report parts 1–3 and continue. When asking, end with a direct question choosing how to
-   resolve the data/scope block: obtain or verify the missing source evidence while keeping the
+4. **User choice.** Ask only about an anomaly that would stop or distort the replay: a MARK gap
+   longer than 60 minutes at or after the trading start (a position may be open there), missing
+   funding after the trading start, a missing month or unreadable receipt, or a gap on an input
+   value the strategy reads (for example a warm-up close an indicator uses, or a whole bar of its
+   decision timeframe). For any other (zero-volume minutes, MARK gaps up to 60 minutes, LAST gaps
+   that remove no value the strategy reads) say where it lies, report parts 1–3 and continue.
+   When asking, end with a direct question choosing how to resolve the data/scope block: obtain or verify the missing source evidence while keeping the
    selection, or choose a different supported data range through the existing line-change rules.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
    shorter window, replacement input or changed commit yourself, or recommend one because an
@@ -39,7 +57,7 @@ not a substitute for the disposition.
    with zero, interpolation or other invented data as an option to fix the gap.
 
 Before sending, check that the runnable-range statement (with explicit unknowns where needed)
-is present, and the final data/scope question when part 4 calls for one. Keep the three facts
+is present, and the final data/scope question when part 4 calls for one. Keep the facts
 and their unproven causes separate; none is an economic failure or a reason to alter the
 research universe.
 
