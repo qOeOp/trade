@@ -1,7 +1,8 @@
 """If this fails, a paper reconciliation misreports a run: a market order filled in pieces counts as several
 trades or at the wrong price, a fill the replay also made shows as a difference, a replay-only fill with no
 live-data cause is not flagged as a look-ahead suspect, a live gap or a live bar that differs from the archive
-is not named as the cause, the replay interval is not the one the runner received bars for, or the replay's
+is not named as the cause, a difference that follows from an earlier one on the same contract is taken for a
+cause of its own, the replay interval is not the one the runner received bars for, or the replay's
 equity is read at another moment than the paper snapshot it is set against."""
 
 from __future__ import annotations
@@ -73,6 +74,23 @@ class Reconcile(unittest.TestCase):
         found = reconcile.compare(journal([], 5), replay, {"BTCUSDT": archived(5)}, None, START, START + 5 * MINUTE)
         item = found["fills"][0]
         self.assertEqual((item["class"], item["cause"], item["look_ahead_suspect"]), ("replay_only", "unexplained", True))
+        self.assertEqual(found["summary"]["look_ahead_suspects"], 1)
+
+    def test_differences_after_the_paths_part_follow_the_first_until_a_fill_agrees_again(self):
+        paper = [initialized("P1", "ENTRY"), filled("P1", close_of(5), "100.0", "1"),
+                 initialized("P2", "TAKE_PROFIT", "SELL"), filled("P2", close_of(7), "101.0", "1", "SELL")]
+        replay = [initialized("R1", "ENTRY"), filled("R1", close_of(2), "100.0", "1"),
+                  initialized("R2", "STOP_LOSS", "SELL"), filled("R2", close_of(4), "99.0", "1", "SELL"),
+                  initialized("R3", "TAKE_PROFIT", "SELL"), filled("R3", close_of(7), "101.0", "1", "SELL"),
+                  initialized("R4", "ENTRY"), filled("R4", close_of(9), "100.0", "1")]
+        found = reconcile.compare(journal(paper, 12), replay, {"BTCUSDT": archived(12)}, None, START,
+                                  START + 12 * MINUTE)
+        self.assertEqual([(item["class"], item.get("cause"), item.get("follows"), item.get("look_ahead_suspect"))
+                          for item in found["fills"]],
+                         [("time", "unexplained", None, False),
+                          ("replay_only", "consequence", reconcile._utc(close_of(2)), False),
+                          ("same", None, None, None),
+                          ("replay_only", "unexplained", None, True)])
         self.assertEqual(found["summary"]["look_ahead_suspects"], 1)
 
     def test_a_missing_live_bar_before_a_difference_is_its_cause(self):
