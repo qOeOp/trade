@@ -48,13 +48,21 @@ not a substitute for the disposition.
    value the strategy reads (for example a warm-up close an indicator uses, or a whole bar of its
    decision timeframe). For any other (zero-volume minutes, MARK gaps up to 60 minutes, LAST gaps
    that remove no value the strategy reads) say where it lies, report parts 1–3 and continue.
-   When asking, end with a direct question choosing how to resolve the data/scope block: obtain or verify the missing source evidence while keeping the
-   selection, or choose a different supported data range through the existing line-change rules.
+   When asking, end with a direct question choosing how to resolve the data/scope block. List
+   first each range that runs now under the pinned inputs with no anomaly left that calls for this
+   question (a later trading start can put a MARK gap in warm-up), then keeping the selection
+   while obtaining or verifying the missing source evidence, or another supported range through
+   the existing line-change rules; keep the options already offered unless new evidence rules one
+   out. `market import` refuses a month the
+   database already holds through its end (`MONTH_EXISTS`), so a source missing inside a stored
+   month comes in only through a product fix to the import and the user's authority to replace
+   that stored history: say so, and call it a defect fix, not a new entry point.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
    shorter window, replacement input or changed commit yourself, or recommend one because an
-   anomaly coincides with losses. A question about writing records, permission to inspect, or
-   which investigation to start does not replace this data/scope choice. Do not present filling
-   with zero, interpolation or other invented data as an option to fix the gap.
+   anomaly coincides with losses. A question about writing records, permission to inspect,
+   approving a product change, or which investigation to start does not replace this data/scope
+   choice. Do not present filling with zero, interpolation or other invented data as an option to
+   fix the gap.
 
 Before sending, check that the runnable-range statement (with explicit unknowns where needed)
 is present, and the final data/scope question when part 4 calls for one. Keep the facts
