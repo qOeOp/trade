@@ -68,8 +68,8 @@ def window(lines: list[dict], seal: Mapping) -> tuple[int, int]:
 def orders(events: Iterable[Mapping]) -> list[dict]:
     """Each filled order as one fill: {order, instrument, side, role, ts_ns (its first fill), qty, px (the
     quantity-weighted price), commission}, by time."""
-    roles: dict[str, str] = {}
-    found: dict[str, dict] = {}
+    roles: dict[str | None, str] = {}
+    found: dict[str | None, dict] = {}
     for event in events:
         order = event.get("client_order_id")
         if event.get("type") == "OrderInitialized":
@@ -78,6 +78,7 @@ def orders(events: Iterable[Mapping]) -> list[dict]:
         if event.get("type") != "OrderFilled":
             continue
         qty, px = _amount(event.get("last_qty")), _amount(event.get("last_px"))
+        assert qty is not None and px is not None, "a Nautilus OrderFilled always carries last_qty and last_px"
         item = found.setdefault(order, {"order": order, "instrument": event.get("instrument_id"),
                                         "side": event.get("order_side"), "ts_ns": event.get("ts_event"),
                                         "qty": Decimal(0), "notional": Decimal(0), "commission": Decimal(0)})
