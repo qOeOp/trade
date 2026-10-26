@@ -6,9 +6,11 @@ writes nothing to the ledger (user decision 2026-10-26). Its reports and the com
 stay in a new temporary directory (docs/plans/paper-trading-design.zh.md §5, step 7).
 
 Each side's fills are taken per order (a market order may fill in pieces) and paired per contract, side and
-order role in time order. A pair or a lone fill that differs is classed by the evidence since that
-contract's previous agreeing fill: a live bar missing, a live bar differing from the archive, or neither,
-which for a replay-only fill marks it a look-ahead suspect.
+order role in time order. The first pair or lone fill that differs after a contract's previous agreeing
+fill is classed by the evidence since that fill: a live bar missing, a live bar differing from the archive,
+or neither, which for a replay-only fill marks it a look-ahead suspect. Once the two paths part, the
+positions they trade from differ, so each later difference up to the next agreeing fill is a consequence
+of that first one.
 """
 
 from __future__ import annotations
@@ -105,7 +107,8 @@ def pair(paper: list[dict], replay: list[dict]) -> list[tuple[dict | None, dict 
         else:
             pairs.append((mine, None))
     pairs += [(None, other) for i, other in enumerate(replay) if i not in taken]
-    return sorted(pairs, key=lambda p: ((p[0] or p[1])["ts_ns"], (p[0] or p[1])["order"]))  # type: ignore[index]
+    # By the earlier side, so a contract's first difference comes before what follows from it.
+    return sorted(pairs, key=lambda p: min((fill["ts_ns"], fill["order"]) for fill in p if fill))
 
 
 def bars(lines: list[dict], archive: Mapping[str, list[list]], start: int, end: int) -> dict[str, dict]:
@@ -152,9 +155,11 @@ def _side(fill: dict | None) -> dict | None:
 
 def classify(pairs: list[tuple[dict | None, dict | None]], found: Mapping[str, dict], start: int, end: int) -> list[dict]:
     """Each pair with its class (same, price, quantity, time, paper_only, replay_only) and, when not the
-    same, its cause from the bars since the contract's previous agreeing fill: live_gap, bar_mismatch,
-    window_end (a lone fill in the last minute) or unexplained (for a replay-only fill, a look-ahead suspect)."""
+    same, its cause. The first difference since the contract's previous agreeing fill takes it from the bars
+    since then: live_gap, bar_mismatch, window_end (a lone fill in the last minute) or unexplained (for a
+    replay-only fill, a look-ahead suspect). Each later one is a consequence that follows it."""
     agreed: dict[str, int] = {}
+    parted: dict[str, int] = {}  # the contract's first difference since its previous agreeing fill
     result = []
     for paper, replay in pairs:
         either = paper or replay
@@ -177,7 +182,11 @@ def classify(pairs: list[tuple[dict | None, dict | None]], found: Mapping[str, d
             item["price_bps"] = float((paper["px"] - replay["px"]) / replay["px"] * 10_000)
         if kind == "same":
             agreed[symbol] = either["ts_ns"]
+            parted.pop(symbol, None)
+        elif symbol in parted:
+            item |= {"cause": "consequence", "follows": _utc(parted[symbol]), "look_ahead_suspect": False}
         else:
+            parted[symbol] = min(fill["ts_ns"] for fill in (paper, replay) if fill)
             until = max(fill["ts_ns"] for fill in (paper, replay) if fill)
             evidence = _evidence(found.get(symbol) or {"missing": [], "differing": {}}, agreed.get(symbol, start), until)
             if evidence["missing_bars"]:

@@ -8,12 +8,12 @@ import { atom, useAtom } from "./atom";
 const POLL_MS = 3000;
 
 export type FillClass = "same" | "price" | "quantity" | "time" | "paper_only" | "replay_only";
-export type Cause = "live_gap" | "bar_mismatch" | "window_end" | "unexplained";
+export type Cause = "live_gap" | "bar_mismatch" | "window_end" | "unexplained" | "consequence";
 export type FillSide = { order: string; ts: string; ts_ns: number; qty: string; px: string; commission: string };
 /** One order's fill on either side (paper/reconcile.py classify). */
 export type Matched = {
   class: FillClass; instrument: string; side: "BUY" | "SELL"; role: string; paper: FillSide | null; replay: FillSide | null;
-  delay_ms?: number; price_bps?: number; cause?: Cause; look_ahead_suspect?: boolean;
+  delay_ms?: number; price_bps?: number; cause?: Cause; look_ahead_suspect?: boolean; follows?: string;
   evidence?: { missing_bars: number; differing_bars: number; first: string | null };
 };
 export type Summary = {
