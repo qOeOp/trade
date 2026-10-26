@@ -7,7 +7,8 @@ Select fields and cap results in the request, then cut the response with `jq` be
 - `GET https://api.openalex.org/works`, key as `-H "Authorization: Bearer $(key OPENALEX_API_KEY)"`.
   The key buys a daily dollar budget, reported in the `x-ratelimit-*-usd` response headers: a
   search costs about ten times a filter-only list, a single-work lookup (`/works/doi:10....`) is
-  free, and a keyless call gets a tenth of the budget.
+  free. A keyless call works with a tenth of the budget; `page=` paging works too, but `cursor=` past
+  the first page needs the key (401 without it).
 - Default query: `filter=title_and_abstract.search:` with a URL-encoded boolean expression, e.g.
   `("funding rate" OR basis) AND (perpetual OR cryptocurrency)`; results come relevance-ranked.
   `search=` adds full text and returns hundreds of times more, mostly noise: use it only to widen.
@@ -43,8 +44,9 @@ Select fields and cap results in the request, then cut the response with `jq` be
 ## Semantic Scholar — passages, similar work, version links
 
 - Base `https://api.semanticscholar.org`, key as `-H "x-api-key: $(key SEMANTIC_SCHOLAR_API_KEY)"`
-  (a wrong key gets 403). HTTP 429 is frequent even with the key and slow pacing: space calls at
-  least 3 s apart, back off 5, 15 and 45 s, then log the call as not searched.
+  (a wrong key gets 403). Keyless calls share one public pool and get 429 more often. HTTP 429 is
+  frequent even with the key and slow pacing: space calls at least 3 s apart, back off 5, 15 and
+  45 s, then log the call as not searched.
 - `/graph/v1/paper/search?query=...&limit=&fields=title,year,venue,externalIds,abstract,citationCount`
   ranks well; `/graph/v1/paper/search/bulk` accepts `"phrase"`, `+`, `|`, `-` and
   `sort=citationCount:desc` and pages by `token`, but is not relevance-ranked.
