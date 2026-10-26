@@ -20,6 +20,10 @@ corrects where it can:
 - An instance's data starts at the next minute (or, for a DAILY_WARMUP source, at the next 00:00 UTC, with its
   daily warm-up read from Binance's public daily klines).
 - Aggregated bars skip the first incomplete one.
+- The Sandbox matches a bar before the strategy sees it, as a replay's exchange does, but its fills reach the
+  cache on the live runner's execution channel, after the bar's dispatch. The strategy's data callbacks
+  therefore run HOLD_NS later, in the order they came, once the fills the bar caused are applied: a stop or
+  target filled on a bar is closed when the strategy's ``on_bar`` for it runs, as in the replay.
 
 The Sandbox matches with the replay's terms: its fill model, book type and bar ordering, and the maker and
 taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's assumed rates, which a replay
@@ -80,6 +84,9 @@ VENUE = ACCOUNT_CONTRACT["venue"]
 REST_BASE = "https://fapi.binance.com"
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
+# How long the strategy's data callbacks wait for the execution events their data caused. Those are queued
+# before the data's dispatch returns and the live runner polls them ahead of data; they take milliseconds.
+HOLD_NS = 100_000_000
 DAILY_KLINE_LIMIT = 1500  # Binance's maximum per request; WARMUP_DAYS fits in one
 LIMITATIONS = (
     "paper-bars: Sandbox settles no funding; events.jsonl records each settlement with the positions it applies "
@@ -259,6 +266,7 @@ class _PaperConfigured:
         )
         self._replay_input_start_ns = inputs.input_start_ns
         self._paper_cadence = Cadence()
+        self._paper_held: list = []  # data callbacks waiting for the fills their data caused
         run.STRATEGIES[inputs.instrument_id] = self  # type: ignore[assignment]
 
 
@@ -297,21 +305,43 @@ def _event_fields(event) -> dict:
             "ts_event": getattr(event, "ts_event", None), "event": repr(event)}
 
 
+def _release(self, _event=None) -> None:
+    """Run the held data callbacks in the order they came. One that raises was recorded by its guard and
+    does not stop the rest, as each ran on its own before."""
+    held, self._paper_held = self._paper_held, []
+    for callback, value in held:
+        try:
+            callback(self, value)
+        except Exception:  # noqa: BLE001 (engine.run.execution_failure recorded it)
+            pass
+
+
+def _hold(self, callback, value) -> None:
+    """Queue a data callback until HOLD_NS from now (see the module docstring)."""
+    self._paper_held.append((callback, value))
+    if len(self._paper_held) == 1:
+        clock = Strategy.clock.__get__(self, type(self))
+        clock.set_time_alert_ns(f"paper-hold-{self.id}", clock.timestamp_ns() + HOLD_NS, self._paper_release)
+
+
 def paper_callbacks(strategy_class: type) -> dict:
-    """engine.run.guarded_callbacks, with MARK and funding at the replay's cadence and every order and position
-    event journalled before the source sees it."""
+    """engine.run.guarded_callbacks, with MARK and funding at the replay's cadence, every data callback run once
+    the fills its data caused are applied, and every order and position event journalled before the source
+    sees it."""
     found = run.guarded_callbacks(strategy_class)
     source = {name: found.get(name) for name in ("on_mark_price", "on_funding_rate", "on_order_event",
                                                  "on_position_event")}
+    held = {name: (lambda callback: lambda self, value: _hold(self, callback, value))(found[name])
+            for name in run.DATA_CALLBACKS if found.get(name) and name not in ("on_mark_price", "on_funding_rate")}
 
     def on_mark_price(self, update):
         if self._paper_cadence.mark(update) and source["on_mark_price"]:
-            return source["on_mark_price"](self, update)
+            _hold(self, source["on_mark_price"], update)
 
     def on_funding_rate(self, update):
         settled = self._paper_cadence.funding(update)
         if settled is not None and source["on_funding_rate"]:
-            return source["on_funding_rate"](self, settled)
+            _hold(self, source["on_funding_rate"], settled)
 
     def on_order_event(self, event):
         journal("order", strategy_id=str(event.strategy_id), **_event_fields(event))
@@ -323,8 +353,8 @@ def paper_callbacks(strategy_class: type) -> dict:
         if source["on_position_event"]:
             return source["on_position_event"](self, event)
 
-    return {**found, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
-            "on_order_event": on_order_event, "on_position_event": on_position_event}
+    return {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
+            "on_order_event": on_order_event, "on_position_event": on_position_event, "_paper_release": _release}
 
 
 FINDINGS: list[str] = []
