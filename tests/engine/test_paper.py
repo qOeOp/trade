@@ -1,5 +1,6 @@
-"""engine.paper without a network: the credential refusal, the replay cadence of the live feed, the daily
-warm-up from public klines, the instances a run plans and the event fields the live view draws from."""
+"""engine.paper without a network: the credential refusal, the replay cadence of the live feed, the strategy's
+data callbacks held until the fills their data caused are applied, the daily warm-up from public klines, the
+instances a run plans and the event fields the live view draws from."""
 
 import unittest
 from datetime import UTC, datetime
@@ -32,6 +33,37 @@ def klines(start_ns: int, days: int) -> list[list]:
         open_ms = (start_ns - back * DAY_NS) // 1_000_000
         rows.append([open_ms, "100.1", "101.2", "99.3", "100.4", "12.345", open_ms + 86_400_000 - 1])
     return rows
+
+
+class HoldTests(unittest.TestCase):
+    def test_data_callbacks_run_later_in_their_order_and_one_that_raises_stops_none(self):
+        alerts, seen = [], []
+        clock = SimpleNamespace(timestamp_ns=lambda: DAY,
+                                set_time_alert_ns=lambda name, at, callback: alerts.append((name, at, callback)))
+
+        class Source:
+            def on_bar(self, bar):
+                seen.append(("bar", bar))
+                if bar == 2:
+                    raise ValueError("recorded by its guard")
+
+            def on_mark_price(self, update):
+                seen.append(("mark", update))
+
+        held = type("Held", (), {**paper.paper_callbacks(Source), "clock": None})
+        instance = held()
+        instance._paper_held, instance._paper_cadence = [], mock.Mock(**{"mark.return_value": True})
+        with mock.patch.object(paper.Strategy, "clock", SimpleNamespace(__get__=lambda *_: clock)), \
+                mock.patch.object(paper.run, "execution_failure"):
+            instance.on_bar(1)
+            instance.on_mark_price("m")
+            instance.on_bar(2)
+            instance.on_bar(3)
+            self.assertEqual(seen, [])
+            self.assertEqual([(name, at) for name, at, _ in alerts], [(f"paper-hold-{id(instance)}", DAY + paper.HOLD_NS)])
+            alerts[0][2](None)
+        self.assertEqual(seen, [("bar", 1), ("mark", "m"), ("bar", 2), ("bar", 3)])
+        self.assertEqual(instance._paper_held, [])
 
 
 class CredentialTests(unittest.TestCase):
