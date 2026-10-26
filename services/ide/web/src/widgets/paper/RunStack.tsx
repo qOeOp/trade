@@ -1,12 +1,15 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
-import { fixed, type PaperRun } from "../../lib/paperApi";
+import { fixed, type PaperRun, type RuntimeFailure } from "../../lib/paperApi";
 import { plural } from "../../lib/format";
 import type { Account } from "../../model/account";
 import { age, health, returnOf, RunButton, RunMenu, RunName, RunRow, sealedOn, signedPct } from "../../components/RunTile";
 import { Stack } from "../../components/Stack";
 import { useNow } from "../../components/hooks/useNow";
+import { TextButton } from "../../components/TextButton";
 import { ACTIVE, paperTab, selectedRun } from "../../state/paper";
+import { tradesTab } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
+import { exceptionsText, raised } from "./Exceptions";
 import { Sparkline } from "./Sparkline";
 
 const FIND = 8;  // a list longer than this opens with a box to find a version by name
@@ -32,16 +35,24 @@ function Ago({ ns }: { ns: number }) {
 }
 
 /** The front run's state at the card's foot: how long it has run and when its last bar came, gaps in
- *  amber; or when it was sealed and how it ended. */
-function Health({ run, now }: { run: PaperRun; now: number }) {
+ *  amber; or when it was sealed and how it ended. Exceptions the strategy raised lead in red, in the
+ *  place of how long it has run (once sealed, of "invalid" when they are its one reason), and open the
+ *  trades card's Exceptions. */
+function Health({ run, now, failures }: { run: PaperRun; now: number; failures: readonly RuntimeFailure[] | null }) {
   const state = health(run, now), lastBar = run.live?.last_bar_ns ?? null, started = run.live?.started_ns ?? null;
   const gaps = (run.live?.missing_bars ?? 0) + (run.live?.protection_gaps ?? 0);
-  if (run.state === "sealed") return <span>Sealed {sealedOn(run)} · <span className={state.tone === "fail" ? "text-fail" : ""}>{state.tone === "fail" ? "invalid" : "complete"}</span></span>;
-  if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail" : "text-misses"}>{state.text}</span>;
+  const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.live?.exceptions ?? 0;
+  // Sealed invalid for its exceptions alone, the count in red says why in the place of "invalid".
+  const alone = sealed && n > 0 && String(run.seal?.reasons ?? run.reasons ?? []) === "RUNTIME_FAILURES";
+  const raisedLink = n > 0 && <TextButton className={`-mx-1 underline underline-offset-3 ${sealed && !alone ? "text-fg-muted" : "text-fail"}`}
+                                          onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
+  if (sealed) return <span>Sealed {sealedOn(run)} · {!alone && <><span className={state.tone === "fail" ? "text-fail" : ""}>{state.tone === "fail" ? "invalid" : "complete"}</span>{raisedLink && " · "}</>}{raisedLink}</span>;
+  if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail" : "text-misses"}>{raisedLink && <>{raisedLink} · </>}{state.text}</span>;
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+      {raisedLink && <span>{raisedLink} ·</span>}
       {gaps > 0 && <span className="text-misses">{plural(gaps, run.live?.missing_bars ? "missing bar" : "protection gap")} ·</span>}
-      {started !== null && <span>{age(now - started / 1e6)} ·</span>}
+      {started !== null && !raisedLink && <span>{age(now - started / 1e6)} ·</span>}
       {lastBar === null ? "waiting for a bar" : <><i className="size-1.5 shrink-0 rounded-full bg-meets" />last bar <Ago ns={lastBar} /> ago</>}
     </span>
   );
@@ -51,7 +62,7 @@ function Health({ run, now }: { run: PaperRun; now: number }) {
  *  return since the start; its curve filling the right; and a foot line of small print, its state at
  *  the left and the stack's pager and the run's ⏸ at the right. The name gives way to the figure's
  *  width and is cut there, so the curve keeps its room. */
-function Front({ run, a, now, pager }: { run: PaperRun; a: Account | null; now: number; pager: ReactNode }) {
+function Front({ run, a, now, pager, failures }: { run: PaperRun; a: Account | null; now: number; pager: ReactNode; failures: readonly RuntimeFailure[] | null }) {
   const [whole = "", cents = ""] = (a?.equity == null ? "" : fixed(a.equity, 2) ?? "").split(".");
   const ret = returnOf(run);
   return (
@@ -68,7 +79,7 @@ function Front({ run, a, now, pager }: { run: PaperRun; a: Account | null; now: 
           <span className={`min-h-16 py-1 ${ACTIVE.has(run.state) ? "" : "opacity-45"}`}><Curve run={run} large /></span>
         </div>
         <div className="flex h-7 items-center gap-1.5 whitespace-nowrap text-small text-fg-muted">
-          <span className="mr-auto min-w-0 truncate"><Health run={run} now={now} /></span>
+          <span className="w-0 min-w-0 flex-1 truncate"><Health run={run} now={now} failures={failures} /></span>
           {pager}<RunButton run={run} />
         </div>
       </div>
@@ -109,7 +120,7 @@ function RunList({ order, front, now, pick }: { order: readonly PaperRun[]; fron
 /** The paper runs as a stack above Performance: the selected run in front, then running ones (any in
  *  trouble first, else newest first) and sealed ones newest first; a swipe turns through them and
  *  "2 of 5" lists them all. */
-export function RunStack({ runs, selected, a }: { runs: readonly PaperRun[]; selected: number; a: Account | null }) {
+export function RunStack({ runs, selected, a, failures }: { runs: readonly PaperRun[]; selected: number; a: Account | null; failures: readonly RuntimeFailure[] | null }) {
   const now = useNow();
   const active = runs.filter((r) => ACTIVE.has(r.state)).reverse();
   const order = [...active.filter((r) => alarming(r, now)), ...active.filter((r) => !alarming(r, now)), ...runs.filter((r) => !ACTIVE.has(r.state)).reverse()];
@@ -122,7 +133,7 @@ export function RunStack({ runs, selected, a }: { runs: readonly PaperRun[]; sel
     <Stack count={order.length} at={at} onAt={(i) => pick(order[i]!)} label="Paper runs"
            badge={trouble && <i className={`size-1.5 rounded-full ${trouble.tone === "fail" ? "bg-fail" : "bg-misses"}`} />}
            hint={trouble ? `${alarm.candidate ?? ""} · ${trouble.text}` : undefined}
-           front={(pager) => <Front run={run} a={a} now={now} pager={pager} />}
+           front={(pager) => <Front run={run} a={a} now={now} pager={pager} failures={failures} />}
            list={(close) => <RunList order={order} front={run} now={now} pick={(r) => { pick(r); close(); }} />} />
   );
 }

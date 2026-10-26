@@ -57,12 +57,12 @@ export function PaperPage() {
         <div className="col-start-1 row-start-1 grid min-h-0"><ChartCard run={run} view={shown} s={s} a={a} fills={fills} targets={targets} /></div>
         <aside className="col-start-2 row-span-2 row-start-1 grid min-h-0 grid-rows-subgrid">
           <div className="flex min-h-0 flex-col gap-2">
-            <RunStack runs={listing.runs} selected={run.paper_id} a={a} />
+            <RunStack runs={listing.runs} selected={run.paper_id} a={a} failures={s?.failures ?? null} />
             {a && stats ? <Performance a={a} stats={stats} targets={targets} /> : <section className="min-h-0 flex-1 rounded-island bg-island" />}
           </div>
           <Calendar s={s} a={a} />
         </aside>
-        <div className="col-start-1 row-start-2 grid min-h-0"><TradesCard s={s} only={only} /></div>
+        <div className="col-start-1 row-start-2 grid min-h-0"><TradesCard s={s} only={only} candidate={run.candidate} /></div>
       </div>
     </div>
   );

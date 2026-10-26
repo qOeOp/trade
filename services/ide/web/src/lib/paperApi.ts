@@ -10,6 +10,16 @@ export type Live = {
   fills: number; orders_submitted: number; positions_closed: number; missing_bars: number; late_bars: number;
   protection_gaps: number; started_ns: number | null; bars: number; last_bar_ns: number | null;
   starting_balance_usdt: string; equity: [number, number][];
+  /** How often the strategy raised so far: the runner rewrites its records at each power of two, so the
+   *  true count is below twice this; a sealed run's stream gives the final one. */
+  exceptions: number;
+};
+/** One distinct exception the strategy raised (engine/run.py runtime-failure-v2): where, what, how often
+ *  and its first traceback. `instrument_id` is "unconstructed" before a strategy exists, "various" for
+ *  the record that counts the ones past the first hundred. */
+export type RuntimeFailure = {
+  stage: string; exception_type: string; instrument_id: string; code: string | null; message: string;
+  traceback: string; count: number;
 };
 /** The stored seal.json (ledger/paper.py readings). */
 export type Seal = {

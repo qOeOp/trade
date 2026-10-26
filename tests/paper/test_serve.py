@@ -1,6 +1,7 @@
 """If this fails, the Paper panel misleads or is open to other pages: a page of another site or port can
-start a paper run, a run's live readings differ from what its seal computes from the same journal, or a
-run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed."""
+start a paper run, a run's live readings differ from what its seal computes from the same journal, a
+run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed, or the
+exceptions its strategy raised (while it runs or once sealed) never reach the page."""
 
 from __future__ import annotations
 
@@ -20,6 +21,9 @@ from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
 
 
 HOST = "paper.test:8767"
+FAILURE = {"format": "runtime-failure-v2", "stage": "on_bar", "exception_type": "AttributeError",
+           "instrument_id": "BTCUSDT-PERP.BINANCE", "code": None, "message": "no attribute 'is_flat'",
+           "traceback": "Traceback (most recent call last):\n", "count": 4}
 
 
 def server(daemon) -> tuple[serve.ThreadingHTTPServer, int]:
@@ -103,6 +107,10 @@ class JournalTests(unittest.TestCase):
         self.assertEqual([minute for minute, _ in live["equity"]], [START, START + MINUTE, START + 2 * MINUTE])
         self.assertAlmostEqual(live["equity"][-1][1], 100009.9)  # 99990 + 20 open, less 0.1 funding
 
+    def test_failure_records_skip_a_line_the_capture_tail_cut(self):
+        record = json.dumps(FAILURE).encode()
+        self.assertEqual(serve.failure_records(record[40:] + b"\n" + record + b"\n" + record[:30]), [FAILURE])
+
 
 def events(response) -> tuple[str, object]:
     kind = data = None
@@ -157,6 +165,30 @@ class StreamTests(unittest.TestCase):
             records.seal_paper_run(writer, self.row["paper_id"], {"seal.json": b'{"status": "complete"}'})
         self.daemon.listed = None
         self.assertEqual(events(response), ("end", {"status": "complete"}))
+
+    def stream(self) -> http.client.HTTPResponse:
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        conn.request("GET", f"/api/paper/runs/{self.row['paper_id']}/stream", headers={"Host": HOST})
+        self.addCleanup(conn.close)
+        return conn.getresponse()
+
+    def test_the_strategys_exceptions_stream_while_it_runs_and_from_the_seal(self):
+        write(self.out / "events.jsonl", journal())
+        (self.out / serve.FAILURES).write_text(json.dumps(FAILURE) + "\n", encoding="utf-8")
+        self.assertEqual(self.daemon.runs()["runs"][0]["live"]["exceptions"], 4)
+        response = self.stream()
+        self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(events(response), ("failures", [FAILURE]))
+        self.assertEqual(events(response)[1]["exceptions"], 4)
+        with db.connect(self.profile, "writer") as writer:
+            records.seal_paper_run(writer, self.row["paper_id"], {
+                "seal.json": b'{"status": "invalid"}', serve.FAILURES: (json.dumps(FAILURE) + "\n").encode()})
+        response = self.stream()
+        self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(events(response), ("failures", [FAILURE]))
+        kind, readings = events(response)
+        self.assertEqual((kind, readings["exceptions"]), ("readings", 4))
+        self.assertEqual(events(response), ("end", {"status": "invalid"}))
 
 
 if __name__ == "__main__":
