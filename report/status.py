@@ -460,7 +460,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
             needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
                        "missing": ["research-line"]}]
-            return {"at": commit, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
+            return {"ledger_commit": commit, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
                     "unclosed_lines": [], **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
@@ -497,7 +497,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
-    return {"at": commit, "line": record, "execution_identity": current, "targets": in_force, "unclosed_lines": unclosed,
+    return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "unclosed_lines": unclosed,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,

@@ -72,7 +72,7 @@ class TrialCountTests(unittest.TestCase):
             history = first_page["judgment_history"]
             self.assertEqual(len(history["entries"]), 20)
             self.assertEqual(history["entries"][0]["supersedes"], first["judgment_id"])
-            older = status.research_state(conn, at=first_page["at"], history_before=history["next_before"])
+            older = status.research_state(conn, at=first_page["ledger_commit"], history_before=history["next_before"])
             tail = older["judgment_history"]
             self.assertEqual(len(tail["entries"]), 2)
             original = tail["entries"][-1]

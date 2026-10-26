@@ -1223,9 +1223,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); no market",
         "nothing; never publishes",
-        "at, line, execution_identity (the line's), targets, unclosed_lines, recommendation, priority, "
+        "ledger_commit, line, execution_identity (the line's), targets, unclosed_lines, recommendation, priority, "
         "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
-        "trials_on_line (every identity), gates [{code, message, missing}] "
+        "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, RESEARCH_LINE_REQUIRED: reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
         "line); large with --full",
