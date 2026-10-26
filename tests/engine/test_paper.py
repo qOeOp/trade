@@ -52,7 +52,7 @@ class HoldTests(unittest.TestCase):
 
         held = type("Held", (), {**paper.paper_callbacks(Source), "clock": None})
         instance = held()
-        instance._paper_held, instance._paper_cadence, instance.id = [], mock.Mock(**{"mark.return_value": True}), "S-1"
+        instance._paper_held, instance._paper_cadence = [], mock.Mock(**{"mark.return_value": True})
         with mock.patch.object(paper.Strategy, "clock", SimpleNamespace(__get__=lambda *_: clock)), \
                 mock.patch.object(paper.run, "execution_failure"):
             instance.on_bar(1)
@@ -60,7 +60,7 @@ class HoldTests(unittest.TestCase):
             instance.on_bar(2)
             instance.on_bar(3)
             self.assertEqual(seen, [])
-            self.assertEqual([(name, at) for name, at, _ in alerts], [("paper-hold-S-1", DAY + paper.HOLD_NS)])
+            self.assertEqual([(name, at) for name, at, _ in alerts], [(f"paper-hold-{id(instance)}", DAY + paper.HOLD_NS)])
             alerts[0][2](None)
         self.assertEqual(seen, [("bar", 1), ("mark", "m"), ("bar", 2), ("bar", 3)])
         self.assertEqual(instance._paper_held, [])

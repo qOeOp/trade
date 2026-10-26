@@ -321,7 +321,7 @@ def _hold(self, callback, value) -> None:
     self._paper_held.append((callback, value))
     if len(self._paper_held) == 1:
         clock = Strategy.clock.__get__(self, type(self))
-        clock.set_time_alert_ns(f"paper-hold-{self.id}", clock.timestamp_ns() + HOLD_NS, self._paper_release)
+        clock.set_time_alert_ns(f"paper-hold-{id(self)}", clock.timestamp_ns() + HOLD_NS, self._paper_release)
 
 
 def paper_callbacks(strategy_class: type) -> dict:
