@@ -4,15 +4,16 @@
 // the controller's own (candleView.ts), changed only once a pan or zoom has settled and with the moment
 // under the pointer kept in place (viewAnchor.ts); the candles are regrouped and drawn again in the same
 // task, so no frame shows the old view over the new candles. The legend reads two atoms: the period, and
-// the candle under the pointer (else the last) with the close before it. A click on an arrow finds its
-// event; on a pinned level's chip, brings the levels back into view.
+// the candle under the pointer (else the last) with the close before it. The run's events, the tooltips,
+// what a click on an arrow or a flag opens and the countdown are candleNotes.ts's; a click on a pinned
+// level's chip brings the levels back into view.
 import { CandlestickSeries, createChart, LineStyle, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { candleOpen, candles as gather, type Candle } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
 import type { Fill, Held, PriceLine } from "../../model/paper";
 import { atom } from "../../state/atom";
-import { highlighted, tradesTab } from "../../state/paperStream";
 import { AxisTicks } from "./axisTicks";
+import { CandleNotes } from "./candleNotes";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 import { chartLevels, lastLevel } from "./chartLevels";
 import { firstPeriod, fitAll, periodFor, widest } from "./candleView";
@@ -22,7 +23,7 @@ import { TradeMarks } from "./tradeMarks";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 import { VolumeBars, type VolumeBar } from "./volumeBars";
 
-export type Trading = { fills: readonly Fill[]; orders: readonly PriceLine[]; held: Held | null; places: number; size: number };
+export type Trading = { fills: readonly Fill[]; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean };
 type Parts = { chart: IChartApi; candles: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Custom", UTCTimestamp, VolumeBar>; marks: TradeMarks; levels: Levels; ticks: AxisTicks };
 const at = (t: number) => t as UTCTimestamp;
 const ROOM = 0.15;  // the most of the pane left empty right of the newest candle once a view settles
@@ -31,23 +32,23 @@ export class CandleController {
   /** The period in minutes, 0 until the first bars. */
   readonly period = atom(0);
   readonly legend = atom<{ candle: Candle | null; previous: number | null }>({ candle: null, previous: null });
+  readonly notes = new CandleNotes();
   private parts: Parts | null = null;
   private lines = new Map<string, IPriceLine>();
   private bars: readonly JournalLine[] = [];
   private data: Candle[] = [];
   private hover: number | null = null;
-  private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0 };
+  private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false };
   private dark = false;
-  private release: (() => void) | null = null;
-  private host: HTMLElement | null = null;
+  private release: (() => void) | null = null; private host: HTMLElement | null = null;
 
   mount(element: HTMLElement): void {
     this.host = element;
     const chart = createChart(element, chartOptions());
-    // Added first so the candles draw over it; its scale fills the pane's lowest fifth.
+    // Added first so the candles draw over it; its scale fills the pane's lowest fifth but the events' strip.
     const volume = chart.addCustomSeries(new VolumeBars(), { priceScaleId: "", priceLineVisible: false, lastValueVisible: false,
       autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => { const found = base(); return found?.priceRange ? { ...found, priceRange: { ...found.priceRange, minValue: 0 } } : found; } }) as Parts["volume"];
-    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0.045 } });  // the events' strip under it (eventFlags.ts)
     // The last price's tag is the levels' own (levels.ts); the series' would follow the last candle in view.
     // Its line sparsely dotted, unlike the orders' dashes.
     const candles = chart.addSeries(CandlestickSeries, { borderVisible: false, lastValueVisible: false, priceLineStyle: LineStyle.SparseDotted,
@@ -57,14 +58,12 @@ export class CandleController {
         return { ...found, priceRange: { minValue: Math.min(found.priceRange.minValue, ...prices), maxValue: Math.max(found.priceRange.maxValue, ...prices) } };
       } });
     candles.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.23 }, entireTextOnly: true });
-    const marks = new TradeMarks(), levels = new Levels();
-    candles.attachPrimitive(marks);
-    candles.attachPrimitive(levels);
+    const levels = new Levels(), marks = new TradeMarks(() => levels.chips());
+    candles.attachPrimitive(marks); candles.attachPrimitive(levels);
+    const notes = this.notes.attach(candles, levels);
     chart.subscribeClick((param) => {
       const id = String(param.hoveredObjectId ?? "");
-      if (id.startsWith("level:")) { chart.priceScale("right").applyOptions({ autoScale: true }); return; }
-      const f = id.startsWith("fill-") ? this.trading.fills[parseInt(id.slice(5), 10)] : undefined;
-      if (f) { highlighted.set(f.line); tradesTab.set("events"); }
+      if (id.startsWith("level:")) chart.priceScale("right").applyOptions({ autoScale: true }); else notes.click(id);
     });
     const ticks = new AxisTicks(chart, [candles], { clear: 18, tags: () => levels.tags(),
       base: () => { const places = Math.max(0, this.trading.places); return priceFormat(places, Math.max(0, places - 2)); } });
@@ -72,6 +71,7 @@ export class CandleController {
       this.hover = param.logical === undefined || !param.point ? null : Math.round(param.logical);
       this.showLegend();
       ticks.cross(param.point?.x ?? null, param.point?.y ?? null);
+      notes.hover(String(param.hoveredObjectId ?? ""), param.point ?? null);
     });
     this.parts = { chart, candles, volume, marks, levels, ticks };
     this.release = whenSettled(element, chart.timeScale(), (x) => this.settle(x));
@@ -81,8 +81,7 @@ export class CandleController {
   }
 
   destroy(): void {
-    this.release?.();
-    this.parts?.chart.remove();
+    this.release?.(); this.notes.destroy(); this.parts?.chart.remove();
     Object.assign(this, { parts: null, release: null, host: null, lines: new Map(), data: [] });
     this.period.set(0);
   }
@@ -131,8 +130,7 @@ export class CandleController {
   private restyle(): void {
     const p = this.parts;
     if (!p) return;
-    const c = seriesColors(this.dark);
-    p.chart.applyOptions(chartLook());
+    const c = seriesColors(this.dark); p.chart.applyOptions(chartLook());
     p.candles.applyOptions({ upColor: c.up, downColor: c.down, wickUpColor: c.up, wickDownColor: c.down });
     p.ticks.refresh();
   }
@@ -176,8 +174,10 @@ export class CandleController {
   private drawTrading(): void {
     const p = this.parts, minutes = this.period.get();
     if (!p || !minutes) return;
-    const { fills, orders, held, places, size } = this.trading, c = seriesColors(this.dark), last = this.data.at(-1) ?? null, mark = last?.close ?? null;
-    p.marks.set(tradeBoxes(fills, minutes, held, mark, last?.time ?? null), arrows(fills, minutes, this.data), c.marks);
+    const { fills, orders, held, places, size, events, live } = this.trading, c = seriesColors(this.dark), last = this.data.at(-1) ?? null, mark = last?.close ?? null;
+    const boxes = tradeBoxes(fills, minutes, held, mark, last?.time ?? null, this.bars);
+    p.marks.set(boxes, arrows(fills, minutes, this.data), c.marks);
+    this.notes.set({ events, fills, boxes, minutes, times: this.data.map((k) => k.time), places, size, live, lastBar: this.bars.length ? Number(this.bars.at(-1)!.ts_event) / 1e6 : null, look: c.flags });
     const levels = chartLevels({ orders, held, mark, places, size, c }), lined = levels.filter((l) => l.line);
     for (const [id, line] of this.lines) if (!lined.some((l) => l.id === id)) { p.candles.removePriceLine(line); this.lines.delete(id); }
     for (const level of lined) {

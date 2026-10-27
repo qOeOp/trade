@@ -1,6 +1,6 @@
 // The equity chart's own layers, drawn as one series primitive on the equity series so they move with
-// its scales, after vibe-trading's band chart. Beneath the series: the run's days (or weeks) in
-// alternate faint stripes and the hovered day's column; the value gridlines; the gap between equity
+// its scales, after vibe-trading's band chart. Beneath the series: the stretches where the run held any
+// position, faintly shaded, and the hovered day's column; the value gridlines; the gap between equity
 // and the pace it is measured against, flat, in the profit colour where equity is ahead and the loss
 // colour where behind; the drawdown and day bands (equityBands), behind the line as vibe-trading's. Above it the equity line itself (the series draws none):
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
@@ -12,8 +12,9 @@ import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi,
 
 export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number };
 export type EquityLook = { line: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
-                           ceiling: string; stripe: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string };
+                           ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string };
 export { BARS, CEILING, FEW, type DayBar };
+const HELD_GAP = 6, CROWDED = 48;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
@@ -22,6 +23,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private redraw: (() => void) | null = null;
   private points: readonly EquityPoint[] = [];
   private days: readonly DayBar[] = [];
+  private held: readonly [number, number][] = [];
   private picked: number | null = null;
   private hovered: number | null = null;
   private base = 0;
@@ -30,9 +32,10 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private ticks: readonly number[] = [];
 
   /** The run's points and days, the day picked (its start, in seconds), the balance equity is measured
-   *  against where it has no pace, the run's worst drawdown (from every minute) and the colours. */
-  set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, look: EquityLook): void {
-    Object.assign(this, { points, days, picked, base, worst, look });
+   *  against where it has no pace, the run's worst drawdown (from every minute), where it held a
+   *  position (seconds) and the colours. */
+  set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, held: readonly [number, number][], look: EquityLook): void {
+    Object.assign(this, { points, days, picked, base, worst, held, look });
     this.redraw?.();
   }
 
@@ -97,22 +100,22 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
 
   private under(f: Frame): void {
     const { points, look } = this, days = points.at(-1)!.time - points[0]!.time >= FEW;
-    if (days) this.stripes(f);
+    f.c.fillStyle = look!.held;
+    // Stretches nearer than HELD_GAP joined; none at all while more than one each CROWDED px are in view,
+    // where a busy run seen whole would read as a barcode.
+    const blocks: [number, number][] = [];
+    for (const [from, to] of this.held) {
+      const a = f.x(from), b = f.x(to), top = blocks.at(-1);
+      if (b < 0 || a > f.w) continue;
+      if (top && a - top[1] < HELD_GAP * f.hr) top[1] = b; else blocks.push([a, b]);
+    }
+    if (blocks.length <= f.w / (CROWDED * f.hr)) for (const [a, b] of blocks) { const s = span(a, b); f.c.fillRect(s.at, 0, s.len, f.h); }
     if (days && this.hovered !== null) { const s = span(f.x(this.hovered), f.x(this.hovered + DAY_S)); f.c.fillStyle = look!.column; f.c.fillRect(s.at, 0, s.len, f.h); }
     f.c.fillStyle = look!.grid;
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     this.gap(f);
     drawdownRows(f, points, this.worst, look!);
     if (days) dayBars(f, points, this.days, (d) => d === this.picked || d === this.hovered, look!);
-  }
-
-  private stripes({ c, h, x }: Frame): void {
-    const first = this.points[0]!.time, last = this.points.at(-1)!.time;
-    const weekly = last - first > 21 * DAY_S, unit = weekly ? 7 * DAY_S : DAY_S, origin = weekly ? 4 * DAY_S : 0;  // 1970-01-05 was a Monday
-    c.fillStyle = this.look!.stripe;
-    for (let t = Math.floor((first - origin) / unit) * unit + origin; t < last; t += unit) {
-      if (Math.round((t - origin) / unit) % 2) { const s = span(x(t), x(t + unit)); c.fillRect(s.at, 0, s.len, h); }
-    }
   }
 
   /** The band between equity and its pace, filled flat twice: clipped above the pace, then below it. */

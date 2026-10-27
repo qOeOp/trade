@@ -10,7 +10,7 @@ export type DayBar = { from: number; ret: number };
 
 export const DAY_S = 86_400;
 export const CEILING = 0.16, BARS = 0.12;  // the drawdown band and the tallest day's bar, as shares of the pane's height
-export const FEW = 2 * DAY_S;              // a run shorter than two days has neither stripes nor day bars
+export const FEW = 2 * DAY_S;              // a run shorter than two days has no day bars
 const ROW = 4, ROW_THICK = 1;              // the drawdown dashes' row pitch and weight (px)
 const CELL = 7, MAX_CELL = 24, DASH = 0.7; // a dash column's width bounds (px), and the dash's share of it
 const FEWEST_DAYS = 3;                     // day bars only while this many days are in view

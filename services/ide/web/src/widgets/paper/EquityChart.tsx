@@ -9,11 +9,12 @@ import { AxisTicks } from "./axisTicks";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 import { EquityLegend } from "./EquityLegend";
 import { EquityLayers, FEW, type EquityPoint } from "./equityLayers";
+import { EquityNotes, type Close } from "./equityNotes";
 import { resample, stepFor, STEPS } from "./equityResolution";
 import { glide } from "./glide";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
-type Api = { chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">; layers: EquityLayers; ticks: AxisTicks; start: IPriceLine | null };
+type Api = { chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">; layers: EquityLayers; notes: EquityNotes; ticks: AxisTicks; start: IPriceLine | null };
 const YEAR_S = 365 * 86_400;
 const at = (t: number) => t as UTCTimestamp;
 const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
@@ -25,7 +26,9 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  return asks for, compounding from the start, as a dashed line, and the gap between them filled green
  *  where equity is ahead and red where behind (against the starting balance when the line has no
  *  return target); behind them how far equity is below its running peak, as dashes hanging from the top,
- *  each day's return as a slim bar from the bottom, and the days or weeks in alternate stripes (equityLayers).
+ *  each day's return as a slim bar from the bottom, and the stretches it held a position faintly shaded
+ *  (equityLayers). On the line (equityNotes): the floor its drawdown limit sets, its deepest drawdowns
+ *  bracketed peak to trough, a dot where each trade closed, and the pace's and the floor's tags.
  *  Once a sealed run is reconciled, and while its reconciliation shows, the replay's equity on the
  *  archive as a fine dotted line. The line is drawn at the finest step (a minute up to a day) that
  *  keeps its points apart across the span in view (equityResolution): a short run fills the chart by
@@ -33,8 +36,9 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  back, the step changing once a pan or zoom has settled with the moment under the pointer kept in
  *  place (viewAnchor). Wheel or drag the time axis to zoom, drag to pan, double-click for the whole run. The legend
  *  names the layers, and under the pointer gives their values. */
-export function EquityChart({ path, replay = null, starting, start, annual }: {
+export function EquityChart({ path, replay = null, starting, start, annual, limit = null, closes = [], held = [] }: {
   path: readonly [number, number][]; replay?: readonly [number, number][] | null; starting: number; start: number | null; annual: number | null;
+  limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][];
 }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
@@ -76,8 +80,10 @@ export function EquityChart({ path, replay = null, starting, start, annual }: {
     // The layers draw the equity line; the series keeps the scale, the last value and the pointer's dot.
     const equity = chart.addSeries(LineSeries, { lineVisible: false, lineWidth: 2 as LineWidth, priceLineVisible: false,
                                                  crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2 });
-    equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 } });
-    const layers = new EquityLayers();
+    equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 }, entireTextOnly: true });
+    // The notes first, so the line draws over their floor and brackets; their dots and names above it.
+    const layers = new EquityLayers(), notes = new EquityNotes();
+    equity.attachPrimitive(notes);
     equity.attachPrimitive(layers);
     // The value ticks (axisTicks): every other one when crowded, none under the start's, the last value's
     // (at the last point in view even in part, as the chart takes it) or the pointer's tag; those written
@@ -86,7 +92,7 @@ export function EquityChart({ path, replay = null, starting, start, annual }: {
     const ticks = new AxisTicks(chart, [equity, ...lines], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, shown: (prices) => layers.grid(prices), tags: () => {
       const range = chart.timeScale().getVisibleLogicalRange(), data = equity.data();
       const last = data[Math.max(0, Math.min(data.length - 1, Math.ceil(range?.to ?? data.length - 1)))] as { value: number } | undefined;
-      return [last?.value, startRef.current].flatMap((v) => (v === undefined ? [] : [equity.priceToCoordinate(v)])).filter((y) => y !== null);
+      return [...[last?.value, startRef.current].flatMap((v) => (v === undefined ? [] : [equity.priceToCoordinate(v)])).filter((y) => y !== null), ...notes.tags()];
     } });
     ticks.refresh();
     // Once the view has settled: the step chosen anew for the span in view, the time under the pointer
@@ -110,7 +116,7 @@ export function EquityChart({ path, replay = null, starting, start, annual }: {
       ticks.cross(param.point?.x ?? null, value === undefined ? null : equity.priceToCoordinate(value));
     });
     host.current!.addEventListener("dblclick", () => { const d = equity.data(); if (d.length) glide(time, { from: d[0]!.time as number, to: d.at(-1)!.time as number }); });
-    api.current = { chart, equity, pace, replay, layers, ticks, start: null };
+    api.current = { chart, equity, pace, replay, layers, notes, ticks, start: null };
     return () => { release(); chart.remove(); api.current = null; };
   }, []);
 
@@ -149,8 +155,9 @@ export function EquityChart({ path, replay = null, starting, start, annual }: {
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, c.layers);
-  }, [points, days, day, starting, worst, theme]);
+    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers);
+    api.current?.notes.set(points, minutes, limit, closes, c.notes, priceFormat(0).formatter, starting);
+  }, [points, minutes, days, day, starting, worst, held, limit, closes, theme]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
   useEffect(() => {

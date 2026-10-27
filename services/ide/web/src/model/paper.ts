@@ -109,6 +109,16 @@ export function spans(found: readonly Fill[], symbol: string): [number, number |
   return out;
 }
 
+/** Where any contract held a position between `start` and `end` (ms): every contract's spans joined, an
+ *  open one running to `end`, so two held at once count once. */
+export function heldUnion(found: readonly Fill[], start: number, end: number): [number, number][] {
+  const held = [...new Set(found.map((f) => f.symbol))].flatMap((s) => spans(found, s).map(([from, to]) => [Math.max(from, start), Math.min(to ?? end, end)] as [number, number]))
+    .filter(([x, y]) => y > x).sort((x, y) => x[0] - y[0]);
+  const out: [number, number][] = [];
+  for (const [x, y] of held) { const top = out.at(-1); if (top && x <= top[1]) top[1] = Math.max(top[1], y); else out.push([x, y]); }
+  return out;
+}
+
 /** Closed positions that made money, of all closed: a report dimension, never a target. */
 export function winRate(lines: readonly JournalLine[]): number | null {
   const closed = lines.filter((l) => l.kind === "position" && l.type === "PositionClosed");
