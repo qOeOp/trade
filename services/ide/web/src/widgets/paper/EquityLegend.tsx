@@ -26,7 +26,7 @@ export function EquityLegend({ point, reading, hold, onHold, starting, annual, r
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 rounded-badge bg-pnl-up/40" /><Swatch className="-ml-1 h-2 rounded-badge bg-pnl-down/40" />Ahead · behind {against}</span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 bg-pnl-up/15" /><Swatch className="-ml-1 h-2 bg-pnl-down/15" />Open profit and loss</span>
         <span className="inline-flex items-center gap-1.5"><span className="grid w-3 grid-cols-4 gap-0.5">{[1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0].map((on, i) => <i key={i} className={`size-px ${on ? "bg-fg-faint" : ""}`} />)}</span><span>Below the peak{worst > 0 && <span className="text-fg-faint">, worst −{number(worst * 100, 1)}%</span>}</span></span>
-        <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dotted border-fg-faint" />Before fees and funding</span>
+        <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 border-t border-b-2 border-t-fg-muted/45 border-b-equity bg-fg/10" />Fees and funding</span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 border-t border-equity/50 bg-equity/10" />Exposure</span>
         {hold !== null && <TextButton active={hold} onClick={onHold} className="h-5 gap-1.5"><Swatch className="border-t border-dashed border-fg/30" />Buy and hold</TextButton>}
         {many && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-1 bg-pnl-up/60" /><i className="-ml-1 h-1.5 w-1 bg-pnl-down/60" />Daily return</span>}

@@ -28,7 +28,7 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  ahead and red behind (against the start with no return target); behind them the drawdown from the
  *  peak hanging from the top, each day's return from the bottom and the stretches a position was held
  *  (equityLayers); on the line the drawdown limit's floor and deepest drawdowns (equityNotes) and an
- *  arrow at each close (equityCloses), whose click picks the trade; the balance, equity before costs, a
+ *  arrow at each close (equityCloses), whose click picks the trade; the balance, the costs' band, a
  *  buy and hold, and the exposure (equityExtras); a reconciled run's replay dotted.
  *  The line is drawn at the finest step that keeps its points apart in view (equityResolution), changed
  *  once a pan or zoom settles with the moment under the pointer kept in place (viewAnchor). Wheel or drag
@@ -74,7 +74,10 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     // keeps the line above the foot's exposure.
     const equity = chart.addSeries(LineSeries, { lineVisible: false, lineWidth: 2 as LineWidth, priceLineVisible: false,
                                                  crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2,
-                                                 autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => { const r = base(); return r && { ...r, margins: { above: 0, below: extras.foot() } }; } });
+                                                 autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
+                                                   const r = base();
+                                                   return r && { ...r, priceRange: extras.reach(r.priceRange, chart.timeScale().getVisibleLogicalRange()), margins: { above: 0, below: extras.foot() } };
+                                                 } });
     equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 }, entireTextOnly: true });
     // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
     // names above it, the depths over the arrows.
