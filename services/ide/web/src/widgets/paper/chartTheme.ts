@@ -71,13 +71,13 @@ export function chartLook(): DeepPartial<ChartOptions> {
 
 /** Series colours: the market in the candle pair (filled bodies, volume in the same two, quieter); the
  *  run's levels in profit and loss (target and stop, each with an axis tag tinted in its own colour) and
- *  the text colour (the position); its trades as boxes in profit and loss, faint so the candles lead,
- *  with a hairline in the text colour at the entry price and the fills as arrows in the candle pair; the
+ *  the text colour (the position); its trades as flat boxes in profit and loss at the fifth of full colour
+ *  TradingView's position tool fills with, and the fills as arrows in the candle pair; the
  *  events' flags in the secondary text colour, a warning's in amber, and the gaps hatched in it; equity
  *  in indigo with the layers beneath it: its shadow (deeper on `dark`), the gap to its pace in profit and
  *  loss, kept faint so the line leads, the drawdown rows in a faint grey, the day bars in both (stronger
  *  for the picked day), the held stretches and the gridlines; its notes with the drawdown limit and the
- *  deepest drawdowns in the loss colour, the closes in both and the pace's tag on the neutral tag colour. */
+ *  deepest drawdowns in the loss colour, the closes as arrows in both and the pace's tag on the neutral tag colour. */
 export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
   return {
@@ -87,8 +87,7 @@ export function seriesColors(dark = false) {
     limit: canvasColor("recommended"), limitTag: canvasTint("recommended", 16), position: canvasColor("fg", 0.8), tag: canvasColor("line-strong"),
     font,
     marks: {
-      up: canvasColor("pnl-up", dark ? 0.14 : 0.1), down: canvasColor("pnl-down", dark ? 0.14 : 0.1), upEdge: canvasColor("pnl-up", 0.7), downEdge: canvasColor("pnl-down", 0.7),
-      upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"), entry: canvasColor("fg-muted", 0.55),
+      up: canvasColor("pnl-up", 0.2), down: canvasColor("pnl-down", 0.2), upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"),
       buy: canvasColor("candle-up"), sell: canvasColor("candle-down"), halo: canvasColor("island"), font,
     },
     flags: {
@@ -104,9 +103,10 @@ export function seriesColors(dark = false) {
     },
     notes: {
       floor: canvasColor("pnl-down", 0.75), floorTag: canvasTint("pnl-down", 16), floorText: canvasColor("pnl-down"), bracket: canvasColor("pnl-down", 0.85),
-      level: canvasColor("fg-faint", 0.7), up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
+      level: canvasColor("fg-faint", 0.7), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
       paceText: canvasColor("fg"), island: canvasColor("island"), font,
     },
+    closes: { up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), halo: canvasColor("island") },
   };
 }
 

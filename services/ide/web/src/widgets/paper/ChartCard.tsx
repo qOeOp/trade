@@ -49,7 +49,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const replay = useMemo(() => (reconciling && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [r, run.paper_id, reconciling]);
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
   // The equity chart's closes and the stretches any contract held a position, in seconds.
-  const closes = useMemo(() => (a?.trades ?? []).map((t) => ({ time: t.closed / 1000, pnl: t.pnl ?? 0 })), [a?.trades]);
+  const closes = useMemo(() => (a?.trades ?? []).map((t) => ({ id: t.id, time: t.closed / 1000, pnl: t.pnl ?? 0 })), [a?.trades]);
   const holding = useMemo(() => (a?.start == null ? [] : heldUnion(fills, a.start, a.end).map(([x, y]) => [x / 1000, y / 1000] as [number, number])), [fills, a?.start, a?.end]);
 
   return (

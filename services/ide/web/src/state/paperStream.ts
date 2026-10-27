@@ -16,6 +16,8 @@ export const useStream = () => useAtom(stream);
 /** The chart scrolls to this time (ms); the Events list highlights this line. */
 export const chartTime = atom<{ ms: number; n: number } | null>(null);
 export const highlighted = atom<JournalLine | null>(null);
+/** The closed trade (its id) the Trades list highlights: one picked on the equity chart. */
+export const pickedTrade = atom<string | null>(null);
 /** A UTC day (YYYY-MM-DD) the chart and the events are limited to, or null. */
 export const pickedDay = atom<string | null>(null);
 /** The tab the trades card shows; a click on a chart marker turns it to the events. */

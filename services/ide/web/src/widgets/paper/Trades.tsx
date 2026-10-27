@@ -1,9 +1,10 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { fixed, precisions, type Precision } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import { holdings, span, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
-import type { Stream } from "../../state/paperStream";
+import { useAtom } from "../../state/atom";
+import { pickedTrade, type Stream } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
 
 const HOW: Record<Closed["how"], string> = { stop: "Stop", target: "Target", other: "Other" };
@@ -16,9 +17,11 @@ const CELL = "h-9 whitespace-nowrap px-3 first:pl-5 last:pr-5 border-t border-li
 const HEAD = "sticky top-0 z-[1] h-8 whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint first:pl-5 last:pr-5";
 
 type Cell = ReactNode | [ReactNode, string];
-function Row({ cells, open = false }: { cells: (Cell | null)[]; open?: boolean }) {
+function Row({ cells, open = false, picked = false }: { cells: (Cell | null)[]; open?: boolean; picked?: boolean }) {
+  const ref = useRef<HTMLTableRowElement>(null);
+  useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
   return (
-    <tr className={open ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}>
+    <tr ref={ref} data-selected={picked ? "" : undefined} className={open ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}>
       {cells.filter((c) => c !== null).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
     </tr>
   );
@@ -27,9 +30,11 @@ const Faint = ({ children }: { children: ReactNode }) => <span className="text-f
 
 /** The trades of the contract the chart shows (or of every contract on Equity), newest first, with what
  *  is open pinned on top on a tinted row: its mark in the exit's place, its stop and target under
- *  "Closed by", and "holding"; entries still working follow it. Sizes in the contract's lot decimals. */
+ *  "Closed by", and "holding"; entries still working follow it. Sizes in the contract's lot decimals. The
+ *  trade picked on the equity chart is highlighted and scrolled into view. */
 export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const now = useNow(30_000);
+  const picked = useAtom(pickedTrade);
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
   const closedList = useMemo(() => trades(s.lines), [s.lines]);
@@ -68,7 +73,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
         ))}
         {done.map((t) => {
           const p = of(t.symbol);
-          return <Row key={t.id} cells={[
+          return <Row key={t.id} picked={t.id === picked} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING, fixed(t.exit, p.price) ?? MISSING,
             [HOW[t.how], `text-left text-fg-muted ${DETAIL}`], t.opened ? span(t.closed - t.opened) : MISSING, [signed(t.pnl), pnlClass(t.pnl)], [WHEN.format(t.closed).replace(",", ""), "text-fg-muted"],
           ]} />;
