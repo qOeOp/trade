@@ -9,7 +9,10 @@
 // order a pitch apart and pushed away from the last price's tag, which never moves, so no two overlap
 // and each chip sits level with its tag, as tall as it and on the same device pixels (Lightweight
 // Charts' axis label: the font's size and 2.5/12 of it above and below, its middle snapped as the
-// chart snaps it). A pinned chip is a hover target (`level:<id>`), so a click on it can show it.
+// chart snaps it). While the run is live the last price's tag has a second one just under it, in the same
+// colours, as TradingView's countdown: the time left in the candle forming now. A pinned chip is a hover
+// target (`level:<id>`), so a click on it can show it.
+import type { Rect } from "./tradeMarks";
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView,
   PrimitiveHoveredItem, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
@@ -38,11 +41,31 @@ export class Levels implements ISeriesPrimitive<Time> {
   private levels: readonly Level[] = [];
   private style = { island: "", font: "" };
   private last: Level | null = null;
+  private below: string | null = null;
+  private crossY: number | null = null;
   private hits: { id: string; x: number; y: number; w: number }[] = [];
+  private drawn: Rect[] = [];
+
+  /** Where the chips were last drawn (px), for the trades' tags to keep clear of. */
+  chips(): readonly Rect[] { return this.drawn; }
 
   /** The levels, their chips' style, and the last price as a level with no chip. */
   set(levels: readonly Level[], style: { island: string; font: string }, last: Level | null): void {
     Object.assign(this, { levels, style, last });
+    this.redraw?.();
+  }
+
+  /** The crosshair's value-axis label at `y` (px), or none: a tag it would half cover is hidden meanwhile. */
+  cross(y: number | null): void {
+    if (y === this.crossY) return;
+    this.crossY = y;
+    this.redraw?.();
+  }
+
+  /** The text under the last price's tag, or none. */
+  countdown(text: string | null): void {
+    if (text === this.below) return;
+    this.below = text;
     this.redraw?.();
   }
 
@@ -70,19 +93,28 @@ export class Levels implements ISeriesPrimitive<Time> {
     placed.sort((a, b) => a.y - b.y);
     const anchor = Math.max(0, placed.findIndex((p) => p.anchor));
     for (let i = anchor - 1; i >= 0; i--) placed[i]!.y = Math.min(placed[i]!.y, placed[i + 1]!.y - PITCH);
-    for (let i = anchor + 1; i < placed.length; i++) placed[i]!.y = Math.max(placed[i]!.y, placed[i - 1]!.y + PITCH);
+    // Below the last price's tag, the countdown's room too.
+    const room = (i: number) => (i === anchor + 1 && placed[anchor]?.anchor && this.counted(placed[anchor]!) ? CHIP_H : 0);
+    for (let i = anchor + 1; i < placed.length; i++) placed[i]!.y = Math.max(placed[i]!.y, placed[i - 1]!.y + PITCH + room(i));
     return placed;
   }
 
-  /** Where the axis tags sit (the last price's included), so the value ticks can give way to them. */
-  tags(): number[] { return this.placed().map((p) => p.y); }
+  /** Whether the last price's tag has the countdown under it: not while it is pinned at an edge. */
+  private counted = (p: Placed) => this.below !== null && p.edge === null;
+
+  /** Where the axis tags sit (the last price's and its countdown's included), so the value ticks can give way to them. */
+  tags(): number[] { return this.placed().flatMap((p) => (p.anchor && this.counted(p) ? [p.y, p.y + CHIP_H] : [p.y])); }
 
   priceAxisViews(): readonly ISeriesPrimitiveAxisView[] {
-    return this.placed().map(({ level, y, edge, anchor }) => {
+    return this.placed().flatMap((p) => {
+      const { level, y, edge, anchor } = p;
       // The last price off the scale: an arrow to where it is, in a tint.
       const off = anchor && edge && level.edge, text = off ? `${edge === "top" ? "↑" : "↓"} ${level.axis}` : level.axis;
-      return { coordinate: () => y, fixedCoordinate: () => y, text: () => text, textColor: () => (off ? off.tagText : level.tagText),
-               backColor: () => (off ? off.tag : level.tag), visible: () => true, tickVisible: () => false };
+      const view = (at: number, words: string): ISeriesPrimitiveAxisView => ({ coordinate: () => at, fixedCoordinate: () => at, text: () => words,
+        textColor: () => (off ? off.tagText : level.tagText), backColor: () => (off ? off.tag : level.tag), visible: () => this.crossY === null || Math.abs(this.crossY - at) >= CHIP_H, tickVisible: () => false });
+      // The countdown padded to the price's length, so both tags are one width (the font is monospaced).
+      const pad = Math.max(0, text.length - (this.below?.length ?? 0)), below = `${" ".repeat(pad >> 1)}${this.below}${" ".repeat(pad - (pad >> 1))}`;
+      return anchor && this.counted(p) ? [view(y, text), view(y + CHIP_H, below)] : [view(y, text)];
     });
   }
 
@@ -96,6 +128,7 @@ export class Levels implements ISeriesPrimitive<Time> {
       scope.context.font = this.style.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * scope.verticalPixelRatio}px`);
       scope.context.textBaseline = "middle";
       this.hits = [];
+      this.drawn = [];
       for (const { level, y, edge, anchor } of this.placed()) if (!anchor) this.chip(scope, level, edge, y);
     });
   }
@@ -110,6 +143,7 @@ export class Levels implements ISeriesPrimitive<Time> {
     let h = Math.round(CHIP_H * vr);
     if (h % 2 !== tick % 2) h += 1;
     const top = Math.floor(mid + tick / 2 - h / 2), cy = top + h / 2;
+    this.drawn.push({ x: INSET, y: top / vr, w: w / hr, h: h / vr });
     c.beginPath();
     c.roundRect(left + line / 2, top + line / 2, w - line, h - line, 4 * hr);
     c.fillStyle = this.style.island;

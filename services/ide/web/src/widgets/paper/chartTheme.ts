@@ -72,10 +72,12 @@ export function chartLook(): DeepPartial<ChartOptions> {
 /** Series colours: the market in the candle pair (filled bodies, volume in the same two, quieter); the
  *  run's levels in profit and loss (target and stop, each with an axis tag tinted in its own colour) and
  *  the text colour (the position); its trades as boxes in profit and loss, faint so the candles lead,
- *  with a hairline in the text colour at the entry price and the fills as arrows in the candle pair; equity
+ *  with a hairline in the text colour at the entry price and the fills as arrows in the candle pair; the
+ *  events' flags in the secondary text colour, a warning's in amber, and the gaps hatched in it; equity
  *  in indigo with the layers beneath it: its shadow (deeper on `dark`), the gap to its pace in profit and
  *  loss, kept faint so the line leads, the drawdown rows in a faint grey, the day bars in both (stronger
- *  for the picked day), the stripes and the gridlines. */
+ *  for the picked day), the held stretches and the gridlines; its notes with the drawdown limit and the
+ *  deepest drawdowns in the loss colour, the closes in both and the pace's tag on the neutral tag colour. */
 export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
   return {
@@ -89,12 +91,21 @@ export function seriesColors(dark = false) {
       upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"), entry: canvasColor("fg-muted", 0.55),
       buy: canvasColor("candle-up"), sell: canvasColor("candle-down"), halo: canvasColor("island"), font,
     },
+    flags: {
+      warn: canvasColor("misses"), warnTag: canvasTint("misses", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
+      hatch: canvasColor("misses", dark ? 0.3 : 0.26), wash: canvasColor("misses", dark ? 0.06 : 0.05), font,
+    },
     layers: {
       line: canvasColor("equity"), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),
       ahead: canvasColor("pnl-up", dark ? 0.11 : 0.09), behind: canvasColor("pnl-down", dark ? 0.12 : 0.09),
-      ceiling: canvasColor("fg-faint", dark ? 0.5 : 0.45), stripe: canvasColor("fg", dark ? 0.022 : 0.03), column: canvasColor("fg", dark ? 0.05 : 0.035),
+      ceiling: canvasColor("fg-faint", dark ? 0.5 : 0.45), held: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
       grid: canvasColor("grid", 0.45),
+    },
+    notes: {
+      floor: canvasColor("pnl-down", 0.75), floorTag: canvasTint("pnl-down", 16), floorText: canvasColor("pnl-down"), bracket: canvasColor("pnl-down", 0.85),
+      level: canvasColor("fg-faint", 0.7), up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
+      paceText: canvasColor("fg"), island: canvasColor("island"), font,
     },
   };
 }

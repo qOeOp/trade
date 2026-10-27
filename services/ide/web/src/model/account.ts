@@ -3,7 +3,7 @@
 // before fees, fees, funding, open positions), the drawdown now and at its deepest, the return a minimum
 // annual return asks for by now, and what its closed trades say.
 import { amount, type JournalLine, type Live, type PaperState, type Seal } from "../lib/paperApi";
-import { fills, spans } from "./paper";
+import { fills, heldUnion } from "./paper";
 import { trades, type Closed } from "./trades";
 
 const YEAR_MS = 365 * 86_400_000;
@@ -54,12 +54,7 @@ export function tradeStats(a: Account, lines: readonly JournalLine[]): TradeStat
   const found = fills(lines);
   let inMarket: number | null = null;
   if (a.start !== null && a.end > a.start) {
-    // The union of every contract's held spans, so two held at once count once.
-    const held = [...new Set(found.map((f) => f.symbol))].flatMap((s) => spans(found, s).map(([from, to]) => [Math.max(from, a.start!), Math.min(to ?? a.end, a.end)] as const))
-      .filter(([x, y]) => y > x).sort((x, y) => x[0] - y[0]);
-    let covered = 0, reach = a.start;
-    for (const [x, y] of held) if (y > reach) { covered += y - Math.max(x, reach); reach = y; }
-    inMarket = covered / (a.end - a.start);
+    inMarket = heldUnion(found, a.start, a.end).reduce((sum, [x, y]) => sum + y - x, 0) / (a.end - a.start);
   }
   return {
     winRate: closed.length ? pnl.filter((p) => p > 0).length / closed.length : null,

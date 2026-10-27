@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
-import { heldOf, priceLines, spans as spansOf, type Fill } from "../../model/paper";
+import { heldOf, heldUnion, priceLines, spans as spansOf, type Fill } from "../../model/paper";
+import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Segmented, type Segment } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
@@ -32,6 +33,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const orders = useMemo(() => priceLines(live?.orders ?? [], symbol), [live, symbol]);
   const held = useMemo(() => heldOf(live?.positions ?? [], symbol), [live, symbol]);
   const digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
+  const events = useMemo(() => eventsOf(s?.lines ?? [], symbol), [s?.lines, symbol]);
   const sides = new Map((live?.positions ?? []).map((p) => [symbolOf(p.instrument_id), Number(p.signed_qty) > 0]));
   const traded = new Set(fills.map((f) => f.symbol));
   const listed = run.symbols.filter((x) => run.symbols.length <= ALL_TABS || sides.has(x) || traded.has(x) || pinned.has(x) || x === view);
@@ -46,6 +48,9 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";
   const replay = useMemo(() => (reconciling && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [r, run.paper_id, reconciling]);
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
+  // The equity chart's closes and the stretches any contract held a position, in seconds.
+  const closes = useMemo(() => (a?.trades ?? []).map((t) => ({ time: t.closed / 1000, pnl: t.pnl ?? 0 })), [a?.trades]);
+  const holding = useMemo(() => (a?.start == null ? [] : heldUnion(fills, a.start, a.end).map(([x, y]) => [x / 1000, y / 1000] as [number, number])), [fills, a?.start, a?.end]);
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
@@ -62,10 +67,11 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
       </div>
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {equity ? (
-          <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual} />
+          <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual}
+                       limit={targets.limit} closes={closes} held={holding} />
         ) : (
           <CandleChart key={symbol} symbol={symbol} bars={bars}
-                       places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} openFrom={openFrom}
+                       places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} openFrom={openFrom}
                        started={startedNs === null ? null : startedNs / 1e6} fit={fit} />
         )}
       </div>

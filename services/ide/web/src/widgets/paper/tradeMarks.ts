@@ -12,7 +12,8 @@
 // entries' first and each exit's where it overlaps none, smaller while candles are narrow; and each box's
 // result a small tag beyond its
 // exit edge (the open position's at the axis, clear of the newest candles), at the first of a few places
-// that runs into no arrow and no other tag. An arrow is a hover target (its fill's id).
+// that runs into no arrow, no other tag and no level's chip (`avoid`). An arrow is a hover target (its
+// fill's id).
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, PrimitiveHoveredItem,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { signed } from "./chartLevels";
@@ -22,7 +23,7 @@ import { spacing } from "./viewAnchor";
 export type MarksLook = { up: string; down: string; upEdge: string; downEdge: string; upText: string; downText: string;
   entry: string; buy: string; sell: string; halo: string; font: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
-type Rect = { x: number; y: number; w: number; h: number };
+export type Rect = { x: number; y: number; w: number; h: number };
 
 const TAG_H = 16, TAG_PAD = 5, TAG_GAP = 3;        // px: a result tag's height, padding and distance from its box
 // px: an arrow's head width and height, stem height and ring, and smaller while candles are NARROW
@@ -40,6 +41,9 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
   private arrows: readonly Arrow[] = [];
   private look: MarksLook | null = null;
   private hits: (Rect & { id: string })[] = [];
+
+  /** `avoid` gives the places (px) the result tags keep clear of besides the arrows: the levels' chips. */
+  constructor(private readonly avoid: () => readonly Rect[] = () => []) {}
 
   set(boxes: readonly TradeBox[], arrows: readonly Arrow[], look: MarksLook): void {
     Object.assign(this, { boxes, arrows, look });
@@ -106,6 +110,7 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
     });
   }
 
+
   private over({ context: c, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const look = this.look;
     this.hits = [];
@@ -126,7 +131,7 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
     c.save();
     c.font = look.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * vr}px`);
     c.textBaseline = "middle";
-    const taken: Rect[] = placed.map((x) => x.rect);
+    const taken: Rect[] = [...placed.map((x) => x.rect), ...this.avoid()];
     const clear = (r: Rect) => !taken.some((t) => overlap(r, t, 4));
     this.boxes.forEach((_, i) => {
       const f = this.frame(i, width);
