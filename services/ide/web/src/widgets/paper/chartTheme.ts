@@ -106,19 +106,19 @@ export function seriesColors(dark = false) {
     flags,
     layers: {
       line: canvasColor("equity"), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),
-      ahead: canvasColor("pnl-up", dark ? 0.06 : 0.08), behind: canvasColor("pnl-down", dark ? 0.07 : 0.08),
+      ahead: canvasColor("pnl-up", dark ? 0.12 : 0.11), behind: canvasColor("pnl-down", dark ? 0.14 : 0.11),
       ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), held: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
       grid: canvasColor("grid", 0.45),
     },
     notes: {
       floor: canvasColor("pnl-down", 0.75), floorTag: canvasTint("pnl-down", 16), floorText: canvasColor("pnl-down"), bracket: canvasColor("pnl-down", 0.85),
-      drop: canvasColor("pnl-down", dark ? 0.26 : 0.22), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
+      drop: canvasColor("pnl-down", dark ? 0.38 : 0.28), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
       paceText: canvasColor("fg"), island: canvasColor("island"), font,
     },
     closes: { up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), halo: canvasColor("island") },
     extras: {
-      fills: { up: canvasColor("pnl-up", dark ? 0.15 : 0.12), down: canvasColor("pnl-down", dark ? 0.15 : 0.12),
+      fills: { up: canvasColor("pnl-up", dark ? 0.28 : 0.16), down: canvasColor("pnl-down", dark ? 0.3 : 0.16),
                costs: canvasColor("fg", dark ? 0.08 : 0.07), rim: canvasColor("fg-muted", dark ? 0.45 : 0.4) }, hold: canvasColor("fg", dark ? 0.3 : 0.25),
       exposure: canvasColor("equity", dark ? 0.4 : 0.3), exposureFill: canvasColor("equity", dark ? 0.1 : 0.07),
     },
