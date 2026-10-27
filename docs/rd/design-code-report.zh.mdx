@@ -1291,7 +1291,7 @@ def research_state(
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
 5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 ledger_commit 之间 added、属于本路线市场提交与开发窗口、且执行身份等于路线执行身份（report.line_identity，同时给出为 execution_identity）的试验；没有推荐时为本路线这一身份的全部试验；路线还没有自己的试验时为空。trials_on_line 仍计全部身份，同一份开发数据上的搜索都算。
 6. full 时 facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status；缺省为 null，这两项由 candidate list 与 research status 各自读取。
-7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出（unreviewed_trials 再按执行身份筛）；gates 列出 registration.require_line_records 当前会拒绝的项。路线接续的候选（当前 recommendation 与 priority 里 recommended、parent、control 角色的候选，都没有时取路线起点）发布时的 runtime_contract 不在 runtime.layout 之内时，gates 再加一项 RUNTIME_UNSUPPORTED，missing 列出这些候选；预检与封存要求运行与候选同契约、登记要求与对照同契约，所以这条线在当前运行环境上既不能重放也不能比较。读时派生，不存储；用户 2026-10-25 定，契约升级即关闭旧线、在新契约上新开。
+7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出（unreviewed_trials 再按执行身份筛）；gates 列出 registration.require_line_records 当前会拒绝的项。路线接续的候选（当前 recommendation 与 priority 里 recommended、parent、control 角色的候选，都没有时取路线起点）发布时的 runtime_contract 不在 runtime.layout 之内时，gates 再加一项 RUNTIME_UNSUPPORTED，missing 列出这些候选；预检与封存要求运行与候选同契约、登记要求与对照同契约，所以这条线在当前运行环境上既不能重放也不能比较。读时派生，不存储；用户 2026-10-25 定，契约升级即关闭旧线、在新契约上新开。路线的 market_commit 在活动市场库经 market.resolve_commit 解析不到（UNKNOWN_REF，任何分支都没有该提交）时，gates 再加一项 MARKET_COMMIT_UNRESOLVED，missing 是该提交：下一次登记会被同码拒绝，钉在它上的运行也不能重放，直到该提交回到市场库。读不到活动市场库（没有市场 profile、服务不可达）时不加这一项，由登记自己拒绝。同样读时派生，不存储。
 8. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；研究状态另列 unverified_runs。
 
 | 拒绝码 | 条件 |

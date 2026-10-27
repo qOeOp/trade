@@ -14,7 +14,7 @@ from ledger.errors import Refusal
 from ledger import db, judgments, strategies
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
-from report import measures, runs, status
+from report import measures, runs, seams, status
 from runtime import image
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP
 from tests.registration.world import RUNNER_ARGV, capture as capture_fixture
@@ -38,6 +38,52 @@ class StoppedBeforeStrategyTests(unittest.TestCase):
         for found, failures, expected in cases:
             with self.subTest(capture=found, failures=failures):
                 self.assertIs(status.stopped_before_strategy(found, failures), expected)
+
+
+class UnresolvedMarketTests(unittest.TestCase):
+    """The gate for a line whose pinned market commit the active market database no longer holds."""
+
+    LINE = {"market_commit": "a" * 32}
+
+    def test_only_a_commit_the_active_market_does_not_hold_is_gated(self):
+        cases = [(None, []), ({"database": "market", "commit": "a" * 32}, [])]
+        for found, expected in cases:
+            with self.subTest(found=found), seams.use(market_commit=lambda ref: found):
+                self.assertEqual(status._unresolved_market(self.LINE), expected)
+        with seams.use(market_commit=lambda ref: {"database": "market", "commit": None}):
+            gate, = status._unresolved_market(self.LINE)
+        self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
+        self.assertIn("in no branch of the active market database market", gate["message"])
+
+    def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
+        from market import store
+        profile = {"kind": "market", "role": "active", "database": "market"}
+
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def unknown(conn, ref):
+            raise store.MarketError("no such commit", code="UNKNOWN_REF", missing=(ref,))
+
+        def unreachable(profile, role):
+            raise store.MarketError("down", code="MARKET_UNREACHABLE")
+
+        with mock.patch.object(seams, "_market_profile", return_value=profile), \
+                mock.patch.object(store, "connect", return_value=Connection()):
+            with mock.patch.object(store, "resolve_commit", side_effect=unknown):
+                self.assertEqual(seams._market_commit("a" * 32), {"database": "market", "commit": None})
+            with mock.patch.object(store, "resolve_commit", return_value="b" * 32):
+                self.assertEqual(seams._market_commit("b"), {"database": "market", "commit": "b" * 32})
+        with mock.patch.object(seams, "_market_profile", return_value=profile), \
+                mock.patch.object(store, "connect", side_effect=unreachable):
+            self.assertIsNone(seams._market_commit("a" * 32))
+        with mock.patch.object(seams, "_market_profile",
+                               side_effect=Refusal("MARKET_RETURNS_UNAVAILABLE", "no profile", write_status="not_written")):
+            self.assertIsNone(seams._market_commit("a" * 32))
 
 
 @unittest.skipUnless(BINARY, SKIP)

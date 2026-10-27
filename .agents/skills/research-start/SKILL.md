@@ -35,6 +35,14 @@ selected (`line select`); everything inside it follows `research-round`.
   since its runs can be neither replayed nor compared. An option that restarts from an
   old-contract candidate tells the user three things: the restart is a new rule, not the old one
   run again; its first report has no control; the old rule's results cannot be tested again.
+- When `research state` lists a `MARKET_COMMIT_UNRESOLVED` gate, no branch of the active market
+  database holds the line's pinned market commit, so the line can neither register nor replay.
+  Tell the user plainly which commit is missing and that the line runs again only once that commit
+  is back in the market database. Restoring it is the user's data decision (a market write), not a
+  research step: the question offers only lines that can run now (Offer lines and wait), never
+  keeping, pausing or waiting on this line while the commit is obtained, recovered or verified, and
+  you never propose re-attaching history, changing the resolver or writing the market database.
+  Establish no Goal for this line while the gate stands; close it only when the user chooses another line.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
   background sub-agent (on a host without one, do it before the session ends). For each line, read
   it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its
@@ -51,7 +59,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   the readings recommendation.md lists. New scopes or starting points inside this line are only
   some of the options.
 - List template roots (research-round's [template.md](../research-round/references/template.md))
-  only when the ledger has no candidate or the user says to leave every existing line, each with
+  only when the ledger has no candidate, the user says to leave every existing line or no existing
+  line can run (each gated as above or failing recommendation.md's checks), each with
   its first report on the current development window or marked not yet replayed. A loss, an
   insignificant result, a low priority, a review count, a run limit or a fault never brings up
   roots: give the recommendation and priorities inside the line. A root from a user source is made

@@ -1221,12 +1221,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "REFERENTIAL_GAP (a run or attempt names a missing trial); UNKNOWN_BUNDLE, LINE_CORRUPT (--line); "
         "UNKNOWN_REF (--at)"),
     ("research", "state"): (
-        "the line record, targets, judgments, trials and source reviews at --at (reader); no market",
+        "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
+        "market database holds the line's market commit (reader)",
         "nothing; never publishes",
         "ledger_commit, line, execution_identity (the line's), targets, unclosed_lines, recommendation, priority, "
         "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
-        "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, RESEARCH_LINE_REQUIRED: reported, not "
+        "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
+        "RESEARCH_LINE_REQUIRED: reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
         "line); large with --full",
         "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
