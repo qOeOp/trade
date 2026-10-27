@@ -1,4 +1,5 @@
-"""The refusal catalogue (`ledger.refusal_catalogue`): one meaning and repair per refusal code.
+"""The refusal catalogue (`ledger.refusal_catalogue`): one meaning and repair per refusal code (and
+`MARKET_CATALOGUE` for a market reference refused under a code the ledger also uses).
 
 The repairs are the commands that supply what is missing; none is a way around a check. Every
 code a function of this package raises is listed here; a test walks every raise site.
@@ -128,7 +129,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "select the line again; after a failed review, fix the source, publish it and start "
                                "from the new revision.",)),
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
-                                 ("Pass a market commit, tag or branch shown by `market coverage`.",)),
+                                 ("Pass a commit, tag or branch of the active market database; `market coverage` "
+                                  "without --at prints its head as commit.",
+                                  "A commit outside that history (an earlier market database's) does not resolve: "
+                                  "nothing pinned to it registers or replays against this market database.")),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
                        "start or not on a whole UTC minute.",
                        ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
@@ -480,8 +484,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
-                                   ("Make the market database profile available (read only), then read the report "
-                                    "again.",)),
+                                   ("When the message names UNKNOWN_REF, the run's market commit is not in the active "
+                                    "market database's history: its market measures cannot be read here and stay "
+                                    "empty.",
+                                    "Otherwise make the market database profile available (read only), then read the "
+                                    "report again.")),
     "DIRECTORY_NOT_FOUND": ("The replay directory does not exist or is not readable.",
                             ("Pass the output directory of an exploration or precheck.",)),
     "NATIVE_SUMMARY_MISSING": ("The directory holds no native summary written by the runner.",
@@ -747,6 +754,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_RECONCILE_UNCOVERED": ("The market commit does not hold every minute of the run's interval yet.",
                                   ("Import the run's month with `market import --month YYYY-MM` over the market's "
                                    "contract scope once its days are archived, then reconcile at the new commit.",)),
+}
+
+
+# The market package's codes that share a name with a ledger code but refuse a market reference: their
+# meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
+MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "UNKNOWN_REF": ("The reference names no branch, tag or commit in the active market database's history.",
+                    ("Pass a commit, tag or branch of the active market database; `market coverage` without --at "
+                     "prints its head as commit.",
+                     "A commit outside that history (an earlier market database's) cannot be read here: runs and "
+                     "lines pinned to it do not replay against this market database.")),
 }
 
 

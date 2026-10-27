@@ -9,7 +9,7 @@ import unittest
 
 from ledger.errors import Refusal, refusal
 from ledger.problems import REASONS
-from ledger.refusals import CATALOGUE, refusal_catalogue, refuse
+from ledger.refusals import CATALOGUE, MARKET_CATALOGUE, refusal_catalogue, refuse
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +63,16 @@ class RefusalTests(unittest.TestCase):
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):
                 self.assertTrue(refusal_catalogue(code)["next_actions"])
+
+    def test_a_market_reference_refusal_prints_the_market_repair(self):
+        from cli.main import _market_refusal, refusal_json
+        from market.sources import MarketError
+        for code, (meaning, repairs) in MARKET_CATALOGUE.items():
+            with self.subTest(code=code):
+                self.assertIn(code, CATALOGUE)
+                self.assertTrue(meaning.strip() and repairs)
+                printed = refusal_json(_market_refusal(MarketError("no such market ref", code=code)))
+                self.assertEqual(printed["next_actions"], list(repairs))
 
     def test_every_failure_reason_given_has_a_meaning(self):
         codes = literal_codes(("reason",))
