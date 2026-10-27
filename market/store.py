@@ -221,14 +221,16 @@ def _sql_error(exc: pymysql.MySQLError) -> MarketError:
 # market.resolve_commit
 
 def resolve_commit(conn: MarketConnection, ref: str | None) -> str:
-    """market.resolve_commit: the one full commit hash a branch, tag, commit hash or unique prefix names."""
+    """market.resolve_commit: the one full commit hash a branch, tag, commit hash or unique prefix names. A hash or
+    prefix is looked up among the commits of every branch (dolt_commits), so history kept on a branch beside main
+    resolves."""
     ref = ref or "main"
     if isinstance(ref, str) and ref.upper() in WORKING_SETS:
         raise _refuse(f"{ref} is a working set, not a commit", "NOT_A_COMMIT", missing=(ref,))
     if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
         raise _refuse(f"invalid market reference {ref!r}", "UNKNOWN_REF", missing=(str(ref),))
     if HASH_PREFIX.fullmatch(ref):
-        found = [commit for (commit,) in conn.rows("SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE %s",
+        found = [commit for (commit,) in conn.rows("SELECT commit_hash FROM dolt_commits WHERE commit_hash LIKE %s",
                                                    (ref + "%",))]
         if len(found) > 1:
             raise _refuse(f"{ref} is a prefix of {len(found)} market commits", "AMBIGUOUS_REF", missing=(ref,))

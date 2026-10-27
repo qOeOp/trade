@@ -169,6 +169,16 @@ class ImportTests(unittest.TestCase):
             self.refused("UNKNOWN_REF", store.resolve_commit, conn, "no-such-branch")
             self.refused("UNKNOWN_REF", store.resolve_commit, conn, "a..b")
 
+    def test_a_commit_on_another_branch_resolves_by_hash(self):
+        self.fixture.admin(self.profile, "CALL DOLT_BRANCH('kept', 'main')")
+        self.addCleanup(self.fixture.admin, self.profile, "CALL DOLT_BRANCH('-D', 'kept')")
+        (kept,), = self.fixture.admin({**self.profile, "database": f"{self.profile['database']}/kept"},
+                                      "CALL DOLT_COMMIT('--allow-empty', '-m', 'kept beside main')")
+        with store.connect(self.profile, "reader") as conn:
+            self.assertEqual(store.resolve_commit(conn, kept), kept)
+            self.assertEqual(store.resolve_commit(conn, kept[:12]), kept)
+            self.assertEqual(store.resolve_commit(conn, None), self.commits[MAR])  # main is unchanged
+
     def test_coverage_facts_and_their_refusals(self):
         found = coverage.diagnose_coverage(self.profile, None, ["BBBUSDT", "CCCUSDT"], "2025-02-09T00:00:00Z",
                                            "2025-02-11T00:00:00Z", None)
