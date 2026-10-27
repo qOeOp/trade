@@ -27,7 +27,14 @@ export function utc(ms: number): string {
   const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 }
-export const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const dayNames = new Map<number, string>();
+/** A UTC day as 2026-10-25, each day's name made once (a run's minutes ask for the same few). */
+export const utcDay = (ms: number) => {
+  const day = Math.floor(ms / 86_400_000);
+  let name = dayNames.get(day);
+  if (name === undefined) dayNames.set(day, (name = new Date(day * 86_400_000).toISOString().slice(0, 10)));
+  return name;
+};
 
 export const last = (value: unknown) => String(value ?? "").split(".").pop() ?? "";  // OrderSide.BUY → BUY
 /** BUY → Buy, LONG → Long, STOP_MARKET → stop market. */

@@ -23,7 +23,13 @@ export const tick = (time: Time, type: TickMarkType): string => {
   return CLOCK.format(d);
 };
 
-const number = (places: number) => (x: number) => x.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places });
+const formats = new Map<number, Intl.NumberFormat>();
+// One formatter a number of places, kept: making one costs forty times its use.
+const number = (places: number) => {
+  let f = formats.get(places);
+  if (!f) formats.set(places, (f = new Intl.NumberFormat("en-US", { minimumFractionDigits: places, maximumFractionDigits: places })));
+  return (x: number) => f.format(x);
+};
 /** A series' price format: thousands separators and `places` decimals (81,190.50), the axis ticks with
  *  `ticks` decimals. Set on each series, since a chart-wide formatter would also take over the drawdown
  *  pane's percent. */

@@ -3,7 +3,8 @@
 // of the time axis that the canvas would cut it, and on a crowded value axis every other one. The chart
 // caches the ticks it has written, so they are written again only when the answer changes: once a pan or
 // zoom has settled (`refresh`), when the tags change, and when the crosshair moves onto or off a tick
-// (`cross`), never once a frame.
+// (`cross`), never once a frame. The value format is set on the series only when it changes (each set
+// recolours every bar of every series); otherwise the scale is only asked to label its ticks again.
 import type { IChartApi, ISeriesApi, SeriesType, Time, TickMarkType } from "lightweight-charts";
 import { priceFormat, tick } from "./chartTheme";
 
@@ -18,6 +19,7 @@ export class AxisTicks {
   private readonly seen = new Set<number>();
   private keys = { price: "", time: "" };
   private axis = 0;
+  private format = "";
 
   /** `series` carry the value format (the chart labels the axis with the first one's); `base` gives it;
    *  `tags` where the axis tags sit (px); a tick nearer one than `clear` px is left out; more than `most`
@@ -32,6 +34,10 @@ export class AxisTicks {
   writePrices(): void {
     const base = this.o.base(), main = this.series[0];
     if (!main) return;
+    // The format as a sample of what it writes: the same, and the ticks need only labelling again.
+    const sample = `${base.minMove} ${base.formatter(1234.5678)} ${base.tickmarksFormatter([1234.5678])[0]}`;
+    if (sample === this.format) { main.priceScale().applyOptions({}); return; }
+    this.format = sample;
     const format = { ...base, tickmarksFormatter: (prices: readonly number[]) => {
       this.prices = prices;
       const pitch = Math.abs((prices[0] ?? 0) - (prices[1] ?? 0)) || 1, shown: number[] = [];
