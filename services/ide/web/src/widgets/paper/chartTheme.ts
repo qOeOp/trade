@@ -4,21 +4,27 @@
 import { ColorType, CrosshairMode, LineStyle, TickMarkType, type ChartOptions, type DeepPartial, type IChartApi, type Time, type TimeScaleOptions } from "lightweight-charts";
 import { canvasColor, canvasTint } from "../../theme/roles";
 
-const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", hour12: false, ...options });
-const YEAR = part({ year: "numeric" }), MONTH = part({ month: "short" }), DAY = part({ day: "2-digit", month: "short" });
-const CLOCK = part({ hour: "2-digit", minute: "2-digit" }), FULL = part({ year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", hourCycle: "h23", ...options });
+const YEAR = part({ year: "numeric" }), MONTH = part({ month: "short" }), CLOCK = part({ hour: "2-digit", minute: "2-digit" });
 const date = (time: Time) => new Date((time as number) * 1000);
-const EDGE = 24;  // px: a time label centred nearer the left edge than this would be cut, so it is left out
+/** One way to write a date on every chart: day before month, the month's three letters (4 Oct, 8 Oct,
+ *  22:56; 8 Oct 2026 22:56 UTC), never a numeric date whose order a reader must guess. */
+export const dayMonth = (d: Date) => `${d.getUTCDate()} ${MONTH.format(d)}`;
+export const stamp = (ms: number) => `${dayMonth(new Date(ms))}, ${CLOCK.format(ms)}`;
+/** A point's time at its step (seconds): the minute, the hours it covers, or its day. */
+export const during = (start: number, step: number) =>
+  step >= 86_400 ? dayMonth(new Date(start * 1000)) : step <= 60 ? stamp(start * 1000) : `${stamp(start * 1000)}–${CLOCK.format((start + step) * 1000)}`;
+const EDGE = 32;  // px: a time label centred nearer either edge than this would be cut, so it is left out
 
-/** Axis labels in UTC: the year, month or day where one starts, else the time; none so near the left
+/** Axis labels in UTC: the year, month or day where one starts, else the time; none so near either
  *  edge that the canvas would cut it. */
-const tick = (chart?: () => IChartApi | null | undefined) => (time: Time, type: TickMarkType): string => {
-  const x = chart?.()?.timeScale().timeToCoordinate(time);
-  if (x != null && x < EDGE) return "";
+export const tick = (chart?: () => IChartApi | null | undefined) => (time: Time, type: TickMarkType): string => {
+  const scale = chart?.()?.timeScale(), x = scale?.timeToCoordinate(time);
+  if (scale && x != null && (x < EDGE || x > scale.width() - EDGE)) return "";
   const d = date(time);
   if (type === TickMarkType.Year) return YEAR.format(d);
   if (type === TickMarkType.Month) return MONTH.format(d);
-  if (type === TickMarkType.DayOfMonth) return DAY.format(d);
+  if (type === TickMarkType.DayOfMonth) return dayMonth(d);
   return CLOCK.format(d);
 };
 
@@ -31,7 +37,9 @@ export const priceFormat = (places: number, ticks = places) => ({
   tickmarksFormatter: (prices: readonly number[]) => prices.map(number(ticks)),
 });
 
-const CANDLES: DeepPartial<TimeScaleOptions> = { rightOffset: 6, barSpacing: 7, minBarSpacing: 2, maxBarSpacing: 16 };
+// A candle may widen far, since zooming in reaches the next shorter period only once its candles would
+// be a few pixels wide (from 5m to 1m at five times that); a zoom keeps the newest candle where it is.
+const CANDLES: DeepPartial<TimeScaleOptions> = { rightOffset: 6, barSpacing: 7, minBarSpacing: 2, maxBarSpacing: 60, rightBarStaysOnScroll: true };
 
 /** A new chart: its look, and the spacing of its time scale (a candle's by default), which the user's
  *  zoom then owns. */
@@ -56,7 +64,7 @@ export function chartLook(chart?: () => IChartApi | null | undefined): DeepParti
     grid: { vertLines: { visible: false }, horzLines: { color: canvasColor("grid", 0.7) } },
     rightPriceScale: { borderVisible: false },
     timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, tickMarkFormatter: tick(chart), allowBoldLabels: false },
-    localization: { locale: "en-US", timeFormatter: (time: Time) => `${FULL.format(date(time)).replace(",", "")} UTC` },
+    localization: { locale: "en-US", timeFormatter: (time: Time) => `${dayMonth(date(time))} ${YEAR.format(date(time))} ${CLOCK.format(date(time))} UTC` },
     crosshair: {
       mode: CrosshairMode.Normal,
       vertLine: { color: canvasColor("crosshair", 0.6), style: LineStyle.Dotted, labelBackgroundColor: label },
@@ -66,20 +74,32 @@ export function chartLook(chart?: () => IChartApi | null | undefined): DeepParti
 }
 
 /** Series colours: the market in the candle pair (filled bodies, volume in the same two, quieter); the
- *  run's entries in the text colour and its exits by how they closed (target, stop, other); its levels in profit and loss (target
- *  and stop, each with an axis tag tinted in its own colour) and the text colour (the position); equity
- *  in the text colour, washed green above its start and red below (a touch softer line and stronger
- *  washes on `dark`, where the text colour glares); the drawdown red. */
+ *  run's levels in profit and loss (target and stop, each with an axis tag tinted in its own colour) and
+ *  the text colour (the position); its trades as boxes in profit and loss, faint so the candles lead,
+ *  with a hairline in the text colour at the entry price and the fills as arrows in the candle pair; equity
+ *  in indigo with the layers beneath it: its shadow (deeper on `dark`), the gap to its pace in profit and
+ *  loss, kept faint so the line leads, the drawdown rows in a faint grey, the day bars in both (stronger
+ *  for the picked day), the stripes and the gridlines. */
 export function seriesColors(dark = false) {
+  const font = `500 11px ${getComputedStyle(document.body).fontFamily}`;
   return {
     island: canvasColor("island"), fg: canvasColor("fg"), muted: canvasColor("fg-muted"), faint: canvasColor("fg-faint"), ghost: canvasColor("fg-ghost"),
     up: canvasColor("candle-up"), down: canvasColor("candle-down"), upVolume: canvasColor("candle-up", 0.26), downVolume: canvasColor("candle-down", 0.26),
-    entry: canvasColor("fg-muted", 0.9), target: canvasColor("meets", 0.85), stop: canvasColor("fail", 0.85), exit: canvasColor("fg-muted", 0.8),
     pnlUp: canvasColor("pnl-up"), pnlDown: canvasColor("pnl-down"), upTag: canvasTint("pnl-up", 16), downTag: canvasTint("pnl-down", 16),
     limit: canvasColor("recommended"), limitTag: canvasTint("recommended", 16), position: canvasColor("fg", 0.8), tag: canvasColor("line-strong"),
-    equity: canvasColor("fg", dark ? 0.85 : 1), upWash: canvasColor("pnl-up", dark ? 0.16 : 0.1), none: canvasColor("island", 0),
-    belowWash: canvasColor("pnl-down", dark ? 0.18 : 0.12), drawdownLine: canvasColor("pnl-down", 0.9), drawdownWash: canvasColor("pnl-down", 0.14), drawdownDeep: canvasColor("pnl-down", 0.26),
-    limitLine: canvasColor("pnl-down", 0.7), limitTagText: canvasColor("island"),
+    font,
+    marks: {
+      up: canvasColor("pnl-up", dark ? 0.14 : 0.1), down: canvasColor("pnl-down", dark ? 0.14 : 0.1), upEdge: canvasColor("pnl-up", 0.7), downEdge: canvasColor("pnl-down", 0.7),
+      upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"), entry: canvasColor("fg-muted", 0.55),
+      buy: canvasColor("candle-up"), sell: canvasColor("candle-down"), halo: canvasColor("island"), font,
+    },
+    layers: {
+      line: canvasColor("equity"), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),
+      ahead: canvasColor("pnl-up", dark ? 0.11 : 0.09), behind: canvasColor("pnl-down", dark ? 0.12 : 0.09),
+      ceiling: canvasColor("fg-faint", dark ? 0.5 : 0.45), stripe: canvasColor("fg", dark ? 0.022 : 0.03), column: canvasColor("fg", dark ? 0.05 : 0.035),
+      up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
+      grid: canvasColor("grid", 0.45),
+    },
   };
 }
 

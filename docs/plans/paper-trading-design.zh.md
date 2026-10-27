@@ -4,7 +4,8 @@
 运行中的版本显示暂停按钮；左侧边栏加一个按钮，打开所有正在跑模拟盘的策略页面：运行列表、图表、策略行为与
 事件列表，每个标的一张实时 K 线并叠加该策略在它上面的交易，按需用日历。模拟盘＝接收实时行情、照常生成交易，
 但不接用户账户。看过第一版原型后，用户又定：模拟盘一般不多，面板顶部一行运行卡片就够了，不要另设运行列表，
-免得信息重复。
+免得信息重复。2026-10-26 用户又定：Paper 页上主工具栏左端的研究线和账本提交两个组件换成运行组件，
+点开是全部运行的列表，组件后面是 ⏸、净值、收益和运行状态；页面右侧不再放运行卡片。
 
 本文是动手前的设计，只有调研和方案，没有代码。
 
@@ -100,9 +101,9 @@
   |---|---|
   | K 线 | `chart.addSeries(CandlestickSeries, …)`；首屏 `setData`，之后每根 K 线用 `series.update(bar)`：时间相同就替换最后一根，更晚就追加。不能每次都 `setData`，那会重置可视范围 |
   | 成交量 | `addSeries(HistogramSeries, { priceFormat: { type: 'volume' } }, 1)`，放在第二个 pane |
-  | 开平仓标记 | `createSeriesMarkers(series, […])`，之后用 `.setMarkers()` 更新；标记时间必须落在已有 K 线上，所以成交时间要先对齐到所在周期的开盘时刻 |
+  | 成交箭头和交易框 | 序列 primitive（`tradeMarks.ts`）：框画在 K 线下层（zOrder bottom），箭头和盈亏标签画在上层（top）；成交时间先对齐到所在周期的开盘时刻 |
   | 挂单（止损、止盈、限价入场） | `series.createPriceLine({ price, color, lineStyle, title })`；订单撤销或成交时 `removePriceLine` |
-  | 持仓底色 | 序列 primitive（v5 插件机制，可用 `npm create lwc-plugin` 起骨架），在持仓的时间段画一块底色 |
+  | 价位条与右轴标签 | 序列 primitive（`levels.ts`）的 `priceAxisViews`，用 `fixedCoordinate` 把标签按价格排开；最新价标签也由它画，序列自带的设 `lastValueVisible: false` |
   | 事件和 K 线互相跳转 | `subscribeCrosshairMove` 读出悬停时刻；`timeScale().setVisibleRange` 跳到某一事件 |
   | 统一 UTC | `localization.timeFormatter` 和 `timeScale.tickMarkFormatter` 用 `Intl.DateTimeFormat(…, { timeZone: 'UTC' })`；时间戳不平移，单位是秒 |
 
@@ -110,10 +111,10 @@
   库默认在图上显示 TradingView 标识（`attributionLogo`），照许可保留。具体选项名以安装后的
   `dist/typings.d.ts` 为准。
   - K 线本身；
-  - 周期 1m / 5m / 15m / 1h / 4h / 1d 可切换，默认是策略实际订阅的周期，由运行器从策略的订阅里报出来；
-  - 成交标记：开多 ▲、开空 ▼，平仓用 ○，按出场原因分颜色：止损红、止盈绿、其他灰；
-  - 当前挂单画成水平价格线：止损红实线、止盈绿实线、限价入场蓝虚线，线上标价格；
-  - 持仓期间铺浅色底，多单和空单颜色不同；
+  - 周期不让用户选：按一屏能放下多少根 K 线自动取 1m / 5m / 15m / 30m / 1h / 2h / 4h / 12h / 1d 中最短、仍让每根至少 7px 宽的一档（和权益图同一套算法，带回差防抖），缩放时随之换档，当前周期写在图例最前；首屏显示整段运行；
+  - 成交画成 TradingView 式箭头：买入在 K 线最低价下方、向上、涨色，卖出在最高价上方、向下、跌色，每根 K 线每个方向一只；出场箭头与已画箭头重叠时省略，K 线窄于 14px 时箭头缩小；
+  - 每笔交易（从空仓到空仓）画成一个框：横跨开仓到平仓的 K 线，纵跨平均开仓价到平均平仓价，赚钱用涨色、亏钱用跌色，框外标盈亏金额；当前持仓的框延伸到右轴、虚线描边；相邻交易在共用的 K 线中间留缝；
+  - 当前挂单画成虚线价格线（止损跌色、止盈涨色、限价入场蓝），左端价位条、右轴标签按价格排开、互不重叠，价位条和标签同高；持仓不画横线，只有价位条、右轴标签和它的交易框；
   - 下面是成交量柱；
   - 十字光标、读数药丸、配色沿用 `research-graph-design-spec.zh.md`。颜色从 `tokens.css` 经 `roles.ts` 的
     `v()` 取，不在 TypeScript 里写色值。

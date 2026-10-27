@@ -35,7 +35,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           <Item icon="file.python" label="Open source" run={() => openSource(id)} />
           {paper && <>
             <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
-            {run ? <Item icon="pause" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>
+            {run ? <Item icon="stop" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>
               <Item icon="run" label="Run paper" run={() => void startPaper(id)} />
               <Item label="Run paper with…" run={() => startDialog.set(id)} />
             </>}

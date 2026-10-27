@@ -5,7 +5,7 @@ import { activeRun, startDialog, starting, startPaper, stopDialog, stopping, use
 import { Tip } from "./Tip";
 
 /** The ▶ after a version, as IntelliJ's run mark beside a line: a click runs it on paper with its last
- *  research replay's contracts, ⌥-click asks which; on a running version it is ⏸, which asks to stop.
+ *  research replay's contracts, ⌥-click asks which; on a running version it is a red ■, which asks to stop.
  *  It shows while its row or node is hovered (a `group`), and only when the page reaches a paper daemon. */
 export function PaperButton({ id }: { id: string }) {
   const service = usePaperService();
@@ -27,13 +27,13 @@ export function PaperButton({ id }: { id: string }) {
     <Tip side="bottom" content={run || busy ? label : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}>
       <button type="button" aria-label={label} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
               className={`nodrag nopan grid size-5 shrink-0 place-items-center rounded-control transition-[opacity,background-color] hover:bg-hover active:bg-pressed ${busy ? "animate-pulse opacity-100" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"}`}>
-        <Icon name={run ? "pause" : "run"} size={12} tone={run ? "icon" : "meets"} />
+        <Icon name={run ? "stop" : "run"} size={12} tone={run ? "fail" : "meets"} />
       </button>
     </Tip>
   );
 }
 
-/** The 6px green dot on a running version's mark, hidden while ⏸ shows (its `group` hovered). */
+/** The 6px green dot on a running version's mark, hidden while ■ shows (its `group` hovered). */
 export function RunningDot({ id }: { id: string }) {
   const listing = usePaperRuns();
   const run = activeRun(listing, id);

@@ -44,7 +44,7 @@ only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 
 With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
 serve`, on the host, loopback port 8767 by default; `paper/serve.py`), and the page gets the Paper
-panel: ▶ and ⏸ on each version, the runs, their charts and events. A POST there must come from the
+panel: ▶ and ■ on each version, the runs, their charts and events. A POST there must come from the
 page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:

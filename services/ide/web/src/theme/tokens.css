@@ -70,17 +70,18 @@
   --crosshair: var(--fg-faint);
   /* the selected run in a scatter: a bright yellow fill, deeper on white so it still reads */
   --selected-mark: light-dark(#E6B000, #FFD43B);
-  /* The market on a contract chart: filled candles in a teal green and a brick red, as trading charts
-     draw them (validated as a pair for colour-vision deficiency, 3:1 on the island in both themes);
-     profit and loss take the same two. */
-  --candle-up: light-dark(#0DA081, #33A587);
-  --candle-down: light-dark(#BA2B2E, #C44844);
+  /* Up and down, wherever either is shown: Binance's green and red (3:1 on the island in both themes;
+     under red-green colour-vision deficiency they sit 7-8 apart, so up and down are also told by sign,
+     side or position). Candles, profit and loss, calendar days and order levels all take these two. */
+  --candle-up: light-dark(#03A66D, #0ECB81);
+  --candle-down: light-dark(#CF304A, #F6465D);
   --pnl-up: var(--candle-up);
+  /* the account's equity on the paper chart: vibe-trading's indigo hero line, lighter on dark */
+  --equity: light-dark(#4338CA, #8B8CF8);
+  /* the ink of a chart line's drop shadow, taken at a fraction */
+  --line-shadow: #000000;
   --pnl-down: var(--candle-down);
   /* a calendar day's tile in three steps of its return's size, the same steps for profit and loss */
-  /* the cards behind a stack's front card, opaque so they read as cards in both themes */
-  --stack-1: color-mix(in oklab, var(--island) 60%, var(--frame));
-  --stack-2: color-mix(in oklab, var(--island) 30%, var(--frame));
   --cal-up-1: light-dark(color-mix(in oklab, var(--pnl-up) 10%, var(--island)), color-mix(in oklab, var(--pnl-up) 16%, var(--island)));
   --cal-up-2: light-dark(color-mix(in oklab, var(--pnl-up) 20%, var(--island)), color-mix(in oklab, var(--pnl-up) 30%, var(--island)));
   --cal-up-3: light-dark(color-mix(in oklab, var(--pnl-up) 34%, var(--island)), color-mix(in oklab, var(--pnl-up) 46%, var(--island)));
@@ -133,8 +134,6 @@
   --color-popup: var(--popup);
   --color-popup-border: var(--popup-border);
   --color-card-border: var(--card-border);
-  --color-stack-1: var(--stack-1);
-  --color-stack-2: var(--stack-2);
   --color-tooltip: var(--tooltip);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
@@ -169,6 +168,7 @@
   --color-scope: var(--scope);
   --color-crosshair: var(--crosshair);
   --color-pnl-up: var(--pnl-up);
+  --color-equity: var(--equity);
   --color-pnl-down: var(--pnl-down);
   --color-cal-up-1: var(--cal-up-1);
   --color-cal-up-2: var(--cal-up-2);
@@ -216,10 +216,4 @@
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
-
-  /* a card coming to the front of a stack: up from the one behind it */
-  --animate-stack-in: stack-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
-  @keyframes stack-in {
-    from { opacity: 0; transform: translateY(6px) scale(0.985); }
-  }
 }

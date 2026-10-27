@@ -85,7 +85,7 @@ export function PaperDialogs() {
             <div className="flex justify-end gap-2 pt-1">
               <AlertDialog.Cancel asChild><FormButton>Cancel</FormButton></AlertDialog.Cancel>
               <AlertDialog.Action asChild>
-                <FormButton primary icon="pause" onClick={() => { if (run) void stopPaper(run); }}>Stop</FormButton>
+                <FormButton primary icon="stop" onClick={() => { if (run) void stopPaper(run); }}>Stop</FormButton>
               </AlertDialog.Action>
             </div>
           </AlertDialog.Content>

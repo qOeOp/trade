@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { DropdownMenu } from "radix-ui";
+import { useState, type ReactNode } from "react";
+import { DropdownMenu, Popover } from "radix-ui";
 import { Icon } from "../icons/Icon";
 import type { IconName } from "../icons/registry";
 
@@ -30,6 +30,28 @@ export function Dropdown({ trigger, label, children, align = "start", variant = 
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+/** A toolbar widget whose popup is a panel of its own (a list to search and pick from) rather than a menu;
+ *  `children` gets a function that closes it. */
+export function PopoverWidget({ trigger, label, children, align = "start" }: {
+  trigger: ReactNode; label: string; children: (close: () => void) => ReactNode; align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger aria-label={label}
+        className={`inline-flex min-w-0 shrink items-center gap-1.5 rounded-control transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${TRIGGER.widget}`}>
+        {trigger}<span className="shrink-0 text-icon"><Icon name="chevron-down" size={16} /></span>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content align={align} sideOffset={4} collisionPadding={8}
+          className="z-50 flex max-h-[min(440px,var(--radix-popover-content-available-height))] w-max min-w-56 max-w-[min(480px,var(--radix-popover-content-available-width))] flex-col gap-px overflow-auto rounded-popup border border-popup-border bg-popup p-1 shadow-popup outline-none">
+          {children(() => setOpen(false))}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 

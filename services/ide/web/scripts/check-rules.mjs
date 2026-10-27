@@ -13,7 +13,7 @@ const MAY = {
   widgets: ["theme", "icons", "lib", "model", "state", "components"],
   shell: ["theme", "icons", "lib", "model", "state", "components", "widgets"],
 };
-const CHART = /^widgets\/(lineage\/|Progress|Scatter|paper\/Sparkline)/;
+const CHART = /^widgets\/(lineage\/|Progress|Scatter)/;
 
 const files = (dir) => readdirSync(dir).flatMap((n) => {
   const p = join(dir, n);

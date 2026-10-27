@@ -90,11 +90,11 @@ export const ICONS = {
   plus: { svg: plus },
   "tool.paper": { svg: chartCandlestick },
   warning: { svg: triangleAlert },
-  // IntelliJ's run and pause marks, filled: Lucide's outlines read as media controls.
+  // IntelliJ's run mark, filled: Lucide's outline reads as a media control.
   run: { svg: '<svg><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></svg>' },
-  pause: { svg: '<svg><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/></svg>' },
-  // A filled square, as stop buttons draw it: Lucide's outline square reads as a checkbox.
-  stop: { svg: '<svg><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></svg>' },
+  // A filled square, as stop buttons draw it (Lucide's outline square reads as a checkbox), sized to sit
+  // beside the run mark as IntelliJ's stop sits beside its run.
+  stop: { svg: '<svg><rect x="5.5" y="5.5" width="13" height="13" rx="2" fill="currentColor" stroke="none"/></svg>' },
   edit: { svg: pencil },
   retry: { svg: rotateCcw },
   delete: { svg: trash },

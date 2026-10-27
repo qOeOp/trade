@@ -2,12 +2,6 @@
 // seconds at each candle's open, as the chart takes them.
 import { amount, type JournalLine } from "./paperApi";
 
-export const PERIODS = [
-  { id: "1m", minutes: 1 }, { id: "5m", minutes: 5 }, { id: "15m", minutes: 15 },
-  { id: "1h", minutes: 60 }, { id: "4h", minutes: 240 }, { id: "1d", minutes: 1440 },
-] as const;
-export type Period = (typeof PERIODS)[number]["id"];
-
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 
 /** The open, in UTC seconds, of the `minutes` candle a bar stamped `tsNs` (its close) falls in. */
