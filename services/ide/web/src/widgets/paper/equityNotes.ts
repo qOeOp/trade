@@ -1,25 +1,25 @@
 // What the equity chart marks on its line besides its layers (equityLayers.ts), as one series primitive:
 // the floor the line's drawdown limit sets, the running peak less the limit, as a fine dashed step line in
 // the loss colour (rising only when equity makes a new high), with its tag on the value axis, pinned at the
-// pane's foot (above the event flags) with an arrow while the floor is below the view, and its name beside the tag; the run's
-// deepest drawdowns (DEEPEST, from every minute) each as a bracket from its peak to its trough, a dotted
-// line along the peak's level and a capped drop at the trough with its depth beneath (at the line as drawn,
-// whose step may hide the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
+// pane's foot (above the exposure) with an arrow while the floor is below the view, and its name beside the tag; the run's
+// deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
+// and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
+// the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
 // value axis with its name beside it, at the last point in view as the equity's own tag. A tag that would
 // cover the chart's own (the start's, the last value's) moves a tag's height off it.
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { EquityPoint } from "./equityLayers";
-import { valueAt, xAt } from "./equityPlace";
+import { perColumn, valueAt, xAt } from "./equityPlace";
 
-export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; level: string;
+export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
 type Episode = { from: number; to: number; peak: number; trough: number; depth: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 type Tag = { y: number; text: string; name: string; back: string; color: string; nameColor: string; nameY?: number };
 
 const DEEPEST = 3, SHALLOW = 0.002;  // the deepest drawdowns marked, none shallower than this
-const CAP = 6, FOOT = 10;  // px: a bracket's cap, a pinned tag's distance from the foot
+const FOOT = 10, HATCH = 6;  // px: a pinned tag's distance from the foot, a drawdown's hatch pitch
 const pct = (r: number) => `−${(r * 100).toFixed(2)}%`;
 const TAG = 18;  // px: an axis tag's height and a little
 
@@ -57,7 +57,7 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     return [view("normal", (s) => this.under(s)), view("top", (s) => this.over(s))];
   }
 
-  /** How much of the pane's foot (px) a pinned tag stands above: the event flags' strip. */
+  /** How much of the pane's foot (px) a pinned tag stands above: the exposure's band. */
   lift(px: number): void { if (px !== this.raised) { this.raised = px; this.redraw?.(); } }
 
   /** Where the tags sit, so the value ticks can give way to them. */
@@ -127,12 +127,18 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
       const a = this.x(e.from), b = this.x(e.to);
       if (a === null || b === null || !this.inView(b)) continue;  // a drop whose trough is out of view is not drawn
       const x0 = Math.round(a * hr), x1 = Math.round(b * hr), top = Y(this.valueAt(e.from) ?? e.peak), low = Y(this.valueAt(e.to) ?? e.trough);
-      c.fillStyle = look.level;
-      for (let x = x0; x < x1; x += 4 * hr) c.fillRect(x, top, Math.min(2 * hr, x1 - x), line);
-      c.fillStyle = look.bracket;
-      c.fillRect(x1 - Math.floor(line / 2), top, line, low - top);
-      c.fillRect(x1 - Math.round((CAP / 2) * hr), top, Math.round(CAP * hr), line);
-      c.fillRect(x1 - Math.round((CAP / 2) * hr), low, Math.round(CAP * hr), line);
+      // Between the peak's level and the line down to the trough, hatched (so it reads apart from the flat
+      // fills of the pace's gap and the open profit beneath it).
+      const path = new Path2D(), time = chart!.timeScale(), pitch = HATCH * hr, X = (i: number) => (time.logicalToCoordinate(i as Logical) ?? 0) * hr;
+      const first = Math.max(0, Math.floor(range.from) - 1), last = Math.min(this.points.length - 1, Math.ceil(range.to) + 1);
+      path.moveTo(x0, top);
+      for (const i of perColumn(first, last, X, (i) => this.points[i]!.value, (i) => this.points[i]!.time > e.from && this.points[i]!.time < e.to)) path.lineTo(Math.round(X(i)), Y(this.points[i]!.value));
+      path.lineTo(x1, low); path.lineTo(x1, top); path.closePath();
+      c.save(); c.clip(path);
+      Object.assign(c, { strokeStyle: look.drop, lineWidth: line });
+      c.beginPath();
+      for (let x = x0 - (low - top); x < x1; x += pitch) { c.moveTo(x, low); c.lineTo(x + (low - top), top); }
+      c.stroke(); c.restore();
     }
     c.restore();
   }

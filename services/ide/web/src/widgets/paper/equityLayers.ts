@@ -1,6 +1,6 @@
 // The equity chart's own layers, drawn as one series primitive on the equity series so they move with
 // its scales, after vibe-trading's band chart. Beneath the series: the stretches where the run held any
-// position, faintly shaded, and the hovered day's column (the day bars above the event flags' strip, `lift`); the value gridlines; the gap between equity
+// position, faintly shaded, and the hovered day's column (the day bars above the exposure's band, `lift`); the value gridlines; the gap between equity
 // and the pace it is measured against, flat, in the profit colour where equity is ahead and the loss
 // colour where behind; the drawdown and day bands (equityBands), behind the line as vibe-trading's. Above it the equity line itself (the series draws none):
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
@@ -47,7 +47,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     this.redraw?.();
   }
 
-  /** How much of the pane's foot (px) the day bars stand above: the event flags' strip. */
+  /** How much of the pane's foot (px) the day bars stand above: the exposure's band. */
   lift(px: number): void { if (px !== this.foot) { this.foot = px; this.redraw?.(); } }
 
   /** The prices the value axis labels, each given a gridline. */
