@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
+import { equityReadings } from "../../model/equityReadings";
 import { heldOf, heldUnion, priceLines, spans as spansOf, type Fill } from "../../model/paper";
 import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
@@ -50,6 +51,9 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
   // The equity chart's closes and the stretches any contract held a position, in seconds.
   const closes = useMemo(() => (a?.trades ?? []).map((t) => ({ id: t.id, time: t.closed / 1000, pnl: t.pnl ?? 0 })), [a?.trades]);
+  // What the equity chart reads beside equity, and every contract's events.
+  const readings = useMemo(() => equityReadings(a?.path ?? [], s?.lines ?? [], fills, s?.closes ?? {}, a?.starting ?? 100_000), [a?.path, s?.lines, fills, s?.closes, a?.starting]);
+  const runEvents = useMemo(() => eventsOf(s?.lines ?? [], null), [s?.lines]);
   const holding = useMemo(() => (a?.start == null ? [] : heldUnion(fills, a.start, a.end).map(([x, y]) => [x / 1000, y / 1000] as [number, number])), [fills, a?.start, a?.end]);
 
   return (
@@ -68,7 +72,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {equity ? (
           <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual}
-                       limit={targets.limit} closes={closes} held={holding} />
+                       limit={targets.limit} closes={closes} held={holding} readings={readings} events={runEvents} digits={digits} />
         ) : (
           <CandleChart key={symbol} symbol={symbol} bars={bars}
                        places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} openFrom={openFrom}

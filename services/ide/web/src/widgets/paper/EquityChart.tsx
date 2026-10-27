@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, CrosshairMode, LineSeries, LineStyle, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import type { JournalLine, Precision } from "../../lib/paperApi";
+import type { Reading } from "../../model/equityReadings";
 import { days as daysOf } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
@@ -7,40 +9,37 @@ import { useResolvedTheme } from "../../state/theme";
 import { canvasColor } from "../../theme/roles";
 import { AxisTicks } from "./axisTicks";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
+import { ChartTip } from "./ChartTip";
+import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
-import { EquityLayers, FEW, type EquityPoint } from "./equityLayers";
+import { EquityLayers, FEW } from "./equityLayers";
 import { EquityCloses, type Close } from "./equityCloses";
 import { EquityNotes } from "./equityNotes";
-import { resample, stepFor, STEPS } from "./equityResolution";
+import { equityMinutes, resample, stepFor, STEPS } from "./equityResolution";
 import { glide } from "./glide";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
 type Api = { chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">; layers: EquityLayers; notes: EquityNotes; closes: EquityCloses; ticks: AxisTicks; start: IPriceLine | null };
-const YEAR_S = 365 * 86_400;
 const at = (t: number) => t as UTCTimestamp;
 const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
 const CLEAR = 16;  // px: a value tick this near an axis tag is left out
 const TICKS = 8;   // more value ticks than this and every other one is left out
 
-/** The account over the run, after vibe-trading's daily-returns chart: equity each minute (balance, open
- *  profit and funding) as its indigo hero line, lifted by a soft shadow; the pace the line's minimum annual
- *  return asks for, compounding from the start, as a dashed line, and the gap between them filled green
- *  where equity is ahead and red where behind (against the starting balance when the line has no
- *  return target); behind them how far equity is below its running peak, as dashes hanging from the top,
- *  each day's return as a slim bar from the bottom, and the stretches it held a position faintly shaded
- *  (equityLayers). On the line (equityNotes): the floor its drawdown limit sets, its deepest drawdowns
- *  bracketed peak to trough and the pace's and the floor's tags; an arrow where each trade closed
- *  (equityCloses), whose click picks the trade in the trades list, and the pace's and the floor's tags.
- *  Once a sealed run is reconciled, and while its reconciliation shows, the replay's equity on the
- *  archive as a fine dotted line. The line is drawn at the finest step (a minute up to a day) that
- *  keeps its points apart across the span in view (equityResolution): a short run fills the chart by
- *  the minute, a long one seen whole is drawn by the hour or the day, and zooming in brings the minutes
- *  back, the step changing once a pan or zoom has settled with the moment under the pointer kept in
- *  place (viewAnchor). Wheel or drag the time axis to zoom, drag to pan, double-click for the whole run. The legend
- *  names the layers, and under the pointer gives their values. */
-export function EquityChart({ path, replay = null, starting, start, annual, limit = null, closes = [], held = [] }: {
+/** The account over the run, after vibe-trading's daily-returns chart: equity each minute as its indigo
+ *  hero line; the pace the line's minimum annual return asks for as a dashed line, the gap filled green
+ *  ahead and red behind (against the start with no return target); behind them the drawdown from the
+ *  peak hanging from the top, each day's return from the bottom and the stretches a position was held
+ *  (equityLayers); on the line the drawdown limit's floor and deepest drawdowns (equityNotes) and an
+ *  arrow at each close (equityCloses), whose click picks the trade; the balance, equity before costs, a
+ *  buy and hold, the run's events and an exposure pane (equityExtras); a reconciled run's replay dotted.
+ *  The line is drawn at the finest step that keeps its points apart in view (equityResolution), changed
+ *  once a pan or zoom settles with the moment under the pointer kept in place (viewAnchor). Wheel or drag
+ *  the time axis to zoom, drag to pan, double-click for the whole run. The legend names the layers, and
+ *  under the pointer gives their values. */
+export function EquityChart({ path, replay = null, starting, start, annual, limit = null, closes = [], held = [], readings, events, digits }: {
   path: readonly [number, number][]; replay?: readonly [number, number][] | null; starting: number; start: number | null; annual: number | null;
   limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][];
+  readings: ReadonlyMap<number, Reading>; events: readonly JournalLine[]; digits: ReadonlyMap<string, Precision>;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
@@ -51,20 +50,14 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
   const theme = useResolvedTheme();
   const day = useAtom(pickedDay);
   const [hover, setHover] = useState<number | null>(null);
-  const minutes = useMemo((): EquityPoint[] => {
-    let peak = starting;
-    const t0 = start === null ? Math.floor((path[0]?.[0] ?? 0) / 1e9) : start / 1000;
-    return path.map(([ns, value]) => {
-      peak = Math.max(peak, value);
-      const time = Math.floor(ns / 1e9);
-      return { time, value, peak, pace: annual === null ? null : starting * (1 + annual) ** ((time - t0) / YEAR_S) };
-    }).filter((p, i, all) => i === all.length - 1 || all[i + 1]!.time > p.time);
-  }, [path, starting, start, annual]);
+  const [hold, setHold] = useState(false);
+  const minutes = useMemo(() => equityMinutes(path, starting, start, annual), [path, starting, start, annual]);
   const points = useMemo(() => resample(minutes, step), [minutes, step]);
   const worst = useMemo(() => minutes.reduce((w, p) => Math.max(w, 1 - p.value / p.peak), 0), [minutes]);
   const many = points.length > 1 && points.at(-1)!.time - points[0]!.time >= FEW;
   const days = useMemo(() => daysOf(path, starting, []).map((d) => ({ from: dayStart(d.day), ret: d.ret })), [path, starting]);
   const fitted = useRef<number | null>(null);
+  const extras = useMemo(() => new EquityExtras(), []);
   const startRef = useRef(starting);
   startRef.current = starting;
 
@@ -89,6 +82,7 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     equity.attachPrimitive(closes);
     equity.attachPrimitive(notes);
     equity.attachPrimitive(layers);
+    extras.attach(chart, equity);
     // The value ticks (axisTicks): every other one when crowded, none under the start's, the last value's
     // (at the last point in view even in part, as the chart takes it) or the pointer's tag; those written
     // get the gridlines (the layers draw them). Every series on the scale carries the format: the chart
@@ -114,7 +108,10 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
       setStep(next);
     });
     chart.subscribeCrosshairMove((param) => {
-      setHover(param.logical === undefined || !param.point ? null : Math.round(param.logical));
+      const index = param.logical === undefined || !param.point ? null : Math.round(param.logical);
+      setHover(index);
+      extras.point(index);
+      extras.hover(String(param.hoveredObjectId ?? ""), param.point ?? null);
       // The pointer's tag sits at the equity it snaps to.
       const value = param.point ? (param.seriesData.get(equity) as { value: number } | undefined)?.value : undefined;
       ticks.cross(param.point?.x ?? null, value === undefined ? null : equity.priceToCoordinate(value));
@@ -124,11 +121,11 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     });
     chart.subscribeClick((param) => {
       const id = String(param.hoveredObjectId ?? "");
-      if (id.startsWith("close:")) { pickedTrade.set(id.slice(6)); tradesTab.set("trades"); }
+      if (id.startsWith("close:")) { pickedTrade.set(id.slice(6)); tradesTab.set("trades"); } else extras.click(id);
     });
     host.current!.addEventListener("dblclick", () => { const d = equity.data(); if (d.length) glide(time, { from: d[0]!.time as number, to: d.at(-1)!.time as number }); });
     api.current = { chart, equity, pace, replay, layers, notes, closes, ticks, start: null };
-    return () => { release(); chart.remove(); api.current = null; };
+    return () => { release(); extras.destroy(); chart.remove(); api.current = null; };
   }, []);
 
   useEffect(() => {
@@ -169,7 +166,10 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting);
     api.current?.closes.set(points, closes, c.closes);
-  }, [points, minutes, days, day, starting, worst, held, limit, closes, theme]);
+    extras.set({ points, readings, events, digits, step, hold, look: c.extras });
+    api.current?.layers.lift(extras.foot());
+    api.current?.notes.lift(extras.foot());
+  }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, events, digits, step, hold, theme]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
   useEffect(() => {
@@ -187,9 +187,10 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
   useEffect(() => { api.current?.layers.hover(today?.from ?? null); }, [today?.from]);
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-1.5 pb-1">
-      <EquityLegend point={p} starting={starting} annual={annual} replayed={replayed} worst={worst} step={step} many={many} ret={ret} />
+      <EquityLegend point={p} reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)} starting={starting} annual={annual} replayed={replayed} worst={worst} step={step} many={many} ret={ret} />
       <div className="relative min-h-0 flex-1">
         <div ref={host} className="h-full w-full" />
+        <ChartTip tip={extras.tip} />
         {!points.length && <p className="pointer-events-none absolute inset-0 grid place-items-center text-dense text-fg-faint">No equity yet: the run has not started</p>}
       </div>
     </div>

@@ -31,3 +31,17 @@ export function resample(minutes: readonly EquityPoint[], step: number): EquityP
   });
   return out;
 }
+
+const YEAR_S = 365 * 86_400;
+
+/** Each minute of `path` ([ns, equity]) as a point: its running peak from `starting` and the pace a minimum
+ *  `annual` return asks for, compounding from `start` (ms; else the first minute); one point a second. */
+export function equityMinutes(path: readonly (readonly [number, number])[], starting: number, start: number | null, annual: number | null): EquityPoint[] {
+  let peak = starting;
+  const t0 = start === null ? Math.floor((path[0]?.[0] ?? 0) / 1e9) : start / 1000;
+  return path.map(([ns, value]) => {
+    peak = Math.max(peak, value);
+    const time = Math.floor(ns / 1e9);
+    return { time, value, peak, pace: annual === null ? null : starting * (1 + annual) ** ((time - t0) / YEAR_S) };
+  }).filter((p, i, all) => i === all.length - 1 || all[i + 1]!.time > p.time);
+}

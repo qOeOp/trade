@@ -25,9 +25,9 @@ const ns = (value: unknown) => Number(value);
 export const ordered = (letters: string) => [...new Set(letters)].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)).slice(0, 3).join("");
 
 /** The contract's events and order events (whose tags the tooltips read): its own lines and those of
- *  no contract (the sockets). */
-export const eventsOf = (lines: readonly JournalLine[], symbol: string) =>
-  lines.filter((l) => (letterOf(l) || l.kind === "order") && (!l.instrument_id || symbolOf(l.instrument_id) === symbol));
+ *  no contract (the sockets); every contract's with no `symbol`. */
+export const eventsOf = (lines: readonly JournalLine[], symbol: string | null) =>
+  lines.filter((l) => (letterOf(l) || l.kind === "order") && (symbol === null || !l.instrument_id || symbolOf(l.instrument_id) === symbol));
 
 /** The open (s) of the candle at or before `t` among `times`, oldest first; null before the first. */
 function snap(times: readonly number[], t: number): number | null {

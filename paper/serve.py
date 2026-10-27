@@ -136,6 +136,15 @@ def _wanted(line: dict, instrument: str | None) -> bool:
     return line["kind"] != "bar" or line.get("instrument_id") == instrument
 
 
+def closes(lines: list[dict]) -> dict[str, list[list]]:
+    """Every contract's bar closes among `lines`, by symbol: [bar time (ns), close] pairs in journal order."""
+    found: dict[str, list[list]] = {}
+    for line in lines:
+        if line["kind"] == "bar" and line.get("instrument_id") and line.get("close") is not None:
+            found.setdefault(str(line["instrument_id"]).split("-")[0], []).append([line.get("ts_event") or 0, float(line["close"])])
+    return found
+
+
 class Daemon:
     def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None):
         from cli.main import ledger_profile
@@ -313,13 +322,13 @@ class Daemon:
         with db.connect(self.profile, "reader") as conn:
             return records.evidence.load_bundle(conn, records.bundle_name(paper_id))["files"]
 
-    def sealed_lines(self, paper_id: int, instrument: str | None, files: dict[str, bytes] | None = None) -> list[dict]:
+    def sealed_lines(self, paper_id: int, files: dict[str, bytes] | None = None) -> list[dict]:
+        """The sealed run's whole journal, every contract's bars included."""
         import gzip
         files = self.bundle(paper_id) if files is None else files
         lines: list[dict] = []
         for name in sorted(name for name in files if name.startswith("events/")):
-            found, _ = records.journal_lines(gzip.decompress(files[name]))
-            lines += [line for line in found if _wanted(line, instrument)]
+            lines += records.journal_lines(gzip.decompress(files[name]))[0]
         return lines
 
 
@@ -407,22 +416,26 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
 
         def stream(self, paper_id: int, instrument: str | None) -> None:
             """Server-sent events: `lines` (the journal so far, then what is appended: every line but the bars
-            of other contracts), `state` (state.json as it is replaced), `failures` (the strategy's runtime
-            failure records as the runner rewrites them, or the sealed capture's), `readings`
-            (live_readings, as they change) and `end` (the seal) once the run is sealed."""
+            of other contracts), `closes` (for a stream of no contract, the Account view's: every contract's
+            bar closes (closes()), all of them and then what is appended), `state` (state.json as it is
+            replaced), `failures` (the strategy's runtime failure records as the runner rewrites them, or the
+            sealed capture's), `readings` (live_readings, as they change) and `end` (the seal) once the run
+            is sealed."""
             with db.connect(daemon.profile, "reader") as conn:
                 row = records.read_paper_run(conn, paper_id)
                 sealed = records.seal_of(conn, paper_id)
             files = daemon.bundle(paper_id) if sealed else {}
-            lines = daemon.sealed_lines(paper_id, instrument, files) if sealed else None
+            whole = daemon.sealed_lines(paper_id, files) if sealed else []
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             try:
                 if sealed is not None:
-                    journal = Journal(lines=[line for line in lines or [] if line["kind"] != "bar"])
-                    self.send_event("lines", lines)
+                    journal = Journal(lines=[line for line in whole if line["kind"] != "bar"])
+                    self.send_event("lines", [line for line in whole if _wanted(line, instrument)])
+                    if instrument is None:
+                        self.send_event("closes", closes(whole))
                     failures = failure_records(files.get(FAILURES))
                     self.send_event("failures", failures)
                     self.send_event("readings", live_readings(row, journal) | {
@@ -434,8 +447,12 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 while True:
                     offset, lines, _ = read_lines(directory / "events.jsonl", offset)
                     kept = [line for line in lines if _wanted(line, instrument)]
+                    found = closes(lines) if instrument is None else {}
                     if kept or first:
                         self.send_event("lines", kept)
+                    if instrument is None and (found or first):
+                        self.send_event("closes", found)
+                    if kept or found or first:
                         beat, first = time.monotonic(), False
                     try:
                         modified = (directory / "state.json").stat().st_mtime
