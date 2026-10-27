@@ -1,7 +1,7 @@
 // What a contract chart marks of the run's events besides its trades: a flag along the pane's foot under
 // the candle each happened in (one flag a candle, its letters the kinds there: G a gap in the bars, L a
 // late bar, F a funding settlement, P a position its stops do not cover, R a refusal, X a rejected or
-// denied order, S a socket's state, I the instrument's status), in the warning colour where something
+// denied order, S a socket's state, I the instrument's status), in the events' blue where something
 // went wrong; and each gap in the bars as a hatched band from the last candle before it to the first
 // after. The tooltips say the same in words: a flag's events, and an arrow's fills with what each paid
 // and the order's tags (those its title does not already say), an exit's with how far the price ran for

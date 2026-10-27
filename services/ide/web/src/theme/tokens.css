@@ -79,6 +79,9 @@
   --pnl-up: var(--candle-up);
   /* the account's equity on the paper chart: vibe-trading's indigo hero line, lighter on dark */
   --equity: light-dark(#4338CA, #8B8CF8);
+  /* a run's events on its contract charts (a gap, a rejection) and in its Events list: a sky blue, apart
+     from the order levels' blue and the up and down pair, lighter on dark */
+  --event: light-dark(#139BE0, #5AA9F5);
   /* the ink of a chart line's drop shadow, taken at a fraction */
   --line-shadow: #000000;
   --pnl-down: var(--candle-down);
@@ -170,6 +173,7 @@
   --color-crosshair: var(--crosshair);
   --color-pnl-up: var(--pnl-up);
   --color-equity: var(--equity);
+  --color-event: var(--event);
   --color-pnl-down: var(--pnl-down);
   --color-cal-up-1: var(--cal-up-1);
   --color-cal-up-2: var(--cal-up-2);

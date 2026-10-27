@@ -58,7 +58,7 @@ export class CandleController {
         if (!found?.priceRange || !prices.length) return found;
         return { ...found, priceRange: { minValue: Math.min(found.priceRange.minValue, ...prices), maxValue: Math.max(found.priceRange.maxValue, ...prices) } };
       } });
-    candles.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.23 }, entireTextOnly: true });
+    candles.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.23 }, entireTextOnly: true });  // the gaps' bands start at its top (eventFlags.ts)
     const levels = new Levels(), marks = new TradeMarks(() => levels.chips());
     candles.attachPrimitive(marks); candles.attachPrimitive(levels);
     const notes = this.notes.attach(candles, levels);
