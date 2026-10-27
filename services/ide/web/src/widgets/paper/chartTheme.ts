@@ -33,9 +33,10 @@ export const priceFormat = (places: number, ticks = places) => ({
 });
 
 // A candle's spacing: as TradingView's by default, a minute's no wider than candleView's HI (the controller
-// widens it for longer periods), as narrow as a pixel while a gesture zooms out; a zoom keeps the moment
-// under the pointer where it is.
-const CANDLES: DeepPartial<TimeScaleOptions> = { rightOffset: 6, barSpacing: 7, minBarSpacing: 1, maxBarSpacing: 12 };
+// widens it for longer periods), as narrow as a pixel while a gesture zooms out (candleView's fence stops it
+// at the whole run); a zoom keeps the moment under the pointer where it is. No pan past the first candle,
+// nor past the room right of the newest (the fence's).
+const CANDLES: DeepPartial<TimeScaleOptions> = { rightOffset: 6, barSpacing: 7, minBarSpacing: 1, maxBarSpacing: 12, fixLeftEdge: true };
 
 /** A new chart: its look, and the spacing of its time scale (a candle's by default), which the user's
  *  zoom then owns. */

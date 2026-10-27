@@ -1,5 +1,6 @@
 // The run's price levels on a contract chart, drawn as one series primitive so they move with the
-// price scale, as TradingView draws a position line: a chip at each level's left end naming it in
+// price scale, as TradingView draws a position line: a chip at each level's left end, flush with the pane's
+// left edge so its line starts where the chip ends, naming it in
 // segments split by short hairlines (the position's side, size and open P&L; an order's name and what
 // it books if hit) and its tag on the value axis (orders keep the series' own dashed price lines, the
 // position has none: its trade box shows it), and for a level outside the visible range a chip pinned
@@ -10,11 +11,10 @@
 // and each chip sits level with its tag, as tall as it and on the same device pixels (Lightweight
 // Charts' axis label: the font's size and 2.5/12 of it above and below, its middle snapped as the
 // chart snaps it). While the run is live the last price's tag has a second one just under it, in the same
-// colours, as TradingView's countdown: the time left in the candle forming now. A pinned chip is a hover
-// target (`level:<id>`), so a click on it can show it.
+// colours, as TradingView's countdown: the time left in the candle forming now.
 import type { Rect } from "./tradeMarks";
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView,
-  PrimitiveHoveredItem, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
+  SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
 export type Part = { text: string; color: string };
 export type Level = {
@@ -32,7 +32,7 @@ type Scope = Parameters<Parameters<Target["useBitmapCoordinateSpace"]>[0]>[0];
 type Placed = { level: Level; y: number; edge: "top" | "bottom" | null; anchor: boolean };
 const CHIP_H = 17, PITCH = 20;  // px: a chip's height (an axis tag's at the chart's 12px); the least distance between two middles
 const TAG_HALF = CHIP_H / 2, FOOT = 4;  // px: half an axis tag's height; a pinned tag's least distance from the pane's foot
-const INSET = 10, PAD = 7, GAP = 8;
+const INSET = 10, LEFT = 0, PAD = 7, GAP = 8;  // px: a pinned chip's distance from the pane's top or foot; a chip's from its left edge
 
 export class Levels implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
@@ -43,7 +43,6 @@ export class Levels implements ISeriesPrimitive<Time> {
   private last: Level | null = null;
   private below: string | null = null;
   private crossY: number | null = null;
-  private hits: { id: string; x: number; y: number; w: number }[] = [];
   private drawn: Rect[] = [];
 
   /** Where the chips were last drawn (px), for the trades' tags to keep clear of. */
@@ -118,16 +117,10 @@ export class Levels implements ISeriesPrimitive<Time> {
     });
   }
 
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    const hit = this.hits.find((h) => x >= h.x && x <= h.x + h.w && Math.abs(y - h.y) <= CHIP_H / 2);
-    return hit ? { externalId: `level:${hit.id}`, zOrder: "top", cursorStyle: "pointer" } : null;
-  }
-
   private draw(target: Target): void {
     target.useBitmapCoordinateSpace((scope) => {
       scope.context.font = this.style.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * scope.verticalPixelRatio}px`);
       scope.context.textBaseline = "middle";
-      this.hits = [];
       this.drawn = [];
       for (const { level, y, edge, anchor } of this.placed()) if (!anchor) this.chip(scope, level, edge, y);
     });
@@ -137,20 +130,20 @@ export class Levels implements ISeriesPrimitive<Time> {
     const arrow = edge ? 11 : 0, line = Math.max(1, Math.floor(hr));
     const parts = edge ? [{ text: level.pinned, color: level.color }] : level.parts;
     const widths = parts.map((p) => c.measureText(p.text).width / hr);
-    const w = Math.round((PAD * 2 + arrow + widths.reduce((a, b) => a + b, 0) + GAP * (parts.length - 1)) * hr), left = Math.round(INSET * hr);
+    const w = Math.round((PAD * 2 + arrow + widths.reduce((a, b) => a + b, 0) + GAP * (parts.length - 1)) * hr), left = Math.round(LEFT * hr);
     // As the chart places an axis label: its middle snapped, its height made odd or even with the tick.
     const tick = Math.max(1, Math.floor(vr)), mid = Math.round(y * vr) - Math.floor(vr * 0.5);
     let h = Math.round(CHIP_H * vr);
     if (h % 2 !== tick % 2) h += 1;
     const top = Math.floor(mid + tick / 2 - h / 2), cy = top + h / 2;
-    this.drawn.push({ x: INSET, y: top / vr, w: w / hr, h: h / vr });
+    this.drawn.push({ x: LEFT, y: top / vr, w: w / hr, h: h / vr });
     c.beginPath();
     c.roundRect(left + line / 2, top + line / 2, w - line, h - line, 4 * hr);
     c.fillStyle = this.style.island;
     c.fill();
     Object.assign(c, { strokeStyle: level.color, lineWidth: line });
     c.stroke();
-    let x = (INSET + PAD) * hr;
+    let x = (LEFT + PAD) * hr;
     if (edge) {
       // A small filled triangle pointing to where the level is.
       const s = edge === "top" ? 1 : -1;
@@ -162,7 +155,6 @@ export class Levels implements ISeriesPrimitive<Time> {
       c.fillStyle = level.color;
       c.fill();
       x += arrow * hr;
-      this.hits.push({ id: level.id, x: INSET, y, w: w / hr });
     }
     parts.forEach((p, i) => {
       if (i) {

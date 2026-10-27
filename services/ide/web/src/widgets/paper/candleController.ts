@@ -5,8 +5,9 @@
 // under the pointer kept in place (viewAnchor.ts); the candles are regrouped and drawn again in the same
 // task, so no frame shows the old view over the new candles. The legend reads two atoms: the period, and
 // the candle under the pointer (else the last) with the close before it. The run's events, the tooltips,
-// what a click on an arrow or a flag opens and the countdown are candleNotes.ts's; a click on a pinned
-// level's chip brings the levels back into view.
+// what a click on an arrow or a flag opens and the countdown are candleNotes.ts's. The value axis always
+// fits what is shown (it cannot be dragged to scale), and the view never leaves the candles: it stops at
+// the first one, a few candles right of the newest and, zooming out, at the whole run (candleView.ts).
 import { CandlestickSeries, createChart, LineStyle, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { candleOpen, candles as gather, type Candle } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
@@ -16,7 +17,7 @@ import { AxisTicks } from "./axisTicks";
 import { CandleNotes } from "./candleNotes";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 import { chartLevels, lastLevel } from "./chartLevels";
-import { firstPeriod, fitAll, periodFor, widest } from "./candleView";
+import { fence, firstPeriod, fitAll, periodFor, widest } from "./candleView";
 import { Levels } from "./levels";
 import { arrows, tradeBoxes } from "./tradeBoxes";
 import { TradeMarks } from "./tradeMarks";
@@ -26,7 +27,6 @@ import { VolumeBars, type VolumeBar } from "./volumeBars";
 export type Trading = { fills: readonly Fill[]; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean };
 type Parts = { chart: IChartApi; candles: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Custom", UTCTimestamp, VolumeBar>; marks: TradeMarks; levels: Levels; ticks: AxisTicks };
 const at = (t: number) => t as UTCTimestamp;
-const ROOM = 0.15;  // the most of the pane left empty right of the newest candle once a view settles
 
 export class CandleController {
   /** The period in minutes, 0 until the first bars. */
@@ -40,11 +40,12 @@ export class CandleController {
   private hover: number | null = null;
   private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false };
   private dark = false;
-  private release: (() => void) | null = null; private host: HTMLElement | null = null;
+  private release: (() => void) | null = null; private host: HTMLElement | null = null; private fenced: (() => void) | null = null;
 
   mount(element: HTMLElement): void {
     this.host = element;
     const chart = createChart(element, chartOptions());
+    chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } } });
     // Added first so the candles draw over it; its scale fills the pane's lowest fifth but the events' strip.
     const volume = chart.addCustomSeries(new VolumeBars(), { priceScaleId: "", priceLineVisible: false, lastValueVisible: false,
       autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => { const found = base(); return found?.priceRange ? { ...found, priceRange: { ...found.priceRange, minValue: 0 } } : found; } }) as Parts["volume"];
@@ -61,10 +62,7 @@ export class CandleController {
     const levels = new Levels(), marks = new TradeMarks(() => levels.chips());
     candles.attachPrimitive(marks); candles.attachPrimitive(levels);
     const notes = this.notes.attach(candles, levels);
-    chart.subscribeClick((param) => {
-      const id = String(param.hoveredObjectId ?? "");
-      if (id.startsWith("level:")) chart.priceScale("right").applyOptions({ autoScale: true }); else notes.click(id);
-    });
+    chart.subscribeClick((param) => notes.click(String(param.hoveredObjectId ?? "")));
     const ticks = new AxisTicks(chart, [candles], { clear: 18, tags: () => levels.tags(),
       base: () => { const places = Math.max(0, this.trading.places); return priceFormat(places, Math.max(0, places - 2)); } });
     chart.subscribeCrosshairMove((param) => {
@@ -75,6 +73,7 @@ export class CandleController {
     });
     this.parts = { chart, candles, volume, marks, levels, ticks };
     this.release = whenSettled(element, chart.timeScale(), (x) => this.settle(x));
+    this.fenced = fence(chart.timeScale(), () => this.data.length);
     this.restyle();
     afterFonts(() => this.restyle());
     if (this.bars.length) this.setBars(this.bars);
@@ -82,7 +81,7 @@ export class CandleController {
 
   destroy(): void {
     this.release?.(); this.notes.destroy(); this.parts?.chart.remove();
-    Object.assign(this, { parts: null, release: null, host: null, lines: new Map(), data: [] });
+    Object.assign(this, { parts: null, release: null, host: null, fenced: null, lines: new Map(), data: [] });
     this.period.set(0);
   }
 
@@ -148,17 +147,18 @@ export class CandleController {
       p.volume.setData(next.map(volume));
     }
     this.data = next;
+    this.fenced?.();
     this.drawTrading();
     this.showLegend();
   }
 
-  /** Once the view has settled: a period whose candles sit better, the time under `x` kept there (else
-   *  only the space right of the newest candle kept within ROOM); the ticks written anew either way. */
+  /** Once the view has settled: a period whose candles sit better, the time under `x` kept there; the
+   *  ticks written anew either way. */
   private settle(x: number | null): void {
     const p = this.parts, step = this.period.get() * 60;
     if (!p || !step || !this.data.length) return;
-    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step), room = (time.width() / (w || 1)) * ROOM;
-    if (next === step) { if (time.scrollPosition() > room) time.scrollToPosition(room, false); p.ticks.refresh(); return; }
+    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step);
+    if (next === step) { this.fenced?.(); p.ticks.refresh(); return; }
     const anchor = x ?? time.width() / 2, t = timeAt(time, this.data.map((k) => k.time), step, anchor);
     this.period.set(next / 60);
     time.applyOptions({ maxBarSpacing: widest(next) });

@@ -8,6 +8,7 @@
 // it at TARGET px or more, a young run's candles HI wide with the newest at the right.
 import type { ITimeScaleApi, Time } from "lightweight-charts";
 import { stepFor } from "./equityResolution";
+import { spacing } from "./viewAnchor";
 
 export const PERIODS = [60, 180, 300, 900, 1_800, 3_600, 7_200, 14_400, 21_600, 43_200, 86_400] as const;  // s: 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
 const LO = 4, HI = 12, TARGET = 7, SPREAD = 3;  // px, px, px, times
@@ -31,4 +32,20 @@ export function fitAll(time: ITimeScaleApi<Time>, n: number, step: number): void
   time.applyOptions({ maxBarSpacing: widest(step) });
   if (time.width() / (n + time.options().rightOffset) > HI) { time.applyOptions({ barSpacing: HI }); time.scrollToRealTime(); }
   else time.fitContent();
+}
+
+/** The view kept on the candles (`count()` of them): a pan stops at the first (the chart's own fixLeftEdge)
+ *  and the time scale's right offset (in candles) right of the newest, there and then rather than springing
+ *  back once it settles (a young run's candles stay where the chart puts them, from the left); a zoom out
+ *  stops once they and that room fill the pane. Returns what sets that least spacing again, for when the candles change. */
+export function fence(time: ITimeScaleApi<Time>, count: () => number): () => void {
+  const room = () => time.options().rightOffset;
+  time.subscribeVisibleLogicalRangeChange(() => {
+    const most = Math.max(room(), time.width() / (spacing(time) || 1) - count());
+    if (time.scrollPosition() > most + 0.01) time.scrollToPosition(most, false);
+  });
+  return () => {
+    const w = time.width();
+    if (w) time.applyOptions({ minBarSpacing: Math.min(time.options().maxBarSpacing, Math.max(1, w / (count() + room()))) });
+  };
 }
