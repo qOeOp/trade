@@ -51,7 +51,9 @@ not a substitute for the disposition.
    When asking, end with a direct question choosing how to resolve the data/scope block. List
    first each range that runs now under the pinned inputs with no anomaly left that calls for this
    question (a later trading start can put a MARK gap in warm-up), then keeping the selection
-   while obtaining or verifying the missing source evidence, or another supported range through
+   while obtaining or verifying the missing source evidence (only under a pinned commit the market
+   database holds; a missing commit is SKILL.md's `MARKET_COMMIT_UNRESOLVED` gate, never a research
+   option), or another supported range through
    the existing line-change rules; keep the options already offered unless new evidence rules one
    out. `market import` refuses a month the
    database already holds through its end (`MONTH_EXISTS`), so a source missing inside a stored

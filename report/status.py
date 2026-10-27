@@ -20,7 +20,7 @@ from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
 from registration import comparability, register
-from report import candidates as report_candidates, measures, runs
+from report import candidates as report_candidates, measures, runs, seams
 from runtime import image
 
 
@@ -439,6 +439,20 @@ def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Ma
              "missing": [name for _, name in old]}]
 
 
+def _unresolved_market(record: Mapping) -> list[dict]:
+    """A gate when no branch of the active market database holds the line's pinned market commit: the
+    line's next registration is refused MARKET_COMMIT_UNRESOLVED and its runs cannot be replayed until
+    that commit is back in the database. Nothing when the market cannot be read."""
+    found = seams.current.market_commit(record["market_commit"])
+    if found is None or found["commit"] is not None:
+        return []
+    return [{"code": "MARKET_COMMIT_UNRESOLVED",
+             "message": f"the line's market commit {record['market_commit']} is in no branch of the active market "
+                        f"database {found['database']}, so the line cannot register or replay until that commit is "
+                        "back in it",
+             "missing": [record["market_commit"]]}]
+
+
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
@@ -446,7 +460,8 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     null), the ended lines not yet closed (`unclosed_lines`, for `line close`), its current judgments with read-time facts, the fixed review cadence (`review_every`),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
-    (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs). On
+    (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
+    MARKET_COMMIT_UNRESOLVED when no branch of the active market database holds the line's market commit). On
     a ledger without a research line: `line` null with the facts and `line select` as the next step.
 
     By default interpretations and search exposures are those after the current recommendation, with the
@@ -497,6 +512,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
+        gates += _unresolved_market(record)
     return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "unclosed_lines": unclosed,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],

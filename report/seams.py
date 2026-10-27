@@ -1,5 +1,5 @@
 """The one place the report readers reach code of other packages: the market's daily returns
-(market.daily_returns), reproducing a sealed run (replay.reproduce) and the engine's native report
+(market.daily_returns), whether the active market database holds a commit (market.resolve_commit), reproducing a sealed run (replay.reproduce) and the engine's native report
 comparison (engine.compare_reports).
 
 `current` holds the implementations in force. The market default reads the run's market database
@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from ledger import db
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
@@ -48,6 +49,21 @@ def _market_returns(market_database: str | None, commit: str | None, universe_ru
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
 
+def _market_commit(ref: str) -> dict | None:
+    """market.resolve_commit of `ref` on the active market database: {database, commit}, commit None
+    when that database holds no such commit (UNKNOWN_REF). None when the active market cannot be read
+    (no profile, the service down): registration then refuses on its own."""
+    from market import store
+    try:
+        profile = _market_profile()
+        with store.connect(profile, "reader") as conn:
+            return {"database": profile["database"], "commit": store.resolve_commit(conn, ref)}
+    except Refusal:
+        return None
+    except store.MarketError as exc:
+        return {"database": profile["database"], "commit": None} if exc.code == "UNKNOWN_REF" else None
+
+
 def _reproduce(trial_id: int, output: Path, ledger: db.LedgerProfile) -> dict:
     from registration import seams as registration_seams
     from replay import reproduce
@@ -63,11 +79,13 @@ def _compare_reports(reference: Path, candidate: Path) -> dict:
 @dataclass(frozen=True)
 class Seams:
     market_returns: Callable[[str | None, str | None, str | None, datetime, datetime], dict]
+    market_commit: Callable[[str], dict | None]
     reproduce: Callable[[int, Path, db.LedgerProfile], dict]
     compare_reports: Callable[[Path, Path], dict]
 
 
-DEFAULT = Seams(market_returns=_market_returns, reproduce=_reproduce, compare_reports=_compare_reports)
+DEFAULT = Seams(market_returns=_market_returns, market_commit=_market_commit, reproduce=_reproduce,
+                compare_reports=_compare_reports)
 current = DEFAULT
 
 
