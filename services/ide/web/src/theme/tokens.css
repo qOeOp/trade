@@ -70,11 +70,12 @@
   --crosshair: var(--fg-faint);
   /* the selected run in a scatter: a bright yellow fill, deeper on white so it still reads */
   --selected-mark: light-dark(#E6B000, #FFD43B);
-  /* Up and down, wherever either is shown: Binance's green and red (3:1 on the island in both themes;
-     under red-green colour-vision deficiency they sit 7-8 apart, so up and down are also told by sign,
-     side or position). Candles, profit and loss, calendar days and order levels all take these two. */
-  --candle-up: light-dark(#03A66D, #0ECB81);
-  --candle-down: light-dark(#CF304A, #F6465D);
+  /* Up and down, wherever either is shown: TradingView's green and red, the same in both themes as
+     TradingView's own (3:1 on the island in both; under red-green colour-vision deficiency they sit 11
+     apart, and up and down are still also told by sign, side or position). Candles, profit and loss,
+     calendar days and order levels all take these two. */
+  --candle-up: #089981;
+  --candle-down: #F23645;
   --pnl-up: var(--candle-up);
   /* the account's equity on the paper chart: vibe-trading's indigo hero line, lighter on dark */
   --equity: light-dark(#4338CA, #8B8CF8);
