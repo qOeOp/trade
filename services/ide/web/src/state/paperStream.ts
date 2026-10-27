@@ -8,6 +8,8 @@ import { atom, useAtom } from "./atom";
 
 export type Stream = {
   paperId: number; symbol: string | null; lines: JournalLine[]; bars: JournalLine[];
+  /** Every contract's bar closes ([bar time ns, close]), by symbol: the Account view's stream only. */
+  closes: Record<string, [number, number][]>;
   state: PaperState | null; readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; connected: boolean;
 };
 export const stream = atom<Stream | null>(null);
@@ -41,11 +43,11 @@ export function follow(paperId: number | null, symbol: string | null): void {
   if (paperId === null) { stream.set(null); return; }
   // Lines of the same run carry over while another contract's stream starts; its bars do not.
   const kept = now?.paperId === paperId ? now : null;
-  stream.set({ paperId, symbol, lines: kept?.lines ?? [], bars: [], state: kept?.state ?? null,
+  stream.set({ paperId, symbol, lines: kept?.lines ?? [], bars: [], closes: {}, state: kept?.state ?? null,
                readings: kept?.readings ?? null, seal: kept?.seal ?? null, failures: kept?.failures ?? [], connected: false });
   const events = new EventSource(streamUrl(paperId, symbol));
   source = events;
-  let first = true;
+  let first = true, firstCloses = true;
   const update = (f: (s: Stream) => Stream) => { const s = stream.get(); if (s && source === events) stream.set(f(s)); };
   events.addEventListener("lines", (event) => {
     const lines = JSON.parse((event as MessageEvent).data) as JournalLine[];
@@ -54,6 +56,13 @@ export function follow(paperId: number | null, symbol: string | null): void {
     update((s) => ({ ...s, connected: true, lines: first ? rest : [...s.lines, ...rest], bars: first ? bars : [...s.bars, ...bars] }));
     first = false;
   });
+  events.addEventListener("closes", (event) => {
+    const found = JSON.parse((event as MessageEvent).data) as Record<string, [number, number][]>;
+    // Like the lines, the first batch is every close so far.
+    update((s) => ({ ...s, closes: firstCloses ? found : Object.fromEntries([...new Set([...Object.keys(s.closes), ...Object.keys(found)])]
+      .map((k) => [k, [...(s.closes[k] ?? []), ...(found[k] ?? [])]])) }));
+    firstCloses = false;
+  });
   events.addEventListener("state", (event) => update((s) => ({ ...s, state: JSON.parse((event as MessageEvent).data) })));
   events.addEventListener("failures", (event) => update((s) => ({ ...s, failures: JSON.parse((event as MessageEvent).data) })));
   events.addEventListener("readings", (event) => update((s) => ({ ...s, readings: JSON.parse((event as MessageEvent).data) })));
@@ -61,6 +70,6 @@ export function follow(paperId: number | null, symbol: string | null): void {
     update((s) => ({ ...s, seal: JSON.parse((event as MessageEvent).data) }));
     events.close();
   });
-  events.onopen = () => { first = true; };  // a reconnected stream starts again from the whole journal
+  events.onopen = () => { first = firstCloses = true; };  // a reconnected stream starts again from the whole journal
   events.onerror = () => update((s) => ({ ...s, connected: false }));
 }

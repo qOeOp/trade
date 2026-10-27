@@ -1,6 +1,6 @@
 // The equity chart's own layers, drawn as one series primitive on the equity series so they move with
 // its scales, after vibe-trading's band chart. Beneath the series: the stretches where the run held any
-// position, faintly shaded, and the hovered day's column; the value gridlines; the gap between equity
+// position, faintly shaded, and the hovered day's column (the day bars above the event flags' strip, `lift`); the value gridlines; the gap between equity
 // and the pace it is measured against, flat, in the profit colour where equity is ahead and the loss
 // colour where behind; the drawdown and day bands (equityBands), behind the line as vibe-trading's. Above it the equity line itself (the series draws none):
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
@@ -30,6 +30,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private worst = 0;
   private look: EquityLook | null = null;
   private ticks: readonly number[] = [];
+  private foot = 0;
 
   /** The run's points and days, the day picked (its start, in seconds), the balance equity is measured
    *  against where it has no pace, the run's worst drawdown (from every minute), where it held a
@@ -45,6 +46,9 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     this.hovered = day;
     this.redraw?.();
   }
+
+  /** How much of the pane's foot (px) the day bars stand above: the event flags' strip. */
+  lift(px: number): void { if (px !== this.foot) { this.foot = px; this.redraw?.(); } }
 
   /** The prices the value axis labels, each given a gridline. */
   grid(prices: readonly number[]): void {
@@ -115,7 +119,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     this.gap(f);
     drawdownRows(f, points, this.worst, look!);
-    if (days) dayBars(f, points, this.days, (d) => d === this.picked || d === this.hovered, look!);
+    if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, points, this.days, (d) => d === this.picked || d === this.hovered, look!);
   }
 
   /** The band between equity and its pace, filled flat twice: clipped above the pace, then below it. */

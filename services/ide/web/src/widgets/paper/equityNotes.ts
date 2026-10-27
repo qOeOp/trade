@@ -1,7 +1,7 @@
 // What the equity chart marks on its line besides its layers (equityLayers.ts), as one series primitive:
 // the floor the line's drawdown limit sets, the running peak less the limit, as a fine dashed step line in
 // the loss colour (rising only when equity makes a new high), with its tag on the value axis, pinned at the
-// pane's foot with an arrow while the floor is below the view, and its name beside the tag; the run's
+// pane's foot (above the event flags) with an arrow while the floor is below the view, and its name beside the tag; the run's
 // deepest drawdowns (DEEPEST, from every minute) each as a bracket from its peak to its trough, a dotted
 // line along the peak's level and a capped drop at the trough with its depth beneath (at the line as drawn,
 // whose step may hide the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
@@ -40,7 +40,7 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private points: readonly EquityPoint[] = [];
   private limit: number | null = null;
   private drops: readonly Episode[] = []; private look: NotesLook | null = null;
-  private format: (n: number) => string = String; private start = 0;
+  private format: (n: number) => string = String; private start = 0; private raised = 0;
 
   /** The points drawn and every minute, the drawdown limit, the colours, the value format and
    *  the starting balance (whose tag the chart draws). */
@@ -56,6 +56,9 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
       ({ zOrder: () => zOrder, renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(draw) }) });
     return [view("normal", (s) => this.under(s)), view("top", (s) => this.over(s))];
   }
+
+  /** How much of the pane's foot (px) a pinned tag stands above: the event flags' strip. */
+  lift(px: number): void { if (px !== this.raised) { this.raised = px; this.redraw?.(); } }
 
   /** Where the tags sit, so the value ticks can give way to them. */
   tags(): number[] { return this.tagged().map((t) => t.y); }
@@ -80,8 +83,8 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     if (this.limit !== null) {
       const floor = p.peak * (1 - this.limit), y = series.priceToCoordinate(floor);
       if (y !== null) {
-        const below = y > foot - FOOT;
-        tags.push({ y: below ? foot - FOOT : y, text: `${below ? "↓ " : ""}${this.format(floor)}`, name: `Drawdown limit ${pct(this.limit)}`, back: look.floorTag, color: look.floorText, nameColor: look.floor });
+        const pin = foot - FOOT - this.raised, below = y > pin;
+        tags.push({ y: below ? pin : y, text: `${below ? "↓ " : ""}${this.format(floor)}`, name: `Drawdown limit ${pct(this.limit)}`, back: look.floorTag, color: look.floorText, nameColor: look.floor });
       }
     }
     // Off the chart's own tags and each other: moved away from the first it covers until it covers none.

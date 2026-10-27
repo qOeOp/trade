@@ -1,7 +1,8 @@
 """If this fails, the Paper panel misleads or is open to other pages: a page of another site or port can
 start a paper run, a run's live readings differ from what its seal computes from the same journal, a
-run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed, or the
-exceptions its strategy raised (while it runs or once sealed) never reach the page."""
+run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed, the
+Account view's stream misses a contract's closes, or the exceptions its strategy raised (while it runs
+or once sealed) never reach the page."""
 
 from __future__ import annotations
 
@@ -166,6 +167,21 @@ class StreamTests(unittest.TestCase):
         self.daemon.listed = None
         self.assertEqual(events(response), ("end", {"status": "complete"}))
 
+    def test_the_account_streams_every_contracts_closes_then_the_new_ones(self):
+        bar = lambda symbol, minute, close: line("bar", START + minute * MINUTE, instrument_id=f"{symbol}-PERP.BINANCE",
+                                                 ts_event=START + minute * MINUTE - 10**6, close=close)
+        write(self.out / "events.jsonl", [*journal(), bar("BTCUSDT", 1, "100000.5"), bar("ETHUSDT", 1, "3900")])
+        response = self.stream()
+        kind, first = events(response)
+        self.assertEqual((kind, [item["kind"] for item in first].count("bar")), ("lines", 0))
+        self.assertEqual(events(response), ("closes", {"BTCUSDT": [[START + MINUTE - 10**6, 100000.5]],
+                                                      "ETHUSDT": [[START + MINUTE - 10**6, 3900.0]]}))
+        write(self.out / "events.jsonl", [bar("ETHUSDT", 2, "3901.25")])
+        kind, found = events(response)
+        while kind != "closes":
+            kind, found = events(response)
+        self.assertEqual(found, {"ETHUSDT": [[START + 2 * MINUTE - 10**6, 3901.25]]})
+
     def stream(self) -> http.client.HTTPResponse:
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
         conn.request("GET", f"/api/paper/runs/{self.row['paper_id']}/stream", headers={"Host": HOST})
@@ -178,6 +194,7 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(self.daemon.runs()["runs"][0]["live"]["exceptions"], 4)
         response = self.stream()
         self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(events(response), ("closes", {}))
         self.assertEqual(events(response), ("failures", [FAILURE]))
         self.assertEqual(events(response)[1]["exceptions"], 4)
         with db.connect(self.profile, "writer") as writer:
@@ -185,6 +202,7 @@ class StreamTests(unittest.TestCase):
                 "seal.json": b'{"status": "invalid"}', serve.FAILURES: (json.dumps(FAILURE) + "\n").encode()})
         response = self.stream()
         self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(events(response), ("closes", {}))
         self.assertEqual(events(response), ("failures", [FAILURE]))
         kind, readings = events(response)
         self.assertEqual((kind, readings["exceptions"]), ("readings", 4))
