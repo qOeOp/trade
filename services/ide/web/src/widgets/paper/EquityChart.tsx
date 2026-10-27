@@ -2,19 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, CrosshairMode, LineSeries, LineStyle, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { days as daysOf } from "../../model/paper";
 import { useAtom } from "../../state/atom";
-import { pickedDay } from "../../state/paperStream";
+import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
 import { canvasColor } from "../../theme/roles";
 import { AxisTicks } from "./axisTicks";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 import { EquityLegend } from "./EquityLegend";
 import { EquityLayers, FEW, type EquityPoint } from "./equityLayers";
-import { EquityNotes, type Close } from "./equityNotes";
+import { EquityCloses, type Close } from "./equityCloses";
+import { EquityNotes } from "./equityNotes";
 import { resample, stepFor, STEPS } from "./equityResolution";
 import { glide } from "./glide";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
-type Api = { chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">; layers: EquityLayers; notes: EquityNotes; ticks: AxisTicks; start: IPriceLine | null };
+type Api = { chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">; layers: EquityLayers; notes: EquityNotes; closes: EquityCloses; ticks: AxisTicks; start: IPriceLine | null };
 const YEAR_S = 365 * 86_400;
 const at = (t: number) => t as UTCTimestamp;
 const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
@@ -28,7 +29,8 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  return target); behind them how far equity is below its running peak, as dashes hanging from the top,
  *  each day's return as a slim bar from the bottom, and the stretches it held a position faintly shaded
  *  (equityLayers). On the line (equityNotes): the floor its drawdown limit sets, its deepest drawdowns
- *  bracketed peak to trough, a dot where each trade closed, and the pace's and the floor's tags.
+ *  bracketed peak to trough and the pace's and the floor's tags; an arrow where each trade closed
+ *  (equityCloses), whose click picks the trade in the trades list, and the pace's and the floor's tags.
  *  Once a sealed run is reconciled, and while its reconciliation shows, the replay's equity on the
  *  archive as a fine dotted line. The line is drawn at the finest step (a minute up to a day) that
  *  keeps its points apart across the span in view (equityResolution): a short run fills the chart by
@@ -81,8 +83,10 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     const equity = chart.addSeries(LineSeries, { lineVisible: false, lineWidth: 2 as LineWidth, priceLineVisible: false,
                                                  crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2 });
     equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 }, entireTextOnly: true });
-    // The notes first, so the line draws over their floor and brackets; their dots and names above it.
-    const layers = new EquityLayers(), notes = new EquityNotes();
+    // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
+    // names above it, the depths over the arrows.
+    const layers = new EquityLayers(), notes = new EquityNotes(), closes = new EquityCloses();
+    equity.attachPrimitive(closes);
     equity.attachPrimitive(notes);
     equity.attachPrimitive(layers);
     // The value ticks (axisTicks): every other one when crowded, none under the start's, the last value's
@@ -114,9 +118,16 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
       // The pointer's tag sits at the equity it snaps to.
       const value = param.point ? (param.seriesData.get(equity) as { value: number } | undefined)?.value : undefined;
       ticks.cross(param.point?.x ?? null, value === undefined ? null : equity.priceToCoordinate(value));
+      // No pointer's dot over a close's arrow.
+      const onArrow = String(param.hoveredObjectId ?? "").startsWith("close:");
+      if (onArrow === equity.options().crosshairMarkerVisible) equity.applyOptions({ crosshairMarkerVisible: !onArrow });
+    });
+    chart.subscribeClick((param) => {
+      const id = String(param.hoveredObjectId ?? "");
+      if (id.startsWith("close:")) { pickedTrade.set(id.slice(6)); tradesTab.set("trades"); }
     });
     host.current!.addEventListener("dblclick", () => { const d = equity.data(); if (d.length) glide(time, { from: d[0]!.time as number, to: d.at(-1)!.time as number }); });
-    api.current = { chart, equity, pace, replay, layers, notes, ticks, start: null };
+    api.current = { chart, equity, pace, replay, layers, notes, closes, ticks, start: null };
     return () => { release(); chart.remove(); api.current = null; };
   }, []);
 
@@ -156,7 +167,8 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
   useEffect(() => {
     const c = seriesColors(theme === "dark");
     api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers);
-    api.current?.notes.set(points, minutes, limit, closes, c.notes, priceFormat(0).formatter, starting);
+    api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting);
+    api.current?.closes.set(points, closes, c.closes);
   }, [points, minutes, days, day, starting, worst, held, limit, closes, theme]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);

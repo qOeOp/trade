@@ -4,23 +4,22 @@
 // pane's foot with an arrow while the floor is below the view, and its name beside the tag; the run's
 // deepest drawdowns (DEEPEST, from every minute) each as a bracket from its peak to its trough, a dotted
 // line along the peak's level and a capped drop at the trough with its depth beneath (at the line as drawn,
-// whose step may hide the very minute); a dot on the line where each trade closed, in the profit or the
-// loss colour by what it made, while they are no nearer than SPARSE px on average; and the pace's tag on the
+// whose step may hide the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
 // value axis with its name beside it, at the last point in view as the equity's own tag. A tag that would
 // cover the chart's own (the start's, the last value's) moves a tag's height off it.
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { EquityPoint } from "./equityLayers";
+import { valueAt, xAt } from "./equityPlace";
 
-export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; level: string; up: string; down: string;
+export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; level: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
-export type Close = { time: number; pnl: number };
 type Episode = { from: number; to: number; peak: number; trough: number; depth: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 type Tag = { y: number; text: string; name: string; back: string; color: string; nameColor: string; nameY?: number };
 
 const DEEPEST = 3, SHALLOW = 0.002;  // the deepest drawdowns marked, none shallower than this
-const DOT = 3.5, RING = 1.5, CAP = 6, FOOT = 10, SPARSE = 12;  // px: a close's dot and ring, a bracket's cap, a pinned tag's distance from the foot
+const CAP = 6, FOOT = 10;  // px: a bracket's cap, a pinned tag's distance from the foot
 const pct = (r: number) => `−${(r * 100).toFixed(2)}%`;
 const TAG = 18;  // px: an axis tag's height and a little
 
@@ -39,14 +38,14 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
   private redraw: (() => void) | null = null;
   private points: readonly EquityPoint[] = [];
-  private limit: number | null = null; private closes: readonly Close[] = [];
+  private limit: number | null = null;
   private drops: readonly Episode[] = []; private look: NotesLook | null = null;
   private format: (n: number) => string = String; private start = 0;
 
-  /** The points drawn and every minute, the drawdown limit, the closes, the colours, the value format and
+  /** The points drawn and every minute, the drawdown limit, the colours, the value format and
    *  the starting balance (whose tag the chart draws). */
-  set(points: readonly EquityPoint[], minutes: readonly EquityPoint[], limit: number | null, closes: readonly Close[], look: NotesLook, format: (n: number) => string, start: number): void {
-    Object.assign(this, { points, limit, closes, look, format, start, drops: deepest(minutes) });
+  set(points: readonly EquityPoint[], minutes: readonly EquityPoint[], limit: number | null, look: NotesLook, format: (n: number) => string, start: number): void {
+    Object.assign(this, { points, limit, look, format, start, drops: deepest(minutes) });
     this.redraw?.();
   }
 
@@ -98,28 +97,9 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     return tags;
   }
 
-  /** The pane x of time `t` (s), between the points either side of it. */
-  private x(t: number): number | null {
-    const pts = this.points, time = this.chart?.timeScale();
-    if (!time || pts.length < 2 || t < pts[0]!.time) return null;
-    let lo = 0, hi = pts.length - 1;
-    const at = (i: number) => time.logicalToCoordinate(i as Logical) ?? Number.NaN;
-    if (t >= pts[hi]!.time) return at(hi);
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (pts[mid]!.time <= t) lo = mid; else hi = mid; }
-    // Between the two points' own places: the chart takes whole indexes only.
-    return at(lo) + ((t - pts[lo]!.time) / (pts[hi]!.time - pts[lo]!.time)) * (at(hi) - at(lo));
-  }
-
+  private x = (t: number) => (this.chart ? xAt(this.points, this.chart.timeScale(), t) : null);
+  private valueAt = (t: number) => valueAt(this.points, t);
   private inView = (x: number) => x >= 0 && x <= (this.chart?.timeScale().width() ?? 0);
-
-  /** The equity at time `t`: the point's at or before it. */
-  private valueAt(t: number): number | null {
-    const pts = this.points;
-    let lo = 0, hi = pts.length - 1;
-    if (!pts.length || t < pts[0]!.time) return null;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pts[mid]!.time <= t) lo = mid; else hi = mid - 1; }
-    return pts[lo]!.value;
-  }
 
   private under({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const { look, series, chart } = this, range = chart?.timeScale().getVisibleLogicalRange();
@@ -171,20 +151,7 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
       c.fillStyle = colour;
       c.fillText(text, Math.round(x), Math.round(y) + 1);
     };
-    // The closes' dots, none nearer the last drawn than a dot's width, and none while crowded.
-    const shown = this.closes.map((k) => this.x(k.time)).filter((x) => x !== null && x >= 0 && x * hr <= bitmapSize.width).length;
-    let last = shown && bitmapSize.width / hr / shown < SPARSE ? Infinity : -Infinity;
-    for (const k of this.closes) {
-      if (last === Infinity) break;
-      const x = this.x(k.time), v = this.valueAt(k.time), y = v === null ? null : series.priceToCoordinate(v);
-      if (x === null || y === null || Math.abs(x - last) < 2 * DOT + 1 || x < 0 || x * hr > bitmapSize.width) continue;
-      last = x;
-      c.beginPath(); c.arc(Math.round(x * hr), Math.round(y * vr), (DOT + RING) * hr, 0, 2 * Math.PI);
-      c.fillStyle = look.island; c.fill();
-      c.beginPath(); c.arc(Math.round(x * hr), Math.round(y * vr), DOT * hr, 0, 2 * Math.PI);
-      c.fillStyle = k.pnl >= 0 ? look.up : look.down; c.fill();
-    }
-    // Each drop's depth under its trough, over the dots.
+    // Each drop's depth under its trough, over the closes' arrows.
     c.textAlign = "center";
     for (const e of this.drops) {
       const x = this.x(e.to), v = this.valueAt(e.to), y = v === null ? null : series.priceToCoordinate(v);

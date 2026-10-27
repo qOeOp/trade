@@ -1,13 +1,11 @@
 // The run's trades on a contract chart, as TradingView's strategy view draws them: beneath the candles each
 // trade as a box from its entry candle to its exit candle and from its entry price to its exit price, in
 // the profit colour when it made money and the loss colour when it lost, so a box's colour and height
-// read as its result (once the box spans two candles it is outlined in the result's colour, its exit
-// edge stronger; once it spans three, a hairline in the text colour marks the entry price); a trade
-// inside one candle covers that candle, and one under two candles wide has no box while candles are
-// narrow (its arrows carry it); the open
-// position's box reaches the axis with a dashed outline, at least a few pixels tall. A trade that starts
+// read as its result; a flat block with no outline, as TradingView's position tool fills its zones; a
+// trade inside one candle covers that candle, and one under two candles wide has no box while candles are
+// narrow (its arrows carry it); the open position's box reaches the axis, at least a few pixels tall. A trade that starts
 // on the candle where the one before it ended meets it at that candle's middle, a gap between, so no two
-// boxes overlap. Above the candles each fill is an arrow off its candle, up in the up colour for a buy,
+// boxes overlap; boxes on neighbouring candles keep a hairline apart. Above the candles each fill is an arrow off its candle, up in the up colour for a buy,
 // down in the down colour for a sell, ringed in the card's colour so it stands off what it crosses, the
 // entries' first and each exit's where it overlaps none, smaller while candles are narrow; and each box's
 // result a small tag beyond its
@@ -16,22 +14,21 @@
 // fill's id).
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, PrimitiveHoveredItem,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
+import { ARROW, arrowAt, drawArrow, SMALL } from "./arrowMark";
 import { signed } from "./chartLevels";
 import type { Arrow, TradeBox } from "./tradeBoxes";
 import { spacing } from "./viewAnchor";
 
-export type MarksLook = { up: string; down: string; upEdge: string; downEdge: string; upText: string; downText: string;
-  entry: string; buy: string; sell: string; halo: string; font: string };
+export type MarksLook = { up: string; down: string; upText: string; downText: string; buy: string; sell: string; halo: string; font: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 export type Rect = { x: number; y: number; w: number; h: number };
 
 const TAG_H = 16, TAG_PAD = 5, TAG_GAP = 3;        // px: a result tag's height, padding and distance from its box
-// px: an arrow's head width and height, stem height and ring, and smaller while candles are NARROW
-const ARROW = { w: 9, h: 6, stem: 5, ring: 3 }, SMALL = { w: 7, h: 5, stem: 4, ring: 2 }, STEM_W = 2, OFF = 3;
+const OFF = 3;                                     // px: an arrow's tip off its candle (arrowMark.ts; smaller while candles are NARROW)
 const NARROW = 14;                                 // px: candles narrower than this draw no box under two candles wide
 const OPEN_H = 3;                                  // px: the open position's box at least this tall
 const MEET = 1.5;                                  // px: two boxes meeting on a candle stop this far either side of its middle
-const SIDE = 0.75;                                 // a box's sides, as a share of its exit edge's strength
+const INSET = 1;                                   // px: a box's sides inside its candles' edges, so boxes on neighbouring candles part
 
 export class TradeMarks implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
@@ -75,8 +72,8 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
   private frame(i: number, width: number) {
     const box = this.boxes[i]!, a = this.at(box.from, box.entry), b = this.at(box.to, box.exit), half = this.spacing() / 2, one = box.from === box.to && !box.open;
     if (!a || !b) return null;
-    const left = !one && this.boxes[i - 1]?.to === box.from ? a.x + MEET : a.x - half;
-    const right = box.open ? width : !one && this.boxes[i + 1]?.from === box.to ? b.x - MEET : b.x + half, candles = (right - left) / (2 * half || 1);
+    const left = !one && this.boxes[i - 1]?.to === box.from ? a.x + MEET : a.x - half + INSET;
+    const right = box.open ? width : !one && this.boxes[i + 1]?.from === box.to ? b.x - MEET : b.x + half - INSET, candles = (right - left) / (2 * half || 1);
     if (!box.open && 2 * half < NARROW && candles < 2) return null;
     return { left, right, entry: a.y, exit: b.y, won: box.pnl >= 0, open: box.open, candles, pnl: box.pnl };
   }
@@ -92,24 +89,8 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
       const tall = Math.max(f.open ? Math.round(OPEN_H * vr) : line, Math.abs(exit - entry)), top = Math.round((entry + exit) / 2 - tall / 2);
       c.fillStyle = f.won ? look.up : look.down;
       c.fillRect(left, top, right - left, tall);
-      if (f.open) {
-        Object.assign(c, { strokeStyle: f.won ? look.upEdge : look.downEdge, lineWidth: line });
-        c.setLineDash([4 * hr, 3 * hr]);
-        c.strokeRect(left + line / 2, top + line / 2, right - left - line, tall - line);
-        c.setLineDash([]);
-        return;
-      }
-      if (f.candles >= 3) { c.fillStyle = look.entry; c.fillRect(left, entry, right - left, line); }
-      if (f.candles < 2) return;
-      c.fillStyle = f.won ? look.upEdge : look.downEdge;
-      c.fillRect(left, exit, right - left, line);
-      c.globalAlpha = SIDE;
-      c.fillRect(left, top, line, tall);
-      c.fillRect(right - line, top, line, tall);
-      c.globalAlpha = 1;
     });
   }
-
 
   private over({ context: c, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const look = this.look;
@@ -118,15 +99,14 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
     const width = bitmapSize.width / hr, z = this.spacing() < NARROW ? SMALL : ARROW;
     const overlap = (r: Rect, t: Rect, gap = 0) => r.x < t.x + t.w + gap && t.x < r.x + r.w + gap && r.y < t.y + t.h && t.y < r.y + r.h;
     // The arrows' places first, so the tags keep clear of them: the entries', then each exit's that overlaps none.
-    const placed: { a: Arrow; p: { x: number; y: number }; tip: number; base: number; foot: number; rect: Rect }[] = [];
+    const placed: { a: Arrow; mark: ReturnType<typeof arrowAt>; rect: Rect }[] = [];
     for (const a of [...this.arrows.filter((x) => x.opening), ...this.arrows.filter((x) => !x.opening)]) {
       const p = this.at(a.time, a.price);
       if (!p) continue;
       // The tip OFF px off the candle: below it pointing up for a buy, above it pointing down for a sell.
-      const s = a.buy ? 1 : -1, tip = p.y + s * OFF, base = tip + s * z.h, foot = base + s * z.stem;
-      const rect = { x: p.x - z.w / 2 - z.ring, y: Math.min(tip, foot) - 2, w: z.w + 2 * z.ring, h: z.h + z.stem + 4 };
+      const mark = arrowAt(p.x, p.y + (a.buy ? OFF : -OFF), a.buy, z), rect = mark.rect;
       if (!a.opening && placed.some((q) => overlap(rect, q.rect))) continue;
-      placed.push({ a, p, tip, base, foot, rect });
+      placed.push({ a, mark, rect });
     }
     c.save();
     c.font = look.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * vr}px`);
@@ -157,14 +137,8 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
       c.fillStyle = f.won ? look.upText : look.downText;
       c.fillText(text, Math.round((r.x + TAG_PAD) * hr), Math.round((r.y + TAG_H / 2) * vr));
     });
-    for (const { a, p, tip, base, foot, rect } of placed) {
-      // The arrow's middle on the candle's own device pixel column, as its wick.
-      const path = new Path2D(), mid = Math.round(p.x * hr), X = (x: number) => mid + x * hr, Y = (y: number) => y * vr;
-      path.moveTo(X(0), Y(tip)); path.lineTo(X(z.w / 2), Y(base)); path.lineTo(X(STEM_W / 2), Y(base)); path.lineTo(X(STEM_W / 2), Y(foot));
-      path.lineTo(X(-STEM_W / 2), Y(foot)); path.lineTo(X(-STEM_W / 2), Y(base)); path.lineTo(X(-z.w / 2), Y(base)); path.closePath();
-      Object.assign(c, { lineJoin: "round", lineWidth: z.ring * hr, strokeStyle: look.halo, fillStyle: a.buy ? look.buy : look.sell });
-      c.stroke(path);
-      c.fill(path);
+    for (const { a, mark, rect } of placed) {
+      drawArrow(c, mark, a.buy ? look.buy : look.sell, look.halo, hr, vr);
       this.hits.push({ id: a.id, ...rect });
     }
     c.restore();
