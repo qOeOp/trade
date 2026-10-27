@@ -80,7 +80,7 @@ export function chartLook(): DeepPartial<ChartOptions> {
  *  run's levels in profit and loss (target and stop, each with an axis tag tinted in its own colour) and
  *  the text colour (the position); its trades as flat boxes in profit and loss at the fifth of full colour
  *  TradingView's position tool fills with, and the fills as arrows in the candle pair; the
- *  events' flags in the secondary text colour, a warning's in amber, and the gaps hatched in it; equity
+ *  events' flags in the secondary text colour, a warning's in the events' blue, and the gaps hatched in it; equity
  *  in indigo with the layers beneath it: its shadow (deeper on `dark`), the gap to its pace in profit and
  *  loss, kept faint so the line leads, the drawdown rows in a faint grey, the day bars in both (stronger
  *  for the picked day), the held stretches and the gridlines; its notes with the drawdown limit and the
@@ -90,8 +90,8 @@ export function chartLook(): DeepPartial<ChartOptions> {
 export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
   const flags = {
-    warn: canvasColor("misses"), warnTag: canvasTint("misses", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
-    hatch: canvasColor("misses", dark ? 0.3 : 0.26), wash: canvasColor("misses", dark ? 0.06 : 0.05), font,
+    warn: canvasColor("event"), warnTag: canvasTint("event", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
+    hatch: canvasColor("event", dark ? 0.36 : 0.32), wash: canvasColor("event", dark ? 0.06 : 0.05), font,
   };
   return {
     island: canvasColor("island"), fg: canvasColor("fg"), muted: canvasColor("fg-muted"), faint: canvasColor("fg-faint"), ghost: canvasColor("fg-ghost"),

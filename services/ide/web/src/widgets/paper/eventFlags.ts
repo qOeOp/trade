@@ -1,9 +1,10 @@
 // The run's events on a contract chart (candleEvents.ts), drawn as one series primitive: each gap in the
-// bars as a band of fine diagonal hatching across the pane behind the candles, at least a candle wide (the
+// bars as a band of fine diagonal hatching behind the candles, from the top of their scale down to the
+// foot of the volume (so its flag sits just under it), at least a candle wide (the
 // time scale has no room for the minutes that never came, so the band covers the candles either side of
 // them); each flag in a strip along the pane's foot, under the volume, below its candle. Routine events
 // (a funding settlement, a socket's or the instrument's state, a late bar) are a short tick, so the strip
-// stays quiet; one where something went wrong is a small pill tinted in the warning colour with its
+// stays quiet; one where something went wrong is a small pill tinted in the events' blue with its
 // letters, as TradingView marks a symbol's events. A flag that would overlap the one before it at the zoom
 // shown joins it (at the warning's place if it holds one, else midway), so marks never pile up; one cut
 // by the pane's left edge is moved inside it. Each mark is a hover target (`event:<i>`, its first flag).
@@ -19,6 +20,7 @@ export const STRIP = 18;                    // px: the strip along the foot the 
 const H = 14, PAD = 4, GAP = 3;             // px: a pill's height and padding, the least space between two marks
 const TICK = { w: 2, h: 6, hit: 8 };        // px: a routine event's tick, and how wide it is as a hover target
 const HATCH = 6;                            // px between hatching lines
+const TOP = 0.1;                            // of the pane: where the candles' scale starts (candleController's top margin)
 
 export class EventFlags implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;
@@ -54,10 +56,10 @@ export class EventFlags implements ISeriesPrimitive<Time> {
 
   private x = (time: number) => this.chart?.timeScale().timeToCoordinate(time as Time) ?? null;
 
-  private bands({ context: c, bitmapSize, horizontalPixelRatio: hr }: Scope): void {
+  private bands({ context: c, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const look = this.look, w = this.chart ? spacing(this.chart.timeScale()) : 0;
     if (!look || !this.gaps.length) return;
-    const h = bitmapSize.height;
+    const top = Math.round(bitmapSize.height * TOP), h = Math.round(bitmapSize.height - STRIP * vr) - top;
     for (const g of this.gaps) {
       const a = this.x(g.from), b = this.x(g.to);
       if (a === null && b === null) continue;
@@ -65,12 +67,12 @@ export class EventFlags implements ISeriesPrimitive<Time> {
       if (right - left < w) { const mid = (left + right) / 2; left = mid - w / 2; right = mid + w / 2; }
       const l = Math.round(left * hr), r = Math.round(right * hr);
       c.save();
-      c.beginPath(); c.rect(l, 0, r - l, h); c.clip();
-      c.fillStyle = look.wash; c.fillRect(l, 0, r - l, h);
+      c.beginPath(); c.rect(l, top, r - l, h); c.clip();
+      c.fillStyle = look.wash; c.fillRect(l, top, r - l, h);
       Object.assign(c, { strokeStyle: look.hatch, lineWidth: Math.max(1, Math.floor(hr)) });
       c.beginPath();
       const step = HATCH * hr;
-      for (let x = l - h; x < r; x += step) { c.moveTo(x, h); c.lineTo(x + h, 0); }
+      for (let x = l - h; x < r; x += step) { c.moveTo(x, top + h); c.lineTo(x + h, top); }
       c.stroke();
       c.restore();
     }
