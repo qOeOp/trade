@@ -17,6 +17,7 @@ import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { signed } from "./chartLevels";
 import type { Arrow, TradeBox } from "./tradeBoxes";
+import { spacing } from "./viewAnchor";
 
 export type MarksLook = { up: string; down: string; upEdge: string; downEdge: string; upText: string; downText: string;
   entry: string; buy: string; sell: string; halo: string; font: string };
@@ -58,7 +59,7 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
     return hit ? { externalId: hit.id, zOrder: "top", cursorStyle: "pointer" } : null;
   }
 
-  private spacing = () => this.chart?.timeScale().options().barSpacing ?? 0;
+  private spacing = () => (this.chart ? spacing(this.chart.timeScale()) : 0);
 
   /** Media coordinates of a candle's middle and a price, null off the scale. */
   private at(time: number, price: number): { x: number; y: number } | null {
@@ -152,7 +153,8 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
       c.fillText(text, Math.round((r.x + TAG_PAD) * hr), Math.round((r.y + TAG_H / 2) * vr));
     });
     for (const { a, p, tip, base, foot, rect } of placed) {
-      const path = new Path2D(), X = (x: number) => (p.x + x) * hr, Y = (y: number) => y * vr;
+      // The arrow's middle on the candle's own device pixel column, as its wick.
+      const path = new Path2D(), mid = Math.round(p.x * hr), X = (x: number) => mid + x * hr, Y = (y: number) => y * vr;
       path.moveTo(X(0), Y(tip)); path.lineTo(X(z.w / 2), Y(base)); path.lineTo(X(STEM_W / 2), Y(base)); path.lineTo(X(STEM_W / 2), Y(foot));
       path.lineTo(X(-STEM_W / 2), Y(foot)); path.lineTo(X(-STEM_W / 2), Y(base)); path.lineTo(X(-z.w / 2), Y(base)); path.closePath();
       Object.assign(c, { lineJoin: "round", lineWidth: z.ring * hr, strokeStyle: look.halo, fillStyle: a.buy ? look.buy : look.sell });

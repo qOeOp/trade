@@ -7,9 +7,10 @@
 // tag follows the last candle in view), so it is the run's last price however far back the view is,
 // pinned at the edge while that price is off the scale. Tags and chips share one stacking, in price
 // order a pitch apart and pushed away from the last price's tag, which never moves, so no two overlap
-// and each chip sits level with its tag. A pinned chip is a hover target (`level:<id>`), so a click on
-// it can show it.
-import type { IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView,
+// and each chip sits level with its tag, as tall as it and on the same device pixels (Lightweight
+// Charts' axis label: the font's size and 2.5/12 of it above and below, its middle snapped as the
+// chart snaps it). A pinned chip is a hover target (`level:<id>`), so a click on it can show it.
+import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView,
   PrimitiveHoveredItem, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
 export type Part = { text: string; color: string };
@@ -24,18 +25,19 @@ export type Level = {
   edge?: { tag: string; tagText: string };
 };
 type Target = Parameters<IPrimitivePaneRenderer["draw"]>[0];
+type Scope = Parameters<Parameters<Target["useBitmapCoordinateSpace"]>[0]>[0];
 type Placed = { level: Level; y: number; edge: "top" | "bottom" | null; anchor: boolean };
-const CHIP_H = 18, PITCH = 20;  // px: a chip's height; the least distance between two tags' or chips' middles
-const TAG_HALF = 9, FOOT = 4;   // px: half an axis tag's height; a pinned tag's least distance from the pane's foot
+const CHIP_H = 17, PITCH = 20;  // px: a chip's height (an axis tag's at the chart's 12px); the least distance between two middles
+const TAG_HALF = CHIP_H / 2, FOOT = 4;  // px: half an axis tag's height; a pinned tag's least distance from the pane's foot
 const INSET = 10, PAD = 7, GAP = 8;
 
 export class Levels implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
+  private chart: IChartApi | null = null;
   private redraw: (() => void) | null = null;
   private levels: readonly Level[] = [];
   private style = { island: "", font: "" };
   private last: Level | null = null;
-  private height = 0;
   private hits: { id: string; x: number; y: number; w: number }[] = [];
 
   /** The levels, their chips' style, and the last price as a level with no chip. */
@@ -44,15 +46,15 @@ export class Levels implements ISeriesPrimitive<Time> {
     this.redraw?.();
   }
 
-  attached({ series, requestUpdate }: SeriesAttachedParameter<Time>): void { this.series = series; this.redraw = requestUpdate; }
-  detached(): void { this.series = null; this.redraw = null; }
+  attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void { Object.assign(this, { chart, series, redraw: requestUpdate }); }
+  detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
   paneViews(): readonly IPrimitivePaneView[] { return [{ zOrder: () => "top", renderer: () => ({ draw: (target: Target) => this.draw(target) }) }]; }
 
   /** Each level's place, top to bottom (the last price's marked as the anchor): on its price, or pinned
    *  at the top or the bottom edge, then stacked a pitch apart away from the last price. */
   private placed(): Placed[] {
-    const series = this.series, foot = this.height;
-    if (!series || !this.height) return [];
+    const series = this.series, foot = this.chart?.paneSize(0).height ?? 0;
+    if (!series || !foot) return [];
     const placed = this.levels.flatMap((level): Placed[] => {
       const y = series.priceToCoordinate(level.price);
       if (y === null) return [];
@@ -90,52 +92,55 @@ export class Levels implements ISeriesPrimitive<Time> {
   }
 
   private draw(target: Target): void {
-    target.useMediaCoordinateSpace(({ context, mediaSize }) => {
-      if (this.height !== mediaSize.height) { this.height = mediaSize.height; queueMicrotask(() => this.redraw?.()); }
-      context.font = this.style.font;
-      context.textBaseline = "middle";
+    target.useBitmapCoordinateSpace((scope) => {
+      scope.context.font = this.style.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * scope.verticalPixelRatio}px`);
+      scope.context.textBaseline = "middle";
       this.hits = [];
-      for (const { level, y, edge, anchor } of this.placed()) if (!anchor) this.chip(context, level, edge, y);
+      for (const { level, y, edge, anchor } of this.placed()) if (!anchor) this.chip(scope, level, edge, y);
     });
   }
 
-  private chip(context: CanvasRenderingContext2D, level: Level, edge: Placed["edge"], y: number): void {
-    const arrow = edge ? 11 : 0;
+  private chip({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope, level: Level, edge: Placed["edge"], y: number): void {
+    const arrow = edge ? 11 : 0, line = Math.max(1, Math.floor(hr));
     const parts = edge ? [{ text: level.pinned, color: level.color }] : level.parts;
-    const widths = parts.map((p) => context.measureText(p.text).width);
-    const w = PAD * 2 + arrow + widths.reduce((a, b) => a + b, 0) + GAP * (parts.length - 1), cy = Math.round(y), top = cy - CHIP_H / 2;
-    context.beginPath();
-    context.roundRect(INSET + 0.5, top, Math.round(w), CHIP_H, 4);
-    context.fillStyle = this.style.island;
-    context.fill();
-    context.strokeStyle = level.color;
-    context.lineWidth = 1;
-    context.stroke();
-    let x = INSET + PAD;
+    const widths = parts.map((p) => c.measureText(p.text).width / hr);
+    const w = Math.round((PAD * 2 + arrow + widths.reduce((a, b) => a + b, 0) + GAP * (parts.length - 1)) * hr), left = Math.round(INSET * hr);
+    // As the chart places an axis label: its middle snapped, its height made odd or even with the tick.
+    const tick = Math.max(1, Math.floor(vr)), mid = Math.round(y * vr) - Math.floor(vr * 0.5);
+    let h = Math.round(CHIP_H * vr);
+    if (h % 2 !== tick % 2) h += 1;
+    const top = Math.floor(mid + tick / 2 - h / 2), cy = top + h / 2;
+    c.beginPath();
+    c.roundRect(left + line / 2, top + line / 2, w - line, h - line, 4 * hr);
+    c.fillStyle = this.style.island;
+    c.fill();
+    Object.assign(c, { strokeStyle: level.color, lineWidth: line });
+    c.stroke();
+    let x = (INSET + PAD) * hr;
     if (edge) {
       // A small filled triangle pointing to where the level is.
-      const up = edge === "top";
-      context.beginPath();
-      context.moveTo(x, cy + (up ? 3 : -3));
-      context.lineTo(x + 7, cy + (up ? 3 : -3));
-      context.lineTo(x + 3.5, cy + (up ? -3 : 3));
-      context.closePath();
-      context.fillStyle = level.color;
-      context.fill();
-      x += arrow;
-      this.hits.push({ id: level.id, x: INSET, y, w });
+      const s = edge === "top" ? 1 : -1;
+      c.beginPath();
+      c.moveTo(Math.round(x), cy + 3 * s * vr);
+      c.lineTo(Math.round(x + 7 * hr), cy + 3 * s * vr);
+      c.lineTo(Math.round(x + 3.5 * hr), cy - 3 * s * vr);
+      c.closePath();
+      c.fillStyle = level.color;
+      c.fill();
+      x += arrow * hr;
+      this.hits.push({ id: level.id, x: INSET, y, w: w / hr });
     }
     parts.forEach((p, i) => {
       if (i) {
         // A short hairline between segments, in the level's colour.
-        context.globalAlpha = 0.35;
-        context.fillStyle = level.color;
-        context.fillRect(Math.round(x - GAP / 2), cy - 5, 1, 10);
-        context.globalAlpha = 1;
+        c.globalAlpha = 0.35;
+        c.fillStyle = level.color;
+        c.fillRect(Math.round(x - (GAP / 2) * hr), Math.round(cy - 5 * vr), line, Math.round(10 * vr));
+        c.globalAlpha = 1;
       }
-      context.fillStyle = p.color;
-      context.fillText(p.text, x, cy + 0.5);
-      x += widths[i]! + GAP;
+      c.fillStyle = p.color;
+      c.fillText(p.text, Math.round(x), Math.round(cy));
+      x += (widths[i]! + GAP) * hr;
     });
   }
 }

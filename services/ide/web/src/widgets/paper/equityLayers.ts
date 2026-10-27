@@ -4,7 +4,7 @@
 // and the pace it is measured against, flat, in the profit colour where equity is ahead and the loss
 // colour where behind; the drawdown and day bands (equityBands), behind the line as vibe-trading's. Above it the equity line itself (the series draws none):
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
-// downward (left off while the chart moves), then the line on it, as vibe-trading's. Everything is drawn in device pixels, edges
+// downward, then the line on it, a whole number of device pixels wide, as vibe-trading's. Everything is drawn in device pixels, edges
 // snapped, and from the visible points only, thinned to each pixel column's first, lowest, highest and
 // last.
 import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, span, type DayBar, type Frame } from "./equityBands";
@@ -15,8 +15,6 @@ export type EquityLook = { line: string; knockout: string; knockoutWidth: number
                            ceiling: string; stripe: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string };
 export { BARS, CEILING, FEW, type DayBar };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
-
-const STILL_MS = 140;  // the shadow returns this long after the chart last moved
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
@@ -30,9 +28,6 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private worst = 0;
   private look: EquityLook | null = null;
   private ticks: readonly number[] = [];
-  private moved = 0;
-  private settle = 0;
-  private readonly onMove = () => { this.moved = performance.now(); };
 
   /** The run's points and days, the day picked (its start, in seconds), the balance equity is measured
    *  against where it has no pace, the run's worst drawdown (from every minute) and the colours. */
@@ -55,15 +50,8 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     this.redraw?.();
   }
 
-  attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void {
-    Object.assign(this, { chart, series, redraw: requestUpdate });
-    chart.timeScale().subscribeVisibleLogicalRangeChange(this.onMove);
-  }
-  detached(): void {
-    this.chart?.timeScale().unsubscribeVisibleLogicalRangeChange(this.onMove);
-    window.clearTimeout(this.settle);
-    Object.assign(this, { chart: null, series: null, redraw: null });
-  }
+  attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void { Object.assign(this, { chart, series, redraw: requestUpdate }); }
+  detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
   paneViews(): readonly IPrimitivePaneView[] {
     const view = (zOrder: "bottom" | "normal", paint: (f: Frame) => void): IPrimitivePaneView =>
       ({ zOrder: () => zOrder, renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((scope) => { const f = this.frame(scope); if (f) paint(f); }) }) });
@@ -143,13 +131,11 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private line({ c, hr, vr, keep, xs }: Frame): void {
     const look = this.look!, path = new Path2D();
     keep.forEach((i, k) => path[k ? "lineTo" : "moveTo"](xs.get(i)!, this.y(this.points[i]!.value, vr)));
-    const moving = performance.now() - this.moved < STILL_MS;
-    if (moving) { window.clearTimeout(this.settle); this.settle = window.setTimeout(() => this.redraw?.(), STILL_MS); }
     c.save();
     Object.assign(c, { lineJoin: "round", lineCap: "round", strokeStyle: look.knockout, lineWidth: look.knockoutWidth * hr });
-    if (!moving) Object.assign(c, { shadowColor: look.haze, shadowBlur: 10 * hr, shadowOffsetX: 1 * hr, shadowOffsetY: 6 * vr });
+    Object.assign(c, { shadowColor: look.haze, shadowBlur: 10 * hr, shadowOffsetX: 1 * hr, shadowOffsetY: 6 * vr });
     c.stroke(path);
-    Object.assign(c, { shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0, strokeStyle: look.line, lineWidth: 1.75 * hr });
+    Object.assign(c, { shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0, strokeStyle: look.line, lineWidth: Math.max(1, Math.round(1.75 * hr)) });
     c.stroke(path);
     c.restore();
   }
