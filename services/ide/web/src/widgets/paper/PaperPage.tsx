@@ -11,14 +11,13 @@ import { followReconciliation } from "../../state/reconcile";
 import { Calendar } from "./Calendar";
 import { ChartCard } from "./ChartCard";
 import { Performance } from "./Performance";
-import { RunStack } from "./RunStack";
 import { TradesCard } from "./TradesCard";
 
 const Empty = ({ children }: { children: string }) => <p className="grid h-full place-items-center text-dense text-fg-faint">{children}</p>;
 
-/** The Paper page, laid out on the frame as five cards in two columns that share their bottom row:
- *  the chart with the trades under it; at the right the runs as a stack (the selected one in front),
- *  its performance against the line's targets, and its calendar beside the trades. The chart picks
+/** The Paper page, laid out on the frame as four cards in two columns that share their bottom row:
+ *  the chart with the trades under it; at the right the run's performance against the line's targets,
+ *  and its calendar beside the trades. The run is picked in the main toolbar. The chart picks
  *  what the rest follows: a contract, or Equity for all of them. Until the user picks, it opens on a
  *  contract holding a position, else on Equity. Short, the page scrolls. */
 export function PaperPage() {
@@ -56,8 +55,7 @@ export function PaperPage() {
       <div className="grid h-full min-h-[812px] grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_280px] gap-2">
         <div className="col-start-1 row-start-1 grid min-h-0"><ChartCard run={run} view={shown} s={s} a={a} fills={fills} targets={targets} /></div>
         <aside className="col-start-2 row-span-2 row-start-1 grid min-h-0 grid-rows-subgrid">
-          <div className="flex min-h-0 flex-col gap-2">
-            <RunStack runs={listing.runs} selected={run.paper_id} a={a} failures={s?.failures ?? null} />
+          <div className="flex min-h-0 flex-col">
             {a && stats ? <Performance a={a} stats={stats} targets={targets} /> : <section className="min-h-0 flex-1 rounded-island bg-island" />}
           </div>
           <Calendar s={s} a={a} />

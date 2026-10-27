@@ -9,7 +9,7 @@ import { requestFocus } from "../state/linking";
 import { ACTIVE, startPaper, stopDialog } from "../state/paper";
 import { select } from "../state/selection";
 import { pnlClass, type DataRole } from "../theme/roles";
-import { Tip } from "./Tip";
+import { IconButton } from "./IconButton";
 
 const LAG_MS = 2 * 60_000;  // a one-minute bar this late is news
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
@@ -57,18 +57,14 @@ function State({ run, now }: { run: PaperRun; now: number }) {
   return <span>Running {age(now - started / 1e6)}</span>;
 }
 
-/** The round ⏸ that asks to stop and seal a run, or ▶ to run the same contracts again once sealed. */
-export function RunButton({ run, filled = false }: { run: PaperRun; filled?: boolean }) {
+/** The red ■ that asks to stop and seal a run, or the green ▶ that runs the same contracts again once
+ *  sealed, as IntelliJ's stop and run buttons on the main toolbar. */
+export function RunButton({ run, className }: { run: PaperRun; className?: string }) {
   const active = ACTIVE.has(run.state), id = run.candidate ?? "";
-  const label = active ? "Stop and seal" : "Run again with the same contracts";
   return (
-    <Tip content={label}>
-      <button type="button" aria-label={label} disabled={run.state === "stopping"}
-              onClick={(e) => { e.stopPropagation(); if (active) stopDialog.set(run); else void startPaper(id, { symbols: run.symbols }); }}
-              className={`grid size-7 shrink-0 place-items-center rounded-full transition-colors disabled:opacity-40 ${filled ? "bg-pressed text-fg" : "text-fg-muted ring-1 ring-inset ring-line-strong hover:bg-hover hover:text-fg"}`}>
-        <Icon name={active ? "pause" : "run"} size={12} />
-      </button>
-    </Tip>
+    <IconButton icon={active ? "stop" : "run"} tone={active ? "fail" : "meets"} frame className={className} disabled={run.state === "stopping"}
+                label={active ? "Stop and seal" : "Run again with the same contracts"}
+                onClick={(e) => { e.stopPropagation(); if (active) stopDialog.set(run); else void startPaper(id, { symbols: run.symbols }); }} />
   );
 }
 
@@ -81,7 +77,7 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
       <ContextMenu.Portal>
         <ContextMenu.Content className="z-50 min-w-52 rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup">
           <ContextMenu.Label className="truncate px-2 pb-1 pt-1.5 font-mono text-small text-fg-faint">{id} · run {run.paper_id}</ContextMenu.Label>
-          {ACTIVE.has(run.state) && <ContextMenu.Item className={ITEM} onSelect={() => stopDialog.set(run)}><Icon name="pause" />Stop and seal…</ContextMenu.Item>}
+          {ACTIVE.has(run.state) && <ContextMenu.Item className={ITEM} onSelect={() => stopDialog.set(run)}><Icon name="stop" />Stop and seal…</ContextMenu.Item>}
           <ContextMenu.Item className={ITEM} onSelect={() => { select(id); showLineage(); requestFocus(id); }}><Icon name="locate" />Locate version in graph</ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => openSource(id)}><Icon name="file.python" />Open source</ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => void copyText(String(run.paper_id))}><Icon name="copy" />Copy run id</ContextMenu.Item>
@@ -91,24 +87,17 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
   );
 }
 
-/** One run in the stack's list: its version, its return and how long it has run, its equity
- *  (`spark`) and its ⏸ or ▶; the run in front on the inactive selection. A sealed run's curve is quieter, and
- *  its ▶ shows only under the pointer or focus, so a pick does not start a run by a slip. */
-export function RunRow({ run, on, now, spark, onPick }: { run: PaperRun; on: boolean; now: number; spark: ReactNode; onPick: () => void }) {
+/** One run in the run picker's list: its version, its return and how long it has run; the run shown on
+ *  the inactive selection. Stopping one is in its context menu, and on the toolbar once it is picked. */
+export function RunRow({ run, on, now, onPick }: { run: PaperRun; on: boolean; now: number; onPick: () => void }) {
   const ret = returnOf(run);
   return (
     <RunMenu run={run}>
       <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · run ${run.paper_id}`}
-           className={`group/row grid h-12 shrink-0 cursor-default grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 rounded-card pl-3 pr-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
-        <span className="flex min-w-0 flex-col gap-1">
-          <RunName run={run} />
-          <span className="flex min-w-0 gap-2 whitespace-nowrap text-small text-fg-muted">
-            <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} now={now} /></span>
-          </span>
-        </span>
-        <span className={ACTIVE.has(run.state) ? "" : "opacity-45"}>{spark}</span>
-        <span className={ACTIVE.has(run.state) ? "" : "opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"}>
-          <RunButton run={run} filled={on} />
+           className={`flex h-12 shrink-0 cursor-default flex-col justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
+        <RunName run={run} />
+        <span className="flex min-w-0 gap-2 whitespace-nowrap text-small text-fg-muted">
+          <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} now={now} /></span>
         </span>
       </div>
     </RunMenu>

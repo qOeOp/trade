@@ -97,7 +97,7 @@ export function Performance({ a, stats, targets }: { a: Account; stats: TradeSta
           {targets.limit !== null && <Track used={mdd / targets.limit} now={(a.drawdown ?? mdd) / targets.limit} />}
         </Target>
         <Target name="Return" value={<span className={pnlClass(a.ret)}>{signedPct(a.ret)}</span>} of={needed === null ? undefined : `of ${signedPct(needed)} needed`}
-                note={ahead === null ? undefined : <><span className={ahead >= 0 ? "text-pnl-up" : "text-misses"}>
+                note={ahead === null ? undefined : <><span className={ahead >= 0 ? "text-pnl-up" : "text-pnl-down"}>
                   {ahead >= 0 ? "On pace" : "Behind pace"} · {signed(ahead * 100)} pt ({signed(ahead * a.starting, 0)} USDT)</span> for {pct(targets.annual!, 0)} a year</>} />
       </div>
       <div className="grid grid-cols-3 gap-x-2.5 gap-y-3">

@@ -33,7 +33,7 @@ function NodeTip({ data }: { data: VersionData }) {
 }
 
 /** A version on the canvas: its VersionLine, selectable, faded when it lost eligibility; with a paper
- *  daemon, ▶ (or ⏸ while it runs on paper) after its name on hover and a green dot on a running one. */
+ *  daemon, ▶ (or ■ while it runs on paper) after its name on hover and a green dot on a running one. */
 export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<VersionData>>) {
   const selected = useIsSelected(data.id);
   const masked = data.role === "masked";
