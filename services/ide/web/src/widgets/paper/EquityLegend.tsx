@@ -24,8 +24,9 @@ export function EquityLegend({ point, reading, hold, onHold, starting, annual, r
         {replayed.size > 0 && <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dotted border-equity" />Replay</span>}
         {annual !== null && <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dashed border-fg-muted" />Pace for {number(annual * 100, 0)}% a year</span>}
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 rounded-badge bg-pnl-up/40" /><Swatch className="-ml-1 h-2 rounded-badge bg-pnl-down/40" />Ahead · behind {against}</span>
-        <span className="inline-flex items-center gap-1.5"><span className="inline-flex h-2 w-3 items-end"><i className="h-1 w-1.5 border-t border-fg-muted" /><i className="h-2 w-1.5 border-l border-t border-fg-muted" /></span>Balance</span>
+        <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 bg-pnl-up/15" /><Swatch className="-ml-1 h-2 bg-pnl-down/15" />Open profit and loss</span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dotted border-fg-faint" />Before fees and funding</span>
+        <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 border-t border-equity/50 bg-equity/10" />Exposure</span>
         {hold !== null && <TextButton active={hold} onClick={onHold} className="h-5 gap-1.5"><Swatch className="border-t border-dashed border-fg/30" />Buy and hold</TextButton>}
         <span className="inline-flex items-center gap-1.5"><span className="inline-flex w-3 flex-col gap-0.5"><i className="h-px bg-fg-faint/60" /><i className="h-px bg-fg-faint/60" /><i className="h-px w-2 bg-fg-faint/60" /></span><span>Below the peak{worst > 0 && <span className="text-fg-faint">, worst −{number(worst * 100, 1)}%</span>}</span></span>
         {many && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-1 bg-pnl-up/60" /><i className="-ml-1 h-1.5 w-1 bg-pnl-down/60" />Daily return</span>}
@@ -36,6 +37,7 @@ export function EquityLegend({ point, reading, hold, onHold, starting, annual, r
         {replayed.has(point.minute ?? point.time) && <span><span className="mr-1 text-fg-faint">replay</span>{fixed(replayed.get(point.minute ?? point.time)!, 2)}</span>}
         <span className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>
         {reading?.balance != null && <span><span className="mr-1 text-fg-faint">open</span><span className={pnlClass(point.value - reading.balance)}>{fixed(point.value - reading.balance, 2)}</span></span>}
+        {reading?.exposure != null && <span><span className="mr-1 text-fg-faint">exposure</span>{number(reading.exposure * 100, 0)}%{reading.margin != null && reading.margin > 0 && <span className="text-fg-faint"> · margin {number(reading.margin * 100, 0)}%</span>}</span>}
         {reading && <span><span className="mr-1 text-fg-faint">costs</span>{fixed(reading.before - point.value, 2)}</span>}
         {reading?.hold != null && <span><span className="mr-1 text-fg-faint">hold</span><span className={pnlClass(reading.hold - starting)}>{signedPct(reading.hold / starting - 1)}</span></span>}
         {point.pace !== null && <span><span className="mr-1 text-fg-faint">vs pace</span><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></span>}

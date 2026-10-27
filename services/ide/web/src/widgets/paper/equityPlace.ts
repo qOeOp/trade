@@ -34,3 +34,23 @@ export function valueAt(pts: readonly EquityPoint[], t: number): number | null {
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pts[mid]!.time <= t) lo = mid; else hi = mid - 1; }
   return pts[lo]!.value;
 }
+
+/** Of the indexes `from` to `to` (those `use` takes), at most four per pixel column of `x` (device px): the
+ *  column's first, lowest, highest and last by `v`, in order, so a path through them keeps the line's reach
+ *  at any number of points in view. */
+export function perColumn(from: number, to: number, x: (i: number) => number, v: (i: number) => number, use: (i: number) => boolean = () => true): number[] {
+  const keep: number[] = [];
+  let column = Number.NaN, first = -1, lo = -1, hi = -1, last = -1;
+  const flush = () => { if (first >= 0) keep.push(...[...new Set([first, lo, hi, last])].sort((a, b) => a - b)); first = -1; };
+  for (let i = from; i <= to; i++) {
+    if (!use(i)) continue;
+    const col = Math.round(x(i));
+    if (col !== column) { flush(); column = col; }
+    if (first < 0) first = lo = hi = i;
+    if (v(i) < v(lo)) lo = i;
+    if (v(i) > v(hi)) hi = i;
+    last = i;
+  }
+  flush();
+  return keep;
+}

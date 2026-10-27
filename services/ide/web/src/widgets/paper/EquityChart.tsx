@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createChart, CrosshairMode, LineSeries, LineStyle, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { createChart, CrosshairMode, LineSeries, LineStyle, type AutoscaleInfo, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import type { JournalLine, Precision } from "../../lib/paperApi";
 import type { Reading } from "../../model/equityReadings";
 import { days as daysOf } from "../../model/paper";
@@ -31,7 +31,7 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  peak hanging from the top, each day's return from the bottom and the stretches a position was held
  *  (equityLayers); on the line the drawdown limit's floor and deepest drawdowns (equityNotes) and an
  *  arrow at each close (equityCloses), whose click picks the trade; the balance, equity before costs, a
- *  buy and hold, the run's events and an exposure pane (equityExtras); a reconciled run's replay dotted.
+ *  buy and hold, the run's events and the exposure (equityExtras); a reconciled run's replay dotted.
  *  The line is drawn at the finest step that keeps its points apart in view (equityResolution), changed
  *  once a pan or zoom settles with the moment under the pointer kept in place (viewAnchor). Wheel or drag
  *  the time axis to zoom, drag to pan, double-click for the whole run. The legend names the layers, and
@@ -72,9 +72,11 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     const pace = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.LargeDashed, priceFormat: priceFormat(0), autoscaleInfoProvider: () => null });
     const replay = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.Dotted, priceFormat: priceFormat(2, 0) });
     const lines = [pace, replay];
-    // The layers draw the equity line; the series keeps the scale, the last value and the pointer's dot.
+    // The layers draw the equity line; the series keeps the scale, the last value and the pointer's dot, and
+    // keeps the line above the foot's flags and exposure.
     const equity = chart.addSeries(LineSeries, { lineVisible: false, lineWidth: 2 as LineWidth, priceLineVisible: false,
-                                                 crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2 });
+                                                 crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2,
+                                                 autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => { const r = base(); return r && { ...r, margins: { above: 0, below: extras.foot() } }; } });
     equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 }, entireTextOnly: true });
     // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
     // names above it, the depths over the arrows.
@@ -108,9 +110,7 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
       setStep(next);
     });
     chart.subscribeCrosshairMove((param) => {
-      const index = param.logical === undefined || !param.point ? null : Math.round(param.logical);
-      setHover(index);
-      extras.point(index);
+      setHover(param.logical === undefined || !param.point ? null : Math.round(param.logical));
       extras.hover(String(param.hoveredObjectId ?? ""), param.point ?? null);
       // The pointer's tag sits at the equity it snaps to.
       const value = param.point ? (param.seriesData.get(equity) as { value: number } | undefined)?.value : undefined;
