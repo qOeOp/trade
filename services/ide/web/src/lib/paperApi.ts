@@ -113,5 +113,8 @@ export function precisions(lines: readonly JournalLine[]): Map<string, Precision
 export const fixed = (value: unknown, digits = -1): string | null => {
   const n = amount(value);
   if (n == null) return null;
-  return n.toLocaleString("en-US", digits < 0 ? { maximumFractionDigits: 8 } : { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  let f = numbers.get(digits);
+  if (!f) numbers.set(digits, (f = new Intl.NumberFormat("en-US", digits < 0 ? { maximumFractionDigits: 8 } : { minimumFractionDigits: digits, maximumFractionDigits: digits })));
+  return f.format(n);
 };
+const numbers = new Map<number, Intl.NumberFormat>();  // one formatter a number of decimals, kept

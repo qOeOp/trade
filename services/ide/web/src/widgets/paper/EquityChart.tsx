@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createChart, CrosshairMode, LineSeries, LineStyle, type AutoscaleInfo, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { createChart, CrosshairMode, LineSeries, LineStyle, MismatchDirection, type AutoscaleInfo, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
 import { days as daysOf } from "../../model/paper";
 import { useAtom } from "../../state/atom";
@@ -62,8 +62,9 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
   useEffect(() => {
     // The run's own span and no more: neither edge scrolls past its first or last minute, so zooming out
     // stops at the whole run. Dragging the time axis zooms; the value axis keeps fitting what is shown.
+    // No conflation: the points are one a step already, and conflated bars outlive a step ("Value is null").
     const chart = createChart(host.current!, chartOptions({ rightOffset: 0, minBarSpacing: 0.001, maxBarSpacing: 32, fixLeftEdge: true, fixRightEdge: true,
-                                                            lockVisibleTimeRangeOnResize: true, enableConflation: true }));
+                                                            lockVisibleTimeRangeOnResize: true, enableConflation: false }));
     chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } }, handleScroll: { vertTouchDrag: false } });
     const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
     // The value axis fits the equity shown, not the pace, which may run far below it once zoomed in.
@@ -88,8 +89,8 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     // get the gridlines (the layers draw them). Every series on the scale carries the format: the chart
     // labels the axis with the format of the series added first.
     const ticks = new AxisTicks(chart, [equity, ...lines], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, shown: (prices) => layers.grid(prices), tags: () => {
-      const range = chart.timeScale().getVisibleLogicalRange(), data = equity.data();
-      const last = data[Math.max(0, Math.min(data.length - 1, Math.ceil(range?.to ?? data.length - 1)))] as { value: number } | undefined;
+      const range = chart.timeScale().getVisibleLogicalRange();  // the last point in view, looked up, not copied
+      const last = equity.dataByIndex(Math.max(0, Math.ceil(range?.to ?? Number.MAX_SAFE_INTEGER)), MismatchDirection.NearestLeft) as { value: number } | null;
       return [...[last?.value, startRef.current].flatMap((v) => (v === undefined ? [] : [equity.priceToCoordinate(v)])).filter((y) => y !== null), ...notes.tags()];
     } });
     ticks.refresh();

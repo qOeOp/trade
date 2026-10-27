@@ -53,25 +53,39 @@ export function holdings(lines: readonly JournalLine[], positions: readonly Open
 }
 
 /** Each closed position as a trade: its side and size, entry and exit, realized P&L (fees included), how
- *  long it was held and what closed it (the closing order's kind), newest first. */
+ *  long it was held and what closed it (the closing order's kind), newest first. One pass over the lines,
+ *  and once a list of lines (the Account, the Trades window and its card all ask). */
 export function trades(lines: readonly JournalLine[]): Closed[] {
-  const orderType = new Map<string, string>(), filled = new Map<string, number>();
+  const known = made.get(lines);
+  if (known) return known;
+  const orderType = new Map<string, string>(), filled = new Map<string, number>(), side = new Map<string, unknown>(), opened = new Map<string, number[]>();
+  const closes: JournalLine[] = [];
   for (const l of lines) {
+    if (l.kind === "position") {
+      if (l.type === "PositionOpened") { const at = opened.get(String(l.position_id)) ?? []; at.push(eventMs(l)); opened.set(String(l.position_id), at); }
+      else if (l.type === "PositionClosed") closes.push(l);
+    }
     if (l.kind !== "order" || !l.client_order_id) continue;
-    if (l.order_type) orderType.set(String(l.client_order_id), last(l.order_type));
-    if (l.type === "OrderFilled") filled.set(String(l.client_order_id), (filled.get(String(l.client_order_id)) ?? 0) + (amount(l.last_qty) ?? 0));
+    const id = String(l.client_order_id);
+    if (l.order_side && !side.has(id)) side.set(id, l.order_side);
+    if (l.order_type) orderType.set(id, last(l.order_type));
+    if (l.type === "OrderFilled") filled.set(id, (filled.get(id) ?? 0) + (amount(l.last_qty) ?? 0));
   }
-  return lines.filter((l) => l.kind === "position" && l.type === "PositionClosed").map((l, i) => {
-    const closing = String(l.closing_order_id ?? ""), type = orderType.get(closing) ?? "";
-    const opening = String(l.opening_order_id ?? ""), openingSide = lines.find((x) => x.kind === "order" && String(x.client_order_id) === opening && x.order_side);
+  const found = closes.map((l, i) => {
+    const closing = String(l.closing_order_id ?? ""), type = orderType.get(closing) ?? "", openingSide = side.get(String(l.opening_order_id ?? "")), closed = eventMs(l);
+    // The latest opening at or before the close.
+    const opening = (opened.get(String(l.position_id)) ?? []).reduce((at, t) => (t <= closed && t > at ? t : at), 0);
     return {
-      id: `${String(l.position_id)}-${i}`, symbol: symbolOf(l.instrument_id), long: openingSide ? last(openingSide.order_side) === "BUY" : true,
+      id: `${String(l.position_id)}-${i}`, symbol: symbolOf(l.instrument_id), long: openingSide ? last(openingSide) === "BUY" : true,
       quantity: filled.get(closing) ?? 0, entry: amount(l.avg_px_open), exit: amount(l.avg_px_close), pnl: amount(l.realized_pnl),
-      opened: openedAt(lines, l.position_id, eventMs(l)), closed: eventMs(l),
+      opened: opening, closed,
       how: type.includes("STOP") ? "stop" as const : /LIMIT|TAKE_PROFIT/.test(type) ? "target" as const : "other" as const,
     };
   }).reverse();
+  made.set(lines, found);
+  return found;
 }
+const made = new WeakMap<readonly JournalLine[], Closed[]>();
 
 /** A duration as 2d 4h, 3h 12m or 45m. */
 export function span(ms: number): string {
