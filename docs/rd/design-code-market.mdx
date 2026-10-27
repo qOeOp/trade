@@ -1516,7 +1516,7 @@ One exchangeInfo contract as ContractTerms (its filters verbatim).
 | <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场提交（最新月份之后，或补录最早月份的前一个月）：拼接交易所数据、追加条款、重算全部月份的共同可交易范围；已存月份被改、来源冲突或提交校验失败均拒绝整次导入；空库上的首次导入同时完成市场库模式初始化 |
 | <Ref id="market.import_quotes">import_quotes</Ref> | 完整推算报价按月、按事务只追加 |
 | <Ref id="market.quote_imports">quote_imports</Ref> | 读提交消息中的来源与日读数回执 |
-| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的市场提交哈希 |
+| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的市场提交哈希；提交哈希与前缀在库内所有分支的提交里查找，旧历史保留在旁支上也能解析 |
 
 ### `connect` [#def-market-connect]
 
