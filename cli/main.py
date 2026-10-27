@@ -41,7 +41,7 @@ import pymysql
 from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, targets, witness
 from ledger import publish as publication
 from ledger.errors import Refusal, refusal
-from ledger.refusals import CATALOGUE, refuse
+from ledger.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
 
 
 TEMPLATES = files("cli").joinpath("templates")
@@ -92,9 +92,9 @@ def refusal_json(exc: Refusal) -> dict:
 
 def _market_refusal(exc) -> Refusal:
     """A market package refusal (market.sources.MarketError) as a ledger refusal, its repair commands
-    from the catalogue."""
+    from the market's own catalogue entry where the code is shared with the ledger, else the catalogue."""
     return refusal(exc.code, exc.message, missing=exc.missing, write_status="not_written",
-                   next_actions=tuple(CATALOGUE[exc.code][1]))
+                   next_actions=tuple(MARKET_CATALOGUE.get(exc.code, CATALOGUE[exc.code])[1]))
 
 
 # Profiles
