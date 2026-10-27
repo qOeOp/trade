@@ -25,10 +25,10 @@ export function EquityLegend({ point, reading, hold, onHold, starting, annual, r
         {annual !== null && <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dashed border-fg-muted" />Pace for {number(annual * 100, 0)}% a year</span>}
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 rounded-badge bg-pnl-up/40" /><Swatch className="-ml-1 h-2 rounded-badge bg-pnl-down/40" />Ahead · behind {against}</span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 bg-pnl-up/15" /><Swatch className="-ml-1 h-2 bg-pnl-down/15" />Open profit and loss</span>
+        <span className="inline-flex items-center gap-1.5"><span className="grid w-3 grid-cols-4 gap-0.5">{[1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0].map((on, i) => <i key={i} className={`size-px ${on ? "bg-fg-faint" : ""}`} />)}</span><span>Below the peak{worst > 0 && <span className="text-fg-faint">, worst −{number(worst * 100, 1)}%</span>}</span></span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dotted border-fg-faint" />Before fees and funding</span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 border-t border-equity/50 bg-equity/10" />Exposure</span>
         {hold !== null && <TextButton active={hold} onClick={onHold} className="h-5 gap-1.5"><Swatch className="border-t border-dashed border-fg/30" />Buy and hold</TextButton>}
-        <span className="inline-flex items-center gap-1.5"><span className="inline-flex w-3 flex-col gap-0.5"><i className="h-px bg-fg-faint/60" /><i className="h-px bg-fg-faint/60" /><i className="h-px w-2 bg-fg-faint/60" /></span><span>Below the peak{worst > 0 && <span className="text-fg-faint">, worst −{number(worst * 100, 1)}%</span>}</span></span>
         {many && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-1 bg-pnl-up/60" /><i className="-ml-1 h-1.5 w-1 bg-pnl-down/60" />Daily return</span>}
       </div>
       {point && <div className="flex shrink-0 items-center gap-3 pr-2">

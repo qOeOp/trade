@@ -80,7 +80,7 @@ export function chartLook(): DeepPartial<ChartOptions> {
  *  for the picked day), the held stretches and the gridlines; its notes with the drawdown limit and the
  *  deepest drawdowns hatched in the loss colour, the closes as arrows in both and the pace's tag on the neutral tag colour;
  *  its extras: the open profit and loss filled faintly in both, equity before costs and the
- *  buy and hold in greys, the exposure in indigo (filled faintly), with the run's events flagged as on the candles. */
+ *  buy and hold in greys, the exposure in indigo (filled faintly). */
 export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
   const flags = {
@@ -101,7 +101,7 @@ export function seriesColors(dark = false) {
     layers: {
       line: canvasColor("equity"), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),
       ahead: canvasColor("pnl-up", dark ? 0.06 : 0.08), behind: canvasColor("pnl-down", dark ? 0.07 : 0.08),
-      ceiling: canvasColor("fg-faint", dark ? 0.5 : 0.45), held: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
+      ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), held: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
       grid: canvasColor("grid", 0.45),
     },
@@ -113,7 +113,7 @@ export function seriesColors(dark = false) {
     closes: { up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), halo: canvasColor("island") },
     extras: {
       fills: { up: canvasColor("pnl-up", dark ? 0.15 : 0.12), down: canvasColor("pnl-down", dark ? 0.15 : 0.12) }, before: canvasColor("fg-faint", 0.9), hold: canvasColor("fg", dark ? 0.3 : 0.25),
-      exposure: canvasColor("equity", dark ? 0.4 : 0.3), exposureFill: canvasColor("equity", dark ? 0.1 : 0.07), flags,
+      exposure: canvasColor("equity", dark ? 0.4 : 0.3), exposureFill: canvasColor("equity", dark ? 0.1 : 0.07),
     },
   };
 }

@@ -1,7 +1,7 @@
 // What the equity chart marks on its line besides its layers (equityLayers.ts), as one series primitive:
 // the floor the line's drawdown limit sets, the running peak less the limit, as a fine dashed step line in
 // the loss colour (rising only when equity makes a new high), with its tag on the value axis, pinned at the
-// pane's foot (above the event flags) with an arrow while the floor is below the view, and its name beside the tag; the run's
+// pane's foot (above the exposure) with an arrow while the floor is below the view, and its name beside the tag; the run's
 // deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
 // and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
 // the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
@@ -57,7 +57,7 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     return [view("normal", (s) => this.under(s)), view("top", (s) => this.over(s))];
   }
 
-  /** How much of the pane's foot (px) a pinned tag stands above: the event flags' strip. */
+  /** How much of the pane's foot (px) a pinned tag stands above: the exposure's band. */
   lift(px: number): void { if (px !== this.raised) { this.raised = px; this.redraw?.(); } }
 
   /** Where the tags sit, so the value ticks can give way to them. */
