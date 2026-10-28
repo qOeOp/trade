@@ -13,12 +13,14 @@ export type SankeyNode = {
 /** Money moving from a node on the left to one on the right, by their keys. */
 export type SankeyLink = { from: string; to: string; value: number };
 
-// As Highcharts draws a sankey: each node a bar BAR wide and its ribbons' height (at least HAIR), on one
-// scale so a flow keeps its height from bar to bar, its label beside it on the outer side, SIDE from it.
+// As Highcharts draws a sankey: each node a bar BAR wide and its ribbons' height (at least HAIR), its
+// label beside it on the outer side, SIDE from it. A ribbon's height follows the square root of its value
+// (at least FLOOR px, the largest at most THICK), so every flow shows and the largest do not swamp the
+// rest: heights rank the flows rather than measure them, and the labels give the amounts.
 // A node's slot is GAP from the next and at least ONE tall for its name and value on one row, or TWO
 // tall when they stand on two lines: when the row is wider than the labels' width, or the slot is tall
 // enough anyway.
-const BAR = 3, HAIR = 2, SIDE = 6, GAP = 4, ONE = 16, TWO = 32;
+const BAR = 3, HAIR = 2, FLOOR = 1.5, THICK = 28, SIDE = 6, GAP = 4, ONE = 16, TWO = 32;
 // A label's width: Supply is monospaced, so it is its characters', a name (text-small semibold, Supply
 // Medium's 0.62 em) NAME px each and a value (text-small, Regular's 0.6 em) VALUE px each, SEP apart on
 // one row; a logo takes 14px, each further one 10px more (they overlap), and 4px before the name; SLACK
@@ -30,12 +32,12 @@ const row = (n: SankeyNode) => logos(n.logos.length) + n.name.length * NAME + SE
 const lines = (n: SankeyNode) => Math.max(logos(n.logos.length) + n.name.length * NAME, n.label.length * VALUE) + SLACK;
 // Figma's ribbon: a band whose edges leave one node level and reach the other level, its height the same
 // all along (a stroke would swell and pinch where it is steep), its curves' handles at EASE of the way.
-// One thinner than THIN keeps its place on its nodes but is not drawn (a hairline across the chart).
-const EASE = [0.2765, 0.7139] as const, THIN = 2;
-// A ribbon runs from its left node's colour to its right one's through their mix, at BASE opacity, the
-// widest drawn first; under the pointer the lit node's ribbons go to LIT and every other to DIM, and the
+const EASE = [0.2765, 0.7139] as const;
+// A ribbon runs from its left node's colour to its right one's through their mix, deeper the larger it
+// is: from FAINT for the smallest to DEEP for the largest, by the same square root as its height, the
+// widest drawn first. Under the pointer the lit node's ribbons go to LIT and every other to DIM, and the
 // other bars to FADE.
-const BASE = 0.35, LIT = 0.7, DIM = 0.08, FADE = 0.4;
+const FAINT = 0.15, DEEP = 0.55, LIT = 0.75, DIM = 0.06, FADE = 0.4;
 // Literal classes, so Tailwind finds them: a value's colour by its tone (the secondary text otherwise).
 const TONE: Partial<Record<ColorRole, string>> = { "pnl-up": "text-pnl-up", "pnl-down": "text-pnl-down" };
 
@@ -56,46 +58,47 @@ function Logos({ srcs }: { srcs: string[] }) {
   );
 }
 
-type Placed = { n: SankeyNode; y: number; h: number };
-type Ribbon = { from: SankeyNode; to: SankeyNode; t: number; y0: number; y1: number };
+type Placed = { n: SankeyNode; y: number; h: number; bar: number };
+type Ribbon = { from: SankeyNode; to: SankeyNode; t: number; deep: number; y0: number; y1: number };
 type Least = (n: SankeyNode) => number;
 
 const sum = (nodes: readonly SankeyNode[]) => nodes.reduce((s, n) => s + n.value, 0);
-const tall = (nodes: readonly SankeyNode[], k: number, least: Least) =>
-  nodes.reduce((s, n) => s + Math.max(least(n), n.value * k), 0) + Math.max(0, nodes.length - 1) * GAP;
+const thick = (value: number, k: number) => Math.max(FLOOR, Math.sqrt(value) * k);
+/** A node's bar at `k`: its ribbons' heights stacked (`own` the values of its links on its side). */
+const barOf = (own: readonly number[], k: number) => Math.max(HAIR, own.reduce((s, x) => s + thick(x, k), 0));
 
-/** The px a unit of value takes so that the taller column, each slot at its least, is `height`. */
-function scale(columns: readonly SankeyNode[][], height: number, least: Least) {
-  let lo = 0, hi = height / Math.max(...columns.map(sum), 1e-9);
-  for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (columns.every((c) => tall(c, mid, least) <= height)) lo = mid; else hi = mid; }
-  return lo;
-}
-
-/** A column's slots stacked from the top. */
-function stack(nodes: readonly SankeyNode[], k: number, least: Least): Placed[] {
-  let y = 0;
-  return nodes.map((n) => { const p = { n, y, h: Math.max(least(n), n.value * k) }; y += p.h + GAP; return p; });
-}
-
-/** Both columns on one scale, and each bar's ribbons stacked on it in the order of the nodes at their
- *  other ends (top to bottom, so ribbons from one bar do not cross), centred on its slot. */
+/** Both columns on one scale, the largest `k` (px per root of a unit of value) at which the taller column
+ *  of slots, each at its least, fits `height` and no ribbon is taller than THICK; and each bar's ribbons stacked on it in the order of the
+ *  nodes at their other ends (top to bottom, so ribbons from one bar do not cross), centred on its slot. */
 function layout(into: SankeyNode[], out: SankeyNode[], given: SankeyLink[], height: number, least: Least) {
-  const k = scale([into, out], height, least), left = stack(into, k, least), right = stack(out, k, least);
+  const own = (n: SankeyNode, side: "from" | "to") => given.filter((l) => l[side] === n.key).map((l) => l.value);
+  const columns = [into.map((n) => [n, own(n, "from")] as const), out.map((n) => [n, own(n, "to")] as const)];
+  const stack = (c: (typeof columns)[number], k: number) => {
+    let y = 0;
+    return c.map(([n, xs]): Placed => { const bar = barOf(xs, k), p = { n, y, h: Math.max(least(n), bar), bar }; y += p.h + GAP; return p; });
+  };
+  const fits = (k: number) => columns.every((c) => { const s = stack(c, k), last = s[s.length - 1]; return !last || last.y + last.h <= height; });
+  const top = Math.max(...given.map((l) => l.value), 1e-9);
+  let lo = 0, hi = THICK / Math.sqrt(top);
+  if (fits(hi)) lo = hi;
+  else for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+  const left = stack(columns[0]!, lo), right = stack(columns[1]!, lo);
   const at = new Map([...left, ...right].map((p) => [p.n.key, p]));
   const ribbons: Ribbon[] = given.flatMap((l) => {
     const a = at.get(l.from), b = at.get(l.to);
-    return a && b ? [{ from: a.n, to: b.n, t: l.value * k, y0: 0, y1: 0 }] : [];
+    return a && b ? [{ from: a.n, to: b.n, t: thick(l.value, lo), deep: Math.sqrt(l.value / top), y0: 0, y1: 0 }] : [];
   });
   const middle = (n: SankeyNode) => { const p = at.get(n.key)!; return p.y + p.h / 2; };
-  for (const [side, own] of [[left, true], [right, false]] as const) {
+  for (const [side, mineOf] of [[left, true], [right, false]] as const) {
     for (const p of side) {
-      const mine = ribbons.filter((r) => (own ? r.from : r.to) === p.n);
-      mine.sort((a, b) => middle(own ? a.to : a.from) - middle(own ? b.to : b.from));
+      const mine = ribbons.filter((r) => (mineOf ? r.from : r.to) === p.n);
+      mine.sort((a, b) => middle(mineOf ? a.to : a.from) - middle(mineOf ? b.to : b.from));
       let y = p.y + (p.h - mine.reduce((s, r) => s + r.t, 0)) / 2;
-      for (const r of mine) { if (own) r.y0 = y + r.t / 2; else r.y1 = y + r.t / 2; y += r.t; }
+      for (const r of mine) { if (mineOf) r.y0 = y + r.t / 2; else r.y1 = y + r.t / 2; y += r.t; }
     }
   }
-  return { k, left, right, ribbons };
+  const end = (c: Placed[]) => (c.length ? c[c.length - 1]!.y + c[c.length - 1]!.h : 0);
+  return { left, right, ribbons, used: Math.max(end(left), end(right)) };
 }
 
 /** The ribbon from x0 to x1 as a band `t` tall all along. */
@@ -130,7 +133,8 @@ function Label({ p, x, w, two, right, total, dim, onHover }: {
 
 /** What flows in (the left nodes) and out (the right nodes), each column adding up to the same total,
  *  joined by `links`. Under the pointer or the keyboard a node and its ribbons light up and the rest
- *  recede. `height` tall, taller only when a column's slots at their least need it. */
+ *  recede. At most `height` tall (more only when a column's slots at their least need it), less when its
+ *  largest ribbon reaches THICK first. */
 export function Sankey({ into, out, links, label, height: wanted = 140 }: {
   into: SankeyNode[]; out: SankeyNode[]; links: SankeyLink[]; label: string; height?: number;
 }) {
@@ -140,18 +144,18 @@ export function Sankey({ into, out, links, label, height: wanted = 140 }: {
   const all = [...into, ...out], most = width * MOST;
   const text = Math.min(most, Math.max(LEAST, ...all.map(row).filter((r) => r <= most), ...all.filter((n) => row(n) > most).map(lines)));
   const least: Least = (n) => (row(n) <= text ? ONE : TWO);
-  const height = Math.max(wanted, ...[into, out].map((c) => tall(c, 0, least))), total = sum(into);
-  const { k, left, right, ribbons } = layout(into, out, links, height, least);
+  const height = Math.max(wanted, ...[into, out].map((c) => c.reduce((s, n) => s + least(n), 0) + Math.max(0, c.length - 1) * GAP));
+  const total = sum(into), { left, right, ribbons, used } = layout(into, out, links, height, least);
   const x0 = text + SIDE + BAR, x1 = width - x0;
   const labels = (side: Placed[], right: boolean) => side.map((p) => (
     <Label key={p.n.key} p={p} x={right ? width - text : 0} w={text} two={p.h >= TWO || row(p.n) > text} right={right} total={total}
            dim={lit !== null && lit !== p.n} onHover={setLit} />
   ));
   return (
-    <div ref={ref} role="group" aria-label={label} className="relative w-full" style={{ height }} onMouseLeave={() => setLit(null)}>
+    <div ref={ref} role="group" aria-label={label} className="relative w-full" style={{ height: width > 0 ? used : height }} onMouseLeave={() => setLit(null)}>
       {width > 0 && <>
-        <svg width={width} height={height} className="absolute inset-0 block" aria-hidden>
-          {ribbons.filter((r) => r.t >= THIN).sort((a, b) => b.t - a.t).map((r, i) => {
+        <svg width={width} height={used} className="absolute inset-0 block" aria-hidden>
+          {[...ribbons].sort((a, b) => b.t - a.t).map((r, i) => {
             const g = `${id}${i}`, a = v(r.from.role), b = v(r.to.role);
             return (
               <g key={`${r.from.key}>${r.to.key}`}>
@@ -159,13 +163,12 @@ export function Sankey({ into, out, links, label, height: wanted = 140 }: {
                   <stop offset={0} stopColor={a} /><stop offset={0.5} stopColor={`color-mix(in oklab, ${a}, ${b})`} /><stop offset={1} stopColor={b} />
                 </linearGradient>
                 <path d={band(r, x0, x1)} fill={`url(#${g})`} className="transition-opacity"
-                      opacity={lit === null ? BASE : lit === r.from || lit === r.to ? LIT : DIM} />
+                      opacity={lit === null ? FAINT + (DEEP - FAINT) * r.deep : lit === r.from || lit === r.to ? LIT : DIM} />
               </g>
             );
           })}
           {[...left.map((p) => [p, x0 - BAR] as const), ...right.map((p) => [p, x1] as const)].map(([p, x]) => {
-            const bar = Math.max(HAIR, p.n.value * k);
-            return <rect key={p.n.key} x={x} y={p.y + (p.h - bar) / 2} width={BAR} height={bar} rx={BAR / 2} fill={v(p.n.role)}
+            return <rect key={p.n.key} x={x} y={p.y + (p.h - p.bar) / 2} width={BAR} height={p.bar} rx={BAR / 2} fill={v(p.n.role)}
                          opacity={lit !== null && lit !== p.n ? FADE : 1} className="transition-opacity" />;
           })}
         </svg>
