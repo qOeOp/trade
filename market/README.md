@@ -171,9 +171,11 @@ Every replay trades on the latest terms observed at its commit (`historical_term
 CURRENT_SNAPSHOT_APPROXIMATION` in the receipt). When that observation is later than the replay
 window's end (a market imported after the fact), the runner adds the limitation
 `CURRENT_SNAPSHOT_APPROXIMATION: <symbol> trades on terms observed at <time> (observed_at <ms>)` to
-the run's summary, and so to its reports. The commit test `universe_members_have_terms` checks only
-that every member has terms at the commit (the user's decision); a live month-by-month import observes
-the terms during the month and so meets the stricter form as well.
+the run's summary, and so to its reports. `market coverage` returns that terms row per contract
+(`terms`: observation time, source, price and size increments, quantity, notional and price limits).
+The commit test `universe_members_have_terms` checks only that every member has terms at the commit
+(the user's decision); a live month-by-month import observes the terms during the month and so meets
+the stricter form as well.
 
 ## Reading prices
 

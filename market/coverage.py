@@ -3,7 +3,8 @@ they and the exporter share.
 
 Facts only, at one pinned market commit: per contract its member months, the gaps and zero-volume
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
-funding settlement times. First and last data are proxies of listing and delisting, no exchange
+funding settlement times; `market coverage` adds the terms row an export of the commit trades on
+(`market.terms`). First and last data are proxies of listing and delisting, no exchange
 fact. Nothing here drops a contract, shortens a window, fills data or judges an economic failure.
 """
 
@@ -14,7 +15,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from market import lifecycle, series, store, universe
+from market import instrument, lifecycle, series, store, universe
 from market.sources import MINUTE, _refuse
 
 
@@ -137,7 +138,9 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             last = read_bars(conn, commit, symbol, "LAST", start_ms, end_ms)
             mark = read_bars(conn, commit, symbol, "MARK", start_ms, end_ms)
             funding = read_funding(conn, commit, symbol, start_ms, end_ms)
-            found.append(coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding))
+            terms = instrument.terms(conn, commit, symbol)
+            found.append({**coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding),
+                          "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},
             "lifecycle_missing": [] if episodes is None else [symbol for symbol in symbols if symbol not in episodes],

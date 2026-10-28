@@ -998,7 +998,11 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
                                            the native liquidation with the exported best bid/ask and needs
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
-coverage[].funding.event_times_ms is most of the output."""
+coverage[].funding.event_times_ms is most of the output.
+coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
+observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
+inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
+max_price (null for inferred terms)."""
 BARS_EPILOG = """The source reviewer's price read: no trial, no exposure. Prices and volumes are decimals at the
 stored scale. ts_event_ms is when the Catalog delivers the bar to a strategy: its close, ts_open_ms
 plus the period minus 1 ms. 1m MARK bars become one mark price per minute at that close. 1d bars are
