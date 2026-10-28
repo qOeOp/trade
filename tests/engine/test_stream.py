@@ -195,7 +195,7 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
     catalog_path.mkdir(parents=True)
     store = ParquetDataCatalog(str(catalog_path))
     native = export.native_symbol(symbol, index)["instrument_id"]
-    made = instrument.build_instrument(symbol, TERMS, 2, native)[0]
+    made = instrument.build_instrument(symbol, TERMS, 2, native, on_grid=True)[0]
     store.write_instruments([run.with_margins(made, margins) if margins else made])
     iid = InstrumentId.from_str(native)
     bars = series(seed, minutes)
@@ -500,7 +500,7 @@ class StreamTests(unittest.TestCase):
             catalog_path = Path(temp)
             store = ParquetDataCatalog(str(catalog_path))
             native = export.native_symbol("AAAUSDT", None)["instrument_id"]
-            store.write_instruments([instrument.build_instrument("AAAUSDT", TERMS, 2, native)[0]])
+            store.write_instruments([instrument.build_instrument("AAAUSDT", TERMS, 2, native, on_grid=True)[0]])
             iid = InstrumentId.from_str(native)
             march = START + (31 + 28) * DAY
             rows = [(START + MIN, 10**10, 10**10 + 10**6), (march + MIN, 10**10, 10**10 + 10**6)]

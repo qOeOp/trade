@@ -227,7 +227,7 @@ def export_episode(job: dict) -> dict:
 
 1. 清空并重建 path；以只读账号连接市场库，terms 取提交上该合约最新观测的条款行（无则拒绝 NO_TERMS），AS OF 提交读 [start_ns, end_ns) 的 LAST 与 MARK 1 分钟 K 线、start 前全部 LAST 分钟（预热日线来源）与窗口内资金费。
 2. 按公开名在原始序列上调用 coverage_facts（缺口、零量、成交价与标记价对齐、资金费条数与首末时刻、成员月份、上市下架的数据边界代理），覆盖按原名记录，不按片段拆分；资金费只记条数与首末时刻，逐笔时刻留在钉住的提交里，market bars 仍会列出。
-3. split_episodes 得到片段；每个片段：derive_bars 把预热来源聚合为日线并只留收盘早于片段起点的完整日；价格精度取条款精度与数据所需精度的较大者（放宽即记 price_precision_widened）；build_instrument 用片段原生身份与假设条款生成合约；有生命周期时 require_native_price 核对窗口内结算价落在合约精度网格上。
+3. split_episodes 得到片段；每个片段：derive_bars 把预热来源聚合为日线并只留收盘早于片段起点的完整日；价格精度取条款精度与数据所需精度的较大者，并用 on_grid 核对窗口内撮合所用的 1 分钟成交价是否都是条款步长的整数倍（预热日线回溯到更早的 tick，不参与核对）；build_instrument 用片段原生身份、假设条款与这一核对结果生成合约（步长放宽即记 price_precision_widened）；有生命周期时 require_native_price 核对窗口内结算价落在合约精度网格上。
 4. 每个片段在 \<path>/\<catalog_dir>/ 建一个 Catalog：写合约，write_bars 写 1 分钟成交价 K 线（外部聚合，事件时间为收盘）与预热日线，write_marks 写标记价更新，write_quotes 写逐状态原生报价，write_funding 写资金费，write_lifecycle_events 写窗口内 InstrumentStatus / InstrumentClose；记各类条数。
 5. 每片段记首末 K 线时刻、缺失分钟数、成交价与标记价时刻不匹配数；合约级记条款来源与观测时刻、historical_terms 近似标记与假设手续费率、保证金率。
 6. 最后写 export.json（写在最后即表示完整，半截导出不被缓存当作完整）并返回回执。
@@ -502,6 +502,16 @@ The fewest decimals that represent every integer at `scale` exactly.
 
 [Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L120)
 
+#### `on_grid` [#impl-market-export-py-on_grid]
+
+```python
+def on_grid(values: np.ndarray, increment: str, scale: int) -> bool
+```
+
+Whether every integer at `scale` is a whole multiple of `increment`; an increment finer than the scale's quantum counts as off the grid, which only widens the step to the prices' precision.
+
+[Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L130)
+
 #### `nautilus_raw` [#impl-market-export-py-nautilus_raw]
 
 ```python
@@ -568,17 +578,19 @@ def build_instrument(
     terms: TermsSnapshot,
     price_precision: int,
     native_id: str,
+    *,
+    on_grid: bool,
 ) -> None
 ```
 
-<TypeTable type={{ "symbol": { type: "str", description: "交易所公开合约名，写入合约 raw_symbol" }, "terms": { type: "TermsSnapshot", description: "market.terms 的返回值" }, "price_precision": { type: "int", description: "调用方（market.export_episode）从待导出的成交价与日线序列算出的最少小数位，须不小于条款步长的小数位" }, "native_id": { type: "str", description: "引擎原生合约身份，由 market.native_symbol 给出（含生命周期片段编号或 ASCII 别名）" } }} />
+<TypeTable type={{ "symbol": { type: "str", description: "交易所公开合约名，写入合约 raw_symbol" }, "terms": { type: "TermsSnapshot", description: "market.terms 的返回值" }, "price_precision": { type: "int", description: "调用方（market.export_episode）从待导出的成交价与日线序列算出的最少小数位，须不小于条款步长的小数位" }, "native_id": { type: "str", description: "引擎原生合约身份，由 market.native_symbol 给出（含生命周期片段编号或 ASCII 别名）" }, "on_grid": { type: "bool", description: "调用方核对的待导出价格是否都是条款 price_increment 的整数倍" } }} />
 
 **返回**　(instrument, terms_record)：instrument 为引擎 CryptoPerpetual；terms_record 为 \{terms_source, terms_observed_at, price_precision, price_precision_widened, assumed, historical_terms='CURRENT_SNAPSHOT_APPROXIMATION'\}，由导出回执原样记录
 
 **期望行为**
 
 1. 核对 price_increment、size_increment 为正十进制字符串，且有值的 min_quantity≤max_quantity、min_price≤max_price，否则拒绝 TERMS_INVALID。
-2. 取 price_increment 的小数位为交易所精度：price_precision 小于它拒绝 PRECISION_NARROWED（只放宽不收窄）；相等沿用原步长；更宽则步长改为 10^-price_precision 并记 price_precision_widened=true。
+2. 取 price_increment 的小数位为交易所精度：price_precision 小于它拒绝 PRECISION_NARROWED（只放宽不收窄）；相等且 on_grid 才沿用原步长；更宽，或有价格不在条款步长网格上（当前 0.10 与历史 0.01 网格小数位相同），步长改为 10^-price_precision，因为 Nautilus 跳过不在合约网格上的成交；步长细于条款步长即记 price_precision_widened=true。
 3. size_precision 取 size_increment 的小数位，lot_size 等于 size_increment；可选边界有值才写入，inferred 条款下全部为空。
 4. 计价与结算货币固定为 USDT，基础货币由 symbol 去掉后缀得到；symbol 不以 USDT 结尾拒绝 UNSUPPORTED_QUOTE。
 5. 把常量 ASSUMED（maker_fee 0.0002、taker_fee 0.0005、margin_init 0.1、margin_maint 0.1，假设值）写入合约费率与保证金率字段；instrument_id 取 native_id，is_inverse=false，multiplier=1，ts_event=ts_init=0。

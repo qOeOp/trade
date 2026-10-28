@@ -127,6 +127,13 @@ def needed_decimals(values: np.ndarray, scale: int) -> int:
     return scale
 
 
+def on_grid(values: np.ndarray, increment: str, scale: int) -> bool:
+    """Whether every integer at `scale` is a whole multiple of `increment`; an increment finer than the
+    scale's quantum counts as off the grid, which only widens the step to the prices' precision."""
+    step = Decimal(increment).scaleb(scale)
+    return step == step.to_integral_value() and (not len(values) or not np.any(values % int(step)))
+
+
 def _exact(values: np.ndarray, scale: int, precision: int) -> bool:
     return precision >= scale or not len(values) or not np.any(values % 10 ** (scale - precision))
 
@@ -351,7 +358,11 @@ def export_episode(job: dict) -> dict:
         last, mark = piece["last"], piece["mark"]
         precision = max([exchange] + [needed_decimals(bars[name], price_scale) for bars in (last, daily)
                                       for name in ("open", "high", "low", "close")])
-        made, record = instrument.build_instrument(symbol, terms, precision, piece["instrument_id"])
+        # Only the window's minutes are matched: warm-up days reach back past older ticks
+        made, record = instrument.build_instrument(
+            symbol, terms, precision, piece["instrument_id"],
+            on_grid=all(on_grid(last[name], terms["price_increment"], price_scale)
+                        for name in ("open", "high", "low", "close")))
         if piece["episode"] is not None:
             lifecycle.require_native_price(piece["episode"], made, start_ns, end_ns)
         root = path / piece["catalog_dir"] if piece["catalog_dir"] else path
@@ -388,7 +399,7 @@ def export_episode(job: dict) -> dict:
                        "last_bar_ns": int((opens[-1] + MINUTE - 1) * 1_000_000) if len(opens) else None,
                        "missing_minutes": held["missing_count"],
                        "last_mark_unmatched": int(len(np.setxor1d(opens, mark["ts_open"]))),
-                       "price_precision": precision, "price_precision_widened": precision != exchange,
+                       "price_precision": precision, "price_precision_widened": record["price_precision_widened"],
                        "mark_precision": mark_precision, "quote_size": quote_size if quotes else None,
                        "episode": piece["episode"]})
     assert record is not None  # split_episodes returns at least one piece

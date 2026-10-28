@@ -42,9 +42,10 @@ def _positive(value) -> bool:
         return False
 
 
-def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: str):
+def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: str, *, on_grid: bool):
     """market.build_instrument: (engine CryptoPerpetual, terms record) from a terms snapshot, the price
-    precision the exported data needs and the native instrument ID."""
+    precision the exported data needs, the native instrument ID and whether every exported price is a whole
+    multiple of the terms' price increment."""
     from nautilus_trader.model import CryptoPerpetual, Currency, InstrumentId, Money, Price, Quantity, Symbol
     if not _positive(terms.get("price_increment")) or not _positive(terms.get("size_increment")):
         raise _refuse(f"{symbol}: the increments are not positive decimal strings", "TERMS_INVALID", missing=(symbol,))
@@ -60,7 +61,9 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
         raise _refuse(f"{symbol} does not settle in {QUOTE}", "UNSUPPORTED_QUOTE", missing=(symbol,))
     usdt = Currency.from_str(QUOTE)
     base_currency = Currency.from_str(symbol.removesuffix(QUOTE))
-    increment = terms["price_increment"] if exchange == price_precision else format(
+    # A current tick of 0.10 shares its decimals with history on the 0.01 grid; Nautilus skips any fill
+    # off the instrument's grid, so prices off the terms' grid take the finest step their precision allows
+    increment = terms["price_increment"] if exchange == price_precision and on_grid else format(
         Decimal(1).scaleb(-price_precision), "f")
     size = terms["size_increment"]
 
@@ -79,6 +82,7 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
         max_price=optional("max_price", Price.from_str), min_price=optional("min_price", Price.from_str),
         margin_init=Decimal(ASSUMED["margin_init"]), margin_maint=Decimal(ASSUMED["margin_maint"]))
     record = {"terms_source": terms["terms_source"], "terms_observed_at": terms["observed_at"],
-              "price_precision": price_precision, "price_precision_widened": price_precision != exchange,
+              "price_precision": price_precision,
+              "price_precision_widened": Decimal(increment) != Decimal(terms["price_increment"]),
               "assumed": dict(ASSUMED), "historical_terms": APPROXIMATION}
     return instrument, record

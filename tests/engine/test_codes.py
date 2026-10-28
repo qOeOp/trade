@@ -53,7 +53,7 @@ def catalog(root: Path, minutes: np.ndarray, days: int = 0, symbol="AAAUSDT") ->
     path.mkdir()
     store = ParquetDataCatalog(str(path))
     native = export.native_symbol(symbol)["instrument_id"]
-    store.write_instruments([instrument.build_instrument(symbol, TERMS, 2, native)[0]])
+    store.write_instruments([instrument.build_instrument(symbol, TERMS, 2, native, on_grid=True)[0]])
     iid = InstrumentId.from_str(native)
     bars = {"ts_open": START + minutes * MINUTE}
     for name in ("open", "high", "low", "close"):
