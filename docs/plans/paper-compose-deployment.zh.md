@@ -211,11 +211,14 @@ Docker Desktop 要设成登录时自动启动，这是用户自己在 Docker Des
 3. `feat(ide)`：compose 加 paper 和 docker-api 两个服务、`docker-api` 网络和 `.env` 说明；ide 改为
    `--paper=http://paper:8767`；`services/ide/README.md`。第 2 个 PR 合并、镜像发布后才能合；合并后按 §5 第 4 条
    切换。
+   （2026-10-29 用户把第二阶段提前，这一条并进 `ledger-compose-service.zh.md` §6 第 3 个 PR，只切换一次。）
 4. `fix(ide)`：页面显示守护进程离线（§4.8），不依赖上面几个，可以先做。
 
 每个 PR 都只在隔离的 Dolt 库上验证，不碰活动账本。切换那一步才在活动账本上真的跑起来。
 
 ## 7. 第二阶段（另行确认）
+
+用户 2026-10-29 把这一阶段提前，方案见 `ledger-compose-service.zh.md`。下面是当时的设想。
 
 - **Dolt 进 compose**：活动账本的服务改由 compose 管，宿主机上的命令行经 `127.0.0.1:13330` 连它。这牵涉服务
   启停（`ledger service start/stop`）、`ledger init`、备份目录、DoltHub 密钥的位置，以及 root 只许 `localhost`
