@@ -4,25 +4,33 @@ import { PopoverWidget } from "../../components/Dropdown";
 import { DeleteButton, health, returnOf, RunButton, RunMenu, signedPct } from "../../components/RunTile";
 import { Tip } from "../../components/Tip";
 import { useAtom } from "../../state/atom";
-import { ACTIVE, paperTab, selectedRun, usePaperRuns } from "../../state/paper";
+import { ACTIVE, paperTab, selectedRun, usePaperRuns, usePaperService } from "../../state/paper";
 import { useStream } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
 import { alarming, RunHealth, RunList, runOrder } from "../../widgets/paper/RunPicker";
 
 const DOT = { meets: "bg-meets", misses: "bg-misses", fail: "bg-fail" } as const;
 
-/** The Paper page's part of the main toolbar: where the graph has its line and ledger, the run shown, as
+/** The Paper page's part of the main toolbar (while the daemon does not answer, only that): where the graph has its line and ledger, the run shown, as
  *  IntelliJ's run-configuration widget (its state dot, version and revision; the menu lists every run to
  *  pick one, with a dot on the widget when a run behind it is in trouble), then its readout: equity,
  *  return since the start and its state in words; and before search, as IntelliJ's run buttons, its ■ or ▶
  *  and the delete beside them. */
 export function PaperRunWidget() {
+  const offline = usePaperService() === "offline";
   const listing = usePaperRuns();
   const selected = useAtom(selectedRun);
   const stream = useStream();
   const now = useNow();
   const order = runOrder(listing?.runs ?? [], now);
   const run = order.find((r) => r.paper_id === selected) ?? order[0];
+  if (offline) return (
+    <div className="flex min-w-0 flex-1 items-center gap-2 px-2 text-dense">
+      <i className="size-1.5 shrink-0 rounded-full bg-fail" />
+      <span className="shrink-0 font-semibold">Paper daemon offline</span>
+      <span className="min-w-0 truncate text-fg-faint">· retrying…</span>
+    </div>
+  );
   if (!run) return <div className="min-w-0 flex-1" />;
   const s = stream?.paperId === run.paper_id ? stream : null;
   const pick = (id: number) => { if (id !== selected) { selectedRun.set(id); paperTab.set(null); } };
