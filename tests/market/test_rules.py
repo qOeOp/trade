@@ -482,17 +482,66 @@ class WriterTests(Refusals):
         terms = {"symbol": "BTCUSDT", "observed_at": 1, "terms_source": "exchange_info", "price_increment": "0.10",
                  "size_increment": "0.001", "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "50",
                  "min_price": "556.80", "max_price": "4529764"}
-        made, record = instrument.build_instrument("BTCUSDT", terms, 3, "BTCUSDT-PERP.BINANCE")
-        self.assertEqual((str(made.price_increment), made.price_precision, record["price_precision_widened"]),
-                         ("0.001", 3, True))
-        self.assertEqual(str(instrument.build_instrument("BTCUSDT", terms, 2, "BTCUSDT-PERP.BINANCE")[0].price_increment),
-                         "0.10")
-        self.refused("PRECISION_NARROWED", instrument.build_instrument, "BTCUSDT", terms, 1, "BTCUSDT-PERP.BINANCE")
-        self.refused("TERMS_INVALID", instrument.build_instrument, "BTCUSDT", {**terms, "price_increment": "0"}, 2,
-                     "BTCUSDT-PERP.BINANCE")
-        self.refused("TERMS_INVALID", instrument.build_instrument, "BTCUSDT", {**terms, "min_price": "9999999"}, 2,
-                     "BTCUSDT-PERP.BINANCE")
-        self.refused("UNSUPPORTED_QUOTE", instrument.build_instrument, "BTCUSDC", terms, 2, "BTCUSDC-PERP.BINANCE")
+        def build(precision, on_grid=True, symbol="BTCUSDT", **changed):
+            made, record = instrument.build_instrument(symbol, {**terms, **changed}, precision,
+                                                       f"{symbol}-PERP.BINANCE", on_grid=on_grid)
+            return str(made.price_increment), made.price_precision, record["price_precision_widened"]
+        self.assertEqual(build(3), ("0.001", 3, True))
+        self.assertEqual(build(2), ("0.10", 2, False))
+        # 2021 BTCUSDT prices sit on the 0.01 grid: same decimals as the current 0.10, a different grid
+        self.assertEqual(build(2, on_grid=False), ("0.01", 2, True))
+        self.assertEqual(build(2, on_grid=False, price_increment="0.01"), ("0.01", 2, False))
+        self.refused("PRECISION_NARROWED", build, 1)
+        self.refused("TERMS_INVALID", build, 2, price_increment="0")
+        self.refused("TERMS_INVALID", build, 2, min_price="9999999")
+        self.refused("UNSUPPORTED_QUOTE", build, 2, symbol="BTCUSDC")
+
+    def test_prices_off_the_terms_grid_get_a_step_a_market_order_fills_on(self):
+        from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
+        from nautilus_trader.common import LoggerConfig, LogLevel
+        from nautilus_trader.execution import MakerTakerFeeModel
+        from nautilus_trader.model import BarType, MarkPriceUpdate, OrderSide, Quantity, StrategyId, TraderId
+        from nautilus_trader.persistence import ParquetDataCatalog
+        from nautilus_trader.trading import Strategy, StrategyConfig
+        from engine.run import ACCOUNT_CONTRACT, add_venue
+        self.assertTrue(export.on_grid(np.array([2_931_560_000_000, 0]), "0.10", 8))
+        self.assertTrue(export.on_grid(np.array([], np.int64), "0.10", 8))
+        self.assertFalse(export.on_grid(np.array([2_931_560_000_000, 2_931_566_000_000]), "0.10", 8))
+        self.assertFalse(export.on_grid(np.array([1]), "0.000000005", 8))  # finer than the stored quantum
+        terms = {"symbol": "BTCUSDT", "observed_at": 1, "terms_source": "exchange_info", "price_increment": "0.10",
+                 "size_increment": "0.001", "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "50",
+                 "min_price": "556.80", "max_price": "4529764"}
+        minute = bars([(T0 + i * MINUTE, 2_931_566_000_000, 2_931_789_000_000, 2_931_123_000_000,
+                        2_931_401_000_000, 10_000) for i in range(3)])
+        prices = [minute[name] for name in ("open", "high", "low", "close")]
+        precision = max(export.needed_decimals(values, 8) for values in prices)
+        made, _ = instrument.build_instrument("BTCUSDT", terms, precision, "BTCUSDT-PERP.BINANCE",
+                                              on_grid=all(export.on_grid(values, "0.10", 8) for values in prices))
+        catalog = ParquetDataCatalog(str(self.root))
+        bar_type = f"{made.id}-1-MINUTE-LAST-EXTERNAL"
+        export.write_bars(catalog, bar_type, minute, MINUTE, precision, 3, 8, 4)
+
+        class Buy(Strategy):
+            def on_start(self):
+                self.subscribe_bars(BarType.from_str(bar_type))
+
+            def on_bar(self, bar):
+                if not self.cache.orders():
+                    self.submit_order(self.order_factory.market(made.id, OrderSide.BUY, Quantity.from_str("0.010")))
+
+        engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
+                                                     logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
+        try:
+            add_venue(engine, MakerTakerFeeModel(Decimal("0.0002"), Decimal("0.0005")))
+            engine.add_instrument(made)
+            engine.add_strategy(Buy(StrategyConfig(strategy_id=StrategyId("P-1"))))
+            loaded = catalog.query_bars([bar_type])
+            engine.add_data([event for bar in loaded
+                             for event in (MarkPriceUpdate(made.id, bar.close, bar.ts_event, bar.ts_init), bar)])
+            engine.run()
+            self.assertEqual(len(engine.generate_fills_report()), 1)
+        finally:
+            engine.dispose()
 
 
 class ReturnTests(unittest.TestCase):

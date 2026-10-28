@@ -55,7 +55,7 @@ class ScaffoldTests(unittest.TestCase):
 
     def test_the_sizing_helpers_read_quote_equity_and_refuse_quantities_below_the_terms(self):
         run.add_venue(self.engine, fees())
-        self.engine.add_instrument(build_instrument("BTCUSDT", TERMS, 2, "BTCUSDT-PERP.BINANCE")[0])
+        self.engine.add_instrument(build_instrument("BTCUSDT", TERMS, 2, "BTCUSDT-PERP.BINANCE", on_grid=True)[0])
         strategy = self._strategy()
         self.engine.run()
         self.assertEqual(strategy.equity(), Decimal(ACCOUNT_CONTRACT["starting_balance_usdt"]))
