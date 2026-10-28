@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, CrosshairMode, LineSeries, LineStyle, MismatchDirection, type AutoscaleInfo, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
-import { days as daysOf } from "../../model/paper";
+import { days as daysOf, utc } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
@@ -34,10 +34,10 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  once a pan or zoom settles with the moment under the pointer kept in place (viewAnchor). Wheel or drag
  *  the time axis to zoom, drag to pan, double-click for the whole run. The legend names the layers, and
  *  under the pointer gives their values. */
-export function EquityChart({ path, replay = null, starting, start, annual, limit = null, closes = [], held = [], readings }: {
+export function EquityChart({ path, replay = null, starting, start, annual, limit = null, closes = [], held = [], readings, warmup = null }: {
   path: readonly [number, number][]; replay?: readonly [number, number][] | null; starting: number; start: number | null; annual: number | null;
   limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][];
-  readings: ReadonlyMap<number, Reading>;
+  readings: ReadonlyMap<number, Reading>; warmup?: number | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
@@ -191,7 +191,8 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
       <EquityLegend point={p} reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)} starting={starting} annual={annual} replayed={replayed} worst={worst} step={step} many={many} ret={ret} />
       <div className="relative min-h-0 flex-1">
         <div ref={host} className="h-full w-full" />
-        {!points.length && <p className="pointer-events-none absolute inset-0 grid place-items-center text-dense text-fg-faint">No equity yet: the run has not started</p>}
+        {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
+        {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${utc(warmup).slice(0, 16)} UTC, after its daily warm-up`}</p>}
       </div>
     </div>
   );

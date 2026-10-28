@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
 import { equityReadings, type Reading } from "../../model/equityReadings";
-import { heldOf, heldUnion, priceLines, spans as spansOf, type Fill } from "../../model/paper";
+import { heldOf, heldUnion, priceLines, spans as spansOf, warmupAt, type Fill } from "../../model/paper";
 import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Segmented, type Segment } from "../../components/Segmented";
@@ -46,6 +46,8 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const bars = s && s.symbol === symbol ? s.bars : [];
   const of = digits.get(symbol) ?? { price: 2, size: -1 };
   const startedNs = run.seal?.started_ns ?? run.live?.started_ns ?? null;
+  // While an unsealed run waits for its daily warm-up (before it writes any state), the empty charts say when it starts.
+  const warmup = useMemo(() => { const at = s && !s.seal ? warmupAt(s.lines) : null; return at !== null && at > Date.now() ? at : null; }, [s?.seal, s?.lines]);
   // The replay's equity shows while the trades card shows the reconciliation it belongs to.
   const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";
   const replay = useMemo(() => (reconciling && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [r, run.paper_id, reconciling]);
@@ -73,11 +75,11 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {equity ? (
           <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual}
-                       limit={targets.limit} closes={closes} held={holding} readings={readings} />
+                       limit={targets.limit} closes={closes} held={holding} readings={readings} warmup={warmup} />
         ) : (
           <CandleChart key={symbol} remembers={`${run.paper_id}:${symbol}`} symbol={symbol} bars={bars}
                        places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} openFrom={openFrom}
-                       started={startedNs === null ? null : startedNs / 1e6} fit={fit} />
+                       started={startedNs === null ? null : startedNs / 1e6} warmup={warmup} fit={fit} />
         )}
       </div>
     </section>
