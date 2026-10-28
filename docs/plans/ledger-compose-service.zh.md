@@ -91,15 +91,32 @@ compose 项目 trade-ide（services/ide/docker/compose.yaml）
 
 本机迁移就是原地接管：现有的服务目录直接挂进去，17 GB 的 `market` 不拷贝。
 
-**有一处要先量。** Docker Desktop 的 bind 挂载走 virtiofs，Dolt 在上面的性能和文件锁还没量过。实现 PR 的第一步，
-是在容器里经 bind 挂载起一个隔离服务，量写入、`dolt gc` 和大表查询的耗时，并和宿主机上的同样操作对比。
+**量过了（2026-10-29，Docker Desktop，Dolt 2.4.2）。** 同一个 100 万行的库，在宿主机、容器里经 bind 挂载、
+容器里经命名卷上各跑一遍，结果见下表。三处的性能没有差别：
 
-量下来如果不行，就只把 `data` 放进命名卷，`config.yaml` 的 `data_dir` 指向这个卷，切换时整份拷一次；
-`service.json` 和备份仍然走 bind 挂载。Linux 服务器上的 bind 挂载就是本地磁盘，没有这个问题。
+| 操作 | 宿主机 | bind 挂载 | 命名卷 |
+| --- | --- | --- | --- |
+| 写入 | 7.2 秒 | 7.3 秒 | 7.3 秒 |
+| 范围查询 | 0.33 秒 | 0.27 秒 | 0.26 秒 |
+| `dolt gc` | 0.52 秒 | 0.49 秒 | 0.46 秒 |
+
+问题出在文件锁：**Dolt 的文件锁过不了 virtiofs。**
+
+- 只在宿主机上时，第二个 `dolt sql-server` 会被拒绝：“locked by another dolt process”。
+- 容器里的服务占着经 bind 挂载的目录时，宿主机上照样能再起一个服务，也能直接写；写进去的东西，容器里的服务
+  看不到。
+
+所以 `data` 一律放进命名卷：`config.yaml` 的 `data_dir` 指向卷，宿主机上的进程根本碰不到它。本机切换时把
+`data` 整份拷进卷，原来的 `data` 改名为 `data.before-compose`，留着不动。`service.json`、`cfg`、`home` 和备份
+仍然走 bind 挂载，路径和宿主机相同。
+
+同一次探测也量到：经发布端口连进来时，Dolt 拒绝 `'root'@'localhost'`、接受 `'root'@'%'`，这是 §5 第 1 条的依据。
+另外，Dolt 默认会在命令结束后另起一个后台进程，往它的 home 里写使用事件（usage events）。所以 `ledger service
+run` 关掉了这些事件（`DOLT_DISABLE_EVENT_FLUSH`、`metrics.disabled`），否则失败自举清空的目录会被它重新写满。
 
 ### 4.3 第一次启动：自举
 
-条件：`$TRADE_DATA/dolt` 不存在或是空目录，而且 `$TRADE_DATA/ledgers` 里没有配置文件。
+条件：服务目录 `$TRADE_DATA/dolt` 和数据卷都不存在或里面没有文件（空目录不算，比如 paper 的挂载建出的运行目录 `paper/`），而且 `$TRADE_DATA/ledgers` 里没有配置文件。
 
 只要两者有一个不满足，又没有 `service.json`，就拒绝启动，什么也不动，日志里写明原因。例如 `TRADE_DATA` 设错了、
 或者 `service.json` 丢了：自举绝不在别人的数据上动手。
@@ -246,12 +263,13 @@ compose 项目 trade-ide（services/ide/docker/compose.yaml）
    2. 用 `ledger service stop` 停掉现在的 `dolt sql-server`。
    3. 原样留一份 `service.json.before-compose` 和 `config.yaml.before-compose`。
    4. 改 `service.json`：去掉 `socket`，其余不变，端口本来就是 13330。
-   5. 改 `config.yaml`：只听 `0.0.0.0:13330`，不开 socket。
-   6. `docker compose up -d`。
-   7. 在服务里按第 1 条建 `'root'@'%'` 和它的分支控制行。
-   8. 用宿主机命令行和 paper 容器各走一遍 root、writer、reader 和发布。
+   5. 把 `data` 整份拷进命名卷（§4.2 量过，必须这样），原来的 `data` 改名为 `data.before-compose`，留着不动。
+   6. `docker compose up -d`。`config.yaml` 由 `ledger service run` 每次启动按参数写（只听 `0.0.0.0:13330`、
+      不开 socket、`data_dir` 指向卷）；`'root'@'%'` 和它的分支控制行也由它在每次启动时补齐，已有就不动。
+   7. 用宿主机命令行和 paper 容器各走一遍 root、writer、reader 和发布。
 
-   第一阶段已批准的“停宿主机守护进程”放在同一步做，所以只切一次。数据目录不动。
+   第一阶段已批准的“停宿主机守护进程”放在同一步做，所以只切一次。数据不删不改：原来的 `data` 改名留作回退，
+   删不删由用户以后决定。
 3. **新增和收紧的拒绝**，都要登记进 `ledger/refusals.py`：
    - **新增 `SERVICE_MANAGED`**：
      - 现在：`ledger service stop` 能停任何服务。
