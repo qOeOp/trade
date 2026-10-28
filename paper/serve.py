@@ -132,6 +132,46 @@ def _changed(live: dict) -> tuple:
     return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"], live["exceptions"]
 
 
+PRECISION = 1 << 10  # ns: what a page's timestamp may be off by (a double holds one to 256 ns), with room
+
+
+@dataclass(frozen=True)
+class Resume:
+    """What the page already holds of a run's journal: its first `lines` lines but bars, the last of them
+    written at `last` (wall ns), and the bars (with no contract, every contract's closes) up to `bars`
+    (ns); both times only to a double's precision, as the page reads JSON numbers."""
+    lines: int
+    last: int
+    bars: int
+
+
+def resume_of(query: dict[str, str]) -> Resume | None:
+    """The stream's `lines`, `last` and `bars` parameters, all or none."""
+    if not {"lines", "last", "bars"} & query.keys():
+        return None
+    try:
+        found = Resume(int(query["lines"]), int(query["last"]), int(query["bars"]))
+    except (KeyError, ValueError):
+        raise Failure(400, "USAGE_ERROR", "a resumed stream names lines, last and bars, each an integer") from None
+    if found.lines < 0:
+        raise Failure(400, "USAGE_ERROR", "lines counts the journal lines the page holds")
+    return found
+
+
+def resumed(lines: list[dict], resume: Resume) -> list[dict] | None:
+    """`lines` (the journal from its start) less what `resume` says the page holds: the lines but bars after
+    its first `resume.lines`, and the bars after `resume.bars`, in journal order; None when the page's
+    journal is not this one (it holds more lines, or its last was written at another time)."""
+    start = 0
+    if resume.lines:
+        seen = [at for at, line in enumerate(lines) if line["kind"] != "bar"]
+        if len(seen) < resume.lines or abs(int(lines[seen[resume.lines - 1]].get("wall_ns") or 0) - resume.last) > PRECISION:
+            return None
+        start = seen[resume.lines - 1] + 1
+    return [line for at, line in enumerate(lines)
+            if (int(line.get("ts_event") or 0) > resume.bars + PRECISION if line["kind"] == "bar" else at >= start)]
+
+
 def _wanted(line: dict, instrument: str | None) -> bool:
     return line["kind"] != "bar" or line.get("instrument_id") == instrument
 
@@ -376,7 +416,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     symbol = query.get("symbol")
                     if symbol is not None and not SYMBOL.fullmatch(symbol):
                         raise Failure(400, "USAGE_ERROR", "symbol is a Binance symbol such as BTCUSDT")
-                    self.stream(int(found[1]), _instrument(symbol) if symbol else None)
+                    self.stream(int(found[1]), _instrument(symbol) if symbol else None, resume_of(query))
                 elif found and found[2] == "reconcile":
                     self.json(200, daemon.reconciliation(int(found[1])))
                 else:
@@ -414,13 +454,23 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             self.wfile.write(f"event: {kind}\ndata: {json.dumps(value, default=str)}\n\n".encode())
             self.wfile.flush()
 
-        def stream(self, paper_id: int, instrument: str | None) -> None:
+        def resume(self, lines: list[dict], resume: Resume | None) -> list[dict]:
+            """The first batch for a page holding what `resume` says: less that, announced, when the journal
+            is the page's, else all of `lines`."""
+            if resume is None or (rest := resumed(lines, resume)) is None:
+                return lines
+            self.send_event("resumed", {"lines": resume.lines, "bars": resume.bars})
+            return rest
+
+        def stream(self, paper_id: int, instrument: str | None, resume: Resume | None = None) -> None:
             """Server-sent events: `lines` (the journal so far, then what is appended: every line but the bars
             of other contracts), `closes` (for a stream of no contract, the Account view's: every contract's
             bar closes (closes()), all of them and then what is appended), `state` (state.json as it is
             replaced), `failures` (the strategy's runtime failure records as the runner rewrites them, or the
             sealed capture's), `readings` (live_readings, as they change) and `end` (the seal) once the run
-            is sealed."""
+            is sealed. With `resume` the first `lines` and `closes` leave out what the page holds (resumed()),
+            announced by `resumed` (the resume's `lines` and `bars`); a journal the page's does not match
+            streams whole, unannounced."""
             with db.connect(daemon.profile, "reader") as conn:
                 row = records.read_paper_run(conn, paper_id)
                 sealed = records.seal_of(conn, paper_id)
@@ -433,9 +483,10 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             try:
                 if sealed is not None:
                     journal = Journal(lines=[line for line in whole if line["kind"] != "bar"])
-                    self.send_event("lines", [line for line in whole if _wanted(line, instrument)])
+                    rest = self.resume(whole, resume)
+                    self.send_event("lines", [line for line in rest if _wanted(line, instrument)])
                     if instrument is None:
-                        self.send_event("closes", closes(whole))
+                        self.send_event("closes", closes(rest))
                     failures = failure_records(files.get(FAILURES))
                     self.send_event("failures", failures)
                     self.send_event("readings", live_readings(row, journal) | {
@@ -446,6 +497,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 offset, state_seen, failures_seen, beat, first, shown = 0, 0.0, 0.0, time.monotonic(), True, None
                 while True:
                     offset, lines, _ = read_lines(directory / "events.jsonl", offset)
+                    if first:
+                        lines = self.resume(lines, resume)
                     kept = [line for line in lines if _wanted(line, instrument)]
                     found = closes(lines) if instrument is None else {}
                     if kept or first:
