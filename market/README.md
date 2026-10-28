@@ -89,7 +89,10 @@ uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbo
 in one transaction and one commit whose message carries `quote_rule` and the SHA-256 the exchange
 published for every archive read (the input identity an audit re-checks a re-download against); a later import
 under another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Each day's archive is checked against its
-`.CHECKSUM`; the `agg_trade_id` sequence must be contiguous within the day and continue the day before
+`.CHECKSUM`. Every month, an earlier one included, is inferred with the price increment of the
+contract's newest stored terms row, not the increment in force that month: across a tick change a
+stale side that crosses is pushed today's increment off the fresh side. The `agg_trade_id` sequence
+must be contiguous within the day and continue the day before
 (`SEQUENCE_GAP`), the eve's archive is read for the carried state, times must not go backwards. The result
 reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract
 with sparse trades may carry old inferred sides. These diagnostics are not per-side quote age or
