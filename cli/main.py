@@ -1242,7 +1242,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
         "RESEARCH_LINE_REQUIRED: reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
-        "line); large with --full",
+        "line), next_actions (only without a line: `line select`); line.ledger_commit is the commit read, not the "
+        "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "

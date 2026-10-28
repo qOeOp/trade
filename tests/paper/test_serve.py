@@ -28,9 +28,8 @@ FAILURE = {"format": "runtime-failure-v2", "stage": "on_bar", "exception_type": 
            "traceback": "Traceback (most recent call last):\n", "count": 4}
 
 
-def server(daemon) -> tuple[serve.ThreadingHTTPServer, int]:
-    found = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.handler(daemon, frozenset({HOST})))
-    found.daemon_threads = True
+def server(daemon) -> tuple[serve.Server, int]:
+    found = serve.Server(("127.0.0.1", 0), serve.handler(daemon, frozenset({HOST})))
     threading.Thread(target=found.serve_forever, daemon=True).start()
     return found, found.server_address[1]
 

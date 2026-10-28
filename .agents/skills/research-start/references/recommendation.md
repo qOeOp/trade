@@ -3,7 +3,7 @@
 Read whenever the entry presents the recommendation and the line options.
 
 - Start from the latest recommendation in `research state`. When there is none, or
-  `unreviewed_trials` holds new trials since it, review first (research-round's review.md) and add
+  `unreviewed_trials` holds new trials since it, review first (the research-round skill's review) and add
   the new recommendation. Decide from `unreviewed_trials`; never reread the whole ledger by hand or
   write a catch-up note.
 - Every option lists the same readings: annual return, maximum drawdown, Sharpe, plan win rate,
@@ -20,7 +20,7 @@ Read whenever the entry presents the recommendation and the line options.
   change), or a candidate whose research runs are already on that window and commit, can start
   there: the exposure check refuses a source that has already run. A line declares its full
   window once; a frozen rule is tested again only by out-of-sample validation at the user's
-  request, on a window after the validation's registration (research-round's validation.md),
+  request, on a window after the validation's registration (the research-round skill's validation),
   never on earlier months. Offer no option that fails these checks, and say why in one line. A
   missing month is not offered as ready: tell the user which months are missing and that
   importing them is a separate step that writes the public market database.
