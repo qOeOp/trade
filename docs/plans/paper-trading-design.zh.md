@@ -215,7 +215,7 @@ Sandbox 的模拟账户只在内存里。Nautilus 有没有办法存下它、隔
 图谱服务 graph.py serve（Docker，127.0.0.1:8765）── 只读 DoltHub 副本出图
    │ /api/paper/* 原样反代
    ▼
-paper 守护进程（宿主机，127.0.0.1，只听本机）
+paper 守护进程（compose 里与 IDE 平行的容器，不发布端口；经受限的 Docker API 代理起容器）
    │ 每次运行起一个容器：同一个 CI 镜像 digest，python -m engine.paper
    │ 跟随读取运行目录里的事件日志，推给浏览器
    │ 运行结束时调用 python -m cli.main paper seal 写账本
@@ -226,6 +226,12 @@ paper 守护进程（宿主机，127.0.0.1，只听本机）
    ├─ 策略入口类（原样）
    └─ 记录 Actor：订阅订单、成交、持仓、账户事件和 K 线，写 events.jsonl 和定时快照
 ```
+
+**部署（用户 2026-10-29 定）**：守护进程原先在宿主机上手动起，没人看管：起它的终端一关，Paper 就整块不见；
+宿主机或 Docker 重启后，它也不会自己回来。改为和 IDE 同在一个 compose 项目里、平行的容器，`restart:
+unless-stopped`。只有它能经受限的 Docker API 代理起运行容器，IDE 不碰 Docker；本机和服务器用同一份 compose
+文件。镜像、网络、路径挂载、账本连接和要用户授权的点，见 `paper-compose-deployment.zh.md`。实现合并前，仍在
+宿主机上执行 `uv run python -m cli.main paper serve`。
 
 **为什么这是产品代码，不是 Agent 的工作**：AGENTS.md 只允许为三类原因加产品代码：信任边界、修已有缺陷、
 Agent 做不到的事。这里同时占了两条：
