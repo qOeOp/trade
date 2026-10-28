@@ -24,9 +24,18 @@ from market.sources import MINUTE, _refuse
 FORMAT = "market-coverage-v1"
 HOUR = 60 * MINUTE
 COLUMNS = series.COLUMNS
-INTERPRETATION = ("Gaps, zero-volume minutes, missing funding and first or last data are input facts. The replay "
-                  "entry does not drop contracts, shorten the window, fill data or judge an economic failure from "
-                  "them, and does not decide for the strategy whether its indicators are ready.")
+INTERPRETATION = (
+    "Gaps, zero-volume minutes, missing funding and first or last data are input facts; their causes are unproven. "
+    "The replay entry does not drop contracts, shorten the window, fill data or judge an economic failure from them, "
+    "and does not decide for the strategy whether its indicators are ready. The replay treats each the same way in "
+    "every run and the market holds no synthetic rows, so the strategy decides only how it reacts. A zero-volume "
+    "minute is the exchange's record (sources holding the same minute agree at import): the strategy receives the "
+    "bar, and bar execution moves the last price through it but fills nothing, so an order it crosses waits for the "
+    "next traded bar. A LAST gap has no bar and matches nothing; a derived bar is built from the minutes present, and "
+    "a bucket with none does not exist. Through a MARK gap an open position is valued at its latest MARK while that "
+    "is at most engine.run.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation); a longer gap while a "
+    "position is open fails the run's integrity (CAPITAL_VALUATION_GAP), and with no position open changes nothing. "
+    "A missing funding settlement settles nothing, so a held position's account result lacks that payment.")
 
 
 # Reads at a commit

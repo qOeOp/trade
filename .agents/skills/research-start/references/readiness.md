@@ -22,23 +22,11 @@ not a substitute for the disposition.
 1. **Facts and block.** Separate LAST gaps, MARK gaps, zero-volume minutes and missing funding
    (`funding.missing_settlements`, against the contract's own `funding.spacing`).
    Identify the market commit, contracts, UTC intervals and counts the evidence gives; say the
-   causes are unproven, and give the replay's treatment below instead of calling the effect
-   unknown. Distinguish a known missing input from an unreadable receipt or missing verification.
-   Do not infer a new product refusal or change a sealed run's eligibility. The treatment is one
-   fixed rule for every run, not a strategy switch; the market never holds synthetic rows, so a
-   minute no source holds stays a gap, and the strategy decides only how it reacts:
-   - **Zero-volume minute:** an observation, not an anomaly. Every stored bar is Binance's official
-     record (checksummed archives, then REST; sources holding the same minute must agree), so do
-     not export bars or download archives to re-verify or locate these minutes. The strategy
-     receives the bar; bar execution moves the last price through it but fills nothing, so an
-     order it crosses waits for the next traded bar.
-   - **LAST gap:** no bar for those minutes and nothing is matched; a derived bar is built from the
-     minutes present, and a bucket with none does not exist.
-   - **MARK gap:** an open position is valued at its latest MARK for up to 60 minutes (the
-     summary's `mark_carry`, a limitation). A longer gap while a position is open fails the run's
-     integrity (`CAPITAL_VALUATION_GAP`); with no position open it changes nothing.
-   - **Missing funding:** nothing settles at that time, so a held position's account result lacks
-     that payment.
+   causes are unproven, and give the replay's fixed treatment of each (`market coverage`'s
+   `interpretation`) instead of calling the effect unknown. Zero-volume minutes are the exchange's
+   record: do not export bars or download archives to re-verify or locate them. Distinguish a known
+   missing input from an unreadable receipt or missing verification. Do not infer a new product
+   refusal or change a sealed run's eligibility.
 2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
    contract and interval, and whether the full selected universe/window can be confirmed. Give
    the supported range even when narrower than the selection, as information for the user, not a

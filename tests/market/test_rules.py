@@ -289,6 +289,16 @@ class FundingSpacingTests(unittest.TestCase):
         self.assertEqual(coverage.funding_spacing([T0]), {"spacing": [], "missing_settlements": []})
 
 
+class CoverageInterpretationTests(unittest.TestCase):
+    def test_the_stated_replay_treatment_names_the_engines_own_limit_and_finding(self):
+        from engine import config, run  # the engine's names, so a renamed limit or code fails here
+        self.assertIsInstance(run.MARK_CARRY_MAX_MINUTES, int)
+        self.assertIn("CAPITAL_VALUATION_GAP", config.INTEGRITY_CODES)
+        for name in ("engine.run.MARK_CARRY_MAX_MINUTES", "CAPITAL_VALUATION_GAP"):
+            self.assertIn(name, coverage.INTERPRETATION)
+        self.assertNotIn(str(run.MARK_CARRY_MAX_MINUTES), coverage.INTERPRETATION)  # cited, not copied
+
+
 class GapTests(Refusals):
     def test_missing_intervals_are_half_open_and_zero_volume_is_not_a_gap(self):
         times = np.array([T0, T0 + MINUTE, T0 + 4 * MINUTE])
