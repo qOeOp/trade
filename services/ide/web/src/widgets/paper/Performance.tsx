@@ -92,7 +92,7 @@ export function Performance({ a, stats, flows, targets }: { a: Account; stats: T
           <Stat name="In market">{stats.inMarket === null ? MISSING : <>{Math.round(stats.inMarket * 100)}<Unit>%</Unit></>}</Stat>
           <Stat name="Long · short">{stats.longs}<Unit> · </Unit>{stats.shorts}</Stat>
         </div></Section>
-        {flows && <Section title="Profit and loss" aside="since the start"><PnlFlow a={a} f={flows} /></Section>}
+        {flows && <Section title="Profit and loss"><PnlFlow a={a} f={flows} /></Section>}
         {/* A fade at the foot while more is below; under the last card once all of it shows. */}
         <i className="sticky bottom-0 -mt-2 h-4 shrink-0 bg-linear-to-t from-island" />
       </div></ScrollArea>

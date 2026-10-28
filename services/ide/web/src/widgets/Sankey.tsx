@@ -34,11 +34,12 @@ const row = (n: SankeyNode) => logos(n.logos.length) + n.name.length * NAME + SE
 // all along (a stroke would swell and pinch where it is steep), its curves' handles at EASE of the way.
 const EASE = [0.2765, 0.7139] as const;
 // A ribbon runs from its left node's colour to its right one's through their mix (through the faint text
-// colour from profit to loss, whose mix is a muddy olive), deeper the larger it is: from FAINT for the
-// smallest to DEEP for the largest, by the same square root as its height, and at least SEEN when it is
-// under THIN px, so a hairline stays visible; the widest are drawn first. Under the pointer a node or a
+// colour from profit to loss, whose mix is a muddy olive), with AIRY% of the card's surface at its middle;
+// it is deeper the larger it is, from FAINT for the smallest to DEEP for the largest, by its share of the
+// largest to the power DEPTH (so the few large ones stand out), and at least SEEN when it is under THIN
+// px, so a hairline stays visible; the widest are drawn first. Under the pointer a node or a
 // ribbon lights up with what it joins: the other ribbons go to DIM, bars to FADE and labels to half.
-const FAINT = 0.2, DEEP = 0.55, SEEN = 0.3, THIN = 2.5, LIT = 0.75, DIM = 0.06, FADE = 0.35;
+const FAINT = 0.12, DEEP = 0.72, DEPTH = 0.8, AIRY = 45, SEEN = 0.28, THIN = 2.5, LIT = 0.75, DIM = 0.06, FADE = 0.35;
 // Literal classes, so Tailwind finds them: a value's colour by its tone (the secondary text otherwise).
 const TONE: Partial<Record<ColorRole, string>> = { "pnl-up": "text-pnl-up", "pnl-down": "text-pnl-down" };
 
@@ -91,7 +92,7 @@ function layout(into: SankeyNode[], out: SankeyNode[], given: SankeyLink[], heig
   const at = new Map([...left, ...right].map((p) => [p.n.key, p]));
   const ribbons: Ribbon[] = given.flatMap((l) => {
     const a = at.get(l.from), b = at.get(l.to);
-    return a && b ? [{ from: a.n, to: b.n, value: l.value, t: thick(l.value, lo), deep: Math.sqrt(l.value / top), y0: 0, y1: 0 }] : [];
+    return a && b ? [{ from: a.n, to: b.n, value: l.value, t: thick(l.value, lo), deep: (l.value / top) ** DEPTH, y0: 0, y1: 0 }] : [];
   });
   const middle = (n: SankeyNode) => { const p = at.get(n.key)!; return p.y + HEAD + p.bar / 2; };
   for (const [side, mineOf] of [[left, true], [right, false]] as const) {
@@ -163,7 +164,8 @@ export function Sankey({ into, out, links, label, amount, height: wanted = 200 }
       {width > 0 && <>
         <svg width={width} height={used} className="absolute inset-0 block" aria-hidden>
           {[...ribbons].sort((a, b) => b.t - a.t).map((r, i) => {
-            const g = `${id}${i}`, a = v(r.from.role), b = v(r.to.role), mid = profitToLoss(r) ? v("fg-faint") : `color-mix(in oklab, ${a}, ${b})`;
+            const g = `${id}${i}`, a = v(r.from.role), b = v(r.to.role), mix = profitToLoss(r) ? v("fg-faint") : `color-mix(in oklab, ${a}, ${b})`;
+            const mid = `color-mix(in oklab, ${mix}, ${v("island-alt")} ${AIRY}%)`;
             const rest = Math.max(FAINT + (DEEP - FAINT) * r.deep, r.t < THIN ? SEEN : 0);
             return (
               <g key={`${r.from.key}>${r.to.key}`}>

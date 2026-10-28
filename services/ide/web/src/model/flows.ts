@@ -1,10 +1,11 @@
 // What moved a paper run's equity since the start as flows, for the Performance card's Sankey: what came
 // in (each contract's winning trades before fees, funding received, open profit, a net loss drawn from
 // the starting balance) and where it went (each contract's losing trades before fees, fees, funding paid,
-// open loss, the net kept), so that the two sides add up. The contracts stand in By contract's order (best
-// after fees first). Each contract's wins first cover its own losses; what is left on the left then fills
-// what is left on the right, both in their columns' order (the contracts' losses beyond their own wins,
-// then the other outflows, the net last).
+// open loss, the net kept), so that the two sides add up. Into lists the contracts in By contract's order
+// (best after fees first), then the other inflows; out lists the same the other way up, the net first
+// and the contracts last, so that what is kept runs along the top and what is lost falls to the foot.
+// Each contract's wins first cover its own losses; what is left of each flow in then fills what is left
+// of the flows out, the contracts' losses before the other outflows and the net last.
 import { amount, symbolOf, type JournalLine } from "../lib/paperApi";
 import type { Account } from "./account";
 import { eventMs } from "./paper";
@@ -107,5 +108,5 @@ export function flows(a: Account, lines: readonly JournalLine[], most = 3): Flow
   for (const f of into) if (!used.has(f.key)) join(f.key, out.at(-1)?.key ?? "", f.value);
   for (const f of out) if (!used.has(f.key)) join(into.at(-1)?.key ?? "", f.key, f.value);
   const total = into.reduce((sum, f) => sum + f.value, 0);
-  return total >= CENT ? { into, out, links: [...joined.values()], total, dp } : null;
+  return total >= CENT ? { into, out: out.reverse(), links: [...joined.values()], total, dp } : null;
 }
