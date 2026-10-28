@@ -116,7 +116,7 @@ run` 关掉了这些事件（`DOLT_DISABLE_EVENT_FLUSH`、`metrics.disabled`）�
 
 ### 4.3 第一次启动：自举
 
-条件：服务目录 `$TRADE_DATA/dolt` 和数据卷都不存在或是空的，而且 `$TRADE_DATA/ledgers` 里没有配置文件。
+条件：服务目录 `$TRADE_DATA/dolt` 和数据卷都不存在或里面没有文件（空目录不算，比如 paper 的挂载建出的运行目录 `paper/`），而且 `$TRADE_DATA/ledgers` 里没有配置文件。
 
 只要两者有一个不满足，又没有 `service.json`，就拒绝启动，什么也不动，日志里写明原因。例如 `TRADE_DATA` 设错了、
 或者 `service.json` 丢了：自举绝不在别人的数据上动手。

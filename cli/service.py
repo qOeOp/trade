@@ -93,14 +93,18 @@ def _ready(config: dict, server: subprocess.Popen, password: str | None = None) 
 
 
 def _empty(directory: Path) -> bool:
-    return not directory.exists() or (directory.is_dir() and not any(directory.iterdir()))
+    """No file under `directory`: empty directories, such as the run directory paper's mount makes, count."""
+    return not directory.exists() or (directory.is_dir() and all(path.is_dir() and not path.is_symlink()
+                                                                  for path in directory.rglob("*")))
 
 
-def _clear(directory: Path) -> None:
-    """Remove what is inside `directory` (it may be a mount point, kept)."""
+def _clear(directory: Path, kept: frozenset[Path] = frozenset()) -> None:
+    """Remove what is inside `directory` (it may be a mount point, kept); the directories `kept` stay, emptied."""
     if directory.is_dir():
         for child in directory.iterdir():
-            if child.is_dir() and not child.is_symlink():
+            if child in kept:
+                _clear(child)
+            elif child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child)
             else:
                 child.unlink()
@@ -163,6 +167,7 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                 raise refuse("ISOLATION_BREACH", "an active service keeps its data and backups outside the source "
                                                  "checkout and temporary roots", missing=(str(path),))
     profiles = {name: db.home() / f"{name}.json" for name in (LEDGER, MARKET)}
+    kept = {path: frozenset(path.iterdir() if path.is_dir() else ()) for path in (service_root, data_dir)}
     server = None
     try:
         for directory in (service_root / "cfg", service_root / "home", data_dir):
@@ -232,8 +237,8 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
             _stop(server)
         for path in profiles.values():
             path.unlink(missing_ok=True)
-        _clear(data_dir)
-        _clear(service_root)
+        _clear(data_dir, kept[data_dir])
+        _clear(service_root, kept[service_root])
         raise
 
 

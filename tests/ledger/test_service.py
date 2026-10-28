@@ -149,9 +149,11 @@ class RunTests(unittest.TestCase):
         (self.data / "keep").unlink()
         self.assertEqual(self.code(self.start, credentials=self.root / "none"), "DOLTHUB_CREDENTIALS")
         self.assertFalse(self.service_root.exists(), "the key is checked before anything is made")
+        (self.service_root / "paper").mkdir(parents=True)  # compose's mount of the paper run directory
         missing = {**self.origins, service.MARKET: (self.remotes / "missing").as_uri()}
         self.assertEqual(self.code(self.start, origins=missing), "BOOTSTRAP_FAILED")
-        self.assertEqual(list(self.service_root.iterdir()), [])
+        self.assertEqual([path.name for path in self.service_root.iterdir()], ["paper"],
+                         "an empty directory counts as empty and stays")
         self.assertEqual(list(self.data.iterdir()), [])
         self.assertEqual(list(db.home().glob("*.json")), [])
         server, _ = self.start()
