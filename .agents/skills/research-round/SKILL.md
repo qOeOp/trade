@@ -23,13 +23,8 @@ diagnosis; attribution may remain unresolved.
 
 For a coverage gap, zero-volume minutes, missing funding or an inferred-quote contract, period or
 liquidation use not yet validated, load `research-start` through the host's skill invocation tool
-(reuse it if already loaded for this check), then read its
-[readiness rules](../research-start/references/readiness.md). Do not substitute a reference-only
-read: the entry defines how this check retains the current line and authority. If the host has no
-skill invocation tool, read both its entry and readiness reference. Return the full coverage
-disposition before interpreting the anomaly or choosing a response, including after a completed
-replay. This is an input-evidence check inside the selected line, not a new session or a request
-to reselect it.
+(without one, read its entry and readiness reference) and return its readiness disposition (its
+input checks inside an existing line); this is not a new session.
 
 | Stage | Commands | Read for this stage |
 |---|---|---|
@@ -46,8 +41,7 @@ fresh reviewer with no authoring context receives only the candidate id, sealed 
 verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
 reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
-after a repair (Codex: `fork_turns: "none"`). `replay explore` is never economic evidence; it records
-an explore trial in the active ledger as exposure to the data it read.
+after a repair (Codex: `fork_turns: "none"`). `replay explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments to every precheck, registration and replay
@@ -60,10 +54,10 @@ equity E at maintenance rate m needs (E/N - m)/(1 + m), about +99% at N = E). Wh
 prices can travel that distance while a position is held, margin decides survival: use `quotes`
 with `--initial-margin`/`--maintenance-margin` from Binance's bracket for the largest position.
 When the distance lies far beyond such moves and beyond the inferred quotes' measured error,
-`bars` suffices: report liquidation as unmodelled together with that smallest distance. Notional
-caps, leverage and size are design variables in the source (AGENTS.md); a cap may keep a source
-on `bars`. At lower exposure `quotes` may still be chosen when the pinned market commit holds them
-for every month of the trading window and the readiness check above supports the use.
+`bars` suffices: report liquidation as unmodelled together with that smallest distance. A
+notional cap in the source may keep it on `bars`. At lower exposure `quotes` may still be chosen
+when the pinned market commit holds them for every month of the trading window and the readiness
+check above supports the use.
 
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
@@ -81,7 +75,8 @@ Complete every registered grid point once before reading performance or register
 batch. Do not add points or tune source within a batch.
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
-judgments do not end the loop. Stop only for the user, an authority boundary or a due line change.
+judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
+continue ([changes.md](references/changes.md)) or a due line change.
 A line change is due when the recommended version has stayed the same across as many consecutive
 research runs as `REVIEW_DUE` counts and each of those runs' `mean_daily_log_difference` lies
 within its `detectable_mean_log_difference_80pct_normal_approx`
