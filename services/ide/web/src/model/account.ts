@@ -44,6 +44,9 @@ export const neededReturn = (annual: number, a: Account) => (a.start === null ? 
 export type TradeStats = {
   winRate: number | null; profitFactor: number | null; perTrade: number | null; hold: number | null;
   inMarket: number | null; longs: number; shorts: number;
+  /** The average winning and losing trade (the loss negative), the longest run of losing trades, and how
+   *  many closed at their target, at their stop or otherwise. */
+  avgWin: number | null; avgLoss: number | null; streak: number; exits: Record<Closed["how"], number>;
 };
 
 /** What the closed trades say (win rate is a report dimension, never a target), and the share of the
@@ -51,6 +54,9 @@ export type TradeStats = {
 export function tradeStats(a: Account, lines: readonly JournalLine[]): TradeStats {
   const closed = a.trades.filter((t) => t.pnl !== null), pnl = closed.map((t) => t.pnl!);
   const won = pnl.filter((p) => p > 0).reduce((s, p) => s + p, 0), lost = -pnl.filter((p) => p < 0).reduce((s, p) => s + p, 0);
+  const wins = pnl.filter((p) => p > 0), losses = pnl.filter((p) => p < 0), count = (how: Closed["how"]) => closed.filter((t) => t.how === how).length;
+  let streak = 0, run = 0;
+  for (const p of pnl) { run = p < 0 ? run + 1 : 0; streak = Math.max(streak, run); }
   const found = fills(lines);
   let inMarket: number | null = null;
   if (a.start !== null && a.end > a.start) {
@@ -61,5 +67,7 @@ export function tradeStats(a: Account, lines: readonly JournalLine[]): TradeStat
     profitFactor: lost > 0 ? won / lost : null, perTrade: closed.length ? pnl.reduce((s, p) => s + p, 0) / closed.length : null,
     hold: a.trades.length ? a.trades.reduce((s, t) => s + (t.closed - t.opened), 0) / a.trades.length : null,
     inMarket, longs: a.trades.filter((t) => t.long).length, shorts: a.trades.filter((t) => !t.long).length,
+    avgWin: wins.length ? won / wins.length : null, avgLoss: losses.length ? -lost / losses.length : null, streak,
+    exits: { target: count("target"), stop: count("stop"), other: count("other") },
   };
 }
