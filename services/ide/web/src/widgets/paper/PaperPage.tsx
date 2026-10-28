@@ -56,7 +56,7 @@ export function PaperPage() {
         <div className="col-start-1 row-start-1 grid min-h-0"><ChartCard run={run} view={shown} s={s} a={a} fills={fills} targets={targets} /></div>
         <aside className="col-start-2 row-span-2 row-start-1 grid min-h-0 grid-rows-subgrid">
           <div className="flex min-h-0 flex-col">
-            {a && stats ? <Performance a={a} stats={stats} targets={targets} /> : <section className="min-h-0 flex-1 rounded-island bg-island" />}
+            {a && stats ? <Performance key={run.paper_id} a={a} stats={stats} targets={targets} /> : <section className="min-h-0 flex-1 rounded-island bg-island" />}
           </div>
           <Calendar s={s} a={a} />
         </aside>
