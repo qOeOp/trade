@@ -7,6 +7,12 @@ Read coverage facts, imported quotes included, with `market coverage` at the lin
 (`--help` for its output).
 A completed replay does not discharge the coverage-reporting duties below.
 
+Before gathering evidence or asking the user about a coverage anomaly or inferred quotes, write
+which decision the result could change (execution environment, window, contracts or a
+liquidation claim) and what result would suffice. When none, report what you know and continue,
+or hand the choice back in one sentence. Never invent data, thresholds or scope, and never offer
+evidence that cannot be obtained.
+
 ## Contents
 
 - Coverage disposition
@@ -24,9 +30,8 @@ not a substitute for the disposition.
    Identify the market commit, contracts, UTC intervals and counts the evidence gives; say the
    causes are unproven, and give the replay's fixed treatment of each (`market coverage`'s
    `interpretation`) instead of calling the effect unknown. Zero-volume minutes are the exchange's
-   record: do not export bars or download archives to re-verify or locate them. Distinguish a known
-   missing input from an unreadable receipt or missing verification. Do not infer a new product
-   refusal or change a sealed run's eligibility.
+   record. Distinguish a known missing input from an unreadable receipt or missing verification.
+   Do not infer a new product refusal or change a sealed run's eligibility.
 2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
    contract and interval, and whether the full selected universe/window can be confirmed. Give
    the supported range even when narrower than the selection, as information for the user, not a
@@ -38,34 +43,23 @@ not a substitute for the disposition.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
-4. **User choice.** Ask only about an anomaly that would stop or distort the replay: a MARK gap
-   longer than 60 minutes at or after the trading start (a position may be open there), missing
-   funding after the trading start, a missing month or unreadable receipt, or a gap on an input
-   value the strategy reads (for example a warm-up close an indicator uses, or a whole bar of its
-   decision timeframe). For any other (zero-volume minutes, MARK gaps up to 60 minutes, LAST gaps
-   that remove no value the strategy reads) say where it lies, report parts 1–3 and continue.
+4. **User choice.** Ask only about an anomaly that would stop or distort the replay: a gap the
+   replay's treatment above fails the run on (a MARK gap beyond the carry where a position may be
+   open), missing funding after the trading start, a missing month or unreadable receipt, or a gap
+   on an input value the strategy reads (for example a warm-up close an indicator uses, or a whole
+   bar of its decision timeframe). For any other, say where it lies, report parts 1–3 and continue.
    When asking, end with a direct question choosing how to resolve the data/scope block. List
    first each range that runs now under the pinned inputs with no anomaly left that calls for this
    question (a later trading start can put a MARK gap in warm-up), then keeping the selection
    while obtaining or verifying the missing source evidence (only under a pinned commit the market
    database holds; a missing commit is SKILL.md's `MARKET_COMMIT_UNRESOLVED` gate, never a research
-   option), or another supported range through
-   the existing line-change rules; keep the options already offered unless new evidence rules one
-   out. `market import` refuses a month the
-   database already holds through its end (`MONTH_EXISTS`), so a source missing inside a stored
-   month comes in only through a product fix to the import and the user's authority to replace
-   that stored history: say so, and call it a defect fix, not a new entry point. Quotes missing for
-   a month whose bars the market holds come in through `market import-quotes` (read its `--help`;
-   any earlier month is accepted): list it in this question beside the runnable ranges. Its
-   checksum, sequence-gap and time-order refusals are the acceptance of the conversion, so add no
-   acceptance step or licence condition of your own. Each month is one public market write and
-   publish, the user's decision; replays on the imported quotes pin the new market commit, which
-   is a new line record. A `SEQUENCE_GAP` that persists after the re-download its refusal names is
-   in the exchange's published aggTrades, and `market import-quotes` cannot import that month. Do
-   not search for the missing records or rebuild quotes outside the import: quotes from another
-   source (for example the trades archive) are a change to the product's quote rule, which needs
-   the user's authority. Ask again with the quote-covered ranges that exclude the month and, where
-   research-round's execution rule lets the source run on `bars`, the full window on `bars`.
+   option), or another supported range through the existing line-change rules; keep the options
+   already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
+   replacing stored history or the product's quote rule (quotes from another source) needs the
+   user's authority. Quotes missing for a month whose bars the market holds come in through
+   `market import-quotes` (`--help`; its refusals are the conversion's acceptance): list it beside
+   the runnable ranges. Each month is one public market write and publish, the user's decision;
+   replays on the imported quotes pin the new market commit, which is a new line record.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
    shorter window, replacement input or changed commit yourself, or recommend one because an
    anomaly coincides with losses. A question about writing records, permission to inspect,
@@ -104,13 +98,8 @@ liquidation research. In the aggTrades model, each bid or ask is carried until a
 the resulting liquidation error can go either way. Minute decisions do not validate intraminute
 liquidation inputs. A native replay passing does not establish that those inputs represent the book.
 
-- Before gathering any evidence, write which decision it can change (execution environment,
-  window, contract or a liquidation claim) and what result would suffice. Gather nothing whose
-  result can change no decision.
-- Judge suitability from the source's designed distance to liquidation (research-round's execution
-  rule) against the measured error of the inferred quotes. When the distance is far larger than
-  the error, report the limitation and continue; examine the reference source's own gaps, or run
-  matched native replays, only where a decision variable lies near its threshold.
+- Judge suitability by research-round's execution rule: the source's designed distance to
+  liquidation against the measured error of the inferred quotes.
 - Name the actual contract, UTC period and intended use (including leverage/exposure and the
   liquidation scenarios), with the pinned market commit, quote rule and runtime identified. Do not
   extend BTC evidence, a sampled day or an earlier period to other contracts, unsampled periods or
@@ -136,6 +125,3 @@ liquidation inputs. A native replay passing does not establish that those inputs
   runnable coverage separate from demonstrated suitability; do not label a data evidence gap as
   candidate failure or silently mark existing product measures ineligible. Do not automatically
   drop coins, shorten windows or change the pinned inputs.
-- When a step's result cannot change the disposition, say so in one sentence and hand the
-  data/scope or design choice back to the user. Never offer obtaining evidence that cannot be
-  obtained.
