@@ -69,13 +69,13 @@ export function RunButton({ run, className }: { run: PaperRun; className?: strin
   );
 }
 
-/** The trash beside the ■ or ▶ that asks to delete the run shown; a run still running or not yet sealed
- *  has to be stopped first, so it is off until then, aria-disabled rather than disabled so that its
- *  tooltip still says why. */
+/** The trash beside the ■ or ▶ that asks to delete the run shown, its outline at 16px so that it is no
+ *  larger than their filled glyphs; a run still running or not yet sealed has to be stopped first, so it
+ *  is off until then, aria-disabled rather than disabled so that its tooltip still says why. */
 export function DeleteButton({ run, className }: { run: PaperRun; className?: string }) {
   const busy = useAtom(deleting).has(run.paper_id), sealed = run.state === "sealed", off = !sealed || busy;
   return (
-    <IconButton icon="delete" frame className={className} aria-disabled={off}
+    <IconButton icon="delete" frame glyph={16} className={className} aria-disabled={off}
                 label={sealed ? "Delete run…" : "Delete run: stop and seal it first"}
                 onClick={(e) => { e.stopPropagation(); if (!off) deleteDialog.set(run); }} />
   );
