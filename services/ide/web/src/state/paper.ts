@@ -16,12 +16,14 @@ export const paperRuns = atom<Listing | null>(null);
  *  page picks one). The trades and events follow the chart: a contract's alone, or all on Equity. */
 export const selectedRun = atom<number | null>(null);
 export const paperTab = atom<string | null>(null);
-/** Versions being started from this page, and runs being stopped. */
+/** Versions being started from this page, and runs being stopped or deleted. */
 export const starting = atom<ReadonlySet<string>>(new Set());
 export const stopping = atom<ReadonlySet<number>>(new Set());
-/** "Run paper with…" open for a version; "Stop paper?" open for a run. */
+export const deleting = atom<ReadonlySet<number>>(new Set());
+/** "Run paper with…" open for a version; "Stop paper?" or "Delete run?" open for a run. */
 export const startDialog = atom<string | null>(null);
 export const stopDialog = atom<PaperRun | null>(null);
+export const deleteDialog = atom<PaperRun | null>(null);
 export const notice = atom<{ text: string; failed: boolean; n: number } | null>(null);
 
 export const usePaperService = () => useAtom(paperService);
@@ -101,6 +103,23 @@ export async function stopPaper(run: PaperRun): Promise<void> {
     say(`Paper did not stop · ${run.candidate ?? run.paper_id} · ${failure(error)}`, true);
   } finally {
     stopping.set(drop(stopping.get(), run.paper_id));
+  }
+}
+
+/** Deletes a sealed run from the ledger: its declaration and capture leave the research branch (Dolt
+ *  history and the public copy keep them). */
+export async function deletePaper(run: PaperRun): Promise<void> {
+  if (deleting.get().has(run.paper_id)) return;
+  deleting.set(add(deleting.get(), run.paper_id));
+  try {
+    await paperApi(`/runs/${run.paper_id}/delete`, { method: "POST", body: {} });
+    say(`Paper run deleted · ${run.candidate ?? run.paper_id} · run ${run.paper_id}`);
+    if (selectedRun.get() === run.paper_id) selectedRun.set(null);
+    await refreshRuns();
+  } catch (error) {
+    say(`Paper run not deleted · ${run.candidate ?? run.paper_id} · ${failure(error)}`, true);
+  } finally {
+    deleting.set(drop(deleting.get(), run.paper_id));
   }
 }
 

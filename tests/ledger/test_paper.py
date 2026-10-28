@@ -1,6 +1,8 @@
 """If this fails, a paper run's record no longer says what happened: its readings miss the funding Sandbox
 does not settle, a crashed or foreign run reads as complete, the journal is not kept by UTC day with
-stable bytes, a declared run cannot be sealed exactly once, or an Agent can write into its capture."""
+stable bytes, a declared run cannot be sealed exactly once, an Agent can write into its capture, or the
+user's deletion of a sealed run takes more than that run (or a content another run still names), reads as
+tampering in the whole-ledger review, or lets another removal pass as one."""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import unittest
 
 from ledger import db, evidence, paper, strategies
 from ledger.errors import Refusal
+from report import review
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 
 
@@ -169,6 +172,36 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "LEDGER_UPGRADE_REQUIRED")
         self.assertEqual(db.upgrade(self.profile)["created"], ["paper_run", "paper_run_created"])
         self.assertEqual(self.open()["paper_id"], 1)
+
+
+    def changed(self) -> list[tuple[str, str]]:
+        with db.connect(self.profile, "reader") as reader:
+            found = review.review_all(reader, tables=["paper_run", "evidence_bundle", "evidence", "evidence_content"])
+        return sorted((item["table"], item["record_id"]) for item in found["findings"] if item["code"] == "ROW_CHANGED")
+
+    def test_a_deleted_run_leaves_only_its_own_rows_and_the_review_accepts_exactly_that(self):
+        first, second, open_run = self.open(), self.open("paper-start:2"), self.open("paper-start:3")
+        shared = b'{"limitations": []}'
+        paper.seal_paper_run(self.conn, first["paper_id"], {"seal.json": b'{"status": "invalid"}', "summary.json": shared})
+        paper.seal_paper_run(self.conn, second["paper_id"], {"seal.json": b'{"status": "complete"}', "summary.json": shared})
+        self.conn.close()
+        deleted = paper.delete_paper_run(self.profile, first["paper_id"])
+        self.assertEqual((deleted["bundle"], deleted["contents_deleted"]), ("paper-1-capture", 1))
+        with db.connect(self.profile, "reader") as reader:
+            self.assertEqual([(run["paper_id"], run["seal"]) for run in paper.paper_runs(reader)],
+                             [(2, {"status": "complete"}), (3, None)])
+            self.assertEqual(evidence.load_bundle(reader, "paper-2-capture")["files"]["summary.json"], shared)
+        for paper_id, code in ((first["paper_id"], "PAPER_RUN_UNKNOWN"), (open_run["paper_id"], "PAPER_RUN_ACTIVE")):
+            with self.subTest(code), self.assertRaises(Refusal) as caught:
+                paper.delete_paper_run(self.profile, paper_id)
+            self.assertEqual(caught.exception.code, code)
+        self.assertEqual(self.changed(), [])
+        # a removal under any other message, or of another run under a deletion's message, is still found
+        self.service.sql(self.profile, "DELETE FROM paper_run WHERE paper_id = 3")
+        self.service.sql(self.profile, "CALL DOLT_COMMIT('-a', '-m', 'paper_delete:2')")
+        self.service.sql(self.profile, "DELETE FROM evidence WHERE bundle = 'paper-2-capture' AND path = 'seal.json'")
+        self.service.sql(self.profile, "CALL DOLT_COMMIT('-a', '-m', 'tamper')")
+        self.assertEqual(self.changed(), [("evidence", "paper-2-capture/seal.json"), ("paper_run", "3")])
 
 
 if __name__ == "__main__":

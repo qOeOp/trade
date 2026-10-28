@@ -2,7 +2,7 @@
 
 It listens on loopback only; the IDE service in front proxies ``/api/paper/`` to it and adds the page's
 token (services/ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
-run's journal as it grows, a version's last research replay. Every write (start, stop, seal) is the
+run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
 and published only through it. A run that ended on its own (its duration, a crash) is sealed when found.
 
@@ -48,7 +48,7 @@ RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's re
 CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
 FAILURES = "runtime_failures.jsonl"
-STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|reconcile)\Z")
+STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|reconcile|delete)\Z")
 
 
 class Failure(Exception):
@@ -259,6 +259,17 @@ class Daemon:
         threading.Thread(target=run, daemon=True).start()
         return {"paper_id": paper_id, "state": "stopping"}
 
+    def delete(self, paper_id: int) -> dict:
+        """Delete a sealed run (`paper delete`); the page asks the user first."""
+        with self.lock:
+            if paper_id in self.stopping:
+                raise Failure(409, "PAPER_RUN_ACTIVE", f"paper run {paper_id} is being stopped")
+        found = self.cli("delete", "--paper-id", str(paper_id))
+        with self.lock:
+            self.reconciling.pop(paper_id, None)
+        self.journals.pop(paper_id, None)
+        return found
+
     def reconcile_root(self) -> Path:
         return Path(tempfile.gettempdir()) / f"trade-paper-reconcile-{runs.ledger_key(self.profile)}"
 
@@ -452,6 +463,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.json(202, daemon.stop(int(found[1])))
                 elif found and found[2] == "reconcile":
                     self.json(202, daemon.reconcile(int(found[1])))
+                elif found and found[2] == "delete":
+                    self.json(200, daemon.delete(int(found[1])))
                 else:
                     raise Failure(404, "NOT_FOUND", self.path)
             except ValueError:

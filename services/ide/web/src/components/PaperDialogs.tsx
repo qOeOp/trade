@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertDialog, Dialog } from "radix-ui";
 import { useAtom } from "../state/atom";
-import { lastSymbols, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
+import { deleteDialog, deletePaper, lastSymbols, startDialog, startPaper, stopDialog, stopPaper } from "../state/paper";
 import { FormButton } from "./chat/Field";
 
 const PANEL = "fixed left-1/2 top-[18%] z-50 w-[440px] max-w-[calc(100vw-32px)] -translate-x-1/2 space-y-3 rounded-popup border border-popup-border bg-popup p-4 text-dense shadow-popup outline-none";
@@ -60,10 +60,11 @@ function StartDialog({ candidate }: { candidate: string }) {
   );
 }
 
-/** The dialogs a paper start or stop asks first; mounted once in the shell. */
+/** The dialogs a paper start, stop or delete asks first; mounted once in the shell. */
 export function PaperDialogs() {
   const candidate = useAtom(startDialog);
   const run = useAtom(stopDialog);
+  const doomed = useAtom(deleteDialog);
   return (
     <>
       <Dialog.Root open={candidate !== null} onOpenChange={(open) => { if (!open) startDialog.set(null); }}>
@@ -86,6 +87,25 @@ export function PaperDialogs() {
               <AlertDialog.Cancel asChild><FormButton>Cancel</FormButton></AlertDialog.Cancel>
               <AlertDialog.Action asChild>
                 <FormButton primary icon="stop" onClick={() => { if (run) void stopPaper(run); }}>Stop</FormButton>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
+      <AlertDialog.Root open={doomed !== null} onOpenChange={(open) => { if (!open) deleteDialog.set(null); }}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className={SCRIM} />
+          <AlertDialog.Content className={PANEL}>
+            <AlertDialog.Title className="text-ui font-semibold">Delete run?</AlertDialog.Title>
+            <AlertDialog.Description className="text-fg-muted">
+              <span className="font-mono text-fg">{doomed?.candidate}</span> · run {doomed?.paper_id}. Its declaration and
+              sealed results are removed from the ledger and this panel; you can't undo this here. Earlier ledger
+              versions, the backup and the public DoltHub copy keep them.
+            </AlertDialog.Description>
+            <div className="flex justify-end gap-2 pt-1">
+              <AlertDialog.Cancel asChild><FormButton>Cancel</FormButton></AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <FormButton primary icon="delete" onClick={() => { if (doomed) void deletePaper(doomed); }}>Delete</FormButton>
               </AlertDialog.Action>
             </div>
           </AlertDialog.Content>

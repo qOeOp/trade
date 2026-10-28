@@ -18,7 +18,7 @@ Bundles organize file paths pointing to content-addressed originals. Research li
 **Dolt 能力**
 
 - **J.3.2.1**　每次写入恰一个 DOLT_COMMIT，与业务行同一事务
-- **J.3.1.1**　dolt_diff_evidence_bundle 正常只出现 added；dolt_history_evidence_bundle 给每行每提交的哈希与时间
+- **J.3.1.1**　dolt_diff_evidence_bundle 正常只出现 added（用户删除已封存的模拟盘运行除外：提交 `paper_delete:<paper_id>` 移走它的 `paper-<paper_id>-capture` 包）；dolt_history_evidence_bundle 给每行每提交的哈希与时间
 - **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的包
 - **J.4.1.1**　created_at 与 trial.created_at 比较＝登记先于试验；不用可指定的提交日期
 
@@ -47,7 +47,7 @@ Bundles organize file paths pointing to content-addressed originals. Research li
 **Dolt 能力**
 
 - **J.3.2.1**　与包头同一事务恰一个 DOLT_COMMIT
-- **J.3.1.1**　dolt_diff_evidence 正常只出现 added；任何 modified/removed 即篡改发现，登记与审查结论不能被事后改写
+- **J.3.1.1**　dolt_diff_evidence 正常只出现 added（用户删除已封存的模拟盘运行除外：提交 `paper_delete:<paper_id>` 移走它的 `paper-<paper_id>-capture` 包的文件）；其余任何 modified/removed 即篡改发现，登记与审查结论不能被事后改写
 - **J.3.1.3**　AS OF \<commit|tag|branch> 读该版本的文件
 - **J.3.4.1**　内容寻址：哈希只能指向已存在的内容行，内容行的哈希由库内生成列派生，调用方不能把字节配上别的哈希；INDEX sha256 供按内容查找
 - **J.3.5.1**　随 dolt_backup 整份备份，并随账本推到公开的 DoltHub 副本；不运行 DOLT_GC，被引用的原件永久保留
@@ -77,7 +77,7 @@ Bundles organize file paths pointing to content-addressed originals. Research li
 **Dolt 能力**
 
 - **J.3.2.1**　与引用它的 evidence 行同一事务；已存在的内容只被引用，不再插入（写入账号只有 INSERT）
-- **J.3.1.1**　dolt_diff_evidence_content 正常只出现 added
+- **J.3.1.1**　dolt_diff_evidence_content 正常只出现 added（用户删除已封存的模拟盘运行除外：提交 `paper_delete:<paper_id>` 移走它的 `paper-<paper_id>-capture` 包后不再被任何文件引用的内容）
 - Dolt 2.4.2 只在插入字节时计算生成列；对已存的长二进制重算 SHA2（更新所在行或改生成列定义）会让服务端 panic（实测）；内容行只插不改，读回时的哈希核对在 Python 里做
 
 **写入方**　<Ref id="ledger.write_files" />
