@@ -14,6 +14,12 @@ registrations below concern development research, not another validation opportu
   identity. Selecting it (`line select`) ends the old line, which `research-start` then closes. The new line starts from a template root or a candidate revision
   with a substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the
   exposure check.
+- After a runtime contract change, an old-contract candidate is never a parent or control, since
+  its runs can be neither replayed nor compared: research restarts as a root ([template.md](template.md))
+  published and registered with no parent, no control and empty `changed_duties`, its rationale
+  carrying the old candidate's idea. An option offering such a restart tells the user that it is a
+  new rule, not the old one run again; its first report has no control; the old rule's results
+  cannot be tested again.
 - When only the image changes (same contract, configuration and inputs), replay the current
   recommended candidate and its control under the new identity, the control first, then recommend
   again using only comparable, economically available evidence under the new identity. Old p values

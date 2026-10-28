@@ -52,8 +52,7 @@ not a substitute for the disposition.
    first each range that runs now under the pinned inputs with no anomaly left that calls for this
    question (a later trading start can put a MARK gap in warm-up), then keeping the selection
    while obtaining or verifying the missing source evidence (only under a pinned commit the market
-   database holds; a missing commit is SKILL.md's `MARKET_COMMIT_UNRESOLVED` gate, never a research
-   option), or another supported range through the existing line-change rules; keep the options
+   database holds), or another supported range through the existing line-change rules; keep the options
    already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
    replacing stored history or the product's quote rule (quotes from another source) needs the
    user's authority. Quotes missing for a month whose bars the market holds come in through

@@ -18,6 +18,8 @@ momentum, Pivot Reversal. Each trades one instrument.
   The user decides both roster replacement and use of the template, and may authorize both once.
   Within that authorization, continue transcription, publishing, precheck, independent review and
   the first replay through the existing process without asking for the same authority again.
+- A root the Agent designs itself is not a template and needs no template authorization; it goes
+  through the same precheck, independent review and registration.
 
 ## Later batches
 
