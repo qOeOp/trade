@@ -4,30 +4,34 @@ import { useSize } from "../components/hooks/useSize";
 import { Tip } from "../components/Tip";
 
 /** A tile: its name with its logos (images; none shown when they fail to load), its value as shown
- *  (`label`) and in full with what it is (`exact`, `note`, on hover), and its size. A `solid` tile is
- *  filled with `role` and glows, any other is grey; its ribbons end in `role`. */
+ *  (`label`, in `tone`'s colour) and in full with what it is (`exact`, `note`, on hover), and its size.
+ *  Its ribbons end in `role`. */
 export type SankeyNode = {
-  key: string; name: string; note: string; label: string; exact: string; value: number; role: ColorRole; solid: boolean;
+  key: string; name: string; note: string; label: string; exact: string; value: number; role: ColorRole; tone: ColorRole;
   logos: string[];
 };
 
-// As Figma's "Sankey chart / Basic" tiles: W wide (a name of seven capitals at the small size), GAP
-// apart in a column, at least MIN tall (the name at the top, the value at the bottom), the tallest column
-// filling the chart INSET in from its edges. A tile's ribbons are THREAD of their values' height (each
-// at least HAIR px), SPLIT apart, together centred on it, and stop PAD short of it.
-const W = 80, GAP = 4, MIN = 52, INSET = 4, THREAD = 0.55, HAIR = 4, SPLIT = 1, PAD = 4;
+// The tiles are the card's own grey, at least W wide, GAP apart in a column, the tallest column filling
+// the chart INSET in from its edges. A tile sets its name and value on one row at its top, down to ROW
+// tall; the tiles widen to fit the widest row, up to WIDE of the chart's width, and a tile whose row is
+// wider than that sets its value under its name, down to TWO tall. A tile's ribbons are THREAD of their
+// values' height (each at least HAIR px), SPLIT apart, together centred on it, and stop PAD short of it.
+const W = 64, WIDE = 0.3, GAP = 4, ROW = 20, TWO = 36, INSET = 4, THREAD = 0.55, HAIR = 2, SPLIT = 1, PAD = 4;
+// Supply is monospaced, so a row's width is its characters': a name (text-small semibold, Supply Medium's
+// 0.62 em) NAME px each and a value (text-dense, Regular's 0.6 em) VALUE px each, SEP apart, PADX in from
+// the tile's sides; a logo chip takes 14px, each further one 10px more (they overlap), and 4px before
+// the name.
+const NAME = 11 * 0.62, VALUE = 12 * 0.6, SEP = 6, PADX = 6;
+const chips = (n: number) => (n ? 14 + 10 * (Math.min(n, 3) - 1) + 4 : 0);
+const rowWidth = (n: SankeyNode) => 2 * PADX + chips(n.logos.length) + n.name.length * NAME + SEP + n.label.length * VALUE;
 // Figma's ribbon: a stroke whose curve leaves one tile level and reaches the other level, its handles at
 // EASE of the way across from each end.
 const EASE = [0.2765, 0.7139] as const;
-// A ribbon's opacity between two filled tiles (BOTH) or by a grey one (ONE). One between two filled
-// tiles passes through their mix (in light, LIFT of the way to the surface); the profit and loss colours
-// mix round by violet, as the short way runs through olive. By a grey tile it holds the grey for HOLD of
-// its length. Under the pointer the lit tile's ribbons go to LIT times that and every other to DIM.
-const BOTH = 0.75, ONE = 0.6, LIFT = "30%", HOLD = 0.35, LIT = 1.3, DIM = 0.25;
-// Literal classes, so Tailwind finds them: a solid tile's fill and glow by its colour.
-const SOLID: Partial<Record<ColorRole, string>> = {
-  "pnl-up": "bg-pnl-up shadow-pnl-up/40", "pnl-down": "bg-pnl-down shadow-pnl-down/40", equity: "bg-equity-fill shadow-equity/45",
-};
+// A ribbon runs from its left tile's colour to its right one's through their mix, at REST opacity;
+// under the pointer the lit tile's ribbons go to LIT and every other to DIM.
+const REST = 0.3, LIT = 0.6, DIM = 0.08;
+// Literal classes, so Tailwind finds them: a value's colour by its role (the secondary text otherwise).
+const TONE: Partial<Record<ColorRole, string>> = { "pnl-up": "text-pnl-up", "pnl-down": "text-pnl-down" };
 
 /** The tile's logos, each on a white chip as Figma's tiles carry their icon, overlapping when there are
  *  several (at most three); a chip shows once its image loads, and one that fails drops out. */
@@ -50,9 +54,9 @@ function Logos({ srcs }: { srcs: string[] }) {
 type Placed = { n: SankeyNode; x: number; y: number; h: number };
 type Link = { from: SankeyNode; to: SankeyNode; i: number; j: number; t: number; d?: string };
 
-/** How many px a unit of value takes so that both columns, each tile at least MIN tall, fit `height`. */
-function scale(columns: readonly SankeyNode[][], height: number) {
-  const fits = (k: number) => columns.every((c) => c.reduce((sum, n) => sum + Math.max(n.value * k, MIN), 0) + (c.length - 1) * GAP <= height);
+/** How many px a unit of value takes so that both columns, each tile at least `least` tall, fit `height`. */
+function scale(columns: readonly SankeyNode[][], least: (n: SankeyNode) => number, height: number) {
+  const fits = (k: number) => columns.every((c) => c.reduce((sum, n) => sum + Math.max(n.value * k, least(n)), 0) + (c.length - 1) * GAP <= height);
   let lo = 0, hi = height / Math.max(...columns.map((c) => c.reduce((sum, n) => sum + n.value, 0)), 1e-9);
   if (fits(hi)) return hi;
   for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
@@ -60,9 +64,9 @@ function scale(columns: readonly SankeyNode[][], height: number) {
 }
 
 /** A column's tiles stacked at `x`, centred on `height` below INSET. */
-function stack(nodes: readonly SankeyNode[], x: number, k: number, height: number): Placed[] {
+function stack(nodes: readonly SankeyNode[], x: number, k: number, least: (n: SankeyNode) => number, height: number): Placed[] {
   let y = 0;
-  const placed = nodes.map((n) => { const h = Math.max(MIN, n.value * k), at = y; y += h + GAP; return { n, x, y: at, h }; });
+  const placed = nodes.map((n) => { const h = Math.max(least(n), n.value * k), at = y; y += h + GAP; return { n, x, y: at, h }; });
   const off = INSET + Math.max(0, (height - (y - GAP)) / 2);
   return placed.map((p) => ({ ...p, y: p.y + off }));
 }
@@ -92,20 +96,20 @@ function links(left: Placed[], right: Placed[], k: number, x0: number, x1: numbe
   });
 }
 
-function Tile({ p, total, dim, onHover }: { p: Placed; total: number; dim: boolean; onHover: (n: SankeyNode | null) => void }) {
-  const { n } = p, solid = n.solid ? SOLID[n.role] : undefined;
+function Tile({ p, w, total, dim, onHover }: { p: Placed; w: number; total: number; dim: boolean; onHover: (n: SankeyNode | null) => void }) {
+  const { n } = p, row = rowWidth(n) <= w;
   return (
     <Tip content={<div className="flex flex-col gap-0.5"><span>{n.note}</span>
       <span className="tabular-nums text-fg-muted">{n.exact} <span className="text-fg-faint">· {Math.round((n.value / total) * 100)}% of the flow</span></span></div>}>
       <div tabIndex={0} aria-label={`${n.name}: ${n.note} ${n.exact}`} onMouseEnter={() => onHover(n)} onFocus={() => onHover(n)} onBlur={() => onHover(null)}
-           className={`absolute flex flex-col justify-between overflow-hidden rounded-popup p-1.5 outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-focus
-                       ${solid ? `${solid} text-primary-fg shadow-glow` : "bg-pressed text-fg"} ${dim ? "opacity-60" : ""}`}
-           style={{ left: p.x, top: p.y, width: W, height: p.h }}>
-        <span className="flex min-w-0 items-center gap-1">
+           className={`absolute flex overflow-hidden rounded-control bg-pressed px-1.5 py-0.75 outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-focus
+                       ${row ? "items-start justify-between gap-1.5" : "flex-col gap-0.5"} ${dim ? "opacity-60" : ""}`}
+           style={{ left: p.x, top: p.y, width: w, height: p.h }}>
+        <span className="flex h-3.5 min-w-0 items-center gap-1">
           <Logos srcs={n.logos} />
-          <span className="truncate text-small font-semibold uppercase leading-none tracking-wider">{n.name}</span>
+          <span className="truncate text-small font-semibold leading-3.5 text-fg-muted">{n.name}</span>
         </span>
-        <span className="truncate text-h2 leading-none tabular-nums tracking-tighter">{n.label}</span>
+        <span className={`text-dense leading-3.5 tabular-nums ${row ? "shrink-0" : "truncate"} ${TONE[n.tone] ?? "text-fg-muted"}`}>{n.label}</span>
       </div>
     </Tip>
   );
@@ -115,38 +119,35 @@ function Tile({ p, total, dim, onHover }: { p: Placed; total: number; dim: boole
  *  the tiles of Figma's "Sankey chart / Basic" widgets draw it. Under the pointer or the keyboard a tile
  *  and its ribbons light up and the rest recede; its tooltip says what it is, its full value and its share
  *  of the flow. At least `least` tall, taller only when a column's tiles need it. */
-export function Sankey({ into, out, label, least = 200 }: { into: SankeyNode[]; out: SankeyNode[]; label: string; least?: number }) {
+export function Sankey({ into, out, label, least = 112 }: { into: SankeyNode[]; out: SankeyNode[]; label: string; least?: number }) {
   const [ref, { width }] = useSize();
   const [at, setAt] = useState<SankeyNode | null>(null);
   const id = useId();
-  const inner = Math.max(least, ...[into, out].map((c) => c.length * (MIN + GAP) - GAP)), height = inner + 2 * INSET;
+  const w = Math.max(W, ...[...into, ...out].map(rowWidth).filter((r) => r <= width * WIDE));
+  const fit = (n: SankeyNode) => (rowWidth(n) <= w ? ROW : TWO);
+  const inner = Math.max(least, ...[into, out].map((c) => c.reduce((sum, n) => sum + fit(n) + GAP, -GAP))), height = inner + 2 * INSET;
   const total = into.reduce((sum, n) => sum + n.value, 0);
-  const k = scale([into, out], inner);
-  const left = stack(into, INSET, k, inner), right = stack(out, width - W - INSET, k, inner);
-  const x0 = INSET + W + PAD, x1 = width - INSET - W - PAD;
+  const k = scale([into, out], fit, inner);
+  const left = stack(into, INSET, k, fit, inner), right = stack(out, width - w - INSET, k, fit, inner);
+  const x0 = INSET + w + PAD, x1 = width - INSET - w - PAD;
   return (
     <div ref={ref} role="group" aria-label={label} className="relative w-full" style={{ height }} onMouseLeave={() => setAt(null)}>
       {width > 0 && <>
         <svg width={width} height={height} className="absolute inset-0 block" aria-hidden>
           {links(left, right, k, x0, x1).map((l, i) => {
-            const both = l.from.solid && l.to.solid, lit = at === null ? 1 : at === l.from || at === l.to ? LIT : DIM, g = `${id}${i}`;
-            const arc = l.from.role !== l.to.role && [l.from.role, l.to.role].every((r) => r === "pnl-up" || r === "pnl-down") ? " longer hue" : "";
-            const mid = `color-mix(in oklch${arc}, ${v(l.from.role)}, ${v(l.to.role)})`;
-            const stops: [number, string][] = [[0, v(l.from.role)], [1, v(l.to.role)]];
-            if (both) stops.splice(1, 0, [0.5, `light-dark(color-mix(in oklch, ${mid}, ${v("island")} ${LIFT}), ${mid})`]);
-            else if (!l.from.solid) stops.splice(1, 0, [HOLD, v(l.from.role)]);
-            else stops.splice(1, 0, [1 - HOLD, v(l.to.role)]);
+            const g = `${id}${i}`, a = v(l.from.role), b = v(l.to.role);
             return (
               <g key={g}>
                 <linearGradient id={g} gradientUnits="userSpaceOnUse" x1={x0} x2={x1} y1={0} y2={0}>
-                  {stops.map(([o, c]) => <stop key={o} offset={o} stopColor={c} />)}
+                  <stop offset={0} stopColor={a} /><stop offset={0.5} stopColor={`color-mix(in oklab, ${a}, ${b})`} /><stop offset={1} stopColor={b} />
                 </linearGradient>
-                <path d={l.d} fill="none" stroke={`url(#${g})`} strokeWidth={l.t} opacity={Math.min(1, (both ? BOTH : ONE) * lit)} />
+                <path d={l.d} fill="none" stroke={`url(#${g})`} strokeWidth={l.t} className="transition-opacity"
+                      opacity={at === null ? REST : at === l.from || at === l.to ? LIT : DIM} />
               </g>
             );
           })}
         </svg>
-        {[...left, ...right].map((p) => <Tile key={p.n.key} p={p} total={total} onHover={setAt} dim={at !== null && at !== p.n} />)}
+        {[...left, ...right].map((p) => <Tile key={p.n.key} p={p} w={w} total={total} onHover={setAt} dim={at !== null && at !== p.n} />)}
       </>}
     </div>
   );

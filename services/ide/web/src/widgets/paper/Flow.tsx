@@ -10,16 +10,20 @@ import { pnlClass, type ColorRole } from "../../theme/roles";
 import { Sankey, type SankeyNode } from "../Sankey";
 import { signed } from "./performanceParts";
 
-// A tile's colour (the trades' and the net's tiles filled with it, the rest grey) and what it is.
-const LOOK: Record<Kind, { role: ColorRole; solid: boolean; note: (into: boolean) => string }> = {
-  win: { role: "pnl-up", solid: true, note: () => "winning trades before fees" },
-  loss: { role: "pnl-down", solid: true, note: () => "losing trades before fees" },
-  funding: { role: "line-strong", solid: false, note: (i) => (i ? "Funding received" : "Funding paid") },
-  open: { role: "line-strong", solid: false, note: (i) => (i ? "Open positions in profit" : "Open positions at a loss") },
-  other: { role: "line-strong", solid: false, note: () => "Booked without a close in the journal" },
-  fees: { role: "line-strong", solid: false, note: () => "Fees on every fill" },
-  net: { role: "equity", solid: true, note: (i) => (i ? "Net loss, drawn from the starting balance" : "Net profit kept") },
+// What a tile is.
+const NOTE: Record<Kind, (into: boolean) => string> = {
+  win: () => "winning trades before fees",
+  loss: () => "losing trades before fees",
+  funding: (i) => (i ? "Funding received" : "Funding paid"),
+  open: (i) => (i ? "Open positions in profit" : "Open positions at a loss"),
+  other: () => "Booked without a close in the journal",
+  fees: () => "Fees on every fill",
+  net: (i) => (i ? "Net loss, drawn from the starting balance" : "Net profit kept"),
 };
+// A tile's value in the profit or loss colour by its sign, as every amount on the page; its ribbons in
+// that colour for the trades and the net, grey for the rest.
+const tone = (n: number): ColorRole => (n > 0 ? "pnl-up" : n < 0 ? "pnl-down" : "fg-muted");
+const GREY: readonly Kind[] = ["funding", "open", "other", "fees"];
 
 /** A contract by its base asset (BTCUSDT → BTC, 1000PEPEUSDT → PEPE), as tiles name it. */
 const base = (symbol: string) => symbol.replace(/(USDT|USDC|USD)$/, "").replace(/^(1000000|10000|1000|1M)(?=[A-Z])/, "") || symbol;
@@ -27,14 +31,15 @@ const base = (symbol: string) => symbol.replace(/(USDT|USDC|USD)$/, "").replace(
 // listed only as futures may have none, and its tile then shows no logo).
 const logo = (symbol: string) => `https://bin.bnbstatic.com/static/assets/logos/${encodeURIComponent(base(symbol))}.png`;
 
-// Every tile at one precision: whole units once any flow reaches 100, cents otherwise. A contract's tile
-// carries its coin's logo, the rest of the contracts' tile theirs; the others carry none.
+// Every tile at one precision: whole units once any flow reaches 100, cents otherwise, and cents for a
+// flow under one unit (whole units would read it as 0). A contract's tile carries its coin's logo, the
+// rest of the contracts' tile theirs; the others carry none.
 const tile = (dp: number) => (f: Item, into: boolean): SankeyNode => {
-  const look = LOOK[f.kind], contract = (f.kind === "win" || f.kind === "loss") && !f.of;
+  const contract = (f.kind === "win" || f.kind === "loss") && !f.of;
   return {
-    key: `${into ? "in" : "out"}.${f.key}`, name: contract ? base(f.name) : f.name, note: `${contract ? f.name : f.of?.join(", ") ?? ""} ${look.note(into)}`.trim(),
-    label: signed(f.signed, dp) ?? MISSING, exact: `${signed(f.signed)} USDT`, value: f.value,
-    role: look.role, solid: look.solid, logos: (contract ? [f.name] : f.of ?? []).map(logo),
+    key: `${into ? "in" : "out"}.${f.key}`, name: contract ? base(f.name) : f.name, note: `${contract ? f.name : f.of?.join(", ") ?? ""} ${NOTE[f.kind](into)}`.trim(),
+    label: signed(f.signed, f.value < 1 ? 2 : dp) ?? MISSING, exact: `${signed(f.signed)} USDT`, value: f.value,
+    role: GREY.includes(f.kind) ? "fg-faint" : tone(f.signed), tone: tone(f.signed), logos: (contract ? [f.name] : f.of ?? []).map(logo),
   };
 };
 
@@ -42,7 +47,7 @@ function Informer({ name, value, children }: { name: string; value: ReactNode; c
   return (
     <div className="min-w-0">
       <div className="text-small font-semibold text-fg-muted">{name}</div>
-      <div className="mt-0.5 truncate text-h1 tabular-nums text-fg">{value}</div>
+      <div className="mt-0.5 truncate text-value tabular-nums text-fg">{value}</div>
       <div className="truncate text-small text-fg-faint">{children}</div>
     </div>
   );
@@ -56,7 +61,7 @@ export function PnlFlow({ a, f }: { a: Account; f: Flows }) {
   const share = a.gross !== null && a.gross > 0 && a.fees > 0 ? `fees took ${Math.round((a.fees / a.gross) * 100)}%` : "closed, before fees";
   const ret = a.ret === null ? MISSING : `${a.ret > 0 ? "↑" : a.ret < 0 ? "↓" : ""}${(Math.abs(a.ret) * 100).toFixed(2)}%`;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <Sankey into={f.into.map((x) => at(x, true))} out={f.out.map((x) => at(x, false))} label={`Profit and loss since the start: ${all}`} />
       <div className="grid grid-cols-2 gap-3">
         <Informer name="Gross" value={signed(a.gross)}>{share}</Informer>

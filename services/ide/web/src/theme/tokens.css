@@ -79,8 +79,6 @@
   --pnl-up: var(--candle-up);
   /* the account's equity on the paper chart: vibe-trading's indigo hero line, lighter on dark */
   --equity: light-dark(#4338CA, #8B8CF8);
-  /* the net as a filled tile (Profit flow) under white text: the light theme's indigo in both */
-  --equity-fill: #4338CA;
   /* a run's events on its contract charts (a gap, a rejection) and in its Events list: a sky blue, apart
      from the order levels' blue and the up and down pair, lighter on dark */
   --event: light-dark(#139BE0, #5AA9F5);
@@ -175,7 +173,6 @@
   --color-crosshair: var(--crosshair);
   --color-pnl-up: var(--pnl-up);
   --color-equity: var(--equity);
-  --color-equity-fill: var(--equity-fill);
   --color-event: var(--event);
   --color-pnl-down: var(--pnl-down);
   --color-cal-up-1: var(--cal-up-1);
@@ -224,6 +221,4 @@
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
-  /* a coloured tile's glow (Sankey): shadow-glow with a colour as shadow-<role>/<alpha> */
-  --shadow-glow: 0 22px 32px -14px oklch(0 0 0 / 0.3), 0 8px 12px -8px oklch(0 0 0 / 0.3);
 }
