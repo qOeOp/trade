@@ -998,8 +998,7 @@ def validation_bind(
 4. 范围：沿 retry_of 取最初登记，以其市场提交、登记月份与范围规则调用 registration.membership_unchanged，不一致即 MEMBERSHIP_CHANGED；窗口内下架由 market.validate_lifecycle 校验的引擎原生事件结算并出回执。
 5. 窗口与覆盖：trial.trade_start 与 trial.trade_end 须分别等于登记的 window_start 与 window_end，且 trial.created_at > window_end，否则 WINDOW_MISMATCH（与提交校验 validation_runs_match_their_registration 一致）；replay.input_coverage 的回执须覆盖每个成员合约的预热与交易区间，否则 COVERAGE_INCOMPLETE。
 6. 凭证与账户条款：ledger.stamped_at 读登记提交（重试沿 retry_of 链取最初登记提交）的 genTime，无凭证或不早于 window_start 即 REGISTRATION_TOO_LATE；用 ledger.read_as_of 读取最初登记的诞生提交，由 ledger.latest_research 按结果入账顺序选当时该源码最近一次通过的研究运行，经 registration.config_key 比较开始回执中的 account 条款（含执行方式、撮合、强平和保证金率）；不等或当时无此运行即 CONFIG_MISMATCH。后续研究、重试提交和事后补跑均不能替换基准，不新增存储列。
-7. 检验设计：重试登记的完整 design 须与最初登记相同，否则 RETRY_NOT_ALLOWED；也覆盖旧版本已写入但尚未执行的重试。
-8. 写绑定：插入 validation_binding(registration_id, trial_id, op_id)；主键或唯一键冲突即 REGISTRATION_CONSUMED。登记一经绑定即消耗，回放中断、审计无效或无实质活动也不释放。
+7. 写绑定：插入 validation_binding(registration_id, trial_id, op_id)；主键或唯一键冲突即 REGISTRATION_CONSUMED。登记一经绑定即消耗，回放中断、审计无效或无实质活动也不释放。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1012,7 +1011,6 @@ def validation_bind(
 | `COVERAGE_INCOMPLETE` | 任一成员合约的输入区间缺覆盖回执 |
 | `REGISTRATION_TOO_LATE` | 登记提交无凭证，或凭证 genTime 不早于 window_start |
 | `CONFIG_MISMATCH` | 账户条款与最初登记提交中该源码最近一次通过的研究运行不同，或当时不存在此运行 |
-| `RETRY_NOT_ALLOWED` | 重试的检验设计与最初登记不同 |
 | `REGISTRATION_CONSUMED` | 该登记已绑定过回放，或该试验已绑定别的登记 |
 | `CONCURRENT_WRITE` | 两事务改同格为不同值，后到者回滚 |
 

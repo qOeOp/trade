@@ -258,9 +258,6 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
         raise refuse("REGISTRATION_UNKNOWN", f"no validation registration {registration_id!r}",
                      missing=(str(registration_id),))
     origin = original_registration(conn, registration)
-    if _design(registration) != _design(origin):
-        raise refuse("RETRY_NOT_ALLOWED", f"registration {registration_id} changed the original test design",
-                     missing=("design",))
     candidate = strategies.read_candidate(conn, f"{registration['strategy_id']}@{registration['revision']}")
     if candidate["source_sha256"] != source_sha256 or trial["source_sha256"] != source_sha256:
         raise refuse("SOURCE_MISMATCH", f"source {trial['source_sha256']} is not the registered candidate's",
