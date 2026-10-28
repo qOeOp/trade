@@ -1,10 +1,12 @@
 """Native prechecks and independent source reviews (`registration.exposure_exempt`,
-`registration.require_precheck`, `registration.record_review`).
+`registration.stopped_before_data`, `registration.traded_nothing`, `registration.require_precheck`,
+`registration.record_review`).
 
 A precheck is a replay declared as such before it starts (trial purpose precheck), on the runtime
 image and inputs the registration will use; it never consumes a grid point, and the one precheck a
 registration cites does not expose the source when its trading window is short; nor does any
-precheck that failed before market data reached the strategy. An Agent that did
+precheck that failed before market data reached the strategy, or any short precheck that sealed no
+fill and no position (no result to choose from). An Agent that did
 not write the source reviews the sealed precheck capture under four items; the review is appended
 as a product bundle bound to the source hash, the image digest and the precheck capture. Passing
 says the source runs, not that it is economic evidence; any failed review of the precheck fails it.
@@ -124,6 +126,20 @@ def stopped_before_data(conn: db.LedgerConnection, trial_id: int, source_sha256:
     failures = capture["runtime_failures"]
     return (native.get("state") == "exited" and native.get("exit_code") not in (0, None) and bool(failures)
             and all(isinstance(failure, Mapping) and failure.get("stage") in PRE_DATA_STAGES for failure in failures))
+
+
+def traded_nothing(conn: db.LedgerConnection, trial_id: int, source_sha256: str) -> bool:
+    """True when the trial is a declared precheck of this source trading at most PRECHECK_MAX_DAYS whose
+    complete sealed capture fingerprints 0 fills and 0 positions, and no registration consumed it
+    (on any image, inputs or window). With no result to choose from, it does not expose the source."""
+    trial = _trial(conn, trial_id)
+    if (trial["purpose"] != "precheck" or trial["source_sha256"] != source_sha256
+            or trial["trade_end"] - trial["trade_start"] > timedelta(days=PRECHECK_MAX_DAYS)):
+        return False
+    rows = execution.precheck_rows(conn, trial_id)
+    if rows is None or rows.get("fills") != 0 or rows.get("positions") != 0:
+        return False
+    return not conn.rows("SELECT 1 FROM registration_attempt WHERE trial_id = %s", (trial_id,))
 
 
 def _review(conn: db.LedgerConnection, review_bundle) -> dict:

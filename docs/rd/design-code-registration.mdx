@@ -360,6 +360,7 @@ Remove what market_inputs created: the membership directory, and a fresh export 
 | <Ref id="registration.record_review">record_review</Ref> | 把独立源码审查结论绑定源码哈希、镜像摘要与原生预检原件，只追加为证据包 |
 | <Ref id="registration.require_precheck">require_precheck</Ref> | 核对一个网格源码有同源码、同运行环境、同生命周期输入且通过的原生预检与独立源码审查，否则拒绝 |
 | <Ref id="registration.stopped_before_data">stopped_before_data</Ref> | 判定一个预检是否在策略收到任何行情之前就已失败；这样的预检不构成源码暴露 |
+| <Ref id="registration.traded_nothing">traded_nothing</Ref> | 判定一个预检是否在不超过 7 天的交易窗口里收到行情却零成交零持仓；这样的预检没有可挑的结果，不构成源码暴露 |
 
 ### `exposure_exempt` [#def-registration-exposure_exempt]
 
@@ -384,7 +385,7 @@ def exposure_exempt(
 
 1. 按 trial_id 读试验行，不存在即拒绝 TRIAL_NOT_FOUND；trial.purpose 不是 precheck 返回 False。
 2. trial.source_sha256 须等于 source_sha256，trial.image_digest 须等于 image_ref 的摘要；任一不同返回 False。
-3. 只有登记 prechecks 引用的那一次预检可以免除，且其交易窗口不超过 7 天（未校准示例值）；更长的预检、同源码的其他预检与探索都算暴露。这样预检只能证明源码能跑，不能拿来先看结果再挑。
+3. 只有登记 prechecks 引用的那一次预检可以免除，且其交易窗口不超过 7 天（未校准示例值）；更长的预检、同源码的其他预检与探索都算暴露（在策略收到行情之前就失败的预检由 stopped_before_data、零成交零持仓的短预检由 traded_nothing 另行免除）。这样预检只能证明源码能跑，不能拿来先看结果再挑。
 4. 经 ledger.read_capture 读原始捕获：须有原件（非恢复材料）开始回执、用途为 precheck，并有最终执行封存；缺任一返回 False；哈希不符时透传 LEDGER_CORRUPT；捕获形态不合法即 SOURCE_PRECHECK_REQUIRED。
 5. 比对开始回执记录的身份：市场库名、市场提交、范围规则版本与生命周期证据包须与 input_key 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
 6. trial_id 出现在 registration_attempt 即返回 False，预检从不消耗网格点。
@@ -426,6 +427,38 @@ def stopped_before_data(
 2. 经 ledger.read_capture 读原始捕获：没有最终封存、用途不是 precheck 或捕获身份不合法返回 False；哈希不符时透传 LEDGER_CORRUPT。
 3. 原生阶段须已退出且退出码非零，运行失败回执至少一条，且每条的阶段都是 load（加载策略）或 inputs（读取输入），即 engine.main 把行情送进策略之前的阶段；任一条在之后的阶段返回 False。
 4. 以上全过返回 True。失败记录照常保留，预检是否通过仍由 registration.require_precheck 判定。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `TRIAL_NOT_FOUND` | trial_id 在 trial 表中不存在 |
+| `LEDGER_CORRUPT` | ledger.read_capture 发现捕获文件内容哈希不符 |
+
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="table:v_trials" />
+
+### `traded_nothing` [#def-registration-traded_nothing]
+
+判定一个预检是否在不超过 7 天的交易窗口里收到行情却零成交零持仓；这样的预检没有可挑的结果，不构成源码暴露
+
+```python
+def traded_nothing(
+    conn: LedgerConnection,
+    trial_id: int,
+    source_sha256: str (CHAR(64)),
+) -> bool。True 表示该预检的完整封存原件指纹 fills 与 positions 都是 0 行
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" } }} />
+
+**返回**　bool。True 表示该预检没有让任何人看到收益，不论镜像、输入与窗口都不构成源码暴露；False 时由 exposure_exempt 与其余规则判定
+
+**期望行为**
+
+1. 按 trial_id 读试验行，不存在即拒绝 TRIAL_NOT_FOUND；trial.purpose 不是 precheck、source_sha256 不同或交易窗口超过 7 天（与 exposure_exempt 同一未校准示例值）返回 False。
+2. 经 ledger.read_capture 读原始捕获：没有最终封存、用途不是 precheck 或捕获身份不合法返回 False；哈希不符时透传 LEDGER_CORRUPT。
+3. 捕获须完整：结局为 completed，原生、审计与指纹阶段都已退出且退出码为 0，没有运行失败回执；否则返回 False。
+4. 读封存的语义指纹（与 ledger.capture_fingerprint 同一读法，不重新解析报告）：fills 与 positions 都须是 0 行，任一多于 0 行或缺失返回 False。
+5. trial_id 出现在 registration_attempt 即返回 False。
+6. 以上全过返回 True。这样的预检仍不能被登记引用：registration.require_precheck 照旧判定，旧预检与它的审查原样保留。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -738,7 +771,7 @@ def validate(
 6. 核父与对照：parent 为空则 control_trial_id 与 change 也须为空（根），否则 parent 须是 candidate 里的已发布版本且 change 非空；control_trial_id 非空时读 run ⨝ trial，经 check_comparable 与 execution 比三类身份，再经 qualification.require 核经济证据资格；parent 非空而 control_trial_id 为空只在登记时、父版本源码的研究运行（trial.purpose = research 的 run）至少一个且每个都无效（故障）或最新封存结果的 real_fills@1 未通过（零活动）时允许，且 rationale.local 引用该诊断；其他理由（例如父版本的运行契约已不能运行）一律拒绝，换契约后重开的研究按根登记
 7. 核窗口：body.window 逐字等于 ledger.current_line 记录的开发窗口；无研究路线记录即拒
 8. 核网格：一到五点，每点经 ledger.read_candidate 读 candidate 行，source_sha256 不得重复；每点 parent 与 difference 须等于登记的 parent 与 change；每点 runtime_contract 须等于 execution.runtime_contract
-9. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定，在策略收到行情之前就已失败的预检由 stopped_before_data 免除；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
+9. 核暴露与审查：对每个网格源码读 trial 中同 source_sha256 的试验行，存在非预检执行且 body 无 retry_of 指向实际消耗它的登记（registration_attempt）即拒；预检免除由 exposure_exempt 判定，在策略收到行情之前就已失败的预检由 stopped_before_data 免除，交易窗口不超过 7 天、封存完整而零成交零持仓且未被登记消费的预检由 traded_nothing 免除；每格须经 require_precheck 解析到绑定同源码同镜像摘要、四项均 passed 或 no_opportunity 的审查件
 10. 全部通过返回网格源码哈希集合；拒绝消息指明是哪一项、哪一格或哪一类身份冲突
 11. prechecks 是映射 \{网格候选 strategy_id@revision: source-review-* 审查包名\}；某格缺项，或所指包名不在 source-review-* 命名空间，即 SOURCE_PRECHECK_REQUIRED。该命名空间只由 registration.record_review 写，Agent 另起名字放的审查文件不被采信。
 12. before_replay=True（绑定前重验）时，暴露核对跳过正被绑定的试验和同一登记先前的尝试：它们的消耗由 GRID_ALREADY_ATTEMPTED 判定，不算源码暴露。

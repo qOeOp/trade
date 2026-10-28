@@ -1,5 +1,5 @@
 """Why a replay is invalid (`ledger.capture_problems`, `ledger.audit_problems`, `ledger.summary_problems`,
-`ledger.capture_fingerprint`).
+`ledger.capture_fingerprint`, `ledger.sealed_rows`).
 
 The rules are pure: they read exit codes, stage facts and the bytes of the audit result, the
 runtime failure receipts and the native summary, never logs. `replay.audit_problems` and
@@ -276,3 +276,19 @@ def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None =
     if value is None:
         return None, [reason("FINGERPRINT_FAILED", "the fingerprint stage wrote no JSON object", FINGERPRINT)]
     return value, []
+
+
+def sealed_rows(capture: Mapping) -> dict[str, int] | None:
+    """{table: rows} of the fingerprint a complete capture sealed (captured, completed, native, audit and
+    fingerprint stages exited 0, no runtime failure); None for any other capture, or when the
+    fingerprint's bytes are not in it (only a precheck capture holds them)."""
+    stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
+    outcome = given if isinstance(given := capture.get("outcome"), Mapping) else {}
+    if (capture.get("status") != "captured" or outcome.get("kind") != "completed" or capture.get("runtime_failures")
+            or _exit(stages.get("native")) != 0 or _exit(stages.get("audit")) != 0):
+        return None
+    fingerprint, _ = capture_fingerprint(capture)
+    if fingerprint is None:
+        return None
+    return {name: entry["rows"] for name, entry in fingerprint.items() if isinstance(entry, Mapping)
+            and isinstance(entry.get("rows"), int) and not isinstance(entry["rows"], bool)}

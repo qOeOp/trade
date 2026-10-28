@@ -9,7 +9,8 @@ hashed, missing or not started. Each fact is stored once: the source and the cov
 only hashed (their bytes are the candidate's or the start receipt's), and so are a sealed run's
 native reports and semantic fingerprint (their bytes stay a working copy the ingest checks against;
 the run row keeps the fingerprint). `read_capture` reads it
-back with every identity and hash checked. A trial is sealed once: never again after a capture or
+back with every identity and hash checked; `precheck_rows` gives the table row counts a complete
+precheck capture fingerprints. A trial is sealed once: never again after a capture or
 recovery material exists. A capture refused for size leaves no capture; bytes recovered from the
 kept directory afterwards go to trial-<trial_id>-recovery (`recover_capture`) and never replace it.
 """
@@ -23,7 +24,8 @@ from pathlib import Path
 import re
 from typing import TypeGuard
 
-from ledger import db, evidence, metrics
+from ledger import db, evidence, metrics, problems
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
@@ -203,6 +205,18 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
             "statuses": statuses, "listed": {path: dict(entry) for path, entry in listed.items()},
             "runtime_failures": failures, "start": start, "input_coverage": coverage,
             "input_coverage_bytes": coverage_bytes}
+
+
+def precheck_rows(conn: db.LedgerConnection, trial_id: int) -> dict[str, int] | None:
+    """{table: rows} the complete sealed capture of a precheck fingerprints (`ledger.sealed_rows`); None
+    when the capture is missing, malformed, incomplete or not a precheck's."""
+    try:
+        capture = read_capture(conn, trial_id)
+    except Refusal as exc:
+        if exc.code == "EXECUTION_IDENTITY":
+            return None
+        raise
+    return problems.sealed_rows(capture) if capture.get("purpose") == "precheck" else None
 
 
 def listed_sha256(capture: Mapping, path: str) -> str | None:

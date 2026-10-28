@@ -288,6 +288,43 @@ class PrecheckTests(unittest.TestCase):
                 self.assertFalse(precheck.stopped_before_data(self.conn, self.sealed(**options), sha(self.data)))
         self.assertFalse(precheck.stopped_before_data(self.conn, self.world.open_precheck(self.data), sha(self.data)))
 
+    def test_a_short_precheck_that_sealed_no_fill_and_no_position_leaves_the_source_unexposed(self):
+        def sealed(fills=0, positions=0, days=precheck.PRECHECK_MAX_DAYS, **options) -> int:
+            trial_id = self.world.open_precheck(self.data, runtime=OTHER_RUNTIME, days=days)
+            capture(self.conn, trial_id, self.data, fingerprint=untraded(fills, positions), **options)
+            return trial_id
+        quiet = sealed()
+        self.assertTrue(precheck.traded_nothing(self.conn, quiet, sha(self.data)))
+        self.assertFalse(precheck.traded_nothing(self.conn, quiet, sha(self.world.publish("other-quiet")["source"])))
+        cases = {"a fill": {"fills": 1}, "a position": {"positions": 1},
+                 "a longer window": {"days": precheck.PRECHECK_MAX_DAYS + 1}, "a failed audit": {"audit_exit": 2},
+                 "an interrupted run": {"outcome": "interrupted"},
+                 "a runtime failure": {"runtime_errors": b'{"stage": "replay", "exception_type": "KeyError"}\n'}}
+        for label, options in cases.items():
+            with self.subTest(label=label):
+                self.assertFalse(precheck.traded_nothing(self.conn, sealed(**options), sha(self.data)))
+        unfingerprinted = self.world.open_precheck(self.data)
+        capture(self.conn, unfingerprinted, self.data)
+        self.assertFalse(precheck.traded_nothing(self.conn, unfingerprinted, sha(self.data)))
+        self.assertFalse(precheck.traded_nothing(self.conn, self.world.open_precheck(self.data), sha(self.data)))
+        # No product write binds a precheck; an uncommitted administrator row stands in for one that was.
+        consumed = sealed()
+        attempt = (f"trial-{consumed}-execution", sha(self.data), consumed)
+        self.world.service.sql(self.world.profile, "INSERT INTO registration_attempt (registration_bundle, "
+                               "source_sha256, trial_id) VALUES (%s, %s, %s)", attempt)
+        try:
+            self.assertFalse(precheck.traded_nothing(self.conn, consumed, sha(self.data)))
+        finally:
+            self.world.service.sql(self.world.profile, "DELETE FROM registration_attempt WHERE trial_id = %s",
+                                   (consumed,))
+        self.assertTrue(precheck.traded_nothing(self.conn, consumed, sha(self.data)))
+
+
+def untraded(fills: int = 0, positions: int = 0) -> dict:
+    """A sealed fingerprint with `fills` fill rows and `positions` position rows."""
+    return {"fills": {"rows": fills, "sha256": "1" * 64}, "orders": {"rows": 1, "sha256": "2" * 64},
+            "positions": {"rows": positions, "sha256": "3" * 64}}
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -295,7 +332,8 @@ if __name__ == "__main__":
 
 @unittest.skipUnless(BINARY, SKIP)
 class LineStartTests(unittest.TestCase):
-    """line select starts a line only at a revision with a passed source review and no failed one."""
+    """line select starts a line only at a revision with a passed source review and no failed one, except
+    a failure only of activity on an untraded precheck once a later precheck traded and passed."""
 
     def test_an_unreviewed_or_failed_start_is_refused_and_a_passed_one_selected(self):
         world = World("line-start")
@@ -321,3 +359,54 @@ class LineStartTests(unittest.TestCase):
         world.prechecked(passing["source"])
         selected = select(passing["candidate"])
         self.assertEqual((selected["bundle"].endswith("-passing-start"), selected["created"]), (True, True))
+
+    def test_an_activity_only_failure_of_an_untraded_precheck_yields_to_a_later_traded_pass(self):
+        world = World("line-untraded")
+        self.addCleanup(world.close)
+        quiet = {"status": "unresolved", "note": "no order filled, so activity cannot be judged"}
+
+        def code(ref: str) -> str:
+            with self.assertRaises(Refusal) as caught:
+                lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), ref,
+                                  slug="untraded-start", market=market(), reviews=availability.review_records)
+            return caught.exception.code
+
+        def reviewed(data: bytes, fills: int, *verdicts: dict) -> None:
+            """One precheck sealing `fills` fills and positions, with a review per items mapping."""
+            trial_id = world.open_precheck(data)
+            capture(world.conn, trial_id, data, fingerprint=untraded(fills, fills))
+            for items in verdicts:
+                failed = any(item["status"] in ("failed", "unresolved") for item in items.values())
+                precheck.record_review(world.profile, world.review_body(trial_id, "failed" if failed else "passed",
+                                                                        **items), "reviewer-b")
+
+        released = world.publish("released")
+        reviewed(released["source"], 0, {"activity": quiet})
+        self.assertEqual(code(released["candidate"]), "START_REVIEW_REQUIRED")
+        reviewed(released["source"], 0, {})
+        self.assertEqual(code(released["candidate"]), "START_REVIEW_REQUIRED", "a later pass without fills")
+        reviewed(released["source"], 3, {})
+        selected = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1),
+                                     released["candidate"], slug="untraded-start", market=market(),
+                                     reviews=availability.review_records)
+        self.assertEqual((selected["bundle"].endswith("-untraded-start"), selected["created"]), (True, True))
+
+        passed, thin = ({},), ({}, {"activity": {"status": "failed", "note": "one fill only"}})
+        cases = {"a source item failed too": (0, {"activity": quiet, "causal": {"status": "failed",
+                                                                                 "note": "reads the next close"}},
+                                              passed),
+                 "readiness unresolved": (0, {"activity": quiet, "readiness": {"status": "unresolved",
+                                                                                "note": "indicator cold"}}, passed),
+                 "the failed precheck traded": (2, {"activity": {"status": "failed", "note": "fills off the signal"}},
+                                                passed),
+                 "the later traded precheck failed too": (0, {"activity": quiet}, thin)}
+        for label, (fills, items, later) in cases.items():
+            with self.subTest(label=label):
+                held = world.publish(label.replace(" ", "-"))
+                reviewed(held["source"], fills, items)
+                reviewed(held["source"], 3, *later)
+                self.assertEqual(code(held["candidate"]), "START_REVIEW_REQUIRED")
+        earlier = world.publish("traded-before")
+        reviewed(earlier["source"], 3, {})
+        reviewed(earlier["source"], 0, {"activity": quiet})
+        self.assertEqual(code(earlier["candidate"]), "START_REVIEW_REQUIRED", "the traded pass came first")

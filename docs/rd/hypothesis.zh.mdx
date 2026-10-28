@@ -486,7 +486,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 #### 回放过的源码不能当新的登记，只有事前声明的预检例外 [#H-4-2-2]
 
-登记时，代码按内容哈希查试验记录，已经跑过的源码不能当新候选登记；没登记就跑过的回放，也不能事后补成登记结果。唯一的例外是原生预检：要事先声明用途，同一源码、同一运行环境，而且没有绑定任何登记。在策略收到任何行情之前就失败的预检（加载策略或读取输入时出错）也不算，不论它用的是哪个镜像。跑过的源码只能按再试的规则另行登记。
+登记时，代码按内容哈希查试验记录，已经跑过的源码不能当新候选登记；没登记就跑过的回放，也不能事后补成登记结果。唯一的例外是原生预检：要事先声明用途，同一源码、同一运行环境，而且没有绑定任何登记。在策略收到任何行情之前就失败的预检（加载策略或读取输入时出错），以及交易窗口不超过 7 天、封存原件完整而零成交零持仓、没有被登记消费的预检，也不算，不论它用的是哪个镜像、输入或窗口：没有成交就没有可挑的结果。跑过的源码只能按再试的规则另行登记。
 
 先跑看结果，再挑好的补登记，事前登记就失去意义了。预检只确认工程上能跑，不算经济证据，所以可以例外。
 
@@ -496,7 +496,7 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="registration.stopped_before_data">stopped_before_data</Ref> <Ref id="registration.validate">validate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.exposure_exempt">exposure_exempt</Ref> <Ref id="registration.stopped_before_data">stopped_before_data</Ref> <Ref id="registration.traded_nothing">traded_nothing</Ref> <Ref id="registration.validate">validate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#H-pending]
 

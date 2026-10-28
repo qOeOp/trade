@@ -124,7 +124,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Research lines
     "START_NOT_FOUND": ("The start candidate of the research line does not exist.",
                         ("Publish the start with `candidate publish`, then select the line again.",)),
-    "START_REVIEW_REQUIRED": ("The start revision has no passed source review, or a source review of it failed.",
+    "START_REVIEW_REQUIRED": ("The start revision has no passed source review, or a source review of it failed. "
+                              "A review that failed only on activity, of a precheck that sealed no fill and no "
+                              "position, does not count once a later precheck of the source sealed fills and has a "
+                              "passed review and no failed one.",
                               ("Run `replay precheck` on the start revision and record its `source review`, then "
                                "select the line again; after a failed review, fix the source, publish it and start "
                                "from the new revision.",)),
@@ -351,13 +354,14 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "registration's account terms; later research cannot replace that baseline. If terms "
                          "must change, stop and ask the user about a new future-window registration.",)),
     "SOURCE_ALREADY_EXPOSED": ("A grid source was already run outside its consumed retry chain, cited short "
-                               "prechecks, prechecks that failed before market data reached the strategy or "
-                               "verified reproductions of an explicitly linked runtime rebuild.",
+                               "prechecks, prechecks that failed before market data reached the strategy, short "
+                               "prechecks that sealed no fill and no position, or verified reproductions of an "
+                               "explicitly linked runtime rebuild.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
                                 "actually consumed this source. A fixed-question rebuild on a different image "
                                 "requires a new matching precheck; unrelated explorations and prechecks that "
-                                "reached market data remain exposures. Register a new source for a new research "
-                                "hypothesis.",)),
+                                "reached market data and traded remain exposures. Register a new source for a new "
+                                "research hypothesis.",)),
     "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
                      "registration.",
                      ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",)),
