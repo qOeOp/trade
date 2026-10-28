@@ -217,6 +217,21 @@ class RegisterTests(unittest.TestCase):
             grid=[{"candidate": twice["candidate"], "params": {}}], prechecks={twice["candidate"]: review})),
             "SOURCE_ALREADY_EXPOSED")
 
+    def test_a_precheck_that_failed_before_market_data_does_not_expose_the_source(self):
+        for stage, exposed in (("inputs", False), ("replay", True)):
+            with self.subTest(stage=stage):
+                retried = self.world.publish(f"failed in {stage}, then prechecked again")
+                failed = self.world.open_precheck(retried["source"], days=30)
+                capture(self.world.conn, failed, retried["source"], native_exit=1, audit_exit=None,
+                        runtime_errors=json.dumps({"stage": stage}).encode() + b"\n")
+                review = self.world.prechecked(retried["source"])
+                body = self.derived(grid=[{"candidate": retried["candidate"], "params": {}}],
+                                    prechecks={retried["candidate"]: review})
+                if exposed:
+                    self.assertEqual(self.code(f"registration-after-{stage}", body), "SOURCE_ALREADY_EXPOSED")
+                else:
+                    self.world.register(f"registration-after-{stage}", body)
+
     def test_registration_needs_a_research_line(self):
         body = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
         with patch("ledger.lines.current_line", return_value=None):

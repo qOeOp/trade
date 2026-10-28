@@ -268,6 +268,26 @@ class PrecheckTests(unittest.TestCase):
                 self.assertIs(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), IDENTITY["image_ref"],
                                                        declared_config, declared_inputs), exempt)
 
+    def test_only_a_precheck_that_failed_before_market_data_leaves_the_source_unexposed(self):
+        def failures(*stages):
+            return b"".join(json.dumps({"stage": stage, "exception_type": "Refusal"}).encode() + b"\n"
+                            for stage in stages)
+        for stage in precheck.PRE_DATA_STAGES:
+            with self.subTest(stage=stage):
+                trial_id = self.sealed(runtime=OTHER_RUNTIME, native_exit=1, audit_exit=None,
+                                       runtime_errors=failures(stage))
+                self.assertTrue(precheck.stopped_before_data(self.conn, trial_id, sha(self.data)))
+                self.assertFalse(precheck.stopped_before_data(self.conn, trial_id,
+                                                              sha(self.world.publish("other")["source"])))
+        cases = {"replay stage": {"native_exit": 1, "runtime_errors": failures("replay")},
+                 "a later stage beside it": {"native_exit": 1, "runtime_errors": failures("inputs", "replay")},
+                 "no failure receipt": {"native_exit": 1},
+                 "native exit zero": {"runtime_errors": failures("inputs")}}
+        for label, options in cases.items():
+            with self.subTest(label=label):
+                self.assertFalse(precheck.stopped_before_data(self.conn, self.sealed(**options), sha(self.data)))
+        self.assertFalse(precheck.stopped_before_data(self.conn, self.world.open_precheck(self.data), sha(self.data)))
+
 
 if __name__ == "__main__":
     unittest.main()
