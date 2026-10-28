@@ -1152,7 +1152,7 @@ def add_judgment(
 | <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
 | <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径 |
 | <Ref id="ledger.read_line">read_line</Ref> | 按包名读一条研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交，附包的创建时间与所读提交 |
-| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包，用户给了目标时同一提交写入；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。 |
+| <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包，用户给了目标时同一提交写入；起点须有通过的源码审查、且没有失败的审查（只因零成交预检的活动项失败、其后同源码有成交的预检审查通过的除外）；只追加，不改旧路线记录。 |
 
 ### `close_line` [#def-ledger-close_line]
 
@@ -1299,7 +1299,7 @@ def read_line(
 
 ### `select_line` [#def-ledger-select_line]
 
-把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包；起点须有通过的源码审查、且没有失败的审查；只追加，不改旧路线记录。
+把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包；起点须有通过的源码审查、且没有失败的审查（只因零成交预检的活动项失败、其后同源码有成交的预检审查通过的除外）；只追加，不改旧路线记录。
 
 ```python
 def select_line(
@@ -1324,7 +1324,7 @@ def select_line(
 
 1. 核对起点：经 ledger.read_candidate 按 strategy_id@revision 读 candidate 表，取其源码内容哈希作为起点身份；不存在即拒绝 START_NOT_FOUND。
 2. 核对市场与窗口：market.resolve_commit 把引用解析为唯一哈希，market.freshness 按该提交 AS OF 读 universe_rule 与最新完整日；解析失败拒绝 MARKET_COMMIT_UNRESOLVED；window_start ≥ window_end 拒绝 WINDOW_INVALID；window_end 晚于最新完整日的次日拒绝 WINDOW_OUT_OF_COVERAGE。只核对，不删币、不缩窗、不换提交。
-3. 核对起点审查：经 reviews 读源码审查记录，只看未被忽略、源码哈希等于起点的；有一条 failed，或没有一条 passed，即拒绝 START_REVIEW_REQUIRED。
+3. 核对起点审查：经 reviews 读源码审查记录，只看未被忽略、源码哈希等于起点的；有一条 failed，或没有一条 passed，即拒绝 START_REVIEW_REQUIRED。不计这样的 failed 审查：api、causal、readiness 都是 passed，只有 activity 为 failed 或 unresolved；所审预检经 ledger.read_capture 读到的完整封存原件指纹 fills 与 positions 都是 0 行；同源码有一个试验号更大的预检，封存指纹 fills 多于 0 行，有 passed 审查且没有 failed 审查。activity 说的是那一次运行，api、causal、readiness 是源码属性，后者任一失败照旧拒绝。
 4. 命名：slug 不合形态即 LINE_SLUG_INVALID；新包名 research-line-\<服务器当前 UTC 日期 YYYYMMDD>-\<slug>。
 5. 组装 research-line.json（format research-line-v2：market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
 6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包（同一天、同一 slug）内容哈希不同拒绝 LINE_CONFLICT，不覆盖，由 Agent 换一个更准确的 slug。
@@ -1335,7 +1335,7 @@ def select_line(
 | 拒绝码 | 条件 |
 |---|---|
 | `START_NOT_FOUND` | candidate 表中没有 start 所指的候选版本 |
-| `START_REVIEW_REQUIRED` | 起点版本没有通过的源码审查，或它的源码有一次审查失败 |
+| `START_REVIEW_REQUIRED` | 起点版本没有通过的源码审查，或它的源码有一次审查失败（只因零成交预检的活动项失败、其后有成交的预检审查通过的除外） |
 | `MARKET_COMMIT_UNRESOLVED` | 市场提交引用解析不到唯一哈希，或该提交上读不到 universe_rule |
 | `WINDOW_INVALID` | window_start ≥ window_end |
 | `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |

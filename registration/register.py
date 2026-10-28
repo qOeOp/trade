@@ -454,7 +454,8 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                 continue
             if attempted is not None and attempted in chain:
                 continue
-            if purpose == "precheck" and precheck.stopped_before_data(conn, trial_id, point["source_sha256"]):
+            if purpose == "precheck" and (precheck.stopped_before_data(conn, trial_id, point["source_sha256"])
+                                          or precheck.traded_nothing(conn, trial_id, point["source_sha256"])):
                 continue
             if trial_id == point["precheck_trial"] and precheck.exposure_exempt(
                     conn, trial_id, point["source_sha256"], execution.get("image_ref"), declared_config,
@@ -485,7 +486,8 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
             if purpose == "precheck":
                 days = (trade_end - trade_start).total_seconds() / 86_400
                 detail += (f"; {days:g} trading days, exemption maximum {precheck.PRECHECK_MAX_DAYS}; "
-                           "only the cited precheck with matching execution identity can be exempt")
+                           "only the cited precheck with matching execution identity, or one that sealed no fill "
+                           "and no position, can be exempt")
             raise refuse("SOURCE_ALREADY_EXPOSED", f"grid source of {point['candidate']} already ran in trial "
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 

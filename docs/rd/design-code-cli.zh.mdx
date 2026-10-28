@@ -811,7 +811,7 @@ def line_select(
 |---|---|
 | `WINDOW_INVALID` | 日期不是 YYYY-MM-DD 的 UTC 日，或 select_line 判定窗口无效 |
 | `START_NOT_FOUND` | 由 select_line 返回：起点候选不存在 |
-| `START_REVIEW_REQUIRED` | 由 select_line 返回：起点没有通过的源码审查，或有一次审查失败 |
+| `START_REVIEW_REQUIRED` | 由 select_line 返回：起点没有通过的源码审查，或有一次审查失败（只因零成交预检的活动项失败、其后有成交的预检审查通过的除外） |
 | `MARKET_COMMIT_UNRESOLVED` | 由 select_line 返回：市场提交引用解析不到 |
 | `WINDOW_OUT_OF_COVERAGE` | 由 select_line 返回：窗口终点晚于钉住提交的最新完整日 |
 | `LINE_SLUG_INVALID` | 由 select_line 返回：slug 形态不合 |

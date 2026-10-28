@@ -232,6 +232,21 @@ class RegisterTests(unittest.TestCase):
                 else:
                     self.world.register(f"registration-after-{stage}", body)
 
+    def test_a_short_precheck_that_sealed_no_fill_does_not_expose_the_source(self):
+        for fills, exposed in ((0, False), (1, True)):
+            with self.subTest(fills=fills):
+                retried = self.world.publish(f"sealed {fills} fills, then prechecked again")
+                quiet = self.world.open_precheck(retried["source"], runtime=OTHER_RUNTIME, days=7)
+                capture(self.world.conn, quiet, retried["source"], fingerprint={
+                    "fills": {"rows": fills, "sha256": "1" * 64}, "positions": {"rows": fills, "sha256": "2" * 64}})
+                review = self.world.prechecked(retried["source"])
+                body = self.derived(grid=[{"candidate": retried["candidate"], "params": {}}],
+                                    prechecks={retried["candidate"]: review})
+                if exposed:
+                    self.assertEqual(self.code(f"registration-after-{fills}-fills", body), "SOURCE_ALREADY_EXPOSED")
+                else:
+                    self.world.register(f"registration-after-{fills}-fills", body)
+
     def test_registration_needs_a_research_line(self):
         body = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
         with patch("ledger.lines.current_line", return_value=None):
