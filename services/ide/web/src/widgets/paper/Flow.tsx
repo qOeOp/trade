@@ -30,22 +30,24 @@ const base = (symbol: string) => symbol.replace(/(USDT|USDC|USD)$/, "").replace(
 // listed only as futures may have none, and its node then shows no logo).
 const logo = (symbol: string) => `https://bin.bnbstatic.com/static/assets/logos/${encodeURIComponent(base(symbol))}.png`;
 
-// Every node at the flows' precision. A contract's node carries its coin's logo, the rest of the
-// contracts' node theirs; the others carry none.
+// Every node at the flows' precision, the net's name in the text colour. A contract's node carries its
+// coin's logo, the rest of the contracts' node theirs; the others carry none.
 const node = (dp: number) => (f: Item, into: boolean): SankeyNode => {
   const contract = (f.kind === "win" || f.kind === "loss") && !f.of;
   return {
     key: f.key, name: contract ? base(f.name) : f.name, note: `${contract ? f.name : f.of?.join(", ") ?? ""} ${NOTE[f.kind](into)}`.trim(),
     label: signed(f.signed, dp) ?? MISSING, exact: `${signed(f.signed)} USDT`, value: f.value,
     role: GREY.includes(f.kind) ? "fg-faint" : tone(f.signed), tone: tone(f.signed), logos: (contract ? [f.name] : f.of ?? []).map(logo),
+    strong: f.kind === "net",
   };
 };
 
-function Informer({ name, value, children }: { name: string; value: ReactNode; children: ReactNode }) {
+/** A figure as Trade stats sets one (its name faint, its value by its sign), with a note under it. */
+function Informer({ name, value, children }: { name: string; value: number | null; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="text-small font-semibold text-fg-muted">{name}</div>
-      <div className="mt-0.5 truncate text-value tabular-nums text-fg">{value}</div>
+      <div className="text-small text-fg-faint">{name}</div>
+      <div className={`mt-0.5 truncate text-value tabular-nums ${pnlClass(value)}`}>{signed(value)}</div>
       <div className="truncate text-small text-fg-faint">{children}</div>
     </div>
   );
@@ -60,10 +62,11 @@ export function PnlFlow({ a, f }: { a: Account; f: Flows }) {
   const ret = a.ret === null ? MISSING : `${a.ret > 0 ? "↑" : a.ret < 0 ? "↓" : ""}${(Math.abs(a.ret) * 100).toFixed(2)}%`;
   return (
     <div className="flex flex-col gap-3">
-      <Sankey into={f.into.map((x) => at(x, true))} out={f.out.map((x) => at(x, false))} links={f.links} label={`Profit and loss since the start: ${all}`} />
+      <Sankey into={f.into.map((x) => at(x, true))} out={f.out.map((x) => at(x, false))} links={f.links} label={`Profit and loss since the start: ${all}`}
+              amount={(x) => `${fixed(x, 2) ?? MISSING} USDT`} />
       <div className="grid grid-cols-2 gap-3">
-        <Informer name="Gross" value={signed(a.gross)}>{share}</Informer>
-        <Informer name="Net" value={signed(a.net)}>
+        <Informer name="Gross" value={a.gross}>{share}</Informer>
+        <Informer name="Net" value={a.net}>
           <span className={`font-semibold ${pnlClass(a.ret)}`}>{ret}</span> {fixed(a.equity, 2) ?? MISSING} USDT</Informer>
       </div>
     </div>
