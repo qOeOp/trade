@@ -57,7 +57,12 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 - A due line change (research-round) is offered here too, after the ledger reads above: this
   line beside the lines the ledger's other candidates could start (`candidate list`), each with
   the readings recommendation.md lists. New scopes or starting points inside this line are only
-  some of the options.
+  some of the options. When no existing candidate can start a new line (each fails
+  recommendation.md's checks), design two or three complete new starts yourself instead of a
+  direction to study or a design for the user to steer: each a source that has never run (a
+  revision with a substantive change, or a root), marked not yet replayed, with its window, market
+  commit, execution environment (research-round), readiness result and Goal objective, so that
+  one choice approves both the line and its Goal.
 - List template roots (research-round's [template.md](../research-round/references/template.md))
   only when the ledger has no candidate, the user says to leave every existing line or no existing
   line can run (each gated as above or failing recommendation.md's checks), each with
