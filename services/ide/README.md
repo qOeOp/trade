@@ -21,11 +21,15 @@ node services/ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PR
 sql` for the head, `research graph --at=<hash>` for a graph) and imports no product package. The
 page is the web renderer's page with a null view: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, otherwise the refusal JSON) and follows `/api/events` (Server-Sent Events: the current
-state on connect, then `fetching`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
+state on connect, then `fetching`, `pulling`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
 15 s). While a page without `at` is open the head is read every 5 s, after `--pull` (run as `PULL
 ledger`, and `PULL market` before fetching at a new head; exit status 3 means the remote's history
-was rewritten, and pulling stops). When the head moves, each open page's graph is fetched once at the
-new head, the latest only; the page replaces its view in place and keeps the selected version. The
+was rewritten, and pulling stops). Only the first head is waited for: later `/api/view` answers at once
+with the last view while a pull runs in the background. When the head moves, each open page is told
+`pulling` with the new head while the market is pulled, and a failed refresh as `error` over the view it
+holds; its graph is fetched once at the new head, the latest only, and the page replaces its view in place
+and keeps the selected version. Meanwhile the status bar shows the update's stage beside a turning ring,
+or the failure behind a red warning mark, and the old graph stays. The
 last 8 views stay in memory. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
 

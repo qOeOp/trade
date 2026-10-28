@@ -102,6 +102,9 @@ export const ICONS = {
   passed: { svg: circleCheck },
   failed: { svg: circleX },
   untested: { svg: circleDashed },
+  // A faint ring with a quarter arc, turned by the status bar while the graph updates (Lucide's
+  // loader-circle has no track, so it reads as a broken circle when still).
+  loading: { svg: '<svg><circle cx="12" cy="12" r="9" opacity="0.4"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>' },
 } as const satisfies Record<string, { svg: string }>;
 
 export type IconName = keyof typeof ICONS;

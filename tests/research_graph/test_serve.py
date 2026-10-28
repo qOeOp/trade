@@ -98,6 +98,43 @@ class HubTests(unittest.TestCase):
             release.set()
             until(lambda: self.hub.view(None, None, None)[1].get("scope", {}).get("ledger_commit") == "b" * 32)
 
+    def test_an_open_page_hears_the_new_head_while_the_market_is_pulled(self):
+        client = serve.Client(None, None, None)
+        self.hub.refresh(wait=True)
+        self.hub.join(client)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        release = threading.Event()
+
+        def run(argv, **options):
+            if argv[1] == "market":
+                release.wait(5)
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        self.hub.pull = "/pull"
+        self.product.head = "b" * 32
+        with mock.patch.object(serve.subprocess, "run", side_effect=run):
+            threading.Thread(target=self.hub.refresh, daemon=True).start()
+            until(lambda: client.sent == {"state": "pulling", "ledger_commit": "b" * 32})
+            self.assertEqual(self.hub.view(None, None, None)[1]["scope"]["ledger_commit"], "a" * 32,
+                             "the last view is still served")
+            release.set()
+            until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+
+    def test_a_failed_refresh_is_told_over_the_last_view(self):
+        client = serve.Client(None, None, None)
+        self.hub.refresh(wait=True)
+        self.hub.join(client)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.hub.pull = "/pull"
+        failing = mock.Mock(returncode=1, stdout="", stderr="network down")
+        with mock.patch.object(serve.subprocess, "run", return_value=failing):
+            self.hub.refresh(wait=True)
+        self.assertEqual((client.sent["state"], client.sent["ledger_commit"], client.sent["error"]["code"]),
+                         ("error", "a" * 32, "PULL_FAILED"))
+        self.assertEqual(self.hub.view(None, None, None)[0], 200, "the last view is kept")
+        with mock.patch.object(serve.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
+            self.hub.refresh(wait=True)
+        self.assertEqual(client.sent, {"state": "ready", "ledger_commit": "a" * 32}, "a good refresh clears it")
+
     def test_an_open_page_follows_the_head_and_gets_only_the_latest_graph(self):
         client = serve.Client(None, None, None)
         self.hub.refresh(wait=True)
