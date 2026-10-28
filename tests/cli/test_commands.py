@@ -127,7 +127,7 @@ class CommandTests(unittest.TestCase):
     def prechecked(self, ref: str, name: str) -> str:
         """replay precheck and source review of a published candidate; returns the review bundle."""
         found = self.ok("replay", "precheck", "--ledger", self.ledger, "--at", "main", "--candidate", ref,
-                        "--runtime", "stand-in:main", "--output", str(self.tmp / f"precheck-{name}"), "--", *PRECHECK)
+                        "--output", str(self.tmp / f"precheck-{name}"), "--", *PRECHECK)  # --runtime: the main tag
         self.assertEqual((found["purpose"], found["status"]), ("precheck", "passed"))
         reviewed = self.ok("source", "review", "--ledger", self.ledger, "--candidate", ref, "--runtime", "stand-in:main",
                            "--precheck-trial", str(found["trial_id"]), "--verdict", "passed",

@@ -1750,7 +1750,7 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--at", required=True, help="market commit, tag or branch")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
-    command.add_argument("--runtime", required=True, help=RUNTIME_HELP)
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command = runner(replay, "run", "a sealed research or validation replay (runner arguments as registered)")
     _ledger_option(command)

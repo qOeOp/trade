@@ -1219,13 +1219,13 @@ def replay_precheck(
     market: path,
     at: str,
     candidate: str (strategy_id@revision),
-    runtime: str,
+    runtime: str | None,
     runner_argv: list[str],
     output: path,
 ) -> JSON {purpose
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str", description: "运行环境引用，须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要），缺省为 main 标签；须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
 
 **返回**　JSON \{purpose: precheck, trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, metrics, scope\}；status 为 failed 时退出码 1，拒绝时输出带码错误并以非零退出
 

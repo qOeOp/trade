@@ -402,7 +402,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
         _cleanup(exported)
 
 
-def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime: str, runner_argv: list[str],
+def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime: str | None, runner_argv: list[str],
              output: Path) -> dict:
     """A declared native precheck of a published candidate; nothing starts before its trial commits."""
     with db.connect(ledger, "reader") as conn:
