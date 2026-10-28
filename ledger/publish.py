@@ -75,19 +75,26 @@ def _user_dolt() -> Path:
 
 def _install_key(profile: db.LedgerProfile) -> str:
     """Copy the user's DoltHub key (`dolt login`) into the service's Dolt home and name it there."""
-    source = _user_dolt()
+    return install_key(Path(profile.service_root), _user_dolt())[0]
+
+
+def install_key(service_root: Path, source: Path) -> tuple[str, bool]:
+    """Copy the DoltHub key of the Dolt home `source` (a `dolt login` ~/.dolt) into the Dolt home of the
+    service at `service_root` and name it there; whether that changed anything."""
+    changed = False
     try:
         key = json.loads((source / "config_global.json").read_text(encoding="utf-8"))["user.creds"]
         data = (source / "creds" / f"{key}.jwk").read_bytes()
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise refuse("DOLTHUB_CREDENTIALS", f"no DoltHub key from `dolt login` under {source}",
                      missing=(str(source / "creds"),)) from exc
-    home = Path(profile.service_root) / "home" / ".dolt"
+    home = Path(service_root) / "home" / ".dolt"
     (home / "creds").mkdir(mode=0o700, parents=True, exist_ok=True)
     target = home / "creds" / f"{key}.jwk"
     if not target.exists() or target.read_bytes() != data:  # an unchanged key keeps its install time
         with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as stream:
             stream.write(data)
+        changed = True
     config_path = home / "config_global.json"
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -99,7 +106,13 @@ def _install_key(profile: db.LedgerProfile) -> str:
         if config_path.exists():
             shutil.copymode(config_path, temporary)
         os.replace(temporary, config_path)
-    return key
+        changed = True
+    return key, changed
+
+
+def _managed(profile: db.LedgerProfile) -> bool:
+    config = db._service(profile.service_root)
+    return config is not None and db.managed(config)
 
 
 def _key_after_start(profile: db.LedgerProfile) -> bool:
@@ -120,7 +133,8 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
     install the user's key in the service's Dolt home; `restart_required` says the running service
     must be restarted to use it."""
     _allowed(profile, url)
-    key = _install_key(profile) if not url.startswith("file://") else None
+    installed = install_key(Path(profile.service_root), _user_dolt()) if not url.startswith("file://") else None
+    key = installed[0] if installed else None
     conn = _admin(profile)
     try:
         with conn.cursor() as cursor:
@@ -133,7 +147,8 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
     finally:
         conn.close()
     return {"database": profile.database, "remote": url, "credentials": key, "added": existing is None,
-            "restart_required": key is not None and _key_after_start(profile)}
+            # A service compose runs keeps no start time here: a key it did not have needs a restart.
+            "restart_required": key is not None and (installed[1] if _managed(profile) else _key_after_start(profile))}
 
 
 def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
@@ -145,7 +160,9 @@ def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
         if "rejected" in text or "non-fast-forward" in text:
             raise refuse("PUBLISH_REJECTED", f"{url} refused {ref} of {profile.database}: its history is not an "
                          "ancestor of the local one; nothing was forced", missing=(url,)) from exc
-        restart = (" The running service started before its DoltHub key was installed and reads it only at "
+        restart = (" If its DoltHub key was installed after the service started, the service reads it only at "
+                   "start: restart it (`docker compose restart ledger`) and publish again." if _managed(profile) else
+                   " The running service started before its DoltHub key was installed and reads it only at "
                    "start: restart it (`ledger service stop`, then `ledger service start`) and publish again."
                    if _key_after_start(profile) else "")
         raise refuse("PUBLISH_FAILED", f"pushing {ref} of {profile.database} to {url} failed: {text.strip()}.{restart}",

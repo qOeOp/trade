@@ -593,8 +593,21 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Rerun the same export; report the disk if it persists.",)),
     "LEDGER_NOT_INITIALIZED": ("The service directory holds no initialized ledger of this profile.",
                                ("Initialize it with `ledger init` (or `ledger temp` for a test ledger).",)),
-    "SERVICE_START_FAILED": ("The service started but the ledger did not answer; the service was stopped.",
-                             ("Inspect the service log in the service directory, then rerun `ledger service start`.",)),
+    "SERVICE_START_FAILED": ("The service started but the ledger did not answer. A service this host started was "
+                             "stopped; one compose runs was left running.",
+                             ("Inspect the service log (in the service directory, or `docker compose logs ledger`), "
+                              "then rerun `ledger service start`.",)),
+    "BOOTSTRAP_REFUSED": ("`ledger service run` found no service.json, but the service, data or profile directory "
+                          "is not empty; it bootstraps only into empty ones and changed nothing.",
+                          ("Report it to the user: TRADE_DATA may name the wrong directory, or service.json was lost.",)),
+    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning a public copy); what the bootstrap made was removed.",
+                         ("Inspect `docker compose logs ledger`; the next start bootstraps again.",)),
+    "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
+                             "group, a recorded database, a schema version or the commit tests); it was not served.",
+                             ("Report it to the user with the named item; nothing was changed.",)),
+    "SERVICE_MANAGED": ("The Dolt service is run by compose (its service.json names no socket); this host neither "
+                        "starts nor stops it.",
+                        ("Stop or restart it with `docker compose stop ledger` or `docker compose restart ledger`.",)),
     "JUDGMENT_BODY_UNREADABLE": ("The judgment body is not a readable UTF-8 text file.",
                                  ("Write the judgment text to a UTF-8 file and pass it with --body.",)),
     # The market database (market/)

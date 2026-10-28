@@ -256,18 +256,20 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
             with db.read_as_of(profile) as conn:
                 commit = conn.resolved_commit
         except Refusal as exc:
-            db.stop_service(profile.service_root)
+            if not db.managed(config):
+                db.stop_service(profile.service_root)
             raise refuse("SERVICE_START_FAILED", f"the service started but the ledger is not readable ({exc.code})",
                          missing=(profile.database,)) from exc
-        return {"action": action, "running": True, "pid": started.get("pid"), "address": (config or {}).get("socket"),
+        return {"action": action, "running": True, "pid": started.get("pid"), "address": db.address(config),
                 "branch": profile.research_branch, "ledger_commit": commit}
+    address = db.address(config) if config is not None else None
     try:
         with db.read_as_of(profile) as conn:
             commit = conn.resolved_commit
     except Refusal:
-        return {"action": action, "running": False, "address": (config or {}).get("socket")}
+        return {"action": action, "running": False, "address": address}
     return {"action": action, "running": True, "pid": db._pid(profile.service_root),
-            "address": (config or {}).get("socket"), "branch": profile.research_branch, "ledger_commit": commit}
+            "address": address, "branch": profile.research_branch, "ledger_commit": commit}
 
 
 def ledger_temp(root: str | None) -> dict:
@@ -1042,13 +1044,18 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--backup-root, or its service or backup in the checkout or a temporary root); INVALID_NAME; "
         "DOLT_BINARY; LEDGER_START"),
     ("ledger", "service"): (
-        "the service's service.json; start and status read the research branch head (reader)",
-        "start launches the Dolt service, stop stops it (every database on that service root); status writes "
-        "nothing; never publishes",
+        "the service's service.json; start, status and check read the research branch head (reader), check also "
+        "the market database (reader); run reads its arguments, the DoltHub key directory and the public copies",
+        "start launches the Dolt service, stop stops it (every database on that service root); a service compose "
+        "runs (no socket in service.json) is only waited for by start; status and check write nothing; run (the "
+        "compose service) serves in the foreground, on first start bootstrapping the service, the ledger and "
+        "market databases cloned from their public copies, their accounts and profiles; never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
-        "when the ledger is not readable)",
+        "when the ledger is not readable); check adds ledger_commit, market_schema; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
-        "(started but the ledger is not readable; stopped again)"),
+        "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
+        "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "
+        "ISOLATION_BREACH; check: any refusal of reading either database"),
     ("ledger", "temp"): (
         "the temporary root",
         "a new directory (--root, default <tmp>/ledger-<hex>) holding a temporary ledger's profile file and its "
@@ -1514,9 +1521,18 @@ def _parser() -> Parser:
     command.add_argument("--service-root", required=True, type=Path, help="directory of the Dolt service")
     command.add_argument("--research-branch", default="main", help="the branch research writes go to (default: main)")
     command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
-    command = verb(ledger, "service", "start, stop or read the ledger's database service")
-    command.add_argument("action", choices=("start", "stop", "status"), help="start, stop or status")
+    command = verb(ledger, "service", "start, stop or read the ledger's database service; run it under compose")
+    command.add_argument("action", choices=("start", "stop", "status", "check", "run"),
+                         help="start, stop or status; check (both databases readable); run (the compose service)")
     _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--service-root", type=Path, help="run: the service directory")
+    command.add_argument("--data-dir", type=Path, help="run: the Dolt data directory (a volume under compose)")
+    command.add_argument("--backup-root", type=Path, help="run: the directory holding each database's backup")
+    command.add_argument("--credentials", type=Path, help="run: a `dolt login` ~/.dolt holding the DoltHub key")
+    command.add_argument("--research-origin", help="run: the public copy the ledger is cloned from on first start")
+    command.add_argument("--market-origin", help="run: the public copy the market is cloned from on first start")
+    command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command = verb(ledger, "temp", "an isolated temporary ledger under the temporary root")
     command.add_argument("--root", help="new directory under the temporary root (default: a fresh one)")
     command = verb(ledger, "sql", "one read-only query with the reader account")
@@ -1967,6 +1983,14 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from cli import replay as cli_replay
         return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
                                            args.output), 0
+    if key == ("ledger", "service") and args.action in ("run", "check"):
+        from cli import service
+        if args.action == "check":
+            return service.check(ledger_profile(args.ledger), market_profile(args.market)), 0
+        if not (args.service_root and args.data_dir and args.backup_root):
+            raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")
+        return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials,
+                           {service.LEDGER: args.research_origin, service.MARKET: args.market_origin}, args.port)
     profile = ledger_profile(args.ledger)
     if key == ("ledger", "upgrade"):
         return db.upgrade(profile), 0

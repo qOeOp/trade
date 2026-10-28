@@ -158,13 +158,16 @@ def _service(profile: dict) -> dict:
 
 
 def _service_connection(config: dict, **options) -> pymysql.Connection:
-    """`pymysql.connect` to the service `config` describes: over its Unix socket, or with
-    `TRADE_DOLT_HOST` set over TCP to that host on the service's own port (as ledger.db does, for a
-    container that cannot reach the socket). pymysql 1.1.2 leaks its socket when the Unix connect itself
-    fails (a stopped service), so the socket is reached first by one that is closed either way, and an
-    unreachable one raises the same OperationalError pymysql would."""
+    """`pymysql.connect` to the service `config` describes, by the rule of ledger.db: with
+    `TRADE_DOLT_HOST` set over TCP to that host on the service's own port (a container beside the
+    service); else over its Unix socket; a service compose runs (no socket) over TCP on this host's
+    loopback. pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so
+    the socket is reached first by one that is closed either way, and an unreachable one raises the
+    same OperationalError pymysql would."""
     if os.environ.get("TRADE_DOLT_HOST"):
         return pymysql.connect(host=os.environ["TRADE_DOLT_HOST"], port=int(config["port"]), **options)
+    if not config.get("socket"):
+        return pymysql.connect(host="127.0.0.1", port=int(config["port"]), **options)
     socket_path = config["socket"]
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
         probe.settimeout(options.get("connect_timeout", 10))

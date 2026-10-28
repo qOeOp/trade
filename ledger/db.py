@@ -174,13 +174,27 @@ def _pid(root: Path) -> int | None:
     return pid
 
 
+def managed(config: dict) -> bool:
+    """A service without a Unix socket is run by compose (`ledger service run`), not by a process of
+    this host: it is reached over TCP and never started or stopped from here."""
+    return not config.get("socket")
+
+
+def address(config: dict) -> str:
+    return f"127.0.0.1:{config['port']}" if managed(config) else config["socket"]
+
+
 def service_connection(config: dict, **options) -> pymysql.Connection:
-    """`pymysql.connect` to the service `config` describes: over its Unix socket, or with `TRADE_DOLT_HOST`
-    set over TCP to that host on the service's own port. pymysql 1.1.2 leaks its socket when the Unix
-    connect itself fails (a stopped service), so the socket is reached first by one that is closed
-    either way, and an unreachable one raises the same OperationalError pymysql would."""
+    """`pymysql.connect` to the service `config` describes: with `TRADE_DOLT_HOST` set over TCP to that
+    host on the service's own port (a container beside the service); else over its Unix socket; a
+    service compose runs (no socket) over TCP on this host's loopback, where compose publishes it.
+    pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so the
+    socket is reached first by one that is closed either way, and an unreachable one raises the same
+    OperationalError pymysql would."""
     if os.environ.get(DOLT_HOST):
         return pymysql.connect(host=os.environ[DOLT_HOST], port=int(config["port"]), **options)
+    if managed(config):
+        return pymysql.connect(host="127.0.0.1", port=int(config["port"]), **options)
     socket_path = config["socket"]
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
         probe.settimeout(options.get("connect_timeout", 10))
@@ -200,9 +214,19 @@ def _admin(config: dict, password: str | None = None, database: str | None = Non
 
 
 def start_service(root: Path) -> dict:
-    """Start the service of `root` unless it runs; wait until it accepts connections."""
+    """Start the service of `root` unless it runs; wait until it accepts connections. A service compose
+    runs is only waited for."""
     root = Path(root)
     config = _known_service(root)
+    if managed(config):
+        for _ in range(150):
+            try:
+                _admin(config).close()
+                return {"running": True, "pid": None, "service": str(root)}
+            except pymysql.MySQLError:
+                time.sleep(0.1)
+        raise refuse("LEDGER_START", f"the Dolt service compose runs does not accept connections at {address(config)}",
+                     expected="`docker compose up -d ledger`")
     pid = _pid(root)
     if pid is None:
         environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
@@ -227,6 +251,10 @@ def start_service(root: Path) -> dict:
 
 def stop_service(root: Path) -> dict:
     root = Path(root)
+    config = _service(root)
+    if config is not None and managed(config):
+        raise refuse("SERVICE_MANAGED", f"the Dolt service at {root} is run by compose, not by this host",
+                     expected="`docker compose stop ledger`")
     pid = _pid(root)
     if pid is None:
         return {"running": False, "service": str(root)}
@@ -437,6 +465,12 @@ def _ledger_tables(cursor, database: str, branch: str, accounts: dict) -> str:
     (commit,), = cursor.fetchall()
     if branch != "main":
         cursor.execute("CALL DOLT_BRANCH(%s, 'main')", (branch,))
+    ledger_accounts(cursor, database, branch, accounts)
+    return commit
+
+
+def ledger_accounts(cursor, database: str, branch: str, accounts: dict) -> None:
+    """The writer and reader accounts of a research database, their grants and the writer's branch."""
     writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
     cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
     cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
@@ -452,7 +486,6 @@ def _ledger_tables(cursor, database: str, branch: str, accounts: dict) -> str:
     # A lookalike branch can only come from the administrator; SQL grants are per literal database.
     cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, %s, %s, '%%', 'write')", (database, branch, writer))
     cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
-    return commit
 
 
 MARKET_SCHEMA = REPOSITORY / "market" / "schema.sql"
@@ -506,6 +539,12 @@ def _market_tables(cursor, database: str, accounts: dict) -> str:
     # The tables only: there are no commit tests yet, so this one commit skips verification.
     cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'market tables')")
     (commit,), = cursor.fetchall()
+    market_accounts(cursor, database, accounts)
+    return commit
+
+
+def market_accounts(cursor, database: str, accounts: dict) -> None:
+    """The import and reader accounts of a market database, their grants and the import account's branch."""
     writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
     cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
     cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
@@ -516,7 +555,6 @@ def _market_tables(cursor, database: str, accounts: dict) -> str:
     cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
     cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, 'main', %s, '%%', 'write')", (database, writer))
     cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
-    return commit
 
 
 # Connections
