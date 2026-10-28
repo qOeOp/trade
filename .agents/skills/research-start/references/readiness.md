@@ -72,7 +72,12 @@ not a substitute for the disposition.
    checksum, sequence-gap and time-order refusals are the acceptance of the conversion, so add no
    acceptance step or licence condition of your own. Each month is one public market write and
    publish, the user's decision; replays on the imported quotes pin the new market commit, which
-   is a new line record.
+   is a new line record. A `SEQUENCE_GAP` that persists after the re-download its refusal names is
+   in the exchange's published aggTrades, and `market import-quotes` cannot import that month. Do
+   not search for the missing records or rebuild quotes outside the import: quotes from another
+   source (for example the trades archive) are a change to the product's quote rule, which needs
+   the user's authority. Ask again with the quote-covered ranges that exclude the month and, where
+   research-round's execution rule lets the source run on `bars`, the full window on `bars`.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
    shorter window, replacement input or changed commit yourself, or recommend one because an
    anomaly coincides with losses. A question about writing records, permission to inspect,
