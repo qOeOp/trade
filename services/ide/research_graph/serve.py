@@ -307,6 +307,17 @@ def _page() -> bytes:
     return page.replace(render.PLACEHOLDER, "null").encode()
 
 
+class Server(ThreadingHTTPServer):
+    """The research graph service's HTTP server: a client that goes away mid-request (a closed page or reset connection) is
+    not an error, so it prints no traceback."""
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        if not isinstance(sys.exc_info()[1], ConnectionError):
+            super().handle_error(request, client_address)
+
+
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
             paper: str | None = None) -> type[BaseHTTPRequestHandler]:
     token = secrets.token_urlsafe(24)
@@ -448,8 +459,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str], pull: str | None,
           poll: float, agent: str | None = None, paper: str | None = None) -> None:
     hub = Hub(product, build, pull, poll)
-    server = ThreadingHTTPServer((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper))
-    server.daemon_threads = True
+    server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

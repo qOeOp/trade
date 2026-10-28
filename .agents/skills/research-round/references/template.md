@@ -50,7 +50,7 @@ momentum, Pivot Reversal. Each trades one instrument.
   source leaves open is an implementer choice: one line of reason each, marked `implementer` `default` in the
   header.
 - The header starts with the source: DOI, arXiv id or URL with its version or date, and the
-  source bundle name. Then the 27 duty lines in nine groups (strategy-header.md), each with its
+  source bundle name. Then the 27 duty lines in nine groups (the header template `candidate new` supplies), each with its
   source label; a rule carried to another market, timeframe or instrument is labelled `researcher`.
 - A source the user gives goes through the same steps. A parameter it does not give is an
   implementer default, listed as such; never label it the source's own words in the header, notes

@@ -130,8 +130,7 @@ class HttpTests(unittest.TestCase):
         self.hub = serve.Hub(FakeProduct(), "build", poll=0.05)
         threading.Thread(target=self.hub.work, daemon=True).start()
         with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
-            self.server = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.handler(self.hub, frozenset({"here:1"})))
-        self.server.daemon_threads = True
+            self.server = serve.Server(("127.0.0.1", 0), serve.handler(self.hub, frozenset({"here:1"})))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -187,14 +186,14 @@ class AgentForwardTests(unittest.TestCase):
 
             def log_message(self, *args):
                 pass
-        self.agent = serve.ThreadingHTTPServer(("127.0.0.1", 0), Agent)
+        self.agent = serve.Server(("127.0.0.1", 0), Agent)
         threading.Thread(target=self.agent.serve_forever, daemon=True).start()
         self.addCleanup(self.agent.server_close)
         self.addCleanup(self.agent.shutdown)
         hub = serve.Hub(FakeProduct(), "build")
         url = "http://%s:%d" % self.agent.server_address
         with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
-            self.server = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
+            self.server = serve.Server(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -244,13 +243,13 @@ class PaperForwardTests(unittest.TestCase):
 
             def log_message(self, *args):
                 pass
-        self.paper = serve.ThreadingHTTPServer(("127.0.0.1", 0), Paper)
+        self.paper = serve.Server(("127.0.0.1", 0), Paper)
         threading.Thread(target=self.paper.serve_forever, daemon=True).start()
         self.addCleanup(self.paper.server_close)
         self.addCleanup(self.paper.shutdown)
         url = "http://%s:%d" % self.paper.server_address
         with mock.patch.object(serve, "_page", return_value=b"<html><head></head>page</html>"):
-            self.server = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.handler(
+            self.server = serve.Server(("127.0.0.1", 0), serve.handler(
                 serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, url))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)

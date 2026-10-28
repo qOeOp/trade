@@ -376,6 +376,17 @@ def _epoch(value) -> float:
     return value.timestamp() if hasattr(value, "timestamp") else 0.0
 
 
+class Server(ThreadingHTTPServer):
+    """The paper daemon's HTTP server: a client that goes away mid-request (a closed page or reset connection) is
+    not an error, so it prints no traceback."""
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        if not isinstance(sys.exc_info()[1], ConnectionError):
+            super().handle_error(request, client_address)
+
+
 def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -555,8 +566,7 @@ def serve(ledger: str | None, market: str | None, host: str, port: int, hosts: l
         raise refuse("USAGE_ERROR", "the paper daemon listens on loopback only")
     daemon = Daemon(ledger, market, product, runtime)
     allowed = frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}", f"host.docker.internal:{port}"])
-    server = ThreadingHTTPServer((host, port), handler(daemon, allowed))
-    server.daemon_threads = True
+    server = Server((host, port), handler(daemon, allowed))
     threading.Thread(target=daemon.seal_ended, daemon=True).start()
     print(f"paper runs of {daemon.profile.database} at http://{host}:{port}{PREFIX}/", file=sys.stderr, flush=True)
     server.serve_forever()
