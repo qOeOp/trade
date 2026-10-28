@@ -2,6 +2,7 @@
 // target or stop by name and what the position books if it fills (by its distance from the last price
 // while flat); a limit entry by side, size and distance. Prices and sizes in the contract's decimals,
 // U+2212 minus.
+import { LineStyle, type IPriceLine, type ISeriesApi } from "lightweight-charts";
 import type { Candle } from "../../lib/bars";
 import { fixed } from "../../lib/paperApi";
 import type { Held, PriceLine } from "../../model/paper";
@@ -48,4 +49,16 @@ export function lastLevel(k: Candle | null, places: number, c: Colors, dark: boo
   const rising = k.close >= k.open, tag = rising ? c.up : c.down;
   return { id: "last", price: k.close, color: tag, parts: [], pinned: "", axis: fixed(k.close, places) ?? "", tag, tagText: dark ? c.fg : c.island, line: false,
            edge: { tag: rising ? c.upTag : c.downTag, tagText: rising ? c.pnlUp : c.pnlDown } };
+}
+
+/** The orders' own dashed lines on `candles` (kept in `lines` by level id) for the levels that draw one;
+ *  their tags are the levels' own, stacked with the others. */
+export function orderLines(candles: ISeriesApi<"Candlestick">, lines: Map<string, IPriceLine>, levels: readonly Level[]): void {
+  const lined = levels.filter((l) => l.line);
+  for (const [id, line] of lines) if (!lined.some((l) => l.id === id)) { candles.removePriceLine(line); lines.delete(id); }
+  for (const level of lined) {
+    const options = { price: level.price, color: level.color, lineWidth: 1 as const, lineStyle: LineStyle.Dashed, title: "", axisLabelVisible: false };
+    const line = lines.get(level.id);
+    if (line) line.applyOptions(options); else lines.set(level.id, candles.createPriceLine(options));
+  }
 }

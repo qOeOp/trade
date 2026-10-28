@@ -33,6 +33,18 @@ let n = 0;
 export const showTime = (ms: number) => chartTime.set({ ms, n: ++n });
 
 let source: EventSource | null = null;
+// Each contract's bars of the run shown, as its stream last had them: they show at once when the chart
+// switches back to it, before its stream sends them again.
+let cached: { paperId: number | null; bars: Map<string, JournalLine[]> } = { paperId: null, bars: new Map() };
+
+/** `whole`, a stream's first batch (all of it again), as `had` where it brings nothing more, else `had`
+ *  and what follows it: an unchanged journal keeps its identity, so what reads it is not worked out
+ *  again. Lines are append-only; `had` is used only while `whole` still holds its last line in place. */
+function again(had: JournalLine[], whole: JournalLine[]): JournalLine[] {
+  const n = had.length, same = (a?: JournalLine, b?: JournalLine) => !!a && !!b && a.kind === b.kind && a.wall_ns === b.wall_ns && a.ts_event === b.ts_event;
+  if (!n || whole.length < n || !same(whole[n - 1], had[n - 1])) return whole;
+  return whole.length === n ? had : [...had, ...whole.slice(n)];
+}
 
 /** Follows `paperId` with the bars of `symbol` (null: none), replacing the previous stream. */
 export function follow(paperId: number | null, symbol: string | null): void {
@@ -41,9 +53,10 @@ export function follow(paperId: number | null, symbol: string | null): void {
   source?.close();
   source = null;
   if (paperId === null) { stream.set(null); return; }
-  // Lines of the same run carry over while another contract's stream starts; its bars do not.
+  // Lines of the same run carry over while another contract's stream starts, and its bars as they last were.
   const kept = now?.paperId === paperId ? now : null;
-  stream.set({ paperId, symbol, lines: kept?.lines ?? [], bars: [], closes: {}, state: kept?.state ?? null,
+  if (cached.paperId !== paperId) cached = { paperId, bars: new Map() };
+  stream.set({ paperId, symbol, lines: kept?.lines ?? [], bars: (symbol && cached.bars.get(symbol)) || [], closes: {}, state: kept?.state ?? null,
                readings: kept?.readings ?? null, seal: kept?.seal ?? null, failures: kept?.failures ?? [], connected: false });
   const events = new EventSource(streamUrl(paperId, symbol));
   source = events;
@@ -53,7 +66,11 @@ export function follow(paperId: number | null, symbol: string | null): void {
     const lines = JSON.parse((event as MessageEvent).data) as JournalLine[];
     const bars = lines.filter((l) => l.kind === "bar"), rest = lines.filter((l) => l.kind !== "bar");
     // The first batch is the whole journal again: it replaces what an earlier stream of the run gave.
-    update((s) => ({ ...s, connected: true, lines: first ? rest : [...s.lines, ...rest], bars: first ? bars : [...s.bars, ...bars] }));
+    update((s) => {
+      const next = { ...s, connected: true, lines: first ? again(s.lines, rest) : [...s.lines, ...rest], bars: first ? again(s.bars, bars) : [...s.bars, ...bars] };
+      if (symbol) cached.bars.set(symbol, next.bars);
+      return next;
+    });
     first = false;
   });
   events.addEventListener("closes", (event) => {

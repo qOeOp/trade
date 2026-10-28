@@ -97,14 +97,14 @@ def diagnose_coverage(
 
 <TypeTable type={{ "profile": { type: "MarketProfile", description: "市场库档案（连接方式与库名），只读打开" }, "at": { type: "str", description: "用户或研究路线记录给出的提交引用（Dolt 引用名、标签或哈希，缺省 main），由 market.resolve_commit 解析为唯一提交" }, "symbols": { type: "list[str]", description: "显式合约清单；本读口不做全范围隐式展开，范围由调用方自 universe_month 读出后显式传入" }, "start": { type: "str", description: "输入区间起点，ISO-8601 显式 UTC，整分钟（含预热）" }, "end": { type: "str", description: "输入区间终点，ISO-8601 显式 UTC，整分钟，左闭右开" }, "lifecycle": { type: "LifecycleBundle | None", description: "调用方已从账本证据包读出的 native-lifecycle-v1 清单与来源原件（body, files）；None 表示不附生命周期回执。本层不读账本" } }} />
 
-**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 …，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
+**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 … 加 quotes:\{imports:[\{month, through, quote_rule, commit, rows\}], first_ms, last_ms, uncovered_intervals_ms\}，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
 
 **期望行为**
 
 1. 解析区间：start、end 转 UTC 毫秒并核对整分钟与 start \< end；核对 symbols 非空且无重复；不满足即拒绝。
 2. 经 market.connect 只读打开市场库，market.resolve_commit(conn, at) 得唯一提交哈希；解析失败按其拒绝码原样向上。
 3. 若给了 lifecycle：先 market.validate_lifecycle(body, commit, files) 核对清单绑定同一提交、事件为引擎原生字典、时钟单调、来源原件在包内；不符即 LIFECYCLE_INPUT 拒绝整次读，不部分返回。
-4. 逐合约按提交 AS OF 读 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。
+4. 逐合约按提交 AS OF 读 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再按 market.quote_imports(conn, commit) 的导入回执并入该合约的 quotes：持有它的每次 quote 导入（月份、through 即不含的结束日、规则、提交、回执逐日 quote_changes 之和作行数），quote 表 AS OF 提交在区间内的首末时刻，以及区间内没有任何导入覆盖的 [from, to) 段；不数表行（一个月 BTCUSDT 数千万行），没有导入时不读 quote 表。quotes 不进导出回执。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。
 5. 把每合约的校验后生命周期片段并入返回；清单里没有该合约的记入 lifecycle_missing，只作事实不作判定。
 6. 组装返回，不排序、不筛除、不改窗口；interpretation 固定说明缺口、零量、资金费缺失、首末数据均为输入事实，入口不据此删币、缩窗、补数或判经济失败，也不替策略判定指标就绪。
 
@@ -118,7 +118,7 @@ def diagnose_coverage(
 | `UNKNOWN_SYMBOL` | 任一合约在该提交下不存在于 instrument 表（由 market.coverage_facts 传出） |
 | `LIFECYCLE_INPUT` | 给出的生命周期证据包绑定的不是该提交、事件非引擎原生字典、时钟不单调或来源原件缺失（由 market.validate_lifecycle 传出） |
 
-**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.coverage_facts" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.coverage_facts" />、<Ref id="market.quote_imports" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:quote" />
 
 <div className="rd-meta">
 

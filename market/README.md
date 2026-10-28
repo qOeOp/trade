@@ -15,7 +15,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `store.py` | connections, `resolve_commit`, `import_month` (one month, one transaction, one commit; after the latest month or just before the earliest), exact scaling, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
-| `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
+| `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
 
@@ -97,7 +97,9 @@ an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggr
 is the maximum daily p99, not a pooled monthly percentile. Validate suitability for each contract,
 period and intended liquidation use against observed BBO and matched native replay evidence;
 report missing evidence without automatically dropping contracts or shortening the window. See
-research-start's `references/readiness.md` for the boundary.
+research-start's `references/readiness.md` for the boundary. `market coverage` gives each contract's
+quote imports (month, `through`, rule, commit and the rows the receipt counts), its first and last
+stored quote in the interval and the parts of the interval no import covers.
 The historical four-day probe reported inferred BTCUSDT mid deviations within 0.7 bps at p99;
 its original reference files and contemporary hashes were not found. The subsequent
 [twelve month-start native liquidation comparisons](../docs/plans/monthly-quote-liquidation-validation.zh.md)

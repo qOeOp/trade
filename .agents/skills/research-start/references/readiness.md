@@ -3,7 +3,8 @@
 Read before the first replay of a line or of a session, whenever coverage or lifecycle receipts show a gap,
 zero-volume minutes or missing funding (including after a completed replay), when a new month
 arrives, and before inferred quotes are used for a new contract, period or liquidation scenario.
-Read coverage facts with `market coverage` at the line's pinned commit (`--help` for its output).
+Read coverage facts, imported quotes included, with `market coverage` at the line's pinned commit
+(`--help` for its output).
 A completed replay does not discharge the coverage-reporting duties below.
 
 ## Coverage disposition

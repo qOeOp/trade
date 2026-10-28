@@ -192,6 +192,8 @@ class ImportTests(unittest.TestCase):
                                           "spacing": [{"spacing_ms": EIGHT_HOURS, "from_ms": settled,
                                                        "to_ms": settled + 2 * EIGHT_HOURS}],
                                           "missing_settlements": []})
+        self.assertEqual(bbb["quotes"], {"imports": [], "first_ms": None, "last_ms": None,
+                                         "uncovered_intervals_ms": [[day_ms(date(2025, 2, 9)), DELISTED + DAY]]})
         with store.connect(self.profile, "reader") as conn:
             commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
             self.refused("INTERVAL_INVALID", coverage.coverage_facts, conn, commit, "BTCUSDT", 1, 2, empty, empty, [])
