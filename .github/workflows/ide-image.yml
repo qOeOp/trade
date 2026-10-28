@@ -1,6 +1,7 @@
 name: ide-image
 
-# The trade IDE service image is built here, never on a workstation: the graph it serves
+# The trade IDE service image, and the paper daemon image of the same compose project (the
+# Dockerfile's `paper` target), are built here, never on a workstation: the graph it serves
 # names the product commit it was drawn with, so the image must hold exactly a commit of this
 # repository. A main build moves the `main` tag; a pull request build gets a `pr-N` tag. Every
 # image carries that commit in org.opencontainers.image.revision.
@@ -90,16 +91,22 @@ jobs:
         run: |
           # The image holds the checked-out commit (a pull request's merge commit), so that is its revision.
           revision="$(git rev-parse HEAD)"
+          tags() {  # image
+            local found="$1:sha-$revision"
+            if [ "$EVENT" = pull_request ]; then
+              found="$found,$1:pr-$PR_NUMBER"
+            elif [ "$REF" = refs/heads/main ]; then
+              found="$found,$1:main"
+            fi
+            echo "$found"
+          }
           image="ghcr.io/${OWNER,,}/trade-ide"
-          tags="$image:sha-$revision"
-          if [ "$EVENT" = pull_request ]; then
-            tags="$tags,$image:pr-$PR_NUMBER"
-          elif [ "$REF" = refs/heads/main ]; then
-            tags="$tags,$image:main"
-          fi
+          paper="ghcr.io/${OWNER,,}/trade-paper"
           {
             echo "image=$image"
-            echo "tags=$tags"
+            echo "tags=$(tags "$image")"
+            echo "paper_image=$paper"
+            echo "paper_tags=$(tags "$paper")"
             echo "revision=$revision"
           } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -114,6 +121,7 @@ jobs:
         with:
           context: .
           file: services/ide/docker/Dockerfile
+          target: ide
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
           provenance: false
@@ -124,20 +132,40 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=ide
           cache-to: type=gha,mode=max,scope=ide
-      - name: Report the pushed digest
+      - id: paper
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: services/ide/docker/Dockerfile
+          target: paper
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.names.outputs.paper_tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=ide
+      - name: Report the pushed digests
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         env:
           IMAGE: ${{ steps.names.outputs.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
           TAGS: ${{ steps.names.outputs.tags }}
+          PAPER_IMAGE: ${{ steps.names.outputs.paper_image }}
+          PAPER_DIGEST: ${{ steps.paper.outputs.digest }}
+          PAPER_TAGS: ${{ steps.names.outputs.paper_tags }}
           REVISION: ${{ steps.names.outputs.revision }}
         run: |
           {
             echo "image: \`$IMAGE@$DIGEST\`"
             echo
+            echo "paper image: \`$PAPER_IMAGE@$PAPER_DIGEST\`"
+            echo
             echo "revision: \`$REVISION\`"
             echo
-            echo "tags: \`$TAGS\`"
+            echo "tags: \`$TAGS\`, \`$PAPER_TAGS\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   gate:

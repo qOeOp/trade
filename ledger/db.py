@@ -45,6 +45,9 @@ DOLT_VERSION = "2.4.2"
 KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")
 SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
+# The host every service is reached at over TCP, on its own port, instead of its Unix socket: set in a
+# container that cannot reach the socket (the paper daemon's, docs/plans/paper-compose-deployment.zh.md).
+DOLT_HOST = "TRADE_DOLT_HOST"
 COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -171,10 +174,14 @@ def _pid(root: Path) -> int | None:
     return pid
 
 
-def service_connection(socket_path: str, **options) -> pymysql.Connection:
-    """`pymysql.connect` over a service's Unix socket. pymysql 1.1.2 leaks its socket when the Unix
+def service_connection(config: dict, **options) -> pymysql.Connection:
+    """`pymysql.connect` to the service `config` describes: over its Unix socket, or with `TRADE_DOLT_HOST`
+    set over TCP to that host on the service's own port. pymysql 1.1.2 leaks its socket when the Unix
     connect itself fails (a stopped service), so the socket is reached first by one that is closed
     either way, and an unreachable one raises the same OperationalError pymysql would."""
+    if os.environ.get(DOLT_HOST):
+        return pymysql.connect(host=os.environ[DOLT_HOST], port=int(config["port"]), **options)
+    socket_path = config["socket"]
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
         probe.settimeout(options.get("connect_timeout", 10))
         try:
@@ -187,7 +194,7 @@ def service_connection(socket_path: str, **options) -> pymysql.Connection:
 
 
 def _admin(config: dict, password: str | None = None, database: str | None = None):
-    return service_connection(config["socket"], user="root",
+    return service_connection(config, user="root",
                            password=config["root_password"] if password is None else password,
                            database=database, autocommit=True, connect_timeout=5, max_allowed_packet=1 << 30)
 
@@ -607,7 +614,7 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: s
     if accounts is None or role not in accounts:
         raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
     try:
-        raw = service_connection(config["socket"], user=accounts[role]["user"],
+        raw = service_connection(config, user=accounts[role]["user"],
                                  password=accounts[role]["password"], database=f"{profile.database}/{branch}",
                                  charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
                                  write_timeout=600, max_allowed_packet=1 << 30,

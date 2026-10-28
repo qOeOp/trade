@@ -1470,10 +1470,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing itself: a start, stop, seal or delete from the page, the seal of a run that ended on its own and "
         "a new start of one Docker stopped from outside (SIGTERM, no STOP file), run paper start, stop, seal or "
         "delete (their writes)",
-        "nothing until stopped; over HTTP on loopback, /api/paper/ lists the runs, streams a run's journal and "
-        "readings, and answers a start or stop with that command's result",
-        "USAGE_ERROR (a --host that is not loopback); over HTTP: FORBIDDEN (a Host or origin not allowed), "
-        "NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the start, stop and seal refusals"),
+        "nothing until stopped; over HTTP on loopback (inside a container, on its own address), /api/paper/ lists "
+        "the runs, streams a run's journal and readings, and answers a start or stop with that command's result",
+        "USAGE_ERROR (a --host that is not loopback outside a container; inside one, no usable TMPDIR); over HTTP: "
+        "FORBIDDEN (a Host or origin not allowed), NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the "
+        "start, stop and seal refusals"),
     ("paper", "reconcile"): (
         "the sealed paper run, its candidate and its capture (reader); the market at --at (default main), exported "
         "into a reused cache under the temporary directory; the run's own runtime image",
@@ -1903,12 +1904,14 @@ def _parser() -> Parser:
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
     command = verb(paper, "serve", "serve the ledger's paper runs to the trade IDE's Paper panel")
-    command.epilog = ("Listens on loopback only (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
+    command.epilog = ("Listens on loopback only, or inside a container on its own address with TMPDIR a host directory "
+                      "mounted at its own path (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
                       "seals run this command line, and runs that end on their own are sealed as they are found; one that "
                       "Docker stopped from outside starts again as a new run of the same contracts.")
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--host", default="127.0.0.1", help="loopback address to listen on")
+    command.add_argument("--host", default="127.0.0.1",
+                         help="address to listen on: loopback, or inside a container 0.0.0.0")
     command.add_argument("--port", type=int, default=8767)
     command.add_argument("--allow-host", action="append", default=[], dest="hosts",
                          help="Host header a request may carry (default: 127.0.0.1, localhost and "

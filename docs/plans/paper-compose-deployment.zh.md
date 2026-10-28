@@ -123,7 +123,7 @@ uid 和 gid 跑，运行目录里的文件属主就和现在一样。zsh 和 bas
 
 现在两处连接都走服务目录里的 Unix socket：账本的 `ledger/db.py` `service_connection`，市场库的
 `market/store.py` `_service_connection`（`paper start` 读成员表、`paper reconcile` 导出行情都用它）。Docker
-Desktop 下，容器经 bind 挂载连宿主机上的 Unix socket 不可靠，所以两处都改走 TCP，合成一个共用的函数：
+Desktop 下，容器经 bind 挂载连宿主机上的 Unix socket 不可靠，所以两处都改走 TCP，按同一条规则各改各的（市场库不依赖账本模块，保持两份平行的小函数）：
 
 - 环境变量 `TRADE_DOLT_HOST`（compose 里设成 `host.docker.internal`）存在时，连这个主机，端口取
   `service.json` 里这个服务自己的 `port`；不设时照旧走 socket，宿主机上的命令行和测试不受影响。只给主机、不给

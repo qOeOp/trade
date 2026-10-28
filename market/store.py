@@ -19,6 +19,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 import io
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -156,10 +157,15 @@ def _service(profile: dict) -> dict:
                       "readable service", "MARKET_UNREACHABLE") from exc
 
 
-def _service_connection(socket_path: str, **options) -> pymysql.Connection:
-    """`pymysql.connect` over the service's Unix socket. pymysql 1.1.2 leaks its socket when the Unix
-    connect itself fails (a stopped service), so the socket is reached first by one that is closed
-    either way, and an unreachable one raises the same OperationalError pymysql would."""
+def _service_connection(config: dict, **options) -> pymysql.Connection:
+    """`pymysql.connect` to the service `config` describes: over its Unix socket, or with
+    `TRADE_DOLT_HOST` set over TCP to that host on the service's own port (as ledger.db does, for a
+    container that cannot reach the socket). pymysql 1.1.2 leaks its socket when the Unix connect itself
+    fails (a stopped service), so the socket is reached first by one that is closed either way, and an
+    unreachable one raises the same OperationalError pymysql would."""
+    if os.environ.get("TRADE_DOLT_HOST"):
+        return pymysql.connect(host=os.environ["TRADE_DOLT_HOST"], port=int(config["port"]), **options)
+    socket_path = config["socket"]
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
         probe.settimeout(options.get("connect_timeout", 10))
         try:
@@ -182,7 +188,7 @@ def connect(profile: dict, role: str) -> MarketConnection:
         raise _refuse(f"the service has no {role} account for market database {profile.get('database')}",
                       "MARKET_UNREACHABLE", missing=(str(profile.get("database")),))
     try:
-        raw = _service_connection(config["socket"], user=account["user"], password=account["password"],
+        raw = _service_connection(config, user=account["user"], password=account["password"],
                                   database=profile["database"], charset="utf8mb4", autocommit=role == "reader",
                                   connect_timeout=5, read_timeout=7200, write_timeout=7200,
                                   max_allowed_packet=1 << 30)
