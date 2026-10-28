@@ -35,6 +35,11 @@ export const utcDay = (ms: number) => {
   if (name === undefined) dayNames.set(day, (name = new Date(day * 86_400_000).toISOString().slice(0, 10)));
   return name;
 };
+/** When a run waiting for its daily warm-up starts on its data (ms): the last `waiting` line's time, else null. */
+export function warmupAt(lines: readonly JournalLine[]): number | null {
+  for (let i = lines.length - 1; i >= 0; i--) if (lines[i]!.kind === "waiting") return Number(lines[i]!.until_ns) / MS;
+  return null;
+}
 
 export const last = (value: unknown) => String(value ?? "").split(".").pop() ?? "";  // OrderSide.BUY → BUY
 /** BUY → Buy, LONG → Long, STOP_MARKET → stop market. */

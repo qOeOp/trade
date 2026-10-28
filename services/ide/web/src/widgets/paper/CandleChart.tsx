@@ -15,9 +15,9 @@ import { ChartTip } from "./ChartTip";
  *  what changes: the bars, the trading, the theme, and where to look (a change of `fit` brings the
  *  position's whole stretch into view; an event picked elsewhere, or a calendar day). `remembers` names the
  *  run and contract: the view the chart had when it last showed them comes back with them. */
-export function CandleChart({ remembers, symbol, bars, places, size, fills, orders, held, events, live, openFrom, started, fit }: {
+export function CandleChart({ remembers, symbol, bars, places, size, fills, orders, held, events, live, openFrom, started, warmup = null, fit }: {
   remembers: string; symbol: string; bars: readonly JournalLine[]; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
-  held: Held | null; events: readonly JournalLine[]; live: boolean; openFrom: number | null; started: number | null; fit: number;
+  held: Held | null; events: readonly JournalLine[]; live: boolean; openFrom: number | null; started: number | null; warmup?: number | null; fit: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [chart] = useState(() => new CandleController());
@@ -43,9 +43,10 @@ export function CandleChart({ remembers, symbol, bars, places, size, fills, orde
       <div ref={host} className="h-full w-full" />
       <CandleLegend chart={chart} places={places} />
       <ChartTip tip={chart.notes.tip} />
+      {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
       {!bars.length && (
-        <p className="pointer-events-none absolute inset-0 grid place-items-center text-dense text-fg-faint">
-          Waiting for the first {symbol} bar{started ? ` · started ${utc(started).slice(11)} UTC` : ""}
+        <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">
+          Waiting for the first {symbol} bar{warmup !== null ? ` · the run starts at ${utc(warmup).slice(0, 16)} UTC, after its daily warm-up` : started ? ` · started ${utc(started).slice(11)} UTC` : ""}
         </p>
       )}
     </div>
