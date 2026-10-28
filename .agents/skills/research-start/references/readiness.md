@@ -58,7 +58,13 @@ not a substitute for the disposition.
    out. `market import` refuses a month the
    database already holds through its end (`MONTH_EXISTS`), so a source missing inside a stored
    month comes in only through a product fix to the import and the user's authority to replace
-   that stored history: say so, and call it a defect fix, not a new entry point.
+   that stored history: say so, and call it a defect fix, not a new entry point. Quotes missing for
+   a month whose bars the market holds come in through `market import-quotes` (read its `--help`;
+   any earlier month is accepted): list it in this question beside the runnable ranges. Its
+   checksum, sequence-gap and time-order refusals are the acceptance of the conversion, so add no
+   acceptance step or licence condition of your own. Each month is one public market write and
+   publish, the user's decision; replays on the imported quotes pin the new market commit, which
+   is a new line record.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
    shorter window, replacement input or changed commit yourself, or recommend one because an
    anomaly coincides with losses. A question about writing records, permission to inspect,

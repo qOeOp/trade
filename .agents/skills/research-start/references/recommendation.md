@@ -22,5 +22,6 @@ Read whenever the entry presents the recommendation and the line options.
   window once; a frozen rule is tested again only by out-of-sample validation at the user's
   request, on a window after the validation's registration (research-round's validation.md),
   never on earlier months. Offer no option that fails these checks, and say why in one line. A
-  missing month is not offered as ready: tell the user which months are missing and that
-  importing them is a separate step that writes the public market database.
+  missing month is not offered as ready: tell the user which months are missing (bars, or quotes
+  for a line that executes on them) and that importing them (`market import` or
+  `market import-quotes`) is a separate step that writes the public market database.
