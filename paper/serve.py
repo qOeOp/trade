@@ -4,7 +4,9 @@ It listens on loopback only; the IDE service in front proxies ``/api/paper/`` to
 token (services/ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
-and published only through it. A run that ended on its own (its duration, a crash) is sealed when found.
+and published only through it. A run that ended on its own (its duration, a crash) is sealed when found;
+one that Docker stopped from outside (a Docker or host restart) then starts again as a new run of the same
+contracts.
 
 A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
 directory and is read back from there; it writes nothing to the ledger.
@@ -304,22 +306,37 @@ class Daemon:
         return {"paper_id": paper_id, "state": "done", "result": json.loads(done[-1].read_text(encoding="utf-8"))}
 
     def seal_ended(self) -> None:
-        """Seals the runs whose runner exited on its own, and those left with no containers."""
         while True:
             time.sleep(SEAL_SECONDS)
-            try:
-                found = self.runs()
-            except Refusal as exc:
-                print(f"paper listing: {exc}", file=sys.stderr, flush=True)
+            self.seal_found()
+
+    def seal_found(self) -> None:
+        """Seals the runs whose runner exited on its own, and those left with no containers; a run stopped
+        from outside (a Docker or host restart) starts again as a new run of the same contracts."""
+        try:
+            found = self.runs()
+        except Refusal as exc:
+            print(f"paper listing: {exc}", file=sys.stderr, flush=True)
+            return
+        now = time.time()
+        for run in found["runs"]:
+            orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
+            if (run["state"] != "ended" and not orphan) or run["paper_id"] in self.stopping:
                 continue
-            now = time.time()
-            for run in found["runs"]:
-                orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
-                if (run["state"] == "ended" or orphan) and run["paper_id"] not in self.stopping:
-                    try:
-                        self.cli("seal", "--paper-id", str(run["paper_id"]))
-                    except Failure as exc:
-                        print(f"paper seal {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
+            try:
+                sealed = self.cli("seal", "--paper-id", str(run["paper_id"]))
+            except Failure as exc:
+                print(f"paper seal {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
+                continue
+            stopped = (runs.run_dir(self.profile, run["paper_id"]) / "out" / "STOP").exists()
+            if sealed.get("write_status") == "written" and run["candidate"] and not stopped and \
+                    interrupted(sealed["seal"], self.sealed_lines(run["paper_id"])):
+                try:
+                    again = self.start({"candidate": run["candidate"], "symbols": run["symbols"]})
+                    print(f"paper run {run['paper_id']} was stopped from outside; started again as "
+                          f"{again['paper_id']}", file=sys.stderr, flush=True)
+                except Failure as exc:
+                    print(f"paper restart {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
 
     # Reads
 
@@ -370,6 +387,16 @@ class Daemon:
         for name in sorted(name for name in files if name.startswith("events/")):
             lines += records.journal_lines(gzip.decompress(files[name]))[0]
         return lines
+
+
+def interrupted(seal: dict, lines: list[dict]) -> bool:
+    """Whether a run ended only because its container was stopped from outside: Docker stops a container
+    with SIGTERM, and the runner stopped cleanly on it, before or after its start, with nothing else wrong.
+    The IDE's stop and `paper stop` ask through the STOP file instead, so they never read as this."""
+    if seal.get("stop_reason") == "SIGTERM":
+        return not seal.get("reasons")
+    before = [line.get("reason") for line in lines if line["kind"] == "stopped_before_start"]
+    return before == ["SIGTERM"] and set(seal.get("reasons") or ()) == {"STOPPED_BEFORE_START", "SUMMARY_MISSING"}
 
 
 def _epoch(value) -> float:
