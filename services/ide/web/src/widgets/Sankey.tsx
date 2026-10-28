@@ -25,8 +25,8 @@ const EASE = [0.2765, 0.7139] as const, THIN = 2;
 // A ribbon is its source tile's colour (grey from a grey one) at BASE opacity, the widest drawn first;
 // under the pointer the lit tile's ribbons go to LIT and every other to DIM.
 const BASE = 0.4, LIT = 0.75, DIM = 0.12, GREY: ColorRole = "fg-ghost";
-// Literal classes, so Tailwind finds them: a solid tile's fill by its colour, the net's with a glow.
-const SOLID: Partial<Record<ColorRole, string>> = { "pnl-up": "bg-pnl-up", "pnl-down": "bg-pnl-down", equity: "bg-equity-fill shadow-glow shadow-equity/45" };
+// Literal classes, so Tailwind finds them: a solid tile's fill by its colour.
+const SOLID: Partial<Record<ColorRole, string>> = { "pnl-up": "bg-pnl-up", "pnl-down": "bg-pnl-down", equity: "bg-equity-fill" };
 
 /** The tile's logos, each on a white chip as Figma's tiles carry their icon, overlapping when there are
  *  several (at most three); a chip shows once its image loads, and one that fails drops out. Sent with no
