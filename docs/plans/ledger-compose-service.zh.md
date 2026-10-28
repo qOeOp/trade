@@ -231,6 +231,8 @@ compose 项目 trade-ide（services/ide/docker/compose.yaml）
 
 ## 5. 需要用户授权的点
 
+用户 2026-10-29 按推荐批准了下面五条。
+
 1. **root 开放给网络连接。** 新建 `'root'@'%'`，口令和 `'root'@'localhost'` 相同，并加一行分支控制
    `('%', '%', 'root', '%', 'admin')`。
    - 现在：只有本机进程能以 root 登录。
