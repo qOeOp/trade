@@ -1006,7 +1006,11 @@ Settlement times themselves: market bars.
 coverage[].quotes: imports [{month, through (exclusive end day), quote_rule, commit, rows}], every
 quote import holding the contract, rows counted by the import's receipt (its commit message); first_ms
 and last_ms, the first and last stored quote in the interval; uncovered_intervals_ms, the [from, to)
-parts of the interval no import covers."""
+parts of the interval no import covers.
+coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
+observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
+inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
+max_price (null for inferred terms)."""
 BARS_EPILOG = """The source reviewer's price read: no trial, no exposure. Prices and volumes are decimals at the
 stored scale. ts_event_ms is when the Catalog delivers the bar to a strategy: its close, ts_open_ms
 plus the period minus 1 ms. 1m MARK bars become one mark price per minute at that close. 1d bars are

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from market import coverage, export, lifecycle, read, series, store, universe
+from market import coverage, export, instrument, lifecycle, read, series, store, universe
 from market.sources import MarketError
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
@@ -194,6 +194,14 @@ class ImportTests(unittest.TestCase):
                                           "missing_settlements": []})
         self.assertEqual(bbb["quotes"], {"imports": [], "first_ms": None, "last_ms": None,
                                          "uncovered_intervals_ms": [[day_ms(date(2025, 2, 9)), DELISTED + DAY]]})
+        terms = {key: value for key, value in bbb["terms"].items() if key != "observed_at"}
+        self.assertEqual(terms, {"terms_source": "exchange_info", "price_increment": "0.01", "size_increment": "0.001",
+                                 "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "5",
+                                 "min_price": "0.01", "max_price": "1000000"})
+        with store.connect(self.profile, "reader") as conn:  # the row an export of the commit trades on
+            self.assertEqual(bbb["terms"]["observed_at"],
+                             instrument.terms(conn, found["commit"], "BBBUSDT")["observed_at"])
+        self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         with store.connect(self.profile, "reader") as conn:
             commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
             self.refused("INTERVAL_INVALID", coverage.coverage_facts, conn, commit, "BTCUSDT", 1, 2, empty, empty, [])

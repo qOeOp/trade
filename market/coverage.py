@@ -4,9 +4,10 @@ they and the exporter share.
 Facts only, at one pinned market commit: per contract its member months, the gaps and zero-volume
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
 funding settlement count and bounds; `market coverage` adds the settlement spacing and the settlements
-missing inside it (`funding_spacing`), its quote imports and stored quote bounds (`quote_facts`); neither
-is part of an export receipt. First and last data are proxies of listing and delisting, no exchange
-fact. Nothing here drops a contract, shortens a window, fills data or judges an economic failure.
+missing inside it (`funding_spacing`), its quote imports and stored quote bounds (`quote_facts`) and the
+terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
+and last data are proxies of listing and delisting, no exchange fact. Nothing here drops a contract,
+shortens a window, fills data or judges an economic failure.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from market import lifecycle, series, store, universe
+from market import instrument, lifecycle, series, store, universe
 from market.sources import MINUTE, _refuse
 
 
@@ -200,8 +201,10 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             mark = read_bars(conn, commit, symbol, "MARK", start_ms, end_ms)
             funding = read_funding(conn, commit, symbol, start_ms, end_ms)
             facts = coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding)
+            terms = instrument.terms(conn, commit, symbol)
             found.append({**facts, "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
-                          "quotes": quote_facts(conn, commit, symbol, start_ms, end_ms, imports)})
+                          "quotes": quote_facts(conn, commit, symbol, start_ms, end_ms, imports),
+                          "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},
             "lifecycle_missing": [] if episodes is None else [symbol for symbol in symbols if symbol not in episodes],
