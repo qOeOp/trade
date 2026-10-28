@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
-import { equityReadings } from "../../model/equityReadings";
+import { equityReadings, type Reading } from "../../model/equityReadings";
 import { heldOf, heldUnion, priceLines, spans as spansOf, type Fill } from "../../model/paper";
 import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
@@ -15,6 +15,7 @@ import { CandleChart } from "./CandleChart";
 import { EquityChart } from "./EquityChart";
 
 const ALL_TABS = 6;  // a run of at most this many contracts shows a segment for each
+const NONE = new Map<number, Reading>();
 
 /** The chart card: a switch between the account's equity and each contract (a contract holding a
  *  position says LONG or SHORT in its colour) and "Fit position" while the contract holds one; below,
@@ -51,8 +52,9 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
   // The equity chart's closes and the stretches any contract held a position, in seconds.
   const closes = useMemo(() => (a?.trades ?? []).map((t) => ({ id: t.id, time: t.closed / 1000, pnl: t.pnl ?? 0 })), [a?.trades]);
-  // What the equity chart reads beside equity.
-  const readings = useMemo(() => equityReadings(a?.path ?? [], s?.lines ?? [], fills, s?.closes ?? {}, a?.starting ?? 100_000), [a?.path, s?.lines, fills, s?.closes, a?.starting]);
+  // What the equity chart reads beside equity, worked out only while it shows.
+  const readings = useMemo(() => (equity ? equityReadings(a?.path ?? [], s?.lines ?? [], fills, s?.closes ?? {}, a?.starting ?? 100_000) : NONE),
+    [equity, a?.path, s?.lines, fills, s?.closes, a?.starting]);
   const holding = useMemo(() => (a?.start == null ? [] : heldUnion(fills, a.start, a.end).map(([x, y]) => [x / 1000, y / 1000] as [number, number])), [fills, a?.start, a?.end]);
 
   return (
@@ -73,7 +75,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
           <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual}
                        limit={targets.limit} closes={closes} held={holding} readings={readings} />
         ) : (
-          <CandleChart key={symbol} symbol={symbol} bars={bars}
+          <CandleChart key={symbol} remembers={`${run.paper_id}:${symbol}`} symbol={symbol} bars={bars}
                        places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} openFrom={openFrom}
                        started={startedNs === null ? null : startedNs / 1e6} fit={fit} />
         )}

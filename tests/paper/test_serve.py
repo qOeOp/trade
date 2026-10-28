@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 from ledger import db, paper as records, strategies
+from ledger.errors import Refusal
 from paper import runs, serve
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
@@ -71,6 +72,10 @@ class GateTests(unittest.TestCase):
                                 **{"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"})
         self.assertEqual((status, found), (200, {"paper_id": 1}))
 
+    def test_a_resumed_stream_names_all_three_parameters_as_integers(self):
+        for query in ("lines=3", "lines=3&last=1&bars=x", "lines=-1&last=1&bars=0"):
+            self.assertEqual(request(self.port, "GET", f"/api/paper/runs/1/stream?{query}"), (400, mock.ANY))
+
     def test_a_reconciliation_starts_only_from_the_ides_own_page(self):
         self.daemon.reconcile.return_value = {"paper_id": 3, "state": "reconciling"}
         self.daemon.reconciliation.return_value = {"paper_id": 3, "state": "none"}
@@ -123,6 +128,26 @@ def events(response) -> tuple[str, object]:
             data = json.loads(raw[6:])
         elif raw == "" and kind:
             return kind, data
+
+
+class ResumeTests(unittest.TestCase):
+    def test_a_resume_leaves_out_the_lines_and_bars_the_page_holds(self):
+        whole = journal()
+        held = [item for item in whole if item["kind"] != "bar"][:3]
+        resume = serve.Resume(3, held[-1]["wall_ns"], START + MINUTE - 10**6)
+        rest = serve.resumed(whole, resume)
+        after = whole.index(held[-1])
+        self.assertEqual(rest, [item for at, item in enumerate(whole)
+                                if (item["ts_event"] > resume.bars if item["kind"] == "bar" else at > after)])
+        self.assertLess(len(rest), len(whole))
+        self.assertEqual([item["kind"] for item in serve.resumed(whole, serve.Resume(0, 0, 0))], [item["kind"] for item in whole])
+
+    def test_a_page_whose_journal_differs_gets_none(self):
+        whole, last = journal(), [item for item in journal() if item["kind"] != "bar"][2]["wall_ns"]
+        self.assertIsNone(serve.resumed(whole, serve.Resume(99, last, 0)))
+        self.assertIsNone(serve.resumed(whole, serve.Resume(3, last + 5_000, 0)))
+        # The page's times are doubles: 256 ns off is still its journal.
+        self.assertIsNotNone(serve.resumed(whole, serve.Resume(3, last - 256, 0)))
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -181,6 +206,28 @@ class StreamTests(unittest.TestCase):
         while kind != "closes":
             kind, found = events(response)
         self.assertEqual(found, {"ETHUSDT": [[START + 2 * MINUTE - 10**6, 3901.25]]})
+
+    def test_a_refusal_once_the_stream_has_begun_ends_it_without_a_second_response(self):
+        write(self.out / "events.jsonl", journal())
+        response = self.stream()
+        self.assertEqual(events(response)[0], "lines")
+        with mock.patch.object(self.daemon, "runs", side_effect=Refusal("LEDGER_UNKNOWN", "no accounts", write_status="not_written")):
+            rest = response.read()
+        self.assertNotIn(b"HTTP/1.1", rest)
+
+    def test_a_resumed_stream_sends_only_what_follows_what_the_page_holds(self):
+        write(self.out / "events.jsonl", journal())
+        held = [item for item in journal() if item["kind"] != "bar"]
+        later = [snapshot(START + 3 * MINUTE, "99990", "25"), line("bar", START + 3 * MINUTE, instrument_id="BTCUSDT-PERP.BINANCE", ts_event=START + 3 * MINUTE)]
+        write(self.out / "events.jsonl", later)
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        bars = START + MINUTE - 10**6
+        conn.request("GET", f"/api/paper/runs/{self.row['paper_id']}/stream?symbol=BTCUSDT&lines={len(held)}&last={held[-1]['wall_ns']}&bars={bars}",
+                     headers={"Host": HOST})
+        self.addCleanup(conn.close)
+        response = conn.getresponse()
+        self.assertEqual(events(response), ("resumed", {"lines": len(held), "bars": bars}))
+        self.assertEqual(events(response), ("lines", later))
 
     def stream(self) -> http.client.HTTPResponse:
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)

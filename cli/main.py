@@ -998,7 +998,19 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
                                            the native liquidation with the exported best bid/ask and needs
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
-coverage[].funding.event_times_ms is most of the output."""
+coverage[].funding: rows, first_ms, last_ms; spacing [{spacing_ms, from_ms, to_ms}], the runs of equal
+spacing between consecutive settlements, each time taken at its nearest whole UTC hour (a new run is a
+spacing change); missing_settlements [{after_ms, before_ms, missing}], where a single interval is a
+whole multiple k >= 2 of the spacing beside it (the same on both sides): k - 1 settlements missing.
+Settlement times themselves: market bars.
+coverage[].quotes: imports [{month, through (exclusive end day), quote_rule, commit, rows}], every
+quote import holding the contract, rows counted by the import's receipt (its commit message); first_ms
+and last_ms, the first and last stored quote in the interval; uncovered_intervals_ms, the [from, to)
+parts of the interval no import covers.
+coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
+observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
+inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
+max_price (null for inferred terms)."""
 BARS_EPILOG = """The source reviewer's price read: no trial, no exposure. Prices and volumes are decimals at the
 stored scale. ts_event_ms is when the Catalog delivers the bar to a strategy: its close, ts_open_ms
 plus the period minus 1 ms. 1m MARK bars become one mark price per minute at that close. 1d bars are
@@ -1395,8 +1407,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market commit); "
         "MARKET_COMMIT_UNRESOLVED; SCHEMA_VERSION_MISMATCH (no import yet)"),
     ("market", "coverage"): (
-        "bars, mark prices, funding, instruments and universe members at --at (reader); without --symbols, every "
-        "member of the months [--start, --end) touches; with --lifecycle-bundle, that ledger bundle",
+        "bars, mark prices, funding, quotes, instruments and universe members at --at (reader), and the quote "
+        "import commits reachable from it; without --symbols, every member of the months [--start, --end) "
+        "touches; with --lifecycle-bundle, that ledger bundle",
         "nothing; never publishes",
         "commit, scope {symbols, start, end, expanded}, input_interval_ms, coverage [per contract], lifecycle, "
         "lifecycle_missing, interpretation",

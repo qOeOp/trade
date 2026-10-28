@@ -42,7 +42,19 @@ export const canvasColor = (role: ColorRole, alpha = 1) => resolve(v(role), alph
 /** tint() as #rrggbbaa, for a canvas label that sits on a level's own colour. */
 export const canvasTint = (role: ColorRole, pct: number) => resolve(tint(role, pct));
 
+// Resolved values by theme shown, colour and alpha: resolving reads the page's style and a pixel back.
+const resolved = new Map<string, string>();
+let dark: MediaQueryList | null = null;
+
 function resolve(css: string, alpha = 1): string {
+  dark ??= matchMedia("(prefers-color-scheme: dark)");
+  const key = `${document.documentElement.getAttribute("data-theme") ?? (dark.matches ? "dark" : "light")} ${alpha} ${css}`;
+  let found = resolved.get(key);
+  if (found === undefined) resolved.set(key, (found = read(css, alpha)));
+  return found;
+}
+
+function read(css: string, alpha: number): string {
   if (!probe) {
     const element = document.createElement("span");
     element.style.display = "none";

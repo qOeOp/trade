@@ -15,7 +15,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `store.py` | connections, `resolve_commit`, `import_month` (one month, one transaction, one commit; after the latest month or just before the earliest), exact scaling, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
-| `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `diagnose_coverage`) |
+| `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
 
@@ -100,7 +100,9 @@ an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggr
 is the maximum daily p99, not a pooled monthly percentile. Validate suitability for each contract,
 period and intended liquidation use against observed BBO and matched native replay evidence;
 report missing evidence without automatically dropping contracts or shortening the window. See
-research-start's `references/readiness.md` for the boundary.
+research-start's `references/readiness.md` for the boundary. `market coverage` gives each contract's
+quote imports (month, `through`, rule, commit and the rows the receipt counts), its first and last
+stored quote in the interval and the parts of the interval no import covers.
 The historical four-day probe reported inferred BTCUSDT mid deviations within 0.7 bps at p99;
 its original reference files and contemporary hashes were not found. The subsequent
 [twelve month-start native liquidation comparisons](../docs/plans/monthly-quote-liquidation-validation.zh.md)
@@ -149,7 +151,9 @@ the tests.
 Two sources' rows of one minute must agree at the stored scale (`1.50` and `1.5` agree). Funding is
 one settlement per slot: a funding time belongs to its nearest whole UTC hour (Binance settles at most
 hourly, with milliseconds of jitter), two sources in one slot must give one rate (the earlier source's
-time is kept), and one source with two settlements in a slot is `SOURCE_SHAPE`. An archive row outside
+time is kept), and one source with two settlements in a slot is `SOURCE_SHAPE`. `market coverage` reports each contract's
+settlement spacing in the interval (runs of equal spacing between settlements, a new run is a spacing
+change) and the settlements missing inside a run, instead of the settlement times (`market bars` lists them). An archive row outside
 its own month or day, or off the minute grid, is `SOURCE_SHAPE` before anything is trimmed. Archives are working copies under `--cache-root`.
 The derived daily bars of each contract are checked against the exchange's daily klines; findings
 are reported, nothing is changed.
@@ -174,9 +178,11 @@ Every replay trades on the latest terms observed at its commit (`historical_term
 CURRENT_SNAPSHOT_APPROXIMATION` in the receipt). When that observation is later than the replay
 window's end (a market imported after the fact), the runner adds the limitation
 `CURRENT_SNAPSHOT_APPROXIMATION: <symbol> trades on terms observed at <time> (observed_at <ms>)` to
-the run's summary, and so to its reports. The commit test `universe_members_have_terms` checks only
-that every member has terms at the commit (the user's decision); a live month-by-month import observes
-the terms during the month and so meets the stricter form as well.
+the run's summary, and so to its reports. `market coverage` returns that terms row per contract
+(`terms`: observation time, source, price and size increments, quantity, notional and price limits).
+The commit test `universe_members_have_terms` checks only that every member has terms at the commit
+(the user's decision); a live month-by-month import observes the terms during the month and so meets
+the stricter form as well.
 
 ## Reading prices
 

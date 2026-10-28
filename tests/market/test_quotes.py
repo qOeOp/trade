@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pyarrow as pa
 
 from ledger import db
-from market import quotes, store
+from market import coverage, quotes, store
 from market.sources import MarketError
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
@@ -147,6 +147,18 @@ class ImportQuotesTests(unittest.TestCase):
         self.assertEqual(done[0]["readings"]["BTCUSDT"]["2025-01-01"],
                          {"trades": 2880, "quote_changes": 2880, "stale_side_adjustments": 0, "trade_gap_max_ms": 59_900})
         self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote commits are not bar imports
+
+    def test_coverage_gives_the_contracts_quote_imports_bounds_and_uncovered_parts(self):
+        start, end = day_ms(date(2024, 12, 31)), day_ms(FEB) + DAY
+        found = coverage.diagnose_coverage(self.profile, None, ["BTCUSDT"], "2024-12-31T00:00:00Z",
+                                           "2025-02-02T00:00:00Z", None)
+        with store.connect(self.profile, "reader") as conn:
+            (latest,), = conn.rows("SELECT MAX(ts) FROM quote")
+        self.assertEqual(found["coverage"][0]["quotes"],
+                         {"imports": [{"month": "2025-01", "through": "2025-02-01", "quote_rule": quotes.RULE,
+                                       "commit": self.result["market_commit"], "rows": self.result["quote_rows"]}],
+                          "first_ms": day_ms(JAN) + 100, "last_ms": latest,
+                          "uncovered_intervals_ms": [[start, day_ms(JAN)], [day_ms(FEB), end]]})
 
     def test_a_month_imports_once_and_a_sequence_gap_stores_nothing(self):
         with serving(self.exchange):

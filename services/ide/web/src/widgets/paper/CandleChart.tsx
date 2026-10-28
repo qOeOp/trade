@@ -13,9 +13,10 @@ import { ChartTip } from "./ChartTip";
  *  trades as boxes and arrows, its orders and position as levels, its events as flags along the foot
  *  with tooltips on them and on the arrows (candleNotes.ts). The component only hands the chart
  *  what changes: the bars, the trading, the theme, and where to look (a change of `fit` brings the
- *  position's whole stretch into view; an event picked elsewhere, or a calendar day). */
-export function CandleChart({ symbol, bars, places, size, fills, orders, held, events, live, openFrom, started, fit }: {
-  symbol: string; bars: readonly JournalLine[]; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
+ *  position's whole stretch into view; an event picked elsewhere, or a calendar day). `remembers` names the
+ *  run and contract: the view the chart had when it last showed them comes back with them. */
+export function CandleChart({ remembers, symbol, bars, places, size, fills, orders, held, events, live, openFrom, started, fit }: {
+  remembers: string; symbol: string; bars: readonly JournalLine[]; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
   held: Held | null; events: readonly JournalLine[]; live: boolean; openFrom: number | null; started: number | null; fit: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -25,7 +26,7 @@ export function CandleChart({ symbol, bars, places, size, fills, orders, held, e
   const day = useAtom(pickedDay);
   const shown = useAtom(chart.period) > 0;
 
-  useEffect(() => { chart.mount(host.current!); return () => chart.destroy(); }, [chart]);
+  useEffect(() => { chart.mount(host.current!, remembers); return () => chart.destroy(); }, [chart]);
   useEffect(() => { chart.setTheme(dark); }, [chart, dark]);
   useEffect(() => { chart.setTrading({ fills, orders, held, places, size, events, live }); }, [chart, fills, orders, held, places, size, events, live]);
   useEffect(() => { chart.setBars(bars); }, [chart, bars]);
