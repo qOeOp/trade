@@ -7,6 +7,12 @@ Read coverage facts, imported quotes included, with `market coverage` at the lin
 (`--help` for its output).
 A completed replay does not discharge the coverage-reporting duties below.
 
+## Contents
+
+- Coverage disposition
+- Before replay and on new data
+- Inferred quotes and low activity
+
 ## Coverage disposition
 
 When reporting any coverage anomaly, include the parts below in the final answer, even when the

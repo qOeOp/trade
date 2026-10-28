@@ -27,7 +27,7 @@ each side could first decide. Readiness differences are not evidence of the prop
 
 ## Economic reading
 
-Read capital use beside drawdown (nautilus-report-analysis capital.md) and the profit bridge beside
+Read capital use beside drawdown (the nautilus-report-analysis skill) and the profit bridge beside
 account return. Size is part of the policy and its account effect counts against the user's
 unchanged targets. Quality measures remain descriptive and need uncertainty and exposure context;
 less exposure alone does not establish better quality. Follow report definition notes for units,

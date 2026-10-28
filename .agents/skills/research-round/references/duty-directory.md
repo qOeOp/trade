@@ -1,7 +1,8 @@
 # Duty directory
 
-Read when unsure which stance a duty should take in a strategy header (strategy-header.md). Each
-duty gives its question, then I (inputs), S (state), O (output) and clock, and its boundary.
+Read when unsure which stance a duty should take in a strategy header (the template `candidate new`
+and `candidate export` supply). Each duty gives its question, then I (inputs), S (state), O (output)
+and clock, and its boundary.
 The four hard contracts (E1, E4, F5, H2) can never be `not applicable`.
 
 Duties locate policy responsibilities, not independent factors or implementation proofs. A stance

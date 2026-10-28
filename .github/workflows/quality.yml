@@ -34,7 +34,19 @@ jobs:
       - run: uv run --frozen python -m compileall -q cli engine ledger market paper qualification registration replay report runtime
       - run: uv run --frozen python -m engine.run --help > /dev/null
       - name: Install ffmpeg for the video evidence checker test
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        # This step usually takes under 30 s but has hung for 13-25 minutes on a stalled mirror,
+        # so each attempt is bounded and retried instead of running into the job timeout.
+        timeout-minutes: 10
+        run: |
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=60)
+          for attempt in 1 2 3; do
+            if timeout 150 sudo apt-get "${apt_options[@]}" update \
+              && timeout 150 sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ffmpeg; then
+              exit 0
+            fi
+            echo "::warning::ffmpeg install attempt $attempt failed or timed out"
+          done
+          exit 1
       - name: Run the tests; any ResourceWarning (unclosed file, socket or unwaited process) fails them
         env:
           # A -W option turns off unittest's own "default" filter, so restore it to keep DeprecationWarning visible.

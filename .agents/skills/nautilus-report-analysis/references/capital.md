@@ -19,7 +19,7 @@ context for drawdown and for the holding structure: read it first.
   database keys it by its open, so a fill at T belongs to the bar opening at T floored to the
   minute. Give the median, a high quantile, the maximum and the number of fills on zero-volume bars,
   and say whether fills are weighted by count or by quantity. Record it as a `search_exposure`
-  judgment (research-round feedback.md, Judgments).
+  judgment (the research-round skill's next decision).
 
 ```python
 # uv run --frozen python /tmp/RUNDIR/participation.py, with fill from tables(...)["fills"]
