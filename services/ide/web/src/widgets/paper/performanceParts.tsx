@@ -1,5 +1,5 @@
-// The Performance card's parts below its targets (Performance.tsx): how the closed trades ended, by
-// contract, and what moved equity.
+// The Performance card's parts below its targets (Performance.tsx): how the closed trades ended and by
+// contract; what moved equity is Flow.tsx.
 import { fixed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
@@ -7,19 +7,6 @@ import { pnlClass } from "../../theme/roles";
 import { Tip } from "../../components/Tip";
 
 export const signed = (n: number | null, digits = 2) => (n == null ? MISSING : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), digits)}`);
-
-function Step({ name, value, from, to, x, total = false, hint }: { name: string; value: number; from: number; to: number; x: (n: number) => number; total?: boolean; hint?: string }) {
-  return (
-    <Tip content={hint}><div className={`grid grid-cols-[64px_minmax(0,1fr)_84px] items-center gap-2.5 text-dense ${total ? "mt-1 border-t border-line pt-1.5" : ""}`}>
-      <span className={total ? "font-medium text-fg" : "text-fg-muted"}>{name}</span>
-      <span className="relative h-2">
-        <i className={`absolute inset-y-0 rounded-badge ${total ? "bg-fg-muted" : value >= 0 ? "bg-pnl-up" : "bg-pnl-down"}`}
-           style={{ left: `${x(Math.min(from, to))}%`, width: `max(4px, ${Math.abs(x(to) - x(from))}%)` }} />
-      </span>
-      <span className={`text-right tabular-nums ${total ? "font-medium text-fg" : pnlClass(value)}`}>{signed(value)}</span>
-    </div></Tip>
-  );
-}
 
 const EXITS = [["target", "Target", "bg-pnl-up"], ["stop", "Stop", "bg-pnl-down"], ["other", "Other", "bg-fg-muted"]] as const;
 
@@ -63,23 +50,6 @@ export function Contracts({ by }: { by: ReturnType<typeof byContract> }) {
           <span className={`text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</span>
         </div></Tip>
       ))}
-    </div>
-  );
-}
-
-/** What moved equity since the start, as a waterfall: each step a bar from where the last ended, then
- *  the net from zero; the fees' share of gross profit shows over their row. */
-export function Bridge({ a }: { a: Account }) {
-  if (a.gross === null || a.net === null || a.open === null) return null;
-  const steps: [string, number][] = [["Gross", a.gross], ["Fees", -a.fees], ["Funding", a.funding], ...(a.open || a.holding ? [["Open", a.open] as [string, number]] : [])];
-  let at = 0;
-  const bars = steps.map(([name, value]) => { const from = at; at += value; return { name, value, from, to: at }; });
-  const lo = Math.min(0, a.net, ...bars.map((b) => Math.min(b.from, b.to))), hi = Math.max(0, a.net, ...bars.map((b) => Math.max(b.from, b.to)));
-  const x = (n: number) => (hi > lo ? ((n - lo) / (hi - lo)) * 100 : 0);
-  return (
-    <div className="flex flex-col gap-0.75">
-      {bars.map((b) => <Step key={b.name} {...b} x={x} hint={b.name === "Fees" && a.gross! > 0 && a.fees > 0 ? `Fees took ${Math.round((a.fees / a.gross!) * 100)}% of gross profit` : undefined} />)}
-      <Step name="Net" value={a.net} from={0} to={a.net} x={x} total />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { symbolOf } from "../../lib/paperApi";
 import { account, tradeStats } from "../../model/account";
+import { flows as flowsOf } from "../../model/flows";
 import { fills as fillsOf } from "../../model/paper";
 import type { LineageWidget } from "../../model/types";
 import { useView, useWidget } from "../../model/view";
@@ -43,6 +44,8 @@ export function PaperPage() {
   const a = useMemo(() => (s && (s.readings || s.seal) ? account(s.lines, s.state, s.readings, s.seal) : null), [s?.lines, s?.state, s?.readings, s?.seal]);
   const stats = useMemo(() => (a && s ? tradeStats(a, s.lines) : null), [a]);
   const fills = useMemo(() => fillsOf(s?.lines ?? []), [s?.lines]);
+  // Two contracts a side by name fit the Performance card's tiles.
+  const flows = useMemo(() => (a && s ? flowsOf(a, s.lines, 2) : null), [a]);
   const t = view.targets ?? lineage?.targets ?? null;
   const targets = { limit: t?.max_drawdown ?? null, annual: t?.annual_return ?? null };
 
@@ -56,7 +59,7 @@ export function PaperPage() {
         <div className="col-start-1 row-start-1 grid min-h-0"><ChartCard run={run} view={shown} s={s} a={a} fills={fills} targets={targets} /></div>
         <aside className="col-start-2 row-span-2 row-start-1 grid min-h-0 grid-rows-subgrid">
           <div className="flex min-h-0 flex-col">
-            {a && stats ? <Performance key={run.paper_id} a={a} stats={stats} targets={targets} /> : <section className="min-h-0 flex-1 rounded-island bg-island" />}
+            {a && stats ? <Performance key={run.paper_id} a={a} stats={stats} flows={flows} targets={targets} /> : <section className="min-h-0 flex-1 rounded-island bg-island" />}
           </div>
           <Calendar s={s} a={a} />
         </aside>
