@@ -10,10 +10,9 @@
 
 ## Assignment
 
-For a full audit (SKILL.md, Scope), assign one fresh read-only reviewer to each workstream; all
-findings follow SKILL.md's proof requirements. Share the pinned raw evidence and timeline, not
-another reviewer's conclusions. Split work only when a distinct risk needs it. Report coverage
-and anything unexamined; an untriggered path is not a verified one.
+For a full audit, assign one fresh read-only reviewer to each workstream. Share the pinned raw
+evidence and timeline, not another reviewer's conclusions. Report coverage and anything
+unexamined.
 
 | Workstream | Coverage combined |
 |---|---|
@@ -24,8 +23,8 @@ and anything unexamined; an untriggered path is not a verified one.
 ## Behavior and decision evidence
 
 Inspect failures, refusals, retries, workarounds and latent wrong or missing outputs. Identify the
-product cause, current-main status and smallest remedy. Follow the actual output into the agent's
-interpretation and decision, including where information was lost or an unsupported inference arose.
+product cause and current-main status. Follow the actual output into the agent's interpretation
+and decision, including where information was lost or an unsupported inference arose.
 
 Check applicable research instructions against the session, ambiguous or conflicting guidance,
 strategy source (lookahead, sizing, fees, protection) and the validity of later comparisons.
@@ -39,12 +38,12 @@ Trace session ledger commits to their commands and changed rows. The ledger fide
 (SKILL.md) shows whether the ledger alone reconstructs the research. Check wrong, missing or duplicated
 facts, derivable storage, failed-attempt remnants against the schema, identity consistency, original
 records and corrections, and whether normal reads preserve their meaning. Compare blob sizes with
-physical database growth, backup identity and query scaling. Use only read-only statements.
+physical database growth, backup identity and query scaling.
 
 Measure phase and replay time, tokens, discovery reads, repeated calls and polling, temporary
 scripts and oversized outputs. Attribute unnecessary work to a demonstrated cause; a help call or
-script alone is not a defect. Give observed cost, cheapest remedy and the basis for expected
-savings; leave uncertain attribution unknown. Product code remedies follow AGENTS.md.
+script alone is not a defect. Give observed cost and the basis for expected savings; leave
+uncertain attribution unknown.
 
 ## Product contracts and delivery
 
@@ -57,13 +56,13 @@ unsearched is a coverage gap.
 
 For refusals, audits, eligibility, gates and skill rules, distinguish: should have fired; fired
 without value; fired usefully; silent but uniquely protective; silent with no distinct value.
-Explain every missed risk or removal proposal and apply the removal test.
+Explain every missed risk or removal proposal.
 
 Trace contracts from their owner through actual distribution, invocation and presentation
 consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
 alone does not verify a consumer. Check repaired claims along the same path before closure.
 AGENTS.md owns common permissions; identify duplicated or conflicting policies without silently
-resolving them by changing authority. Keep diagnosis and implementation decisions separate.
+resolving them by changing authority.
 
 - Skills: use [Anthropic authoring guidance](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
   and [Claude Code skill documentation](https://code.claude.com/docs/en/skills). Check focused runtime
@@ -78,8 +77,10 @@ resolving them by changing authority. Keep diagnosis and implementation decision
 
 ## Removal test
 
-For every touched mechanism, rule, command, field or test, ask:
-1. What concrete risk does it guard? For a test, would its failure mean the product is broken?
+For each branch, exception and rule of the touched mechanism, and each touched command, field or
+test, ask:
+1. What concrete risk does it guard? Do its branches follow from that risk or list past cases? For
+   a test, would its failure mean the product is broken?
 2. What other check covers that risk?
 3. What did evidence matching its responsibility show: protection, ceremony or an unreached path?
 
@@ -92,9 +93,7 @@ only test, and a passing eval vote never replaces inspecting the relevant behavi
 Unreached paths and insufficient evidence stay unverified; neither alone justifies deletion.
 Propose removal or merging only after confirming no distinct protection remains, another mechanism
 fully covers it, or it adds only useless ceremony. Keep a uniquely useful boundary even if it
-never fired. Changes to refusals, audits or authority boundaries remain authority items under
-AGENTS.md.
+never fired.
 
 For skill text, retain necessary runtime guidance; confirm any claimed replacement in actual
-product output before deleting it. Express recurring needs as general principles, not examples or
-incremental rules. Add a mechanism only for a demonstrated failure it would catch.
+product output before deleting it.

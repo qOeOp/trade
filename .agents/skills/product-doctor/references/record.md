@@ -17,7 +17,7 @@ record once it is written. Later state belongs in the index.
 | Findings by action | fix … / remove … / skill … / authority … / measure … / none … |
 | Recurred items | ids, or none |
 | Found by the user first | count; ids, or none |
-| Skill size | words per skill against the previous record; the reason for any growth |
+| Net change | mechanisms, branches, rules and skill words the proposals add and remove; skill words against the previous record; why any growth was unavoidable |
 
 ## Findings
 | id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |
@@ -42,5 +42,4 @@ status. A finding id is the date plus a number, written `<yyyymmdd>-<number>`.
 
 Group observations with the same cause and remedy into one actionable finding; reuse its id across
 records. The evidence cell locates the relevant output, consumer and supported or unsupported
-interpretation, without copying a call log. Keep measured costs separate from estimates. Missing
-coverage or measurements stay explicit; counts and text size alone do not prove improvement.
+interpretation, without copying a call log. Keep measured costs separate from estimates.
