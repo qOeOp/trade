@@ -493,6 +493,22 @@ class StreamTests(unittest.TestCase):
                 load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
             self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
 
+    def test_a_trading_month_without_quotes_is_named_missing(self):
+        """Quotes are checked per UTC month of [trade start, end): January and March held, February is missing,
+        and a window inside the held months misses none."""
+        with tempfile.TemporaryDirectory() as temp:
+            catalog_path = Path(temp)
+            store = ParquetDataCatalog(str(catalog_path))
+            native = export.native_symbol("AAAUSDT", None)["instrument_id"]
+            store.write_instruments([instrument.build_instrument("AAAUSDT", TERMS, 2, native)[0]])
+            iid = InstrumentId.from_str(native)
+            march = START + (31 + 28) * DAY
+            rows = [(START + MIN, 10**10, 10**10 + 10**6), (march + MIN, 10**10, 10**10 + 10**6)]
+            export.write_quotes(store, iid, [rows], 2, "1000", 3, 8)
+            row = {"catalog_path": str(catalog_path), "instrument_id": native}
+            self.assertEqual(run.quote_months_missing(row, START * 10**6, (march + DAY) * 10**6), ["2026-02"])
+            self.assertEqual(run.quote_months_missing(row, START * 10**6, (START + 31 * DAY) * 10**6), [])
+
     def test_each_exported_piece_is_its_numbered_episode_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

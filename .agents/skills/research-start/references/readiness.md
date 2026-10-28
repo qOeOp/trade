@@ -111,7 +111,14 @@ liquidation research. In the aggTrades model, each bid or ask is carried until a
 the resulting liquidation error can go either way. Minute decisions do not validate intraminute
 liquidation inputs. A native replay passing does not establish that those inputs represent the book.
 
-- Validate the actual contract, UTC period and intended use (including leverage/exposure and the
+- Before gathering any evidence, write which decision it can change (execution environment,
+  window, contract or a liquidation claim) and what result would suffice. Gather nothing whose
+  result can change no decision.
+- Judge suitability from the source's designed distance to liquidation (research-round's execution
+  rule) against the measured error of the inferred quotes. When the distance is far larger than
+  the error, report the limitation and continue; examine the reference source's own gaps, or run
+  matched native replays, only where a decision variable lies near its threshold.
+- Name the actual contract, UTC period and intended use (including leverage/exposure and the
   liquidation scenarios), with the pinned market commit, quote rule and runtime identified. Do not
   extend BTC evidence, a sampled day or an earlier period to other contracts, unsampled periods or
   a different use. Reuse evidence only within its demonstrated scope; low activity alone is not a
@@ -120,16 +127,22 @@ liquidation inputs. A native replay passing does not establish that those inputs
   coverage and gaps, quote discrepancies and their distribution over the relevant intervals. In
   matched native replays, change only the quote input and compare liquidation occurrence, timing,
   price and account results under the same strategy, configuration and runtime. No liquidation in
-  the compared sample does not validate liquidation behavior outside it. Keep reports and derived
-  comparisons in /tmp and identify their inputs; do not change stored runs or canonical inputs.
+  the compared sample does not validate liquidation behavior outside it.
+- Keep originals, reports and derived comparisons in /tmp. Record the readings with their source
+  identity (URL, checksum, coverage, alignment rule, market commit and quote rule) in an evidence
+  bundle (`evidence add`) so a later session can reuse them within their scope. Do not store an
+  original a public archive serves by checksum or one whose terms forbid redistribution. Do not
+  change stored runs or canonical inputs.
 - Trade-gap p99/max, activity and stale-side-adjustment counts are diagnostics, not an acceptance
   threshold or per-side quote age. State the scope of each reading (including daily aggregation);
   do not invent a fixed freshness cutoff, classify a contract as safe from an uncalibrated number,
   expire quotes or synthesize replacements to make the comparison pass.
-- When evidence is insufficient, report the exact contract/interval/use that is unverified, what
-  was actually checked, the missing evidence and which liquidation claims it prevents. Keep
-  technically runnable coverage separate from demonstrated suitability; do not label a data
-  evidence gap as candidate failure or silently mark existing product measures ineligible. Continue
-  only claims supported by the evidence. Do not automatically drop coins, shorten windows or
-  change the pinned inputs. If the gap blocks the intended research, ask the user to choose obtaining
-  the missing evidence or changing the research scope, under the existing line-change rules.
+- Missing suitability evidence limits liquidation claims; it does not block the replay. Report the
+  exact contract/interval/use that is unverified, what was actually checked and which liquidation
+  claims it prevents, and continue with the claims the evidence supports. Keep technically
+  runnable coverage separate from demonstrated suitability; do not label a data evidence gap as
+  candidate failure or silently mark existing product measures ineligible. Do not automatically
+  drop coins, shorten windows or change the pinned inputs.
+- When a step's result cannot change the disposition, say so in one sentence and hand the
+  data/scope or design choice back to the user. Never offer obtaining evidence that cannot be
+  obtained.
