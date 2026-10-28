@@ -13,13 +13,13 @@ export type SankeyNode = {
 /** Money moving from a node on the left to one on the right, by their keys. */
 export type SankeyLink = { from: string; to: string; value: number };
 
-// As Highcharts draws a sankey: each node a bar BAR wide at the chart's edge, its ribbons' height and
-// EDGE more above and below them so they meet it clear of its ends (at least HAIR), and its label on one
-// row above it, HEAD tall with the space under it, flush with the chart's edge, so the ribbons have the
-// chart's whole width. A ribbon's height follows the square root of its value (at least FLOOR px, the
+// As Highcharts draws a sankey: each node a bar BAR wide at the chart's edge, its ribbons' height (SPLIT
+// apart, as Figma's tiles part theirs) and EDGE more above and below them so they meet it clear of its
+// ends (at least HAIR), and its label on one row above it, HEAD tall with the space under it, flush with
+// the chart's edge, so the ribbons have the chart's whole width but PAD short of each bar. A ribbon's height follows the square root of its value (at least FLOOR px, the
 // largest at most THICK), so every flow shows and the largest do not swamp the rest: heights rank the
 // flows rather than measure them, and the labels give the amounts. A node is GAP from the next.
-const BAR = 3, EDGE = 3, HAIR = 2, FLOOR = 1.5, THICK = 28, HEAD = 16, GAP = 6;
+const BAR = 3, EDGE = 3, SPLIT = 1, PAD = 4, HAIR = 2, FLOOR = 1.5, THICK = 28, HEAD = 16, GAP = 6;
 // A label is as wide as its row, up to MOST of the chart's width, its name cut first. Supply is
 // monospaced, so a row's width is its characters': a name (text-small semibold, Supply Medium's 0.62 em)
 // NAME px each and a value (text-small, Regular's 0.6 em) VALUE px each, SEP apart; a logo takes 14px,
@@ -62,8 +62,9 @@ type Ribbon = { from: SankeyNode; to: SankeyNode; t: number; deep: number; y0: n
 
 const sum = (nodes: readonly SankeyNode[]) => nodes.reduce((s, n) => s + n.value, 0);
 const thick = (value: number, k: number) => Math.max(FLOOR, Math.sqrt(value) * k);
-/** A node's bar at `k`: its ribbons' heights stacked with EDGE above and below (`own` the values of its links on its side). */
-const barOf = (own: readonly number[], k: number) => (own.length ? own.reduce((s, x) => s + thick(x, k), 2 * EDGE) : HAIR);
+/** A node's bar at `k`: its ribbons' heights stacked SPLIT apart with EDGE above and below (`own` the values of its links on its side). */
+const barOf = (own: readonly number[], k: number) =>
+  (own.length ? own.reduce((s, x) => s + thick(x, k), 2 * EDGE + (own.length - 1) * SPLIT) : HAIR);
 
 /** Both columns on one scale, the largest `k` (px per root of a unit of value) at which the taller column
  *  fits `height` and no ribbon is taller than THICK, the shorter centred on it; and each bar's ribbons stacked on it in the order of
@@ -94,8 +95,8 @@ function layout(into: SankeyNode[], out: SankeyNode[], given: SankeyLink[], heig
     for (const p of side) {
       const mine = ribbons.filter((r) => (mineOf ? r.from : r.to) === p.n);
       mine.sort((a, b) => middle(mineOf ? a.to : a.from) - middle(mineOf ? b.to : b.from));
-      let y = p.y + HEAD + (p.bar - mine.reduce((s, r) => s + r.t, 0)) / 2;
-      for (const r of mine) { if (mineOf) r.y0 = y + r.t / 2; else r.y1 = y + r.t / 2; y += r.t; }
+      let y = p.y + HEAD + (p.bar - mine.reduce((s, r) => s + r.t, 0) - Math.max(0, mine.length - 1) * SPLIT) / 2;
+      for (const r of mine) { if (mineOf) r.y0 = y + r.t / 2; else r.y1 = y + r.t / 2; y += r.t + SPLIT; }
     }
   }
   return { left, right, ribbons, used };
@@ -143,7 +144,7 @@ export function Sankey({ into, out, links, label, height: wanted = 200 }: {
   const id = useId();
   const height = Math.max(wanted, ...[into, out].map((c) => c.length * (HEAD + HAIR + GAP)));
   const total = sum(into), { left, right, ribbons, used } = layout(into, out, links, height);
-  const x0 = BAR, x1 = width - BAR, w = (n: SankeyNode) => Math.min(row(n), width * MOST);
+  const x0 = BAR + PAD, x1 = width - BAR - PAD, w = (n: SankeyNode) => Math.min(row(n), width * MOST);
   const labels = (side: Placed[], right: boolean) => side.map((p) => (
     <Label key={p.n.key} p={p} x={right ? width - w(p.n) : 0} w={w(p.n)} right={right} total={total} dim={lit !== null && lit !== p.n} onHover={setLit} />
   ));
@@ -163,7 +164,7 @@ export function Sankey({ into, out, links, label, height: wanted = 200 }: {
               </g>
             );
           })}
-          {[...left.map((p) => [p, 0] as const), ...right.map((p) => [p, x1] as const)].map(([p, x]) => (
+          {[...left.map((p) => [p, 0] as const), ...right.map((p) => [p, width - BAR] as const)].map(([p, x]) => (
             <rect key={p.n.key} x={x} y={p.y + HEAD} width={BAR} height={p.bar} rx={BAR / 2} fill={v(p.n.role)}
                   opacity={lit !== null && lit !== p.n ? FADE : 1} className="transition-opacity" />
           ))}
