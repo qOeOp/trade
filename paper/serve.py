@@ -483,6 +483,10 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     time.sleep(STREAM_SECONDS)
             except OSError:
                 pass  # the page went away
+            except Refusal:
+                # The ledger refused a read once the stream had begun: the stream ends rather than carry a
+                # second response, and the page's reconnect hears why (its 409, above).
+                pass
             finally:
                 self.close_connection = True
 

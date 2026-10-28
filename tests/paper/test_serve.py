@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 from ledger import db, paper as records, strategies
+from ledger.errors import Refusal
 from paper import runs, serve
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
@@ -181,6 +182,14 @@ class StreamTests(unittest.TestCase):
         while kind != "closes":
             kind, found = events(response)
         self.assertEqual(found, {"ETHUSDT": [[START + 2 * MINUTE - 10**6, 3901.25]]})
+
+    def test_a_refusal_once_the_stream_has_begun_ends_it_without_a_second_response(self):
+        write(self.out / "events.jsonl", journal())
+        response = self.stream()
+        self.assertEqual(events(response)[0], "lines")
+        with mock.patch.object(self.daemon, "runs", side_effect=Refusal("LEDGER_UNKNOWN", "no accounts", write_status="not_written")):
+            rest = response.read()
+        self.assertNotIn(b"HTTP/1.1", rest)
 
     def stream(self) -> http.client.HTTPResponse:
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
