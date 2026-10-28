@@ -66,7 +66,7 @@ const thick = (value: number, k: number) => Math.max(FLOOR, Math.sqrt(value) * k
 const barOf = (own: readonly number[], k: number) => (own.length ? own.reduce((s, x) => s + thick(x, k), 2 * EDGE) : HAIR);
 
 /** Both columns on one scale, the largest `k` (px per root of a unit of value) at which the taller column
- *  fits `height` and no ribbon is taller than THICK; and each bar's ribbons stacked on it in the order of
+ *  fits `height` and no ribbon is taller than THICK, the shorter centred on it; and each bar's ribbons stacked on it in the order of
  *  the nodes at their other ends (top to bottom, so ribbons from one bar do not cross), centred on it. */
 function layout(into: SankeyNode[], out: SankeyNode[], given: SankeyLink[], height: number) {
   const own = (n: SankeyNode, side: "from" | "to") => given.filter((l) => l[side] === n.key).map((l) => l.value);
@@ -81,7 +81,9 @@ function layout(into: SankeyNode[], out: SankeyNode[], given: SankeyLink[], heig
   let lo = 0, hi = THICK / Math.sqrt(top);
   if (fits(hi)) lo = hi;
   else for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
-  const left = stack(columns[0]!, lo), right = stack(columns[1]!, lo);
+  // The shorter column stands centred on the taller.
+  const left = stack(columns[0]!, lo), right = stack(columns[1]!, lo), used = Math.max(end(left), end(right));
+  for (const c of [left, right]) { const off = (used - end(c)) / 2; for (const p of c) p.y += off; }
   const at = new Map([...left, ...right].map((p) => [p.n.key, p]));
   const ribbons: Ribbon[] = given.flatMap((l) => {
     const a = at.get(l.from), b = at.get(l.to);
@@ -96,7 +98,7 @@ function layout(into: SankeyNode[], out: SankeyNode[], given: SankeyLink[], heig
       for (const r of mine) { if (mineOf) r.y0 = y + r.t / 2; else r.y1 = y + r.t / 2; y += r.t; }
     }
   }
-  return { left, right, ribbons, used: Math.max(end(left), end(right)) };
+  return { left, right, ribbons, used };
 }
 
 /** The ribbon from x0 to x1 as a band `t` tall all along. */
