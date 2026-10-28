@@ -7,12 +7,10 @@ on:
       - .github/workflows/ide-web.yml
       - services/ide/web/**
       - services/ide/agent/**
+      - .github/actions/ci-paths/**
+      - .github/scripts/ci-paths.py
   pull_request:
     branches: [main]
-    paths:
-      - .github/workflows/ide-web.yml
-      - services/ide/web/**
-      - services/ide/agent/**
 
 permissions:
   contents: read
@@ -22,7 +20,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/ci-paths
+        id: paths
+        with:
+          paths: |
+            .github/workflows/ide-web.yml
+            services/ide/web/**
+            services/ide/agent/**
+            .github/actions/ci-paths/**
+            .github/scripts/ci-paths.py
+
   build:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     name: Type-check and build the research graph web renderer
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -40,6 +60,8 @@ jobs:
         run: test "$(grep -o __RESEARCH_GRAPH_VIEW__ services/ide/web/dist/index.html | wc -l)" -eq 1
 
   agent:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     name: Type-check and test the chat service
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -53,3 +75,22 @@ jobs:
       - run: npm ci --prefix services/ide/agent
       - run: npm run check --prefix services/ide/agent
       - run: npm test --prefix services/ide/agent
+
+  gate:
+    name: ide-web-gate
+    if: always()
+    needs: [changes, build, agent]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful checks, or an explicitly unrelated change
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '
+            .changes.result == "success" and
+            (.changes.outputs.changed as $changed |
+             ($changed == "true" or $changed == "false") and
+             ([to_entries[] | select(.key != "changes") | .value.result]
+              | all(. == (if $changed == "true" then "success" else "skipped" end))))
+          ' <<< "$NEEDS"
