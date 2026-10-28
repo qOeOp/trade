@@ -13,14 +13,15 @@ export type SankeyNode = {
 /** Money moving from a node on the left to one on the right, by their keys. */
 export type SankeyLink = { from: string; to: string; value: number };
 
-// As Highcharts draws a sankey: each node a bar BAR wide and its ribbons' height (at least HAIR), its
-// label beside it on the outer side, SIDE from it. A ribbon's height follows the square root of its value
+// As Highcharts draws a sankey: each node a bar BAR wide, its ribbons' height and EDGE more above and
+// below them so they meet it clear of its ends (at least HAIR), its label beside it on the outer side,
+// SIDE from it. A ribbon's height follows the square root of its value
 // (at least FLOOR px, the largest at most THICK), so every flow shows and the largest do not swamp the
 // rest: heights rank the flows rather than measure them, and the labels give the amounts.
 // A node's slot is GAP from the next and at least ONE tall for its name and value on one row, or TWO
 // tall when they stand on two lines: when the row is wider than the labels' width, or the slot is tall
 // enough anyway.
-const BAR = 3, HAIR = 2, FLOOR = 1.5, THICK = 28, SIDE = 6, GAP = 4, ONE = 16, TWO = 32;
+const BAR = 3, EDGE = 3, HAIR = 2, FLOOR = 1.5, THICK = 28, SIDE = 6, GAP = 4, ONE = 16, TWO = 32;
 // A label's width: Supply is monospaced, so it is its characters', a name (text-small semibold, Supply
 // Medium's 0.62 em) NAME px each and a value (text-small, Regular's 0.6 em) VALUE px each, SEP apart on
 // one row; a logo takes 14px, each further one 10px more (they overlap), and 4px before the name; SLACK
@@ -64,8 +65,8 @@ type Least = (n: SankeyNode) => number;
 
 const sum = (nodes: readonly SankeyNode[]) => nodes.reduce((s, n) => s + n.value, 0);
 const thick = (value: number, k: number) => Math.max(FLOOR, Math.sqrt(value) * k);
-/** A node's bar at `k`: its ribbons' heights stacked (`own` the values of its links on its side). */
-const barOf = (own: readonly number[], k: number) => Math.max(HAIR, own.reduce((s, x) => s + thick(x, k), 0));
+/** A node's bar at `k`: its ribbons' heights stacked with EDGE above and below (`own` the values of its links on its side). */
+const barOf = (own: readonly number[], k: number) => (own.length ? own.reduce((s, x) => s + thick(x, k), 2 * EDGE) : HAIR);
 
 /** Both columns on one scale, the largest `k` (px per root of a unit of value) at which the taller column
  *  of slots, each at its least, fits `height` and no ribbon is taller than THICK; and each bar's ribbons stacked on it in the order of the
