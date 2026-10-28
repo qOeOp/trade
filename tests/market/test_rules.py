@@ -15,7 +15,7 @@ from unittest import mock
 import numpy as np
 import pyarrow as pa
 
-from market import export, instrument, read, series, sources, store, universe
+from market import coverage, export, instrument, read, series, sources, store, universe
 from market.sources import MarketError
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving
 
@@ -272,6 +272,21 @@ class FundingSlotTests(Refusals):
         self.refused("SOURCE_CONFLICT", store.funding, self.cache, "BTCUSDT", self.feb, T0 + DAY, trading=True)
         self.exchange.funding_month("ETHUSDT", "2025-03", [(T0 + 3, "0.0001"), (T0 + 600_000, "0.0001")])
         self.refused("SOURCE_SHAPE", store.funding, self.cache, "ETHUSDT", T0, T0 + DAY, trading=True)
+
+
+class FundingSpacingTests(unittest.TestCase):
+    def test_a_lone_multiple_of_the_spacing_is_missing_settlements_and_a_new_spacing_is_a_change(self):
+        hour = 3_600_000
+        four = [T0 + index * 4 * hour + 3 for index in range(8)]
+        self.assertEqual(coverage.funding_spacing(four[:3] + four[5:]),  # two settlements missing
+                         {"spacing": [{"spacing_ms": 4 * hour, "from_ms": four[0], "to_ms": four[-1]}],
+                          "missing_settlements": [{"after_ms": four[2], "before_ms": four[5], "missing": 2}]})
+        changed = [T0 + index * 8 * hour for index in range(4)] + [T0 + 24 * hour + index * 4 * hour for index in (1, 2)]
+        self.assertEqual(coverage.funding_spacing(changed)["spacing"],
+                         [{"spacing_ms": 8 * hour, "from_ms": T0, "to_ms": T0 + 24 * hour},
+                          {"spacing_ms": 4 * hour, "from_ms": T0 + 24 * hour, "to_ms": T0 + 32 * hour}])
+        self.assertEqual(coverage.funding_spacing(changed)["missing_settlements"], [])
+        self.assertEqual(coverage.funding_spacing([T0]), {"spacing": [], "missing_settlements": []})
 
 
 class GapTests(Refusals):

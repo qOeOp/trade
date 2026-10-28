@@ -187,7 +187,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(ccc["last"]["gap_intervals_ms"], [[DELISTED, DELISTED + DAY]])
         self.assertEqual(ccc["listing_delisting"]["data_bounds_proxy"]["last"],
                          {"first_open_ms": day_ms(JAN), "last_open_ms": DELISTED - MINUTE})
-        self.assertEqual((ccc["funding"]["rows"], len(ccc["funding"]["event_times_ms"])), (3, 3))
+        settled = day_ms(date(2025, 2, 9)) + 3
+        self.assertEqual(ccc["funding"], {"rows": 3, "first_ms": settled, "last_ms": settled + 2 * EIGHT_HOURS,
+                                          "spacing": [{"spacing_ms": EIGHT_HOURS, "from_ms": settled,
+                                                       "to_ms": settled + 2 * EIGHT_HOURS}],
+                                          "missing_settlements": []})
+        self.assertEqual(bbb["quotes"], {"imports": [], "first_ms": None, "last_ms": None,
+                                         "uncovered_intervals_ms": [[day_ms(date(2025, 2, 9)), DELISTED + DAY]]})
         terms = {key: value for key, value in bbb["terms"].items() if key != "observed_at"}
         self.assertEqual(terms, {"terms_source": "exchange_info", "price_increment": "0.01", "size_increment": "0.001",
                                  "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "5",
@@ -267,7 +273,7 @@ class ImportTests(unittest.TestCase):
                           piece["mark_precision"], receipt["timeframe"]), ("BTCUSDT-PERP.BINANCE", "", 2, 8, "1m"))
         self.assertEqual(receipt["coverage"]["member_months"], ["2025-02-01", "2025-03-01"])
         funding = receipt["coverage"]["funding"]
-        self.assertEqual((funding["rows"], "event_times_ms" in funding), (6, False),
+        self.assertEqual(funding, {"rows": 6, "first_ms": day_ms(MAR) + 3, "last_ms": day_ms(MAR) + 5 * EIGHT_HOURS + 3},
                          "the stored receipt counts the settlements; their times stay in the pinned commit")
         again = export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)
         self.assertEqual((again["exported"], again["cached"]), (0, 1))

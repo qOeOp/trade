@@ -1,23 +1,24 @@
 // The candle chart itself, driven outside React so that panning and zooming never re-render the page:
 // one chart with the contract's candles, its volume beneath them in the same pane (volumeBars.ts), the
 // run's trades (tradeMarks.ts) and its levels (levels.ts, with the orders' dashed lines). The period is
-// the controller's own (candleView.ts), changed only once a pan or zoom has settled and with the moment
-// under the pointer kept in place (viewAnchor.ts); the candles are regrouped and drawn again in the same
-// task, so no frame shows the old view over the new candles. The legend reads two atoms: the period, and
+// the controller's own (candleView.ts), changed once a pan or zoom has settled (a wheel zoom past what the
+// period can show, on the next frame) with the moment under the pointer kept in place (viewAnchor.ts);
+// the candles are regrouped and drawn again in the same task, so no frame shows the old view over the
+// new candles; the view comes back when the chart mounts again for the same run and contract. The legend reads two atoms: the period, and
 // the candle under the pointer (else the last) with the close before it. The run's events, the tooltips,
 // what a click on an arrow or a flag opens and the countdown are candleNotes.ts's. The value axis always
 // fits what is shown (it cannot be dragged to scale), and the view never leaves the candles: it stops at
 // the first one, a few candles right of the newest and, zooming out, at the whole run (candleView.ts).
 import { CandlestickSeries, createChart, LineStyle, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
-import { candleOpen, candles as gather, type Candle } from "../../lib/bars";
+import { candleOpen, candles as gather, extend, type Candle } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
 import type { Fill, Held, PriceLine } from "../../model/paper";
 import { atom } from "../../state/atom";
 import { AxisTicks } from "./axisTicks";
 import { CandleNotes } from "./candleNotes";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
-import { chartLevels, lastLevel } from "./chartLevels";
-import { fence, firstPeriod, fitAll, periodFor, widest } from "./candleView";
+import { chartLevels, lastLevel, orderLines } from "./chartLevels";
+import { fence, firstPeriod, fitAll, periodFor, recall, remember, reshow, showFrom, widest } from "./candleView";
 import { Levels } from "./levels";
 import { arrows, tradeBoxes } from "./tradeBoxes";
 import { TradeMarks } from "./tradeMarks";
@@ -41,9 +42,11 @@ export class CandleController {
   private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false };
   private dark = false;
   private release: (() => void) | null = null; private host: HTMLElement | null = null; private fenced: (() => void) | null = null;
+  private key = ""; private gathered: { n: number; last: JournalLine | null } = { n: 0, last: null };  // the bars the candles hold
 
-  mount(element: HTMLElement): void {
-    this.host = element;
+  /** On `element`, its view kept under `key` (the run and contract) for the next mount of the same. */
+  mount(element: HTMLElement, key: string): void {
+    Object.assign(this, { host: element, key });
     const chart = createChart(element, chartOptions());
     chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } } });
     // Added first so the candles draw over it; its scale fills the pane's lowest fifth but the events' strip.
@@ -72,7 +75,9 @@ export class CandleController {
       notes.hover(String(param.hoveredObjectId ?? ""), param.point ?? null);
     });
     this.parts = { chart, candles, volume, marks, levels, ticks };
-    this.release = whenSettled(element, chart.timeScale(), (x) => this.settle(x));
+    // A zoom that takes the candles out of their band regroups them at once, not once it settles.
+    const step = () => this.period.get() * 60;
+    this.release = whenSettled(element, chart.timeScale(), (x) => this.settle(x), () => step() > 0 && periodFor(spacing(chart.timeScale()), step()) !== step());
     this.fenced = fence(chart.timeScale(), () => this.data.length);
     this.restyle();
     afterFonts(() => this.restyle());
@@ -80,8 +85,10 @@ export class CandleController {
   }
 
   destroy(): void {
+    const time = this.parts?.chart.timeScale();
+    if (time) remember(this.key, this.period.get(), time.getVisibleLogicalRange(), this.data.length);
     this.release?.(); this.notes.destroy(); this.parts?.chart.remove();
-    Object.assign(this, { parts: null, release: null, host: null, fenced: null, lines: new Map(), data: [] });
+    Object.assign(this, { parts: null, release: null, host: null, fenced: null, lines: new Map(), data: [], gathered: { n: 0, last: null } });
     this.period.set(0);
   }
 
@@ -90,10 +97,12 @@ export class CandleController {
     const p = this.parts;
     if (!p || !bars.length) return;
     if (!this.period.get()) {
-      const span = (Number(bars.at(-1)!.ts_event) - Number(bars[0]!.ts_event)) / 1e9, step = firstPeriod(span, p.chart.timeScale().width() || (this.host?.clientWidth ?? 0));
+      // The view this contract had when it last showed, else the whole run.
+      const saved = recall(this.key), span = (Number(bars.at(-1)!.ts_event) - Number(bars[0]!.ts_event)) / 1e9;
+      const step = saved ? saved.minutes * 60 : firstPeriod(span, p.chart.timeScale().width() || (this.host?.clientWidth ?? 0));
       this.period.set(step / 60);
       this.draw(true);
-      fitAll(p.chart.timeScale(), this.data.length, step);
+      if (saved) reshow(p.chart.timeScale(), saved, this.data.length); else fitAll(p.chart.timeScale(), this.data.length, step);
       return;
     }
     this.draw(false);
@@ -113,13 +122,7 @@ export class CandleController {
   }
 
   /** The open position's whole stretch in view, from the candle it opened in (ms). */
-  showPosition(openedMs: number): void {
-    const p = this.parts, n = this.data.length;
-    if (!p || !n) return;
-    const from = candleOpen(openedMs * 1e6, this.period.get()), i = Math.max(0, this.data.findIndex((k) => k.time >= from));
-    p.chart.timeScale().setVisibleLogicalRange({ from: i - Math.max(8, (n - i) * 0.25), to: n - 1 + 6 });
-    p.chart.priceScale("right").applyOptions({ autoScale: true });
-  }
+  showPosition(openedMs: number): void { if (this.parts && this.data.length) showFrom(this.parts.chart, this.data, candleOpen(openedMs * 1e6, this.period.get())); }
 
   /** The span from `from` to `to` (s) in view; the period follows once it settles. */
   show(from: number, to: number): void { this.parts?.chart.timeScale().setVisibleRange({ from: at(from), to: at(to) }); }
@@ -134,11 +137,14 @@ export class CandleController {
     p.ticks.refresh();
   }
 
-  /** The candles at the period from the bars: `all` sets them anew, else only the last few change. */
+  /** The candles at the period from the bars: `all` sets them anew, else only the last few change (the
+   *  bars that came since folded into them, when the bars they hold are still the first of these). */
   private draw(all: boolean): void {
-    const p = this.parts, minutes = this.period.get();
+    const p = this.parts, minutes = this.period.get(), { n, last } = this.gathered;
     if (!p || !minutes) return;
-    const next = gather(this.bars, minutes), old = this.data, c = seriesColors(this.dark);
+    const grows = !all && n > 0 && n <= this.bars.length && this.bars[n - 1] === last;
+    const next = grows ? extend(this.data, this.bars.slice(n), minutes) : gather(this.bars, minutes), old = this.data, c = seriesColors(this.dark);
+    this.gathered = { n: this.bars.length, last: this.bars.at(-1) ?? null };
     const volume = (k: Candle): VolumeBar => ({ time: at(k.time), value: k.volume, color: k.close >= k.open ? c.upVolume : c.downVolume });
     if (!all && old.length && next.length >= old.length && next[old.length - 1]?.time === old.at(-1)!.time) {
       for (const k of next.slice(old.length - 1)) { p.candles.update({ ...k, time: at(k.time) }); p.volume.update(volume(k)); }
@@ -178,14 +184,8 @@ export class CandleController {
     const boxes = tradeBoxes(fills, minutes, held, mark, last?.time ?? null, this.bars);
     p.marks.set(boxes, arrows(fills, minutes, this.data), c.marks);
     this.notes.set({ events, fills, boxes, minutes, times: this.data.map((k) => k.time), places, size, live, lastBar: this.bars.length ? Number(this.bars.at(-1)!.ts_event) / 1e6 : null, look: c.flags });
-    const levels = chartLevels({ orders, held, mark, places, size, c }), lined = levels.filter((l) => l.line);
-    for (const [id, line] of this.lines) if (!lined.some((l) => l.id === id)) { p.candles.removePriceLine(line); this.lines.delete(id); }
-    for (const level of lined) {
-      // An order's own dashed line; its tag is the levels' own, stacked with the others.
-      const options = { price: level.price, color: level.color, lineWidth: 1 as const, lineStyle: LineStyle.Dashed, title: "", axisLabelVisible: false };
-      const line = this.lines.get(level.id);
-      if (line) line.applyOptions(options); else this.lines.set(level.id, p.candles.createPriceLine(options));
-    }
+    const levels = chartLevels({ orders, held, mark, places, size, c });
+    orderLines(p.candles, this.lines, levels);
     p.levels.set(levels, { island: c.island, font: c.font }, lastLevel(last, places, c, this.dark));
     p.ticks.writePrices();
     p.ticks.hold(`↑ ${priceFormat(Math.max(0, places)).formatter((last?.high ?? 0) * 1.1)}`);

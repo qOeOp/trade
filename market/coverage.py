@@ -3,14 +3,16 @@ they and the exporter share.
 
 Facts only, at one pinned market commit: per contract its member months, the gaps and zero-volume
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
-funding settlement times; `market coverage` adds the terms row an export of the commit trades on
-(`market.terms`). First and last data are proxies of listing and delisting, no exchange
-fact. Nothing here drops a contract, shortens a window, fills data or judges an economic failure.
+funding settlement count and bounds; `market coverage` adds the settlement spacing and the settlements
+missing inside it (`funding_spacing`), its quote imports and stored quote bounds (`quote_facts`) and the
+terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
+and last data are proxies of listing and delisting, no exchange fact. Nothing here drops a contract,
+shortens a window, fills data or judges an economic failure.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import numpy as np
@@ -20,6 +22,7 @@ from market.sources import MINUTE, _refuse
 
 
 FORMAT = "market-coverage-v1"
+HOUR = 60 * MINUTE
 COLUMNS = series.COLUMNS
 INTERPRETATION = ("Gaps, zero-volume minutes, missing funding and first or last data are input facts. The replay "
                   "entry does not drop contracts, shorten the window, fill data or judge an economic failure from "
@@ -90,10 +93,68 @@ def coverage_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, l
     return {"format": FORMAT, "commit": commit, "symbol": symbol, "input_interval_ms": [start_ms, end_ms],
             "last": last, "mark": mark, "last_mark_unmatched_minutes": unmatched,
             "funding": {"rows": len(times), "first_ms": times[0] if times else None,
-                        "last_ms": times[-1] if times else None, "event_times_ms": times},
+                        "last_ms": times[-1] if times else None},
             "member_months": months,
             "listing_delisting": {"data_bounds_proxy": {"last": bounds["LAST"], "mark": bounds["MARK"]}},
             "interpretation": INTERPRETATION}
+
+
+def funding_spacing(times: list[int]) -> dict:
+    """The settlement spacing of one contract's funding times (ascending): runs of equal spacing between
+    consecutive settlements, each time taken at its nearest whole UTC hour, and the settlements missing
+    inside a run. A single interval that is a whole multiple k >= 2 of the spacing of the run(s) beside it
+    (the same on both sides) is k - 1 missing settlements, not a spacing change."""
+    slots = [round(at / HOUR) for at in times]
+    runs: list[list[int]] = []  # [hours, index of the first settlement, index of the last]
+    for index, hours in enumerate(later - earlier for earlier, later in zip(slots[:-1], slots[1:], strict=True)):
+        if runs and runs[-1][0] == hours:
+            runs[-1][2] = index + 1
+        else:
+            runs.append([hours, index, index + 1])
+    merged: list[list[int]] = []
+    missing = []
+    for position, (hours, low, high) in enumerate(runs):
+        beside = {runs[at][0] for at in (position - 1, position + 1) if 0 <= at < len(runs)}
+        spacing = beside.pop() if len(beside) == 1 else None
+        if high - low == 1 and spacing is not None and hours > spacing and hours % spacing == 0:
+            missing.append({"after_ms": times[low], "before_ms": times[high], "missing": hours // spacing - 1})
+            hours = spacing
+        if merged and merged[-1][0] == hours:
+            merged[-1][2] = high
+        else:
+            merged.append([hours, low, high])
+    return {"spacing": [{"spacing_ms": hours * HOUR, "from_ms": times[low], "to_ms": times[high]}
+                        for hours, low, high in merged],
+            "missing_settlements": missing}
+
+
+def quote_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, imports: list[dict]) -> dict:
+    """The inferred best bid/ask of one contract in [start_ms, end_ms) at an exact market commit: each quote
+    import holding it (month, `through` its exclusive end day, rule, commit, the rows its receipt counts),
+    the first and last stored quote time in the interval and the parts of the interval no import covers."""
+    months = []
+    for item in imports:
+        if symbol not in (item["symbols"] or ()):
+            continue
+        daily = (item["readings"] or {}).get(symbol)
+        months.append({"month": item["month"], "through": item["through"], "quote_rule": item["quote_rule"],
+                       "commit": item["commit"],
+                       "rows": sum(day["quote_changes"] for day in daily.values()) if daily is not None else None})
+    uncovered, at = [], start_ms
+    for low, high in sorted((series._day_ms(date.fromisoformat(f"{item['month']}-01")),
+                             series._day_ms(date.fromisoformat(item["through"]))) for item in months):
+        if at < min(low, end_ms):
+            uncovered.append([at, min(low, end_ms)])
+        at = max(at, high)
+    if at < end_ms:
+        uncovered.append([at, end_ms])
+    bounds: list[int | None] = [None, None]
+    if months:  # a commit without a quote import may predate the quote table
+        for index, order in enumerate(("", " DESC")):
+            found = conn.rows(f"SELECT ts FROM quote AS OF '{commit}' WHERE symbol = %s AND ts >= %s AND ts < %s "
+                              f"ORDER BY ts{order} LIMIT 1", (symbol, start_ms, end_ms))
+            bounds[index] = int(found[0][0]) if found else None
+    return {"imports": months, "first_ms": bounds[0], "last_ms": bounds[1], "uncovered_intervals_ms": uncovered}
 
 
 # market.diagnose_coverage
@@ -134,12 +195,15 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             body, files = lifecycle_bundle
             episodes = lifecycle.validate_lifecycle(body, commit, files)
         found = []
+        imports = store.quote_imports(conn, commit)
         for symbol in symbols:
             last = read_bars(conn, commit, symbol, "LAST", start_ms, end_ms)
             mark = read_bars(conn, commit, symbol, "MARK", start_ms, end_ms)
             funding = read_funding(conn, commit, symbol, start_ms, end_ms)
+            facts = coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding)
             terms = instrument.terms(conn, commit, symbol)
-            found.append({**coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding),
+            found.append({**facts, "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
+                          "quotes": quote_facts(conn, commit, symbol, start_ms, end_ms, imports),
                           "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},
