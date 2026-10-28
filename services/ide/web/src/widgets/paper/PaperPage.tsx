@@ -16,16 +16,14 @@ import { TradesCard } from "./TradesCard";
 
 const Empty = ({ children }: { children: string }) => <p className="grid h-full place-items-center text-dense text-fg-faint">{children}</p>;
 
-/** What the page says while the page's server has a daemon that does not answer: the runs are not gone. */
-export const DAEMON_COMMAND = "uv run python -m cli.main paper serve";
+/** What the page says while the page's server has a daemon that does not answer: the runs are not gone,
+ *  and nothing is asked of the user, who may have no shell on the machine; the deployment restarts it. */
 function Offline() {
   return (
     <div className="grid h-full place-items-center p-6">
       <div className="max-w-md text-center text-dense">
         <p className="font-semibold text-fg">Paper daemon offline</p>
-        <p className="mt-2 text-balance text-fg-muted">Runs keep going in their containers. One that ends is sealed when the daemon is back.</p>
-        <p className="mt-5 text-fg-muted">Start it on the host:</p>
-        <code className="mt-1 inline-block select-all rounded-badge border border-line-strong bg-island-alt px-2 py-1 font-mono text-small text-fg">{DAEMON_COMMAND}</code>
+        <p className="mt-2 text-balance text-fg-muted">Runs keep going in their containers. One that ends is sealed when the daemon is back, and this page reconnects on its own.</p>
       </div>
     </div>
   );
