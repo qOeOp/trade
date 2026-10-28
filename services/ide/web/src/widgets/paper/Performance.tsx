@@ -5,11 +5,10 @@ import type { Flows } from "../../model/flows";
 import { span } from "../../model/trades";
 import { pnlClass } from "../../theme/roles";
 import { ScrollArea } from "../../components/ScrollArea";
-import { Card, Section } from "../../components/Section";
+import { Section } from "../../components/Section";
 import { byContract, Contracts, Exits, signed } from "./performanceParts";
 import { PnlFlow } from "./Flow";
 import { TradeStrip } from "./TradeStrip";
-import { useFold } from "./useFold";
 
 const STEPS = 5;  // the drawdown track is graduated in fifths of the limit
 const pct = (n: number, digits = 2) => `${(Math.abs(n) * 100).toFixed(digits)}%`;
@@ -57,21 +56,18 @@ const Unit = ({ children }: { children: ReactNode }) => <span className="text-fg
 /** The Performance card, under the runs' stack, as cards as in Details: the run against the line's two
  *  targets (its deepest drawdown so far against the drawdown limit; its return against what the minimum
  *  annual return asks for by now, never annualized), its closed trades one by one and how they ended, by
- *  contract, and what they say, in a column that scrolls; under it, always in view, what moved its
- *  equity. The column's cards start open as far as they fit, folding from the bottom up (useFold); the
- *  card remounts for each run (PaperPage). */
+ *  contract, what they say, and what moved its equity, every card open at first, in one column that
+ *  scrolls; the card remounts for each run (PaperPage). */
 export function Performance({ a, stats, flows, targets }: { a: Account; stats: TradeStats; flows: Flows | null; targets: { limit: number | null; annual: number | null } }) {
   const needed = targets.annual === null ? null : neededReturn(targets.annual, a);
   // Ahead by the difference of the two figures as shown, so the note adds up on screen.
   const shown = (n: number) => Math.round(n * 1e4) / 1e4;
   const ahead = needed === null || a.ret === null ? null : shown(a.ret) - shown(needed);
   const mdd = a.maxDrawdown ?? 0, by = byContract(a.trades);
-  const fold = useFold(by.size > 1 ? ["stats", "contracts", "trades", "targets"] : ["stats", "trades", "targets"]);
-  const card = (key: string) => ({ ref: fold.card(key), control: fold.control(key) });
   return (
-    <section aria-label="Performance" className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-island bg-island p-2 text-dense">
-      <ScrollArea className="min-h-0 flex-1"><div ref={fold.column} className="flex flex-col gap-2">
-        <Section title="Targets" {...card("targets")}><div className="flex flex-col gap-3">
+    <section aria-label="Performance" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-island bg-island p-2 text-dense">
+      <ScrollArea className="min-h-0 flex-1"><div className="flex flex-col gap-2">
+        <Section title="Targets"><div className="flex flex-col gap-3">
           <Target name="Max drawdown" value={pct(mdd)} of={targets.limit === null ? undefined : `of ${pct(targets.limit, 0)} limit`}
                   note={a.drawdown === null ? "At the stop" : a.drawdown < mdd - 1e-4 ? `Now ${pct(a.drawdown)} below the peak` : "At its worst now"}>
             {targets.limit !== null && <Track used={mdd / targets.limit} now={(a.drawdown ?? mdd) / targets.limit} />}
@@ -80,12 +76,12 @@ export function Performance({ a, stats, flows, targets }: { a: Account; stats: T
                   note={ahead === null ? undefined : <><span className={ahead >= 0 ? "text-pnl-up" : "text-pnl-down"}>
                     {ahead >= 0 ? "On pace" : "Behind pace"} · {signed(ahead * 100)} pt ({signed(ahead * a.starting, 0)} USDT)</span> for {pct(targets.annual!, 0)} a year</>} />
         </div></Section>
-        <Section title="Trades" {...card("trades")}><div className="flex flex-col gap-3">
+        <Section title="Trades"><div className="flex flex-col gap-3">
           <TradeStrip trades={a.trades} />
           <Exits exits={stats.exits} />
         </div></Section>
-        {by.size > 1 && <Section title="By contract" aside="closed trades, after fees" {...card("contracts")}><Contracts by={by} /></Section>}
-        <Section title="Trade stats" {...card("stats")}><div className="grid grid-cols-3 gap-x-2.5 gap-y-2">
+        {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><Contracts by={by} /></Section>}
+        <Section title="Trade stats"><div className="grid grid-cols-3 gap-x-2.5 gap-y-2">
           <Stat name="Win rate">{stats.winRate === null ? MISSING : <>{(stats.winRate * 100).toFixed(1)}<Unit>%</Unit></>}</Stat>
           <Stat name="Profit factor">{stats.profitFactor === null ? MISSING : stats.profitFactor.toFixed(2)}</Stat>
           <Stat name="Per trade"><span className={pnlClass(stats.perTrade)}>{signed(stats.perTrade)}</span></Stat>
@@ -96,10 +92,10 @@ export function Performance({ a, stats, flows, targets }: { a: Account; stats: T
           <Stat name="In market">{stats.inMarket === null ? MISSING : <>{Math.round(stats.inMarket * 100)}<Unit>%</Unit></>}</Stat>
           <Stat name="Long · short">{stats.longs}<Unit> · </Unit>{stats.shorts}</Stat>
         </div></Section>
+        {flows && <Section title="Profit and loss" aside="since the start"><PnlFlow a={a} f={flows} /></Section>}
         {/* A fade at the foot while more is below; under the last card once all of it shows. */}
         <i className="sticky bottom-0 -mt-2 h-4 shrink-0 bg-linear-to-t from-island" />
       </div></ScrollArea>
-      {flows && <Card title="Profit and loss" aside="since the start"><PnlFlow a={a} f={flows} /></Card>}
     </section>
   );
 }
