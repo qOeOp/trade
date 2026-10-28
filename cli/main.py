@@ -1361,8 +1361,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "CONCURRENT_IMPORT; "
         "DIRTY_WORKING_SET; CHECKSUM_MISMATCH, ARCHIVE_NOT_PUBLISHED, SOURCE_UNREACHABLE"),
     ("market", "import-quotes"): (
-        "the month's universe members, contract terms and stored quotes (import account, holding the import "
-        "lock); Binance daily aggTrades archives of every closed day of the month and the day before it "
+        "the month's universe members, each contract's newest stored terms and stored quotes (import account, "
+        "holding the import lock): every month, an earlier one included, is inferred with the price increment "
+        "observed last, not the one in force that month; Binance daily aggTrades archives of every closed day of the month and the day before it "
         "(checksum-verified, cached under --cache-root)",
         "best bid/ask quote rows inferred from the trades, in one market commit; publishes the market",
         "month, through, quote_rule, symbols, quote_rows, per_symbol, archives (each day's SHA-256), "
