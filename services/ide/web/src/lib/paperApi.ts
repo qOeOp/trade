@@ -70,8 +70,14 @@ export async function paperApi<T>(path: string, init: { method?: string; body?: 
   return body as T;
 }
 
-export const streamUrl = (paperId: number, symbol: string | null) =>
-  `/api/paper/runs/${paperId}/stream${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`;
+/** What a page holds of a run's journal, for its stream to leave out: its first `lines` lines but bars,
+ *  the last written at `last` (wall ns), and the bars (or every contract's closes) up to `bars` (ns). */
+export type Resume = { lines: number; last: number; bars: number };
+
+export const streamUrl = (paperId: number, symbol: string | null, resume: Resume | null = null) => {
+  const query = new URLSearchParams({ ...(symbol ? { symbol } : {}), ...(resume ? { lines: `${resume.lines}`, last: `${resume.last}`, bars: `${resume.bars}` } : {}) });
+  return `/api/paper/runs/${paperId}/stream${query.size ? `?${query}` : ""}`;
+};
 
 /** A Nautilus money or quantity text ("99990.12 USDT", "0.010") as a number. */
 export const amount = (value: unknown): number | null => {
