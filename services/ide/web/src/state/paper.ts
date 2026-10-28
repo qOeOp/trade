@@ -1,8 +1,8 @@
-// Paper runs on the page: whether the page's server reaches a paper daemon, the runs it lists (read
-// every few seconds while it does), the run and view the Paper page shows, starts and stops in flight,
-// the dialogs that ask before one, and the last notice for the status bar.
+// Paper runs on the page: whether the page's server has a paper daemon and reaches it, the runs it lists
+// (read every few seconds while it does), the run and view the Paper page shows, starts and stops in
+// flight, the dialogs that ask before one, and the last notice for the status bar.
 import { ApiError } from "../lib/agentApi";
-import { paperApi, type Listing, type PaperRun } from "../lib/paperApi";
+import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
 import { atom, useAtom } from "./atom";
 
 const POLL_MS = 3000;
@@ -10,7 +10,10 @@ const NOTICE_MS = 6000;
 /** States of a run that has not been sealed yet: it still has (or had) containers. */
 export const ACTIVE = new Set(["running", "stopping", "ended", "unsealed"]);
 
-export const paperService = atom<"checking" | "absent" | "present">("checking");
+/** Whether the page's server has a paper daemon (`--paper`, which puts a token in the page): "absent"
+ *  without one; with one, "present" while it answers and "offline" while it does not, asked again every
+ *  few seconds, so the Paper page says the daemon is down instead of vanishing. */
+export const paperService = atom<"checking" | "absent" | "offline" | "present">("checking");
 export const paperRuns = atom<Listing | null>(null);
 /** The run the Paper page shows, and what its chart shows: "equity", or a contract (null until the
  *  page picks one). The trades and events follow the chart: a contract's alone, or all on Equity. */
@@ -27,6 +30,8 @@ export const deleteDialog = atom<PaperRun | null>(null);
 export const notice = atom<{ text: string; failed: boolean; n: number } | null>(null);
 
 export const usePaperService = () => useAtom(paperService);
+/** The page has a Paper panel: its server has a daemon, answering or not. */
+export const usePaperPanel = () => { const service = useAtom(paperService); return service === "present" || service === "offline"; };
 export const usePaperRuns = () => useAtom(paperRuns);
 
 let shown = 0;
@@ -38,31 +43,49 @@ function say(text: string, failed = false): void {
 const add = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set, item]);
 const drop = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set].filter((x) => x !== item));
 
+// Polls the daemon goes unanswered before the page calls it offline: one may be a blip.
+const MISSES = 2;
+let missed = 0;
+
 export async function refreshRuns(): Promise<void> {
   try {
     const listing = await paperApi<Listing>("/runs");
+    missed = 0;
     paperRuns.set(listing);
     if (selectedRun.get() === null || !listing.runs.some((r) => r.paper_id === selectedRun.get())) {
       const active = listing.runs.filter((r) => ACTIVE.has(r.state));
       selectedRun.set((active[active.length - 1] ?? listing.runs[listing.runs.length - 1])?.paper_id ?? null);
     }
   } catch (error) {
-    if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") return;  // a blip; the next poll tries again
+    if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
+      if (++missed >= MISSES) paperService.set("offline");
+      return;
+    }
     say(`Paper runs could not be read: ${error instanceof ApiError ? `${error.code}: ${error.message}` : String(error)}`, true);
   }
 }
 
-/** Asks the page's server for the paper daemon once; with one, follows its runs. */
-export async function detectPaperService(): Promise<void> {
+async function poll(): Promise<void> {
+  if (paperService.get() === "present") return refreshRuns();
   try {
     await paperApi("/health");
   } catch {
+    paperService.set("offline");
+    return;
+  }
+  missed = 0;
+  paperService.set("present");
+  await refreshRuns();
+}
+
+/** With a daemon behind the page's server, follows it: its runs while it answers, its health while not. */
+export async function detectPaperService(): Promise<void> {
+  if (!paperToken()) {
     paperService.set("absent");
     return;
   }
-  paperService.set("present");
-  await refreshRuns();
-  window.setInterval(() => void refreshRuns(), POLL_MS);
+  await poll();
+  window.setInterval(() => void poll(), POLL_MS);
 }
 
 /** The version's run that has not been sealed yet, if any (one per version at a time). */

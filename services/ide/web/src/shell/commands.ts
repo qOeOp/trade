@@ -17,7 +17,7 @@ export function commands(windows: readonly ToolWindow[]): Action[] {
       id: `tool:${w.id}`, label: `Toggle ${w.renderer.title}`, icon: w.icon, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
       run: () => toggleToolWindow(w.id, w.side),
     })),
-    ...(paperService.get() === "present" ? [{
+    ...(paperService.get() === "present" || paperService.get() === "offline" ? [{
       id: "paper", label: "Toggle Paper panel", icon: "tool.paper" as const, keys: "⌥8", binding: "Alt+Digit8",
       run: () => (shell.get().last.left === "paper" ? showLineage() : showPaperPanel()),
     }] : []),

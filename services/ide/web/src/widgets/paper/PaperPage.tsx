@@ -6,7 +6,7 @@ import { fills as fillsOf } from "../../model/paper";
 import type { LineageWidget } from "../../model/types";
 import { useView, useWidget } from "../../model/view";
 import { useAtom } from "../../state/atom";
-import { paperTab, selectedRun, usePaperRuns } from "../../state/paper";
+import { paperTab, selectedRun, usePaperRuns, usePaperService } from "../../state/paper";
 import { follow, pickedDay, useStream } from "../../state/paperStream";
 import { followReconciliation } from "../../state/reconcile";
 import { Calendar } from "./Calendar";
@@ -16,12 +16,28 @@ import { TradesCard } from "./TradesCard";
 
 const Empty = ({ children }: { children: string }) => <p className="grid h-full place-items-center text-dense text-fg-faint">{children}</p>;
 
+/** What the page says while the page's server has a daemon that does not answer: the runs are not gone. */
+export const DAEMON_COMMAND = "uv run python -m cli.main paper serve";
+function Offline() {
+  return (
+    <div className="grid h-full place-items-center p-6">
+      <div className="max-w-md text-center text-dense">
+        <p className="font-semibold text-fg">Paper daemon offline</p>
+        <p className="mt-2 text-balance text-fg-muted">Runs keep going in their containers. One that ends is sealed when the daemon is back.</p>
+        <p className="mt-5 text-fg-muted">Start it on the host:</p>
+        <code className="mt-1 inline-block select-all rounded-badge border border-line-strong bg-island-alt px-2 py-1 font-mono text-small text-fg">{DAEMON_COMMAND}</code>
+      </div>
+    </div>
+  );
+}
+
 /** The Paper page, laid out on the frame as four cards in two columns that share their bottom row:
  *  the chart with the trades under it; at the right the run's performance against the line's targets,
  *  and its calendar beside the trades. The run is picked in the main toolbar. The chart picks
  *  what the rest follows: a contract, or Equity for all of them. Until the user picks, it opens on a
  *  contract holding a position, else on Equity. Short, the page scrolls. */
 export function PaperPage() {
+  const offline = usePaperService() === "offline";
   const listing = usePaperRuns();
   const selected = useAtom(selectedRun);
   const tab = useAtom(paperTab);
@@ -49,6 +65,7 @@ export function PaperPage() {
   const t = view.targets ?? lineage?.targets ?? null;
   const targets = { limit: t?.max_drawdown ?? null, annual: t?.annual_return ?? null };
 
+  if (offline) return <Offline />;
   if (!listing) return <Empty>Reading the paper runs…</Empty>;
   if (!listing.runs.length) return <Empty>No paper runs yet: hover a version in the graph and press ▶ to start one.</Empty>;
   if (!run) return <Empty>Pick a run</Empty>;

@@ -51,7 +51,8 @@ export type PaperState = {
   positions: OpenPosition[]; orders: OpenOrder[];
 };
 
-const token = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
+/** The token the page's server puts in the page when it has a paper daemon (`--paper`); empty without one. */
+export const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
 
 /** One JSON request to the paper daemon; throws its refusal as an ApiError. */
 export async function paperApi<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -59,7 +60,7 @@ export async function paperApi<T>(path: string, init: { method?: string; body?: 
   try {
     response = await fetch(`/api/paper${path}`, {
       method: init.method ?? "GET", cache: "no-store",
-      headers: init.method === "POST" ? { "content-type": "application/json", "x-trade-paper-token": token() } : undefined,
+      headers: init.method === "POST" ? { "content-type": "application/json", "x-trade-paper-token": paperToken() } : undefined,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
   } catch (error) {
