@@ -77,6 +77,27 @@ class HubTests(unittest.TestCase):
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
 
+    def test_a_slow_pull_does_not_hold_a_page(self):
+        until(lambda: self.hub.view(None, None, None)[0] == 200)
+        pulling, release = threading.Event(), threading.Event()
+
+        def run(argv, **options):
+            pulling.set()
+            release.wait(5)
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        self.hub.pull = "/pull"
+        self.product.head = "b" * 32
+        with mock.patch.object(serve.subprocess, "run", side_effect=run):
+            threading.Thread(target=self.hub.refresh, daemon=True).start()
+            pulling.wait(5)
+            time.sleep(0.1)  # the head was read longer than `poll` ago
+            started = time.monotonic()
+            status, view = self.hub.view(None, None, None)
+            self.assertLess(time.monotonic() - started, 1, "the page does not wait for the pull")
+            self.assertEqual((status, view["scope"]["ledger_commit"]), (200, "a" * 32), "it gets the last view")
+            release.set()
+            until(lambda: self.hub.view(None, None, None)[1].get("scope", {}).get("ledger_commit") == "b" * 32)
+
     def test_an_open_page_follows_the_head_and_gets_only_the_latest_graph(self):
         client = serve.Client(None, None, None)
         self.hub.refresh(wait=True)

@@ -270,9 +270,12 @@ class Hub:
 
     def view(self, line: str | None, since: str | None, at: str | None) -> tuple[int, dict]:
         """(200, view), (202, state) after asking for it, or (503, failure) when there is no head or the
-        copy no longer follows its public copy."""
-        if at is None and (self.head is None or time.monotonic() - self.checked > self.poll):
+        copy no longer follows its public copy. Only the first head is waited for; a stale one is refreshed in
+        the background, since a pull can take minutes, and the page hears of a new head through its events."""
+        if at is None and self.head is None:
             self.refresh(wait=True)
+        elif at is None and time.monotonic() - self.checked > self.poll:
+            threading.Thread(target=self.refresh, daemon=True).start()
         with self.lock:
             if at is None and self.rewritten is not None:
                 return 503, self.rewritten
