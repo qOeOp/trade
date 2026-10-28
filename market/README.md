@@ -148,7 +148,9 @@ the tests.
 Two sources' rows of one minute must agree at the stored scale (`1.50` and `1.5` agree). Funding is
 one settlement per slot: a funding time belongs to its nearest whole UTC hour (Binance settles at most
 hourly, with milliseconds of jitter), two sources in one slot must give one rate (the earlier source's
-time is kept), and one source with two settlements in a slot is `SOURCE_SHAPE`. An archive row outside
+time is kept), and one source with two settlements in a slot is `SOURCE_SHAPE`. `market coverage` reports each contract's
+settlement spacing in the interval (runs of equal spacing between settlements, a new run is a spacing
+change) and the settlements missing inside a run, instead of the settlement times (`market bars` lists them). An archive row outside
 its own month or day, or off the minute grid, is `SOURCE_SHAPE` before anything is trimmed. Archives are working copies under `--cache-root`.
 The derived daily bars of each contract are checked against the exchange's daily klines; findings
 are reported, nothing is changed.

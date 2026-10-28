@@ -998,7 +998,11 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
                                            the native liquidation with the exported best bid/ask and needs
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
-coverage[].funding.event_times_ms is most of the output.
+coverage[].funding: rows, first_ms, last_ms; spacing [{spacing_ms, from_ms, to_ms}], the runs of equal
+spacing between consecutive settlements, each time taken at its nearest whole UTC hour (a new run is a
+spacing change); missing_settlements [{after_ms, before_ms, missing}], where a single interval is a
+whole multiple k >= 2 of the spacing beside it (the same on both sides): k - 1 settlements missing.
+Settlement times themselves: market bars.
 coverage[].quotes: imports [{month, through (exclusive end day), quote_rule, commit, rows}], every
 quote import holding the contract, rows counted by the import's receipt (its commit message); first_ms
 and last_ms, the first and last stored quote in the interval; uncovered_intervals_ms, the [from, to)
