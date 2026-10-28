@@ -117,8 +117,10 @@ def stopped_before_data(conn: db.LedgerConnection, trial_id: int, source_sha256:
         raise
     if capture["status"] != "captured" or capture["purpose"] != "precheck":
         return False
-    stages = capture.get("stages") if isinstance(capture.get("stages"), Mapping) else {}
-    native = stages.get("native") if isinstance(stages.get("native"), Mapping) else {}
+    stages = capture.get("stages")
+    stages = stages if isinstance(stages, Mapping) else {}
+    native = stages.get("native")
+    native = native if isinstance(native, Mapping) else {}
     failures = capture["runtime_failures"]
     return (native.get("state") == "exited" and native.get("exit_code") not in (0, None) and bool(failures)
             and all(isinstance(failure, Mapping) and failure.get("stage") in PRE_DATA_STAGES for failure in failures))
