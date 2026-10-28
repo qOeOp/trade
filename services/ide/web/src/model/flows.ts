@@ -1,10 +1,10 @@
 // What moved a paper run's equity since the start as flows, for the Performance card's Sankey: what came
 // in (each contract's winning trades before fees, funding received, open profit, a net loss drawn from
 // the starting balance) and where it went (each contract's losing trades before fees, fees, funding paid,
-// open loss, the net kept), so that the two sides add up. Each contract's wins first cover its own
-// losses; what is left on the left then fills what is left on the right, both in their columns' order
-// (the contracts' losses beyond their own wins, then the other outflows, the net last), so those links
-// never cross.
+// open loss, the net kept), so that the two sides add up. The contracts stand in By contract's order (best
+// after fees first). Each contract's wins first cover its own losses; what is left on the left then fills
+// what is left on the right, both in their columns' order (the contracts' losses beyond their own wins,
+// then the other outflows, the net last).
 import { amount, symbolOf, type JournalLine } from "../lib/paperApi";
 import type { Account } from "./account";
 import { eventMs } from "./paper";
@@ -23,14 +23,15 @@ export type Flows = { into: Flow[]; out: Flow[]; links: Link[]; total: number; d
 
 const CENT = 0.005;  // smaller flows are left out, and at whole units any that would show as 0
 
-/** Each closed trade's result before fees: its realized P&L (fees included) plus the commissions of the
- *  fills that built and closed it, each fill counted at its position's first close at or after it. */
+/** Each closed trade's result after fees (its realized P&L) and before them: that plus the commissions of
+ *  the fills that built and closed it, each fill counted at its position's first close at or after it. */
 function closedGross(lines: readonly JournalLine[]) {
-  const closes = new Map<string, { symbol: string; at: number; gross: number }[]>(), fees: [string, number, number][] = [];
+  const closes = new Map<string, { symbol: string; at: number; pnl: number; gross: number }[]>(), fees: [string, number, number][] = [];
   for (const l of lines) {
     if (l.kind === "position" && l.type === "PositionClosed") {
       const id = String(l.position_id), list = closes.get(id) ?? [];
-      list.push({ symbol: symbolOf(l.instrument_id), at: eventMs(l), gross: amount(l.realized_pnl) ?? 0 });
+      const pnl = amount(l.realized_pnl) ?? 0;
+      list.push({ symbol: symbolOf(l.instrument_id), at: eventMs(l), pnl, gross: pnl });
       closes.set(id, list);
     } else if (l.kind === "order" && l.type === "OrderFilled" && l.position_id) fees.push([String(l.position_id), eventMs(l), amount(l.commission) ?? 0]);
   }
@@ -45,10 +46,11 @@ function closedGross(lines: readonly JournalLine[]) {
 export function flows(a: Account, lines: readonly JournalLine[], most = 3): Flows | null {
   if (a.gross === null || a.net === null || a.open === null) return null;
   const trades = closedGross(lines), other = a.gross - trades.reduce((sum, t) => sum + t.gross, 0);
-  const by = new Map<string, { win: number; loss: number }>();
+  const by = new Map<string, { win: number; loss: number; pnl: number }>();
   for (const t of trades) {
-    const c = by.get(t.symbol) ?? { win: 0, loss: 0 };
+    const c = by.get(t.symbol) ?? { win: 0, loss: 0, pnl: 0 };
     if (t.gross > 0) c.win += t.gross; else c.loss -= t.gross;
+    c.pnl += t.pnl;
     by.set(t.symbol, c);
   }
   // The other flows, each as it moves equity (in when positive) and as the account reads it; the net
@@ -73,16 +75,18 @@ export function flows(a: Account, lines: readonly JournalLine[], most = 3): Flow
     return { key: `${side}:${key}`, name: key === "rest" ? `+${x.of.length}` : key, kind: side, value: x.value, signed: side === "win" ? x.value : -x.value,
              ...(key === "rest" ? { of: x.of } : {}) };
   };
-  // The contracts on both sides in one order, worst net first and the rest last: a contract's own ribbon
-  // then runs level, and what a contract's losses lack comes from the one next below it.
-  const net = (k: string) => (wins.get(k)?.value ?? 0) - (losses.get(k)?.value ?? 0);
-  const order = [...new Set([...wins.keys(), ...losses.keys()])].filter((k) => k !== "rest").sort((x, y) => net(x) - net(y)).concat("rest");
+  // The contracts on both sides in one order, By contract's (best after fees first), the rest last: a
+  // contract's own ribbon then runs level.
+  const pnl = (k: string) => by.get(k)!.pnl;
+  const order = [...new Set([...wins.keys(), ...losses.keys()])].filter((k) => k !== "rest").sort((x, y) => pnl(y) - pnl(x)).concat("rest");
   const into = order.filter((k) => wins.has(k)).map(contract("win", wins)).filter((f) => f.value >= least);
   const out = order.filter((k) => losses.has(k)).map(contract("loss", losses)).filter((f) => f.value >= least);
   for (const [kind, name, flow, signed] of others) if (Math.abs(flow) >= least) (flow > 0 ? into : out).push({ key: kind, name, kind, value: Math.abs(flow), signed });
 
   // The links: each contract's wins to its own losses; then what is left of each flow in, top to bottom,
-  // fills what is left of the flows out, top to bottom.
+  // fills what is left of the flows out, top to bottom, leaving out shares smaller than any flow shown.
+  // The flows left out leave the two sides apart by up to their sum, so a flow no link reaches then joins
+  // the other side's last flow (the net, unless it is too small to show) with its whole value.
   const shown = new Set([...into, ...out].map((f) => f.key)), joined = new Map<string, Link>(), used = new Map<string, number>();
   const join = (from: string, to: string, value: number) => {
     if (value <= 0 || !shown.has(from) || !shown.has(to)) return;
@@ -95,11 +99,13 @@ export function flows(a: Account, lines: readonly JournalLine[], most = 3): Flow
   const ins = left(into), outs = left(out);
   for (let i = 0, j = 0; i < ins.length && j < outs.length;) {
     const from = ins[i]!, to = outs[j]!, share = Math.min(from.value, to.value);
-    join(from.key, to.key, share);
+    if (share >= least) join(from.key, to.key, share);
     from.value -= share; to.value -= share;
-    if (from.value <= CENT) i++;
-    if (to.value <= CENT) j++;
+    if (from.value < least) i++;
+    if (to.value < least) j++;
   }
+  for (const f of into) if (!used.has(f.key)) join(f.key, out.at(-1)?.key ?? "", f.value);
+  for (const f of out) if (!used.has(f.key)) join(into.at(-1)?.key ?? "", f.key, f.value);
   const total = into.reduce((sum, f) => sum + f.value, 0);
   return total >= CENT ? { into, out, links: [...joined.values()], total, dp } : null;
 }
