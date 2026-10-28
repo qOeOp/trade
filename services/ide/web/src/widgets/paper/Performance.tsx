@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { MISSING } from "../../lib/format";
 import { neededReturn, type Account, type TradeStats } from "../../model/account";
+import type { Flows } from "../../model/flows";
 import { span } from "../../model/trades";
 import { pnlClass } from "../../theme/roles";
 import { ScrollArea } from "../../components/ScrollArea";
 import { Card, Section } from "../../components/Section";
-import { Bridge, byContract, Contracts, Exits, signed } from "./performanceParts";
+import { byContract, Contracts, Exits, signed } from "./performanceParts";
+import { PnlFlow } from "./Flow";
 import { TradeStrip } from "./TradeStrip";
 import { useFold } from "./useFold";
 
@@ -58,7 +60,7 @@ const Unit = ({ children }: { children: ReactNode }) => <span className="text-fg
  *  contract, and what they say, in a column that scrolls; under it, always in view, what moved its
  *  equity. The column's cards start open as far as they fit, folding from the bottom up (useFold); the
  *  card remounts for each run (PaperPage). */
-export function Performance({ a, stats, targets }: { a: Account; stats: TradeStats; targets: { limit: number | null; annual: number | null } }) {
+export function Performance({ a, stats, flows, targets }: { a: Account; stats: TradeStats; flows: Flows | null; targets: { limit: number | null; annual: number | null } }) {
   const needed = targets.annual === null ? null : neededReturn(targets.annual, a);
   // Ahead by the difference of the two figures as shown, so the note adds up on screen.
   const shown = (n: number) => Math.round(n * 1e4) / 1e4;
@@ -97,7 +99,7 @@ export function Performance({ a, stats, targets }: { a: Account; stats: TradeSta
         {/* A fade at the foot while more is below; under the last card once all of it shows. */}
         <i className="sticky bottom-0 -mt-2 h-4 shrink-0 bg-linear-to-t from-island" />
       </div></ScrollArea>
-      {a.net !== null && a.gross !== null && a.open !== null && <Card title="Profit and loss" aside="since the start"><Bridge a={a} /></Card>}
+      {flows && <Card title="Profit and loss" aside="since the start"><PnlFlow a={a} f={flows} /></Card>}
     </section>
   );
 }

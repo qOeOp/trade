@@ -13,7 +13,7 @@ daily LAST bars derived from the minutes before the window's end (the daily warm
 episode's window events. `export.json`, written last, marks a complete export; a cache entry is
 keyed by commit, window and lifecycle evidence, and a missing or partial one is exported again. The
 receipt keeps the funding settlements' count and bounds, not their times: those stay in the pinned
-commit (`market.read_funding`, `market coverage`), and the receipt is sealed with every trial.
+commit (`market.read_funding`, `market bars`), and the receipt is sealed with every trial.
 """
 
 from __future__ import annotations
@@ -319,12 +319,6 @@ def daily_bars(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None,
 
 # market.export_episode
 
-def receipt_coverage(facts: dict) -> dict:
-    """The coverage facts an export receipt stores: market.coverage_facts without the funding event
-    times, which the pinned commit gives back."""
-    return {**facts, "funding": {key: value for key, value in facts["funding"].items() if key != "event_times_ms"}}
-
-
 def export_episode(job: dict) -> dict:
     """market.export_episode: one contract's Catalogs for the window under `job['path']`; returns its receipt."""
     from nautilus_trader.model import InstrumentId
@@ -399,7 +393,7 @@ def export_episode(job: dict) -> dict:
                        "episode": piece["episode"]})
     assert record is not None  # split_episodes returns at least one piece
     receipt = {"format": FORMAT, "symbol": symbol, "commit": commit, "timeframe": TIMEFRAME, "start_ns": start_ns,
-               "end_ns": end_ns, "coverage": receipt_coverage(facts), "terms_source": record["terms_source"],
+               "end_ns": end_ns, "coverage": facts, "terms_source": record["terms_source"],
                "terms_observed_at": record["terms_observed_at"], "historical_terms": record["historical_terms"],
                "assumed": record["assumed"], "pieces": pieces, "seconds": round(time.monotonic() - started, 1)}
     (path / "export.json").write_text(json.dumps(receipt, indent=1, ensure_ascii=False), encoding="utf-8")

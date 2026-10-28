@@ -1,0 +1,20 @@
+name: Select component CI
+description: Compare the checked-out PR merge tree with its base, failing on diff errors.
+inputs:
+  paths:
+    description: Newline-separated git pathspecs that require this component's checks.
+    required: true
+outputs:
+  changed:
+    description: Whether this component must run (always true outside pull requests).
+    value: ${{ steps.paths.outputs.changed }}
+runs:
+  using: composite
+  steps:
+    - id: paths
+      shell: bash
+      env:
+        CI_EVENT_NAME: ${{ github.event_name }}
+        CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        CI_PATHS: ${{ inputs.paths }}
+      run: python3 .github/scripts/ci-paths.py
