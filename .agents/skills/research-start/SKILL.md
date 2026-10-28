@@ -24,25 +24,14 @@ selected (`line select`); everything inside it follows `research-round`.
   choose another line (Offer lines and wait).
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
-- When `research state` lists a `RUNTIME_UNSUPPORTED` gate, the line's candidates are on a
-  runtime contract this product no longer runs. Tell the user plainly that the line is on the old
-  contract and can only be closed and research restarted on the new one; never offer to continue
-  it, continue it after an interruption, or establish a Goal for it. Closing it is leaving the
-  line (Offer lines and wait); the new line's `line select` ends it for `line close`. Research
-  restarted on the new contract begins as a root ([template.md](../research-round/references/template.md)):
-  published without a parent and registered with no parent, no control and empty `changed_duties`,
-  its rationale carrying the old candidate's idea. An old-contract candidate is never its parent,
-  since its runs can be neither replayed nor compared. An option that restarts from an
-  old-contract candidate tells the user three things: the restart is a new rule, not the old one
-  run again; its first report has no control; the old rule's results cannot be tested again.
-- When `research state` lists a `MARKET_COMMIT_UNRESOLVED` gate, no branch of the active market
-  database holds the line's pinned market commit, so the line can neither register nor replay.
-  Tell the user plainly which commit is missing and that the line runs again only once that commit
-  is back in the market database. Restoring it is the user's data decision (a market write), not a
-  research step: the question offers only lines that can run now (Offer lines and wait), never
-  keeping, pausing or waiting on this line while the commit is obtained, recovered or verified, and
-  you never propose re-attaching history, changing the resolver or writing the market database.
-  Establish no Goal for this line while the gate stands; close it only when the user chooses another line.
+- A gate in `research state` stops its line: tell the user plainly what it blocks and what would
+  lift it. `RUNTIME_UNSUPPORTED`: the line's candidates are on a runtime contract this product no
+  longer runs, so the line can only be closed and research restarted on the new contract
+  (research-round's [changes.md](../research-round/references/changes.md)).
+  `MARKET_COMMIT_UNRESOLVED`: no branch of the market database holds the line's pinned commit, so
+  the line runs again only once that commit is back; restoring it is the user's market write, never
+  a research step you propose. Never continue a gated line, after an interruption included, or
+  establish a Goal for it; it closes when the user chooses another line.
 - When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
   background sub-agent (on a host without one, do it before the session ends). For each line, read
   it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its
@@ -52,24 +41,29 @@ selected (`line select`); everything inside it follows `research-round`.
 
 Present the latest recommendation and the line options ([recommendation.md](references/recommendation.md)).
 
+- **Every option is a line that can start now:** `research state` lists no gate for it; its start
+  can be registered on the chosen window (only a source that has never run, or a candidate whose
+  research runs are already on that window and commit: the exposure check refuses a source that has
+  already run); and `market coverage` at the commit to pin has every month the window needs (bars,
+  and quotes for a line that executes on them). Say in one line what an option that fails lacks.
+  Supplying it (importing months with `market import` or `market import-quotes`, restoring a
+  market commit) is a separate public write the user decides, not an option to wait on. A frozen
+  rule is tested again only by out-of-sample validation at the user's request (research-round's
+  validation), never on earlier months.
+- When no existing candidate can start a line, design two or three complete new starts yourself:
+  each a source that has never run (a revision with a substantive change, or a root, which needs
+  no template authorization), marked not yet replayed, with its window, market commit, execution
+  environment (research-round), readiness result and Goal objective, so that one choice approves
+  both the line and its Goal. List template roots (research-round's
+  [template.md](../research-round/references/template.md)) when the ledger has no candidate or the
+  user says to leave every line, each with its first report on the current window or marked not
+  yet replayed; a root from a user source is made only when the user gives the source.
+- A due line change (research-round) is offered here too, after the ledger reads above: this line
+  beside the lines the ledger's other candidates could start (`candidate list`). A loss, an
+  insignificant result, a low priority, a review count, a run limit or a fault never brings up
+  template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
-- A due line change (research-round) is offered here too, after the ledger reads above: this
-  line beside the lines the ledger's other candidates could start (`candidate list`), each with
-  the readings recommendation.md lists. New scopes or starting points inside this line are only
-  some of the options. When no existing candidate can start a new line (each fails
-  recommendation.md's checks), design two or three complete new starts yourself instead of a
-  direction to study or a design for the user to steer: each a source that has never run (a
-  revision with a substantive change, or a root), marked not yet replayed, with its window, market
-  commit, execution environment (research-round), readiness result and Goal objective, so that
-  one choice approves both the line and its Goal.
-- List template roots (research-round's [template.md](../research-round/references/template.md))
-  only when the ledger has no candidate, the user says to leave every existing line or no existing
-  line can run (each gated as above or failing recommendation.md's checks), each with
-  its first report on the current development window or marked not yet replayed. A loss, an
-  insignificant result, a low priority, a review count, a run limit or a fault never brings up
-  roots: give the recommendation and priorities inside the line. A root from a user source is made
-  only when the user gives the source.
 
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
 then published, prechecked and reviewed (research-round's template.md, First report). Record the
