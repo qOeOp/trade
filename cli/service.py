@@ -182,8 +182,8 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                 raise refuse("BOOTSTRAP_FAILED", f"cloning {origins[name]} failed: {cloned.stderr.strip()[-300:]}",
                              missing=(origins[name],))
         _write_config(service_root, data_dir, port)
-        config = {"binary": binary, "port": port, "root_password": secrets.token_urlsafe(24), "databases": {},
-                  "secured": False}
+        config: dict = {"binary": binary, "port": port, "root_password": secrets.token_urlsafe(24), "databases": {},
+                        "secured": False}
         server = _launch(binary, service_root, log)
         _ready(config, server, password="")
         conn = db._admin(config, password="")

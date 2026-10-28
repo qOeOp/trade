@@ -251,6 +251,7 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
         raise refuse("LEDGER_NOT_INITIALIZED", f"{profile.service_root} holds no initialized ledger {profile.database}",
                      missing=(profile.database,))
     if action == "start":
+        assert config is not None  # refused above
         started = db.start_service(profile.service_root)
         try:
             with db.read_as_of(profile) as conn:

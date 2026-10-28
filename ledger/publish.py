@@ -133,8 +133,8 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
     install the user's key in the service's Dolt home; `restart_required` says the running service
     must be restarted to use it."""
     _allowed(profile, url)
-    installed = install_key(Path(profile.service_root), _user_dolt()) if not url.startswith("file://") else None
-    key = installed[0] if installed else None
+    key: str | None
+    key, changed = (None, False) if url.startswith("file://") else install_key(Path(profile.service_root), _user_dolt())
     conn = _admin(profile)
     try:
         with conn.cursor() as cursor:
@@ -148,7 +148,7 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
         conn.close()
     return {"database": profile.database, "remote": url, "credentials": key, "added": existing is None,
             # A service compose runs keeps no start time here: a key it did not have needs a restart.
-            "restart_required": key is not None and (installed[1] if _managed(profile) else _key_after_start(profile))}
+            "restart_required": key is not None and (changed if _managed(profile) else _key_after_start(profile))}
 
 
 def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
