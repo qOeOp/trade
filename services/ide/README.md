@@ -47,27 +47,44 @@ only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 [`docs/plans/product-agent-chat-design.zh.md`](../../docs/plans/product-agent-chat-design.zh.md).
 
 With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
-serve`, on the host, loopback port 8767 by default; `paper/serve.py`), and the page gets the Paper
+serve`, the compose service `paper` on port 8767; `paper/serve.py`), and the page gets the Paper
 panel: ▶ and ■ on each version, the runs, their charts and events. A POST there must come from the
 page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
 [`docs/plans/paper-trading-design.zh.md`](../../docs/plans/paper-trading-design.zh.md).
 
-The Docker image (`docker/`, built by CI as `ghcr.io/qoeop/trade-ide`) runs it on a
-read-only copy of the public DoltHub databases:
+## Deployment
+
+`docker/compose.yaml` is the whole deployment, the same on a workstation and a server. Four services
+on one Docker engine:
+
+- **ide**: this page and the chat service. Image `ghcr.io/qoeop/trade-ide`. It reads its own read-only
+  copy of the public DoltHub databases, kept in the `trade-ide-data` volume; the first start clones it.
+  Published on 127.0.0.1:8765.
+- **ledger**: the Dolt service of the research ledger and the market database, run by `ledger service
+  run`. Image `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command
+  line reaches it. On first start, with empty directories, it bootstraps from the public copies
+  (about 17 GB) and needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a
+  `dolt login` `~/.dolt`).
+- **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide.
+- **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
+  (`docker/docker-api.cfg`).
+
+The design is in [`docs/plans/paper-compose-deployment.zh.md`](../../docs/plans/paper-compose-deployment.zh.md)
+and [`docs/plans/ledger-compose-service.zh.md`](../../docs/plans/ledger-compose-service.zh.md). The
+host directories are mounted at their own paths. `.env` beside the compose file names them and the
+user the services run as:
 
 ```bash
+printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\n' "$(id -u)" "$(id -g)" "$HOME/.local/share/trade" > services/ide/docker/.env
 docker compose -f services/ide/docker/compose.yaml up -d   # then open http://127.0.0.1:8765/
 docker compose -f services/ide/docker/compose.yaml pull && docker compose -f services/ide/docker/compose.yaml up -d
 ```
 
-The first start clones both databases into the `trade-ide-data` volume (the market is several
-GB); later starts reuse them. The image also runs the chat service on 127.0.0.1:8766 inside the
-container, with the reader-only accounts, so the database refuses any write; its agents and
-threads live in the same volume under `agent/`. Its compose file points `--paper` at
-`host.docker.internal:8767` (Docker Desktop forwards it to the host's loopback); start the daemon on
-the host with `uv run python -m cli.main paper serve` to get the Paper panel.
+The ledger service and the paper daemon restart with Docker. A service whose `service.json` has no
+socket is run this way: host commands reach it over TCP, and `ledger service stop` refuses it
+(`docker compose stop ledger`).
 
 ## Stages
 

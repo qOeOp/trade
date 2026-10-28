@@ -189,9 +189,9 @@ run` 关掉了这些事件（`DOLT_DISABLE_EVENT_FLUSH`、`metrics.disabled`）�
 2. `service.json` 里记的每个库，服务上都有；
 3. 两个库的 schema 版本照 §4.3 第 4 步的标准。
 
-另外，paper 容器只读挂的是 `service.json` 这一个文件，第一阶段 §4.3 已经说过：`ledger init` 之类的命令换掉这个
-文件以后，要重建 paper 容器。`paper` 依赖 `ledger` 健康后才启动（§4.5），所以它启动时这个文件一定已经在了，
-不会被 Docker 当成目录建出来。
+另外，paper 容器只读挂整个服务目录，`home/` 用 tmpfs 盖住（第一阶段 §4.3）。不挂 `service.json` 这一个文件：
+compose 建 paper 容器时 ledger 还没自举，这个文件还不存在。`paper` 依赖 `ledger` 健康后才启动（§4.5），所以它
+启动时文件一定已经在了。
 
 ### 4.5 启动顺序和健康检查
 

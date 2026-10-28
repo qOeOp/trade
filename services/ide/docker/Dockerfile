@@ -1,6 +1,8 @@
 # The trade IDE service (the research graph is its first view): the product at the commit it was built from, Dolt, the built page and the chat service.
-# The `paper` target is the paper daemon of the same compose project: the same product and a docker client,
-# reaching Docker only through the project's restricted API proxy (docs/plans/paper-compose-deployment.zh.md).
+# The `service` target runs the compose project's other two product services, each with its own command: the
+# Dolt service of the ledger and the market (`ledger service run`) and the paper daemon, which reaches Docker only
+# through the project's restricted API proxy (docs/plans/paper-compose-deployment.zh.md,
+# docs/plans/ledger-compose-service.zh.md).
 # CI builds both (.github/workflows/ide-image.yml); the context is the repository root with
 # its shallow .git, since the product reads its own revision with `git rev-parse HEAD`.
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
@@ -35,13 +37,14 @@ COPY . ./
 RUN uv sync --frozen --no-dev --no-cache && git rev-parse HEAD
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1
 
-# The paper daemon: python -m cli.main paper serve on the container's own address. The compose file gives
-# it TRADE_DOLT_HOST, DOCKER_HOST, TRADE_LEDGER_HOME, TMPDIR and HOME, and the host paths at their own place.
-FROM product AS paper
+# The ledger service and the paper daemon; compose names each one's command, environment and the host paths
+# at their own place. The Dolt data lives in a volume mounted at /var/lib/trade-dolt, which the service's
+# user (the host user's uid, unknown here) must be able to fill on first start.
+FROM product AS service
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
-EXPOSE 8767
-LABEL org.opencontainers.image.title="Trade paper daemon"
-ENTRYPOINT ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0"]
+RUN mkdir -p /var/lib/trade-dolt && chmod 1777 /var/lib/trade-dolt
+EXPOSE 8767 13330
+LABEL org.opencontainers.image.title="Trade services"
 
 # The IDE service (the default target).
 FROM product AS ide

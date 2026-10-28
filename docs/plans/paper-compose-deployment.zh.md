@@ -67,8 +67,10 @@ docker compose up -d`。每条运行的容器仍用按 digest 钉住的运行时
 
 ### 4.2 Docker API 代理
 
-用通用的按 API 段放行的代理（HAProxy 实现，第三方镜像，按 digest 钉住）。放行的是守护进程和它起的命令行子进程
-实际用到的调用，逐条来自代码：
+用官方 HAProxy 镜像（按 digest 钉住）加我们自己的配置 `services/ide/docker/docker-api.cfg`，按方法和路径放行。
+原先打算用第三方的通用代理镜像，实测 Tecnativa 和 linuxserver 两家都把 HAProxy 的 `timeout server` 写死成
+10 分钟，挂不住下面说的 3600 秒 attach，所以改用自己的配置。放行的是守护进程和它起的命令行子进程实际用到的
+调用，逐条来自代码：
 
 | 调用 | 代码里的出处 |
 |---|---|
@@ -104,14 +106,15 @@ compose 用一个变量 `TRADE_DATA`（默认 `${HOME}/.local/share/trade`）把
 | 宿主机路径 | 挂法 | 为什么 |
 |---|---|---|
 | `$TRADE_DATA/ledgers/` | 只读 | 账本和市场库的 profile（`TRADE_LEDGER_HOME`） |
-| `$TRADE_DATA/dolt/service.json` | 只读，单个文件 | 服务的连接配置和账户 |
+| `$TRADE_DATA/dolt/` | 只读，`home/` 用 tmpfs 盖住 | `service.json`：服务的连接配置和账户 |
 | `$TRADE_DATA/dolt/paper/` | 读写 | 运行目录 |
 | `$TRADE_DATA/paper-tmp/` | 读写 | 守护进程的 `TMPDIR` |
 
-只挂 `service.json` 一个文件，不挂整个服务目录：服务目录里的 `server.pid` 会被 `_pid` 在找不到进程时删掉
-（`ledger/db.py`），容器里看不到宿主机的进程，挂了就可能误删；数据目录、`home/`（DoltHub 密钥）和备份目录
-守护进程也都用不到。单文件挂载有一个代价：`ledger init` 等命令用原子替换重写 `service.json`，挂载还指着旧文件，
-所以改过服务的账户后要重建 paper 容器（`docker compose up -d --force-recreate paper`）。
+服务目录只读挂：服务目录里的 `server.pid` 会被 `_pid` 在找不到进程时删掉（`ledger/db.py`），容器里看不到宿主机
+的进程，可写就可能误删。`home/` 放着 DoltHub 密钥，用一个空的 tmpfs 盖住，paper 容器看不到。原先打算只挂
+`service.json` 一个文件，在空的 `TRADE_DATA` 上实测不行：compose 先把所有容器建好再按依赖启动，建 paper 容器时
+ledger 还没写出这个文件，Docker 要么把它建成目录，要么（`create_host_path: false`）拒绝建容器。挂目录还有一个
+好处：命令用原子替换重写 `service.json` 以后，paper 容器马上看到新文件，不用重建。
 
 ### 4.4 用户身份
 
@@ -184,7 +187,7 @@ Docker Desktop 要设成登录时自动启动，这是用户自己在 Docker Des
      API，代理就只能改成经共享卷里的 Unix socket 访问。所以不推荐。
 2. **让一个容器能在宿主机的 Docker 上建容器（Docker 配置，在 §6 第 3 个 PR 里）**
    - 现在：只有宿主机上的进程（你的终端、各会话的命令行）用 Docker。
-   - 改后：compose 里加一个第三方的 Docker API 代理（HAProxy 实现的通用代理，按 digest 钉住），挂载
+   - 改后：compose 里加一个 Docker API 代理（官方 HAProxy 镜像按 digest 钉住，配置是我们自己的，见 §4.2），挂载
      `/var/run/docker.sock`；守护进程经它建、停、删运行容器和网络，并拉运行时镜像。残余风险见 §4.2：守护进程
      被攻破仍等于宿主机 root。
    - 不改的办法：没有。守护进程要在容器里起兄弟容器，就得有 Docker API。

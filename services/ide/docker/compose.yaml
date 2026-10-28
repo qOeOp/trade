@@ -1,17 +1,107 @@
-# docker compose -f services/ide/docker/compose.yaml up -d, then open http://127.0.0.1:8765/
-# Update with `docker compose pull && docker compose up -d`; the copies in the volume are kept.
+# The whole deployment, the same on a workstation and a server: docker compose -f services/ide/docker/compose.yaml
+# up -d, then open http://127.0.0.1:8765/. Update with `docker compose pull && docker compose up -d`.
+# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA (services/ide/README.md); the host
+# directories are mounted at their own paths, since service.json, the profiles, backups and run
+# directories name them (docs/plans/paper-compose-deployment.zh.md §4.3, ledger-compose-service.zh.md §4.2).
 name: trade-ide
+
+x-product: &product
+  image: ghcr.io/qoeop/trade-service:main
+  init: true
+  user: "${TRADE_UID:?set TRADE_UID in .env}:${TRADE_GID:?set TRADE_GID in .env}"
+  restart: unless-stopped
+
 services:
   ide:
     image: ghcr.io/qoeop/trade-ide:main
     init: true
     ports:
-      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
     volumes:
       - trade-ide-data:/data
     restart: unless-stopped
-    # The Paper panel reaches the host's paper daemon (python -m cli.main paper serve, loopback port 8767)
-    # through Docker Desktop's host.docker.internal; without the daemon the page shows no Paper panel.
-    command: ["--paper=http://host.docker.internal:8767"]
+    command: ["--paper=http://paper:8767"]
+
+  # The Dolt service of the ledger and the market. On first start it bootstraps from the public
+  # copies (the market is about 17 GB), so `up -d` waits until it is healthy before starting paper.
+  ledger:
+    <<: *product
+    command:
+      - python
+      - -m
+      - cli.main
+      - ledger
+      - service
+      - run
+      - --service-root=${TRADE_DATA:?set TRADE_DATA in .env}/dolt
+      - --data-dir=/var/lib/trade-dolt
+      - --backup-root=${TRADE_DATA}/dolt-backups
+      - --credentials=/run/dolthub/.dolt
+      - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
+      - --market-origin=${TRADE_MARKET_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-market}
+      - --port=${TRADE_LEDGER_PORT:-13330}
+    environment:
+      TRADE_LEDGER_HOME: ${TRADE_DATA}/ledgers
+      HOME: /tmp
+    ports:
+      - "127.0.0.1:${TRADE_LEDGER_PORT:-13330}:${TRADE_LEDGER_PORT:-13330}"
+    volumes:
+      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt
+      - ${TRADE_DATA}/ledgers:${TRADE_DATA}/ledgers
+      - ${TRADE_DATA}/dolt-backups:${TRADE_DATA}/dolt-backups
+      - trade-dolt-data:/var/lib/trade-dolt
+      # The DoltHub key (a `dolt login` ~/.dolt): needed to bootstrap and to publish; nothing else sees it.
+      - ${TRADE_DOLTHUB:-${TRADE_DATA}/dolthub}:/run/dolthub/.dolt:ro
+    healthcheck:
+      test: ["CMD", "python", "-m", "cli.main", "ledger", "service", "check"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 6h
+      start_interval: 10s
+
+  # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
+  # Docker only through docker-api.
+  paper:
+    <<: *product
+    command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767"]
+    environment:
+      TRADE_DOLT_HOST: ledger
+      DOCKER_HOST: tcp://docker-api:2375
+      TRADE_LEDGER_HOME: ${TRADE_DATA}/ledgers
+      TMPDIR: ${TRADE_DATA}/paper-tmp
+      HOME: ${TRADE_DATA}/paper-tmp
+    volumes:
+      - ${TRADE_DATA}/ledgers:${TRADE_DATA}/ledgers:ro
+      # The service directory read-only, for service.json (its accounts): compose creates this container
+      # before ledger has written the file, so the directory, not the file. Its home/ (the DoltHub key)
+      # is covered; the run directory beneath is writable.
+      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
+      - type: tmpfs
+        target: ${TRADE_DATA}/dolt/home
+      - ${TRADE_DATA}/dolt/paper:${TRADE_DATA}/dolt/paper
+      - ${TRADE_DATA}/paper-tmp:${TRADE_DATA}/paper-tmp
+    networks: [default, docker-api]
+    depends_on:
+      ledger:
+        condition: service_healthy
+      docker-api:
+        condition: service_started
+
+  docker-api:
+    image: haproxy:3.2.25-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+    user: root  # the engine's socket is root's
+    read_only: true
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - ./docker-api.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks: [docker-api]
+    restart: unless-stopped
+
+networks:
+  docker-api:
+    internal: true
+
 volumes:
   trade-ide-data:
+  trade-dolt-data:
