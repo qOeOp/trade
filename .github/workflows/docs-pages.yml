@@ -7,12 +7,10 @@ on:
       - .github/workflows/docs-pages.yml
       - docs/**
       - docs-site/**
+      - .github/actions/ci-paths/**
+      - .github/scripts/ci-paths.py
   pull_request:
     branches: [main]
-    paths:
-      - .github/workflows/docs-pages.yml
-      - docs/**
-      - docs-site/**
   workflow_dispatch:
 
 permissions:
@@ -23,7 +21,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/ci-paths
+        id: paths
+        with:
+          paths: |
+            .github/workflows/docs-pages.yml
+            docs/**
+            docs-site/**
+            .github/actions/ci-paths/**
+            .github/scripts/ci-paths.py
+
   build:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     name: Build documentation site
     runs-on: ubuntu-latest
     steps:
@@ -56,3 +76,22 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+  gate:
+    name: docs-gate
+    if: always()
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful checks, or an explicitly unrelated change
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '
+            .changes.result == "success" and
+            (.changes.outputs.changed as $changed |
+             ($changed == "true" or $changed == "false") and
+             ([to_entries[] | select(.key != "changes") | .value.result]
+              | all(. == (if $changed == "true" then "success" else "skipped" end))))
+          ' <<< "$NEEDS"
