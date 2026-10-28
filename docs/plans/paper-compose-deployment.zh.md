@@ -174,6 +174,8 @@ Docker Desktop 要设成登录时自动启动，这是用户自己在 Docker Des
 
 ## 5. 需要用户授权的点
 
+用户 2026-10-29 按推荐批准了下面四条。
+
 1. **改一条拒绝检查（产品代码，在 §6 第 2 个 PR 里）**
    - 现在：`paper serve --host` 不是回环地址就拒绝（`USAGE_ERROR`，「the paper daemon listens on loopback only」）。
    - 改后：只有在容器里（有 `/.dockerenv`）才允许非回环地址；在宿主机上仍只许回环。端口不发布到宿主机。
