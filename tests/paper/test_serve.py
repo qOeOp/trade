@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -105,6 +106,36 @@ class GateTests(unittest.TestCase):
             with self.subTest(body), self.assertRaises(serve.Failure) as caught:
                 daemon.start(body)
             self.assertEqual(caught.exception.body["code"], "USAGE_ERROR")
+
+
+class ListenTests(unittest.TestCase):
+    """Loopback only on a host; inside a container (compose) on its own address, with TMPDIR a host
+    directory mounted at its own path, since the containers it starts are mounted by host path."""
+
+    def refused(self, call) -> str:
+        with self.assertRaises(Refusal) as caught:
+            call()
+        return caught.exception.code
+
+    def test_a_host_daemon_listens_on_loopback_only(self):
+        with mock.patch.object(serve, "CONTAINER_MARK", Path("/nonexistent/.dockerenv")):
+            self.assertEqual(self.refused(lambda: serve.serve(None, None, "0.0.0.0", 0, [], Path("."))), "USAGE_ERROR")
+
+    def test_in_a_container_it_needs_a_usable_tmpdir(self):
+        with tempfile.TemporaryDirectory() as root:
+            mark = Path(root, ".dockerenv")
+            mark.touch()
+            shared = Path(root, "tmp")
+            shared.mkdir()
+            with mock.patch.object(serve, "CONTAINER_MARK", mark), mock.patch.object(serve.tempfile, "tempdir", None):
+                for given in ({}, {"TMPDIR": str(Path(root, "missing"))}):
+                    with self.subTest(given), mock.patch.dict("os.environ", given, clear=False):
+                        if "TMPDIR" not in given:
+                            os.environ.pop("TMPDIR", None)
+                        self.assertEqual(self.refused(lambda: serve.serve(None, None, "0.0.0.0", 0, [], Path("."))),
+                                         "USAGE_ERROR")
+                with mock.patch.dict("os.environ", {"TMPDIR": str(shared)}):
+                    serve.shared_tmpdir()
 
 
 class JournalTests(unittest.TestCase):

@@ -365,6 +365,33 @@ class LedgerBaseTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class OverTcpTests(unittest.TestCase):
+    """TRADE_DOLT_HOST: a container that cannot reach the service's socket connects over TCP, to that host on
+    the service's own port, with every account the paper daemon's commands use."""
+
+    def test_every_account_reaches_the_service_on_its_own_port(self):
+        from market import store
+        from tests.market.dolt import TemporaryMarket
+        fixture = TemporaryMarket()
+        self.addCleanup(fixture.close)
+        config = db._service(fixture.service.service_root)
+        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
+            with db.connect(fixture.ledger, "writer") as writer:
+                self.assertEqual((writer.raw.unix_socket, writer.raw.port), (None, config["port"]))
+                db.write(writer, "tcp", {"bundle": "tcp"}, "evidence_bundle", bundle_insert("tcp"))
+            with db.connect(fixture.ledger, "reader") as reader:
+                self.assertEqual(reader.rows("SELECT bundle FROM evidence_bundle"), [("tcp",)])
+            root = db._admin(config)
+            self.addCleanup(root.close)
+            self.assertEqual((root.unix_socket, root.port), (None, config["port"]))
+            with root.cursor() as cursor:
+                cursor.execute("SELECT CURRENT_USER()")
+                self.assertEqual(cursor.fetchone()[0], "root@localhost")
+            with store.connect(fixture.profile, "import") as market:
+                self.assertEqual((market.raw.unix_socket, market.raw.port), (None, config["port"]))
+
+
+@unittest.skipUnless(BINARY, SKIP)
 class CommitChecksGuardTests(unittest.TestCase):
     """Its own service: the verification group is service-wide."""
 

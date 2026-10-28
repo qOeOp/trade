@@ -1,6 +1,8 @@
 """The paper daemon (`paper serve`): one ledger's paper runs over HTTP, for the trade IDE's Paper panel.
 
-It listens on loopback only; the IDE service in front proxies ``/api/paper/`` to it and adds the page's
+It listens on loopback only, or inside a container on the container's own address, which only the
+compose network reaches (docs/plans/paper-compose-deployment.zh.md); the IDE service in front proxies
+``/api/paper/`` to it and adds the page's
 token (services/ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
@@ -47,7 +49,10 @@ HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
 RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's replay is stopped after this long
 # What a command line child gets of this process's environment: the docker client's and the product's own.
-CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH")
+CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
+LOOPBACK = ("127.0.0.1", "::1", "localhost")
+# Docker writes this file into every container: there the daemon may listen beyond loopback.
+CONTAINER_MARK = Path("/.dockerenv")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
 FAILURES = "runtime_failures.jsonl"
 STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|reconcile|delete)\Z")
@@ -600,10 +605,27 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
     return Handler
 
 
+def shared_tmpdir() -> None:
+    """In a container, the run and replay containers it starts are created by the host's Docker, which
+    mounts their inputs (a reconciliation's market export among them) by host path; so the temporary
+    directory must be a host directory mounted at its own path, named by TMPDIR. Python falls back to
+    /tmp, a path only the container has, when TMPDIR is unset or unusable, so that is refused here."""
+    given = os.environ.get("TMPDIR")
+    if not given or not os.path.isdir(given) or not os.access(given, os.W_OK | os.X_OK):
+        raise refuse("USAGE_ERROR", "in a container the paper daemon needs TMPDIR: a writable host directory mounted "
+                                    "at its own path", missing=("TMPDIR",))
+    if Path(tempfile.gettempdir()).resolve() != Path(given).resolve():
+        raise refuse("USAGE_ERROR", f"the temporary directory is {tempfile.gettempdir()}, not TMPDIR {given}",
+                     missing=("TMPDIR",))
+
+
 def serve(ledger: str | None, market: str | None, host: str, port: int, hosts: list[str], product: Path,
           runtime: str | None = None) -> None:
-    if host not in ("127.0.0.1", "::1", "localhost"):
-        raise refuse("USAGE_ERROR", "the paper daemon listens on loopback only")
+    inside = CONTAINER_MARK.exists()
+    if host not in LOOPBACK and not inside:
+        raise refuse("USAGE_ERROR", "the paper daemon listens on loopback only, except inside a container")
+    if inside:
+        shared_tmpdir()
     daemon = Daemon(ledger, market, product, runtime)
     allowed = frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}", f"host.docker.internal:{port}"])
     server = Server((host, port), handler(daemon, allowed))

@@ -55,7 +55,7 @@ def _admin(profile: db.LedgerProfile):
     config = db._service(profile.service_root)
     if config is None:
         raise refuse("LEDGER_UNKNOWN", f"{profile.service_root} is not a ledger service directory")
-    return config, db.service_connection(config["socket"], user="root", password=config["root_password"],
+    return config, db.service_connection(config, user="root", password=config["root_password"],
                                          database=profile.database, autocommit=True, connect_timeout=5)
 
 
