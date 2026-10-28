@@ -1,8 +1,9 @@
 """If this fails, the Paper panel misleads or is open to other pages: a page of another site or port can
 start a paper run, a run's live readings differ from what its seal computes from the same journal, a
 run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed, the
-Account view's stream misses a contract's closes, or the exceptions its strategy raised (while it runs
-or once sealed) never reach the page."""
+Account view's stream misses a contract's closes, the exceptions its strategy raised (while it runs
+or once sealed) never reach the page, or a run that a Docker restart stopped is not started again while
+one the user stopped, that failed or that someone else sealed is."""
 
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from ledger import db, paper as records, strategies
 from ledger.errors import Refusal
 from paper import runs, serve
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
-from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
+from tests.ledger.test_paper import ROW, journal, line, snapshot, summary, START, MINUTE
 
 
 HOST = "paper.test:8767"
@@ -116,6 +117,52 @@ class JournalTests(unittest.TestCase):
         record = json.dumps(FAILURE).encode()
         self.assertEqual(serve.failure_records(record[40:] + b"\n" + record + b"\n" + record[:30]), [FAILURE])
 
+
+
+class RestartTests(unittest.TestCase):
+    def seal(self, lines: list[dict], found: dict | None, exit_code: int | None = 0) -> dict:
+        return records.readings(ROW, lines, 0, found, exit_code, None)
+
+    def test_only_a_clean_stop_on_sigterm_reads_as_stopped_from_outside(self):
+        waiting = [line("started", START, source_sha256=ROW["source_sha256"]), line("waiting", START, until_ns=START)]
+        before = lambda reason: [*waiting, line("stopped_before_start", START + MINUTE, reason=reason)]
+        cases = {
+            "a Docker restart while it trades": (journal(), summary(), True),
+            "a Docker restart while it waits for the day": (before("SIGTERM"), None, True),
+            "the IDE's stop while it trades": (journal(), summary(stop_reason="STOP_FILE"), False),
+            "the IDE's stop while it waits": (before("STOP_FILE"), None, False),
+            "its duration ran out": (journal(), summary(stop_reason="DURATION"), False),
+            "the strategy raised before the restart": (journal(), summary(runtime_failures=3), False),
+            "no journal at all": ([], None, False),
+        }
+        for name, (lines, found, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(serve.interrupted(self.seal(lines, found), lines), expected)
+        killed = journal()
+        self.assertFalse(serve.interrupted(self.seal(killed, None, 137), killed))
+
+    def test_the_daemon_starts_again_only_what_it_sealed_after_a_stop_from_outside(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        daemon = serve.Daemon.__new__(serve.Daemon)
+        daemon.profile, daemon.stopping = SimpleNamespace(database="paper"), {5}
+        listed = lambda paper_id, state="ended": {"paper_id": paper_id, "state": state, "candidate": f"v{paper_id}@1",
+                                                  "symbols": ["BTCUSDT"], "created_at": "2026-10-28T10:00:00"}
+        daemon.runs = mock.Mock(return_value={"runs": [listed(1), listed(2), listed(3), listed(4, "sealed"),
+                                                       listed(5), listed(6, "running")]})
+        stopped = self.seal(journal(), summary())
+        written = {1: "written", 2: "written", 3: "replayed"}
+        daemon.cli = mock.Mock(side_effect=lambda *argv: {"write_status": written[int(argv[2])], "seal": stopped})
+        daemon.sealed_lines = mock.Mock(return_value=journal())
+        daemon.start = mock.Mock(return_value={"paper_id": 7})
+        (root / "2" / "out").mkdir(parents=True)
+        (root / "2" / "out" / "STOP").touch()  # the IDE asked run 2 to stop
+        with mock.patch.object(runs, "run_dir", side_effect=lambda _, paper_id: root / str(paper_id)):
+            daemon.seal_found()
+        self.assertEqual([call.args for call in daemon.cli.call_args_list],
+                         [("seal", "--paper-id", str(paper_id)) for paper_id in (1, 2, 3)])
+        daemon.start.assert_called_once_with({"candidate": "v1@1", "symbols": ["BTCUSDT"]})
 
 def events(response) -> tuple[str, object]:
     kind = data = None
