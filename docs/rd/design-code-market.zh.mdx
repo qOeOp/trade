@@ -29,12 +29,12 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="market.coverage_facts">coverage_facts</Ref> | 在固定市场提交上为一个合约产出 market-coverage-v1 事实字典：成员月份、输入区间内成交价与标记价的缺口区间与零成交量分钟、两者时刻对齐、资金费结算时刻与条数；首末数据只作上市下架的代理（不是交易所事实，不另标状态）。导出器据此写回执（去掉资金费逐笔时刻）进入输入身份，并写进开始回执的 input-coverage.json。 |
+| <Ref id="market.coverage_facts">coverage_facts</Ref> | 在固定市场提交上为一个合约产出 market-coverage-v1 事实字典：成员月份、输入区间内成交价与标记价的缺口区间与零成交量分钟、两者时刻对齐、资金费结算条数与首末时刻；首末数据只作上市下架的代理（不是交易所事实，不另标状态）。导出器据此写回执进入输入身份，并写进开始回执的 input-coverage.json。 |
 | <Ref id="market.diagnose_coverage">diagnose_coverage</Ref> | 入口与命令行的只读覆盖读口：按钉住的市场提交对显式给出的合约清单逐个产出覆盖事实，并在给了生命周期证据包时附上校验后的生命周期回执（上市、禁新仓、下架结算、ticker 重用）。只返回输入事实，不做资格评级，不删币、不缩窗、不补数、不判经济失败。 |
 
 ### `coverage_facts` [#def-market-coverage_facts]
 
-在固定市场提交上为一个合约产出 market-coverage-v1 事实字典：成员月份、输入区间内成交价与标记价的缺口区间与零成交量分钟、两者时刻对齐、资金费结算时刻与条数；首末数据只作上市下架的代理（不是交易所事实，不另标状态）。导出器据此写回执（去掉资金费逐笔时刻）进入输入身份，并写进开始回执的 input-coverage.json。
+在固定市场提交上为一个合约产出 market-coverage-v1 事实字典：成员月份、输入区间内成交价与标记价的缺口区间与零成交量分钟、两者时刻对齐、资金费结算条数与首末时刻；首末数据只作上市下架的代理（不是交易所事实，不另标状态）。导出器据此写回执进入输入身份，并写进开始回执的 input-coverage.json。
 
 ```python
 def coverage_facts(
@@ -51,7 +51,7 @@ def coverage_facts(
 
 <TypeTable type={{ "conn": { type: "MarketConnection", description: "市场库只读连接；全部查询按 commit AS OF" }, "commit": { type: "str", description: "已解析的 40 位市场提交哈希，不接受可移动的引用名或标签" }, "symbol": { type: "str", description: "合约公开名（非 ASCII 用原名，不用别名）" }, "start_ms": { type: "int", description: "输入区间起点（含预热与可能延续持仓所需的最早分钟），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "输入区间终点，左闭右开，UTC 毫秒，整分钟" }, "last_bars": { type: "MinuteTable", description: "该合约 LAST 1 分钟 K 线（ts_open 升序，含 volume），调用方已按 commit 与区间读出" }, "mark_bars": { type: "MinuteTable", description: "该合约 MARK 1 分钟 K 线（ts_open 升序，无 volume）" }, "funding_rows": { type: "list[tuple[int, Decimal]]", description: "该合约区间内 (funding_time_ms, rate)，按实际结算时刻升序" } }} />
 
-**返回**　dict，格式 market-coverage-v1：\{format, commit, symbol, input_interval_ms:[start,end], last:\{rows, first_open_ms, last_open_ms, gap_intervals_ms, missing_minutes, zero_volume_minutes\}, mark:\{同结构，无 zero_volume_minutes\}, last_mark_unmatched_minutes, funding:\{rows, first_ms, last_ms, event_times_ms\}, member_months:[YYYY-MM-01…], listing_delisting:\{data_bounds_proxy:\{last:\{first_open_ms,last_open_ms\}, mark:\{…\}\}\}, interpretation\}；导出回执里的 funding 不含 event_times_ms（market.export_episode）
+**返回**　dict，格式 market-coverage-v1：\{format, commit, symbol, input_interval_ms:[start,end], last:\{rows, first_open_ms, last_open_ms, gap_intervals_ms, missing_minutes, zero_volume_minutes\}, mark:\{同结构，无 zero_volume_minutes\}, last_mark_unmatched_minutes, funding:\{rows, first_ms, last_ms\}, member_months:[YYYY-MM-01…], listing_delisting:\{data_bounds_proxy:\{last:\{first_open_ms,last_open_ms\}, mark:\{…\}\}\}, interpretation\}；导出回执原样存入（market.export_episode）
 
 **期望行为**
 
@@ -60,7 +60,7 @@ def coverage_facts(
 3. 核对 last_bars、mark_bars 的 ts_open 均为整分钟且升序去重；不满足即拒绝（输入形状，不是市场事实）。
 4. 对 LAST 与 MARK 各算 missing_intervals(ts_open, start_ms, end_ms, 60000) 得缺口区间与缺失分钟数；LAST 另计 volume == 0 的分钟数；两者 ts_open 对称差的条数记为 last_mark_unmatched_minutes。
 5. 按 commit AS OF 读 universe_month 得该合约的成员月份；读 bar 表每价格类型 MIN/MAX(ts_open) 作上市下架的数据边界代理，只记边界，不另标状态或原因。
-6. 组装字典返回：资金费只记时刻与条数，不推断应有排期；不评级、不删币、不缩窗、不补数；interpretation 写明零活动与缺口不等于经济失败，也不替策略判定指标就绪。
+6. 组装字典返回：资金费只记条数与首末时刻（逐笔时刻留在钉住的提交里，market bars 可读），结算间隔与缺失结算由 market.diagnose_coverage 另算；不评级、不删币、不缩窗、不补数；interpretation 写明零活动与缺口不等于经济失败，也不替策略判定指标就绪。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -94,14 +94,14 @@ def diagnose_coverage(
 
 <TypeTable type={{ "profile": { type: "MarketProfile", description: "市场库档案（连接方式与库名），只读打开" }, "at": { type: "str", description: "用户或研究路线记录给出的提交引用（Dolt 引用名、标签或哈希，缺省 main），由 market.resolve_commit 解析为唯一提交" }, "symbols": { type: "list[str]", description: "显式合约清单；本读口不做全范围隐式展开，范围由调用方自 universe_month 读出后显式传入" }, "start": { type: "str", description: "输入区间起点，ISO-8601 显式 UTC，整分钟（含预热）" }, "end": { type: "str", description: "输入区间终点，ISO-8601 显式 UTC，整分钟，左闭右开" }, "lifecycle": { type: "LifecycleBundle | None", description: "调用方已从账本证据包读出的 native-lifecycle-v1 清单与来源原件（body, files）；None 表示不附生命周期回执。本层不读账本" } }} />
 
-**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 …，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
+**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 … 加 quotes:\{imports:[\{month, through, quote_rule, commit, rows\}], first_ms, last_ms, uncovered_intervals_ms\}，terms:\{observed_at, terms_source, price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price, max_price\}，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
 
 **期望行为**
 
 1. 解析区间：start、end 转 UTC 毫秒并核对整分钟与 start \< end；核对 symbols 非空且无重复；不满足即拒绝。
 2. 经 market.connect 只读打开市场库，market.resolve_commit(conn, at) 得唯一提交哈希；解析失败按其拒绝码原样向上。
 3. 若给了 lifecycle：先 market.validate_lifecycle(body, commit, files) 核对清单绑定同一提交、事件为引擎原生字典、时钟单调、来源原件在包内；不符即 LIFECYCLE_INPUT 拒绝整次读，不部分返回。
-4. 逐合约按提交 AS OF 读 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。
+4. 逐合约按提交 AS OF 读 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再按 market.quote_imports(conn, commit) 的导入回执并入该合约的 quotes：持有它的每次 quote 导入（月份、through 即不含的结束日、规则、提交、回执逐日 quote_changes 之和作行数），quote 表 AS OF 提交在区间内的首末时刻，以及区间内没有任何导入覆盖的 [from, to) 段；不数表行（一个月 BTCUSDT 数千万行），没有导入时不读 quote 表。quotes 不进导出回执。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。再并入 market.terms(conn, commit, symbol) 的规格行（去掉 symbol）：导出器对整个窗口用的就是这一行（提交上最新观测，CURRENT_SNAPSHOT_APPROXIMATION）。规格不进导出回执，回执已记 terms_source 与 terms_observed_at。
 5. 把每合约的校验后生命周期片段并入返回；清单里没有该合约的记入 lifecycle_missing，只作事实不作判定。
 6. 组装返回，不排序、不筛除、不改窗口；interpretation 固定说明缺口、零量、资金费缺失、首末数据均为输入事实，入口不据此删币、缩窗、补数或判经济失败，也不替策略判定指标就绪。
 
@@ -115,7 +115,7 @@ def diagnose_coverage(
 | `UNKNOWN_SYMBOL` | 任一合约在该提交下不存在于 instrument 表（由 market.coverage_facts 传出） |
 | `LIFECYCLE_INPUT` | 给出的生命周期证据包绑定的不是该提交、事件非引擎原生字典、时钟不单调或来源原件缺失（由 market.validate_lifecycle 传出） |
 
-**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.coverage_facts" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+**使用**　<Ref id="market.connect" />、<Ref id="market.resolve_commit" />、<Ref id="market.coverage_facts" />、<Ref id="market.quote_imports" />、<Ref id="market.terms" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:quote" />
 
 <div className="rd-meta">
 
@@ -218,12 +218,12 @@ def export_episode(job: dict) -> dict:
 
 <TypeTable type={{ "job": { type: "dict", description: "{profile, commit, symbol, start_ns, end_ns, path, scales: (price_scale, volume_scale), episodes: list[dict] | None}；一个公开合约一个作业" } }} />
 
-**返回**　dict 合约回执（写为 \<path>/export.json）：\{format: market-coverage-v1, symbol, commit, start_ns, end_ns, coverage（coverage_facts 去掉 funding.event_times_ms）, terms_source, terms_observed_at, historical_terms: CURRENT_SNAPSHOT_APPROXIMATION, assumed, pieces: [\{index, instrument_id, catalog_dir, counts: \{last, mark, quote, funding, daily, instrument_close, instrument_status\}, first_bar_ns, last_bar_ns, missing_minutes, last_mark_unmatched, price_precision, price_precision_widened, mark_precision, quote_size, episode\}]\}
+**返回**　dict 合约回执（写为 \<path>/export.json）：\{format: market-coverage-v1, symbol, commit, start_ns, end_ns, coverage（coverage_facts）, terms_source, terms_observed_at, historical_terms: CURRENT_SNAPSHOT_APPROXIMATION, assumed, pieces: [\{index, instrument_id, catalog_dir, counts: \{last, mark, quote, funding, daily, instrument_close, instrument_status\}, first_bar_ns, last_bar_ns, missing_minutes, last_mark_unmatched, price_precision, price_precision_widened, mark_precision, quote_size, episode\}]\}
 
 **期望行为**
 
 1. 清空并重建 path；以只读账号连接市场库，terms 取提交上该合约最新观测的条款行（无则拒绝 NO_TERMS），AS OF 提交读 [start_ns, end_ns) 的 LAST 与 MARK 1 分钟 K 线、start 前全部 LAST 分钟（预热日线来源）与窗口内资金费。
-2. 按公开名在原始序列上调用 coverage_facts（缺口、零量、成交价与标记价对齐、资金费条数与首末时刻、成员月份、上市下架的数据边界代理），覆盖按原名记录，不按片段拆分；写进回执前去掉资金费逐笔时刻（receipt_coverage）：它们留在钉住的提交里，market coverage 仍会列出。
+2. 按公开名在原始序列上调用 coverage_facts（缺口、零量、成交价与标记价对齐、资金费条数与首末时刻、成员月份、上市下架的数据边界代理），覆盖按原名记录，不按片段拆分；资金费只记条数与首末时刻，逐笔时刻留在钉住的提交里，market bars 仍会列出。
 3. split_episodes 得到片段；每个片段：derive_bars 把预热来源聚合为日线并只留收盘早于片段起点的完整日；价格精度取条款精度与数据所需精度的较大者（放宽即记 price_precision_widened）；build_instrument 用片段原生身份与假设条款生成合约；有生命周期时 require_native_price 核对窗口内结算价落在合约精度网格上。
 4. 每个片段在 \<path>/\<catalog_dir>/ 建一个 Catalog：写合约，write_bars 写 1 分钟成交价 K 线（外部聚合，事件时间为收盘）与预热日线，write_marks 写标记价更新，write_quotes 写逐状态原生报价，write_funding 写资金费，write_lifecycle_events 写窗口内 InstrumentStatus / InstrumentClose；记各类条数。
 5. 每片段记首末 K 线时刻、缺失分钟数、成交价与标记价时刻不匹配数；合约级记条款来源与观测时刻、historical_terms 近似标记与假设手续费率、保证金率。
@@ -518,16 +518,6 @@ def daily_bars(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None,
 The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after `low_ms` and close before `high_ms`, streamed in chunks: a chunk's last (possibly unfinished) day carries into the next, so memory holds one chunk and the days, never the whole history.
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L236)
-
-#### `receipt_coverage` [#impl-market-export-py-receipt_coverage]
-
-```python
-def receipt_coverage(facts: dict) -> dict
-```
-
-The coverage facts an export receipt stores: market.coverage_facts without the funding event times, which the pinned commit gives back.
-
-[源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L266)
 
 #### `complete` [#impl-market-export-py-complete]
 
