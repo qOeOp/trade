@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from ledger import db, evidence, judgments, strategies, trials
 from ledger.errors import Refusal
-from registration import register
+from registration import precheck, register
 from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
                                source)
 from tests.registration.world import (DAY, FEB, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, coverage_bytes,
@@ -197,17 +197,15 @@ class RegisterTests(unittest.TestCase):
                          "SOURCE_ALREADY_EXPOSED")
 
     def test_only_the_cited_precheck_of_at_most_seven_days_leaves_the_source_unexposed(self):
+        """Condition (3): the cited precheck of at most PRECHECK_MAX_DAYS that matches the identity."""
         long = self.world.publish("prechecked for eight days")
-        review = self.world.prechecked(long["source"], days=8)
+        review = self.world.prechecked(long["source"], days=precheck.PRECHECK_MAX_DAYS + 1)
         body = self.derived(grid=[{"candidate": long["candidate"], "params": {}}], prechecks={long["candidate"]: review})
         self.assertEqual(self.code("registration-long-precheck", body), "SOURCE_ALREADY_EXPOSED")
         problem = refused(self.world.register, "registration-long-precheck", body)
-        self.assertIn("unregistered precheck", problem.message)
-        self.assertIn("8 trading days, exemption maximum 7", problem.message)
-        self.assertIn("retry_of does not apply", problem.message)
-        self.assertTrue(any("actually consumed" in action for action in problem.next_actions))
+        self.assertEqual(problem.missing, (long["candidate"],))
         week = self.world.publish("prechecked for seven days")
-        review = self.world.prechecked(week["source"], days=7)
+        review = self.world.prechecked(week["source"], days=precheck.PRECHECK_MAX_DAYS)
         self.world.register("registration-week-precheck", self.derived(
             grid=[{"candidate": week["candidate"], "params": {}}], prechecks={week["candidate"]: review}))
         twice = self.world.publish("prechecked twice")
@@ -218,7 +216,8 @@ class RegisterTests(unittest.TestCase):
             "SOURCE_ALREADY_EXPOSED")
 
     def test_a_precheck_that_failed_before_market_data_does_not_expose_the_source(self):
-        for stage, exposed in (("inputs", False), ("replay", True)):
+        """Condition (2), relaxation 1: every stage before market data, the execution binding included."""
+        for stage, exposed in (("execution_binding", False), ("load", False), ("inputs", False), ("replay", True)):
             with self.subTest(stage=stage):
                 retried = self.world.publish(f"failed in {stage}, then prechecked again")
                 failed = self.world.open_precheck(retried["source"], days=30)
@@ -233,6 +232,7 @@ class RegisterTests(unittest.TestCase):
                     self.world.register(f"registration-after-{stage}", body)
 
     def test_a_short_precheck_that_sealed_no_fill_does_not_expose_the_source(self):
+        """Condition (2): a short precheck that sealed no fill and no position, on any image."""
         for fills, exposed in ((0, False), (1, True)):
             with self.subTest(fills=fills):
                 retried = self.world.publish(f"sealed {fills} fills, then prechecked again")
@@ -456,8 +456,7 @@ class LineRecordTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {self.root_trial}",)))
         first = world.judge("interpretation", subjects=[{"role": "about", "registration_bundle": "registration-root"}])
         supersede("interpretation", first)  # a superseded interpretation still covers its trial
-        self.assertEqual(register.REVIEW_EVERY, 5)
-        world.research_trial("registration-batch", batch[-1]["source"])  # the fifth research trial
+        world.research_trial("registration-batch", batch[-1]["source"])  # the REVIEW_EVERY-th research trial
         exc = refused(world.register, "registration-gated", body)
         self.assertEqual((exc.code, exc.missing), ("REVIEW_DUE", ("recommendation",)))
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": "rsi@1"}])
@@ -550,6 +549,14 @@ class RetryTests(unittest.TestCase):
 
     def code(self, bundle: str, retry_of: str) -> str:
         return refused(self.world.register, bundle, {**self.body, "retry_of": retry_of}).code
+
+    def test_only_the_retry_chain_leaves_its_consumed_trials_unexposed(self):
+        """Condition (1): the trials of the retry chain do not count; without the link they do."""
+        self.attempt("registration-r1", None, "invalid")
+        exc = refused(self.world.register, "registration-unlinked", self.body)
+        self.assertEqual((exc.code, exc.missing), ("SOURCE_ALREADY_EXPOSED", ("rsi@1",)))
+        self.world.register("registration-r2", {**self.body, "retry_of": "registration-r1"})
+        self.world.research_trial("registration-r2", source("root"))
 
     def test_a_retry_follows_the_chain_of_invalid_and_interrupted_attempts(self):
         self.attempt("registration-r1", None, "invalid")

@@ -353,15 +353,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Publish the grid for the probed runtime contract. For validation, keep the original "
                          "registration's account terms; later research cannot replace that baseline. If terms "
                          "must change, stop and ask the user about a new future-window registration.",)),
-    "SOURCE_ALREADY_EXPOSED": ("A grid source was already run outside its consumed retry chain, cited short "
-                               "prechecks, prechecks that failed before market data reached the strategy, short "
-                               "prechecks that sealed no fill and no position, or verified reproductions of an "
-                               "explicitly linked runtime rebuild.",
+    "SOURCE_ALREADY_EXPOSED": ("A grid source already sealed an economic result the researcher could read, in "
+                               "a trial that is neither part of this registration's retry chain nor the cited "
+                               "short precheck, so registering it now would choose it after seeing its result.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
-                                "actually consumed this source. A fixed-question rebuild on a different image "
-                                "requires a new matching precheck; unrelated explorations and prechecks that "
-                                "reached market data and traded remain exposures. Register a new source for a new "
-                                "research hypothesis.",)),
+                                "actually consumed this source; a rebuild of the same question on another image "
+                                "cites a new precheck on that image. Register a new source for a new research "
+                                "hypothesis.",)),
     "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
                      "registration.",
                      ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",)),
