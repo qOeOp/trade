@@ -1467,8 +1467,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "serve"): (
         "the paper runs, their seals and a candidate's last research replay (reader); each run's directory and "
         "capture bundle; this ledger's paper containers on Docker",
-        "nothing itself: a start, stop, seal or delete from the page, and the seal of a run that ended on its own, "
-        "run paper start, stop, seal or delete (their writes)",
+        "nothing itself: a start, stop, seal or delete from the page, the seal of a run that ended on its own and "
+        "a new start of one Docker stopped from outside (SIGTERM, no STOP file), run paper start, stop, seal or "
+        "delete (their writes)",
         "nothing until stopped; over HTTP on loopback, /api/paper/ lists the runs, streams a run's journal and "
         "readings, and answers a start or stop with that command's result",
         "USAGE_ERROR (a --host that is not loopback); over HTTP: FORBIDDEN (a Host or origin not allowed), "
@@ -1903,7 +1904,8 @@ def _parser() -> Parser:
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
     command = verb(paper, "serve", "serve the ledger's paper runs to the trade IDE's Paper panel")
     command.epilog = ("Listens on loopback only (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
-                      "seals run this command line, and runs that end on their own are sealed as they are found.")
+                      "seals run this command line, and runs that end on their own are sealed as they are found; one that "
+                      "Docker stopped from outside starts again as a new run of the same contracts.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--host", default="127.0.0.1", help="loopback address to listen on")
