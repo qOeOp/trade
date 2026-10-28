@@ -167,7 +167,7 @@ class ValidationTests(unittest.TestCase):
         cls.unrun = world.publish("never researched", parent=None)
         # One-second windows, one per registration: an unbound registration reserves its own window.
         labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
-                  "retry-baseline", "retry-members", "corrected", "successful", "legacy-design", "witness-report",
+                  "retry-baseline", "retry-members", "corrected", "successful", "changed-design", "witness-report",
                   "released")
         first = (datetime.now(UTC) + timedelta(seconds=5)).replace(microsecond=0)
         cls.windows = {label: (first + timedelta(seconds=k), first + timedelta(seconds=k + 1))
@@ -308,17 +308,16 @@ class ValidationTests(unittest.TestCase):
                                    window_start=start, window_end=end), "RETRY_NOT_ALLOWED")
         self.assertEqual(self.world.seq(), seq)
 
-    def test_a_legacy_unbound_retry_with_changed_design_cannot_bind(self):
-        trial_id = self.bind("legacy-design")
+    def test_a_retry_with_changed_design_is_refused_at_registration(self):
+        trial_id = self.bind("changed-design")
         self.world.seal_run(trial_id, "invalid")
-        start, end = self.windows["legacy-design"]
-        # Model the previous release's admission only while creating an old-style retry;
-        # binding below uses the real checks and leaves that historical record intact.
-        with patch.object(validation, "_design", return_value={**DESIGN, "seed": 8}):
-            retry = self.register("legacy-retry", retry_of=self.registered["legacy-design"]["registration_id"],
-                                  window_start=start, window_end=end, design={**DESIGN, "seed": 8})
-        self.registered["legacy-retry"], self.windows["legacy-retry"] = retry, (start, end)
-        self.assertEqual(self.refused_bind("legacy-retry"), "RETRY_NOT_ALLOWED")
+        start, end = self.windows["changed-design"]
+        retry_of = self.registered["changed-design"]["registration_id"]
+        seq = self.world.seq()
+        self.assertEqual(self.code(self.register, "changed-design-retry", retry_of=retry_of, window_start=start,
+                                   window_end=end, design={**DESIGN, "seed": 8}), "RETRY_NOT_ALLOWED")
+        self.assertEqual(self.world.seq(), seq)
+        self.register("changed-design-retry", retry_of=retry_of, window_start=start, window_end=end)
 
     def test_a_registration_is_witnessed_and_its_one_replay_binds_it(self):
         registered, start = self.registered["bound"], self.windows["bound"][0]
