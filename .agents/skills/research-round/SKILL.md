@@ -46,19 +46,24 @@ fresh reviewer with no authoring context receives only the candidate id, sealed 
 verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
 reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
-after a repair (Codex: `fork_turns: "none"`). `replay explore` is engineering, never economic
-evidence.
+after a repair (Codex: `fork_turns: "none"`). `replay explore` is never economic evidence; it records
+an explore trial in the active ledger as exposure to the data it read.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments to every precheck, registration and replay
 and name the environment in the registration's `conditions`. It is part of the effective
 configuration: a control and its candidate share it (`COMPARABILITY_MISMATCH` otherwise), and a
 switch later is an identity change ([changes.md](references/changes.md)). `bars` models no
-liquidation. Use `quotes` when the source can hold notional beyond account equity or otherwise
-lets margin decide survival, with `--initial-margin`/`--maintenance-margin` from Binance's bracket
-for the largest position. At lower exposure prefer `quotes` when the pinned market commit holds
-them for every contract across the window and the readiness check above supports the use. Use
-`bars` otherwise and report liquidation as unmodelled.
+liquidation, so decide from the source's designed distance to liquidation: the adverse move at
+which its largest allowed position reaches maintenance margin (a short of entry notional N on
+equity E at maintenance rate m needs (E/N - m)/(1 + m), about +99% at N = E). When the window's
+prices can travel that distance while a position is held, margin decides survival: use `quotes`
+with `--initial-margin`/`--maintenance-margin` from Binance's bracket for the largest position.
+When the distance lies far beyond such moves and beyond the inferred quotes' measured error,
+`bars` suffices: report liquidation as unmodelled together with that smallest distance. Notional
+caps, leverage and size are design variables in the source (AGENTS.md); a cap may keep a source
+on `bars`. At lower exposure `quotes` may still be chosen when the pinned market commit holds them
+for every month of the trading window and the readiness check above supports the use.
 
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede

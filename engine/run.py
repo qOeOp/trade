@@ -629,6 +629,30 @@ def _files(row: dict, kind: str) -> list[str]:
     return [str(path) for path in sorted(root.glob("*/*.parquet"))]
 
 
+def quote_months_missing(row: dict, start: int, end: int) -> list[str]:
+    """The UTC months ("YYYY-MM") that intersect [start, end) and hold no exported quote of the contract.
+    Quotes are imported a month at a time, so a month without any is a month the market does not hold."""
+    import pyarrow as pa
+    import pyarrow.compute as compute
+    import pyarrow.parquet as parquet
+    if end <= start:
+        return []
+    held = set()
+    for path in _files(row, "QuoteTick"):
+        column = parquet.read_table(path, columns=["ts_init"])["ts_init"].cast(pa.int64())
+        inside = column.filter(compute.and_(compute.greater_equal(column, start), compute.less(column, end)))
+        stamps = inside.cast(pa.timestamp("ns", tz="UTC"))
+        held.update(compute.add(compute.multiply(compute.year(stamps), 100), compute.month(stamps)).unique().to_pylist())
+    first = datetime.fromtimestamp(start // 10**9, UTC)
+    last = datetime.fromtimestamp((end - 1) // 10**9, UTC)
+    year, month, missing = first.year, first.month, []
+    while (year, month) <= (last.year, last.month):
+        if year * 100 + month not in held:
+            missing.append(f"{year:04d}-{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return missing
+
+
 def _small_events(row: dict, kind: str) -> list:
     """The funding, status or close events of one contract, in ts_init order."""
     catalog = ParquetDataCatalog(str(row["catalog_path"]))
@@ -853,10 +877,16 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         assert initial is not None and maintenance is not None  # execution_account sets both for quotes
         rates = (initial, maintenance)
     if quotes:
-        for row, _, _ in planned:
-            if not row["counts"].get("quote"):
-                raise Refusal("QUOTES_MISSING", f"{row['symbol']}: the quote environment is chosen but the export holds "
-                                                "no quotes for this contract in the window")
+        missing = []
+        for row, _, trade_start in planned:
+            episode = row["episode"]
+            end = min(window.end_ns, (_termination(episode) if episode else None) or window.end_ns)
+            months = quote_months_missing(row, trade_start, end)
+            if months:
+                missing.append(f"{row['symbol']} {', '.join(months)}")
+        if missing:
+            raise Refusal("QUOTES_MISSING", "the quote environment is chosen but the export holds no quotes in these "
+                                            f"UTC months of the trading window: {'; '.join(missing)}")
     for row in rows:
         engine.add_instrument(with_margins(row["instrument"], rates) if rates is not None else row["instrument"])
     STRATEGIES.clear()

@@ -147,7 +147,8 @@ Any finding or any denied or rejected order fails the run.
   registered as one change.
 - Margin and leverage are Nautilus's: the account is `MARGIN` at the leverage in
   `ACCOUNT_CONTRACT`, and a denied order fails the run. Do not add a separate notional cap to
-  imitate it.
+  imitate that check; a notional cap chosen for the design (for example to keep liquidation far
+  away and the line on `bars`) is a constant like the others.
 - A cap on order size as a share of bar volume is a constant in the file. Carry the excess to
   later bars or cap on a longer volume window; dropping it makes the position a random function of
   one minute's volume.

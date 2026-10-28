@@ -159,7 +159,8 @@ REFUSALS: dict[str, str] = {
     "INSTRUMENT_NOT_UNIQUE": "An exported Catalog does not hold exactly one USDT instrument of the receipt's ID.",
     "CONTRACT_NAME_COLLISION": "Two contracts share a short name or strategy identifier.",
     "NO_ACTIVE_INSTRUMENT": "No contract's lifecycle intersects the input window.",
-    "QUOTES_MISSING": "The quote environment is chosen but an active contract's export holds no quotes.",
+    "QUOTES_MISSING": "The quote environment is chosen but an active contract's export holds no quotes in some UTC "
+                      "month of its trading window.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",

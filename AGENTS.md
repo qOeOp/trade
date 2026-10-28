@@ -32,8 +32,9 @@ the goal without it.
 Position size, per-plan risk and notional limits are the Agent's design variables, set in strategy
 source. Changing them needs no authority and never turns them into user constraints.
 
-Tests, demos and engineering trials write only to an isolated Dolt database, never the active
-ledger: publication is append-only.
+Tests, demos and engineering trials of product code write only to an isolated Dolt database, never
+the active ledger: publication is append-only. Explore trials (`replay explore`, `replay
+reproduce`) are research records of exposure to data and go to the active ledger.
 
 ## Code or Agent
 

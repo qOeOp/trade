@@ -77,7 +77,9 @@ rule, both sizes the instrument's max quantity) are streamed to the venue and dr
 book, bar execution is off (bars only feed signals), the venue's native liquidation is on
 (`liquidation_enabled`, trigger ratio 1.0, open orders cancelled first) with the standard margin model
 (maintenance = notional x the rate, not divided by leverage), and the instruments carry the two rates.
-An active contract whose export holds no quotes is `QUOTES_MISSING`. The quotes count in the consumed
+An active contract whose export holds no quote in some UTC month of its trading window (from its trade start to the
+window end or its termination) is `QUOTES_MISSING`, naming each such month: there bar execution is off, so a month
+without quotes would replay without matching. The quotes count in the consumed
 events. The summary names the environment (`execution`) and its limitations state the model, which is
 declared, not the exchange's: equity is valued at the cached best bid/ask, not the mark price; the
 maintenance margin is fixed at the position's average entry price; fills take the best price with no
