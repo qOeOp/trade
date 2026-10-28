@@ -1449,6 +1449,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "paper_id, bundle, files {path: sha256}, seal (status complete or invalid, reasons, returns, drawdown, "
         "funding, fills, orders, gaps, limitations), ledger_commit, write_status",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (still running: stop it first); RUNTIME_UNAVAILABLE"),
+    ("paper", "delete"): (
+        "the paper run and its seal (service administrator, as the writer may not delete)",
+        "removes the sealed run's paper_run row, its bundle paper-<id>-capture and the contents no other bundle names "
+        "in one commit paper_delete:<id> on the research branch, then its run directory; Dolt history, the backup "
+        "and the public copy keep them, and ledger review accepts exactly this deletion; the user's own action "
+        "(an Agent asks first); publishes",
+        "paper_id, bundle, contents_deleted, ledger_commit, write_status",
+        "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed: stop or seal it first); DIRTY_WORKING_SET; "
+        "COMMIT_CHECKS_DISABLED"),
     ("paper", "list"): (
         "every paper run and its seal (reader); this ledger's paper containers on Docker",
         "nothing itself; not a declared read command, so it publishes the ledger when origin is behind it",
@@ -1458,9 +1467,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "serve"): (
         "the paper runs, their seals and a candidate's last research replay (reader); each run's directory and "
         "capture bundle; this ledger's paper containers on Docker",
-        "nothing itself: a start, stop or seal from the page, the seal of a run that ended on its own and a new "
-        "start of one Docker stopped from outside (SIGTERM, no STOP file), run paper start, stop or seal (their "
-        "writes)",
+        "nothing itself: a start, stop, seal or delete from the page, the seal of a run that ended on its own and "
+        "a new start of one Docker stopped from outside (SIGTERM, no STOP file), run paper start, stop, seal or "
+        "delete (their writes)",
         "nothing until stopped; over HTTP on loopback, /api/paper/ lists the runs, streams a run's journal and "
         "readings, and answers a start or stop with that command's result",
         "USAGE_ERROR (a --host that is not loopback); over HTTP: FORBIDDEN (a Host or origin not allowed), "
@@ -1848,7 +1857,7 @@ def _parser() -> Parser:
                          help="most bar periods returned inline (default: 1440, one day of minutes)")
     command.add_argument("--output", help="new JSON file under the temporary root for the whole interval")
 
-    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, list, "
+    paper = verbs("paper", "paper runs on live public market data with simulated fills: start, stop, seal, delete, list, "
                            "reconcile, serve")
     command = verb(paper, "start", "declare a paper run of a candidate and start its containers")
     command.epilog = textwrap.fill(
@@ -1872,6 +1881,12 @@ def _parser() -> Parser:
     command.add_argument("--wait-seconds", type=int, default=60, help="seconds the runner gets to cancel its orders "
                                                                       "and write its summary before it is killed")
     command = verb(paper, "seal", "seal an ended paper run into the ledger")
+    _ledger_option(command)
+    command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
+    command = verb(paper, "delete", "delete a sealed paper run from the ledger (the user's own action)")
+    command.epilog = textwrap.fill(
+        "Deleting a run is the user's decision, never an Agent's own (AGENTS.md). The run leaves the research branch "
+        "in one commit by the service administrator; Dolt history, the backup and the public copy keep it.", 100)
     _ledger_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "list", "every paper run with its state and seal readings")
@@ -2052,6 +2067,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
         if args.verb == "seal":
             return paper_runs.seal(profile, args.paper_id), 0
+        if args.verb == "delete":
+            return paper_runs.delete(profile, args.paper_id), 0
         if args.verb == "list":
             return paper_runs.listing(profile), 0
         if args.verb == "reconcile":

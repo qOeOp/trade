@@ -7,6 +7,11 @@ split by UTC day, its summary, the egress and runner logs, and ``seal.json``, th
 here once (docs/plans/paper-run-storage-decision.zh.md). Paper runs are not trials: they add no trial
 count and no exposure. A run that crashed or lost its files still seals, as ``invalid`` with reasons,
 so every declared run has an outcome.
+
+The user may delete a sealed run (`ledger.delete_paper_run`, user decision 2026-10-29): its declaration,
+its capture bundle and the contents no other bundle names leave the research branch in one commit
+``paper_delete:<paper_id>`` by the service administrator, since the writer may not delete. Dolt history,
+the backup and the public copy keep them; the whole-ledger review accepts exactly such a commit.
 """
 
 from __future__ import annotations
@@ -18,6 +23,8 @@ import gzip
 import json
 from pathlib import Path
 
+import pymysql
+
 from ledger import db, evidence
 from ledger.refusals import refuse
 
@@ -26,6 +33,7 @@ TABLE = "paper_run"
 READINGS = "paper-readings@2026-10-25"
 DAY_NS = 86_400 * 10**9
 LOG_TAIL_BYTES = 1024 * 1024
+DELETE_KIND = "paper_delete"
 # How a run may end and still be complete: the user's stop, the engineering duration.
 CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
 
@@ -303,3 +311,52 @@ def seal_paper_run(conn: db.LedgerConnection, paper_id: int, files: dict[str, by
     written = db.write(conn, "paper_seal", {"bundle": bundle, "files": hashes}, "evidence_bundle", insert)
     return {"bundle": bundle, "files": hashes, "seal": json.loads(files["seal.json"]),
             "ledger_commit": written["commit"], "write_status": written["write_status"]}
+
+
+def delete_paper_run(profile: db.LedgerProfile, paper_id: int) -> dict:
+    """paper delete: remove a sealed run's declaration, its capture bundle and the contents no other bundle
+    names, in one commit ``paper_delete:<paper_id>`` on the research branch by the service administrator."""
+    config = db._known_service(profile.service_root)
+    bundle, op = bundle_name(paper_id), f"{DELETE_KIND}:{paper_id}"
+    raw = db.service_connection(config["socket"], user="root", password=config["root_password"],
+                                database=f"{profile.database}/{profile.research_branch}", autocommit=False,
+                                connect_timeout=10)
+    try:
+        raw.begin()
+        with raw.cursor() as cursor:
+            def one(statement: str, params=()) -> list[tuple]:
+                cursor.execute(statement, params)
+                return list(cursor.fetchall())
+
+            if one("SELECT table_name FROM dolt_status"):
+                raise refuse("DIRTY_WORKING_SET", "the research branch has uncommitted SQL changes; nothing was "
+                                                  "deleted")
+            if not one(f"SELECT 1 FROM {TABLE} WHERE paper_id = %s", (paper_id,)):
+                raise refuse("PAPER_RUN_UNKNOWN", f"no paper run {paper_id}", missing=(str(paper_id),))
+            if not one("SELECT 1 FROM evidence_bundle WHERE bundle = %s", (bundle,)):
+                raise refuse("PAPER_RUN_ACTIVE", f"paper run {paper_id} is not sealed; stop or seal it first",
+                             missing=(bundle,))
+            contents = sorted({sha for (sha,) in one("SELECT sha256 FROM evidence WHERE bundle = %s", (bundle,))})
+            one("DELETE FROM evidence WHERE bundle = %s", (bundle,))
+            one("DELETE FROM evidence_bundle WHERE bundle = %s", (bundle,))
+            orphans = [sha for sha in contents if not one("SELECT 1 FROM evidence WHERE sha256 = %s LIMIT 1", (sha,))]
+            for sha in orphans:
+                one("DELETE FROM evidence_content WHERE sha256 = %s", (sha,))
+            one(f"DELETE FROM {TABLE} WHERE paper_id = %s", (paper_id,))
+            one("UPDATE ledger_head SET seq = seq + 1, op_id = %s WHERE singleton = 1", (op,))
+            (groups,), = one("SELECT @@GLOBAL.dolt_commit_verification_groups")
+            if groups != db.COMMIT_TESTS:
+                raise refuse("COMMIT_CHECKS_DISABLED", "the service's commit verification group is not "
+                                                       f"{db.COMMIT_TESTS!r}; nothing is committed unchecked",
+                             expected=db.COMMIT_TESTS)
+            (commit,), = one("CALL DOLT_COMMIT('-a', '-m', %s)", (op,))
+        raw.commit()
+    except BaseException as exc:
+        raw.rollback()
+        if isinstance(exc, pymysql.MySQLError):
+            raise db._sql_error(exc, operation_id=op) from exc
+        raise
+    finally:
+        raw.close()
+    return {"paper_id": paper_id, "bundle": bundle, "contents_deleted": len(orphans), "ledger_commit": commit,
+            "write_status": "written"}

@@ -6,8 +6,9 @@ import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
-import { ACTIVE, startPaper, stopDialog } from "../state/paper";
+import { ACTIVE, deleteDialog, deleting, startPaper, stopDialog } from "../state/paper";
 import { select } from "../state/selection";
+import { useAtom } from "../state/atom";
 import { pnlClass, type DataRole } from "../theme/roles";
 import { IconButton } from "./IconButton";
 
@@ -68,6 +69,18 @@ export function RunButton({ run, className }: { run: PaperRun; className?: strin
   );
 }
 
+/** The trash beside the ■ or ▶ that asks to delete the run shown, its outline at 16px so that it is no
+ *  larger than their filled glyphs; a run still running or not yet sealed has to be stopped first, so it
+ *  is off until then, aria-disabled rather than disabled so that its tooltip still says why. */
+export function DeleteButton({ run, className }: { run: PaperRun; className?: string }) {
+  const busy = useAtom(deleting).has(run.paper_id), sealed = run.state === "sealed", off = !sealed || busy;
+  return (
+    <IconButton icon="delete" frame glyph={16} className={className} aria-disabled={off}
+                label={sealed ? "Delete run…" : "Delete run: stop and seal it first"}
+                onClick={(e) => { e.stopPropagation(); if (!off) deleteDialog.set(run); }} />
+  );
+}
+
 /** A run's actions on right-click: stop, find its version in the graph, open its source, copy its id. */
 export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode }) {
   const id = run.candidate ?? "";
@@ -81,6 +94,10 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
           <ContextMenu.Item className={ITEM} onSelect={() => { select(id); showLineage(); requestFocus(id); }}><Icon name="locate" />Locate version in graph</ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => openSource(id)}><Icon name="file.python" />Open source</ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => void copyText(String(run.paper_id))}><Icon name="copy" />Copy run id</ContextMenu.Item>
+          {run.state === "sealed" && <>
+            <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
+            <ContextMenu.Item className={ITEM} onSelect={() => deleteDialog.set(run)}><Icon name="delete" />Delete run…</ContextMenu.Item>
+          </>}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

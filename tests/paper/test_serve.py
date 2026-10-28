@@ -1,5 +1,5 @@
 """If this fails, the Paper panel misleads or is open to other pages: a page of another site or port can
-start a paper run, a run's live readings differ from what its seal computes from the same journal, a
+start or delete a paper run, a run's live readings differ from what its seal computes from the same journal, a
 run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed, the
 Account view's stream misses a contract's closes, the exceptions its strategy raised (while it runs
 or once sealed) never reach the page, or a run that a Docker restart stopped is not started again while
@@ -87,6 +87,16 @@ class GateTests(unittest.TestCase):
                          (202, {"paper_id": 3, "state": "reconciling"}))
         self.daemon.reconcile.assert_called_once_with(3)
         self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/reconcile"), (200, {"paper_id": 3, "state": "none"}))
+
+    def test_a_delete_comes_only_from_the_ides_own_page(self):
+        self.daemon.delete.return_value = {"paper_id": 3, "write_status": "written"}
+        json_body = {"Content-Type": "application/json"}
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/delete", b"{}",
+                                 **json_body, **{"Sec-Fetch-Site": "cross-site"})[0], 403)
+        self.daemon.delete.assert_not_called()
+        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/delete", b"{}", **json_body),
+                         (200, {"paper_id": 3, "write_status": "written"}))
+        self.daemon.delete.assert_called_once_with(3)
 
     def test_a_start_names_a_candidate_and_binance_symbols(self):
         daemon = serve.Daemon.__new__(serve.Daemon)

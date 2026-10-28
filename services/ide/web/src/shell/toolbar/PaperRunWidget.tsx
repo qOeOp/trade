@@ -1,7 +1,7 @@
 import { amount, fixed } from "../../lib/paperApi";
 import { useNow } from "../../components/hooks/useNow";
 import { PopoverWidget } from "../../components/Dropdown";
-import { health, returnOf, RunButton, RunMenu, signedPct } from "../../components/RunTile";
+import { DeleteButton, health, returnOf, RunButton, RunMenu, signedPct } from "../../components/RunTile";
 import { Tip } from "../../components/Tip";
 import { useAtom } from "../../state/atom";
 import { ACTIVE, paperTab, selectedRun, usePaperRuns } from "../../state/paper";
@@ -14,7 +14,8 @@ const DOT = { meets: "bg-meets", misses: "bg-misses", fail: "bg-fail" } as const
 /** The Paper page's part of the main toolbar: where the graph has its line and ledger, the run shown, as
  *  IntelliJ's run-configuration widget (its state dot, version and revision; the menu lists every run to
  *  pick one, with a dot on the widget when a run behind it is in trouble), then its readout: equity,
- *  return since the start and its state in words; and before search, as IntelliJ's run buttons, its ■ or ▶. */
+ *  return since the start and its state in words; and before search, as IntelliJ's run buttons, its ■ or ▶
+ *  and the delete beside them. */
 export function PaperRunWidget() {
   const listing = usePaperRuns();
   const selected = useAtom(selectedRun);
@@ -55,7 +56,8 @@ export function PaperRunWidget() {
         <span className="shrink-0 tabular-nums"><span className="text-fg-faint">Return </span><span className={pnlClass(ret)}>{signedPct(ret)}</span></span>
         <span className="min-w-0 truncate text-fg-muted"><RunHealth run={run} now={now} failures={s?.failures ?? null} /></span>
       </div>
-      <RunButton run={run} className="ml-3 mr-2" />
+      <RunButton run={run} className="ml-3" />
+      <DeleteButton run={run} className="mr-2" />
     </>
   );
 }

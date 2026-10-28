@@ -56,6 +56,21 @@ AGENTS.md 要求加存储字段前先做独立子代理审阅，并把结论记�
 容器崩了、日志或概要缺失，照样封存，`seal.json` 写 `status: invalid` 并列出原因，例如 `SUMMARY_MISSING`、
 `JOURNAL_MISSING`、`RUNTIME_FAILURES`。这些是读数，不是拒绝：账本里每一次启动都有对应的结局。
 
+## 用户删除（用户 2026-10-29 定）
+
+用户可以在 Paper 面板上删除已封存的运行（工具栏 ■ / ▶ 旁的删除按钮、运行的右键菜单，先确认），清掉没开始就被停、
+启动失败之类的脏记录。这是用户自己的操作；Agent 不经用户明确授权不跑 `paper delete`（AGENTS.md 的破坏性写入）。
+
+- 删什么：这条 `paper_run` 行、它的 `paper-<paper_id>-capture` 包（`evidence_bundle` 与 `evidence` 行），
+  以及删完后不再被任何文件引用的 `evidence_content` 行，然后删本机运行目录。只删已封存的；还在跑的先停。
+- 怎么删：写入账户没有 DELETE 权限（最小权限不变），所以由服务管理员在研究分支上一个提交完成，提交信息
+  `paper_delete:<paper_id>`，同时推进 `ledger_head`；照常发布。不新增表或字段：删除本身记在 Dolt 历史里。
+- 删不掉什么：Dolt 历史、`dolt_backup` 备份和 DoltHub 公开副本里仍有这些行。
+- 审查（用户同日授权改审计）：`ledger review` 仍把追加表里任何改动或删除报成 `ROW_CHANGED`，只放行恰好是
+  这种删除的行：提交信息是 `paper_delete:<paper_id>`，删的是这条 `paper_run` 行、这个包的 `evidence_bundle`
+  与 `evidence` 行，或在该提交已无文件引用的 `evidence_content` 行。别的提交信息下的删除、或借这条信息删
+  别的运行，照报。
+
 ## 不做
 
 - 单独的 `paper_seal` 表：包名就能定位封存，`evidence_bundle` 已经有创建时间和操作 ID。

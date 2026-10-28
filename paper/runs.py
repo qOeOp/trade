@@ -1,4 +1,4 @@
-"""Paper runs on the host (`paper.start`, `paper.stop`, `paper.seal`, `paper.listing`).
+"""Paper runs on the host (`paper.start`, `paper.stop`, `paper.seal`, `paper.delete`, `paper.listing`).
 
 Each run is two containers of the same digest-pinned runtime image on a Docker network of its own that
 has no route out (`--internal`):
@@ -10,7 +10,8 @@ has no route out (`--internal`):
 Docker is called with an allowlisted environment and passes no variable into a container beyond the
 image's own, so no credential of the host's shell can reach a run (docs/plans/paper-trading-design.zh.md
 §3). The run is declared in the ledger before its containers start and sealed after they end; its working
-directory lives beside the ledger's service (``<service>/paper/<database>/<paper_id>``) until it is sealed.
+directory lives beside the ledger's service (``<service>/paper/<database>/<paper_id>``) until it is sealed,
+or deleted (the user's own: a sealed run leaves the ledger and its directory goes with it).
 At most MAX_RUNNING runs per ledger run at once, and one per source.
 """
 
@@ -20,6 +21,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import uuid
@@ -249,6 +251,13 @@ def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECO
             _checked("stop", "--time", str(STOP_KILL_SECONDS), named["runner"],
                      timeout=STOP_KILL_SECONDS + DOCKER_SECONDS)
     return seal(profile, paper_id)
+
+
+def delete(profile: db.LedgerProfile, paper_id: int) -> dict:
+    """paper delete: remove a sealed run from the ledger (ledger.delete_paper_run), then its run directory."""
+    found = records.delete_paper_run(profile, paper_id)
+    shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
+    return found
 
 
 def listing(profile: db.LedgerProfile) -> dict:

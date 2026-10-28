@@ -742,7 +742,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Paper runs (ledger/paper.py, paper/runs.py)
     "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
                           ("List the runs with `paper list`.",)),
-    "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, or the run to seal is still running.",
+    "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "
+                         "run to delete is not sealed yet.",
                          ("Stop it with `paper stop --paper-id N`, which also seals it.",)),
     "PAPER_CONCURRENCY_LIMIT": ("The ledger already has the most paper runs running at once.",
                                 ("Stop a running one with `paper stop --paper-id N`, then start again.",)),

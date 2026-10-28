@@ -1,6 +1,6 @@
 """The whole-ledger review (`report.review_all`): with the reader account at one exact version, rerun
 the commit checks and compare them byte for byte with the product's definitions, read every business
-table's history for changed or removed rows, check that the latest backup's head is still an
+table's history for changed or removed rows (all but the user's deletion of a sealed paper run), check that the latest backup's head is still an
 ancestor of the research head (without a backup, say that this was not checked), recompute what the
 stored cycles and daily series determine against each passed run's sealed result, and check
 fingerprints, captures, registration order, grid membership, witnesses and the one-to-one
@@ -19,7 +19,7 @@ import json
 import math
 import re
 
-from ledger import admin, db, execution, metrics, witness
+from ledger import admin, db, execution, metrics, paper, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import register, validation
@@ -30,7 +30,8 @@ FINDINGS = {
     "COMMIT_TEST_FAILED": "A commit verification test (dolt_tests) fails at this version.",
     "COMMIT_TEST_ALTERED": "A commit verification test (dolt_tests) is missing, added or differs byte for byte from the "
                            "product's definition in ledger/schema.sql.",
-    "ROW_CHANGED": "A row of an append-only table was modified or removed in the ledger history.",
+    "ROW_CHANGED": "A row of an append-only table was modified or removed in the ledger history (other than by the "
+                   "user's deletion of a sealed paper run, `paper delete`).",
     "HISTORY_REWRITTEN": "The latest backup's head commit is no ancestor of the research (or market) head: a commit "
                          "was rewritten (the writer or import account can amend its last commit).",
     "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
@@ -50,6 +51,8 @@ FINDINGS = {
                                   "trial is bound other than once.",
 }
 UNCHECKED = ("ledger_head",)
+PAPER_DELETE = re.compile(rf"{paper.DELETE_KIND}:(\d+)\Z")
+COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 EQUITY_TOLERANCE = metrics.EQUITY_TOLERANCE
 HISTORY_UNCHECKED = ("HISTORY_UNCHECKED: no readable backup, so whether a commit was rewritten (an amended last "
                      "commit) was not checked")
@@ -303,6 +306,26 @@ def _validation_findings(conn: db.LedgerConnection, commit: str) -> tuple[list[d
     return found, len(registrations)
 
 
+def _paper_deletion(pinned: db.LedgerConnection, table: str, commit: str, key: list, deletions: dict) -> bool:
+    """Whether a removed row is part of the user's deletion of a sealed paper run (`paper delete`): in a commit
+    `paper_delete:<paper_id>`, that run's paper_run row, its capture bundle and its files, or a content no
+    file names any more at that commit. `deletions` caches each commit's paper ID (None: no deletion)."""
+    if commit not in deletions:
+        found = pinned.rows("SELECT message FROM dolt_commits WHERE commit_hash = %s", (commit,))
+        named = PAPER_DELETE.fullmatch(found[0][0]) if found else None
+        deletions[commit] = named[1] if named else None
+    paper_id = deletions[commit]
+    if paper_id is None or not COMMIT_HASH.fullmatch(commit):
+        return False
+    if table == "paper_run":
+        return str(key[0]) == paper_id
+    if table in ("evidence_bundle", "evidence"):
+        return key[0] == paper.bundle_name(int(paper_id))
+    if table == "evidence_content":
+        return not pinned.rows(f"SELECT 1 FROM evidence AS OF '{commit}' WHERE sha256 = %s LIMIT 1", (key[0],))
+    return False
+
+
 def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[str] | None = None,
                trial_ids: list | None = None) -> dict:
     """The whole review at one exact version with the reader account; every difference a finding."""
@@ -319,6 +342,7 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
                 findings.append(_finding("COMMIT_TEST_FAILED", "dolt_tests", name, commit, str(message or status)))
         findings += _commit_test_findings(pinned, commit)
         checked = list(tables) if tables is not None else _tables(pinned)
+        deletions: dict[str, str | None] = {}
         for table in checked:
             if not db.IDENTIFIER.fullmatch(table):
                 raise refuse("INVALID_NAME", f"{table!r} is not a ledger table name", missing=(table,))
@@ -330,6 +354,8 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
             except Refusal as exc:
                 raise refuse("LEDGER_UNAVAILABLE", f"dolt_diff_{table} cannot be read; the review cannot start") from exc
             for diff_type, to_commit, *key in changed:
+                if diff_type == "removed" and _paper_deletion(pinned, table, to_commit, key, deletions):
+                    continue
                 findings.append(_finding("ROW_CHANGED", table, "/".join(str(item) for item in key), to_commit,
                                          f"a {table} row was {diff_type}"))
         head = db.resolve_commit(pinned, conn.profile.research_branch)
