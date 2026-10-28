@@ -3,7 +3,8 @@
 Read before the first replay of a line or of a session, whenever coverage or lifecycle receipts show a gap,
 zero-volume minutes or missing funding (including after a completed replay), when a new month
 arrives, and before inferred quotes are used for a new contract, period or liquidation scenario.
-Read coverage facts with `market coverage` at the line's pinned commit (`--help` for its output).
+Read coverage facts, imported quotes included, with `market coverage` at the line's pinned commit
+(`--help` for its output).
 A completed replay does not discharge the coverage-reporting duties below.
 
 ## Coverage disposition
@@ -12,7 +13,8 @@ When reporting any coverage anomaly, include the parts below in the final answer
 user asks only how to record it or what to do next. A diagnosis or a plan to inspect positions is
 not a substitute for the disposition.
 
-1. **Facts and block.** Separate LAST gaps, MARK gaps, zero-volume minutes and missing funding.
+1. **Facts and block.** Separate LAST gaps, MARK gaps, zero-volume minutes and missing funding
+   (`funding.missing_settlements`, against the contract's own `funding.spacing`).
    Identify the market commit, contracts, UTC intervals and counts the evidence gives; say the
    causes are unproven, and give the replay's treatment below instead of calling the effect
    unknown. Distinguish a known missing input from an unreadable receipt or missing verification.

@@ -10,12 +10,18 @@ import type { ITimeScaleApi, Logical, Time } from "lightweight-charts";
 const QUIET = 180;  // ms: the view counts as settled this long after it last moved with no pointer held
 
 /** Calls `settle` once the view has settled: QUIET ms after its last change while no pointer is held on
- *  `element` (a drag, a pinch or a press on an axis holds one), with where the pointer was in the pane
- *  (px from its left, null when it is not over the pane). Returns the unsubscribe. */
-export function whenSettled(element: HTMLElement, time: ITimeScaleApi<Time>, settle: (x: number | null) => void): () => void {
-  let held = false, timer = 0, x: number | null = null;
-  const later = () => { window.clearTimeout(timer); if (!held) timer = window.setTimeout(() => settle(x), QUIET); };
-  const down = () => { held = true; window.clearTimeout(timer); };
+ *  `element` (a drag, a pinch or a press on an axis holds one), or on the next frame when `urgent()` says
+ *  the change cannot wait (a wheel zoom, which holds no pointer, past what the step can show), with where
+ *  the pointer was in the pane (px from its left, null when it is not over the pane). Returns the
+ *  unsubscribe. */
+export function whenSettled(element: HTMLElement, time: ITimeScaleApi<Time>, settle: (x: number | null) => void, urgent = () => false): () => void {
+  let held = false, timer = 0, frame = 0, x: number | null = null;
+  const later = () => {
+    window.clearTimeout(timer); cancelAnimationFrame(frame);
+    if (held) return;
+    if (urgent()) frame = requestAnimationFrame(() => settle(x)); else timer = window.setTimeout(() => settle(x), QUIET);
+  };
+  const down = () => { held = true; window.clearTimeout(timer); cancelAnimationFrame(frame); };
   const up = () => { if (held) { held = false; later(); } };
   const move = (e: PointerEvent) => { const at = e.clientX - element.getBoundingClientRect().left; x = at >= 0 && at <= time.width() ? at : null; };
   const leave = () => { x = null; };
@@ -26,7 +32,7 @@ export function whenSettled(element: HTMLElement, time: ITimeScaleApi<Time>, set
   window.addEventListener("pointercancel", up, true);
   time.subscribeVisibleLogicalRangeChange(later);
   return () => {
-    window.clearTimeout(timer);
+    window.clearTimeout(timer); cancelAnimationFrame(frame);
     element.removeEventListener("pointerdown", down, true);
     element.removeEventListener("pointermove", move, true);
     element.removeEventListener("pointerleave", leave);
