@@ -454,6 +454,8 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                 continue
             if attempted is not None and attempted in chain:
                 continue
+            if purpose == "precheck" and precheck.stopped_before_data(conn, trial_id, point["source_sha256"]):
+                continue
             if trial_id == point["precheck_trial"] and precheck.exposure_exempt(
                     conn, trial_id, point["source_sha256"], execution.get("image_ref"), declared_config,
                     declared_inputs):
