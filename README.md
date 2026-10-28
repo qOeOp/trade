@@ -63,9 +63,10 @@ semantic fingerprint in Dolt. Their native tables are cache. Read an original ca
 `replay report --trial-id N --directory /tmp/original`; after a cache loss use
 `replay reproduce --trial-id N --output /tmp/rebuilt`, then `replay report --trial-id N
 --reproduction /tmp/rebuilt --reproduction-trial M`. `M` is the new explore execution, not a new
-economic result or review. Only a successful exact reproduction of the registration's cited,
-exempt precheck is exempt from additional exposure. Failed or changed reproductions remain
-recorded exposures. Failed/incomplete prechecks and prechecks without a usable fingerprint retain
+economic result or review. A successful exact reproduction of a trial the exposure check does not
+count (the registration's cited short precheck, a precheck that sealed no result, or a trial of
+its retry chain) rereads bytes already accounted for and is not counted either. Failed or changed
+reproductions remain recorded exposures. Failed/incomplete prechecks and prechecks without a usable fingerprint retain
 their original reports; a later success never replaces their original facts.
 
 `ledger init` refuses a profile or database that exists, and an active ledger whose service or

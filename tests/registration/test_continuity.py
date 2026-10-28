@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import trials
-from registration import precheck, register, seams
+from registration import precheck, seams
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP, context, sha, source
 from tests.registration.test_register import OTHER_RUNTIME, refused
 from tests.registration.world import LINE_WINDOW, World, capture, coverage_bytes, inspect_stand_in
@@ -155,14 +155,28 @@ class ContinuityTests(unittest.TestCase):
             self.assertEqual(refused(self.world.register, "registration-extra-precheck", body).code,
                              "SOURCE_ALREADY_EXPOSED")
 
-    def test_reproduction_proof_requires_configuration_and_completed_fingerprinting(self):
+    def exposed(self):
+        with self.on_new_runtime():
+            exc = refused(self.world.register, "registration-new", self.migrated_body())
+        self.assertEqual((exc.code, exc.missing), ("SOURCE_ALREADY_EXPOSED", ("rsi@1",)))
+
+    def test_a_reproduction_with_another_configuration_is_an_exposure(self):
         effective = copy.deepcopy(self.world.plan("registration-old")["execution"]["effective_config"])
         effective["account"]["starting_balance_usdt"] = "200000"
-        wrong_config = self.reproduction({"fixture": "same"}, effective=effective)
-        missing_fingerprint = self.reproduction(None)
-        for trial_id in (wrong_config, missing_fingerprint):
-            with self.subTest(trial_id=trial_id):
-                self.assertFalse(register._verified_reproduction(self.world.conn, trial_id, ["registration-old"]))
+        self.reproduction({"fixture": "same"}, effective=effective)
+        self.exposed()
+
+    def test_a_reproduction_without_a_completed_fingerprint_is_an_exposure(self):
+        self.reproduction(None)
+        self.exposed()
+
+    def test_a_reproduction_of_a_chain_run_does_not_count_on_the_same_image(self):
+        """Condition (4), relaxation 2: a verified reproduction of a trial the retry chain consumed is
+        not counted whether or not the retry changes the image."""
+        self.world.qualification.unavailable.add(self.old_run)  # a same-image retry needs no economic evidence
+        self.reproduction({"fixture": "same"})
+        body = {**self.body, "retry_of": "registration-old"}
+        self.assertFalse(self.world.register("registration-same-image", body)["replayed"])
 
     def test_invalid_child_retries_against_the_new_control_only(self):
         child = self.world.publish("child")

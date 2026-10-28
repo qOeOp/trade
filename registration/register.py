@@ -420,74 +420,50 @@ def _check_retry(conn: db.LedgerConnection, chain: list[str], points: list[dict]
     return transitions
 
 
-def _verified_reproduction(conn: db.LedgerConnection, trial_id: int, bundles: list[str]) -> bool:
-    """A complete explore capture of a linked earlier passed run with identical execution identity
-    and the exact fingerprint bytes its original image sealed. No cached report directory is needed."""
-    if not bundles:
-        return False
-    anchors = conn.rows("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
-                        "JOIN registration_attempt a ON a.trial_id = t.trial_id WHERE a.registration_bundle IN ("
-                        + ",".join(["%s"] * len(bundles)) + ") AND r.status = 'passed' "
-                        "AND r.fingerprints IS NOT NULL AND t.trial_id < %s", (*bundles, trial_id))
-    return any(reproduction.matches(conn, trial_id, original) for (original,) in anchors)
-
-
 def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[str],
                     exclude: tuple[str, int] | None, transitions: list[dict]) -> None:
-    declared_config = comparability.config_key(execution.get("effective_config"))
-    declared_inputs = comparability.input_key(execution.get("input_identity"))
+    """A grid source has already run, and cannot be registered as new, when a trial sealed an economic
+    result of it the researcher could read. Not counted: (1) the binding being checked and the trials
+    of its retry chain; (2) a precheck that sealed no result (precheck.sealed_no_result); (3) the cited
+    short precheck matching the registration's identity, and the one a linked runtime rebuild cited,
+    matched against that rebuild's identity; (4) a verified reproduction (reproduction.matches) of a
+    trial not counted by (1) to (3), on any image: it rereads bytes already accounted for."""
+    declared = (execution.get("image_ref"), comparability.config_key(execution.get("effective_config")),
+                comparability.input_key(execution.get("input_identity")))
     for point in points:
-        cited = {}
+        source = point["source_sha256"]
+        cited = {point["precheck_trial"]: [declared]}
         for plan in transitions:
             previous = plan["execution"]
             review = (plan["body"].get("prechecks") or {}).get(point["candidate"])
             if review is not None:
-                trial_id = precheck.require_precheck(conn, review, point["source_sha256"], previous["image_ref"],
+                trial_id = precheck.require_precheck(conn, review, source, previous["image_ref"],
                                                      comparability.input_key(previous["input_identity"]))
-                cited[trial_id] = previous
-        found = conn.rows("SELECT t.trial_id, a.registration_bundle, t.purpose, t.trade_start, t.trade_end "
-                          "FROM trial t LEFT JOIN registration_attempt a "
-                          "ON a.trial_id = t.trial_id WHERE t.source_sha256 = %s ORDER BY t.trial_id",
-                          (point["source_sha256"],))
-        for trial_id, attempted, purpose, trade_start, trade_end in found:
-            if exclude is not None and (trial_id == exclude[1] or attempted == exclude[0]):
-                continue
-            if attempted is not None and attempted in chain:
-                continue
-            if purpose == "precheck" and (precheck.stopped_before_data(conn, trial_id, point["source_sha256"])
-                                          or precheck.traded_nothing(conn, trial_id, point["source_sha256"])):
-                continue
-            if trial_id == point["precheck_trial"] and precheck.exposure_exempt(
-                    conn, trial_id, point["source_sha256"], execution.get("image_ref"), declared_config,
-                    declared_inputs):
-                continue
-            prior = cited.get(trial_id)
-            if prior is not None and precheck.exposure_exempt(
-                    conn, trial_id, point["source_sha256"], prior["image_ref"],
-                    comparability.config_key(prior["effective_config"]),
-                    comparability.input_key(prior["input_identity"])):
-                continue
-            if purpose == "explore":
-                # Reading the cited precheck's identical reports adds no new research exposure.
-                # Both the anchor and its regenerated execution must verify; ordinary explorations
-                # and failed or changed reproductions remain prior exposure.
-                anchors = [(point["precheck_trial"], execution), *cited.items()]
-                if any(precheck.exposure_exempt(conn, original, point["source_sha256"],
-                                               actual.get("image_ref"),
-                                               comparability.config_key(actual.get("effective_config")),
-                                               comparability.input_key(actual.get("input_identity")))
-                       and reproduction.matches(conn, trial_id, original) for original, actual in anchors):
-                    continue
-            if transitions and purpose == "explore" and _verified_reproduction(
-                    conn, trial_id, [plan["bundle"] for plan in transitions]):
+                cited.setdefault(trial_id, []).append((previous["image_ref"],
+                                                       comparability.config_key(previous["effective_config"]),
+                                                       comparability.input_key(previous["input_identity"])))
+        uncounted, counted = [], []
+        for row in conn.rows("SELECT t.trial_id, a.registration_bundle, t.purpose, t.trade_start, t.trade_end "
+                             "FROM trial t LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id "
+                             "WHERE t.source_sha256 = %s ORDER BY t.trial_id", (source,)):
+            trial_id, attempted, purpose = row[0], row[1], row[2]
+            if ((exclude is not None and (trial_id == exclude[1] or attempted == exclude[0]))
+                    or (attempted is not None and attempted in chain)
+                    or (purpose == "precheck" and precheck.sealed_no_result(conn, trial_id, source))
+                    or any(precheck.exposure_exempt(conn, trial_id, source, *identity)
+                           for identity in cited.get(trial_id, ()))):
+                uncounted.append(trial_id)
+            else:
+                counted.append(row)
+        for trial_id, attempted, purpose, trade_start, trade_end in counted:
+            if purpose == "explore" and any(reproduction.matches(conn, trial_id, original) for original in uncounted):
                 continue
             detail = (f"consumed by {attempted}" if attempted else
                       f"an unregistered {purpose}; no registration consumed it, so retry_of does not apply")
             if purpose == "precheck":
                 days = (trade_end - trade_start).total_seconds() / 86_400
-                detail += (f"; {days:g} trading days, exemption maximum {precheck.PRECHECK_MAX_DAYS}; "
-                           "only the cited precheck with matching execution identity, or one that sealed no fill "
-                           "and no position, can be exempt")
+                detail += (f"; {days:g} trading days and a sealed result; only the cited precheck of at most "
+                           f"{precheck.PRECHECK_MAX_DAYS} days with matching execution identity is not counted")
             raise refuse("SOURCE_ALREADY_EXPOSED", f"grid source of {point['candidate']} already ran in trial "
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 

@@ -23,7 +23,8 @@ SUMMARY = "reports/summary.json"
 FINGERPRINT = "fingerprint/fingerprint.json"
 FAILURE_FIELDS = ("stage", "exception_type")
 FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
-# engine.main stages that end before any strategy trades (execution_failure): binding, load, inputs.
+# engine.main stages that end before any market data reaches the strategy (execution_failure): binding,
+# load, inputs. The one definition for counting tests and for exposure (registration.sealed_no_result).
 PRE_STRATEGY_STAGES = frozenset({"execution_binding", "load", "inputs"})
 OVERFLOW_STAGE = "receipt_overflow"  # engine.run.OVERFLOW_STAGE: the failures beyond the itemised records
 # engine.config.HOST_PATH_KEYS: the host paths the effective configuration hash leaves out

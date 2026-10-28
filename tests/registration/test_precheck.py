@@ -8,7 +8,7 @@ import hashlib
 import json
 import unittest
 
-from ledger import evidence, execution, lines, trials
+from ledger import evidence, execution, lines, problems, trials
 from ledger.errors import Refusal
 from qualification import availability
 from registration import comparability, precheck
@@ -272,21 +272,21 @@ class PrecheckTests(unittest.TestCase):
         def failures(*stages):
             return b"".join(json.dumps({"stage": stage, "exception_type": "Refusal"}).encode() + b"\n"
                             for stage in stages)
-        for stage in precheck.PRE_DATA_STAGES:
+        for stage in sorted(problems.PRE_STRATEGY_STAGES):
             with self.subTest(stage=stage):
                 trial_id = self.sealed(runtime=OTHER_RUNTIME, native_exit=1, audit_exit=None,
                                        runtime_errors=failures(stage))
-                self.assertTrue(precheck.stopped_before_data(self.conn, trial_id, sha(self.data)))
-                self.assertFalse(precheck.stopped_before_data(self.conn, trial_id,
-                                                              sha(self.world.publish("other")["source"])))
+                self.assertTrue(precheck.sealed_no_result(self.conn, trial_id, sha(self.data)))
+                self.assertFalse(precheck.sealed_no_result(self.conn, trial_id,
+                                                           sha(self.world.publish("other")["source"])))
         cases = {"replay stage": {"native_exit": 1, "runtime_errors": failures("replay")},
                  "a later stage beside it": {"native_exit": 1, "runtime_errors": failures("inputs", "replay")},
                  "no failure receipt": {"native_exit": 1},
                  "native exit zero": {"runtime_errors": failures("inputs")}}
         for label, options in cases.items():
             with self.subTest(label=label):
-                self.assertFalse(precheck.stopped_before_data(self.conn, self.sealed(**options), sha(self.data)))
-        self.assertFalse(precheck.stopped_before_data(self.conn, self.world.open_precheck(self.data), sha(self.data)))
+                self.assertFalse(precheck.sealed_no_result(self.conn, self.sealed(**options), sha(self.data)))
+        self.assertFalse(precheck.sealed_no_result(self.conn, self.world.open_precheck(self.data), sha(self.data)))
 
     def test_a_short_precheck_that_sealed_no_fill_and_no_position_leaves_the_source_unexposed(self):
         def sealed(fills=0, positions=0, days=precheck.PRECHECK_MAX_DAYS, **options) -> int:
@@ -294,30 +294,30 @@ class PrecheckTests(unittest.TestCase):
             capture(self.conn, trial_id, self.data, fingerprint=untraded(fills, positions), **options)
             return trial_id
         quiet = sealed()
-        self.assertTrue(precheck.traded_nothing(self.conn, quiet, sha(self.data)))
-        self.assertFalse(precheck.traded_nothing(self.conn, quiet, sha(self.world.publish("other-quiet")["source"])))
+        self.assertTrue(precheck.sealed_no_result(self.conn, quiet, sha(self.data)))
+        self.assertFalse(precheck.sealed_no_result(self.conn, quiet, sha(self.world.publish("other-quiet")["source"])))
         cases = {"a fill": {"fills": 1}, "a position": {"positions": 1},
                  "a longer window": {"days": precheck.PRECHECK_MAX_DAYS + 1}, "a failed audit": {"audit_exit": 2},
                  "an interrupted run": {"outcome": "interrupted"},
                  "a runtime failure": {"runtime_errors": b'{"stage": "replay", "exception_type": "KeyError"}\n'}}
         for label, options in cases.items():
             with self.subTest(label=label):
-                self.assertFalse(precheck.traded_nothing(self.conn, sealed(**options), sha(self.data)))
+                self.assertFalse(precheck.sealed_no_result(self.conn, sealed(**options), sha(self.data)))
         unfingerprinted = self.world.open_precheck(self.data)
         capture(self.conn, unfingerprinted, self.data)
-        self.assertFalse(precheck.traded_nothing(self.conn, unfingerprinted, sha(self.data)))
-        self.assertFalse(precheck.traded_nothing(self.conn, self.world.open_precheck(self.data), sha(self.data)))
+        self.assertFalse(precheck.sealed_no_result(self.conn, unfingerprinted, sha(self.data)))
+        self.assertFalse(precheck.sealed_no_result(self.conn, self.world.open_precheck(self.data), sha(self.data)))
         # No product write binds a precheck; an uncommitted administrator row stands in for one that was.
         consumed = sealed()
         attempt = (f"trial-{consumed}-execution", sha(self.data), consumed)
         self.world.service.sql(self.world.profile, "INSERT INTO registration_attempt (registration_bundle, "
                                "source_sha256, trial_id) VALUES (%s, %s, %s)", attempt)
         try:
-            self.assertFalse(precheck.traded_nothing(self.conn, consumed, sha(self.data)))
+            self.assertFalse(precheck.sealed_no_result(self.conn, consumed, sha(self.data)))
         finally:
             self.world.service.sql(self.world.profile, "DELETE FROM registration_attempt WHERE trial_id = %s",
                                    (consumed,))
-        self.assertTrue(precheck.traded_nothing(self.conn, consumed, sha(self.data)))
+        self.assertTrue(precheck.sealed_no_result(self.conn, consumed, sha(self.data)))
 
 
 def untraded(fills: int = 0, positions: int = 0) -> dict:

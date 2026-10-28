@@ -1,15 +1,15 @@
 """Native prechecks and independent source reviews (`registration.exposure_exempt`,
-`registration.stopped_before_data`, `registration.traded_nothing`, `registration.require_precheck`,
-`registration.record_review`).
+`registration.sealed_no_result`, `registration.require_precheck`, `registration.record_review`).
 
 A precheck is a replay declared as such before it starts (trial purpose precheck), on the runtime
-image and inputs the registration will use; it never consumes a grid point, and the one precheck a
-registration cites does not expose the source when its trading window is short; nor does any
-precheck that failed before market data reached the strategy, or any short precheck that sealed no
-fill and no position (no result to choose from). An Agent that did
-not write the source reviews the sealed precheck capture under four items; the review is appended
-as a product bundle bound to the source hash, the image digest and the precheck capture. Passing
-says the source runs, not that it is economic evidence; any failed review of the precheck fails it.
+image and inputs the registration will use; it never consumes a grid point. It exposes its source
+only when it sealed an economic result the researcher could read: the one precheck a registration
+cites does not when its trading window is short, nor does a precheck that sealed no result at all
+(it stopped before market data reached the strategy, or a short one sealed no fill and no position).
+An Agent that did not write the source reviews the sealed precheck capture under four items; the
+review is appended as a product bundle bound to the source hash, the image digest and the precheck
+capture. Passing says the source runs, not that it is economic evidence; any failed review of the
+precheck fails it.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from datetime import timedelta
 import hashlib
 import json
 
-from ledger import db, evidence, execution
+from ledger import db, evidence, execution, problems
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability
@@ -39,8 +39,6 @@ PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle")
 # The longest trading window a precheck may replay and stay exempt from exposure; an uncalibrated
 # example value. A longer precheck has seen enough of the window to count as a replay of it.
 PRECHECK_MAX_DAYS = 7
-# The runner stages (engine.main) that end before any market data reaches the strategy.
-PRE_DATA_STAGES = ("load", "inputs")
 
 
 def digest_of(image_ref: object) -> str | None:
@@ -104,10 +102,12 @@ def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str
     return not conn.rows("SELECT 1 FROM registration_attempt WHERE trial_id = %s", (trial_id,))
 
 
-def stopped_before_data(conn: db.LedgerConnection, trial_id: int, source_sha256: str) -> bool:
-    """True when the trial is a declared precheck of this source whose sealed capture shows the runner
-    failing while it loaded the strategy or read the inputs, so no market data reached the strategy
-    (on any image, inputs or window). Such a precheck does not expose the source."""
+def sealed_no_result(conn: db.LedgerConnection, trial_id: int, source_sha256: str) -> bool:
+    """True when the trial is a declared precheck of this source that sealed no economic result to
+    choose from (on any image, inputs or window): its runner stopped before market data reached the
+    strategy (every runtime failure in a stage of problems.PRE_STRATEGY_STAGES), or it traded at most
+    PRECHECK_MAX_DAYS, no registration consumed it and its complete capture fingerprints 0 fills and
+    0 positions. Such a precheck does not expose the source."""
     trial = _trial(conn, trial_id)
     if trial["purpose"] != "precheck" or trial["source_sha256"] != source_sha256:
         return False
@@ -120,23 +120,16 @@ def stopped_before_data(conn: db.LedgerConnection, trial_id: int, source_sha256:
     if capture["status"] != "captured" or capture["purpose"] != "precheck":
         return False
     stages = capture.get("stages")
-    stages = stages if isinstance(stages, Mapping) else {}
-    native = stages.get("native")
+    native = stages.get("native") if isinstance(stages, Mapping) else None
     native = native if isinstance(native, Mapping) else {}
     failures = capture["runtime_failures"]
-    return (native.get("state") == "exited" and native.get("exit_code") not in (0, None) and bool(failures)
-            and all(isinstance(failure, Mapping) and failure.get("stage") in PRE_DATA_STAGES for failure in failures))
-
-
-def traded_nothing(conn: db.LedgerConnection, trial_id: int, source_sha256: str) -> bool:
-    """True when the trial is a declared precheck of this source trading at most PRECHECK_MAX_DAYS whose
-    complete sealed capture fingerprints 0 fills and 0 positions, and no registration consumed it
-    (on any image, inputs or window). With no result to choose from, it does not expose the source."""
-    trial = _trial(conn, trial_id)
-    if (trial["purpose"] != "precheck" or trial["source_sha256"] != source_sha256
-            or trial["trade_end"] - trial["trade_start"] > timedelta(days=PRECHECK_MAX_DAYS)):
+    if (native.get("state") == "exited" and native.get("exit_code") not in (0, None) and failures
+            and all(isinstance(failure, Mapping) and failure.get("stage") in problems.PRE_STRATEGY_STAGES
+                    for failure in failures)):
+        return True
+    if trial["trade_end"] - trial["trade_start"] > timedelta(days=PRECHECK_MAX_DAYS):
         return False
-    rows = execution.precheck_rows(conn, trial_id)
+    rows = problems.sealed_rows(capture)
     if rows is None or rows.get("fills") != 0 or rows.get("positions") != 0:
         return False
     return not conn.rows("SELECT 1 FROM registration_attempt WHERE trial_id = %s", (trial_id,))
