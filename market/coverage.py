@@ -3,13 +3,14 @@ they and the exporter share.
 
 Facts only, at one pinned market commit: per contract its member months, the gaps and zero-volume
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
-funding settlement times. First and last data are proxies of listing and delisting, no exchange
+funding settlement times; `market coverage` adds its quote imports and stored quote bounds (`quote_facts`,
+not part of an export receipt). First and last data are proxies of listing and delisting, no exchange
 fact. Nothing here drops a contract, shortens a window, fills data or judges an economic failure.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import numpy as np
@@ -95,6 +96,35 @@ def coverage_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, l
             "interpretation": INTERPRETATION}
 
 
+def quote_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, imports: list[dict]) -> dict:
+    """The inferred best bid/ask of one contract in [start_ms, end_ms) at an exact market commit: each quote
+    import holding it (month, `through` its exclusive end day, rule, commit, the rows its receipt counts),
+    the first and last stored quote time in the interval and the parts of the interval no import covers."""
+    months = []
+    for item in imports:
+        if symbol not in (item["symbols"] or ()):
+            continue
+        daily = (item["readings"] or {}).get(symbol)
+        months.append({"month": item["month"], "through": item["through"], "quote_rule": item["quote_rule"],
+                       "commit": item["commit"],
+                       "rows": sum(day["quote_changes"] for day in daily.values()) if daily is not None else None})
+    uncovered, at = [], start_ms
+    for low, high in sorted((series._day_ms(date.fromisoformat(f"{item['month']}-01")),
+                             series._day_ms(date.fromisoformat(item["through"]))) for item in months):
+        if at < min(low, end_ms):
+            uncovered.append([at, min(low, end_ms)])
+        at = max(at, high)
+    if at < end_ms:
+        uncovered.append([at, end_ms])
+    bounds: list[int | None] = [None, None]
+    if months:  # a commit without a quote import may predate the quote table
+        for index, order in enumerate(("", " DESC")):
+            found = conn.rows(f"SELECT ts FROM quote AS OF '{commit}' WHERE symbol = %s AND ts >= %s AND ts < %s "
+                              f"ORDER BY ts{order} LIMIT 1", (symbol, start_ms, end_ms))
+            bounds[index] = int(found[0][0]) if found else None
+    return {"imports": months, "first_ms": bounds[0], "last_ms": bounds[1], "uncovered_intervals_ms": uncovered}
+
+
 # market.diagnose_coverage
 
 def _ms(text: str) -> int:
@@ -133,11 +163,13 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             body, files = lifecycle_bundle
             episodes = lifecycle.validate_lifecycle(body, commit, files)
         found = []
+        imports = store.quote_imports(conn, commit)
         for symbol in symbols:
             last = read_bars(conn, commit, symbol, "LAST", start_ms, end_ms)
             mark = read_bars(conn, commit, symbol, "MARK", start_ms, end_ms)
             funding = read_funding(conn, commit, symbol, start_ms, end_ms)
-            found.append(coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding))
+            found.append({**coverage_facts(conn, commit, symbol, start_ms, end_ms, last, mark, funding),
+                          "quotes": quote_facts(conn, commit, symbol, start_ms, end_ms, imports)})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},
             "lifecycle_missing": [] if episodes is None else [symbol for symbol in symbols if symbol not in episodes],

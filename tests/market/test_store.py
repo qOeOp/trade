@@ -188,6 +188,8 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(ccc["listing_delisting"]["data_bounds_proxy"]["last"],
                          {"first_open_ms": day_ms(JAN), "last_open_ms": DELISTED - MINUTE})
         self.assertEqual((ccc["funding"]["rows"], len(ccc["funding"]["event_times_ms"])), (3, 3))
+        self.assertEqual(bbb["quotes"], {"imports": [], "first_ms": None, "last_ms": None,
+                                         "uncovered_intervals_ms": [[day_ms(date(2025, 2, 9)), DELISTED + DAY]]})
         with store.connect(self.profile, "reader") as conn:
             commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
             self.refused("INTERVAL_INVALID", coverage.coverage_facts, conn, commit, "BTCUSDT", 1, 2, empty, empty, [])
