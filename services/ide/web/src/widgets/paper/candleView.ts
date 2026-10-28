@@ -6,7 +6,8 @@
 // widen to SPREAD times HI (a gesture's worth of zooming in) but the minute's no wider than HI, so a
 // screen always holds plenty of candles. When a run first shows, the period is the one that fits all of
 // it at TARGET px or more, a young run's candles HI wide with the newest at the right.
-import type { ITimeScaleApi, Time } from "lightweight-charts";
+import type { IChartApi, ITimeScaleApi, LogicalRange, Time } from "lightweight-charts";
+import type { Candle } from "../../lib/bars";
 import { stepFor } from "./equityResolution";
 import { spacing } from "./viewAnchor";
 
@@ -48,4 +49,28 @@ export function fence(time: ITimeScaleApi<Time>, count: () => number): () => voi
     const w = time.width();
     if (w) time.applyOptions({ minBarSpacing: Math.min(time.options().maxBarSpacing, Math.max(1, w / (count() + room()))) });
   };
+}
+
+/** The candles from the one opening at `from` (s) to the newest in view, with room either side, the
+ *  value axis fitting them again. */
+export function showFrom(chart: IChartApi, data: readonly Candle[], from: number): void {
+  const n = data.length, i = Math.max(0, data.findIndex((k) => k.time >= from));
+  chart.timeScale().setVisibleLogicalRange({ from: i - Math.max(8, (n - i) * 0.25), to: n - 1 + 6 });
+  chart.priceScale("right").applyOptions({ autoScale: true });
+}
+
+type Saved = { minutes: number; from: number; to: number; n: number };
+const views = new Map<string, Saved>();
+
+/** Keeps under `key` where a chart looked: its period (minutes) and its logical range over `n` candles. */
+export function remember(key: string, minutes: number, range: LogicalRange | null, n: number): void {
+  if (key && minutes && range && n) views.set(key, { minutes, from: range.from, to: range.to, n });
+}
+export const recall = (key: string): Saved | undefined => views.get(key);
+
+/** The view `saved` again over `n` candles of its period, moved on by the candles since if it showed the newest. */
+export function reshow(time: ITimeScaleApi<Time>, saved: Saved, n: number): void {
+  time.applyOptions({ maxBarSpacing: widest(saved.minutes * 60) });
+  const shift = saved.to >= saved.n - 1 ? n - saved.n : 0;
+  time.setVisibleLogicalRange({ from: saved.from + shift, to: saved.to + shift });
 }
