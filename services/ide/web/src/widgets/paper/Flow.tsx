@@ -19,8 +19,6 @@ const LOOK: Record<Kind, { role: ColorRole; solid: boolean; note: (into: boolean
   other: { role: "fg-ghost", solid: false, note: () => "Booked without a close in the journal" },
   fees: { role: "fg-ghost", solid: false, note: () => "Fees on every fill" },
   net: { role: "equity", solid: true, note: (i) => (i ? "Net loss, drawn from the starting balance" : "Net profit kept") },
-  surplus: { role: "fg-ghost", solid: false,
-    note: () => "What the contracts' wins left after their own losses, with the other inflows; it pays the losses beyond a contract's own wins, the fees and funding, and the rest is the net" },
 };
 
 /** A contract by its base asset (BTCUSDT → BTC, 1000PEPEUSDT → PEPE), as tiles name it. */
@@ -59,8 +57,7 @@ export function PnlFlow({ a, f }: { a: Account; f: Flows }) {
   const ret = a.ret === null ? MISSING : `${a.ret > 0 ? "↑" : a.ret < 0 ? "↓" : ""}${(Math.abs(a.ret) * 100).toFixed(2)}%`;
   return (
     <div className="flex flex-col gap-4">
-      <Sankey into={f.into.map((x) => at(x, true))} out={f.out.map((x) => at(x, false))} hub={f.surplus && at(f.surplus, true)} links={f.links}
-              label={`Profit and loss since the start: ${all}`} />
+      <Sankey into={f.into.map((x) => at(x, true))} out={f.out.map((x) => at(x, false))} links={f.links} label={`Profit and loss since the start: ${all}`} />
       <div className="grid grid-cols-2 gap-3">
         <Informer name="Gross" value={signed(a.gross)}>{share}</Informer>
         <Informer name="Net" value={signed(a.net)}>

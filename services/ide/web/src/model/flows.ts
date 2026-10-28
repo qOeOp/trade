@@ -2,23 +2,24 @@
 // in (each contract's winning trades before fees, funding received, open profit, a net loss drawn from
 // the starting balance) and where it went (each contract's losing trades before fees, fees, funding paid,
 // open loss, the net kept), so that the two sides add up. Each contract's wins first cover its own
-// losses; what they leave, with the other inflows, is the surplus, which pays the contracts' losses
-// beyond their own wins and every other outflow.
+// losses; what is left on the left then fills what is left on the right, both in their columns' order
+// (the contracts' losses beyond their own wins, then the other outflows, the net last), so those links
+// never cross.
 import { amount, symbolOf, type JournalLine } from "../lib/paperApi";
 import type { Account } from "./account";
 import { eventMs } from "./paper";
 
 /** What a flow is: a contract's winning or losing trades (or the rest of them together), funding, open
- *  positions, whatever the closed trades leave of the account's gross, fees, the net, or the surplus. */
-export type Kind = "win" | "loss" | "funding" | "open" | "other" | "fees" | "net" | "surplus";
+ *  positions, whatever the closed trades leave of the account's gross, fees, or the net. */
+export type Kind = "win" | "loss" | "funding" | "open" | "other" | "fees" | "net";
 /** A flow's size, and the amount it stands for as the account reads it (a loss negative); the rest of
  *  the contracts together list theirs in `of`. */
 export type Flow = { key: string; name: string; kind: Kind; value: number; signed: number; of?: string[] };
-/** Money moving from one flow to another, by their keys. */
+/** Money moving from a flow in to a flow out, by their keys. */
 export type Link = { from: string; to: string; value: number };
-/** The flows in and out, the surplus between them (null when nothing passes through it), the links that
- *  join them, and the decimals every flow is shown at (whole units once any reaches 100). */
-export type Flows = { into: Flow[]; out: Flow[]; surplus: Flow | null; links: Link[]; total: number; dp: 0 | 2 };
+/** The flows in and out, top to bottom, the links that join them, and the decimals every flow is shown
+ *  at (whole units once any reaches 100). */
+export type Flows = { into: Flow[]; out: Flow[]; links: Link[]; total: number; dp: 0 | 2 };
 
 const CENT = 0.005;  // smaller flows are left out, and at whole units any that would show as 0
 
@@ -72,32 +73,33 @@ export function flows(a: Account, lines: readonly JournalLine[], most = 3): Flow
     return { key: `${side}:${key}`, name: key === "rest" ? `+${x.of.length}` : key, kind: side, value: x.value, signed: side === "win" ? x.value : -x.value,
              ...(key === "rest" ? { of: x.of } : {}) };
   };
-  // Winners largest first; losers in their winners' order (so a contract's own ribbon runs level), then
-  // those that only lost, largest first; the rest last on both sides.
-  const largest = (g: typeof wins, skip: readonly string[] = []) =>
-    [...g].filter(([k]) => k !== "rest" && !skip.includes(k)).sort((x, y) => y[1].value - x[1].value).map(([k]) => k);
-  const won = largest(wins), restLast = (g: typeof wins) => (g.has("rest") ? ["rest"] : []);
-  const into = [...won, ...restLast(wins)].map(contract("win", wins)).filter((f) => f.value >= least);
-  const out = [...won.filter((k) => losses.has(k)), ...largest(losses, won), ...restLast(losses)].map(contract("loss", losses)).filter((f) => f.value >= least);
+  // The contracts on both sides in one order, worst net first and the rest last: a contract's own ribbon
+  // then runs level, and what a contract's losses lack comes from the one next below it.
+  const net = (k: string) => (wins.get(k)?.value ?? 0) - (losses.get(k)?.value ?? 0);
+  const order = [...new Set([...wins.keys(), ...losses.keys()])].filter((k) => k !== "rest").sort((x, y) => net(x) - net(y)).concat("rest");
+  const into = order.filter((k) => wins.has(k)).map(contract("win", wins)).filter((f) => f.value >= least);
+  const out = order.filter((k) => losses.has(k)).map(contract("loss", losses)).filter((f) => f.value >= least);
   for (const [kind, name, flow, signed] of others) if (Math.abs(flow) >= least) (flow > 0 ? into : out).push({ key: kind, name, kind, value: Math.abs(flow), signed });
 
-  // The links: each contract's wins to its own losses, the rest of its wins to the surplus, and its
-  // losses beyond its wins from it; every other flow in to the surplus or out from it.
-  const shown = new Set([...into, ...out].map((f) => f.key).concat("surplus")), joined = new Map<string, Link>();
+  // The links: each contract's wins to its own losses; then what is left of each flow in, top to bottom,
+  // fills what is left of the flows out, top to bottom.
+  const shown = new Set([...into, ...out].map((f) => f.key)), joined = new Map<string, Link>(), used = new Map<string, number>();
   const join = (from: string, to: string, value: number) => {
     if (value <= 0 || !shown.has(from) || !shown.has(to)) return;
     const l = joined.get(`${from}>${to}`) ?? { from, to, value: 0 };
     joined.set(`${from}>${to}`, { ...l, value: l.value + value });
+    for (const k of [from, to]) used.set(k, (used.get(k) ?? 0) + value);
   };
-  for (const [s, c] of by) {
-    const own = Math.min(c.win, c.loss), w = `win:${group(s)}`, l = `loss:${group(s)}`;
-    join(w, l, own); join(w, "surplus", c.win - own); join("surplus", l, c.loss - own);
+  for (const [s, c] of by) join(`win:${group(s)}`, `loss:${group(s)}`, Math.min(c.win, c.loss));
+  const left = (fs: Flow[]) => fs.map((f) => ({ key: f.key, value: f.value - (used.get(f.key) ?? 0) }));
+  const ins = left(into), outs = left(out);
+  for (let i = 0, j = 0; i < ins.length && j < outs.length;) {
+    const from = ins[i]!, to = outs[j]!, share = Math.min(from.value, to.value);
+    join(from.key, to.key, share);
+    from.value -= share; to.value -= share;
+    if (from.value <= CENT) i++;
+    if (to.value <= CENT) j++;
   }
-  for (const f of into) if (f.kind !== "win") join(f.key, "surplus", f.value);
-  for (const f of out) if (f.kind !== "loss") join("surplus", f.key, f.value);
-  const links = [...joined.values()], via = (end: "from" | "to") => links.filter((l) => l[end] === "surplus").reduce((sum, l) => sum + l.value, 0);
-  const pool = Math.max(via("from"), via("to"));
-  const surplus: Flow | null = pool >= least ? { key: "surplus", name: "Surplus", kind: "surplus", value: pool, signed: pool } : null;
   const total = into.reduce((sum, f) => sum + f.value, 0);
-  return total >= CENT ? { into, out, surplus, links: surplus ? links : links.filter((l) => l.from !== "surplus" && l.to !== "surplus"), total, dp } : null;
+  return total >= CENT ? { into, out, links: [...joined.values()], total, dp } : null;
 }
