@@ -4,6 +4,7 @@ import { useView, useWidget } from "../model/view";
 import { requestFocus, useHovered } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { Breadcrumbs } from "../components/Breadcrumbs";
+import { UpdateStatus } from "../components/UpdateStatus";
 import { VersionLine } from "../components/VersionLine";
 import { useMemo } from "react";
 import { useAtom } from "../state/atom";
@@ -47,6 +48,7 @@ export function StatusBar() {
       ]} />
       {said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
+        <UpdateStatus />
         {hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
           : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />}
         {summary && <span>{plural(summary.versions, "version")} · {plural(summary.research_runs, "research run")} · {summary.masked_runs} ineligible</span>}

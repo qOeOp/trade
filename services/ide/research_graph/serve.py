@@ -125,6 +125,7 @@ class Hub:
         self.checked = 0.0
         self.fault: dict | None = None  # the last failed pull or head read; cleared by a good one
         self.rewritten: dict | None = None  # set once; pulling stops
+        self.pulling: str | None = None  # the new head while the market is pulled for it
         self.views: OrderedDict[tuple, dict] = OrderedDict()
         self.failed: dict[tuple, dict] = {}
         self.wanted: list[tuple[tuple, bool]] = []  # (key, pinned to an `at`), oldest first
@@ -141,11 +142,16 @@ class Hub:
         return None if commit is None else self.key(commit, client.line, client.since)
 
     def state(self, key: tuple | None, live: bool = True) -> dict:
-        """A page's state; a live page (no `at`) is told when its copy no longer follows the public one."""
+        """A page's state. A live page (no `at`) is also told, over the view it holds, of the new head being
+        pulled and of a failed refresh, and when its copy no longer follows the public one."""
         fault = self.rewritten or self.fault
         commit = key[2] if key else None
         if live and self.rewritten is not None:
             return {"state": "error", "ledger_commit": commit, "error": self.rewritten}
+        if live and self.pulling is not None:
+            return {"state": "pulling", "ledger_commit": self.pulling}
+        if live and fault is not None:
+            return {"state": "error", "ledger_commit": commit, "error": fault}
         if key in self.views:
             return {"state": "ready", "ledger_commit": commit}
         if key in self.failed:
@@ -203,14 +209,18 @@ class Hub:
                 self._pull("ledger")
                 head = self.product.commit()
                 if head != self.head and self.head is not None:
+                    if self.pull is not None:
+                        with self.lock:
+                            self.pulling = head
+                            self._notify()
                     self._pull("market")  # the new head's lines may name a market commit not pulled yet
             except ProductError as exc:
                 with self.lock:
-                    self.fault, self.checked = exc.body, time.monotonic()
+                    self.fault, self.checked, self.pulling = exc.body, time.monotonic(), None
                     self._notify()
                 return
             with self.lock:
-                moved, self.head, self.fault = head != self.head, head, None
+                moved, self.head, self.fault, self.pulling = head != self.head, head, None, None
                 self.checked = time.monotonic()
                 if moved:
                     self.wanted = [(key, pinned) for key, pinned in self.wanted if pinned]
@@ -270,9 +280,12 @@ class Hub:
 
     def view(self, line: str | None, since: str | None, at: str | None) -> tuple[int, dict]:
         """(200, view), (202, state) after asking for it, or (503, failure) when there is no head or the
-        copy no longer follows its public copy."""
-        if at is None and (self.head is None or time.monotonic() - self.checked > self.poll):
+        copy no longer follows its public copy. Only the first head is waited for; a stale one is refreshed in
+        the background, since a pull can take minutes, and the page hears of a new head through its events."""
+        if at is None and self.head is None:
             self.refresh(wait=True)
+        elif at is None and time.monotonic() - self.checked > self.poll:
+            threading.Thread(target=self.refresh, daemon=True).start()
         with self.lock:
             if at is None and self.rewritten is not None:
                 return 503, self.rewritten
