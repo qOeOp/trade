@@ -84,6 +84,16 @@
 | 20261021-26 | 新会话被宿主预载历史记忆，严格盲测不可认证（[EMA12 审计](2026-10-21-ema12-autonomous-audit.zh.md)） | measure（再做盲测前先证明初始上下文没有注入历史，不加不可执行的承诺） | open；[01a173b3 审计](2026-10-26-codex-01a173b3-full-audit.zh.md)：研究会话读账本前读 `~/.codex/memories/MEMORY.md` 三次并在两次回答中引用；结论另有账本支持；[01a17bd9 审计](2026-10-27-codex-01a17bd9-full-audit.zh.md)：读宿主记忆 11 次、三轮回答都带记忆引用，并用 Codex 线程工具读另一会话 rollout（01a173bd）；[01a17cec 审计](2026-10-28-codex-01a17cec-full-audit.zh.md)：recurred：主会话 22 次 `rg` 宿主记忆，19 轮回答全带记忆引用，读到本会话自身的自动摘要与一条已过时的“历史回补被拒”说法 | 2026-10-21 | 2026-10-28 |
 | 20261021-28 | 四角组成认证要求全文三方合并无冲突，职责说明头一职责一行，两处改动共改说明头时交互问题走不通（[EMA12 审计](2026-10-21-ema12-autonomous-audit.zh.md)） | measure（先在规划时说明可达性；改认证需授权） | open | 2026-10-21 | 2026-10-21 |
 | 20261021-29 | 用户暂停 Goal 后，运行中的研究会话约 4 分 59 秒才观测到（[EMA12 审计](2026-10-21-ema12-autonomous-audit.zh.md)） | measure（先验证宿主 pause 的语义，不在仓库建调度器） | open | 2026-10-21 | 2026-10-21 |
+| 20261029-11 | 暴露检查逐情形长出 8 条豁免（含 #1830 的零成交短预检）；按一个风险（封存了研究者能读到的本源码经济结果才算已运行）重新表述为 4 个不计条件，`traded_nothing` 与 `stopped_before_data` 并成“没有封存经济结果”，阶段定义与计数共用一份（含 `execution_binding`），复现不再限于换镜像（`registration/register.py` 暴露循环、`registration/precheck.py`、`ledger/problems.py:27`；[整合评审](2026-10-29-consolidation-review.zh.md)） | authority（P1：合并，并放宽两处） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
+| 20261029-13 | 验证绑定的旧行守卫（`registration/validation.py:261-263`）只对 #1674 之前写入的行有用，活动账本没有验证登记；它的测试 patch 私有 `_design`（[整合评审](2026-10-29-consolidation-review.zh.md)） | authority（P3：删除） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
+| 20261029-14 | 重试的镜像重建分支（#1635）在活动账本从未走到：69 个登记中唯一的 `retry_of` 前后镜像相同（[整合评审](2026-10-29-consolidation-review.zh.md)） | measure（P4：第一次在活线上只换镜像时核对） | open（measure，不动） | 2026-10-29 | 2026-10-29 |
+| 20261029-15 | readiness 的情境规则（零成交复核、`MONTH_EXISTS`、`SEQUENCE_GAP`、提问清单、重复的交还选择）都是“取证或提问前写出能改变哪项决定”的特例，而这条原则只写在推算报价一节（[整合评审](2026-10-29-consolidation-review.zh.md)） | skill（P5：原则提到开头，删去推出的个案段） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
+| 20261029-16 | readiness 在转述引擎对覆盖异常的固定处理（零成交、LAST、MARK 最多带 60 分钟、缺资金费），`market coverage` 的 `interpretation` 不说（`market/coverage.py:27-29`；[整合评审](2026-10-29-consolidation-review.zh.md)） | fix（P6：产品输出写明，skill 改为指针） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
+| 20261029-17 | research-start 的“列哪些线”分在 5 处（两个闸门、换线到期与新起点、模板根、可登记与覆盖），其中两处冲突；并成一条“只列现在就能起的线”，Agent 自己设计的根不要模板授权（[整合评审](2026-10-29-consolidation-review.zh.md)） | skill（P7） | open（用户 2026-10-29 批准；并入 20261025-24 / 20261027-09 跟踪） | 2026-10-29 | 2026-10-29 |
+| 20261029-18 | 两个研究 skill 之间、skill 与 AGENTS.md 之间有重复规则（路由、explore 暴露、设计变量），Goal 停止条件两处不一致（[整合评审](2026-10-29-consolidation-review.zh.md)） | skill（P8：删除重复，统一停止条件） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
+| 20261029-19 | 只钉消息文字、字面常量或私有函数的测试（`tests/registration/test_register.py:204-207,444`、`tests/registration/test_continuity.py:158-165`；[整合评审](2026-10-29-consolidation-review.zh.md)） | remove（P9：改为断言行为，随 P1、P3） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
+| 20261029-20 | 导入的浮点尾数容差（相对 1e-12）比它声明的风险宽，目录却写从不舍入（`market/store.py:273-293`；[整合评审](2026-10-29-consolidation-review.zh.md)） | authority + fix（P10） | open（暂缓） | 2026-10-29 | 2026-10-29 |
+| 20261029-21 | 审计 `LATE_ORDER_EVENT` 按 rc3 的订单名前缀 `EXPIRATION-` 认引擎结算单（`engine/audit.py:413,566`；[整合评审](2026-10-29-consolidation-review.zh.md)） | measure（P11：先在 rc7 上探针） | open（暂缓） | 2026-10-29 | 2026-10-29 |
 
 本轮新会话已见正式预检、独立审阅、登记绑定、报告与重放顺利经过，也未证明已结缺陷复发；不能把未触发路径统称为已验证。04–20、26–37 的其余路径继续按新会话回读。上述新项及保留措施见 [2026-10-21 EMA 会话诊断](2026-10-21-codex-ema-year.zh.md)；-10、-11 是既有指导已覆盖的方法错误或旧版本问题，动作 none，不列为待修产品项。
 
@@ -203,3 +213,4 @@
 | 20261020-36 | 覆盖回执三个不变的占位字段 | #1618 |
 | 20261020-37 | 设计站页面与代码、skill 不一致 | #1617、#1620；剩余见 20261021-03 |
 | U6 | 捕获中的重复存储（源码 3 份、覆盖回执 2 份、指纹 2 份；stdout 与 summary 相同；资金费时间戳） | #1619（用户 2026-10-21 批准） |
+| 20261029-12 | 起线审查（#1830）豁免只有 activity 失败的评审时要 3 个条件，提议去掉“所评预检零成交零持仓”（[整合评审](2026-10-29-consolidation-review.zh.md)） | rejected（用户 2026-10-29）：`_untraded_review` 保留三个条件 |
