@@ -1,12 +1,16 @@
 .docs-architecture-page { flex: none; height: calc(100dvh - var(--fd-nav-height, 56px)); overflow: hidden; }
-.docs-home-container { display: flex; height: 100%; min-height: 0; padding-block: 12px; }
+.docs-home-container { display: flex; height: 100%; min-height: 0; padding-block: 4px; }
 .docs-architecture-shell { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; }
 .docs-architecture {
   --map-canvas: var(--island);
   --map-font-ui: var(--font-sans);
-  --map-node: color-mix(in oklab, var(--fg) 3%, var(--island));
-  --map-node-text: var(--fg);
-  --map-node-muted: color-mix(in oklab, var(--fg-muted) 85%, var(--island));
+  --map-node: light-dark(#ffffff, #1c1d1f);
+  --map-owner-fill: light-dark(rgb(15 23 42 / 2%), rgb(255 255 255 / 1.8%));
+  --map-core-from: light-dark(#e7f0fd, #1d3552); --map-core-to: light-dark(#f2f6fc, #1b2738);
+  --map-support-from: light-dark(#f5f7fa, rgb(32 33 35 / 96%));
+  --map-support-to: light-dark(#eef2f6, rgb(26 27 29 / 98%));
+  --map-node-text: light-dark(#59616b, #b3bac2);
+  --map-node-muted: light-dark(#64748b, #8a95a0);
   --map-node-border: color-mix(in srgb, var(--map-edge) 32%, transparent);
   --map-group-border: color-mix(in srgb, var(--map-edge) 26%, transparent);
   --map-core-border: color-mix(in srgb, var(--map-edge) 60%, transparent);
@@ -23,11 +27,15 @@
 .docs-flow-canvas.is-zoomed .react-flow__pane { cursor: grab; }
 .docs-flow-canvas.is-zoomed .react-flow__pane:active { cursor: grabbing; }
 .docs-flow-canvas .react-flow__node { transition: opacity 120ms ease; }
-.docs-flow-canvas .react-flow__edge-path { fill: none; stroke-dasharray: none; animation: none; }
+.docs-flow-canvas .react-flow__edge-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+/* Keep the original map's slow blue flow on the main execution paths. */
+.docs-flow-canvas .react-flow__edge-path.docs-primary-flow { stroke-dasharray: 7 10; animation: docs-architecture-flow 3.4s linear infinite; }
+@keyframes docs-architecture-flow { to { stroke-dashoffset: -34; } }
 .docs-owner-group {
   position: relative; width: 100%; height: 100%; padding: 0; border: 1px solid var(--map-group-border);
   border-radius: 8px; background: transparent; box-shadow: none; cursor: zoom-in;
 }
+.docs-owner-group[data-has-badge="true"] { background: var(--map-owner-fill); }
 .docs-owner-group[data-has-badge="false"] { border-color: color-mix(in srgb, var(--map-edge) 14%, transparent); }
 .docs-owner-group > header {
   position: absolute; top: -0.6em; left: 12px; display: flex; align-items: center; gap: 7px; padding-inline: 6px; background: var(--island);
@@ -60,9 +68,12 @@
   font-size: 14px; font-weight: 400; line-height: 1.2; white-space: nowrap;
 }
 /* Core components use one restrained accent; every component keeps the same type measure. */
-.docs-map-node[data-importance="core"] { border-color: var(--map-core-border); background: color-mix(in srgb, var(--map-edge) 8%, var(--map-node)); }
+.docs-map-node[data-importance="core"] {
+  border-color: var(--map-core-border); background: linear-gradient(145deg, var(--map-core-from), var(--map-core-to));
+  box-shadow: 0 4px 12px rgb(0 0 0 / 14%), inset 0 1px rgb(147 197 253 / 8%);
+}
 .docs-map-node[data-importance="core"] strong { color: var(--map-accent); font-weight: 400; }
-.docs-map-node[data-importance="support"] { background: var(--map-node); }
+.docs-map-node[data-importance="support"] { background: linear-gradient(145deg, var(--map-support-from), var(--map-support-to)); }
 .docs-map-record { background: transparent; border-color: transparent; border-radius: 0; padding-inline: 4px; }
 .docs-map-record strong { font-size: 18px; font-weight: 400; }
 .docs-map-record .docs-map-node-subtitle { font-size: 14px; }
@@ -104,4 +115,4 @@
   .docs-map-hint { position: absolute; left: 8px; bottom: 12px; display: block; color: var(--fg-muted); font-size: 11px; pointer-events: none; }
   .docs-map-detail { bottom: 48px; width: calc(100% - 16px); }
 }
-@media (prefers-reduced-motion: reduce) { .docs-map-node, .docs-owner-group, .docs-flow-canvas .react-flow__node { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .docs-flow-canvas .react-flow__edge-path.docs-primary-flow { animation: none; } .docs-map-node, .docs-owner-group, .docs-flow-canvas .react-flow__node { transition: none; } }

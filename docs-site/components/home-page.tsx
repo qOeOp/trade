@@ -10,7 +10,7 @@ export const homeDescription: Record<Locale, string> = {
 export function HomePageContent({ locale }: { locale: Locale }) {
   return (
     <main className="docs-architecture-page relative flex flex-col">
-      <div className="docs-home-container relative mx-auto w-full max-w-[1440px] px-4">
+      <div className="docs-home-container relative mx-auto w-full px-4">
         <ArchitectureMap locale={locale} />
       </div>
     </main>
