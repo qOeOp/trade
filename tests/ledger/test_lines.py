@@ -1,4 +1,5 @@
-"""Research lines: append-only dated records, exact reads, the trials of a line and closing tags."""
+"""Research lines: append-only dated records, exact reads, the open set, the trials of a line and closing
+tags."""
 
 from __future__ import annotations
 
@@ -42,24 +43,30 @@ class ResearchLineTests(unittest.TestCase):
         return f"research-line-{today.strftime('%Y%m%d')}-{slug}"
 
     def test_lines_are_named_by_date_and_direction_appended_and_read_back(self):
-        self.assertIsNone(lines.current_line(self.conn))
+        self.assertEqual(lines.open_lines(self.conn), [])
+        self.assertEqual(self.open_code(), "RESEARCH_LINE_REQUIRED")
         before = db.head_commit(self.conn)
         first = self.select()
         self.assertEqual((first["bundle"], first["market_commit"], first["created"]),
                          (self.name("ema-trend"), MARKET_COMMIT, True))
-        again = self.select(slug="another-name")  # the same choice is the current line, whatever its slug
+        self.assertEqual(lines.open_line(self.conn)["bundle"], first["bundle"])
+        again = self.select(slug="another-name")  # the same choice is that open line, whatever its slug
         self.assertEqual((again["bundle"], again["created"], again["content_sha256"]),
                          (first["bundle"], False, first["content_sha256"]))
         second = self.select(window_end=date(2026, 3, 1), note=None, slug="ema-trend-wider")
         self.assertEqual(second["bundle"], self.name("ema-trend-wider"))
-        current = lines.current_line(self.conn)
-        self.assertEqual((current["bundle"], current["window_start"], current["window_end"], current["start"],
-                          current["start_sha256"], current["universe_rule"], current["note"]),
+        self.assertEqual(lines.open_lines(self.conn), [first["bundle"], second["bundle"]], "selecting ends no line")
+        self.assertEqual(self.open_code(), "LINE_AMBIGUOUS")
+        read = lines.open_line(self.conn, second["bundle"])
+        self.assertEqual((read["bundle"], read["window_start"], read["window_end"], read["start"],
+                          read["start_sha256"], read["universe_rule"], read["note"]),
                          (second["bundle"], "2026-01-02", "2026-03-01", "start@1", sha(source("start")), "pool-v1",
                           None))
-        self.assertEqual(lines.current_line(self.conn, at=first_commit(self.service, self.profile, first["bundle"]))
-                         ["bundle"], first["bundle"])
-        self.assertIsNone(lines.current_line(self.conn, at=before))
+        again = self.select(window_end=date(2026, 3, 1), note=None, slug="wider-again")
+        self.assertEqual((again["bundle"], again["created"]), (second["bundle"], False), "a replay of any open line")
+        self.assertEqual(lines.open_lines(self.conn, at=first_commit(self.service, self.profile, first["bundle"])),
+                         [first["bundle"]])
+        self.assertEqual(lines.open_lines(self.conn, at=before), [])
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence "
                                                         "WHERE bundle LIKE 'research-line-%'"), [(2,)])
 
@@ -80,6 +87,9 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.select(market=market(latest_complete_day=date(2026, 1, 31)))["bundle"],
                          self.name("ema-trend"))
         self.assertEqual(self.code(note="another choice"), "LINE_CONFLICT")  # same day, same slug
+        self.assertEqual(self.code(note="another choice", slug="ema-again"), "LINE_DATA_TAKEN")
+        self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle "
+                                                        "WHERE bundle LIKE 'research-line-%'"), [(1,)])
 
     def test_an_agent_cannot_forge_a_research_line(self):
         line = self.select()
@@ -90,17 +100,17 @@ class ResearchLineTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(Refusal) as caught:
                 evidence.add_bundle(self.conn, name, [work / "research-line.json"])
             self.assertEqual(caught.exception.code, "RESERVED_BUNDLE")
-        self.assertEqual(lines.current_line(self.conn)["bundle"], line["bundle"])
+        self.assertEqual(lines.open_line(self.conn)["bundle"], line["bundle"])
 
     def test_damaged_line_records_are_refused_on_read(self):
         product_bundle(self.conn, "research-line-20260101-damaged", {"other.json": b"{}"})
         with self.assertRaises(Refusal) as caught:
-            lines.current_line(self.conn)
+            lines.open_line(self.conn, "research-line-20260101-damaged")
         self.assertEqual(caught.exception.code, "LINE_CORRUPT")
         product_bundle(self.conn, "research-line-20260101-old-format",
                        {"research-line.json": json.dumps({"format": "v0"}).encode()})
         with self.assertRaises(Refusal) as caught:
-            lines.current_line(self.conn)
+            lines.open_line(self.conn, "research-line-20260101-old-format")
         self.assertEqual(caught.exception.code, "LINE_FORMAT_UNSUPPORTED")
         real = evidence._fetch
 
@@ -109,7 +119,7 @@ class ResearchLineTests(unittest.TestCase):
             return head, [(path, content + b" ", stored) for path, content, stored in rows]
 
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
-            lines.current_line(self.conn)
+            lines.open_line(self.conn, "research-line-20260101-old-format")
         self.assertEqual(caught.exception.code, "LINE_CORRUPT")
 
     def test_a_research_trial_without_a_readable_start_receipt_is_ledger_damage(self):
@@ -158,37 +168,50 @@ class ResearchLineTests(unittest.TestCase):
         self.other_trial({"start": JAN, "trade_start": JAN + DAY, "end": JAN + 30 * DAY}, workdir="/tmp/d")
         self.other_trial(window, market_commit="n" * 32, workdir="/tmp/e")
         self.assertEqual(lines.line_trials(self.conn, line["bundle"])["count"], 2)
+        lines.close_line(self.profile, line["bundle"], b"ema trend summary")
+        successor = self.select(slug="ema-trend-again")
+        own = self.other_trial(window, workdir="/tmp/f")
+        self.assertEqual(lines.line_trials(self.conn, successor["bundle"])["trials"], [own],
+                         "a closed line's trials stay its own")
+        self.assertEqual(lines.line_trials(self.conn, line["bundle"])["trials"], [counted, later])
         for bundle in ("research-line-20260101-none", "notes"):
             with self.subTest(bundle=bundle), self.assertRaises(Refusal) as caught:
                 lines.line_trials(self.conn, bundle)
             self.assertEqual(caught.exception.code, "LINE_UNKNOWN")
 
-    def test_an_ended_line_is_closed_once_with_its_summary(self):
+    def test_an_open_line_is_closed_once_at_the_head_with_its_summary(self):
         first = self.select()
-        self.assertEqual(lines.unclosed_lines(self.conn), [])
-        self.assertEqual(self.close_code(first["bundle"], b"summary"), "LINE_OPEN")
-        last_of_first = db.head_commit(self.conn)
         second = self.select(window_end=date(2026, 3, 1), slug="ema-trend-wider")
+        head = db.head_commit(self.conn)
         tag = "line/" + first["bundle"][len("research-line-"):]
-        self.assertEqual(lines.unclosed_lines(self.conn),
-                         [{"line": first["bundle"], "tag": tag, "commit": last_of_first, "ended_by": second["bundle"]}])
-        with db.read_as_of(self.profile) as pinned:  # research state reads it pinned on one commit
-            self.assertEqual([item["line"] for item in lines.unclosed_lines(pinned)], [first["bundle"]])
         summary = "\n# 方向\nEMA 趋势  \n# 教训\n窗口太短。\n\n".encode()
         for bad in (b"", b"  \n", b"\xff", b"x" * (lines.SUMMARY_LIMIT + 1)):
             with self.subTest(summary=bad[:8]):
                 self.assertEqual(self.close_code(first["bundle"], bad), "LINE_SUMMARY_INVALID")
         closed = lines.close_line(self.profile, first["bundle"], summary)
-        self.assertEqual((closed["tag"], closed["commit"], closed["replayed"]), (tag, last_of_first, False))
+        self.assertEqual((closed["tag"], closed["commit"], closed["replayed"]), (tag, head, False))
         self.assertEqual(self.service.sql(self.profile, "SELECT tag_hash, message FROM dolt_tags"),
-                         [(last_of_first, summary.decode().strip())])
-        self.assertTrue(lines.close_line(self.profile, first["bundle"], summary)["replayed"])
+                         [(head, summary.decode().strip())])
+        self.assertEqual(lines.open_lines(self.conn), [second["bundle"]])
+        self.assertEqual(lines.open_line(self.conn)["bundle"], second["bundle"])
+        with self.assertRaises(Refusal) as caught:
+            lines.open_line(self.conn, first["bundle"])
+        self.assertEqual(caught.exception.code, "LINE_ENDED")
+        with db.read_as_of(self.profile, head) as pinned:  # a tag on the commit read closes the line there
+            self.assertEqual(lines.open_lines(pinned), [second["bundle"]])
+        with db.read_as_of(self.profile, first_commit(self.service, self.profile, first["bundle"])) as pinned:
+            self.assertEqual(lines.open_lines(pinned), [first["bundle"]], "open before its closing commit")
+        later = self.select(window_end=date(2026, 3, 31), slug="ema-later")
+        self.assertTrue(lines.close_line(self.profile, first["bundle"], summary)["replayed"], "a later head too")
         self.assertEqual(self.close_code(first["bundle"], b"another summary"), "LINE_CLOSED")
-        self.assertEqual(lines.unclosed_lines(self.conn), [])
-        with db.read_as_of(self.profile, tag) as pinned:  # the closed line, read as it ended
-            self.assertEqual(lines.current_line(pinned)["bundle"], first["bundle"])
-        self.assertEqual(self.close_code(second["bundle"], summary), "LINE_OPEN")
+        self.assertEqual(lines.open_lines(self.conn), [second["bundle"], later["bundle"]])
+        self.assertTrue(self.select(slug="ema-trend-again")["created"], "a closed line's market and window are free")
         self.assertEqual(self.close_code("research-line-20260101-none", summary), "LINE_UNKNOWN")
+
+    def open_code(self, bundle=None) -> str:
+        with self.assertRaises(Refusal) as caught:
+            lines.open_line(self.conn, bundle)
+        return caught.exception.code
 
     def close_code(self, bundle, summary) -> str:
         with self.assertRaises(Refusal) as caught:

@@ -147,8 +147,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       ("Name the direction more precisely with another `--slug`, then select again.",)),
     "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",
                           ("Name the line's direction in that form.",)),
-    "LINE_OPEN": ("The line is the current one; a line ends when the next one is selected.",
-                  ("Close only the ended lines `research state` lists under unclosed_lines.",)),
+    "LINE_DATA_TAKEN": ("An open research line already holds this market commit and development window, so the "
+                        "two lines would share their trials.",
+                        ("Continue that line, or close it with `line close` before selecting this one; never pin "
+                         "another market commit or move the window only to get past this.",)),
+    "LINE_AMBIGUOUS": ("Several research lines are open and the command names none.",
+                       ("Name the line with --line (one of `research state` open_lines).",)),
     "LINE_CLOSED": ("The line is already closed with another summary; a closing tag is never replaced.",
                     ("Read its summary from dolt_tags (`ledger sql`); leave it as it is.",)),
     "LINE_SUMMARY_INVALID": ("The line summary is not UTF-8, is empty or exceeds 32768 bytes.",
@@ -159,11 +163,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LINE_FORMAT_UNSUPPORTED": ("The research line record is not a research-line-v2 record.",
                                 ("Select a new line with `line select`.",)),
     "LINE_UNKNOWN": ("The research line bundle does not exist or is not a research-line-* bundle.",
-                     ("Name an existing research-line-<date>-<slug> bundle, or omit --line to read the current line; "
+                     ("Name an existing research-line-<date>-<slug> bundle, or omit --line to use the only open line; "
                       "select a line with `line select`.",)),
-    "LINE_ENDED": ("The research line has ended (a later line was selected); its closing tag is its final snapshot.",
-                   ("Set targets on the current line (`research state` names it) or as the ledger default "
-                    "(`line targets --default`).",)),
+    "LINE_ENDED": ("The research line is closed: its closing tag marks its end.",
+                   ("Work on an open line (`research state` lists open_lines), or select a new one with "
+                    "`line select`; targets without a line go to the ledger default (`line targets --default`).",)),
     "TARGETS_INVALID": ("A research target is missing or out of range: maximum drawdown is a fraction between 0 "
                         "and 1, minimum annual return a positive fraction.",
                         ("Pass both targets as the user stated them, as fractions (0.15 for 15%).",)),
@@ -340,9 +344,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "does not exist.",
                          ("Pass the originals with `registration add --source`, or add them with `evidence add` "
                           "and cite their bundle names.",)),
-    "RESEARCH_LINE_REQUIRED": ("The ledger has no research line record, so the window cannot be checked.",
+    "RESEARCH_LINE_REQUIRED": ("The ledger has no open research line, so the window cannot be checked.",
                                ("Select a research line with `line select`, then register.",)),
-    "WINDOW_MISMATCH": ("The registered window differs from the research line's development window, or a "
+    "WINDOW_MISMATCH": ("The registered window differs from the development window of the line it is registered "
+                        "on, or a "
                         "validation trial's window is not inside its registered window or does not start after "
                         "it ends.",
                         ("Register the research line's window exactly (read it with `research state`); replay a "

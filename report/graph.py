@@ -165,9 +165,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
         commit = db.head_commit(conn)
-        line = line_bundle or (lines.current_line(conn) or {}).get("bundle")
-        if line is None:
-            raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record", missing=("research-line",))
+        line = line_bundle or lines.open_line(conn)["bundle"]
         record = lines.read_line(conn, line, None)
         in_force = line_targets.targets_for(conn, line)
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")

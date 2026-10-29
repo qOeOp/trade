@@ -333,14 +333,15 @@ if __name__ == "__main__":
 @unittest.skipUnless(BINARY, SKIP)
 class LineStartTests(unittest.TestCase):
     """line select starts a line only at a revision with a passed source review and no failed one, except
-    a failure only of activity on an untraded precheck once a later precheck traded and passed."""
+    a failure only of activity on an untraded precheck once a later precheck traded and passed. The lines
+    take another window than the world's open line, which holds its own."""
 
     def test_an_unreviewed_or_failed_start_is_refused_and_a_passed_one_selected(self):
         world = World("line-start")
         self.addCleanup(world.close)
 
         def select(ref: str) -> dict:
-            return lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), ref,
+            return lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), ref,
                                      slug="passing-start", market=market(), reviews=availability.review_records)
 
         def code(ref: str) -> str:
@@ -367,7 +368,7 @@ class LineStartTests(unittest.TestCase):
 
         def code(ref: str) -> str:
             with self.assertRaises(Refusal) as caught:
-                lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), ref,
+                lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), ref,
                                   slug="untraded-start", market=market(), reviews=availability.review_records)
             return caught.exception.code
 
@@ -386,7 +387,7 @@ class LineStartTests(unittest.TestCase):
         reviewed(released["source"], 0, {})
         self.assertEqual(code(released["candidate"]), "START_REVIEW_REQUIRED", "a later pass without fills")
         reviewed(released["source"], 3, {})
-        selected = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1),
+        selected = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1),
                                      released["candidate"], slug="untraded-start", market=market(),
                                      reviews=availability.review_records)
         self.assertEqual((selected["bundle"].endswith("-untraded-start"), selected["created"]), (True, True))

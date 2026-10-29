@@ -54,6 +54,8 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM line_target WHERE line_bundle = %s",
                                           (second,)), [(3,)])
         self.assertEqual(self.in_force(None), (0.15, 0.2, "default"))
+        self.assertTrue(targets.set_targets(self.conn, first, 0.12, 0.2)["written"], "every open line takes targets")
+        lines.close_line(self.profile, first, b"ema trend summary")
         self.assertEqual(self.code(first, 0.15, 0.2), "LINE_ENDED")
         self.assertEqual(self.code("research-line-20260101-none", 0.15, 0.2), "LINE_UNKNOWN")
         for drawdown, annual in ((0, 0.2), (1, 0.2), (0.15, 0), (0.15, -0.1), ("nan", 0.2), (0.15, "inf"), (None, 0.2)):
