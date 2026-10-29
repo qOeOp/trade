@@ -101,16 +101,21 @@ Measurements, the independent field review and release gates are in
 
 Binance no longer publishes best bid/ask archives (bookTicker ended in 2024-04), and the native backtest's
 liquidation reads cached quotes only. `quote` therefore holds best bid/ask **inferred** from the public
-daily `aggTrades` archives under one declared rule, `quotes.RULE` (`binance-aggtrades-bbo-v1`): a trade
-whose buyer is the maker hit the best bid, so its price is the bid at that moment; a buyer-taker trade
-lifted the best ask; each side is carried forward until it trades again; a stale side that crosses the
+daily `aggTrades` archives under one declared rule, `quotes.RULE` (`binance-aggtrades-bbo-v1`): the rule
+reads a trade whose buyer is the maker as a sell into the best bid and takes its price as the inferred
+bid, and a buyer-taker trade as a lift of the best ask; each side is carried forward until it trades
+again; a stale side that crosses the
 fresh one is pushed one price increment off it (counted in the import result, never silent). Every state
 change is stored: thinning to each second's extremes was measured to move a liquidation to the second's
 adverse extreme up to a second late (2025-10-01: 84 USDT worse, 0.9 s later), so there is no thinned form.
 About 0.9M rows a day for BTCUSDT, 4–6 GB a contract-year in Dolt for the most active contracts. Sizes are not
 observable and not stored; the exporter fills the instrument's `max_quantity` ("no depth modeled"). This is a
 declared approximate quote model: between two trades a side's true quote may have moved, and the error is
-two-sided (a stale side can sit inside the true spread).
+two-sided (a stale side can sit inside the true spread). It is an inference, not an observation: the latest
+trade price need not be the best bid or ask an API order could have hit at that instant. Binance USD-M RPI
+(retail price improvement) fills enter aggTrades without a tag, while RPI orders are absent from the API
+order book and bookTicker and cannot be matched by API orders (Binance FAQ, published 2025-11-17); which
+contracts and archive months this touches cannot be read from the archives and stays unknown.
 
 ```bash
 uv run --frozen python -m cli.main market upgrade                      # the administrator: add tables the database lacks

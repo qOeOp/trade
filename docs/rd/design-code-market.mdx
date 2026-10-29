@@ -3,12 +3,13 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
+`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、完整源 aggTrades 导入、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
 
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
 <Files>
 <Folder name="market" defaultOpen>
+  <File name="aggtrades.py" />
   <File name="coverage.py" />
   <File name="export.py" />
   <File name="instrument.py" />
@@ -27,6 +28,57 @@
 <Mermaid chart={"%%{init: {\"flowchart\": {\"rankSpacing\": 20}}}%%\nflowchart TB\n  A[\"aggTrades 原始归档<br/>sources 校验与读取\"] --> B[\"quotes 推算与定标<br/>import_quotes 事务追加\"]\n  B --> C[\"quote 表／市场提交<br/>来源与读数回执\"]\n  C --> D[\"quote_rows 读取<br/>write_quotes 导出\"]\n  D --> E[\"原生 QuoteTick<br/>报价撮合与强平\"]"} />
 
 写入由 <Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" /> 进入；数据由 <Ref id="table:quote" /> → <Ref id="market.export_episode" /> → <Ref id="engine.execution_account" /> 对应的报价环境消费。图中的箭头是调用与数据流，不是数据库外键。来源身份保留在市场提交消息；输入可用与研究适用性边界见 <Ref id="W.1.2.1" />。
+
+## `market/aggtrades.py` [#def-mod-market-aggtrades-py]
+
+完整源 aggTrades 的只追加导入：一个合约月一次事务与提交，逐日按官方校验和读取归档，按独立的 1e8 整数编码精确写入 <Ref id="table:agg_trade" />。它不参与 K 线、报价读取、周期派生或回放导出，不写 TradeTick；推算报价（<Ref id="market.derive" />）另从同一批归档推算，不读这张表。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-aggtrades-py-import_month">import_month</Ref> | 一个合约月：持导入锁，核对库非空、工作集干净、提交校验组与表存在，前一日续接核对，逐日分批写入，读数与归档哈希进提交消息 |
+| <Ref id="implementation:impl-market-aggtrades-py-batches">batches</Ref> | 逐行读一日 CSV，按批产出 INSERT 行；核对编号连续、时间不倒退且落在当日，累计日读数 |
+| <Ref id="implementation:impl-market-aggtrades-py-scaled">scaled</Ref> | 十进制字串精确转为 1e8 定标的有符号 64 位整数，放不进即 SCALE_LOSS |
+| <Ref id="implementation:impl-market-aggtrades-py-fetch_archive">fetch_archive</Ref> | 按官方日归档键取 ZIP 与 .CHECKSUM，流式下载并核对 SHA-256，缓存命中直接用 |
+
+#### `import_month` [#impl-market-aggtrades-py-import_month]
+
+```python
+def import_month(profile: dict, month: date, cache: Path, symbol: str, log=print) -> dict:
+```
+
+一个合约月，一次事务与提交。先核对合约在库的允许范围内、`month` 是月初且有已收盘的 UTC 日（否则 MONTH_INVALID），以导入账号连接并持 GET_LOCK('market-import:\<库名>')；库没有 K 线导入即 MARKET_EMPTY，工作集不干净即 DIRTY_WORKING_SET，服务的提交校验组不含 commit 即 COMMIT_CHECKS_DISABLED，没有 agg_trade 表即 SCHEMA_MISMATCH（先跑 `market upgrade`），早先导入用过别的编码即 RULE_VERSION_MISMATCH，同合约月已有行即 MONTH_EXISTS。前一日归档只过 batches 的校验与续接，不插入；没发布的前一日只在库里还没有该合约更早的成交时放过。随后逐日 fetch_archive → batches → INSERT，日读数、归档 SHA-256 与编码身份写进提交消息；返回回执加 trade_rows 与 market_commit。任何拒绝都在提交前回滚。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L192)
+
+#### `batches` [#impl-market-aggtrades-py-batches]
+
+```python
+def batches(path: Path, symbol: str, day: str, state: State, readings: dict, size: int=BATCH_ROWS):
+```
+
+生成器：从一日的 ZIP/CSV 逐行读，内存里只留一批 INSERT 行和上一条事件；`state` 带前一日末笔的编号与时刻跨日续接。七列缺一、编号或时刻超出有符号 64 位、首末逐笔编号颠倒、时刻倒退或不在当日 UTC 范围内即 SOURCE_SHAPE；编号不连续即 SEQUENCE_GAP；空归档即 SOURCE_SHAPE。`readings` 写入 trades、首末 agg_trade_id 与时刻、trade_gap_max_ms。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L139)
+
+#### `scaled` [#impl-market-aggtrades-py-scaled]
+
+```python
+def scaled(text: str, label: str) -> int:
+```
+
+把归档里的十进制字串精确转为 × 1e8 的有符号 64 位整数：非正、非有限或不是十进制即 SOURCE_SHAPE；超出可表示范围或乘后有余数即 SCALE_LOSS。不经浮点、不作上下文舍入、不换编码。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L42)
+
+#### `fetch_archive` [#impl-market-aggtrades-py-fetch_archive]
+
+```python
+def fetch_archive(cache: Path, key: str) -> Path:
+```
+
+与报价导入相同的官方日归档键与校验和：缓存里 ZIP 与 .CHECKSUM 都在且哈希相符即直接用；否则先取 .CHECKSUM（格式不对即 CHECKSUM_MISMATCH），流式下载到 .part 再核对 SHA-256，不符即 CHECKSUM_MISMATCH，交易所未发布即 ARCHIVE_NOT_PUBLISHED。ZIP 字节不整段进内存。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L101)
 
 ## `market/coverage.py` [#def-mod-market-coverage-py]
 
