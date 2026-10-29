@@ -90,6 +90,9 @@ class Product:
         at = [f"--at={ref}"] if ref else []
         return self.run("ledger", "sql", f"--ledger={self.ledger}", *at, "SELECT 1")["ledger_commit"]
 
+    def lines(self, commit: str) -> dict:
+        return self.run("line", "list", f"--ledger={self.ledger}", f"--at={commit}")
+
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
@@ -431,12 +434,16 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
             if url.path == "/":
                 self.send(200, page, "text/html; charset=utf-8")
                 return
-            if url.path not in ("/api/view", "/api/events"):
+            if url.path not in ("/api/view", "/api/events", "/api/lines"):
                 self.json(404, _failure("NOT_FOUND", url.path))
                 return
             line = query.get("line")
             try:
                 since, at = hub.resolve(line, query.get("since"), query.get("at"))
+                if url.path == "/api/lines":
+                    commit = at or hub.product.commit()
+                    self.json(200, hub.product.lines(commit))
+                    return
             except ProductError as exc:
                 self.json(400, exc.body)
                 return

@@ -55,6 +55,12 @@ put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their jou
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
 [`docs/plans/paper-trading-design.zh.md`](../../docs/plans/paper-trading-design.zh.md).
 
+The Research line menu lists every line at the displayed graph's ledger commit, including closed
+lines, through `/api/lines?at=<commit>` and the read-only `line list` command. Each entry shows its
+window and Open/Closed state. Switching changes `?line=`, retains an explicit `at`, and drops the
+previous line's `since` and selected-version fragment. It does not write a selection to the ledger.
+Rendered standalone files retain their current-line facts without contacting a service.
+
 ## Deployment
 
 `docker/compose.yaml` is the whole deployment, the same on a workstation and a server. Four services

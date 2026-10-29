@@ -70,6 +70,29 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence "
                                                         "WHERE bundle LIKE 'research-line-%'"), [(2,)])
 
+    def test_listing_all_lines_is_pinned_read_only_and_includes_closed_lines(self):
+        from cli import main
+        empty = lines.list_lines(self.profile)
+        self.assertEqual(empty["lines"], [])
+        first = self.select()
+        first_head = db.head_commit(self.conn)
+        second = self.select(window_end=date(2026, 3, 1), slug="ema-wider")
+        lines.close_line(self.profile, first["bundle"], b"historical findings retained")
+        head = db.head_commit(self.conn)
+        found = lines.list_lines(self.profile)
+        self.assertIn(("line", "list"), main.READS)
+        self.assertEqual(found["ledger_commit"], head)
+        self.assertEqual([(item["bundle"], item["closed"]) for item in found["lines"]],
+                         [(first["bundle"], True), (second["bundle"], False)])
+        self.assertEqual(found["lines"][0]["window_start"], "2026-01-02")
+        historical = lines.list_lines(self.profile, first_head)
+        self.assertEqual([(item["bundle"], item["closed"]) for item in historical["lines"]],
+                         [(first["bundle"], False)])
+        self.assertEqual(lines.list_lines(self.profile, empty["ledger_commit"])["lines"], [])
+        self.assertEqual(db.head_commit(self.conn), head, "listing writes no commit")
+        lines.close_line(self.profile, second["bundle"], b"all lines are now historical")
+        self.assertEqual([item["closed"] for item in lines.list_lines(self.profile)["lines"]], [True, True])
+
     def test_selection_refusals(self):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")
 

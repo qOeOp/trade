@@ -2,6 +2,7 @@
 // changes in place when the ledger does. A page rendered to a file carries its view and never asks.
 import type { View } from "./model/types";
 import { update } from "./state/update";
+import { lineHref, type ResearchLine } from "./lib/lines";
 
 type Failure = { code?: string; message?: string; missing?: string[] };
 /** A way out of a failure: a link with a label. */
@@ -19,11 +20,7 @@ const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 /** The open lines a LINE_AMBIGUOUS refusal names, each as this page with `line` set. */
 function lines(error?: Failure): Choice[] | undefined {
   if (error?.code !== "LINE_AMBIGUOUS" || !Array.isArray(error.missing)) return undefined;
-  return error.missing.map((line) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("line", line);
-    return { label: line, href: `${url.pathname}${url.search}` };
-  });
+  return error.missing.map((line) => ({ label: line, href: lineHref(window.location.href, line) }));
 }
 
 /** Calls `show` with every new view and `status` with a line to show while there is none yet (`busy`
@@ -38,6 +35,20 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     const choices = lines(error);
     if (choices) status("Several research lines are open. Choose one to draw:", false, choices);
     else status(`The graph could not be drawn: ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`);
+    // With no chosen graph (including an all-closed ledger), history must still be reachable.
+    if (error?.code === "LINE_AMBIGUOUS" || error?.code === "RESEARCH_LINE_REQUIRED") {
+      const at = new URLSearchParams(query).get("at");
+      void fetch(`/api/lines${at ? `?at=${encodeURIComponent(at)}` : ""}`, { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const body = await response.json() as { lines: ResearchLine[] };
+          if (shown === null && body.lines.length) status("Choose a research line to draw:", false,
+            [...body.lines].reverse().map((line) => ({
+              label: `${line.bundle.replace(/^research-line-/, "")} · ${line.closed ? "Closed" : "Open"}`,
+              href: lineHref(window.location.href, line.bundle),
+            })));
+        }).catch(() => { /* Keep the product's refusal and any open-line choices. */ });
+    }
   };
 
   async function load(): Promise<void> {

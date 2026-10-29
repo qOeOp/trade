@@ -868,7 +868,7 @@ def market_upgrade(market: dict) -> dict:
 MARKET_BRANCH = "main"
 MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "import-trades"), ("market", "upgrade")}
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
-READS = {("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
+READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
          ("research", "state"), ("research", "graph"), ("validation", "report"), ("replay", "report"),
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
@@ -1274,6 +1274,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "read, not the "
         "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
+    ("line", "list"): (
+        "all research line declarations and closing tags at --at (reader); no market",
+        "nothing; never publishes",
+        "ledger_commit, lines [{bundle, start, window_start, window_end, market_commit, created_at, closed}] "
+        "oldest first; closed is derived from closing tags at the commit read",
+        "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
@@ -1668,7 +1674,10 @@ def _parser() -> Parser:
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
 
-    line = verbs("line", "research lines: select, targets, close")
+    line = verbs("line", "research lines: list, select, targets, close")
+    command = verb(line, "list", "list all historical and open research lines")
+    _ledger_option(command)
+    _at(command)
     command = verb(line, "select", "record the user's research line")
     command.epilog = ("One record per choice: a later change of start, window or market commit is a new line "
                       "record, never an edit. The UTC date and --slug name the line and its closing tag.")
@@ -2075,6 +2084,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("judgment", "add"):
         return judgment_add(profile, args.kind, args.line, args.based_on, args.body, args.subjects, args.supersedes,
                             args.op_id), 0
+    if key == ("line", "list"):
+        return lines.list_lines(profile, args.at), 0
     if key == ("line", "select"):
         market = market_profile(args.market)
         with db.connect(profile, "writer") as conn:
