@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { PreviewCard } from '@base-ui/react/preview-card';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import index from '@/lib/generated/rd-index.json';
+import { codeThemes } from '@/lib/code-themes';
 
 type Entry = {
   kind: 'capability' | 'function' | 'table' | 'eval' | 'section' | 'node';
@@ -28,7 +29,7 @@ const KIND_LABEL: Record<string, Record<Entry['kind'], string>> = {
 function withInlineCode(text: string): ReactNode[] {
   return text.split(/(`[^`]+`)/g).map((part, i) =>
     part.startsWith('`') && part.endsWith('`') ? (
-      <code key={i} className="rounded bg-fd-muted px-1 py-0.5 font-mono text-[0.85em] text-fd-foreground">
+      <code key={i} className="rounded-[3px] border border-[var(--line)] bg-fd-muted px-1 font-mono text-[0.9em] text-fd-foreground">
         {part.slice(1, -1)}
       </code>
     ) : (
@@ -44,7 +45,7 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
   const label = children ?? (entry ? ((entry.kind === 'capability' || entry.kind === 'node') && entry.where ? entry.where.split('：')[0] : entry.title) : id);
 
   if (!entry) {
-    return <span className="rounded border border-dashed border-fd-border px-1 font-mono text-xs text-fd-muted-foreground">{label}</span>;
+    return <span className="rounded-[3px] border border-dashed border-fd-border px-1 font-mono text-xs text-fd-muted-foreground">{label}</span>;
   }
 
   const href = `/${lang}/docs/${entry.slug}/#${entry.anchor}`;
@@ -59,7 +60,7 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
       </PreviewCard.Trigger>
       <PreviewCard.Portal>
         <PreviewCard.Positioner side="bottom" align="start" sideOffset={6} className="z-50">
-          <PreviewCard.Popup className="w-[min(32rem,92vw)] rounded-xl border bg-fd-popover p-3 text-sm text-fd-popover-foreground shadow-lg">
+          <PreviewCard.Popup className="rd-ref-popup w-[min(32rem,92vw)] p-3 text-[13px] text-fd-popover-foreground">
             {entry.signature ? (
               // Functions: kind, id and owner as comments on top of the signature, in one code block.
               <div className="rd-ref-code text-xs">
@@ -67,16 +68,17 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
                   lang="python"
                   code={`# ${KIND_LABEL[lang]?.[entry.kind] ?? entry.kind} ${id}\n${entry.owner ? `# ${lang === 'zh' ? '定义于' : 'defined in'} ${entry.owner}\n` : ''}${entry.signature}`}
                   codeblock={{ allowCopy: false }}
+                  options={{ themes: codeThemes }}
                 />
               </div>
             ) : (
               <>
                 <div className="mb-1 flex items-center gap-2 text-xs text-fd-muted-foreground">
-                  <span className="rounded bg-fd-muted px-1.5 py-0.5 font-mono">{KIND_LABEL[lang]?.[entry.kind] ?? entry.kind}</span>
+                  <span className="rd-badge rd-badge-kind">{KIND_LABEL[lang]?.[entry.kind] ?? entry.kind}</span>
                   <span className={entry.where ? '' : 'font-mono'}>{entry.where ?? id}</span>
                   {entry.owner ? <span>{lang === 'zh' ? '定义于' : 'defined in'} {entry.owner}</span> : null}
                 </div>
-                <div className="font-medium text-fd-foreground">{entry.title}</div>
+                <div className="font-semibold text-fd-foreground">{entry.title}</div>
               </>
             )}
             {entry.body ? <p className="mt-1 line-clamp-6 leading-relaxed text-fd-muted-foreground">{withInlineCode(entry.body)}</p> : null}

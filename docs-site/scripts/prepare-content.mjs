@@ -66,4 +66,21 @@ await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), join(siteRoot, 'lib', 'generated', 'rd-map.json'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
+// The trade IDE's faces (services/ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's
+// unicode-range slices on jsDelivr at the IDE's pinned version, so a browser fetches only the slices on screen.
+const ideFonts = join(repositoryRoot, 'services', 'ide', 'web', 'fonts');
+await mkdir(join(siteRoot, 'public', 'fonts'), { recursive: true });
+for (const weight of ['Regular', 'Medium', 'Bold']) {
+  await copyFile(join(ideFonts, `Supply-${weight}.otf`), join(siteRoot, 'public', 'fonts', `Supply-${weight}.otf`));
+}
+const harmony = 'https://cdn.jsdelivr.net/npm/harmonyos-sans-sc-webfont-splitted@1.1.0/dist/';
+const harmonyFaces = [];
+for (const [name, range] of [['Regular', '100 449'], ['Medium', '450 900']]) {
+  const css = await readFile(join(ideFonts, 'harmonyos-sans-sc', `${name}.css`), 'utf8');
+  for (const [, slice, unicodes] of css.matchAll(/url\("\.\/([^"]+\.woff2)"\)[^;]*;[\s\S]*?unicode-range:([^;]+);/g)) {
+    harmonyFaces.push(`@font-face{font-family:"HarmonyOS Sans SC";font-style:normal;font-weight:${range};font-display:swap;size-adjust:96%;src:url("${harmony}${slice}") format("woff2");unicode-range:${unicodes};}`);
+  }
+}
+if (!harmonyFaces.length) throw new Error('No HarmonyOS Sans SC slices found');
+await writeFile(join(siteRoot, 'lib', 'generated', 'harmonyos-sans-sc.css'), `${harmonyFaces.join('\n')}\n`);
 console.log(`Prepared ${entries.length} bilingual chapters and ${Object.keys(index.zh).length} index entries.`);

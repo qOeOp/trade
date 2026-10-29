@@ -1,8 +1,6 @@
 'use client';
 
 import {
-  Background,
-  BackgroundVariant,
   Controls,
   Handle,
   MarkerType,
@@ -133,13 +131,13 @@ function overviewLayout(locale: Locale, aspect: number) {
   const rects = new Map<string, Rect>();
   for (const p of board.placed) {
     const ch = chapters.find((c) => c.prefix === p.id)!;
-    nodes.push({ id: `tile-${ch.prefix}`, type: 'tile', position: { x: p.x, y: p.y }, data: { chapter: ch, locale }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: 0, ...base });
+    nodes.push({ id: `tile-${ch.prefix}`, type: 'tile', position: { x: p.x, y: p.y }, data: { chapter: ch, locale }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: -1, ...base });
     const k = cols(ch);
     const cardW = (p.width - 2 * TILE_PAD - (k - 1) * TILE_PAD) / k;
     ch.functions.forEach((fn, i) => {
       const x = TILE_PAD + (i % k) * (cardW + TILE_PAD);
       const y = LABEL_H + Math.floor(i / k) * (COMPACT_H + FN_GAP / 2);
-      nodes.push({ id: fn.path, type: 'func', parentId: `tile-${ch.prefix}`, extent: 'parent', position: { x, y }, data: { fn, slug: ch.slug, locale, state: 'idle', compact: true }, style: { width: cardW, height: COMPACT_H }, width: cardW, height: COMPACT_H, zIndex: 1, ...base });
+      nodes.push({ id: fn.path, type: 'func', parentId: `tile-${ch.prefix}`, extent: 'parent', position: { x, y }, data: { fn, slug: ch.slug, locale, state: 'idle', compact: true }, style: { width: cardW, height: COMPACT_H }, width: cardW, height: COMPACT_H, zIndex: 2, ...base });
       rects.set(fn.path, { x: p.x + x, y: p.y + y, w: cardW, h: COMPACT_H });
     });
   }
@@ -160,7 +158,7 @@ function flowLayout(fnPaths: string[], locale: Locale, outside: Map<string, numb
   for (const p of board.placed) {
     const s = sized.find((x) => x.fn.path === p.id)!;
     const { chapter } = fnIndex.get(p.id)!;
-    nodes.push({ id: s.fn.path, type: 'func', position: { x: p.x, y: p.y }, data: { fn: s.fn, slug: chapter.slug, chapter: chapter.prefix, locale, state: 'idle', outside: outside.get(s.fn.path) }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: 0, ...base });
+    nodes.push({ id: s.fn.path, type: 'func', position: { x: p.x, y: p.y }, data: { fn: s.fn, slug: chapter.slug, chapter: chapter.prefix, locale, state: 'idle', outside: outside.get(s.fn.path) }, style: { width: p.width, height: p.height }, width: p.width, height: p.height, zIndex: -1, ...base });
     rects.set(s.fn.path, { x: p.x, y: p.y, w: p.width, h: p.height });
     for (const cp of s.inner.packed.placed) {
       const comp = s.fn.components.find((c) => c.path === cp.id)!;
@@ -169,7 +167,7 @@ function flowLayout(fnPaths: string[], locale: Locale, outside: Map<string, numb
       comp.caps.forEach((cap, k) => {
         const capW = cp.width - 2 * COMP_PAD;
         const y = COMP_HEAD + k * (CAP_H + CAP_GAP);
-        nodes.push({ id: cap.path, type: 'cap', parentId: `comp-${comp.path}`, extent: 'parent', position: { x: COMP_PAD, y }, data: { cap, slug: chapter.slug, locale, state: 'idle' }, style: { width: capW, height: CAP_H }, width: capW, height: CAP_H, zIndex: 2, ...base });
+        nodes.push({ id: cap.path, type: 'cap', parentId: `comp-${comp.path}`, extent: 'parent', position: { x: COMP_PAD, y }, data: { cap, slug: chapter.slug, locale, state: 'idle' }, style: { width: capW, height: CAP_H }, width: capW, height: CAP_H, zIndex: 3, ...base });
         rects.set(cap.path, { x: p.x + cx + COMP_PAD, y: p.y + cy + y, w: capW, h: CAP_H });
       });
     }
@@ -251,10 +249,12 @@ export function ResearchMap({ locale, chapter, interactive = true }: { locale: L
       if (!ra || !rb) return null;
       const f = facing(ra, rb);
       return ({
-        id, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'smoothstep', pathOptions: { borderRadius: 10, offset: 18 }, className: cls, zIndex: 4,
+        id, source: a, target: b, sourceHandle: `s-${f.from}`, targetHandle: `t-${f.to}`, type: 'smoothstep', pathOptions: { borderRadius: 10, offset: 18 }, className: cls,
+        // the edge layer sits between the boxes and the cards (global.css), so a line never runs through a label
+        zIndex: 0,
         // labels only for the edges of what is hovered; at rest the curves stay quiet
         label: hovered && on ? label : undefined, markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color },
-        style: { opacity: !hovered ? 0.45 : on ? 1 : 0.06 }, labelBgPadding: [5, 2] as [number, number], labelBgBorderRadius: 4,
+        style: { opacity: !hovered ? 0.35 : on ? 1 : 0.06 }, labelBgPadding: [5, 2] as [number, number], labelBgBorderRadius: 4,
       }) as Edge;
     };
     if (!flow) {
@@ -299,7 +299,6 @@ export function ResearchMap({ locale, chapter, interactive = true }: { locale: L
         onNodeMouseEnter={(_, node) => (node.type === 'cap' || node.type === 'func') && setHovered(node.id)}
         onNodeMouseLeave={(_, node) => (node.type === 'cap' || node.type === 'func') && setHovered(null)}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
         {interactive ? <Controls showInteractive={false} position="bottom-right" /> : null}
       </ReactFlow>
       </div>
