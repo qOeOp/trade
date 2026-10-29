@@ -47,8 +47,9 @@ bound to the precheck trial, checks only those four and records `source review`;
 after a repair (Codex: `fork_turns: "none"`). `replay explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
-line's first precheck. Pass the same runner arguments to every precheck, registration and replay
-and name the environment in the registration's `conditions`. It is part of the effective
+line's first precheck. Pass the same runner arguments to every precheck, registration and replay,
+the runtime the precheck returned (`image_ref`) to every registration and replay, and name the
+environment in the registration's `conditions`. It is part of the effective
 configuration: a control and its candidate share it (`COMPARABILITY_MISMATCH` otherwise), and a
 switch later is an identity change ([changes.md](references/changes.md)). `bars` models no
 liquidation, so decide from the source's designed distance to liquidation: the adverse move at
