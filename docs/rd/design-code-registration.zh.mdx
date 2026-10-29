@@ -207,9 +207,9 @@ Measures by slice ID.
 
 ```python
 def export_fingerprint(
-    inputs: dict,
+    inputs: Mapping,
     semantic: bool,
-) -> {export_content_sha256
+) -> dict
 ```
 
 <TypeTable type={{ "inputs": { type: "dict", description: "registration.market_inputs 的返回值；只读 root 与 membership_file" }, "semantic": { type: "bool", description: "True：回执文件先去掉 seconds 字段再按规范 JSON 重编码后哈希，得身份用语义哈希；False：原始字节哈希，供执行前后比对" } }} />
@@ -239,10 +239,10 @@ def export_fingerprint(
 从账本的生命周期证据包读出校验后的生命周期片段与来源原件；提交不符或缺来源原件即拒绝
 
 ```python
-def load_lifecycle(profile: str, bundle: str, commit: str) -> None
+def load_lifecycle(profile: str, bundle: str, commit: str, *, market=None) -> tuple[dict, dict[str, bytes]]
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "研究账本档案名，决定连到哪个账本" }, "bundle": { type: "str", description: "证据包名；包内须含清单文件 lifecycle.json 与其引用的来源原件" }, "commit": { type: "str", description: "钉住的市场提交哈希；清单的 market_commit 必须与之相等" } }} />
+<TypeTable type={{ "profile": { type: "str", description: "研究账本档案名，决定连到哪个账本" }, "bundle": { type: "str", description: "证据包名；包内须含清单文件 lifecycle.json 与其引用的来源原件" }, "commit": { type: "str", description: "钉住的市场提交哈希；清单的 market_commit 必须与之相等" }, "market": { type: "object | None", description: "关键字参数：市场适配器，其 validate_lifecycle 核对清单；缺省取接缝的适配器" } }} />
 
 **返回**　(episodes, files)：episodes 为 \{symbol: [episode]\}，episode 含 symbol、instrument_id、start_ns、events（引擎原生事件字典序列）、sources；files 为 \{相对路径: 字节\} 的来源原件，供输入导出器一并写入导出根并随运行封存
 
@@ -273,16 +273,18 @@ def load_lifecycle(profile: str, bundle: str, commit: str) -> None
 ```python
 def market_inputs(
     market: dict,
-    at: str,
-    window: dict,
-    selection: dict,
+    at: str | None,
+    window: Mapping,
+    selection: Mapping,
     lifecycle_bundle: str | None,
     fresh: bool,
-    research: dict | None,
-) -> inputs dict
+    research: dict | None=None,
+    *,
+    include_quotes: bool=True,
+) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "dict", description: "市场库档案；只以读账号连接" }, "at": { type: "str", description: "研究路线钉住的市场提交引用，经 market.resolve_commit 解析为唯一提交" }, "window": { type: "dict", description: "engine.parse_window 的输出：start、trade_start、end（UTC 纳秒，左闭右开，整分钟对齐）" }, "selection": { type: "dict", description: "{\"universe\": True} 取共同可交易范围内与交易段相交的全部合约，或 {\"symbols\": [...]} 显式清单；二者恰给其一" }, "lifecycle_bundle": { type: "str | None", description: "研究账本中的生命周期证据包名；给出时随导出写入导出根并进入身份" }, "fresh": { type: "bool", description: "True 忽略按提交与窗口键的导出缓存重新导出；False 可命中同键缓存，内容哈希仍逐字节重算" }, "research": { type: "dict | None", description: "研究账本档案，仅读生命周期证据包时需要" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "市场库档案；只以读账号连接" }, "at": { type: "str", description: "研究路线钉住的市场提交引用，经 market.resolve_commit 解析为唯一提交" }, "window": { type: "dict", description: "engine.parse_window 的输出：start、trade_start、end（UTC 纳秒，左闭右开，整分钟对齐）" }, "selection": { type: "dict", description: "{\"universe\": True} 取共同可交易范围内与交易段相交的全部合约，或 {\"symbols\": [...]} 显式清单；二者恰给其一" }, "lifecycle_bundle": { type: "str | None", description: "研究账本中的生命周期证据包名；给出时随导出写入导出根并进入身份" }, "fresh": { type: "bool", description: "True 忽略按提交与窗口键的导出缓存重新导出；False 可命中同键缓存，内容哈希仍逐字节重算" }, "research": { type: "dict | None", description: "研究账本档案，仅读生命周期证据包时需要" }, "include_quotes": { type: "bool", description: "关键字参数，缺省 True；K 线执行可为 False 跳过报价转换" } }} />
 
 **返回**　inputs dict：identity\{market_database, market_commit, universe_rule, selection, symbols, export_content_sha256, exporter_source_sha256, lifecycle_bundle?\}、root、membership_file、symbols、exported\{exported, reused, seconds\}、fresh；identity 是登记锁定与回放核对的全部输入身份
 
@@ -364,13 +366,13 @@ Remove what market_inputs created: the membership directory, and a fresh export 
 
 ```python
 def exposure_exempt(
-    conn: LedgerConnection,
+    conn: db.LedgerConnection,
     trial_id: int,
-    source_sha256: str (CHAR(64)),
-    image_ref: str,
+    source_sha256: str,
+    image_ref: str | None,
     config_key: dict,
     input_key: dict,
-) -> bool。True 表示该试验是事前声明的原生预检且与登记身份一致
+) -> bool
 ```
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "input_key": { type: "dict", description: "登记声明的输入身份（registration.input_key 的结果：市场库名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
@@ -407,10 +409,10 @@ def exposure_exempt(
 
 ```python
 def sealed_no_result(
-    conn: LedgerConnection,
+    conn: db.LedgerConnection,
     trial_id: int,
-    source_sha256: str (CHAR(64)),
-) -> bool。True 表示该预检的封存原件没有可挑的经济结果
+    source_sha256: str,
+) -> bool
 ```
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" } }} />
@@ -438,10 +440,10 @@ def sealed_no_result(
 
 ```python
 def record_review(
-    ledger: LedgerProfile,
-    body: dict,
+    ledger: db.LedgerProfile,
+    body: Mapping,
     reviewer: str,
-) -> dict {bundle
+) -> dict
 ```
 
 <TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本档案；函数自行 ledger.connect，在一个写事务与一次提交内完成" }, "body": { type: "dict", description: "{trial_id: int, verdict: passed | failed, api, causal, activity, readiness}；四项各为 {status ∈ passed | failed | unresolved | no_opportunity, note: 非空文本}；不接受任何身份字段，身份由账本取" }, "reviewer": { type: "str", description: "审查 Agent 的具名归属，写入 authority" } }} />
@@ -547,14 +549,14 @@ def digest_of(image_ref: object) -> str | None
 
 ```python
 def bind(
-    conn: LedgerConnection,
-    registration: dict,
+    conn: db.LedgerConnection,
+    bundle: str,
     source_sha256: str,
     trial_id: int,
 ) -> None
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 打开的试验写事务内连接；本函数不开启也不提交事务" }, "registration": { type: "dict", description: "{bundle: 登记包名}；本次执行身份不由调用方给，从试验行与开始回执读" }, "source_sha256": { type: "str", description: "本次被执行源码的内容哈希，与 trial.source_sha256 相同" }, "trial_id": { type: "int", description: "同事务刚插入的试验行主键" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 打开的试验写事务内连接；本函数不开启也不提交事务" }, "bundle": { type: "dict", description: "{bundle: 登记包名}；本次执行身份不由调用方给，从试验行与开始回执读" }, "source_sha256": { type: "str", description: "本次被执行源码的内容哈希，与 trial.source_sha256 相同" }, "trial_id": { type: "int", description: "同事务刚插入的试验行主键" } }} />
 
 **返回**　None；成功时当前事务里 registration_attempt 多出一行 (registration_bundle, source_sha256, trial_id)
 
@@ -623,18 +625,18 @@ def plan_schema() -> dict
 
 ```python
 def register(
-    profile: LedgerProfile,
+    profile: db.LedgerProfile,
     bundle: str,
     body: dict,
-    runtime_ref: str,
+    runtime_ref: str | None,
     market: MarketProfile,
-    line: str | None,
     runner_argv: list[str],
-    source_files: list[Path],
-) -> dict {bundle
+    source_files: list[Path] | None=None,
+    line: str | None=None,
+) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名，须形如 registration-<假设名>：该命名空间只由本函数写，Agent 经 evidence add 写不进" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取所选研究路线的记录，不由调用方另给" }, "line": { type: "str | None", description: "所选研究路线包名（命令行 --line），须开着；只开着一条时可省略" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名，须形如 registration-<假设名>：该命名空间只由本函数写，Agent 经 evidence add 写不进" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取所选研究路线的记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" }, "line": { type: "str | None", description: "所选研究路线包名（命令行 --line），须开着；只开着一条时可省略" } }} />
 
 **返回**　dict \{bundle, sha256（research-plan.json 内容哈希）, execution（写入的执行身份）, ledger_commit, replayed（同内容重试为 True）\}
 
@@ -684,9 +686,9 @@ def register(
 
 ```python
 def require_line_records(
-    conn: Connection,
+    conn: db.LedgerConnection,
     line_bundle: str,
-    retry_of: str | None,
+    retry_of: str | None=None,
 ) -> None
 ```
 
@@ -721,15 +723,17 @@ def require_line_records(
 
 ```python
 def validate(
-    conn: LedgerConnection,
+    conn: db.LedgerConnection,
     body: dict,
-    execution: dict,
+    execution: Mapping,
     before_replay: bool,
-    line: dict | None,
+    line: Mapping,
+    *,
+    exclude: tuple[str, int] | None=None,
 ) -> set[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十一项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_trial_id（trial_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、comparison（与对照比年化收益的检验条件，见 validate_design；control_trial_id 为 null 时为 null）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" }, "line": { type: "dict | None", description: "登记时为 register 取到的所选路线记录（ledger.read_line 的形态）；绑定前重验为 None，不核窗口，路线归属与开闭由 registration.bind 核" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "登记体 JSON。必有十一项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_trial_id（trial_id 或 null）、change（一处改动说明）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、comparison（与对照比年化收益的检验条件，见 validate_design；control_trial_id 为 null 时为 null）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" }, "line": { type: "dict | None", description: "登记时为 register 取到的所选路线记录（ledger.read_line 的形态）；绑定前重验为 None，不核窗口，路线归属与开闭由 registration.bind 核" }, "exclude": { type: "tuple[str, int] | None", description: "关键字参数：正在核对的绑定 (bundle, trial_id)；它自己的试验与同一登记的早先尝试不算网格暴露" } }} />
 
 **返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
 
@@ -909,7 +913,7 @@ def membership_unchanged(
 核产品 checkout 的 HEAD 含远端 main 最新提交；工作树里的本地改动不核对；只由样本外绑定调用
 
 ```python
-def require_fresh(checkout: Path | None, remote: str) -> None
+def require_fresh(checkout: Path | None=None, remote: str='origin') -> None
 ```
 
 <TypeTable type={{ "checkout": { type: "Path | None", description: "产品代码工作树根；缺省为命令所在的产品 checkout（runtime.layout 给出）" }, "remote": { type: "str", description: "产品源码托管远端名，缺省 origin；main 最新提交从它查询" } }} />
@@ -999,20 +1003,23 @@ def validation_bind(
 
 ```python
 def validation_register(
-    ledger: LedgerProfile,
+    ledger: db.LedgerProfile,
     candidate: str,
-    window_start: datetime (UTC),
-    window_end: datetime (UTC),
+    window_start: datetime,
+    window_end: datetime,
     universe_rule: str,
     market: str | None,
-    design: dict,
+    design: Mapping,
     retry_of: int | None,
-    op_id: str,
+    op_id: str | None,
+    *,
     market_profile: MarketProfile,
-) -> dict {registration_id
+    tsa_url: str | None=None,
+    tsa_roots: Path | None=None,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本连接档案，经 ledger.connect 开写事务" }, "candidate": { type: "str", description: "被验候选引用 strategy_id@revision" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开；须晚于 window_start" }, "universe_rule": { type: "str", description: "共同可交易范围规则版本" }, "market": { type: "str | None", description: "市场提交引用；经 market.resolve_commit 解析成 market_commit" }, "design": { type: "dict", description: "声明的检验条件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "修复环境缺陷后再登记时指向的原登记" }, "op_id": { type: "str", description: "幂等 ID；相同 op_id 且载荷相同返回已存在的登记，载荷不同即 OP_ID_CONFLICT" }, "market_profile": { type: "MarketProfile", description: "市场库档案，用来把 market 引用解析成提交" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本连接档案，经 ledger.connect 开写事务" }, "candidate": { type: "str", description: "被验候选引用 strategy_id@revision" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开；须晚于 window_start" }, "universe_rule": { type: "str", description: "共同可交易范围规则版本" }, "market": { type: "str | None", description: "市场提交引用；经 market.resolve_commit 解析成 market_commit" }, "design": { type: "dict", description: "声明的检验条件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "修复环境缺陷后再登记时指向的原登记" }, "op_id": { type: "str", description: "幂等 ID；相同 op_id 且载荷相同返回已存在的登记，载荷不同即 OP_ID_CONFLICT" }, "market_profile": { type: "MarketProfile", description: "市场库档案，用来把 market 引用解析成提交" }, "tsa_url": { type: "str | None", description: "关键字参数：时间戳机构 https 端点；缺省内置" }, "tsa_roots": { type: "Path | None", description: "关键字参数：验证时间戳令牌的根证书目录；缺省内置" } }} />
 
 **返回**　dict \{registration_id, ledger_commit, created_at, witness: \{status: stamped|failed, stamped_at | None, error | None\}\}：登记 ID、登记提交、服务器登记时间（读自登记行）与凭证结果
 

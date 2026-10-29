@@ -31,13 +31,13 @@
 
 ```python
 def build_image(
-    event: enum{push, pull_request, manual},
-    revision: str（40 位十六进制 Git 提交哈希）,
+    event: str,
+    revision: str,
     request_number: int | None,
     build_paths: list[path],
     registry: str,
     platform: str,
-) -> 推送结果
+) -> dict
 ```
 
 <TypeTable type={{ "event": { type: "enum{push, pull_request, manual}", description: "触发事件。push 只限主干 main；pull_request 为进入 main 的拉取请求，外部 fork 发起的只构建不推送（没有镜像注册表写权限）；manual 为手动重建，只打 sha 标签。" }, "revision": { type: "str（40 位十六进制 Git 提交哈希）", description: "被构建的源码版本：push 取当前提交，pull_request 取请求头提交。写入标签 org.opencontainers.image.revision，是 runtime.resolve 的 build_revision 与 runtime.require_main_build 的唯一来源。" }, "request_number": { type: "int | None", description: "拉取请求编号，只在 pull_request 事件有值，用于 pr-<request_number> 标签。" }, "build_paths": { type: "list[path]", description: "触发构建的路径集合：运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流文件。其余路径变化不构建，也不改变摘要。" }, "registry": { type: "str", description: "镜像注册表中的镜像名，形如 ghcr.io/<owner>/trade-runtime，owner 小写。推送用平台颁发的短期令牌，项目源码中不存长期凭据。" }, "platform": { type: "str", description: "单一目标平台（如 linux/arm64），须属于 runtime.validate_identity 的受支持平台集合，构建机架构与之一致。" } }} />
@@ -81,13 +81,14 @@ def build_image(
 ```python
 def container_command(
     identity: dict,
-    mounts: list[dict],
+    mounts: list[tuple[Path, str, bool]],
     module: str,
     argv: list[str],
+    name: str | None=None,
 ) -> list[str]
 ```
 
-<TypeTable type={{ "identity": { type: "dict", description: "运行环境身份 {image_ref, image_digest, platform, runtime_contract}，由 runtime.resolve 产出；命令按含 @sha256: 的 image_ref 引用镜像，不用标签。" }, "mounts": { type: "list[dict]", description: "挂载清单，每项 {host_path, container_path, writable}。host_path 为已存在的宿主绝对路径；container_path 为容器内绝对路径；只有 /reports 可 writable=True，源码、导出数据目录、共同可交易范围成员文件、覆盖回执一律只读。" }, "module": { type: "str", description: "镜像内要执行的 Python 模块（运行器、审计器或身份探针），须是 runtime.layout 为该契约声明的模块。" }, "argv": { type: "list[str]", description: "原样追加在模块名之后的参数；每项须为字符串，不经 shell 解释。" } }} />
+<TypeTable type={{ "identity": { type: "dict", description: "运行环境身份 {image_ref, image_digest, platform, runtime_contract}，由 runtime.resolve 产出；命令按含 @sha256: 的 image_ref 引用镜像，不用标签。" }, "mounts": { type: "list[dict]", description: "挂载清单，每项 {host_path, container_path, writable}。host_path 为已存在的宿主绝对路径；container_path 为容器内绝对路径；只有 /reports 可 writable=True，源码、导出数据目录、共同可交易范围成员文件、覆盖回执一律只读。" }, "module": { type: "str", description: "镜像内要执行的 Python 模块（运行器、审计器或身份探针），须是 runtime.layout 为该契约声明的模块。" }, "argv": { type: "list[str]", description: "原样追加在模块名之后的参数；每项须为字符串，不经 shell 解释。" }, "name": { type: "str | None", description: "容器名；给出时中断可以按名停止它" } }} />
 
 **返回**　list[str]：完整 docker run 参数列表（首项为 docker），调用方按参数列表直接执行；本函数不起容器、不写文件、不读账本
 
@@ -161,8 +162,8 @@ The docker run argument list; the checks of `container_command` without requirin
 def inspect_runtime(
     identity: dict,
     runner_args: list[str],
-    mounts: list[tuple[Path, str, bool]],
-) -> inspection dict
+    mounts: Sequence[tuple[Path, str, bool]]=(),
+) -> dict
 ```
 
 <TypeTable type={{ "identity": { type: "dict", description: "经 runtime.validate_identity 核对的清单身份" }, "runner_args": { type: "list[str]", description: "传给探针的运行器参数（市场根、提交、成员文件、窗口、账户条款），使探针读出的有效配置与实际回放相同" }, "mounts": { type: "list[tuple[Path, str, bool]]", description: "探针所需的只读挂载（导出目录、成员文件）；含可写挂载即拒绝" } }} />
@@ -196,7 +197,7 @@ def inspect_runtime(
 返回某运行契约版本在镜像内的布局常量：运行器模块、审计器模块、指纹模块、运行器各源码路径、审计器源码路径、依赖锁路径；身份探针与 main 构建核对按它逐项核对
 
 ```python
-def layout(runtime_contract: str | None) -> layout dict
+def layout(runtime_contract: str | None) -> dict
 ```
 
 <TypeTable type={{ "runtime_contract": { type: "str | None", description: "运行契约版本标识；None 返回全部契约的布局映射。" } }} />
@@ -265,7 +266,7 @@ def require_main_build(
 把标签或摘要引用解析为该镜像名下唯一的清单摘要，并从镜像清单与标签读出身份；身份不能手写，缺省引用为镜像注册表中的 main 标签
 
 ```python
-def resolve(reference: str | None) -> identity dict
+def resolve(reference: str | None=None) -> dict
 ```
 
 <TypeTable type={{ "reference": { type: "str | None", description: "镜像引用：<镜像名>:<标签> 或 <镜像名>@sha256:<摘要>；None 取镜像注册表中的 main 标签。" } }} />
@@ -304,7 +305,7 @@ def resolve(reference: str | None) -> identity dict
 核对运行环境身份字典的形态：四个必需字段齐全、引用含不可变摘要且与摘要字段一致、平台与运行契约受支持；登记、回放、比较、样本外等所有接收身份的入口共用这一个核对
 
 ```python
-def validate_identity(value: dict) -> 规范化身份 dict
+def validate_identity(value: dict) -> dict
 ```
 
 <TypeTable type={{ "value": { type: "dict", description: "待核对身份：image_ref、image_digest、platform、runtime_contract 必需，build_revision 可选。" } }} />

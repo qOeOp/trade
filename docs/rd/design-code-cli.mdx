@@ -47,6 +47,7 @@
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个合约月的完整源 aggTrades 导入成一个市场提交，只写 agg_trade；K 线、报价与回放导出不变 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
+| <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade（管理员）：补建市场库缺的表，一次提交；已有表、行、账号与授权不变 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
 | <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
 | <Ref id="cli.paper_reconcile">paper_reconcile</Ref> | 命令行 paper reconcile：把一个已封存纸面运行按它自己的身份在归档上重放，逐单对照成交；不写任何库 |
@@ -73,14 +74,14 @@
 
 ```python
 def candidate_export(
-    ledger: path,
+    profile: db.LedgerProfile,
     candidate: str,
-    output: path,
+    output: str,
     at: str | None,
-) -> {candidate
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；命令以读账号打开连接" }, "candidate": { type: "str", description: "引用名 strategy_id@revision" }, "output": { type: "path", description: "尚不存在的文件路径，须在平台临时根之下" }, "at": { type: "str | None", description: "账本版本；缺省取头提交" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以读账号打开连接" }, "candidate": { type: "str", description: "引用名 strategy_id@revision" }, "output": { type: "path", description: "尚不存在的文件路径，须在平台临时根之下" }, "at": { type: "str | None", description: "账本版本；缺省取头提交" } }} />
 
 **返回**　\{candidate, source_sha256, path, bytes, ledger_commit, notes, missing_templates\}；notes 是写出的说明文件，missing_templates 是不在的模板
 
@@ -113,10 +114,10 @@ def candidate_export(
 Agent 读候选清单的唯一命令行入口：全部候选的身份、父与改动、登记尝试及其运行状态与经济证据可用性，可按账本版本读历史
 
 ```python
-def candidate_list(ledger: path, at: str | None) -> JSON
+def candidate_list(profile: db.LedgerProfile, at: str | None) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径，解析为 LedgerProfile（连接位置与只读账号）" }, "at": { type: "str | None", description: "可选账本版本：提交哈希或标签；None 读当前" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "at": { type: "str | None", description: "可选账本版本：提交哈希或标签；None 读当前" } }} />
 
 **返回**　JSON：\{ledger_commit, checker: \{check, metrics_revision, source_sha256\}, candidates: [\{strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts: [\{bundle, trial_id, run_status, availability\}], valid_evidence\}]\}；原样转发 report.candidates 的结果，不加分数、排序或资格标记
 
@@ -150,10 +151,10 @@ def candidate_list(ledger: path, at: str | None) -> JSON
 在临时工作目录生成新策略脚手架：文件头模板、唯一入口类、两个仓位辅助方法与两个钩子的注释桩，以及工作目录说明；不写账本
 
 ```python
-def candidate_new(args: Namespace) -> JSON
+def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict
 ```
 
-<TypeTable type={{ "args": { type: "Namespace", description: "output（/tmp 下的新目录）、strategy_id（引用名）、entry_class（入口类名，缺省 Strategy1）" } }} />
+<TypeTable type={{ "output": { type: "str", description: "尚不存在的新目录（/tmp 下），脚手架写在这里" }, "strategy_id": { type: "str", description: "策略引用名" }, "entry_class": { type: "str", description: "入口类名，缺省 Strategy1" } }} />
 
 **返回**　JSON：output、files、missing_templates
 
@@ -184,18 +185,18 @@ def candidate_new(args: Namespace) -> JSON
 
 ```python
 def candidate_publish(
-    ledger: path,
-    file: path,
+    profile: db.LedgerProfile,
+    file: str,
     strategy_id: str,
     entry_class: str,
     description: str,
-    parent: str (strategy_id@revision) | None,
+    parent: str | None,
     difference: str | None,
     op: str | None,
-) -> {candidate
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本连接档案路径；以写账号打开" }, "file": { type: "path", description: "单文件 UTF-8 策略源码" }, "strategy_id": { type: "str", description: "引用名中的 ID；同一 ID 下修订号递增" }, "entry_class": { type: "str", description: "唯一顶层入口类名" }, "description": { type: "str", description: "这一版本的说明：规则、来源声明与非声明" }, "parent": { type: "str (strategy_id@revision) | None", description: "研发父版本；根节点不填" }, "difference": { type: "str | None", description: "相对父版本的改动说明；与 parent 同有同无" }, "op": { type: "str | None", description: "幂等操作标识；缺省由载荷派生" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号打开" }, "file": { type: "path", description: "单文件 UTF-8 策略源码" }, "strategy_id": { type: "str", description: "引用名中的 ID；同一 ID 下修订号递增" }, "entry_class": { type: "str", description: "唯一顶层入口类名" }, "description": { type: "str", description: "这一版本的说明：规则、来源声明与非声明" }, "parent": { type: "str (strategy_id@revision) | None", description: "研发父版本；根节点不填" }, "difference": { type: "str | None", description: "相对父版本的改动说明；与 parent 同有同无" }, "op": { type: "str | None", description: "幂等操作标识；缺省由载荷派生" } }} />
 
 **返回**　\{candidate: strategy_id@revision, source_sha256, parent, runtime_contract, ledger_commit, replayed\}
 
@@ -225,13 +226,13 @@ def candidate_publish(
 
 ```python
 def candidate_show(
-    ledger: path,
-    candidate: str (strategy_id@revision),
+    profile: db.LedgerProfile,
+    candidate: str,
     at: str | None,
-) -> {candidate
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本连接档案路径；以读账号打开" }, "candidate": { type: "str (strategy_id@revision)", description: "候选引用" }, "at": { type: "str | None", description: "账本提交或标签；缺省读最新提交" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以读账号打开" }, "candidate": { type: "str (strategy_id@revision)", description: "候选引用" }, "at": { type: "str | None", description: "账本提交或标签；缺省读最新提交" } }} />
 
 **返回**　\{candidate, strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent, difference, created_at, ledger_commit\}
 
@@ -261,12 +262,12 @@ def candidate_show(
 
 ```python
 def evidence_add(
-    conn: LedgerConnection,
+    conn: db.LedgerConnection,
     bundle: str,
-    files: list[Path],
+    files: list[str],
     note: str | None,
     op: str | None,
-) -> {bundle
+) -> dict
 ```
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "cli.main 以写账号打开的连接" }, "bundle": { type: "str", description: "证据包名；不得落入产品封存命名空间" }, "files": { type: "list[Path]", description: "原件文件或目录，可为空（只有文本时）" }, "note": { type: "str | None", description: "自由文本，作为包内 note.md 入包" }, "op": { type: "str | None", description: "幂等操作 ID；缺省由 ledger.add_bundle 从包名与逐文件哈希派生" } }} />
@@ -298,14 +299,14 @@ def evidence_add(
 
 ```python
 def evidence_export(
+    profile: db.LedgerProfile,
     bundle: str,
-    output: Path,
+    output: str,
     at: str | None,
-    ledger: path,
-) -> {bundle
+) -> dict
 ```
 
-<TypeTable type={{ "bundle": { type: "str", description: "证据包名（含产品封存包）" }, "output": { type: "Path", description: "尚不存在的目录，须在平台临时根之下" }, "at": { type: "str | None", description: "账本版本（提交、标签或 branch）；缺省为固定研究 branch 的当前提交" }, "ledger": { type: "path", description: "账本档案路径；命令以读账号打开连接" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以读账号打开连接" }, "bundle": { type: "str", description: "证据包名（含产品封存包）" }, "output": { type: "Path", description: "尚不存在的目录，须在平台临时根之下" }, "at": { type: "str | None", description: "账本版本（提交、标签或 branch）；缺省为固定研究 branch 的当前提交" } }} />
 
 **返回**　\{bundle, at_commit, path, files: [\{name, sha256, bytes\}]\}
 
@@ -338,14 +339,14 @@ def evidence_export(
 
 ```python
 def execution_recover(
-    ledger: path,
+    profile: db.LedgerProfile,
     trial_id: int,
-    workdir: path,
-    failure_receipt: path,
-) -> {trial_id
+    workdir: str,
+    failure_receipt: str,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；以写账号连接活动账本" }, "trial_id": { type: "int", description: "原始捕获缺失的试验" }, "workdir": { type: "path", description: "保留下来的原回放工作目录" }, "failure_receipt": { type: "path", description: "封存被拒时写出的宿主错误回执" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号连接活动账本" }, "trial_id": { type: "int", description: "原始捕获缺失的试验" }, "workdir": { type: "path", description: "保留下来的原回放工作目录" }, "failure_receipt": { type: "path", description: "封存被拒时写出的宿主错误回执" } }} />
 
 **返回**　\{trial_id, recovery_bundle, original_capture: missing, limitation, ledger_commit\}
 
@@ -377,14 +378,14 @@ def execution_recover(
 
 ```python
 def hypothesis_compare(
-    ledger: path,
+    profile: db.LedgerProfile,
     bundle: str,
     trial_id: int,
     at: str | None,
-) -> JSON
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "bundle": { type: "str", description: "登记证据包名" }, "trial_id": { type: "int", description: "候选侧封存运行" }, "at": { type: "str | None", description: "账本版本（提交、标签）；缺省为当前 HEAD" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "bundle": { type: "str", description: "登记证据包名" }, "trial_id": { type: "int", description: "候选侧封存运行" }, "at": { type: "str | None", description: "账本版本（提交、标签）；缺省为当前 HEAD" } }} />
 
 **返回**　JSON：\{bundle, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, metrics_revision, catalogue, comparison_source_sha256, availability\{candidate, control\}, evidence\{method, days, mean_daily_log_difference, mean_log_basic_interval, mean_log_studentized_interval, annual_return_difference, annual_return_difference_interval, p_one_sided, p_bonferroni, predeclared_alpha, predeclared_minimum_effect, block_sensitivity, design, limitations …\}, attribution\{metrics_revision, catalogue, headline, slices, predictions, interaction, trade_pairs …\}, limitations\}；登记没有对照时 \{bundle, trial_id, control_trial_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}；无采纳或显著性裁决字段；拒绝时以非零退出码输出拒绝码与原因
 
@@ -420,10 +421,10 @@ def hypothesis_compare(
 命令 judgment add：调用 ledger.add_judgment，输出 JSON
 
 ```python
-def judgment_add(args: Namespace) -> JSON
+def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str, body: str, subjects: list[str], supersedes: int | None, op: str | None) -> dict
 ```
 
-<TypeTable type={{ "args": { type: "Namespace", description: "kind（recommendation、priority、interpretation、search_exposure，别的值由参数解析直接拒绝）、line、based-on、body 文件、subject（可重复）、supersedes、op-id" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号打开一条连接" }, "kind": { type: "str", description: "recommendation、priority、interpretation、search_exposure，别的值由参数解析直接拒绝" }, "line": { type: "str", description: "判断所属研究路线的证据包名" }, "based_on": { type: "str", description: "判断依据的账本提交" }, "body": { type: "str", description: "判断正文的 UTF-8 文件路径，读不出即 JUDGMENT_BODY_UNREADABLE" }, "subjects": { type: "list[str]", description: "判断对象（--subject 可重复）" }, "supersedes": { type: "int | None", description: "被这条取代的判断编号" }, "op": { type: "str | None", description: "操作 ID；同一 ID 重放返回原记录" } }} />
 
 **返回**　JSON：judgment_id、ledger_commit、replayed
 
@@ -458,15 +459,15 @@ def judgment_add(args: Namespace) -> JSON
 
 ```python
 def ledger_export(
-    ledger: path,
-    kind: enum reproduce|backup,
-    output: path | None,
+    profile: db.LedgerProfile,
+    kind: str,
+    output: str | None,
     at: str | None,
     trial_ids: list[int] | None,
-) -> {kind
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；命令以读账号打开连接" }, "kind": { type: "enum reproduce|backup", description: "reproduce：写全史备份与复现清单到新目录；backup：增量同步到档案声明的 dolt_backup 目标" }, "output": { type: "path | None", description: "kind=reproduce 时必填：尚不存在的目录" }, "at": { type: "str | None", description: "精确账本版本；缺省取头提交" }, "trial_ids": { type: "list[int] | None", description: "只导出这些运行；缺省全部已封存运行" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以读账号打开连接" }, "kind": { type: "enum reproduce|backup", description: "reproduce：写全史备份与复现清单到新目录；backup：增量同步到档案声明的 dolt_backup 目标" }, "output": { type: "path | None", description: "kind=reproduce 时必填：尚不存在的目录" }, "at": { type: "str | None", description: "精确账本版本；缺省取头提交" }, "trial_ids": { type: "list[int] | None", description: "只导出这些运行；缺省全部已封存运行" } }} />
 
 **返回**　\{kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates\}
 
@@ -498,11 +499,11 @@ def ledger_export(
 ```python
 def ledger_init(
     name: str,
-    kind: Literal['active','isolated','temporary'],
+    kind: Kind,
     service_root: Path,
-    research_branch: str,
-    backup_root: Path | None,
-) -> JSON
+    research_branch: str='main',
+    backup_root: Path | None=None,
+) -> dict
 ```
 
 <TypeTable type={{ "name": { type: "str", description: "账本档案名，传给 ledger.init" }, "kind": { type: "Literal['active','isolated','temporary']", description: "档案种类；测试、演示与工程演练只用 isolated 或 temporary" }, "service_root": { type: "Path", description: "Dolt 服务目录" }, "research_branch": { type: "str", description: "固定研究 branch 名，缺省 main" }, "backup_root": { type: "Path | None", description: "dolt_backup 备份目录；active 必填" } }} />
@@ -575,7 +576,7 @@ def ledger_publish(profile: LedgerProfile, remote: str | None) -> dict
 整体复核的命令入口：读账号按精确版本复核，只报发现
 
 ```python
-def ledger_review(conn: LedgerConnection, at: str | None) -> {at
+def ledger_review(conn: db.LedgerConnection, at: str | None) -> dict
 ```
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "cli.main 以读账号打开的连接" }, "at": { type: "str | None", description: "账本版本；缺省为固定研究 branch 的当前提交" } }} />
@@ -606,12 +607,12 @@ def ledger_review(conn: LedgerConnection, at: str | None) -> {at
 
 ```python
 def ledger_service(
-    ledger: Path,
-    action: enum start | stop | status | check | run,
-) -> {action
+    profile: db.LedgerProfile,
+    action: str,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "Path", description: "账本档案路径（地址、数据目录、数据库名）" }, "action": { type: "enum start | stop | status | check | run", description: "动词；run 与 check 用于 compose 管的服务" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "action": { type: "enum start | stop | status | check | run", description: "动词；run 与 check 用于 compose 管的服务" } }} />
 
 **返回**　\{action, running: bool, pid, address, branch, ledger_commit\}；stop 只返回 running=false；check 返回 ledger_commit 与 market_schema；run 在服务退出后返回 server_exit
 
@@ -650,10 +651,10 @@ def ledger_service(
 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本
 
 ```python
-def ledger_sql(ledger: str, query: str, at: str | None) -> JSON
+def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "str", description: "账本档案名" }, "query": { type: "str", description: "单条读语句，首词为 SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE 或 VALUES" }, "at": { type: "str | None", description: "账本版本：提交、branch 或标签；给定时查询落在该提交上" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "query": { type: "str", description: "单条读语句，首词为 SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE 或 VALUES" }, "at": { type: "str | None", description: "账本版本：提交、branch 或标签；给定时查询落在该提交上" } }} />
 
 **返回**　JSON：\{at, ledger_commit, columns: [str], rows: \[\[value\]\]\}
 
@@ -687,7 +688,7 @@ def ledger_sql(ledger: str, query: str, at: str | None) -> JSON
 在临时根下起一个隔离的测试账本
 
 ```python
-def ledger_temp(root: path | None) -> {profile
+def ledger_temp(root: str | None) -> dict
 ```
 
 <TypeTable type={{ "root": { type: "path | None", description: "可选；给定时须在平台临时根之下且尚不存在，缺省在临时根下生成随机目录名" } }} />
@@ -748,10 +749,10 @@ CLI dispatch calls `ledger.db.upgrade` directly; there is no separate `ledger_up
 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证
 
 ```python
-def ledger_witness(profile: path, tsa_url: str | None) -> JSON {checked
+def ledger_witness(conn: db.LedgerConnection, tsa_url: str | None) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "path", description: "账本档案路径；cli.main 据此以写账号打开一条连接" }, "tsa_url": { type: "str | None", description: "公共时间戳机构 https 端点；缺省为内置端点" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号账本连接，cli.main 按 --ledger 打开" }, "tsa_url": { type: "str | None", description: "公共时间戳机构 https 端点；缺省为内置端点" } }} />
 
 **返回**　JSON \{checked: int, already: int, witnessed: [\{commit, registration_ids, stamped_at\}], failed: [\{commit, reason, registration_ids\}]\}；failed 非空时退出码非零
 
@@ -802,20 +803,19 @@ CLI dispatch calls `ledger.lines.close_line` directly; there is no separate `lin
 
 ```python
 def line_select(
-    ledger: str,
-    market: path,
+    conn: db.LedgerConnection,
+    market: dict,
     start: str,
-    window_start: str (YYYY-MM-DD),
-    window_end: str (YYYY-MM-DD),
-    market_at: str,
+    window_start: str,
+    window_end: str,
+    market_at: str | None,
     note: str | None,
     slug: str,
-    max_drawdown: str | None,
-    annual_return: str | None,
-) -> JSON
+    line_targets: tuple | None=None,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本服务地址与数据库名，经 ledger.connect 以写账号打开一条连接" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "max_drawdown": { type: "str | None", description: "用户为这条路线给的最大回撤上限，比例（0.15 即 15%）；与 annual_return 同给或同缺" }, "annual_return": { type: "str | None", description: "用户为这条路线给的最低年化收益，比例（0.20 即 20%）；两者都缺时路线读账本默认值" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号账本连接，cli.main 按 --ledger 打开；路线经 ledger.select_line 写入" }, "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案，缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str | None", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "line_targets": { type: "tuple | None", description: "用户为这条路线给的 (最大回撤上限, 最低年化收益)，比例（0.15 即 15%），由 --max-drawdown 与 --annual-return 同给；两者都缺时为 None，路线读账本默认值" } }} />
 
 **返回**　JSON：\{bundle, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created, targets\}；targets 为这条路线生效的目标（ledger.targets_for 的形态，或 null）；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
 
@@ -885,7 +885,7 @@ CLI dispatch calls `ledger.targets.set_targets` directly; there is no separate `
 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达
 
 ```python
-def main(argv: list[str]) -> int 退出码
+def main(argv: list[str] | None=None) -> int
 ```
 
 <TypeTable type={{ "argv": { type: "list[str]", description: "<noun> <verb> [options] [-- 运行器参数]；名词为 ledger / candidate / evidence / execution / judgment / line / registration / hypothesis / research / source / validation / replay / market" } }} />
@@ -966,14 +966,14 @@ def market_bars(
 
 ```python
 def market_coverage(
-    market: path,
-    at: str,
+    market: dict,
+    at: str | None,
     symbols: list[str] | None,
-    start: datetime (UTC),
-    end: datetime (UTC),
+    start: str,
+    end: str,
     ledger: str | None,
     lifecycle_bundle: str | None,
-) -> {commit
+) -> dict
 ```
 
 <TypeTable type={{ "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用（Dolt 引用名、标签或哈希），缺省 main" }, "symbols": { type: "list[str] | None", description: "显式合约清单；缺省取该提交下区间涉及月份在 universe_month 中的全部成员" }, "start": { type: "datetime (UTC)", description: "完整输入区间起点（含预热），整分钟" }, "end": { type: "datetime (UTC)", description: "完整输入区间终点，整分钟，左闭右开" }, "ledger": { type: "str | None", description: "研究账本档案名；给出 lifecycle_bundle 时必填" }, "lifecycle_bundle": { type: "str | None", description: "生命周期证据包名；缺省不附生命周期回执，返回中 lifecycle 为空" } }} />
@@ -1024,14 +1024,15 @@ def market_import_quotes(market: dict, month: str, cache_root: str | None, worke
 
 ```python
 def market_import(
-    market: path,
-    month: str (YYYY-MM),
-    cache_root: path,
+    market: dict,
+    month: str,
+    cache_root: str | None,
     workers: int,
-) -> JSON
+    symbols: list[str] | None=None,
+) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "path", description: "市场档案路径（服务地址、市场库名、导入账号）" }, "month": { type: "str (YYYY-MM)", description: "导入月份，UTC；可以是尚未结束的当月" }, "cache_root": { type: "path", description: "归档与校验和的本地缓存目录，放工作副本目录" }, "workers": { type: "int", description: "归档下载并发数；只影响速度，不影响结果" } }} />
+<TypeTable type={{ "market": { type: "path", description: "市场档案路径（服务地址、市场库名、导入账号）" }, "month": { type: "str (YYYY-MM)", description: "导入月份，UTC；可以是尚未结束的当月" }, "cache_root": { type: "path", description: "归档与校验和的本地缓存目录，放工作副本目录" }, "workers": { type: "int", description: "归档下载并发数；只影响速度，不影响结果" }, "symbols": { type: "list[str] | None", description: "隔离市场库的工程允许列表；活动库不给，给了的库每次导入须给同一列表" } }} />
 
 **返回**　JSON：market.import_month 的 ImportResult（month、market_commit、universe_rule、各表追加行数、本月成员数、逐合约缺口区间、各来源采用行数）；拒绝时输出拒绝码与定位信息并以非零码退出
 
@@ -1142,6 +1143,30 @@ def market_publish(market: dict, remote: str | None) -> dict
 
 </div>
 
+### `market_upgrade` [#def-cli-market_upgrade]
+
+命令行入口 market upgrade（管理员）：补建市场库缺的表，一次提交；已有表、行、账号与授权不变
+
+```python
+def market_upgrade(market: dict) -> dict:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L863)
+
+<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案" } }} />
+
+**返回**　JSON \{database, created: [新建表名], commit\}；没有缺表时 created 为空、commit 为 null、不提交
+
+**期望行为**
+
+1. 以管理员账号连到市场库；对照 market/schema.sql 只建缺的表（后加的源交易表这类），跳过数据测试，一次 DOLT_COMMIT。
+2. 已有表、行、账号与授权一律不动；写完按 <Ref id="cli.publish_after" /> 发布。参数用法以 `market upgrade --help` 为准。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `DIRTY_WORKING_SET` | 市场库工作集有未提交改动 |
+
+**使用**　<Ref id="cli.publish_after" />；账本侧的同类命令见 <Ref id="cli.ledger_upgrade" />
 ### `paper delete` [#def-cli-paper_delete]
 
 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它
@@ -1345,18 +1370,18 @@ def _publish_after(args: Namespace, result: dict) -> dict
 
 ```python
 def registration_add(
-    ledger: path,
+    profile: db.LedgerProfile,
     bundle: str,
-    body: path,
+    body: str,
     runtime: str | None,
-    market: path,
-    line: str | None,
+    market: dict,
     runner_argv: list[str],
-    source: list[Path],
-) -> JSON {bundle
+    source: list[str],
+    line: str | None=None,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "研究账本档案路径；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名，须为 registration-*" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str | None", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自所选研究路线，不由调用方给" }, "line": { type: "str | None", description: "--line，登记所属的研究路线包名，须开着；只开着一条时可省略" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名，须为 registration-*" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str | None", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自所选研究路线，不由调用方给" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" }, "line": { type: "str | None", description: "--line，登记所属的研究路线包名，须开着；只开着一条时可省略" } }} />
 
 **返回**　JSON \{bundle, content_hash, grid_points, execution, files: [\{name, sha256\}], ledger_commit, replayed\}
 
@@ -1399,18 +1424,18 @@ def registration_add(
 
 ```python
 def replay_explore(
-    ledger: path,
-    market: path,
+    profile: LedgerProfile,
+    market: dict,
     at: str | None,
     strategy_file: path,
     strategy_class: str,
     output: path,
     runtime: str | None,
     runner_argv: list[str],
-) -> JSON {purpose
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；只写试验行、开始回执与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；空表示当前头" }, "strategy_file": { type: "path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名" }, "output": { type: "path", description: "尚不存在的临时目录，报告留在这里" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数，不得含入口保留选项" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；只写试验行、开始回执与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；空表示当前头" }, "strategy_file": { type: "path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名" }, "output": { type: "path", description: "尚不存在的临时目录，报告留在这里" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数，不得含入口保留选项" } }} />
 
 **返回**　JSON \{purpose: explore, status: passed|invalid, problems, path, trial_id, image_ref, market, metrics, metrics_note, next_actions\}；metrics_note 标「来源未核验」，metrics 只供导向、不作证据
 
@@ -1442,17 +1467,17 @@ def replay_explore(
 
 ```python
 def replay_precheck(
-    ledger: path,
-    market: path,
+    profile: LedgerProfile,
+    market: dict,
     at: str,
     candidate: str (strategy_id@revision),
     runtime: str | None,
     runner_argv: list[str],
     output: path,
-) -> JSON {purpose
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要），缺省为 main 标签；须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要），缺省为 main 标签；须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
 
 **返回**　JSON \{purpose: precheck, trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, metrics, scope\}；status 为 failed 时退出码 1，拒绝时输出带码错误并以非零退出
 
@@ -1488,19 +1513,19 @@ def replay_precheck(
 
 ```python
 def replay_report(
-    ledger: path | None,
+    profile: LedgerProfile,
     trial_id: int | None,
-    directory: path | None,
+    directory: str | None,
     at: str | None,
     tables: bool,
-    reproduction: path | None,
+    reproduction: str | None,
     reproduction_trial: int | None,
     account: bool,
     exposures: bool,
-) -> JSON
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path | None", description: "账本档案路径；以读账号连接；只读目录时可不连账本" }, "trial_id": { type: "int | None", description: "封存结果或原预检的 trial_id；预检可与 directory 合用" }, "directory": { type: "path | None", description: "原预检缓存目录；不给 trial_id 时读为未核验目录" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" }, "exposures": { type: "bool", description: "附资本敞口表（需已核对的复现）" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以读账号连接；只读目录时可不连账本" }, "trial_id": { type: "int | None", description: "封存结果或原预检的 trial_id；预检可与 directory 合用" }, "directory": { type: "path | None", description: "原预检缓存目录；不给 trial_id 时读为未核验目录" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" }, "exposures": { type: "bool", description: "附资本敞口表（需已核对的复现）" } }} />
 
 **返回**　JSON：预检 \{source: precheck, trial_id, purpose, ledger_commit, source_sha256, image_ref, capture, stages, outcome, runtime_failures, summary, audit, diagnostics, reports, reports_verified, economic_evidence_available: false, limitation, directory?, reproduction_trial_id?\}；封存运行 \{source: sealed, trial_id, status, purpose, source_sha256, runtime, trade_window, created_at, ledger_commit, catalogue, metrics_revision, audit, failure_reasons, populations, activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, limitations, availability\}，给 tables、account、exposures 或 reproduction 时附 tables；目录 \{source: directory, directory, exploration, metrics_revision, catalogue, populations, activity, order_funnel, plans, headline, slices, drawdown, capital, cost_basis, limitations, availability\}，availability 附「未封存、来源未核验」；无经济证据时绩效字段置空
 
@@ -1535,18 +1560,18 @@ def replay_report(
 
 ```python
 def replay_run(
-    ledger: path,
-    market: path,
+    profile: LedgerProfile,
+    market: dict,
     at: str | None,
-    candidate: str（strategy_id@revision）,
+    candidate: str,
     runtime: str | None,
     runner_argv: list[str],
     hypothesis: str | None,
     validation: int | None,
-) -> JSON {purpose
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" } }} />
 
 **返回**　JSON \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, ledger_commit\}；status 非 passed 时进程退出码为 1
 
@@ -1580,10 +1605,10 @@ def replay_run(
 命令 research state：调用 report.research_state，输出 JSON
 
 ```python
-def research_state(args: Namespace) -> JSON
+def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *, history: bool=False, history_before: int | None=None, full: bool=False) -> dict
 ```
 
-<TypeTable type={{ "args": { type: "Namespace", description: "line（缺省取唯一开着的路线；开着多条时不拒绝，gates 里报 LINE_AMBIGUOUS）、at、history、history_before、full" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接，cli.main 按 --ledger 以读账号打开" }, "line": { type: "str | None", description: "研究路线证据包；缺省取唯一开着的路线，开着多条时不拒绝，gates 里报 LINE_AMBIGUOUS" }, "at": { type: "str | None", description: "账本提交引用；空表示当前头" }, "history": { type: "bool", description: "关键字参数：是否附上被取代的历史判断" }, "history_before": { type: "int | None", description: "关键字参数：只附该判断编号之前的历史，给出即视为要历史" }, "full": { type: "bool", description: "关键字参数：是否附候选清单与研究状态计数（facts）" } }} />
 
 **返回**　JSON：report.research_state 的返回
 
@@ -1608,13 +1633,13 @@ def research_state(args: Namespace) -> JSON
 
 ```python
 def research_status(
-    ledger: path,
+    profile: db.LedgerProfile,
     at: str | None,
     line: str | None,
-) -> report.research_status 的返回字典原样序列化为 JSON
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径（连接参数与只读账号）" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头" }, "line": { type: "str | None", description: "对照表所属的研究路线证据包；缺省取唯一开着的路线，开着多条或一条都没有时 comparison 为 null" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头" }, "line": { type: "str | None", description: "对照表所属的研究路线证据包；缺省取唯一开着的路线，开着多条或一条都没有时 comparison 为 null" } }} />
 
 **返回**　report.research_status 的返回字典原样序列化为 JSON；拒绝时输出拒绝码、缺什么与写入状态（恒为未写入）
 
@@ -1646,17 +1671,17 @@ def research_status(
 
 ```python
 def source_review(
-    ledger: path,
-    candidate: str (strategy_id@revision),
+    profile: db.LedgerProfile,
+    candidate: str,
     runtime: str,
     precheck_trial: int,
-    verdict: enum passed | failed,
-    items: path,
+    verdict: str,
+    items: str,
     reviewer: str,
-) -> {bundle
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；以写账号连接活动账本" }, "candidate": { type: "str (strategy_id@revision)", description: "被审查的候选" }, "runtime": { type: "str", description: "运行环境引用，解析为镜像摘要" }, "precheck_trial": { type: "int", description: "该源码在该运行环境下的原生预检试验；审查据其封存输出作出" }, "verdict": { type: "enum passed | failed", description: "总结论" }, "items": { type: "path", description: "审查条目 JSON：api、causal、activity、readiness 四项，各含 status 与 note" }, "reviewer": { type: "str", description: "审查 Agent 的具名标识，与写源码的 Agent 不同" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号连接活动账本" }, "candidate": { type: "str (strategy_id@revision)", description: "被审查的候选" }, "runtime": { type: "str", description: "运行环境引用，解析为镜像摘要" }, "precheck_trial": { type: "int", description: "该源码在该运行环境下的原生预检试验；审查据其封存输出作出" }, "verdict": { type: "enum passed | failed", description: "总结论" }, "items": { type: "path", description: "审查条目 JSON：api、causal、activity、readiness 四项，各含 status 与 note" }, "reviewer": { type: "str", description: "审查 Agent 的具名标识，与写源码的 Agent 不同" } }} />
 
 **返回**　\{bundle, candidate, source_sha256, image_digest, precheck_trial, verdict, ledger_commit, replayed\}
 
@@ -1690,20 +1715,21 @@ def source_review(
 
 ```python
 def validation_registration(
-    ledger: path,
-    candidate: str (strategy_id@revision),
-    window_start: datetime (UTC),
-    window_end: datetime (UTC),
+    profile: db.LedgerProfile,
+    candidate: str,
+    window_start: str,
+    window_end: str,
     universe_rule: str,
-    market: path,
-    design: path,
+    market_at: str | None,
+    market: dict,
+    design: str,
     retry_of: int | None,
     op: str | None,
-    market_at: str | None,
-) -> JSON {registration_id
+    tsa_url: str | None,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "活动账本档案路径；命令以写账号打开一条连接" }, "candidate": { type: "str (strategy_id@revision)", description: "用户指定的被验候选" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭；非重试须晚于服务器登记时间" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开" }, "universe_rule": { type: "str", description: "用户指定的共同可交易范围规则版本" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "design": { type: "path", description: "声明的检验条件 JSON 文件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "重试的原登记 registration_id" }, "op": { type: "str | None", description: "幂等操作标识；缺省由载荷哈希生成" }, "market_at": { type: "str | None", description: "--market-at：市场提交、标签或 branch，缺省 main；经 market.resolve_commit 解析" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以写账号打开一条连接" }, "candidate": { type: "str (strategy_id@revision)", description: "用户指定的被验候选" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭；非重试须晚于服务器登记时间" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开" }, "universe_rule": { type: "str", description: "用户指定的共同可交易范围规则版本" }, "market_at": { type: "str | None", description: "--market-at：市场提交、标签或 branch，缺省 main；经 market.resolve_commit 解析" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "design": { type: "path", description: "声明的检验条件 JSON 文件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "重试的原登记 registration_id" }, "op": { type: "str | None", description: "幂等操作标识；缺省由载荷哈希生成" }, "tsa_url": { type: "str | None", description: "公共时间戳机构 https 端点，登记提交写入后用它做时间见证；缺省为内置端点" } }} />
 
 **返回**　JSON \{registration_id, candidate, window, registered_at, ledger_commit, witness: \{status: stamped|failed, stamped_at, error\}, replayed, next_actions\}；拒绝时输出拒绝码、缺什么与写入状态
 
@@ -1737,10 +1763,10 @@ def validation_registration(
 
 ```python
 def validation_report(
-    profile: str,
+    profile: db.LedgerProfile,
     registration_id: int,
     at: str | None,
-) -> 标准输出上的 JSON 报告
+) -> dict
 ```
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "registration_id": { type: "int", description: "样本外登记标识（validation_registration 主键）" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签），缺省为当前 HEAD" } }} />
@@ -1871,14 +1897,14 @@ class Parser(argparse.ArgumentParser)
 
 ```python
 def replay_reproduce(
-    ledger: path,
-    market: path,
+    profile: db.LedgerProfile,
+    market: dict,
     trial_id: int,
-    output: path,
-) -> JSON
+    output: str,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "trial_id": { type: "int", description: "要再生报告的原试验（正式结果或预检）" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "trial_id": { type: "int", description: "要再生报告的原试验（正式结果或预检）" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
 
 **返回**　JSON：\{directory, trial_id, reproduction_trial_id, fingerprints_match: true\}；指纹不等时拒绝 REPRODUCTION_MISMATCH 并保留目录
 

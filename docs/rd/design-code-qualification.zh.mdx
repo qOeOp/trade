@@ -26,10 +26,10 @@
 经济证据资格：读取时按当前判据，对单运行报告里的活动事实、审计结论、执行封存与源码审查算出，附检查身份；不读原生报告、不写账本
 
 ```python
-def assess(conn: LedgerConnection, run: Mapping) -> dict
+def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None=None, records: list | None=None, review_scope: Mapping | None=None) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接（ledger.connect），可指向 AS OF 某一提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：trial_id、status（存储审计结论）、source_sha256（候选源码内容哈希）、image_digest（运行环境身份）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接（ledger.connect），可指向 AS OF 某一提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：trial_id、status（存储审计结论）、source_sha256（候选源码内容哈希）、image_digest（运行环境身份）" }, "checker": { type: "Mapping | None", description: "关键字参数：check_identity 的结果，批量评估时调用方读一次复用" }, "records": { type: "list | None", description: "关键字参数：review_records 已读出的审查记录，复用" }, "review_scope": { type: "Mapping | None", description: "关键字参数：限定计入的来源审查（source_reviews 的 scope）" } }} />
 
 **返回**　dict：\{economic_evidence_available: bool, reasons: list[str], activity: \{orders, fills, positions, account_rows\}, stored_audit_status, source_check（source_reviews 结果）, execution_capture: \{status, purpose, failed_stages, failures（按异常类型、阶段、合约与消息合并，带次数与拒绝码）, original_missing\}, checker（check_identity 结果）, applicability, limitations: list[str]\}。纯视图，不改写 run.status 与审计结果
 
@@ -112,10 +112,10 @@ def mask(output: dict, value: dict) -> dict
 资格的原生事实：读封存结果里封存时记下的资格事实，逐项给出是否通过与原因码；不读原生报告
 
 ```python
-def native_reasons(sealed: dict) -> list[str]
+def native_reasons(reports: Mapping | None) -> list[str]
 ```
 
-<TypeTable type={{ "sealed": { type: "dict", description: "运行的封存结果（run_sealed 行）" } }} />
+<TypeTable type={{ "reports": { type: "dict", description: "运行的封存结果（run_sealed 行）" } }} />
 
 **返回**　list[str]：不可用原因；空列表表示实质活动成立且匹配记录全部对账。只描述事实，不归因
 
@@ -137,10 +137,10 @@ def native_reasons(sealed: dict) -> list[str]
 比较、对照登记与描述统计读口之前的硬门：资格不可用即拒绝并返回原因
 
 ```python
-def require(conn: LedgerConnection, run: Mapping) -> dict
+def require(conn: db.LedgerConnection, run: Mapping, **options) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接" }, "run": { type: "Mapping", description: "run ⨝ trial 行，同 assess" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接" }, "run": { type: "Mapping", description: "run ⨝ trial 行，同 assess" }, "options": { type: "**", description: "透传给 assess 的关键字参数" } }} />
 
 **返回**　dict：资格可用时返回 assess 的完整资格字典，供调用方随检验结果或登记绑定一并写出；不可用时抛拒绝
 
@@ -171,10 +171,10 @@ def require(conn: LedgerConnection, run: Mapping) -> dict
 只认源码哈希与镜像摘要都匹配本运行的独立审查记录；内容哈希不符拒绝；记录身份按其写入时的账本提交核对
 
 ```python
-def source_reviews(conn: LedgerConnection, run: Mapping) -> dict
+def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | None=None, scope: Mapping | None=None) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接；核历史记录时经 ledger.read_as_of 读其写入提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：trial_id、source_sha256、image_digest" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读账本连接；核历史记录时经 ledger.read_as_of 读其写入提交" }, "run": { type: "Mapping", description: "run ⨝ trial 行：trial_id、source_sha256、image_digest" }, "records": { type: "list | None", description: "关键字参数：已读出的审查记录，复用" }, "scope": { type: "Mapping | None", description: "关键字参数 {bundles, recorded_by}：只计在 recorded_by 提交时已入账的指定审查包（封存时固定的事实）" } }} />
 
 **返回**　dict：\{status: passed | failed | unreviewed, reviews: [\{bundle_id, sha256, verdict, reviewer, ledger_commit\}], ignored: [\{bundle_id, reason\}], scope: 「Agent 因果职责；审计通过不等于源码有效」\}
 
