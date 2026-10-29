@@ -31,6 +31,8 @@ IMPORT = "binance-aggtrades"
 CODEC = "binance-aggtrades-int64-scale8-v1"
 SCALE = 100_000_000
 MAX_INT = (1 << 63) - 1
+MIN_VALUE = Decimal("0.00000001")
+MAX_VALUE = Decimal("92233720368.54775807")
 BATCH_ROWS = 5_000
 DOWNLOAD_BYTES = 1 << 20
 COLUMNS = tuple(field.name for field in sources.AGGTRADES_SCHEMA)
@@ -43,6 +45,9 @@ def scaled(text: str, label: str) -> int:
         value = Decimal(text)
         if not value.is_finite() or value <= 0:
             raise ValueError("not a positive finite decimal")
+        # Reject extreme exponents before as_integer_ratio could allocate an enormous integer.
+        if not MIN_VALUE <= value <= MAX_VALUE:
+            raise _refuse(f"{label}: {text!r} cannot be represented exactly by {CODEC}", "SCALE_LOSS", missing=(label,))
         numerator, denominator = value.as_integer_ratio()
         integer, remainder = divmod(numerator * SCALE, denominator)
     except (InvalidOperation, ValueError, OverflowError) as exc:

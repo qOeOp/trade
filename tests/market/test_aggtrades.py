@@ -50,7 +50,8 @@ class CodecTests(unittest.TestCase):
             self.assertEqual(trades.scaled('92233720368.54775807', 'price'), (1 << 63) - 1)
             self.assertEqual(trades.scaled('0.0000000100000000', 'quantity'), 1)
             self.assertEqual(trades.scaled('12345.12345678', 'price'), 1234512345678)
-        for text in ('0.000000001', '92233720368.54775808', '100000000000000000000000000000.00000001'):
+        for text in ('0.000000001', '92233720368.54775808', '100000000000000000000000000000.00000001',
+                     '1E+1000000000', '1E-1000000000'):
             with self.subTest(text=text), self.assertRaises(sources.MarketError) as caught:
                 trades.scaled(text, 'price')
             self.assertEqual(caught.exception.code, 'SCALE_LOSS')
