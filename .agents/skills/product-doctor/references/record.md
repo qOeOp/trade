@@ -9,14 +9,10 @@ record once it is written. Later state belongs in the index.
 | Item | Value |
 |---|---|
 | Sessions | host, transcript file name, start and end time |
-| Audit session | host, model and session id of this diagnosis; unknown where the host does not show it |
+| Audit session | host, model, session id, worktree and any PR this session itself wrote; unknown where the host does not show it |
 | Checkout / ledger | commit; ledger commits from … to … |
 | Coverage | assigned workstreams, examined paths and explicit gaps |
-| Time split | measured research / discovery / repair / waiting; unknown where not attributable |
-| Invalid trials caused by the product | … |
-| Findings by action | fix … / remove … / skill … / authority … / measure … / none … |
-| Recurred items | ids, or none |
-| Found by the user first | count; ids, or none |
+| Cost | time split (research / discovery / repair / waiting), tokens, invalid trials caused by the product, and this audit's own time and tokens; unknown where not measured |
 | Net change | mechanisms, branches, rules and skill words the proposals add and remove; skill words against the previous record; why any growth was unavoidable |
 
 ## Findings
@@ -29,17 +25,22 @@ record once it is written. Later state belongs in the index.
 User decisions on authority items, with the date.
 ```
 
-`docs/plans/doctor/index.zh.md` holds one table of open items. Each row has the id, the finding,
-the action, the status (`open`, `in PR`, `fixed <commit>`, `verified <record>`, `unobserved`,
-`recurred`, `rejected`), and the records where the item was first and last seen. `fixed <commit>`
-says only that the change merged. The next diagnosis of a research session reports every such row:
-`verified <record>` when the session reached the path and the failure did not recur, `recurred`
-when it did, `unobserved` when the session never reached the path, which is not verification. A
-row moves to the closed section at `verified`, with the commit and the verifying record, or at
-`rejected`. A second table lists the doctor misses: problems the user pointed out
-before a diagnosis found them, each with the date, the lens that should have caught it and its
-status. A finding id is the date plus a number, written `<yyyymmdd>-<number>`.
+`docs/plans/doctor/index.zh.md` holds an open table (id, finding, action, source, cost class,
+status, first and last record) and a closed table (id, finding, source, cost class, status).
 
-Group observations with the same cause and remedy into one actionable finding; reuse its id across
-records. The evidence cell locates the relevant output, consumer and supported or unsupported
-interpretation, without copying a call log. Keep measured costs separate from estimates.
+- Source: `doctor`, `user` or `attach`; for `user` (the user pointed it out before a diagnosis
+  did), also the [lenses.md](lenses.md) workstream that should have caught it, by its name there.
+- Cost class, measured: `none`, `minutes`, `hours` (hours of session time or a blocked research
+  line), `wrong output`; `unknown` where nothing was measured.
+- Status: one state word plus the link to the record that set it (`in PR` links the PR); the
+  history lives in the records. `open`, `in PR`, `fixed <commit>` (the change merged, no more),
+  `verified` (a later research session reached the path and the failure did not recur),
+  `recurred`, `unobserved` (no later session reached the path, which is not verification),
+  `rejected`. The next diagnosis of a research session reports the rows whose state changes; a
+  row moves to the closed table at `verified` or `rejected`.
+
+A finding id is the date plus a number, `<yyyymmdd>-<number>`. Group observations with the same
+cause and remedy into one finding and reuse its id across records. The evidence cell locates the
+output, consumer and supported or unsupported interpretation without copying a call log, and says
+when the user found the problem first and which workstream missed it. Keep measured costs separate
+from estimates.
