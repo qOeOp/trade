@@ -18,7 +18,8 @@ selected (`line select`); everything inside it follows `research-round`.
   targets in force for the line (its own, else the ledger default). `candidate list`, `research
   state` and `research status` print large JSON: redirect each to a file under /tmp and read only
   the keys you need (for example with `jq`), such as `open_lines`, `line`, `targets`, `gates`,
-  `recommendation` and `unreviewed_trials`, never the whole output. After an interruption, or when
+  `unreviewed_trials` and, of `recommendation`, only its `judgment_id` and `body` (its `facts` and
+  `subjects` exceed one read), never the whole output. After an interruption, or when
   the user says to continue, continue the line this session works on (the one its Goal names) under
   `research-round` without asking. A new session started with only `research-start` asks once:
   continue an open line (each with its state and next step) or choose another line (Offer lines and
