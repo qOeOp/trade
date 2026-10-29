@@ -10,6 +10,8 @@ Every write is one transaction on one writer connection: look the operation up b
 retry returns the original record), refuse a dirty working set, insert, bump the single
 `ledger_head` row and `dolt_commit`, which runs the commit verification group. Two concurrent
 writers both change `ledger_head`, so Dolt refuses the later one (error 1213) instead of merging.
+A write that records what cannot recur (a replay's sealed capture or run) reruns its transaction
+a few times on that refusal; every other write returns it to the caller.
 """
 
 from __future__ import annotations
@@ -58,6 +60,8 @@ REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
+SEAL_ATTEMPTS = 5  # transactions a sealing write tries before CONCURRENT_WRITE reaches its caller
+RETRY_PAUSE = 0.5  # seconds before the next attempt, times the number of attempts made
 VERIFICATION_FAILED = "commit verification failed"
 # trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored.
 IMAGE_DIGEST = "SUBSTRING_INDEX(image_ref, '@', -1) AS image_digest"
@@ -797,14 +801,32 @@ def _commit_of(conn: LedgerConnection, table: str, op_id: str) -> str | None:
 
 def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
           insert: Callable[[LedgerConnection, str], Mapping],
-          replay: Callable[[LedgerConnection, Mapping], Mapping] | None = None, *, op_id: str | None = None) -> dict:
+          replay: Callable[[LedgerConnection, Mapping], Mapping] | None = None, *, op_id: str | None = None,
+          attempts: int = 1) -> dict:
     """Run `insert(conn, op_id)` as one idempotent transaction and one Dolt commit.
 
     `table` holds the record's `op_id`; a prior row with that ID is returned through
     `replay(conn, row)` (default: the row) without writing. `op_id` overrides the ID derived
     from `kind` and `payload` where a function defines its own. Called while `conn` is already
     inside a write, the insert joins that transaction and the outer write commits it.
+    `attempts` above one reruns the whole transaction on CONCURRENT_WRITE, up to that many
+    transactions: the rerun looks the operation up again and runs `insert`, with its checks, on the
+    new head.
     """
+    nested, attempt = conn.in_write, 1
+    while True:
+        try:
+            return _write_once(conn, kind, payload, table, insert, replay, op_id)
+        except Refusal as exc:
+            if exc.code != "CONCURRENT_WRITE" or nested or attempt >= attempts:
+                raise
+        time.sleep(RETRY_PAUSE * attempt)
+        attempt += 1
+
+
+def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
+                insert: Callable[[LedgerConnection, str], Mapping],
+                replay: Callable[[LedgerConnection, Mapping], Mapping] | None, op_id: str | None) -> dict:
     if (conn.role != "writer" or isinstance(conn, ReadConnection)
             or conn.branch != conn.profile.research_branch):
         raise refuse("READ_ONLY_CONNECTION", "writes need the writer connection on the research branch")
