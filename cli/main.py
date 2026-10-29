@@ -32,6 +32,7 @@ import re
 import secrets
 import shutil
 import sys
+import time
 import tempfile
 import textwrap
 from typing import Literal
@@ -844,13 +845,28 @@ def market_import_quotes(market: dict, month: str, cache_root: str | None, worke
                                symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
+def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
+    """One explicit contract month of complete source aggTrades; no replay or quote change."""
+    from market import aggtrades, store
+    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
+    try:
+        first = date.fromisoformat(month + "-01")
+    except ValueError as exc:
+        raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
+    if len(symbols) != 1:
+        raise refuse("IMPORT_SCOPE", "import-trades takes exactly one contract month", missing=("--symbols",))
+    return aggtrades.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), symbols[0],
+                                  log=lambda line: print(line, file=sys.stderr, flush=True))
+
+
 def market_upgrade(market: dict) -> dict:
     """market upgrade: create the tables of market/schema.sql the market database lacks (the administrator)."""
     return db.upgrade_market(market)
 
 
 MARKET_BRANCH = "main"
-MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "upgrade")}
+MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "import-trades"), ("market", "upgrade")}
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
@@ -901,7 +917,10 @@ def _publish_after(args, result: dict) -> dict:
             return result
         if profile.kind is None or not publication.unpublished(profile, branch):
             return result
-        return {**result, "published": publication.publish(profile, branch, lock)}
+        started = time.monotonic()
+        published = publication.publish(profile, branch, lock)
+        timing = {"publish_seconds": round(time.monotonic() - started, 3)} if key == ("market", "import-trades") else {}
+        return {**result, "published": published, **timing}
     except Refusal as exc:
         return {**result, "publish_failed": refusal_json(exc)}
 
@@ -1393,6 +1412,20 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "accepted, in any order); MONTH_EXISTS (a named contract already has quotes in the month, so a partial "
         "month is never extended); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN (the month has no members; "
         "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; CONCURRENT_IMPORT"),
+    ("market", "import-trades"): (
+        "one explicitly named contract month and its existing complete trades (restricted import account, "
+        "holding the same market-import lock); official daily aggTrades ZIPs and the eve, checksum-verified "
+        "under --cache-root, downloaded and parsed in bounded chunks",
+        "all eight source fields in agg_trade, one contract month per transaction and commit; publishes the market; "
+        "no change to bars, quotes or replay exports",
+        "month, through, symbols, codec (binance-aggtrades-int64-scale8-v1: price and quantity exactly x1e8), "
+        "trade_rows, archives (daily SHA-256), readings (daily counts, first/last IDs/times and largest time gap), "
+        "market_commit, seconds; publish_seconds when automatic publication runs; daily progress on stderr",
+        "MONTH_INVALID (no closed UTC day; any earlier month in any order); IMPORT_SCOPE (exactly one symbol); "
+        "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; MONTH_EXISTS (partial months cannot be extended); "
+        "SCALE_LOSS (any value is inexact or outside signed BIGINT: refuse the whole month, no rounding or fallback); "
+        "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
+        "RULE_VERSION_MISMATCH; CONCURRENT_IMPORT; DIRTY_WORKING_SET; COMMIT_CHECKS_DISABLED; DATA_TESTS_FAILED"),
     ("market", "upgrade"): (
         "service.json; the market tables (administrator)",
         "starts the service if needed; creates the missing tables of market/schema.sql in one commit (none when "
@@ -1812,7 +1845,7 @@ def _parser() -> Parser:
                       "Identically reproducing the precheck a registration cites adds no exposure; any other "
                       "reproduction or exploration of a source counts as its prior exposure.")
 
-    market = verbs("market", "market data: init, upgrade, import, import-quotes, lifecycle, coverage, bars, backup, "
+    market = verbs("market", "market data: init, upgrade, import, import-quotes, import-trades, lifecycle, coverage, bars, backup, "
                              "review, publish")
     command = verb(market, "init", "create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
@@ -1838,6 +1871,11 @@ def _parser() -> Parser:
     command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
     command.add_argument("--workers", type=int, default=4, help="parallel archive downloads (default: 4)")
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
+    command = verb(market, "import-trades", "import one contract month of complete source aggTrades as one commit")
+    _market_option(command)
+    command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
+    command.add_argument("--symbols", required=True, nargs=1, help="exactly one USD-M perpetual contract")
+    command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
     command = verb(market, "upgrade", "create the market tables the database lacks (administrator)")
     _market_option(command)
     command = verb(market, "publish", "push the market database to its public DoltHub copy (administrator)")
@@ -1970,6 +2008,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "import-quotes"):
         return market_import_quotes(market_profile(args.market), args.month, args.cache_root, args.workers,
                                     args.symbols), 0
+    if key == ("market", "import-trades"):
+        return market_import_trades(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):

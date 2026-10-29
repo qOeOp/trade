@@ -7,7 +7,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 | Module | Holds |
 |---|---|
-| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, and the `v_universe` view |
+| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, and the `v_universe` view |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
@@ -18,6 +18,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
+| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one explicit contract month per transaction |
 
 ## The database
 
@@ -64,6 +65,37 @@ locations remain unverified. No existing backup, cache or rule was changed.
   both hold must agree on every field. Minutes no source holds stay missing and are reported.
 - **Terms.** exchangeInfo's filters verbatim with the classification, a new row when they change; a
   contract that left exchangeInfo before its first import gets `inferred` increments.
+
+## Complete aggTrades
+
+`agg_trade` retains the official seven USD-M aggTrade fields plus the archive's `symbol`, including
+events which did not change a quote. Its primary key is `(symbol, transact_time, agg_trade_id)`;
+there are no secondary indexes or derived columns. `price` and `quantity` are signed BIGINTs exactly
+multiplied by 100,000,000 under `binance-aggtrades-int64-scale8-v1`, independently of the bar scales.
+Every value must fit exactly: loss of precision or integer overflow refuses and rolls back the entire
+month (`SCALE_LOSS`), with no rounding or alternative encoding.
+
+```bash
+uv run --frozen python -m cli.main market upgrade
+uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT
+```
+
+The explicit single contract month holds the same `market-import` lock and uses the existing restricted
+import account, commit tests, automatic DoltHub publication and `market backup` path. It streams each
+checksum-verified daily ZIP/CSV with bounded download and INSERT buffers; daily row counts, first/last
+IDs and times, maximum time gap, archive SHA-256s and the codec identity live in the import commit.
+The eve is validated for source continuity and the same complete-field/codec checks, but is not inserted.
+Missing, duplicate or non-contiguous
+agg IDs, within a batch or across batches/days/eve, remain `SEQUENCE_GAP`; no alternate archive source
+or repair is attempted. The first published day may start without an eve only when no earlier stored
+complete trades exist. Current months stop at the last closed UTC day and cannot later be extended;
+any stored row in the contract month is `MONTH_EXISTS`.
+
+An upgrade only appends the missing table and preserves old tables, accounts, schema scales and commits.
+Schedule the active upgrade after any existing import queue is complete. The complete source table is
+not read by old bars/quotes exports or replay, and does not add TradeTick files or change quote derivation.
+Measurements, the independent field review and release gates are in
+[the phase-one record](../docs/plans/aggtrades-source-import.zh.md).
 
 ## Quotes
 
