@@ -37,9 +37,9 @@
 | <Ref id="cli.ledger_temp">ledger_temp</Ref> | 在临时根下起一个隔离的测试账本 |
 | <Ref id="cli.ledger_upgrade">ledger_upgrade</Ref> | 命令行入口 ledger upgrade（管理员）：补建研究分支上缺的表与触发器，一次提交；模式代数与已有记录不变 |
 | <Ref id="cli.ledger_witness">ledger_witness</Ref> | 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证 |
-| <Ref id="cli.line_close">line_close</Ref> | 命令行 line close：给一条已结束的研究路线封盘，总结写进 tag 消息 |
+| <Ref id="cli.line_close">line_close</Ref> | 命令行 line close：关闭一条开着的研究路线，在研究分支的头提交上打封盘标签，总结写进 tag 消息 |
 | <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注）及用户为它给的两个研究目标，把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
-| <Ref id="cli.line_targets">line_targets</Ref> | 命令行 line targets：记录用户为当前路线或账本默认值给出的两个研究目标；改目标取代原来生效的，同值不写 |
+| <Ref id="cli.line_targets">line_targets</Ref> | 命令行 line targets：记录用户为一条开着的研究路线或账本默认值给出的两个研究目标；改目标取代原来生效的，同值不写 |
 | <Ref id="cli.main">main</Ref> | 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达 |
 | <Ref id="cli.market_bars">market_bars</Ref> | 命令行入口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，内联至多 --limit 个周期或整段写进新的临时文件；源码审查者的价格读口 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
@@ -53,7 +53,7 @@
 | <Ref id="cli.replay_report">replay_report</Ref> | 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图 |
 | <Ref id="cli.replay_run">replay_run</Ref> | 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration） |
 | <Ref id="cli.research_state">research_state</Ref> | 命令 research state：调用 report.research_state，输出 JSON |
-| research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph@3 JSON；用户目标取该提交上这条路线生效的那一组，--since 标出范围起点；--workers 是算比较的进程数（默认 8 与 CPU 数取小，1 在本进程里算），图不变 |
+| research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph@3 JSON；不给 --line 时取唯一开着的路线，开着多条即 LINE_AMBIGUOUS；用户目标取该提交上这条路线生效的那一组，--since 标出范围起点；--workers 是算比较的进程数（默认 8 与 CPU 数取小，1 在本进程里算），图不变 |
 | <Ref id="cli.research_status">research_status</Ref> | 命令行读研究事实计数与一条路线的对照表：research status [--line \<路线>] [--at \<版本>]，JSON 原样输出 |
 | <Ref id="cli.source_review">source_review</Ref> | 命令行入口：追加独立源码审查结论，绑定候选源码与运行环境身份及其原生预检试验 |
 | <Ref id="cli.validation_registration">validation_registration</Ref> | 命令行入口：登记一次样本外验证并取凭证，JSON 输出 |
@@ -774,13 +774,13 @@ def ledger_witness(profile: path, tsa_url: str | None) -> JSON {checked
 
 ### `line close` [#def-cli-line_close]
 
-命令行 line close：给一条已结束的研究路线封盘，把总结文件交给 ledger.close_line
+命令行 line close：关闭一条开着的研究路线，把总结文件交给 ledger.close_line；封盘标签打在研究分支的头提交上，是路线结束的唯一标记
 
 CLI dispatch calls `ledger.lines.close_line` directly; there is no separate `line_close` Python function.
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案" }, "line": { type: "str", description: "已结束的研究路线包名（research state 的 unclosed_lines）" }, "summary": { type: "path", description: "UTF-8 总结文件，至多 32 KB" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案" }, "line": { type: "str", description: "要关闭的研究路线包名（research state 的 open_lines 所列）" }, "summary": { type: "path", description: "UTF-8 总结文件，至多 32 KB" } }} />
 
-**返回**　JSON：\{line, tag, commit, ended_by, replayed\}
+**返回**　JSON：\{line, tag, commit, replayed\}
 
 **期望行为**
 
@@ -815,7 +815,7 @@ def line_select(
 
 1. 解析参数：两个日期须为 YYYY-MM-DD 的 UTC 日，格式不符即拒绝 WINDOW_INVALID，不读宿主时区；两个目标只给一个即 TARGETS_INVALID。
 2. 经 ledger.connect 以写账号打开一条账本连接。
-3. 调用 ledger.select_line，起点、窗口、市场提交、备注与目标原样传入，并传入 qualification.review_records 供起点审查核对；目标与路线在同一提交写入；不在命令行层做任何改写。
+3. 调用 ledger.select_line，起点、窗口、市场提交、备注与目标原样传入，并传入 qualification.review_records 供起点审查核对；目标与路线在同一提交写入；不在命令行层做任何改写。选新路线不结束任何开着的路线；与某条开着的路线完全相同的选择是那一条的重放（created=false）。
 4. 把返回或拒绝码按 cli.main 的统一格式输出为 JSON，并写明是否已写入。
 
 | 拒绝码 | 条件 |
@@ -827,6 +827,7 @@ def line_select(
 | `WINDOW_OUT_OF_COVERAGE` | 由 select_line 返回：窗口终点晚于钉住提交的最新完整日 |
 | `LINE_SLUG_INVALID` | 由 select_line 返回：slug 形态不合 |
 | `LINE_CONFLICT` | 由 select_line 返回：同一天、同一 slug 的路线已存在且选择不同 |
+| `LINE_DATA_TAKEN` | 由 select_line 返回：已有一条开着的路线钉了同一市场提交和同一开发窗口 |
 | `TARGETS_INVALID` | 只给了一个目标，或由 select_line 返回：目标超出范围 |
 | `LEDGER_UPGRADE_REQUIRED` | 由 select_line 返回：给了目标而账本还没有 line_target 表 |
 
@@ -840,29 +841,30 @@ def line_select(
 
 ### `line targets` [#def-cli-line_targets]
 
-命令行 line targets：记录用户为当前路线或账本默认值给出的两个研究目标，把参数交给 ledger.set_targets
+命令行 line targets：记录用户为一条开着的研究路线或账本默认值给出的两个研究目标，把参数交给 ledger.set_targets
 
 CLI dispatch calls `ledger.targets.set_targets` directly; there is no separate `line_targets` Python function.
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案，以写账号打开一条连接" }, "line": { type: "str | None", description: "当前研究路线包名；缺省取当前路线；与 --default 互斥" }, "default": { type: "bool", description: "写账本默认值，供没有自己目标的路线读" }, "max_drawdown": { type: "str", description: "用户的最大回撤上限，比例（0.15 即 15%），必填" }, "annual_return": { type: "str", description: "用户的最低年化收益，比例（0.20 即 20%），必填" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案，以写账号打开一条连接" }, "line": { type: "str | None", description: "开着的研究路线包名；只开着一条时可省略；与 --default 互斥" }, "default": { type: "bool", description: "写账本默认值，供没有自己目标的路线读" }, "max_drawdown": { type: "str", description: "用户的最大回撤上限，比例（0.15 即 15%），必填" }, "annual_return": { type: "str", description: "用户的最低年化收益，比例（0.20 即 20%），必填" } }} />
 
 **返回**　JSON：\{max_drawdown, annual_return, source, target_id, created_at, line, written, commit\}；与生效的目标同值时 written=false
 
 **期望行为**
 
-1. 两个目标须同时给出；没有 --line 也没有 --default 时取当前路线，账本还没有路线即 RESEARCH_LINE_REQUIRED。
+1. 两个目标须同时给出；没有 --line 也没有 --default 时经 ledger.open_lines 取唯一开着的路线：开着多条即 LINE_AMBIGUOUS，消息列出开着的路线；一条都没有即 RESEARCH_LINE_REQUIRED。
 2. 调用 ledger.set_targets；拒绝码原样输出。
 3. 目标是用户的：Agent 只照用户的话写，不自己改；它们只作读报告的参照，不参与候选资格。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `TARGETS_INVALID` | 少给一个目标，或目标超出范围 |
-| `RESEARCH_LINE_REQUIRED` | 未给 --default 而账本还没有研究路线 |
+| `RESEARCH_LINE_REQUIRED` | 未给 --default、--line，而账本没有开着的研究路线 |
+| `LINE_AMBIGUOUS` | 未给 --default、--line，而开着的研究路线不止一条 |
 | `LINE_UNKNOWN` | 由 set_targets 返回：--line 不是已有路线 |
-| `LINE_ENDED` | 由 set_targets 返回：--line 是已结束的路线 |
+| `LINE_ENDED` | 由 set_targets 返回：--line 已有封盘标签（已经关闭） |
 | `LEDGER_UPGRADE_REQUIRED` | 由 set_targets 返回：账本还没有 line_target 表 |
 
-**使用**　<Ref id="ledger.set_targets" />、<Ref id="ledger.current_line" />、<Ref id="table:line_target" />
+**使用**　<Ref id="ledger.set_targets" />、<Ref id="ledger.open_lines" />、<Ref id="table:line_target" />
 
 <div className="rd-meta">
 
@@ -1135,26 +1137,30 @@ def registration_add(
     body: path,
     runtime: str | None,
     market: path,
+    line: str | None,
     runner_argv: list[str],
     source: list[Path],
 ) -> JSON {bundle
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "研究账本档案路径；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名，须为 registration-*" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str | None", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自当前研究路线，不由调用方给" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "研究账本档案路径；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名，须为 registration-*" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str | None", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自所选研究路线，不由调用方给" }, "line": { type: "str | None", description: "--line，登记所属的研究路线包名，须开着；只开着一条时可省略" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" } }} />
 
 **返回**　JSON \{bundle, content_hash, grid_points, execution, files: [\{name, sha256\}], ledger_commit, replayed\}
 
 **期望行为**
 
 1. 解析 body 为对象，不可解析即 REGISTRATION_INVALID；打开账本与市场库档案。
-2. 调用 registration.register，传入包名、登记体、运行环境引用、市场档案与运行器参数。
+2. 调用 registration.register，传入包名、登记体、运行环境引用、市场档案、--line 与运行器参数。
 3. 把 register 的返回整理为 JSON 输出，grid_points 为网格点数；replayed 为真表示同内容幂等重试。
 4. register 的任一拒绝原样输出拒绝码、缺什么与写入状态（未写入），不提供绕过途径。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RESEARCH_LINE_REQUIRED` | 账本没有研究路线记录（透传自 ledger.current_line） |
-| `WINDOW_MISMATCH` | 登记交易段不等于研究路线开发窗口 |
+| `RESEARCH_LINE_REQUIRED` | 未给 --line，而账本没有开着的研究路线（透传自 registration.register） |
+| `LINE_AMBIGUOUS` | 未给 --line，而开着的研究路线不止一条（透传自 registration.register） |
+| `LINE_UNKNOWN` | --line 不是已有路线（透传） |
+| `LINE_ENDED` | --line 已有封盘标签（透传自 registration.register） |
+| `WINDOW_MISMATCH` | 登记交易段不等于所选路线的开发窗口 |
 | `REGISTRATION_INVALID` | 登记体不可解析、字段缺失或多余，或对照运行、来源证据包、审查引用不在账本 |
 | `SOURCE_PRECHECK_REQUIRED` | 网格中某源码在该运行环境下没有通过的预检与审查 |
 | `SOURCE_ALREADY_EXPOSED` | 网格源码已被非豁免回放执行过且未以 retry_of 另登记 |
@@ -1364,7 +1370,7 @@ def replay_run(
 def research_state(args: Namespace) -> JSON
 ```
 
-<TypeTable type={{ "args": { type: "Namespace", description: "line（缺省当前路线）、at、history、history_before、full" } }} />
+<TypeTable type={{ "args": { type: "Namespace", description: "line（缺省取唯一开着的路线；开着多条时不拒绝，gates 里报 LINE_AMBIGUOUS）、at、history、history_before、full" } }} />
 
 **返回**　JSON：report.research_state 的返回
 
@@ -1395,7 +1401,7 @@ def research_status(
 ) -> report.research_status 的返回字典原样序列化为 JSON
 ```
 
-<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径（连接参数与只读账号）" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头" }, "line": { type: "str | None", description: "对照表所属的研究路线证据包，缺省当前路线" } }} />
+<TypeTable type={{ "ledger": { type: "path", description: "账本档案路径（连接参数与只读账号）" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头" }, "line": { type: "str | None", description: "对照表所属的研究路线证据包；缺省取唯一开着的路线，开着多条或一条都没有时 comparison 为 null" } }} />
 
 **返回**　report.research_status 的返回字典原样序列化为 JSON；拒绝时输出拒绝码、缺什么与写入状态（恒为未写入）
 
