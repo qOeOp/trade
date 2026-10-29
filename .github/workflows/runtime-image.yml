@@ -12,7 +12,6 @@ on:
       - .github/workflows/runtime-image.yml
       - engine/**/*.py
       - engine/**/Dockerfile*
-      - .dockerignore
       - pyproject.toml
       - uv.lock
       - .github/actions/ci-paths/**
@@ -47,7 +46,6 @@ jobs:
             .github/workflows/runtime-image.yml
             engine/**/*.py
             engine/**/Dockerfile*
-            .dockerignore
             pyproject.toml
             uv.lock
             .github/actions/ci-paths/**

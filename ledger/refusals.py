@@ -526,12 +526,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REFERENTIAL_GAP": ("A registration attempt or run names a trial that does not exist, or the attempt outcomes do "
                         "not add up to the attempts.",
                         ("Run the whole review (`ledger review`) and report the gap; counts are never partial.",)),
-    "INVALID_QUERY": ("The identity query is empty, names a dimension other than runtime, effective_config and input, "
-                      "or a runtime key outside image_digest, runtime_contract, engine_version and "
-                      "dependency_lock_sha256.",
-                      ("Give at least one of the three dimensions with only their keys.",)),
-    "RUN_IDENTITY_MISSING": ("A sealed run lacks its runtime image, effective configuration or input identity.",
-                             ("Run the whole review (`ledger review`); the run's identity cannot be compared.",)),
     "SAME_RUN": ("The reference and the candidate are the same run.",
                  ("Pass two different runs of the same source, inputs and configuration.",)),
     "RUN_INCOMPLETE": ("A run to compare is not passed or has no sealed result.",
