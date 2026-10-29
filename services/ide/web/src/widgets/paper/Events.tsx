@@ -51,8 +51,8 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
       <span className="grid place-items-center text-icon">{gutter}</span>
       <span className="font-mono text-small text-fg-faint">{clock(eventMs(line))}</span>
       <span className="truncate font-mono text-small">{symbolOf(line.instrument_id) || ""}</span>
-      <span className="flex items-center gap-1.5 text-small text-fg-muted">{(c === "strategy" || line.kind === "data_gap") && <i className="-ml-3 size-1.5 shrink-0 rounded-full bg-event" />}{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
-      <span className="flex min-w-0 items-center gap-2"><span className="truncate">{text}</span><Chip status={status} /></span>
+      <span className="flex items-center gap-1.5 text-small text-fg-muted">{c === "strategy" && <i className="-ml-3 size-1.5 shrink-0 rounded-full bg-event" />}{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
+      <span className="flex min-w-0 items-center gap-2"><span className={`truncate ${line.kind === "data_gap" ? "text-fail" : ""}`}>{text}</span><Chip status={status} /></span>
     </div>
   );
 }
