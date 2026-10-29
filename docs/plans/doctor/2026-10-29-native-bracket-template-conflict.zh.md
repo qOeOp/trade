@@ -18,7 +18,7 @@
 
 | id | 发现 | 证据、消费者与决定 | 动作 | 已观察成本 | 状态 |
 |---|---|---|---|---|---|
-| 20261029-37 | `strategy-authoring.md` 要求每个入场都以带 stop 和 limit-target children 的原生 bracket 提交；模板转写却禁止增加出处没有的 stop/target，固定工厂也不支持原策略的 STOP_MARKET bracket 入场。健康的原生 OCO/回调保护因此被指导冲突挡住 | 技能第 108–110 行；`template.md` Transcription；现有 `template-no-unsourced-additions` 评测要求保留无止损/无止盈的 RSI(2)；trial 263 独立审查的 causal/activity/readiness 均 passed、api 仅因指令冲突 unresolved，整体 failed；`registration/precheck.py` 按 review verdict 拒绝，未伪造原生 API 故障 | authority + skill | 一次源码审查因冲突 failed；没有统计成正式经济损失；影响跨模板而非仅 BTC 线 | in PR [#PRNUM](https://github.com/qOeOp/trade/pull/PRNUM)，用户 2026-10-29 授权通用技能修复 |
+| 20261029-37 | `strategy-authoring.md` 要求每个入场都以带 stop 和 limit-target children 的原生 bracket 提交；模板转写却禁止增加出处没有的 stop/target，固定工厂也不支持原策略的 STOP_MARKET bracket 入场。健康的原生 OCO/回调保护因此被指导冲突挡住 | 技能第 108–110 行；`template.md` Transcription；现有 `template-no-unsourced-additions` 评测要求保留无止损/无止盈的 RSI(2)；trial 263 独立审查的 causal/activity/readiness 均 passed、api 仅因指令冲突 unresolved，整体 failed；`registration/precheck.py` 按 review verdict 拒绝，未伪造原生 API 故障 | authority + skill | 一次源码审查因冲突 failed；没有统计成正式经济损失；影响跨模板而非仅 BTC 线 | in PR [#1889](https://github.com/qOeOp/trade/pull/1889)，用户 2026-10-29 授权通用技能修复 |
 
 ## 当前产品证据
 
@@ -69,4 +69,4 @@
 
 2026-10-29：用户回复“按产品方式来”。本诊断据此转为通用产品/技能处理，不推断为已经批准删除原子 bracket 要求、修改运行审计或允许研究线特例。待用户明确批准上述规则改变范围。后续修复从本记录和索引开始，在新的修复会话处理；本研究会话不自审自修。
 
-2026-10-29：用户明确授权，原话：“授权改写 strategy-authoring.md 里的 bracket 规则：围绕止损覆盖审计重写，有止损和止盈、单型支持时 bracket 仍为默认；新开修复会话从诊断 20261029-26 出发提 PR，只加这一个评测。”本记录原编号 20261029-26，与已入索引的整合审计 20261029-26（CI 仪式机制）重号，入库时改为 20261029-37；授权原话中的 20261029-26 即本发现。修复在 [#PRNUM](https://github.com/qOeOp/trade/pull/PRNUM)：`strategy-authoring.md` 的保护条目改为以止损覆盖审计为准，有止损和止盈且入场类型为固定 `bracket` 工厂所接受时仍默认原生 bracket，否则提交出处自己的原生订单（例如 STOP_MARKET 入场加 OCO、成交后提交 reduce-only 止损），声明的入场有效期用原生到期或已确认撤单，不为凑 bracket 增加出处没有的止损/止盈，分开提交的保护不称原子；预检核对句和设计站 C.4.2.1 同句对齐；新增评测 `template-stop-entry-no-target`。不改 `engine/audit.py`、拒绝码、字段或研究目标。历史审查 `source-review-263-ba5fc6e4d5414993` 不改写；该线须按新规则重新预检并取得新的独立审查。
+2026-10-29：用户明确授权，原话：“授权改写 strategy-authoring.md 里的 bracket 规则：围绕止损覆盖审计重写，有止损和止盈、单型支持时 bracket 仍为默认；新开修复会话从诊断 20261029-26 出发提 PR，只加这一个评测。”本记录原编号 20261029-26，与已入索引的整合审计 20261029-26（CI 仪式机制）重号，入库时改为 20261029-37；授权原话中的 20261029-26 即本发现。修复在 [#1889](https://github.com/qOeOp/trade/pull/1889)：`strategy-authoring.md` 的保护条目改为以止损覆盖审计为准，有止损和止盈且入场类型为固定 `bracket` 工厂所接受时仍默认原生 bracket，否则提交出处自己的原生订单（例如 STOP_MARKET 入场加 OCO、成交后提交 reduce-only 止损），声明的入场有效期用原生到期或已确认撤单，不为凑 bracket 增加出处没有的止损/止盈，分开提交的保护不称原子；预检核对句和设计站 C.4.2.1 同句对齐；新增评测 `template-stop-entry-no-target`。不改 `engine/audit.py`、拒绝码、字段或研究目标。历史审查 `source-review-263-ba5fc6e4d5414993` 不改写；该线须按新规则重新预检并取得新的独立审查。
