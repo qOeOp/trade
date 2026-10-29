@@ -1,6 +1,6 @@
 # 研究线封盘：语义化线名、tag 与线总结
 
-> 2026-10-29 起，封盘点（下一条路线诞生提交的父提交）和「当前线不封」两条由 [parallel-research-lines.zh.md](parallel-research-lines.zh.md) 取代（经用户批准后生效）。
+> 2026-10-29 起，封盘点（下一条路线诞生提交的父提交）和「当前线不封」两条由 [parallel-research-lines.zh.md](parallel-research-lines.zh.md) 取代（用户 2026-10-29 批准）。
 
 2026-10-21，依据 origin/main 0b675a3ad。用户已定稿并授权实现：线名用「UTC 日期＋slug」、总结放 tag 消息、新增 `line close`（管理员打 tag）与 `line select --slug`。已经过独立审阅（见第六节）。
 

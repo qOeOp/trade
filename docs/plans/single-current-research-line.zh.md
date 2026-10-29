@@ -1,6 +1,6 @@
 # 每账本一条当前研究路线
 
-> 2026-10-29 起由 [parallel-research-lines.zh.md](parallel-research-lines.zh.md) 取代（经用户批准后生效）。
+> 2026-10-29 起由 [parallel-research-lines.zh.md](parallel-research-lines.zh.md) 取代（用户 2026-10-29 批准）。
 
 2026-10-25，用户确认：每个研究账本保留一条当前路线，允许路线内分工，不开放两条路线同时推进正式研究；本项只收敛文档和待定，不新增字段、检查或调度机制。
 

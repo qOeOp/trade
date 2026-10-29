@@ -1,5 +1,7 @@
 # 一个账本上同时开多条研究路线
 
+2026-10-29，用户批准本计划，选用方案 (a)（原话：「Approved: use option (a) and open the docs PR on main.」）。实现各 PR 按文末拆分进行。
+
 2026-10-29，两个 Codex 研究会话同时使用同一研究账本：
 
 - 一个选了 `research-line-20261029-ema-entrynotional-multiyear`（市场 1kcbv73，窗口 2020-09-01..2026-10-01）；
