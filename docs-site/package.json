@@ -8,7 +8,6 @@
   "scripts": {
     "prepare:content": "node scripts/prepare-content.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "check:mermaid": "node scripts/check-mermaid.mjs",
     "check:routes": "node scripts/check-static-routes.mjs",
     "dev": "npm run prepare:content && next dev",
     "types:check": "npm run prepare:content && next typegen && tsc --noEmit",
