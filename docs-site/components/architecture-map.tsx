@@ -22,13 +22,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { isLocale, type Locale } from '@/lib/i18n';
 import {
   advanceStableFrame,
-  fitViewport,
   flowFrameReady,
   focusViewport,
   viewportTargetChanged,
 } from '@/lib/viewport-gate.mjs';
 import type { ArchitectureNodeData, DiagramNodeData, OwnerNodeData, ArchitectureEdgeData } from '@/lib/architecture-map';
 import { productArchitectureNodes, productArchitectureEdges } from '@/lib/product-architecture';
+import { createArchitectureLayout } from '@/lib/architecture-layout';
 
 type PinHandle = {
   id: string;
@@ -166,11 +166,11 @@ function roundRoute(points: RoutePoint[]) {
       const before = route[route.length - 2], corner = route[route.length - 1];
       const vertical = before[0] === corner[0] && corner[0] === current[0];
       const horizontal = before[1] === corner[1] && corner[1] === current[1];
-      const forward = (corner[0] - before[0]) * (current[0] - corner[0])
-        + (corner[1] - before[1]) * (current[1] - corner[1]) >= 0;
-      if (!(vertical || horizontal) || !forward) break;
+      if (!(vertical || horizontal)) break;
       route.pop();
     }
+    const tail = route.at(-1);
+    if (tail && tail[0] === current[0] && tail[1] === current[1]) continue;
     route.push(current);
   }
   let path = `M ${route[0][0]} ${route[0][1]}`;
@@ -178,7 +178,7 @@ function roundRoute(points: RoutePoint[]) {
     const before = route[index - 1], corner = route[index], after = route[index + 1];
     const incoming = Math.hypot(corner[0] - before[0], corner[1] - before[1]);
     const outgoing = Math.hypot(after[0] - corner[0], after[1] - corner[1]);
-    const radius = Math.min(6, incoming / 2, outgoing / 2);
+    const radius = Math.min(12, incoming / 2, outgoing / 2);
     const entry = corner.map((value, axis) => value + (before[axis] - value) * radius / incoming);
     const exit = corner.map((value, axis) => value + (after[axis] - value) * radius / outgoing);
     path += ` L ${entry[0]} ${entry[1]} Q ${corner[0]} ${corner[1]} ${exit[0]} ${exit[1]}`;
@@ -191,11 +191,12 @@ function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
   const interaction = useContext(EdgeInteractionContext);
   const { locale } = useI18n();
   const edge = data as ArchitectureEdgeData;
-  const [smoothPath, smoothX, smoothY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 6, offset: 12 });
+  const [smoothPath, smoothX, smoothY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 12, offset: 22 });
   let path = smoothPath;
   let captionX = smoothX, captionY = smoothY;
   if (edge.route) {
-    const from = extendPoint(sourceX, sourceY, sourcePosition), to = extendPoint(targetX, targetY, targetPosition);
+    const from = edge.leadPoints?.source ?? extendPoint(sourceX, sourceY, sourcePosition);
+    const to = edge.leadPoints?.target ?? extendPoint(targetX, targetY, targetPosition);
     const route = edge.route;
     const corridor: RoutePoint[] = 'via' in route ? route.via : route.axis === 'x' ? [[route.at, from[1]], [route.at, to[1]]] : [[from[0], route.at], [to[0], route.at]];
     path = roundRoute([[sourceX, sourceY], from, ...corridor, to, [targetX, targetY]]);
@@ -205,11 +206,14 @@ function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
     }
   }
   const main = edge.emphasis === 'main';
-  const width = main ? 1.4 : 1.1;
+  const width = main ? 2.2 : 1.2;
   return <>
     <BaseEdge id={id} path={path} interactionWidth={0} markerEnd={markerEnd} markerStart={markerStart}
-      style={{ stroke: main ? 'var(--map-edge)' : 'var(--map-edge-muted)', strokeWidth: edge.isHighlighted ? width + 0.6 : width,
-        opacity: edge.isHighlighted ? 1 : edge.isDimmed ? 0.1 : main ? 0.85 : edge.isRelated ? 0.72 : 0.32 }} />
+      className={main ? 'docs-primary-flow' : 'docs-supporting-flow'}
+      style={{ stroke: main ? 'var(--map-edge)' : 'var(--map-edge-muted)', strokeWidth: edge.isHighlighted ? width + 0.9 : width,
+        filter: edge.isHighlighted ? 'drop-shadow(0 0 3px var(--map-edge))' : undefined,
+        transition: 'opacity 90ms ease, stroke-width 90ms ease, filter 90ms ease',
+        opacity: edge.isHighlighted ? 1 : edge.isDimmed ? 0.1 : main ? 0.9 : edge.isRelated ? 0.78 : 0.32 }} />
     {edge.caption ? <EdgeLabelRenderer><span className="docs-edge-caption" style={{ transform: `translate(-50%, -100%) translate(${captionX}px, ${captionY - 4}px)`, opacity: edge.isHighlighted ? 1 : 0 }}>{edge.caption[locale === 'zh' ? 'zh' : 'en']}</span></EdgeLabelRenderer> : null}
     <path d={path} className="docs-edge-hit-area" fill="none" stroke="transparent" strokeWidth={10} pointerEvents="stroke"
       onPointerEnter={() => interaction.enter(id)} onPointerLeave={() => interaction.leave(id)} onPointerCancel={() => interaction.leave(id)}
@@ -220,27 +224,17 @@ function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
 const edgeTypes = { architectureEdge: ArchitectureEdge };
 type DiagramNode = Node<DiagramNodeData>;
 
-function boundsForNodes(nodes: DiagramNode[]) {
-  const topLevelNodes = nodes.filter((node) => !node.parentId);
-  if (topLevelNodes.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
-  const left = Math.min(...topLevelNodes.map((node) => node.position.x));
-  const top = Math.min(...topLevelNodes.map((node) => node.position.y));
-  const right = Math.max(...topLevelNodes.map((node) => node.position.x + (node.width ?? 0)));
-  const bottom = Math.max(...topLevelNodes.map((node) => node.position.y + (node.height ?? 0)));
-  return { x: left, y: top, width: right - left, height: bottom - top };
-}
-
 export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
   const { locale: contextLocale } = useI18n();
   const locale: Locale = contextLocale && isLocale(contextLocale) ? contextLocale : initialLocale;
   const { resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
-  const renderedNodeCatalog = productArchitectureNodes;
-  const visibleEdges = pinnedArchitecture.edges;
-  const architectureBounds = useMemo(() => {
-    const bounds = boundsForNodes(productArchitectureNodes);
-    return { ...bounds, x: bounds.x - 45, width: bounds.width + 75, y: bounds.y - 10, height: bounds.height + 20 };
-  }, []);
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
+  const layout = useMemo(() => createArchitectureLayout(
+    productArchitectureNodes, pinnedArchitecture.edges, pinnedArchitecture.handlesByNode, canvasSize,
+  ), [canvasSize]);
+  const renderedNodeCatalog = layout.nodes;
+  const visibleEdges = layout.edges;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -351,7 +345,13 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
     const refit = () => {
       const bounds = canvasRef.current?.getBoundingClientRect();
       if (!bounds || bounds.width === 0 || bounds.height === 0) return;
-      const fitted = fitViewport(bounds, architectureBounds, 0.025);
+      if (!canvasSize || Math.abs(canvasSize.width - bounds.width) > 0.5 || Math.abs(canvasSize.height - bounds.height) > 0.5) {
+        canvasReadyRef.current = false;
+        setCanvasReady(false);
+        setCanvasSize({ width: bounds.width, height: bounds.height });
+        return;
+      }
+      const fitted = layout.viewport;
       if (!viewportTargetChanged(fittedViewportRef.current, fitted)) {
         if (!canvasReadyRef.current && revealFrameRef.current === null) waitForStableFlow();
         return;
@@ -380,7 +380,7 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
         revealFrameRef.current = null;
       }
     };
-  }, [architectureBounds]);
+  }, [canvasSize, layout]);
 
   const restoreFit = useCallback(() => {
     const fitted = fittedViewportRef.current;

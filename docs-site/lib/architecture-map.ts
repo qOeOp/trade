@@ -4,6 +4,7 @@ export type Copy = Record<Locale, string>;
 export type EdgeRoute = { axis: 'x' | 'y'; at: number } | { via: [number, number][] };
 export type ArchitectureEdgeData = {
   route?: EdgeRoute; caption?: Copy; emphasis?: 'main' | 'secondary';
+  leadPoints?: { source: [number, number]; target: [number, number] };
   pinOrder?: number; description: Copy; docsRoute: string; isHighlighted?: boolean; isDimmed?: boolean; isRelated?: boolean;
 };
 export type ArchitectureNodeData = {
