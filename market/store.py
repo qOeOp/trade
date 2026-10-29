@@ -976,11 +976,13 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
         if not scope:
             raise _refuse(f"{label} has no universe members in the market database; import its bars first or name "
                           "--symbols", "UNIVERSE_UNKNOWN", missing=(label,))
-    stored = dict(conn.rows("SELECT symbol, COUNT(*) FROM quote WHERE ts >= %s AND ts < %s GROUP BY symbol",
-                            (start_ms, end_ms)))
-    if any(symbol in stored for symbol in scope):
+    # Only existence for the requested contracts matters. Bind the primary key's leading symbol
+    # and stop at the first row instead of grouping/counting the entire quote table every month.
+    stored = {symbol for symbol in scope if conn.rows(
+        "SELECT 1 FROM quote WHERE symbol = %s AND ts >= %s AND ts < %s LIMIT 1", (symbol, start_ms, end_ms))}
+    if stored:
         raise _refuse(f"the market database already holds {label} quotes of "
-                      f"{sorted(symbol for symbol in scope if symbol in stored)}", "MONTH_EXISTS", missing=(label,))
+                      f"{sorted(stored)}", "MONTH_EXISTS", missing=(label,))
     days = [series._ms_day(at).isoformat() for at in range(start_ms, end_ms, DAY)]
     eve = series._ms_day(start_ms - DAY).isoformat()
     per_symbol: dict[str, dict] = {}
