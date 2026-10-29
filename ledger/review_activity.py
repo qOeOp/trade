@@ -35,5 +35,3 @@ def resolved(conn: db.LedgerConnection, record: dict, reviewed: list[dict]) -> b
             later.setdefault(other["trial_id"], set()).add(other["verdict"])
     return any(found == {"passed"} and (execution.precheck_rows(conn, trial_id) or {}).get("fills", 0) > 0
                for trial_id, found in later.items())
-
-
