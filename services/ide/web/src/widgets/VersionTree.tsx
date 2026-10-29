@@ -10,7 +10,7 @@ import { versionTreeControl } from "../state/versionTree";
 import { TREE_INDENT, TreeRow } from "../components/TreeRow";
 import { VersionLine } from "../components/VersionLine";
 import { VersionMenu } from "../components/VersionMenu";
-import { PaperButton, RunningDot } from "../components/PaperButton";
+import { PaperButton } from "../components/PaperButton";
 
 const ROOT = "__root__";
 
@@ -67,7 +67,7 @@ export function VersionTree({ widget }: { widget: LineageWidget }) {
           <VersionMenu key={id} id={id}>
           <TreeRow {...item.getProps()} {...hoverProps(id)} onDoubleClick={() => openSource(id)} className="group"
                    level={level} folder={item.isFolder()} expanded={item.isExpanded()} selected={item.isSelected()}>
-            <span className="relative inline-flex"><RunningDot id={id} /><VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} /></span>
+            <VersionLine node={node} targets={widget.targets} dim={node.role === "masked"} />
             {count > 0 && <span className="ml-1 text-fg-faint">{count}</span>}
             <span className="row-end sticky right-0 ml-auto pr-1 pl-2"><PaperButton id={id} /></span>
           </TreeRow>

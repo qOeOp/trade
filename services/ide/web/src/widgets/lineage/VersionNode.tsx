@@ -9,7 +9,7 @@ import { useIsSelected } from "../../state/selection";
 import { Tip } from "../../components/Tip";
 import { VersionLine } from "../../components/VersionLine";
 import { VersionMenu } from "../../components/VersionMenu";
-import { PaperButton, RunningDot } from "../../components/PaperButton";
+import { PaperButton } from "../../components/PaperButton";
 import { MARK_CENTRE } from "./geometry";
 
 export type VersionData = LineageNode & { targets: Targets | null };
@@ -33,7 +33,7 @@ function NodeTip({ data }: { data: VersionData }) {
 }
 
 /** A version on the canvas: its VersionLine, selectable, faded when it lost eligibility; with a paper
- *  daemon, ▶ (or ■ while it runs on paper) after its name on hover and a green dot on a running one. */
+ *  daemon, ▶ (or ■ while it runs on paper) after its name on hover. */
 export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<VersionData>>) {
   const selected = useIsSelected(data.id);
   const masked = data.role === "masked";
@@ -42,7 +42,6 @@ export const VersionNode = memo(function VersionNode({ data }: NodeProps<Node<Ve
     <VersionMenu id={data.id}>
       <div {...hoverProps(data.id)} data-selected={selected ? "" : undefined}
            className="group relative flex items-center gap-1 rounded-control px-1 py-0.5 transition-colors">
-        <RunningDot id={data.id} />
         <Handle type="target" position={Position.Left} className="!opacity-0" />
         <Tip content={<NodeTip data={data} />} side="bottom">
           <span className="inline-flex"><VersionLine node={data} targets={data.targets} dim={masked} /></span>
