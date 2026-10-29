@@ -11,8 +11,9 @@ on:
 permissions:
   contents: read
 
+# One group per pull request: a newer event cancels the older run.
 concurrency:
-  group: pr-title-${{ github.event.pull_request.number }}
+  group: pr-title-validate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
