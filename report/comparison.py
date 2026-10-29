@@ -263,18 +263,25 @@ def single(returns: Sequence, design: dict, family_size: int = 1) -> dict:
             "limitations": limitations}
 
 
-def holm(p_values: Sequence[float]) -> list[float]:
-    """Holm's step-down adjusted p values in the original order: sorted ascending, the k-th smallest
-    times (m - k + 1), made monotone by a running maximum and cut at 1."""
+def holm(p_values: Sequence[float], family_size: int | None = None) -> list[float]:
+    """Holm's step-down adjusted p values in the original order over a registered family of
+    family_size tests (default: the number of p values): sorted ascending, the k-th smallest times
+    (m - k + 1), made monotone by a running maximum and cut at 1. Family members without a p are not
+    in the list; they count in m as larger than every observed p, so the observed values are
+    corrected with the full m."""
     values = list(p_values)
     if not values or any(not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value)
                          or not 0 <= value <= 1 for value in values):
         raise refuse("COMPARISON_UNAVAILABLE", "Holm's correction needs a nonempty list of p values in [0, 1]",
                      missing=("p_values",))
+    m = len(values) if family_size is None else family_size
+    if not isinstance(m, int) or isinstance(m, bool) or m < len(values):
+        raise refuse("COMPARISON_UNAVAILABLE", f"Holm's family size must be an integer of at least the {len(values)} "
+                                               "observed p values", missing=("family_size",))
     order = sorted(range(len(values)), key=lambda index: values[index])
     adjusted, running = [0.0] * len(values), 0.0
     for rank, index in enumerate(order):
-        running = max(running, min(1.0, values[index] * (len(values) - rank)))
+        running = max(running, min(1.0, values[index] * (m - rank)))
         adjusted[index] = running
     return adjusted
 
@@ -616,11 +623,19 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                             "trial_id": (member_run or {}).get("trial_id"),
                             "p_one_sided": None if tested is None else tested["p_one_sided"], "p_holm": None})
         with_p = [member for member in members if member["p_one_sided"] is not None]
-        if with_p:
-            for member, adjusted in zip(with_p, holm([member["p_one_sided"] for member in with_p]), strict=True):
+        missing_p = [member["registration_id"] for member in members if member["p_one_sided"] is None]
+        if with_p:  # m is the registered family; a member without a p counts as larger than every observed one
+            corrected = holm([member["p_one_sided"] for member in with_p], family_size)
+            for member, adjusted in zip(with_p, corrected, strict=True):
                 member["p_holm"] = adjusted
+        if missing_p:
+            limitations.append(f"FAMILY_PROVISIONAL: {len(missing_p)} of {family_size} registered members have no p "
+                               f"yet (registrations {', '.join(str(item) for item in missing_p)}); Holm corrects the "
+                               f"observed p over all {family_size} with each missing p counted as larger than every "
+                               "observed p")
         output["family"] = {"window_start": row["window_start"], "window_end": row["window_end"],
-                            "universe_rule": row["universe_rule"], "size": family_size, "members": members,
+                            "universe_rule": row["universe_rule"], "size": family_size,
+                            "provisional": bool(missing_p), "missing_p": missing_p, "members": members,
                             "interval_coverage": 1 - design["alpha"] / family_size}
         output["same_candidate_registrations"] = [
             {"registration_id": item["registration_id"], "window_start": item["window_start"],

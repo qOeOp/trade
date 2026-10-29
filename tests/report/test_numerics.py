@@ -115,9 +115,16 @@ class SingleAndHolmTests(unittest.TestCase):
         self.assertEqual(comparison.holm([0.01, 0.04, 0.03]), [0.03, 0.06, 0.06])
         self.assertEqual(comparison.holm([0.6, 0.2]), [0.6, 0.4])
         self.assertEqual(comparison.holm([0.9, 0.8]), [1.0, 1.0])
+        # a registered family larger than the observed p values: each missing p counts as larger than every observed one
+        self.assertEqual(comparison.holm([0.02], 3), [0.06])
+        self.assertEqual(comparison.holm([0.04, 0.01], 4), [0.12, 0.04])
+        self.assertEqual(comparison.holm([0.6, 0.2], 2), comparison.holm([0.6, 0.2]))
         for bad in ([], [1.2], [-0.1], [float("nan")]):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(comparison.holm, bad), "COMPARISON_UNAVAILABLE")
+        for family_size in (1, 2.0, True):
+            with self.subTest(family_size=family_size):
+                self.assertEqual(refused(comparison.holm, [0.1, 0.2], family_size), "COMPARISON_UNAVAILABLE")
 
 
 class RegressionTests(unittest.TestCase):
