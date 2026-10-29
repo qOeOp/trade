@@ -1,4 +1,5 @@
 import type { TextGenerationPipeline } from "@huggingface/transformers";
+import { pruneTranslationCache, TRANSLATION_MODEL } from "./translationCache";
 
 export type TranslationResult = { texts: string[]; elapsedMs: number };
 export type TranslationRequest = { kind: "translate"; id: number; texts: string[] } | { kind: "cancel"; id: number };
@@ -52,11 +53,12 @@ async function translate({ id, texts }: Extract<TranslationRequest, { kind: "tra
       send({ id, kind: "status", message: "正在准备 TranslateGemma 4B，首次需下载约 3.1 GB 模型…" });
       const { env, pipeline }: typeof import("@huggingface/transformers") = await import(/* @vite-ignore */ RUNTIME);
       env.allowLocalModels = false;
+      await pruneTranslationCache(env.cacheKey);
       const loaded = new Map<string, number>();
       let lastProgress = 0;
-      translator = await pipeline("text-generation", "onnx-community/translategemma-text-4b-it-ONNX", {
-        revision: "f7874a1ac60758872a4f78aac0df95b17b776994",
-        device: "webgpu", dtype: "q4",
+      translator = await pipeline("text-generation", TRANSLATION_MODEL.id, {
+        revision: TRANSLATION_MODEL.revision,
+        device: "webgpu", dtype: TRANSLATION_MODEL.dtype,
         progress_callback: (p) => {
           if (p.status === "progress") {
             loaded.set(p.file, p.loaded);

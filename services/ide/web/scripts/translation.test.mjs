@@ -76,7 +76,7 @@ test("a worker failure rejects all waiting groups and permits a fresh retry", as
 });
 
 test("long prose chunks preserve word order and numeric identifiers within the input budget", () => {
-  const context = { exports: {}, self: {}, Intl };
+  const context = { exports: {}, self: {}, Intl, require: () => ({}) };
   runInNewContext(source("../src/lib/translation.worker.ts"), context);
   const tokenizer = { encode: (text) => text.trim().split(/\s+/) };
   const text = Array.from({ length: 120 }, (_, i) => `Keep EMA10/20 and 40000 USDT in sentence ${i}.`).join(" ");

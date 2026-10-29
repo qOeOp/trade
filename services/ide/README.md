@@ -257,7 +257,12 @@ term meanings in the translation instruction (for example, long means 多头 and
 It loads Transformers.js 4.3.2 from jsDelivr only on click; the pinned
 `onnx-community/translategemma-text-4b-it-ONNX` q4 model
 downloads about 3.1 GB from Hugging Face and runs in an inline Web Worker with WebGPU. Model files
-use the library's browser cache. No text is sent to a translation service or written to the ledger.
+use the library's browser cache. Before loading, the worker automatically removes cached Opus-MT
+trial downloads and obsolete TranslateGemma revisions/weight variants, keeping the pinned q4
+weights and metadata. It leaves unrelated model/runtime files and other caches alone; storage
+access failures do not block translation. This applies only to the current browser origin:
+old preview ports, other hostnames and other browser profiles require their own cache cleanup.
+No text is sent to a translation service or written to the ledger.
 Results show inference time excluding model preparation. Original text stays visible for quality
 comparison; failed requests can be retried, and source changes discard stale responses. Long prose
 is chunked on word boundaries and translated paragraph by paragraph to retain its structure.
