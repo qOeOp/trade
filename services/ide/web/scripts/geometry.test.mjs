@@ -65,6 +65,16 @@ test("an unrun version drawn at its precheck still defines the visible left edge
   assert.equal(212 * UNIT + home(widget).x, 16);
 });
 
+test("focus and Home reserve the shared value-axis gutter even in a narrow canvas", () => {
+  const widget = line(239), inset = 96;
+  for (const width of [160, 410, 696, 2200]) {
+    const at = centredOn(widget, positions(widget).get("root@1"), width, 800, inset);
+    assert.equal(at.x, home(widget, inset).x);
+    assert.equal(239 * UNIT + at.x, inset);
+    assert.ok(239 * UNIT + at.x - 12 >= 80, "the first return bar clears the value-axis gutter");
+  }
+});
+
 test("empty and unplaced graphs have finite bounds and home coordinates", () => {
   for (const nodes of [[], [{ id: "unrun@1", x: null, row: 0 }]]) {
     const widget = { axis: { min: 211, max: 212 }, trials: [{ trial_id: 212 }], nodes, rows: [] };
