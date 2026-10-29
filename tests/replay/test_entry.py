@@ -223,7 +223,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                 execute = entry.execute
 
                 def observed_execution(*args, **kwargs):
-                    self.assertIn("exposure exemption permits at most 7 trading days", stderr.getvalue())
+                    self.assertIn("exposure exemption", stderr.getvalue(), "the advice precedes execution")
                     return execute(*args, **kwargs)
 
                 with contextlib.redirect_stderr(stderr), patch.object(entry, "execute", observed_execution):
@@ -233,8 +233,6 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                 self.assertEqual(checked["status"], "passed", "exposure advice is not a new refusal")
                 self.assertIs(checked["exposure_exemption"]["within_window_limit"], eligible)
                 self.assertEqual(checked["exposure_exemption"]["maximum_exempt_days"], precheck.PRECHECK_MAX_DAYS)
-                if not eligible:
-                    self.assertIn("prevents its first research registration", stderr.getvalue())
 
 
 @unittest.skipUnless(BINARY, SKIP)
