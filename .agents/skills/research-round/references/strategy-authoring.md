@@ -182,7 +182,7 @@ uv run --frozen python -m cli.main candidate publish --file /tmp/RUNDIR/strategy
 
 It returns `ID@N`, which `replay precheck`, the registration grid and `replay run` take. Any later
 source change is a new candidate. A draft can be tried before publishing with `replay explore`; it
-is never evidence. In the precheck, confirm every filled entry has the protection its source gives it, every order carries one
-plan tag and plans on one instrument do not overlap, no order precedes trade start, none was denied
-or rejected, and fills, fees, funding and account rows appear in the native reports. Never run the
-replay with `docker run` or `python -m engine...` directly.
+is never evidence. In the precheck, confirm every filled entry has the protection its source gives
+it, every order carries one plan tag and plans on one instrument do not overlap, no order precedes
+trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the
+native reports. Never run the replay with `docker run` or `python -m engine...` directly.
