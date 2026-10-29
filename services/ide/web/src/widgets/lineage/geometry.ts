@@ -11,16 +11,22 @@ export const MARK_CENTRE = 11;
 /** Room a version's line takes right of its mark: mark, badge and prediction slot, then the name. */
 const lineWidth = (id: string) => 160 + id.length * 7.5;
 
-/** The canvas's content in canvas pixels: from trial 0's cell and the first row's stripe to the last
+/** The canvas's content in canvas pixels: from this line's first trial cell and first row to the last
  *  row's stripe, and right to the end of the last trial or of the longest-reaching version's name.
  *  Nothing is drawn or panned beyond it, so the canvas never opens on empty trials past the content. */
 export function bounds(widget: LineageWidget) {
-  const names = widget.nodes.map((n) => (n.x == null ? 0 : n.x * UNIT + lineWidth(n.id)));
-  return { left: -UNIT / 2, top: -ROW / 2, right: Math.max((widget.axis.max + 0.5) * UNIT, ...names) + UNIT, bottom: (widget.rows.length - 0.5) * ROW };
+  const trials = widget.trials.map((t) => t.trial_id);
+  const first = Math.max(0, Math.min(widget.axis.min, ...trials));
+  const last = Math.max(widget.axis.max, ...trials);
+  const names = widget.nodes.flatMap((n) => n.x == null ? [] : [n.x * UNIT + lineWidth(n.id)]);
+  return { left: (first - 0.5) * UNIT, top: -ROW / 2, right: Math.max((last + 0.5) * UNIT, ...names) + UNIT, bottom: (widget.rows.length - 0.5) * ROW };
 }
 
 /** The pan that puts the content's top-left corner at the canvas's. */
-export const HOME = { x: UNIT / 2, y: ROW / 2 };
+export function home(widget: LineageWidget) {
+  const { left, top } = bounds(widget);
+  return { x: -left, y: -top };
+}
 
 /** The pan that centres a version's mark and the name to its right in a canvas of `width` × `height`,
  *  clamped so nothing beyond the content shows: content smaller than the canvas stays at its top-left. */

@@ -18,7 +18,7 @@ from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
-from registration import register
+from registration import precheck, register
 from report import candidates as report_candidates
 from report import comparison, measures, runs, seams, status
 
@@ -244,7 +244,9 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
                       if isinstance(rec.get(name), Mapping) and rec[name].get("status") == "failed"]
             reviews.append({"bundle": item["bundle"], "verdict": rec["verdict"], "failed_items": failed,
                             "at": _iso(bundle_times.get(item["bundle"])),
-                            "note": " ".join(rec[name].get("note") or "" for name in failed).strip() or None})
+                            "note": "\n\n".join(
+                                f"{'API' if name == 'api' else name.title()} ({rec[name]['status']})\n{rec[name]['note']}"
+                                for name in precheck.ITEMS if isinstance(rec.get(name), Mapping)) or None})
             if rec["verdict"] == "failed":
                 masked = [t["trial_id"] for t in research]
                 events.append({"at": _iso(bundle_times.get(item["bundle"])), "kind": "eligibility_change", "ref": item["bundle"],
