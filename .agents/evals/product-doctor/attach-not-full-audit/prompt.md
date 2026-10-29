@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, an attach session asked to close its live watching as the full audit declines, gives the full-audit steps for a fresh session on the other host with the raw evidence directory and without its own notes or findings, enters live findings only as open index items, and closes no earlier item.
+description: Rule check — with the skill, an attach session asked to close its attach as the full audit declines, gives the full-audit steps for a fresh session on the other host with the raw evidence directory and without its own notes or findings, writes no record, and closes no earlier item.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
