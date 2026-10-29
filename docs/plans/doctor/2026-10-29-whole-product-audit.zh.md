@@ -7,12 +7,12 @@
 | Sessions | Codex 研究会话（宿主与审计不同）：`01a1856b`（worktree 9a19，多年 EMA 线，2026-10-29 02:09Z–04:22Z，仍活跃）、`01a1856e`（worktree f5ec，15m 通道突破，02:13Z–02:36Z，用户暂停）及其 4 个子代理；`01a18287`（dfc4，报价回补与 #1848/#1854 工程）与 `01a18534`（133f，aggTrades 问答）只扫错误与用量。转录在 `~/.codex/sessions/2026/10/{28,29}/`，时间线在审计 scratchpad |
 | Audit session | Claude Code desktop，claude-fable-5-1，会话 `e9b8ddd1-51cd-4cd0-b462-27e6d3eb6b0f`，主检出（无 worktree；本会话未写任何修复 PR）。4 个 fresh 只读镜头子代理（行为与决策、数据与使用成本、产品契约与交付、doctor 自审）+ 14 个 fresh 只读反驳者（8 组、6 个单项双视角），同一模型。Workflow 工具因权限钩子超时两次不可用，改用并行子代理 |
 | Checkout / ledger | 审计起点 main `89faf6f19`（12:57 JST）；审计期间 main 走到 `773ac59b4`（#1851–#1860，含 #1855 多开放线、#1856、#1860），全部复核在 `773ac59b4` 上做。账本 `vfv7n8ca`→`jejccmd6`（10-29 00:27 JST 起 53 次提交，trial 215–224）；市场库 `31qcflga`→`0eum7o69`（报价逐月导入仍在跑） |
-| Coverage | 三条 lenses 工作流各一个子代理：**行为与决策**读完两场研究会话全部调用（225+62 次）与 4 个子代理；**数据与成本**做了账本保真测试（钉 `vfv7n8ca`）、表与 blob 体积、市场库各副本、Docker、工作树与分支、CI 时长、4 场会话 token；**产品契约**跑 ruff/mypy、52 条命令 `--help`、262 个拒绝码普查、7 个 skill 与 155 个评测、2 份 Dockerfile 与 compose、6 个 workflow、设计站与 README 比对、71 份 docs/plans 分类、3 次免 key 文献检索。第 4 个子代理只审 product-doctor（skill、33 份记录、index 历史、评测、21 个修复 PR）。**缺口**：`services/ide/web`（175 个 TS 文件）与 `services/ide/agent` 未读；haproxy 白名单未在运行时核对；市场库无只读 SQL 口，结构读数经 DoltHub API；研究方法文献只核了 DSR/Lo/Newey–West，预注册、金融多重检验、块长选择、Reality Check 未检索；dfc4 会话 02:26–03:55Z 的导入正文未读；10-28 12:32–12:55 JST 的 7 次账本提交来源会话不在读过的转录中 |
+| Coverage | 三条 lenses 工作流各一个子代理：**行为与决策**读完两场研究会话全部调用（225+62 次）与 4 个子代理；**数据与成本**做了账本保真测试（钉 `vfv7n8ca`）、表与 blob 体积、市场库各副本、Docker、工作树与分支、CI 时长、4 场会话 token；**产品契约**跑 ruff/mypy、52 条命令 `--help`、262 个拒绝码普查、7 个 skill 与 155 个评测、2 份 Dockerfile 与 compose、6 个 workflow、设计站与 README 比对、71 份 docs/plans 分类、3 次免 key 文献检索。第 4 个子代理只审 product-doctor（skill、33 份记录、index 历史、评测、21 个修复 PR）。**缺口**：`services/ide/web`（175 个 TS 文件）与 `services/ide/agent` 未读；haproxy 白名单未在运行时核对；市场库无只读 SQL 口，结构读数经 DoltHub API；研究方法文献只核了 DSR/Lo/Newey–West，预注册、金融多重检验、块长选择、Reality Check 未检索；设计站只比了命令、选项、拒绝码与路径，没有逐章比方法陈述和接口快照（Codex 并行审计补上，见「交叉复核」）；dfc4 会话 02:26–03:55Z 的导入正文未读；10-28 12:32–12:55 JST 的 7 次账本提交来源会话不在读过的转录中 |
 | Time split | **研究会话 9a19**（126 min）：研究本体 26.6 min（21%）、产品缺陷导致 78.2 min（62%：停滞 7.7、诊断 12.8、修 PR 57.7）、等用户 21.3 min（17%，其中等合并批准 17.1）；输入 58.3 M token（98.8% 缓存），54% 落在两次修产品窗口。**f5ec**：23.3 min、11.1 M token，被用户暂停（当时只许一条开放线，#1855 已修）。**dfc4**：16 h、53.7 M token，其中 21 轮 heartbeat 轮询 7.55 M（Agent 自建多月导入运行器，按 AGENTS.md 属 Agent 工作）。**审计自身**：镜头 12:58–13:55 JST（4 个子代理 22–56 min），复核 14:25–15:03（14 个子代理 20–34 min）；子代理 token 3.78 M（镜头 1.55 M、复核 2.23 M）；主会话 token 宿主未显示 |
 | Invalid trials caused by the product | 1 次登记被杀：9a19 02:25Z `registration add` 12.5 min 只在写 886 MB 不被消费的报价 parquet（20261029-07，#1849 当日修），账本无痕；1 次 6 年回放被遮罩：trial 218 全部绩效因零成交预检 214 的 activity 失败评审被 `research status` 屏蔽 28.7 min + 等合并 11.5 min（20261029-01 第三消费者复发，#1856 当日修，同会话重读后可见）；f5ec 的 2 个候选、2 次预检、2 份评审留在账本无线归属（合法记录，#1855 后可被新线复用） |
-| Findings by action | fix 4（-22 需授权、-24、-27、-28）/ remove 3（-25、-26、-29）/ skill 4（-23、-31、-32、-33 其中 -33 的告警部分待用户）/ authority 2（-22、-34）/ eval 1（-30）/ measure 0 / none 14（见「不动」表） |
+| Findings by action | 本审计：fix 4（-22 需授权、-24、-27、-28）/ remove 3（-25、-26、-29）/ skill 4（-23、-31、-32、-33 其中 -33 的告警部分待用户）/ authority 2（-22、-34）/ eval 1（-30）/ measure 0 / none 14（见「不动」表）。交叉复核并入的 Codex 独有项：authority 1（-101）/ fix 4（-102 组 10 处、-108、-109/-117、-112/-115）/ measure 1（-118/-119/-120）/ none 1（-116） |
 | Recurred items | 20261029-06（×2，整读 recommendation 截断）；20261025-12（变体：远端已是本地后代仍报 PUBLISH_FAILED，→ -22）；20261025-06（变体：提问后两轮自动续跑再 blocked，原因改为提问前未暂停）；20261029-01（起线与暴露两处 verified，第三消费者 `qualification/availability.py` 复发，#1856 修后同会话重读 verified） |
-| Found by the user first | 1：doctor 自身不收敛（索引不可读、审计自身成本从不记录、同一镜头五次漏同类检查）由用户本次点名；应发现的镜头：产品契约（对 skill 自身的审查）。另 20261029-03 同源，已记 |
+| Found by the user first | 1（另：同日并行的 Codex 文档审计先于本审计发现 18 项，见「交叉复核」；镜头缺口是产品契约未逐章比语义、未读 `services/ide`）：doctor 自身不收敛（索引不可读、审计自身成本从不记录、同一镜头五次漏同类检查）由用户本次点名；应发现的镜头：产品契约（对 skill 自身的审查）。另 20261029-03 同源，已记 |
 | Net change | **代码**：−2 条死拒绝目录项、−4 行死路径过滤、−~100 行 pr-title 状态仪式与 1 个写权限、−~480 行无对象的 mermaid 检查器、−1 个测试文件（17 行）与 7 行只钉措辞的断言；+~6 行 workflow 并发/耗时配置、+1 个 mypy 路径项与 1 行注解；发布后头核对由「相等」重述为「包含」（0 新分支，+1 测试；需授权）。**skill**：research-start/round 两句重述（约 +15 词）；product-doctor 记录头 10→6 行、index 状态格一词一链接、漏报表并为来源列、步骤 3/4 两句重述（估 −150 词）；attach.md 若用户同意去掉「看与报警」再 −~300 词。**评测**：doctor −1（prune-before-add 为子集）+1（用户先发现的漏报）；research-start 1 个 grader 问题收窄。**文档**：+8 条命令说明、−4 个伪拒绝码、+1 句 arm64 前提、3 行 README、7 处 plans 命令名、1 个状态头。**与上一份记录（整合评审）比**：skill 词从约 24,700 预计到约 24,300。**增长之处与理由**：步骤 3 的一句（+20 词）因同一事实的第三个消费者复发（20261029-01）与姊妹路径复发（20261027-09）跨会话出现；研究 skill 两句（+15 词）因同日两场会话在无规则处分叉 |
 
 ## Findings
@@ -56,6 +56,26 @@
 | 宿主子代理「model at capacity」×2、Goal 续跑阈值 | 宿主 |
 | doctor 自审提议 P2（隔离复现即关项、删 `unobserved`）、P5（删保真专职子代理与评测）、P6（写过修复 PR 的会话不得审该项）、P7（一场会话一份记录、研究会话不自审） | P2 见 -31；P5：唯一一次会话写了账本的保真测试（v7，68 次提交）找到 20261025-26（→#1742），fidelity.md 要求抽取者不读账本，数据镜头按分工读账本，独立子代理有独特保护，步骤 2 已写「when the audit needs one」；P6：两场审计与 #1749 修复确属同一 worktree 下的不同会话（`6522a5ed` 写 PR、`29118464` 审计，合并后开始），无实例；P7：与「研究会话内聚焦诊断不受影响」（用户批的文字）和「记录不可改」相抵，#1849 的自诊自修 AGENTS.md 末条已禁 |
 
+## 交叉复核（Codex 线程 01a1863b，同日并行的逐章文档审计）
+
+用户要求与 Codex ultracode 同日的一轮审计交叉比对。Codex 的题目是「逐章扫描文档与实现不一致、描述不清、产品形态需优化之处」：主代理加 3 个继承上下文的审阅子代理、1 个汇总、1 个校验子代理，25 min，约 40.9 M token（97.5% 缓存；它自己的记录没写成本，数字取自转录）；检出同为 `773ac59b4`；交付 47 对页面评分矩阵、24 项 issue list 与报告，三份已复制进本 PR（链接改为相对路径，内容未改）：[审计](2026-10-29-doc-product-audit.zh.md)、[issue list](2026-10-29-doc-product-issues.zh.md)、[评分矩阵](2026-10-29-doc-product-score-matrix.zh.md)。一个 fresh 子代理把 24 项与本记录比差集，并在 main `773ac59b4` 上重新取证。
+
+**Codex 独有 18 项，18 项成立、0 项被证伪、0 项 main 已修**；其中 -101 由我本人另核过（代码与两页原文一致如 Codex 所述）。按处置：
+
+| Codex id | 发现 | main 上的核对 | 动作 | 授权 |
+|---|---|---|---|---|
+| 101 | Holm 校正族随可用 p 缩小 | `comparison.py:618-621,624`；`validation.zh.mdx:233`；`design-code-report.zh.mdx:432`；`validation_registration` 0 行（代价潜伏） | authority：重述验证章与代码一致，或代码按全族并补部分缺 p 测试 | 需（改样本外 p 的读数） |
+| 102、103、104、105、106、107、110、111、113、121 | 设计站 10 处文字与实现不符 | 各处 file:line 见 issue list 与差集报告；全部为文字对实现的漂移，代价 0 | fix（重述或删承诺） | 无 |
+| 108 | 代码设计页接口快照成组漂移 | 7 组签名逐对核实全漂；2 处截断伪签名；cli 页缺 2 条目 | fix（按源码改；一次性 AST 比对作评审输入） | 无 |
+| 109、117 | 设计站缺 `agg_trade` 表与 `import-trades`；平台页缺 4 服务拓扑与 Paper/Agent；研究图页轮询描述反 | grep 0 处；`serve.py:236-240` | fix（文档窄增） | 无 |
+| 112、115 | 复现合同漏宿主导出器依赖；推算报价「等于」应为「推断」 | `reproduce.py:74-77`、`Dockerfile:8`；`README.md:104` | fix（各一句） | 无 |
+| 116 | 英文页 32/46 待译 | 事实成立 | none：用户 10-17 定「英文占位」 | — |
+| 118、119、120 | IDE 内嵌 Agent 的上下文、裁剪与探针 | 静态成立；代价未知（本审计未读 `services/ide`） | measure / none | 无 |
+
+**分歧**：没有事实层面的对立。三处是本记录提交时索引落后 main：20261029-05 的 help 半项已在 main（`cli/main.py:1328,1715`）只剩设计页；20261029-16 的 `market coverage` interpretation 已在 main（`c964a009f`）；-24 的范围窄于 108/117（只比了 cli 页）。索引已按此更正。Codex 全漏的是本记录的 -22 到 -34：它不看研究会话、CI 历史、测试、Docker、工作树与 doctor 自身，题目所致；但 -22 与 -23 所在的 `ledger/publish.py` 与 `research-start/SKILL.md` Codex 也读过而静态没看出，说明行为证据镜头不可替代。
+
+**对 doctor 的启示**（并入 -31/-32 的实施，不加规则）：并行审计各自编号（Codex 自造 -101…）、三份文件与自造状态词、不写索引行，是没有分配规则时的自然结果，靠索引一次收口即可；Codex 的方法里值得采纳的是接口快照的一次性 AST 比对、交付前机械校验全部 `file:line` 链接、把探针脚本当交付、复用旧 id 时分写「main 已修的部分」；不采纳 73/100 总分、模板化网络引用、每条带「限制」行的来源格式。
+
 ## Removal list
 
 | Mechanism | Risk it guards | Covered by | Sessions show | Proposal |
@@ -80,3 +100,7 @@
 2. 20261029-24 子项：README 的「创建或切换活动账本需用户授权」并入 AGENTS.md 授权清单，README 改为指针（PR #1875）。
 3. 20261029-33：attach 去掉「看与报警」，只留证据留存（PR #1873）。
 4. 20261029-34：删除 `data.before-compose`、`market-legacy-20261025`、未被引用的 runtime 镜像与悬空镜像、匿名卷、已合并 PR 的工作树；已于同日执行（见 index）。分支清单另列待用户；IDE 卷去副本与 GHCR 版本未动。
+
+待用户：
+
+5. 20261029-101（交叉复核并入）：样本外 Holm 校正按登记的全族（改代码、缺 p 保守处理、补测试），还是改验证章随代码（只校正有 p 者）。
