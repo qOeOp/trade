@@ -47,8 +47,10 @@ import search from "lucide-static/icons/search.svg?raw";
 import settings from "lucide-static/icons/settings.svg?raw";
 import table from "lucide-static/icons/table.svg?raw";
 import x from "lucide-static/icons/x.svg?raw";
+import languages from "lucide-static/icons/languages.svg?raw";
 
 export const ICONS = {
+  translate: { svg: languages },
   check: { svg: check },
   close: { svg: x },
   minus: { svg: minus },

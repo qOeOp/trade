@@ -13,6 +13,7 @@ import { Tip } from "../../components/Tip";
 import { Token } from "../../components/Token";
 import { Header } from "./Header";
 import { ReplayTable } from "./ReplayTable";
+import { TranslatedCardGroup } from "../../components/TranslatedCardGroup";
 
 const OUTCOME: Record<string, [string, string]> = {
   held: ["Held", "text-meets"], failed: ["Failed", "text-misses"], untestable: ["Untestable", "text-fg-faint"],
@@ -42,9 +43,9 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
       ]} />
       </Header>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
-      <CardGroup title="Change and hypothesis" className={SIDE}>
-      <Section title="What changed"><Prose text={c.change} /></Section>
-      <Section title="Hypothesis"><Prose text={c.hypothesis} /></Section>
+      <TranslatedCardGroup title="Change and hypothesis" sections={[
+        { title: "What changed", text: c.change }, { title: "Hypothesis", text: c.hypothesis },
+      ]} className={SIDE}>
       {!!c.predictions?.length && (
         <Section title="Predictions" aside={`${c.predictions.length}`}>
           <table className="w-full"><tbody>
@@ -65,7 +66,7 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
           </tbody></table>
         </Section>
       )}
-      </CardGroup>
+      </TranslatedCardGroup>
       <CardGroup title="Evidence" className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
       <Section title="Replays" aside={`${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
         <ReplayTable trials={c.trials ?? []} targets={targets} />
@@ -100,15 +101,14 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
         </Section>
       )}
       </CardGroup>
-      <CardGroup title="Conclusion" className="@3xl:col-start-1">
-      <Section title="Interpretation and decision"><Prose text={c.interpretation} /></Section>
+      <TranslatedCardGroup title="Conclusion" sections={[{ title: "Interpretation and decision", text: c.interpretation }]} className="@3xl:col-start-1">
       <Section title="Registration" open={false}>
         <KeyValues items={[
           ["Registration", c.registration ? <Token value={c.registration} /> : null],
           ["Duties", (c.duties ?? []).join(" ") || null],
         ]} />
       </Section>
-      </CardGroup>
+      </TranslatedCardGroup>
       </div>
     </div>
   );
