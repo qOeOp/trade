@@ -33,11 +33,3 @@ export function PaperButton({ id }: { id: string }) {
   );
 }
 
-/** The 6px green dot on a running version's mark, hidden while ■ shows (its `group` hovered). */
-export function RunningDot({ id }: { id: string }) {
-  const listing = usePaperRuns();
-  const run = activeRun(listing, id);
-  if (!run) return null;
-  const tone = run.state === "running" ? "bg-meets" : run.state === "stopping" ? "bg-misses" : "bg-fail";
-  return <span aria-label="Running on paper" className={`pointer-events-none absolute -top-0.5 left-3 size-1.5 rounded-full ring-2 ring-island group-hover:hidden ${tone}`} />;
-}

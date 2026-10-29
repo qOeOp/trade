@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { Waiting } from "./components/Waiting";
 import { follow } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
@@ -19,7 +20,7 @@ function show(view: View): void {
   root.render(<StrictMode><App view={view} /></StrictMode>);
 }
 
-const status = (text: string) => root.render(<p style={{ padding: 24 }}>{text}</p>);
+const status = (text: string, busy = false) => root.render(<Waiting text={text} busy={busy} />);
 
 try {
   const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View | null;

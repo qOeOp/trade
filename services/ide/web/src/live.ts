@@ -14,9 +14,10 @@ const WAITING: Record<string, string> = {
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 
-/** Calls `show` with every new view and `status` with a line to show while there is none yet; once
- *  one is shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
-export function follow(show: (view: View) => void, status: (text: string) => void): void {
+/** Calls `show` with every new view and `status` with a line to show while there is none yet (`busy`
+ *  while one is on its way, not when it failed); once one is shown, the way to a newer one (or a failed
+ *  refresh) goes to the `update` atom instead. */
+export function follow(show: (view: View) => void, status: (text: string, busy?: boolean) => void): void {
   const query = window.location.search;
   let shown: string | null = null;
   let latest: State | null = null;  // the last event, applied again once a view is shown
@@ -35,7 +36,8 @@ export function follow(show: (view: View) => void, status: (text: string) => voi
         if (latest) window.setTimeout(apply, 0, latest);  // after `loading` is cleared
         else update.set(null);
       } else if (shown === null) {
-        status(response.status === 202 ? waiting((body as State).state) : failed(body as Failure));
+        if (response.status === 202) status(waiting((body as State).state), true);
+        else status(failed(body as Failure));
       }
     } catch (error) {
       if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
@@ -56,7 +58,7 @@ export function follow(show: (view: View) => void, status: (text: string) => voi
       update.set(null);
       status(failed(message.error));
     }
-    else if (shown === null) status(waiting(message.state));
+    else if (shown === null) status(waiting(message.state), true);
     else if (message.state === "error") update.set({ stage: "failed", commit, shown, error: message.error });
     else if (message.state !== "fetching") update.set({ stage: message.state, commit, shown });
   }
