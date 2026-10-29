@@ -39,6 +39,10 @@ class FakeProduct:
             raise serve.ProductError({"code": "UNKNOWN_REF", "message": ref})
         return self.refs[ref]
 
+    def lines(self, commit):
+        return {"ledger_commit": commit, "lines": [{"bundle": "historical", "closed": True},
+                                                   {"bundle": "current", "closed": False}]}
+
     def graph(self, commit, line, since):
         if self.release is not None:
             self.release.wait(5)
@@ -207,6 +211,17 @@ class HttpTests(unittest.TestCase):
         self.assertNotIn("Access-Control-Allow-Origin", response.headers)
         self.assertIn(response.status, (200, 202))
         self.assertEqual(self.get("/api/view?since=nowhere").status, 400)
+
+    def test_the_line_index_includes_closed_lines_and_honors_the_snapshot(self):
+        self.hub.product.refs["before"] = "b" * 32
+        response = self.get("/api/lines?at=before")
+        self.assertEqual(response.status, 200)
+        body = json.loads(response.read())
+        self.assertEqual(body["ledger_commit"], "b" * 32)
+        self.assertEqual([item["closed"] for item in body["lines"]], [True, False])
+        self.assertEqual(self.get("/api/lines?at=missing").status, 400)
+        self.assertEqual(self.get("/api/lines", Host="elsewhere:1").status, 403)
+        self.assertEqual(self.get("/api/lines", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
 
     def test_the_events_start_with_the_current_state(self):
         response = self.get("/api/events")

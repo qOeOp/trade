@@ -110,6 +110,18 @@ def open_line(conn: db.LedgerConnection, bundle: str | None = None, at: str | No
     return read_line(conn, bundle, at)
 
 
+def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
+    """All line declarations and their open/closed state at one pinned ledger commit; no market read."""
+    with db.read_as_of(profile, at) as conn:
+        opened = set(open_lines(conn))
+        fields = ("bundle", "start", "window_start", "window_end", "market_commit", "created_at")
+        items = []
+        for bundle in line_bundles(conn):
+            record = read_line(conn, bundle, None)
+            items.append({**{key: record[key] for key in fields}, "closed": bundle not in opened})
+        return {"ledger_commit": db.head_commit(conn), "lines": items}
+
+
 def _keyed(conn: db.LedgerConnection, at: str | None) -> list[tuple]:
     """(created_at, bundle, market commit, window start, window end) of every line, oldest first; the
     window as the midnights a trial row holds."""
