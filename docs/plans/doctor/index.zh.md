@@ -8,6 +8,7 @@
 
 | id | 发现 | 动作 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|
+| 20261029-26 | 并发写入时只为最新 head 报图完成，旧 head 已完成仍使新页面反复排队，切线等待（[聚焦诊断](2026-10-29-ide-completed-graph.zh.md)） | fix（先显示同线同范围最近完成图，后台更新；保留队列顺序） | open；用户已授权修复 | 2026-10-29 | 2026-10-29 |
 | 20261029-24 | IDE 当前线菜单没有全部历史/当前线入口，拖动单线图也无法回到旧 EMA 线（[聚焦诊断](2026-10-29-ide-line-navigation.zh.md)） | fix（只读列表与导航，不加存储字段） | in PR [#1879](https://github.com/qOeOp/trade/pull/1879)；662 项完整测试、最终 22 项定向测试及浏览器验收通过；未合并 | 2026-10-29 | 2026-10-29 |
 | 20261029-07 | bars 登记与回放无条件导出未消费报价，多年窗口停在输入准备（[聚焦诊断](2026-10-29-bars-unused-quote-export.zh.md)） | fix（按既有执行方式准备消费事件；历史复现从原凭证派生报价需求；保留指纹、可比性与审计，不加字段） | in PR [#1849](https://github.com/qOeOp/trade/pull/1849)；638 项测试无跳过、BTC/ETH 隔离原生配对通过，见[实施验收](../2026-10-29-bars-execution-inputs-validation.zh.md)；未合并 | 2026-10-29 | 2026-10-29 |
 | 20261029-01 | 收到行情但零成交的短预检仍算源码已运行，其 activity 失败评审又永远挡住起线；trial 214（网格缺陷 20261028-13）使 `ema-entrynotional-rollingref@1` 既不能登记也不能起线（`registration/register.py:452-490`、`ledger/lines.py:130-134`；[零成交预检诊断](2026-10-29-codex-01a18327-zero-fill-precheck.zh.md)） | fix + authority（零成交零持仓的短预检不算暴露；只在 activity 失败、零成交的旧评审，在同源码更晚的有成交预检评审通过后不再挡起线；不加字段） | recurred（经济资格消费者）：起线/暴露修复 e6ce61c8f 保留；trial 218 仍被旧 activity-only 失败复核屏蔽，见[资格读取诊断](2026-10-29-zero-fill-review-qualification.zh.md)；用户已明确授权按原三个条件修复；共用判断与 economic_evidence_v2 已实现，待 PR 合并批准，见[实现验证](../2026-10-29-zero-fill-review-qualification-validation.zh.md)，暂不合并 | 2026-10-29 | 2026-10-29 |

@@ -5,8 +5,10 @@ The page is the web renderer's built page without a view: it reads `/api/view` a
 sql` for a head and `research graph` for a graph, so this module imports no product package. While
 a page without `at` is open the head is read every `poll` seconds, after an optional pull command
 that fast-forwards a read-only copy; when it moves, each open page's graph is fetched once at the new
-head, the latest only. One fetch runs at a time. Successful views stay in memory (the last 8), keyed
-by ledger, build, commit, line and `since`; nothing is written anywhere.
+head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
+by ledger, build, commit, line and `since`, retaining a scope's newest live completion before its
+older duplicates. A named live page can show that completion while a newer head is still drawing;
+nothing is written anywhere.
 
 The pull command is called as `PULL ledger` before every head read and `PULL market` before the first
 fetch at a new head; exit status 3 means the remote's history no longer descends from the copy, and
@@ -117,6 +119,12 @@ class Client:
         return message
 
 
+@dataclass(frozen=True)
+class CompletedView:
+    view: dict
+    live: bool  # historical `at` renders must not replace a line's newest completed live graph
+
+
 class Hub:
     """Heads, fetches, cached views and the open pages' states."""
 
@@ -129,7 +137,7 @@ class Hub:
         self.fault: dict | None = None  # the last failed pull or head read; cleared by a good one
         self.rewritten: dict | None = None  # set once; pulling stops
         self.pulling: str | None = None  # the new head while the market is pulled for it
-        self.views: OrderedDict[tuple, dict] = OrderedDict()
+        self.views: OrderedDict[tuple, CompletedView] = OrderedDict()  # completion order, not access order
         self.failed: dict[tuple, dict] = {}
         self.wanted: list[tuple[tuple, bool]] = []  # (key, pinned to an `at`), oldest first
         self.running: tuple | None = None
@@ -144,7 +152,36 @@ class Hub:
         commit = client.at or self.head
         return None if commit is None else self.key(commit, client.line, client.since)
 
+    @staticmethod
+    def _scope(key: tuple) -> tuple:
+        return key[:2] + key[3:]  # ledger, build, line and since; only the commit may differ
+
+    def _available(self, key: tuple | None, live: bool) -> tuple | None:
+        if key in self.views:
+            return key
+        # An unnamed default can resolve to another line at the new head. Explicit `at` is exact.
+        if not live or key is None or key[3] is None:
+            return None
+        return next((old for old in reversed(self.views)
+                     if self.views[old].live and self._scope(old) == self._scope(key)), None)
+
+    def _remember(self, key: tuple, view: dict, pinned: bool) -> None:
+        self.views[key] = CompletedView(view, live=not pinned)
+        self.views.move_to_end(key)
+        if len(self.views) > CACHED:
+            newest = {self._scope(old): old for old, cached in self.views.items() if cached.live}
+            protected = set(newest.values())
+            victim = next((old for old in self.views if old != key and old not in protected), next(iter(self.views)))
+            del self.views[victim]
+
     def state(self, key: tuple | None, live: bool = True) -> dict:
+        message = self._progress(key, live)
+        available = self._available(key, live) if self.rewritten is None else None
+        if available is not None and available != key:
+            message["available_commit"] = available[2]
+        return message
+
+    def _progress(self, key: tuple | None, live: bool) -> dict:
         """A page's state. A live page (no `at`) is also told, over the view it holds, of the new head being
         pulled and of a failed refresh, and when its copy no longer follows the public one."""
         fault = self.rewritten or self.fault
@@ -226,7 +263,9 @@ class Hub:
                 moved, self.head, self.fault, self.pulling = head != self.head, head, None, None
                 self.checked = time.monotonic()
                 if moved:
-                    self.wanted = [(key, pinned) for key, pinned in self.wanted if pinned]
+                    pending, self.wanted = self.wanted, []
+                    for key, pinned in pending:
+                        self._want(key if pinned else self.key(head, key[3], key[4]), pinned)
                     for client in self.clients:
                         if client.at is None:
                             self._want(self.key(head, client.line, client.since), False)
@@ -254,7 +293,7 @@ class Hub:
             with self.lock:
                 while not self.wanted:
                     self.lock.wait()
-                key, _ = self.wanted.pop(0)
+                key, pinned = self.wanted.pop(0)
                 self.running = key
                 self._notify()
             view = failure = None
@@ -267,10 +306,7 @@ class Hub:
             with self.lock:
                 self.running = None
                 if view is not None:
-                    self.views[key] = view
-                    self.views.move_to_end(key)
-                    while len(self.views) > CACHED:
-                        self.views.popitem(last=False)
+                    self._remember(key, view, pinned)
                 else:
                     self.failed[key] = failure or _failure("GRAPH_UNREADABLE", "no view")
                 self._notify()
@@ -296,11 +332,11 @@ class Hub:
             if commit is None:
                 return 503, self.fault or _failure("LEDGER_UNAVAILABLE", "the head could not be read")
             key = self.key(commit, line, since)
-            if key in self.views:
-                self.views.move_to_end(key)
-                return 200, self.views[key]
             self._want(key, at is not None)
             self._notify()
+            available = self._available(key, at is None)
+            if available is not None:
+                return 200, self.views[available].view
             return 202, self.state(key, at is None)
 
     def join(self, client: Client) -> None:

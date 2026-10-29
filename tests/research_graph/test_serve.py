@@ -49,6 +49,8 @@ class FakeProduct:
         self.drawn.append(commit)
         graph = copy.deepcopy(GRAPH)
         graph["scope"] = {**graph["scope"], "ledger_commit": commit}
+        if line is not None:
+            graph["line"]["bundle"] = line
         return graph
 
 
@@ -120,6 +122,97 @@ class HubTests(unittest.TestCase):
             self.assertEqual((status, view["scope"]["ledger_commit"]), (200, "a" * 32), "it gets the last view")
             release.set()
             until(lambda: self.hub.view(None, None, None)[1].get("scope", {}).get("ledger_commit") == "b" * 32)
+
+    def test_a_completed_graph_is_available_while_the_new_head_is_still_drawing(self):
+        first, latest = threading.Event(), threading.Event()
+        draw = self.product.graph
+
+        def graph(commit, line, since):
+            (first if commit == "a" * 32 else latest).wait(5)
+            return draw(commit, line, since)
+
+        self.product.graph = graph
+        self.addCleanup(latest.set)
+        self.addCleanup(first.set)
+        self.hub.refresh(wait=True)
+        client = serve.Client("line-a", None, None)
+        self.hub.join(client)
+        until(lambda: self.hub.running == self.hub.key("a" * 32, "line-a", None))
+        self.product.head = "b" * 32
+        self.hub.refresh(wait=True)
+        first.set()
+        until(lambda: self.hub.running == self.hub.key("b" * 32, "line-a", None))
+        status, view = self.hub.view("line-a", None, None)
+        self.assertEqual(status, 200, "new pages can show the completed graph instead of waiting for a moving head")
+        self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
+        self.assertEqual(view["line"]["bundle"], "line-a")
+        self.assertEqual(client.sent, {"state": "computing", "ledger_commit": "b" * 32,
+                                       "available_commit": "a" * 32})
+        latest.set()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.hub.view("line-a", None, None)[1]["scope"]["ledger_commit"], "b" * 32)
+
+    def test_live_fallback_never_changes_line_scope_or_explicit_snapshot(self):
+        until(lambda: self.hub.view("line-a", None, None)[0] == 200)
+        self.product.release = threading.Event()
+        self.addCleanup(self.product.release.set)
+        self.product.head = "b" * 32
+        self.hub.refresh(wait=True)
+        self.assertEqual(self.hub.view("line-a", None, None)[0], 200)
+        self.assertEqual(self.hub.view("line-b", None, None)[0], 202)
+        self.assertEqual(self.hub.view("line-a", "s" * 32, None)[0], 202)
+        self.assertEqual(self.hub.view("line-a", None, "b" * 32)[0], 202)
+        self.assertEqual(self.hub.view(None, None, None)[0], 202, "an unnamed default may have changed lines")
+
+    def test_a_busy_line_does_not_starve_a_pending_line_when_the_head_moves(self):
+        first, later = threading.Event(), threading.Event()
+        started = []
+        draw = self.product.graph
+
+        def graph(commit, line, since):
+            started.append((commit, line))
+            (first if commit == "a" * 32 else later).wait(5)
+            return draw(commit, line, since)
+
+        self.product.graph = graph
+        self.addCleanup(later.set)
+        self.addCleanup(first.set)
+        self.hub.refresh(wait=True)
+        self.hub.join(serve.Client("busy", None, None))
+        until(lambda: len(started) == 1)
+        self.hub.join(serve.Client("new-line", None, None))
+        self.product.head = "b" * 32
+        self.hub.refresh(wait=True)
+        self.product.head = "c" * 32
+        self.hub.refresh(wait=True)
+        first.set()
+        until(lambda: len(started) == 2)
+        self.assertEqual(started[1], ("c" * 32, "new-line"), "keep the pending line's place while coalescing heads")
+
+    def test_hot_line_versions_do_not_evict_every_other_line(self):
+        until(lambda: self.hub.view("quiet", None, None)[0] == 200)
+        for n in range(serve.CACHED + 2):
+            self.product.head = f"{n:032x}"
+            self.hub.refresh(wait=True)
+            until(lambda: self.hub.view("busy", None, None)[0] == 200
+                  and self.hub.view("busy", None, None)[1]["scope"]["ledger_commit"] == self.product.head)
+        code, view = self.hub.view("quiet", None, None)
+        self.assertEqual(code, 200, "switching back still has that line's last completed graph")
+        self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
+        self.assertLessEqual(len(self.hub.views), serve.CACHED)
+
+    def test_reading_or_drawing_a_pinned_old_snapshot_does_not_rewind_live_fallback(self):
+        until(lambda: self.hub.view("line-a", None, None)[0] == 200)
+        self.product.head = "b" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: self.hub.view("line-a", None, None)[1].get("scope", {}).get("ledger_commit") == "b" * 32)
+        self.assertEqual(self.hub.view("line-a", None, "a" * 32)[0], 200)
+        until(lambda: self.hub.view("line-a", None, "0" * 32)[0] == 200)
+        self.product.release = threading.Event()
+        self.addCleanup(self.product.release.set)
+        self.product.head = "c" * 32
+        self.hub.refresh(wait=True)
+        self.assertEqual(self.hub.view("line-a", None, None)[1]["scope"]["ledger_commit"], "b" * 32)
 
     def test_an_open_page_hears_the_new_head_while_the_market_is_pulled(self):
         client = serve.Client(None, None, None)

@@ -29,9 +29,20 @@ was rewritten, and pulling stops). Only the first head is waited for: later `/ap
 with the last view while a pull runs in the background. When the head moves, each open page is told
 `pulling` with the new head while the market is pulled, and a failed refresh as `error` over the view it
 holds; its graph is fetched once at the new head, the latest only, and the page replaces its view in place
-and keeps the selected version. Meanwhile the status bar shows the update's stage beside a turning ring,
+and keeps the selected version. A live request naming a line can immediately show its most recently
+completed live graph for the same `since` scope while the newest head is queued or computing. Each
+SSE state identifies the target `ledger_commit` and, when different, the `available_commit` the page
+can already display. Every completed graph can therefore reach the page even if the ledger moves
+again during its calculation. The graph's own `scope.ledger_commit` and toolbar remain its actual
+snapshot; the status bar separately names the background update's target. Pending requests retain
+their scope's place in the queue as their target head is coalesced, so a busy line cannot continually
+overtake a newly selected one. An explicit `at` always reads exactly that snapshot; an unnamed default
+does not borrow a graph from an older head that may have selected a different line.
+Meanwhile the status bar shows the update's stage beside a turning ring,
 or the failure behind a red warning mark, and the old graph stays. The
-last 8 views stay in memory. Only the configured Host is served, cross-site requests are refused
+cache holds up to 8 views in memory, preferentially dropping duplicate old versions of a scope before its
+last completed live graph; pinned historical renders do not rewind the live fallback. A cold line
+with no retained graph still needs one computation. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
 
 With `--agent=URL`, requests under `/api/agent/` go to the chat service (`agent/`, Node 24 running
