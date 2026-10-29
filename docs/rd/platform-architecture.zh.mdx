@@ -4,6 +4,23 @@
 
 <ArchitectureOverview locale="zh" />
 
+## 部署拓扑 [#platform-deployment]
+
+一份 compose（`services/ide/docker/compose.yaml`）就是全部部署，工作站与服务器相同：四个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。
+
+<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE --> V[(trade-ide-data 卷 DoltHub 公开库只读副本)]\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api haproxy]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 公开副本)]"} />
+
+| 服务 | 镜像 | 谁能访问 | 读 | 写 |
+|---|---|---|---|---|
+| ide | ghcr.io/qoeop/trade-ide | 浏览器，127.0.0.1:8765；只服务配置的 Host，拒绝跨站，不发 CORS 头 | 自己的 DoltHub 公开库只读副本（卷 trade-ide-data，首次启动克隆，容器管理员 DOLT_PULL --ff-only） | 不写任何库；/api/agent/ 与 /api/paper/ 只原样转发 |
+| ledger | ghcr.io/qoeop/trade-service | 宿主命令行与 paper，127.0.0.1:13330 | 研究账本与市场库的 Dolt 服务（`ledger service run`） | 账本与市场库唯一的写入服务；首次启动从公开副本 bootstrap、发布回公开副本，只有它拿到 DoltHub 密钥 |
+| paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | 账本里的 paper 运行、运行日志、最近一次研究回放 | 经命令行 `paper start/stop/seal/delete` 写账本（<code>paper_run</code> 声明行与封存证据包）；经 docker-api 起停运行容器 |
+| docker-api | haproxy | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用（docker/docker-api.cfg）；唯一能到宿主 Docker 引擎的路 |
+
+**Paper**　Paper 面板的每个动作都是命令行 `paper` 的一个动词：start 声明一次 paper 运行并起容器、stop 停止并封存、seal 封存自行结束的运行、delete 删除已封存的运行（用户自己的动作，Agent 不代删；由服务管理员以 `paper_delete:<id>` 提交完成）、list、reconcile（后台在归档上重放对比，不写账本）、serve。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
+
+**Agent**　聊天服务（`services/ide/agent`，Node，随 ide 容器运行）只能调用产品的只读命令：research state、research status、candidate list、candidate show、replay report、ledger sql、market coverage；它不能写账本，也不能起停运行。研究图接口（/api/view、/api/events）只读，live 刷新与固定提交的区别见 [研究图服务](/zh/docs/design-skill-research-graph/)。部署步骤与环境变量见 [services/ide/README.md](https://github.com/qOeOp/trade/blob/main/services/ide/README.md)。
+
 ## 如何查阅
 
 从研究流程页的引用进入具体定义，或按下列职责直接定位。数据库总览保留全库关系图；每个职责页给出关联记录与写入方。Code 的账本页描述读写行为，Database 描述存储事实；视频技能指导采集与阅读，视频校验器独立重算证据绑定。
