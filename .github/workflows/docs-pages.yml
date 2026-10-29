@@ -9,6 +9,7 @@ on:
       - docs-site/**
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
+      - .github/scripts/docs-pages-current.sh
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -16,9 +17,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the older run. On main every commit keeps its own run:
+# a cancelled run marks that merged commit red although nothing failed.
 concurrency:
-  group: docs-pages-${{ github.ref }}
-  cancel-in-progress: true
+  group: docs-pages-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -40,6 +43,7 @@ jobs:
             docs-site/**
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
+            .github/scripts/docs-pages-current.sh
 
   build:
     needs: changes
@@ -68,14 +72,58 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Main runs are no longer cancelled, so an older run can reach this job after a newer one.
+      # Deploy only when this commit already contains the latest site change on main; otherwise
+      # the newer commit's own run deploys it.
+      - id: latest
+        name: Skip the deploy when a later main commit changes the site
+        run: |
+          current=$(.github/scripts/docs-pages-current.sh)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [[ "$current" != true ]]; then
+            echo "::notice::Skipped: a later main commit changes the site and its own run deploys it."
+          fi
       - id: deployment
+        if: steps.latest.outputs.current == 'true'
+        continue-on-error: true
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      # The Pages API sometimes times out, and a newer deployment can cancel this one.
+      - id: retry
+        name: Wait, then retry unless a later main commit has taken over the deploy
+        if: steps.deployment.outcome == 'failure'
+        run: |
+          sleep 30
+          current=$(.github/scripts/docs-pages-current.sh)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+      - id: deployment_retry
+        if: steps.retry.outputs.current == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      - name: Require the deploy unless a later main commit has taken it over
+        if: steps.deployment.outcome == 'failure'
+        env:
+          RETRY: ${{ steps.deployment_retry.outcome }}
+        run: |
+          if [[ "$RETRY" == success ]]; then
+            exit 0
+          fi
+          if [[ "$(.github/scripts/docs-pages-current.sh)" == false ]]; then
+            echo "::notice::Not deployed: a later main commit changes the site and its own run deploys it."
+            exit 0
+          fi
+          echo "::error::The documentation site was not deployed."
+          exit 1
 
   gate:
     name: docs-gate
