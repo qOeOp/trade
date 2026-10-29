@@ -13,6 +13,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - `research state` 没有 RUNTIME_UNSUPPORTED；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
 - a71c2e9 里 2020-06 至 2026-09 每个月都在且都导入到月末，ETHUSDT 的覆盖回执可读，资金费和 LAST 都没有缺失。
 - `market coverage`：ETHUSDT 的 MARK 缺 2021-07-01 整天（1,440 分钟），其余没有缺口。官方日档里有这一天的 MARK；导入时跳过了月边界上的这段，这是导入的缺陷。
+- 我试着重导：`market import --month 2021-07` 被 `MONTH_EXISTS` 拒绝（The market database already holds that month through its end ...），`next_actions` 是 “Import the next month or the month before the earliest; a stored month is never rewritten.”，什么都没写。
 
 上一轮你给过我两个方案：方案 1，交易从 2021-07-02 开始、窗口终点不变，这样缺口落在预热期；方案 2，保持现在的选择，先把缺的那天补进来。
 
