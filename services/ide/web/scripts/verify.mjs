@@ -173,18 +173,17 @@ try {
     const at = `document.querySelector(".react-flow__viewport").style.transform`, from = await evaluate(at);
     await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX: 0, deltaY: 120 }); await sleep(300);
     expect((await evaluate(at)) !== from, "canvas: the wheel did not pan");
-    // Panned as far as it goes, the content meets the canvas's corners: trial 0's cell and the first row at
-    // the top-left (so the ruler starts at 0), the last row at the bottom. Read from the pan itself: the
-    // canvas draws trial t's cell from (t - 0.5) * 32px and row r from (r - 0.5) * 30px.
+    // Panned as far as it goes, this line's content meets the canvas's top-left corner. The backdrop
+    // starts at the line's content boundary, which may be hundreds of trials after trial 0.
     const edges = `(() => { const c = document.querySelector("[data-island=editor] .react-flow").getBoundingClientRect();
       const [x, y] = document.querySelector(".react-flow__viewport").style.transform.match(/-?[\\d.]+/g).map(Number);
       const backdrop = document.querySelector("[data-backdrop]"); if (!backdrop) return null;
       const rows = +backdrop.dataset.rows;
-      return { left: x - 16, top: y - 15, bottom: c.height - (y + (rows - 0.5) * 30) }; })()`;
+      return { left: x + parseFloat(backdrop.style.left), top: y - 15, bottom: c.height - (y + (rows - 0.5) * 30) }; })()`;
     const wheel = async (deltaX, deltaY) => { for (let i = 0; i < 40; i++) await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: node[0], y: node[1], deltaX, deltaY }); await sleep(300); };
     await wheel(-4000, -4000);
     const corner = await evaluate(edges) ?? { left: NaN, top: NaN };
-    expect(Math.abs(corner.left) < 0.6 && Math.abs(corner.top) < 0.6, `canvas: at the start trial 0 and the first row are ${corner.left.toFixed(1)}px, ${corner.top.toFixed(1)}px from the top-left corner`);
+    expect(Math.abs(corner.left) < 0.6 && Math.abs(corner.top) < 0.6, `canvas: at the start the line's content and first row are ${corner.left.toFixed(1)}px, ${corner.top.toFixed(1)}px from the top-left corner`);
     await wheel(0, 4000);
     const end = await evaluate(edges) ?? { bottom: NaN };
     expect(Math.abs(end.bottom) < 0.6, `canvas: at the end the last row is ${end.bottom.toFixed(1)}px from the bottom`);
@@ -199,12 +198,12 @@ try {
       const after = await evaluate(canvas);
       expect(after.same && after.at === still.at, `canvas: closing the left tool window ${after.same ? "" : "remounted the canvas and "}moved it from ${still.at} to ${after.at}`);
     }
-    // Focusing the earliest version centres it only as far as the content allows: nothing before trial 0
+    // Focusing the earliest version centres it only as far as the content allows: nothing before this line
     // or above the first row shows.
     const earliest = await evaluate(`[...document.querySelectorAll(".react-flow__node")].map((n) => [n.dataset.id, new DOMMatrix(getComputedStyle(n).transform).m41]).sort((a, b) => a[1] - b[1])[0]?.[0]`);
     await evaluate(`location.hash = ${JSON.stringify(earliest)}`); await sleep(600);
     const start = await evaluate(edges) ?? { left: NaN, top: NaN };
-    expect(start.left < 0.6 && start.top < 0.6, `canvas: focusing ${earliest} leaves ${start.left.toFixed(1)}px before trial 0 and ${start.top.toFixed(1)}px above the first row`);
+    expect(start.left < 0.6 && start.top < 0.6, `canvas: focusing ${earliest} leaves ${start.left.toFixed(1)}px before this line and ${start.top.toFixed(1)}px above the first row`);
   }
   // Sources (⌥7): a double-click opens a file as highlighted, read-only source that the island scrolls (no
   // native bar) under a header as tall as the other islands', and Compare with parent toggles its change as a

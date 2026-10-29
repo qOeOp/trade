@@ -17,7 +17,7 @@ export function Backdrop({ widget }: { widget: LineageWidget }) {
   if (!viewport) return null;
   return createPortal(
     <svg data-backdrop data-rows={widget.rows.length} width={width} height={height} className="pointer-events-none absolute -z-10" style={{ left, top }}>
-      {scope != null && <rect x={0} y={0} width={X(scope)} height={height} fill={v("scope")} />}
+      {scope != null && <rect x={0} y={0} width={Math.max(0, Math.min(width, X(scope)))} height={height} fill={v("scope")} />}
     </svg>,
     viewport,
   );

@@ -71,6 +71,11 @@ class ResearchGraphTests(unittest.TestCase):
             self.assertEqual(by_id[second]["source"], strategies.read_candidate(conn, second)["source"].decode(),
                              "a version carries its registered source")
         self.assertIsNotNone(by_id[second]["interpretation"])
+        review = by_id[first]["reviews"][0]
+        self.assertEqual(review["verdict"], "passed")
+        for item in precheck.ITEMS:
+            self.assertIn(f"{item} checked against the capture", review["note"],
+                          "passed reviews retain every check's explanation in the graph")
         recommendation = [e for e in found["events"] if e["kind"] == "recommendation"]
         self.assertEqual(recommendation[-1]["recommends"], first)
         self.assertEqual(found["line"]["targets"], {"max_drawdown": 0.15, "annual_return": 0.2})
@@ -80,8 +85,13 @@ class ResearchGraphTests(unittest.TestCase):
         with db.read_as_of(self.world.profile) as conn:
             source = strategies.read_candidate(conn, second)["source_sha256"]
             (precheck_id,), = conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s", (source,))
-        precheck.record_review(self.world.profile, self.world.review_body(
-            precheck_id, "failed", causal={"status": "failed", "note": "found later"}), "reviewer-g")
+        notes = {
+            "api": {"status": "passed", "note": "API inspected.\n\n- Orders use the pinned API.\n- Parameters match."},
+            "causal": {"status": "failed", "note": "Found later.\n\nThe input arrives after submission."},
+            "readiness": {"status": "no_opportunity", "note": "This capture does not reach the funding boundary."},
+        }
+        body = self.world.review_body(precheck_id, "failed", **notes)
+        precheck.record_review(self.world.profile, body, "reviewer-g")
         found = self.graph()
         self.assertEqual(contract.check_graph(found), [])
         masked = next(c for c in found["candidates"] if c["id"] == second)
@@ -90,6 +100,12 @@ class ResearchGraphTests(unittest.TestCase):
                          "a run without economic evidence shows no measures")
         self.assertIn("SOURCE_REVIEW_FAILED", run["ineligible_reason"])
         self.assertIn("causal", next(r for r in masked["reviews"] if r["verdict"] == "failed")["failed_items"])
+        review = next(r for r in masked["reviews"] if r["verdict"] == "failed")
+        for item in precheck.ITEMS:
+            self.assertIn(body[item]["note"], review["note"],
+                          "every item's original paragraphs and lists reach the detail renderer")
+        self.assertIn("Causal (failed)\nFound later.", review["note"])
+        self.assertIn("Readiness (no_opportunity)\n", review["note"])
         self.assertTrue(any(e["kind"] == "eligibility_change" and second in e["text"] for e in found["events"]))
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):

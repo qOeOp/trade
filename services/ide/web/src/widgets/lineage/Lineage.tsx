@@ -11,7 +11,7 @@ import { AxisDriver } from "./AxisDriver";
 import { Backdrop } from "./Backdrop";
 import { Crosshair } from "./Crosshair";
 import { Elbow } from "./Elbow";
-import { bounds, centredOn, HOME, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
+import { bounds, centredOn, home, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
 import { useSize } from "../../components/hooks/useSize";
 import { Ruler } from "./Ruler";
 import { VersionNode, type VersionData } from "./VersionNode";
@@ -67,7 +67,7 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                      proOptions={{ hideAttribution: true }}
                      onInit={(flow) => {
                        const id = selection.get(), p = id ? positions.get(id) : undefined, r = box.current?.getBoundingClientRect();
-                       void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height) : HOME), zoom: 1 });
+                       void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height) : home(widget)), zoom: 1 });
                      }}
                      onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openSource(node.id)}>
             <Backdrop widget={widget} />

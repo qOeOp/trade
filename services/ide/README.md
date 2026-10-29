@@ -181,7 +181,7 @@ window frame, following the design rules in
 OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Supply) for
 letters and digits alike, so a reading's digits, point and % share a height, one shadow for popups, a blue ring for
 keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a
-canvas that pans but never zooms and only as far as its content (trial 0 and the first row at its top-left, the
+canvas that pans but never zooms and only as far as its content (the current line's trial range and the first row at its top-left, the
 last row at its bottom, and on the right no further than the longest-reaching version name, so it never opens on
 empty trials; focusing a version centres it only as far as that allows, and opening or closing a side
 leaves the canvas where it is), with each version's role shown by its mark's shape, parent-to-child
@@ -247,7 +247,7 @@ JavaScript, so it opens in a browser. A new widget type is a renderer in `web/sr
 | `widgets/` | one renderer per view-model widget type (`registry.ts`) | the above |
 | `shell/` | the window: islands, toolbar, status bar, command palette | the above and widgets |
 
-`npm run check` runs `tsc` and `scripts/check-rules.mjs`, which fails the build on: a colour literal outside
+`npm run check` runs `tsc`, the lineage geometry regression tests (`npm test`), and `scripts/check-rules.mjs`, which fails the build on: a colour literal outside
 `tokens.css`, `var(--…)` in TypeScript outside `roles.ts` (role classes and `v()` instead), `<svg>` outside icons and the
 chart widgets, a `<button>` or colour inline style outside `components/`, arbitrary `text-[…]`/`rounded-[…]` classes,
 storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
