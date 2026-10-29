@@ -103,7 +103,6 @@
 | 20261029-19 | 只钉消息文字、字面常量或私有函数的测试（`tests/registration/test_register.py:204-207,444`、`tests/registration/test_continuity.py:158-165`；[整合评审](2026-10-29-consolidation-review.zh.md)） | remove（P9：改为断言行为，随 P1、P3） | open（用户 2026-10-29 批准） | 2026-10-29 | 2026-10-29 |
 | 20261029-20 | 导入的浮点尾数容差（相对 1e-12）比它声明的风险宽，目录却写从不舍入（`market/store.py:273-293`；[整合评审](2026-10-29-consolidation-review.zh.md)） | authority + fix（P10） | open（暂缓） | 2026-10-29 | 2026-10-29 |
 | 20261029-21 | 审计 `LATE_ORDER_EVENT` 按 rc3 的订单名前缀 `EXPIRATION-` 认引擎结算单（`engine/audit.py:413,566`；[整合评审](2026-10-29-consolidation-review.zh.md)） | measure（P11：先在 rc7 上探针） | open（暂缓） | 2026-10-29 | 2026-10-29 |
-
 | 20261029-25 | IDE market 主线与远端无共同祖先，持续同步失败且缺历史分支（[聚焦诊断](2026-10-29-ide-market-replica.zh.md)） | fix（显式保留历史后恢复副本，普通同步仍只快进） | in PR [#1880](https://github.com/qOeOp/trade/pull/1880)；663 项完整测试通过；本机副本已保留旧历史后恢复、SSE ready；未合并 | 2026-10-29 | 2026-10-29 |
 
 本轮新会话已见正式预检、独立审阅、登记绑定、报告与重放顺利经过，也未证明已结缺陷复发；不能把未触发路径统称为已验证。04–20、26–37 的其余路径继续按新会话回读。上述新项及保留措施见 [2026-10-21 EMA 会话诊断](2026-10-21-codex-ema-year.zh.md)；-10、-11 是既有指导已覆盖的方法错误或旧版本问题，动作 none，不列为待修产品项。
