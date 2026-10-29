@@ -215,9 +215,17 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 /* Mermaid nodes take the control radius. */
 .rd-mermaid :is(.node, .cluster) rect { rx: 4px; ry: 4px; }
 
-/* fumadocs' type table: the card radius outside, the control radius on an open row */
-#nd-page [class~="rounded-2xl"] { border-radius: var(--radius-card); }
-#nd-page [class~="rounded-2xl"] [class~="rounded-xl"] { border-radius: var(--radius-control); box-shadow: none; }
+/* Field references: one compact row, with explanations always visible. */
+.rd-type-table { margin-block: 1rem; }
+.rd-type-table table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+.rd-type-table th, .rd-type-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: start; vertical-align: top; overflow-wrap: anywhere; }
+.rd-type-table thead th { color: var(--fg-muted); font-size: 12px; font-weight: 400; }
+.rd-type-table thead th:first-child { width: 24%; }
+.rd-type-table thead th:nth-child(2) { width: 23%; }
+.rd-type-table tbody th { font-weight: 500; }
+.rd-type-table code { font-family: var(--font-mono); white-space: normal; }
+.rd-type-table abbr { color: var(--fg-muted); text-decoration: none; }
+.rd-field-type { color: var(--fg-muted); }
 
 /* Callouts and cards: hairline boxes with the card radius, no lift. */
 #nd-page .prose [class*="rounded-xl"] { border-radius: var(--radius-card); }
@@ -377,5 +385,3 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 
 /* References written in a row keep apart: on zh pages the typed space is HarmonyOS's narrow one. */
 .rd-ref + .rd-ref { margin-inline-start: 0.35em; }
-/* A type table's property name expands its row; it is not a link, so it is not link blue. */
-#nd-page [class~="text-fd-primary"][class~="font-mono"] { color: var(--fg); }

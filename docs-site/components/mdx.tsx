@@ -3,16 +3,17 @@ import { File, Files, Folder } from 'fumadocs-ui/components/files';
 import { InlineTOC } from 'fumadocs-ui/components/inline-toc';
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
-import { TypeTable } from 'fumadocs-ui/components/type-table';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
+import type { ComponentProps } from 'react';
 import { Mermaid } from './mdx/mermaid';
 import { Ref } from './mdx/ref';
 import { Cap, Tier, Kind } from './mdx/cap';
 import { ChapterMap } from './mdx/chapter-map';
 import { ArchitectureOverview } from './mdx/architecture-overview';
+import { TypeTable } from './mdx/type-table';
 
-export function getMDXComponents(components?: MDXComponents) {
+export function getMDXComponents(components?: MDXComponents, lang = 'en') {
   return {
     ...defaultMdxComponents,
     ArchitectureOverview,
@@ -32,7 +33,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Tab,
     Tabs,
     Tier,
-    TypeTable,
+    TypeTable: (props: ComponentProps<typeof TypeTable>) => <TypeTable {...props} lang={lang} />,
     ...components,
   } satisfies MDXComponents;
 }
