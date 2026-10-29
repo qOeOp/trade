@@ -36,6 +36,11 @@ EXPORT_FORMAT = "ledger-export-v2"
 MANIFEST = "manifest.json"
 BACKUP, REPRODUCE = "backup", "reproduce"
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE")
+# A restore copies the whole backup, even when the sync itself was incremental. Keep a
+# bounded budget that grows with the retained history instead of killing large restores
+# after the same ten minutes as a branch-list query.
+BACKUP_RESTORE_STARTUP_SECONDS = 600
+BACKUP_RESTORE_BYTES_PER_SECOND = 32 * 1024 * 1024
 
 
 def require_reader(conn: db.LedgerConnection) -> None:
@@ -73,10 +78,17 @@ def backup_path(profile: db.LedgerProfile, destination: Path | None = None) -> P
     return None if root is None else Path(root) / BACKUP
 
 
+def _backup_restore_timeout(backup: Path) -> int:
+    size = sum(path.stat().st_size for path in backup.rglob("*") if path.is_file())
+    transfer_seconds = (size + BACKUP_RESTORE_BYTES_PER_SECOND - 1) // BACKUP_RESTORE_BYTES_PER_SECOND
+    return BACKUP_RESTORE_STARTUP_SECONDS + transfer_seconds
+
+
 def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = None) -> str | None:
     """The research branch head of a dolt_backup copy, read from a restore in a new temporary
     directory (deleted afterwards); None when there is no backup. A restore or listing that fails,
-    times out or returns no readable branch list is DOLT_BACKUP."""
+    times out or returns no readable branch list is DOLT_BACKUP. The full restore has a
+    size-based time budget; listing the restored branches retains its ten-minute limit."""
     backup = Path(backup)
     if not backup.is_dir():
         return None
@@ -85,16 +97,20 @@ def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = No
     if not binary:
         raise refuse("DOLT_BINARY", "the ledger service records no Dolt executable")
     work = Path(tempfile.mkdtemp(prefix="backup-head-"))
+    phase = "configure restore"
     try:
         environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home")}
         (work / "home").mkdir()
         for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
             subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
                            capture_output=True, timeout=60)
+        phase = "restore"
         restored = subprocess.run([binary, "backup", "restore", backup.resolve().as_uri(), "restored"], cwd=work,
-                                  env=environment, capture_output=True, text=True, timeout=600)
+                                  env=environment, capture_output=True, text=True,
+                                  timeout=_backup_restore_timeout(backup))
         if restored.returncode:
             raise refuse("DOLT_BACKUP", f"the backup at {backup} cannot be restored", missing=(str(backup),))
+        phase = "list restored branches"
         listed = subprocess.run([binary, "sql", "-r", "json", "-q", "SELECT name, hash FROM dolt_branches"],
                                 cwd=work / "restored", env=environment, capture_output=True, text=True, timeout=600)
         if listed.returncode:
@@ -108,7 +124,10 @@ def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = No
                          missing=(str(backup),))
         heads = {row["name"]: row["hash"] for row in rows}
         return heads.get(branch or profile.research_branch)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        raise refuse("DOLT_BACKUP", f"the head of the backup at {backup} cannot be read "
+                     f"({phase} timed out after {exc.timeout}s)", missing=(str(backup),)) from exc
+    except (subprocess.CalledProcessError, OSError, ValueError) as exc:
         raise refuse("DOLT_BACKUP", f"the head of the backup at {backup} cannot be read ({type(exc).__name__})",
                      missing=(str(backup),)) from exc
     finally:
