@@ -355,6 +355,31 @@ class LedgerBaseTests(unittest.TestCase):
             retried = db.write(writer, "race", {"bundle": loser}, "evidence_bundle", bundle_insert(loser))
         self.assertEqual(retried["write_status"], "written")
 
+    def test_a_write_allowed_attempts_reruns_after_a_concurrent_write(self):
+        barrier, outcomes, calls = threading.Barrier(2), {}, {"race-c": 0, "race-d": 0}
+
+        def wait_once(label):
+            def wait():
+                calls[label] += 1
+                if calls[label] == 1:
+                    barrier.wait(timeout=20)
+            return wait
+
+        def race(label):
+            with db.connect(self.profile, "writer") as writer:
+                outcomes[label] = db.write(writer, "race", {"bundle": label}, "evidence_bundle",
+                                           bundle_insert(label, wait_once(label)), attempts=3)["write_status"]
+
+        threads = [threading.Thread(target=race, args=(label,)) for label in calls]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(outcomes, {"race-c": "written", "race-d": "written"})
+        self.assertEqual(sorted(calls.values()), [1, 2])
+        stored = {name for (name,) in self.service.sql(self.profile, "SELECT bundle FROM evidence_bundle")}
+        self.assertLessEqual({"race-c", "race-d"}, stored)
+
     def test_history_shows_only_additions_on_the_normal_path(self):
         with db.connect(self.profile, "writer") as writer:
             db.write(writer, "probe", {"bundle": "history"}, "evidence_bundle", bundle_insert("history"))

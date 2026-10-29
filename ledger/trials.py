@@ -309,7 +309,8 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
                         for row in cycle_rows])
         return {"trial_id": trial_id, "status": status, "failure_reasons": reasons}
 
-    written = db.write(conn, "ingest_run", payload, "run", insert, lambda c, row: run_record(row))
+    written = db.write(conn, "ingest_run", payload, "run", insert, lambda c, row: run_record(row),
+                       attempts=db.SEAL_ATTEMPTS)
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
 
 
@@ -361,6 +362,7 @@ def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Pa
                (trial_id, db.canonical_json(reasons), db.canonical_json(record), op_id))
         return {"trial_id": trial_id, "status": "invalid", "failure_reasons": reasons}
 
-    written = db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row))
+    written = db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row),
+                       attempts=db.SEAL_ATTEMPTS)
     return {**written["record"], "recovery_bundle": material["bundle"], "replayed": written["replayed"],
             "ledger_commit": written["commit"]}

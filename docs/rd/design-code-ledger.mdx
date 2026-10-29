@@ -429,10 +429,11 @@ def write(
     insert: Callable[[LedgerConnection, str], Mapping],
     replay: Callable[[LedgerConnection, Mapping], Mapping] | None,
     op_id: str | None,
+    attempts: int,
 ) -> WriteResult
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect(role='writer') 得到的连接；一条命令一条连接，读写共用" }, "kind": { type: "str", description: "操作种类（如 publish_candidate、add_bundle、open_trial、ingest_run），进入操作 ID 与提交信息" }, "payload": { type: "Mapping", description: "规范化载荷（键排序、可 JSON 序列化，大对象以内容哈希代入）；op_id = sha256(kind ‖ canonical_json(payload))" }, "table": { type: "str", description: "持有本操作 op_id 列的记录表名，用于幂等查找" }, "insert": { type: "Callable[[LedgerConnection, str], Mapping]", description: "在同一事务内执行全部 INSERT 的回调，收到连接与 op_id，返回给调用方的记录；只允许插入" }, "replay": { type: "Callable[[LedgerConnection, Mapping], Mapping] | None", description: "命中同 op_id 的记录时把它整理成与首次相同形状的返回值；缺省原样返回该行" }, "op_id": { type: "str | None", description: "调用方自定的操作 ID；缺省由 kind 与规范化载荷派生" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.connect(role='writer') 得到的连接；一条命令一条连接，读写共用" }, "kind": { type: "str", description: "操作种类（如 publish_candidate、add_bundle、open_trial、ingest_run），进入操作 ID 与提交信息" }, "payload": { type: "Mapping", description: "规范化载荷（键排序、可 JSON 序列化，大对象以内容哈希代入）；op_id = sha256(kind ‖ canonical_json(payload))" }, "table": { type: "str", description: "持有本操作 op_id 列的记录表名，用于幂等查找" }, "insert": { type: "Callable[[LedgerConnection, str], Mapping]", description: "在同一事务内执行全部 INSERT 的回调，收到连接与 op_id，返回给调用方的记录；只允许插入" }, "replay": { type: "Callable[[LedgerConnection, Mapping], Mapping] | None", description: "命中同 op_id 的记录时把它整理成与首次相同形状的返回值；缺省原样返回该行" }, "op_id": { type: "str | None", description: "调用方自定的操作 ID；缺省由 kind 与规范化载荷派生" }, "attempts": { type: "int", description: "遇 CONCURRENT_WRITE 时最多尝试的事务数，缺省 1（不重试）；封存类写入（seal_capture、ingest_run、ingest_capture_refusal）用 SEAL_ATTEMPTS = 5" } }} />
 
 **返回**　WriteResult：\{record, op_id, commit, replayed, write_status\}；首次写入 write_status='written'；命中同 op_id 时 replayed=True、commit 为原记录所在提交、write_status='replayed'；任何拒绝 write_status='not_written'
 
@@ -443,7 +444,7 @@ def write(
 3. 查 dolt_status，存在未提交的 SQL 改动即拒绝，避免把他人的半截改动一起提交。
 4. 执行 insert；随后 UPDATE ledger_head 单行 seq = seq + 1、op_id = 本操作 ID，使并发写在同一格上必然冲突。
 5. 同一事务内 CALL dolt_commit('-a', '-m', '\<kind>:\<op_id>')，提交校验组 dolt_tests(commit) 在此运行，失败整笔回滚并拒绝。
-6. 返回提交哈希；提交时合并冲突即回滚并拒绝 CONCURRENT_WRITE，调用方重试会按 op_id 命中胜者或重新写入；其他 SQL 错误回滚后按权限或通用错误拒绝。
+6. 返回提交哈希；提交时合并冲突即回滚并拒绝 CONCURRENT_WRITE，调用方重试会按 op_id 命中胜者或重新写入；其他 SQL 错误回滚后按权限或通用错误拒绝。attempts 大于 1 时（只给记录不可再现之物的封存写入），冲突后按尝试次数递增停顿（0.5 秒乘已尝试次数），整笔事务重来：重新按 op_id 查找，再在新的头提交上运行 insert 及其检查；用尽仍冲突才把 CONCURRENT_WRITE 交给调用方。并入外层事务的写入不重试。
 7. 提交前读服务级的提交校验组设置（@@GLOBAL，提交实际用的那份；会话副本在连接时取、之后不更新，不能读它）；不等于 commit 即回滚并拒绝 COMMIT_CHECKS_DISABLED：任何账号都能改这个全局设置，不核就会在无痕迹的情况下跳过全部提交校验。读设置与提交之间仍有极短窗口，由整体复核重跑提交校验兜底。
 8. conn 已处在另一次 ledger.write 的写事务里时（如 open_trial 调 start_receipt），并入调用方事务：不单独提交，返回的提交为空，由最外层一次提交。
 
@@ -452,7 +453,7 @@ def write(
 | `READ_ONLY_CONNECTION` | conn 不是 writer 角色，或连接的 branch 不是固定研究 branch |
 | `DIRTY_WORKING_SET` | 写前 dolt_status 报告有未提交的 SQL 改动 |
 | `COMMIT_CHECK_FAILED` | dolt_commit 时提交校验组 dolt_tests(commit) 任一项不通过 |
-| `CONCURRENT_WRITE` | 提交时与另一并发写入在 ledger_head 单行或同一记录格上冲突，本事务已回滚 |
+| `CONCURRENT_WRITE` | 提交时与另一并发写入在 ledger_head 单行或同一记录格上冲突，本事务已回滚；attempts 大于 1 时为用尽全部尝试之后 |
 | `LEDGER_PERMISSION` | insert 执行了 writer 账号没有的语句（UPDATE/DELETE、其他表或过程） |
 | `DOLT_SQL_ERROR` | 其他 SQL 错误；事务已回滚，不留半截记录；消息带服务器的错误原文（截至 300 字符） |
 | `COMMIT_CHECKS_DISABLED` | 服务的提交校验组设置不是 commit |

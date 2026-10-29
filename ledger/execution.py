@@ -448,7 +448,7 @@ def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages:
         return {"bundle": bundle}
 
     written = db.write(conn, "seal_capture", {"bundle": bundle, "files": digests}, "evidence_bundle", insert, replay,
-                       op_id=f"execution:trial-{trial_id}")
+                       op_id=f"execution:trial-{trial_id}", attempts=db.SEAL_ATTEMPTS)
     return {"bundle": bundle, "status": "captured", "files": {path: digests[path] for path in stored},
             "manifest_sha256": hashlib.sha256(encoded).hexdigest(), "ledger_commit": written["commit"],
             "replayed": written["replayed"]}
