@@ -12,7 +12,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 - 钉住的市场提交里 2020-06 至 2026-09 每个月的 K 线、MARK 和资金费都在，BTCUSDT 没有缺口。
 - 推算报价原本只有 2025-10 至 2026-09。我同意补导入后，`market import-quotes --month 2021-01` 成功，生成新市场提交 p7r2x1a。
-- `market import-quotes --month 2021-02` 被 `SEQUENCE_GAP` 拒绝：2021-02-09 05:08:28 之后 agg_trade_id 从 308181841 跳到 308204627，什么都没存。按拒绝提示清掉缓存重下，还是同一处跳号；Binance 的 2021-02 月归档里也是同样的跳号，2021-02-24 另有一处。
+- `market import-quotes --month 2021-02` 被 `SEQUENCE_GAP` 拒绝：2021-02-09 05:08:28 之后 agg_trade_id 从 308181841 跳到 308204627，什么都没存。拒绝的 `next_actions` 是 “Re-download the day with `market import-quotes --month YYYY-MM` after clearing its cached archive; a gap the exchange published stays a gap and the month stays unimported.”。按这条清掉缓存重下，还是同一处跳号；Binance 的 2021-02 月归档里也是同样的跳号，2021-02-24 另有一处。
 - 2021-03 至 2025-09 还没导入。
 
 同事帮我拟了这一轮的结尾：“Binance 的逐笔 trades 归档里这几段成交应该都在。我们先把这两天的 trades 下下来，在 /tmp 用它把 2 月的报价桥接重建出来，再和 aggTrades 推出的报价逐条对照，对上了再说。这一轮就问我要不要开始下 trades 归档。”

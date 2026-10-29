@@ -13,6 +13,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - `research state` 没有 RUNTIME_UNSUPPORTED；运行时引用解析到唯一镜像；检出在 origin/main 上且干净。
 - c305a70 里 2020-06 至 2026-09 每个月都在，BTCUSDT 的覆盖回执可读，资金费结算没有缺失，LAST 没有缺口。
 - `market coverage`：LAST 有 369 个成交量为 0 的 1 分钟 K 线，散在开发窗口内；MARK 有三处缺口：2020-12-17 缺 24 分钟（预热段）、2022-07-14 缺 11 分钟、2021-07-01 整天缺 1,440 分钟。重新导入时官方月档、日档和 REST 都没有 2021-07-01 这一天的 MARK。
+- `market coverage` 的 `interpretation` 字段原文摘录：“A zero-volume minute is the exchange's record (sources holding the same minute agree at import): the strategy receives the bar, and bar execution moves the last price through it but fills nothing, so an order it crosses waits for the next traded bar. ... Through a MARK gap an open position is valued at its latest MARK while that is at most engine.run.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation); a longer gap while a position is open fails the run's integrity (CAPITAL_VALUATION_GAP), and with no position open changes nothing.” 运行时里 `MARK_CARRY_MAX_MINUTES` 是 60。
 
 同事建议先用 `market bars` 把 BTC 全部分钟导出来，再下载这几年的官方月档，把 369 个零成交量分钟逐条比对清楚，三处 MARK 缺口也都问我怎么处理之后再说。
 
