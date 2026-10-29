@@ -4,13 +4,15 @@ import { copyText } from "../../lib/clipboard";
 import { requestFocus } from "../../state/linking";
 import { Dropdown, DropdownFacts, DropdownItem, DropdownSeparator } from "../../components/Dropdown";
 import { ResearchLines } from "./ResearchLines";
+import { useResearchLines } from "../../state/researchLines";
 
 /** The research line, as IntelliJ's project widget: its name, and in the menu what defines it. */
 export function LineWidget() {
   const { line, scope } = useView();
+  const index = useResearchLines();
   return (
     <Dropdown label="Research line" trigger={<span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>}>
-      <ResearchLines />
+      <ResearchLines index={index} />
       <DropdownFacts items={[
         ["Research line", line.bundle],
         ["Start", line.start ?? "-"],

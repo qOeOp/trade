@@ -66,11 +66,19 @@ put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their jou
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
 [`docs/plans/paper-trading-design.zh.md`](../../docs/plans/paper-trading-design.zh.md).
 
-The Research line menu lists every line at the displayed graph's ledger commit, including closed
-lines, through `/api/lines?at=<commit>` and the read-only `line list` command. Each entry shows its
+The Research line menu lists every line, including closed lines, through `/api/lines?at=<commit>`
+and the read-only `line list` command. A live page preloads the current index at startup and follows
+new head notifications; a page with an explicit `at` keeps that snapshot's index. The toolbar keeps
+the loaded choices while a newer index is fetched, so opening the menu performs no request and a
+refresh never replaces useful choices with an empty loading state. Each entry shows its
 window and Open/Closed state. Switching changes `?line=`, retains an explicit `at`, and drops the
 previous line's `since` and selected-version fragment. It does not write a selection to the ledger.
 Rendered standalone files retain their current-line facts without contacting a service.
+
+The service warms the line index before exposing a newly synchronized head, caches up to eight
+exact commits, and coalesces concurrent reads of the same commit into one product call. A navigation
+metadata failure is reported by `/api/lines` without blocking a valid graph. Browser caching/storage
+is not used; the index and preloader are transient working caches.
 
 ## Deployment
 
