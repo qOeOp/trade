@@ -300,8 +300,11 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(slices["capital_scaled"]["measures"]["timing_term@1"]["definition_note"],
                          measures.MEASURE_NOTES["timing_term"])
         trimmed = slices["by_period"]["measures"]["residual_after_top5_days@1"]
-        self.assertIn("subtracts those residuals", trimmed["definition_note"])
-        self.assertIn("trimmed as one series", trimmed["pairwise"]["definition_note"])
+        notes = (trimmed["definition_note"], trimmed["pairwise"]["definition_note"])
+        catalogue = measures.MEASURE_NOTES["residual_after_top5_days"]
+        self.assertEqual([note.startswith(catalogue) and note != catalogue for note in notes], [True, True],
+                         "the comparison extends the catalogue note of the trimmed residual on both sides")
+        self.assertNotEqual(notes[0], notes[1], "the difference and the pairwise value trim different series")
         pairs = found["attribution"]["slices"]["trade_pairs"]["measures"]
         self.assertEqual(pairs["matched_share@1"]["difference"], 1.0, "the same single trade on both sides")
         predictions = found["attribution"]["predictions"]

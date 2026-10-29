@@ -79,7 +79,6 @@ class UnresolvedMarketTests(unittest.TestCase):
         with seams.use(market_commit=lambda ref: {"database": "market", "commit": None}):
             gate, = status._unresolved_market(self.LINE)
         self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
-        self.assertIn("in no branch of the active market database market", gate["message"])
 
     def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
         from market import store

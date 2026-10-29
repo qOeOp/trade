@@ -188,14 +188,16 @@ class FixedLimitationsTests(unittest.TestCase):
     def test_the_limitations_state_the_execution_mode_of_the_run(self):
         from engine.config import execution_account
         from engine.report import fixed_limitations
+        rates = ("0.05", "0.025")
         bars = fixed_limitations(execution_account("bars", None))
-        quotes = fixed_limitations(execution_account("quotes", ("0.05", "0.025")))
-        self.assertEqual(len(bars), len(quotes))
-        self.assertIn("Liquidation is not modelled", bars)
+        quotes = fixed_limitations(execution_account("quotes", rates))
+        other = fixed_limitations(execution_account("quotes", ("0.10", "0.04")))
+        self.assertEqual((len(bars), bars[1:-1], other[:-1]), (len(quotes), quotes[1:-1], quotes[:-1]),
+                         "the mode changes the execution and liquidation statements, the rates only the latter")
         self.assertTrue(bars[0].startswith("One-minute execution bars"))
-        self.assertNotIn("Liquidation is not modelled", quotes)
         self.assertTrue(quotes[0].startswith("Quotes drive matching") and "no depth" in quotes[0])
-        self.assertIn("declared rate (0.025; initial 0.05)", quotes[-1])
+        self.assertEqual([rate in statement for rate in rates for statement in (bars[-1], quotes[-1], other[-1])],
+                         [False, True, False] * 2, "quotes mode states a modelled liquidation at the declared rates")
 
 
 if __name__ == "__main__":

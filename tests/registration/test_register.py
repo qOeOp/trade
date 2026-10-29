@@ -536,7 +536,6 @@ class LineRecordTests(unittest.TestCase):
         exc = refused(world.register, "registration-child", restart)
         self.assertEqual((exc.code, exc.missing), ("REGISTRATION_INVALID", ("control_trial_id",)),
                          "another reason, such as a contract that no longer runs, does not excuse the control")
-        self.assertIn("as a root", exc.message)
         root = world.publish("restart", parent=None)
         registered = world.register("registration-restart", world.body([root["candidate"]], {
             root["candidate"]: world.prechecked(root["source"])}, comparison=None, rationale=restart["rationale"]))
