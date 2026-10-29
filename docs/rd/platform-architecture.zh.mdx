@@ -24,3 +24,27 @@
 ## 如何查阅
 
 从研究流程页的引用进入具体定义，或按下列职责直接定位。数据库总览保留全库关系图；每个职责页给出关联记录与写入方。Code 的账本页描述读写行为，Database 描述存储事实；视频技能指导采集与阅读，视频校验器独立重算证据绑定。
+
+<a id="deployment" />
+
+## 部署
+
+Compose 运行四个服务：`ide`、`ledger`、`paper` 和 `docker-api`。Ledger 与 Paper 共用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `strategy-runtime` 镜像分开。只有 Paper daemon 经受限 API 代理访问 Docker。
+
+<a id="ide" />
+
+## IDE
+
+IDE 维护自己的研究库与市场库只读副本，从 DoltHub 克隆并只做 fast-forward 更新。本地 Chat 运行只读命令，对话保存在自己的 volume。Paper 面板将请求与数据流代理给 daemon；daemon 经 CLI 写入活动研究账本。
+
+<a id="paper" />
+
+## Paper 执行
+
+每个 PaperRun 从同一摘要镜像启动 runner 与 egress 两个容器，放在内部网络中。只有 egress 连接 Binance 公共行情；订单与成交交给 Nautilus Sandbox。PaperRun 与捕获记录保存在研究库中：PaperRun 不是研究 trial，也没有 Paper 独立数据库。
+
+<a id="data" />
+
+## 数据与证据
+
+活动 Dolt SQL 服务承载研究账本和市场两个数据库，实际库名由连接档案指定。`dolt_backup`、DoltHub 与 IDE 保存历史副本，不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。

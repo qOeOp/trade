@@ -1,0 +1,217 @@
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
+import type { ArchitectureNodeData, Copy, DiagramNodeData, OwnerNodeData } from './architecture-map';
+
+const c = (zh: string, en: string): Copy => ({ zh, en });
+type Rect = [number, number, number, number];
+type GroupSpec = { id: string; title: string; rect: Rect; parent?: string; role: OwnerNodeData['roleLabel']; badge?: string; tone?: OwnerNodeData['tone']; route?: string };
+type PartSpec = { id: string; title: string; rect: Rect; parent?: string; subtitle: Copy; description: Copy; route: string; variant?: ArchitectureNodeData['variant']; importance?: ArchitectureNodeData['importance'] };
+const id = (value: string) => `full-${value}`;
+
+// Positions are global diagram coordinates; children are rebased only when constructing React Flow nodes.
+const groups: GroupSpec[] = [
+  { id: 'product', title: 'Product packages', badge: 'CLI', rect: [0, 90, 560, 330], role: 'PACKAGE', route: 'design-code-cli' },
+  { id: 'runtime', title: 'Digest-pinned runtime', badge: 'OCI', rect: [600, 90, 1160, 330], role: 'BOUNDARY', route: 'design-code-runtime' },
+  { id: 'runner', title: 'Runner · no network', rect: [625, 135, 610, 250], parent: 'runtime', role: 'CONTAINER', route: 'design-code-engine' },
+  { id: 'ide', title: 'IDE', badge: 'SERVICE', rect: [0, 500, 600, 205], role: 'SERVICE', route: 'platform-architecture/#ide' },
+  { id: 'paper', title: 'Paper', badge: 'SANDBOX', rect: [640, 500, 1120, 205], role: 'SUBSYSTEM', route: 'platform-architecture/#paper' },
+  { id: 'paper-network', title: 'Per-run network · same digest', rect: [655, 600, 740, 90], parent: 'paper', role: 'BOUNDARY', tone: 'amber', route: 'platform-architecture/#paper' },
+  { id: 'dolt', title: 'Active Dolt', badge: 'SQL', rect: [0, 750, 1320, 145], role: 'SERVICE', tone: 'violet', route: 'platform-architecture/#data' },
+  { id: 'research-db', title: 'Research DB', rect: [18, 785, 945, 95], parent: 'dolt', role: 'DATABASE', tone: 'violet', route: 'design-ledger' },
+  { id: 'market-db', title: 'Market DB', rect: [985, 785, 315, 95], parent: 'dolt', role: 'DATABASE', tone: 'violet', route: 'design-database-market' },
+];
+
+const parts: PartSpec[] = [
+  { id: 'agent', title: 'Agent', rect: [0, 10, 280, 55], variant: 'client',
+    subtitle: c('研究 Skills', 'Research skills'),
+    description: c('外部 Agent 按 .agents/skills/ 查来源、写单文件策略、提出假设并解释证据；经 cli/main.py 发布研究记录，用户决定路线与目标。', 'The external Agent follows .agents/skills/ to read sources, author single-file strategies, propose hypotheses and interpret evidence. It publishes through cli/main.py; the user chooses lines and targets.'), route: 'design-skill-research-round' },
+  { id: 'tsa', title: 'RFC 3161 TSA', rect: [340, 10, 260, 55],
+    subtitle: c('外部时间戳', 'Timestamp authority'),
+    description: c('ledger/witness.py 向外部 RFC 3161 TSA 请求并校验时间戳 token；样本外登记先提交，再见证提交身份和时间。', 'ledger/witness.py requests and verifies RFC 3161 tokens from an external TSA. Out-of-sample registration commits first, then witnesses that commit identity and time.'), route: 'design-database-coordination' },
+  { id: 'registry', title: 'CI / OCI registry', rect: [1260, 10, 500, 55],
+    subtitle: c('CI 构建 · 固定 digest', 'CI build · pinned digest'),
+    description: c('.github/workflows/runtime-image.yml 构建策略镜像；runtime/image.py 从镜像核对 digest、平台、契约与源码身份。trade-service 服务镜像与策略 runtime 镜像分开。', '.github/workflows/runtime-image.yml builds strategy images; runtime/image.py verifies digest, platform, contract and source identity from the image. The trade-service service image is distinct from the strategy runtime image.'), route: 'design-code-runtime' },
+  { id: 'browser', title: 'Browser', rect: [0, 440, 280, 45], variant: 'bus',
+    subtitle: c('IDE / Paper', 'IDE / Paper'),
+    description: c('浏览器访问 services/ide/ide.py 提供的 Web 服务；研究图读取 IDE 自己的公开副本，Paper 面板代理独立 daemon API。', 'The browser accesses the Web service in services/ide/ide.py. Research graphs read IDE-local public copies, while Paper panels proxy a separate daemon API.'), route: 'platform-architecture/#ide' },
+  { id: 'binance', title: 'Binance', rect: [1370, 440, 390, 45], importance: 'support', variant: 'bus',
+    subtitle: c('公共行情', 'Public market data'),
+    description: c('market/sources.py 等产品导入代码校验公共历史数据并写 market；实时公共行情只经 engine.egress 进入 Paper，不连接交易账户或交易所订单流。', 'Product import code including market/sources.py validates public historical data before writing market. Live public prices reach Paper only through engine.egress, without trading accounts or exchange order flow.'), route: 'design-code-market' },
+
+  { id: 'cli', title: 'CLI', rect: [18, 122, 524, 44], parent: 'product', importance: 'core', variant: 'bus',
+    subtitle: c('python -m cli.main', 'python -m cli.main'),
+    description: c('cli/main.py、cli/replay.py 是主机或服务进程调用的产品命令入口，负责发布、登记、回放、比较和账本管理；不是另一个常驻网络服务。', 'cli/main.py and cli/replay.py are product command entry points used by host or service processes for publication, registration, replay, comparison and ledger administration. They are not another persistent network service.'), route: 'design-code-cli' },
+  { id: 'candidate', title: 'Publish', rect: [18, 190, 164, 52], parent: 'product',
+    subtitle: c('源码与谱系', 'Source · lineage'),
+    description: c('ledger/strategies.py 保存完整单文件源码、内容哈希、父版本与改动；registration/precheck.py 绑定原生预检和独立 Agent 的 source-review，评审不由策略作者自报代替。', 'ledger/strategies.py retains complete single-file source, content hash, parent and difference. registration/precheck.py binds native prechecks and an independent Agent source-review rather than accepting the author’s self-assessment.'), route: 'design-database-candidates' },
+  { id: 'registration', title: 'Register', rect: [198, 190, 164, 52], parent: 'product',
+    subtitle: c('假设与网格', 'Hypothesis · grid'),
+    description: c('registration/register.py 在回放前登记假设、候选与对照、比较设计、输入身份和网格；registration/inputs.py 固定 market 输入并核对覆盖身份。', 'registration/register.py preregisters hypotheses, candidates/controls, comparison design, input identity and grid before replay; registration/inputs.py pins market inputs and checks coverage identity.'), route: 'design-code-registration' },
+  { id: 'validation', title: 'Validate', rect: [378, 190, 164, 52], parent: 'product',
+    subtitle: c('样本外与时间戳', 'OOS · timestamp'),
+    description: c('registration/validation.py 登记并绑定用户发起的样本外检验；ledger/witness.py 在登记提交后取得并核验 RFC 3161 凭证，证明登记早于检验窗口。', 'registration/validation.py registers and binds user-initiated out-of-sample validation; ledger/witness.py obtains and verifies RFC 3161 evidence after the registration commit to prove preregistration ordering.'), route: 'design-database-validation' },
+  { id: 'replay', title: 'Replay', rect: [18, 264, 164, 52], parent: 'product', importance: 'core',
+    subtitle: c('先提交再启动', 'Commit → launch'),
+    description: c('replay/entry.py 将 trial、binding 与 ledger/execution.py 的 start receipt 放在同一事务提交；提交后 runtime/container.py 才启动 runner，再启动同 digest 的独立 auditor 和 fingerprint 容器。', 'replay/entry.py commits the trial, binding and ledger/execution.py start receipt in one transaction. Only afterward does runtime/container.py launch the runner, followed by separate auditor and fingerprint containers at the same digest.'), route: 'design-code-replay' },
+  { id: 'market-inputs', title: 'Market I/O', rect: [198, 264, 164, 52], parent: 'product',
+    subtitle: c('历史导入与导出', 'Import · export'),
+    description: c('market/sources.py、market/series.py、market/aggtrades.py 导入公共历史数据到 market；market/read.py、market/export.py、registration/inputs.py 按固定提交读取行情、规则和范围，导出只读 Nautilus Catalog；runner 不连数据库。', 'market/sources.py, market/series.py and market/aggtrades.py imports public historical data into market. market/read.py, market/export.py and registration/inputs.py read pinned prices, rules and universe and export read-only Nautilus Catalogs. The runner does not connect to databases.'), route: 'design-code-market' },
+  { id: 'capture', title: 'Capture', rect: [378, 264, 164, 52], parent: 'product', importance: 'core',
+    subtitle: c('审计与封存读数', 'Audit · readings'),
+    description: c('ledger/execution.py、ledger/problems.py、ledger/metrics.py 经 CLI 核对原始捕获、审计和语义指纹，封存执行身份、失败事实与一次计算的读数；原生报告本身是可再现缓存。', 'ledger/execution.py, ledger/problems.py and ledger/metrics.py use the CLI path to verify captures, audits and semantic fingerprints, sealing execution identity, failure facts and once-computed readings. Native reports themselves remain reproducible caches.'), route: 'design-code-ledger' },
+  { id: 'qualification', title: 'Eligibility', rect: [18, 338, 164, 52], parent: 'product',
+    subtitle: c('读时派生资格', 'Read-time check'),
+    description: c('qualification/availability.py 在读取时按当前检查身份判断经济证据可用性；这是共享 Python 包的读时派生结果，不是服务，也不把资格结果写回旧 run。', 'qualification/availability.py assesses economic evidence availability at read time under the current check identity. It is a shared Python package derivation, not a service or a writeback to old runs.'), route: 'design-code-qualification' },
+  { id: 'reports', title: 'Reports', rect: [198, 338, 164, 52], parent: 'product',
+    subtitle: c('比较与归因', 'Compare · explain'),
+    description: c('report/runs.py、report/comparison.py、report/attribution.py、report/graph.py 按所连接账本读取并派生报告、比较和研究图；IDE 调用相同只读代码，但连接自己的本地副本，不读活动研究库。', 'report/runs.py, report/comparison.py, report/attribution.py and report/graph.py derive reports, comparisons and graphs from the connected ledger. IDE uses the same read-only code against its own local copies, not the active research database.'), route: 'design-code-report' },
+
+  { id: 'strategy', title: 'Strategy', rect: [645, 184.5, 260, 56], parent: 'runner', importance: 'core',
+    subtitle: c('哈希绑定源码', 'Hash-bound source'),
+    description: c('engine/load.py 在 runner 内按已记录源码身份加载原生 Nautilus Strategy；源码来自候选记录或 start receipt 的唯一原件，不从 Git 另取一份。', 'engine/load.py loads the native Nautilus Strategy inside the runner against recorded source identity. Source comes from the candidate record or sole start-receipt original, not a separate Git copy.'), route: 'strategy-file' },
+  { id: 'data-clock', title: 'Data / Clock', rect: [950, 184.5, 260, 56], parent: 'runner',
+    subtitle: c('Catalog · 原生时钟', 'Catalog · native clock'),
+    description: c('engine/run.py、engine/config.py 配置 Nautilus 原生 Catalog、事件时钟、交易窗口与实例；数据是只读挂载，研究 runner 使用 network=none。', 'engine/run.py and engine/config.py configure native Nautilus Catalogs, event clocks, windows and instances. Inputs are read-only mounts, and the research runner uses network=none.'), route: 'design-code-engine' },
+  { id: 'risk-execution', title: 'Risk / Execution', rect: [645, 294.5, 260, 56], parent: 'runner',
+    subtitle: c('原生订单与成交', 'Native orders / fills'),
+    description: c('engine/run.py 接入发布版 nautilus_trader；订单生命周期、风险检查、原生撮合和成交由 Nautilus 管理，产品不维护并行执行引擎。', 'engine/run.py uses published nautilus_trader. Nautilus owns order lifecycle, risk checks, native matching and fills; the product does not maintain a parallel execution engine.'), route: 'design-code-engine' },
+  { id: 'portfolio', title: 'Account', rect: [950, 294.5, 260, 56], parent: 'runner',
+    subtitle: c('Portfolio · 结算与费用', 'Portfolio · settlement'),
+    description: c('Nautilus 拥有组合、账户、结算与费用事实；engine/report.py 从原生账户和报告导出读数，不维护第二套账户账本。', 'Nautilus owns portfolio, account, settlement and fee facts. engine/report.py exports readings from native accounts and reports rather than maintaining a second account ledger.'), route: 'report' },
+  { id: 'auditor', title: 'Auditor', rect: [1270, 147, 220, 56], parent: 'runtime',
+    subtitle: c('同 digest · 独立容器', 'Same digest · container'),
+    description: c('replay/entry.py 在 runner 完成后，以同一 digest 的另一个命名容器运行 engine.audit；它只读原生报告和覆盖回执，独立重算完整性与账户经济核对，不是 runner 内函数。', 'After the runner finishes, replay/entry.py runs engine.audit in another named container at the same digest. It reads native reports and coverage receipts to independently recompute integrity and account economics; it is not a runner function.'), route: 'audit' },
+  { id: 'fingerprint', title: 'Fingerprint', rect: [1510, 147, 220, 56], parent: 'runtime',
+    subtitle: c('同 digest · 独立容器', 'Same digest · container'),
+    description: c('engine/compare.py 在同一 digest 的独立 fingerprint 命名容器读取原生报告，归一化随机标识并计算语义指纹；不直接读写 Dolt。', 'engine/compare.py reads native reports in the separate named fingerprint container at the same digest, normalizes random identifiers and computes semantic fingerprints. It does not read or write Dolt directly.'), route: 'design-code-engine' },
+  { id: 'cache', title: 'Native reports', rect: [1270, 294.5, 460, 56], parent: 'runtime', variant: 'store', importance: 'support',
+    subtitle: c('CACHE · 临时报告文件', 'CACHE · temporary report files'),
+    description: c('engine/report.py 生成 orders、fills、positions、account、returns 和事件历史等报告，先写临时工作目录。它们是可按输入身份重建并对照 fingerprint 核验的缓存，不是持久事实数据库。', 'engine/report.py writes orders, fills, positions, account, returns and event history into a temporary work directory. These reports are caches regenerated from pinned inputs and checked against fingerprints, not another durable fact database.'), route: 'ledger-runtime' },
+
+  { id: 'ide-web', title: 'Web / Graph', rect: [18, 532, 264, 60], parent: 'ide',
+    subtitle: c('研究图 · Paper 面板', 'Graphs · Paper panel'),
+    description: c('services/ide/ide.py 和 services/ide/research_graph/ 在 IDE 服务中读取本地副本生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。', 'services/ide/ide.py and services/ide/research_graph/ generate graphs from IDE-local copies and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger.'), route: 'platform-architecture/#ide' },
+  { id: 'chat', title: 'Chat', rect: [318, 532, 264, 60], parent: 'ide',
+    subtitle: c('只读工具 · 对话 volume', 'Read-only · chat volume'),
+    description: c('services/ide/agent/src/tools.ts 只允许产品只读命令，并连接 IDE 本地数据库副本；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。', 'services/ide/agent/src/tools.ts allows read-only product commands against IDE-local database copies; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research.'), route: 'platform-architecture/#ide' },
+  { id: 'copies', title: 'Local research + market', rect: [18, 626, 564, 60], parent: 'ide', variant: 'store', importance: 'support',
+    subtitle: c('READ COPIES · clone / ff-only', 'READ COPIES · clone / ff-only'),
+    description: c('services/ide/docker/entrypoint.sh、pull.sh 在 IDE volume 中维护自己的 research 与 market Dolt 副本；首次从 DoltHub clone，此后只做 fast-forward DOLT_PULL，业务读取账号只有 SELECT。', 'services/ide/docker/entrypoint.sh and pull.sh maintain IDE-local research and market Dolt copies in its volume. They initially clone from DoltHub, then fast-forward with DOLT_PULL; application readers have SELECT-only access.'), route: 'platform-architecture/#data' },
+
+  { id: 'daemon', title: 'Paper daemon', rect: [665, 532, 250, 54], parent: 'paper',
+    subtitle: c('paper serve · 控制面', 'paper serve · control'),
+    description: c('paper/serve.py、paper/runs.py、paper/reconcile.py 是 compose 的 paper 服务控制面，负责启停、封存与对账，经 CLI 写活动研究库；它不是策略 runner。ledger 与 paper 服务共用 trade-service 镜像。', 'paper/serve.py, paper/runs.py and paper/reconcile.py form the compose paper service control plane for start/stop, sealing and reconciliation. It writes the active research database through CLI and is distinct from the strategy runner. ledger and paper share the trade-service image.'), route: 'platform-architecture/#paper' },
+  { id: 'docker-api', title: 'Docker API', rect: [955, 532, 220, 54], parent: 'paper',
+    subtitle: c('受限 HAProxy 服务', 'Restricted HAProxy'),
+    description: c('services/ide/docker/docker-api.cfg 只放行 Paper 必需的 Docker API；它是 compose 的 docker-api 服务，只有 Paper 控制面能访问，IDE 没有 Docker socket。', 'services/ide/docker/docker-api.cfg permits only Paper-required Docker API calls. It runs as the separate compose docker-api service, reachable by Paper control plane; IDE has no Docker socket.'), route: 'platform-architecture/#deployment' },
+  { id: 'journal', title: 'Run files', rect: [1460, 532, 275, 54], parent: 'paper', variant: 'store', importance: 'support',
+    subtitle: c('journal · summary · logs', 'journal · summary · logs'),
+    description: c('engine/paper.py 将运行中 journal、summary、日志写到 service/paper/<database>/<paper_id>。daemon 封存 capture 后清理容器和网络；目录保留到用户删除 run，不是另一套数据库。', 'engine/paper.py writes growing journals, summary and logs under service/paper/<database>/<paper_id>. After capture sealing the daemon removes containers and network; the directory remains until user deletion and is not another database.'), route: 'platform-architecture/#paper' },
+  { id: 'sandbox', title: 'Sandbox runner', rect: [675, 625, 390, 52], parent: 'paper-network', importance: 'core',
+    subtitle: c('engine.paper · 虚拟成交', 'engine.paper · simulated fills'),
+    description: c('paper/runs.py 为每个 PaperRun 启动独立 runner 容器和 internal network；engine/paper.py 消费公共实时行情，由 Nautilus Sandbox 管理虚拟订单、成交、风险、组合与账户。它与 egress 使用同一镜像 digest。', 'paper/runs.py starts a separate runner container and internal network per PaperRun. engine/paper.py consumes public live prices while Nautilus Sandbox owns simulated orders, fills, risk, portfolio and account. Runner and egress use the same image digest.'), route: 'platform-architecture/#paper' },
+  { id: 'egress', title: 'Egress proxy', rect: [1125, 625, 250, 52], parent: 'paper-network',
+    subtitle: c('engine.egress · 公网出口', 'engine.egress · outbound'),
+    description: c('engine/egress.py 是每次 PaperRun 独立的出站代理容器，和 runner 同 digest；只有 egress 同时接出站网络，runner 经 internal network 从它读 Binance 公共行情。', 'engine/egress.py is a separate outbound proxy container per PaperRun, sharing the runner digest. Only egress also joins the outbound network; the runner reads Binance public prices through it over the internal network.'), route: 'platform-architecture/#paper' },
+
+  { id: 'candidates', title: 'Candidates', rect: [34, 815, 166, 52], parent: 'research-db', variant: 'record',
+    subtitle: c('Source · lineage', 'Source · lineage'),
+    description: c('ledger/strategies.py、ledger/schema.sql：同一研究数据库中的 candidate 记录保存完整源码、源码哈希、父版本和改动说明；这一格是记录族，不是一个数据库。', 'ledger/strategies.py and ledger/schema.sql: candidate records in the research database retain complete source, hash, parent and difference. This box is a record family, not a database.'), route: 'design-database-candidates' },
+  { id: 'plans', title: 'Plans', rect: [220, 815, 166, 52], parent: 'research-db', variant: 'record',
+    subtitle: c('Lines · targets', 'Lines · targets'),
+    description: c('ledger/lines.py、ledger/targets.py、registration/register.py、registration/validation.py：研究路线、用户目标、研究计划和样本外登记属于同一个研究数据库。', 'ledger/lines.py, ledger/targets.py, registration/register.py and registration/validation.py: research lines, user targets, research plans and out-of-sample registrations belong to the same research database.'), route: 'design-database-validation' },
+  { id: 'trials', title: 'Trials', rect: [406, 815, 166, 52], parent: 'research-db', variant: 'record',
+    subtitle: c('Sealed readings', 'Sealed readings'),
+    description: c('ledger/trials.py、ledger/execution.py、ledger/metrics.py：试验身份、start receipt、原始捕获、审计结论、一次封存的指标与日收益以及报告指纹；不是另一份原生报告缓存。', 'ledger/trials.py, ledger/execution.py and ledger/metrics.py: trial identity, start receipts, original captures, audit verdicts, once-sealed metrics/daily returns and report fingerprints, not another native report cache.'), route: 'design-database-runs' },
+  { id: 'evidence', title: 'Evidence', rect: [592, 815, 166, 52], parent: 'research-db', variant: 'record',
+    subtitle: c('Judgments · TSA', 'Judgments · TSA'),
+    description: c('ledger/evidence.py、ledger/judgments.py、ledger/witness.py：来源原件、证据包、只追加判断、取代关系和时间戳凭证，均在研究数据库中。', 'ledger/evidence.py, ledger/judgments.py and ledger/witness.py: source originals, evidence bundles, append-only judgments, supersession and timestamp witnesses all live in the research database.'), route: 'design-database-evidence' },
+  { id: 'paper-records', title: 'Paper run', rect: [778, 815, 166, 52], parent: 'research-db', variant: 'record',
+    subtitle: c('capture · 非 trial', 'Run · capture'),
+    description: c('ledger/paper.py、ledger/schema.sql：paper_run 声明与 paper-<id>-capture 在同一研究数据库；它们不是 research trial，也不存在 Paper 独立数据库。已封存 run 的用户删除路径由 paper.delete 处理。', 'ledger/paper.py and ledger/schema.sql: paper_run declarations and paper-<id>-capture live in the same research database. They are not research trials and there is no separate Paper database. paper.delete handles user deletion of sealed runs.'), route: 'platform-architecture/#paper' },
+  { id: 'market-records', title: 'Market records', rect: [1005, 815, 275, 52], parent: 'market-db', variant: 'record',
+    subtitle: c('Bars · funding · rules', 'Bars · funding · rules'),
+    description: c('market/schema.sql、market/store.py：market 数据库保存版本化 LAST、MARK、aggTrades、资金费率、合约规则、成员；库名由 profile 指定，与研究库共用活动 Dolt SQL 服务。', 'market/schema.sql and market/store.py: the market database stores versioned LAST, MARK, aggTrades, funding, instrument rules, membership. Its profile specifies the database name; it shares the active Dolt SQL service with the research database.'), route: 'design-database-market' },
+  { id: 'dolthub', title: 'DoltHub', rect: [1380, 755, 380, 60], variant: 'store', importance: 'support',
+    subtitle: c('公开 research + market 历史', 'Public research + market history'),
+    description: c('ledger/publish.py 与市场发布命令将研究和 market 的版本历史发布到 DoltHub；IDE clone 后 ff-only 拉取这些公开副本。DoltHub 不是另一份独立事实来源。', 'ledger/publish.py and market publication commands publish research and market version history to DoltHub. IDE clones then fast-forwards these public copies; DoltHub is not another independent source of fact.'), route: 'platform-architecture/#data' },
+  { id: 'backup', title: 'dolt_backup', rect: [1380, 830, 380, 60], variant: 'store', importance: 'support',
+    subtitle: c('service / checkout 外的历史', 'History outside service / checkout'),
+    description: c('ledger/admin.py 与市场备份代码维护研究、market 的 dolt_backup 全历史副本，位于 service 与 Git checkout 之外；它是恢复副本，不是第三套活动账本。', 'ledger/admin.py and market backup code retain full research/market history in dolt_backup outside the service and Git checkout. These are recovery copies, not a third active ledger.'), route: 'ledger-runtime' },
+];
+
+const groupIndex = new Map(groups.map(group => [group.id, group]));
+function geometry(rect: Rect, parent?: string) {
+  const [x, y, width, height] = rect;
+  const parentRect = parent ? groupIndex.get(parent)!.rect : [0, 0];
+  return { parentId: parent ? id(parent) : undefined, position: { x: x - parentRect[0], y: y - parentRect[1] }, width, height, style: { width, height } };
+}
+
+const groupNodes: Node<OwnerNodeData>[] = groups.map(group => ({
+  id: id(group.id), type: 'ownerGroup', ...geometry(group.rect, group.parent),
+  data: { nodeType: group.role === 'BOUNDARY' || group.role === 'CONTAINER' ? 'boundary' : 'owner', label: group.title, badge: group.badge,
+    count: groups.filter(child => child.parent === group.id).length + parts.filter(child => child.parent === group.id).length,
+    tone: group.tone ?? 'cyan', role: group.role === 'BOUNDARY' || group.role === 'CONTAINER' || group.role === 'SUBSYSTEM' ? 'shell' : 'authority',
+    roleLabel: group.role, docsRoute: group.route ?? 'platform-architecture', memberGroupIds: groups.filter(child => child.parent === group.id).map(child => id(child.id)) },
+}));
+const partNodes: Node<ArchitectureNodeData>[] = parts.map(part => ({
+  id: id(part.id), type: 'architectureNode', ...geometry(part.rect, part.parent),
+  data: { nodeType: 'architecture', title: part.title, subtitle: part.subtitle, description: part.description,
+    owner: part.parent ? id(part.parent) : 'external', kind: part.variant === 'store' || part.variant === 'record' ? 'protected' : part.variant === 'client' ? 'adapter' : 'authority',
+    emphasis: part.importance === 'core' ? 'core' : part.importance === 'support' ? 'support' : 'standard', importance: part.importance ?? 'normal',
+    variant: part.variant, docsRoute: part.route },
+}));
+
+export const productArchitectureNodes: Node<DiagramNodeData>[] = [...groupNodes, ...partNodes];
+
+type Relation = { id: string; source: string; target: string; from: string; to: string; description: Copy; caption?: Copy; emphasis?: 'main' | 'secondary'; route?: { axis: 'x' | 'y'; at: number } | { via: [number, number][] }; both?: boolean; pinOrder?: number };
+const relations: Relation[] = [
+  { id: 'agent-cli', source: 'agent', target: 'cli', from: 'bottom', to: 'top', route: { via: [[140,110]] }, description: c('Agent 经声明的 CLI 发布研究记录，用户决定路线与目标。', 'The Agent publishes research records through the declared CLI; the user chooses research lines and targets.') },
+  { id: 'cli-candidate', emphasis: 'secondary', source: 'cli', target: 'candidate', from: 'bottom', to: 'top', route: { axis: 'y', at: 178 }, description: c('CLI 调用候选发布、预检与独立源码评审记录接口。', 'CLI invokes candidate publication, prechecks and independent source-review recording.') },
+  { id: 'cli-registration', emphasis: 'secondary', source: 'cli', target: 'registration', from: 'bottom', to: 'top', route: { axis: 'y', at: 178 }, description: c('事前登记在回放前锁定假设、候选、对照与输入身份。', 'Preregistration locks hypotheses, candidates, controls and input identity before replay.') },
+  { id: 'cli-validation', emphasis: 'secondary', source: 'cli', target: 'validation', from: 'bottom', to: 'top', route: { axis: 'y', at: 178 }, description: c('用户发起样本外检验，经 CLI 登记、见证并绑定一次验证回放。', 'The user initiates out-of-sample validation; CLI preregisters, witnesses and binds the validation replay.') },
+  { id: 'cli-replay', source: 'cli', target: 'replay', from: 'bottom', to: 'top', route: { via: [[190,178],[190,252]] }, description: c('CLI 调用 replay/entry.py 协调一次有持久身份的原生回放。', 'CLI calls replay/entry.py to coordinate native replay with a durable identity.') },
+  { id: 'witness-tsa', source: 'tsa', target: 'validation', from: 'bottom', to: 'top', both: true, emphasis: 'secondary', route: { via: [[470,118],[546,118],[546,178]] }, description: c('登记提交后，ledger/witness.py 向 RFC 3161 TSA 发送摘要请求，校验返回 token 并保存时间戳凭证。', 'After registration commits, ledger/witness.py sends a digest request to the RFC 3161 TSA, verifies its response token and retains timestamp evidence.') },
+  { id: 'registry-runtime', emphasis: 'secondary', source: 'registry', target: 'runtime', from: 'bottom', to: 'top', caption: c('固定 OCI digest', 'Pinned OCI digest'), route: { via: [[1510,78]] }, description: c('runner、auditor、fingerprint 是同一固定 digest 镜像的三个独立命名容器，不是一个 runner 内的三个函数。', 'Runner, auditor and fingerprint are three separately named containers from the same pinned image digest, not three functions inside one runner.') },
+  { id: 'market-inputs', source: 'market-db', target: 'market-inputs', both: true, from: 'top', to: 'bottom', emphasis: 'secondary', route: { via: [[1151.5,681],[586,681],[586,328]] }, description: c('产品导入代码写入版本化市场记录，导出代码从固定 market commit 读取行情、规则与范围；容器不直连数据库。', 'Product import code writes versioned market records; export code reads prices, rules and universe at a pinned market commit. Containers do not connect directly to databases.') },
+  { id: 'catalog-runner', source: 'market-inputs', target: 'runner', from: 'top', to: 'left', emphasis: 'secondary', route: { via: [[280,251]] }, description: c('market/export.py 导出 Catalog，由 runtime/container.py 只读挂载进无网络 runner。', 'market/export.py exports Catalogs which runtime/container.py mounts read-only into the networkless runner.') },
+  { id: 'replay-runner', source: 'replay', target: 'runner', from: 'right', to: 'left', route: { via: [[194,260],[613,260]] }, description: c('replay/entry.py 将 trial、binding、start receipt 在同一事务提交，提交之后才启动 runner 命名容器。', 'replay/entry.py commits the trial, binding and start receipt in one transaction before starting the named runner container.') },
+  { id: 'data-strategy', source: 'data-clock', target: 'strategy', from: 'left', to: 'right', route: { via: [] }, description: c('Nautilus 按原生时钟将数据事件交给 Strategy。', 'Nautilus delivers data events to Strategy under its native clock.') },
+  { id: 'strategy-execution', source: 'strategy', target: 'risk-execution', from: 'bottom', to: 'top', route: { via: [] }, description: c('Strategy 发送原生订单命令，由 Nautilus 风险与执行组件处理。', 'Strategy sends native order commands to Nautilus risk and execution components.') },
+  { id: 'execution-account', source: 'risk-execution', target: 'portfolio', from: 'right', to: 'left', route: { via: [] }, description: c('原生成交驱动组合、账户与费用状态更新。', 'Native fills update portfolio, account and fee state.') },
+  { id: 'history-import', source: 'binance', target: 'market-inputs', from: 'left', to: 'left', emphasis: 'secondary', route: { via: [[366,471.5],[366,320],[186,320]] }, description: c('公共历史档案交由产品导入代码校验、导入并发布 market 版本；数据源不直接写数据库。', 'Product import code validates public historical archives, imports them and publishes market versions. The external data source does not write databases directly.') },
+  { id: 'runner-cache', source: 'runner', target: 'cache', from: 'right', to: 'left', route: { via: [[1258,260]] }, description: c('engine/report.py 导出原生报告到临时目录，报告为可再现缓存。', 'engine/report.py exports native reports to a temporary directory as reproducible caches.') },
+  { id: 'cache-audit', source: 'cache', target: 'auditor', from: 'top', to: 'bottom', route: { via: [[1491,227],[1380,227]] }, description: c('独立 auditor 容器只读报告和覆盖回执，重算完整性及账户经济。', 'The separate auditor container reads reports and coverage receipts to recompute integrity and account economics.') },
+  { id: 'cache-fingerprint', source: 'cache', target: 'fingerprint', from: 'top', to: 'bottom', route: { via: [[1509,227],[1620,227]] }, description: c('独立 fingerprint 容器只读报告并生成归一化语义指纹。', 'The separate fingerprint container reads reports and computes normalized semantic fingerprints.') },
+  { id: 'cache-capture', emphasis: 'secondary', source: 'cache', target: 'capture', from: 'left', to: 'right', route: { via: [[1214,313.5],[1214,281],[554,281]] }, description: c('产品将原始执行捕获绑定到报告身份；原生报告可按已存指纹重建，不作为第二份持久事实源。', 'The product binds original execution capture to report identity. Native reports can be regenerated against stored fingerprints rather than becoming another durable source of fact.') },
+  { id: 'audit-capture', emphasis: 'secondary', source: 'auditor', target: 'capture', from: 'left', to: 'right', route: { via: [[1214,175],[1214,272]] }, description: c('独立 auditor 的结论和原件进入产品捕获封存核对。', 'Independent auditor verdicts and originals enter product capture and sealing verification.') },
+  { id: 'fingerprint-capture', emphasis: 'secondary', source: 'fingerprint', target: 'capture', from: 'left', to: 'right', route: { via: [[1494,175],[1494,281],[554,281]] }, description: c('独立语义指纹进入封存记录，供报告重建时核对。', 'Independent semantic fingerprints enter sealed records for later report-reconstruction checks.') },
+  { id: 'capture-research', source: 'capture', target: 'research-db', from: 'bottom', to: 'top', route: { via: [[460,512],[614,512],[614,773]] }, description: c('经 CLI 将身份、审计结论、执行捕获和封存读数写入同一研究数据库。', 'Through CLI, identity, audit verdicts, execution capture and sealed readings are written to the same research database.') },
+  { id: 'research-qualification', source: 'research-db', target: 'qualification', from: 'top', to: 'right', emphasis: 'secondary', route: { via: [[499.5,690],[586,690],[586,394],[194,394]] }, description: c('qualification/availability.py 从所连接账本按当前检查身份读时判定，不回写资格结果；IDE 调用时连接自己的公开副本。', 'qualification/availability.py derives availability at read time under the current check identity without writing it back. When called by IDE, it connects to IDE-local public copies.') },
+  { id: 'research-reports', source: 'research-db', target: 'reports', from: 'top', to: 'right', emphasis: 'secondary', route: { via: [[517.5,690],[586,690],[586,364]] }, description: c('共享 report Python 包从所连接账本派生指标、比较、归因和图；不是另一项网络服务。', 'Shared report Python packages derive metrics, comparisons, attribution and graphs from the connected ledger. They are not another network service.') },
+  { id: 'reports-ide', source: 'ide', target: 'reports', from: 'top', to: 'bottom', caption: c('共享只读代码', 'Shared read-only code'), emphasis: 'secondary', route: { via: [[300,402]] }, description: c('IDE 调用相同只读 qualification/report 代码，以 IDE 本地副本为数据源。这是代码复用关系，不表示 IDE 读取活动研究库，也不是活动库推送派生报告。', 'IDE invokes the same read-only qualification/report code against IDE-local copies. This denotes code reuse, not IDE access to the active research database or an active-database report push.') },
+  { id: 'browser-ide', source: 'browser', target: 'ide-web', from: 'bottom', to: 'top', route: { via: [[140,520]] }, description: c('浏览器访问 IDE Web、研究图与 Paper 面板。', 'The browser opens IDE Web, research graphs and Paper panels.') },
+  { id: 'copies-web', pinOrder: -1, source: 'copies', target: 'ide-web', from: 'top', to: 'bottom', emphasis: 'secondary', route: { via: [[291,604]] }, description: c('研究图通过只读 CLI 查询 IDE 本地 research、market 副本，不连接 active Dolt。', 'Graphs query IDE-local research and market copies through read-only CLI, without connecting to active Dolt.') },
+  { id: 'chat-copies', pinOrder: 1, source: 'chat', target: 'copies', from: 'bottom', to: 'top', emphasis: 'secondary', route: { via: [[450,614]] }, description: c('Chat 工具白名单只读产品命令，数据来自本地副本；对话另存 IDE volume。', 'Chat tool allowlists expose read-only product commands using local copies; conversations are stored separately in the IDE volume.') },
+  { id: 'hub-copies', source: 'dolthub', target: 'copies', from: 'top', to: 'bottom', emphasis: 'secondary', caption: c('clone / ff-only', 'clone / ff-only'), route: { via: [[1570,698]] }, description: c('IDE 首次从 DoltHub clone，此后只做 ff-only DOLT_PULL；公开副本同步不等于直连活动研究库。', 'IDE initially clones from DoltHub, then uses ff-only DOLT_PULL. Public-copy synchronization is not a direct connection to the active research database.') },
+  { id: 'dolt-hub', source: 'dolt', target: 'dolthub', from: 'right', to: 'left', emphasis: 'secondary', route: { via: [[1368,831.5]] }, description: c('产品管理命令将研究和 market 的版本历史发布到各自公开 DoltHub 副本。', 'Product administration publishes research and market version history to their public DoltHub copies.') },
+  { id: 'dolt-backup', source: 'dolt', target: 'backup', from: 'right', to: 'left', emphasis: 'secondary', route: { via: [[1368,813.5]] }, description: c('dolt_backup 保存研究、market 的全历史增量恢复副本，位于 service 和 checkout 之外。', 'dolt_backup retains incremental full-history recovery copies for research and market outside the service and checkout.') },
+  { id: 'ide-daemon', source: 'ide', target: 'daemon', from: 'right', to: 'left', caption: c('Paper API', 'Paper API'), route: { via: [[653,602.5]] }, description: c('IDE Paper 面板经 Web 代理向 paper:8767 发请求并接收 stream；控制面写入发生在 daemon 的 CLI 路径。', 'IDE Paper panels use the Web proxy to call paper:8767 and receive streams; control-plane writes occur through the daemon CLI path.') },
+  { id: 'daemon-docker', source: 'daemon', target: 'docker-api', from: 'right', to: 'left', route: { via: [] }, description: c('只有 Paper 控制面调用受限 Docker API 代理，IDE 无 Docker socket。', 'Only Paper control plane calls the restricted Docker API proxy; IDE has no Docker socket.') },
+  { id: 'docker-run', source: 'docker-api', target: 'paper-network', from: 'right', to: 'right', route: { via: [[1407,559]] }, description: c('受限 Docker API 为每次 run 创建 internal network，并启动同 digest 的 runner 和 egress 两容器。', 'The restricted Docker API creates each run’s internal network and starts runner and egress containers at the same digest.') },
+  { id: 'binance-egress', source: 'binance', target: 'egress', from: 'left', to: 'right', emphasis: 'secondary', route: { via: [[1358,621],[1387,621]] }, description: c('只有 egress 连接 Binance 公共 REST/WebSocket，允许的是公共行情，不是交易账户连接。', 'Only egress reaches Binance public REST/WebSocket endpoints for public prices, without trading-account connectivity.') },
+  { id: 'egress-sandbox', source: 'egress', target: 'sandbox', from: 'left', to: 'right', route: { via: [] }, description: c('runner 经 internal network 消费 egress 转发的公共行情；订单与成交由 Nautilus Sandbox 管理。', 'The runner consumes public prices through egress over the internal network; Nautilus Sandbox owns orders and fills.') },
+  { id: 'sandbox-journal', source: 'sandbox', target: 'journal', from: 'top', to: 'bottom', route: { via: [[870,610],[1597.5,610]] }, description: c('engine.paper 将运行中 journal、summary 和日志写入运行目录。', 'engine.paper writes growing journals, summary and logs into the run directory.') },
+  { id: 'journal-daemon', emphasis: 'secondary', source: 'journal', target: 'daemon', from: 'top', to: 'top', route: { via: [] }, description: c('daemon 读取 journal 提供面板数据，结束后经 CLI 封存 capture 并清理容器/网络；目录保留至用户删除 run。', 'The daemon tails journals for the panel and after exit seals captures through CLI and removes containers/network. The directory remains until user deletion.') },
+  { id: 'daemon-research', source: 'daemon', target: 'research-db', from: 'left', to: 'top', route: { via: [[614,541],[614,773]] }, description: c('daemon 经 CLI 声明 paper_run 并封存 capture 到同一个研究数据库，Paper 不是 trial 或独立数据库。', 'The daemon uses CLI to declare paper_run and seal captures into the same research database. Paper is neither a trial nor a separate database.') },
+  { id: 'market-daemon', source: 'market-db', target: 'daemon', from: 'top', to: 'left', emphasis: 'secondary', route: { via: [[1133.5,681],[653,681]] }, description: c('启动 Paper 时，产品从固定 market commit 读取成员与范围身份；合约规格和实时价格经 egress 获取公共 REST/WebSocket。', 'At Paper start the product reads membership and universe identity from a pinned market commit. Instrument specifications and live prices come from public REST/WebSocket through egress.') },
+];
+
+export const productArchitectureEdges: Edge[] = relations.map(relation => ({
+  id: id(relation.id), source: id(relation.source), target: id(relation.target), type: 'architectureEdge',
+  sourceHandle: `out-${relation.from}`, targetHandle: `in-${relation.to}`,
+  markerEnd: { type: MarkerType.ArrowClosed, color: relation.emphasis === 'secondary' ? 'var(--map-edge-muted)' : 'var(--map-edge)', width: 8, height: 8 },
+  markerStart: relation.both ? { type: MarkerType.ArrowClosed, color: relation.emphasis === 'secondary' ? 'var(--map-edge-muted)' : 'var(--map-edge)', width: 8, height: 8 } : undefined,
+  data: {
+    pinOrder: relation.pinOrder, emphasis: relation.emphasis ?? 'main', route: relation.route, caption: relation.caption,
+    description: relation.description, docsRoute: 'platform-architecture' },
+}));

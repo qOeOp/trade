@@ -24,3 +24,27 @@ One compose file (`services/ide/docker/compose.yaml`) is the whole deployment, t
 ## Finding a definition
 
 Follow references from research chapters, or locate the owning responsibility here. The database overview retains the full relationship diagrams. Code pages describe execution and reads/writes; database pages describe stored facts. The video skill guides acquisition and reading, while its checker independently recomputes evidence bindings.
+
+<a id="deployment" />
+
+## Deployment
+
+Compose runs four services: `ide`, `ledger`, `paper` and `docker-api`. Ledger and Paper share the `trade-service` service image. This is separate from the digest-pinned `strategy-runtime` image that executes strategies. Only the Paper daemon accesses Docker through the restricted API proxy.
+
+<a id="ide" />
+
+## IDE
+
+The IDE maintains its own read-only research and market copies, cloned from DoltHub and updated by fast-forward only. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the active research ledger.
+
+<a id="paper" />
+
+## Paper execution
+
+Each PaperRun starts a runner and an egress container from the same digest-pinned image on an internal network. Only egress connects to Binance public market data; Nautilus Sandbox handles orders and fills. PaperRun and capture records live in the research database: a PaperRun is not a research trial, and Paper has no separate database.
+
+<a id="data" />
+
+## Data and evidence
+
+The active Dolt SQL service hosts the research ledger and market databases; connection profiles specify their names. `dolt_backup`, DoltHub and the IDE retain historical copies rather than create new sources of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.

@@ -1,17 +1,17 @@
 import type { Locale } from '@/lib/i18n';
-import { ResearchMap } from '@/components/research-map';
+import { ArchitectureMap } from '@/components/architecture-map';
 
 export const homeDescription: Record<Locale, string> = {
-  en: 'The research chain: a continuous loop of registered hypotheses on a candidate lineage, with trust boundaries enforced in code.',
-  zh: '研发长链：在候选谱系上不停登记、回放、比较、反馈的循环，只有信任边界由代码强制。',
+  en: 'The product architecture: IDE, Paper, native Nautilus runtime, the Dolt research and market databases, and their read copies.',
+  zh: '产品架构：IDE、Paper、Nautilus 原生运行环境、Dolt 研究与市场数据库，以及它们的只读副本。',
 };
 
-// The home page is the map itself: every chapter as a node, the loop between them as edges.
+// The landing diagram shows system responsibilities; chapter detail lives in the docs.
 export function HomePageContent({ locale }: { locale: Locale }) {
   return (
-    <main className="relative flex flex-1 flex-col">
-      <div className="h-[calc(100dvh-3.5rem)] min-h-[560px] w-full">
-        <ResearchMap locale={locale} />
+    <main className="docs-architecture-page relative flex flex-col">
+      <div className="docs-home-container relative mx-auto w-full max-w-[1440px] px-4">
+        <ArchitectureMap locale={locale} />
       </div>
     </main>
   );
