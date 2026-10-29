@@ -89,9 +89,10 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
               return (
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2">
                   <span className={cls}>{label}</span>
-                  <span className="min-w-0"><span className="text-fg-faint">{when(r.at)}</span>
+                  <div className="min-w-0 space-y-1"><div className="text-fg-faint">{when(r.at)}
                     {!!r.failed_items?.length && <span className="ml-2">Failed items {r.failed_items.join(", ")}</span>}
-                    {r.note && <span className="block text-fg-muted">{r.note}</span>}</span>
+                    </div>
+                    {r.note && <div className="text-fg-muted"><Prose text={r.note} /></div>}</div>
                 </div>
               );
             })}
