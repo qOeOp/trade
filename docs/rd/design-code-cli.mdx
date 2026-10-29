@@ -45,7 +45,15 @@
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
+| <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个合约月的完整源 aggTrades 导入成一个市场提交，只写 agg_trade；K 线、报价与回放导出不变 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
+| <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
+| <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
+| <Ref id="cli.paper_reconcile">paper_reconcile</Ref> | 命令行 paper reconcile：把一个已封存纸面运行按它自己的身份在归档上重放，逐单对照成交；不写任何库 |
+| <Ref id="cli.paper_seal">paper_seal</Ref> | 命令行 paper seal：把一个已结束的纸面运行封存进账本（捕获包与封存读数），再拆掉它的容器与网络 |
+| <Ref id="cli.paper_serve">paper_serve</Ref> | 命令行 paper serve：纸面守护进程，向 trade IDE 的 Paper 面板提供这个账本的纸面运行；页面上的起停封删都经它走命令行 |
+| <Ref id="cli.paper_start">paper_start</Ref> | 命令行 paper start：声明一个候选的纸面运行并起它的容器；只用 Binance 公开行情与 Nautilus Sandbox 成交，没有任何凭据 |
+| <Ref id="cli.paper_stop">paper_stop</Ref> | 命令行 paper stop：停掉一个运行中的纸面运行并封存 |
 | <Ref id="cli.publish_after">_publish_after</Ref> | 命令写完后发布它用的库：origin 落后于本地时推送一次；失败只在结果里报 publish_failed，写入照旧 |
 | <Ref id="cli.registration_add">registration_add</Ref> | 命令行登记入口：读入登记体并调 registration.register，把五样、检验条件、网格与执行身份锁进不可变登记证据包，以 JSON 输出结果或带码拒绝 |
 | <Ref id="cli.replay_explore">replay_explore</Ref> | 非登记探索回放（purpose=explore）的命令行入口：报告留在临时目录，账本只写试验行、开始回执与执行封存 |
@@ -1063,6 +1071,41 @@ def market_import(
 
 </div>
 
+### `market_import_trades` [#def-cli-market_import_trades]
+
+命令行入口 market import-trades：把一个合约月的完整源 aggTrades 导入成一个市场提交，只写 agg_trade；K 线、报价与回放导出不变
+
+```python
+def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L848)
+
+<TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "month": { type: "str (YYYY-MM)", description: "UTC 月份；须至少含一个已结束的 UTC 日；更早的月份可以任意顺序导入" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "symbols": { type: "list[str]", description: "恰好一个 USD-M 永续合约" } }} />
+
+**返回**　JSON：\{month, through, symbols, codec, trade_rows, archives, readings, market_commit, seconds\}，自动发布跑了时加 publish_seconds；codec 为 binance-aggtrades-int64-scale8-v1（价格与数量精确 ×1e8）；archives 是逐日归档的 SHA-256，readings 是逐日行数、首末 ID 与时刻、最大时间缺口；逐日进度写 stderr
+
+**期望行为**
+
+1. 解析参数：month 不是 YYYY-MM 即 MONTH_INVALID；symbols 不是恰好一个即 IMPORT_SCOPE；其余交给 market.aggtrades.import_month，拒绝码原样输出。
+2. 以受限导入账号持市场导入锁，读显式命名的这个合约月与它已有的完整成交；官方逐日 aggTrades ZIP 与月前一日按校验和核过后放在 --cache-root，分块下载解析。
+3. 把源文件的全部八个字段写进 agg_trade，一个合约月一个事务一个提交；不动 K 线、报价与回放导出。
+4. 导入成功后经 cli.publish_after 发布市场库；发布失败只报 publish_failed，导入照旧。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
+| `IMPORT_SCOPE` | --symbols 不是恰好一个合约 |
+| `SCHEMA_MISMATCH` | 市场库缺表，先跑 market upgrade |
+| `MARKET_EMPTY` | 市场库还没有任何导入 |
+| `MONTH_EXISTS` | 这个合约月已有成交；不完整的月不能续补 |
+| `SCALE_LOSS` | 任一值 ×1e8 后不精确或超出带符号 BIGINT：整月拒绝，不舍入、不回退 |
+| `SEQUENCE_GAP` | agg_trade_id 在批内、批间、日间或与月前一日之间不连续 |
+| `SOURCE_SHAPE`、`CHECKSUM_MISMATCH`、`ARCHIVE_NOT_PUBLISHED` | 归档形状不对、校验和不符、官方尚未发布 |
+| `RULE_VERSION_MISMATCH`、`CONCURRENT_IMPORT`、`DIRTY_WORKING_SET`、`COMMIT_CHECKS_DISABLED`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
+
+**使用**　`market.aggtrades.import_month`、<Ref id="cli.publish_after" />
+
 ### `market_publish` [#def-cli-market_publish]
 
 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin
@@ -1098,6 +1141,176 @@ def market_publish(market: dict, remote: str | None) -> dict
 **关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref>
 
 </div>
+
+### `paper delete` [#def-cli-paper_delete]
+
+命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它
+
+此命令由 CLI 分发逻辑直接调用 `paper.runs.delete`，没有独立的 `paper_delete` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" } }} />
+
+**返回**　JSON：\{paper_id, bundle, contents_deleted, ledger_commit, write_status\}
+
+**期望行为**
+
+1. 以服务管理员读运行及其封存（写账号不得删除）。
+2. 一次提交 paper_delete:\<id>，从研究分支删掉这行 paper_run、它的捕获包 paper-\<id>-capture 和没有别的包引用的内容，再删运行目录；Dolt 历史、备份与公开副本保留它们，ledger review 只接受这种形式的删除。写完经 cli.publish_after 发布。
+3. 删运行是用户的决定，Agent 自己不删、先问（AGENTS.md）。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PAPER_RUN_UNKNOWN` | 没有这个纸面运行 |
+| `PAPER_RUN_ACTIVE` | 还没封存：先 stop 或 seal |
+| `DIRTY_WORKING_SET` | 研究分支的工作集有未提交改动 |
+| `COMMIT_CHECKS_DISABLED` | 提交校验组没开 |
+
+**使用**　`paper.runs.delete`、<Ref id="cli.publish_after" />
+
+### `paper list` [#def-cli-paper_list]
+
+命令行 paper list：全部纸面运行及其状态与封存读数
+
+此命令由 CLI 分发逻辑直接调用 `paper.runs.listing`，没有独立的 `paper_list` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" } }} />
+
+**返回**　JSON：\{runs: [\{paper_id, candidate, source_sha256, symbols, state, created_at, image_ref, status, reasons, total_return, max_drawdown\}], running, limit\}；state 为 running、ended、unsealed 或 sealed
+
+**期望行为**
+
+1. 以读账号读每个运行及其封存，并问 Docker 这个账本的纸面容器以定 state。
+2. 自己不写；但它不在只读命令表里，所以 origin 落后于本地时经 cli.publish_after 发布账本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `RUNTIME_UNAVAILABLE` | Docker 没有应答 |
+
+**使用**　`paper.runs.listing`、<Ref id="cli.publish_after" />
+
+### `paper reconcile` [#def-cli-paper_reconcile]
+
+命令行 paper reconcile：把一个已封存纸面运行按它自己的源码、镜像、合约与收到过行情的区间在归档上重放，逐单对照成交；不写任何库
+
+此命令由 CLI 分发逻辑直接调用 `paper.reconcile.reconcile`，没有独立的 `paper_reconcile` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交、标签或分支（缺省 main）；这是本命令唯一自己选的东西" }, "paper_id": { type: "int", description: "已封存的纸面运行 ID" }, "output": { type: "path", description: "临时根下尚不存在的新目录" }, "timeout_seconds": { type: "int | None", description: "重放跑这么久后停" } }} />
+
+**返回**　JSON：\{path, summary: \{paper_fills, replay_fills, same, price, quantity, time, paper_only, replay_only, look_ahead_suspects, missing_bars, differing_bars, late_bars, equity_max_difference\}, replay: \{status, problems, path\}\}
+
+**期望行为**
+
+1. 以读账号读已封存的运行、它的候选与捕获包；按 --at 把市场导出到临时目录下可复用的缓存；用该运行自己的运行环境镜像。
+2. 重放写进 --output（replay/ 下是原生报告与审计，reconcile.json 是对照），任何库都不写：不计试验、不计暴露，从不发布（它在只读命令表里）。
+3. 重放只取该运行的源码、镜像、合约与运行器收到过 K 线的区间；没有区间即 PAPER_RECONCILE_EMPTY，市场库缺这段分钟即 PAPER_RECONCILE_UNCOVERED。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PAPER_RUN_UNKNOWN` | 没有这个纸面运行 |
+| `PAPER_RUN_ACTIVE` | 还没封存 |
+| `PAPER_RECONCILE_EMPTY` | 运行没有收到过行情的区间 |
+| `PAPER_RECONCILE_UNCOVERED` | 市场库在 --at 缺这个区间的分钟 |
+| `NOT_TEMPORARY_PATH`、`PATH_EXISTS` | --output 不在临时根下，或已存在 |
+| `RUNTIME_UNAVAILABLE` | Docker 或镜像不可用 |
+
+**使用**　`paper.reconcile.reconcile`
+
+### `paper seal` [#def-cli-paper_seal]
+
+命令行 paper seal：把一个已结束的纸面运行封存进账本（捕获包与封存读数），再拆掉它的容器与网络
+
+此命令由 CLI 分发逻辑直接调用 `paper.runs.seal`，没有独立的 `paper_seal` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" } }} />
+
+**返回**　JSON：\{paper_id, bundle, files: \{path: sha256\}, seal: \{status, reasons, returns, drawdown, funding, fills, orders, gaps, limitations\}, ledger_commit, write_status\}；status 为 complete 或 invalid
+
+**期望行为**
+
+1. 以读账号读运行及其封存；读运行目录（日志、摘要、出口代理日志）与运行器日志。
+2. 写捕获包 paper-\<id>-capture（按 UTC 日切的日志、摘要、各日志、seal.json），然后拆掉容器与网络；已有封存的原样返回，write_status 为 replayed。写完经 cli.publish_after 发布。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PAPER_RUN_UNKNOWN` | 没有这个纸面运行 |
+| `PAPER_RUN_ACTIVE` | 还在跑：先 stop |
+| `RUNTIME_UNAVAILABLE` | Docker 没有应答 |
+
+**使用**　`paper.runs.seal`、<Ref id="cli.publish_after" />
+
+### `paper serve` [#def-cli-paper_serve]
+
+命令行 paper serve：纸面守护进程，向 trade IDE 的 Paper 面板提供这个账本的纸面运行；页面上的起停封删都经它走命令行
+
+此命令由 CLI 分发逻辑直接调用 `paper.serve`，没有独立的 `paper_serve` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "host": { type: "str", description: "监听地址：回环，或容器内 0.0.0.0" }, "port": { type: "int", description: "监听端口" }, "allow_host": { type: "list[str]", description: "请求可带的 Host 头（缺省 127.0.0.1、localhost 与 host.docker.internal 加端口）；可重复" }, "runtime": { type: "str", description: "它起的运行所用的运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" } }} />
+
+**返回**　停下来之前不返回；以 HTTP 在回环（容器内则在它自己的地址）上提供 /api/paper/：列运行、流式送一个运行的日志与读数、以命令结果应答 start 或 stop
+
+**期望行为**
+
+1. 以读账号读运行、封存与候选最近一次研究回放；读各运行目录与捕获包；问 Docker 这个账本的纸面容器。
+2. 自己不写：页面发起的 start、stop、seal、delete，自己结束的运行的封存，以及 Docker 从外面停掉（SIGTERM、没有 STOP 文件）的运行的重新开始，都跑 paper start、stop、seal 或 delete（它们的写入）；从外面停掉的运行以同一组合约开始为一个新运行。
+3. 只在回环上听，或在容器内以 TMPDIR 为按原路径挂进来的宿主目录在它自己的地址上听（paper.serve）；IDE 服务用 --paper 找它。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `USAGE_ERROR` | 容器外给了非回环的 --host；容器内没有可用的 TMPDIR |
+| HTTP：`FORBIDDEN`、`NOT_FOUND`、`USAGE_ERROR`、`NO_LAST_REPLAY` | 不允许的 Host 或来源、没有这个路径、请求体不对、候选没有研究回放；加上 start、stop、seal 的拒绝 |
+
+**使用**　`paper.serve`、<Ref id="cli.paper_start" />、<Ref id="cli.paper_stop" />、<Ref id="cli.paper_seal" />、<Ref id="cli.paper_delete" />
+
+### `paper start` [#def-cli-paper_start]
+
+命令行 paper start：声明一个候选的纸面运行并起它的容器；只用 Binance 公开行情与 Nautilus Sandbox 成交，没有任何凭据（engine.paper）
+
+此命令由 CLI 分发逻辑直接调用 `paper.runs.start`，没有独立的 `paper_start` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交、标签或分支（缺省头提交）；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
+
+**返回**　JSON：\{paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, ledger_commit, write_status\}；重放只给 \{paper_id, write_status, directory\}
+
+**期望行为**
+
+1. 以读账号读候选；取运行环境镜像（标签先拉取再取摘要）；按 --at 的市场提交读当月成员。
+2. 写一行 paper_run 与运行目录 \<service>/paper/\<database>/\<paper_id>（源码、成员）；起一个内部 Docker 网络，里面是运行器与出口代理，代理只放行 Binance 公开 USD-M 主机；命令立刻返回，容器留着跑。同 --op-id 再来一次是重放。写完经 cli.publish_after 发布。
+3. 容器没起来即 PAPER_START_FAILED：运行封存为 invalid，write_status 写明。
+4. 纸面运行不计试验数、不计暴露。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PAPER_RUN_ACTIVE` | 这份源码已有运行中的纸面运行 |
+| `PAPER_CONCURRENCY_LIMIT` | 已有 4 个在跑 |
+| `EMPTY_SYMBOLS` | 没有合约可跑 |
+| `UNKNOWN_CANDIDATE`、`BAD_REF` | 候选不存在；--at 解析不到 |
+| `RUNTIME_UNAVAILABLE` | Docker 没有应答，或镜像取不到 |
+| `LEDGER_UPGRADE_REQUIRED` | 账本还没有 paper_run 表 |
+| `PAPER_START_FAILED` | 容器没起来；运行已封存为 invalid |
+
+**使用**　`paper.runs.start`、<Ref id="cli.publish_after" />
+
+### `paper stop` [#def-cli-paper_stop]
+
+命令行 paper stop：停掉一个运行中的纸面运行并封存
+
+此命令由 CLI 分发逻辑直接调用 `paper.runs.stop`，没有独立的 `paper_stop` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" }, "wait_seconds": { type: "int", description: "给运行器撤单并写摘要的秒数，之后才杀它" } }} />
+
+**返回**　同 paper seal
+
+**期望行为**
+
+1. 以读账号读运行及其运行器容器。
+2. 给运行器写一个 STOP 文件（它撤单并写摘要）；--wait-seconds 后 SIGTERM，再 30 秒后 SIGKILL；然后按 paper seal 封存。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PAPER_RUN_UNKNOWN` | 没有这个纸面运行 |
+| 同 paper seal | 封存阶段的拒绝 |
+
+**使用**　`paper.runs.stop`、<Ref id="cli.paper_seal" />
 
 ### `_publish_after` [#def-cli-publish_after]
 
