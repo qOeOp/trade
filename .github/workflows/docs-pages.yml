@@ -9,6 +9,7 @@ on:
       - docs-site/**
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
+      - .github/scripts/docs-pages-current.sh
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -42,6 +43,7 @@ jobs:
             docs-site/**
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
+            .github/scripts/docs-pages-current.sh
 
   build:
     needs: changes
@@ -75,7 +77,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -87,17 +89,41 @@ jobs:
       - id: latest
         name: Skip the deploy when a later main commit changes the site
         run: |
-          newest=$(git log -1 --format=%H origin/main -- \
-            .github/workflows/docs-pages.yml docs docs-site .github/actions/ci-paths .github/scripts/ci-paths.py)
-          if git merge-base --is-ancestor "$newest" "$GITHUB_SHA"; then
-            echo "current=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "current=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipped: $newest on main changes the site after this commit and deploys it."
+          current=$(.github/scripts/docs-pages-current.sh)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [[ "$current" != true ]]; then
+            echo "::notice::Skipped: a later main commit changes the site and its own run deploys it."
           fi
       - id: deployment
         if: steps.latest.outputs.current == 'true'
+        continue-on-error: true
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      # The Pages API sometimes times out, and a newer deployment can cancel this one.
+      - id: retry
+        name: Wait, then retry unless a later main commit has taken over the deploy
+        if: steps.deployment.outcome == 'failure'
+        run: |
+          sleep 30
+          current=$(.github/scripts/docs-pages-current.sh)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+      - id: deployment_retry
+        if: steps.retry.outputs.current == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      - name: Require the deploy unless a later main commit has taken it over
+        if: steps.deployment.outcome == 'failure'
+        env:
+          RETRY: ${{ steps.deployment_retry.outcome }}
+        run: |
+          if [[ "$RETRY" == success ]]; then
+            exit 0
+          fi
+          if [[ "$(.github/scripts/docs-pages-current.sh)" == false ]]; then
+            echo "::notice::Not deployed: a later main commit changes the site and its own run deploys it."
+            exit 0
+          fi
+          echo "::error::The documentation site was not deployed."
+          exit 1
 
   gate:
     name: docs-gate
