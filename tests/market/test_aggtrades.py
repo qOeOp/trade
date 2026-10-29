@@ -75,7 +75,7 @@ class CodecTests(unittest.TestCase):
                                             ((1, 1), (10, 11), 'SEQUENCE_GAP'),
                                             ((1, 2), (11, 10), 'SOURCE_SHAPE'),
                                             ((1, 2), (10, -1), 'SOURCE_SHAPE')]:
-                rows = [(i, '100', '0.1', i, i, START + t, True) for i, t in zip(identities, times)]
+                rows = [(i, '100', '0.1', i, i, START + t, True) for i, t in zip(identities, times, strict=True)]
                 path = archive(temp, '2025-01-01', rows)
                 with self.subTest(identities=identities, times=times), self.assertRaises(sources.MarketError) as caught:
                     list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
@@ -211,7 +211,8 @@ class CompleteImportTests(unittest.TestCase):
             files = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
             for name in list(files):
                 if name.endswith('export.json'):
-                    receipt = json.loads(files[name]); receipt.pop('seconds')
+                    receipt = json.loads(files[name])
+                    receipt.pop('seconds')
                     files[name] = json.dumps(receipt, sort_keys=True).encode()
             return files
 

@@ -98,8 +98,8 @@ def fetch_archive(cache: Path, key: str) -> Path:
     target = Path(cache) / key
     checksum = target.with_name(target.name + ".CHECKSUM")
     if target.is_file() and checksum.is_file():
-        expected = checksum.read_text().split()
-        if expected and _sha(target) == expected[0].lower():
+        cached_checksum = checksum.read_text().split()
+        if cached_checksum and _sha(target) == cached_checksum[0].lower():
             return target
     partial = target.with_name(target.name + ".part")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -150,8 +150,8 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                         continue
                     if len(row) != len(COLUMNS):
                         raise ValueError(f"expected seven columns, found {len(row)}")
-                    identity, price, quantity, first, last, moment, maker = row
-                    identity, first, last, moment = map(int, (identity, first, last, moment))
+                    identity_text, price, quantity, first_text, last_text, moment_text, maker = row
+                    identity, first, last, moment = map(int, (identity_text, first_text, last_text, moment_text))
                     if any(not 0 <= value <= MAX_INT for value in (identity, first, last, moment)):
                         raise ValueError("source ID or time is outside signed int64")
                     if first > last or maker not in ("true", "false", "True", "False"):
