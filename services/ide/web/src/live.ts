@@ -7,7 +7,7 @@ import { lineHref, type ResearchLine } from "./lib/lines";
 type Failure = { code?: string; message?: string; missing?: string[] };
 /** A way out of a failure: a link with a label. */
 export type Choice = { label: string; href: string };
-type State = { state: "fetching" | "pulling" | "queued" | "computing" | "ready" | "error"; ledger_commit?: string | null; error?: Failure };
+type State = { state: "fetching" | "pulling" | "queued" | "computing" | "ready" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
 
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
@@ -31,6 +31,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   let shown: string | null = null;
   let latest: State | null = null;  // the last event, applied again once a view is shown
   let loading = false;
+  let loadedFor: string | null = null;  // which availability notification the last HTTP read consumed
   const failed = (error?: Failure) => {
     const choices = lines(error);
     if (choices) status("Several research lines are open. Choose one to draw:", false, choices);
@@ -51,33 +52,42 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     }
   };
 
-  async function load(): Promise<void> {
+  async function load(available: string | null = null): Promise<void> {
     if (loading) return;
     loading = true;
+    let received = false;
     try {
       const response = await fetch(`/api/view${query}`, { cache: "no-store" });
       const body = await response.json();
       if (response.status === 200) {
         shown = (body as View).scope?.ledger_commit ?? null;
+        loadedFor = available ?? shown;
+        received = true;
         show(body as View);
-        if (latest) window.setTimeout(apply, 0, latest);  // after `loading` is cleared
-        else update.set(null);
+        if (!latest) update.set(null);
       } else if (shown === null) {
-        if (response.status === 202) status(waiting((body as State).state), true);
+        if (response.status === 202) {
+          loadedFor = available;
+          received = true;
+          status(waiting((body as State).state), true);
+        }
         else failed(body as Failure);
       }
     } catch (error) {
       if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
     } finally {
       loading = false;
+      // A completed graph may have been announced while the initial 202 read was still in flight.
+      if (received) window.setTimeout(() => { if (latest) apply(latest); }, 0);
     }
   }
 
   function apply(message: State): void {
     const commit = message.ledger_commit ?? null;
+    const available = message.available_commit ?? (message.state === "ready" ? commit : null);
+    if (message.error?.code !== "REMOTE_REWRITTEN" && available && available !== shown && available !== loadedFor) void load(available);
     if (message.state === "ready") {
-      if (commit !== shown) void load();
-      else update.set(null);
+      if (commit === shown) update.set(null);
     }
     // A copy that no longer follows its public copy replaces the page; other failures keep the last view.
     else if (message.state === "error" && (shown === null || message.error?.code === "REMOTE_REWRITTEN")) {
