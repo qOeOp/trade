@@ -49,8 +49,9 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   already run, whichever line ran it, so a line beside an open one starts from another source); no
   open line has the same market commit and window (`line select` refuses `LINE_DATA_TAKEN`; never
   pin another commit or move the window only to get past it); and `market coverage` at the commit to
-  pin has every month the window needs (bars, and quotes for a line that executes on them). Say in
-  one line what an option that fails lacks.
+  pin (`line select`'s default, the market head, unless the user names one) has every month the
+  window needs (bars, and quotes for a line that executes on them). Say in one line what an option
+  that fails lacks.
   Supplying it (importing months with `market import` or `market import-quotes`, restoring a
   market commit) is a separate public write the user decides, not an option to wait on. A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
