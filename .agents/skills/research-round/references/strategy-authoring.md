@@ -105,9 +105,15 @@ Any finding or any denied or rejected order fails the run.
 
 ## Orders and protection
 
-- Submit each entry with its protection as one native bracket (`self.order_factory.bracket(...)`:
-  OTO entry, OUO stop-market and limit-target children) via `self.submit_order_list(...)`; use GTD
-  with `expire_time` for an entry lifetime.
+- Protection answers to the stop-coverage audit in the next bullet; the orders are the source's.
+  When the source has both a stop and a target and an entry type the pinned `bracket` factory
+  builds (it refuses a STOP_MARKET entry and requires a target price), submit one native bracket
+  (`self.order_factory.bracket(...)`: OTO entry, OUO stop-market and limit-target children) via
+  `self.submit_order_list(...)`, with GTD `expire_time` for an entry lifetime. Otherwise submit the
+  source's own native orders, for example STOP_MARKET entries (OCO when a fill cancels the other
+  side) with a reduce-only stop submitted on the fill event. Honor a declared entry lifetime with
+  native expiry or a cancellation Nautilus acknowledges. Never add a stop or target the source
+  lacks to fit a bracket, and never call protection submitted apart from its entry atomic.
 - The audit refuses a run in which a position is larger than its accepted reduce-only stop orders
   on the closing side for longer than one one-minute bar. A source with no stop-loss by design sets
   the class attribute `USES_STOP_LOSS = False` (default `True`); its uncovered intervals are then
@@ -176,7 +182,7 @@ uv run --frozen python -m cli.main candidate publish --file /tmp/RUNDIR/strategy
 
 It returns `ID@N`, which `replay precheck`, the registration grid and `replay run` take. Any later
 source change is a new candidate. A draft can be tried before publishing with `replay explore`; it
-is never evidence. In the precheck, confirm every entry has its children, every order carries one
+is never evidence. In the precheck, confirm every filled entry has the protection its source gives it, every order carries one
 plan tag and plans on one instrument do not overlap, no order precedes trade start, none was denied
 or rejected, and fills, fees, funding and account rows appear in the native reports. Never run the
 replay with `docker run` or `python -m engine...` directly.

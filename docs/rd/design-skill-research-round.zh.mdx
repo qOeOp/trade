@@ -584,6 +584,6 @@ I=预测成本/流动性/目标；S=持仓及规划期限；O=限制当前交易
 下列规则不放进执行者的提示词，由独立审查按清单检查。
 
 - C.3.1.1　<span className="rd-rule-links">独立源码审查 causal 项（失败即 registration.require_precheck SOURCE_PRECHECK_FAILED） · C.3.1.1</span>
-- C.4.2.1　<span className="rd-rule-links">独立源码审查 api 项：核入场与止损止盈用括号单一次提交、有效期用 GTD（GTD 到期缺失另由 engine.write_native_reports GTD_DEADLINE_MISSING 拒绝） · C.4.2.1</span>
+- C.4.2.1　<span className="rd-rule-links">独立源码审查 api 项：核保护满足止损覆盖审计、订单照出处原生提交（有止损和止盈且入场类型 bracket 能建时用括号单一次提交，否则用出处自己的原生订单，分开提交的保护不称原子）、入场有效期用原生到期或已确认的撤单（GTD 到期缺失另由 engine.write_native_reports GTD_DEADLINE_MISSING 拒绝） · C.4.2.1</span>
 - C.6.1.2　<span className="rd-rule-links">独立源码审查 api / causal / activity / readiness 四项读封存预检原件；registration.require_precheck SOURCE_PRECHECK_REQUIRED/FAILED、cli.source_review PRECHECK_NOT_FOUND 兜底 · C.6.1.2</span>
 - 核对文件头每项立场与源码行为一致，不一致的职责记为 unresolved 并写明　<span className="rd-rule-links">独立源码审查：文件头与代码一致 · <Ref id="C.6.2.1">C.6.2.1</Ref></span>
