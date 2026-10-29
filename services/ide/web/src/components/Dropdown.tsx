@@ -66,6 +66,20 @@ export function DropdownItem({ icon, children, hint, onSelect }: { icon?: IconNa
   );
 }
 
+/** A navigation item stays a real link, including open-in-new-tab and keyboard navigation. */
+export function DropdownLink({ href, children, hint, current = false }: {
+  href: string; children: ReactNode; hint?: ReactNode; current?: boolean;
+}) {
+  return <DropdownMenu.Item asChild>
+    <a href={href} aria-current={current ? "page" : undefined}
+       className="flex items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
+      <span className="grid w-4 shrink-0 place-items-center text-icon">{current && <Icon name="check" />}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+      {hint != null && <span className="shrink-0 text-fg-faint">{hint}</span>}
+    </a>
+  </DropdownMenu.Item>;
+}
+
 export function DropdownRadio<T extends string>({ value, options, onChange }: {
   value: T; options: readonly { value: T; label: string }[]; onChange: (v: T) => void;
 }) {

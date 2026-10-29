@@ -39,6 +39,10 @@ class FakeProduct:
             raise serve.ProductError({"code": "UNKNOWN_REF", "message": ref})
         return self.refs[ref]
 
+    def lines(self, commit):
+        return {"ledger_commit": commit, "lines": [{"bundle": "historical", "closed": True},
+                                                   {"bundle": "current", "closed": False}]}
+
     def graph(self, commit, line, since):
         if self.release is not None:
             self.release.wait(5)
@@ -76,6 +80,25 @@ class HubTests(unittest.TestCase):
         status, view = self.hub.view(None, None, None)
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
+
+    def test_the_first_graph_waits_for_the_market_copy_to_sync(self):
+        self.hub.pull = "/pull"
+        calls = []
+
+        def run(argv, **options):
+            calls.append(argv[1])
+            return mock.Mock(returncode=1 if argv[1] == "market" else 0,
+                             stdout="", stderr="market unavailable" if argv[1] == "market" else "")
+
+        with mock.patch.object(serve.subprocess, "run", side_effect=run):
+            code, body = self.hub.view(None, None, None)
+        self.assertEqual((code, body.get("code")), (503, "PULL_FAILED"))
+        self.assertEqual(calls, ["ledger", "market"])
+        self.assertEqual(self.product.drawn, [], "no graph is drawn from an unsynchronized first market copy")
+        with mock.patch.object(serve.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
+            self.hub.refresh(wait=True)
+        until(lambda: self.hub.view(None, None, None)[0] == 200)
+        self.assertEqual(self.product.drawn, ["a" * 32], "a successful retry allows the first graph")
 
     def test_a_slow_pull_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
@@ -207,6 +230,17 @@ class HttpTests(unittest.TestCase):
         self.assertNotIn("Access-Control-Allow-Origin", response.headers)
         self.assertIn(response.status, (200, 202))
         self.assertEqual(self.get("/api/view?since=nowhere").status, 400)
+
+    def test_the_line_index_includes_closed_lines_and_honors_the_snapshot(self):
+        self.hub.product.refs["before"] = "b" * 32
+        response = self.get("/api/lines?at=before")
+        self.assertEqual(response.status, 200)
+        body = json.loads(response.read())
+        self.assertEqual(body["ledger_commit"], "b" * 32)
+        self.assertEqual([item["closed"] for item in body["lines"]], [True, False])
+        self.assertEqual(self.get("/api/lines?at=missing").status, 400)
+        self.assertEqual(self.get("/api/lines", Host="elsewhere:1").status, 403)
+        self.assertEqual(self.get("/api/lines", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
 
     def test_the_events_start_with_the_current_state(self):
         response = self.get("/api/events")

@@ -21,7 +21,7 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
-        <MDX components={getMDXComponents({ a: createRelativeLink(source, page), Ref: (props) => <Ref {...props} lang={params.lang} /> })} />
+        <MDX components={getMDXComponents({ a: createRelativeLink(source, page), Ref: (props) => <Ref {...props} lang={params.lang} /> }, params.lang)} />
       </DocsBody>
     </DocsPage>
   );
