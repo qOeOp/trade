@@ -1,6 +1,6 @@
 ---
 name: product-doctor
-description: Diagnoses suspected product defects against contracts and evidence, and reviews proposed product mechanisms or skill rules. Use for focused product diagnosis, for following a live research session from the other host (attach), or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
+description: Diagnoses suspected product defects against contracts and evidence, and reviews proposed product mechanisms or skill rules. Use for focused product diagnosis, for keeping the evidence of a running research session that its transcript cannot show (attach), or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
 ---
 
 # Product doctor
@@ -35,9 +35,10 @@ Focused diagnosis uses steps 3–5 for one question: read only related calls, co
 report evidence, attribution or remaining uncertainty, and the next action. Use all steps and
 Convergence only when the task calls for overall product or session quality. Failure, delay or unresolved attribution alone does not expand the scope.
 
-Attach mode follows a live research session read-only and keeps raw evidence for the full audit
-([attach.md](references/attach.md)). It is never a full audit: when the session ends, the full
-audit still runs in a fresh session with every step, and attach output closes no item.
+Attach mode keeps, read-only and from the other host, the evidence of a running research session
+that its transcript cannot show ([attach.md](references/attach.md)). It is never a full audit:
+when the session ends, the full audit still runs in a fresh session with every step; attach
+writes no record, index row or finding.
 
 ## Steps
 
