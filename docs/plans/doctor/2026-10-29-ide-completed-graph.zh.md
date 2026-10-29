@@ -1,6 +1,6 @@
 # 2026-10-29 并发写入时已完成研究图无法展示
 
-- 发现编号：20261029-26；动作 fix；用户首先发现；聚焦诊断，非研究会话全审计。
+- 发现编号：20261029-1884；动作 fix；用户首先发现；聚焦诊断，非研究会话全审计。
 - 当前 main `b9c36da7f` 的 `services/ide/research_graph/serve.py`：`view` 只返回当前 head
   对应的图；`state` 只为当前 head 报 ready；`refresh` 删除所有未开始的实时请求后按客户端顺序重排。
   `web/src/live.ts` 只在 ready 时读取图。因此旧 head 已完成但新 head 又在计算时，新页面始终等待。
