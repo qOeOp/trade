@@ -9,6 +9,7 @@ rows are still recomputed by sample).
 import argparse, hashlib, json, math, os, re, shutil, stat, struct, subprocess, sys, threading, unicodedata, zlib
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote, urlsplit
 
 TIMEOUT = 600  # seconds per subprocess
@@ -39,7 +40,7 @@ HEX64 = re.compile(r"[0-9a-f]{64}")
 GEOMETRY = re.compile(r"(\d+)x(\d+)\+(\d+)\+(\d+)")
 JSON_STEP = re.compile(r'\.([A-Za-z_]\w*)|\[(\d+)\]|\["([^"\\]*)"\]', re.A)
 MISSING = object()
-out = {"checks": [], "flags": {}, "stages": {}}
+out: dict[str, Any] = {"checks": [], "flags": {}, "stages": {}}
 
 
 def check(stage, name, ok, detail=None):
