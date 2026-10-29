@@ -22,7 +22,6 @@ on:
       - replay/**
       - report/**
       - runtime/**
-      - .dockerignore
       - pyproject.toml
       - uv.lock
       - .github/actions/ci-paths/**
@@ -66,7 +65,6 @@ jobs:
             replay/**
             report/**
             runtime/**
-            .dockerignore
             pyproject.toml
             uv.lock
             .github/actions/ci-paths/**
