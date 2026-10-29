@@ -4,7 +4,7 @@ Tests whether the ledger alone reconstructs what a session did. Use it in an ove
 a finding turns on what the ledger preserves. Both graphs follow the `research-graph@3` format
 and use the tool of the `research-graph` skill (`services/ide/ide.py`).
 
-1. **Ledger graph.** `research graph` at the session's last ledger commit (`--at`), as the
+1. **Ledger graph.** `research graph` of the session's line (`--line`) at its last ledger commit (`--at`), as the
    `research-graph` skill runs it; it reads the ledger only.
 2. **Session graph.** A second fresh read-only sub-agent gets only the session transcripts
    ([hosts.md](hosts.md)) and the schema: no ledger command, no files the session wrote under

@@ -14,7 +14,10 @@ action.
 
 Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
 states its arguments, what it writes and what it returns; this skill says when and why to use it.
-Resolve refusals through their `next_actions`, never bypass them.
+Resolve refusals through their `next_actions`, never bypass them. Name the line with `--line BUNDLE`
+on every command that takes it (`registration add`, `research state`, `research status`,
+`research graph`, `line targets`), even while it is the only open line: another session may open
+one at any time.
 
 Own initial failure diagnosis from source, native evidence and pinned inputs/runtime. Handle
 ordinary strategy errors through [diagnosis.md](references/diagnosis.md). For a suspected product
@@ -90,6 +93,10 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
   masked measures. Additional statistics follow `nautilus-report-analysis`.
+- A recommendation or report on a window that overlaps another line's (open or closed) names those
+  lines and gives the ledger-wide `trials` and `distinct_sources` from `research status` as the
+  conservative upper bound of the trials behind it, since `by_development_window` counts only an
+  equal window.
 - Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
   instead of copying measures, counts or eligibility; working reports may display cited product
   values. To the user, name each object by its kind and product id (`trial 67`, `recommendation

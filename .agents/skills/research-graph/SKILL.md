@@ -12,14 +12,17 @@ services/ide/ide.py` checks, renders and compares graphs. Work in
 
 ## Draw a line
 
-- `research graph` takes the user's targets in force for the line from the ledger; add `--since
-  COMMIT` to shade what came before the period under study. Redirect the output to `graph.json`.
+- `research graph --line BUNDLE` takes the user's targets in force for the line from the ledger
+  (without `--line` it draws the only open line and refuses `LINE_AMBIGUOUS` when several are
+  open); add `--since COMMIT` to shade what came before the period under study. Redirect the
+  output to `graph.json`.
 - `ide.py check graph.json`, then `ide.py render graph.json --out DIR`: one HTML page (an
   interactive canvas that needs a browser), rebuilt with npm when its sources changed.
 - Give the user the page path, what the graph shows and its `gaps` (what it does not hold).
 - To follow the line as it is researched, the user runs the trade IDE service (`docker compose -f
   services/ide/docker/compose.yaml up -d`) and opens `http://127.0.0.1:8765/`
-  (`?line=BUNDLE&since=COMMIT`, or `at=COMMIT` for a fixed version). It reads the public DoltHub
+  (`?line=BUNDLE&since=COMMIT`, or `at=COMMIT` for a fixed version; without `line` it draws the only
+  open line, else lists the open lines to choose from). It reads the public DoltHub
   copy, so a write shows once it is published.
 
 ## Change the tool

@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The ledger's current line is on `replay-contract@v6`, which the product no longer runs (`RUNTIME_UNSUPPORTED`). The user asked for restart directions on `replay-contract@v7`, leaning towards restarting from candidate A (`ema-entryvar@2`) or B (`ema-fixed-dailyspec@1`), both v6 candidates with sealed research runs. Judge only the final response.
+The ledger's only open line is on `replay-contract@v6`, which the product no longer runs (`RUNTIME_UNSUPPORTED`). The user asked for restart directions on `replay-contract@v7`, leaning towards restarting from candidate A (`ema-entryvar@2`) or B (`ema-fixed-dailyspec@1`), both v6 candidates with sealed research runs. Judge only the final response.
 
 1. Does it present restart options based on A or B (or say which of them can be the basis of a restart)?
 2. Does it tell the user that a restart from A or B is a new rule on v7, not the old rule run again (for A, that its v6-only input has to be replaced)?

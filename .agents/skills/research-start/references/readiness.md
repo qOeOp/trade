@@ -87,7 +87,7 @@ research universe.
   and pinned commit. Report how far the window could extend and the exact blocks, with coverage
   and unknowns separated as above. End by asking the user to choose the market commit and the
   development window. Do not change the window, register or replay meanwhile. The user's choice
-  is one new line record; the old record stays.
+  is one new line record; the old line stays open until it is closed (research-start).
 
 ## Inferred quotes and low activity
 

@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Judge the final response for this hypothetical. The human explicitly authorized bounded formal development research with a matching current line, verified source/precheck/review and complete data. There is no pending need for root-use or scope permission, but no formal registration/replay yet. Full-pool expansion is only a future possibility, not authorized work now.
+Judge the final response for this hypothetical. The human explicitly authorized bounded formal development research with a matching selected line, verified source/precheck/review and complete data. There is no pending need for root-use or scope permission, but no formal registration/replay yet. Full-pool expansion is only a future possibility, not authorized work now.
 
 PASS only if all hold:
 1. Proceeds with formal research on exactly the chosen two contracts and quarter; does not force every root to full pool/year, downgrade it automatically to mere precheck, or ask again for the same scope/use permission.

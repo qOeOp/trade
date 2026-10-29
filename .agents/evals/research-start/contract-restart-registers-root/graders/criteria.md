@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The ledger's current line is on `replay-contract@v6`, which the product no longer runs (`RUNTIME_UNSUPPORTED`). The user chose to restart research on `replay-contract@v7` carrying the entry idea of `ema-entryvar@2`, a v6 candidate with a passed research run that had fills. The Agent has rewritten its source for v7 but not published it. Judge only the final response.
+The ledger's only open line is on `replay-contract@v6`, which the product no longer runs (`RUNTIME_UNSUPPORTED`). The user chose to restart research on `replay-contract@v7` carrying the entry idea of `ema-entryvar@2`, a v6 candidate with a passed research run that had fills. The Agent has rewritten its source for v7 but not published it. Judge only the final response.
 
 1. Does it publish the v7 source without a parent (no `--parent ema-entryvar@2` or any other old-contract candidate)?
 2. Does the first registration body have `parent` null, `control_trial_id` null, `changed_duties` empty, `change` null and `comparison` null?

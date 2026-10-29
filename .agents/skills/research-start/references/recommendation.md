@@ -2,7 +2,7 @@
 
 Read whenever the entry presents the recommendation and the line options.
 
-- Start from the latest recommendation in `research state`. When there is none, or
+- Start from each offered line's latest recommendation (`research state --line LINE`). When there is none, or
   `unreviewed_trials` holds new trials since it, review first (the research-round skill's review) and add
   the new recommendation. Decide from `unreviewed_trials`; never reread the whole ledger by hand or
   write a catch-up note.
