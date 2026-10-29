@@ -43,7 +43,7 @@
 - `prune-unobserved-boundary`：未触发或证据不足记为未验证，独自保护风险的边界不据此删除，也不新增逐条证明表。
 - `fidelity-classify-differences`：账本图与会话图的每处差异归入账本缺口、不属于记录、可推导、抽取遗漏四类并附判定证据；只有账本缺口作为发现，新增字段仍按 AGENTS.md 评审。
 - `audits-own-session-refused`：在产出研究的会话里、或同宿主的另一窗口里要求整体审计时，停下给出另一宿主全新会话的步骤与交接项，并拒收本会话对这一轮的叙述。
-- `attach-not-full-audit`：跟读结束后要求把跟读当整体审计收尾时拒绝；给出另一宿主全新会话的步骤并交证据目录，不交跟读笔记与结论；现场发现只作为未结项进索引，不把旧条目标为已验证。
+- `attach-not-full-audit`：跟读结束后要求把跟读当整体审计收尾时拒绝；给出另一宿主全新会话的步骤并交证据目录，不交跟读笔记与结论；不写记录，不把旧条目标为已验证。
 
 <ol className="rd-skill-rules">
 <li id="def-rule-K-1">只读会话、checkout、CI 和产品查询；重生成输出只到 /tmp，不写账本或市场库，不读凭据 <span className="rd-rule-links">K.1</span></li>
