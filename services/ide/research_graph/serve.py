@@ -133,7 +133,7 @@ class Hub:
         self.clients: list[Client] = []
 
     def key(self, commit: str, line: str | None, since: str | None) -> tuple:
-        return (self.product.ledger, self.build, commit, line or "current", since)
+        return (self.product.ledger, self.build, commit, line, since)
 
     # States
 
@@ -256,7 +256,7 @@ class Hub:
                 self._notify()
             view = failure = None
             try:
-                view = layout.build_view(self.product.graph(key[2], None if key[3] == "current" else key[3], key[4]))
+                view = layout.build_view(self.product.graph(key[2], key[3], key[4]))
             except ProductError as exc:
                 failure = exc.body
             except Exception as exc:  # a graph the layout cannot read

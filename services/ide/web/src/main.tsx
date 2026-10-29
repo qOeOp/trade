@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { Waiting } from "./components/Waiting";
-import { follow } from "./live";
+import { follow, type Choice } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
 import { detectPaperService } from "./state/paper";
@@ -20,7 +20,7 @@ function show(view: View): void {
   root.render(<StrictMode><App view={view} /></StrictMode>);
 }
 
-const status = (text: string, busy = false) => root.render(<Waiting text={text} busy={busy} />);
+const status = (text: string, busy = false, choices?: Choice[]) => root.render(<Waiting text={text} busy={busy} choices={choices} />);
 
 try {
   const view = JSON.parse(document.getElementById("research-graph-view")?.textContent ?? "") as View | null;
