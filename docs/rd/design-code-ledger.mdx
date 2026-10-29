@@ -1149,81 +1149,46 @@ def add_judgment(
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.close_line">close_line</Ref> | 给已结束的研究路线封盘：在它的最后一个提交上打 tag line/\<UTC 日期>-\<slug>，消息是这条路线的总结；research state 的 unclosed_lines 列出待封路线 |
-| <Ref id="ledger.current_line">current_line</Ref> | 读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交 |
-| <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径 |
+| <Ref id="ledger.close_line">close_line</Ref> | 关闭一条开着的研究路线：在研究分支的头提交上打 tag line/\<UTC 日期>-\<slug>，消息是这条路线的总结；这个标签是路线结束的唯一标记 |
+| <Ref id="ledger.line_trials">line_trials</Ref> | 按研究路线列出 purpose=research 的试验（含无效与中断）：试验经它的登记归到登记所属的路线；可限定自某个提交之后；研究状态视图、研究图与登记前置门共用这一口径 |
+| <Ref id="ledger.open_lines">open_lines</Ref> | 列出某个账本提交上开着的研究路线（包已存在，且没有封盘标签或标签不在该提交及其祖先上），各附开发窗口与市场提交；没有指明路线时据此取唯一开着的那条 |
 | <Ref id="ledger.read_line">read_line</Ref> | 按包名读一条研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交，附包的创建时间与所读提交 |
 | <Ref id="ledger.select_line">select_line</Ref> | 把用户选定的起点候选、开发窗口与钉住的市场提交写成以 UTC 日期与方向 slug 命名的研究路线证据包，用户给了目标时同一提交写入；起点须有通过的源码审查、且没有失败的审查（只因零成交预检的活动项失败、其后同源码有成交的预检审查通过的除外）；只追加，不改旧路线记录。 |
 
 ### `close_line` [#def-ledger-close_line]
 
-给一条已结束的研究路线封盘：服务管理员在它的最后一个提交上打 tag line/\<UTC 日期>-\<slug>，tag 消息是 Agent 写的这条路线的总结
+关闭一条开着的研究路线：服务管理员在研究分支的头提交上打 tag line/\<UTC 日期>-\<slug>，tag 消息是 Agent 写的这条路线的总结；这个标签是路线结束的唯一标记
 
 ```python
 def close_line(profile: LedgerProfile, bundle: str, summary: bytes) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案" }, "bundle": { type: "str", description: "已结束的研究路线包名（research state 的 unclosed_lines 所列）" }, "summary": { type: "bytes", description: "这条路线的总结，UTF-8，去掉首尾空白后存为 tag 消息，至多 32768 字节" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案" }, "bundle": { type: "str", description: "要关闭的研究路线包名（research state 的 open_lines 所列）" }, "summary": { type: "bytes", description: "这条路线的总结，UTF-8，去掉首尾空白后存为 tag 消息，至多 32768 字节" } }} />
 
-**返回**　dict：\{line, tag, commit, ended_by, replayed\}
+**返回**　dict：\{line, tag, commit, replayed\}
 
 **期望行为**
 
 1. 总结须为非空 UTF-8 且不超过上限，否则 LINE_SUMMARY_INVALID；去掉首尾空白（Dolt 也会去掉 tag 消息末尾的换行）。
-2. 以 reader 读路线列表（按入账时间排序）：没有这条即 LINE_UNKNOWN；它是最新一条即 LINE_OPEN（一条路线在下一条被选定时结束）。
-3. 封盘点：下一条路线的包所在提交（dolt_diff_evidence_bundle 中 added 的那一行）的父提交；research branch 是线性的，父提交不是恰好一个即 LEDGER_CORRUPT。
-4. 同名 tag 已存在：指向同一提交且消息相同即返回 replayed=true；否则 LINE_CLOSED，tag 永不替换。
-5. 以服务管理员连接执行 DOLT_TAG('-m', 总结, tag, 封盘提交)（writer 账号不能打 tag）；tag 不改工作集、不经 ledger_head，与研究写入互不冲突。
-6. 总结是检索用的目录，不是证据：tag 可被管理员删除，删后下次 research-start 会把这条路线列为未封并重新封。
+2. 以 reader 读路线列表：没有这条即 LINE_UNKNOWN。开着的路线随时可以关；选一条新路线不会结束它，结束只靠这一步。
+3. 同名 tag 已存在：只比较已有标签的消息，与这次的总结相同即返回 replayed=true，commit 为已有标签所在的提交；不同即 LINE_CLOSED，tag 永不替换。不拿重算的封盘点去比：头提交会往前走，同一份总结重放时不会因此被误判为 LINE_CLOSED。
+4. 封盘点：关线时研究分支的头提交。标签快照是关线那一刻的整本账，带着同期其他路线的记录，不是这一条路线的切片。
+5. 以服务管理员连接执行 DOLT_TAG('-m', 总结, tag, 头提交)（writer 账号不能打 tag）；tag 不改工作集、不经 ledger_head，与研究写入互不冲突。
+6. 关线之后，这条路线不再接受登记和目标（LINE_ENDED），它剩下的登记也不能再绑定；补写解释、封存已在运行的重放照常，记在结束点之后。
+7. 接受的竞态：关线与同一路线的写操作同时发生时，写事务看不到新标签，写入落在封盘点之后。落下的是登记，之后的 registration.bind 在新事务里拒绝它；落下的是绑定（事务开在打标签之前），那个试验照常运行并封存，算作这条路线在封盘点之后的记录。只有两个会话同时推进同一条路线时才会出现，不加锁。
+8. 总结是检索用的目录，不是证据。删除或改动标签是改写已发布记录，须用户授权；标签删了，这条路线按 ledger.open_lines 的规则重新算开着。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LINE_SUMMARY_INVALID` | 总结不是 UTF-8、为空或超过 32768 字节 |
 | `LINE_UNKNOWN` | 没有这条研究路线 |
-| `LINE_OPEN` | 它是当前路线 |
-| `LINE_CLOSED` | 已经以另一份总结或另一个提交封过 |
+| `LINE_CLOSED` | 这条路线已有标签，且标签消息与这次的总结不同 |
 
 **使用**　<Ref id="ledger.read_line" />、<Ref id="table:evidence_bundle" />
 
-### `current_line` [#def-ledger-current_line]
-
-读最新研究路线记录：起点候选、开发窗口、范围规则与钉住的市场提交
-
-```python
-def current_line(conn: LedgerConnection, at: str | None) -> dict | None
-```
-
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "at": { type: "str | None", description: "账本提交或标签；给出时经 ledger.read_as_of 按 AS OF 读当时的最新路线，缺省读当前头" } }} />
-
-**返回**　dict | None：\{bundle, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希；账本中没有任何路线记录时返回 None
-
-**期望行为**
-
-1. 在 evidence_bundle 中列出名为 research-line-\<UTC 日期>-\<slug> 的包，取入账时间（服务器 UTC）最晚者；没有即返回 None，入口据此进入路线选择而不是自行开始。
-2. 经 ledger.read_line 读该包的 research-line.json，核对读回字节的 sha256 与存储哈希一致、format 为 research-line-v2；不一致拒绝 LINE_CORRUPT，format 不识别拒绝 LINE_FORMAT_UNSUPPORTED。
-3. 原样返回记录字段并附包的 created_at 与所读账本提交；登记的窗口核对与可比核对读同一来源。
-4. 只读：不连接市场库、不判断新鲜度、不建议换提交；新月份可扩展范围由入口另行报告，改窗口或提交是用户经 ledger.select_line 写新记录。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LINE_CORRUPT` | research-line.json 读回哈希与存储哈希不符，或包内缺该文件 |
-| `LINE_FORMAT_UNSUPPORTED` | 记录的 format 不是本代码识别的研究路线格式 |
-
-**使用**　<Ref id="ledger.load_bundle" />、<Ref id="ledger.read_as_of" />、<Ref id="table:v_evidence" />、<Ref id="ledger.read_line" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.1.2">H.4.1.2</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="J.6.3.1">J.6.3.1</Ref>
-
-**依据**
-
-- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
-
-</div>
-
 ### `line_trials` [#def-ledger-line_trials]
 
-按研究路线列出 purpose=research 的试验（含无效与中断），可限定自某个提交之后；研究状态视图与登记前置门共用这一口径
+按研究路线列出 purpose=research 的试验（含无效与中断）：试验经它的登记归到登记所属的路线；可限定自某个提交之后；研究状态视图、研究图与登记前置门共用这一口径
 
 ```python
 def line_trials(
@@ -1240,19 +1205,59 @@ def line_trials(
 
 **期望行为**
 
-1. 经 ledger.read_line 读路线记录的市场提交与开发窗口；列出 purpose=research 的试验（含无效与中断），市场提交取其开始回执里的 execution.json，交易窗口取试验行，两者都与路线相等的才算本路线；开始回执与试验同一提交写入，缺回执即账本损坏，拒绝 LEDGER_CORRUPT。
-2. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
+1. 列出 purpose=research 的试验（含无效与中断）。研究试验在开试验的同一次写里必定绑定登记（ledger.open_trial 要求绑定），试验经 registration_attempt 找到它的登记。
+2. 登记所属路线：登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线。所属路线等于 line_bundle 的试验才算本路线。依据只有只追加的入账顺序，不存新字段；registration.bind 用同一条规则。input_identity.market_commit 是 market.resolve_commit 给出的完整哈希，与路线记录同形；body.window 登记时已与路线窗口逐字比对过。市场数据库不在这个键里。
+3. 后果：同一市场提交、同一窗口上已关闭的前任路线，它的试验不算进后来的路线；同键的两条路线不会同时开着（ledger.select_line 拒绝 LINE_DATA_TAKEN），所以开着的路线之间也不会互相算进对方的试验。
+4. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LINE_UNKNOWN` | 研究路线不存在 |
-| `LEDGER_CORRUPT` | 某个研究试验没有开始回执或回执不可读 |
+| `LEDGER_CORRUPT` | 某个研究试验没有登记消耗行，或它的登记包不可读 |
 
-**使用**　<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="ledger.read_line" />
+**使用**　<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="table:registration_attempt" />、<Ref id="ledger.read_line" />
 
 <div className="rd-meta">
 
 **关联章节**　<Ref id="E.1.1.4">E.1.1.4</Ref> <Ref id="H.4.1.5">H.4.1.5</Ref> <Ref id="F.3.1.2">F.3.1.2</Ref>
+
+</div>
+
+### `open_lines` [#def-ledger-open_lines]
+
+列出某个账本提交上开着的研究路线：路线包在该提交已存在，且没有封盘标签，或标签所在提交既不是该提交、也不是它的祖先；各附开发窗口与市场提交
+
+```python
+def open_lines(conn: LedgerConnection, at: str | None) -> list[dict]
+```
+
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本连接（读账号，或写事务内的连接）" }, "at": { type: "str | None", description: "账本提交或标签；给出时经 ledger.read_as_of 按 AS OF 读该提交上的开闭状态，缺省读当前头" } }} />
+
+**返回**　list[dict]：[\{line, window_start, window_end, market_commit\}]，按入账时间排序，旧的在前；没有开着的路线时为空列表
+
+**期望行为**
+
+1. 在所读提交 X 上列出 evidence_bundle 中名为 research-line-\<UTC 日期>-\<slug> 的包。
+2. 对每条路线查它的封盘标签 line/\<UTC 日期>-\<slug>：没有标签，或标签所在提交既不是 X 也不是 X 的祖先，这条路线在 X 开着；否则它在 X 已结束。结束的唯一标记就是这个标签，不另存状态、不加表或字段；判断只看标签所指提交与 X 的祖先关系，不依赖 dolt_tags 是否按 AS OF 读，所以按 at 读到的就是那个提交上的开闭状态。
+3. 开着的各条经 ledger.read_line 读出开发窗口与市场提交；research state 的 open_lines 就是这份输出，只输出，不存储。
+4. 取路线的规则：调用方没有指明路线时，恰好开着一条即取它；开着多条即 LINE_AMBIGUOUS，消息列出开着的路线；一条都没有即 RESEARCH_LINE_REQUIRED（没有开着的路线）。写命令只按头提交判断，并在 ledger.write 的写事务里再核一次，借 ledger_head 串行化，没有先查后写的竞态；读命令按 at 判断。
+5. 只读：不连接市场库、不判断新鲜度、不建议换提交。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LINE_CORRUPT` | 某条路线的 research-line.json 读回哈希与存储哈希不符，或包内缺该文件（由 ledger.read_line 抛出） |
+| `LINE_FORMAT_UNSUPPORTED` | 某条路线记录的 format 不是本代码识别的研究路线格式（由 ledger.read_line 抛出） |
+
+**使用**　<Ref id="ledger.read_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.close_line" />、<Ref id="table:v_evidence" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.4">E.4</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="E.1.1.3">E.1.1.3</Ref> <Ref id="E.2.2.1">E.2.2.1</Ref> <Ref id="H.1.1.2">H.1.1.2</Ref> <Ref id="H.4.1.2">H.4.1.2</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="J.6.3.1">J.6.3.1</Ref>
+
+**依据**
+
+- [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)　官方文档
+- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
 
 </div>
 
@@ -1277,7 +1282,7 @@ def read_line(
 1. 经 ledger.load_bundle 按 at 读该包，逐文件重算哈希；读回哈希不符拒绝 LINE_CORRUPT。
 2. 包内缺 research-line.json 拒绝 LINE_CORRUPT；内容不是 JSON 对象或 format 不是 research-line-v2，拒绝 LINE_FORMAT_UNSUPPORTED。
 3. 按记录字段原样返回，附包的 created_at 与所读账本提交；缺的字段为 null。
-4. ledger.current_line、ledger.line_trials 与 report.research_state 都经它读路线记录，口径只有这一份。
+4. ledger.open_lines、ledger.line_trials 与 report.research_state 都经它读路线记录，口径只有这一份。
 5. 只读：不连接市场库，不判断新鲜度。
 
 | 拒绝码 | 条件 |
@@ -1329,9 +1334,11 @@ def select_line(
 4. 命名：slug 不合形态即 LINE_SLUG_INVALID；新包名 research-line-\<服务器当前 UTC 日期 YYYYMMDD>-\<slug>。
 5. 组装 research-line.json（format research-line-v2：market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
 6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包（同一天、同一 slug）内容哈希不同拒绝 LINE_CONFLICT，不覆盖，由 Agent 换一个更准确的 slug。
-7. 返回包名与写入身份；此后每次登记的窗口核对与可比核对都读这条记录。
-8. 最新路线与本次选择完全相同时（不论 slug）不写新记录，返回该路线并标 created=false；选择不同才写新路线。
-9. targets 给出时先核对范围（TARGETS_INVALID）与账本有 line_target 表（LEDGER_UPGRADE_REQUIRED），再在写路线包的同一事务里经 ledger.set_targets 写路线目标，新路线不会有落到默认值的空档；重选同一条路线时目标照 ledger.set_targets 记（同值不写）。不给 targets 时不写目标，路线读账本默认值。
+7. 返回包名与写入身份；此后指明这条路线的登记，窗口核对与可比核对都读这条记录。
+8. 本次选择与某条开着的路线完全相同时（不论 slug），按那一条的重放处理：不写新记录，返回它并标 created=false。
+9. 否则已有开着的路线用了同一市场提交和同一开发窗口，即拒绝 LINE_DATA_TAKEN：同时开着的路线须换窗口或换市场提交，不给第二条同键路线开路。选新路线不结束任何开着的路线。
+10. 第 8、9 步与写入在同一个 ledger.write 写事务里按当前头判断（经 ledger.open_lines），借 ledger_head 串行化，不会先查后写。
+11. targets 给出时先核对范围（TARGETS_INVALID）与账本有 line_target 表（LEDGER_UPGRADE_REQUIRED），再在写路线包的同一事务里经 ledger.set_targets 写路线目标，新路线不会有落到默认值的空档；重选同一条路线时目标照 ledger.set_targets 记（同值不写）。不给 targets 时不写目标，路线读账本默认值。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1342,10 +1349,11 @@ def select_line(
 | `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |
 | `LINE_SLUG_INVALID` | slug 不是至多 48 字符的小写 ASCII 单词连字符串 |
 | `LINE_CONFLICT` | 同一天、同一 slug 的路线已存在且选择不同 |
+| `LINE_DATA_TAKEN` | 已有一条开着的路线钉了同一市场提交和同一开发窗口，且选择不完全相同 |
 | `TARGETS_INVALID` | 所给目标缺失或超出范围 |
 | `LEDGER_UPGRADE_REQUIRED` | 给了目标而账本还没有 line_target 表 |
 
-**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.current_line" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="ledger.set_targets" />、<Ref id="ledger.targets_for" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.open_lines" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="ledger.set_targets" />、<Ref id="ledger.targets_for" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
 
 <div className="rd-meta">
 
@@ -1377,26 +1385,6 @@ def tag_name(bundle: str) -> str
 The closing tag of a line: line/&lt;UTC date&gt;-&lt;slug&gt;.
 
 [Source](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L225)
-
-#### `unclosed_lines` [#impl-ledger-lines-py-unclosed_lines]
-
-```python
-def unclosed_lines(conn: db.LedgerConnection) -> list[dict]
-```
-
-The ended lines (every line but the latest) without their closing tag, oldest first, each with its closing commit (\{line, tag, commit, ended_by\}).
-
-[Source](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L230)
-
-#### `closing_commit` [#impl-ledger-lines-py-closing_commit]
-
-```python
-def closing_commit(conn: db.LedgerConnection, bundle: str) -> dict
-```
-
-\{tag, commit, ended_by\} of an ended line: the parent of the commit that added the next line (the research branch is linear). LINE_UNKNOWN for no line, LINE_OPEN for the current one.
-
-[Source](https://github.com/qOeOp/trade/blob/main/ledger/lines.py#L238)
 
 
 ## `ledger/metrics.py` [#def-mod-ledger-metrics-py]
@@ -2469,12 +2457,12 @@ def parse_ref(ref) -> tuple[str, int]
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.set_targets">set_targets</Ref> | 记录用户为当前路线或账本默认值给出的两个研究目标；改目标是追加一行取代原来生效的那一行，同值不写 |
+| <Ref id="ledger.set_targets">set_targets</Ref> | 记录用户为一条开着的研究路线或账本默认值给出的两个研究目标；改目标是追加一行取代原来生效的那一行，同值不写 |
 | <Ref id="ledger.targets_for">targets_for</Ref> | 读某个账本版本上一条路线生效的两个研究目标：路线自己的，否则账本默认值，否则 None |
 
 ### `set_targets` [#def-ledger-set_targets]
 
-记录用户为当前路线或账本默认值给出的两个研究目标；改目标是追加一行取代原来生效的那一行，同值不写
+记录用户为一条开着的研究路线或账本默认值给出的两个研究目标；改目标是追加一行取代原来生效的那一行，同值不写
 
 ```python
 def set_targets(
@@ -2485,14 +2473,14 @@ def set_targets(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接；在别的写事务内调用（如 ledger.select_line）时并入那个事务，看得见它尚未提交的路线" }, "line": { type: "str | None", description: "当前研究路线包名；None 为账本默认值" }, "max_drawdown": { type: "float | str", description: "用户的最大回撤上限，比例（0.15 即 15%），0 < x < 1" }, "annual_return": { type: "float | str", description: "用户的最低年化收益，比例（0.20 即 20%），0 < x < 1000" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接；在别的写事务内调用（如 ledger.select_line）时并入那个事务，看得见它尚未提交的路线" }, "line": { type: "str | None", description: "开着的研究路线包名；None 为账本默认值" }, "max_drawdown": { type: "float | str", description: "用户的最大回撤上限，比例（0.15 即 15%），0 < x < 1" }, "annual_return": { type: "float | str", description: "用户的最低年化收益，比例（0.20 即 20%），0 < x < 1000" } }} />
 
 **返回**　dict：\{max_drawdown, annual_return, source（line 或 default）, target_id, created_at, line, written, commit\}；同值时 written=false、commit 为 null
 
 **期望行为**
 
 1. 两个值按四位小数取整后核对范围，不合即 TARGETS_INVALID；所读版本没有 line_target 表即 LEDGER_UPGRADE_REQUIRED。
-2. line 给出时须是当前路线：不是任何路线即 LINE_UNKNOWN，是已结束的路线即 LINE_ENDED（它的封盘 tag 是终态快照）。
+2. line 给出时须是开着的路线（ledger.open_lines，按头提交判断）：不是任何路线即 LINE_UNKNOWN，已有封盘标签即 LINE_ENDED（标签所在提交是它的结束点）。
 3. 取同一范围（这条路线或默认值）链末端的那一行；与它同值即返回它，不写。
 4. 否则经 ledger.write 追加一行 line_target，supersedes 指向原末端（没有则为 null）；created_at 由触发器取服务器 UTC。
 5. 目标是用户的决定：只照用户的话写，只作读报告的参照，不参与候选资格。
@@ -2502,10 +2490,10 @@ def set_targets(
 | `TARGETS_INVALID` | 目标缺失、不是有限数或超出范围 |
 | `LEDGER_UPGRADE_REQUIRED` | 账本还没有 line_target 表（先运行 ledger upgrade） |
 | `LINE_UNKNOWN` | line 不是已有的研究路线 |
-| `LINE_ENDED` | line 已结束（之后选过别的路线） |
+| `LINE_ENDED` | line 已有封盘标签（已经关闭） |
 | `LEDGER_CORRUPT` | 同一范围有不止一行生效 |
 
-**使用**　<Ref id="ledger.write" />、<Ref id="ledger.current_line" />、<Ref id="table:line_target" />
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.open_lines" />、<Ref id="table:line_target" />
 
 <div className="rd-meta">
 

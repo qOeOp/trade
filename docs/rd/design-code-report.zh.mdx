@@ -1279,17 +1279,17 @@ def research_state(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省取 ledger.current_line" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
+<TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省经 ledger.open_lines 取该提交上唯一开着的路线" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
-**返回**　dict：ledger_commit、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit；这里的 ledger_commit 是读取所用的提交，同顶层 ledger_commit，不是该线写入时的提交）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、unclosed_lines（已结束而还没有关闭标签的路线，供 line close，经 ledger.unclosed_lines 读出：[\{line, tag, commit, ended_by\}]）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、execution_identity（路线的执行身份，见下第 5 条；没有路线时为 null）、unreviewed_trials、trials_on_line（计数，多重比较的 N：同一开发窗口与市场提交上的全部研究试验，换线而窗口不变时也计入旧路线的试验，因为它们是同一份开发数据上的搜索暴露）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、judgment_history\{total, superseded, entries, next_before\}（默认只给总数与被替代数，entries 为空；见下文 --history）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；账本还没有研究路线时 line 为 null，targets 为账本默认值或 null，unclosed_lines 与判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与 next_actions（只有 line select）。research_state 不列 unverified_runs，读回不可用的运行由 research_status 列出
+**返回**　dict：ledger_commit、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit；这里的 ledger_commit 是读取所用的提交，同顶层 ledger_commit，不是该线写入时的提交）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、open_lines（该提交上开着的路线及其窗口和市场提交，经 ledger.open_lines 读出：[\{line, window_start, window_end, market_commit\}]；只输出，不存储）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、execution_identity（路线的执行身份，见下第 5 条；没有路线时为 null）、unreviewed_trials、trials_on_line（计数：本路线的全部研究试验，经 ledger.line_trials 按登记所属路线认定；同一市场提交与窗口上已关闭的前任路线的试验不计入。跨路线的多重检验计数由 research_status 的 trials、distinct_sources 与 by_development_window 给出）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、judgment_history\{total, superseded, entries, next_before\}（默认只给总数与被替代数，entries 为空；见下文 --history）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；没有给 line_bundle 而账本没有开着的研究路线时 line 为 null，targets 为账本默认值或 null，open_lines 与判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与 next_actions（只有 line select）；没有给 line_bundle 而开着多条时 line 为 null、判断为空，gates 列出 LINE_AMBIGUOUS，open_lines 列出各条。research_state 不列 unverified_runs，读回不可用的运行由 research_status 列出
 
 **期望行为**
 
-1. 按 at 读取（AS OF）。路线取 line_bundle，缺省取 ledger.current_line 的包名；经 ledger.read_line 读出整条记录，作为结果里的 line；同一提交上经 ledger.targets_for 读出生效的目标，作为 targets。
-2. 账本还没有研究路线记录时不拒绝：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED，附候选与计数事实，next_actions 只给 line select。
+1. 按 at 读取（AS OF）。经 ledger.open_lines 读出该提交上开着的路线，作为 open_lines。路线取 line_bundle（已关闭的路线也可读，供关线前写总结与回看）；缺省取唯一开着的那条；经 ledger.read_line 读出整条记录，作为结果里的 line；同一提交上经 ledger.targets_for 读出生效的目标，作为 targets。
+2. 缺省而取不到唯一一条时不拒绝。没有开着的路线：返回 line = null、各判断为空、gates 为 RESEARCH_LINE_REQUIRED（没有开着的路线），附候选与计数事实，next_actions 只给 line select。开着多条：返回 line = null、各判断为空、gates 为 LINE_AMBIGUOUS，open_lines 列出各条；与 RESEARCH_LINE_REQUIRED 一样只报告、不抛出。
 3. 每种判断取未被取代的最新一条；interpretation 与 search_exposure 在 full 时返回全部未被取代的，缺省只返回编号大于当前推荐的（没有推荐时全部返回），更早的只在 earlier 里计数。完整读取用于关闭路线写总结与回看历史。
 4. 为每个主体附读时事实：候选身份与谱系、试验 purpose 与运行状态、qualification.assess 的当前资格（附检查身份）、绩效指标。
-5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 ledger_commit 之间 added、属于本路线市场提交与开发窗口、且执行身份等于路线执行身份（report.line_identity，同时给出为 execution_identity）的试验；没有推荐时为本路线这一身份的全部试验；路线还没有自己的试验时为空。trials_on_line 仍计全部身份，同一份开发数据上的搜索都算。
+5. unreviewed_trials：dolt_diff_trial 在最新 recommendation 的 based_on_commit 与 ledger_commit 之间 added、属于本路线（ledger.line_trials：登记属于这条路线）、且执行身份等于路线执行身份（report.line_identity，同时给出为 execution_identity）的试验；没有推荐时为本路线这一身份的全部试验；路线还没有自己的试验时为空。trials_on_line 仍计本路线的全部身份。
 6. full 时 facts.candidates 取自 report.candidates，facts.counts 取自 report.research_status；缺省为 null，这两项由 candidate list 与 research status 各自读取。
 7. unreviewed_trials 与 trials_on_line 都由 ledger.line_trials 给出（unreviewed_trials 再按执行身份筛）；gates 列出 registration.require_line_records 当前会拒绝的项。路线接续的候选（当前 recommendation 与 priority 里 recommended、parent、control 角色的候选，都没有时取路线起点）发布时的 runtime_contract 不在 runtime.layout 之内时，gates 再加一项 RUNTIME_UNSUPPORTED，missing 列出这些候选；预检与封存要求运行与候选同契约、登记要求与对照同契约，所以这条线在当前运行环境上既不能重放也不能比较。读时派生，不存储；用户 2026-10-25 定，契约升级即关闭旧线、在新契约上新开。路线的 market_commit 在活动市场库经 market.resolve_commit 解析不到（UNKNOWN_REF，任何分支都没有该提交）时，gates 再加一项 MARKET_COMMIT_UNRESOLVED，missing 是该提交：下一次登记会被同码拒绝，钉在它上的运行也不能重放，直到该提交回到市场库。读不到活动市场库（没有市场 profile、服务不可达）时不加这一项，由登记自己拒绝。同样读时派生，不存储。
 8. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并在其事实里列出原因，其余照常；这类运行的清单 unverified_runs 只由 research_status 给出。
@@ -1301,7 +1301,7 @@ def research_state(
 | `LINE_CORRUPT` | 路线记录读回哈希与存储哈希不符，或包内缺 research-line.json（由 ledger.read_line 抛出） |
 | `LINE_FORMAT_UNSUPPORTED` | 路线记录的 format 不是 research-line-v2（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.current_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />、<Ref id="ledger.targets_for" />
+**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.open_lines" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />、<Ref id="ledger.targets_for" />
 
 <div className="rd-meta">
 
@@ -1329,7 +1329,7 @@ def research_graph(
 
 **期望行为**
 
-1. 按 at 读取（AS OF）。成员是路线起点与路线上研究试验的候选，再沿父版本和同一策略 id 的修订扩展。
+1. 按 at 读取（AS OF）。路线取 line_bundle，缺省经 ledger.open_lines 取该提交上唯一开着的路线；开着多条即 LINE_AMBIGUOUS。成员是路线起点与路线上研究试验（ledger.line_trials）的候选，再沿父版本和同一策略 id 的修订扩展。
 2. 只组合已有读口：候选与试验、qualification.assess 的资格、report.derive_measures 的标题指标、registration.load_plan 的登记、report.compare 的比较与预测核对、qualification.review_records 的源码审阅、判断与其主体；不加自己的规则。
 3. 无经济证据的运行不给指标，只留原因；比较因比较事实被拒（无对照、不可比）时预测结果留空。版本状态 recommended 只取最新推荐判断里角色为 recommended 的对象；推荐判断以 about 列出的其他版本不算保留，与其余有经济证据的版本一样是 superseded。
 4. 账本或市场库连不上、拒绝账号或结构代数不对时整张图拒绝，不出一张缺比较或缺市场读数的图：比较入口与市场日收益读取会把这类故障吞成缺项，读口在本次调用内记下它们，取完后拒绝。
@@ -1339,7 +1339,8 @@ def research_graph(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `RESEARCH_LINE_REQUIRED` | 没有给路线，账本也没有当前路线 |
+| `RESEARCH_LINE_REQUIRED` | 没有给路线，账本也没有开着的路线 |
+| `LINE_AMBIGUOUS` | 没有给路线，而开着的路线不止一条；消息列出开着的路线 |
 | `LEDGER_UNAVAILABLE`、`LEDGER_PERMISSION`、`SCHEMA_MISMATCH` | 账本服务连不上、拒绝账号或结构代数不是本代码读的那一代，包括比较入口在取图途中遇到的 |
 | `MARKET_UNREACHABLE` | 市场库服务连不上、库不存在或拒绝账号（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
 
@@ -1355,9 +1356,9 @@ def research_status(
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" }, "line_bundle": { type: "str | None", description: "对照表所属的研究路线；缺省取当前路线，没有路线时 comparison 为 null" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" }, "line_bundle": { type: "str | None", description: "对照表所属的研究路线；缺省取唯一开着的路线，没有开着的路线或开着多条时 comparison 为 null" } }} />
 
-**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, unverified_runs: [\{trial_id, reason\}], availability_checker, metrics_revision, comparison\}；comparison 是 report.comparison_table 给出的对照表（没有路线时为 null）。除对照表的四项度量与支配关系外，只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
+**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, unverified_runs: [\{trial_id, reason\}], availability_checker, metrics_revision, comparison\}；comparison 是 report.comparison_table 给出的对照表（没有路线可取或开着多条时为 null）。除对照表的四项度量与支配关系外，只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
 
 **期望行为**
 
@@ -1368,7 +1369,7 @@ def research_status(
 5. 样本外：registered = validation_registration 行数；bound = validation_binding 行数；unbound = registered − bound；unwitnessed = 登记所在提交经 ledger.stamped_at 读不到凭证的登记数。
 6. 输出附 qualification.check_identity() 作 availability_checker、ledger.metrics_revision() 作 metrics_revision；不写任何行；绩效指标只在对照表里按四项比较支配关系。
 7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；research_status 另列 unverified_runs。
-8. comparison：路线取 line_bundle，缺省取 ledger.current_line；在同一只读连接上经 report.comparison_table 算出，不存。
+8. comparison：路线取 line_bundle，缺省经 ledger.open_lines 取唯一开着的路线；没有给 line_bundle 而开着多条时 comparison 为 null，计数照常给全账本；在同一只读连接上经 report.comparison_table 算出，不存。
 
 | 拒绝码 | 条件 |
 |---|---|
