@@ -16,9 +16,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the older run. On main every commit keeps its own run:
+# a cancelled run marks that merged commit red although nothing failed.
 concurrency:
-  group: docs-pages-${{ github.ref }}
-  cancel-in-progress: true
+  group: docs-pages-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -68,13 +70,33 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Main runs are no longer cancelled, so an older run can reach this job after a newer one.
+      # Deploy only when this commit already contains the latest site change on main; otherwise
+      # the newer commit's own run deploys it.
+      - id: latest
+        name: Skip the deploy when a later main commit changes the site
+        run: |
+          newest=$(git log -1 --format=%H origin/main -- \
+            .github/workflows/docs-pages.yml docs docs-site .github/actions/ci-paths .github/scripts/ci-paths.py)
+          if git merge-base --is-ancestor "$newest" "$GITHUB_SHA"; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipped: $newest on main changes the site after this commit and deploys it."
+          fi
       - id: deployment
+        if: steps.latest.outputs.current == 'true'
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
 
   gate:
