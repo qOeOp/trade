@@ -3,8 +3,8 @@
 -- (market/store.py), every later import only runs them.
 --
 -- Rules: insert only (market_schema's import_seq is the one updated cell); one Dolt commit per
--- import; a run cites one commit. Times are UTC milliseconds as Binance reports them. Prices and
--- volumes are integers at the scales recorded in market_schema. Other timeframes are derived at export.
+-- import; a run cites one commit. Times are UTC milliseconds as Binance reports them. Bar/quote prices
+-- and bar volumes use market_schema's scales; agg_trade has its own codec below. Other timeframes are derived at export.
 
 CREATE TABLE market_schema (
   singleton TINYINT PRIMARY KEY,
@@ -92,4 +92,19 @@ CREATE TABLE quote (
   ask BIGINT NOT NULL,
   PRIMARY KEY (symbol, ts, agg_trade_id),
   CHECK (bid > 0 AND ask > bid)
+);
+
+-- Complete Binance USD-M aggTrades, including trades which did not change the inferred quote.
+-- Price and quantity are exact signed integers x 1e8, independently of market_schema's bar scales.
+-- The codec identity, daily archive hashes and readings belong to the import commit, not each row.
+CREATE TABLE agg_trade (
+  symbol VARCHAR(40) NOT NULL,
+  transact_time BIGINT NOT NULL,
+  agg_trade_id BIGINT NOT NULL,
+  price BIGINT NOT NULL,
+  quantity BIGINT NOT NULL,
+  first_trade_id BIGINT NOT NULL,
+  last_trade_id BIGINT NOT NULL,
+  is_buyer_maker BOOLEAN NOT NULL,
+  PRIMARY KEY (symbol, transact_time, agg_trade_id)
 );
