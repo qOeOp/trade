@@ -149,6 +149,7 @@ class CompleteImportTests(unittest.TestCase):
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0)
         self.assertEqual((result['trade_rows'], result['codec']), (62, trades.CODEC))
+        self.assertGreaterEqual(result['publish_seconds'], 0)
         self.assertEqual(publish.call_args.args[2], 'market-import:' + profile['database'])
         with store.connect(profile, 'reader') as conn:
             self.assertEqual(conn.rows('SELECT * FROM agg_trade ORDER BY transact_time,agg_trade_id'), self.expected)

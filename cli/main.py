@@ -32,6 +32,7 @@ import re
 import secrets
 import shutil
 import sys
+import time
 import tempfile
 import textwrap
 from typing import Literal
@@ -916,7 +917,10 @@ def _publish_after(args, result: dict) -> dict:
             return result
         if profile.kind is None or not publication.unpublished(profile, branch):
             return result
-        return {**result, "published": publication.publish(profile, branch, lock)}
+        started = time.monotonic()
+        published = publication.publish(profile, branch, lock)
+        timing = {"publish_seconds": round(time.monotonic() - started, 3)} if key == ("market", "import-trades") else {}
+        return {**result, "published": published, **timing}
     except Refusal as exc:
         return {**result, "publish_failed": refusal_json(exc)}
 
@@ -1416,7 +1420,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "no change to bars, quotes or replay exports",
         "month, through, symbols, codec (binance-aggtrades-int64-scale8-v1: price and quantity exactly x1e8), "
         "trade_rows, archives (daily SHA-256), readings (daily counts, first/last IDs/times and largest time gap), "
-        "market_commit, seconds; daily progress on stderr",
+        "market_commit, seconds; publish_seconds when automatic publication runs; daily progress on stderr",
         "MONTH_INVALID (no closed UTC day; any earlier month in any order); IMPORT_SCOPE (exactly one symbol); "
         "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; MONTH_EXISTS (partial months cannot be extended); "
         "SCALE_LOSS (any value is inexact or outside signed BIGINT: refuse the whole month, no rounding or fallback); "
