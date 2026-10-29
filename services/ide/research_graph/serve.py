@@ -208,8 +208,8 @@ class Hub:
             try:
                 self._pull("ledger")
                 head = self.product.commit()
-                if head != self.head and self.head is not None:
-                    if self.pull is not None:
+                if head != self.head:
+                    if self.pull is not None and self.head is not None:
                         with self.lock:
                             self.pulling = head
                             self._notify()
