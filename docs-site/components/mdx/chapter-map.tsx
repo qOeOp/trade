@@ -26,13 +26,13 @@ export function ChapterMap({ chapter, lang = 'zh' }: { chapter: string; lang?: s
     <div className="rd-chapter-map not-prose">
       <div className="rd-chapter-map-frame">
         <ResearchMap locale={locale} chapter={chapter} interactive={false} />
-        <button type="button" className="rd-chapter-map-open" onClick={() => setOpen(true)}>{t.open}</button>
+        <button type="button" className="rd-btn rd-chapter-map-open" onClick={() => setOpen(true)}>{t.open}</button>
       </div>
       {open ? (
         <div className="rd-chapter-map-full" role="dialog" aria-modal="true">
           <div className="rd-chapter-map-bar">
             <span>{t.hint}</span>
-            <button type="button" onClick={() => setOpen(false)}>{t.close}</button>
+            <button type="button" className="rd-btn" onClick={() => setOpen(false)}>{t.close}</button>
           </div>
           <div className="rd-chapter-map-canvas">
             <ResearchMap locale={locale} chapter={chapter} interactive />

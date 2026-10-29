@@ -5,6 +5,7 @@
 /out/
 /public/icon-dark.svg
 /public/icon.svg
+/public/fonts/
 *.tsbuildinfo
 next-env.d.ts
 /lib/generated/

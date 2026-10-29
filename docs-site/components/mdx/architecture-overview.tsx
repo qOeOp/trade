@@ -16,13 +16,13 @@ export function ArchitectureOverview({ locale = 'zh' }: { locale?: Locale }) {
   return (
     <div className="not-prose my-8 grid gap-4 xl:grid-cols-3">
       {sections.map(({ group, number, label, zh, icon: Icon, description }) => (
-        <section key={group} className="min-w-0 overflow-hidden rounded-xl border border-fd-border bg-fd-card">
+        <section key={group} className="min-w-0 overflow-hidden rounded-md border border-fd-border bg-fd-card">
           <div className="border-b border-fd-border bg-fd-muted/35 p-5">
             <div className="mb-3 flex items-center justify-between text-fd-muted-foreground">
               <Icon className="size-5" aria-hidden />
               <span className="font-mono text-xs">{number}</span>
             </div>
-            <h3 className="m-0 text-lg font-semibold text-fd-foreground">{label}
+            <h3 className="m-0 text-[15px] font-semibold text-fd-foreground">{label}
               {locale === 'zh' && <span className="ml-2 text-sm font-normal text-fd-muted-foreground">{zh}</span>}
             </h3>
             <p className="mb-0 mt-1 text-xs leading-5 text-fd-muted-foreground">{description[locale]}</p>

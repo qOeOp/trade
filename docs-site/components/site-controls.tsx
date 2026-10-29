@@ -30,7 +30,7 @@ export function SiteControls({ className, ...props }: ComponentProps<'div'>) {
       {!isDocsRoute && (
         <Link
           href={`/${locale}/docs/`}
-          className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-full bg-fd-primary px-4 text-xs font-semibold text-fd-primary-foreground shadow-sm transition-opacity hover:opacity-85"
+          className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-[4px] bg-[var(--primary)] px-3 text-xs font-semibold text-white transition-colors hover:bg-[var(--primary-hover)]"
         >
           {locale === 'zh' ? '开始使用' : 'Get started'}
         </Link>
@@ -38,7 +38,7 @@ export function SiteControls({ className, ...props }: ComponentProps<'div'>) {
       <div
         role="group"
         aria-label="Language / 语言"
-        className="inline-flex shrink-0 flex-nowrap items-center whitespace-nowrap rounded-full border p-1"
+        className="inline-flex shrink-0 flex-nowrap items-center gap-0.5 whitespace-nowrap rounded-[6px] bg-[var(--frame)] p-0.5"
       >
         {languages.map((language) => {
           const active = locale === language.locale;
@@ -52,10 +52,10 @@ export function SiteControls({ className, ...props }: ComponentProps<'div'>) {
               onClick={() => {
                 if (!active) onChange?.(language.locale);
               }}
-              className={`h-6.5 min-w-8 shrink-0 whitespace-nowrap rounded-full px-2 text-xs font-semibold transition-colors ${
+              className={`h-6 min-w-8 shrink-0 whitespace-nowrap rounded-[4px] px-2 text-xs transition-colors ${
                 active
-                  ? 'bg-fd-accent text-fd-accent-foreground'
-                  : 'text-fd-muted-foreground hover:text-fd-accent-foreground'
+                  ? 'bg-[var(--island)] font-semibold text-fd-foreground shadow-[var(--shadow-raised)]'
+                  : 'text-fd-muted-foreground hover:bg-[var(--hover)] hover:text-fd-foreground'
               }`}
             >
               {language.label}
