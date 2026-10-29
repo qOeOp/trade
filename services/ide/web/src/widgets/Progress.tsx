@@ -7,15 +7,16 @@ import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
 import { select } from "../state/selection";
 import { useSize } from "../components/hooks/useSize";
-import { ChartPill, PILL_H, pillWidth } from "../components/ChartPill";
+import { ChartPill, PILL_H } from "../components/ChartPill";
+import { progressGutter, VALUE_GUTTER as GUTTER } from "../components/ProgressLayout";
 import { chartKeys } from "../components/chartKeys";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
 // The top margin holds the legend (the panel names the chart); the plot starts right of the tick labels' gutter, the
-// labels and the readout pill's text ending GUTTER short of it (as in the scatter). The gutter is at least MIN_LEFT wide and
-// widens to fit the widest label or readout (a minus sign, three digits) with 8px to the island's edge.
-const TOP = 40, BOTTOM = 16, MIN_LEFT = 64, RIGHT = 12, GUTTER = 8;
+// labels and the readout pill's text ending GUTTER short of it (as in the scatter). The linked
+// lineage reserves the same width for the widest label or readout, with 8px to the island's edge.
+const TOP = 40, BOTTOM = 16, RIGHT = 12;
 // Bars fill 70% of a trial's slot up to 24px, flat; the far end is rounded, the foot on the axis square.
 const SLOT = 0.7, MAX_BAR = 24, R = 3;
 const LEGEND: readonly [ColorRole, string][] = [["meets", "Meets target"], ["bar", "Gain below target"], ["misses", "Loss"]];
@@ -45,7 +46,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const count = Math.max(3, Math.min(8, Math.floor((floor - TOP) / 28)));
   const y = scaleLinear<number>({ domain: valueDomain(Math.min(...values), Math.max(...values), count), range: [floor, TOP] });
   const ticks = y.ticks(count);
-  const left = Math.max(MIN_LEFT, Math.ceil(Math.max(...[...ticks, ...points.map((p) => p.annual_return)].map((n) => pillWidth(pct(n))))) + 8 + GUTTER);
+  const left = progressGutter(widget);
   const sx = (t: number) => x0 + t * unit;
   const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
   const recommended = new Set(widget.recommended);

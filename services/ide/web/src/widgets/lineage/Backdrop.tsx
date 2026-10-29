@@ -8,9 +8,9 @@ import { bounds, UNIT } from "./geometry";
  *  crosshair marks the row under the pointer): the before-scope shading. The recommendation is not drawn
  *  here: a version's mark says it is recommended, and the toolbar's Recommended menu lists the versions it
  *  rested on in turn. Portalled into the viewport, not a node. */
-export function Backdrop({ widget }: { widget: LineageWidget }) {
+export function Backdrop({ widget, inset }: { widget: LineageWidget; inset: number }) {
   const viewport = useStore((s) => s.domNode?.querySelector(".react-flow__viewport") ?? null);
-  const { left, top, right, bottom } = bounds(widget);
+  const { left, top, right, bottom } = bounds(widget, inset);
   const width = right - left, height = bottom - top;
   const X = (t: number) => t * UNIT - left;
   const scope = widget.axis.scope_start;

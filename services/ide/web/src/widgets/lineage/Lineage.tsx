@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { LineageWidget } from "../../model/types";
+import type { LineageWidget, ProgressWidget } from "../../model/types";
+import { useWidget } from "../../model/view";
+import { progressGutter } from "../../components/ProgressLayout";
 import { crosshair, useAxisView, useCrosshair } from "../../state/linking";
 import { openSource } from "../../state/editors";
 import { select, selection, useSelection } from "../../state/selection";
@@ -22,6 +24,8 @@ const EDGE_TYPES = { elbow: Elbow };
 // The lineage on the trial axis at a fixed scale: the canvas pans but never zooms. A version sits at
 // its first research run on its lineage row; the ruler above and the progress chart below share the x.
 export function Lineage({ widget }: { widget: LineageWidget }) {
+  const progress = useWidget<ProgressWidget>("progress@1");
+  const inset = (progress ? progressGutter(progress) : 0) + UNIT / 2;
   const { nodes, tree, positions } = useMemo(() => {
     const nodes: Node<VersionData>[] = widget.nodes.flatMap((n) => n.x == null ? [] : [{
       id: n.id, type: "version", position: { x: n.x * UNIT - MARK_CENTRE, y: n.row * ROW - 11 },
@@ -40,7 +44,7 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
   }, [widget, tree, selected]);
   // Panning stops at the content's edges; content smaller than the canvas stays at its top-left corner.
   const [box, size] = useSize();
-  const { left, top, right, bottom } = bounds(widget);
+  const { left, top, right, bottom } = bounds(widget, inset);
   const extent: [[number, number], [number, number]] = [[left, top], [Math.max(right, left + size.width), Math.max(bottom, top + size.height)]];
   const at = useCrosshair();
   // The pointer over this canvas (else the crosshair comes from a linked chart and is only its trial);
@@ -52,7 +56,7 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
   return (
     <ReactFlowProvider>
       <div className="flex h-full flex-col">
-        <div className="shrink-0 border-b border-line"><Ruler lineage={widget} /></div>
+        <div className="shrink-0 border-b border-line"><Ruler lineage={widget} inset={inset} /></div>
         <div ref={box} data-crosshair={pointer && !pointer.onVersion ? "" : undefined} className="relative min-h-0 flex-1"
              onMouseMove={(e) => {
                const r = box.current?.getBoundingClientRect();
@@ -67,11 +71,11 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                      proOptions={{ hideAttribution: true }}
                      onInit={(flow) => {
                        const id = selection.get(), p = id ? positions.get(id) : undefined, r = box.current?.getBoundingClientRect();
-                       void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height) : home(widget)), zoom: 1 });
+                       void flow.setViewport({ ...(p && r ? centredOn(widget, p, r.width, r.height, inset) : home(widget, inset)), zoom: 1 });
                      }}
                      onNodeClick={(_, node) => select(node.id)} onNodeDoubleClick={(_, node) => openSource(node.id)}>
-            <Backdrop widget={widget} />
-            <AxisDriver widget={widget} positions={positions} />
+            <Backdrop widget={widget} inset={inset} />
+            <AxisDriver widget={widget} positions={positions} inset={inset} />
             {at != null && <Crosshair x={x0 + at * UNIT} y={pointer?.y ?? null} width={size.width} height={size.height} reticle={!pointer?.onVersion} />}
           </ReactFlow>
         </div>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import type { LineageWidget } from "../../model/types";
 import { PURPOSE } from "../../model/semantics";
 import { runs, steps } from "../../lib/range";
@@ -6,14 +6,15 @@ import { v, wash } from "../../theme/roles";
 import { hoverProps, requestFocus, useAxisView, useCrosshair } from "../../state/linking";
 import { useSize } from "../../components/hooks/useSize";
 import { Tip } from "../../components/Tip";
-import { RULER } from "./geometry";
+import { RULER, UNIT } from "./geometry";
 
 const BLOCK_Y = 4, BLOCK_H = RULER - 8, NUM_Y = RULER / 2 + 3.5;
 
 /** The trial axis: every trial's number over its column, the trial where a version sits on the canvas
  *  in the text colour and the rest faint; the trials that ran one version on a rounded tinted block
  *  (brand blue for the current recommendation); the trial under the pointer inverted. */
-export function Ruler({ lineage }: { lineage: LineageWidget }) {
+export function Ruler({ lineage, inset }: { lineage: LineageWidget; inset: number }) {
+  const clip = useId();
   const [ref, { width }] = useSize();
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
@@ -27,6 +28,8 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
   return (
     <div ref={ref} className="relative select-none bg-island" style={{ height: RULER }}>
       <svg width={width} height={RULER} className="absolute inset-0">
+        <defs><clipPath id={clip}><rect x={inset - UNIT / 2} y={0} width={Math.max(0, width - inset + UNIT / 2)} height={RULER} /></clipPath></defs>
+        <g clipPath={`url(#${clip})`}>
         {groups.map((g) => {
           const first = g[0], last = g.at(-1);
           if (!first || !last) return null;
@@ -53,6 +56,7 @@ export function Ruler({ lineage }: { lineage: LineageWidget }) {
             </g>
           );
         })}
+        </g>
       </svg>
     </div>
   );
