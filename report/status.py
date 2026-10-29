@@ -210,8 +210,8 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
     out-of-sample registrations; only counts, versions and the checker identity. The trial counts
     (`trials`, `distinct_sources`, `by_development_window`, the multiple-testing counts) leave out
     reproductions and trials stopped before the strategy ran, listed in `excluded_trials`.
-    `comparison` is the comparison table of `line_bundle` (default: the current line; null without
-    one)."""
+    `comparison` is the comparison table of `line_bundle` (default: the only open line; null when no
+    line or several lines are open)."""
     checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
@@ -258,7 +258,8 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
                                             "diff_type = 'added' GROUP BY to_commit"):
             if _stamp(conn, commit_hash) is None:
                 unwitnessed += count
-        line = line_bundle or (lines.current_line(conn) or {}).get("bundle")
+        opened = lines.open_lines(conn)
+        line = line_bundle or (opened[0] if len(opened) == 1 else None)
         table = comparison_table(conn, line, checker, records) if line is not None else None
     return {"ledger_commit": commit, "trials": trials, "distinct_sources": sources, "by_development_window": windows,
             "excluded_trials": excluded,
@@ -457,12 +458,14 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                    history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
-    null), the ended lines not yet closed (`unclosed_lines`, for `line close`), its current judgments with read-time facts, the fixed review cadence (`review_every`),
+    null), the open lines (`open_lines`: bundle, start, window and market commit of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
-    MARKET_COMMIT_UNRESOLVED when no branch of the active market database holds the line's market commit). On
-    a ledger without a research line: `line` null with the facts and `line select` as the next step.
+    MARKET_COMMIT_UNRESOLVED when no branch of the active market database holds the line's market commit). The
+    line is `line_bundle`, else the only open line; with no open line `line` is null with the facts and
+    `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
+    and the next step names one with --line.
 
     By default interpretations and search exposures are those after the current recommendation, with the
     count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
@@ -471,12 +474,21 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
         records = availability.review_records(pinned)
-        line = line_bundle or (lines.current_line(pinned) or {}).get("bundle")
-        if line is None:  # a new ledger: the facts the user chooses a line from, and the one next step
-            needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no research line record",
-                       "missing": ["research-line"]}]
+        opened = [lines.read_line(pinned, bundle, None) for bundle in lines.open_lines(pinned)]
+        open_lines = [{key: item[key] for key in ("bundle", "start", "window_start", "window_end", "market_commit")}
+                      for item in opened]
+        line = line_bundle or (opened[0]["bundle"] if len(opened) == 1 else None)
+        if line is None:  # no open line, or several: the facts the user chooses from, and the one next step
+            if opened:
+                needed = [{"code": "LINE_AMBIGUOUS", "message": "several research lines are open; name one with "
+                           "--line", "missing": [item["bundle"] for item in opened]}]
+                step = "Name the line to read with `research state --line` (one of open_lines)."
+            else:
+                needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no open research line",
+                           "missing": ["research-line"]}]
+                step = "Select the user's research line with `line select`."
             return {"ledger_commit": commit, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
-                    "unclosed_lines": [], **{kind: None for kind in SINGLE_KINDS},
+                    "open_lines": open_lines, **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
                     "gates": needed,
@@ -484,12 +496,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "earlier": None,
                     "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                               "counts": research_status(conn.profile, commit)},
-                    "next_actions": ["Select the user's research line with `line select`."]}
+                    "next_actions": [step]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         record = lines.read_line(pinned, line, None)
         in_force = line_targets.targets_for(pinned, line)
         judged = _judgments(pinned, line)
-        unclosed = lines.unclosed_lines(pinned)
         original = _judgment_history(pinned, line, history or history_before is not None, history_before)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
         identities = _identities(pinned, _manifests(pinned)[0])
@@ -513,7 +524,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
-    return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "unclosed_lines": unclosed,
+    return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,

@@ -5,8 +5,8 @@ line, to the whole ledger as its default. They are the user's: they are recorded
 states them, and they guide reading reports, never candidate eligibility. A change appends a row
 superseding the one in force for the same scope, so the history stays and the targets in force are
 the end of that chain. A line reads its own targets, else the default, else none; a version written
-before `ledger upgrade` added the table holds none. Only the current line takes new targets: an
-ended line's closing tag is its final snapshot.
+before `ledger upgrade` added the table holds none. Only an open line takes new targets: a closed
+line's closing tag marks its end.
 """
 
 from __future__ import annotations
@@ -76,20 +76,17 @@ def targets_for(conn: db.LedgerConnection, line: str | None) -> dict | None:
 
 
 def set_targets(conn: db.LedgerConnection, line: str | None, max_drawdown, annual_return) -> dict:
-    """Record the user's targets for the current line `line`, or the ledger default when `line` is None.
+    """Record the user's targets for the open line `line`, or the ledger default when `line` is None.
     The same targets as the ones in force write nothing. Called inside a write (as `line select` does),
     it joins that transaction and sees its uncommitted line."""
     from ledger import lines
     drawdown, annual = check(max_drawdown, annual_return)
     if not held(conn):
         raise refuse("LEDGER_UPGRADE_REQUIRED", f"the ledger has no {TABLE} table", missing=(TABLE,))
-    if line is not None:
-        current = (lines.current_line(conn) or {}).get("bundle")
-        if line != current:
-            if line not in lines.line_bundles(conn):
-                raise refuse("LINE_UNKNOWN", f"no research line {line!r}", missing=(str(line),))
-            raise refuse("LINE_ENDED", f"{line} has ended; only the current line {current} takes targets",
-                         missing=(line,))
+    if line is not None and line not in lines.open_lines(conn):
+        if line not in lines.line_bundles(conn):
+            raise refuse("LINE_UNKNOWN", f"no research line {line!r}", missing=(str(line),))
+        raise refuse("LINE_ENDED", f"{line} is closed; only an open line takes targets", missing=(line,))
     tip = _tip(conn, line)
     if tip is not None and (tip["max_drawdown"], tip["annual_return"]) == (drawdown, annual):
         return {**_reading(tip, "line" if line else "default"), "line": line, "written": False, "commit": None}

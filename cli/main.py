@@ -645,12 +645,12 @@ def line_select(conn: db.LedgerConnection, market: dict, start: str, window_star
 # registration, hypothesis
 
 def registration_add(profile: db.LedgerProfile, bundle: str, body: str, runtime: str | None, market: dict,
-                     runner_argv: list[str], source: list[str]) -> dict:
+                     runner_argv: list[str], source: list[str], line: str | None = None) -> dict:
     """registration add: lock the registration body, test conditions, grid and execution identity."""
     from registration import register
     plan = _json_file(body, "REGISTRATION_INVALID")
     registered = register.register(profile, bundle, plan, runtime, market, list(runner_argv),
-                                   [Path(item) for item in source or ()])
+                                   [Path(item) for item in source or ()], line)
     with db.read_as_of(profile) as conn:
         files = evidence.load_bundle(conn, bundle)["digests"]
     return {"bundle": registered["bundle"], "content_hash": registered["sha256"], "grid_points": len(plan["grid"]),
@@ -1196,37 +1196,37 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
         "the market database at --market-at (reader): commit, universe rule, latest complete day; the start "
-        "candidate, its source reviews, the current line and targets (writer, head)",
+        "candidate, its source reviews, the open lines and targets (writer, head)",
         "the bundle research-line-<UTC YYYYMMDD>-<slug> (research-line.json) and, when given, the line's targets "
-        "in the same commit; a choice equal to the current line writes no line (created false); publishes",
+        "in the same commit; a choice equal to an open line writes no line (created false); publishes",
         "bundle, start, window {start, end}, market_commit, universe_rule, content_sha256, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
         "WINDOW_INVALID; WINDOW_OUT_OF_COVERAGE (end after the market's latest complete day); "
-        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (today's name and slug hold another choice); LINE_SLUG_INVALID; "
-        "TARGETS_INVALID"),
+        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (today's name and slug hold another choice); LINE_DATA_TAKEN (an "
+        "open line holds the same market commit and window); LINE_SLUG_INVALID; TARGETS_INVALID"),
     ("line", "targets"): (
         "the targets in force for the line or the default (writer, head)",
         "one line_target row superseding the one in force; values equal to it write nothing (written false); "
         "publishes",
         "max_drawdown, annual_return, source (line or default), target_id, created_at, line, written, commit",
-        "RESEARCH_LINE_REQUIRED (no line record); LINE_ENDED (--line is not the current line); LINE_UNKNOWN; "
-        "TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
+        "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED "
+        "(--line is closed); LINE_UNKNOWN; TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
     ("line", "close"): (
         "--summary (a regular UTF-8 file, at most 32 KB); the line bundles and tags at the head (reader)",
-        "the tag line/<YYYYMMDD>-<slug> on the commit before the next line was added, its message the summary "
-        "(administrator); no ledger row or commit; the tag goes out with the next publish; the same summary again "
-        "is a replay",
-        "line, tag, commit, ended_by, replayed",
-        "LINE_OPEN (the current line; it ends when the next line is selected); LINE_CLOSED (tagged with another "
-        "summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
+        "the tag line/<YYYYMMDD>-<slug> on the research head, its message the summary (administrator), which "
+        "ends the line; no ledger row or commit; the tag goes out with the next publish; the same summary again "
+        "is a replay of the existing tag",
+        "line, tag, commit, replayed",
+        "LINE_CLOSED (tagged with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
     ("registration", "add"): (
-        "--body and --source files; the research line, its trials, judgments and source reviews (writer, head); "
+        "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned commit (reader); the runtime image, resolved to its digest and probed",
         "the registration bundle (research-plan.json with body, execution and runtime ref) and one source-<sha256> "
         "bundle per --source, in one commit; the same bundle and content again is a replay; publishes",
         "bundle, content_hash, grid_points, execution {image_ref, image_digest, runtime_contract, "
         "effective_config, input_identity}, files [{name, sha256}], ledger_commit, replayed",
-        "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); RESEARCH_LINE_REQUIRED; "
+        "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); RESEARCH_LINE_REQUIRED (no "
+        "open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED (--line is closed); LINE_UNKNOWN; "
         "INTERPRETATION_REQUIRED (a completed research trial of the line has no interpretation); REVIEW_DUE (5 or "
         "more research trials since the last recommendation); WINDOW_MISMATCH (body.window is not the line's); "
         "SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; SOURCE_ALREADY_EXPOSED; RUN_NOT_PASSED, "
@@ -1263,13 +1263,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market database holds the line's market commit (reader)",
         "nothing; never publishes",
-        "ledger_commit, line, execution_identity (the line's), targets, unclosed_lines, recommendation, priority, "
+        "ledger_commit, line, execution_identity (the line's), targets, open_lines [{bundle, start, window_start, "
+        "window_end, market_commit}], recommendation, priority, "
         "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
-        "RESEARCH_LINE_REQUIRED: reported, not "
+        "RESEARCH_LINE_REQUIRED (no open line), LINE_AMBIGUOUS (several open lines, no --line): reported, not "
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
-        "line), next_actions (only without a line: `line select`); line.ledger_commit is the commit read, not the "
+        "line), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
+        "read, not the "
         "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
     ("research", "graph"): (
@@ -1278,7 +1280,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing; never publishes",
         "format (research-graph@3), source, scope {ledger_commit, start, end}, line, candidates [{id, parent, "
         "source, trials, comparison, reviews, status, ...}], events, gaps; large (every candidate's source)",
-        "RESEARCH_LINE_REQUIRED; UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since); "
+        "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); UNKNOWN_BUNDLE, "
+        "LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since); "
         "MARKET_UNREACHABLE (other comparison refusals only leave a comparison null)"),
     ("source", "review"): (
         "the candidate and the precheck trial at the head (reader); the runtime image, resolved to its digest; "
@@ -1338,7 +1341,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "EXECUTION_MISMATCH (window, instruments, image, config or inputs differ from the registration); "
         "SOURCE_MISMATCH (the candidate is not in the grid); SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; "
         "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; validation: STALE_CHECKOUT, RUNTIME_NOT_MAIN, "
-        "REGISTRATION_CONSUMED, WINDOW_MISMATCH"),
+        "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed)"),
     ("replay", "report"): (
         "the trial at --at (reader) and, for a sealed run, market daily returns from its market database (a "
         "failure only empties the market measures); --directory or --reproduction files; --directory alone "
@@ -1680,18 +1683,18 @@ def _parser() -> Parser:
     _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
                          help="the line's direction as lowercase words joined by hyphens")
-    command = verb(line, "targets", "record the user's research targets for the current line or the default")
+    command = verb(line, "targets", "record the user's research targets for an open line or the default")
     command.epilog = ("The targets are the user's, recorded only as the user states them; they guide reading reports, "
                       "never candidate eligibility. A change supersedes the targets in force, and the same targets "
                       "again write nothing. A line without its own targets reads the ledger default.")
     _ledger_option(command)
     scope = command.add_mutually_exclusive_group()
-    scope.add_argument("--line", help="the current research line (default: the current line)")
+    scope.add_argument("--line", help="an open research line (default: the only open line)")
     scope.add_argument("--default", action="store_true", help="the ledger default for lines without their own")
     _targets_options(command, None)
-    command = verb(line, "close", "tag an ended line's last commit with its summary")
+    command = verb(line, "close", "end a line by tagging the research head with its summary")
     _ledger_option(command)
-    command.add_argument("--line", required=True, help="an ended line research state lists under unclosed_lines")
+    command.add_argument("--line", required=True, help="an open line research state lists under open_lines")
     command.add_argument("--summary", required=True,
                          help="UTF-8 text file (at most 32 KB), the index later research searches: the direction, "
                               "what was tried, results with their run IDs, failures and why, lessons and advice; "
@@ -1710,6 +1713,7 @@ def _parser() -> Parser:
     command.add_argument("--body", required=True, help="JSON body file; templates in "
                                                        ".agents/skills/research-round/templates/registration-*.json")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--line", help="the open research line to register on (default: the only open line)")
     command.add_argument("--source", action="append", default=[], help="a source original file (repeatable)")
 
     hypothesis = verbs("hypothesis", "registered hypotheses: compare")
@@ -1722,11 +1726,12 @@ def _parser() -> Parser:
     research = verbs("research", "research facts: status, state, graph")
     command = verb(research, "status", "research fact counts and the line's comparison table")
     _ledger_option(command)
-    command.add_argument("--line", help="research line bundle of the comparison table (default: the current line)")
+    command.add_argument("--line", help="research line bundle of the comparison table (default: the only open "
+                                         "line)")
     _at(command)
     command = verb(research, "state", "the line record and its current judgments with read-time facts")
     _ledger_option(command)
-    command.add_argument("--line", help="research line bundle (default: the current line)")
+    command.add_argument("--line", help="research line bundle (default: the only open line)")
     command.add_argument("--history", action="store_true",
                          help="include up to 20 original judgments, newest first, including superseded text and subjects")
     command.add_argument("--history-before", type=int,
@@ -1741,7 +1746,7 @@ def _parser() -> Parser:
                       "where the scope under study starts. Check, render and compare it with "
                       "services/ide/ide.py. Writes nothing.")
     _ledger_option(command)
-    command.add_argument("--line", help="research line bundle (default: the current line)")
+    command.add_argument("--line", help="research line bundle (default: the only open line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")
     command.add_argument("--workers", type=_workers, default=min(8, os.cpu_count() or 1),
                          help="processes computing the comparisons (default: 8 or the CPU count if fewer; 1 runs "
@@ -2077,16 +2082,13 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                args.note, args.slug, _targets(args)), 0
     if key == ("line", "targets"):
         with db.connect(profile, "writer") as conn:
-            line_bundle = None if args.default else args.line or (lines.current_line(conn) or {}).get("bundle")
-            if line_bundle is None and not args.default:
-                raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record",
-                             missing=("research-line",))
+            line_bundle = None if args.default else lines.open_line(conn, args.line)["bundle"]
             return targets.set_targets(conn, line_bundle, args.max_drawdown, args.annual_return), 0
     if key == ("line", "close"):
         return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
     if key == ("registration", "add"):
         return registration_add(profile, args.bundle, args.body, args.runtime, market_profile(args.market),
-                                runner_argv, args.source), 0
+                                runner_argv, args.source, args.line), 0
     if key == ("hypothesis", "compare"):
         return hypothesis_compare(profile, args.bundle, args.trial_id, args.at), 0
     if key == ("research", "status"):

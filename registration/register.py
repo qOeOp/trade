@@ -6,7 +6,8 @@ parent and control, change, rationale, sources, comparison design (none without 
 conditions, window), the execution identity the product probed (runtime image, effective configuration, input
 identity) and each grid point's source review, as the immutable bundle research-plan.json. A
 research replay binds to one grid point in the transaction that writes its trial: the registration
-is checked again, and the grid point is consumed once, whatever the replay's outcome.
+is checked again, and the grid point is consumed once, whatever the replay's outcome. A registration
+belongs to the open line it was written on (`ledger.registration_line`); a closed line binds no more.
 """
 
 from __future__ import annotations
@@ -298,15 +299,11 @@ def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping,
     seams.current.qualification_require(conn, run)
 
 
-def _check_window(conn: db.LedgerConnection, body: Mapping) -> dict:
-    line = lines.current_line(conn)
-    if line is None:
-        raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record", missing=("research-line",))
+def _check_window(body: Mapping, line: Mapping) -> None:
     expected = {"trade_start": line["window_start"], "trade_end": line["window_end"]}
     if body["window"] != expected:
         raise refuse("WINDOW_MISMATCH", f"the registered window {body['window']} is not the line's {expected}",
                      missing=("window",), expected=json.dumps(expected))
-    return line
 
 
 def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) -> list[dict]:
@@ -468,7 +465,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
-def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool,
+def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping,
               exclude: tuple[str, int] | None = None) -> dict:
     _check_shape(body)
     if body["control_trial_id"] is not None or body["comparison"] is not None:  # nothing to test without a control
@@ -480,7 +477,7 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     _check_duties(body)
     _check_prediction(body)
     _check_lineage(conn, body, execution, before_replay)
-    line = _check_window(conn, body)
+    _check_window(body, line)
     points = _check_grid(conn, body, execution)
     reviews = body.get("prechecks") or {}
     declared_inputs = comparability.input_key(execution.get("input_identity"))
@@ -497,17 +494,18 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     return {"grid": points, "line": line}
 
 
-def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, *,
+def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping, *,
              exclude: tuple[str, int] | None = None) -> set[str]:
-    """Every check of a registration body against its execution identity; the locked grid's source
-    hashes. Read only. `exclude` (bundle, trial_id) is the binding being checked: its own trial and
-    earlier attempts of the same registration are not exposures of the grid."""
-    return {point["source_sha256"] for point in _validate(conn, body, execution, before_replay, exclude)["grid"]}
+    """Every check of a registration body against its execution identity and its line's record; the
+    locked grid's source hashes. Read only. `exclude` (bundle, trial_id) is the binding being checked:
+    its own trial and earlier attempts of the same registration are not exposures of the grid."""
+    return {point["source_sha256"] for point in _validate(conn, body, execution, before_replay, line, exclude)["grid"]}
 
 
-def _retried(conn: db.LedgerConnection) -> set[str]:
-    """The registration bundles a stored registration names in retry_of."""
+def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
+    """The registration bundles a stored registration of the line names in retry_of."""
     named = set()
+    created = dict(conn.rows("SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE %s", ("registration-%",)))
     for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s", ("registration-%", PLAN_FILE)):
         content = bytes(content)
@@ -515,10 +513,13 @@ def _retried(conn: db.LedgerConnection) -> set[str]:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{PLAN_FILE} differs from its content hash",
                          missing=(f"{bundle}/{PLAN_FILE}",))
         try:
-            retry = json.loads(content.decode("utf-8"))["body"].get("retry_of")
+            plan = json.loads(content.decode("utf-8"))
+            retry = plan["body"].get("retry_of")
+            market_commit, window = plan["execution"]["input_identity"]["market_commit"], plan["body"]["window"]
         except (UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError):
             continue
-        if isinstance(retry, str):
+        if isinstance(retry, str) and lines.registration_line(conn, market_commit, window,
+                                                               created[bundle]) == line_bundle:
             named.add(retry)
     return named
 
@@ -527,8 +528,8 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
     """The gates before the next registration: interpretations and a due review.
 
     Every completed research trial of the line needs an interpretation, except an invalid run whose
-    registration a registration names in retry_of (stored, or `retry_of` of the one being written):
-    a failure is repaired and retried, not interpreted."""
+    registration a registration of the line names in retry_of (stored, or `retry_of` of the one being
+    written): a failure is repaired and retried, not interpreted."""
     trial_ids = lines.line_trials(conn, line_bundle)["trials"]
     uncovered, retried = [], None
     for trial_id in trial_ids:
@@ -546,7 +547,7 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
             continue
         if run is not None and run["status"] == "invalid":
             if retried is None:
-                retried = _retried(conn) | set(_retry_chain(conn, retry_of))
+                retried = _retried(conn, line_bundle) | set(_retry_chain(conn, retry_of))
             attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
             if attempt is not None and attempt["registration_bundle"] in retried:
                 continue
@@ -586,9 +587,11 @@ def _source_bundles(source_files: list[Path]) -> list[tuple[str, dict[str, bytes
 
 
 def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | None, market, runner_argv: list[str],
-             source_files: list[Path] | None = None) -> dict:
+             source_files: list[Path] | None = None, line: str | None = None) -> dict:
     """Probe the runtime, export the inputs, compose the execution identity and lock the registration
-    as research-plan.json in one write; the same content again is an idempotent replay."""
+    on the open line `line` (default: the only open line, ledger.open_line) as research-plan.json in
+    one write, which checks again that the line is open; the same content again is an idempotent
+    replay."""
     evidence.check_name(bundle)
     if not REGISTRATION_NAME.fullmatch(bundle):
         raise refuse("REGISTRATION_BUNDLE_NAME", f"{bundle} is not named registration-*", missing=(bundle,))
@@ -596,12 +599,10 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
-        line = lines.current_line(conn)
-        if line is None:
-            raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no research line record", missing=("research-line",))
+        held = lines.open_line(conn, line)
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.current.runner_inputs(list(runner_argv))
-        exported = registration_inputs.market_inputs(market, line["market_commit"], runner["window"],
+        exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
                                                      runner["selection"], runner.get("lifecycle_bundle"), True, profile,
                                                      include_quotes=runner["execution"] == "quotes")
         try:
@@ -630,8 +631,9 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
                              missing=tuple(absent))
             for name, files in sources:
                 evidence.write_files(c, name, files, f"registration_source:{name}")
-            require_line_records(c, line["bundle"], body.get("retry_of"))
-            _validate(c, body, execution, before_replay=False)
+            lines.open_line(c, held["bundle"])
+            require_line_records(c, held["bundle"], body.get("retry_of"))
+            _validate(c, body, execution, before_replay=False, line=held)
             evidence.write_files(c, bundle, {PLAN_FILE: content}, op)
             return {"bundle": bundle}
 
@@ -701,7 +703,13 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
     """
     plan, registered_at = load_plan(conn, bundle)
     body, registered = plan["body"], plan["execution"]
-    details = _validate(conn, body, registered, before_replay=True, exclude=(bundle, trial_id))
+    owner = lines.registration_line(conn, (registered.get("input_identity") or {}).get("market_commit"),
+                                    body.get("window"), registered_at)
+    if owner is None:
+        raise refuse("LINE_UNKNOWN", f"no research line holds the market commit and window of {bundle}",
+                     missing=(bundle,))
+    details = _validate(conn, body, registered, before_replay=True, line=lines.open_line(conn, owner),
+                        exclude=(bundle, trial_id))
     grid = {point["source_sha256"]: point for point in details["grid"]}
     trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
                      "trade_start, trade_end, created_at FROM trial WHERE trial_id = %s", (trial_id,))

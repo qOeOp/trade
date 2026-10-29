@@ -6,18 +6,19 @@ active ledger."""
 
 from __future__ import annotations
 
+from datetime import date
 import json
 import unittest
 from unittest import mock
 
 from ledger.errors import Refusal
-from ledger import db, judgments, strategies
+from ledger import db, judgments, lines, strategies
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import measures, runs, seams, status
 from runtime import image
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP
-from tests.registration.world import RUNNER_ARGV, capture as capture_fixture
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, reviewed, source
+from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
@@ -25,6 +26,31 @@ from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 def capture(native_exit=1, outcome="completed", summary="missing", failures="missing") -> dict:
     return {"stages": {"native": {"state": "exited", "exit_code": native_exit}}, "outcome": {"kind": outcome},
             "files": {"reports/summary.json": {"status": summary}, "reports/runtime_failures.jsonl": {"status": failures}}}
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class OpenLinesStateTests(unittest.TestCase):
+    def test_without_a_line_named_the_state_reads_the_only_open_line_and_reports_several(self):
+        world = World("state-lines")
+        self.addCleanup(world.close)
+        mine = world.line["bundle"]
+        with db.connect(world.profile, "reader") as conn:
+            state = status.research_state(conn)
+        self.assertEqual((state["line"]["bundle"], [item["bundle"] for item in state["open_lines"]]), (mine, [mine]))
+        other = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), "rsi@1",
+                                  slug="rsi-wider", market=market(), reviews=reviewed(source("root")))["bundle"]
+        with db.connect(world.profile, "reader") as conn:
+            state, named = status.research_state(conn), status.research_state(conn, other)
+        self.assertIsNone(state["line"])
+        self.assertEqual([(gate["code"], gate["missing"]) for gate in state["gates"]],
+                         [("LINE_AMBIGUOUS", [mine, other])])
+        self.assertEqual(state["open_lines"][1], {"bundle": other, "start": "rsi@1", "window_start": "2026-01-01",
+                                                  "window_end": "2026-03-01", "market_commit": MARKET_COMMIT})
+        self.assertEqual(named["line"]["bundle"], other)
+        self.assertIsNone(status.research_status(world.profile)["comparison"])
+        lines.close_line(world.profile, mine, b"rsi root summary")
+        with db.connect(world.profile, "reader") as conn:
+            self.assertEqual(status.research_state(conn)["line"]["bundle"], other)
 
 
 class StoppedBeforeStrategyTests(unittest.TestCase):

@@ -4,16 +4,17 @@ point in the trial's own transaction, and the line-record gates before the next 
 from __future__ import annotations
 
 import copy
+from datetime import date
 import json
 import threading
 import unittest
 from unittest.mock import patch
 
-from ledger import db, evidence, judgments, strategies, trials
+from ledger import db, evidence, judgments, lines, strategies, trials
 from ledger.errors import Refusal
 from registration import precheck, register
-from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha,
-                               source)
+from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, market, reviewed,
+                               sha, source)
 from tests.registration.world import (DAY, FEB, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, coverage_bytes,
                                       product_write)
 
@@ -249,10 +250,37 @@ class RegisterTests(unittest.TestCase):
 
     def test_registration_needs_a_research_line(self):
         body = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
-        with patch("ledger.lines.current_line", return_value=None):
+        with patch("ledger.lines.open_lines", return_value=[]):
             self.assertEqual(self.code("registration-lineless", body), "RESEARCH_LINE_REQUIRED")
-            exc = refused(register.validate, self.world.conn, body, self.registered["execution"], False)
-            self.assertEqual(exc.code, "RESEARCH_LINE_REQUIRED")
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class OpenLinesTests(unittest.TestCase):
+    """Several open lines: a registration names its line, binding follows the line it was written on, and
+    a closed line takes and binds no more registrations."""
+
+    def test_registrations_and_bindings_follow_their_own_open_line(self):
+        world = World("open-lines")
+        self.addCleanup(world.close)
+        mine = world.line["bundle"]
+        first = world.publish("first root", parent=None)
+        body = world.body([first["candidate"]], {first["candidate"]: world.prechecked(first["source"])})
+        world.register("registration-open-1", body)  # the only open line
+        other = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), "rsi@1",
+                                  slug="rsi-wider", market=market(), reviews=reviewed(source("root")))["bundle"]
+        second = world.publish("second root", parent=None)
+        later = world.body([second["candidate"]], {second["candidate"]: world.prechecked(second["source"])})
+        self.assertEqual(refused(world.register, "registration-open-2", later).code, "LINE_AMBIGUOUS")
+        self.assertEqual(refused(world.register, "registration-open-2", later, line=other).code, "WINDOW_MISMATCH")
+        world.register("registration-open-2", later, line=mine)
+        trial_id = world.research_trial("registration-open-1", first["source"])  # another line opened meanwhile
+        self.assertEqual(lines.line_trials(world.conn, mine)["trials"], [trial_id])
+        self.assertEqual(lines.line_trials(world.conn, other)["trials"], [])
+        lines.close_line(world.profile, mine, b"rsi root summary")
+        seq = world.seq()
+        self.assertEqual(refused(world.research_trial, "registration-open-2", second["source"]).code, "LINE_ENDED")
+        self.assertEqual(refused(world.register, "registration-open-3", later, line=mine).code, "LINE_ENDED")
+        self.assertEqual(world.seq(), seq, "a closed line binds and registers nothing")
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -579,6 +607,19 @@ class RetryTests(unittest.TestCase):
         exc = refused(register.require_line_records, self.world.conn, line)
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {passed}",)),
                          "a valid run still needs its interpretation")
+
+    def test_only_a_retry_on_the_same_line_exempts_an_invalid_run(self):
+        self.world.register("registration-r1", self.body)
+        failed = self.world.research_trial("registration-r1", source("root"))
+        self.world.seal_run(failed, "invalid")
+        other = lines.select_line(self.world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1),
+                                  "rsi@1", slug="rsi-wider", market=market(), reviews=reviewed(source("root")))["bundle"]
+        wider = {**self.body, "window": {"trade_start": "2026-01-01", "trade_end": "2026-03-01"},
+                 "retry_of": "registration-r1"}
+        self.world.register("registration-r2", wider, line=other)
+        exc = refused(register.require_line_records, self.world.conn, self.world.line["bundle"])
+        self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {failed}",)),
+                         "another line's retry does not repair this line's run")
 
     def test_a_retry_of_a_passed_or_unfinished_attempt_is_refused(self):
         self.attempt("registration-r1", None, "invalid")

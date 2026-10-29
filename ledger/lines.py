@@ -1,16 +1,17 @@
-"""Research lines (`ledger.select_line`, `ledger.current_line`, `ledger.read_line`, `ledger.line_trials`,
-`ledger.close_line`).
+"""Research lines (`ledger.select_line`, `ledger.open_lines`, `ledger.open_line`, `ledger.read_line`,
+`ledger.registration_line`, `ledger.line_trials`, `ledger.close_line`).
 
 A research line is the user's choice of start candidate (a revision whose source review passed),
 development window and pinned market commit, stored append-only as the evidence bundle
 research-line-<UTC date>-<slug> holding research-line.json; the slug names the line's direction.
-The latest line is the one the ledger received last; a new choice is a new line, never an edit.
+A new choice is a new line, never an edit.
 
-A line ends when the next one is selected. Closing it tags the commit before the next line's
-(`line/<UTC date>-<slug>`) with the Agent's summary as the tag message: a read-only snapshot of
-the line's end and an index for later research. Only the product tags, as the service
-administrator (the writer account cannot tag); the summary is an index, the evidence stays in
-the ledger.
+A line is open from its selection until it is closed, and several lines may be open at once; two
+open lines never share a market commit and window, so the trials of each stay apart. Closing a line
+tags the research head (`line/<UTC date>-<slug>`) with the Agent's summary as the tag message: the
+line's end and an index for later research. A tag on a commit or an ancestor of it closes the line
+there. Only the product tags, as the service administrator (the writer account cannot tag); the
+summary is an index, the evidence stays in the ledger.
 """
 
 from __future__ import annotations
@@ -75,13 +76,72 @@ def line_bundles(conn: db.LedgerConnection) -> list[str]:
     return _lines(conn, "")
 
 
-def current_line(conn: db.LedgerConnection, at: str | None = None) -> dict | None:
-    """The latest research line record at `at` (default: what the connection sees), or None."""
+def _tags(conn: db.LedgerConnection) -> dict[str, str]:
+    """{line bundle: tagged commit} of every closing tag."""
+    return {PREFIX + name[len(TAG_PREFIX):]: commit for name, commit in conn.rows(
+        "SELECT tag_name, tag_hash FROM dolt_tags WHERE tag_name LIKE 'line/%'")}
+
+
+def open_lines(conn: db.LedgerConnection, at: str | None = None) -> list[str]:
+    """The research lines open at `at` (default: what the connection sees), oldest first: those whose
+    closing tag, if any, is on neither that commit nor an ancestor of it."""
+    commit, clause = db.as_of(conn, at)
+    tags = _tags(conn)
+    return [bundle for bundle in _lines(conn, clause)
+            if bundle not in tags or not conn.rows("SELECT 1 FROM dolt_log(%s) WHERE commit_hash = %s LIMIT 1",
+                                                   (commit, tags[bundle]))]
+
+
+def open_line(conn: db.LedgerConnection, bundle: str | None = None, at: str | None = None) -> dict:
+    """The record of the open line `bundle`, or without one of the only open line: LINE_UNKNOWN or
+    LINE_ENDED for a named line that is no line or is closed; RESEARCH_LINE_REQUIRED when no line
+    is open and LINE_AMBIGUOUS when several are."""
+    opened = open_lines(conn, at)
+    if bundle is None:
+        if not opened:
+            raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no open research line", missing=("research-line",))
+        if len(opened) > 1:
+            raise refuse("LINE_AMBIGUOUS", "several research lines are open: " + ", ".join(opened) + "; name one "
+                         "with --line", missing=tuple(opened))
+        bundle = opened[0]
+    elif bundle not in opened:
+        _, clause = db.as_of(conn, at)
+        if bundle not in _lines(conn, clause):
+            raise refuse("LINE_UNKNOWN", f"no research line {bundle!r}", missing=(str(bundle),))
+        raise refuse("LINE_ENDED", f"{bundle} is closed ({tag_name(bundle)})", missing=(bundle,))
+    return read_line(conn, bundle, at)
+
+
+def _keyed(conn: db.LedgerConnection, at: str | None) -> list[tuple]:
+    """(created_at, bundle, market commit, window start, window end) of every line, oldest first; the
+    window as the midnights a trial row holds."""
     _, clause = db.as_of(conn, at)
-    named = _lines(conn, clause)
-    if not named:
+    found = []
+    for bundle in _lines(conn, clause):
+        line = read_line(conn, bundle, at)
+        found.append((line["created_at"], bundle, line["market_commit"],
+                      datetime.combine(date.fromisoformat(line["window_start"]), time()),
+                      datetime.combine(date.fromisoformat(line["window_end"]), time())))
+    return found
+
+
+def _owner(keyed: list[tuple], market_commit, start: datetime, end: datetime, before) -> str | None:
+    owner = None
+    for created, bundle, commit, first, last in keyed:
+        if created < before and (commit, first, last) == (market_commit, start, end):
+            owner = bundle
+    return owner
+
+
+def registration_line(conn: db.LedgerConnection, market_commit: str | None, window, registered_at,
+                      at: str | None = None) -> str | None:
+    """The line a registration belongs to: the last line added before it (`registered_at`, its bundle's
+    creation time) with its market commit and window ({trade_start, trade_end} ISO dates), or None."""
+    try:
+        start, end = (datetime.combine(date.fromisoformat(window[key]), time()) for key in ("trade_start", "trade_end"))
+    except (KeyError, TypeError, ValueError):
         return None
-    return read_line(conn, named[-1], at)
+    return _owner(_keyed(conn, at), market_commit, start, end, registered_at)
 
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
@@ -89,9 +149,10 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
                 market: Callable[[str, str], dict],
                 reviews: Callable[[db.LedgerConnection], list[dict]],
                 targets: tuple[float, float] | None = None) -> dict:
-    """Append the user's chosen line as research-line-<UTC date>-<slug>; the same choice again
-    (whatever its slug) is a replay of the current line. Another choice under a name already taken
-    is LINE_CONFLICT: the Agent names the direction more precisely. `targets` (maximum drawdown,
+    """Append the user's chosen line as research-line-<UTC date>-<slug>; the same choice as an open
+    line (whatever its slug) is a replay of that line. Another choice under a name already taken is
+    LINE_CONFLICT: the Agent names the direction more precisely; one on the market commit and window
+    of an open line is LINE_DATA_TAKEN, checked inside the write. `targets` (maximum drawdown,
     minimum annual return) are the user's for this line, written in the same commit; without them
     the line reads the ledger default.
 
@@ -141,8 +202,9 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
               "universe_rule": facts["universe_rule"], "window_start": window_start.isoformat(),
               "window_end": window_end.isoformat(), "start": start, "start_sha256": candidate["source_sha256"],
               "note": note}
-    latest = current_line(conn)
-    if latest is not None and all(latest[key] == value for key, value in choice.items()):
+    latest = next((line for line in (read_line(conn, bundle, None) for bundle in open_lines(conn))
+                   if all(line[key] == value for key, value in choice.items())), None)
+    if latest is not None:
         content_sha256 = hashlib.sha256(_encode({"format": FORMAT, **choice})).hexdigest()
         return {"bundle": latest["bundle"], "market_commit": latest["market_commit"],
                 "universe_rule": latest["universe_rule"], "content_sha256": content_sha256,
@@ -158,6 +220,13 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
 
     def insert(c, operation):
         written = evidence.write_files(c, bundle, {FILE: content}, operation)
+        for other in open_lines(c):
+            held = read_line(c, other, None)
+            if other != bundle and (held["market_commit"], held["window_start"], held["window_end"]) == (
+                    choice["market_commit"], choice["window_start"], choice["window_end"]):
+                raise refuse("LINE_DATA_TAKEN", f"the open line {other} already holds market commit "
+                             f"{choice['market_commit']} and window {choice['window_start']}..{choice['window_end']}",
+                             missing=(other,))
         if targets is not None:
             line_targets.set_targets(c, bundle, *targets)
         return written
@@ -206,19 +275,28 @@ def _encode(record: dict) -> bytes:
 
 def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str | None = None,
                 at: str | None = None) -> dict:
-    """Research trials of a line, invalid and interrupted ones included: the market commit of each
-    start receipt and the trial's trading window must equal the line's. With `since_commit`, only
-    trials added after it. (The start receipt carries no window, so the trial row's is read.)"""
+    """Research trials of a line, invalid and interrupted ones included: those whose registration
+    belongs to the line (registration_line, read from the trial's own market commit and trading
+    window, which binding made the registration's). With `since_commit`, only trials added after it.
+    (The start receipt carries no window, so the trial row's is read.)"""
     commit, clause = db.as_of(conn, at)
     if (not isinstance(line_bundle, str) or not LINE.fullmatch(line_bundle)
             or not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (line_bundle,))):
         raise refuse("LINE_UNKNOWN", f"no research line {line_bundle!r} at {commit}", missing=(str(line_bundle),))
-    line = read_line(conn, line_bundle, at)
-    window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
-              datetime.combine(date.fromisoformat(line["window_end"]), time()))
-    found = [trial_id for trial_id, start, end in conn.rows(
-        f"SELECT trial_id, trade_start, trade_end FROM trial{clause} WHERE purpose = 'research' ORDER BY trial_id")
-        if _market_commit(conn, trial_id, clause) == line["market_commit"] and (start, end) == window]
+    keyed = _keyed(conn, at)
+    _, _, market_commit, first, last = next(item for item in keyed if item[1] == line_bundle)
+    registered = dict(conn.rows(f"SELECT a.trial_id, b.created_at FROM registration_attempt{clause} AS a "
+                                f"JOIN evidence_bundle{clause} AS b ON b.bundle = a.registration_bundle"))
+    found = []
+    for trial_id, start, end in conn.rows(f"SELECT trial_id, trade_start, trade_end FROM trial{clause} "
+                                          "WHERE purpose = 'research' ORDER BY trial_id"):
+        if (start, end) != (first, last) or _market_commit(conn, trial_id, clause) != market_commit:
+            continue
+        if trial_id not in registered:
+            raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no registration attempt",
+                         missing=(f"trial {trial_id}",))
+        if _owner(keyed, market_commit, start, end, registered[trial_id]) == line_bundle:
+            found.append(trial_id)
     if since_commit is not None:
         since = db.resolve_commit(conn, since_commit)
         added = {trial_id for (trial_id,) in conn.rows(
@@ -250,45 +328,18 @@ def _market_commit(conn: db.LedgerConnection, trial_id: int, clause: str) -> str
 
 
 
-# Closing ended lines
+# Closing lines
 
 def tag_name(bundle: str) -> str:
     """The closing tag of a line: line/<UTC date>-<slug>."""
     return TAG_PREFIX + bundle[len(PREFIX):]
 
 
-def unclosed_lines(conn: db.LedgerConnection) -> list[dict]:
-    """The ended lines (every line but the latest) without their closing tag, oldest first, each
-    with its closing commit ({line, tag, commit, ended_by})."""
-    tags = {name for (name,) in conn.rows("SELECT tag_name FROM dolt_tags WHERE tag_name LIKE 'line/%'")}
-    return [{"line": bundle, **closing_commit(conn, bundle)} for bundle in _lines(conn, "")[:-1]
-            if tag_name(bundle) not in tags]
-
-
-def closing_commit(conn: db.LedgerConnection, bundle: str) -> dict:
-    """{tag, commit, ended_by} of an ended line: the parent of the commit that added the next line
-    (the research branch is linear). LINE_UNKNOWN for no line, LINE_OPEN for the current one."""
-    named = _lines(conn, "")
-    if bundle not in named:
-        raise refuse("LINE_UNKNOWN", f"no research line {bundle!r}", missing=(str(bundle),))
-    position = named.index(bundle)
-    if position == len(named) - 1:
-        raise refuse("LINE_OPEN", f"{bundle} is the current line; it ends when the next line is selected",
-                     missing=(bundle,))
-    successor = named[position + 1]
-    (added,), = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND "
-                          "diff_type = 'added'", (successor,))
-    parents = conn.rows("SELECT parent_hash FROM dolt_commit_ancestors WHERE commit_hash = %s", (added,))
-    if len(parents) != 1:
-        raise refuse("LEDGER_CORRUPT", f"the commit adding {successor} has {len(parents)} parents", missing=(added,))
-    return {"tag": tag_name(bundle), "commit": parents[0][0], "ended_by": successor}
-
-
 def close_line(profile: db.LedgerProfile, bundle: str, summary: bytes) -> dict:
-    """Tag an ended line's last commit line/<date>-<slug> with the Agent's summary (UTF-8, at most
-    SUMMARY_LIMIT bytes, stored without surrounding blank space) as the message, as the service
-    administrator; the same summary again is a replay, another one LINE_CLOSED (a tag is never
-    replaced)."""
+    """End the line `bundle` by tagging the research head line/<date>-<slug> with the Agent's summary
+    (UTF-8, at most SUMMARY_LIMIT bytes, stored without surrounding blank space) as the message, as the
+    service administrator; the same summary again is a replay of the existing tag, another one
+    LINE_CLOSED (a tag is never replaced)."""
     from ledger import admin
     try:
         text = summary.decode("utf-8")
@@ -299,11 +350,13 @@ def close_line(profile: db.LedgerProfile, bundle: str, summary: bytes) -> dict:
         raise refuse("LINE_SUMMARY_INVALID", "the summary is empty or too long",
                      expected=f"1 to {SUMMARY_LIMIT} bytes of UTF-8 text")
     with db.connect(profile, "reader") as conn:
-        closing = closing_commit(conn, bundle)
+        if bundle not in _lines(conn, ""):
+            raise refuse("LINE_UNKNOWN", f"no research line {bundle!r}", missing=(str(bundle),))
+        closing = {"tag": tag_name(bundle), "commit": db.head_commit(conn)}
         existing = conn.rows("SELECT tag_hash, message FROM dolt_tags WHERE tag_name = %s", (closing["tag"],))
     if existing:
-        if tuple(existing[0]) == (closing["commit"], text):
-            return {"line": bundle, **closing, "replayed": True}
+        if existing[0][1] == text:
+            return {"line": bundle, "tag": closing["tag"], "commit": existing[0][0], "replayed": True}
         raise refuse("LINE_CLOSED", f"{bundle} is already closed as {closing['tag']}", missing=(closing["tag"],))
     try:
         _, conn = admin._admin(profile)
