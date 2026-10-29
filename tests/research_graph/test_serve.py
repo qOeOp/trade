@@ -81,6 +81,25 @@ class HubTests(unittest.TestCase):
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
 
+    def test_the_first_graph_waits_for_the_market_copy_to_sync(self):
+        self.hub.pull = "/pull"
+        calls = []
+
+        def run(argv, **options):
+            calls.append(argv[1])
+            return mock.Mock(returncode=1 if argv[1] == "market" else 0,
+                             stdout="", stderr="market unavailable" if argv[1] == "market" else "")
+
+        with mock.patch.object(serve.subprocess, "run", side_effect=run):
+            code, body = self.hub.view(None, None, None)
+        self.assertEqual((code, body.get("code")), (503, "PULL_FAILED"))
+        self.assertEqual(calls, ["ledger", "market"])
+        self.assertEqual(self.product.drawn, [], "no graph is drawn from an unsynchronized first market copy")
+        with mock.patch.object(serve.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
+            self.hub.refresh(wait=True)
+        until(lambda: self.hub.view(None, None, None)[0] == 200)
+        self.assertEqual(self.product.drawn, ["a" * 32], "a successful retry allows the first graph")
+
     def test_a_slow_pull_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
         pulling, release = threading.Event(), threading.Event()

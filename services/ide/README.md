@@ -93,6 +93,28 @@ The ledger service and the paper daemon restart with Docker. A service whose `se
 socket is run this way: host commands reach it over TCP, and `ledger service stop` refuses it
 (`docker compose stop ledger`).
 
+### Recovering an IDE market copy after a remote history replacement
+
+Normal synchronization is fast-forward only and stops with `REMOTE_REWRITTEN` for either a
+non-fast-forward or no-common-ancestor failure. It fetches all market branches and keeps their
+commits locally, so old research lines can still resolve their pinned market inputs.
+
+After an administrator explicitly authorizes recovery of this IDE copy, run inside its container:
+
+```bash
+docker compose -f services/ide/docker/compose.yaml exec ide trade-ide-pull repair-market
+# If REMOTE_REWRITTEN has latched, restart only the IDE service to resume polling:
+docker compose -f services/ide/docker/compose.yaml restart ide
+```
+
+Recovery refuses an uncommitted market working set, fetches the remote branches, retains the old
+head as `ide-retained/<hash>` in the same `market` database, and only then aligns the copy's main to
+remote main. It never deletes a branch or database. Repeating it at an aligned head does nothing.
+The helper uses only the IDE copy's internal administrator; it has no route to the active ledger,
+market, backups, Paper journals, or chat credentials. Pulling and recovery share a process lock.
+A deployed image from before this helper needs an updated IDE image first. Preserve the `/data`
+volume; do not reset or delete it to fix synchronization.
+
 ## Stages
 
 | Stage | Input → output | Owns | Module |
