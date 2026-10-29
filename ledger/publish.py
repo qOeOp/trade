@@ -2,12 +2,15 @@
 
 The research ledger and the market database are public: each is pushed to its DoltHub repository
 by the service administrator after it changes. A publish pushes the branch without force and then
-fetches to check that the remote's head is the local one. Publishes of one database are serialized
+fetches to check that the remote's head contains the local one read before the push: it is that head,
+or descends from it when another writer on the same service committed between the head read and the
+push (the push names the branch, so it carried both commits). Publishes of one database are serialized
 on its service by a named lock (`<database>/publish`), so concurrent commands do not race their pushes;
 one that finds the head already published by another skips the branch push after the fetch confirms
-it. A rejected push is judged by that fetch too: a remote already at the local head is published, a
-remote whose history is not an ancestor of the local one is refused (`PUBLISH_REJECTED`) and nothing
-is pushed after it, and anything else is `PUBLISH_FAILED`, to publish again. Tags follow the branch one by one
+it. A rejected push is judged by that fetch too, before the rejection: a remote containing the local
+head is published, a remote whose history neither contains the local head nor is an ancestor of it is
+refused (`PUBLISH_REJECTED`) and nothing is pushed after it, and anything else is `PUBLISH_FAILED`, to
+publish again. Tags follow the branch one by one
 (Dolt 2.4.2 has no `--tags` push), only once the branch is published: a pushed tag replaces a
 different remote tag of the same name without a warning (measured), and the product never moves a
 tag, so a differing remote tag can only follow a remote whose branch the check has already refused.
@@ -206,10 +209,16 @@ def _ancestor(cursor, older: str, newer: str) -> bool:
         return False
 
 
+def _contains(cursor, remote: str | None, head: str) -> bool:
+    """Whether the remote's head is the local `head` or descends from it."""
+    return remote is not None and (remote == head or _ancestor(cursor, head, remote))
+
+
 def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> dict:
-    """Push `branch` and then every tag to origin, and check by a fetch that the remote's head is the
-    local one, holding the database's publish lock. With `lock` (the market import lock) no write
-    lands during the push."""
+    """Push `branch` and then every tag to origin, and check by a fetch that the remote's head contains
+    the local one read before the push, holding the database's publish lock. With `lock` (the market
+    import lock) no write lands during the push. `head` of the result is the remote's head after that
+    check."""
     conn = _admin(profile)
     try:
         with conn.cursor() as cursor:
@@ -238,15 +247,15 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
                         raise
                     rejected = exc
                 published = _fetch(cursor, url, branch)
-                if published != head:
+                if not _contains(cursor, published, head):
                     if rejected is not None and published is not None and not _ancestor(cursor, published, head):
                         raise rejected
                     raise refuse("PUBLISH_FAILED", f"the head of {branch} at {url} is {published or 'missing'}, "
-                                 f"not {head}", missing=(url,))
+                                 f"which does not contain {head}", missing=(url,))
             tags = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             for name in tags:
                 _push(cursor, profile, url, f"refs/tags/{name}")
     finally:
         conn.close()  # also releases the publish and import locks
-    return {"database": profile.database, "remote": url, "branch": branch, "head": head,
+    return {"database": profile.database, "remote": url, "branch": branch, "head": published,
             "previous_head": before, "tags": len(tags)}

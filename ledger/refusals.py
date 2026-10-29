@@ -481,12 +481,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           ("Publish the active database, or give a file:// remote for an isolated one.",)),
     "DOLTHUB_CREDENTIALS": ("No DoltHub key from `dolt login` was found to install in the service's Dolt home.",
                             ("Ask the user to run `dolt login`, then rerun the same command.",)),
-    "PUBLISH_REJECTED": ("The remote refused the push: its history is not an ancestor of the local one. Nothing was "
-                         "forced and no tag was pushed.",
+    "PUBLISH_REJECTED": ("The remote refused the push, and after a fetch its head neither contains the local head "
+                         "nor is an ancestor of it. Nothing was forced and no tag was pushed.",
                          ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
                           "user's authority.",)),
-    "PUBLISH_FAILED": ("The push or the check of the remote's head failed (network, credentials or DoltHub), or "
-                       "another publish of the database held its publish lock too long. The local write stands.",
+    "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
+                       "push does not contain the local one, or another publish of the database held its publish lock "
+                       "too long. The local write stands.",
                        ("Check the network and the DoltHub key, then run `ledger publish` (or `market publish`).",
                         "When the message says the service started before its key was installed, restart the service "
                         "(`ledger service stop`, then `ledger service start`) first.")),

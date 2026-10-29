@@ -557,7 +557,7 @@ def ledger_publish(profile: LedgerProfile, remote: str | None) -> dict
 | `PUBLISH_FORBIDDEN` | 隔离库或临时库给了 file:// 之外的远端（由 ledger.set_remote 或 ledger.publish 返回） |
 | `DOLTHUB_CREDENTIALS` | 找不到 `dolt login` 的密钥（由 ledger.set_remote 返回） |
 | `PUBLISH_REJECTED` | 公开副本在别处被改过，推送被拒；不强推（由 ledger.publish 返回） |
-| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不是本地头（由 ledger.publish 返回） |
+| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不包含本地头（由 ledger.publish 返回） |
 
 **使用**　<Ref id="ledger.set_remote" />、<Ref id="ledger.publish" />
 
@@ -1128,7 +1128,7 @@ def market_publish(market: dict, remote: str | None) -> dict
 | `PUBLISH_FORBIDDEN` | 隔离库或临时库给了 file:// 之外的远端（由 ledger.set_remote 或 ledger.publish 返回） |
 | `DOLTHUB_CREDENTIALS` | 找不到 `dolt login` 的密钥（由 ledger.set_remote 返回） |
 | `PUBLISH_REJECTED` | 公开副本在别处被改过，推送被拒；不强推（由 ledger.publish 返回） |
-| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不是本地头（由 ledger.publish 返回） |
+| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不包含本地头（由 ledger.publish 返回） |
 | `CONCURRENT_IMPORT` | 一个导入正持有导入锁；什么都没推（由 ledger.publish 返回） |
 
 **使用**　<Ref id="ledger.set_remote" />、<Ref id="ledger.publish" />、<Ref id="market.import_month" />
