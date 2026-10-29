@@ -13,29 +13,31 @@ selected (`line select`); everything inside it follows `research-round`.
 
 - At every start or return from an interruption, read the ledger before anything else: whether
   the service is up (`ledger service status`), the candidates (`candidate list`), the counts
-  (`research status`), the research state and the current line record (`research state`), whose
-  `targets` are the user's two research targets in force for the line (its own, else the ledger
-  default). `candidate list`, `research state` and `research status` print large JSON: redirect
-  each to a file under /tmp and read only the keys you need (for example with `jq`), such as
-  `line`, `targets`, `gates`, `unclosed_lines`, `recommendation` and `unreviewed_trials`, never
-  the whole output. After an interruption, or when the user
-  says to continue, continue that line under `research-round` without asking. A new session started
-  with only `research-start` asks once: continue the current line (its state and next step) or
-  choose another line (Offer lines and wait).
+  (`research status`) and the research state (`research state`): its `open_lines`, and for each
+  open line its record (`research state --line LINE`), whose `targets` are the user's two research
+  targets in force for the line (its own, else the ledger default). `candidate list`, `research
+  state` and `research status` print large JSON: redirect each to a file under /tmp and read only
+  the keys you need (for example with `jq`), such as `open_lines`, `line`, `targets`, `gates`,
+  `recommendation` and `unreviewed_trials`, never the whole output. After an interruption, or when
+  the user says to continue, continue the line this session works on (the one its Goal names) under
+  `research-round` without asking. A new session started with only `research-start` asks once:
+  continue an open line (each with its state and next step) or choose another line (Offer lines and
+  wait).
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
-- A gate in `research state` stops its line: tell the user plainly what it blocks and what would
-  lift it. `RUNTIME_UNSUPPORTED`: the line's candidates are on a runtime contract this product no
-  longer runs, so the line can only be closed and research restarted on the new contract
-  (research-round's [changes.md](../research-round/references/changes.md)).
+- A gate in a line's `research state --line LINE` stops it: tell the user plainly what it blocks and
+  what would lift it. `RUNTIME_UNSUPPORTED`: the line's candidates are on a runtime contract this
+  product no longer runs, so the line can only be closed and research restarted on the new
+  contract (research-round's [changes.md](../research-round/references/changes.md)).
   `MARKET_COMMIT_UNRESOLVED`: no branch of the market database holds the line's pinned commit, so
-  the line runs again only once that commit is back; restoring it is the user's market write, never
-  a research step you propose. Never continue a gated line, after an interruption included, or
-  establish a Goal for it; it closes when the user chooses another line.
-- When `research state` lists `unclosed_lines`, close them without waiting: hand them to a
-  background sub-agent (on a host without one, do it before the session ends). For each line, read
-  it as it ended (`research state --line LINE --at COMMIT --full`, the commit the list gives), write its
-  summary as `line close --help` describes and close it; a failure is retried at the next start.
+  the line runs again only once that commit is back; restoring it is the user's market write,
+  never a research step you propose. Never continue a gated line, after an interruption included,
+  or establish a Goal for it, and never offer keeping it open to wait for what would lift the gate;
+  close it once the user has chosen what follows.
+- A line stays open until it is closed; selecting another line leaves it open, and several open
+  lines are normal. Close a line when the user ends it, or when it cannot continue (a gate above,
+  research-round's changes.md) and the user has chosen what follows: read it (`research state
+  --line LINE --full`), write its summary as `line close --help` describes and run `line close`.
 
 ## Offer lines and wait
 
@@ -44,8 +46,11 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 - **Every option is a line that can start now:** `research state` lists no gate for it; its start
   can be registered on the chosen window (only a source that has never run, or a candidate whose
   research runs are already on that window and commit: the exposure check refuses a source that has
-  already run); and `market coverage` at the commit to pin has every month the window needs (bars,
-  and quotes for a line that executes on them). Say in one line what an option that fails lacks.
+  already run, whichever line ran it, so a line beside an open one starts from another source); no
+  open line has the same market commit and window (`line select` refuses `LINE_DATA_TAKEN`; never
+  pin another commit or move the window only to get past it); and `market coverage` at the commit to
+  pin has every month the window needs (bars, and quotes for a line that executes on them). Say in
+  one line what an option that fails lacks.
   Supplying it (importing months with `market import` or `market import-quotes`, restoring a
   market commit) is a separate public write the user decides, not an option to wait on. A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
@@ -101,7 +106,7 @@ for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
 A coverage/readiness question within a selected line is not a new research session. Read
 [readiness.md](references/readiness.md) and return its full coverage disposition, including the
 runnable range and, when it calls for one, the final data/scope choice, even after a completed
-replay. Keep the current line and its existing authority; do not restart selection or Goal setup
+replay. Keep the selected line and its existing authority; do not restart selection or Goal setup
 just to answer this check.
 
 ## When to read the references

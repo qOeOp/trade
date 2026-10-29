@@ -11,9 +11,10 @@ registrations below concern development research, not another validation opportu
   the same conditions (the runtime contract, the execution environment, the exported content or the market data changed),
   the line's runs are history: never rebuild them across identities or adapt a registration to
   fit. The line cannot continue; return to `research-start` to offer a new line under the new
-  identity. Selecting it (`line select`) ends the old line, which `research-start` then closes. The new line starts from a template root or a candidate revision
-  with a substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the
-  exposure check.
+  identity. Close the old line (`line close`, as research-start describes), then select the new
+  one (`line select`). The new line starts from a template root or a candidate revision with a
+  substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the exposure check,
+  or pin another market commit or move the window to get past `LINE_DATA_TAKEN`.
 - After a runtime contract change, an old-contract candidate is never a parent or control, since
   its runs can be neither replayed nor compared: research restarts as a root ([template.md](template.md))
   published and registered with no parent, no control and empty `changed_duties`, its rationale

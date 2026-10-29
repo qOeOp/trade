@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 （新会话）research-start
 
-账本状态：当前路线 `research-line-20261025-ema-entryvar-rollingref-v7`（起点 `ema-entryvar-rollingref@1`，开发窗口 2025-10-01 至 2026-10-01，钉住市场提交 `l1kfbo4q8m0d2s7r1v9c3n5e6h2k4p0t`），`research state` 的 `targets` 为该路线自己的目标（最大回撤 0.15，年化收益 0.20）。最新推荐是 judgment 268，推荐 `ema-entryvar-rollingref@4`。`unclosed_lines` 为空。`research state` 的 `gates` 只有一项：
+账本状态：`research state` 的 `open_lines` 只有一条路线 `research-line-20261025-ema-entryvar-rollingref-v7`（起点 `ema-entryvar-rollingref@1`，开发窗口 2025-10-01 至 2026-10-01，钉住市场提交 `l1kfbo4q8m0d2s7r1v9c3n5e6h2k4p0t`），`research state` 的 `targets` 为该路线自己的目标（最大回撤 0.15，年化收益 0.20）。最新推荐是 judgment 268，推荐 `ema-entryvar-rollingref@4`。这条路线的 `research state` 的 `gates` 只有一项：
 
 ```json
 {"code": "MARKET_COMMIT_UNRESOLVED", "message": "the line's market commit l1kfbo4q8m0d2s7r1v9c3n5e6h2k4p0t is in no branch of the active market database market, so the line cannot register or replay until that commit is back in it", "missing": ["l1kfbo4q8m0d2s7r1v9c3n5e6h2k4p0t"]}

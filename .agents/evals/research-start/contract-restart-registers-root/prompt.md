@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 （新会话）research-start
 
-账本状态：当前路线 `research-line-20261022-ema-cross-btc-daily`（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01）。`research state` 的 `gates` 只有一项：
+账本状态：`research state` 的 `open_lines` 只有一条路线 `research-line-20261022-ema-cross-btc-daily`（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01）。它的 `research state` 的 `gates` 只有一项：
 
 ```json
 {"code": "RUNTIME_UNSUPPORTED", "message": "the line's candidates and their runs are on replay-contract@v6, which this product cannot replay (it runs replay-contract@v7); the line can only be closed and research restarted on replay-contract@v7", "missing": ["ema-entryvar@2", "ema-fixed-dailyspec@1"]}
