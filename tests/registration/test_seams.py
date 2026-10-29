@@ -15,10 +15,14 @@ class SeamTests(unittest.TestCase):
         self.assertEqual(parsed["window"]["start"], parsed["window"]["trade_start"])
         self.assertEqual(parsed["window"]["end"] - parsed["window"]["start"], 32 * 86_400 * 10**9)
         self.assertEqual((parsed["selection"], parsed["lifecycle_bundle"]), ({"symbols": ["AAAUSDT", "BBBUSDT"]}, None))
+        self.assertEqual(parsed["execution"], "bars")
         universe = seams.current.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--trade-start",
                                                 "2026-01-01T00:00:00Z", "--end", "2026-02-01T00:00:00Z",
                                                 "--lifecycle-bundle", "lifecycle-x"])
         self.assertEqual((universe["selection"], universe["lifecycle_bundle"]), ({"universe": True}, "lifecycle-x"))
+        self.assertEqual(seams.current.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end",
+                                                      "2026-02-01T00:00:00Z", "--execution=quotes"])["execution"],
+                         "quotes")
         with self.assertRaises(ValueError):
             seams.current.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
         with self.assertRaises(Refusal) as caught:  # one unsplit string, as an unquoted shell variable gives

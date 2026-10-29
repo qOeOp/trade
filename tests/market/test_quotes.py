@@ -188,6 +188,45 @@ class ImportQuotesTests(unittest.TestCase):
             self.assertEqual(first.ask_price.as_decimal() - first.bid_price.as_decimal(), Decimal("0.03"))  # the eve's carried ask
             self.assertTrue(all(q.bid_price < q.ask_price for q in quotes[:1000]))
 
+    def test_bars_export_never_reads_quotes_and_preserves_the_consumed_event_stream(self):
+        from engine.run import market_events
+        from engine.load import read_market
+        from market import export
+        start_ns, end_ns = day_ms(JAN) * 10**6, (day_ms(JAN) + 2 * DAY) * 10**6
+        with store.connect(self.profile, "reader") as conn:
+            commit = store.resolve_commit(conn, None)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            job = {"profile": self.profile, "commit": commit, "symbol": "BTCUSDT", "start_ns": start_ns,
+                   "end_ns": end_ns, "path": str(root / "bars" / "BTCUSDT"),
+                   "scales": (store.PRICE_SCALE, store.VOLUME_SCALE), "include_quotes": False}
+            with patch.object(export, "quote_rows", side_effect=AssertionError("bars must not read quote rows")):
+                without = export.export_episode(job)
+            with_quotes = export.export_episode({**job, "path": str(root / "quotes" / "BTCUSDT"),
+                                                  "include_quotes": True})
+            self.assertEqual(without["pieces"][0]["counts"]["quote"], 0)
+            self.assertEqual(with_quotes["pieces"][0]["counts"]["quote"], 5760)
+            self.assertFalse((root / "bars" / "BTCUSDT" / "data" / "quotes").exists())
+            streams = []
+            for name in ("bars", "quotes"):
+                rows = read_market(root / name, ["BTCUSDT"], commit, start_ns, end_ns)
+                streams.append([(type(e).__name__, e.ts_event, e.ts_init, str(e))
+                                for e in market_events(rows, start_ns, end_ns)])
+            self.assertEqual(streams[0], streams[1])
+
+    def test_cached_exports_keep_bars_and_quote_content_separate(self):
+        from market import export
+        start_ns, end_ns = day_ms(JAN) * 10**6, (day_ms(JAN) + DAY) * 10**6
+        with tempfile.TemporaryDirectory() as temp:
+            args = (self.profile, None, ["BTCUSDT"], start_ns, end_ns)
+            bars = export.export_catalogs(*args, root=Path(temp), include_quotes=False)
+            quoted = export.export_catalogs(*args, root=Path(temp), include_quotes=True)
+            self.assertNotEqual(bars["root"], quoted["root"])
+            self.assertEqual((bars["receipts"]["BTCUSDT"]["pieces"][0]["counts"]["quote"],
+                              quoted["receipts"]["BTCUSDT"]["pieces"][0]["counts"]["quote"]), (0, 2880))
+            self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=False)["cached"], 1)
+            self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=True)["cached"], 1)
+
     def test_upgrade_adds_a_missing_table_and_is_otherwise_a_no_op(self):
         self.assertEqual(db.upgrade_market(self.profile)["created"], [])
         config = db._known_service(Path(self.profile["service"]))

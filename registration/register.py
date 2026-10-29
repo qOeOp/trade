@@ -602,7 +602,8 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.current.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, line["market_commit"], runner["window"],
-                                                     runner["selection"], runner.get("lifecycle_bundle"), True, profile)
+                                                     runner["selection"], runner.get("lifecycle_bundle"), True, profile,
+                                                     include_quotes=runner["execution"] == "quotes")
         try:
             inspection = seams.current.inspect_runtime(identity, list(runner_argv), exported)
         finally:  # the identity is taken; the fresh export and its membership file are not kept

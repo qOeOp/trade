@@ -176,6 +176,38 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 self.assertEqual(self.world.seq(), before)
                 self.assertEqual(len(self.world.commands), commands)
 
+    def test_historical_bars_reproduction_restores_quotes_only_when_the_original_receipt_has_them(self):
+        export = self.world.market.export_catalogs
+        prepare = reproduce.registration_inputs.market_inputs
+
+        def quote_content(*args, **kwargs):
+            result = export(*args, **kwargs)
+            for symbol, receipt in result["receipts"].items():
+                receipt["pieces"][0]["counts"] = {"quote": int(kwargs.get("include_quotes", True))}
+                if kwargs.get("include_quotes", True):
+                    (result["root"] / symbol / "quotes.parquet").write_bytes(b"historical quotes")
+                (result["root"] / symbol / "export.json").write_text(json.dumps(receipt))
+            return result
+
+        def historical_prepare(*args, **kwargs):
+            return prepare(*args, **{**kwargs, "include_quotes": True})
+
+        with patch.object(self.world.market, "export_catalogs", side_effect=quote_content) as exported:
+            for historical in (False, True):
+                name = "historical-bars" if historical else "projected-bars"
+                if historical:
+                    with patch.object(reproduce.registration_inputs, "market_inputs", side_effect=historical_prepare):
+                        trial_id = self.checked(name)
+                else:
+                    trial_id = self.checked(name)
+                original = execution.read_capture(self.world.conn, trial_id)
+                before = exported.call_count
+                rebuilt = self.reproduce(trial_id, name + "-rebuilt")
+                self.assertEqual(exported.call_count, before + 1)
+                self.assertEqual(exported.call_args.kwargs["include_quotes"], historical)
+                self.assertTrue(rebuilt["fingerprints_match"])
+                self.assertEqual(execution.read_capture(self.world.conn, trial_id), original)
+
     def test_changed_input_or_report_fingerprint_still_refuses_quote_reproduction(self):
         trial_id = self.checked("quotes", "0.05", "0.025")
         export = self.world.market.export_catalogs

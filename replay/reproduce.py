@@ -56,8 +56,15 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
                        _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
         if recorded.get("lifecycle_bundle"):
             runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
-        effective = (stored["capture"].get("input_coverage") or {}).get("effective_config")
+        coverage = stored["capture"].get("input_coverage") or {}
+        effective = coverage.get("effective_config")
         account = comparability.config_key(effective)["account"]
+        # Historical bars exports included unused quotes. Their existing receipt counts describe
+        # the original input bytes; keep reproducing those bytes rather than rewriting the identity.
+        include_quotes = account.get("execution") == "quotes" or any(
+            piece.get("counts", {}).get("quote", 0)
+            for receipt in coverage.get("export_receipts", {}).values()
+            for piece in receipt.get("pieces", []))
         if account.get("execution") == "quotes":
             runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
                             "--maintenance-margin", account["maintenance_margin_rate"]]
@@ -66,7 +73,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
         try:
             exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
                                                          dict(selection), recorded.get("lifecycle_bundle"),
-                                                         True, ledger)
+                                                         True, ledger, include_quotes=include_quotes)
             if comparability.input_key(exported["identity"]) != comparability.input_key(recorded):
                 raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {trial_id} differ from the "
                                                       "recorded input identity", missing=("input_identity",))
