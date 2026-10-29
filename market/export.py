@@ -376,7 +376,8 @@ def export_episode(job: dict) -> dict:
             quotes = write_quotes(catalog, iid, quote_rows(conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
                                                             piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None
                                                             else None, end),
-                                  precision, quote_size, size_increment, price_scale) if quote_size is not None else 0
+                                  precision, quote_size, size_increment, price_scale) \
+                if job.get("include_quotes", True) and quote_size is not None else 0
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
                                      max(size_increment, needed_decimals(last["volume"], volume_scale)),
                                      price_scale, volume_scale),
@@ -441,9 +442,12 @@ def exporter_sha256() -> str:
 
 def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
                     episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
-                    fresh: bool = False, root: Path | None = None, workers: int = 4) -> dict:
+                    fresh: bool = False, root: Path | None = None, workers: int = 4, *,
+                    include_quotes: bool = True) -> dict:
     """market.export_catalogs: each contract's Catalogs and receipt at one commit for [start_ns, end_ns),
-    from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/."""
+    from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/.
+    `include_quotes=False` omits unused quote conversion for bars execution; all other inputs are unchanged.
+    """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
         raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "EXPORT_WINDOW",
@@ -462,7 +466,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             Path(root).mkdir(parents=True, exist_ok=True)
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
-        key = f"{start_ns}-{end_ns}-x{exporter_sha256()[:16]}"  # an exporter change never reuses an old export
+        key = f"{start_ns}-{end_ns}-q{int(include_quotes)}-x{exporter_sha256()[:16]}"
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
@@ -475,7 +479,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         else:
             jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
                          "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
-                         "episodes": (episodes or {}).get(symbol)})
+                         "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes})
     started = time.monotonic()
     try:
         if jobs:

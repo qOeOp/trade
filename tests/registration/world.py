@@ -72,7 +72,7 @@ class FakeMarket:
         return {"universe_rule": "pool-v1", "membership": universe.merge_months(
             [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.commits[commit]])}
 
-    def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh):
+    def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True):
         self.exports += 1
         root = Path(tempfile.mkdtemp(prefix="export-"))
         receipts = {}

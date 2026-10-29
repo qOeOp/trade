@@ -174,6 +174,13 @@ episode is piece n (`SYMBOL-E<n>-PERP.BINANCE`, Catalog in `episode-<n>/`), hold
 complete inside it. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
 written at the precision their prices need (Binance mark prices carry 8 decimals).
 
+Input preparation follows the declared execution environment: bars does not read or convert stored
+quote rows; quotes retains the inferred best bid/ask conversion. Every file actually exported still
+enters the same content fingerprint. Reproduction uses the original capture's quote counts to
+restore historical bars exports that included quotes, then checks the original input and report
+fingerprints without changing them. A locked registration still refuses a changed export identity;
+it is not migrated to a new projection.
+
 Every replay trades on the latest terms observed at its commit (`historical_terms:
 CURRENT_SNAPSHOT_APPROXIMATION` in the receipt). When that observation is later than the replay
 window's end (a market imported after the fact), the runner adds the limitation

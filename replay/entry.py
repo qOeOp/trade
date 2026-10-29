@@ -117,7 +117,8 @@ def _export(market, at: str | None, runner_argv: list[str], fresh: bool, researc
     """(runner inputs {window, selection, lifecycle_bundle}, exported inputs) of one replay."""
     runner = registration_seams.current.runner_inputs(list(runner_argv))
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
-                                                     runner.get("lifecycle_bundle"), fresh, research)
+                                                     runner.get("lifecycle_bundle"), fresh, research,
+                                                     include_quotes=runner["execution"] == "quotes")
 
 
 def _prepare(workdir: Path, source: bytes, inspection: Mapping, inputs: Mapping) -> bytes:

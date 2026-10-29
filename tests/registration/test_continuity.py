@@ -131,8 +131,8 @@ class ContinuityTests(unittest.TestCase):
                 self.assertEqual(refused(self.world.register, "registration-account", body).code,
                                  "RETRY_NOT_ALLOWED")
             export = self.world.market.export_catalogs
-            def changed_export(*args):
-                found = export(*args)
+            def changed_export(*args, **kwargs):
+                found = export(*args, **kwargs)
                 bar_file = found["root"] / "AAAUSDT/bars.parquet"
                 bar_file.write_bytes(bar_file.read_bytes() + b" changed data")
                 return found
