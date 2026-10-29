@@ -5,7 +5,7 @@ import type { ColorRole } from "../theme/roles";
 import { Kbd } from "./Kbd";
 import { Tip } from "./Tip";
 
-type Props = { icon: IconName; label: string; keys?: string; active?: boolean; frame?: boolean; glyph?: 16 | 20; primary?: boolean; tone?: ColorRole } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">;
+type Props = { icon: IconName; label: string; keys?: string; active?: boolean; frame?: boolean; glyph?: 16 | 20; primary?: boolean; tone?: ColorRole; spinning?: boolean } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">;
 
 const LOOK = {
   plain: "hover:bg-hover active:bg-pressed disabled:text-fg-ghost disabled:hover:bg-transparent disabled:active:bg-transparent " +
@@ -18,13 +18,14 @@ const LOOK = {
  *  `glyph` sets the icon's size apart from the frame's, for an outline icon beside a filled one;
  *  `primary` fills it blue, as a form's default button (a message box's Send); `tone` colours the icon,
  *  as IntelliJ's run and stop buttons, while it is enabled. */
-export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButton({ icon, label, keys, active, frame = false, glyph, primary = false, tone, className = "", ...rest }, ref) {
+export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButton({ icon, label, keys, active, frame = false, glyph, primary = false, tone, spinning = false, className = "", ...rest }, ref) {
   return (
     <Tip side="bottom" content={<span className="inline-flex items-center gap-2">{label}{keys && <Kbd>{keys}</Kbd>}</span>}>
       <button ref={ref} type="button" aria-label={label} aria-pressed={active}
               className={`grid shrink-0 place-items-center ${frame ? "size-(--frame-control)" : "size-6"} rounded-control transition-colors disabled:cursor-default ${LOOK[primary ? "primary" : "plain"]} ${primary ? "" : active ? "bg-pressed text-fg" : "text-icon"} ${className}`}
               {...rest}>
-        <Icon name={icon} size={glyph ?? (frame ? 20 : 16)} tone={rest.disabled || rest["aria-disabled"] ? undefined : tone} />
+        <Icon name={icon} size={glyph ?? (frame ? 20 : 16)} tone={rest.disabled || rest["aria-disabled"] ? undefined : tone}
+          className={spinning ? "text-icon motion-safe:animate-spin" : ""} />
       </button>
     </Tip>
   );

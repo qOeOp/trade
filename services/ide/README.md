@@ -247,6 +247,19 @@ JavaScript, so it opens in a browser. A new widget type is a renderer in `web/sr
 
 ### Code layout and rules (`web/src`)
 
+The Details panel's Change and hypothesis and Conclusion headings offer on-demand Chinese translation
+of What changed, Hypothesis and Interpretation and decision, displayed beneath their originals.
+Each group has an independent toggle and cancel action; both share one lazily loaded local model.
+It uses TranslateGemma 4B with explicit trading
+term meanings in the translation instruction (for example, long means 多头 and short means 空头).
+It loads Transformers.js 4.3.2 from jsDelivr only on click; the pinned
+`onnx-community/translategemma-text-4b-it-ONNX` q4 model
+downloads about 3.1 GB from Hugging Face and runs in an inline Web Worker with WebGPU. Model files
+use the library's browser cache. No text is sent to a translation service or written to the ledger.
+Results show inference time excluding model preparation. Original text stays visible for quality
+comparison; failed requests can be retried, and source changes discard stale responses. Long prose
+is chunked on word boundaries and translated paragraph by paragraph to retain its structure.
+
 | Folder | Holds | May import |
 |---|---|---|
 | `theme/` | `tokens.css` (the only colour literals: IntelliJ Islands surfaces, four validated data hues and IntelliJ's Python colours), `base.css`, `code.css` (the source view), `roles.ts` (role names, `v()`, `wash()`, `textClass()`) | nothing |
