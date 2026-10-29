@@ -1,7 +1,8 @@
 """If this fails, the public copy of a database is no longer pushed as it should be: the branch and
 then its tags without force, checked against the remote's head; a remote changed elsewhere refused
 with nothing pushed after it; concurrent publishes of one head serialized and all published, a
-rejected push judged by the remote's head after a fetch; an isolated database kept off public
+rejected push judged by the remote's head after a fetch, a remote that descends from the head read
+before the push (another writer committed in between) published; an isolated database kept off public
 remotes; the `dolt login` key
 installed in the service's own Dolt home, with a restart named while the service runs without it;
 a write command publishing what origin lacks, a read command publishing nothing; and the market
@@ -153,6 +154,40 @@ class PublishTests(unittest.TestCase):
         with patch.object(publish, "PUBLISH_WAIT", 1):
             self.assertEqual(self.code(publish.publish, self.profile, "main"), "PUBLISH_FAILED",
                              "another publish holds the lock")
+
+    def test_a_remote_descending_from_the_head_read_before_the_push_is_published(self):
+        """Another writer on the same service commits between the head read and the push: the push names
+        the branch, so it carries both commits and the remote's head descends from the head read. That is
+        a publish, whether or not the push was reported rejected."""
+        publish.set_remote(self.profile, self.url)
+        previous = publish.publish(self.profile, "main")["head"]
+        push = publish._push
+
+        def interleaved(rejected: bool):
+            def _push(cursor, profile, url, ref):
+                if ref == "main":
+                    strategies.publish_candidate(self.profile, source(f"theirs-{rejected}"), f"theirs-{rejected}",
+                                                 "Fixture", "another session's write before our push")
+                    push(cursor, profile, url, ref)
+                    if rejected:
+                        raise publish.refuse("PUBLISH_REJECTED", "lost a race")
+                else:
+                    push(cursor, profile, url, ref)
+            return _push
+        tags: list[str] = []
+        for rejected in (False, True):
+            strategies.publish_candidate(self.profile, source(f"ours-{rejected}"), f"ours-{rejected}", "Fixture", "our write")
+            tags.append(f"line/{len(tags)}")
+            self.service.sql(self.profile, f"CALL DOLT_TAG('{tags[-1]}', 'main')")
+            read = self.head()
+            with patch.object(publish, "_push", interleaved(rejected)):
+                found = publish.publish(self.profile, "main")
+            self.assertNotEqual(self.head(), read, "the other write landed on the branch")
+            self.assertEqual((found["head"], found["previous_head"], found["tags"]), (self.head(), previous, len(tags)),
+                             "published, with the remote head that descends from the head read")
+            self.assertEqual(self.remote_state(), (self.head(), tags), "the tags followed the branch")
+            self.assertFalse(publish.unpublished(self.profile, "main"))
+            previous = found["head"]
 
     def write(self, tag: str) -> dict:
         """candidate publish through the command line: a ledger write."""
