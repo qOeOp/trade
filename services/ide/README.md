@@ -20,7 +20,8 @@ node services/ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PR
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
 sql` for the head, `research graph --at=<hash>` for a graph) and imports no product package. The
 page is the web renderer's page with a null view: it reads `/api/view?line=&since=&at=` (200 a view,
-202 a state, otherwise the refusal JSON) and follows `/api/events` (Server-Sent Events: the current
+202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
+several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
 state on connect, then `fetching`, `pulling`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
 15 s). While a page without `at` is open the head is read every 5 s, after `--pull` (run as `PULL
 ledger`, and `PULL market` before fetching at a new head; exit status 3 means the remote's history

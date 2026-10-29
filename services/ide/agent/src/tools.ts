@@ -15,14 +15,14 @@ export const LIMIT = 20_000;  // characters of output the model sees from one ca
 
 const ref = z.string().regex(/^[\w./@-]{1,100}$/).refine((s) => !s.startsWith("-"), "must not start with -");
 const at = ref.optional().describe("ledger commit, tag or branch (default: the head)");
-const line = z.string().regex(/^research-line-[\w-]{1,100}$/).optional().describe("research line bundle (default: the current line)");
+const line = z.string().regex(/^research-line-[\w-]{1,100}$/).optional().describe("research line bundle (default: the only open line; name one when several are open)");
 const flag = (name: string, on: boolean | undefined) => (on ? [`--${name}`] : []);
 const opt = (name: string, value: string | number | undefined) => (value === undefined ? [] : [`--${name}=${value}`]);
 
 /** Each tool's command and how its input becomes arguments (exported for the tests). */
 export const COMMANDS = {
   research_state: {
-    description: "The current research line: its record, targets and current judgments with read-time facts. Start here.",
+    description: "A research line (default: the only open one): its record, targets and current judgments with read-time facts; with no line named it lists the open lines. Start here.",
     input: z.object({ line, at, full: z.boolean().optional().describe("every interpretation and the candidate list") }),
     argv: (i: { line?: string; at?: string; full?: boolean }) => ["research", "state", ...opt("line", i.line), ...opt("at", i.at), ...flag("full", i.full)],
   },
