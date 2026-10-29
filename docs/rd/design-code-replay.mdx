@@ -32,18 +32,19 @@
 
 ```python
 def execute(
-    ledger: dict,
+    ledger: db.LedgerProfile,
     trial_id: int,
-    identity: dict,
+    identity: Mapping,
     mounts: list[tuple[Path, str, bool]],
     workdir: Path,
     runner_args: list[str],
-    conn: connection | None,
+    conn: db.LedgerConnection | None,
     purpose: str,
+    timeout: float | None=None,
 ) -> tuple
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "账本连接配置（封存用）" }, "trial_id": { type: "int", description: "子进程启动前已写下的试验编号" }, "identity": { type: "dict", description: "运行环境身份：image_ref（含摘要）、平台、运行契约" }, "mounts": { type: "list[tuple[Path, str, bool]]", description: "挂载声明（宿主路径、容器路径、是否可写）：只读输入与运行器唯一可写的报告目录" }, "workdir": { type: "Path", description: "回放工作目录：source/、reports/、audit/ 与覆盖回执 input-coverage.json" }, "runner_args": { type: "list[str]", description: "容器内运行器参数" }, "conn": { type: "connection | None", description: "账本写连接；封存时与写试验行同一会话" }, "purpose": { type: "str", description: "试验用途 explore | precheck | research | validation，写入封存包" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "账本连接配置（封存用）" }, "trial_id": { type: "int", description: "子进程启动前已写下的试验编号" }, "identity": { type: "dict", description: "运行环境身份：image_ref（含摘要）、平台、运行契约" }, "mounts": { type: "list[tuple[Path, str, bool]]", description: "挂载声明（宿主路径、容器路径、是否可写）：只读输入与运行器唯一可写的报告目录" }, "workdir": { type: "Path", description: "回放工作目录：source/、reports/、audit/ 与覆盖回执 input-coverage.json" }, "runner_args": { type: "list[str]", description: "容器内运行器参数" }, "conn": { type: "connection | None", description: "账本写连接；封存时与写试验行同一会话" }, "purpose": { type: "str", description: "试验用途 explore | precheck | research | validation，写入封存包" }, "timeout": { type: "float | None", description: "秒数上限；超过即停止运行中的容器并封存为中断（ReplayTimeout）" } }} />
 
 **返回**　tuple(native_exit: int, audit_exit: int | None)；audit_exit 为空表示审计器未运行
 
@@ -74,7 +75,7 @@ def execute(
 
 ```python
 def explore(
-    ledger: dict,
+    ledger: db.LedgerProfile,
     market: dict,
     at: str | None,
     strategy_file: Path,
@@ -82,7 +83,7 @@ def explore(
     output: Path,
     runtime: str | None,
     runner_argv: list[str],
-) -> dict {purpose
+) -> dict
 ```
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场库连接配置" }, "at": { type: "str | None", description: "市场提交；空表示当前头" }, "strategy_file": { type: "Path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名，须是合法 Python 标识符" }, "output": { type: "Path", description: "输出目录，须是尚不存在的临时目录" }, "runtime": { type: "str | None", description: "运行环境引用；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数" } }} />
@@ -153,14 +154,14 @@ def input_coverage(
 
 ```python
 def precheck(
-    ledger: dict,
+    ledger: db.LedgerProfile,
     market: dict,
     at: str,
-    candidate: str (strategy_id@revision),
-    runtime: str,
+    candidate: str,
+    runtime: str | None,
     runner_argv: list[str],
     output: Path,
-) -> dict {purpose
+) -> dict
 ```
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场库连接配置，只读" }, "at": { type: "str", description: "市场提交，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选" }, "runtime": { type: "str", description: "运行环境引用，须与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数（覆盖改动的最短窗口、最少合约）" }, "output": { type: "Path", description: "尚不存在的临时目录" } }} />
@@ -199,15 +200,15 @@ def precheck(
 
 ```python
 def run(
-    ledger: dict,
+    ledger: db.LedgerProfile,
     market: dict,
     at: str | None,
-    strategy: str（strategy_id@revision）,
+    strategy: str,
     runtime: str | None,
     runner_argv: list[str],
-    hypothesis: str | None,
-    validation: str | None,
-) -> dict {purpose
+    hypothesis: str | None=None,
+    validation: int | None=None,
+) -> dict
 ```
 
 <TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置（数据库名、服务地址、写账号凭据来源）" }, "market": { type: "dict", description: "市场库连接配置；输入只从它的某一提交导出" }, "at": { type: "str | None", description: "市场提交；空表示当前头，解析结果写进输入身份" }, "strategy": { type: "str（strategy_id@revision）", description: "已发布候选引用" }, "runtime": { type: "str | None", description: "运行环境引用（标签或含 @sha256: 的清单摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数（预热起点、交易窗口、合约或共同可交易范围）；不得含入口保留选项" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出即 purpose=research，绑定其一个网格点" }, "validation": { type: "str | None", description: "样本外登记编号；给出即 purpose=validation，与 hypothesis 恰给一个" } }} />
@@ -246,18 +247,21 @@ def run(
 
 ```python
 def seal(
-    ledger: dict,
-    conn: connection,
-    revision: dict,
+    ledger: db.LedgerProfile,
+    conn: db.LedgerConnection,
+    revision: Mapping,
     runtime: str | None,
-    inputs: dict,
+    inputs: Mapping,
     runner_argv: list[str],
     hypothesis: str | None,
     validation: int | None,
-) -> dict{trial_id
+    *,
+    market=None,
+    timeout: float | None=None,
+) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "研究账本档案" }, "conn": { type: "connection", description: "账本写连接；试验、绑定、开始回执与入账都在它上面完成" }, "revision": { type: "dict", description: "[[ledger.read_candidate]] 读出的候选行：strategy_id、revision、source（字节）、source_sha256、entry_class、runtime_contract" }, "runtime": { type: "str | None", description: "运行环境引用；缺省为镜像注册表的 main 标签" }, "inputs": { type: "dict", description: "registration.market_inputs 的返回：root、membership_file、symbols、每合约回执、identity" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与范围参数" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出则 purpose=research 并绑定其网格点" }, "validation": { type: "int | None", description: "样本外登记编号；给出则 purpose=validation 并绑定该登记" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "研究账本档案" }, "conn": { type: "connection", description: "账本写连接；试验、绑定、开始回执与入账都在它上面完成" }, "revision": { type: "dict", description: "[[ledger.read_candidate]] 读出的候选行：strategy_id、revision、source（字节）、source_sha256、entry_class、runtime_contract" }, "runtime": { type: "str | None", description: "运行环境引用；缺省为镜像注册表的 main 标签" }, "inputs": { type: "dict", description: "registration.market_inputs 的返回：root、membership_file、symbols、每合约回执、identity" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与范围参数" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出则 purpose=research 并绑定其网格点" }, "validation": { type: "int | None", description: "样本外登记编号；给出则 purpose=validation 并绑定该登记" }, "market": { type: "object | None", description: "关键字参数：市场适配器或档案，缺省取接缝" }, "timeout": { type: "float | None", description: "关键字参数：传给 execute 的秒数上限" } }} />
 
 **返回**　dict\{trial_id, status(passed|invalid), failure_reasons, image_ref\}
 
@@ -355,7 +359,8 @@ The container name of one stage of one trial (stopped by this name on an interru
 def reproduce(
     trial_id: int,
     output: Path,
-    ledger: LedgerProfile,
+    *,
+    ledger: db.LedgerProfile,
     market: MarketProfile,
 ) -> dict
 ```

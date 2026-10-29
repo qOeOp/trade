@@ -337,7 +337,7 @@ def protection(
     orders: list[dict],
     fills: list[dict],
     summary: dict,
-) -> tuple[list[str]
+) -> tuple[list[str], dict]
 ```
 
 <TypeTable type={{ "run_dir": { type: "Path", description: "报表目录；读 order_events.jsonl.gz" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "summary": { type: "dict", description: "原生摘要；读 period_end_utc 与 strategy_uses_stop_loss（缺失按 True）" } }} />
@@ -507,7 +507,7 @@ def report_fingerprint(directory: Path) -> dict
 def compare_reports(
     reference: Path,
     candidate: Path,
-    account_tolerance: Decimal,
+    account_tolerance: Decimal=ACCOUNT_TOLERANCE,
 ) -> dict
 ```
 
@@ -631,7 +631,7 @@ def build_parser() -> argparse.ArgumentParser
 镜像内身份探针：从正在执行的镜像自身读出运行环境身份，供宿主与清单身份、源码布局和执行绑定逐字核对
 
 ```python
-def describe(config: RunnerConfiguration) -> 身份字典
+def describe(config: RunnerConfiguration) -> dict
 ```
 
 <TypeTable type={{ "config": { type: "RunnerConfiguration", description: "运行器配置解析结果；探针模式下允许缺策略引用与输出目录" } }} />
@@ -699,7 +699,7 @@ def effective_configuration(
 把命令行解析成运行器配置：核对必要参数、窗口与合约集，不执行源码、不打开市场目录或账本；任何策略参数都在这里被拒绝。
 
 ```python
-def parse_configuration(argv: list[str] | None) -> RunnerConfiguration
+def parse_configuration(argv: list[str] | None=None) -> RunnerConfiguration
 ```
 
 <TypeTable type={{ "argv": { type: "list[str] | None", description: "命令行参数；None 表示取进程参数" } }} />
@@ -741,7 +741,7 @@ def parse_window(
     start: str,
     trade_start: str | None,
     end: str,
-    execution_bar_minutes: int,
+    execution_bar_minutes: int=EXECUTION_BAR_MINUTES,
 ) -> Window
 ```
 
@@ -912,7 +912,7 @@ The runtime source files' hashes, independent of any strategy revision.
 def episode_membership(
     intervals: tuple[tuple[int, int], ...],
     episode: dict | None,
-) -> 相交后的成员区间元组
+) -> tuple[tuple[int, int], ...]
 ```
 
 <TypeTable type={{ "intervals": { type: "tuple[tuple[int, int], ...]", description: "该合约按月合并的原成员区间，[start_ns, end_ns) 左闭右开" }, "episode": { type: "dict | None", description: "生命周期片段：start_ns（合法开仓起点）与事件列表（类型、动作、ts_event）；None 表示无生命周期约束" } }} />
@@ -995,7 +995,7 @@ def diagnostics(strategy: Strategy) -> dict
 回放后逐实例核对生命周期事件：计数与原生摘要相等、落在窗口内、能构造为原生事件、关闭价为正；任一不符即拒绝，不降级为无事件。
 
 ```python
-def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict
+def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]
 ```
 
 <TypeTable type={{ "coverage": { type: "dict", description: "覆盖回执：format、effective_config{start, end}、input_identity{market_commit, lifecycle_bundle}、export_receipts{symbol: 回执，含 episodes}。" }, "summary": { type: "dict", description: "原生摘要：input_start_utc、period_end_utc、market_commit、per_coin[{instrument, counts}]。" } }} />
@@ -1122,7 +1122,7 @@ def read_market(
 def read_universe(
     universe_path: Path | None,
     symbols: list[str],
-) -> dict[str
+) -> dict[str, tuple[tuple[int, int], ...]]
 ```
 
 <TypeTable type={{ "universe_path": { type: "Path | None", description: "成员文件；为空表示本次回放不带共同可交易范围" }, "symbols": { type: "list[str]", description: "本次回放的合约清单" } }} />
@@ -1331,14 +1331,14 @@ def summary_statistics(
 def write_native_reports(
     output: Path,
     replay: Replay,
-    strategies: dict[str, Strategy],
+    strategies: dict,
     instruments: list[dict],
     identity: dict,
-    window: dict,
-    account: dict,
+    window: Window,
+    account: AccountContract,
     limitations: list[str],
     expected_timestamps: int,
-) -> tuple[dict
+) -> tuple[dict, list[str]]
 ```
 
 <TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、限价单穿价才成交、高低点按离开盘价远近排序（启发式）、市价单不受成交量限制、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
@@ -1487,12 +1487,12 @@ The exposure table as gzip CSV with a fixed header time, written row by row as t
 按所选 execution_account 在原生引擎中建立唯一模拟场所。
 
 ```python
-def add_venue(engine: BacktestEngine, account=ACCOUNT_CONTRACT) -> None:
+def add_venue(engine: BacktestEngine, fees: MakerTakerFeeModel, account=ACCOUNT_CONTRACT) -> None:
 ```
 
 [源码](https://github.com/qOeOp/trade/blob/main/engine/run.py#L814)
 
-默认参数为 K 线账户合同；运行器传入已解析的账户，读取本金、NETTING／MARGIN、L1_MBP、订单能力及确定性 fill_model。报价合同选择 StandardMarginModel、关闭 bar_execution 并开启 liquidation_enabled；维持保证金按原生模型的名义额与合约费率计算，不再除以杠杆。代码不模拟额外深度、排队或延迟。
+默认参数为 K 线账户合同；运行器传入 engine.fee_model 按各合约导出回执组成的挂单吃单费率模型（fees）和已解析的账户，读取本金、NETTING／MARGIN、L1_MBP、订单能力及确定性 fill_model。报价合同选择 StandardMarginModel、关闭 bar_execution 并开启 liquidation_enabled；维持保证金按原生模型的名义额与合约费率计算，不再除以杠杆。代码不模拟额外深度、排队或延迟。
 
 **使用**　<Ref id="engine.execution_account" />、<Ref id="engine.account_contract" />、<Ref id="engine.fill_model" />。已确认语义与局限见 <Ref id="W.4.2.1" />、<Ref id="W.5.1.2" />。
 
@@ -1543,8 +1543,8 @@ def capital_findings(
 def capital_observer(
     instrument_ids: tuple[str, ...],
     exposure_path: Path,
-    lifecycle_ids: set[InstrumentId],
-) -> 引擎数据参与者实例
+    lifecycle_ids: tuple[str, ...]=(),
+) -> CapitalObserver
 ```
 
 <TypeTable type={{ "instrument_ids": { type: "tuple[str, ...]", description: "要订阅标记价的全部合约" }, "exposure_path": { type: "Path", description: "敞口表输出路径（压缩 CSV），位于报告目录内" }, "lifecycle_ids": { type: "set[InstrumentId]", description: "有生命周期片段的合约；只为它们计状态与终止事件，摘要的逐合约生命周期计数依此得出" } }} />
@@ -1586,7 +1586,7 @@ def capital_observer(
 def configure_strategy(
     strategy: LoadedStrategy,
     inputs: StrategyInputs,
-) -> 策略实例
+) -> Strategy
 ```
 
 <TypeTable type={{ "strategy": { type: "LoadedStrategy", description: "源码入口类与内容哈希；入口类的全部规则与参数都在源码内" }, "inputs": { type: "StrategyInputs", description: "运行器输入：instrument_id、trade_start_ns、input_start_ns、strategy_id、catalog_path、universe_membership（区间列表）" } }} />
@@ -1679,7 +1679,7 @@ def execution_failure(
 按账户合约构造引擎的 DefaultFillModel：prob_fill_on_limit=0、prob_slippage=0，不抽随机数
 
 ```python
-def fill_model() -> DefaultFillModel
+def fill_model(account) -> DefaultFillModel
 ```
 
 **返回**　DefaultFillModel
@@ -1706,7 +1706,7 @@ def fill_model() -> DefaultFillModel
 包装策略回调：异常先写结构化回执再原样抛出
 
 ```python
-def guard_callback(name: str, method: callable) -> 包装后的方法
+def guard_callback(name: str, method: callable)
 ```
 
 <TypeTable type={{ "name": { type: "str", description: "回调名（on_ 开头）" }, "method": { type: "callable", description: "源码定义的原回调方法" } }} />
@@ -1738,7 +1738,7 @@ def guard_callback(name: str, method: callable) -> 包装后的方法
 运行器入口：在运行环境内回放候选并写出原生原件；异常与完整性失败一律非零退出
 
 ```python
-def main(argv: list[str] | None) -> None。成功时输出目录含原生报表、摘要、订单事件史、敞口表
+def main(argv: list[str] | None=None) -> None
 ```
 
 <TypeTable type={{ "argv": { type: "list[str] | None", description: "命令行参数，空时取进程参数；只含策略引用、输入、窗口、输出目录与执行绑定，不含策略参数" } }} />
@@ -1808,14 +1808,15 @@ def mark_timestamps(rows: list[dict]) -> int
 ```python
 def replay(
     rows: list[dict],
-    window: dict,
+    window: Window,
     strategy: LoadedStrategy,
-    pool: dict[str, tuple[tuple[int, int], ...]],
+    pool: dict,
     output_dir: Path,
+    account: AccountContract=ACCOUNT_CONTRACT,
 ) -> None
 ```
 
-<TypeTable type={{ "rows": { type: "list[dict]", description: "每合约一行：合约标识、币种、导出目录路径、导出回执（含各数据类型条数与生命周期片段），来自 engine.read_market" }, "window": { type: "dict", description: "engine.parse_window 的结果：start_ns、trade_start_ns、end_ns，UTC、左闭右开、整分钟对齐" }, "strategy": { type: "LoadedStrategy", description: "engine.load_strategy 的结果：入口类、内容哈希、绑定" }, "pool": { type: "dict[str, tuple[tuple[int, int], ...]]", description: "engine.read_universe 的结果：每合约原成员区间，没有成员文件时为空" }, "output_dir": { type: "Path", description: "敞口表与结构化回执的写入目录" } }} />
+<TypeTable type={{ "rows": { type: "list[dict]", description: "每合约一行：合约标识、币种、导出目录路径、导出回执（含各数据类型条数与生命周期片段），来自 engine.read_market" }, "window": { type: "dict", description: "engine.parse_window 的结果：start_ns、trade_start_ns、end_ns，UTC、左闭右开、整分钟对齐" }, "strategy": { type: "LoadedStrategy", description: "engine.load_strategy 的结果：入口类、内容哈希、绑定" }, "pool": { type: "dict[str, tuple[tuple[int, int], ...]]", description: "engine.read_universe 的结果：每合约原成员区间，没有成员文件时为空" }, "output_dir": { type: "Path", description: "敞口表与结构化回执的写入目录" }, "account": { type: "AccountContract", description: "执行环境的账户合同，缺省 K 线账户合同；运行器按 engine.execution_account 传入已解析的账户" } }} />
 
 **返回**　(Replay, dict[str, Strategy | None], list[str])：Replay 持有节点、原生运行结果、缓存与组合、资金观察器；字典按币种给出实例，窗口内不活跃的合约为 None；第三项是回放产生的局限（推后启动的预热、没有实例的合约、晚于窗口观测的条款），交给 engine.write_native_reports，不走旁路
 
@@ -1952,7 +1953,7 @@ One finished engine run: its native reports, cache, portfolio, result and observ
 #### `market_events` [#impl-engine-run-py-market_events]
 
 ```python
-def market_events(rows: list[dict], start: int, end: int, batch: int=SESSION_BATCH, quotes: bool=False):
+def market_events(rows: list[dict], start: int, end: int, quotes: bool=False):
 ```
 
 输入事件按原生配置顺序流式归并，start/end 限制 ts_init。quotes=True 时加入导出的 QuoteTick；默认 K 线环境不加入报价，日线预热不作为执行事件回放。
