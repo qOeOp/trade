@@ -48,9 +48,10 @@ their original ledger generation. The market database has its own independent sc
 For a generation change, retain the old database and backup unchanged and read them with their
 matching old checkout (schema 2: `f7e7c1df974da88d2478ec5731551f13689a649c`). Prepare generation 3
 under a distinct profile/database name and backup root; do not rewrite old records. Creating or
-switching the active ledger requires the user's explicit authority. A new database does not erase
-previous research exposure or transfer an old line's qualification; cross-generation continuation
-needs an explicit handoff before research resumes. The command below is for a fresh installation:
+switching the active ledger or market database needs the user's authority ([`AGENTS.md`](AGENTS.md)
+owns that list). A new database does not erase previous research exposure or transfer an old
+line's qualification; cross-generation continuation needs an explicit handoff before research
+resumes. The command below is for a fresh installation:
 
 ```bash
 uv run --frozen python -m cli.main ledger init --name research --kind active \
@@ -125,10 +126,10 @@ export is `docs-site/out`.
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and where things go.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence`, `research-graph` and `product-doctor`; `.claude/skills` links here.
-- [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents --no-publish --trust-plugin` and `ANTHROPIC_API_KEY` unset (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
+- [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents` (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`) and paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
-- [`cli/`](cli/): the command line, the one entry Agents use; it holds no product logic.
+- [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), the publish-after-write policy (`_publish_after`: a command that may change a database publishes it once afterwards, read commands never), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`market/`](market/): the Binance market database, its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
@@ -140,7 +141,7 @@ export is `docs-site/out`.
 The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/`,
 restored as an independent tool (#1468), was retired in favour of the
-`video-evidence` skill (#1507). CI runs the quality, documentation and PR-title
-workflows. Image builds use `pyproject.toml` and `uv.lock`; a change that should
-preserve strategy, dependency or data behavior needs a fresh paired native
-replay before claiming parity.
+`video-evidence` skill (#1507). CI runs six workflows (`.github/workflows/`): `quality`,
+`pr-title`, `docs-pages`, `runtime-image`, `ide-image` and `ide-web`. Image builds use
+`pyproject.toml` and `uv.lock`; a change that should preserve strategy, dependency or data
+behavior needs a fresh paired native replay before claiming parity.

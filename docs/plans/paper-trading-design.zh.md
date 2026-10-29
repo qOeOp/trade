@@ -28,7 +28,7 @@
 
 | 部分 | 现在是什么 | 对本功能意味着什么 |
 |---|---|---|
-| 图谱前端 `services/research-graph/web` | IntelliJ Islands 布局的单页；左侧边栏有 Versions（⌥1）和 Sources（⌥7）；编辑区跟随最后选中的左侧工具窗；`view.json` 注入静态 HTML | 左侧边栏加第三个按钮，点了编辑区切到看盘面板，沿用「编辑区跟随左侧选择」的规矩 |
+| 图谱前端 `services/ide/web` | IntelliJ Islands 布局的单页；左侧边栏有 Versions（⌥1）和 Sources（⌥7）；编辑区跟随最后选中的左侧工具窗；`view.json` 注入静态 HTML | 左侧边栏加第三个按钮，点了编辑区切到看盘面板，沿用「编辑区跟随左侧选择」的规矩 |
 | 版本节点 `widgets/lineage/VersionNode.tsx` | 悬停会联动高亮、压暗其他版本；右键菜单 5 项 | 运行按钮放节点右侧，右键菜单加「Run paper / Stop paper」 |
 | 策略 | 一个完整 Python 文件，入口类继承 `Strategy`；构造参数由运行器给：`trade_start_ns`、`historical_daily_bars`、`universe_membership` 等；venue 是 `BINANCE` | 实时运行器按同一份合同给这些参数，策略不用知道自己跑在实时环境里 |
 | 回放 `engine/` | CI 镜像里跑 `BacktestEngine`，不联网；账户固定为 100,000 USDT 保证金账户、1 倍杠杆、maker 0.0002 / taker 0.0005、1 分钟 K 线撮合 | 模拟盘用同一个镜像、同一份账户合同，换成 `LiveNode` 加 Sandbox，对应回放的 `--execution bars` |

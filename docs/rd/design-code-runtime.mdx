@@ -40,27 +40,23 @@ def build_image(
 ) -> 推送结果
 ```
 
-<TypeTable type={{ "event": { type: "enum{push, pull_request, manual}", description: "触发事件。push 只限主干 main；pull_request 只限本项目内发起（外部 fork 无镜像注册表写权限，跳过）；manual 为手动重建，只打 sha 标签。" }, "revision": { type: "str（40 位十六进制 Git 提交哈希）", description: "被构建的源码版本：push 取当前提交，pull_request 取请求头提交。写入标签 org.opencontainers.image.revision，是 runtime.resolve 的 build_revision 与 runtime.require_main_build 的唯一来源。" }, "request_number": { type: "int | None", description: "拉取请求编号，只在 pull_request 事件有值，用于 pr-<request_number> 标签。" }, "build_paths": { type: "list[path]", description: "触发构建的路径集合：运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流文件。其余路径变化不构建，也不改变摘要。" }, "registry": { type: "str", description: "镜像注册表中的镜像名，形如 ghcr.io/<owner>/trade-runtime，owner 小写。推送用平台颁发的短期令牌，项目源码中不存长期凭据。" }, "platform": { type: "str", description: "单一目标平台（如 linux/arm64），须属于 runtime.validate_identity 的受支持平台集合，构建机架构与之一致。" } }} />
+<TypeTable type={{ "event": { type: "enum{push, pull_request, manual}", description: "触发事件。push 只限主干 main；pull_request 为进入 main 的拉取请求，外部 fork 发起的只构建不推送（没有镜像注册表写权限）；manual 为手动重建，只打 sha 标签。" }, "revision": { type: "str（40 位十六进制 Git 提交哈希）", description: "被构建的源码版本：push 取当前提交，pull_request 取请求头提交。写入标签 org.opencontainers.image.revision，是 runtime.resolve 的 build_revision 与 runtime.require_main_build 的唯一来源。" }, "request_number": { type: "int | None", description: "拉取请求编号，只在 pull_request 事件有值，用于 pr-<request_number> 标签。" }, "build_paths": { type: "list[path]", description: "触发构建的路径集合：运行环境目录（引擎运行器、报告写出、审计器、探针、Dockerfile）、依赖声明与依赖锁、构建工作流文件。其余路径变化不构建，也不改变摘要。" }, "registry": { type: "str", description: "镜像注册表中的镜像名，形如 ghcr.io/<owner>/trade-runtime，owner 小写。推送用平台颁发的短期令牌，项目源码中不存长期凭据。" }, "platform": { type: "str", description: "单一目标平台（如 linux/arm64），须属于 runtime.validate_identity 的受支持平台集合，构建机架构与之一致。" } }} />
 
-**返回**　推送结果：镜像引用 \<registry>@sha256:\<manifest_digest>（单一清单，不生成清单列表）；标签集 \{sha-\<revision>\} 加 main 或 pr-\<request_number> 之一；镜像标签 org.opencontainers.image.revision=\<revision>、org.opencontainers.image.source=\<项目源码地址>、trade.runtime.contract=\<运行契约>；写入构建摘要页作为人可读回执。回放侧只按摘要引用它。
+**返回**　推送结果：镜像引用 \<registry>@sha256:\<manifest_digest>（单一清单，不生成清单列表）；标签集 \{sha-\<revision>\} 加 main 或 pr-\<request_number> 之一；镜像标签 org.opencontainers.image.revision=\<revision> 与 org.opencontainers.image.source=\<项目源码地址> 由工作流写入，trade.runtime.contract=\<运行契约> 由运行环境 Dockerfile 的 LABEL 写死；推送后写入作业摘要页作为人可读回执。fork 发起的拉取请求只有构建结果，没有推送、摘要页与回执。回放侧只按摘要引用它。
 
 **期望行为**
 
-1. 核对触发：事件属 main 推送、本项目内发起的拉取请求或手动，且改动落在 build_paths 内；fork 发起的拉取请求拒绝 FORK_PULL_REQUEST。同一引用的并发构建分组，拉取请求取消进行中的旧构建，main 不取消。
+1. 核对触发：main 推送、进入 main 的拉取请求或手动；`changes` 作业用 ci-paths 判断改动是否落在 build_paths 内，不在则 image 作业跳过。同一引用的并发构建分组，拉取请求取消进行中的旧构建，main 不取消。
 2. 命名：始终打 sha-\<revision>；main 推送追加 main，拉取请求追加 pr-\<request_number>，手动只有 sha 标签。
-3. 取运行契约：从 runtime.layout 读当前契约版本写入 trade.runtime.contract；取不到或不在受支持集内拒绝 CONTRACT_UNDECLARED。
-4. 构建：以项目源码根目录为上下文、运行环境 Dockerfile 为定义做单平台构建；镜像只装引擎与冻结安装的锁定依赖、运行器、报告写出、审计器与探针源码；关闭 provenance 与 SBOM 附件，保证产出单一清单、摘要唯一。失败拒绝 IMAGE_BUILD_FAILED，不推送任何标签。
-5. 推送：一次推送全部标签与三条镜像标签；失败拒绝 REGISTRY_PUSH_FAILED，不留部分标签。成功后把 \<registry>@\<digest>、revision 与标签集写入构建摘要页。
-6. 边界：不写账本、不跑回放、不验证镜像行为；身份读取归 runtime.resolve，main 来源核对归 runtime.require_main_build，内容核对归 runtime.inspect_runtime。
+3. 登录与推送条件：事件不是拉取请求，或拉取请求来自本仓库，才登录镜像注册表并推送；fork 发起的拉取请求照样构建（push: false），不登录、不推送、不写摘要页。工作流不核对契约：trade.runtime.contract 由运行环境 Dockerfile 写死，工作流不读 runtime.layout；契约与宿主布局是否一致由回放侧的 runtime.validate_identity 与 runtime.inspect_runtime 核。
+4. 构建：在 arm64 构建机上以项目源码根目录为上下文、运行环境 Dockerfile 为定义做单平台（linux/arm64）构建；镜像只装引擎与冻结安装的锁定依赖、运行器、报告写出、审计器与探针源码；关闭 provenance 与 SBOM 附件，保证产出单一清单、摘要唯一；层缓存走源码托管平台的构建缓存。
+5. 推送与回执：构建通过后一次推送全部标签与两条镜像标签（revision、source），把 \<registry>@\<digest>、revision 与标签集写入作业摘要页。
+6. 门：runtime-image-gate 作业要求 changes 成功，且 image 在有改动时成功、无改动时跳过。构建或推送失败就是作业失败，没有拒绝码，摘要页不写。
+7. 边界：不写账本、不跑回放、不验证镜像行为；身份读取归 runtime.resolve，main 来源核对归 runtime.require_main_build，内容核对归 runtime.inspect_runtime。
 
-| 拒绝码 | 条件 |
-|---|---|
-| `FORK_PULL_REQUEST` | 拉取请求来自外部 fork，没有镜像注册表写权限；作业跳过，不产出镜像。 |
-| `CONTRACT_UNDECLARED` | runtime.layout 未声明当前运行契约，或声明值不在受支持契约集内，无法写契约标签。 |
-| `IMAGE_BUILD_FAILED` | Dockerfile 构建失败（锁定依赖冻结安装不通过、源码缺失、平台不匹配）；不推送任何标签。 |
-| `REGISTRY_PUSH_FAILED` | 推送到镜像注册表失败（认证、网络、配额）；构建摘要页记录失败，不留部分标签。 |
+工作流没有拒绝码：它的结果是作业成败与 runtime-image-gate 这道门。镜像身份的拒绝（平台、契约、main 来源）在 <Ref id="runtime.resolve" />、<Ref id="runtime.require_main_build" /> 与 <Ref id="runtime.inspect_runtime" /> 各自的条目里。
 
-**使用**　<Ref id="runtime.layout" />
+**使用**　无；镜像的契约标签在运行环境 Dockerfile，读它的是 <Ref id="runtime.inspect_runtime" />
 
 <div className="rd-meta">
 

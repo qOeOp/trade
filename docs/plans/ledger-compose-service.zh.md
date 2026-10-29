@@ -29,7 +29,7 @@
   目录写的都是宿主机上的绝对路径。
 - **root 只认 `localhost`。**
   - 服务上只有 `'root'@'localhost'` 一个 root。
-  - 用 root 的地方有：每次写入后的发布检查（`unpublished`）和发布本身、`ledger set-remote`、`upgrade` 和
+  - 用 root 的地方有：每次写入后的发布检查（`unpublished`）和发布本身、`ledger publish --remote`、`upgrade` 和
     `upgrade_market`、关闭研究线时打的 `DOLT_TAG`、两种备份（`DOLT_BACKUP`），以及 `paper delete`。
   - 第一阶段的原生探测（#1834）量过：Docker Desktop 下，容器经 `host.docker.internal` 连宿主机上的服务，Dolt
     把它看成 `root@localhost`。可一旦 Dolt 自己跑在容器里，别的容器连过来、宿主机经发布端口连过来，来源都是
@@ -40,7 +40,7 @@
   - `DOLT_BACKUP('sync-url', file://…)` 在服务端执行，写的是服务端看到的路径。
   - `backup_head` 在客户端用 `service.json` 的 `binary` 跑 `dolt backup restore`。`ledger review` 的备份核对和
     `_sync_backup` 都靠它。宿主机 `PATH` 上的 Dolt 是 1.80.2，不能替代那个 2.4.2 的 `binary`。
-- **DoltHub 密钥。** `ledger set-remote` 把 `dolt login` 得到的密钥复制到 `<服务>/home/.dolt`，服务启动时读取
+- **DoltHub 密钥。** `ledger publish --remote` 把 `dolt login` 得到的密钥复制到 `<服务>/home/.dolt`，服务启动时读取
   （`DOLT_ROOT_PATH`）。`_key_after_start` 根据 `server.pid` 判断装完密钥后要不要重启服务。
 
 ## 3. 目标结构
@@ -180,7 +180,7 @@ run` 关掉了这些事件（`DOLT_DISABLE_EVENT_FLUSH`、`metrics.disabled`）�
 - **`PUBLISH_FAILED` 的提示**：现在提示的是 `ledger service stop/start`，对这种服务改成提示
   `docker compose restart ledger`。
 - **`_key_after_start`**：不再看 `server.pid`。`ledger service run` 在 Dolt 启动前就装好密钥，之后只有宿主机上的
-  `ledger set-remote` 会换密钥，而 `_install_key` 对没变的密钥什么也不做。所以 `restart_required` 就是“这次装进了
+  `ledger publish --remote` 会换密钥，而 `_install_key` 对没变的密钥什么也不做。所以 `restart_required` 就是“这次装进了
   一个新密钥”。
 
 `ledger service run` 每次启动（不只第一次）都核对三件事，任何一件不对就拒绝起服务，什么也不改：
@@ -216,7 +216,7 @@ compose 建 paper 容器时 ledger 还没自举，这个文件还不存在。`pa
 第一次自举时如果没有这个目录，就拒绝（§4.3 第 1 步）：活动账本的每次写入都要发布，发布不了的活动账本不该先
 跑起来。
 
-本机迁移时，服务目录里已经有 `ledger set-remote` 装好的密钥，`TRADE_DOLTHUB` 可以不设。
+本机迁移时，服务目录里已经有 `ledger publish --remote` 装好的密钥，`TRADE_DOLTHUB` 可以不设。
 
 ### 4.7 一个部署只有一个活动账本
 
@@ -286,7 +286,7 @@ compose 建 paper 容器时 ledger 还没自举，这个文件还不存在。`pa
      - `start_service` 遇到这样的服务，只等它能连上；
      - `SERVICE_START_FAILED` 和 `PUBLISH_FAILED` 的说明文字要跟着改。
 4. **DoltHub 密钥的位置。** 密钥目录由 `.env` 指定，只读挂进 `ledger` 容器（§4.6）；第一次自举时没有它就拒绝。
-   这是产品代码读一份凭据，和 `ledger set-remote` 现在读 `~/.dolt` 是同一份东西、同一种读法，只是来源改由
+   这是产品代码读一份凭据，和 `ledger publish --remote` 现在读 `~/.dolt` 是同一份东西、同一种读法，只是来源改由
    `.env` 指定。
 5. **服务器选型**（§4.8）：arm64 加 rootless Docker。真上服务器时，装 Docker、配 rootless 都是改那台机器的主机
    配置，到时候再单独问。

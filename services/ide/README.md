@@ -63,8 +63,10 @@ Rendered standalone files retain their current-line facts without contacting a s
 
 ## Deployment
 
-`docker/compose.yaml` is the whole deployment, the same on a workstation and a server. Four services
-on one Docker engine:
+`docker/compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
+Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
+only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
+Four services on one Docker engine:
 
 - **ide**: this page and the chat service. Image `ghcr.io/qoeop/trade-ide`. It reads its own read-only
   copy of the public DoltHub databases, kept in the `trade-ide-data` volume; the first start clones it.
