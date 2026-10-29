@@ -1,0 +1,107 @@
+.docs-architecture-page { flex: none; height: calc(100dvh - var(--fd-nav-height, 56px)); overflow: hidden; }
+.docs-home-container { display: flex; height: 100%; min-height: 0; padding-block: 12px; }
+.docs-architecture-shell { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; }
+.docs-architecture {
+  --map-canvas: var(--island);
+  --map-font-ui: var(--font-sans);
+  --map-node: color-mix(in oklab, var(--fg) 3%, var(--island));
+  --map-node-text: var(--fg);
+  --map-node-muted: color-mix(in oklab, var(--fg-muted) 85%, var(--island));
+  --map-node-border: color-mix(in srgb, var(--map-edge) 32%, transparent);
+  --map-group-border: color-mix(in srgb, var(--map-edge) 26%, transparent);
+  --map-core-border: color-mix(in srgb, var(--map-edge) 60%, transparent);
+  --map-accent: light-dark(#1d4ed8, #93c5fd);
+  --map-edge: light-dark(#1d4ed8, #3b82f6); --map-edge-muted: var(--map-edge);
+  position: relative; display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; color: var(--fg);
+}
+.docs-architecture-body { position: relative; flex: 1; min-height: 0; }
+.docs-flow-canvas { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.docs-flow-canvas .react-flow { --xy-background-color: transparent; background: transparent; opacity: 0; pointer-events: none; }
+.docs-flow-canvas.is-ready .react-flow { opacity: 1; pointer-events: auto; }
+.docs-flow-canvas .react-flow__viewport { transition: none !important; }
+.docs-flow-canvas .react-flow__pane { cursor: default; }
+.docs-flow-canvas.is-zoomed .react-flow__pane { cursor: grab; }
+.docs-flow-canvas.is-zoomed .react-flow__pane:active { cursor: grabbing; }
+.docs-flow-canvas .react-flow__node { transition: opacity 120ms ease; }
+.docs-flow-canvas .react-flow__edge-path { fill: none; stroke-dasharray: none; animation: none; }
+.docs-owner-group {
+  position: relative; width: 100%; height: 100%; padding: 0; border: 1px solid var(--map-group-border);
+  border-radius: 8px; background: transparent; box-shadow: none; cursor: zoom-in;
+}
+.docs-owner-group[data-has-badge="false"] { border-color: color-mix(in srgb, var(--map-edge) 14%, transparent); }
+.docs-owner-group > header {
+  position: absolute; top: -0.6em; left: 12px; display: flex; align-items: center; gap: 7px; padding-inline: 6px; background: var(--island);
+  color: var(--map-node-muted); font-family: var(--map-font-ui); font-size: var(--map-owner-font, 16px); font-weight: 400; line-height: 1.1;
+  letter-spacing: 0; white-space: nowrap;
+}
+.docs-owner-group[data-has-badge="true"] > header { color: var(--map-accent); }
+.docs-owner-badge {
+  display: inline-flex; align-items: center; padding: 2px 5.5px; border-radius: 3px;
+  background: #2563eb; color: #eff6ff; font-family: var(--font-sans);
+  font-size: var(--map-badge-font, 12.5px); font-weight: 400; line-height: 1.2; letter-spacing: 0;
+}
+.docs-owner-group:hover, .docs-owner-group:focus-visible, .docs-owner-group.is-selected { border-color: var(--map-edge); outline: none; }
+.docs-map-node {
+  position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  padding: 3px 10px; border: 1px solid var(--map-node-border); border-radius: 5px;
+  background: var(--map-node); color: var(--fg); text-align: center; cursor: pointer; box-shadow: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.docs-map-node:hover, .docs-map-node:focus-visible, .docs-map-node.is-selected {
+  border-color: var(--map-edge); outline: none; background: color-mix(in oklab, var(--map-edge) 5%, var(--map-node));
+}
+.docs-map-node-copy { display: block; min-width: 0; width: 100%; }
+.docs-map-node-copy strong {
+  display: block; color: var(--map-node-text); font-family: var(--map-font-ui); font-size: 18px; font-weight: 400; line-height: 1.15;
+  letter-spacing: 0; white-space: nowrap;
+}
+.docs-map-node-subtitle {
+  display: block; margin-top: 3px; color: var(--map-node-muted); font-family: var(--map-font-ui);
+  font-size: 14px; font-weight: 400; line-height: 1.2; white-space: nowrap;
+}
+/* Core components use one restrained accent; every component keeps the same type measure. */
+.docs-map-node[data-importance="core"] { border-color: var(--map-core-border); background: color-mix(in srgb, var(--map-edge) 8%, var(--map-node)); }
+.docs-map-node[data-importance="core"] strong { color: var(--map-accent); font-weight: 400; }
+.docs-map-node[data-importance="support"] { background: var(--map-node); }
+.docs-map-record { background: transparent; border-color: transparent; border-radius: 0; padding-inline: 4px; }
+.docs-map-record strong { font-size: 18px; font-weight: 400; }
+.docs-map-record .docs-map-node-subtitle { font-size: 14px; }
+.docs-map-bus .docs-map-node-copy { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.docs-map-bus .docs-map-node-subtitle { margin-top: 0; }
+.docs-map-bus[data-importance="core"] strong, .docs-map-bus[data-importance="core"] .docs-map-node-subtitle { font-family: var(--font-mono); }
+.docs-map-node .react-flow__handle, .docs-owner-group .react-flow__handle {
+  width: 4px; height: 4px; min-width: 0; min-height: 0; border: 0; background: var(--map-edge); opacity: 0;
+}
+/* React Flow attaches to the handle's outside edge. Account for the 1px
+   button border so those anchors coincide with the diagram coordinates. */
+.docs-flow-canvas .react-flow__handle-top { top: 1px; }
+.docs-flow-canvas .react-flow__handle-bottom { bottom: 1px; }
+.docs-flow-canvas .react-flow__handle-left { left: 1px; }
+.docs-flow-canvas .react-flow__handle-right { right: 1px; }
+.docs-map-node:hover .react-flow__handle.is-connected, .docs-map-node.is-selected .react-flow__handle.is-connected,
+.docs-owner-group:hover .react-flow__handle.is-connected { opacity: 0.8; }
+.docs-edge-caption {
+  position: absolute; padding: 1px 4px; background: var(--map-canvas); color: var(--fg-muted);
+  font-size: 12px; line-height: 1.3; white-space: nowrap; pointer-events: none;
+}
+.docs-map-fit {
+  position: absolute; right: 8px; bottom: 6px; z-index: 6; display: grid; place-items: center; width: 28px; height: 28px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--island); color: var(--fg-muted); cursor: pointer;
+}
+.docs-map-fit:hover, .docs-map-fit:focus-visible { color: var(--fg); border-color: var(--map-edge); outline: none; }
+.docs-map-fit span, .docs-map-hint { display: none; }
+.docs-map-detail {
+  position: absolute; z-index: 7; left: 50%; bottom: 8px; transform: translateX(-50%); width: min(700px, 85%);
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--popup);
+  color: var(--fg); box-shadow: var(--shadow-popup); font-size: 12px; line-height: 1.5; text-align: left;
+}
+.docs-map-detail p { margin: 0 0 4px; }
+.docs-map-detail a { color: var(--link); text-decoration: none; }
+@media (max-width: 520px) { .docs-home-container { padding: 6px; } .docs-map-detail { font-size: 11px; } }
+@media (max-width: 800px) {
+  .docs-map-fit { display: flex; width: auto; height: 32px; padding: 6px 8px; gap: 6px; font-size: 11px; }
+  .docs-map-fit span { display: inline; }
+  .docs-map-hint { position: absolute; left: 8px; bottom: 12px; display: block; color: var(--fg-muted); font-size: 11px; pointer-events: none; }
+  .docs-map-detail { bottom: 48px; width: calc(100% - 16px); }
+}
+@media (prefers-reduced-motion: reduce) { .docs-map-node, .docs-owner-group, .docs-flow-canvas .react-flow__node { transition: none; } }
