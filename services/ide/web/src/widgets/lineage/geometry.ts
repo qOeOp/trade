@@ -11,12 +11,14 @@ export const MARK_CENTRE = 11;
 /** Room a version's line takes right of its mark: mark, badge and prediction slot, then the name. */
 const lineWidth = (id: string) => 160 + id.length * 7.5;
 
-/** The canvas's content in canvas pixels: from this line's first trial cell and first row to the last
+/** The canvas's content in canvas pixels: from the first drawn version's cell and first row to the last
  *  row's stripe, and right to the end of the last trial or of the longest-reaching version's name.
  *  Nothing is drawn or panned beyond it, so the canvas never opens on empty trials past the content. */
 export function bounds(widget: LineageWidget) {
   const trials = widget.trials.map((t) => t.trial_id);
-  const first = Math.max(0, Math.min(widget.axis.min, ...trials));
+  const placed = widget.nodes.flatMap((n) => n.x == null ? [] : [n.x]);
+  // The ruler also holds old prechecks; a trial without a version at it must not open an empty span.
+  const first = placed.length ? Math.min(...placed) : 0;
   const last = Math.max(widget.axis.max, ...trials);
   const names = widget.nodes.flatMap((n) => n.x == null ? [] : [n.x * UNIT + lineWidth(n.id)]);
   return { left: (first - 0.5) * UNIT, top: -ROW / 2, right: Math.max((last + 0.5) * UNIT, ...names) + UNIT, bottom: (widget.rows.length - 0.5) * ROW };

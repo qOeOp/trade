@@ -192,7 +192,8 @@ window frame, following the design rules in
 OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Supply) for
 letters and digits alike, so a reading's digits, point and % share a height, one shadow for popups, a blue ring for
 keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a
-canvas that pans but never zooms and only as far as its content (the current line's trial range and the first row at its top-left, the
+canvas that pans but never zooms and only as far as its content (the first drawn version and first row at its top-left;
+older prechecks remain in the version's Replays table and do not open an empty span before the graph; the
 last row at its bottom, and on the right no further than the longest-reaching version name, so it never opens on
 empty trials; focusing a version centres it only as far as that allows, and opening or closing a side
 leaves the canvas where it is), with each version's role shown by its mark's shape, parent-to-child
