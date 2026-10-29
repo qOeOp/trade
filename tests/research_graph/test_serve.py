@@ -248,6 +248,29 @@ class HttpTests(unittest.TestCase):
         first = json.loads(response.fp.readline().decode().removeprefix("data: "))
         self.assertIn(first["state"], ("fetching", "queued", "computing", "ready"))
 
+    def test_line_navigation_is_warmed_and_reuses_the_snapshot_index(self):
+        with mock.patch.object(self.hub.line_index, "read", wraps=self.hub.product.lines) as read:
+            self.hub.refresh(wait=True)
+            self.assertEqual(read.call_count, 1, "the index is ready before a first graph can be shown")
+            for _ in range(3):
+                response = self.get("/api/lines")
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(response.read())["ledger_commit"], "a" * 32)
+            self.assertEqual(read.call_count, 1)
+            self.hub.product.head = "b" * 32
+            self.hub.refresh(wait=True)
+            self.assertEqual(read.call_count, 2)
+            self.assertEqual(json.loads(self.get("/api/lines").read())["ledger_commit"], "b" * 32)
+            self.assertEqual(read.call_count, 2)
+
+    def test_an_index_failure_does_not_block_a_valid_graph(self):
+        with mock.patch.object(self.hub.line_index, "read", side_effect=serve.ProductError(
+                {"code": "LINE_CORRUPT", "message": "an unrelated line is unreadable"})):
+            until(lambda: self.hub.view("valid-line", None, None)[0] == 200)
+            response = self.get("/api/lines")
+            self.assertEqual(response.status, 400)
+            self.assertEqual(json.loads(response.read())["code"], "LINE_CORRUPT")
+
     def test_without_a_chat_service_there_is_no_agent(self):
         self.assertEqual(self.get("/api/agent/health").status, 404)
 

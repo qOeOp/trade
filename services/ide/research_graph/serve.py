@@ -37,6 +37,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 from . import layout
+from .line_index import LineIndex
 from .renderers.web import render
 
 CACHED = 8
@@ -122,6 +123,7 @@ class Hub:
 
     def __init__(self, product: Product, build: str, pull: str | None = None, poll: float = 5.0):
         self.product, self.build, self.pull, self.poll = product, build, pull, poll
+        self.line_index = LineIndex(product.lines)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -212,6 +214,10 @@ class Hub:
                 self._pull("ledger")
                 head = self.product.commit()
                 if head != self.head:
+                    try:
+                        self.line_index.get(head)
+                    except ProductError:
+                        pass  # navigation metadata has its own error path; it must not block a valid graph
                     if self.pull is not None and self.head is not None:
                         with self.lock:
                             self.pulling = head
@@ -441,8 +447,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
             try:
                 since, at = hub.resolve(line, query.get("since"), query.get("at"))
                 if url.path == "/api/lines":
-                    commit = at or hub.product.commit()
-                    self.json(200, hub.product.lines(commit))
+                    with hub.lock:
+                        commit = at or hub.pulling or hub.head
+                    self.json(200, hub.line_index.get(commit or hub.product.commit()))
                     return
             except ProductError as exc:
                 self.json(400, exc.body)

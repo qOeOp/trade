@@ -4,6 +4,7 @@
   "type": "module",
   "description": "The web renderer of research-graph: one self-contained HTML page laid out like an IntelliJ IDE (Islands theme), into which research_graph/renderers/web injects a view model.",
   "scripts": {
+    "test": "node --experimental-vm-modules --test scripts/*.test.mjs",
     "check": "tsc --noEmit && node scripts/check-rules.mjs",
     "build": "npm run check && vite build",
     "typecheck": "tsc --noEmit"

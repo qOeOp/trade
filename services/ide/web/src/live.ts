@@ -2,7 +2,8 @@
 // changes in place when the ledger does. A page rendered to a file carries its view and never asks.
 import type { View } from "./model/types";
 import { update } from "./state/update";
-import { lineHref, type ResearchLine } from "./lib/lines";
+import { lineHref } from "./lib/lines";
+import { readResearchLines, researchLines } from "./state/researchLines";
 
 type Failure = { code?: string; message?: string; missing?: string[] };
 /** A way out of a failure: a link with a label. */
@@ -28,6 +29,8 @@ function lines(error?: Failure): Choice[] | undefined {
  *  open); once one is shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
 export function follow(show: (view: View) => void, status: (text: string, busy?: boolean, choices?: Choice[]) => void): void {
   const query = window.location.search;
+  const pinned = new URLSearchParams(query).get("at");
+  void readResearchLines(pinned);
   let shown: string | null = null;
   let latest: State | null = null;  // the last event, applied again once a view is shown
   let loading = false;
@@ -37,13 +40,11 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     else status(`The graph could not be drawn: ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`);
     // With no chosen graph (including an all-closed ledger), history must still be reachable.
     if (error?.code === "LINE_AMBIGUOUS" || error?.code === "RESEARCH_LINE_REQUIRED") {
-      const at = new URLSearchParams(query).get("at");
-      void fetch(`/api/lines${at ? `?at=${encodeURIComponent(at)}` : ""}`, { cache: "no-store" })
-        .then(async (response) => {
-          if (!response.ok) return;
-          const body = await response.json() as { lines: ResearchLine[] };
-          if (shown === null && body.lines.length) status("Choose a research line to draw:", false,
-            [...body.lines].reverse().map((line) => ({
+      void readResearchLines(pinned ?? latest?.ledger_commit ?? null)
+        .then(() => {
+          const entries = researchLines.get().lines;
+          if (shown === null && entries.length) status("Choose a research line to draw:", false,
+            [...entries].reverse().map((line) => ({
               label: `${line.bundle.replace(/^research-line-/, "")} · ${line.closed ? "Closed" : "Open"}`,
               href: lineHref(window.location.href, line.bundle),
             })));
@@ -91,6 +92,10 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   }
 
   const events = new EventSource(`/api/events${query}`);
-  events.onmessage = (event) => apply(latest = JSON.parse(event.data) as State);
+  events.onmessage = (event) => {
+    latest = JSON.parse(event.data) as State;
+    if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
+    apply(latest);
+  };
   void load();
 }
