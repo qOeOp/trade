@@ -24,7 +24,7 @@ import re
 
 import pymysql
 
-from ledger import db, evidence, execution, strategies
+from ledger import db, evidence, execution, review_activity, strategies
 from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
@@ -40,8 +40,6 @@ FIELDS = ("market_database", "market_commit", "universe_rule", "window_start", "
           "note")
 TAG_PREFIX = "line/"
 SUMMARY_LIMIT = 32 * 1024  # bytes of a line summary; an index, not a report
-# The source review items that are properties of the source (registration.precheck.ITEMS less activity).
-SOURCE_ITEMS = ("api", "causal", "readiness")
 
 
 def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
@@ -161,7 +159,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     qualification.review_records: the start revision needs a passed source review of its source
     hash and none failed, read at the head this connection sees; a review that failed only on the
     activity of a precheck that did not trade is not counted once a later precheck traded and
-    passed (`_untraded_review`).
+    passed (`review_activity.resolved`).
     """
     if targets is not None:
         line_targets.check(*targets)
@@ -194,7 +192,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
                      expected=f"window_end <= {latest_day + timedelta(days=1) if latest_day else 'covered data'}")
     reviewed = [item["record"] for item in reviews(conn)
                 if item["ignored"] is None and item["record"]["source_sha256"] == candidate["source_sha256"]]
-    verdicts = {record["verdict"] for record in reviewed if not _untraded_review(conn, record, reviewed)}
+    verdicts = {record["verdict"] for record in reviewed if not review_activity.resolved(conn, record, reviewed)}
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
@@ -242,31 +240,6 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     return {"bundle": bundle, "market_commit": facts["commit"],
             "universe_rule": facts["universe_rule"], "content_sha256": content_sha256, "op_id": written["op_id"],
             "created": not written["replayed"], "targets": line_targets.targets_for(conn, bundle)}
-
-
-def _status(record: dict, item: str):
-    value = record.get(item)
-    return value.get("status") if isinstance(value, dict) else None
-
-
-def _untraded_review(conn: db.LedgerConnection, record: dict, reviewed: list[dict]) -> bool:
-    """True for a failed review that says only that its precheck did not trade: api, causal and
-    readiness passed, activity failed or unresolved, the precheck sealed no fill and no position, and
-    a later precheck of the same source sealed fills and has a passed review and no failed one
-    (`reviewed`: the product reviews of the source). Activity depends on the run; the other items
-    are properties of the source and still refuse."""
-    if (record["verdict"] != "failed" or any(_status(record, item) != "passed" for item in SOURCE_ITEMS)
-            or _status(record, "activity") not in ("failed", "unresolved")):
-        return False
-    rows = execution.precheck_rows(conn, record["trial_id"])
-    if rows is None or rows.get("fills") != 0 or rows.get("positions") != 0:
-        return False
-    later: dict[int, set[str]] = {}
-    for other in reviewed:
-        if other["trial_id"] > record["trial_id"]:
-            later.setdefault(other["trial_id"], set()).add(other["verdict"])
-    return any(found == {"passed"} and (execution.precheck_rows(conn, trial_id) or {}).get("fills", 0) > 0
-               for trial_id, found in later.items())
 
 
 def _encode(record: dict) -> bytes:

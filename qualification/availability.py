@@ -20,14 +20,14 @@ import hashlib
 import json
 from pathlib import Path
 
-from ledger import db, evidence, metrics, problems
+from ledger import db, evidence, metrics, problems, review_activity
 from ledger.refusals import refuse
 from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 
 
-CHECK = "economic_evidence_v1"
+CHECK = "economic_evidence_v2"
 COMPARABLE_PURPOSES = ("research", "validation")
-# The sealed facts the criterion reads, by the reason a failing one gives (economic_evidence_v1).
+# The sealed facts the criterion reads, by the reason a failing one gives (economic_evidence_v2).
 REQUIRED_FACTS = {
     "real_fills@1": "zero fills: no real activity",
     "fills_match_orders@1": "fills without matching orders, or filled orders without fills",
@@ -51,7 +51,9 @@ MASKED_FACT_KEYS = ("passed", "code", "count", "rows")
 
 @functools.cache
 def _checker_source() -> str:
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    """Fingerprint this checker and its shared activity-review policy."""
+    return hashlib.sha256(Path(__file__).read_bytes() + b"\0"
+                          + Path(review_activity.__file__).read_bytes()).hexdigest()
 
 
 def report_revision() -> str:
@@ -259,8 +261,9 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | N
 
     `records` are review_records already read for this call; `scope` {bundles, recorded_by} counts
     only the named review bundles that were in the ledger at the commit `recorded_by` (the facts
-    fixed when a run was sealed)."""
-    reviews, ignored = [], []
+    fixed when a run was sealed). Resolved zero-activity failures are derived only from this
+    filtered set, using the same three conditions as line selection."""
+    reviews, ignored, eligible = [], [], []
     for item in records if records is not None else review_records(conn):
         record = item["record"]
         if record is None or item["ignored"] is not None:
@@ -273,6 +276,14 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | N
         if scope is not None and (item["bundle"] not in scope.get("bundles", ()) or scope.get("recorded_by") is None
                                   or not _recorded_by(conn, item["bundle"], scope["recorded_by"])):
             ignored.append({"bundle": item["bundle"], "reason": "not a review fixed when the run was sealed"})
+            continue
+        eligible.append(item)
+    reviewed = [item["record"] for item in eligible]
+    for item in eligible:
+        record = item["record"]
+        if review_activity.resolved(conn, record, reviewed):
+            ignored.append({"bundle": item["bundle"], "reason": "zero-fill, zero-position activity failure resolved "
+                            "by a later traded precheck with passed reviews and no failed review"})
             continue
         reviews.append({"bundle": item["bundle"], "sha256": item["sha256"], "verdict": record["verdict"],
                         "reviewer": record["authority"], "ledger_commit": item["ledger_commit"]})

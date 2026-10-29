@@ -65,13 +65,13 @@ def assess(conn: LedgerConnection, run: Mapping) -> dict
 def check_identity() -> dict
 ```
 
-**返回**　dict：\{check: 检查名（判据版本常量，如 economic_evidence_v1）, metrics_revision: 指标计算版本, checker_source_sha256: 本模块字节的 sha256\}
+**返回**　dict：\{check: 检查名（判据版本常量，如 economic_evidence_v2）, metrics_revision: 指标计算版本, checker_source_sha256: 本模块与共用 activity 复核政策源码的 sha256\}
 
 **期望行为**
 
 1. 检查名取模块常量，判据变更时递增版本名；不读账本。
 2. 经 ledger.metrics_revision 取指标计算版本。
-3. 对本模块字节算 sha256 作检查器源码哈希。
+3. 对本模块字节、一个零字节分隔符及 `ledger/review_activity.py` 字节依次拼接算 sha256 作检查器源码哈希。
 4. 三者组成检查身份，assess、require 的拒绝体与探索目录视图都附带它；同一运行在不同时刻的不同资格由检查身份解释，不由改写解释。
 
 **使用**　<Ref id="ledger.metrics_revision" />
@@ -186,8 +186,9 @@ def source_reviews(conn: LedgerConnection, run: Mapping) -> dict
 1. 只读产品命名空间 source-review-* 下路径为 source-review.json 的行及其 evidence_bundle 归属（两次读都是主键区间）；重算内容 sha256，与存储哈希不符拒绝 LEDGER_CORRUPT。命名空间之外的同名文件从来不算审查，也不再列为 ignored。
 2. 解析 source-review-v1 记录：source_sha256 等于本运行候选源码哈希且 image_digest 等于本运行镜像摘要才计入；不符的记录属于别的候选或运行环境，跳过。
 3. 每条记录的写入提交取自一次提交日志读取（record_review 的提交信息是 record_review:\<op_id>），并经 AS OF 核对；不是 record_review 写的审查包退回按历史差异查找。对计入的记录经 ledger.read_as_of 在其写入提交处读当时的试验行，核记录身份与当时试验一致；不一致或无法解析、缺字段的记录列入 ignored 并写原因，不按文件名或后来的探针推断。
-4. 汇总：任一 failed 即 failed；否则任一 passed 即 passed；否则 unreviewed。
-5. 不写账本；结论作为具名 Agent 证据返回，不替代也不被账户审计替代。
+4. 先限制在本消费者的源码、镜像和可见范围内，再与起线共用三个条件：旧复核仅 activity failed/unresolved、api/causal/readiness 全 passed；旧预检封存 fills 与 positions 都为零；更晚的同源码预检封存有成交，且其复核有 passed、无 failed。三者均满足的旧复核列入 ignored 并解释原因；原记录保留，仍不可被登记引用。封存范围外的通过记录不能解除失败。
+5. 对剩余记录汇总：任一 failed 即 failed；否则任一 passed 即 passed；否则 unreviewed。
+6. 不写账本；结论作为具名 Agent 证据返回，不替代也不被账户审计替代。
 
 | 拒绝码 | 条件 |
 |---|---|
