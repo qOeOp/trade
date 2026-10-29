@@ -135,16 +135,16 @@ def coverage_facts(
 
 ```python
 def diagnose_coverage(
-    profile: MarketProfile,
-    at: str,
+    profile: dict,
+    at: str | None,
     symbols: list[str],
     start: str,
     end: str,
-    lifecycle: LifecycleBundle | None,
+    lifecycle_bundle: tuple[dict, dict[str, bytes]] | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场库档案（连接方式与库名），只读打开" }, "at": { type: "str", description: "用户或研究路线记录给出的提交引用（Dolt 引用名、标签或哈希，缺省 main），由 market.resolve_commit 解析为唯一提交" }, "symbols": { type: "list[str]", description: "显式合约清单；本读口不做全范围隐式展开，范围由调用方自 universe_month 读出后显式传入" }, "start": { type: "str", description: "输入区间起点，ISO-8601 显式 UTC，整分钟（含预热）" }, "end": { type: "str", description: "输入区间终点，ISO-8601 显式 UTC，整分钟，左闭右开" }, "lifecycle": { type: "LifecycleBundle | None", description: "调用方已从账本证据包读出的 native-lifecycle-v1 清单与来源原件（body, files）；None 表示不附生命周期回执。本层不读账本" } }} />
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场库档案（连接方式与库名），只读打开" }, "at": { type: "str", description: "用户或研究路线记录给出的提交引用（Dolt 引用名、标签或哈希，缺省 main），由 market.resolve_commit 解析为唯一提交" }, "symbols": { type: "list[str]", description: "显式合约清单；本读口不做全范围隐式展开，范围由调用方自 universe_month 读出后显式传入" }, "start": { type: "str", description: "输入区间起点，ISO-8601 显式 UTC，整分钟（含预热）" }, "end": { type: "str", description: "输入区间终点，ISO-8601 显式 UTC，整分钟，左闭右开" }, "lifecycle_bundle": { type: "LifecycleBundle | None", description: "调用方已从账本证据包读出的 native-lifecycle-v1 清单与来源原件（body, files）；None 表示不附生命周期回执。本层不读账本" } }} />
 
 **返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 … 加 quotes:\{imports:[\{month, through, quote_rule, commit, rows\}], first_ms, last_ms, uncovered_intervals_ms\}，terms:\{observed_at, terms_source, price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price, max_price\}，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
 
@@ -228,10 +228,10 @@ Every universe member of the months [start, end) touches, at the commit `at` nam
 按提交 AS OF 导出范围内每合约的 Catalog 与覆盖回执，缓存按提交与窗口键，生命周期原件一并写入导出根
 
 ```python
-def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int, episodes: dict[str, list[dict]] | None=None, lifecycle_files: dict[str, bytes] | None=None, fresh: bool=False, root: Path | None=None, workers: int=4) -> dict:
+def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int, episodes: dict[str, list[dict]] | None=None, lifecycle_files: dict[str, bytes] | None=None, fresh: bool=False, root: Path | None=None, workers: int=4, *, include_quotes: bool=True) -> dict:
 ```
 
-<TypeTable type={{ "profile": { type: "dict", description: "市场库连接档案（只读账号）" }, "at": { type: "str | None", description: "市场提交引用（哈希、标签或 None 取 HEAD），经 resolve_commit 解析为固定提交" }, "symbols": { type: "list[str]", description: "公开合约名清单，来自成员时间路径；顺序即回执顺序" }, "start_ns": { type: "int", description: "输入区间起点（含预热），UTC 纳秒，整分钟" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒，整分钟" }, "episodes": { type: "dict[str, list[dict]] | None", description: "每个公开名的权威生命周期片段（已经 validate_lifecycle 校验、绑定同一提交）；None 表示无生命周期证据" }, "lifecycle_files": { type: "dict[str, bytes] | None", description: "生命周期证据包原件（相对路径 → 内容），原样写入导出根 lifecycle-evidence/" }, "fresh": { type: "bool", description: "True 时导出到新的临时目录，不读不写缓存" }, "root": { type: "Path | None", description: "缓存根目录；None 用默认临时缓存" }, "workers": { type: "int", description: "并行导出的进程数" } }} />
+<TypeTable type={{ "profile": { type: "dict", description: "市场库连接档案（只读账号）" }, "at": { type: "str | None", description: "市场提交引用（哈希、标签或 None 取 HEAD），经 resolve_commit 解析为固定提交" }, "symbols": { type: "list[str]", description: "公开合约名清单，来自成员时间路径；顺序即回执顺序" }, "start_ns": { type: "int", description: "输入区间起点（含预热），UTC 纳秒，整分钟" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒，整分钟" }, "episodes": { type: "dict[str, list[dict]] | None", description: "每个公开名的权威生命周期片段（已经 validate_lifecycle 校验、绑定同一提交）；None 表示无生命周期证据" }, "lifecycle_files": { type: "dict[str, bytes] | None", description: "生命周期证据包原件（相对路径 → 内容），原样写入导出根 lifecycle-evidence/" }, "fresh": { type: "bool", description: "True 时导出到新的临时目录，不读不写缓存" }, "root": { type: "Path | None", description: "缓存根目录；None 用默认临时缓存" }, "workers": { type: "int", description: "并行导出的进程数" }, "include_quotes": { type: "bool", description: "关键字参数，缺省 True；False 时跳过 K 线执行用不到的报价转换，其余输入不变" } }} />
 
 **返回**　dict \{commit, root, exported, cached, receipts: \{symbol: receipt\}\}；exported 为本次导出的合约数，cached 为取自完整缓存的合约数，receipt 即 export_episode 写出的 export.json 内容（资金费只有条数与首末时刻）
 
@@ -307,8 +307,8 @@ def export_episode(job: dict) -> dict:
 ```python
 def native_symbol(
     symbol: str,
-    episode: int | None,
-) -> NativeName {instrument_id
+    episode: int | None=None,
+) -> dict
 ```
 
 <TypeTable type={{ "symbol": { type: "str", description: "公开合约名（USDT 永续，如 BTCUSDT）" }, "episode": { type: "int | None", description: "片段编号（从 1 起）；None 表示无 ticker 重用" } }} />
@@ -342,13 +342,13 @@ ticker 重用按权威生命周期拆成按时间编号的独立原生合约片�
 def split_episodes(
     symbol: str,
     episodes: list[dict] | None,
-    series: dict,
+    series_: dict,
     start_ns: int,
     end_ns: int,
-) -> list[piece]
+) -> list[dict]
 ```
 
-<TypeTable type={{ "symbol": { type: "str", description: "公开合约名" }, "episodes": { type: "list[dict] | None", description: "该合约已校验的权威生命周期片段，按 start_ns 时间顺序；None 或空表示整段作为单一片段" }, "series": { type: "dict", description: "原始序列 {last, mark: 1 分钟整数 K 线列阵; daily_source: start 前的 1 分钟成交价 K 线; funding: [(funding_time_ms, rate)]}" }, "start_ns": { type: "int", description: "输入区间起点，UTC 纳秒" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒" } }} />
+<TypeTable type={{ "symbol": { type: "str", description: "公开合约名" }, "episodes": { type: "list[dict] | None", description: "该合约已校验的权威生命周期片段，按 start_ns 时间顺序；None 或空表示整段作为单一片段" }, "series_": { type: "dict", description: "原始序列 {last, mark: 1 分钟整数 K 线列阵; daily_source: start 前的 1 分钟成交价 K 线; funding: [(funding_time_ms, rate)]}" }, "start_ns": { type: "int", description: "输入区间起点，UTC 纳秒" }, "end_ns": { type: "int", description: "输入区间终点（不含），UTC 纳秒" } }} />
 
 **返回**　list[piece]；piece = \{index, instrument_id, strategy_tag, episode, low_ns, high_ns, last, mark, daily_source, funding, catalog_dir\}；无生命周期时恰一个 piece，index 为 None，catalog_dir 为空（Catalog 直接落在合约目录）
 
@@ -561,16 +561,6 @@ Whether every integer at `scale` is a whole multiple of `increment`; an incremen
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L130)
 
-#### `nautilus_raw` [#impl-market-export-py-nautilus_raw]
-
-```python
-def nautilus_raw(values: np.ndarray, scale: int) -> pa.Array
-```
-
-Integers at `scale` as Nautilus fixed-point raws (value x 10^16, int128 little-endian).
-
-[源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L132)
-
 #### `daily_bars` [#impl-market-export-py-daily_bars]
 
 ```python
@@ -723,10 +713,10 @@ def decimals(increment: str) -> int
 
 ```python
 def require_native_price(
-    episode: dict,
+    episode: Mapping,
     instrument: Instrument,
-    start: int,
-    end: int | None,
+    start: int=0,
+    end: int | None=None,
 ) -> None
 ```
 
@@ -757,10 +747,10 @@ def require_native_price(
 
 ```python
 def validate_lifecycle(
-    body: dict,
+    body: Mapping,
     commit: str,
     files: Mapping[str, bytes],
-) -> {symbol
+) -> dict[str, list[dict]]
 ```
 
 <TypeTable type={{ "body": { type: "dict", description: "生命周期清单 lifecycle.json 解析后的内容：format、market_commit、episodes" }, "commit": { type: "str", description: "钉住的市场提交哈希" }, "files": { type: "Mapping[str, bytes]", description: "证据包内全部文件，键为相对路径；sources 必须在其中" } }} />
@@ -792,14 +782,14 @@ def validate_lifecycle(
 
 ```python
 def write_lifecycle_events(
-    root: Path,
-    episode: dict,
+    catalog,
+    episode: Mapping,
     start: int,
     end: int,
-) -> {"instrument_close"
+) -> dict
 ```
 
-<TypeTable type={{ "root": { type: "Path", description: "该片段 Catalog 的根目录；事件写到引擎装载器识别的原生数据子目录" }, "episode": { type: "dict", description: "validate_lifecycle 返回的单个片段" }, "start": { type: "int", description: "输入窗口起点（纳秒，含）" }, "end": { type: "int", description: "输入窗口终点（纳秒，含）" } }} />
+<TypeTable type={{ "catalog": { type: "ParquetDataCatalog", description: "目标 Catalog；事件由它自己的写入器写入" }, "episode": { type: "dict", description: "validate_lifecycle 返回的单个片段" }, "start": { type: "int", description: "输入窗口起点（纳秒，含）" }, "end": { type: "int", description: "输入窗口终点（纳秒，含）" } }} />
 
 **返回**　\{"instrument_close": n, "instrument_status": m\}：实际写出的事件条数；窗口内无事件时两者为 0 且不创建文件
 
@@ -928,14 +918,15 @@ def scaled_rows(symbol: str, rows: list[tuple], scale: int) -> list[tuple]:
 
 ```python
 def daily_returns(
-    commit: str,
-    universe_rule: str,
+    profile: dict,
+    commit: str | None,
+    universe_rule: str | None,
     start: datetime,
     end: datetime,
 ) -> dict
 ```
 
-<TypeTable type={{ "commit": { type: "str", description: "运行输入身份里的市场提交" }, "universe_rule": { type: "str", description: "共同可交易范围规则" }, "start": { type: "datetime", description: "交易窗口起点" }, "end": { type: "datetime", description: "交易窗口终点" } }} />
+<TypeTable type={{ "profile": { type: "dict", description: "市场库档案；按 commit AS OF 读取" }, "commit": { type: "str | None", description: "运行输入身份里的市场提交；空表示当前头" }, "universe_rule": { type: "str | None", description: "共同可交易范围规则；空取库当前规则" }, "start": { type: "datetime", description: "交易窗口起点" }, "end": { type: "datetime", description: "交易窗口终点" } }} />
 
 **返回**　dict：\{btc: [日收益], basket: [日收益], members_per_day: [个数], days\}
 
@@ -1035,15 +1026,18 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
 
 ```python
 def check_derived(
-    derived: IntegerBars,
-    native: IntegerBars,
+    derived: dict,
+    native: dict,
     timeframe: str,
     price_precision: int,
     size_precision: int,
-) -> [DerivedFinding]
+    *,
+    price_scale: int=8,
+    volume_scale: int=4,
+) -> list[dict]
 ```
 
-<TypeTable type={{ "derived": { type: "IntegerBars", description: "market.derive_bars 的输出，某一周期" }, "native": { type: "IntegerBars", description: "同合约、同价格类型、同周期、同窗口的交易所原生 K 线（调用方经 market.rest_klines 取得并按同一缩放位数转为整数）" }, "timeframe": { type: "str", description: "两侧共同的周期，用于核对桶网格" }, "price_precision": { type: "int", description: "合约价格小数位；价格字段四舍五入到此位后比较" }, "size_precision": { type: "int", description: "合约数量小数位；成交量四舍五入到此位后比较" } }} />
+<TypeTable type={{ "derived": { type: "IntegerBars", description: "market.derive_bars 的输出，某一周期" }, "native": { type: "IntegerBars", description: "同合约、同价格类型、同周期、同窗口的交易所原生 K 线（调用方经 market.rest_klines 取得并按同一缩放位数转为整数）" }, "timeframe": { type: "str", description: "两侧共同的周期，用于核对桶网格" }, "price_precision": { type: "int", description: "合约价格小数位；价格字段四舍五入到此位后比较" }, "size_precision": { type: "int", description: "合约数量小数位；成交量四舍五入到此位后比较" }, "price_scale": { type: "int", description: "关键字参数，缺省 8：bar 价格列的整数比例" }, "volume_scale": { type: "int", description: "关键字参数，缺省 4：bar 成交量列的整数比例" } }} />
 
 **返回**　[DerivedFinding]：每项 \{ts_open, kind, field, derived_value, native_value\}，kind ∈ \{value_mismatch, bucket_only_derived, bucket_only_native\}；空列表表示在合约精度内一致
 
@@ -1108,9 +1102,9 @@ def missing_intervals(
     times: ndarray[int64],
     start_ms: int,
     end_ms: int,
-    step_ms: int,
-    volume: ndarray[int64] | None,
-) -> CoverageFacts
+    step_ms: int=MINUTE,
+    volume: ndarray[int64] | None=None,
+) -> dict
 ```
 
 <TypeTable type={{ "times": { type: "ndarray[int64]", description: "已持有分钟的 open_time（UTC 毫秒），严格递增、落在网格上" }, "start_ms": { type: "int", description: "期望覆盖起点（含）" }, "end_ms": { type: "int", description: "期望覆盖终点（不含）" }, "step_ms": { type: "int", description: "网格步长，默认 60_000（1 分钟）；导出高周期回执时传该周期步长" }, "volume": { type: "ndarray[int64] | None", description: "与 times 对齐的成交量；给出时统计零成交量分钟，None（标记价）则不统计" } }} />
@@ -1141,17 +1135,18 @@ def missing_intervals(
 
 ```python
 def stitch_series(
-    archive_cache: ArchiveCache,
+    archive_cache: Path,
     symbol: str,
-    price_type: Literal['LAST','MARK'],
+    price_type: str,
     start_ms: int,
     end_ms: int,
     resumed: bool,
     trading: bool,
-) -> None
+    workers: int=4,
+) -> tuple[pa.Table, list[tuple[int, int]], dict]
 ```
 
-<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接库内已存分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" } }} />
+<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接库内已存分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" }, "workers": { type: "int", description: "并行抓取归档的工作线程数，缺省 4" } }} />
 
 **返回**　(minute_table, gap_intervals, source_rows)：minute_table 为按 open_time 排序、无重复、落在 [start_ms, end_ms) 内的 1 分钟 K 线表（列 open_time, open, high, low, close, volume, close_time，字段为交易所原始十进制字符串，无来源列）；gap_intervals 为三来源都没有的左闭右开区间 [(from_ms, to_ms)]；source_rows 为 \{monthly, daily, rest\} 各来源采用行数，只进导入报告
 
@@ -1222,6 +1217,8 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 def fetch_archive(cache_root: Path, key: str) -> Path
 ```
 
+[源码](https://github.com/qOeOp/trade/blob/main/market/sources.py#L166)
+
 <TypeTable type={{ "cache_root": { type: "Path", description: "本地归档缓存根目录（工作副本目录），归档按交易所原始键名存放" }, "key": { type: "str", description: "交易所归档键，形如 <market>/monthly|daily/<kind>/<symbol>/[<interval>/]<symbol>-<interval|kind>-<period>.zip；kind ∈ klines | markPriceKlines | fundingRate" } }} />
 
 **返回**　Path：已通过校验和核对的本地归档文件路径（旁有同名 .CHECKSUM）
@@ -1285,10 +1282,11 @@ def monthly_archives(
     symbol: str,
     interval: str | None,
     months: list[str],
-) -> dict[str
+    workers: int=4,
+) -> dict[str, Path]
 ```
 
-<TypeTable type={{ "cache_root": { type: "Path", description: "本地归档缓存根目录，传给 market.fetch_archive" }, "kind": { type: "str", description: "归档种类：klines（成交价 LAST）、markPriceKlines（标记价 MARK）、fundingRate（资金费）" }, "symbol": { type: "str", description: "交易所原生合约代码，一个永续合约一条序列" }, "interval": { type: "str | None", description: "K 线周期，固定为 1m；资金费归档无周期传 None" }, "months": { type: "list[str]", description: "要取的月份，YYYY-MM，UTC" } }} />
+<TypeTable type={{ "cache_root": { type: "Path", description: "本地归档缓存根目录，传给 market.fetch_archive" }, "kind": { type: "str", description: "归档种类：klines（成交价 LAST）、markPriceKlines（标记价 MARK）、fundingRate（资金费）" }, "symbol": { type: "str", description: "交易所原生合约代码，一个永续合约一条序列" }, "interval": { type: "str | None", description: "K 线周期，固定为 1m；资金费归档无周期传 None" }, "months": { type: "list[str]", description: "要取的月份，YYYY-MM，UTC" }, "workers": { type: "int", description: "并行抓取的工作线程数，缺省 4" } }} />
 
 **返回**　dict[str, Path]：\{月份: 已核对的本地月归档路径\}，只含交易所已发布的月份；空字典表示请求的月份均未发布
 
@@ -1361,7 +1359,7 @@ def rest_funding(
     symbol: str,
     start_ms: int,
     end_ms: int,
-) -> list[tuple[int
+) -> list[tuple[int, str]]
 ```
 
 <TypeTable type={{ "symbol": { type: "str", description: "交易所原生合约代码" }, "start_ms": { type: "int", description: "结算时刻下界（含），UTC 毫秒" }, "end_ms": { type: "int", description: "结算时刻上界（不含），UTC 毫秒" } }} />
@@ -1404,10 +1402,11 @@ def rest_klines(
     interval: str,
     start_ms: int,
     end_ms: int,
+    now_ms: int | None=None,
 ) -> list[tuple]
 ```
 
-<TypeTable type={{ "price_type": { type: "str", description: "LAST 走成交价 K 线接口，MARK 走标记价 K 线接口" }, "symbol": { type: "str", description: "交易所原生合约代码" }, "interval": { type: "str", description: "K 线周期；补缺时固定为 1m，派生对照时为目标周期" }, "start_ms": { type: "int", description: "开盘时刻下界（含），UTC 毫秒，落在 interval 网格上" }, "end_ms": { type: "int", description: "开盘时刻上界（不含），UTC 毫秒，落在 interval 网格上" } }} />
+<TypeTable type={{ "price_type": { type: "str", description: "LAST 走成交价 K 线接口，MARK 走标记价 K 线接口" }, "symbol": { type: "str", description: "交易所原生合约代码" }, "interval": { type: "str", description: "K 线周期；补缺时固定为 1m，派生对照时为目标周期" }, "start_ms": { type: "int", description: "开盘时刻下界（含），UTC 毫秒，落在 interval 网格上" }, "end_ms": { type: "int", description: "开盘时刻上界（不含），UTC 毫秒，落在 interval 网格上" }, "now_ms": { type: "int | None", description: "当前时刻（UTC 毫秒），只取在它之前收盘的 K 线；缺省取系统时间" } }} />
 
 **返回**　list[tuple]：按 open_time 升序的已收盘 K 线行 (open_time_ms, open, high, low, close, volume, close_time_ms, quote_volume)，价格与量为交易所原始十进制字符串；MARK 行的量字段为交易所填的零值，由下游忽略
 
@@ -1614,7 +1613,7 @@ def connect(
 按市场提交 AS OF 读成员月份、合约数、最新完整日与最新完整月；只读事实
 
 ```python
-def freshness(profile: MarketProfile, ref: str) -> dict {commit
+def freshness(profile: dict, ref: str | None=None) -> dict
 ```
 
 <TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：sql-server 地址、市场库名、只读账号" }, "ref": { type: "str", description: "Dolt 引用名、标签或提交哈希；缺省 main，先经 market.resolve_commit 钉成提交" } }} />
@@ -1654,14 +1653,18 @@ def freshness(profile: MarketProfile, ref: str) -> dict {commit
 
 ```python
 def import_month(
-    profile: MarketProfile,
+    profile: dict,
     month: date,
     cache_root: Path,
-    workers: int,
-) -> ImportResult
+    workers: int=4,
+    symbols: list[str] | None=None,
+    log=print,
+) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：服务地址、市场库名、导入账号；与研究账本是同一服务上的两个库，各自账号" }, "month": { type: "date", description: "UTC 月初；可以是尚未结束的当月，此时只能追加已存最后一分钟之后的尾段" }, "cache_root": { type: "Path", description: "归档文件与校验和的本地缓存目录" }, "workers": { type: "int", description: "并行下载数；只影响速度，不影响结果" } }} />
+[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L541)
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：服务地址、市场库名、导入账号；与研究账本是同一服务上的两个库，各自账号" }, "month": { type: "date", description: "UTC 月初；可以是尚未结束的当月，此时只能追加已存最后一分钟之后的尾段" }, "cache_root": { type: "Path", description: "归档文件与校验和的本地缓存目录" }, "workers": { type: "int", description: "并行下载数；只影响速度，不影响结果" }, "symbols": { type: "list[str] | None", description: "隔离市场库的工程允许列表；给了的库每次导入须给同一列表，记进提交信息的 scope" }, "log": { type: "Callable", description: "进度行的输出函数，缺省 print" } }} />
 
 **返回**　ImportResult：\{month, market_commit, universe_rule, instruments_appended, bar_rows, funding_rows, universe_members, gaps: \{symbol: \{LAST: [(from_ms, to_ms)], MARK: [...]\}\}, source_rows: \{monthly, daily, rest\}\}；同月同内容重跑返回原提交且追加计数为 0
 
@@ -2003,7 +2006,7 @@ def membership_path(
     conn: market_connection,
     market_commit: str,
     window_end: int,
-) -> {universe_rule
+) -> dict
 ```
 
 <TypeTable type={{ "conn": { type: "market_connection", description: "市场库只读连接（与研究账本不同库、不同账号）" }, "market_commit": { type: "str", description: "精确市场提交哈希；成员路径按 AS OF 该提交派生并随之固定，非精确引用先经 market.resolve_commit 解析" }, "window_end": { type: "int", description: "回放窗口终点（纳秒，右开）；只用于核对范围已覆盖窗口，不参与区间计算" } }} />
@@ -2038,15 +2041,16 @@ def membership_path(
 
 ```python
 def monthly_universe(
-    classifications: list[classification],
+    classifications: list[dict],
     trading_days: dict[str, set[date]],
     first_month: date,
     last_month: date,
     rule_version: str,
-) -> universe_rows
+    covered: tuple[date, date] | None=None,
+) -> list[tuple[date, str]]
 ```
 
-<TypeTable type={{ "classifications": { type: "list[classification]", description: "market.classify_contract 的结果，每个候选合约一条" }, "trading_days": { type: "dict[str, set[date]]", description: "每个合约有已收盘 UTC 日线（有成交数据）的日期集合，须覆盖 [first_month − listed_days, last_month) 内当时可知的全部日期；来源是交易所公开日线，不含补造" }, "first_month": { type: "date", description: "首个要产出的 UTC 月初（必须是 1 日）" }, "last_month": { type: "date", description: "最后一个要产出的 UTC 月初（必须是 1 日，≥ first_month）" }, "rule_version": { type: "str", description: "范围规则版本号；决定上市天数阈值 listed_days（30 天，未校准示例值，随规则版本固定）" } }} />
+<TypeTable type={{ "classifications": { type: "list[classification]", description: "market.classify_contract 的结果，每个候选合约一条" }, "trading_days": { type: "dict[str, set[date]]", description: "每个合约有已收盘 UTC 日线（有成交数据）的日期集合，须覆盖 [first_month − listed_days, last_month) 内当时可知的全部日期；来源是交易所公开日线，不含补造" }, "first_month": { type: "date", description: "首个要产出的 UTC 月初（必须是 1 日）" }, "last_month": { type: "date", description: "最后一个要产出的 UTC 月初（必须是 1 日，≥ first_month）" }, "rule_version": { type: "str", description: "范围规则版本号；决定上市天数阈值 listed_days（30 天，未校准示例值，随规则版本固定）" }, "covered": { type: "tuple[date, date] | None", description: "读取交易日所覆盖的首末日（调用方的数据覆盖）；缺省以交易日本身的跨度代替" } }} />
 
 **返回**　universe_rows：按 (month, symbol) 排序的 list[(month: date, symbol: str)]，每行一个成员月份；无排名、无成交额字段
 

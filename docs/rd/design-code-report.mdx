@@ -12,6 +12,7 @@
   <File name="attribution.py" />
   <File name="candidates.py" />
   <File name="comparison.py" />
+  <File name="graph.py" />
   <File name="measures.py" />
   <File name="reproduce.py" />
   <File name="review.py" />
@@ -37,8 +38,8 @@
 def attribution(
     profile: str,
     bundle: str,
-    trial_id: str,
-    at: str | None,
+    trial_id: int,
+    at: str | None=None,
 ) -> dict
 ```
 
@@ -160,7 +161,7 @@ Each change's contribution to the corner difference (ab minus base) of the mean 
 全部候选的源码身份、父与改动、每个登记尝试及其运行状态与当前经济证据可用性，附账本提交，可按版本读历史；不带分数、资格标记或排序
 
 ```python
-def candidates(profile: LedgerProfile, at: str | None) -> dict
+def candidates(profile: LedgerProfile, at: str | None=None) -> dict
 ```
 
 <TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案（连接位置与只读账号）；经 ledger.read_as_of 打开只读连接，是本函数与 cli.candidate_list 唯一的连接来源" }, "at": { type: "str | None", description: "可选账本版本：提交哈希或标签；None 读当前。按版本读出当时的全部候选与尝试，用于复读入口当时看到的森林" } }} />
@@ -240,12 +241,14 @@ Every registration attempt with its run and the run's availability now; LEDGER_C
 def compare(
     profile: str,
     bundle: str,
-    trial_id: str,
-    at: str | None,
+    trial_id: int,
+    at: str | None=None,
+    *,
+    part: str='all',
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一份研究账本" }, "bundle": { type: "str", description: "登记证据包名，比较条件（对照、网格、检验条件、研发父版本）全部从它读出" }, "trial_id": { type: "str", description: "候选运行编号，必须是被本登记某网格点消耗的试验所产出的封存运行" }, "at": { type: "str | None", description: "账本版本（提交或标签），缺省为当前 HEAD；用于复读历史绩效指标" } }} />
+<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一份研究账本" }, "bundle": { type: "str", description: "登记证据包名，比较条件（对照、网格、检验条件、研发父版本）全部从它读出" }, "trial_id": { type: "str", description: "候选运行编号，必须是被本登记某网格点消耗的试验所产出的封存运行" }, "at": { type: "str | None", description: "账本版本（提交或标签），缺省为当前 HEAD；用于复读历史绩效指标" }, "part": { type: "str", description: "关键字参数，缺省 all：attribution 时只算归因部分" } }} />
 
 **返回**　dict：\{bundle, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, metrics_revision, comparison_source_sha256, availability\{candidate, control\}, evidence\}；evidence 为 report.paired 的返回，并附 observed_account_annual_return_difference（两侧封存运行年化之差，账户口径，与自助统计分列）。登记没有对照时只返回 \{bundle, trial_id, control_trial_id: null, ledger_commit, evidence: null, attribution: null, reason, next_actions\}，next_actions 指向 replay report --trial-id
 
@@ -320,11 +323,11 @@ def holm(p_values: Sequence[float], family_size: int | None = None) -> list[floa
 
 ```python
 def paired(
-    left: Sequence[float],
-    right: Sequence[float],
+    left: Sequence,
+    right: Sequence,
     design: dict,
     grid_points: int,
-    weights: Sequence[float] | None,
+    weights: Sequence[float] | None=None,
 ) -> dict
 ```
 
@@ -372,9 +375,9 @@ def paired(
 
 ```python
 def single(
-    returns: Sequence[float],
+    returns: Sequence,
     design: dict,
-    family_size: int,
+    family_size: int=1,
 ) -> dict
 ```
 
@@ -418,8 +421,8 @@ def single(
 ```python
 def validation_report(
     profile: str,
-    registration_id: str,
-    at: str | None,
+    registration_id: int,
+    at: str | None=None,
 ) -> dict
 ```
 
@@ -514,10 +517,10 @@ The declared two-by-two of a comparison (gather's result), or None without a dec
 两种报告共用的读时派生：从持仓周期与逐日序列，按度量目录里每个度量的定义版本算出年化、计划胜率、利润来源、交易结构、品种与方向、时期、市场暴露、仓位择时、夏普等
 
 ```python
-def derive_measures(facts: dict, market_returns: dict) -> dict
+def derive_measures(run: Mapping, catalogue: dict | None=None, market: Mapping | None=None) -> dict
 ```
 
-<TypeTable type={{ "facts": { type: "dict", description: "运行的封存结果、逐日序列与持仓周期（已读出的行）" }, "market_returns": { type: "dict", description: "按运行记下的市场提交读出的篮子与 BTC 日收益" } }} />
+<TypeTable type={{ "run": { type: "Mapping", description: "run_facts 读出的运行事实：封存结果、逐日序列、持仓周期、起始本金与窗口" }, "catalogue": { type: "dict | None", description: "度量目录（duties.measure_catalogue）；缺省读当前目录" }, "market": { type: "Mapping | None", description: "按运行记下的市场提交读出的篮子与 BTC 日收益" } }} />
 
 **返回**　dict：\{度量名@版本: \{value, population, null_reason\}\}
 
@@ -832,8 +835,8 @@ def compare_runs(
     profile: str,
     reference_trial_id: int,
     candidate_trial_id: int,
-    at: str | None,
-    work_dir: Path | None,
+    at: str | None=None,
+    work_dir: Path | None=None,
 ) -> dict
 ```
 
@@ -881,10 +884,10 @@ def compare_runs(
 
 ```python
 def review_all(
-    conn: LedgerConnection,
-    at: str | None,
-    tables: list[str] | None,
-    trial_ids: list[str] | None,
+    conn: db.LedgerConnection,
+    at: str | None=None,
+    tables: list[str] | None=None,
+    trial_ids: list | None=None,
 ) -> dict
 ```
 
@@ -955,7 +958,7 @@ The commit verification tests the product defines (the one INSERT INTO dolt_test
 未封存探索目录的只读报告：与封存运行同一指标计算函数与实质活动判据，注明来源未核验，不作证据
 
 ```python
-def directory_report(directory: Path, account: bool) -> dict
+def directory_report(directory: Path, account: bool=False) -> dict
 ```
 
 <TypeTable type={{ "directory": { type: "Path", description: "探索或预检回放的输出目录" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" } }} />
@@ -1024,7 +1027,7 @@ def load_directory(directory: Path) -> NativeReports
 单运行报告的读口：读最新的封存结果，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出
 
 ```python
-def run_report(ledger: str | None, trial_id: int, at: str | None) -> dict
+def run_report(ledger: str | None, trial_id: int, at: str | None=None) -> dict
 ```
 
 <TypeTable type={{ "ledger": { type: "str | None", description: "账本档案名；None 取当前活动账本" }, "trial_id": { type: "int", description: "封存运行的编号" }, "at": { type: "str | None", description: "可选的账本提交或标签，按历史版本读（AS OF）" } }} />
@@ -1060,12 +1063,12 @@ Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原�
 ```python
 def tables(
     trial_id: int,
-    ledger: str | None,
-    at: str | None,
-    account: bool,
-    exposures: bool,
-    directory: Path | None,
-    reproduction: int | None,
+    ledger: str | None=None,
+    at: str | None=None,
+    account: bool=False,
+    exposures: bool=False,
+    directory: Path | None=None,
+    reproduction: int | None=None,
 ) -> dict
 ```
 
@@ -1275,14 +1278,17 @@ def comparison_table(
 
 ```python
 def research_state(
-    conn: Connection,
-    line_bundle: str,
-    at: str | None,
-    full: bool,
+    conn: db.LedgerConnection,
+    line_bundle: str | None=None,
+    at: str | None=None,
+    *,
+    history: bool=False,
+    history_before: int | None=None,
+    full: bool=False,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省经 ledger.open_lines 取该提交上唯一开着的路线" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
+<TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省经 ledger.open_lines 取该提交上唯一开着的路线" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "history": { type: "bool", description: "关键字参数：是否附上被取代的历史判断" }, "history_before": { type: "int | None", description: "关键字参数：只附该判断编号之前的历史，给出即视为要历史" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
 **返回**　dict：ledger_commit、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit；这里的 ledger_commit 是读取所用的提交，同顶层 ledger_commit，不是该线写入时的提交）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、open_lines（该提交上开着的路线及其窗口和市场提交，经 ledger.open_lines 读出：[\{line, window_start, window_end, market_commit\}]；只输出，不存储）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、execution_identity（路线的执行身份，见下第 5 条；没有路线时为 null）、unreviewed_trials、trials_on_line（计数：本路线的全部研究试验，经 ledger.line_trials 按登记所属路线认定；同一市场提交与窗口上已关闭的前任路线的试验不计入。跨路线的多重检验计数由 research_status 的 trials、distinct_sources 与 by_development_window 给出）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、judgment_history\{total, superseded, entries, next_before\}（默认只给总数与被替代数，entries 为空；见下文 --history）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；没有给 line_bundle 而账本没有开着的研究路线时 line 为 null，targets 为账本默认值或 null，open_lines 与判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与 next_actions（只有 line select）；没有给 line_bundle 而开着多条时 line 为 null、判断为空，gates 列出 LINE_AMBIGUOUS，open_lines 列出各条。research_state 不列 unverified_runs，读回不可用的运行由 research_status 列出
 
@@ -1320,11 +1326,12 @@ def research_state(
 
 ```python
 def research_graph(
-    ledger: str | None,
-    line_bundle: str | None,
-    at: str | None,
-    since: str | None,
-    workers: int = 1,
+    profile,
+    line_bundle: str | None=None,
+    at: str | None=None,
+    *,
+    since: str | None=None,
+    workers: int=1,
 ) -> dict
 ```
 
@@ -1354,8 +1361,8 @@ def research_graph(
 ```python
 def research_status(
     ledger: LedgerProfile,
-    at: str | None,
-    line_bundle: str | None,
+    at: str | None=None,
+    line_bundle: str | None=None,
 ) -> dict
 ```
 
