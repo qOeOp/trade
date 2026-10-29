@@ -190,6 +190,47 @@ class IntegrityTests(unittest.TestCase):
         self.assertEqual(members[self.refs["b"]]["p_one_sided"], own)
         self.assertEqual(members[self.refs["a"]]["p_one_sided"], found["single"]["p_one_sided"])
         self.assertEqual(found["single"]["design"], designs[0])
+        # a complete family: Holm over its two observed p values, nothing provisional
+        self.assertEqual((found["family"]["size"], found["family"]["provisional"], found["family"]["missing_p"]),
+                         (2, False, []))
+        self.assertEqual([members[self.refs[name]]["p_holm"] for name in ("a", "b")],
+                         comparison.holm([members[self.refs[name]]["p_one_sided"] for name in ("a", "b")]))
+        self.assertFalse(any(item.startswith("FAMILY_PROVISIONAL") for item in found["limitations"]))
+
+    def test_4b_a_family_with_missing_p_is_corrected_over_its_registered_size_and_read_provisional(self):
+        """A third registration of the same window that nothing binds, and a member whose bootstrap
+        gives no p: the one observed p = 0.02 is corrected with m = 3 to 0.06, the family reads
+        provisional and the limitation names the two members without a p."""
+        with db.read_as_of(self.profile) as conn:
+            third = strategies.read_candidate(conn, self.refs["ab"])
+        self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
+                       "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, 'pool-v1', "
+                       "'2026-01-01', '2026-02-01', %s, NULL, 'v:ab', UTC_TIMESTAMP(6))",
+                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: an unbound third registration', '--skip-verification')",
+                       params=(third["strategy_id"], third["revision"], MARKET_COMMIT,
+                               json.dumps(self.world.plan("registration-base")["body"]["comparison"])))
+        ids = {op: registration_id for registration_id, op in self.world.service.sql(
+            self.profile, "SELECT registration_id, op_id FROM validation_registration WHERE op_id IN ('v:a', 'v:b', "
+                          "'v:ab')")}
+        real, observed = comparison.single, self.series("a")
+
+        def one_observed(values, design, family_size):
+            return {**real(values, design, family_size), "p_one_sided": 0.02 if values == observed else None}
+
+        with patch.object(comparison, "single", one_observed):
+            found = comparison.validation_report(self.profile, ids["v:a"])
+        family = found["family"]
+        members = {member["registration_id"]: member for member in family["members"]}
+        self.assertEqual((family["size"], family["provisional"], family["missing_p"]),
+                         (3, True, [ids["v:b"], ids["v:ab"]]))
+        self.assertEqual((members[ids["v:a"]]["p_one_sided"], members[ids["v:a"]]["p_holm"]), (0.02, 0.06))
+        self.assertEqual([(members[ids[op]]["p_one_sided"], members[ids[op]]["p_holm"]) for op in ("v:b", "v:ab")],
+                         [(None, None), (None, None)])
+        self.assertEqual(family["interval_coverage"], 1 - found["single"]["design"]["alpha"] / 3)
+        self.assertEqual([item for item in found["limitations"] if item.startswith("FAMILY_PROVISIONAL")],
+                         [f"FAMILY_PROVISIONAL: 2 of 3 registered members have no p yet (registrations {ids['v:b']}, "
+                          f"{ids['v:ab']}); Holm corrects the observed p over all 3 with each missing p counted as "
+                          "larger than every observed p"])
 
     def test_5_a_run_whose_records_do_not_verify_does_not_stop_the_lists_and_counts(self):
         trial_id = self.runs["not_the_merge"]["trial_id"]

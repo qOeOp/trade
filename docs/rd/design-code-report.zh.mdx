@@ -223,7 +223,7 @@ Every registration attempt with its run and the run's availability now; LEDGER_C
 | 函数 | 用途 |
 |---|---|
 | <Ref id="report.compare">compare</Ref> | 对比报告的唯一入口：读时按度量目录现算，一次给出可比资格、配对检验、两侧指标与差、交易配对、预测对照与交互效应；不存 |
-| <Ref id="report.holm">holm</Ref> | 同一样本外窗口登记族（窗口起止与 universe_rule 相同）的 Holm 逐步校正 p：排序后取 p_(k)·(m−k+1) 的逐步最大值并截到 1，按原顺序返回；族成员由调用方从账本登记行取得 |
+| <Ref id="report.holm">holm</Ref> | 同一样本外窗口登记族（窗口起止与 universe_rule 相同）的 Holm 逐步校正 p：m 为登记族大小，排序后取 p_(k)·(m−k+1) 的逐步最大值并截到 1，按原顺序返回；族成员由调用方从账本登记行取得，没有 p 的成员计入 m 并视作大于全部已观测 p |
 | <Ref id="report.paired">paired</Ref> | 配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨效应与固定局限句；不返回任何裁决字段 |
 | <Ref id="registration_id">registration_id</Ref> | 样本外报告：从绑定的封存运行读与开发报告同口径的绩效指标并经同一经济证据资格视图遮蔽；单序列区间与 p；同窗口登记族的 Holm 校正；列出登记内容、凭证时间、绑定试验与审计状态、同一候选的全部样本外登记；无裁决字段；资金使用率由 Agent 从封存敞口表自算，报告只给其读口位置 |
 | <Ref id="report.single">single</Ref> | 单序列循环块自助：对样本外窗口内账户日收益报日对数收益均值与年化夏普的基本区间、嵌套学生化区间、半倍／一倍／两倍块长敏感性，以及均值不大于零的单侧 p；缺日或不足两个完整块即不可用；不返回裁决 |
@@ -278,26 +278,26 @@ def compare(
 
 ### `holm` [#def-report-holm]
 
-同一样本外窗口登记族（窗口起止与 universe_rule 相同）的 Holm 逐步校正 p：排序后取 p_(k)·(m−k+1) 的逐步最大值并截到 1，按原顺序返回；族成员由调用方从账本登记行取得
+同一样本外窗口登记族（窗口起止与 universe_rule 相同）的 Holm 逐步校正 p：m 为登记族大小，排序后取 p_(k)·(m−k+1) 的逐步最大值并截到 1，按原顺序返回；族成员由调用方从账本登记行取得，没有 p 的成员计入 m 并视作大于全部已观测 p
 
 ```python
-def holm(p_values: Sequence[float]) -> list[float]
+def holm(p_values: Sequence[float], family_size: int | None = None) -> list[float]
 ```
 
-<TypeTable type={{ "p_values": { type: "Sequence[float]", description: "族内有 p 的成员的原始单侧 p，顺序与调用方的成员列表一致；m 为列表长度" } }} />
+<TypeTable type={{ "p_values": { type: "Sequence[float]", description: "族内有 p 的成员的原始单侧 p，顺序与调用方的成员列表一致" }, "family_size": { type: "int | None", description: "登记族大小 m，不小于列表长度；缺省为列表长度，即全族都有 p" } }} />
 
 **返回**　list[float]：与输入等长、按原顺序排列的 Holm 校正 p，每个值在 [0, 1]
 
 **期望行为**
 
-1. 核列表非空且每个值是 [0, 1] 内的有限数，否则 COMPARISON_UNAVAILABLE。
-2. 按原始 p 升序排序并记原位置；第 k 小的 p 乘以 (m−k+1)。
+1. 核列表非空且每个值是 [0, 1] 内的有限数，family_size 给出时是不小于列表长度的整数，否则 COMPARISON_UNAVAILABLE。
+2. m 取 family_size，缺省取列表长度；按原始 p 升序排序并记原位置；第 k 小的 p 乘以 (m−k+1)。族内没有 p 的成员不在列表里，但计入 m 并视作大于全部已观测 p，所以已观测的 p 按完整的 m 校正。
 3. 自小到大取逐步最大值使序列单调，并截断于 1。
 4. 按原位置还原顺序返回；不做通过判定，不增减族成员。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `COMPARISON_UNAVAILABLE` | 列表为空，或含非有限值、负值或大于 1 的值 |
+| `COMPARISON_UNAVAILABLE` | 列表为空，或含非有限值、负值或大于 1 的值；或 family_size 不是整数或小于列表长度 |
 
 <div className="rd-meta">
 
@@ -422,14 +422,14 @@ def validation_report(
 
 <TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "registration_id": { type: "str", description: "样本外登记标识（validation_registration 主键）" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签），缺省为当前 HEAD" } }} />
 
-**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate（strategy_id@revision）, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{registration_id（最初登记）, commit_hash | None（该登记诞生提交）, stamped_at | None, verified\}, binding\{trial_id, purpose（恒为 validation）, status, audit_status, bound_at\} | None, availability | None, metrics | None（与开发报告同口径并经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 为封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, size, members[\{registration_id, candidate, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}；无裁决、通过或推荐字段
+**返回**　dict：\{registration_id, ledger_commit, metrics_revision, registration\{candidate（strategy_id@revision）, source_sha256, window_start, window_end, universe_rule, design, registered_at, retry_of\}, witness\{registration_id（最初登记）, commit_hash | None（该登记诞生提交）, stamped_at | None, verified\}, binding\{trial_id, purpose（恒为 validation）, status, audit_status, bound_at\} | None, availability | None, metrics | None（与开发报告同口径并经 mask 遮蔽：年化、标记价回撤、夏普、计划胜率、成本、利润来源拆分；exposures_table 为封存敞口表读口）, single | None, family\{window_start, window_end, universe_rule, size, provisional, missing_p[registration_id], members[\{registration_id, candidate, trial_id, p_one_sided | None, p_holm | None\}], interval_coverage\}, same_candidate_registrations[\{registration_id, window_start, window_end, status\}], limitations[]\}；无裁决、通过或推荐字段
 
 **期望行为**
 
 1. 读样本外登记与绑定试验；未绑定即只给登记与局限。
 2. 有绑定时经 report.run_report 读同口径的单运行报告（含资金使用），经资格视图遮蔽，不可用只留原因。
 3. 经 report.single 给单序列区间与 p，按同窗口登记族做 Holm 校正；列出登记内容、凭证时间与同一候选的全部样本外登记；不写账本。凭证沿所读账本版本中的 retry_of 追溯至最初登记，与绑定检查共用追溯逻辑，离线验签并返回所属 registration_id 与 commit_hash。无重试时即当前登记；缺失或无效时保留身份、verified=false、stamped_at=null，并列出 UNWITNESSED。verified 仅代表验签，不是时间准入裁决。
-4. 族内每个成员的单序列 p 按它自己登记的检验条件（种子、块长、重抽次数）算，Holm 只在有 p 的成员间校正；已绑定但还没有运行的成员读作 unfinished。
+4. 族内每个成员的单序列 p 按它自己登记的检验条件（种子、块长、重抽次数）算；Holm 按登记族校正，m 为同窗口、同范围规则的登记数，事后不增减。没有 p 的成员（未绑定、未完成、未通过、无经济证据、自助标准误为零）仍计入 m，并视作大于全部已观测 p，所以有 p 的成员按完整的 m 校正；只要有成员缺 p，family.provisional 为 true、missing_p 列出这些登记号，并加一条 FAMILY_PROVISIONAL 局限说明 m 个成员中几个还没有 p。区间覆盖率照样按 m 放宽。已绑定但还没有运行的成员读作 unfinished。
 
 | 拒绝码 | 条件 |
 |---|---|

@@ -1308,8 +1308,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "window and universe rule; market daily returns (a failure only empties the market measures)",
         "nothing; never publishes",
         "registration_id, ledger_commit, metrics_revision, registration, witness, binding, availability, "
-        "metrics, single, family {size, members [{registration_id, p_one_sided, p_holm, ...}]}, "
-        "same_candidate_registrations, limitations (UNWITNESSED, UNBOUND, UNFINISHED, NO_SINGLE_TEST)",
+        "metrics, single, family {size, provisional, missing_p, members [{registration_id, p_one_sided, p_holm, ...}]}, "
+        "same_candidate_registrations, limitations (UNWITNESSED, UNBOUND, UNFINISHED, NO_SINGLE_TEST, "
+        "FAMILY_PROVISIONAL)",
         "REGISTRATION_UNKNOWN; LEDGER_CORRUPT (the binding names a missing trial); UNKNOWN_REF (--at)"),
     ("replay", "explore"): (
         "--strategy-file; the market at --at (default main), exported into a reused cache under the temporary "

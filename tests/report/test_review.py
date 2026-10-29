@@ -149,6 +149,9 @@ class TamperTests(unittest.TestCase):
         self.assertEqual([member["registration_id"] for member in found["family"]["members"]],
                          [self.witnessed["registration_id"], self.unwitnessed["registration_id"]])
         self.assertEqual(found["family"]["interval_coverage"], 1 - DESIGN["alpha"] / 2)
+        self.assertEqual((found["family"]["provisional"], found["family"]["missing_p"]),
+                         (True, [self.witnessed["registration_id"], self.unwitnessed["registration_id"]]))
+        self.assertTrue(any(item.startswith("FAMILY_PROVISIONAL: 2 of 2 ") for item in found["limitations"]))
         self.assertEqual([item["status"] for item in found["same_candidate_registrations"]], ["unbound"])
         unwitnessed = comparison.validation_report(self.profile, self.unwitnessed["registration_id"])
         self.assertFalse(unwitnessed["witness"]["verified"])
