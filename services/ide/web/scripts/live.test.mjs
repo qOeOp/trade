@@ -21,6 +21,10 @@ async function page() {
   const live = source("../src/live.ts");
   await live.link((name) => {
     if (name === "./lib/lines") return source("../src/lib/lines.ts");
+    if (name === "./state/researchLines") return new SyntheticModule(["readResearchLines", "researchLines"], function () {
+      this.setExport("readResearchLines", () => Promise.resolve());
+      this.setExport("researchLines", { get: () => ({ lines: [] }) });
+    }, { context });
     assert.equal(name, "./state/update");
     return new SyntheticModule(["update"], function () {
       this.setExport("update", { set: (value) => updates.push(value) });
