@@ -138,3 +138,28 @@ class WarmupSubmissionTests(unittest.TestCase):
             changed = copy.deepcopy(receipt)
             change(changed)
             self.assertTrue(submission_findings(events, SUMMARY, changed)[0].startswith("TRADE_START_INVALID:"))
+
+
+class InputStartGuardTests(unittest.TestCase):
+    def test_every_guarded_data_callback_is_a_native_strategy_callback(self):
+        from engine.run import DATA_CALLBACKS
+        self.assertEqual([name for name in DATA_CALLBACKS if not callable(getattr(Strategy, name, None))], [])
+
+    def test_quotes_and_trades_stamped_before_the_instance_input_start_never_reach_the_source(self):
+        from types import SimpleNamespace
+        from engine.run import guarded_callbacks
+        seen = []
+
+        class Source(Strategy):
+            def on_quote(self, quote):
+                seen.append(("quote", quote.ts_event))
+
+            def on_trade(self, trade):
+                seen.append(("trade", trade.ts_event))
+
+        guarded = guarded_callbacks(Source)
+        instance = SimpleNamespace(_replay_input_start_ns=TRADE_START)
+        for name in ("on_quote", "on_trade"):
+            for at in (START, TRADE_START):
+                guarded[name](instance, SimpleNamespace(ts_event=at))
+        self.assertEqual(seen, [("quote", TRADE_START), ("trade", TRADE_START)])
