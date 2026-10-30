@@ -120,7 +120,6 @@ class RemoteTests(unittest.TestCase):
         source = self.tmp / "large-object"
         source.write_bytes(data)
         self.supply.objects[sha] = source
-        real = remote.Handler.do_GET
         def interrupted(handler):
             handler.send_response(206)
             handler.send_header("Content-Length", str(len(data)))
