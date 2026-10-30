@@ -318,7 +318,7 @@ def delete_paper_run(profile: db.LedgerProfile, paper_id: int) -> dict:
     names, in one commit ``paper_delete:<paper_id>`` on the research branch by the service administrator."""
     config = db._known_service(profile.service_root)
     bundle, op = bundle_name(paper_id), f"{DELETE_KIND}:{paper_id}"
-    raw = db.service_connection(config, user="root", password=config["root_password"],
+    raw = db.service_connection(config, user="root", password=db._root_password(config),
                                 database=f"{profile.database}/{profile.research_branch}", autocommit=False,
                                 connect_timeout=10)
     try:

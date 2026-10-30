@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from cli import main as cli
 from cli import service
-from ledger import db, publish
+from ledger import admin, db, publish
 from ledger.errors import Refusal
 from market import store
 from tests.ledger.dolt import BINARY, SKIP, Service
@@ -154,6 +154,8 @@ class RunTests(unittest.TestCase):
         with store.connect(market, "reader") as conn:
             self.assertEqual(conn.version, store.SCHEMA_VERSION)
         self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
+        for administrator in (admin._admin, publish._admin):
+            self.assertEqual(self.code(administrator, ledger), "LEDGER_UNKNOWN", "nor the service administrator")
         with self.assertRaises(store.MarketError) as caught:
             store.connect(market, "import")
         self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
