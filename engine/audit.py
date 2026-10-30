@@ -410,7 +410,7 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
                       "uncovered_intervals": intervals}
 
 
-EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settlement (rc3 matching engine)
+EXPIRATION_PREFIX = "EXPIRATION-"  # the engine's own closing orders at a settlement (rc7 matching_engine/settlement.rs)
 
 
 def entry_findings(events: list[dict], summary: dict, coverage: dict | None) -> list[str]:
