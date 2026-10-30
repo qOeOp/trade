@@ -182,11 +182,12 @@ class RemoteMarket:
             os.replace(partial, target)
         return target
 
-    def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True):
+    def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,
+                        include_trades=False):
         args = {"commit": commit, "symbols": symbols, "start_ns": start_ns, "end_ns": end_ns,
                 "episodes": episodes, "lifecycle_files": {relative(n): base64.b64encode(v).decode()
                                                           for n, v in (lifecycle_files or {}).items()},
-                "fresh": fresh, "include_quotes": include_quotes}
+                "fresh": fresh, "include_quotes": include_quotes, "include_trades": include_trades}
         key = hashlib.sha256(canonical({"protocol": PROTOCOL, "url": self.url, "database": self.database,
                                        "exporter": exporter_sha256(), "args": {**args, "fresh": False}})).hexdigest()
         requests = self.cache / "requests"
@@ -270,7 +271,7 @@ class Supply:
         allowed = {"resolve_commit": {"at"}, "universe_rule": {"commit"}, "universe_month": {"commit"},
                    "membership_path": {"commit", "window_end"},
                    "export_catalogs": {"commit", "symbols", "start_ns", "end_ns", "episodes", "lifecycle_files",
-                                       "fresh", "include_quotes"}}
+                                       "fresh", "include_quotes", "include_trades"}}
         if method not in allowed or not isinstance(args, dict) or set(args) != allowed[method]:
             raise invalid("unknown supply read or arguments")
         if "commit" in args and (not isinstance(args["commit"], str) or not COMMIT.fullmatch(args["commit"])):
@@ -280,7 +281,7 @@ class Supply:
         if (not isinstance(args["symbols"], list) or not args["symbols"]
                 or any(not isinstance(s, str) or relative(s) != s or "/" in s for s in args["symbols"])
                 or len(set(args["symbols"])) != len(args["symbols"])
-                or type(args["fresh"]) is not bool or type(args["include_quotes"]) is not bool):
+                or any(type(args[name]) is not bool for name in ("fresh", "include_quotes", "include_trades"))):
             raise invalid("invalid supply scope or export mode")
         files = {relative(n): base64.b64decode(v, validate=True) for n, v in args["lifecycle_files"].items()}
         episodes = args["episodes"]

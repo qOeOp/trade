@@ -1,7 +1,8 @@
 """Complete source aggTrades: bounded ZIP/CSV ingestion, exact independent scale-8 codec.
 
-This append-only input path does not participate in bar/quote reads, derivation or replay exports.
-One explicit contract month uses the existing restricted import connection, lock and commit tests.
+This append-only input path does not participate in bar/quote reads or derivation; a replay exports the
+stored rows as trade ticks only on request (market.export.write_trades). One explicit contract month uses
+the existing restricted import connection, lock and commit tests.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from market import series, sources, store, universe
 from market.sources import MarketError, _refuse
 
 
-IMPORT = "binance-aggtrades"
+IMPORT = store.TRADE_IMPORT
 CODEC = "binance-aggtrades-int64-scale8-v1"
 SCALE = 100_000_000
 MAX_INT = (1 << 63) - 1

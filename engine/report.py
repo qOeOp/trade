@@ -274,6 +274,10 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         ],
         "limitations": [
             *fixed_limitations(account),
+            *(["Trade ticks are signal input only: one TradeTick per stored aggregate trade, delivered as custom "
+               "data the venue never sees, so it never matches an order or moves the book; a millisecond's trades "
+               "follow its quotes, so their order within it is approximate"]
+              if any("trade" in row["counts"] for row in instruments) else []),
             *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
                f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
               if getattr(replay.observer, "carried", None) else []),

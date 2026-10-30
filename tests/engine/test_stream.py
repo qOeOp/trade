@@ -185,10 +185,13 @@ def series(seed, minutes):
     return bars
 
 
-def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0, quotes=False, margins=None):
+def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0, quotes=False, margins=None,
+             trades=False):
     """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/. With
     `quotes`, two best bid/ask states a minute (at the minute's low, then at its high); `margins` writes the
-    instrument with those (initial, maintenance) rates, as the runner applies the quote environment's."""
+    instrument with those (initial, maintenance) rates, as the runner applies the quote environment's; with
+    `trades`, three aggregate trades a minute at 1.00, far below every quote: two in the millisecond of the first
+    quote, one ten seconds later."""
     index = 1 if episode is not None else None
     path = root / symbol
     catalog_path = path / "episode-1" if index else path
@@ -209,6 +212,11 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
         for at, low, high in zip(bars["ts_open"].tolist(), bars["low"].tolist(), bars["high"].tolist(), strict=True):
             rows += [(at + 20_000, low, low + tick), (at + 40_000, high - tick, high)]
         counts["quote"] = export.write_quotes(store, iid, [rows], 2, "1000", 3, 8)
+    if trades:
+        rows = [(at + offset, 3 * index + number, 10**8, 10**5, number % 2)
+                for index, at in enumerate(bars["ts_open"].tolist())
+                for number, offset in enumerate((20_000, 20_000, 30_000))]
+        counts["trade"] = export.write_trades(store, iid, [rows], 2, 3)
     if episode is not None:
         counts.update(lifecycle.write_lifecycle_events(store, episode, START * 10**6, END * 10**6))
     piece = {"index": index, "instrument_id": str(iid), "catalog_dir": "episode-1" if index else "", "counts": counts,
@@ -220,14 +228,14 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
     (path / "export.json").write_text(json.dumps(receipt))
 
 
-def market(root: Path, quotes: bool = False, margins=None) -> list[str]:
+def market(root: Path, quotes: bool = False, margins=None, trades: bool = False) -> list[str]:
     every = np.arange(DAYS * 1440)
     eight = [START + hour * 3_600_000 for hour in range(0, DAYS * 24, 8)]
     contract(root, "AAAUSDT", every, eight + [START + DAY + 6 * 3_600_000 - 1], seed=1, quotes=quotes,
-             margins=margins)  # funding on a bar close
+             margins=margins, trades=trades)  # funding on a bar close
     keep = np.random.default_rng(7).random(len(every)) > 0.1
     keep[(every >= 600) & (every < 1500)] = False  # a gap longer than a session window
-    contract(root, "币安USDT", every[keep], eight, seed=2, quotes=quotes, margins=margins)
+    contract(root, "币安USDT", every[keep], eight, seed=2, quotes=quotes, margins=margins, trades=trades)
     iid = InstrumentId.from_str(export.native_symbol("CCCUSDT", 1)["instrument_id"])
     pre, settled = (START + DAY + 10 * MIN - 1) * 10**6, (START + DAY + 12 * 3_600_000) * 10**6
     events = [InstrumentStatus(iid, MarketStatusAction.PRE_CLOSE, pre, pre).to_dict(),
@@ -370,6 +378,47 @@ class Levered(Strategy):
 '''
 
 
+WATCHER = '''
+from decimal import Decimal
+from nautilus_trader.model import BarType, DataType, OrderSide, Price
+from nautilus_trader.trading import Strategy, StrategyConfig
+
+
+class Watcher(Strategy):
+    """Quote environment with trade ticks: every event it is handed, and on AAAUSDT's first trade of the trading
+    window a resting buy limit at 2.00, which every later trade (at 1.00) trades through, and a market buy."""
+    USES_STOP_LOSS = False
+
+    def __init__(self, instrument_id, daily_bar_type, **kw):
+        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
+
+    def on_start(self):
+        self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
+        self.subscribe_quotes(self.iid)
+        self.subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(self.iid)}))
+
+    def on_quote(self, quote):
+        self.seen.append(("quote", quote.ts_event, str(quote.ask_price)))
+
+    def on_data(self, data):
+        trade = data.data
+        self.seen.append(("trade", trade.ts_event, str(trade.trade_id), str(trade.price), str(trade.size),
+                          str(trade.aggressor_side)))
+        if trade.ts_event >= self.trade_start and not self.sent and str(self.iid).startswith("AAAUSDT"):
+            self.sent = True
+            quantity = self.cache.instrument(self.iid).make_qty(Decimal("0.010"))
+            self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, quantity, Price.from_str("2.00")))
+            self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY, quantity))
+
+    def replay_diagnostics(self):
+        return {"trades": sum(event[0] == "trade" for event in self.seen)}
+
+    def replay_integrity_findings(self, orders_denied_or_rejected):
+        return []
+'''
+
+
 class StreamTests(unittest.TestCase):
     def test_runner_keeps_trusted_start_when_source_mutates_its_own_start(self):
         from engine.audit import audit
@@ -506,8 +555,72 @@ class StreamTests(unittest.TestCase):
             rows = [(START + MIN, 10**10, 10**10 + 10**6), (march + MIN, 10**10, 10**10 + 10**6)]
             export.write_quotes(store, iid, [rows], 2, "1000", 3, 8)
             row = {"catalog_path": str(catalog_path), "instrument_id": native}
-            self.assertEqual(run.quote_months_missing(row, START * 10**6, (march + DAY) * 10**6), ["2026-02"])
-            self.assertEqual(run.quote_months_missing(row, START * 10**6, (START + 31 * DAY) * 10**6), [])
+            self.assertEqual(run.months_missing(row, "QuoteTick", START * 10**6, (march + DAY) * 10**6), ["2026-02"])
+            self.assertEqual(run.months_missing(row, "QuoteTick", START * 10**6, (START + 31 * DAY) * 10**6), [])
+
+    def test_trade_ticks_follow_their_millisecond_quotes_and_never_match(self):
+        """Exported trades reach the strategy in (time, aggregate ID) order, after the quotes of their millisecond,
+        and count in the consumed events; a contract exported without trades streams none. A trade never fills an
+        order (every trade at 1.00 trades through the resting limit at 2.00, which stays open) and never moves the
+        book: the market buy fills at the ask of the quote in force."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            symbols = market(root / "market", quotes=True, margins=("0.05", "0.025"), trades=True)
+            source = root / "watcher.py"
+            source.write_text(WATCHER)
+            loaded = load_strategy(source, "Watcher", hashlib.sha256(source.read_bytes()).hexdigest())
+            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
+                                  utc_text(END * 10**6))
+            rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            self.assertEqual([("trade" in row["counts"]) for row in rows], [True, True, False])
+            finished, strategies, _ = run.replay(rows, window, loaded, read_universe(None, symbols), root,
+                                                 execution_account("quotes", ("0.05", "0.025")))
+            try:
+                iterations = finished.result.iterations
+                fills = finished.fills().reset_index().to_dict("records")
+                statuses = sorted(str(order.status) for order in finished.engine.cache.orders())
+            finally:
+                finished.engine.dispose()
+            seen = {row["coin"]: strategies[row["coin"]].seen for row in rows}
+        self.assertEqual(iterations, sum(sum(value for key, value in row["counts"].items() if key != "daily")
+                                         for row in rows))
+        for row in rows:
+            trades = [event for event in seen[row["coin"]] if event[0] == "trade"]
+            self.assertEqual(len(trades), row["counts"].get("trade", 0))
+            self.assertEqual([int(event[2]) for event in trades], sorted(int(event[2]) for event in trades))
+            if trades:
+                self.assertEqual(trades[0][3:], ("1.00", "0.001", "BUY"))
+                self.assertEqual(trades[1][3:], ("1.00", "0.001", "SELL"))
+            for index, event in enumerate(seen[row["coin"]]):
+                if event[0] == "quote":  # no trade of this millisecond came before its quote
+                    self.assertFalse(any(earlier[0] == "trade" and earlier[1] == event[1]
+                                         for earlier in seen[row["coin"]][:index]))
+        first = next(event for event in seen["AAA"] if event[0] == "trade" and event[1] >= window.trade_start_ns)
+        ask = [event for event in seen["AAA"] if event[0] == "quote" and event[1] <= first[1]][-1][2]
+        self.assertEqual(statuses, ["ACCEPTED", "FILLED"])
+        self.assertEqual([str(fill["last_px"]) for fill in fills], [ask])
+
+    def test_exported_trades_are_checked_per_month_and_a_file_never_spans_two(self):
+        """Trades are checked per UTC month of [trade start, end) like quotes: January and March held, February
+        missing. Each written file lies inside one UTC month, so its statistics name the months it holds."""
+        with tempfile.TemporaryDirectory() as temp:
+            catalog_path = Path(temp)
+            store = ParquetDataCatalog(str(catalog_path))
+            native = export.native_symbol("AAAUSDT", None)["instrument_id"]
+            store.write_instruments([instrument.build_instrument("AAAUSDT", TERMS, 2, native, on_grid=True)[0]])
+            iid = InstrumentId.from_str(native)
+            february, march = START + 31 * DAY, START + (31 + 28) * DAY
+            rows = [(february - 1, 1, 10**10, 10**5, 1), (march, 2, 10**10, 10**5, 0), (march, 3, 10**10, 10**5, 0)]
+            self.assertEqual(export.write_trades(store, iid, [rows[:1], rows[1:]], 2, 3), 3)
+            files = sorted((catalog_path / "data" / "trades").rglob("*.parquet"))
+            self.assertEqual([run._bounds(str(path)) for path in files],
+                             [((february - 1) * 10**6, (february - 1) * 10**6), (march * 10**6, march * 10**6)])
+            row = {"catalog_path": str(catalog_path), "instrument_id": native}
+            self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, (march + DAY) * 10**6), ["2026-02"])
+            self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, february * 10**6), [])
+            with self.assertRaises(export.store.MarketError) as caught:
+                export.write_trades(store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3)
+            self.assertEqual(caught.exception.code, "TRADE_INEXACT")
 
     def test_each_exported_piece_is_its_numbered_episode_directory(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -65,6 +65,10 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
             piece.get("counts", {}).get("quote", 0)
             for receipt in coverage.get("export_receipts", {}).values()
             for piece in receipt.get("pieces", []))
+        # A receipt counts trades exactly when the run exported them (--trade-ticks).
+        include_trades = any("trade" in piece.get("counts", {})
+                             for receipt in coverage.get("export_receipts", {}).values()
+                             for piece in receipt.get("pieces", []))
         if account.get("execution") == "quotes":
             runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
                             "--maintenance-margin", account["maintenance_margin_rate"]]
@@ -73,7 +77,8 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
         try:
             exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
                                                          dict(selection), recorded.get("lifecycle_bundle"),
-                                                         True, ledger, include_quotes=include_quotes)
+                                                         True, ledger, include_quotes=include_quotes,
+                                                         include_trades=include_trades)
             if comparability.input_key(exported["identity"]) != comparability.input_key(recorded):
                 raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {trial_id} differ from the "
                                                       "recorded input identity", missing=("input_identity",))

@@ -30,18 +30,20 @@ from nautilus_trader.execution import DefaultFillModel, MakerTakerFeeModel
 from nautilus_trader.model import (
     StandardMarginModel,
     CryptoPerpetual,
-    QuoteTick,
     AccountType,
     Bar,
     BarType,
     BookType,
     Currency,
+    CustomData,
+    DataType,
     InstrumentId,
     Money,
     NautilusDataType,
     OmsType,
     Price,
     StrategyId,
+    TradeTick,
     TraderId,
     Venue,
 )
@@ -612,14 +614,17 @@ class Replay:
 # The input stream. BacktestNode, given one data configuration per contract and type, loads every
 # configuration whole and merge-sorts them before streaming chunks to its engine, so its memory grows
 # with the window. The runner streams the same events in the same order straight from the exported
-# Catalogs: bars, MARK updates (and quotes) through ParquetDataCatalog queries, one per data type and
-# SESSION_WINDOW of time over only the files that hold it, each sorted by ts_init and merged; the few
+# Catalogs: bars, MARK updates (and quotes and trades) through ParquetDataCatalog queries, one per data type
+# and SESSION_WINDOW of time over only the files that hold it, each sorted by ts_init and merged; the few
 # funding and lifecycle events read whole. Equal ts_init keep the order of the configurations the node
-# would have had, contract by contract MARK, funding, bars, status, close. The engine gets the node's
-# chunks: chunk_size events, extended to the last event's ts_init, each run up to it.
+# would have had, contract by contract MARK, quotes, trades, funding, bars, status, close: a market order a
+# trade prompts fills at the quote its millisecond ends with, and one millisecond's trades keep their
+# aggregate trade ID order. The engine gets the node's chunks: chunk_size events, extended to the last
+# event's ts_init, each run up to it.
 
-STREAM_TYPES = ("MarkPriceUpdate", "QuoteTick", "FundingRateUpdate", "Bar", "InstrumentStatus", "InstrumentClose")
-DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes"}
+STREAM_TYPES = ("MarkPriceUpdate", "QuoteTick", "TradeTick", "FundingRateUpdate", "Bar", "InstrumentStatus",
+                "InstrumentClose")
+DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes", "TradeTick": "trades"}
 RUN_ID = "r1-native-replay"
 SESSION_WINDOW_NS = 86_400 * 10**9  # one day of every contract's minutes in memory at a time
 
@@ -629,16 +634,35 @@ def _files(row: dict, kind: str) -> list[str]:
     return [str(path) for path in sorted(root.glob("*/*.parquet"))]
 
 
-def quote_months_missing(row: dict, start: int, end: int) -> list[str]:
-    """The UTC months ("YYYY-MM") that intersect [start, end) and hold no exported quote of the contract.
-    Quotes are imported a month at a time, so a month without any is a month the market does not hold."""
+def _bounds(path: str) -> tuple[int, int] | None:
+    """The first and last ts_init of one Catalog file (sorted by ts_init), from its row group statistics."""
+    import pyarrow.parquet as parquet
+    metadata = parquet.ParquetFile(path).metadata
+    column = metadata.schema.names.index("ts_init")
+    found = [(group.column(column).statistics.min_raw, group.column(column).statistics.max_raw)
+             for group in (metadata.row_group(index) for index in range(metadata.num_row_groups)) if group.num_rows]
+    return (int(found[0][0]), int(found[-1][1])) if found else None
+
+
+def months_missing(row: dict, kind: str, start: int, end: int) -> list[str]:
+    """The UTC months ("YYYY-MM") that intersect [start, end) and hold no exported `kind` event (QuoteTick or
+    TradeTick) of the contract. Both are imported a month at a time, so a month without any is a month the
+    market does not hold."""
     import pyarrow as pa
     import pyarrow.compute as compute
     import pyarrow.parquet as parquet
     if end <= start:
         return []
     held = set()
-    for path in _files(row, "QuoteTick"):
+    for path in _files(row, kind):
+        bounds = _bounds(path)
+        if bounds is None or bounds[1] < start or bounds[0] >= end:
+            continue
+        first, last = (datetime.fromtimestamp(max(at, low) // 10**9, UTC) for at, low in
+                       ((bounds[0], start), (min(bounds[1], end - 1), 0)))
+        if (first.year, first.month) == (last.year, last.month):
+            held.add(first.year * 100 + first.month)  # one month: the statistics suffice
+            continue
         column = parquet.read_table(path, columns=["ts_init"])["ts_init"].cast(pa.int64())
         inside = column.filter(compute.and_(compute.greater_equal(column, start), compute.less(column, end)))
         stamps = inside.cast(pa.timestamp("ns", tz="UTC"))
@@ -680,30 +704,42 @@ def _keyed(events, order: int):
         yield event.ts_init, order, sequence, event
 
 
+def trade_data_type(instrument_id) -> DataType:
+    """engine.trade_data_type: the custom data type an exported trade of the contract reaches a strategy as, a
+    native TradeTick in CustomData.data: subscribe_data(DataType("TradeTick", metadata={"instrument_id":
+    str(instrument_id)})), then on_data. Nautilus routes a native TradeTick to the venue, whose L1 book takes its
+    price and size whatever trade_execution says; custom data reaches only subscribers."""
+    return DataType("TradeTick", metadata={"instrument_id": str(instrument_id)})
+
+
 def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
     """Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end`
     bound the exported events' ts_init. Exported quotes are streamed only with `quotes` (a QUOTE_EXECUTION
-    source): in the bar environment they would move the venue's book between bars."""
+    source): in the bar environment they would move the venue's book between bars. Exported trades are
+    streamed for every contract whose receipt counts them (the entry's --trade-ticks), each as custom data
+    (trade_data_type): the venue never sees them, so they move no book and fill no order."""
     import heapq
-    import pyarrow as pa
-    import pyarrow.parquet as parquet
-    bars, marks, quote_order, small, files = {}, {}, {}, [], []
+    bars, order, small, files = {}, {}, [], []
+    wrapped: dict = {}
     for index, row in enumerate(rows):
         base = index * len(STREAM_TYPES)
         instrument_id = row["instrument_id"]
         bar_type = BarType.from_str(f"{instrument_id}-{EXECUTION_BAR_MINUTES}-MINUTE-LAST-EXTERNAL")
-        bars[bar_type], marks[instrument_id] = base + STREAM_TYPES.index("Bar"), base
-        quote_order[instrument_id] = base + STREAM_TYPES.index("QuoteTick")
+        bars[bar_type] = base + STREAM_TYPES.index("Bar")
+        for kind in ("MarkPriceUpdate", "QuoteTick", "TradeTick"):
+            order[kind, instrument_id] = base + STREAM_TYPES.index(kind)
         kinds = [("Bar", NautilusDataType.Bar), ("MarkPriceUpdate", NautilusDataType.MarkPriceUpdate)]
         if quotes:
             kinds.append(("QuoteTick", NautilusDataType.QuoteTick))
+        if "trade" in row["counts"]:
+            kinds.append(("TradeTick", NautilusDataType.TradeTick))
         for kind, native in kinds:
             for path in _files(row, kind):
                 if kind == "Bar" and unquote(Path(path).parent.name) != str(bar_type):
                     continue  # the daily warm-up bars are the strategy's, never replayed (names are %-encoded)
-                column = parquet.read_table(path, columns=["ts_init"])["ts_init"].cast(pa.int64())
-                if len(column):
-                    files.append((native, path, column[0].as_py(), column[-1].as_py()))
+                bounds = _bounds(path)
+                if bounds is not None:
+                    files.append((native, path, *bounds))
         for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"):
             small.append(_keyed(_small_events(row, kind), base + STREAM_TYPES.index(kind)))
     pending = heapq.merge(*small, key=lambda item: item[:3])  # each source is in file (ts_init) order
@@ -729,8 +765,15 @@ def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
             if group:
                 yield from flush(group, ts)
             group, ts = [], at
-        group.append((bars[event.bar_type] if type(event) is Bar else quote_order[event.instrument_id]
-                      if type(event) is QuoteTick else marks[event.instrument_id], event))
+        kind = type(event)
+        if kind is Bar:
+            group.append((bars[event.bar_type], event))
+        elif kind is TradeTick:
+            data_type = wrapped.get(event.instrument_id) or wrapped.setdefault(
+                event.instrument_id, trade_data_type(event.instrument_id))
+            group.append((order["TradeTick", event.instrument_id], CustomData(data_type, event)))
+        else:
+            group.append((order[kind.__name__, event.instrument_id], event))
     if group:
         yield from flush(group, ts)
     while following is not None:
@@ -876,17 +919,20 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         initial, maintenance = account["initial_margin_rate"], account["maintenance_margin_rate"]
         assert initial is not None and maintenance is not None  # execution_account sets both for quotes
         rates = (initial, maintenance)
-    if quotes:
+    for kind, code, chosen in (("QuoteTick", "QUOTES_MISSING", "the quote environment is chosen"),
+                               ("TradeTick", "TRADES_MISSING", "trade ticks are exported")):
         missing = []
         for row, _, trade_start in planned:
+            if not (quotes if kind == "QuoteTick" else "trade" in row["counts"]):
+                continue
             episode = row["episode"]
             end = min(window.end_ns, (_termination(episode) if episode else None) or window.end_ns)
-            months = quote_months_missing(row, trade_start, end)
+            months = months_missing(row, kind, trade_start, end)
             if months:
                 missing.append(f"{row['symbol']} {', '.join(months)}")
         if missing:
-            raise Refusal("QUOTES_MISSING", "the quote environment is chosen but the export holds no quotes in these "
-                                            f"UTC months of the trading window: {'; '.join(missing)}")
+            raise Refusal(code, f"{chosen} but the export holds none in these UTC months of the trading window: "
+                                f"{'; '.join(missing)}")
     for row in rows:
         engine.add_instrument(with_margins(row["instrument"], rates) if rates is not None else row["instrument"])
     STRATEGIES.clear()
