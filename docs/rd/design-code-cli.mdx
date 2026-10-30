@@ -431,7 +431,7 @@ def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str,
 **期望行为**
 
 1. 读 body 文件为 UTF-8 文本。
-2. 解析 --subject role=…,candidate=ID@N | trial=… | registration=…。
+2. 解析 --subject role=ROLE,candidate=ID@N | trial=… | registration=…；help 列出角色：recommended、parent、control 只指候选，about 可指候选、试验或登记。
 3. 调用 ledger.add_judgment，并把 report.compared_candidates 作为 compared 传入（写 recommendation 时用）；输出 JSON；拒绝时输出拒绝码与非零退出。
 
 | 拒绝码 | 条件 |
