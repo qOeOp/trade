@@ -211,9 +211,16 @@ def service_connection(config: dict, **options) -> pymysql.Connection:
     return pymysql.connect(unix_socket=socket_path, **options)
 
 
+def _root_password(config: dict) -> str:
+    """The service administrator's password; a reader-only service file holds none."""
+    if "root_password" not in config:
+        raise refuse("LEDGER_UNKNOWN", "this service file holds only reader accounts, not the service administrator")
+    return config["root_password"]
+
+
 def _admin(config: dict, password: str | None = None, database: str | None = None):
     return service_connection(config, user="root",
-                           password=config["root_password"] if password is None else password,
+                           password=_root_password(config) if password is None else password,
                            database=database, autocommit=True, connect_timeout=5, max_allowed_packet=1 << 30)
 
 

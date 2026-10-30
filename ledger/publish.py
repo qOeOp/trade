@@ -44,8 +44,9 @@ DOLTHUB = re.compile(r"https://doltremoteapi\.dolthub\.com/[A-Za-z0-9_-]+/[A-Za-
 
 def _admin(profile: db.LedgerProfile):
     config = db._known_service(profile.service_root)
+    password = db._root_password(config)
     try:
-        return db.service_connection(config, user="root", password=config["root_password"],
+        return db.service_connection(config, user="root", password=password,
                                      database=profile.database, autocommit=True, connect_timeout=5)
     except pymysql.MySQLError as exc:
         raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish") from exc
