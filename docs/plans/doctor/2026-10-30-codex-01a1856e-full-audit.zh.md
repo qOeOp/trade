@@ -59,10 +59,10 @@
 | id | 本会话 |
 |---|---|
 | 20261022-11 | **recurred**：47/47 个研究运行都被 `replay reproduce` 再跑一遍（47 个 explore 试验、94 个提交、47 次发布、CLI 约 3,983 s、原生核对子会话约 53.7M token）。产品原因已能定位：`replay/entry.py:544` 存完即删工作目录（`cli/main.py:1345` 写明），而 `nautilus-report-analysis/SKILL.md:18` 与 `references/capital.md:15-16` 要求订单、成交、账户与参与率从复现目录读；预检有 `--output` 并可用 `replay report --trial-id N --directory` 对指纹核对（README.md:62-64），研究运行没有。#1646 只改了新鲜重算与 help。这些复现并非白跑：-06 正是复现里查出的。动作改为 fix + skill：`replay run --output DIR` 保留目录作缓存（`tables()` 已按存储指纹核对），两处 skill 改指向“运行保留的目录，或复现”；不改暴露记录规则（研究试验本身已记暴露） |
-| 20261030-02 | 同因扩展：research-round 只定义了 causal（`SKILL.md:66-73`），api、activity、readiness 都只有名字；readiness 在 research-start 另指输入覆盖检查（`SKILL.md:29,63`），设计站把评审项映射到预热（`design-code-replay.zh.mdx:165`）。本会话 108 份评审中 21 份失败（api 11、activity 9、二者 1），causal 与 readiness 从未失败；审查者对 readiness 有三种理解（研究用途与强平、预热、覆盖）。评审失败会屏蔽该源码全部运行（228、231 先过后改判，229 被屏蔽并向用户撤回），所以各项含义直接决定资格。用户 10-30 已批只加 api 一句；提议同一 PR 里四项各一句、按各自防的风险重述，readiness 与 research-start 的同名检查区分开（authority + skill，待批） |
-| 20261021-29 | 计量完成：Codex 暂停只停续跑，不打断进行中的回合；本会话 91 min（8 个试验）、01a1856b 62 min 后才由 `get_goal` 看到。仓库内无可持有的机制。建议 none 关闭（待用户确认） |
+| 20261030-02 | 同因扩展：research-round 只定义了 causal（`SKILL.md:66-73`），api、activity、readiness 都只有名字；readiness 在 research-start 另指输入覆盖检查（`SKILL.md:29,63`），设计站把评审项映射到预热（`design-code-replay.zh.mdx:165`）。本会话 108 份评审中 21 份失败（api 11、activity 9、二者 1），causal 与 readiness 从未失败；审查者对 readiness 有三种理解（研究用途与强平、预热、覆盖）。评审失败会屏蔽该源码全部运行（228、231 先过后改判，229 被屏蔽并向用户撤回），所以各项含义直接决定资格。用户 10-30 已批只加 api 一句（#1898）；提议四项各一句、按各自防的风险重述，readiness 与 research-start 的同名检查区分开（authority + skill，用户 2026-10-30 已批，见决定） |
+| 20261021-29 | 计量完成：Codex 暂停只停续跑，不打断进行中的回合；本会话 91 min（8 个试验）、01a1856b 62 min 后才由 `get_goal` 看到。仓库内无可持有的机制。用户 2026-10-30 按 none 关闭 |
 | 20261025-32 | 新计量：每次写入同步发布约 20–25 s（`source review` 提交在 +0.1 s，命令 24.6 s 后返回，20 次中位；连续判断间隔中位 22.8 s，10-25 记 15–17 s）；`ledger/publish.py:217-259` 每次推分支、fetch、再逐个推 2 个标签。本会话约 477 次写入，按此约 2.7–3.0 h 命令时间（估算，多数与别的工作并行，阻塞份额未知）。仍 measure：下一步拆量 push、fetch、标签三段 |
-| 20261025-33 | 再计量：本会话 47 个运行指纹合计 10.99 MB（渠道约 210 KB/运行，RSI 335–364 KB），占会话 blob 增长约 18.7 MB 的 59%；`by_utc_day` 仍无读取方（`engine/compare.py:98,128` 唯一生产者，`replay/reproduce.py:100`、`report/runs.py:331` 比较整个字典）。两场会话计量一致，提议移除（见移除清单，authority） |
+| 20261025-33 | 再计量：本会话 47 个运行指纹合计 10.99 MB（渠道约 210 KB/运行，RSI 335–364 KB），占会话 blob 增长约 18.7 MB 的 59%；`by_utc_day` 仍无读取方（`engine/compare.py:98,128` 唯一生产者，`replay/reproduce.py:100`、`report/runs.py:331` 比较整个字典）。两场会话计量一致，提议移除（见移除清单，authority；用户 2026-10-30 已批） |
 | 20261025-35 | 新证据：`research status` 每个窗口行 `distinct_sources == trials`（如 96/96），skill 给 N 的区间退化成原始 M；Bailey & López de Prado (2014, J. Portfolio Mgmt 40(5):94) 附录 A.3 要的是隐含独立试验数。仍 measure |
 | 20261025-06 | 复发：两次阻塞提问后 4 个空转回合，见 none 观察 |
 | 20261023-02 | **verified**：路径走到且未复发——Agent 06:27 撤回 229、07:43 撤回 226/234/237/243/248 的已示读数；`research status` 把它们列在 `without_economic_evidence` |
@@ -85,4 +85,14 @@
 
 ## 决定
 
-待用户逐项授权，本会话不实施、不合并：-06（skill）、-07（fix）、-08（skill）、20261022-11（fix + skill）、20261030-02 的四项扩展（authority + skill）、20261025-33 的移除（authority）、20261021-29 按 none 关闭。
+用户 2026-10-30 在本诊断会话答：「Authorize all as recommended: -06, -07, -08, 20261022-11 --output cache, the four-item extension of 20261030-02, removing by_utc_day (20261025-33), and closing 20261021-29 as none. One PR per root cause.」
+
+1. **20261030-06 已批**：strategy-authoring 加一句；不加审计拒绝或存储读数。
+2. **20261030-07 已批**：只改 refusal 文字、修复建议与 help，不改检查。
+3. **20261030-08 已批**：research-round 因果段一句。
+4. **20261022-11 已批**：`replay run --output` 保留目录作缓存，两处 skill 改指向。
+5. **20261030-02 四项扩展已批**：api 一句已在 #1898（01a1856b 的修复会话）；其余三项按同一根因重述。#1898 尚未合入，为免两个会话改同一句，扩展在 #1898 合入后从 main 出发；本 PR 不改索引里 20261030-02 那一行，由扩展的修复 PR 更新。
+6. **20261025-33 已批**：移除存储指纹里的 `by_utc_day`；旧行不改。实施前按 AGENTS.md 做存储变更的独立子代理评审并在 `docs/plans/` 记录。
+7. **20261021-29 按 none 关闭**：索引移到已结，状态 rejected。
+
+各项修复不在本审计会话实施；按 AGENTS.md 各自从本记录与索引出发，一个根因一个 PR。
