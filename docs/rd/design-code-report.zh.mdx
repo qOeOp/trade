@@ -948,7 +948,7 @@ The commit verification tests the product defines (the one INSERT INTO dolt_test
 | <Ref id="report.directory_report">directory_report</Ref> | 未封存探索目录的只读报告：与封存运行同一指标计算函数与实质活动判据，注明来源未核验，不作证据 |
 | <Ref id="report.load_directory">load_directory</Ref> | 把探索目录内运行器写出的原生报表解析为与 ledger.load_run 同形的类型化报表；不核来源 |
 | <Ref id="report.run_report">run_report</Ref> | 单运行报告的读口：读最新的封存结果，加上 report.derive_measures 从持仓周期与逐日序列读时算出的量，经资格视图遮蔽后按度量目录的栏目顺序给出 |
-| <Ref id="report.tables">tables</Ref> | Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原生明细时读 replay.reproduce 的重放目录，先核语义指纹 |
+| <Ref id="report.tables">tables</Ref> | Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原生明细时读 replay.run 保留的目录（按运行自己的执行封存核对）或 replay.reproduce 的重放目录（先核语义指纹） |
 
 ### `directory_report` [#def-report-directory_report]
 
@@ -1055,7 +1055,7 @@ def run_report(ledger: str | None, trial_id: int, at: str | None=None) -> dict
 
 ### `tables` [#def-report-tables]
 
-Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原生明细时读 replay.reproduce 的重放目录，先核语义指纹
+Agent 下钻的唯一读口：账本里的持仓周期与逐日序列；要原生明细时读 replay.run 保留的目录（按运行自己的执行封存核对）或 replay.reproduce 的重放目录（先核语义指纹）
 
 ```python
 def tables(
@@ -1069,16 +1069,17 @@ def tables(
 ) -> dict
 ```
 
-<TypeTable type={{ "trial_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" }, "directory": { type: "Path | None", description: "replay.reproduce 留下的重放目录" }, "reproduction": { type: "int | None", description: "replay.reproduce 返回的复现试验编号；给 directory 时必填" } }} />
+<TypeTable type={{ "trial_id": { type: "int", description: "封存运行" }, "ledger": { type: "str | None", description: "账本档案名；None 取活动账本" }, "at": { type: "str | None", description: "账本提交或标签" }, "account": { type: "bool", description: "是否附账户报表行，默认 False" }, "exposures": { type: "bool", description: "是否附逐 K 线敞口行（标记价估值的持仓名义额与未实现盈亏），默认 False" }, "directory": { type: "Path | None", description: "replay run --output 保留的运行目录，或 replay.reproduce 留下的重放目录" }, "reproduction": { type: "int | None", description: "replay.reproduce 返回的复现试验编号；读重放目录时必填，读运行保留的目录时不给" } }} />
 
-**返回**　dict：orders、fills（附 cycle_position_id）、positions（持仓周期含快照行，每行含 seq、instrument_id、side、ts_opened_ns、ts_closed_ns、realized_pnl、commissions、funding、price_pnl、open_unrealized、plan_tag、closing_order_type、closing_order_tag；未平周期的 ts_closed_ns 为 null，保留 realized_pnl 及已实现价格盈亏 price_pnl，另带 open_unrealized；历史缺失仅在可唯一推导时标明来源，核验复现可恢复原生明细）、account（可选）、daily_returns（不能复合到期末权益时为 None 并写局限）、exposures（可选）、order_events（orders、fills、account、exposures、order_events 只在给出已核验的重放目录时有值，否则为 None）、reconciled（闭仓对账合计，Agent 自算合计须与之相等）、availability（含检查身份）、metrics_revision、ledger_commit、reproduction（复现试验编号，未给目录时为 None）、null_reasons（按表名给出上述原生表为何为 None 及补上它的下一步：无复现时 REPRODUCTION_REQUIRED 并给出 replay reproduce 命令；运行的运行时契约已不受本产品支持（无镜像布局，复现必被拒）时改为 RUNTIME_UNSUPPORTED，说明该表在当前产品下不可得，有复现未要求时 NOT_REQUESTED）、limitations。核验复现恢复明细时核对原有非空周期事实并标注来源；只做类型化转换，不算统计
+**返回**　dict：orders、fills（附 cycle_position_id）、positions（持仓周期含快照行，每行含 seq、instrument_id、side、ts_opened_ns、ts_closed_ns、realized_pnl、commissions、funding、price_pnl、open_unrealized、plan_tag、closing_order_type、closing_order_tag；未平周期的 ts_closed_ns 为 null，保留 realized_pnl 及已实现价格盈亏 price_pnl，另带 open_unrealized；历史缺失仅在可唯一推导时标明来源，核验复现可恢复原生明细）、account（可选）、daily_returns（不能复合到期末权益时为 None 并写局限）、exposures（可选）、order_events（orders、fills、account、exposures、order_events 只在给出已核验的重放目录时有值，否则为 None）、reconciled（闭仓对账合计，Agent 自算合计须与之相等）、availability（含检查身份）、metrics_revision、ledger_commit、reproduction（复现试验编号，未给目录或读运行保留的目录时为 None）、null_reasons（按表名给出上述原生表为何为 None 及补上它的下一步：未读核验目录时 REPRODUCTION_REQUIRED，指向运行保留的目录（--directory）或给出 replay reproduce 命令；运行的运行时契约已不受本产品支持（无镜像布局，复现必被拒）时改为 RUNTIME_UNSUPPORTED，说明该表在当前产品下不可得，有复现未要求时 NOT_REQUESTED）、limitations。核验复现恢复明细时核对原有非空周期事实并标注来源；只做类型化转换，不算统计
 
 **期望行为**
 
 1. 定位账本版本；读运行行，未通过即拒绝；经 qualification.require 判资格，不可用即拒绝并返回原因。
 2. 返回持仓周期与逐日序列的类型化表，附账本版本与度量目录版本。
-3. 传入重放目录时须同时给复现试验编号：目录里每个报告文件须等于该复现试验执行封存记下的哈希，目录里的指纹文件须等于该复现试验封存记下的哈希，内容去掉逐 UTC 日哈希后须等于运行行记录的指纹（同样去掉），否则 REPRODUCTION_MISMATCH；一致才返回订单、成交、账户、订单事件与敞口的类型化表。没有按封存哈希核对过的指纹文件不作数。
-4. 不写账本，不输出排序或裁决。
+3. 只给目录、不给复现试验编号时，目录按运行保留的原缓存读：运行的执行封存须完整，目录里每个报告文件、审计结果与指纹文件须逐字节等于该封存清单记下的哈希，不得缺文件或多出报告文件，否则 REPRODUCTION_MISMATCH；一致才返回原生明细，与预检原缓存同一核对。
+4. 传入重放目录时须同时给复现试验编号：目录里每个报告文件须等于该复现试验执行封存记下的哈希，目录里的指纹文件须等于该复现试验封存记下的哈希，内容去掉逐 UTC 日哈希后须等于运行行记录的指纹（同样去掉），否则 REPRODUCTION_MISMATCH；一致才返回订单、成交、账户、订单事件与敞口的类型化表。没有按封存哈希核对过的指纹文件不作数。
+5. 不写账本，不输出排序或裁决。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1088,7 +1089,7 @@ def tables(
 | `EXECUTION_IDENTITY` | 执行开始回执或执行封存与试验行不符、封存源码不是试验源码，或覆盖回执所列输入与存储的输入身份不符（由 ledger.load_run 与 ledger.read_capture 抛出） |
 | `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | 执行封存里的文件与其清单记录的哈希或长度不符（由 ledger.read_capture 抛出） |
-| `REPRODUCTION_MISMATCH` | 给了复现试验编号却没给目录；或该试验不是本运行同源码、同镜像、同输入的 explore 重放，执行封存不完整，指纹阶段未封存运行行记录的指纹，或目录里的报告文件与该试验的执行封存不符 |
+| `REPRODUCTION_MISMATCH` | 给了复现试验编号却没给目录；只给目录时目录里的报告文件与运行自己的执行封存不符；或该试验不是本运行同源码、同镜像、同输入的 explore 重放，执行封存不完整，指纹阶段未封存运行行记录的指纹，或目录里的报告文件与该试验的执行封存不符 |
 | `LEDGER_UNKNOWN` | ledger 为 None 而没有活动研究账本档案，或所给档案名不存在 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.economics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.require" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="replay.reproduce" />、<Ref id="engine.report_fingerprint" />

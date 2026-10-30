@@ -355,9 +355,9 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.2.3.2">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
-#### 成交量占比由 Agent 在复现后自算，只作容量警示 [#R-2-3-3]
+#### 成交量占比由 Agent 从运行保留的目录或复现自算，只作容量警示 [#R-2-3-3]
 
-成交量占比不存，Agent 在复现之后自己算：每笔成交的数量除以那一分钟的成交量。它用来提醒容量问题，不是实测的成交质量。
+成交量占比不存，Agent 从运行保留的目录（`replay run --output`）或复现里取成交自己算：每笔成交的数量除以那一分钟的成交量。它用来提醒容量问题，不是实测的成交质量。
 
 实测发现，回测里的市价单不受 K 线成交量限制，一笔大单在成交很少的一分钟里也能几乎按收盘价全部成交；限价单则按成交量分多根 K 线成交。不看占比，就会把成交量撑不住的策略当成可行。
 

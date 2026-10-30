@@ -1,7 +1,7 @@
 """If this fails, `research graph` no longer rebuilds a line from the ledger alone as a valid,
 repeatable research-graph@3 document: versions with their source, runs and measures, the recommendation
 (a version the recommendation only names as `about` is not marked kept),
-a failed review that masks a run, the judgments as events, the targets in force for the line and
+a failed review that masks a run and one availability ignores for a run, the judgments as events, the targets in force for the line and
 only the line's own runs; or a graph is drawn while the ledger service is unreachable, whose missing
 comparisons would read as research facts. A throwaway ledger, never the
 active one."""
@@ -22,7 +22,7 @@ from registration import precheck
 from replay import entry
 from report import comparison, graph
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
-from tests.registration.world import RUNNER_ARGV
+from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
@@ -107,6 +107,29 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIn("Causal (failed)\nFound later.", review["note"])
         self.assertIn("Readiness (no_opportunity)\n", review["note"])
         self.assertTrue(any(e["kind"] == "eligibility_change" and second in e["text"] for e in found["events"]))
+
+    def test_2b_a_failed_review_availability_ignores_is_no_lost_evidence(self):
+        world = self.world
+        published = world.publish("resolved", parent=None)
+        data, ref = published["source"], published["candidate"]
+        def rows(count):
+            return {name: {"rows": count, "sha256": "1" * 64} for name in ("fills", "orders", "positions")}
+        quiet = world.open_precheck(data)
+        capture(world.conn, quiet, data, fingerprint=rows(0))
+        old = precheck.record_review(world.profile, world.review_body(
+            quiet, "failed", activity={"status": "unresolved", "note": "no fills to inspect"}), "reviewer-g")["bundle"]
+        passed = world.prechecked(data, fingerprint=rows(2))
+        world.register("registration-resolved", world.body([ref], {ref: passed}))
+        trial_id = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                             hypothesis="registration-resolved")["trial_id"]
+        found = self.graph()
+        self.assertEqual(contract.check_graph(found), [])
+        run = next(t for c in found["candidates"] if c["id"] == ref for t in c["trials"] if t["purpose"] == "research")
+        self.assertEqual((run["trial_id"], run["eligible"]), (trial_id, True))
+        event = next(e for e in found["events"] if e["kind"] == "eligibility_change" and e["ref"] == old)
+        self.assertIn("without economic evidence by it: none", event["text"],
+                      "the graph names the runs availability counts the review against, not every run of the source")
+        self.assertIn(f"not counted for [{trial_id}]: zero-fill, zero-position activity failure resolved", event["text"])
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs

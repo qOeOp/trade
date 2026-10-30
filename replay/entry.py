@@ -8,8 +8,8 @@ after that commit does the runner start, followed by the independent auditor and
 fingerprint in the same image (each its own named container), and the execution capture is sealed
 whatever the outcome. Explorations and prechecks keep their reports in a new temporary directory;
 research and validation replays are stored as runs, invalid whenever the runner's output cannot be
-read, and their working directory deleted (kept, and printed, when anything fails after a container
-started).
+read, and their working directory deleted unless given as `output`, which keeps it as a cache of the
+run's native reports (kept, and printed, when anything fails after a container started).
 """
 
 from __future__ import annotations
@@ -460,12 +460,15 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
 # Sealed research and validation replays
 
 def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime: str | None, runner_argv: list[str],
-        hypothesis: str | None = None, validation: int | None = None) -> dict:
-    """A sealed research (hypothesis) or validation replay of a published candidate, stored as a run."""
+        hypothesis: str | None = None, validation: int | None = None, output: Path | None = None) -> dict:
+    """A sealed research (hypothesis) or validation replay of a published candidate, stored as a run;
+    `output` (new, under the temporary root) keeps its working directory as a cache."""
     if (hypothesis is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a registration bundle or a validation registration",
                      expected="hypothesis xor validation")
     _reserved(runner_argv)
+    if output is not None:
+        output = paths.temporary_path(output)
     if validation is not None:
         registration_validation.require_fresh(registration_seams.current.checkout())
     with db.connect(ledger, "writer") as conn:
@@ -473,7 +476,8 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
         exported = None
         try:
             _, exported = _export(market, at, runner_argv, True, ledger)
-            sealed = seal(ledger, conn, revision, runtime, exported, runner_argv, hypothesis, validation, market=market)
+            sealed = seal(ledger, conn, revision, runtime, exported, runner_argv, hypothesis, validation, market=market,
+                          output=output)
         finally:
             _cleanup(exported)
     return {"purpose": "research" if hypothesis is not None else "validation", "strategy": strategy, **sealed}
@@ -481,8 +485,10 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
 
 def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping, runtime: str | None, inputs: Mapping,
          runner_argv: list[str], hypothesis: str | None, validation: int | None, *, market=None,
-         timeout: float | None = None) -> dict:
-    """Bind, execute and store one sealed replay; the working directory is deleted once stored.
+         timeout: float | None = None, output: Path | None = None) -> dict:
+    """Bind, execute and store one sealed replay; the working directory is deleted once stored unless it
+    is `output` (new, under the temporary root), kept as a cache that report.tables checks against the
+    sealed capture.
 
     The ledger derives the run's status from the sealed capture (ledger.ingest_run); this entry adds
     only what the host saw outside it (inputs changed during the replay).
@@ -505,7 +511,11 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
                      missing=("export_content_sha256",))
     raw_before = registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"]
     runner = registration_seams.current.runner_inputs(list(runner_argv))
-    workdir = Path(tempfile.mkdtemp(prefix="replay-run-", dir=WORK_ROOT))
+    if output is not None:
+        workdir = paths.temporary_path(output)
+        workdir.mkdir(mode=0o700, parents=True)
+    else:
+        workdir = Path(tempfile.mkdtemp(prefix="replay-run-", dir=WORK_ROOT))
     try:
         source_sha256 = revision["source_sha256"]
         coverage = _prepare(workdir, revision["source"], inspection, inputs)
@@ -541,6 +551,9 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         else:  # no container started: nothing in it to diagnose
             shutil.rmtree(workdir, ignore_errors=True)
         raise
-    shutil.rmtree(workdir, ignore_errors=True)
-    return {"trial_id": trial_id, "status": stored["status"],
-            "failure_reasons": stored["failure_reasons"], "image_ref": identity["image_ref"]}
+    found = {"trial_id": trial_id, "status": stored["status"],
+             "failure_reasons": stored["failure_reasons"], "image_ref": identity["image_ref"]}
+    if output is None:
+        shutil.rmtree(workdir, ignore_errors=True)
+        return found
+    return {**found, "path": str(workdir)}

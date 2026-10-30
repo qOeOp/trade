@@ -125,7 +125,7 @@ def cleanup(inputs: Mapping | None) -> None:
         return
     if inputs.get("membership_file"):
         shutil.rmtree(Path(inputs["membership_file"]).parent, ignore_errors=True)
-    if inputs.get("fresh") and inputs.get("root"):
+    if (inputs.get("fresh") or inputs.get("temporary")) and inputs.get("root"):
         shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
@@ -205,7 +205,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     assert symbols is not None  # the selection check above refused a selection without universe or symbols
     exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh, include_quotes=include_quotes)
-    inputs = {"root": Path(exported["root"]), "fresh": fresh}
+    inputs = {"root": Path(exported["root"]), "fresh": fresh, "temporary": exported.get("temporary", False)}
     try:
         receipts = exported["receipts"]
         for symbol in symbols:
@@ -227,4 +227,5 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle
     return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,
-            "exported": {key: exported.get(key) for key in ("exported", "reused", "seconds")}, "fresh": fresh}
+            "exported": {key: exported.get(key) for key in ("exported", "reused", "seconds")}, "fresh": fresh,
+            "temporary": exported.get("temporary", False)}

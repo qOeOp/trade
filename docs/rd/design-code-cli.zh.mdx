@@ -428,7 +428,7 @@ def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str,
 **期望行为**
 
 1. 读 body 文件为 UTF-8 文本。
-2. 解析 --subject role=…,candidate=ID@N | trial=… | registration=…。
+2. 解析 --subject role=ROLE,candidate=ID@N | trial=… | registration=…；help 列出角色：recommended、parent、control 只指候选，about 可指候选、试验或登记。
 3. 调用 ledger.add_judgment，并把 report.compared_candidates 作为 compared 传入（写 recommendation 时用）；输出 JSON；拒绝时输出拒绝码与非零退出。
 
 | 拒绝码 | 条件 |
@@ -1504,7 +1504,7 @@ def replay_precheck(
 
 ### `replay_report` [#def-cli-replay_report]
 
-预检读法：`--trial-id P` 返回原始技术事实；再给 `--directory DIR` 核验原缓存，或 `--reproduction DIR --reproduction-trial M` 核验再生缓存。返回原 summary、audit、stages、outcome、原日志、reports_verified 和可选原生明细，economic_evidence_available 恒为 false。单独 `--directory` 仍为 unverified；预检不进入正式绩效比较。`replay reproduce --trial-id P --output DIR` 适用于封存结果和预检，返回原 trial_id 与新 reproduction_trial_id；无新经济结果或审查。
+预检读法：`--trial-id P` 返回原始技术事实；再给 `--directory DIR` 核验原缓存，或 `--reproduction DIR --reproduction-trial M` 核验再生缓存。返回原 summary、audit、stages、outcome、原日志、reports_verified 和可选原生明细，economic_evidence_available 恒为 false。单独 `--directory` 仍为 unverified；预检不进入正式绩效比较。封存运行同样：`--trial-id N --directory DIR` 读 `replay run --output DIR` 保留的目录，按该运行的执行封存逐文件核对后附原生明细。`replay reproduce --trial-id P --output DIR` 适用于封存结果和预检，返回原 trial_id 与新 reproduction_trial_id；无新经济结果或审查。
 
 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图
 
@@ -1522,20 +1522,20 @@ def replay_report(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以读账号连接；只读目录时可不连账本" }, "trial_id": { type: "int | None", description: "封存结果或原预检的 trial_id；预检可与 directory 合用" }, "directory": { type: "path | None", description: "原预检缓存目录；不给 trial_id 时读为未核验目录" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" }, "exposures": { type: "bool", description: "附资本敞口表（需已核对的复现）" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以读账号连接；只读目录时可不连账本" }, "trial_id": { type: "int | None", description: "封存结果或原预检的 trial_id；可与 directory 合用" }, "directory": { type: "path | None", description: "原缓存目录：预检的，或 replay run --output 保留的运行目录；不给 trial_id 时读为未核验目录" }, "at": { type: "str | None", description: "账本提交或标签" }, "tables": { type: "bool", description: "附持仓周期与逐日序列的类型化表" }, "reproduction": { type: "path | None", description: "replay reproduce 留下的重放目录；要原生明细（订单、成交、账户、订单事件、敞口）时必给" }, "reproduction_trial": { type: "int | None", description: "该复现的试验编号；与 reproduction 同给，按其封存哈希核对目录" }, "account": { type: "bool", description: "附账户报表行（需已核对的复现）" }, "exposures": { type: "bool", description: "附资本敞口表（需已核对的复现）" } }} />
 
-**返回**　JSON：预检 \{source: precheck, trial_id, purpose, ledger_commit, source_sha256, image_ref, capture, stages, outcome, runtime_failures, summary, audit, diagnostics, reports, reports_verified, economic_evidence_available: false, limitation, directory?, reproduction_trial_id?\}；封存运行 \{source: sealed, trial_id, status, purpose, source_sha256, runtime, trade_window, created_at, ledger_commit, catalogue, metrics_revision, audit, failure_reasons, populations, activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, limitations, availability\}，给 tables、account、exposures 或 reproduction 时附 tables；目录 \{source: directory, directory, exploration, metrics_revision, catalogue, populations, activity, order_funnel, plans, headline, slices, drawdown, capital, cost_basis, limitations, availability\}，availability 附「未封存、来源未核验」；无经济证据时绩效字段置空
+**返回**　JSON：预检 \{source: precheck, trial_id, purpose, ledger_commit, source_sha256, image_ref, capture, stages, outcome, runtime_failures, summary, audit, diagnostics, reports, reports_verified, economic_evidence_available: false, limitation, directory?, reproduction_trial_id?\}；封存运行 \{source: sealed, trial_id, status, purpose, source_sha256, runtime, trade_window, created_at, ledger_commit, catalogue, metrics_revision, audit, failure_reasons, populations, activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, limitations, availability\}，给 tables、account、exposures、directory 或 reproduction 时附 tables；目录 \{source: directory, directory, exploration, metrics_revision, catalogue, populations, activity, order_funnel, plans, headline, slices, drawdown, capital, cost_basis, limitations, availability\}，availability 附「未封存、来源未核验」；无经济证据时绩效字段置空
 
 **期望行为**
 
-1. 至少给 trial_id 或 directory；只有原预检允许两者合用；directory 与 reproduction 不能同时给。
+1. 至少给 trial_id 或 directory；directory 与 reproduction 不能同时给。
 2. trial_id 指向正式结果时，按 at 钉版本，调用 report.run_report 取经资格视图遮蔽的绩效指标；指向预检时读取原技术事实及可选核验报告缓存。
-3. 单独 directory：调用 report.directory_report 并标明未核验；与预检 trial_id 合用则核验原清单；再生缓存核验原身份、指纹及再生自身清单。
+3. 单独 directory：调用 report.directory_report 并标明未核验；与预检或封存运行的 trial_id 合用则核验原清单；再生缓存核验原身份、指纹及再生自身清单。
 4. 返回绩效指标、检查身份与局限；无裁决字段，不写账本。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `USAGE_ERROR` | trial_id 与 directory 都未给，或正式结果与 directory 合用，或两类缓存目录同时给出 |
+| `USAGE_ERROR` | trial_id 与 directory 都未给，或两类缓存目录同时给出 |
 | `UNKNOWN_RUN` | trial_id 没有对应正式结果且不是预检 |
 | `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | 封存行哈希与记录不符 |
@@ -1565,19 +1565,20 @@ def replay_run(
     runner_argv: list[str],
     hypothesis: str | None,
     validation: int | None,
+    output=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" }, "output": { type: "path | None", description: "--output：临时根下尚不存在的目录，入账后保留为该运行原生报告的缓存" } }} />
 
-**返回**　JSON \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, ledger_commit\}；status 非 passed 时进程退出码为 1
+**返回**　JSON \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, ledger_commit, path（仅给 --output 时）\}；status 非 passed 时进程退出码为 1
 
 **期望行为**
 
 1. hypothesis 与 validation 恰给一个，否则拒绝 REGISTRATION_REQUIRED。
 2. 调用函数 run（id registration）：解析运行环境身份并探针检视，新鲜导出输入算输入身份，核对候选字节哈希等于发布记录与登记一致性。
 3. 函数 run 经 replay.seal 先在同一事务写试验行、登记绑定与开始回执，再起容器跑运行器与独立审计器，结束后封存执行捕获、原生报告与审计结果并一次入账。
-4. 入账后删除工作目录；失败时保留并在标准错误打印位置；输出试验与运行标识。
+4. 入账后删除工作目录，给了 --output 则保留它作原生报告缓存（之后以 replay report --trial-id N --directory DIR 核对后读）；失败时保留并在标准错误打印位置；输出试验与运行标识。
 
 | 拒绝码 | 条件 |
 |---|---|

@@ -129,6 +129,9 @@ Any finding or any denied or rejected order fails the run.
   its own reduce-only order after the entry fills; Nautilus then trims the open reduce-only stop to
   the remaining position. An order dictionary marks no contingency with `None`.
   `tests/engine/test_partial_entry_protection.py` replays these natively.
+- Nautilus can reject a modify or cancel (`OrderModifyRejected`, `OrderCancelRejected`; a stop
+  moved past the market is one case) and the old order keeps working. Handle both events and return
+  any rejection left unhandled from `replay_integrity_findings`; its flag does not count them.
 - Nautilus owns fills, fees, funding, positions and the account. React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger. Size from native state: portfolio equity, the instrument's

@@ -44,7 +44,8 @@ fresh reviewer with no authoring context receives only the candidate id, sealed 
 verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
 reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
-after a repair (Codex: `fork_turns: "none"`). `replay explore` is never economic evidence.
+after a repair (Codex: `fork_turns: "none"`). The api item covers every native call in the source
+against the pinned image, whether or not the precheck ran it. `replay explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments to every precheck, registration and replay,
@@ -67,7 +68,8 @@ For causal, trace every market-data price or indicator input reaching order subm
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
 prices with `market bars` at the precheck's market commit: the stored bars and funding the
-Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close). Compare
+Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close); read
+tick, size step and minimum notional from `market coverage`'s `terms`. Compare
 those times with submission; never script against the market package. Report
 unobserved branches as such. Native execution-state and lifecycle reactions retain their own
 event-ordering contracts.
@@ -81,10 +83,10 @@ batch. Do not add points or tune source within a batch.
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
 continue ([changes.md](references/changes.md)) or a due line change.
-A line change is due when the recommended version has stayed the same across as many consecutive
-research runs as `REVIEW_DUE` counts and each of those runs' `mean_daily_log_difference` lies
-within its `detectable_mean_log_difference_80pct_normal_approx`
-([feedback.md](references/feedback.md)): stop registering, read `research-start` and follow its
+A line change is due when as many consecutive research runs as `REVIEW_DUE` counts each have a
+`mean_daily_log_difference` within their `detectable_mean_log_difference_80pct_normal_approx`
+([feedback.md](references/feedback.md)), whether or not the recommendation moved among them: stop
+registering, read `research-start` and follow its
 Offer lines and wait, ledger reads included, before asking the user. Options you draft within
 this line do not replace its offer. Trial counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).

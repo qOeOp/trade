@@ -15,6 +15,10 @@ from ledger.errors import Refusal, refusal
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."
 
 CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "MARKET_REMOTE_INVALID": ("The read-only market supply response or cache does not match the pinned request.",
+                              ("Inspect the supply identity, manifest and cache; no local or latest fallback is used.",)),
+    "MARKET_REMOTE_UNAVAILABLE": ("The read-only market supply transport or export did not complete.",
+                                  ("Inspect the supply service and connection before retrying the same request.",)),
     # Connections and service (ledger/db.py)
     "INVALID_ROLE": ("The connection role is neither writer nor reader.",
                      ("Connect with role writer to write or reader to read.",)),
@@ -415,8 +419,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
                        "enumeration, has an empty note, or its verdict is not passed exactly when no item is "
                        "failed or unresolved.",
-                       ("Write trial_id, verdict and the four items api, causal, activity, readiness, each with a "
-                        "status and a note.",)),
+                       ("Write only the four items api, causal, activity and readiness to the --items file, each "
+                        "{status, note}; pass trial_id as --precheck-trial and verdict as --verdict.",)),
     "PRECHECK_CAPTURE_MISSING": ("The trial has no original precheck capture (only recovery material, or another "
                                  "purpose).",
                                  ("Run `replay precheck` for the source and review that trial.",)),
