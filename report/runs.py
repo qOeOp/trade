@@ -3,9 +3,11 @@
 
 A sealed run's report is its latest sealed result plus the measures derived at read time from its
 position cycles and daily series, in the catalogue's column order, all behind the qualification
-view. Native detail beyond those two tables is read only from a verified reproduction: the
-directory replay.reproduce wrote, whose every report file matches the sealed capture of the
-reproduction trial it returned and whose fingerprint stage sealed the run's recorded fingerprint.
+view. Native detail beyond those two tables is read only from a verified directory: the one
+replay.run kept (`output`), whose every report file matches the run's own sealed capture, or a
+reproduction, the directory replay.reproduce wrote, whose every report file matches the sealed
+capture of the reproduction trial it returned and whose fingerprint stage sealed the run's recorded
+fingerprint.
 An unsealed directory gets the same functions and the same criterion, marked unverified; it is no
 evidence.
 """
@@ -185,17 +187,18 @@ def _typed_cycles(cycles: list[dict]) -> list[dict]:
 def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = False, exposures: bool = False,
            directory: Path | None = None, reproduction: int | None = None) -> dict:
     """The drill-down tables of a passed run with economic evidence: its position cycles and daily
-    series from the ledger, and, from a verified reproduction (the `directory` replay.reproduce wrote
-    and the `reproduction` trial ID it returned), its native orders, fills, account, order events and
-    exposures. Typed only.
+    series from the ledger, and, from a verified `directory` (the one replay.run kept, matching the
+    run's own capture byte for byte, or with `reproduction` the one replay.reproduce wrote and the
+    trial ID it returned), its native orders, fills, account, order events and exposures. Typed only.
 
     Keys: trial_id, positions (one row per NETTING cycle, snapshot rows kept: seq, instrument_id, side,
     ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, price_pnl, open_unrealized,
     plan_tag, closing_order_type, closing_order_tag), daily_returns (ts_event_ns, native_return,
     mean_gross_notional), reconciled (closed-cycle totals), availability, metrics_revision,
     ledger_commit, limitations, and orders, fills, account, exposures, order_events, reproduction
-    (None without a reproduction; account and exposures only when asked), and null_reasons (by table
-    name, why each of those native tables is None and the step that fills it)."""
+    (None without a verified directory; account and exposures only when asked; reproduction None for
+    the run's kept directory), and null_reasons (by table name, why each of those native tables is
+    None and the step that fills it)."""
     profile = profile_of(ledger)
     with db.read_as_of(profile, at) as conn:
         facts = measures.run_facts(conn, trial_id)
@@ -230,8 +233,14 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
         if directory is None:
             raise refuse("REPRODUCTION_MISMATCH", "a reproduction trial is read only with its directory",
                          missing=("directory",))
-        with db.read_as_of(profile) as head:  # the reproduction trial is newer than any earlier version read
-            verify_reproduction(head, Path(directory), facts, reproduction)
+        if reproduction is None:  # the directory replay.run kept: byte for byte the run's own capture
+            differs = _differing_files(Path(directory), facts["capture"].get("listed") or {})
+            if facts["capture"]["status"] != "captured" or differs:
+                raise _mismatch(Path(directory), trial_id, "the run's original cache differs",
+                                *(differs or ["capture"]))
+        else:
+            with db.read_as_of(profile) as head:  # the reproduction trial is newer than any earlier version read
+                verify_reproduction(head, Path(directory), facts, reproduction)
         reports = load_directory(Path(directory))
         native = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
         stored = facts.get("stored_cycles", facts["cycles"])
@@ -241,31 +250,36 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
             for name, expected in recovered.items():
                 if original.get(name) is not None and original[name] != expected:
                     raise _mismatch(Path(directory), trial_id, f"native cycle {recovered['seq']} differs: {name}", name)
-            recovered["realized_pnl_source"] = "verified-native-reproduction"
+            recovered["realized_pnl_source"] = ("verified-native-original" if reproduction is None
+                                                else "verified-native-reproduction")
         found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction,
                      positions=_typed_cycles(native))
     contract = ((facts["capture"].get("start") or {}).get("runtime_identity") or {}).get("runtime_contract")
-    found["null_reasons"] = _native_null_reasons(found, trial_id, contract, account, exposures)
+    found["null_reasons"] = _native_null_reasons(found, trial_id, contract, account, exposures, directory is not None)
     found["limitations"] = dedupe(limitations)
     return found
 
 
-def _native_null_reasons(found: dict, trial_id: int, contract: str | None, account: bool, exposures: bool) -> dict:
-    """Why each native table of `found` is None, naming the step that fills it, or that none can when the
-    run's runtime contract is one this product no longer replays (its reproduction is refused)."""
+def _native_null_reasons(found: dict, trial_id: int, contract: str | None, account: bool, exposures: bool,
+                         native: bool) -> dict:
+    """Why each native table of `found` is None (`native`: a verified directory was read), naming the
+    step that fills it, or that none can when the run's runtime contract is one this product no longer
+    replays (its reproduction is refused)."""
     asked = {"account": account, "exposures": exposures}
     reasons = {}
     for name in ("orders", "fills", "account", "exposures", "order_events"):
         if found[name] is not None:
             continue
-        if found["reproduction"] is None and contract is not None and contract not in image.LAYOUTS:
-            reasons[name] = (f"RUNTIME_UNSUPPORTED: native {name} come only from a verified reproduction, and run "
-                             f"{trial_id} is on {contract}, which this product cannot replay (it runs "
-                             f"{', '.join(sorted(image.LAYOUTS))}); the table is unavailable under the current product")
-        elif found["reproduction"] is None:
-            reasons[name] = (f"REPRODUCTION_REQUIRED: native {name} come only from a verified reproduction; run "
-                             f"`replay reproduce --trial-id {trial_id} --output <new /tmp directory>` (it records an "
-                             f"explore trial) and pass its directory as --reproduction and its "
+        if not native and contract is not None and contract not in image.LAYOUTS:
+            reasons[name] = (f"RUNTIME_UNSUPPORTED: native {name} come only from the run's kept directory or a "
+                             f"verified reproduction, and run {trial_id} is on {contract}, which this product cannot "
+                             f"replay (it runs {', '.join(sorted(image.LAYOUTS))}); without a kept directory the "
+                             f"table is unavailable under the current product")
+        elif not native:
+            reasons[name] = (f"REPRODUCTION_REQUIRED: native {name} come only from the run's kept directory or a "
+                             f"verified reproduction; pass the directory `replay run --output` kept as --directory, "
+                             f"or run `replay reproduce --trial-id {trial_id} --output <new /tmp directory>` (it "
+                             f"records an explore trial) and pass its directory as --reproduction and its "
                              f"reproduction_trial_id as --reproduction-trial")
         elif not asked.get(name, True):
             reasons[name] = f"NOT_REQUESTED: pass --{name}"

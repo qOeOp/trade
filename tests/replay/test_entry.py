@@ -328,6 +328,17 @@ class SealedReplayTests(unittest.TestCase):
         self.assertIn(workdir, self.kept())
         return trial_id, workdir
 
+    def test_a_kept_directory_must_be_new_and_temporary_before_any_trial(self):
+        (trials_before,), = self.rows("SELECT COUNT(*) FROM trial")
+        existing = self.world.output("already-there")
+        existing.mkdir()
+        for output, code in ((existing, "PATH_EXISTS"), (Path.home() / "replay-run-kept", "NOT_TEMPORARY_PATH")):
+            with self.subTest(code=code), self.assertRaises(Refusal) as caught:
+                self.run_ref(self.refs[1], output=output)
+            self.assertEqual(caught.exception.code, code)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM trial"), [(trials_before,)])
+        self.assertFalse((Path.home() / "replay-run-kept").exists())
+
     def test_a_sealed_replay_names_exactly_one_registration(self):
         for overrides in ({"hypothesis": None}, {"validation": 1}):
             with self.subTest(overrides=overrides), self.assertRaises(Refusal) as caught:

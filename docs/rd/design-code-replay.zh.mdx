@@ -20,7 +20,7 @@
 | <Ref id="replay.explore">explore</Ref> | 非登记探索：把未发布的策略文件装入钉死运行环境回放，试验行 purpose=explore，报告留在新建的临时目录，账本只有试验行、开始回执与执行封存 |
 | <Ref id="replay.input_coverage">input_coverage</Ref> | 启动前把全部合约的导出回执、输入身份、有效配置与成员文件写成 input-coverage.json，只读挂入容器供审计器与生命周期核对，并随执行封存 |
 | <Ref id="replay.precheck">precheck</Ref> | 对已发布候选做事前声明用途的原生预检：核对运行环境与运行契约，在启动容器前写 purpose=precheck 的试验行与开始回执，执行后封存原始技术事实、审计与指纹；完整成功且具备指纹的原生表作为临时缓存，并返回封存包名 |
-| <Ref id="replay.run">run</Ref> | 研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，失败保留目录供诊断 |
+| <Ref id="replay.run">run</Ref> | 研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，给了 output 则保留为原生报告缓存，失败保留目录供诊断 |
 | <Ref id="replay.seal">seal</Ref> | 研究与样本外回放的唯一封存入口：核对运行环境与输入身份，写执行绑定与覆盖回执，同一事务写试验、登记绑定与开始回执，执行后汇总无效原因并入账 |
 
 ### `execute` [#def-replay-execute]
@@ -193,7 +193,7 @@ def precheck(
 
 ### `run` [#def-replay-run]
 
-研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，失败保留目录供诊断
+研究封存回放与样本外回放的主体：读已发布候选，用同一市场提交新鲜导出输入，绑定已登记网格点或样本外登记，在临时目录完成回放并一次写入账本；入账后删目录，给了 output 则保留为原生报告缓存，失败保留目录供诊断
 
 ```python
 def run(
@@ -205,22 +205,23 @@ def run(
     runner_argv: list[str],
     hypothesis: str | None=None,
     validation: int | None=None,
+    output: Path | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置（数据库名、服务地址、写账号凭据来源）" }, "market": { type: "dict", description: "市场库连接配置；输入只从它的某一提交导出" }, "at": { type: "str | None", description: "市场提交；空表示当前头，解析结果写进输入身份" }, "strategy": { type: "str（strategy_id@revision）", description: "已发布候选引用" }, "runtime": { type: "str | None", description: "运行环境引用（标签或含 @sha256: 的清单摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数（预热起点、交易窗口、合约或共同可交易范围）；不得含入口保留选项" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出即 purpose=research，绑定其一个网格点" }, "validation": { type: "str | None", description: "样本外登记编号；给出即 purpose=validation，与 hypothesis 恰给一个" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置（数据库名、服务地址、写账号凭据来源）" }, "market": { type: "dict", description: "市场库连接配置；输入只从它的某一提交导出" }, "at": { type: "str | None", description: "市场提交；空表示当前头，解析结果写进输入身份" }, "strategy": { type: "str（strategy_id@revision）", description: "已发布候选引用" }, "runtime": { type: "str | None", description: "运行环境引用（标签或含 @sha256: 的清单摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数（预热起点、交易窗口、合约或共同可交易范围）；不得含入口保留选项" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出即 purpose=research，绑定其一个网格点" }, "validation": { type: "str | None", description: "样本外登记编号；给出即 purpose=validation，与 hypothesis 恰给一个" }, "output": { type: "Path | None", description: "可选：临时根下尚不存在的目录；给出即作工作目录，入账后保留为该运行原生报告的缓存，经 report.tables 按运行自己的执行封存核对后读" } }} />
 
-**返回**　dict \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref\}
+**返回**　dict \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, path（仅给 output 时）\}
 
 **期望行为**
 
-1. 核对 hypothesis 与 validation 恰给一个（REGISTRATION_REQUIRED）；解析 runner_argv，含入口保留选项拒绝 RUNNER_OPTION_RESERVED。
+1. 核对 hypothesis 与 validation 恰给一个（REGISTRATION_REQUIRED）；解析 runner_argv，含入口保留选项拒绝 RUNNER_OPTION_RESERVED；给了 output 时经 ledger.temporary_path 核对它在临时根下且尚不存在，否则在导出与任何试验之前拒绝。
 2. purpose=validation 时先经 runtime.require_main_build 与 registration.require_fresh 核对运行环境来自 main 构建、产品 checkout 的 HEAD 含 main 最新提交，否则 STALE_CHECKOUT（checkout）或 RUNTIME_NOT_MAIN（运行环境）。
 3. 经 ledger.connect 打开写会话，ledger.read_candidate 读已发布候选（源码字节、内容哈希、入口类、运行契约）；不存在拒绝 UNKNOWN_CANDIDATE。
 4. 按 at 解析市场提交，经 registration.market_inputs 新鲜导出到临时导出目录，registration.input_key 算输入身份。
 5. 交 replay.seal 完成同事务绑定、执行、核对与入账（ledger.ingest_run）；finally 删除导出目录。
 6. 成功返回封存结果；replay.seal 的异常原样上抛，工作目录由其保留并在标准错误打印位置。
-7. 封存回放的工作目录在任何失败时都保留供诊断，包括绑定器拒绝；只有入账成功后才删除。
+7. 封存回放的工作目录在任何失败时都保留供诊断，包括绑定器拒绝；只有入账成功后才删除，给了 output 时入账成功后也保留，作为该运行原生报告的缓存（不是账本事实，读前按执行封存核对）。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -229,6 +230,8 @@ def run(
 | `UNKNOWN_CANDIDATE` | strategy_id@revision 在账本中不存在 |
 | `RUNTIME_NOT_MAIN` | purpose=validation 但运行环境不是 main 构建 |
 | `STALE_CHECKOUT` | purpose=validation 但产品 checkout 的 HEAD 不含 main 的最新提交，或无法证明（转发自 registration.require_fresh） |
+| `NOT_TEMPORARY_PATH` | output 不在临时根下（转发自 ledger.temporary_path） |
+| `PATH_EXISTS` | output 已存在（转发自 ledger.temporary_path） |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_candidate" />、<Ref id="runtime.require_main_build" />、<Ref id="registration.require_fresh" />、<Ref id="registration.market_inputs" />、<Ref id="registration.input_key" />、<Ref id="replay.seal" />、<Ref id="ledger.ingest_run" />、<Ref id="table:v_candidates" />
 
@@ -255,21 +258,22 @@ def seal(
     *,
     market=None,
     timeout: float | None=None,
+    output: Path | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "研究账本档案" }, "conn": { type: "connection", description: "账本写连接；试验、绑定、开始回执与入账都在它上面完成" }, "revision": { type: "dict", description: "[[ledger.read_candidate]] 读出的候选行：strategy_id、revision、source（字节）、source_sha256、entry_class、runtime_contract" }, "runtime": { type: "str | None", description: "运行环境引用；缺省为镜像注册表的 main 标签" }, "inputs": { type: "dict", description: "registration.market_inputs 的返回：root、membership_file、symbols、每合约回执、identity" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与范围参数" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出则 purpose=research 并绑定其网格点" }, "validation": { type: "int | None", description: "样本外登记编号；给出则 purpose=validation 并绑定该登记" }, "market": { type: "object | None", description: "关键字参数：市场适配器或档案，缺省取接缝" }, "timeout": { type: "float | None", description: "关键字参数：传给 execute 的秒数上限" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "研究账本档案" }, "conn": { type: "connection", description: "账本写连接；试验、绑定、开始回执与入账都在它上面完成" }, "revision": { type: "dict", description: "[[ledger.read_candidate]] 读出的候选行：strategy_id、revision、source（字节）、source_sha256、entry_class、runtime_contract" }, "runtime": { type: "str | None", description: "运行环境引用；缺省为镜像注册表的 main 标签" }, "inputs": { type: "dict", description: "registration.market_inputs 的返回：root、membership_file、symbols、每合约回执、identity" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与范围参数" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出则 purpose=research 并绑定其网格点" }, "validation": { type: "int | None", description: "样本外登记编号；给出则 purpose=validation 并绑定该登记" }, "market": { type: "object | None", description: "关键字参数：市场适配器或档案，缺省取接缝" }, "timeout": { type: "float | None", description: "关键字参数：传给 execute 的秒数上限" }, "output": { type: "Path | None", description: "关键字参数：临时根下尚不存在的目录，用作工作目录并在入账后保留；缺省新建 /tmp/replay-run-*" } }} />
 
-**返回**　dict\{trial_id, status(passed|invalid), failure_reasons, image_ref\}
+**返回**　dict\{trial_id, status(passed|invalid), failure_reasons, image_ref, path（仅给 output 时）\}
 
 **期望行为**
 
 1. 核对 hypothesis 与 validation 恰给其一；读账本头提交（table:ledger_head）；runtime.resolve 解析身份，候选运行契约不等于镜像契约即拒绝；runtime.inspect_runtime 取有效配置并由 registration.config_key 算配置身份
 2. registration.export_fingerprint 语义模式结果须等于 inputs.identity 的导出内容哈希，否则拒绝；同时记下原始模式指纹
-3. 新建临时工作目录，写 source/strategy.py、execution.json（运行环境身份、有效配置及其哈希；与探索、预检、复现同一写法）与 replay.input_coverage 产出的 input-coverage.json
+3. 新建临时工作目录（给了 output 即用它），写 source/strategy.py、execution.json（运行环境身份、有效配置及其哈希；与探索、预检、复现同一写法）与 replay.input_coverage 产出的 input-coverage.json
 4. ledger.open_trial 在同一事务写试验行（purpose 为 research 或 validation）、ledger.start_receipt 开始回执与登记绑定：research 走 registration.bind，validation 走 registration.validation_bind；任一拒绝整笔回滚、不启动容器，拒绝码原样透传
 5. replay.execute 挂入源码目录、报告目录与覆盖回执执行；之后汇总无效原因：原始指纹前后不等（exported inputs changed）、原生报表不可读、ledger.summary_problems、ledger.audit_problems，逐条去重互不覆盖
-6. ledger.ingest_run 入账（有效含封存结果、逐日序列与持仓周期，无效只留原因与原件）；成功后删除工作目录并返回；任何异常保留工作目录，在标准错误打印其位置后原样抛出
+6. ledger.ingest_run 入账（有效含封存结果、逐日序列与持仓周期，无效只留原因与原件）；成功后删除工作目录并返回（给了 output 时保留目录并返回其 path）；任何异常保留工作目录，在标准错误打印其位置后原样抛出
 7. 内容原因导致的入账失败（原生报表缺失或不可读、摘要缺键、覆盖身份不符、绩效指标计算出错）都作为失败原因存成 invalid 运行（NATIVE_REPORT_UNREADABLE 等）；只有账本不可用、并发写这类基础设施错误才让试验暂时没有运行。容器启动前就被拒绝时删除工作目录。
 
 | 拒绝码 | 条件 |

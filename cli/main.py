@@ -753,12 +753,13 @@ def replay_precheck(profile, market, at, candidate, runtime, runner_argv, output
     return entry.precheck(profile, market, at, candidate, runtime, list(runner_argv), Path(output))
 
 
-def replay_run(profile, market, at, candidate, runtime, runner_argv, hypothesis, validation) -> dict:
+def replay_run(profile, market, at, candidate, runtime, runner_argv, hypothesis, validation, output=None) -> dict:
     from replay import entry
     if (hypothesis is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of --hypothesis or --validation",
                      expected="--hypothesis registration-<name> xor --validation <id>")
-    ran = entry.run(profile, market, at, candidate, runtime, list(runner_argv), hypothesis, validation)
+    ran = entry.run(profile, market, at, candidate, runtime, list(runner_argv), hypothesis, validation,
+                    Path(output) if output else None)
     with db.read_as_of(profile) as conn:
         commit = conn.resolved_commit
     return {**ran, "ledger_commit": commit}
@@ -766,8 +767,8 @@ def replay_run(profile, market, at, candidate, runtime, runner_argv, hypothesis,
 
 def replay_report(profile, trial_id: int | None, directory: str | None, at: str | None, tables: bool,
                   reproduction: str | None, reproduction_trial: int | None, account: bool, exposures: bool) -> dict:
-    """replay report: a sealed run's report (with --tables its drill-down tables, native ones from a
-    verified reproduction), or an unsealed directory's report marked unverified."""
+    """replay report: a sealed run's report (with --tables its drill-down tables, native ones from the
+    run's kept directory or a verified reproduction), or an unsealed directory's report marked unverified."""
     from report import runs
     if directory is not None and trial_id is None:
         if not Path(directory).is_dir():
@@ -777,19 +778,17 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
         raise UsageError("give --trial-id or --directory")
     with db.read_as_of(profile, at) as conn:
         trial = conn.one("SELECT purpose FROM trial WHERE trial_id = %s", (trial_id,))
+    if directory and reproduction:
+        raise UsageError("give either --directory (original cache) or --reproduction (regenerated cache)")
+    cache_directory = directory or reproduction
     if trial is not None and trial["purpose"] == "precheck":
-        if directory and reproduction:
-            raise UsageError("give either --directory (original cache) or --reproduction (regenerated cache)")
-        cache_directory = directory or reproduction
         return {"source": "precheck", **runs.precheck_report(
             profile, trial_id, at, directory=Path(cache_directory) if cache_directory else None,
             reproduction=reproduction_trial, account=account, exposures=exposures)}
-    if directory is not None:
-        raise UsageError("--directory with --trial-id reads an original precheck cache; use --reproduction for a run")
     found = {"source": "sealed", **runs.run_report(profile, trial_id, at)}
-    if tables or exposures or account or reproduction:
+    if tables or exposures or account or cache_directory:
         found["tables"] = runs.tables(trial_id, profile, at, account=account, exposures=exposures,
-                                      directory=Path(reproduction) if reproduction else None,
+                                      directory=Path(cache_directory) if cache_directory else None,
                                       reproduction=reproduction_trial)
     return found
 
@@ -1347,13 +1346,16 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the checkout's HEAD (with --validation it must contain origin/main)",
         "the trial with its start receipt and binding (a research registration attempt or a validation binding), "
         "its execution capture, one run row and, when passed, the sealed result, daily returns and cycles; a "
-        "working directory under /tmp, removed once stored (kept and named on stderr after a failure); publishes",
-        "purpose, strategy, trial_id, status, failure_reasons, image_ref, ledger_commit; exit 1 unless passed",
+        "working directory under /tmp, removed once stored unless it is the new --output directory, kept as the "
+        "run's native report cache (kept and named on stderr after a failure); publishes",
+        "purpose, strategy, trial_id, status, failure_reasons, image_ref, ledger_commit, path (with --output); "
+        "exit 1 unless passed",
         "REGISTRATION_REQUIRED (not exactly one of --hypothesis, --validation); REGISTRATION_INVALID; "
         "EXECUTION_MISMATCH (window, instruments, image, config or inputs differ from the registration); "
         "SOURCE_MISMATCH (the candidate is not in the grid); SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; "
         "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; validation: STALE_CHECKOUT, RUNTIME_NOT_MAIN, "
-        "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed)"),
+        "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed); "
+        "NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
     ("replay", "report"): (
         "the trial at --at (reader) and, for a sealed run, market daily returns from its market database (a "
         "failure only empties the market measures); --directory or --reproduction files; --directory alone "
@@ -1362,8 +1364,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "source (sealed, precheck or directory) and that report: sealed gives status, audit, populations, "
         "activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, "
         "limitations, availability (performance null without economic evidence), plus tables with --tables, "
-        "--account, --exposures or --reproduction; precheck gives capture, stages, outcome, runtime_failures, "
-        "audit, reports, reports_verified; directory is marked unverified",
+        "--account, --exposures, --directory or --reproduction; precheck gives capture, stages, outcome, "
+        "runtime_failures, audit, reports, reports_verified; directory is marked unverified",
         "UNKNOWN_RUN (an explore trial or no run); RUN_NOT_PASSED, ECONOMIC_EVIDENCE_UNAVAILABLE (tables); "
         "REPRODUCTION_MISMATCH; DIRECTORY_NOT_FOUND; NATIVE_SUMMARY_MISSING, REPORT_PARSE_FAILED"),
     ("replay", "reproduce"): (
@@ -1835,6 +1837,11 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command = runner(replay, "run", "a sealed research or validation replay (runner arguments as registered)")
+    command.epilog = textwrap.fill(
+        "With --output the run's working directory stays as a cache of its native reports: replay report --trial-id "
+        "N --directory DIR reads its orders, fills, account and order events after checking every report file "
+        "against the run's sealed capture. Without it they come only from replay reproduce, which records an "
+        "explore trial.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
     _at(command, "market")
@@ -1842,13 +1849,16 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--hypothesis", help="registration bundle, registration-* (or --validation)")
     command.add_argument("--validation", type=int, help="validation registration ID (or --hypothesis)")
+    command.add_argument("--output", help="new directory under the temporary root that keeps the run's native "
+                                          "reports as a cache (read with replay report --directory)")
     command = verb(replay, "report", "a sealed result, precheck technical facts/cache, or unverified directory")
-    command.epilog = ("For a precheck, --directory verifies its original cache. When the cache is lost, run replay "
-                      "reproduce and pass its --reproduction directory and --reproduction-trial; a reproduction "
-                      "never replaces the original's failures.")
+    command.epilog = ("For a precheck, --directory verifies its original cache; for a run, the directory replay run "
+                      "--output kept. When the cache is lost, run replay reproduce and pass its --reproduction "
+                      "directory and --reproduction-trial; a reproduction never replaces the original's failures.")
     _ledger_option(command)
     command.add_argument("--trial-id", type=int, help="trial holding a sealed result or original precheck")
-    command.add_argument("--directory", help="original precheck cache with --trial-id; otherwise an unverified directory")
+    command.add_argument("--directory", help="original cache with --trial-id (a precheck's, or the one replay run "
+                                             "--output kept); otherwise an unverified directory")
     _at(command)
     command.add_argument("--tables", action="store_true", help="add the drill-down tables")
     command.add_argument("--reproduction", help="the directory `replay reproduce` wrote")
@@ -2137,7 +2147,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return found, 0 if found["status"] == "passed" else 1
     if key == ("replay", "run"):
         found = replay_run(profile, market_profile(args.market), args.at, args.candidate, args.runtime, runner_argv,
-                           args.hypothesis, args.validation)
+                           args.hypothesis, args.validation, args.output)
         return found, 0 if found.get("status") == "passed" else 1
     if key == ("replay", "report"):
         return replay_report(profile, args.trial_id, args.directory, args.at, args.tables, args.reproduction,
