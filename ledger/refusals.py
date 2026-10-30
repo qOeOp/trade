@@ -580,7 +580,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "SOURCE_UNREADABLE": ("The given file is not a readable regular file (missing, a directory or a link).",
                           ("Pass the path of the single-file UTF-8 source itself.",)),
     "WRITE_VIA_SQL": ("`ledger sql` runs exactly one read statement (SELECT, SHOW, DESCRIBE, DESC, EXPLAIN, WITH, "
-                      "TABLE or VALUES) with the reader account.",
+                      "TABLE or VALUES) with the reader account; /*! and /*+ comments, which the server executes, "
+                      "are not accepted.",
                       ("Write only through the declared commands; read with one SELECT.",)),
     "PRECHECK_NOT_FOUND": ("The trial is no native precheck of this candidate's source on this runtime image.",
                            ("Run `replay precheck` for the candidate on the image, then review that trial.",)),

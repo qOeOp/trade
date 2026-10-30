@@ -150,6 +150,12 @@ class CommandTests(unittest.TestCase):
                          [["NULL", None, 7]], "EXPLAIN compatibility does not change ordinary query types")
         self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, "DELETE FROM candidate")
         self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, "SELECT 1; SELECT 2")
+        for executable in ("/*!SET PERSIST max_connections = */ (SELECT 7)",
+                           "/* SELECT ' */ /*!SET PERSIST max_connections = */ (SELECT 7) #'",
+                           "SELECT 1 /*+ SET_VAR(max_connections = 5) */"):
+            self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, executable)
+        self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT '/*!' AS a /* it's */, ';' AS b")["rows"],
+                         [["/*!", ";"]], "a marker inside a string, a quote inside a comment, hide nothing")
         self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT REPLACE('a-b', '-', '') AS joined")["rows"],
                          [["ab"]], "a read is never refused for a keyword inside it")
         failed = self.refused("SQL_STATEMENT_FAILED", "ledger", "sql", *ledger, "SELECT bundle_name FROM evidence_bundles")
