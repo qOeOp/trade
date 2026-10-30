@@ -44,7 +44,8 @@ fresh reviewer with no authoring context receives only the candidate id, sealed 
 verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
 reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
-after a repair (Codex: `fork_turns: "none"`). `replay explore` is never economic evidence.
+after a repair (Codex: `fork_turns: "none"`). The api item covers every native call in the source
+against the pinned image, whether or not the precheck ran it. `replay explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments to every precheck, registration and replay,
