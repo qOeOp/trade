@@ -129,14 +129,14 @@ class CompleteImportTests(unittest.TestCase):
                     cls.expected.append(('BTCUSDT', moment, identity, trades.scaled(price, 'price'),
                                          trades.scaled(quantity, 'quantity'), first, last, int(maker)))
 
-    def market(self):
-        profile = self.fixture.add('agg_' + self._testMethodName.removeprefix('test_')[:40])
+    def market(self, size='0.001', suffix=''):
+        profile = self.fixture.add('agg_' + self._testMethodName.removeprefix('test_')[:40] + suffix)
         times = START + np.arange(1440, dtype=np.int64) * 60_000
         price = np.full(1440, 100 * 10**8, dtype=np.int64)
         columns = {'ts_open': times, **{name: price for name in ('open', 'high', 'low', 'close')},
                    'volume': np.full(1440, 10000, dtype=np.int64)}
         commit = seed(profile, month='2025-01', through='2025-02-01', scope=['BTCUSDT'],
-                      terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': '0.001'})],
+                      terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': size})],
                       bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(1440, np.int64)}})
         return profile, commit
 
@@ -194,6 +194,41 @@ class CompleteImportTests(unittest.TestCase):
             with self.assertRaises(sources.MarketError) as caught:
                 trades.import_month(profile, JAN, self.cache, 'BTCUSDT')
             self.assertEqual(caught.exception.code, 'CONCURRENT_IMPORT')
+
+    def test_export_gives_each_stored_trade_as_an_exact_trade_tick_only_on_request(self):
+        from nautilus_trader.model import AggressorSide
+        from nautilus_trader.persistence import ParquetDataCatalog
+        low, high = START * 10**6, (START + store.DAY) * 10**6
+        profile, _ = self.market(size='0.00000001')
+        imported = trades.import_month(profile, JAN, self.cache, 'BTCUSDT', log=lambda _: None)
+        from market import coverage
+        held = coverage.diagnose_coverage(profile, None, ['BTCUSDT'], '2024-12-31T00:00:00Z', '2025-02-02T00:00:00Z',
+                                          None)['coverage'][0]['trades']
+        self.assertEqual(held, {'imports': [{'month': '2025-01', 'through': '2025-02-01', 'codec': trades.CODEC,
+                                             'commit': imported['market_commit'], 'rows': 62}],
+                                'first_ms': self.expected[0][1], 'last_ms': self.expected[-1][1],
+                                'uncovered_intervals_ms': [[START - store.DAY, START],
+                                                           [day_ms(date(2025, 2, 1)), day_ms(date(2025, 2, 2))]]})
+        found = export.export_catalogs(profile, None, ['BTCUSDT'], low, high, fresh=True, root=Path(self.temp.name),
+                                       workers=1, include_trades=True)
+        self.assertEqual(found['receipts']['BTCUSDT']['pieces'][0]['counts']['trade'], 2)
+        ticks = ParquetDataCatalog(str(Path(found['root']) / 'BTCUSDT')).query_trade_ticks()
+        expected = [row for row in self.expected if START <= row[1] < START + store.DAY]
+        self.assertEqual([(t.ts_init, int(t.trade_id.value), str(t.price), str(t.size), t.aggressor_side)
+                          for t in ticks],
+                         [(moment * 10**6, identity, f'{price / 10**8:.2f}', f'{quantity / 10**8:.8f}',
+                           AggressorSide.SELL if maker else AggressorSide.BUY)
+                          for _, moment, identity, price, quantity, _, _, maker in expected])
+        plain = export.export_catalogs(profile, None, ['BTCUSDT'], low, high, fresh=True, root=Path(self.temp.name),
+                                       workers=1)
+        self.assertNotIn('trade', plain['receipts']['BTCUSDT']['pieces'][0]['counts'])
+        self.assertFalse(list(Path(plain['root']).rglob('trades')))
+        coarse, _ = self.market(suffix='_coarse')
+        trades.import_month(coarse, JAN, self.cache, 'BTCUSDT', log=lambda _: None)
+        with self.assertRaises(sources.MarketError) as caught:
+            export.export_catalogs(coarse, None, ['BTCUSDT'], low, high, fresh=True, root=Path(self.temp.name),
+                                   workers=1, include_trades=True)
+        self.assertEqual(caught.exception.code, 'TRADE_INEXACT')
 
     def test_upgrade_and_complete_import_preserve_old_export_files_bytes_receipt_and_backup(self):
         profile, bar_commit = self.market()

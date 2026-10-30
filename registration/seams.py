@@ -34,6 +34,9 @@ RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sh
 # Read by the entry, not passed to the runner as given: `--universe pool` selects the universe (the entry
 # then passes the runner `--universe` with the membership file it wrote), `--symbols` the contracts.
 ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")
+# Read by the entry and never passed on: `--trade-ticks` exports the stored aggregate trades as TradeTicks, which
+# the runner streams for every contract whose receipt counts them.
+ENTRY_FLAGS = ("--trade-ticks",)
 MARKET_ROOT, MEMBERSHIP = "/inputs/market", "/inputs/membership.json"
 
 
@@ -50,6 +53,9 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
     argv, skipping = [], False
     for value in runner_argv:
         option = value.split("=", 1)[0]
+        if value in ENTRY_FLAGS:
+            skipping = False
+            continue
         if option in ENTRY_OPTIONS:
             skipping = "=" not in value
             continue
@@ -111,13 +117,18 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
     parser.add_argument("--symbols", nargs="+")
     parser.add_argument("--lifecycle-bundle")
     parser.add_argument("--execution", default="bars")  # the runtime owns validation of this value
+    parser.add_argument("--trade-ticks", action="store_true")
     known, _ = parser.parse_known_args(runner_argv)
+    if known.trade_ticks and known.execution != "quotes":
+        # In the bar environment an order a trade prompts mid-minute would match the whole minute's bar,
+        # prices from before it included.
+        raise refuse("TRADE_TICKS_NEED_QUOTES", "--trade-ticks needs --execution quotes", missing=("--execution",))
     start = _ns(known.start)
     window = {"start": start, "trade_start": _ns(known.trade_start) if known.trade_start else start,
               "end": _ns(known.end)}
     selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle,
-            "execution": known.execution}
+            "execution": known.execution, "trade_ticks": known.trade_ticks}
 
 
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
@@ -136,7 +147,7 @@ class MarketAdapter(Protocol):
     def membership_path(self, commit: str, window_end: int) -> dict: ...
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
-                        fresh: bool, *, include_quotes: bool = True) -> dict: ...
+                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False) -> dict: ...
 
     def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict: ...
 
@@ -183,11 +194,11 @@ class Market:
             raise refuse(code, exc.message, missing=exc.missing) from exc
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
-                        fresh: bool, *, include_quotes: bool = True) -> dict:
+                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False) -> dict:
         from market import export, store
         try:
             done = export.export_catalogs(self.profile, commit, symbols, start_ns, end_ns, episodes, lifecycle_files,
-                                          fresh, include_quotes=include_quotes)
+                                          fresh, include_quotes=include_quotes, include_trades=include_trades)
         except store.MarketError as exc:
             if exc.code == "LIFECYCLE_INPUT":
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc

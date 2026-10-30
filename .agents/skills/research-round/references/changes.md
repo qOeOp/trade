@@ -1,8 +1,8 @@
 # Identity changes
 
 Read after the runtime image, the engine, the market data, the runtime contract or the line's
-execution environment (`--execution`) changes, so that earlier runs no longer share the execution
-identity of new ones.
+execution environment (`--execution`) or its trade ticks (`--trade-ticks`) change, so that earlier runs
+no longer share the execution identity of new ones.
 
 For an ongoing out-of-sample validation, follow [validation.md](validation.md); the rebuild
 registrations below concern development research, not another validation opportunity.

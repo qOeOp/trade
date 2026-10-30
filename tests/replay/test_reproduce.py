@@ -148,13 +148,13 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
     def inspect(identity, runner_argv, inputs):
         config = engine_config.parse_configuration([
             "--describe", "--market-root", str(inputs["root"]), "--market-commit", MARKET_COMMIT,
-            "--symbols", *inputs["symbols"], *runner_argv])
+            "--symbols", *inputs["symbols"], *(a for a in runner_argv if a not in registration_seams.ENTRY_FLAGS)])
         effective = engine_config.effective_configuration(config)
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,
                 "effective_config_sha256": effective.digest}
 
-    def checked(self, name, initial=None, maintenance=None):
-        argv = list(ARGV)
+    def checked(self, name, initial=None, maintenance=None, trades=False):
+        argv = ["--trade-ticks"] * trades + list(ARGV)
         if initial is not None:
             argv += ["--execution", "quotes", "--initial-margin", initial, "--maintenance-margin", maintenance]
         return entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
@@ -236,6 +236,17 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 self.assertEqual(exported.call_args.kwargs["include_quotes"], historical)
                 self.assertTrue(rebuilt["fingerprints_match"])
                 self.assertEqual(execution.read_capture(self.world.conn, trial_id), original)
+
+    def test_reproduction_exports_trades_only_when_the_original_receipt_counts_them(self):
+        with patch.object(self.world.market, "export_catalogs", wraps=self.world.market.export_catalogs) as exported:
+            for trades in (False, True):
+                with self.subTest(trades=trades):
+                    name = "trades" if trades else "no-trades"
+                    trial_id = self.checked(name, "0.05", "0.025", trades=trades)
+                    self.assertEqual(exported.call_args.kwargs["include_trades"], trades)
+                    rebuilt = self.reproduce(trial_id, name + "-rebuilt")
+                    self.assertEqual(exported.call_args.kwargs["include_trades"], trades)
+                    self.assertTrue(rebuilt["fingerprints_match"])
 
     def test_changed_input_or_report_fingerprint_still_refuses_quote_reproduction(self):
         trial_id = self.checked("quotes", "0.05", "0.025")

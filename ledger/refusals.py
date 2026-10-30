@@ -286,6 +286,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REPORT_UNREADABLE": ("A native report file exists but is not UTF-8 CSV, JSON or gzip as the runner writes it.",
                           ("Replay again into a new directory; report the runner if it persists.",)),
     # Replays (replay/)
+    "TRADE_TICKS_NEED_QUOTES": ("--trade-ticks is given without --execution quotes: in the bar environment an order a "
+                                "trade prompts mid-minute would match the whole minute's bar.",
+                                ("Add --execution quotes with its margin rates, or drop --trade-ticks.",)),
     "RUNNER_OPTION_RESERVED": ("The runner arguments name an option the replay entry writes itself (strategy file, "
                                "class or hash, bindings, output, market inputs).",
                                ("Pass only the window and the instrument scope; the entry adds the rest.",)),
@@ -692,6 +695,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                    ("Report the contract named; values are never rounded on import.",)),
     "QUOTE_INEXACT": ("A stored quote price does not fit the instrument's price precision at export.",
                       ("Report the contract named; the quote table and the instrument terms disagree.",)),
+    "TRADE_INEXACT": ("A stored aggregate trade's price or quantity does not fit the instrument's precisions at export.",
+                      ("Report the contract named; the agg_trade table and the instrument terms disagree.",)),
     "QUOTES_UNSORTED": ("The stored quotes of a contract do not come out of the market database in time order.",
                         ("Report the contract named; the exporter never reorders quotes.",)),
     "GRID_MISALIGNED": ("Bar times are not strictly increasing on the timeframe's grid.",

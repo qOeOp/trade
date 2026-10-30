@@ -91,7 +91,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 ### `agg_trade` [#def-table-agg_trade]
 
-保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，不供 TradeTick 执行，也不参与 K 线、报价读取、周期派生或回放导出。
+保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，不参与 K 线、报价读取或周期派生；入口请求成交（`--trade-ticks`）时由 <Ref id="market.trade_rows" /> 读出、<Ref id="market.write_trades" /> 写成 TradeTick，只作策略信号输入，不驱动撮合。
 
 <TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名（归档文件名所带）", required: true }, "transact_time": { type: "BIGINT", description: "成交时刻，UTC 毫秒；同毫秒允许多行", required: true }, "agg_trade_id": { type: "BIGINT", description: "交易所聚合成交编号；一个合约内逐日、跨日连续，缺失或重复即拒绝", required: true }, "price": { type: "BIGINT", description: "成交价 × 1e8 的有符号整数，编码 binance-aggtrades-int64-scale8-v1，与 market_schema 的 bar 比例无关", required: true }, "quantity": { type: "BIGINT", description: "成交量 × 1e8，同一编码", required: true }, "first_trade_id": { type: "BIGINT", description: "聚合内第一笔逐笔成交编号", required: true }, "last_trade_id": { type: "BIGINT", description: "聚合内最后一笔逐笔成交编号", required: true }, "is_buyer_maker": { type: "BOOLEAN", description: "买方是否为挂单方；推算报价规则据此分买卖侧", required: true } }} />
 

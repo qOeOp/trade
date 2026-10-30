@@ -1044,7 +1044,10 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
   --execution bars|quotes                  the execution environment (default bars); quotes drives matching and
                                            the native liquidation with the exported best bid/ask and needs
-  --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1"""
+  --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1
+  --trade-ticks                            quotes only: export every stored aggregate trade as a TradeTick for the
+                                           strategy's subscribe_trades (signal input; trades never match); a
+                                           trading month without trades is TRADES_MISSING"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
 coverage[].funding: rows, first_ms, last_ms; spacing [{spacing_ms, from_ms, to_ms}], the runs of equal
 spacing between consecutive settlements, each time taken at its nearest whole UTC hour (a new run is a
@@ -1055,6 +1058,8 @@ coverage[].quotes: imports [{month, through (exclusive end day), quote_rule, com
 quote import holding the contract, rows counted by the import's receipt (its commit message); first_ms
 and last_ms, the first and last stored quote in the interval; uncovered_intervals_ms, the [from, to)
 parts of the interval no import covers.
+coverage[].trades: the same for the complete aggregate trades a replay exports with --trade-ticks: imports
+[{month, through, codec, commit, rows}], first_ms, last_ms, uncovered_intervals_ms.
 coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
 observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
 inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,

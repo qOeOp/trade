@@ -85,6 +85,18 @@ declared, not the exchange's: equity is valued at the cached best bid/ask, not t
 maintenance margin is fixed at the position's average entry price; fills take the best price with no
 depth; the quotes themselves are an inference from trades (see `market/README.md`).
 
+Trade ticks are signal input for the quote environment. The entry's `--trade-ticks` (a host flag, never
+passed to the runner; `TRADE_TICKS_NEED_QUOTES` without `--execution quotes`, where an order a trade
+prompts mid-minute would match the whole minute's bar) exports every stored aggregate trade
+(`market import-trades`) as one native `TradeTick` and counts it in the receipt (`counts.trade`, present
+only then, so an export without trades keeps its bytes). The runner streams the trades of every contract
+whose receipt counts them, each wrapped as `CustomData(DataType("TradeTick", metadata={"instrument_id":
+<id>}), tick)`: a strategy subscribes with `subscribe_data` on that data type and gets the tick as
+`data.data` in `on_data`. The venue never sees custom data, so trades match no order and move no book; a
+native `TradeTick` would overwrite the venue's L1 book whatever `trade_execution` says (probed on
+2.0.0rc7: a market order after a trade below the bid filled at the trade's price, not the quoted ask).
+A month of the trading window without exported trades is `TRADES_MISSING`. Paper trading streams no trades.
+
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
 `symbols`, `start`, `trade_start`, `end` and `account`; its digest leaves out the two host paths, so
@@ -97,10 +109,12 @@ code of `config.REFUSALS`.
 and merge-sorts them before it streams to its engine, so its memory grows with the window: on
 one-minute bars, 40 contracts took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per
 million events. The runner therefore drives the pinned `BacktestEngine` itself. Bars and MARK
-updates (and quotes) come from the exported Catalogs through `ParquetDataCatalog.query`, one query per
-data type and UTC day over only the files that hold rows of that day, merged by `ts_init`; funding and
-lifecycle events are read whole. Events of one `ts_init` keep the node's order (contract
-by contract: MARK, funding, bars, status, close) and the engine gets the node's chunks (50,000
+updates (and quotes and trades) come from the exported Catalogs through `ParquetDataCatalog.query`, one
+query per data type and UTC day over only the files that hold rows of that day (found from each file's
+row group statistics), merged by `ts_init`; funding and lifecycle events are read whole. Events of one
+`ts_init` keep the node's order (contract by contract: MARK, quotes, trades, funding, bars, status,
+close; one millisecond's trades in aggregate trade ID order, after its quotes, so a market order a trade
+prompts fills at the quote that millisecond ends with) and the engine gets the node's chunks (50,000
 events, extended to the last event's `ts_init`). On the same inputs this gives the node's reports,
 event history, exposures and fingerprint; the runner adds each instrument once where the node added
 it once per configuration, which renumbers the venue order and trade IDs only. Six months of 23

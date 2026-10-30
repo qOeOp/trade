@@ -118,7 +118,8 @@ def _export(market, at: str | None, runner_argv: list[str], fresh: bool, researc
     runner = registration_seams.current.runner_inputs(list(runner_argv))
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
                                                      runner.get("lifecycle_bundle"), fresh, research,
-                                                     include_quotes=runner["execution"] == "quotes")
+                                                     include_quotes=runner["execution"] == "quotes",
+                                                     include_trades=runner.get("trade_ticks", False))
 
 
 def _prepare(workdir: Path, source: bytes, inspection: Mapping, inputs: Mapping) -> bytes:

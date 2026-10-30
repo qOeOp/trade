@@ -68,6 +68,14 @@ notional cap in the source may keep it on `bars`. At lower exposure `quotes` may
 when the pinned market commit holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
+Trade-level inputs (trade imbalance, trade VWAP) need the runner argument `--trade-ticks`, only with
+`--execution quotes`, decided and passed like `--execution`; the pinned commit must hold trades for
+every month of the trading window (`market coverage`, `trades`). The source subscribes with
+`subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(instrument_id)}))` and reads the
+tick as `data.data` in `on_data`; `subscribe_trades` and `on_trade` receive nothing. Trades are signal
+input only: they match no order and move no book. Without the flag a subscribing source receives no
+trade, so report the number received in its diagnostics.
+
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Read the

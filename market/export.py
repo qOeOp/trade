@@ -291,6 +291,76 @@ def quote_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None,
                            "ORDER BY ts, agg_trade_id", (symbol, low_ms, stop), size=chunk)
 
 
+TRADE_SCALE = 8  # agg_trade prices and quantities: integers x 1e8 (binance-aggtrades-int64-scale8-v1)
+
+
+def _month_end(ts_ms: int) -> int:
+    """The first millisecond of the UTC month after the one holding `ts_ms`."""
+    day = series._ms_day(ts_ms)
+    return series._day_ms(day.replace(year=day.year + day.month // 12, month=day.month % 12 + 1, day=1))
+
+
+def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int, chunk: int = CHUNK) -> int:
+    """market.write_trades: one TradeTick per stored aggregate trade (`rows` yields (ts_ms, agg_trade_id, price,
+    quantity, is_buyer_maker) integer batches in (time, ID) order): the price and quantity exact at the
+    instrument's precisions, the aggressor SELL when the buyer made the market (else BUY), the aggregate trade ID
+    as the trade ID. A file never straddles a millisecond or a UTC month."""
+    from nautilus_trader.model import AggressorSide, Price, Quantity, TradeId, TradeTick
+    factor = 10 ** (NAUTILUS_SCALE - TRADE_SCALE)
+    written, last = 0, None
+    pending = np.empty((0, 5), dtype=np.int64)
+
+    def flush(part: np.ndarray) -> None:
+        nonlocal written
+        ticks = [TradeTick(instrument_id, Price.from_raw(int(price) * factor, price_precision),
+                           Quantity.from_raw(int(quantity) * factor, size_precision),
+                           AggressorSide.SELL if maker else AggressorSide.BUY, TradeId(str(int(trade_id))),
+                           int(ts) * 1_000_000, int(ts) * 1_000_000)
+                 for ts, trade_id, price, quantity, maker in part.tolist()]
+        catalog.write_trade_ticks(ticks)
+        written += len(ticks)
+
+    for batch in rows:
+        block = np.array(batch, dtype=np.int64).reshape(-1, 5)
+        if not len(block):
+            continue
+        if not _exact(block[:, 2], TRADE_SCALE, price_precision) or not _exact(block[:, 3], TRADE_SCALE, size_precision):
+            raise _refuse(f"{instrument_id}: a trade price or quantity is not exact at precisions {price_precision}, "
+                          f"{size_precision}", "TRADE_INEXACT", missing=(str(instrument_id),))
+        pending = np.concatenate((pending, block))
+        while len(pending):
+            if last is None or pending[0, 0] >= last:
+                last = _month_end(int(pending[0, 0]))
+            inside = int(np.searchsorted(pending[:, 0], last))
+            if inside < len(pending):
+                flush(pending[:inside])  # the month ends here: its trades are complete
+                pending = pending[inside:]
+                continue
+            if len(pending) < chunk:
+                break
+            changes = np.flatnonzero(np.diff(pending[:chunk + 1, 0]) > 0) if len(pending) > chunk else np.empty(0)
+            if not len(changes):
+                break  # one millisecond longer than a chunk: wait for the time to change
+            cut = int(changes[-1]) + 1
+            flush(pending[:cut])
+            pending = pending[cut:]
+    if len(pending):
+        flush(pending)
+    return written
+
+
+def trade_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int = CHUNK):
+    """The stored aggregate trades of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, agg_trade_id,
+    price, quantity, is_buyer_maker) batches in (time, ID) order."""
+    stop = end_ms if high_ms is None else min(end_ms, high_ms)
+    # Commits before the agg_trade table export no trade; the runner refuses the months (TRADES_MISSING).
+    if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'agg_trade'"):
+        return
+    yield from conn.stream(f"SELECT transact_time, agg_trade_id, price, quantity, is_buyer_maker FROM agg_trade "
+                           f"AS OF '{commit}' WHERE symbol = %s AND transact_time >= %s AND transact_time < %s "
+                           "ORDER BY transact_time, agg_trade_id", (symbol, low_ms, stop), size=chunk)
+
+
 # The daily warm-up, derived while streaming
 
 DAILY_CHUNK = 20_000  # rows per streamed chunk: about two weeks of minutes
@@ -378,6 +448,10 @@ def export_episode(job: dict) -> dict:
                                                             else None, end),
                                   precision, quote_size, size_increment, price_scale) \
                 if job.get("include_quotes", True) and quote_size is not None else 0
+            trades = write_trades(catalog, iid, trade_rows(conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
+                                                           piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None
+                                                           else None, end),
+                                  precision, size_increment) if job.get("include_trades") else None
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
                                      max(size_increment, needed_decimals(last["volume"], volume_scale)),
                                      price_scale, volume_scale),
@@ -388,6 +462,8 @@ def export_episode(job: dict) -> dict:
                                       max(size_increment, needed_decimals(daily["volume"], volume_scale)),
                                       price_scale, volume_scale),
                   "instrument_close": 0, "instrument_status": 0}
+        if trades is not None:  # only on request, so an export without trades keeps its receipt bytes
+            counts["trade"] = trades
         if piece["episode"] is not None:
             counts.update(lifecycle.write_lifecycle_events(catalog, piece["episode"], start_ns, end_ns))
         low = max(start, -(-piece["low_ns"] // 1_000_000 // MINUTE) * MINUTE)
@@ -443,10 +519,11 @@ def exporter_sha256() -> str:
 def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
                     episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
                     fresh: bool = False, root: Path | None = None, workers: int = 4, *,
-                    include_quotes: bool = True) -> dict:
+                    include_quotes: bool = True, include_trades: bool = False) -> dict:
     """market.export_catalogs: each contract's Catalogs and receipt at one commit for [start_ns, end_ns),
     from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/.
-    `include_quotes=False` omits unused quote conversion for bars execution; all other inputs are unchanged.
+    `include_quotes=False` omits unused quote conversion for bars execution; `include_trades` adds every stored
+    aggregate trade as a TradeTick and its count; all other inputs are unchanged.
     """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
@@ -466,7 +543,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             Path(root).mkdir(parents=True, exist_ok=True)
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
-        key = f"{start_ns}-{end_ns}-q{int(include_quotes)}-x{exporter_sha256()[:16]}"
+        key = f"{start_ns}-{end_ns}-q{int(include_quotes)}{'-t1' if include_trades else ''}-x{exporter_sha256()[:16]}"
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
@@ -479,7 +556,8 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         else:
             jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
                          "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
-                         "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes})
+                         "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
+                         "include_trades": include_trades})
     started = time.monotonic()
     try:
         if jobs:
