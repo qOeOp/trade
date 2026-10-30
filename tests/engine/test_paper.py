@@ -66,6 +66,25 @@ class HoldTests(unittest.TestCase):
         self.assertEqual(instance._paper_held, [])
 
 
+class TradeSubscriptionTests(unittest.TestCase):
+    def test_a_trade_subscription_stops_the_run_since_paper_streams_no_trades(self):
+        self.assertTrue(issubclass(paper._PaperConfigured, paper.run._TradeSubscriptions))
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False))
+        self.addCleanup(paper.STOP.clear)
+        self.addCleanup(paper.STOP_REASON.clear)
+        self.addCleanup(paper.FINDINGS.clear)
+        self.addCleanup(paper.run.UNSERVED_TRADES.clear)
+        with mock.patch.object(paper, "journal") as journal:
+            recorder.on_stop_timer(None)
+            self.assertFalse(paper.STOP.is_set())
+            paper.run.UNSERVED_TRADES.append("R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE")
+            recorder.on_stop_timer(None)
+        self.assertEqual(paper.STOP_REASON, ["TRADES_NOT_SERVED"])
+        self.assertEqual(recorder.findings, ["TRADES_NOT_SERVED: R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"])
+        journal.assert_called_once_with("refusal", code="TRADES_NOT_SERVED",
+                                        subscriptions=["R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"])
+
+
 class CredentialTests(unittest.TestCase):
     def test_credential_names_are_found_by_name(self):
         environ = {"BINANCE_API_KEY": "x", "OKX_SECRET": "x", "MY_API_SECRET": "x", "PATH": "/bin", "HOME": "/h"}

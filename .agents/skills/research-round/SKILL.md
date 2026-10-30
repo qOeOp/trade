@@ -72,9 +72,9 @@ Trade-level inputs (trade imbalance, trade VWAP) need the runner argument `--tra
 `--execution quotes`, decided and passed like `--execution`; the pinned commit must hold trades for
 every month of the trading window (`market coverage`, `trades`). The source subscribes with
 `subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(instrument_id)}))` and reads the
-tick as `data.data` in `on_data`; `subscribe_trades` and `on_trade` receive nothing. Trades are signal
-input only: they match no order and move no book. Without the flag a subscribing source receives no
-trade, so report the number received in its diagnostics.
+tick as `data.data` in `on_data`. Trades are signal input only: they match no order and move no book.
+A trade subscription the run does not serve (no flag, native `subscribe_trades`, paper trading) is
+`TRADES_NOT_SERVED`; report the number of trades received in the diagnostics.
 
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede

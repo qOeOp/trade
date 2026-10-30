@@ -163,6 +163,8 @@ REFUSALS: dict[str, str] = {
                       "month of its trading window.",
     "TRADES_MISSING": "Trade ticks are exported but an active contract's export holds no trade in some UTC month of "
                       "its trading window.",
+    "TRADES_NOT_SERVED": "A strategy subscribed to trades the run does not stream (no --trade-ticks, native "
+                         "subscribe_trades, or paper trading); it would see none.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
@@ -226,6 +228,7 @@ INTEGRITY_CODES: dict[str, str] = {
                                         "files hold.",
     "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
     "PAPER_EXEC_CLIENT_NOT_SANDBOX": "A paper run traded an account other than the Sandbox's; the run stopped.",
+    "TRADES_NOT_SERVED": "A paper strategy subscribed to trades, which paper trading does not stream; the run stopped.",
 }
 
 
