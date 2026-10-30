@@ -61,11 +61,49 @@ services:
       start_period: 6h
       start_interval: 10s
 
+  # Replay inputs over HTTP (market/README.md, "Remote supply for replay inputs"): a client whose market
+  # profile names remote_url receives the native files of its pinned commit, contracts and window, never
+  # the database. Loopback only: it has no authentication.
+  market-supply:
+    <<: *product
+    command: ["python", "-m", "market.remote", "--market", "/run/trade/market-source.json", "--bind", "0.0.0.0",
+              "--port", "8210"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TRADE_DOLT_HOST: ledger
+    ports:
+      - "127.0.0.1:${TRADE_MARKET_SUPPLY_PORT:-8210}:8210"
+    configs:
+      - source: market-source
+        target: /run/trade/market-source.json
+    volumes:
+      # service.json (the reader's account), as paper reads it; the DoltHub key beneath is covered.
+      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
+      - type: tmpfs
+        target: ${TRADE_DATA}/dolt/home
+      # Its exports, on a volume rather than a host directory: macOS bind mounts refuse the chmod of
+      # multiprocessing's forkserver socket. They are never removed (market/README.md).
+      - trade-market-exports:/tmp
+    healthcheck:
+      test: ["CMD", "python", "-c", "from market.remote import RemoteMarket; RemoteMarket({'database': 'market', 'remote_url': 'http://127.0.0.1:8210'}).resolve_commit('main')"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    depends_on:
+      ledger:
+        condition: service_healthy
+
   # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
-  # Docker only through docker-api.
+  # Docker only through docker-api. Its market (paper-market) reads membership and stored bars from
+  # ledger, and a reconciliation's replay inputs from market-supply.
   paper:
     <<: *product
-    command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767"]
+    command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
+              "--market", "/run/trade/paper-market.json"]
+    configs:
+      - source: paper-market
+        target: /run/trade/paper-market.json
     environment:
       TRADE_DOLT_HOST: ledger
       DOCKER_HOST: tcp://docker-api:2375
@@ -103,6 +141,18 @@ networks:
   docker-api:
     internal: true
 
+# Market profiles of the two services: market-supply's names only the database (a supply serves a local
+# reader), paper's also the supply and its own cache under its writable directory.
+configs:
+  market-source:
+    content: |
+      {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt"}
+  paper-market:
+    content: |
+      {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt",
+       "remote_url": "http://market-supply:8210", "cache_root": "${TRADE_DATA}/paper-tmp/market-client-cache"}
+
 volumes:
   trade-ide-data:
   trade-dolt-data:
+  trade-market-exports:

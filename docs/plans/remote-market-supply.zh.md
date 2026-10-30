@@ -61,3 +61,12 @@ RSS 来自 `/usr/bin/time -l`，不含远端供数及原生容器。VmHWM 为每
 10 项供数专项测试通过；完整测试命令 `RESEARCH_DOLT_BINARY=<existing Dolt 2.4.2> uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'`：690 项通过。市场源 HEAD 在验收后仍为上述 commit，`dolt_status` 为空。
 
 完整临时证据：`/tmp/trade-market-remote-e2e-20261030/report.json`、`report.zh.md`、两组 `*-parity.json`、各回放目录中的 coverage/process/audit/fingerprint、`native-memory.jsonl` 和传输计数。未计入成功测量的两次调用也保留：一次漏传报价保证金参数被原检查拒绝，一次临时测量启动器漏加 multiprocessing main guard 导致传输失败；均未开始原生 trial。产品入口和检查未为这些失败放宽。
+
+## 2026-10-30 收进 Compose
+
+用户决定把供数服务和 Paper 的远端配置收进 `services/ide/docker/compose.yaml`，取代验收时仓库外的单独 compose 和 Paper override。
+
+- `market-supply` 用同一 `trade-service` 镜像运行 `python -m market.remote`，经 `ledger` 读市场，只发布在 127.0.0.1。导出写在 `trade-market-exports` 卷：macOS 绑定挂载不支持 forkserver 套接字的 chmod。导出不自动清理，与本文“不做自动缓存淘汰”一致。
+- 两份 profile 是 compose 内联 config：供数端只写数据库与 service（`market.remote` 拒绝带 `remote_url` 的 profile）；Paper 的另写 `remote_url` 与 `paper-tmp` 下的缓存，由 `paper serve --market` 传给它启动的命令。不再另设 profile 目录。
+- 主机命令行是否走远端，仍由现用 market profile 是否写了 `remote_url`、`cache_root` 决定；compose 不改主机 profile。
+- 不改产品代码、回放、审计或拒绝条件。
