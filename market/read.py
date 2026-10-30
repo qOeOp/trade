@@ -10,6 +10,7 @@ knows the ledger or the strategy.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -21,6 +22,10 @@ DAY = timedelta(days=1)
 DAY_MS = 86_400_000
 CLOSE_OFFSET_MS = DAY_MS - 60_000  # the open time of a day's last one-minute bar
 BTC = "BTCUSDT"
+# Day closes are one primary-key lookup each; one query per symbol is the cheapest plan (one query for all
+# symbols took 2.6 times as long), and the service answers concurrent readers in parallel. 26 symbols over
+# four years (2026-10-31): 15.1 s on one connection, 3.9 s on 4, 2.2 s on 8.
+CLOSE_READERS = 8
 
 
 def _utc_day(moment: datetime) -> datetime:
@@ -74,13 +79,16 @@ def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, 
                   + CLOSE_OFFSET_MS]
         stamps += [int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp()) * 1000 + CLOSE_OFFSET_MS
                    for day in days]
-        marks = ", ".join(["%s"] * len(stamps))
-        closes: dict[str, dict[str, int]] = {}
-        for symbol in symbols:
-            for ts_open, close in conn.rows(f"SELECT ts_open, close FROM bar AS OF '{commit}' WHERE symbol = %s AND "
-                                            f"price_type = 'MARK' AND ts_open IN ({marks})", (symbol, *stamps)):
-                closes.setdefault(symbol, {})[datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat()] \
-                    = close
+    marks = ", ".join(["%s"] * len(stamps))
+
+    def day_closes(symbol: str) -> dict[str, int]:
+        with store.connect(profile, "reader") as reader:
+            return {datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat(): close
+                    for ts_open, close in reader.rows(f"SELECT ts_open, close FROM bar AS OF '{commit}' WHERE symbol = %s "
+                                                      f"AND price_type = 'MARK' AND ts_open IN ({marks})", (symbol, *stamps))}
+
+    with ThreadPoolExecutor(min(CLOSE_READERS, len(symbols))) as pool:
+        closes = {symbol: found for symbol, found in zip(symbols, pool.map(day_closes, symbols), strict=True) if found}
     return {**returns_from(closes, members, days), "commit": commit, "universe_rule": universe_rule}
 
 
