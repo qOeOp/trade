@@ -82,10 +82,10 @@ batch. Do not add points or tune source within a batch.
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
 continue ([changes.md](references/changes.md)) or a due line change.
-A line change is due when the recommended version has stayed the same across as many consecutive
-research runs as `REVIEW_DUE` counts and each of those runs' `mean_daily_log_difference` lies
-within its `detectable_mean_log_difference_80pct_normal_approx`
-([feedback.md](references/feedback.md)): stop registering, read `research-start` and follow its
+A line change is due when as many consecutive research runs as `REVIEW_DUE` counts each have a
+`mean_daily_log_difference` within their `detectable_mean_log_difference_80pct_normal_approx`
+([feedback.md](references/feedback.md)), whether or not the recommendation moved among them: stop
+registering, read `research-start` and follow its
 Offer lines and wait, ledger reads included, before asking the user. Options you draft within
 this line do not replace its offer. Trial counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
