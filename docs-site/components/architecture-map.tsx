@@ -1,466 +1,243 @@
 'use client';
 
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  Handle,
-  Position,
-  ReactFlow,
-  getSmoothStepPath,
-  type Edge,
-  type EdgeProps,
-  type Node,
-  type NodeMouseHandler,
-  type NodeProps,
-  type Viewport,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import { useI18n } from 'fumadocs-ui/contexts/i18n';
 import Link from 'next/link';
-import { useTheme } from 'next-themes';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { architectureRoutePath, createArchitectureLayout, mapBounds, mapTexts } from '@/lib/architecture-layout';
+import type { Rect, TextMetrics } from '@/lib/architecture-map';
+import { productArchitectureEdges, productArchitectureNodes } from '@/lib/product-architecture';
 import { isLocale, type Locale } from '@/lib/i18n';
-import {
-  advanceStableFrame,
-  flowFrameReady,
-  focusViewport,
-  viewportTargetChanged,
-} from '@/lib/viewport-gate.mjs';
-import type { ArchitectureNodeData, DiagramNodeData, OwnerNodeData, ArchitectureEdgeData } from '@/lib/architecture-map';
-import { productArchitectureNodes, productArchitectureEdges } from '@/lib/product-architecture';
-import { createArchitectureLayout } from '@/lib/architecture-layout';
 
-type PinHandle = {
-  id: string;
-  type: 'source' | 'target';
-  position: Position;
-  offset: number;
+const items = new Map(productArchitectureNodes.map(node => [node.id, node]));
+const relations = new Map(productArchitectureEdges.map(edge => [edge.id, edge]));
+type Selection = { node: string } | { relation: string } | null;
+const activate = (event: KeyboardEvent<SVGGElement>, action: () => void) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault(); event.stopPropagation(); action();
 };
-
-const pinPosition = {
-  left: Position.Left,
-  top: Position.Top,
-  right: Position.Right,
-  bottom: Position.Bottom,
-} as const;
-const pinGap = 18;
-
-function allocateEdgePins(edges: Edge[]) {
-  const groups = new Map<string, Array<{
-    edgeId: string;
-    endpoint: 'source' | 'target';
-    nodeId: string;
-    baseHandle: string;
-    side: keyof typeof pinPosition;
-    order: number;
-  }>>();
-
-  for (const edge of edges) {
-    for (const endpoint of ['source', 'target'] as const) {
-      const baseHandle = endpoint === 'source' ? edge.sourceHandle : edge.targetHandle;
-      if (!baseHandle) continue;
-      const side = baseHandle.split('-').at(-1) as keyof typeof pinPosition;
-      if (!(side in pinPosition)) throw new Error(`Unknown pin side: ${baseHandle}`);
-      const nodeId = endpoint === 'source' ? edge.source : edge.target;
-      const groupKey = `${nodeId}:${side}`;
-      const group = groups.get(groupKey) ?? [];
-      const order = Number(edge.data?.pinOrder ?? 0);
-      group.push({ edgeId: edge.id, endpoint, nodeId, baseHandle, side, order });
-      groups.set(groupKey, group);
-    }
-  }
-
-  const assigned = new Map<string, string>();
-  const handlesByNode = new Map<string, PinHandle[]>();
-  for (const group of groups.values()) {
-    group.sort((a, b) => a.order - b.order || `${a.edgeId}:${a.endpoint}`.localeCompare(`${b.edgeId}:${b.endpoint}`));
-    group.forEach((entry, index) => {
-      const id = `${entry.baseHandle}-${index + 1}`;
-      const handles = handlesByNode.get(entry.nodeId) ?? [];
-      handles.push({
-        id,
-        type: entry.endpoint,
-        position: pinPosition[entry.side],
-        offset: (index - (group.length - 1) / 2) * pinGap,
-      });
-      handlesByNode.set(entry.nodeId, handles);
-      assigned.set(`${entry.edgeId}:${entry.endpoint}`, id);
-    });
-  }
-
-  return {
-    edges: edges.map((edge) => ({
-      ...edge,
-      sourceHandle: assigned.get(`${edge.id}:source`) ?? edge.sourceHandle,
-      targetHandle: assigned.get(`${edge.id}:target`) ?? edge.targetHandle,
-    })),
-    handlesByNode,
-  };
-}
-
-const pinnedArchitecture = allocateEdgePins(productArchitectureEdges);
-
-function NodePins({ nodeId, activeHandles }: { nodeId: string; activeHandles?: string[] }) {
-  const active = new Set(activeHandles);
-  return (pinnedArchitecture.handlesByNode.get(nodeId) ?? []).map(pin => {
-    const horizontal = pin.position === Position.Top || pin.position === Position.Bottom;
-    return <Handle key={pin.id} id={pin.id} type={pin.type} position={pin.position}
-      className={active.has(pin.id) ? 'is-connected' : undefined}
-      style={horizontal ? { left: `calc(50% + ${pin.offset}px)` } : { top: `calc(50% + ${pin.offset}px)` }} />;
-  });
-}
-
-function ArchitectureNode({ id, data, selected }: NodeProps<Node<ArchitectureNodeData>>) {
-  const { locale } = useI18n();
-  const language = locale === 'zh' ? 'zh' : 'en';
-  return <button type="button" className={`docs-map-node docs-map-${data.variant ?? 'module'}${selected ? ' is-selected' : ''}`}
-    data-importance={data.importance ?? 'normal'} aria-label={data.title}>
-    <span className="docs-map-node-copy"><strong data-architecture-title>{data.title}</strong>
-      {data.subtitle ? <span className="docs-map-node-subtitle">{data.subtitle[language]}</span> : null}
-    </span>
-    <NodePins nodeId={id} activeHandles={data.activeHandles} />
-  </button>;
-}
-
-function OwnerGroup({ id, data, selected }: NodeProps<Node<OwnerNodeData>>) {
-  return <button type="button" className={`docs-owner-group${selected ? ' is-selected' : ''}`}
-    data-owner-role={data.role} data-has-badge={Boolean(data.badge)} aria-label={`${data.label}, ${data.badge ?? data.roleLabel}`}>
-    <header><span>{data.label}</span>{data.badge ? <span className="docs-owner-badge">{data.badge}</span> : null}</header>
-    <NodePins nodeId={id} activeHandles={data.activeHandles} />
-  </button>;
-}
-
-const nodeTypes = { architectureNode: ArchitectureNode, ownerGroup: OwnerGroup, boundaryGroup: OwnerGroup };
-
-const EdgeInteractionContext = createContext({
-  enter: (_edgeId: string) => {},
-  leave: (_edgeId: string) => {},
-  select: (_edgeId: string) => {},
-});
-
-type RoutePoint = [number, number];
-
-function extendPoint(x: number, y: number, side: Position): RoutePoint {
-  const direction = {
-    [Position.Left]: [-1, 0],
-    [Position.Right]: [1, 0],
-    [Position.Top]: [0, -1],
-    [Position.Bottom]: [0, 1],
-  }[side];
-  return [x + direction[0] * 12, y + direction[1] * 12];
-}
-
-function roundRoute(points: RoutePoint[]) {
-  // React Flow measures handles with tiny floating-point differences. Snap those
-  // differences before removing redundant points, so the straight runs stay level.
-  const route: RoutePoint[] = [];
-  for (const point of points) {
-    const previous = route.at(-1);
-    const current: RoutePoint = [...point];
-    if (previous) {
-      if (Math.abs(current[0] - previous[0]) < 0.01) current[0] = previous[0];
-      if (Math.abs(current[1] - previous[1]) < 0.01) current[1] = previous[1];
-      if (current[0] === previous[0] && current[1] === previous[1]) continue;
-    }
-    while (route.length > 1) {
-      const before = route[route.length - 2], corner = route[route.length - 1];
-      const vertical = before[0] === corner[0] && corner[0] === current[0];
-      const horizontal = before[1] === corner[1] && corner[1] === current[1];
-      if (!(vertical || horizontal)) break;
-      route.pop();
-    }
-    const tail = route.at(-1);
-    if (tail && tail[0] === current[0] && tail[1] === current[1]) continue;
-    route.push(current);
-  }
-  let path = `M ${route[0][0]} ${route[0][1]}`;
-  for (let index = 1; index < route.length - 1; index += 1) {
-    const before = route[index - 1], corner = route[index], after = route[index + 1];
-    const incoming = Math.hypot(corner[0] - before[0], corner[1] - before[1]);
-    const outgoing = Math.hypot(after[0] - corner[0], after[1] - corner[1]);
-    const radius = Math.min(12, incoming / 2, outgoing / 2);
-    const entry = corner.map((value, axis) => value + (before[axis] - value) * radius / incoming);
-    const exit = corner.map((value, axis) => value + (after[axis] - value) * radius / outgoing);
-    path += ` L ${entry[0]} ${entry[1]} Q ${corner[0]} ${corner[1]} ${exit[0]} ${exit[1]}`;
-  }
-  const last = route.at(-1)!;
-  return `${path} L ${last[0]} ${last[1]}`;
-}
-
-function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, markerStart, data }: EdgeProps) {
-  const interaction = useContext(EdgeInteractionContext);
-  const { locale } = useI18n();
-  const edge = data as ArchitectureEdgeData;
-  const [smoothPath, smoothX, smoothY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 12, offset: 22 });
-  let path = smoothPath;
-  let captionX = smoothX, captionY = smoothY;
-  if (edge.route) {
-    const from = edge.leadPoints?.source ?? extendPoint(sourceX, sourceY, sourcePosition);
-    const to = edge.leadPoints?.target ?? extendPoint(targetX, targetY, targetPosition);
-    const route = edge.route;
-    const corridor: RoutePoint[] = 'via' in route ? route.via : route.axis === 'x' ? [[route.at, from[1]], [route.at, to[1]]] : [[from[0], route.at], [to[0], route.at]];
-    path = roundRoute([[sourceX, sourceY], from, ...corridor, to, [targetX, targetY]]);
-    if ('axis' in route) {
-      captionX = route.axis === 'x' ? route.at : (from[0] + to[0]) / 2;
-      captionY = route.axis === 'y' ? route.at : (from[1] + to[1]) / 2;
-    }
-  }
-  const main = edge.emphasis === 'main';
-  const width = main ? 2.2 : 1.2;
-  return <>
-    <BaseEdge id={id} path={path} interactionWidth={0} markerEnd={markerEnd} markerStart={markerStart}
-      className={main ? 'docs-primary-flow' : 'docs-supporting-flow'}
-      style={{ stroke: main ? 'var(--map-edge)' : 'var(--map-edge-muted)', strokeWidth: edge.isHighlighted ? width + 0.9 : width,
-        filter: edge.isHighlighted ? 'drop-shadow(0 0 3px var(--map-edge))' : undefined,
-        transition: 'opacity 90ms ease, stroke-width 90ms ease, filter 90ms ease',
-        opacity: edge.isHighlighted ? 1 : edge.isDimmed ? 0.1 : main ? 0.9 : edge.isRelated ? 0.78 : 0.32 }} />
-    {edge.caption ? <EdgeLabelRenderer><span className="docs-edge-caption" style={{ transform: `translate(-50%, -100%) translate(${captionX}px, ${captionY - 4}px)`, opacity: edge.isHighlighted ? 1 : 0 }}>{edge.caption[locale === 'zh' ? 'zh' : 'en']}</span></EdgeLabelRenderer> : null}
-    <path d={path} className="docs-edge-hit-area" fill="none" stroke="transparent" strokeWidth={10} pointerEvents="stroke"
-      onPointerEnter={() => interaction.enter(id)} onPointerLeave={() => interaction.leave(id)} onPointerCancel={() => interaction.leave(id)}
-      onClick={event => { event.stopPropagation(); interaction.select(id); }} />
-  </>;
-}
-
-const edgeTypes = { architectureEdge: ArchitectureEdge };
-type DiagramNode = Node<DiagramNodeData>;
 
 export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
   const { locale: contextLocale } = useI18n();
-  const locale: Locale = contextLocale && isLocale(contextLocale) ? contextLocale : initialLocale;
-  const { resolvedTheme } = useTheme();
-  const [themeMounted, setThemeMounted] = useState(false);
-  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
-  const layout = useMemo(() => createArchitectureLayout(
-    productArchitectureNodes, pinnedArchitecture.edges, pinnedArchitecture.handlesByNode, canvasSize,
-  ), [canvasSize]);
-  const renderedNodeCatalog = layout.nodes;
-  const visibleEdges = layout.edges;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [canvasReady, setCanvasReady] = useState(false);
-  const [minimumZoom, setMinimumZoom] = useState(0.08);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 0.08 });
+  const locale = contextLocale && isLocale(contextLocale) ? contextLocale : initialLocale;
+  const svgRef = useRef<SVGSVGElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const canvasReadyRef = useRef(false);
-  const fittedViewportRef = useRef<Viewport | null>(null);
-  const revealFrameRef = useRef<number | null>(null);
-  const expectedEdgeIdsRef = useRef(visibleEdges.map(edge => edge.id).sort());
-  const selectedData = renderedNodeCatalog.find(node => node.id === selectedId)?.data;
-  const selectedDescription = selectedData?.nodeType === 'architecture' ? selectedData.description[locale] : selectedData?.label;
-  const selectedRoute = selectedData?.docsRoute;
-  const focusedEdgeId = hoveredEdgeId ?? selectedEdgeId;
-  const edgeData = visibleEdges.find(edge => edge.id === focusedEdgeId)?.data as ArchitectureEdgeData | undefined;
-  const canPan = viewport.zoom > minimumZoom + 0.01;
-  const edgeInteraction = useMemo(() => ({
-    enter: (id: string) => setHoveredEdgeId(id),
-    leave: (id: string) => setHoveredEdgeId(current => current === id ? null : current),
-    select: (id: string) => { setSelectedId(null); setSelectedEdgeId(current => current === id ? null : id); },
-  }), []);
-  useEffect(() => setThemeMounted(true), []);
-  useEffect(() => {
-    const clear = () => { setHoveredEdgeId(null); setHoveredNodeId(null); };
-    window.addEventListener('blur', clear);
-    document.addEventListener('mouseleave', clear);
-    return () => { window.removeEventListener('blur', clear); document.removeEventListener('mouseleave', clear); };
-  }, []);
-  const renderedEdges = useMemo(() => visibleEdges.map(edge => ({ ...edge, data: { ...edge.data,
-    isRelated: edge.source === hoveredNodeId || edge.target === hoveredNodeId,
-    isHighlighted: edge.id === focusedEdgeId, isDimmed: focusedEdgeId !== null && edge.id !== focusedEdgeId },
-    zIndex: edge.id === focusedEdgeId ? 10 : undefined })), [focusedEdgeId, hoveredNodeId, visibleEdges]);
-  const visibleNodes = useMemo(() => {
-    const focusedEdge = visibleEdges.find(edge => edge.id === focusedEdgeId);
-    const focusedIds = new Set<string>();
-    if (focusedEdge) {
-      focusedIds.add(focusedEdge.source); focusedIds.add(focusedEdge.target);
-      // A container endpoint includes its children, and highlighted children keep their ancestors visible.
-      for (const node of renderedNodeCatalog) {
-        let parent = node.parentId;
-        while (parent) {
-          if (parent === focusedEdge.source || parent === focusedEdge.target) focusedIds.add(node.id);
-          parent = renderedNodeCatalog.find(candidate => candidate.id === parent)?.parentId;
-        }
-      }
-      for (const id of [...focusedIds]) {
-        let parent = renderedNodeCatalog.find(node => node.id === id)?.parentId;
-        while (parent) { focusedIds.add(parent); parent = renderedNodeCatalog.find(node => node.id === parent)?.parentId; }
-      }
-    }
-    const activeHandles = new Map<string, string[]>();
-    for (const edge of focusedEdge ? [focusedEdge] : visibleEdges) {
-      if (edge.sourceHandle) activeHandles.set(edge.source, [...(activeHandles.get(edge.source) ?? []), edge.sourceHandle]);
-      if (edge.targetHandle) activeHandles.set(edge.target, [...(activeHandles.get(edge.target) ?? []), edge.targetHandle]);
-    }
-    return renderedNodeCatalog.map(node => ({ ...node, selected: node.id === selectedId,
-      data: { ...node.data, activeHandles: activeHandles.get(node.id) ?? [] },
-      style: { ...node.style, opacity: !focusedEdge || focusedIds.has(node.id) ? 1 : 0.16 } }));
-  }, [focusedEdgeId, selectedId, renderedNodeCatalog, visibleEdges]);
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    let stableFrame = { signature: null as string | null, count: 0 };
+  const [metrics, setMetrics] = useState<ReadonlyMap<string, TextMetrics>>(new Map());
+  const [ready, setReady] = useState(false);
+  const [view, setView] = useState<Rect>(mapBounds);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [hoveredRelation, setHoveredRelation] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const suppressClick = useRef(false);
+  const drag = useRef<{ x: number; y: number; view: Rect; moved: boolean } | null>(null);
+  const markerId = useId().replace(/:/g, '');
+  const layout = useMemo(() => createArchitectureLayout(metrics), [metrics]);
+  const selectedItem = selection && 'node' in selection ? items.get(selection.node) : undefined;
+  const selectedRelation = selection && 'relation' in selection ? relations.get(selection.relation) : undefined;
+  const activeRelation = hoveredRelation ?? selectedRelation?.id;
+  const zoomed = view.width < mapBounds.width - 1 || view.height < mapBounds.height - 1;
 
-    const waitForStableFlow = () => {
-      revealFrameRef.current = requestAnimationFrame(() => {
-        revealFrameRef.current = null;
-        const canvas = canvasRef.current;
-        const target = fittedViewportRef.current;
-        const viewportElement = canvas?.querySelector<HTMLElement>('.react-flow__viewport');
-        const edgeElements = canvas?.querySelectorAll<SVGGElement>('.react-flow__edge');
-        if (!canvas || !target || !viewportElement || !edgeElements) {
-          stableFrame = advanceStableFrame(stableFrame, '', false);
-          waitForStableFlow();
-          return;
-        }
-
-        const bounds = canvas.getBoundingClientRect();
-        const matrix = new DOMMatrixReadOnly(getComputedStyle(viewportElement).transform);
-        const applied = { x: matrix.m41, y: matrix.m42, zoom: matrix.m11 };
-        const renderedEdgePaths = [...edgeElements].map((edge) => ({
-          id: edge.dataset.id ?? '',
-          path: edge.querySelector<SVGPathElement>('.react-flow__edge-path')?.getAttribute('d') ?? '',
-        }));
-        const expectedEdgeIds = expectedEdgeIdsRef.current;
-        const signature = [bounds.width, bounds.height, applied.x, applied.y, applied.zoom]
-          .map((value) => Number(value).toFixed(3))
-          .join(':') + `:${renderedEdgePaths
-            .map((edge) => `${edge.id}:${edge.path}`)
-            .sort()
-            .join('|')}`;
-        const frameReady = flowFrameReady(applied, target, renderedEdgePaths, expectedEdgeIds);
-        stableFrame = advanceStableFrame(
-          stableFrame,
-          signature,
-          frameReady,
-        );
-        if (stableFrame.count >= 2) {
-          canvasReadyRef.current = true;
-          setCanvasReady(true);
-          return;
-        }
-        waitForStableFlow();
+  useEffect(() => {
+    let cancelled = false;
+    const page = document.documentElement;
+    const measure = async () => {
+      const canvas = canvasRef.current?.getBoundingClientRect();
+      const home = canvasRef.current?.closest<HTMLElement>('#nd-home-layout');
+      if (home && canvas) {
+        // Align the navigation with the fitted overview, including SVG letterboxing.
+        // This stays fixed when the diagram itself is zoomed or panned.
+        const scale = Math.min(canvas.width / mapBounds.width, canvas.height / mapBounds.height);
+        const contentX = Math.min(...layout.surfaces.map(surface => surface.x)) - mapBounds.x;
+        const inset = canvas.left - home.getBoundingClientRect().left
+          + (canvas.width - mapBounds.width * scale) / 2 + contentX * scale;
+        page.style.setProperty('--home-map-inset', `${inset}px`);
+      }
+      await document.fonts.ready;
+      if (cancelled || !svgRef.current) return;
+      const measured = new Map<string, TextMetrics>();
+      svgRef.current.querySelectorAll<SVGTextElement>('text[data-map-text]').forEach(el => {
+        const b = el.getBBox();
+        measured.set(el.dataset.mapText!, { left: b.x - Number(el.getAttribute('x')),
+          top: b.y - Number(el.getAttribute('y')), width: b.width, height: b.height });
+      });
+      setMetrics(previous => {
+        const changed = measured.size !== previous.size || [...measured].some(([id, next]) => {
+          const old = previous.get(id);
+          return !old || (['left', 'top', 'width', 'height'] as const).some(key => Math.abs(old[key] - next[key]) > .1);
+        });
+        return changed ? measured : previous;
       });
     };
-
-    const refit = () => {
-      const bounds = canvasRef.current?.getBoundingClientRect();
-      if (!bounds || bounds.width === 0 || bounds.height === 0) return;
-      if (!canvasSize || Math.abs(canvasSize.width - bounds.width) > 0.5 || Math.abs(canvasSize.height - bounds.height) > 0.5) {
-        canvasReadyRef.current = false;
-        setCanvasReady(false);
-        setCanvasSize({ width: bounds.width, height: bounds.height });
-        return;
-      }
-      const fitted = layout.viewport;
-      if (!viewportTargetChanged(fittedViewportRef.current, fitted)) {
-        if (!canvasReadyRef.current && revealFrameRef.current === null) waitForStableFlow();
-        return;
-      }
-      if (revealFrameRef.current !== null) {
-        cancelAnimationFrame(revealFrameRef.current);
-        revealFrameRef.current = null;
-      }
-      stableFrame = { signature: null, count: 0 };
-      canvasReadyRef.current = false;
-      setCanvasReady(false);
-      fittedViewportRef.current = fitted;
-      setMinimumZoom(fitted.zoom);
-      setViewport(fitted);
-      waitForStableFlow();
-    };
-    refit();
-    window.addEventListener('resize', refit);
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refit);
-    if (observer && canvasRef.current) observer.observe(canvasRef.current);
+    void measure();
+    document.fonts.addEventListener('loadingdone', measure);
+    const observer = new ResizeObserver(() => { void measure(); });
+    if (canvasRef.current) observer.observe(canvasRef.current);
     return () => {
-      window.removeEventListener('resize', refit);
-      observer?.disconnect();
-      if (revealFrameRef.current !== null) {
-        cancelAnimationFrame(revealFrameRef.current);
-        revealFrameRef.current = null;
-      }
+      cancelled = true; observer.disconnect(); document.fonts.removeEventListener('loadingdone', measure);
+      page.style.removeProperty('--home-map-inset');
     };
-  }, [canvasSize, layout]);
-
-  const restoreFit = useCallback(() => {
-    const fitted = fittedViewportRef.current;
-    if (fitted) setViewport(fitted);
+  }, [view]);
+  useEffect(() => {
+    if (metrics.size !== mapTexts.length) return;
+    const frame = requestAnimationFrame(() => setReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, [metrics]);
+  useEffect(() => {
+    const reset = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') { setView(mapBounds); setSelection(null); setHoveredRelation(null); }
+    };
+    window.addEventListener('keydown', reset);
+    return () => window.removeEventListener('keydown', reset);
   }, []);
 
-  const focusGroup = (node: DiagramNode) => {
-    const bounds = canvasRef.current?.getBoundingClientRect();
-    const width = Number(node.width ?? node.style?.width ?? 0);
-    const height = Number(node.height ?? node.style?.height ?? 0);
-    if (!bounds || width <= 0 || height <= 0) return;
-    let x = node.position.x;
-    let y = node.position.y;
-    let parentId = node.parentId;
-    const visited = new Set([node.id]);
-    while (parentId && !visited.has(parentId)) {
-      visited.add(parentId);
-      const parent = renderedNodeCatalog.find((entry) => entry.id === parentId);
-      if (!parent) break;
-      x += parent.position.x;
-      y += parent.position.y;
-      parentId = parent.parentId;
-    }
-    setViewport(focusViewport(bounds, {
-      x,
-      y,
-      width,
-      height,
-    }, minimumZoom));
+  const restore = () => { setView(mapBounds); setSelection(null); setHoveredRelation(null); };
+  const focus = (rect: Rect) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const aspect = canvas.clientWidth / canvas.clientHeight;
+    const width = Math.max(rect.width + 96, (rect.height + 96) * aspect);
+    const height = width / aspect;
+    setView({ x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2, width, height });
   };
-
-  useEffect(() => {
-    const restoreOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setSelectedId(null);
-      setHoveredEdgeId(null);
-      setSelectedEdgeId(null);
-      restoreFit();
-    };
-    window.addEventListener('keydown', restoreOnEscape);
-    return () => window.removeEventListener('keydown', restoreOnEscape);
-  }, [restoreFit]);
-
-  const handleNodeClick: NodeMouseHandler = (_, node) => {
-    const data = node.data as DiagramNodeData;
-    if (data.nodeType === 'architecture') {
-      setSelectedEdgeId(null);
-      setSelectedId(node.id);
-      if ((canvasRef.current?.clientWidth ?? 0) < 800) focusGroup(node as DiagramNode);
-      return;
+  const selectNode = (node: string, region = false) => {
+    if (drag.current?.moved) return;
+    setSelection({ node }); setHoveredRelation(null);
+    const surface = layout.surfaces.find(s => s.node === node);
+    if (surface && region) focus(surface);
+    else if ((canvasRef.current?.clientWidth ?? 0) < 800) {
+      // Mobile starts with the same complete overview; tap a component to read its owning region.
+      const parent = surface?.tier === 'external' ? undefined
+        : surface ?? layout.surfaces.find(s => s.node === items.get(node)?.parent);
+      if (parent) focus(parent);
     }
-    setSelectedEdgeId(null);
-    setSelectedId(node.id);
-    focusGroup(node as DiagramNode);
   };
+  const selectRelation = (id: string) => {
+    if (drag.current?.moved) return;
+    setSelection({ relation: id }); setHoveredRelation(null);
+  };
+  const zoom = (factor: number) => {
+    const width = Math.max(480, Math.min(mapBounds.width, view.width / factor));
+    if (width === mapBounds.width) { setView(mapBounds); return; }
+    const height = view.height * width / view.width;
+    setView({ x: view.x + (view.width - width) / 2, y: view.y + (view.height - height) / 2, width, height });
+  };
+  const pointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    suppressClick.current = false;
+    if (!zoomed || event.button !== 0) return;
+    drag.current = { x: event.clientX, y: event.clientY, view, moved: false };
+  };
+  const pointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const start = drag.current, canvas = canvasRef.current;
+    if (!start || !canvas) return;
+    const dx = event.clientX - start.x, dy = event.clientY - start.y;
+    if (!start.moved && Math.hypot(dx, dy) < 4) return;
+    start.moved = true; setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const scale = Math.min(canvas.clientWidth / start.view.width, canvas.clientHeight / start.view.height);
+    setView({ ...start.view, x: start.view.x - dx / scale, y: start.view.y - dy / scale });
+  };
+  const pointerUp = () => {
+    setDragging(false);
+    suppressClick.current = Boolean(drag.current?.moved);
+    drag.current = null;
+  };
+  const nodeLabel = (id: string) => items.get(id)?.title ?? id;
+  const related = selectedItem ? productArchitectureEdges.filter(e => e.source === selectedItem.id || e.target === selectedItem.id) : [];
+  const description = selectedItem?.description?.[locale] ?? selectedRelation?.description[locale];
+  const docsRoute = selectedItem?.docsRoute ?? selectedRelation?.docsRoute;
 
   return <section className="docs-architecture-shell" aria-label={locale === 'zh' ? '产品架构' : 'Product architecture'}>
-    <div className="docs-architecture" style={{ '--map-owner-font': `${Math.max(16, 9 / viewport.zoom)}px`, '--map-badge-font': `${Math.max(12.5, 7 / viewport.zoom)}px` } as CSSProperties}><div className="docs-architecture-body">
-      <div ref={canvasRef} className={`docs-flow-canvas${canvasReady ? ' is-ready' : ''}${canPan ? ' is-zoomed' : ''}`}
-        aria-busy={!canvasReady} onPointerLeave={() => setHoveredEdgeId(null)} onPointerCancel={() => setHoveredEdgeId(null)}>
-        <EdgeInteractionContext.Provider value={edgeInteraction}>
-          <ReactFlow<DiagramNode, Edge> suppressHydrationWarning nodes={visibleNodes} edges={renderedEdges} nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes} onNodeClick={handleNodeClick}
-            onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)} onNodeMouseLeave={() => setHoveredNodeId(null)} onPaneClick={() => { setSelectedId(null); setSelectedEdgeId(null); setHoveredEdgeId(null); setHoveredNodeId(null); restoreFit(); }}
-            viewport={viewport} onViewportChange={setViewport} minZoom={minimumZoom} maxZoom={1.8} nodesDraggable={false}
-            nodesConnectable={false} zoomOnDoubleClick={false} zoomOnScroll={false} preventScrolling={false} panOnDrag={canPan} panOnScroll={false}
-            colorMode={themeMounted ? resolvedTheme === 'dark' ? 'dark' : 'light' : undefined} proOptions={{ hideAttribution: true }} />
-        </EdgeInteractionContext.Provider>
-        <button type="button" className="docs-map-fit" aria-label={locale === 'zh' ? '适应画布' : 'Fit diagram'} title={locale === 'zh' ? '适应画布' : 'Fit diagram'}
-          onClick={() => { setSelectedId(null); setSelectedEdgeId(null); setHoveredEdgeId(null); setHoveredNodeId(null); restoreFit(); }}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg><span>{locale === 'zh' ? '全图' : 'Overview'}</span>
+    <div ref={canvasRef} className={`docs-map-canvas${ready ? ' is-ready' : ''}${zoomed ? ' is-zoomed' : ''}${dragging ? ' is-dragging' : ''}`}
+      aria-busy={!ready}>
+      <svg ref={svgRef} className="docs-map-svg" viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
+        preserveAspectRatio="xMidYMid meet" role="group" aria-label={locale === 'zh' ? '产品架构 Map，可选择区域、组件或关系查看详情' : 'Product architecture map. Select a region, component or relation for details.'}
+        onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}
+        onClickCapture={event => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
+        onClick={() => { if (!drag.current?.moved) { setSelection(null); setHoveredRelation(null); } }}>
+        <defs>{['primary', 'supporting'].map(tone => <marker key={tone} id={`${markerId}-${tone}`}
+          viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M1 1L9 5L1 9" className={`docs-map-arrow ${tone}`} />
+        </marker>)}</defs>
+        {layout.surfaces.map(box => {
+          const region = items.get(box.node)?.kind === 'region' && box.tier !== 'component';
+          return <g key={box.id} className={`docs-map-surface tier-${box.tier}${box.accent ? ' is-accent' : ''}${selectedItem?.id === box.node ? ' is-selected' : ''}`}
+            data-map-node={box.node} role="button" tabIndex={0} aria-label={nodeLabel(box.node)}
+            onClick={event => { event.stopPropagation(); selectNode(box.node, region); }}
+            onKeyDown={event => activate(event, () => selectNode(box.node, region))}>
+            <rect {...{ x: box.x, y: box.y, width: box.width, height: box.height, rx: box.radius }} />
+          </g>;
+        })}
+        {layout.rules.map(rule => <path key={rule.id} d={rule.d} className="docs-map-divider" />)}
+        {layout.decorations.map(box => <rect key={box.id} x={box.x} y={box.y} width={box.width}
+          height={box.height} rx={box.radius} className="docs-map-reference-frame" />)}
+        {layout.routes.map((route, index) => {
+          const d = architectureRoutePath(route.points);
+          const members = route.relations.map(id => relations.get(id)!);
+          const relation = members.length === 1 ? members[0] : undefined;
+          const sharedTarget = members.length > 1 && members.every(edge => edge.target === members[0].target)
+            ? members[0].target : undefined;
+          const active = route.relations.includes(activeRelation ?? '') || Boolean(sharedTarget && selectedItem?.id === sharedTarget);
+          const label = members.length ? `${members.map(edge => nodeLabel(edge.source)).join(' / ')} → ${nodeLabel(members[0].target)}` : '';
+          const selectRoute = () => {
+            if (relation) selectRelation(relation.id);
+            else if (sharedTarget) selectNode(sharedTarget, items.get(sharedTarget)?.kind === 'region');
+          };
+          return <g key={route.id || `legend-${index}`} data-map-relations={route.relations.join(' ')}
+            className={`docs-map-route ${route.primary ? 'primary' : 'supporting'}${active ? ' is-active' : ''}`}>
+            <path d={d} className="docs-map-wire" markerEnd={route.arrow ? `url(#${markerId}-${route.primary ? 'primary' : 'supporting'})` : undefined} />
+            {route.junction ? <circle cx={route.junction[0]} cy={route.junction[1]} r={3.5}
+              className="docs-map-junction" aria-hidden="true" /> : null}
+            {relation || sharedTarget ? <path d={d} className="docs-map-route-hit" role="button" tabIndex={0}
+              aria-label={label}
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault(); event.stopPropagation(); selectRoute();
+              } }} onPointerEnter={() => { if (relation) setHoveredRelation(relation.id); }}
+              onPointerLeave={() => { if (relation) setHoveredRelation(current => current === relation.id ? null : current); }}
+              onClick={event => { event.stopPropagation(); selectRoute(); }} /> : null}
+          </g>;
+        })}
+        {layout.texts.map(t => <text key={t.id} x={t.x} y={t.y} fontSize={t.size} fontWeight={t.weight} textAnchor={t.anchor}
+          data-map-text={t.id} data-map-relations={t.relations.join(' ')}
+          className={`docs-map-text tone-${t.tone}${t.relations.includes(activeRelation ?? '') ? ' is-active' : ''}`}>{t.text}</text>)}
+        {layout.targets.map(target => <g key={`${target.node}-${target.texts.join()}`} className={`docs-map-target${selectedItem?.id === target.node ? ' is-selected' : ''}`}
+          data-map-node={target.node} role="button" tabIndex={0} aria-label={nodeLabel(target.node)}
+          onClick={event => { event.stopPropagation(); selectNode(target.node, target.region); }}
+          onKeyDown={event => activate(event, () => selectNode(target.node, target.region))}>
+          <rect x={target.x} y={target.y} width={target.width} height={target.height} rx={3} />
+        </g>)}
+        {layout.references.map(target => <g key={target.texts.join()} data-map-reference={target.relation}
+          className={`docs-map-target docs-map-reference${activeRelation === target.relation ? ' is-selected' : ''}`}
+          role="button" tabIndex={0}
+          aria-label={`${nodeLabel(relations.get(target.relation)!.source)} → ${nodeLabel(relations.get(target.relation)!.target)}`}
+          onPointerEnter={() => setHoveredRelation(target.relation)}
+          onPointerLeave={() => setHoveredRelation(current => current === target.relation ? null : current)}
+          onClick={event => { event.stopPropagation(); selectRelation(target.relation); }}
+          onKeyDown={event => activate(event, () => selectRelation(target.relation))}>
+          <rect x={target.x} y={target.y} width={target.width} height={target.height} rx={3} />
+        </g>)}
+      </svg>
+      <span className="docs-map-hint">{locale === 'zh' ? '点区域放大，点组件查看详情' : 'Tap a region to zoom, a component for details'}</span>
+      <div className="docs-map-controls" aria-label={locale === 'zh' ? '地图缩放' : 'Map zoom'}>
+        <button type="button" aria-label={locale === 'zh' ? '放大' : 'Zoom in'} onClick={() => zoom(1.5)}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 12h14M12 5v14" /></svg>
         </button>
-        {!selectedId && !focusedEdgeId ? <span className="docs-map-hint">{locale === 'zh' ? '点区域放大，点组件查看' : 'Tap a region to zoom, a component for details'}</span> : null}
-        {selectedDescription || edgeData?.description ? <div className="docs-map-detail" aria-live="polite">
-          <p>{selectedDescription ?? edgeData?.description?.[locale]}</p>
-          <Link href={`/${locale}/docs/${selectedRoute ?? edgeData?.docsRoute}`} onClick={event => event.stopPropagation()}>
-            {locale === 'zh' ? '查看文档 →' : 'Read docs →'}
-          </Link>
-        </div> : null}
+        <button type="button" aria-label={locale === 'zh' ? '缩小' : 'Zoom out'} onClick={() => zoom(1 / 1.5)} disabled={!zoomed}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 12h14" /></svg>
+        </button>
+        <button type="button" aria-label={locale === 'zh' ? '适应画布' : 'Fit diagram'} onClick={restore}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg>
+        </button>
       </div>
-    </div></div>
+      {selection ? <aside className="docs-map-detail" aria-live="polite" aria-label={locale === 'zh' ? '架构详情' : 'Architecture details'}>
+        <button type="button" className="docs-map-detail-close" aria-label={locale === 'zh' ? '关闭详情' : 'Close details'} onClick={() => setSelection(null)}>×</button>
+        <strong>{selectedItem?.title ?? (selectedRelation ? `${nodeLabel(selectedRelation.source)} → ${nodeLabel(selectedRelation.target)}` : '')}</strong>
+        {description ? <p>{description}</p> : null}
+        {docsRoute ? <Link href={`/${locale}/docs/${docsRoute}`}>{locale === 'zh' ? '查看文档 →' : 'Read docs →'}</Link> : null}
+        {related.length ? <details><summary>{locale === 'zh' ? `相关架构关系（${related.length}）` : `Architecture relations (${related.length})`}</summary>
+          <ul>{related.map(edge => <li key={edge.id}><button type="button" onClick={() => selectRelation(edge.id)}>
+            {nodeLabel(edge.source)} → {nodeLabel(edge.target)}
+          </button><p>{edge.description[locale]}</p></li>)}</ul>
+        </details> : null}
+      </aside> : null}
+    </div>
   </section>;
 }

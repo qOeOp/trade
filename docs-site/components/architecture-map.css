@@ -1,118 +1,105 @@
-.docs-architecture-page { flex: none; height: calc(100dvh - var(--fd-nav-height, 56px)); overflow: hidden; }
-.docs-home-container { display: flex; height: 100%; min-height: 0; padding-block: 4px; }
-.docs-architecture-shell { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; }
-.docs-architecture {
-  --map-canvas: var(--island);
-  --map-font-ui: var(--font-sans);
-  --map-node: light-dark(#ffffff, #1c1d1f);
-  --map-owner-fill: light-dark(rgb(15 23 42 / 2%), rgb(255 255 255 / 1.8%));
-  --map-core-from: light-dark(#e7f0fd, #1d3552); --map-core-to: light-dark(#f2f6fc, #1b2738);
-  --map-support-from: light-dark(#f5f7fa, rgb(32 33 35 / 96%));
-  --map-support-to: light-dark(#eef2f6, rgb(26 27 29 / 98%));
-  --map-node-text: light-dark(#59616b, #b3bac2);
-  --map-node-muted: light-dark(#64748b, #8a95a0);
-  --map-node-border: color-mix(in srgb, var(--map-edge) 32%, transparent);
-  --map-group-border: color-mix(in srgb, var(--map-edge) 26%, transparent);
-  --map-core-border: color-mix(in srgb, var(--map-edge) 60%, transparent);
-  --map-accent: light-dark(#1d4ed8, #93c5fd);
-  --map-edge: light-dark(#1d4ed8, #3b82f6); --map-edge-muted: var(--map-edge);
-  position: relative; display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; color: var(--fg);
+.docs-architecture-page {
+  background: light-dark(#f6f7f3, #101614); flex: none; width: 100%;
+  height: calc(100dvh - var(--fd-nav-height, 56px)); min-height: 0; overflow: hidden;
 }
-.docs-architecture-body { position: relative; flex: 1; min-height: 0; }
-.docs-flow-canvas { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; }
-.docs-flow-canvas .react-flow { --xy-background-color: transparent; background: transparent; opacity: 0; pointer-events: none; }
-.docs-flow-canvas.is-ready .react-flow { opacity: 1; pointer-events: auto; }
-.docs-flow-canvas .react-flow__viewport { transition: none !important; }
-.docs-flow-canvas .react-flow__pane { cursor: default; }
-.docs-flow-canvas.is-zoomed .react-flow__pane { cursor: grab; }
-.docs-flow-canvas.is-zoomed .react-flow__pane:active { cursor: grabbing; }
-.docs-flow-canvas .react-flow__node { transition: opacity 120ms ease; }
-.docs-flow-canvas .react-flow__edge-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-/* Keep the original map's slow blue flow on the main execution paths. */
-.docs-flow-canvas .react-flow__edge-path.docs-primary-flow { stroke-dasharray: 7 10; animation: docs-architecture-flow 3.4s linear infinite; }
-@keyframes docs-architecture-flow { to { stroke-dashoffset: -34; } }
-.docs-owner-group {
-  position: relative; width: 100%; height: 100%; padding: 0; border: 1px solid var(--map-group-border);
-  border-radius: 8px; background: transparent; box-shadow: none; cursor: zoom-in;
+.docs-home-container { display: flex; flex: 1; min-height: 0; padding: 4px 8px 12px; }
+.docs-architecture-shell {
+  --map-canvas: light-dark(#f6f7f3, #101614);
+  --map-ink: light-dark(#27352c, #e0e8df);
+  --map-muted: light-dark(#65796a, #9eafa2);
+  --map-faint: light-dark(#7d8f81, #75897c);
+  --map-primary: light-dark(#3c66d8, #6d94f5);
+  --map-supporting: light-dark(#92a8cc, #496795);
+  --map-accent: light-dark(#426d54, #a2c5ad);
+  --map-region: light-dark(#f0f3ed, #141c18);
+  --map-component: light-dark(#fafbf8, #1b2520);
+  --map-component-line: light-dark(#d4dfd1, #304036);
+  --map-boundary-line: var(--map-component-line);
+  --map-capture: light-dark(#eaf1e8, #17211c);
+  --map-rule: light-dark(#dce4d8, #28392f);
+  display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0;
+  color: var(--map-ink);
 }
-.docs-owner-group[data-has-badge="true"] { background: var(--map-owner-fill); }
-.docs-owner-group[data-has-badge="false"] { border-color: color-mix(in srgb, var(--map-edge) 14%, transparent); }
-.docs-owner-group > header {
-  position: absolute; top: -0.6em; left: 12px; display: flex; align-items: center; gap: 7px; padding-inline: 6px; background: var(--island);
-  color: var(--map-node-muted); font-family: var(--map-font-ui); font-size: var(--map-owner-font, 16px); font-weight: 400; line-height: 1.1;
-  letter-spacing: 0; white-space: nowrap;
+.docs-map-canvas { position: relative; width: 100%; min-width: 0; min-height: 0; flex: 1; }
+.docs-map-svg {
+  display: block; width: 100%; height: 100%; overflow: hidden; opacity: 0; pointer-events: none;
+  letter-spacing: normal; user-select: none; touch-action: pan-y;
 }
-.docs-owner-group[data-has-badge="true"] > header { color: var(--map-accent); }
-.docs-owner-badge {
-  display: inline-flex; align-items: center; padding: 2px 5.5px; border-radius: 3px;
-  background: #2563eb; color: #eff6ff; font-family: var(--font-sans);
-  font-size: var(--map-badge-font, 12.5px); font-weight: 400; line-height: 1.2; letter-spacing: 0;
+/* Diagram identifiers use the product's monospace face in both page languages. */
+.docs-map-canvas .docs-map-svg { font-family: var(--font-mono); }
+.docs-map-canvas.is-ready .docs-map-svg { opacity: 1; pointer-events: auto; }
+.docs-map-canvas.is-zoomed .docs-map-svg { cursor: grab; touch-action: none; }
+.docs-map-canvas.is-dragging .docs-map-svg { cursor: grabbing; }
+.docs-map-divider { fill: none; stroke: var(--map-rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.docs-map-reference-frame { fill: var(--map-canvas); stroke: var(--map-component-line); stroke-width: 1; }
+.docs-map-surface > rect { fill: var(--map-component); stroke: var(--map-component-line); stroke-width: 1; }
+.docs-map-surface { cursor: pointer; outline: none; }
+.docs-map-surface.tier-region { cursor: zoom-in; }
+.docs-map-surface.tier-region > rect { fill: var(--map-region); stroke: none; }
+.docs-map-surface.tier-boundary > rect { fill: var(--map-region); }
+.docs-map-surface.tier-capture > rect, .docs-map-surface.is-accent > rect { fill: var(--map-capture); }
+.docs-map-surface.tier-external > rect { fill: var(--map-canvas); }
+.docs-map-surface:is(:hover, :focus-visible, .is-selected) > rect { stroke: var(--map-primary); stroke-width: 1.5; }
+.docs-map-text { fill: var(--map-ink); pointer-events: none; dominant-baseline: central; }
+.docs-map-text.tone-muted { fill: var(--map-muted); }
+.docs-map-text.tone-faint { fill: var(--map-faint); }
+.docs-map-text.tone-accent { fill: var(--map-accent); }
+.docs-map-text.tone-primary, .docs-map-text.is-active { fill: var(--map-primary); }
+.docs-map-route .docs-map-wire {
+  fill: none; stroke: var(--map-supporting); stroke-width: 1.35;
+  stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 5 9;
+  vector-effect: non-scaling-stroke;
 }
-.docs-owner-group:hover, .docs-owner-group:focus-visible, .docs-owner-group.is-selected { border-color: var(--map-edge); outline: none; }
-.docs-map-node {
-  position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
-  padding: 3px 10px; border: 1px solid var(--map-node-border); border-radius: 5px;
-  background: var(--map-node); color: var(--fg); text-align: center; cursor: pointer; box-shadow: none;
-  transition: border-color 120ms ease, background-color 120ms ease;
+.docs-map-route:not([data-map-relations=""]) .docs-map-wire { animation: docs-map-flow 10s linear infinite; }
+/* Two dash periods give a seamless, deliberately quiet loop. */
+@keyframes docs-map-flow { to { stroke-dashoffset: -28; } }
+@media (prefers-reduced-motion: reduce) {
+  .docs-map-route:not([data-map-relations=""]) .docs-map-wire { animation: none; }
 }
-.docs-map-node:hover, .docs-map-node:focus-visible, .docs-map-node.is-selected {
-  border-color: var(--map-edge); outline: none; background: color-mix(in oklab, var(--map-edge) 5%, var(--map-node));
+.docs-map-route.primary .docs-map-wire { stroke: var(--map-primary); stroke-width: 2.2; }
+.docs-map-route:is(.is-active, :focus-within) .docs-map-wire { stroke: var(--map-primary); stroke-width: 2.5; }
+.docs-map-junction { fill: var(--map-primary); pointer-events: none; }
+.docs-map-arrow { fill: none; stroke: var(--map-supporting); stroke-width: 1.5; }
+.docs-map-arrow.primary { stroke: var(--map-primary); }
+.docs-map-route-hit { fill: none; stroke: transparent; stroke-width: 14; vector-effect: non-scaling-stroke; cursor: pointer; pointer-events: stroke; outline: none; }
+/* Keyboard focus is shown by the highlighted wire, not the path's rectangular bounds. */
+.docs-map-route-hit:focus-visible { outline: none; }
+.docs-map-target { cursor: pointer; outline: none; }
+.docs-map-target > rect { fill: transparent; stroke: transparent; stroke-width: 1; }
+.docs-map-target:is(:hover, :focus-visible, .is-selected) > rect { stroke: var(--map-primary); }
+.docs-map-hint { display: none; }
+.docs-map-controls {
+  position: absolute; display: flex; align-items: center; gap: 2px; right: 8px; bottom: 0;
+  padding: 3px; border: 1px solid var(--map-component-line); border-radius: 6px;
+  background: var(--map-canvas); color: var(--map-muted);
 }
-.docs-map-node-copy { display: block; min-width: 0; width: 100%; }
-.docs-map-node-copy strong {
-  display: block; color: var(--map-node-text); font-family: var(--map-font-ui); font-size: 18px; font-weight: 400; line-height: 1.15;
-  letter-spacing: 0; white-space: nowrap;
+.docs-map-controls button {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  color: inherit; background: transparent; border: 0; border-radius: 3px; cursor: pointer;
+  line-height: 1;
 }
-.docs-map-node-subtitle {
-  display: block; margin-top: 3px; color: var(--map-node-muted); font-family: var(--map-font-ui);
-  font-size: 14px; font-weight: 400; line-height: 1.2; white-space: nowrap;
-}
-/* Core components use one restrained accent; every component keeps the same type measure. */
-.docs-map-node[data-importance="core"] {
-  border-color: var(--map-core-border); background: linear-gradient(145deg, var(--map-core-from), var(--map-core-to));
-  box-shadow: 0 4px 12px rgb(0 0 0 / 14%), inset 0 1px rgb(147 197 253 / 8%);
-}
-.docs-map-node[data-importance="core"] strong { color: var(--map-accent); font-weight: 400; }
-.docs-map-node[data-importance="support"] { background: linear-gradient(145deg, var(--map-support-from), var(--map-support-to)); }
-.docs-map-record { background: transparent; border-color: transparent; border-radius: 0; padding-inline: 4px; }
-.docs-map-record strong { font-size: 18px; font-weight: 400; }
-.docs-map-record .docs-map-node-subtitle { font-size: 14px; }
-.docs-map-bus .docs-map-node-copy { display: flex; align-items: center; justify-content: center; gap: 16px; }
-.docs-map-bus .docs-map-node-subtitle { margin-top: 0; }
-.docs-map-bus[data-importance="core"] strong, .docs-map-bus[data-importance="core"] .docs-map-node-subtitle { font-family: var(--font-mono); }
-.docs-map-node .react-flow__handle, .docs-owner-group .react-flow__handle {
-  width: 4px; height: 4px; min-width: 0; min-height: 0; border: 0; background: var(--map-edge); opacity: 0;
-}
-/* React Flow attaches to the handle's outside edge. Account for the 1px
-   button border so those anchors coincide with the diagram coordinates. */
-.docs-flow-canvas .react-flow__handle-top { top: 1px; }
-.docs-flow-canvas .react-flow__handle-bottom { bottom: 1px; }
-.docs-flow-canvas .react-flow__handle-left { left: 1px; }
-.docs-flow-canvas .react-flow__handle-right { right: 1px; }
-.docs-map-node:hover .react-flow__handle.is-connected, .docs-map-node.is-selected .react-flow__handle.is-connected,
-.docs-owner-group:hover .react-flow__handle.is-connected { opacity: 0.8; }
-.docs-edge-caption {
-  position: absolute; padding: 1px 4px; background: var(--map-canvas); color: var(--fg-muted);
-  font-size: 12px; line-height: 1.3; white-space: nowrap; pointer-events: none;
-}
-.docs-map-fit {
-  position: absolute; right: 8px; bottom: 6px; z-index: 6; display: grid; place-items: center; width: 28px; height: 28px;
-  border: 1px solid var(--line); border-radius: 5px; background: var(--island); color: var(--fg-muted); cursor: pointer;
-}
-.docs-map-fit:hover, .docs-map-fit:focus-visible { color: var(--fg); border-color: var(--map-edge); outline: none; }
-.docs-map-fit span, .docs-map-hint { display: none; }
+.docs-map-controls button > svg { display: block; width: 16px; height: 16px; }
+.docs-map-controls button:is(:hover, :focus-visible) { background: var(--map-component); color: var(--map-ink); }
+.docs-map-controls button:disabled { opacity: .35; cursor: default; }
 .docs-map-detail {
-  position: absolute; z-index: 7; left: 50%; bottom: 8px; transform: translateX(-50%); width: min(700px, 85%);
-  padding: 10px 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--popup);
-  color: var(--fg); box-shadow: var(--shadow-popup); font-size: 12px; line-height: 1.5; text-align: left;
+  position: absolute; z-index: 2; left: 50%; bottom: 4px; transform: translateX(-50%);
+  width: min(720px, calc(100% - 240px)); max-height: 40%; overflow: auto;
+  padding: 16px 36px 16px 18px; background: var(--map-component); color: var(--map-ink);
+  border: 1px solid var(--map-boundary-line); border-radius: 7px;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 7%); font-size: 13px; line-height: 1.6;
 }
-.docs-map-detail p { margin: 0 0 4px; }
-.docs-map-detail a { color: var(--link); text-decoration: none; }
-@media (max-width: 520px) { .docs-home-container { padding: 6px; } .docs-map-detail { font-size: 11px; } }
+.docs-map-detail p { margin: 6px 0; }
+.docs-map-detail a, .docs-map-detail li button { color: var(--map-primary); text-decoration: none; }
+.docs-map-detail strong { font-weight: 600; }
+.docs-map-detail-close { position: absolute; top: 5px; right: 7px; width: 26px; height: 26px; background: transparent; border: 0; color: var(--map-muted); cursor: pointer; font-size: 22px; }
+.docs-map-detail details { margin-top: 8px; }
+.docs-map-detail summary { color: var(--map-muted); cursor: pointer; }
+.docs-map-detail ul { list-style: none; padding: 0; margin: 10px 0 0; }
+.docs-map-detail li + li { margin-top: 12px; }
+.docs-map-detail li button { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-align: left; }
 @media (max-width: 800px) {
-  .docs-map-fit { display: flex; width: auto; height: 32px; padding: 6px 8px; gap: 6px; font-size: 11px; }
-  .docs-map-fit span { display: inline; }
-  .docs-map-hint { position: absolute; left: 8px; bottom: 12px; display: block; color: var(--fg-muted); font-size: 11px; pointer-events: none; }
-  .docs-map-detail { bottom: 48px; width: calc(100% - 16px); }
+  .docs-home-container { padding: 4px 0 12px; }
+  .docs-map-hint { display: block; position: absolute; bottom: 12px; left: 12px; max-width: calc(100% - 140px); color: var(--map-muted); font-size: 10px; line-height: 1.4; pointer-events: none; }
+  .docs-map-controls button { width: 36px; height: 36px; }
+  .docs-map-detail { bottom: 48px; width: calc(100% - 24px); max-height: 45%; font-size: 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .docs-flow-canvas .react-flow__edge-path.docs-primary-flow { animation: none; } .docs-map-node, .docs-owner-group, .docs-flow-canvas .react-flow__node { transition: none; } }
