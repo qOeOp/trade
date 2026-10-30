@@ -156,14 +156,13 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(paper.input_start(now, True), DAY + DAY_NS)
 
     def test_instances_keep_membership_from_the_input_start_and_a_non_member_is_refused(self):
-        loaded = SimpleNamespace()
         membership = {"BTCUSDT": [[DAY - DAY_NS, DAY + 2 * DAY_NS]], "ETHUSDT": [[DAY - 3 * DAY_NS, DAY - DAY_NS]]}
         with mock.patch.object(paper, "episode_membership", side_effect=lambda intervals, _: intervals):
-            planned = paper.plan(loaded, ["BTCUSDT"], membership, DAY, {})
+            planned = paper.plan(["BTCUSDT"], membership, DAY, {})
             self.assertEqual(planned[0].universe_membership, [[DAY, DAY + 2 * DAY_NS]])
             self.assertEqual((planned[0].instrument_id, planned[0].trade_start_ns), ("BTCUSDT-PERP.BINANCE", DAY))
             with self.assertRaises(Refusal) as raised:
-                paper.plan(loaded, ["ETHUSDT"], membership, DAY, {})
+                paper.plan(["ETHUSDT"], membership, DAY, {})
         self.assertEqual(raised.exception.code, "PAPER_NOT_IN_UNIVERSE")
 
 

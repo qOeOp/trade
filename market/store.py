@@ -529,7 +529,7 @@ def _month_ms(month: date) -> int:
     return series._day_ms(month)
 
 
-def _scope(symbols, profile: dict) -> list[str] | None:
+def _scope(symbols) -> list[str] | None:
     if symbols is None:
         return None
     if (not isinstance(symbols, (list, tuple)) or not symbols or len(set(symbols)) != len(symbols)
@@ -545,7 +545,7 @@ def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4,
     market commit, after the latest stored month or, as a backfill, just before the earliest. `symbols` is
     the engineering allowlist of an isolated market database."""
     started = time.monotonic()
-    scope = _scope(symbols, profile)
+    scope = _scope(symbols)
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     today = datetime.now(UTC).date()
@@ -959,7 +959,7 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4
     Every state change is stored: thinning to per-second extremes moves a liquidation to the second's
     adverse extreme up to a second late (measured), so there is no thinned form."""
     started = time.monotonic()
-    scope = _scope(symbols, profile)
+    scope = _scope(symbols)
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     today = datetime.now(UTC).date()

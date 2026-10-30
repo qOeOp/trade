@@ -497,8 +497,8 @@ class _OrderState(TypedDict):
     pending: bool
 
 
-def lifecycle_findings(lifecycle, orders: list[dict], fills: list[dict], positions: list[dict],
-                       events: list[dict], coverage: dict) -> list[str]:
+def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], events: list[dict],
+                       coverage: dict) -> list[str]:
     """engine.lifecycle_findings: no order is created at or after a contract's termination (the engine's
     own EXPIRATION orders at a settlement excepted); before a termination without a settlement price
     every native position of the contract is flat and every order filled or ended, and no order has
@@ -703,7 +703,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
             except (OSError, UnicodeDecodeError, ValueError) as exc:
                 findings.append(finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}"))
             else:
-                findings.extend(lifecycle_findings(lifecycle, orders, fills, positions, events, coverage))
+                findings.extend(lifecycle_findings(lifecycle, fills, positions, events, coverage))
         findings.extend(submission_findings(events, summary, coverage))
         findings.extend(entry_findings(events, summary, coverage))
         for row in orders:

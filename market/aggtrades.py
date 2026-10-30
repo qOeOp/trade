@@ -193,7 +193,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
 def import_month(profile: dict, month: date, cache: Path, symbol: str, log=print) -> dict:
     """One contract month, one transaction/commit. No raw-SQL administrator write path."""
     started = time.monotonic()
-    store._scope([symbol], profile)
+    store._scope([symbol])
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     start = series._day_ms(month)

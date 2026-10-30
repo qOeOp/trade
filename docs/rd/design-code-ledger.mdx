@@ -1902,7 +1902,7 @@ Per bar label T: mark equity (the last account total at or before T, never a lat
 #### `daily_notional` [#impl-ledger-metrics-py-daily_notional]
 
 ```python
-def daily_notional(summary: dict, path: list[dict]) -> dict[int, Decimal]
+def daily_notional(path: list[dict]) -> dict[int, Decimal]
 ```
 
 Mean gross notional over each UTC day's bar labels of the trade window (flat labels count zero).

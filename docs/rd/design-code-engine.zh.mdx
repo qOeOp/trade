@@ -285,7 +285,6 @@ def generic_result(
 ```python
 def lifecycle_findings(
     lifecycle: list[dict],
-    orders: list[dict],
     fills: list[dict],
     positions: list[dict],
     events: list[dict],
@@ -293,7 +292,7 @@ def lifecycle_findings(
 ) -> list[str]
 ```
 
-<TypeTable type={{ "lifecycle": { type: "list[dict]", description: "lifecycle_events 从覆盖回执与摘要构造并核对过的事件：{type ∈ InstrumentStatus | InstrumentClose, instrument_id, ts_event, action, close_price}" }, "orders": { type: "list[dict]", description: "订单报表行" }, "fills": { type: "list[dict]", description: "成交报表行" }, "positions": { type: "list[dict]", description: "持仓报表行（events 列为该仓位的成交 event_id 列表）" }, "events": { type: "list[dict]", description: "订单事件史" }, "coverage": { type: "dict", description: "覆盖回执；窗口结束与每个片段的最后一根 K 线只有它记着，窗口内没有终止事件时数据提前中断的检查也要跑" } }} />
+<TypeTable type={{ "lifecycle": { type: "list[dict]", description: "lifecycle_events 从覆盖回执与摘要构造并核对过的事件：{type ∈ InstrumentStatus | InstrumentClose, instrument_id, ts_event, action, close_price}" }, "fills": { type: "list[dict]", description: "成交报表行" }, "positions": { type: "list[dict]", description: "持仓报表行（events 列为该仓位的成交 event_id 列表）" }, "events": { type: "list[dict]", description: "订单事件史" }, "coverage": { type: "dict", description: "覆盖回执；窗口结束与每个片段的最后一根 K 线只有它记着，窗口内没有终止事件时数据提前中断的检查也要跑" } }} />
 
 **返回**　list[str]：发现列表，每条带品种与终止时刻，订单项带 client_order_id，持仓项带 position_id
 
