@@ -1,5 +1,5 @@
 """Why a replay is invalid (`ledger.capture_problems`, `ledger.audit_problems`, `ledger.summary_problems`,
-`ledger.capture_fingerprint`, `ledger.sealed_rows`).
+`ledger.capture_fingerprint`, `ledger.stored_fingerprint`, `ledger.sealed_rows`).
 
 The rules are pure: they read exit codes, stage facts and the bytes of the audit result, the
 runtime failure receipts and the native summary, never logs. `replay.audit_problems` and
@@ -21,6 +21,7 @@ AUDIT_RESULT = "audit/audit.json"
 RUNTIME_ERRORS = "reports/runtime_failures.jsonl"  # engine.execution_failure
 SUMMARY = "reports/summary.json"
 FINGERPRINT = "fingerprint/fingerprint.json"
+DAY_HASHES = "by_utc_day"  # engine.report_fingerprint's per-UTC-day hashes of a table; never stored
 FAILURE_FIELDS = ("stage", "exception_type")
 FAILURE_TEXT_LIMIT = 300  # characters of a failure message kept in a reason
 # engine.main stages that end before any market data reaches the strategy (execution_failure): binding,
@@ -258,7 +259,7 @@ def capture_problems(capture: Mapping, source_sha256: str, identity: Mapping, co
 
 
 def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None = None) -> tuple[dict | None, list[dict]]:
-    """(the semantic fingerprint the fingerprint stage sealed, its failure reasons).
+    """(the semantic fingerprint the fingerprint stage sealed, in its stored form, its failure reasons).
 
     Outside a precheck the capture holds only the fingerprint's hash; its bytes come from `verified`
     (the working directory's files, checked against that hash by `sealed`).
@@ -276,7 +277,18 @@ def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None =
     value = json_object(sealed(capture, FINGERPRINT, verified))
     if value is None:
         return None, [reason("FINGERPRINT_FAILED", "the fingerprint stage wrote no JSON object", FINGERPRINT)]
-    return value, []
+    return stored_fingerprint(value), []
+
+
+def stored_fingerprint(fingerprint):
+    """A semantic fingerprint as a run row keeps it and as two fingerprints are compared: each table's
+    rows, whole-table hash and file hash, without the image's per-UTC-day hashes (`DAY_HASHES`), which
+    nothing reads. Runs ingested earlier still store them; passing a stored fingerprint through here
+    before comparing lets old and new rows match. Anything but a mapping is returned unchanged."""
+    if not isinstance(fingerprint, Mapping):
+        return fingerprint
+    return {name: {key: value for key, value in entry.items() if key != DAY_HASHES}
+            if isinstance(entry, Mapping) else entry for name, entry in fingerprint.items()}
 
 
 def sealed_rows(capture: Mapping) -> dict[str, int] | None:

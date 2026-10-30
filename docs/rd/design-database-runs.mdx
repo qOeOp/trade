@@ -8,7 +8,7 @@ Execution validity, audits, fingerprints, sealed reports, daily returns and nati
 
 运行：一次研究或样本外封存回放的结论、审计发现、单运行报告与原生报告指纹；执行身份不在此重复，按试验与登记包读
 
-<TypeTable type={{ "trial_id": { type: "INT", description: "执行前已生成的试验编号，同时为结果主键与外键", required: true }, "status": { type: "ENUM('passed','invalid')", description: "审计结论", required: true }, "failure_reasons": { type: "JSON", description: "无效原因，只引用审计发现的编号；通过为空", required: false }, "audit": { type: "JSON", description: "{ran, findings}：审计是否跑完与发现清单；审计边界属审计器版本，不存", required: true }, "fingerprints": { type: "JSON", description: "原生报告的语义指纹：由该运行镜像内的指纹入口计算，覆盖订单、成交、持仓、账户、日收益、订单事件与敞口；每表行数、整表哈希与逐 UTC 日哈希；逐字节稳定的账户、日收益、敞口另记字节哈希；通过的运行必有，无效运行为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
+<TypeTable type={{ "trial_id": { type: "INT", description: "执行前已生成的试验编号，同时为结果主键与外键", required: true }, "status": { type: "ENUM('passed','invalid')", description: "审计结论", required: true }, "failure_reasons": { type: "JSON", description: "无效原因，只引用审计发现的编号；通过为空", required: false }, "audit": { type: "JSON", description: "{ran, findings}：审计是否跑完与发现清单；审计边界属审计器版本，不存", required: true }, "fingerprints": { type: "JSON", description: "原生报告的语义指纹：由该运行镜像内的指纹入口计算，覆盖订单、成交、持仓、账户、日收益、订单事件与敞口；每表行数与整表哈希，逐字节稳定的账户、日收益、敞口另记字节哈希；镜像写出的逐 UTC 日哈希不存（早先入账的行仍带着，比较时两边都去掉）；通过的运行必有，无效运行为空", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器入账时间", required: true } }} />
 
 **键与约束**
 

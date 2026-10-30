@@ -273,7 +273,8 @@ class SealedReplayTests(unittest.TestCase):
         (status, audit, fingerprints), = self.rows("SELECT status, audit, fingerprints FROM run WHERE trial_id = %s",
                                                    (stored["trial_id"],))
         self.assertEqual((status, json.loads(audit), json.loads(fingerprints)),
-                         ("passed", {"ran": True, "findings": []}, DEFAULT_FINGERPRINT))
+                         ("passed", {"ran": True, "findings": []}, {"fills": {"rows": 2, "sha256": "0" * 64}}),
+                         "the run row keeps no per-UTC-day hashes")
         capture = execution.read_capture(self.world.conn, stored["trial_id"])
         self.assertEqual(capture["stages"]["fingerprint"], {"state": "exited", "exit_code": 0})
         # Each fact once: the source is the candidate's, the coverage receipt the start receipt's, the

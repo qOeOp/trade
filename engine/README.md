@@ -260,7 +260,9 @@ The fingerprint stage (`python -m engine.compare`) reads the reports and writes 
 `fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
 the row count, a whole-table hash and one hash per UTC day, after renumbering the random event and
 snapshot UUIDs by first appearance (trade IDs are derived, and kept) and sorting every table by all its columns; the account,
-returns and exposures files also carry their byte hash. A formal replay executes once and seals its
+returns and exposures files also carry their byte hash. The execution capture keeps the hash of the
+whole file; the run row keeps each table's count and hashes without the per-day hashes, and
+comparisons drop them from both sides, so rows stored earlier with them still match. A formal replay executes once and seals its
 fingerprint after the independent audit; sealing alone does not verify repeatability. Native detail
 is regenerated on demand by `replay reproduce`, restoring the sealed execution environment and, for
 quotes, both margin rates. A run without a fingerprint is stored invalid (`FINGERPRINT_MISSING`), and a sealed run is
