@@ -154,6 +154,12 @@ class CommandTests(unittest.TestCase):
                            "/* SELECT ' */ /*!SET PERSIST max_connections = */ (SELECT 7) #'",
                            "SELECT 1 /*+ SET_VAR(max_connections = 5) */"):
             self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, executable)
+        for server_file in ("SELECT version FROM ledger_schema INTO OUTFILE '/tmp/schema.txt'",
+                            "SELECT version INTO DUMPFILE '/tmp/schema.bin' FROM ledger_schema",
+                            "SELECT load_file('/etc/hosts') AS f"):
+            self.refused("WRITE_VIA_SQL", "ledger", "sql", *ledger, server_file)
+        self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT 'INTO OUTFILE' AS `load_file`")["rows"],
+                         [["INTO OUTFILE"]], "the words inside a string or a quoted name hide nothing")
         self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT '/*!' AS a /* it's */, ';' AS b")["rows"],
                          [["/*!", ";"]], "a marker inside a string, a quote inside a comment, hide nothing")
         self.assertEqual(self.ok("ledger", "sql", *ledger, "SELECT REPLACE('a-b', '-', '') AS joined")["rows"],

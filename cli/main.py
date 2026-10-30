@@ -310,6 +310,7 @@ LEXEMES = re.compile(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`|--[^\n]
 # sets it), and /*+ */ carries optimizer hints; neither is a comment to it, so neither is accepted anywhere
 # outside a string.
 EXECUTABLE_COMMENT = re.compile(r"/\*[!+]")
+SERVER_FILES = {"OUTFILE", "DUMPFILE", "LOAD_FILE"}  # server file writes and reads; the service config refuses them too
 
 
 def _statement_words(query: str) -> tuple[str, list[str], bool]:
@@ -332,6 +333,9 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
     body = stripped.strip().rstrip(";").strip()
     if not words or words[0] not in READ_FIRST or ";" in body or executable:
         raise refuse("WRITE_VIA_SQL", "only one " + ", ".join(READ_FIRST) + " statement is accepted",
+                     expected="a single read statement")
+    if SERVER_FILES.intersection(words):
+        raise refuse("WRITE_VIA_SQL", "INTO OUTFILE, INTO DUMPFILE and LOAD_FILE reach server files and are not accepted",
                      expected="a single read statement")
     with db.read_as_of(profile, at) as conn:
         if words[0] == "EXPLAIN":
@@ -1111,7 +1115,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the ledger at --at (default: the research branch head) with the reader account",
         "nothing; never publishes",
         "at, ledger_commit, columns, rows (binary values as {bytes: N})",
-        "WRITE_VIA_SQL (not exactly one statement starting with a read keyword, or a /*! or /*+ comment); "
+        "WRITE_VIA_SQL (not exactly one statement starting with a read keyword, a /*! or /*+ comment, or "
+        "INTO OUTFILE, INTO DUMPFILE or LOAD_FILE); "
         "INVALID_REF, UNKNOWN_REF (--at); SQL_STATEMENT_FAILED (the server's error)"),
     ("ledger", "witness"): (
         "out-of-sample registration commits and witness rows (writer); the pinned TSA roots",

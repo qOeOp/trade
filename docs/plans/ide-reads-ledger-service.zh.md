@@ -386,7 +386,9 @@ root 也不受这个权限位限制。改成以 `TRADE_UID` 运行，就得先�
 尚未解决：在隔离的 Dolt 2.4.2 上实测，只有 `SELECT` 权限的 reader 能用 `SELECT … INTO OUTFILE` / `INTO DUMPFILE` 往
 服务器写文件，能用 `LOAD_FILE` 读服务器上的文件。在 ledger 容器里，后者能读到服务目录下含 root 密码的 `service.json`。
 `ledger sql` 只看首词，这两种语句都能通过。在 Dolt 配置里把 `secure_file_priv` 设成不存在的目录后，两种语句都失败；
-reader 也改不了这个变量（它是只读变量）。`GET_LOCK` 能用，但只影响锁，不能写数据。修法待用户决定。
+reader 也改不了这个变量（它是只读变量）。`GET_LOCK` 能用，但只影响锁，不能写数据。
+2026-10-30 用户批准两层都修：两处 Dolt 服务配置设 `secure_file_priv: /dev/null/no-file-io`，`ledger sql` 拒绝 OUTFILE、
+DUMPFILE 和 LOAD_FILE（`WRITE_VIA_SQL`）。发现时线上 IDE 没有配置任何对话代理，这条路没有被用过。
 
 ## 9. 不做
 
