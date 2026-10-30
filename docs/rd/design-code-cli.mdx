@@ -625,7 +625,8 @@ def ledger_service(
 5. status：探活并返回地址、branch 与当前提交；连接失败返回 running=false，不算拒绝。
 6. 服务配置里没有 socket 的服务由 compose 管（docs/plans/ledger-compose-service.zh.md）：经本机回环的 TCP 连接；start 只等它接受连接，读不到账本也不停它；stop 拒绝为 SERVICE_MANAGED。
 7. run（compose 的 ledger 服务）：前台运行 Dolt。没有服务配置时只在服务目录、数据目录和档案目录都空时自举：先装 DoltHub 密钥，再从公开副本克隆账本和市场库（远端分支建成本地分支），核对 schema 版本和提交测试，建 root（含 'root'@'%'）和各库账户，最后写服务配置和两个档案；失败就删掉自己建的东西。已有服务配置时每次启动核对提交测试组、记录的库和 schema 版本，并补齐 'root'@'%'。
-8. check：以读账号读账本和市场库，schema 版本都对才成功；compose 拿它做健康检查。
+8. run 带 --readers 时，每次启动在开始服务前写 `<readers>/service.json`：只有端口和两个库的读账号，没有 root 密码和写账号，给只读的容器（IDE）用，它看不到服务配置本身。--readers 指向服务目录即 USAGE_ERROR。
+9. check：以读账号读账本和市场库，schema 版本都对才成功；compose 拿它做健康检查。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -637,6 +638,7 @@ def ledger_service(
 | `BOOTSTRAP_FAILED` | run 的自举中克隆失败；已删掉自举建的东西 |
 | `DOLTHUB_CREDENTIALS` | run 首次自举时没有 DoltHub 密钥 |
 | `SERVICE_CHECK_FAILED` | run 核对不过：提交测试组、记录的库、schema 版本或提交测试，或服务配置带 socket |
+| `USAGE_ERROR` | run 的 --readers 指向服务目录（不替换服务配置） |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="table:ledger_schema" />、<Ref id="table:ledger_head" />
 

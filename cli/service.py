@@ -19,6 +19,8 @@ service.json it checks before serving: the commit verification group, every reco
 schema version of each profile's database; any failure stops the server and is SERVICE_CHECK_FAILED.
 config.yaml is written from the arguments at every start: the data directory may be a volume only the
 container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured).
+With --readers, every start writes `<readers>/service.json` before serving: only the port and each
+database's reader account, for a container that only reads (the IDE), which never sees service.json.
 """
 
 from __future__ import annotations
@@ -269,15 +271,31 @@ def _check_service(service_root: Path, config: dict) -> None:
         conn.close()
 
 
+def write_readers(readers: Path, config: dict) -> None:
+    """`<readers>/service.json` for a container that only reads (docs/plans/ide-reads-ledger-service.zh.md):
+    the port and each database's reader account, derived from service.json at every start. No root
+    password, writer account, binary or socket, so a profile naming this directory reaches the service
+    over TCP and can only read."""
+    readers.mkdir(mode=0o700, parents=True, exist_ok=True)
+    db._private_write(readers / "service.json", {
+        "port": config["port"],
+        "databases": {name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
+
+
 def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origins: dict[str, str],
-          port: int = PORT, binary: str | None = None, kind: str = "active", log=None) -> tuple[subprocess.Popen, dict]:
-    """Bootstrap or check the service and return its running server (the caller waits on it)."""
+          port: int = PORT, binary: str | None = None, kind: str = "active", log=None,
+          readers: Path | None = None) -> tuple[subprocess.Popen, dict]:
+    """Bootstrap or check the service and return its running server (the caller waits on it); with
+    `readers`, write the reader-only service file there before serving."""
     service_root, data_dir = Path(service_root).absolute(), Path(data_dir).absolute()
     backup_root = Path(backup_root).absolute()
+    if readers is not None and Path(readers).absolute().resolve() == service_root.resolve():
+        raise refuse("USAGE_ERROR", "--readers names the service directory: its service.json is not replaced")
     binary = db._binary(binary)
     config = db._service(service_root)
     if config is None:
-        return bootstrap(service_root, data_dir, backup_root, credentials, origins, port, binary, kind, log)
+        server, config = bootstrap(service_root, data_dir, backup_root, credentials, origins, port, binary, kind, log)
+        return server, _serve_readers(server, readers, config)
     if not db.managed(config) or int(config["port"]) != port:
         raise refuse("SERVICE_CHECK_FAILED", f"{service_root}/service.json names a socket or port "
                                              f"{config.get('port')}, not a service compose runs on port {port}",
@@ -293,13 +311,23 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
         _stop(server)
         raise
     _log(f"serving on port {port}")
-    return server, config
+    return server, _serve_readers(server, readers, config)
+
+
+def _serve_readers(server: subprocess.Popen, readers: Path | None, config: dict) -> dict:
+    if readers is not None:
+        try:
+            write_readers(Path(readers).absolute(), config)
+        except BaseException:
+            _stop(server)
+            raise
+    return config
 
 
 def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
-        origins: dict[str, str], port: int = PORT) -> tuple[dict, int]:
+        origins: dict[str, str], port: int = PORT, readers: Path | None = None) -> tuple[dict, int]:
     """ledger service run: serve until the server exits; SIGTERM and SIGINT are passed to it."""
-    server, _ = start(service_root, data_dir, backup_root, credentials, origins, port)
+    server, _ = start(service_root, data_dir, backup_root, credentials, origins, port, readers=readers)
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
     code = server.wait()

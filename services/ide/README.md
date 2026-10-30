@@ -94,7 +94,9 @@ Five services on one Docker engine:
   run`. Image `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command
   line reaches it. On first start, with empty directories, it bootstraps from the public copies
   (about 17 GB) and needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a
-  `dolt login` `~/.dolt`).
+  `dolt login` `~/.dolt`). Every start also writes a reader-only `service.json` (the port and the two
+  reader accounts, no root password or writer) into the `trade-ledger-readers` volume, for a container
+  that only reads.
 - **market-supply**: replay inputs over HTTP (`python -m market.remote`; `market/README.md`, "Remote
   supply for replay inputs"). Same image. It reads the market through ledger and serves only the native
   files of a pinned commit, its contracts and window. Published on 127.0.0.1:8210
