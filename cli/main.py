@@ -302,17 +302,35 @@ def ledger_temp(root: str | None) -> dict:
             "accounts": created["accounts"], "ledger_commit": status.get("ledger_commit") or created["ledger_commit"]}
 
 
-def _statement_words(query: str) -> tuple[str, list[str]]:
-    stripped = re.sub(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`", " ", query)
-    stripped = re.sub(r"--[^\n]*|#[^\n]*|/\*.*?\*/", " ", stripped, flags=re.S)
-    return stripped, re.findall(r"[A-Za-z_]+", stripped.upper())
+# Strings, quoted names and comments in one left-to-right pass, as the server lexes them: whichever starts
+# first owns the text to its end, so a quote inside a comment or a comment marker inside a string hides
+# nothing from the check.
+LEXEMES = re.compile(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`|--[^\n]*|#[^\n]*|/\*.*?\*/", re.S)
+# Dolt 2.4.2 executes the body of a /*! */ comment (measured: `/*!SET PERSIST max_connections = */ (SELECT 7)`
+# sets it), and /*+ */ carries optimizer hints; neither is a comment to it, so neither is accepted anywhere
+# outside a string.
+EXECUTABLE_COMMENT = re.compile(r"/\*[!+]")
+
+
+def _statement_words(query: str) -> tuple[str, list[str], bool]:
+    executable = False
+
+    def blank(lexeme: re.Match) -> str:
+        nonlocal executable
+        if lexeme.group()[0] in "-#/" and EXECUTABLE_COMMENT.search(lexeme.group()):
+            executable = True
+        return " "
+
+    stripped = LEXEMES.sub(blank, query)
+    executable = executable or bool(EXECUTABLE_COMMENT.search(stripped))  # an unclosed /*! is no comment either
+    return stripped, re.findall(r"[A-Za-z_]+", stripped.upper()), executable
 
 
 def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
     """ledger sql: one read statement with the reader account, pinned to an exact version."""
-    stripped, words = _statement_words(query or "")
+    stripped, words, executable = _statement_words(query or "")
     body = stripped.strip().rstrip(";").strip()
-    if not words or words[0] not in READ_FIRST or ";" in body:
+    if not words or words[0] not in READ_FIRST or ";" in body or executable:
         raise refuse("WRITE_VIA_SQL", "only one " + ", ".join(READ_FIRST) + " statement is accepted",
                      expected="a single read statement")
     with db.read_as_of(profile, at) as conn:
@@ -1090,8 +1108,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the ledger at --at (default: the research branch head) with the reader account",
         "nothing; never publishes",
         "at, ledger_commit, columns, rows (binary values as {bytes: N})",
-        "WRITE_VIA_SQL (not exactly one statement starting with a read keyword); INVALID_REF, UNKNOWN_REF "
-        "(--at); SQL_STATEMENT_FAILED (the server's error)"),
+        "WRITE_VIA_SQL (not exactly one statement starting with a read keyword, or a /*! or /*+ comment); "
+        "INVALID_REF, UNKNOWN_REF (--at); SQL_STATEMENT_FAILED (the server's error)"),
     ("ledger", "witness"): (
         "out-of-sample registration commits and witness rows (writer); the pinned TSA roots",
         "sends each unwitnessed registration commit's hash to the RFC 3161 authority and records the verified "
