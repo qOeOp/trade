@@ -68,7 +68,8 @@ For causal, trace every market-data price or indicator input reaching order subm
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
 prices with `market bars` at the precheck's market commit: the stored bars and funding the
-Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close). Compare
+Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close); read
+tick, size step and minimum notional from `market coverage`'s `terms`. Compare
 those times with submission; never script against the market package. Report
 unobserved branches as such. Native execution-state and lifecycle reactions retain their own
 event-ordering contracts.
