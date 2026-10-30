@@ -7,7 +7,7 @@ import { Tip } from "./Tip";
 // update never flickers. A failure shows at once and stays until a refresh succeeds.
 const DELAY_MS = 200;
 const MIN_MS = 400;
-const STAGE = { pulling: "pulling market data", queued: "waiting to draw", computing: "drawing the graph" } as const;
+const STAGE = { queued: "waiting to draw", computing: "drawing the graph" } as const;
 const short = (commit: string | null) => commit?.slice(0, 8) ?? "the new head";
 
 /** The status bar's background task, as IntelliJ's: a turning ring (a still clock under reduced motion)

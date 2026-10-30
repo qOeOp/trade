@@ -56,10 +56,10 @@ COPY --from=agent /agent/node_modules services/ide/agent/node_modules/
 RUN python3 -c "import sys; sys.path.insert(0, 'services/ide'); from research_graph.renderers.web import render as r; \
 (r.PAGE.parent / r.BUILT_FROM).write_text(r.digest(r.sources()) + '\n'); r.built_page()"
 COPY services/ide/docker/entrypoint.sh /usr/local/bin/trade-ide-entrypoint
-COPY services/ide/docker/pull.sh /usr/local/bin/trade-ide-pull
 
-ENV TRADE_LEDGER_HOME=/data/ledgers DOLT_ROOT_PATH=/data/dolt/home
-VOLUME /data
+# The profiles are compose configs here; the chat service's agents and threads live in /data/agent.
+ENV TRADE_LEDGER_HOME=/run/trade/ledgers
+VOLUME /data/agent
 EXPOSE 8765
 LABEL org.opencontainers.image.title="Trade IDE"
 ENTRYPOINT ["trade-ide-entrypoint"]

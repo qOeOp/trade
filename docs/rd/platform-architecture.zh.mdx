@@ -8,12 +8,12 @@
 
 一份 compose（`services/ide/docker/compose.yaml`）就是全部部署，工作站与服务器相同：四个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。
 
-<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE --> V[(trade-ide-data 卷 DoltHub 公开库只读副本)]\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api haproxy]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 公开副本)]"} />
+<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE -->|只读账号 TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api haproxy]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 公开副本)]"} />
 
 | 服务 | 镜像 | 谁能访问 | 读 | 写 |
 |---|---|---|---|---|
-| ide | ghcr.io/qoeop/trade-ide | 浏览器，127.0.0.1:8765；只服务配置的 Host，拒绝跨站，不发 CORS 头 | 自己的 DoltHub 公开库只读副本（卷 trade-ide-data，首次启动克隆，容器管理员 DOLT_PULL --ff-only） | 不写任何库；/api/agent/ 与 /api/paper/ 只原样转发 |
-| ledger | ghcr.io/qoeop/trade-service | 宿主命令行与 paper，127.0.0.1:13330 | 研究账本与市场库的 Dolt 服务（`ledger service run`） | 账本与市场库唯一的写入服务；首次启动从公开副本 bootstrap、发布回公开副本，只有它拿到 DoltHub 密钥 |
+| ide | ghcr.io/qoeop/trade-ide | 浏览器，127.0.0.1:8765；只服务配置的 Host，拒绝跨站，不发 CORS 头 | ledger 服务，只用 reader 账号（ledger 写进卷 trade-ledger-readers 的只读服务文件） | 不写任何库；/api/agent/ 与 /api/paper/ 只原样转发 |
+| ledger | ghcr.io/qoeop/trade-service | 宿主命令行、paper、market-supply 与 ide（只读），127.0.0.1:13330 | 研究账本与市场库的 Dolt 服务（`ledger service run`） | 账本与市场库唯一的写入服务；首次启动从公开副本 bootstrap、发布回公开副本，只有它拿到 DoltHub 密钥 |
 | paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | 账本里的 paper 运行、运行日志、最近一次研究回放 | 经命令行 `paper start/stop/seal/delete` 写账本（<code>paper_run</code> 声明行与封存证据包）；经 docker-api 起停运行容器 |
 | docker-api | haproxy | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用（docker/docker-api.cfg）；唯一能到宿主 Docker 引擎的路 |
 

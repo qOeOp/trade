@@ -95,8 +95,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "Browser",
     "kind": "component",
     "description": {
-      "zh": "浏览器访问 services/ide/ide.py 提供的 Web 服务；研究图读取 IDE 自己的公开副本，Paper 面板代理独立 daemon API。",
-      "en": "The browser accesses the Web service in services/ide/ide.py. Research graphs read IDE-local public copies, while Paper panels proxy a separate daemon API."
+      "zh": "浏览器访问 services/ide/ide.py 提供的 Web 服务；研究图只用 reader 账号读取活动 Dolt 服务，Paper 面板代理独立 daemon API。",
+      "en": "The browser accesses the Web service in services/ide/ide.py. Research graphs read the active Dolt service with reader accounts only, while Paper panels proxy a separate daemon API."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -204,8 +204,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "product",
     "kind": "component",
     "description": {
-      "zh": "report/runs.py、report/comparison.py、report/attribution.py、report/graph.py 按所连接账本读取并派生报告、比较和研究图；IDE 调用相同只读代码，但连接自己的本地副本，不读活动研究库。",
-      "en": "report/runs.py, report/comparison.py, report/attribution.py and report/graph.py derive reports, comparisons and graphs from the connected ledger. IDE uses the same read-only code against its own local copies, not the active research database."
+      "zh": "report/runs.py、report/comparison.py、report/attribution.py、report/graph.py 按所连接账本读取并派生报告、比较和研究图；IDE 调用相同只读代码，只用 reader 账号连接活动研究库。",
+      "en": "report/runs.py, report/comparison.py, report/attribution.py and report/graph.py derive reports, comparisons and graphs from the connected ledger. IDE uses the same read-only code against the active research database, connected with reader accounts only."
     },
     "docsRoute": "design-code-report"
   },
@@ -292,8 +292,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "services/ide/ide.py 和 services/ide/research_graph/ 在 IDE 服务中读取本地副本生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。",
-      "en": "services/ide/ide.py and services/ide/research_graph/ generate graphs from IDE-local copies and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger."
+      "zh": "services/ide/ide.py 和 services/ide/research_graph/ 在 IDE 服务中经 reader 账号读取活动 research 与 market 库生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。",
+      "en": "services/ide/ide.py and services/ide/research_graph/ generate graphs from the active research and market databases through reader accounts and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -303,19 +303,19 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "services/ide/agent/src/tools.ts 只允许产品只读命令，并连接 IDE 本地数据库副本；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。",
-      "en": "services/ide/agent/src/tools.ts allows read-only product commands against IDE-local database copies; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research."
+      "zh": "services/ide/agent/src/tools.ts 只允许产品只读命令，经同一 reader 路径读取活动 research 与 market 库；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。",
+      "en": "services/ide/agent/src/tools.ts allows read-only product commands against the active research and market databases through the same reader path; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research."
     },
     "docsRoute": "platform-architecture/#ide"
   },
   {
-    "id": "copies",
-    "title": "Local research + market",
+    "id": "readers",
+    "title": "Reader-only access",
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "services/ide/docker/entrypoint.sh、pull.sh 在 IDE volume 中维护自己的 research 与 market Dolt 副本；首次从 DoltHub clone，此后只做 fast-forward DOLT_PULL，业务读取账号只有 SELECT。",
-      "en": "services/ide/docker/entrypoint.sh and pull.sh maintain IDE-local research and market Dolt copies in its volume. They initially clone from DoltHub, then fast-forward with DOLT_PULL; application readers have SELECT-only access."
+      "zh": "ledger 服务每次启动时，ledger service run --readers 将只读服务文件（端口与 reader 账号，不含 root 密码、写入账号或 DoltHub 密钥）写入卷 trade-ledger-readers；services/ide/docker/compose.yaml 将该卷只读挂载进 IDE。IDE 的 profile 是 compose config，从不发布，也不保留数据库副本。",
+      "en": "At every start of the ledger service, ledger service run --readers writes a reader-only service file (port and reader accounts, without root password, writer account or DoltHub key) into the trade-ledger-readers volume; services/ide/docker/compose.yaml mounts that volume read-only into IDE. IDE profiles are compose configs that never publish, and IDE keeps no database copy."
     },
     "docsRoute": "platform-architecture/#data"
   },
@@ -445,8 +445,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "DoltHub",
     "kind": "component",
     "description": {
-      "zh": "ledger/publish.py 与市场发布命令将研究和 market 的版本历史发布到 DoltHub；IDE clone 后 ff-only 拉取这些公开副本。DoltHub 不是另一份独立事实来源。",
-      "en": "ledger/publish.py and market publication commands publish research and market version history to DoltHub. IDE clones then fast-forwards these public copies; DoltHub is not another independent source of fact."
+      "zh": "ledger/publish.py 与市场发布命令将研究和 market 的版本历史发布到 DoltHub，作为公开副本；IDE 读取 ledger 服务，不读这些副本。DoltHub 不是另一份独立事实来源。",
+      "en": "ledger/publish.py and market publication commands publish research and market version history to DoltHub as public copies. IDE reads the ledger service, not these copies; DoltHub is not another independent source of fact."
     },
     "docsRoute": "platform-architecture/#data"
   },
@@ -678,8 +678,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "research-db",
     "target": "qualification",
     "description": {
-      "zh": "qualification/availability.py 从所连接账本按当前检查身份读时判定，不回写资格结果；IDE 调用时连接自己的公开副本。",
-      "en": "qualification/availability.py derives availability at read time under the current check identity without writing it back. When called by IDE, it connects to IDE-local public copies."
+      "zh": "qualification/availability.py 从所连接账本按当前检查身份读时判定，不回写资格结果；IDE 调用时只用 reader 账号连接同一活动研究库。",
+      "en": "qualification/availability.py derives availability at read time under the current check identity without writing it back. When called by IDE, it connects to the same active research database with reader accounts only."
     },
     "docsRoute": "platform-architecture"
   },
@@ -698,8 +698,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "ide",
     "target": "reports",
     "description": {
-      "zh": "IDE 调用相同只读 qualification/report 代码，以 IDE 本地副本为数据源。这是代码复用关系，不表示 IDE 读取活动研究库，也不是活动库推送派生报告。",
-      "en": "IDE invokes the same read-only qualification/report code against IDE-local copies. This denotes code reuse, not IDE access to the active research database or an active-database report push."
+      "zh": "IDE 调用相同只读 qualification/report 代码，只用 reader 账号读取活动研究库。这是代码复用关系，IDE 不写活动研究库，活动库也不推送派生报告。",
+      "en": "IDE invokes the same read-only qualification/report code, reading the active research database with reader accounts only. This denotes code reuse; IDE does not write the active research database, and the active database does not push derived reports."
     },
     "docsRoute": "platform-architecture"
   },
@@ -714,32 +714,32 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "docsRoute": "platform-architecture"
   },
   {
-    "id": "copies-web",
-    "source": "copies",
+    "id": "readers-web",
+    "source": "readers",
     "target": "ide-web",
     "description": {
-      "zh": "研究图通过只读 CLI 查询 IDE 本地 research、market 副本，不连接 active Dolt。",
-      "en": "Graphs query IDE-local research and market copies through read-only CLI, without connecting to active Dolt."
+      "zh": "研究图通过只读 CLI 以 reader 账号查询活动 research、market 库，不写入。",
+      "en": "Graphs query the active research and market databases through read-only CLI with reader accounts, without writing."
     },
     "docsRoute": "platform-architecture"
   },
   {
-    "id": "chat-copies",
+    "id": "chat-readers",
     "source": "chat",
-    "target": "copies",
+    "target": "readers",
     "description": {
-      "zh": "Chat 工具白名单只读产品命令，数据来自本地副本；对话另存 IDE volume。",
-      "en": "Chat tool allowlists expose read-only product commands using local copies; conversations are stored separately in the IDE volume."
+      "zh": "Chat 工具白名单只读产品命令，经同一 reader 路径读取活动库；对话另存 IDE volume。",
+      "en": "Chat tool allowlists expose read-only product commands through the same reader path to the active databases; conversations are stored separately in the IDE volume."
     },
     "docsRoute": "platform-architecture"
   },
   {
-    "id": "hub-copies",
-    "source": "dolthub",
-    "target": "copies",
+    "id": "dolt-readers",
+    "source": "dolt",
+    "target": "readers",
     "description": {
-      "zh": "IDE 首次从 DoltHub clone，此后只做 ff-only DOLT_PULL；公开副本同步不等于直连活动研究库。",
-      "en": "IDE initially clones from DoltHub, then uses ff-only DOLT_PULL. Public-copy synchronization is not a direct connection to the active research database."
+      "zh": "IDE 凭只读服务文件直连活动 Dolt 服务，只持 reader 账号；没有 root、写入账号或 DoltHub 密钥，不写也不发布。",
+      "en": "IDE connects directly to the active Dolt service through the reader-only service file, holding reader accounts only. It has no root, writer or DoltHub credentials and neither writes nor publishes."
     },
     "docsRoute": "platform-architecture"
   },

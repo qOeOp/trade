@@ -42,8 +42,8 @@ MySQL 可执行注释绕过（§3.2）。这条缺陷不修，就不能切换。
   管理员密码，所以手里没有任何写入或发布的凭据。
   - Paper 面板照旧把 `/api/paper/` 转发给 paper 守护进程，由 paper 自己的账户去写它的记录。这条路径今天就有，本方案不改。
 - 旧卷 `trade-ide_trade-ide-data` 原样保留：
-  - 新 IDE 只挂载卷里的 `agent` 子目录，也就是对话代理的 API key 和对话记录，照常使用；
-  - 卷里的 `/data/dolt` 和 `/data/ledgers`，新 IDE 看不见，也不读、不写、不删。
+  - 对话代理的 API key 和对话记录（卷里的 `agent/`）在切换时复制一次到新卷 `trade-ide-agent`，新 IDE 只挂这个新卷；
+  - 旧卷整个不再挂载，新 IDE 看不见，也不读、不写、不删。
 - 不改账本的结构，不加存储字段，不动 ledger 的数据和其他服务。
 
 ## 3. 只读账户到底能做什么（实测）
@@ -197,16 +197,14 @@ compose 里 ide 服务的改动：
       - {source: ide-research, target: /run/trade/ledgers/research.json}
       - {source: ide-market, target: /run/trade/ledgers/market.json}
     volumes:
-      - type: volume                                # 旧卷只挂 agent 子目录；/data/dolt、/data/ledgers 不可见
-        source: trade-ide-data
-        target: /data/agent
-        volume: {subpath: agent}
+      - trade-ide-agent:/data/agent                 # 新卷；旧卷 trade-ide-data 不再挂载
       - trade-ledger-readers:/run/trade/ledger-readers:ro
     depends_on:
       ledger: {condition: service_healthy}
 ```
 
-- 卷的 `subpath` 需要 Compose 2.23 以上、Engine 26 以上。本机是 Compose 2.40.3 和 Engine 29.1.3。
+- 起初打算用卷的 `subpath` 只挂旧卷的 `agent` 子目录。隔离验收时发现 `subpath` 要求子目录已经存在，新装的空卷上 ide 起不来，
+  所以改成单独的新卷，切换时从旧卷复制一次 `agent/`。
 - ide 本来就和 ledger 同在 `default` 网络（ide 没有 `networks:` 键），所以网络不用改。
 
 两个配置文件不含密码，和现在的 `paper-market` 一样写成 compose 配置：
@@ -278,7 +276,7 @@ root 也不受这个权限位限制。改成以 `TRADE_UID` 运行，就得先�
 
 ## 5. 旧卷
 
-- 新 IDE 只挂载旧卷的 `agent` 子目录，约 56 GB 的 `/data/dolt` 原样留着。
+- 新 IDE 不再挂载旧卷。切换时只把旧卷的 `agent/` 复制到新卷 `trade-ide-agent`（只读挂旧卷），约 56 GB 的 `/data/dolt` 原样留着。
 - 这份副本也是回滚的退路：把 compose 和镜像退回切换前记下的 digest，旧 IDE 就能直接用它起来，不用重新克隆。
 - 删除这份副本是破坏性写入，需要用户另外授权，并且只删卷里的 `/data/dolt` 和 `/data/ledgers`，保留 `/data/agent`。这件事不在本
   方案的任何 PR 或切换步骤里。
@@ -327,7 +325,7 @@ root 也不受这个权限位限制。改成以 `TRADE_UID` 运行，就得先�
    注意：PR 合并后、`:main` 镜像重新构建完成前，不要对 ledger 跑 `docker compose up`，否则 ledger 会以一个不认识的 `--readers`
    参数起不来，paper 也会跟着断。切换步骤里要写明：先确认镜像 digest 已更新。
 3. **`refactor(ide): read the compose ledger service instead of a replica`**
-   - compose 里 ide 的环境变量、配置文件、`subpath` 挂载和 `depends_on`；
+   - compose 里 ide 的环境变量、配置文件、新卷 `trade-ide-agent` 和 `depends_on`；
    - 精简启动脚本，Dockerfile 去掉两处；
    - 删除 §4.3 列出的全部内容；
    - 修改 README、蓝图和 AGENTS.md，以及 `ledger-compose-service.zh.md` §7 的那一句；
@@ -360,7 +358,7 @@ root 也不受这个权限位限制。改成以 `TRADE_UID` 运行，就得先�
     `research.*` 的权限，所以不用市场的表）；
   - 命令行被杀掉以后，服务端 `SHOW PROCESSLIST` 里的那条查询也要消失，至少要在可以接受的时间内消失；
   - 如果它不消失，就先给命令行的 reader 连接加上服务端超时再切换。这又是一处产品代码，到时候单独列出来。
-- **旧卷原样**：`trade-ide_trade-ide-data` 还在；`/data/dolt` 的大小和文件不变；`/data/agent` 里的代理和对话记录都在。
+- **旧卷原样**：`trade-ide_trade-ide-data` 还在；`/data/dolt` 的大小和文件不变；`agent/` 里的代理和对话记录都在，并且和新卷 `trade-ide-agent` 里的一致。
 - **其他服务不受影响**：
   - 除了切换时那一次计划内的重启，ledger、paper、market-supply、docker-api 都不因本方案重启；
   - 正在跑的 paper 会话继续运行。

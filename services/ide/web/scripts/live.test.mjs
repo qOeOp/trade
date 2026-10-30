@@ -101,13 +101,10 @@ test("drain a newer availability notice received while an older read is in fligh
   assert.equal(p.updates.at(-1).commit, "f");
 });
 
-test("ordinary failures keep the displayed snapshot and history rewrite still replaces it", async () => {
+test("a failed refresh keeps the displayed snapshot", async () => {
   const p = await page();
   await p.answer(0, 200, view("a"));
-  p.event({ state: "error", ledger_commit: "b", available_commit: "a", error: { code: "PULL_FAILED" } });
+  p.event({ state: "error", ledger_commit: "b", available_commit: "a", error: { code: "LEDGER_UNAVAILABLE" } });
   assert.equal(p.updates.at(-1).stage, "failed");
   assert.deepEqual(p.shown, ["a"]);
-  p.event({ state: "error", ledger_commit: "b", error: { code: "REMOTE_REWRITTEN" } });
-  assert.match(p.notices.at(-1), /REMOTE_REWRITTEN/);
-  assert.equal(p.updates.at(-1), null);
 });
