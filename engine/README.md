@@ -95,7 +95,11 @@ whose receipt counts them, each wrapped as `CustomData(DataType("TradeTick", met
 `data.data` in `on_data`. The venue never sees custom data, so trades match no order and move no book; a
 native `TradeTick` would overwrite the venue's L1 book whatever `trade_execution` says (probed on
 2.0.0rc7: a market order after a trade below the bid filled at the trade's price, not the quoted ask).
-A month of the trading window without exported trades is `TRADES_MISSING`. Paper trading streams no trades.
+A month of the trading window without exported trades is `TRADES_MISSING`. A source subscribing to trades
+the run does not stream (no `--trade-ticks`, or native `subscribe_trades`, which is never served) would see
+none: the runner stops after the chunk it subscribed in and refuses `TRADES_NOT_SERVED`. Paper trading
+streams no trades (its orders match bars, as in the bar environment), so a trade subscription stops a paper
+run with the same code.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),

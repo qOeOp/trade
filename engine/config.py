@@ -163,6 +163,8 @@ REFUSALS: dict[str, str] = {
                       "month of its trading window.",
     "TRADES_MISSING": "Trade ticks are exported but an active contract's export holds no trade in some UTC month of "
                       "its trading window.",
+    "TRADES_NOT_SERVED": "A strategy subscribed to trades the run does not stream (no --trade-ticks, native "
+                         "subscribe_trades, or paper trading); it would see none.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",

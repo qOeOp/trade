@@ -135,7 +135,32 @@ class StrategyInputs:
     universe_membership: list
 
 
-class _Configured:
+# Trade subscriptions the run does not serve: trades reach a strategy only as custom data of
+# trade_data_type for a contract whose export counts them (the entry's --trade-ticks); native trades are
+# never streamed. A source subscribing otherwise would see no trade at all, so the run is refused
+# (TRADES_NOT_SERVED) once a chunk in which it subscribed has run.
+SERVED_TRADES: set[str] = set()  # the instrument IDs whose trades this run streams
+UNSERVED_TRADES: list[str] = []
+
+
+class _TradeSubscriptions:
+    """Records every trade subscription the run does not serve, then subscribes as asked."""
+
+    def subscribe_data(self, data_type, *args, **kwargs):
+        if data_type.type_name == "TradeTick":
+            served = (data_type.metadata or {}).get("instrument_id")
+            if served not in SERVED_TRADES:
+                UNSERVED_TRADES.append(f"{self.strategy_id}: subscribe_data TradeTick for {served}, whose trades this run "
+                                       "does not stream")
+        return super().subscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
+
+    def subscribe_trades(self, instrument_id, *args, **kwargs):
+        UNSERVED_TRADES.append(f"{self.strategy_id}: subscribe_trades {instrument_id}; trades arrive only through "
+                               "subscribe_data(DataType(\"TradeTick\", metadata={\"instrument_id\": ...}))")
+        return super().subscribe_trades(instrument_id, *args, **kwargs)  # type: ignore[misc]
+
+
+class _Configured(_TradeSubscriptions):
     """Construct the source's entry class from the runner's inputs; nothing strategy-specific."""
 
     def __new__(cls, config: StrategyInputs):
@@ -804,7 +829,7 @@ def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
         engine.run(start, end, RUN_ID, True)
         engine.clear_data()
         consumed += len(chunk)
-        if SHUTDOWN:
+        if SHUTDOWN or UNSERVED_TRADES:
             return consumed
         start = end
     engine.end()
@@ -938,6 +963,9 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
+    UNSERVED_TRADES.clear()
+    SERVED_TRADES.clear()
+    SERVED_TRADES.update(str(row["instrument_id"]) for row in rows if "trade" in row["counts"])
     for row, input_start, trade_start in planned:
         engine.add_strategy(configure_strategy(strategy, StrategyInputs(
             instrument_id=str(row["instrument_id"]),
@@ -951,6 +979,10 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
     stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=quotes), account["chunk_size"])
+    if UNSERVED_TRADES:
+        raise Refusal("TRADES_NOT_SERVED", "; ".join(UNSERVED_TRADES[:5]) + (
+            f"; and {len(UNSERVED_TRADES) - 5} more" if len(UNSERVED_TRADES) > 5 else "")
+            + ". Replay with --trade-ticks (quote environment) and subscribe through subscribe_data")
     result = engine.get_result()
     skipped = ("daily",) if quotes else ("daily", "quote")
     expected_iterations = sum(sum(value for key, value in row["counts"].items() if key not in skipped) for row in rows)

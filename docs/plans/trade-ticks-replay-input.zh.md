@@ -156,6 +156,16 @@ aggTrades 没有挂单、撤单和深度，不能据此声称撮合更真实。
 
 - #1920 把 `DATA_CALLBACKS` 改为 rc7 的回调名（`on_quote`/`on_trade` 等，含 `on_data`）。输入起点
   晚于回放起点的实例（每日热身）因此不会收到起点之前的报价或成交。本设计依赖它。
-- 订阅了成交却没带 `--trade-ticks` 的策略会静默收到零笔。是否新增拒绝属于新增检查，需要用户
-  授权；在此之前由 research-round skill 写明选项，策略诊断报告收到的笔数。
-- 两个新拒绝 `TRADES_MISSING`、`TRADE_TICKS_NEED_QUOTES` 属于新增检查，合并前需要用户授权。
+- 两个新拒绝 `TRADES_MISSING`、`TRADE_TICKS_NEED_QUOTES` 已获用户授权（2026-10-31），随 #1921 合并。
+- 后续（用户 2026-10-31 授权）：订阅了本次运行不提供的成交，即拒绝 `TRADES_NOT_SERVED`。
+  - 「不提供」包括三种：没带 `--trade-ticks`；原生 `subscribe_trades`，回放从不送原生成交；
+    paper 交易。
+  - 运行器包装类记下这类订阅，回放在订阅所在的块跑完后停下并拒绝，paper 由记录器停下运行。
+  - paper 只有 K 线执行环境（`paper-bars`）。策略因成交在一分钟中间下的单，会按整根 K 线撮合，
+    与回放 K 线环境拒绝成交的理由相同。
+  - Sandbox 也没有强平和保证金模型配置。所以 paper 先拒绝，送实时 `@aggTrade` 要等 paper 有报价
+    执行环境（`bookTicker`）。
+  - 已核实的 rc7 事实：
+    - Sandbox 订阅 `data.trades.BINANCE.*`，`trade_execution=False` 时整笔丢弃；
+    - Binance 的 `subscribe_trades` 走 `@aggTrade`，方向与编号的口径同导出；
+    - 不带客户端的 `subscribe_data` 只订阅消息总线话题。

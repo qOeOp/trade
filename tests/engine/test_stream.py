@@ -8,6 +8,7 @@ import json
 import re
 import tempfile
 import unittest
+from unittest.mock import patch
 from decimal import Decimal
 from pathlib import Path
 
@@ -393,10 +394,15 @@ class Watcher(Strategy):
         super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
+    SUBSCRIBE = "served"  # "served": trades of the contracts exported with them; "every"; "native"
+
     def on_start(self):
         self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
         self.subscribe_quotes(self.iid)
-        self.subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(self.iid)}))
+        if self.SUBSCRIBE == "native":
+            self.subscribe_trades(self.iid)
+        elif self.SUBSCRIBE == "every" or not str(self.iid).startswith("CCCUSDT"):
+            self.subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(self.iid)}))
 
     def on_quote(self, quote):
         self.seen.append(("quote", quote.ts_event, str(quote.ask_price)))
@@ -599,6 +605,32 @@ class StreamTests(unittest.TestCase):
         ask = [event for event in seen["AAA"] if event[0] == "quote" and event[1] <= first[1]][-1][2]
         self.assertEqual(statuses, ["ACCEPTED", "FILLED"])
         self.assertEqual([str(fill["last_px"]) for fill in fills], [ask])
+
+    def test_a_trade_subscription_the_run_does_not_serve_refuses_after_its_first_chunk(self):
+        """A source subscribing to the trades of a contract exported without them, or to native trades (never
+        streamed), would see none: the run stops after the chunk it subscribed in and refuses."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            symbols = market(root / "market", quotes=True, margins=("0.05", "0.025"), trades=True)
+            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
+                                  utc_text(END * 10**6))
+            rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            for mode, named in (("every", "CCCUSDT-E1-PERP.BINANCE, whose trades"), ("native", "subscribe_trades")):
+                source = root / f"watcher_{mode}.py"
+                source.write_text(WATCHER.replace('SUBSCRIBE = "served"', f'SUBSCRIBE = "{mode}"'))
+                loaded = load_strategy(source, "Watcher", hashlib.sha256(source.read_bytes()).hexdigest())
+                consumed = []
+                original = run.stream
+                with self.subTest(mode=mode), patch.object(
+                        run, "stream", lambda *a: consumed.append(original(*a)) or consumed[-1]), \
+                        self.assertRaises(Refusal) as caught:
+                    run.replay(rows, window, loaded, read_universe(None, symbols), root,
+                               {**execution_account("quotes", ("0.05", "0.025")), "chunk_size": 1000})
+                self.assertEqual(caught.exception.code, "TRADES_NOT_SERVED")
+                self.assertIn(named, str(caught.exception))
+                total = sum(sum(v for k, v in row["counts"].items() if k != "daily") for row in rows)
+                self.assertEqual(len(consumed), 1)
+                self.assertTrue(1000 <= consumed[0] < total)
 
     def test_exported_trades_are_checked_per_month_and_a_file_never_spans_two(self):
         """Trades are checked per UTC month of [trade start, end) like quotes: January and March held, February
