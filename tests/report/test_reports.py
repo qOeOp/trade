@@ -11,6 +11,7 @@ import shutil
 import unittest
 from unittest import mock
 
+from cli.main import UsageError, replay_report
 from ledger import db, metrics, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
@@ -66,7 +67,7 @@ class ReportTests(unittest.TestCase):
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
         (cls.control_ref,) = registered_grid(world, ["control"], "registration-root")
-        cls.control = cls.replay(cls.control_ref, "registration-root")
+        cls.control = cls.replay(cls.control_ref, "registration-root", output=world.output("control-kept"))
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
         child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
         cls.child_ref = child["candidate"]
@@ -99,8 +100,9 @@ class ReportTests(unittest.TestCase):
         world.scenario = {}
 
     @classmethod
-    def replay(cls, ref: str, bundle: str) -> dict:
-        return entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, hypothesis=bundle)
+    def replay(cls, ref: str, bundle: str, output: Path | None = None) -> dict:
+        return entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, hypothesis=bundle,
+                         output=output)
 
     def setUp(self):
         self.world = self.__class__.world
@@ -227,14 +229,46 @@ class ReportTests(unittest.TestCase):
                             for row in detail["positions"]))
         self.assertEqual((len(detail["account"]), detail["reproduction"]), (3, done["reproduction_trial_id"]))
         self.assertEqual(detail["null_reasons"], {"exposures": "NOT_REQUESTED: pass --exposures"})
-        exc = refused(runs.tables, self.control["trial_id"], self.profile, directory=directory)
-        self.assertEqual((exc.code, exc.missing), ("REPRODUCTION_MISMATCH", ("reproduction",)),
-                         "no native detail without the reproduction trial")
+        self.assertEqual(runs.tables(self.control["trial_id"], self.profile, directory=directory)["fills"],
+                         detail["fills"], "a reproduction equal byte for byte to the run's own capture reads as it")
         fills = directory / "reports" / "fills.csv"
         fills.write_text(fills.read_text().replace(",100,", ",99,"))
         exc = refused(runs.tables, self.control["trial_id"], self.profile, directory=directory,
                       reproduction=done["reproduction_trial_id"])
         self.assertEqual((exc.code, exc.missing), ("REPRODUCTION_MISMATCH", ("reports/fills.csv",)))
+
+    def test_the_directory_a_run_kept_reads_as_its_original_cache_and_a_changed_copy_is_refused(self):
+        trial_id, directory = self.control["trial_id"], self.world.output("control-kept")
+        self.assertEqual(self.control["path"], str(directory.resolve()))
+        stored = runs.tables(trial_id, self.profile)
+        detail = runs.tables(trial_id, self.profile, directory=directory, account=True)
+        self.assertEqual((len(detail["orders"]), len(detail["fills"]), len(detail["account"])), (2, 2, 3))
+        self.assertIsNone(detail["reproduction"])
+        self.assertEqual([{k: v for k, v in row.items() if k != "realized_pnl_source"}
+                          for row in detail["positions"]], stored["positions"])
+        self.assertTrue(all(row["realized_pnl_source"] == "verified-native-original" for row in detail["positions"]))
+        self.assertEqual(detail["null_reasons"], {"exposures": "NOT_REQUESTED: pass --exposures"})
+        shown = replay_report(self.profile, trial_id, str(directory), None, False, None, None, False, False)
+        self.assertEqual(len(shown["tables"]["fills"]), 2, "--directory alone reads the run's kept cache")
+        with self.assertRaises(UsageError):
+            replay_report(self.profile, trial_id, str(directory), None, True, str(directory), None, False, False)
+        for mode in ("changed", "missing", "extra"):
+            clone = self.world.output(f"control-kept-{mode}")
+            shutil.copytree(directory, clone)
+            fills = clone / "reports" / "fills.csv"
+            if mode == "changed":
+                fills.write_text(fills.read_text().replace(",100,", ",99,"))
+            elif mode == "missing":
+                fills.unlink()
+            else:
+                (clone / "reports" / "unexpected.csv").write_text("extra\n")
+            with self.subTest(mode=mode):
+                exc = refused(runs.tables, trial_id, self.profile, directory=clone)
+                self.assertEqual((exc.code, exc.missing),
+                                 ("REPRODUCTION_MISMATCH", ("reports/unexpected.csv",) if mode == "extra"
+                                  else ("reports/fills.csv",)))
+        exc = refused(runs.tables, self.candidate["trial_id"], self.profile, directory=directory)
+        self.assertEqual(exc.code, "REPRODUCTION_MISMATCH", "one run's kept directory is no cache of another run")
 
     def test_a_forged_directory_is_no_reproduction(self):
         """An exploration of another source with its own (matching) fingerprint and edited fill prices."""

@@ -15,8 +15,9 @@ and returned fields.
 - Take every number from `tables()` and cite its `ledger_commit`; never parse native
   files, query ledger tables directly, or override or fill a report measure. Holding time is
   `ts_closed_ns − ts_opened_ns`, the entry plan `plan_tag`, the exit `closing_order_tag` or
-  `closing_order_type`. For orders, fills, account or order events, pass a `replay reproduce`
-  directory and its reproduction trial to `tables()`.
+  `closing_order_type`. For orders, fills, account or order events, pass the run's kept
+  directory (`replay run --output`), or a `replay reproduce` directory and its reproduction trial,
+  to `tables()`.
 - State the population (closed cycles, open rows, account), the weighting and the
   frequency of every derived number. Totals over closed cycles equal `reconciled`; if not, do not
   cite them. A number that drives a recommendation or the next hypothesis is recomputed

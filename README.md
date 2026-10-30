@@ -70,6 +70,12 @@ its retry chain) rereads bytes already accounted for and is not counted either. 
 reproductions remain recorded exposures. Failed/incomplete prechecks and prechecks without a usable fingerprint retain
 their original reports; a later success never replaces their original facts.
 
+A research or validation run's native reports are cache too. `replay run --output /tmp/run-N`
+keeps its working directory (a new path under the temporary root); without `--output` it is
+removed once stored. Read the kept directory with `replay report --trial-id N --directory
+/tmp/run-N` (or `tables()` with that directory): every report file must match the run's sealed
+capture. Without one, use `replay reproduce` and `--reproduction` as above.
+
 `ledger init` refuses a profile or database that exists, and an active ledger whose service or
 backup lies in the checkout or a temporary directory. A failed `ledger init` removes the database,
 accounts and branch grant it created; grants and accounts left by a dropped database of the same
