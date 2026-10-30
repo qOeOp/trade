@@ -228,6 +228,7 @@ INTEGRITY_CODES: dict[str, str] = {
                                         "files hold.",
     "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
     "PAPER_EXEC_CLIENT_NOT_SANDBOX": "A paper run traded an account other than the Sandbox's; the run stopped.",
+    "TRADES_NOT_SERVED": "A paper strategy subscribed to trades, which paper trading does not stream; the run stopped.",
 }
 
 
