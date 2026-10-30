@@ -183,7 +183,7 @@ def _json_file(path: str, code: str) -> dict:
     try:
         value = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
-        raise refuse(code, f"{path} is not UTF-8 JSON", missing=(str(path),)) from exc
+        raise refuse(code, f"{path} is not UTF-8 JSON: {exc}", missing=(str(path),)) from exc
     if not isinstance(value, dict):
         raise refuse(code, f"{path} is not a JSON object", missing=(str(path),))
     return value
@@ -575,12 +575,17 @@ def execution_recover(profile: db.LedgerProfile, trial_id: int, workdir: str, fa
             "limitation": recovered["limitation"], "ledger_commit": recovered["ledger_commit"]}
 
 
+SUBJECT_ROLES_HELP = (" | ".join(judgments.CANDIDATE_ROLES) + " name a candidate; "
+                      "about names a candidate, trial or registration")
+
+
 def _subject(text: str) -> dict:
     found = {}
     for part in text.split(","):
         key, sep, value = part.partition("=")
         if not sep or not key.strip():
-            raise UsageError(f"--subject {text!r} is not role=…,candidate=ID@N|trial=N|registration=BUNDLE")
+            raise UsageError(f"--subject {text!r} is not role=ROLE,candidate=ID@N|trial=N|registration=BUNDLE "
+                             f"({SUBJECT_ROLES_HELP})")
         found[key.strip()] = value.strip()
     subject: dict[str, str | int | None] = {"role": found.pop("role", None)}
     for key, target in (("candidate", "candidate"), ("trial", "trial_id"), ("registration", "registration_bundle")):
@@ -1671,7 +1676,8 @@ def _parser() -> Parser:
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
-                         help="role=…,candidate=ID@N | trial=N | registration=BUNDLE (repeatable)")
+                         help="role=ROLE,candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
+                              + SUBJECT_ROLES_HELP + ")")
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
 
