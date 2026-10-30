@@ -8,11 +8,10 @@ import { readResearchLines, researchLines } from "./state/researchLines";
 type Failure = { code?: string; message?: string; missing?: string[] };
 /** A way out of a failure: a link with a label. */
 export type Choice = { label: string; href: string };
-type State = { state: "fetching" | "pulling" | "queued" | "computing" | "ready" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
+type State = { state: "fetching" | "queued" | "computing" | "ready" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
 
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
-  pulling: "Pulling the market data…",
   queued: "Queued to be drawn…",
   computing: "Drawing the research graph (comparisons take a few seconds)…",
 };
@@ -86,13 +85,12 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   function apply(message: State): void {
     const commit = message.ledger_commit ?? null;
     const available = message.available_commit ?? (message.state === "ready" ? commit : null);
-    if (message.error?.code !== "REMOTE_REWRITTEN" && available && available !== shown && available !== loadedFor) void load(available);
+    if (available && available !== shown && available !== loadedFor) void load(available);
     if (message.state === "ready") {
       if (commit === shown) update.set(null);
     }
-    // A copy that no longer follows its public copy replaces the page; other failures keep the last view.
-    else if (message.state === "error" && (shown === null || message.error?.code === "REMOTE_REWRITTEN")) {
-      shown = null;
+    // A failure before any view replaces the waiting line; later failures keep the last view.
+    else if (message.state === "error" && shown === null) {
       update.set(null);
       failed(message.error);
     }

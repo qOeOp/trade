@@ -12,8 +12,8 @@ One compose file (`services/ide/docker/compose.yaml`) is the whole deployment, t
 
 | Service | Image | Reached by | Reads | Writes |
 |---|---|---|---|---|
-| ide | ghcr.io/qoeop/trade-ide | the browser on 127.0.0.1:8765; only the configured Host is served, cross-site requests are refused, no CORS header | its own read-only copy of the public DoltHub databases (volume trade-ide-data, cloned on first start, fast-forwarded by the container administrator with DOLT_PULL --ff-only) | no database; /api/agent/ and /api/paper/ are forwarded as they are |
-| ledger | ghcr.io/qoeop/trade-service | the host command line and paper, 127.0.0.1:13330 | the Dolt service of the research ledger and the market database (`ledger service run`) | the only writing service of both databases; bootstraps from the public copies on first start and publishes back to them; the only holder of the DoltHub key |
+| ide | ghcr.io/qoeop/trade-ide | the browser on 127.0.0.1:8765; only the configured Host is served, cross-site requests are refused, no CORS header | the ledger service, with the reader accounts only (the reader-only service file ledger writes into volume trade-ledger-readers) | no database; /api/agent/ and /api/paper/ are forwarded as they are |
+| ledger | ghcr.io/qoeop/trade-service | the host command line, paper, market-supply and ide (read-only), 127.0.0.1:13330 | the Dolt service of the research ledger and the market database (`ledger service run`) | the only writing service of both databases; bootstraps from the public copies on first start and publishes back to them; the only holder of the DoltHub key |
 | paper | ghcr.io/qoeop/trade-service | ide only, over the project network (8767) | the ledger's paper runs, their journals, a version's last research replay | the ledger through the command line `paper start/stop/seal/delete` (<code>paper_run</code> declarations and sealed capture bundles); run containers through docker-api |
 | docker-api | haproxy | paper only, on an internal network | — | exactly the Docker calls paper makes (docker/docker-api.cfg); the only path to the host's Docker engine |
 

@@ -13,15 +13,34 @@ x-product: &product
   restart: unless-stopped
 
 services:
+  # The page and the chat service. They read ledger with the reader accounts only: the profiles below
+  # name the reader-only service file ledger writes into trade-ledger-readers, never service.json.
   ide:
     image: ghcr.io/qoeop/trade-ide:main
     init: true
     ports:
       - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
+    environment:
+      TRADE_DOLT_HOST: ledger
+    configs:
+      - source: ide-research
+        target: /run/trade/ledgers/research.json
+      - source: ide-market
+        target: /run/trade/ledgers/market.json
     volumes:
-      - trade-ide-data:/data
+      # Only the chat service's agents and threads; the rest of this volume (an earlier IDE's database
+      # copy) is not mounted.
+      - type: volume
+        source: trade-ide-data
+        target: /data/agent
+        volume:
+          subpath: agent
+      - trade-ledger-readers:/run/trade/ledger-readers:ro
     restart: unless-stopped
     command: ["--paper=http://paper:8767"]
+    depends_on:
+      ledger:
+        condition: service_healthy
 
   # The Dolt service of the ledger and the market. On first start it bootstraps from the public
   # copies (the market is about 17 GB), so `up -d` waits until it is healthy before starting paper.
@@ -144,9 +163,16 @@ networks:
   docker-api:
     internal: true
 
-# Market profiles of the two services: market-supply's names only the database (a supply serves a local
-# reader), paper's also the supply and its own cache under its writable directory.
+# The IDE's two read-only profiles (kind null: never publishes), and the market profiles of market-supply
+# (only the database: a supply serves a local reader) and paper (also the supply and its own cache).
 configs:
+  ide-research:
+    content: |
+      {"name": "research", "holds": "research", "kind": null, "database": "research",
+       "service": "/run/trade/ledger-readers", "research_branch": "main"}
+  ide-market:
+    content: |
+      {"name": "market", "kind": "market", "database": "market", "service": "/run/trade/ledger-readers"}
   market-source:
     content: |
       {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt"}

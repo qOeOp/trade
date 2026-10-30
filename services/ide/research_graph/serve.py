@@ -3,16 +3,11 @@
 The page is the web renderer's built page without a view: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger
 sql` for a head and `research graph` for a graph, so this module imports no product package. While
-a page without `at` is open the head is read every `poll` seconds, after an optional pull command
-that fast-forwards a read-only copy; when it moves, each open page's graph is fetched once at the new
-head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
+a page without `at` is open the head is read every `poll` seconds; when it moves, each open page's
+graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
 by ledger, build, commit, line and `since`, retaining a scope's newest live completion before its
 older duplicates. A named live page can show that completion while a newer head is still drawing;
 nothing is written anywhere.
-
-The pull command is called as `PULL ledger` before every head read and `PULL market` before the first
-fetch at a new head; exit status 3 means the remote's history no longer descends from the copy, and
-the service stops pulling and reports it rather than reset anything.
 
 With an agent URL (the trade IDE's chat service, `services/ide/agent`), requests under `/api/agent/`
 pass the same Host and cross-site checks and are then forwarded to it as they are, the answer
@@ -50,7 +45,6 @@ AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 PAPER = "/api/paper/"
 PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
-REWRITTEN = 3  # the pull command's exit status for a remote whose history was rewritten
 
 
 class ProductError(Exception):
@@ -129,16 +123,14 @@ class CompletedView:
 class Hub:
     """Heads, fetches, cached views and the open pages' states."""
 
-    def __init__(self, product: Product, build: str, pull: str | None = None, poll: float = 5.0):
-        self.product, self.build, self.pull, self.poll = product, build, pull, poll
+    def __init__(self, product: Product, build: str, poll: float = 5.0):
+        self.product, self.build, self.poll = product, build, poll
         self.line_index = LineIndex(product.lines)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
         self.checked = 0.0
-        self.fault: dict | None = None  # the last failed pull or head read; cleared by a good one
-        self.rewritten: dict | None = None  # set once; pulling stops
-        self.pulling: str | None = None  # the new head while the market is pulled for it
+        self.fault: dict | None = None  # the last failed head read; cleared by a good one
         self.views: OrderedDict[tuple, CompletedView] = OrderedDict()  # completion order, not access order
         self.failed: dict[tuple, dict] = {}
         self.wanted: list[tuple[tuple, bool]] = []  # (key, pinned to an `at`), oldest first
@@ -178,20 +170,15 @@ class Hub:
 
     def state(self, key: tuple | None, live: bool = True) -> dict:
         message = self._progress(key, live)
-        available = self._available(key, live) if self.rewritten is None else None
+        available = self._available(key, live)
         if available is not None and available != key:
             message["available_commit"] = available[2]
         return message
 
     def _progress(self, key: tuple | None, live: bool) -> dict:
-        """A page's state. A live page (no `at`) is also told, over the view it holds, of the new head being
-        pulled and of a failed refresh, and when its copy no longer follows the public one."""
-        fault = self.rewritten or self.fault
+        """A page's state. A live page (no `at`) is also told, over the view it holds, of a failed refresh."""
+        fault = self.fault
         commit = key[2] if key else None
-        if live and self.rewritten is not None:
-            return {"state": "error", "ledger_commit": commit, "error": self.rewritten}
-        if live and self.pulling is not None:
-            return {"state": "pulling", "ledger_commit": self.pulling}
         if live and fault is not None:
             return {"state": "error", "ledger_commit": commit, "error": fault}
         if key in self.views:
@@ -221,52 +208,25 @@ class Hub:
 
     # The head
 
-    def _pull(self, what: str) -> None:
-        if self.pull is None or self.rewritten is not None:
-            return
-        try:
-            done = subprocess.run([self.pull, what], capture_output=True, text=True, timeout=1800, check=False)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ProductError(_failure("PULL_FAILED", f"pulling the {what}: {exc}")) from exc
-        text = (done.stderr or done.stdout).strip()[-500:]
-        if done.returncode == REWRITTEN:
-            with self.lock:
-                self.rewritten = _failure("REMOTE_REWRITTEN", f"the {what}'s public copy no longer descends from this "
-                                          f"copy; nothing is pulled until it is recreated: {text}")
-            raise ProductError(self.rewritten)
-        if done.returncode:
-            raise ProductError(_failure("PULL_FAILED", f"pulling the {what}: {text}"))
-
     def refresh(self, wait: bool = False) -> None:
-        """Pull, read the head and, when it moved, fetch every open live page's graph at it."""
+        """Read the head and, when it moved, fetch every open live page's graph at it."""
         if not self.refreshing.acquire(blocking=wait):
             return
         try:
-            with self.lock:
-                if self.rewritten is not None:  # the copy no longer follows its public copy
-                    self.fault = self.rewritten
-                    self._notify()
-                    return
             try:
-                self._pull("ledger")
                 head = self.product.commit()
                 if head != self.head:
                     try:
                         self.line_index.get(head)
                     except ProductError:
                         pass  # navigation metadata has its own error path; it must not block a valid graph
-                    if self.pull is not None and self.head is not None:
-                        with self.lock:
-                            self.pulling = head
-                            self._notify()
-                    self._pull("market")  # the new head's lines may name a market commit not pulled yet
             except ProductError as exc:
                 with self.lock:
-                    self.fault, self.checked, self.pulling = exc.body, time.monotonic(), None
+                    self.fault, self.checked = exc.body, time.monotonic()
                     self._notify()
                 return
             with self.lock:
-                moved, self.head, self.fault, self.pulling = head != self.head, head, None, None
+                moved, self.head, self.fault = head != self.head, head, None
                 self.checked = time.monotonic()
                 if moved:
                     pending, self.wanted = self.wanted, []
@@ -324,16 +284,14 @@ class Hub:
         return (self.product.commit(since) if since else None, self.product.commit(at) if at else None)
 
     def view(self, line: str | None, since: str | None, at: str | None) -> tuple[int, dict]:
-        """(200, view), (202, state) after asking for it, or (503, failure) when there is no head or the
-        copy no longer follows its public copy. Only the first head is waited for; a stale one is refreshed in
-        the background, since a pull can take minutes, and the page hears of a new head through its events."""
+        """(200, view), (202, state) after asking for it, or (503, failure) when there is no head. Only the
+        first head is waited for; a stale one is refreshed in the background, and the page hears of a new head
+        through its events."""
         if at is None and self.head is None:
             self.refresh(wait=True)
         elif at is None and time.monotonic() - self.checked > self.poll:
             threading.Thread(target=self.refresh, daemon=True).start()
         with self.lock:
-            if at is None and self.rewritten is not None:
-                return 503, self.rewritten
             commit = at or self.head
             if commit is None:
                 return 503, self.fault or _failure("LEDGER_UNAVAILABLE", "the head could not be read")
@@ -484,7 +442,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
                 since, at = hub.resolve(line, query.get("since"), query.get("at"))
                 if url.path == "/api/lines":
                     with hub.lock:
-                        commit = at or hub.pulling or hub.head
+                        commit = at or hub.head
                     self.json(200, hub.line_index.get(commit or hub.product.commit()))
                     return
             except ProductError as exc:
@@ -519,9 +477,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
     return Handler
 
 
-def serve(product: Product, build: str, host: str, port: int, hosts: list[str], pull: str | None,
-          poll: float, agent: str | None = None, paper: str | None = None) -> None:
-    hub = Hub(product, build, pull, poll)
+def serve(product: Product, build: str, host: str, port: int, hosts: list[str], poll: float,
+          agent: str | None = None, paper: str | None = None) -> None:
+    hub = Hub(product, build, poll)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()

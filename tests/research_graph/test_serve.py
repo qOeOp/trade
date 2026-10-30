@@ -1,7 +1,6 @@
 """If these fail, the served research graph no longer follows the ledger: a page asking for a graph gets
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
-rewritten public copy stops the pulling instead of being reset, another site cannot make the
-browser fetch graphs, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
+slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
 
 import copy
 import http.client
@@ -22,7 +21,8 @@ from tests.research_graph.test_research_graph import GRAPH  # noqa: E402
 
 
 class FakeProduct:
-    """`commit` answers the head (or a ref named in `refs`); `graph` waits for `release` when it is set."""
+    """`commit` answers the head (or a ref named in `refs`), waiting for `hold` when it is set and refusing
+    with `failure` when that is; `graph` waits for `release` when it is set."""
 
     ledger = "copy"
 
@@ -31,9 +31,17 @@ class FakeProduct:
         self.refs: dict[str, str] = {}
         self.drawn: list[str] = []
         self.release: threading.Event | None = None
+        self.hold: threading.Event | None = None
+        self.reading = threading.Event()
+        self.failure: dict | None = None
 
     def commit(self, ref=None):
         if ref is None:
+            self.reading.set()
+            if self.hold is not None:
+                self.hold.wait(5)
+            if self.failure is not None:
+                raise serve.ProductError(self.failure)
             return self.head
         if ref not in self.refs:
             raise serve.ProductError({"code": "UNKNOWN_REF", "message": ref})
@@ -83,45 +91,20 @@ class HubTests(unittest.TestCase):
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
 
-    def test_the_first_graph_waits_for_the_market_copy_to_sync(self):
-        self.hub.pull = "/pull"
-        calls = []
-
-        def run(argv, **options):
-            calls.append(argv[1])
-            return mock.Mock(returncode=1 if argv[1] == "market" else 0,
-                             stdout="", stderr="market unavailable" if argv[1] == "market" else "")
-
-        with mock.patch.object(serve.subprocess, "run", side_effect=run):
-            code, body = self.hub.view(None, None, None)
-        self.assertEqual((code, body.get("code")), (503, "PULL_FAILED"))
-        self.assertEqual(calls, ["ledger", "market"])
-        self.assertEqual(self.product.drawn, [], "no graph is drawn from an unsynchronized first market copy")
-        with mock.patch.object(serve.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
-            self.hub.refresh(wait=True)
+    def test_a_slow_head_read_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
-        self.assertEqual(self.product.drawn, ["a" * 32], "a successful retry allows the first graph")
-
-    def test_a_slow_pull_does_not_hold_a_page(self):
-        until(lambda: self.hub.view(None, None, None)[0] == 200)
-        pulling, release = threading.Event(), threading.Event()
-
-        def run(argv, **options):
-            pulling.set()
-            release.wait(5)
-            return mock.Mock(returncode=0, stdout="", stderr="")
-        self.hub.pull = "/pull"
-        self.product.head = "b" * 32
-        with mock.patch.object(serve.subprocess, "run", side_effect=run):
-            threading.Thread(target=self.hub.refresh, daemon=True).start()
-            pulling.wait(5)
-            time.sleep(0.1)  # the head was read longer than `poll` ago
-            started = time.monotonic()
-            status, view = self.hub.view(None, None, None)
-            self.assertLess(time.monotonic() - started, 1, "the page does not wait for the pull")
-            self.assertEqual((status, view["scope"]["ledger_commit"]), (200, "a" * 32), "it gets the last view")
-            release.set()
-            until(lambda: self.hub.view(None, None, None)[1].get("scope", {}).get("ledger_commit") == "b" * 32)
+        self.product.hold, self.product.head = threading.Event(), "b" * 32
+        self.addCleanup(self.product.hold.set)
+        self.product.reading.clear()
+        threading.Thread(target=self.hub.refresh, daemon=True).start()
+        self.product.reading.wait(5)
+        time.sleep(0.1)  # the head was read longer than `poll` ago
+        started = time.monotonic()
+        status, view = self.hub.view(None, None, None)
+        self.assertLess(time.monotonic() - started, 1, "the page does not wait for the head read")
+        self.assertEqual((status, view["scope"]["ledger_commit"]), (200, "a" * 32), "it gets the last view")
+        self.product.hold.set()
+        until(lambda: self.hub.view(None, None, None)[1].get("scope", {}).get("ledger_commit") == "b" * 32)
 
     def test_a_completed_graph_is_available_while_the_new_head_is_still_drawing(self):
         first, latest = threading.Event(), threading.Event()
@@ -214,41 +197,18 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         self.assertEqual(self.hub.view("line-a", None, None)[1]["scope"]["ledger_commit"], "b" * 32)
 
-    def test_an_open_page_hears_the_new_head_while_the_market_is_pulled(self):
-        client = serve.Client(None, None, None)
-        self.hub.refresh(wait=True)
-        self.hub.join(client)
-        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
-        release = threading.Event()
-
-        def run(argv, **options):
-            if argv[1] == "market":
-                release.wait(5)
-            return mock.Mock(returncode=0, stdout="", stderr="")
-        self.hub.pull = "/pull"
-        self.product.head = "b" * 32
-        with mock.patch.object(serve.subprocess, "run", side_effect=run):
-            threading.Thread(target=self.hub.refresh, daemon=True).start()
-            until(lambda: client.sent == {"state": "pulling", "ledger_commit": "b" * 32})
-            self.assertEqual(self.hub.view(None, None, None)[1]["scope"]["ledger_commit"], "a" * 32,
-                             "the last view is still served")
-            release.set()
-            until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
-
     def test_a_failed_refresh_is_told_over_the_last_view(self):
         client = serve.Client(None, None, None)
         self.hub.refresh(wait=True)
         self.hub.join(client)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
-        self.hub.pull = "/pull"
-        failing = mock.Mock(returncode=1, stdout="", stderr="network down")
-        with mock.patch.object(serve.subprocess, "run", return_value=failing):
-            self.hub.refresh(wait=True)
+        self.product.failure = {"code": "LEDGER_UNAVAILABLE", "message": "the service does not answer"}
+        self.hub.refresh(wait=True)
         self.assertEqual((client.sent["state"], client.sent["ledger_commit"], client.sent["error"]["code"]),
-                         ("error", "a" * 32, "PULL_FAILED"))
+                         ("error", "a" * 32, "LEDGER_UNAVAILABLE"))
         self.assertEqual(self.hub.view(None, None, None)[0], 200, "the last view is kept")
-        with mock.patch.object(serve.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
-            self.hub.refresh(wait=True)
+        self.product.failure = None
+        self.hub.refresh(wait=True)
         self.assertEqual(client.sent, {"state": "ready", "ledger_commit": "a" * 32}, "a good refresh clears it")
 
     def test_an_open_page_follows_the_head_and_gets_only_the_latest_graph(self):
@@ -279,24 +239,6 @@ class HubTests(unittest.TestCase):
         self.assertEqual(client.sent["ledger_commit"], "e" * 32)
         with self.assertRaises(serve.ProductError):
             self.hub.resolve(None, "nowhere", None)
-
-    def test_a_rewritten_public_copy_stops_pulling(self):
-        calls = []
-
-        def run(argv, **options):
-            calls.append(argv[1])
-            return mock.Mock(returncode=serve.REWRITTEN, stdout="", stderr="non-fast-forward")
-        client = serve.Client(None, None, None)
-        self.hub.refresh(wait=True)
-        self.hub.join(client)
-        until(lambda: client.sent["state"] == "ready")
-        self.hub.pull = "/pull"
-        with mock.patch.object(serve.subprocess, "run", side_effect=run):
-            self.hub.refresh(wait=True)
-            self.hub.refresh(wait=True)
-        self.assertEqual(calls, ["ledger"], "nothing is pulled after a rewritten history")
-        self.assertEqual(client.sent["error"]["code"], "REMOTE_REWRITTEN", "even with the last view drawn")
-        self.assertEqual(self.hub.view(None, None, None), (503, self.hub.rewritten))
 
 
 class HttpTests(unittest.TestCase):

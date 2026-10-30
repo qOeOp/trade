@@ -66,10 +66,8 @@ reproduce`) are research records of exposure to data and go to the active ledger
   fingerprints with the semantic report comparison. Everything else (drafts, exploratory
   scripts, replay outputs, media, derived reports) is a working copy in `/tmp`.
 - Write to the ledger only through the command line `python -m cli.main` (its `replay` commands
-  included), never with direct SQL or another account. The one exception is the trade IDE
-  service's container (`services/ide/docker/`): its administrator fast-forwards its own
-  read-only copy of the public DoltHub databases with `DOLT_PULL`; that copy is not a ledger anyone
-  writes. No strategy bodies or experiment receipts in Git.
+  included), never with direct SQL or another account. No strategy bodies or experiment receipts
+  in Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
   a symlink to it), holding runtime content only; their eval suites live beside them in
   `.agents/evals/<skill>/` (`claude plugin eval .agents` from the repository root; the runner needs the

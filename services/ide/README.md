@@ -10,7 +10,7 @@ node and npm:
 python3 services/ide/ide.py check GRAPH.json
 python3 services/ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 services/ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--pull=EXECUTABLE] [--agent=URL] [--paper=URL]
+python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL]
 node services/ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 ```
 
@@ -22,14 +22,12 @@ sql` for the head, `research graph --at=<hash>` for a graph) and imports no prod
 page is the web renderer's page with a null view: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
-state on connect, then `fetching`, `pulling`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
-15 s). While a page without `at` is open the head is read every 5 s, after `--pull` (run as `PULL
-ledger`, and `PULL market` before fetching at a new head; exit status 3 means the remote's history
-was rewritten, and pulling stops). Only the first head is waited for: later `/api/view` answers at once
-with the last view while a pull runs in the background. When the head moves, each open page is told
-`pulling` with the new head while the market is pulled, and a failed refresh as `error` over the view it
-holds; its graph is fetched once at the new head, the latest only, and the page replaces its view in place
-and keeps the selected version. A live request naming a line can immediately show its most recently
+state on connect, then `fetching`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
+15 s). While a page without `at` is open the head is read every 5 s. Only the first head is waited for:
+later `/api/view` answers at once with the last view while a head read runs in the background. A failed
+refresh is told as `error` over the view a page holds. When the head moves, each open page's graph is
+fetched once at the new head, the latest only, and the page replaces its view in place and keeps the
+selected version. A live request naming a line can immediately show its most recently
 completed live graph for the same `since` scope while the newest head is queued or computing. Each
 SSE state identifies the target `ledger_commit` and, when different, the `available_commit` the page
 can already display. Every completed graph can therefore reach the page even if the ledger moves
@@ -87,9 +85,12 @@ Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both imag
 only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
 Five services on one Docker engine:
 
-- **ide**: this page and the chat service. Image `ghcr.io/qoeop/trade-ide`. It reads its own read-only
-  copy of the public DoltHub databases, kept in the `trade-ide-data` volume; the first start clones it.
-  Published on 127.0.0.1:8765.
+- **ide**: this page and the chat service. Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the
+  two reader accounts only: its profiles (compose configs, `kind` null) name the reader-only
+  `service.json` ledger writes into the `trade-ledger-readers` volume, never ledger's own, so it holds
+  no root password, writer account or DoltHub key. The chat service's agents and threads stay in the
+  `agent` subpath of the `trade-ide-data` volume; the rest of that volume (an earlier IDE's database
+  copy) is not mounted. Published on 127.0.0.1:8765.
 - **ledger**: the Dolt service of the research ledger and the market database, run by `ledger service
   run`. Image `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command
   line reaches it. On first start, with empty directories, it bootstraps from the public copies
@@ -131,28 +132,6 @@ imports keep using its `service`, and removing the two fields returns replays to
 The ledger service and the paper daemon restart with Docker. A service whose `service.json` has no
 socket is run this way: host commands reach it over TCP, and `ledger service stop` refuses it
 (`docker compose stop ledger`).
-
-### Recovering an IDE market copy after a remote history replacement
-
-Normal synchronization is fast-forward only and stops with `REMOTE_REWRITTEN` for either a
-non-fast-forward or no-common-ancestor failure. It fetches all market branches and keeps their
-commits locally, so old research lines can still resolve their pinned market inputs.
-
-After an administrator explicitly authorizes recovery of this IDE copy, run inside its container:
-
-```bash
-docker compose -f services/ide/docker/compose.yaml exec ide trade-ide-pull repair-market
-# If REMOTE_REWRITTEN has latched, restart only the IDE service to resume polling:
-docker compose -f services/ide/docker/compose.yaml restart ide
-```
-
-Recovery refuses an uncommitted market working set, fetches the remote branches, retains the old
-head as `ide-retained/<hash>` in the same `market` database, and only then aligns the copy's main to
-remote main. It never deletes a branch or database. Repeating it at an aligned head does nothing.
-The helper uses only the IDE copy's internal administrator; it has no route to the active ledger,
-market, backups, Paper journals, or chat credentials. Pulling and recovery share a process lock.
-A deployed image from before this helper needs an updated IDE image first. Preserve the `/data`
-volume; do not reset or delete it to fix synchronization.
 
 ## Stages
 
