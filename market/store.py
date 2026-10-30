@@ -596,10 +596,7 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
         raise _refuse("the market database stores other integer scales", "SCHEMA_VERSION_MISMATCH")
     if conn.rows("SELECT table_name FROM dolt_status"):
         raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
-    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
-    if "commit" not in str(groups or "").split(","):
-        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
-                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
+    require_commit_checks(conn)
     done = imports(conn)
     if done and any(item["scope"] != (scope or "all") for item in done):
         raise _refuse(f"earlier imports cover scope {done[-1]['scope']}, this one {scope or 'all'}", "IMPORT_SCOPE",
@@ -745,8 +742,20 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
     return {**result, "market_commit": commit, "seconds": round(time.monotonic() - started)}
 
 
+def require_commit_checks(conn: MarketConnection) -> None:
+    """Refuse unless the service-wide commit verification groups include the market's commit tests.
+
+    Any account can SET PERSIST them on Dolt 2.4.2, and DOLT_COMMIT reads the GLOBAL value, so an import
+    checks at its start (before hours of work) and again in `_commit`, right before it commits."""
+    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
+    if "commit" not in str(groups or "").split(","):
+        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
+                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
+
+
 def _commit(conn: MarketConnection, message: str) -> str:
     """One DOLT_COMMIT, which runs the commit tests (group commit); a failing test is DATA_TESTS_FAILED."""
+    require_commit_checks(conn)
     try:
         with conn.raw.cursor() as cursor:
             cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (message,))
@@ -962,10 +971,7 @@ def _import_quotes(conn: MarketConnection, month: date, start_ms: int, end_ms: i
         raise _refuse("the market database holds no bars yet; quotes need the contracts' terms", "MARKET_EMPTY")
     if conn.rows("SELECT table_name FROM dolt_status"):
         raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
-    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
-    if "commit" not in str(groups or "").split(","):
-        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
-                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
+    require_commit_checks(conn)
     done = quote_imports(conn)
     if any(item["quote_rule"] != quotes.RULE for item in done):
         raise _refuse(f"earlier quote imports used rule {done[-1]['quote_rule']}, this code {quotes.RULE}",

@@ -547,6 +547,26 @@ class LaterImportTests(unittest.TestCase):
             self.assertEqual(store.import_month(profile, FEB, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
                              ["universe_members"], ["BTCUSDT"])
 
+    def test_verification_groups_switched_off_during_an_import_stop_its_commit(self):
+        profile, found, _ = self.database(months=(JAN,))
+        restore = "SET PERSIST dolt_commit_verification_groups = 'commit'"
+        self.addCleanup(self.fixture.admin, profile, restore)
+        before = self.fixture.admin(profile, "SELECT COUNT(*) FROM dolt_log")
+
+        def switch_off(line: str) -> None:  # after the import's own check at its start, before its commit
+            if line.startswith("[1/"):
+                self.fixture.admin(profile, "SET PERSIST dolt_commit_verification_groups = ''")
+
+        with serving(found):
+            self.refused("COMMIT_CHECKS_DISABLED", store.import_month, profile, FEB, self.cache, 1, ["BTCUSDT"],
+                         log=switch_off)
+        self.assertEqual(self.fixture.admin(profile, "SELECT COUNT(*) FROM dolt_log"), before)
+        self.assertEqual(self.fixture.admin(profile, "SELECT COUNT(*) FROM dolt_status"), [(0,)])
+        self.fixture.admin(profile, restore)
+        with serving(found):
+            self.assertEqual(store.import_month(profile, FEB, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+                             ["universe_members"], ["BTCUSDT"])
+
     def test_several_workers_give_the_one_worker_result(self):
         scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")
         with patch.object(store, "ProcessPoolExecutor", worker_pool):  # spawned workers get the stand-in exchange

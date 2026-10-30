@@ -219,10 +219,7 @@ def _import(conn, month, start, end, cache, symbol, log):
         raise _refuse("the market database holds no bar import yet", "MARKET_EMPTY")
     if conn.rows("SELECT table_name FROM dolt_status"):
         raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
-    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
-    if "commit" not in str(groups or "").split(","):
-        raise _refuse(f"the service's commit verification groups are {groups!r}, not 'commit'",
-                      "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
+    store.require_commit_checks(conn)
     if not conn.rows("SHOW TABLES LIKE 'agg_trade'"):
         raise _refuse("agg_trade is missing; run market upgrade first", "SCHEMA_MISMATCH", missing=("agg_trade",))
     for message, in conn.rows("SELECT message FROM dolt_log"):
