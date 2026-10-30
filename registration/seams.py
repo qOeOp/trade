@@ -209,7 +209,12 @@ def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> d
 
 
 def _market(profile) -> MarketAdapter:
-    return profile if hasattr(profile, "export_catalogs") else Market(profile)
+    if hasattr(profile, "export_catalogs"):
+        return profile
+    if "remote_url" in profile:
+        from market.remote import RemoteMarket
+        return RemoteMarket(profile)
+    return Market(profile)
 
 
 # Qualification (qualification.require, qualification.assess); imported late: qualification reads
