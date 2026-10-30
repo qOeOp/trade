@@ -8,7 +8,7 @@ Code executes and enforces contracts; the database retains facts and relations; 
 
 One compose file (`services/ide/docker/compose.yaml`) is the whole deployment, the same on a workstation and a server: four services on one Docker engine, with these read, write and Docker boundaries.
 
-<Mermaid chart={"flowchart LR\n  U[Browser 127.0.0.1:8765] --> IDE[ide research graph page and agent chat service]\n  IDE -->|api/paper proxy same-origin plus token| P[paper daemon 8767]\n  IDE --> V[(trade-ide-data volume read-only copy of the public DoltHub databases)]\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt service 13330]\n  P -->|restricted Docker API| D[docker-api haproxy]\n  D --> E[host Docker engine]\n  C[host command line python -m cli.main] --> L\n  L -->|bootstrap and publish| H[(public DoltHub copies)]"} />
+<Mermaid chart={"flowchart LR\n  U[Browser 127.0.0.1:8765] --> IDE[ide research graph page and agent chat service]\n  IDE -->|api/paper proxy same-origin plus token| P[paper daemon 8767]\n  IDE -->|reader accounts TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt service 13330]\n  P -->|restricted Docker API| D[docker-api haproxy]\n  D --> E[host Docker engine]\n  C[host command line python -m cli.main] --> L\n  L -->|bootstrap and publish| H[(public DoltHub copies)]"} />
 
 | Service | Image | Reached by | Reads | Writes |
 |---|---|---|---|---|

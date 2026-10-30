@@ -89,8 +89,9 @@ Five services on one Docker engine:
   two reader accounts only: its profiles (compose configs, `kind` null) name the reader-only
   `service.json` ledger writes into the `trade-ledger-readers` volume, never ledger's own, so it holds
   no root password, writer account or DoltHub key. The chat service's agents and threads stay in the
-  `agent` subpath of the `trade-ide-data` volume; the rest of that volume (an earlier IDE's database
-  copy) is not mounted. Published on 127.0.0.1:8765.
+  `trade-ide-agent` volume. Published on 127.0.0.1:8765. An IDE from before 2026-10-30 kept its own
+  database copy and the agents in `trade-ide-data`; switching copies that volume's `agent/` into
+  `trade-ide-agent` once, and compose no longer mounts or removes the old volume.
 - **ledger**: the Dolt service of the research ledger and the market database, run by `ledger service
   run`. Image `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command
   line reaches it. On first start, with empty directories, it bootstraps from the public copies
