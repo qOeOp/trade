@@ -253,7 +253,7 @@ def clear_failures() -> None:
 
 # Data callbacks. An instance whose input starts after the replay's (its daily warm-up first holds
 # later) gets no data stamped before its input start: the instance starts there.
-DATA_CALLBACKS = ("on_bar", "on_mark_price", "on_funding_rate", "on_index_price", "on_quote_tick", "on_trade_tick",
+DATA_CALLBACKS = ("on_bar", "on_mark_price", "on_funding_rate", "on_index_price", "on_quote", "on_trade",
                   "on_instrument_status", "on_instrument_close", "on_data")
 
 
