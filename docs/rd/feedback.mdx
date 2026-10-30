@@ -269,17 +269,17 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-#### 推荐连续不变、差异都分不出来时就该换线，交给你选 [#F-3-1-3]
+#### 差异连续都分不出来时就该换线，交给你选 [#F-3-1-3]
 
-推荐版本连续若干次研究运行都没变（次数与 REVIEW_DUE 的固定次数相同），而且这几次比较的 `mean_daily_log_difference` 都落在各自的 `detectable_mean_log_difference_80pct_normal_approx` 以内，Agent 就停止登记线内变体，经 research-start 把这条线连同其他选项交给你选，等你回答。
+连续若干次研究运行（次数与 REVIEW_DUE 的固定次数相同）的比较 `mean_daily_log_difference` 都落在各自的 `detectable_mean_log_difference_80pct_normal_approx` 以内，Agent 就停止登记线内变体，经 research-start 把这条线连同其他选项交给你选，等你回答。这几次之间推荐换没换都一样：在分不出来的差异上换推荐，不让计数从头算。
 
 交给你选就是走 research-start 的列线：先读账本（`candidate list`、`research state` 里的最新推荐），把这条线和账本里其他候选能起的线一起列出，各带报告读数；Agent 自己想到的线内新范围或新起点只是其中几项，不能代替这份列表。
 
-条件只用已经发生的事实：推荐有没有变、每次差异是否小于可检出差。早先的写法是「线内已没有任何改动能超过可检出差」，那是对还没跑的实验下结论，Agent 永远无法确认，所以从来不触发。换线由你选，不是 Agent 宣布方向无效；它也不按次数或预算叫停（<Ref id="F.3.1.2" />）。
+条件只用已经发生的事实：每次差异是否小于可检出差。早先的写法是「线内已没有任何改动能超过可检出差」，那是对还没跑的实验下结论，Agent 永远无法确认，所以从来不触发。后来又要求推荐连续不变，可推荐何时可以换没有判据，在分不出来的差异上换一次推荐计数就清零，到期一再推迟。换线由你选，不是 Agent 宣布方向无效；它也不按次数或预算叫停（<Ref id="F.3.1.2" />）。
 
 <div className="rd-example">
 
-一次 12.5 小时的 EMA 日线会话里，推荐在第 67 号试验后就不再变，之后又跑了 41 个版本、11.6 小时，每次差异区间都跨零，Agent 一直没回来问。按这条规则，推荐连续 5 次不变、差异都在可检出差内时就会停下问你。
+一次 12.5 小时的 EMA 日线会话里，推荐在第 67 号试验后就不再变，之后又跑了 41 个版本、11.6 小时，每次差异区间都跨零，Agent 一直没回来问。另一次会话里 23 次比较全在可检出差内，推荐仍换了 5 次，每次都让「推荐不变」的计数清零，从你选线到第一次到期跑了 22 个研究试验。按这条规则，连续 5 次差异都在可检出差内就会停下问你。
 
 </div>
 
