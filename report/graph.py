@@ -196,6 +196,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         if since is not None:
             since_at = conn.one("SELECT date FROM dolt_log WHERE commit_hash = %s", (db.resolve_commit(conn, since),))
         trials_of: dict[str, list[dict]] = {key: [] for key in source_of}
+        source_checks: dict[int, dict] = {}  # a research run's availability source_check, by trial
         owner = {sha: key for key, sha in source_of.items()}
         for row in conn.dicts("SELECT t.trial_id, t.purpose, t.source_sha256, t.created_at, r.status FROM trial t "
                               "LEFT JOIN run r ON r.trial_id = t.trial_id ORDER BY t.trial_id"):
@@ -208,6 +209,8 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             if row["purpose"] == "research" and row["status"] is not None:
                 value = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
                 trial["eligible"] = bool(value["economic_evidence_available"])
+                if value.get("source_check") is not None:
+                    source_checks[row["trial_id"]] = value["source_check"]
                 if trial["eligible"]:
                     headline = status._headline(conn, row["trial_id"], status.TABLE_MEASURES)
                     for name, field in MEASURE_KEYS.items():
@@ -248,11 +251,21 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
                                 f"{'API' if name == 'api' else name.title()} ({rec[name]['status']})\n{rec[name]['note']}"
                                 for name in precheck.ITEMS if isinstance(rec.get(name), Mapping)) or None})
             if rec["verdict"] == "failed":
-                masked = [t["trial_id"] for t in research]
+                # The consequence is availability's, not re-derived here: the runs it counts this review against,
+                # and the runs it names the review ignored for (a resolved zero-activity failure) with its reason.
+                checked = [(t["trial_id"], source_checks[t["trial_id"]]) for t in research if t["trial_id"] in source_checks]
+                masked = [trial_id for trial_id, check in checked
+                          if any(r["bundle"] == item["bundle"] and r["verdict"] == "failed" for r in check["reviews"])]
+                kept: dict[str, list[int]] = {}
+                for trial_id, check in checked:
+                    for skipped in check["ignored"]:
+                        if skipped["bundle"] == item["bundle"]:
+                            kept.setdefault(skipped["reason"], []).append(trial_id)
+                text = (f"failed source review of {key} ({', '.join(failed) or 'unspecified'}); "
+                        f"runs of this source without economic evidence by it: {masked or 'none'}")
+                text += "".join(f"; not counted for {ids}: {reason}" for reason, ids in kept.items())
                 events.append({"at": _iso(bundle_times.get(item["bundle"])), "kind": "eligibility_change", "ref": item["bundle"],
-                               "text": f"failed source review of {key} ({', '.join(failed) or 'unspecified'}); "
-                                       f"runs of this source lose economic evidence: {masked or 'none'}",
-                               "recommends": None})
+                               "text": text, "recommends": None})
         if bundle is not None and research and research[-1]["status"] == "passed":
             jobs.append((len(candidates), bundle, research[-1]["trial_id"]))
         trial_ids = {t["trial_id"] for t in trials}
