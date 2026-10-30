@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import stat
 import tempfile
 import threading
@@ -188,6 +189,19 @@ class LedgerBaseTests(unittest.TestCase):
         self.addCleanup(raw.close)
         with self.assertRaises(pymysql.MySQLError), raw.cursor() as cursor:
             cursor.execute("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('s', 's', NOW())")
+
+    def test_no_account_reads_or_writes_a_server_file(self):
+        out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out)
+        for role in ("reader", "writer"):
+            with db.connect(self.profile, role) as conn:
+                for statement in (f"SELECT version FROM ledger_schema INTO OUTFILE '{out / role}.txt'",
+                                  f"SELECT version FROM ledger_schema INTO DUMPFILE '{out / role}.bin'",
+                                  f"SELECT LOAD_FILE('{self.profile.service_root / 'service.json'}')"):
+                    with self.subTest(role=role, statement=statement), self.assertRaises(pymysql.MySQLError), \
+                            conn.raw.cursor() as cursor:
+                        cursor.execute(statement)
+        self.assertEqual(list(out.iterdir()), [])
 
     def test_the_writer_cannot_overwrite_through_upserts_or_generated_hashes(self):
         with db.connect(self.profile, "writer") as writer:

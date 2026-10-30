@@ -58,7 +58,7 @@ def _write_config(service_root: Path, data_dir: Path, port: int) -> None:
         f"listener:\n  host: {LISTEN}\n  port: {port}\n"
         f"data_dir: {data_dir}\ncfg_dir: {service_root / 'cfg'}\n"
         f"privilege_file: {service_root / 'cfg' / 'privileges.db'}\n"
-        f"branch_control_file: {service_root / 'cfg' / 'branch_control.db'}\n", encoding="utf-8")
+        f"branch_control_file: {service_root / 'cfg' / 'branch_control.db'}\n" + db.NO_FILE_IO, encoding="utf-8")
 
 
 def _environment(service_root: Path) -> dict:

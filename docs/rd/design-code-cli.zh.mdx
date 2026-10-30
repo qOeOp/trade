@@ -624,6 +624,7 @@ def ledger_service(
 7. run（compose 的 ledger 服务）：前台运行 Dolt。没有服务配置时只在服务目录、数据目录和档案目录都空时自举：先装 DoltHub 密钥，再从公开副本克隆账本和市场库（远端分支建成本地分支），核对 schema 版本和提交测试，建 root（含 'root'@'%'）和各库账户，最后写服务配置和两个档案；失败就删掉自己建的东西。已有服务配置时每次启动核对提交测试组、记录的库和 schema 版本，并补齐 'root'@'%'。
 8. run 带 --readers 时，每次启动在开始服务前写 `<readers>/service.json`：只有端口和两个库的读账号，没有 root 密码和写账号，给只读的容器（IDE）用，它看不到服务配置本身。--readers 指向服务目录即 USAGE_ERROR。
 9. check：以读账号读账本和市场库，schema 版本都对才成功；compose 拿它做健康检查。
+10. start 和 run 写的数据库服务配置都把 `secure_file_priv` 设成不可能存在的目录 `/dev/null/no-file-io`：任何账号都不能用 `SELECT … INTO OUTFILE`、`INTO DUMPFILE` 写服务器上的文件，也不能用 `LOAD_FILE` 读（Dolt 2.4.2 默认连只有 SELECT 权限的读账号也允许，而服务目录里有 root 密码）。这个变量是只读的，账号改不了。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -659,14 +660,14 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict
 
 **期望行为**
 
-1. 静态核对只有一条语句且首词是读语句（SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE、VALUES）；否则 WRITE_VIA_SQL，不送到服务器。字符串、带引号的名字和注释按服务器的词法从左到右一次切分；字符串之外出现 `/*!` 或 `/*+` 也是 WRITE_VIA_SQL，因为 Dolt 会执行前者里的内容、把后者当优化器提示。语句里面不再按关键字扫描，REPLACE() 这类函数照常可用；首词核对挡住任何账号都能执行的 SET PERSIST 这类语句。
+1. 静态核对只有一条语句且首词是读语句（SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE、VALUES）；否则 WRITE_VIA_SQL，不送到服务器。字符串、带引号的名字和注释按服务器的词法从左到右一次切分；字符串之外出现 `/*!` 或 `/*+` 也是 WRITE_VIA_SQL，因为 Dolt 会执行前者里的内容、把后者当优化器提示。字符串之外出现 OUTFILE、DUMPFILE 或 LOAD_FILE 这几个词也是 WRITE_VIA_SQL，它们读写服务器上的文件（服务配置也拒绝它们）。除此之外，语句里面不按关键字扫描，REPLACE() 这类函数照常可用；首词核对挡住任何账号都能执行的 SET PERSIST 这类语句。
 2. 经 ledger.read_as_of 取 reader 连接，给定 at 时钉到其解析出的提交，解析不到即 UNKNOWN_REF。
 3. 执行查询；reader 账号只有 SELECT 权限，钉在修订库上，是写入的边界。服务器拒绝语句时 SQL_STATEMENT_FAILED，消息带服务器的错误原文（截至 300 字符）。
 4. 原样返回列名、行与所读提交，不加工、不裁决。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `WRITE_VIA_SQL` | 不是恰好一条语句，首词不是 SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE、VALUES 之一，或字符串之外有 `/*!` 或 `/*+` |
+| `WRITE_VIA_SQL` | 不是恰好一条语句，首词不是 SELECT、SHOW、DESCRIBE、DESC、EXPLAIN、WITH、TABLE、VALUES 之一，或字符串之外有 `/*!`、`/*+`、OUTFILE、DUMPFILE 或 LOAD_FILE |
 | `SQL_STATEMENT_FAILED` | 服务器拒绝这条读语句；消息带服务器的错误原文，下一步是改语句（可先 SHOW TABLES、DESCRIBE \<表>） |
 | `UNKNOWN_REF` | at 解析不到提交、branch 或标签 |
 

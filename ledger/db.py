@@ -294,6 +294,11 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
+# secure_file_priv: a directory that can never exist, so no account reads or writes a server file
+# (SELECT INTO OUTFILE/DUMPFILE, LOAD_FILE); Dolt 2.4.2 allows both to a SELECT-only account otherwise.
+NO_FILE_IO = "system_variables:\n  secure_file_priv: /dev/null/no-file-io\n"
+
+
 def _create_service(root: Path, binary: str) -> dict:
     socket_path = root / "mysql.sock"
     if len(str(socket_path)) > SOCKET_LIMIT:
@@ -309,7 +314,7 @@ def _create_service(root: Path, binary: str) -> dict:
         f"listener:\n  host: 127.0.0.1\n  port: {port}\n  socket: {socket_path}\n"
         f"data_dir: {root / 'data'}\ncfg_dir: {root / 'cfg'}\n"
         f"privilege_file: {root / 'cfg' / 'privileges.db'}\n"
-        f"branch_control_file: {root / 'cfg' / 'branch_control.db'}\n", encoding="utf-8")
+        f"branch_control_file: {root / 'cfg' / 'branch_control.db'}\n" + NO_FILE_IO, encoding="utf-8")
     environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
     for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
         subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,

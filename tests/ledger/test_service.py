@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pymysql
+
 from cli import main as cli
 from cli import service
 from ledger import admin, db, publish
@@ -156,6 +158,13 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
         for administrator in (admin._admin, publish._admin):
             self.assertEqual(self.code(administrator, ledger), "LEDGER_UNKNOWN", "nor the service administrator")
+        with db.read_as_of(ledger) as conn:
+            for statement in (f"SELECT tag_name FROM dolt_tags INTO OUTFILE '{self.root / 'tags.txt'}'",
+                              f"SELECT LOAD_FILE('{self.service_root / 'service.json'}')"):
+                with self.subTest(statement=statement), self.assertRaises(pymysql.MySQLError), \
+                        conn.raw.cursor() as cursor:
+                    cursor.execute(statement)
+        self.assertFalse((self.root / "tags.txt").exists(), "nor a server file")
         with self.assertRaises(store.MarketError) as caught:
             store.connect(market, "import")
         self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
