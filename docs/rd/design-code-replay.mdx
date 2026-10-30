@@ -164,9 +164,9 @@ def precheck(
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场库连接配置，只读" }, "at": { type: "str", description: "市场提交，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选" }, "runtime": { type: "str", description: "运行环境引用，须与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数（覆盖改动的最短窗口、最少合约）" }, "output": { type: "Path", description: "尚不存在的临时目录" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场库连接配置，只读" }, "at": { type: "str", description: "市场提交，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用；空取 main 标签。随后登记须用这次解析出的同一摘要（返回的 image_ref）" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数（覆盖改动的最短窗口、最少合约）" }, "output": { type: "Path", description: "尚不存在的临时目录" } }} />
 
-**返回**　dict \{purpose: 'precheck', trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, metrics, scope: '仅工程证据；接口、因果、活动、就绪由独立 Agent 审查'\}。status 为 passed 表示原生与审计退出为零、无回调异常且审计问题清单为空
+**返回**　dict \{purpose: 'precheck', trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, metrics, scope: '仅工程证据；接口、因果、活动、就绪由独立 Agent 审查', exposure_exemption: \{trading_days, maximum_exempt_days, within_window_limit, note\}\}。status 为 passed 表示原生与审计退出为零、无回调异常且审计问题清单为空。exposure_exemption 报交易窗口（交易起点至终点，不含预热）的天数是否在暴露豁免上限内；超出仍照常执行、可以技术通过，但源码已暴露，首次研究登记会被拒绝。豁免还要求随后的登记引用本预检且执行身份一致。原生阶段非零退出、且每条运行时失败回执都在 load 或 inputs 阶段（行情到达策略之前）的预检不算暴露
 
 **期望行为**
 

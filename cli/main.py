@@ -1861,7 +1861,8 @@ def _parser() -> Parser:
         f"Exposure exemption permits at most {PRECHECK_MAX_DAYS} trading days (--trade-start, or --start, to "
         "--end; warm-up is excluded). Longer prechecks still execute and can pass technically, but expose the "
         "source and prevent its first research registration. Exemption also requires this precheck to be cited "
-        "with matching execution identity; other prior replays can still expose the source.", 100) + "\n\n" \
+        "with matching execution identity; other prior replays can still expose the source. A precheck that failed "
+        "in the load or inputs stage, before any market data reached the strategy, is no exposure.", 100) + "\n\n" \
         + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
