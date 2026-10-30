@@ -765,15 +765,15 @@ def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
             if group:
                 yield from flush(group, ts)
             group, ts = [], at
-        kind = type(event)
-        if kind is Bar:
+        cls = type(event)
+        if cls is Bar:
             group.append((bars[event.bar_type], event))
-        elif kind is TradeTick:
+        elif cls is TradeTick:
             data_type = wrapped.get(event.instrument_id) or wrapped.setdefault(
                 event.instrument_id, trade_data_type(event.instrument_id))
             group.append((order["TradeTick", event.instrument_id], CustomData(data_type, event)))
         else:
-            group.append((order[kind.__name__, event.instrument_id], event))
+            group.append((order[cls.__name__, event.instrument_id], event))
     if group:
         yield from flush(group, ts)
     while following is not None:
