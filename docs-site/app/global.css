@@ -114,6 +114,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 html:lang(zh) body { font-family: "Supply Text", "HarmonyOS Sans SC", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace; }
+/* Map labels follow the same locale-specific typography as the product UI. */
+.docs-architecture-shell, .docs-map-svg { font-family: inherit; font-feature-settings: inherit; }
 ::selection { background: var(--selection); }
 * { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
@@ -243,6 +245,10 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 /* ---------- Header (home) ---------- */
 /* the header: solid, on a hairline, no blur */
 #nd-nav > nav { border-color: var(--line); background: var(--island); backdrop-filter: none; }
+#nd-home-layout:has(.docs-architecture-page) #nd-nav > nav > div {
+  max-width: none;
+  padding-inline: var(--home-map-inset, clamp(16px, 3vw, 64px));
+}
 /* the theme switch: the same segmented track as the language switch */
 [data-theme-toggle] { gap: 2px; padding: 2px; border: 0; border-radius: var(--radius-card); background: var(--frame); }
 [data-theme-toggle] > * { width: 24px; height: 24px; padding: 5px; border-radius: var(--radius-control) !important; color: var(--fg-muted); }

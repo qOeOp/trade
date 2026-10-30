@@ -1,22 +1,40 @@
 import type { Locale } from '@/lib/i18n';
 
 export type Copy = Record<Locale, string>;
-export type EdgeRoute = { axis: 'x' | 'y'; at: number } | { via: [number, number][] };
-export type ArchitectureEdgeData = {
-  route?: EdgeRoute; caption?: Copy; emphasis?: 'main' | 'secondary';
-  leadPoints?: { source: [number, number]; target: [number, number] };
-  pinOrder?: number; description: Copy; docsRoute: string; isHighlighted?: boolean; isDimmed?: boolean; isRelated?: boolean;
+export type ArchitectureItem = {
+  id: string;
+  title: string;
+  parent?: string;
+  kind: 'region' | 'component';
+  description?: Copy;
+  docsRoute: string;
 };
-export type ArchitectureNodeData = {
-  nodeType: 'architecture'; title: string; subtitle?: Copy; importance?: 'core' | 'normal' | 'support';
-  owner: string; kind: 'authority' | 'adapter' | 'protected' | 'safety'; emphasis: 'core' | 'standard' | 'support';
-  variant?: 'client' | 'strategy' | 'engine' | 'bus' | 'store' | 'record';
-  description: Copy; docsRoute: string; activeHandles?: string[];
+export type ArchitectureRelation = {
+  id: string;
+  source: string;
+  target: string;
+  description: Copy;
+  docsRoute: string;
 };
-export type OwnerNodeData = {
-  nodeType: 'owner' | 'boundary'; label: string; count: number; badge?: string;
-  tone: 'neutral' | 'cyan' | 'violet' | 'amber'; role: 'authority' | 'shell' | 'channel' | 'factory' | 'stage';
-  roleLabel: 'MODULE' | 'BOUNDARY' | 'SERVICE' | 'DATABASE' | 'READ COPY' | 'PACKAGE' | 'SUBSYSTEM' | 'CONTAINER' | 'CACHE';
-  docsRoute: string; memberGroupIds: string[]; activeHandles?: string[];
+export type Rect = { x: number; y: number; width: number; height: number };
+export type Point = [number, number];
+export type TextMetrics = { left: number; top: number; width: number; height: number };
+export type MapText = {
+  id: string; text: string; x: number; y: number; size: number; weight: number;
+  tone: 'ink' | 'muted' | 'faint' | 'accent' | 'primary';
+  anchor: 'start' | 'middle' | 'end';
+  relations: string[];
 };
-export type DiagramNodeData = ArchitectureNodeData | OwnerNodeData;
+export type MapSurface = Rect & {
+  id: string; node: string; radius: number;
+  tier: 'region' | 'boundary' | 'database' | 'component' | 'copy' | 'capture' | 'external';
+  accent?: boolean;
+};
+export type MapRule = { id: string; d: string };
+export type MapDecoration = Rect & { id: string; radius: number };
+export type MapRoute = {
+  id: string; relations: string[]; points: Point[][];
+  primary: boolean; arrow: boolean;
+  junction?: Point;
+};
+export type MapTarget = Rect & { node: string; texts: string[]; region: boolean };
