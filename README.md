@@ -98,8 +98,8 @@ binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 
 Market data (Binance public USD-M perpetual data, imported month by month, and the monthly
 pool) lives in its own Dolt database beside the ledger ([`market`](market/README.md)); a replay
-cites one commit of it. The active database holds months from 2025-01 (pool members from 2025-02:
-the first imported month has none); `market coverage` reports what a commit holds. It is created
+cites one commit of it. `market coverage` reports which months a commit holds (the first imported
+month has no pool members: membership counts the trading days before a month). It is created
 the same way with its backup directory, synced with `market backup` and checked with `market review`:
 
 ```bash
