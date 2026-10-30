@@ -22,6 +22,7 @@ services:
       - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
     environment:
       TRADE_DOLT_HOST: ledger
+      PUBLISHED_PORT: ${TRADE_IDE_PORT:-8765}  # the page's allowed Host names this port
     configs:
       - source: ide-research
         target: /run/trade/ledgers/research.json

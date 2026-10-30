@@ -342,7 +342,7 @@ root 也不受这个权限位限制。改成以 `TRADE_UID` 运行，就得先�
   - Paper 面板照常工作。
 - **写不进**（在 ide 容器里）：
   - 命令行的写命令全部失败，例如 `candidate publish`、`ledger backup`、任何 `replay` 写入。writer 路径失败的形式是
-    `LEDGER_UNKNOWN`，root 路径是 `KeyError`。
+    `LEDGER_UNKNOWN`，root 路径原来是 `KeyError`，#1916 之后也是 `LEDGER_UNKNOWN`。
   - 用 reader 文件里的账户直接连服务，`INSERT`、`DOLT_COMMIT`、`DOLT_BRANCH`、`DOLT_TAG`、`DOLT_PUSH` 全部被拒。
   - `ledger sql` 拒绝下面这些：`SET PERSIST …`；§3.2 的四条可执行注释语句；`SELECT … INTO OUTFILE`；`GET_LOCK`。最后两项先实测
     Dolt 的行为，再决定是否也要拒绝。
@@ -362,6 +362,31 @@ root 也不受这个权限位限制。改成以 `TRADE_UID` 运行，就得先�
 - **其他服务不受影响**：
   - 除了切换时那一次计划内的重启，ledger、paper、market-supply、docker-api 都不因本方案重启；
   - 正在跑的 paper 会话继续运行。
+
+### 8.1 验收结果（2026-10-30）
+
+隔离 compose（项目 `trade-accept`，镜像由 PR 3 分支构建）上：
+
+- 图谱页、`/api/lines`、`/api/view` 和对话服务的健康检查都正常。对话工具没有接模型跑，只在 ide 容器里直接跑了它们调用的命令行：
+  `ledger sql` 能读，`market coverage` 能连到市场库。
+- `ledger sql` 拒绝 `SET GLOBAL`、`/*! */`、`/*+ */`、`INSERT`、`CALL DOLT_COMMIT`（`WRITE_VIA_SQL`）。
+- 用 reader 账户直连服务，`INSERT`、`CREATE TABLE`、`DOLT_COMMIT`、`DOLT_PUSH` 被拒。
+- `line close` 抛 `KeyError`，没有写入；#1916 改成 `LEDGER_UNKNOWN`。
+- 被 SIGTERM 杀掉的 `SELECT SLEEP(300)`，1 秒内从服务端 processlist 消失，所以不加服务端超时。
+- `docker compose restart ledger` 后，IDE 页面、Paper 面板和 `ledger sql` 不用重启就恢复。
+- 种子市场库没有当月成员资格，跑不了 paper 会话，所以只验了 paper 守护进程。
+
+本机切换（12:30 UTC，ledger 和 ide 重建到 `df1b52a11`；12:47 UTC 又重建了 market-supply 和 paper）：
+
+- 切换前后，全局变量都是 `commit`、0、151，`research` 和 `market` 的 head 不变。
+- 运行中的 paper 会话 4 经过 ledger 重建和 paper 守护进程重建，runner 没断，事件持续写入。
+- `agent/` 逐文件 SHA-256 一致地复制到 `trade-ide-agent`，旧卷未动。
+- ide 容器里没有含 `root_password`、writer 账户或 DoltHub 密钥的文件，没有 Dolt 进程，只监听 8765、8766，`/data` 下只有 `agent`。
+
+尚未解决：在隔离的 Dolt 2.4.2 上实测，只有 `SELECT` 权限的 reader 能用 `SELECT … INTO OUTFILE` / `INTO DUMPFILE` 往
+服务器写文件，能用 `LOAD_FILE` 读服务器上的文件。在 ledger 容器里，后者能读到服务目录下含 root 密码的 `service.json`。
+`ledger sql` 只看首词，这两种语句都能通过。在 Dolt 配置里把 `secure_file_priv` 设成不存在的目录后，两种语句都失败；
+reader 也改不了这个变量（它是只读变量）。`GET_LOCK` 能用，但只影响锁，不能写数据。修法待用户决定。
 
 ## 9. 不做
 
