@@ -510,6 +510,10 @@ class CapitalObserver(DataActor):
             self._close_gap(instrument)
         self._writer.close()
 
+    def abandon(self) -> None:
+        """Close the table of a replay refused before it ends; its rows are not a result."""
+        self._writer.close()
+
     def _close_carry(self, instrument: str) -> None:
         self.carried.append(self._carrying.pop(instrument))
 
@@ -980,6 +984,8 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
     stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=quotes), account["chunk_size"])
     if UNSERVED_TRADES:
+        for observer in OBSERVERS:
+            observer.abandon()
         raise Refusal("TRADES_NOT_SERVED", "; ".join(UNSERVED_TRADES[:5]) + (
             f"; and {len(UNSERVED_TRADES) - 5} more" if len(UNSERVED_TRADES) > 5 else "")
             + ". Replay with --trade-ticks (quote environment) and subscribe through subscribe_data")
