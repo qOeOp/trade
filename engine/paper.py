@@ -564,7 +564,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def plan(loaded: LoadedStrategy, symbols: list[str], membership: dict, start_ns: int, warmup: dict) -> list:
+def plan(symbols: list[str], membership: dict, start_ns: int, warmup: dict) -> list:
     """The instances: each contract in the universe at the input start, with its membership from there on."""
     planned = []
     for symbol in symbols:
@@ -681,7 +681,7 @@ def main(argv: list[str] | None = None) -> None:
                 return
         terms = rest_terms(list(args.symbols), args.proxy_url)
         warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url) for symbol in args.symbols}
-    planned = plan(loaded, list(args.symbols), membership, start_ns, warmup)
+    planned = plan(list(args.symbols), membership, start_ns, warmup)
     run.STRATEGIES.clear()
     RECORDERS.clear()
     FINDINGS.clear()

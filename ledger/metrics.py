@@ -682,7 +682,7 @@ def mark_drawdown(summary: dict, account: list[dict], exposures: Iterable[dict] 
             "limitations": ["Equity inside a bar is not observed; the drawdown is sampled at bar closes"]}
 
 
-def daily_notional(summary: dict, path: list[dict]) -> dict[int, Decimal]:
+def daily_notional(path: list[dict]) -> dict[int, Decimal]:
     """Mean gross notional over each UTC day's bar labels of the trade window (flat labels count zero)."""
     sums: defaultdict[int, Decimal] = defaultdict(Decimal)
     counts: Counter[int] = Counter()
@@ -932,7 +932,7 @@ def daily_rows(reports: Reports) -> list[tuple[int, float, Decimal | None]]:
     summary = reports.summary or {}
     start = utc_ns(summary["period_start_utc"])
     try:
-        notional = daily_notional(summary, equity_path(summary, reports.account, _typed_exposures(reports.exposures)))
+        notional = daily_notional(equity_path(summary, reports.account, _typed_exposures(reports.exposures)))
     except Unreconciled:
         notional = {}
     return [(ts, value, notional.get(ts - ts % DAY_NS)) for ts, value in reports.returns if ts >= start]
