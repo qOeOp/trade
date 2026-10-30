@@ -44,8 +44,12 @@ fresh reviewer with no authoring context receives only the candidate id, sealed 
 verified report cache (`replay report`) and api/causal/activity/readiness items. Its brief says it
 reads no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
-after a repair (Codex: `fork_turns: "none"`). The api item covers every native call in the source
-against the pinned image, whether or not the precheck ran it. `replay explore` is never economic evidence.
+after a repair (Codex: `fork_turns: "none"`). Api, causal and readiness are source properties,
+activity this precheck's; each guards one risk. The api item covers every native call in the source
+against the pinned image, whether or not the precheck ran it. Causal: inputs precede submission
+(below). Activity: the precheck filled orders, so its order path ran. Readiness: no decision before
+each indicator holds its warm-up history, not research-start's input-coverage check. `replay
+explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments to every precheck, registration and replay,
@@ -61,8 +65,8 @@ with `--initial-margin`/`--maintenance-margin` from Binance's bracket for the la
 When the distance lies far beyond such moves and beyond the inferred quotes' measured error,
 `bars` suffices: report liquidation as unmodelled together with that smallest distance. A
 notional cap in the source may keep it on `bars`. At lower exposure `quotes` may still be chosen
-when the pinned market commit holds them for every month of the trading window and the readiness
-check above supports the use.
+when the pinned market commit holds them for every month of the trading window and research-start's
+readiness check supports the use.
 
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
