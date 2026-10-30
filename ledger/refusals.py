@@ -15,6 +15,10 @@ from ledger.errors import Refusal, refusal
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."
 
 CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "MARKET_REMOTE_INVALID": ("The read-only market supply response or cache does not match the pinned request.",
+                              ("Inspect the supply identity, manifest and cache; no local or latest fallback is used.",)),
+    "MARKET_REMOTE_UNAVAILABLE": ("The read-only market supply transport or export did not complete.",
+                                  ("Inspect the supply service and connection before retrying the same request.",)),
     # Connections and service (ledger/db.py)
     "INVALID_ROLE": ("The connection role is neither writer nor reader.",
                      ("Connect with role writer to write or reader to read.",)),

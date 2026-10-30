@@ -268,3 +268,60 @@ writers). `tests/market/test_store.py` starts a throwaway service (`RESEARCH_DOL
 `tests/market/dolt.py`) and imports three months from the stand-in exchange: schema initialization,
 the universe, the import's refusals, freshness, membership, coverage, daily returns, stored bars and an
 export the engine streams whole.
+## Remote supply for replay inputs
+
+The replay/registration `MarketAdapter` also accepts a remote market profile. The supply host
+keeps the full Dolt database (or its read-only DoltHub replica); a replay client needs only the
+native files of its pinned commit, selected contracts and input window. This does not feed the
+`agg_trade` table or `TradeTick` into the engine. Bars, quotes, funding, daily warm-up, lifecycle
+evidence, membership and all existing audit checks retain their current meanings.
+
+Start the read-only supply process on the host that already has the local market profile:
+
+```bash
+uv run --frozen python -m market.remote --market MARKET_PROFILE --bind 127.0.0.1 --port 8210
+```
+
+Use a client profile file with no Dolt service or SQL account:
+
+```json
+{
+  "kind": "market",
+  "database": "market",
+  "remote_url": "http://127.0.0.1:8210",
+  "cache_root": "/tmp/trade-market-remote",
+  "timeout_seconds": 3600
+}
+```
+
+Pass its path as the existing `--market` argument to `replay explore`, `replay precheck`,
+`replay run`, `replay reproduce` or registration input preparation. This is an input adapter;
+market administration/import commands and paper's live setup still require their local profiles.
+No active profile is changed. The default bind is loopback; a deployment across hosts must supply
+its normal HTTPS/reverse-proxy access boundary. The Python HTTP process exposes public market
+inputs without application authentication and is not an internet-facing deployment by itself.
+
+The protocol resolves a reference once, then requires the full immutable commit for metadata and
+exports. Database identity and the existing exporter/dependency fingerprint must agree on both
+ends. The server exposes only designed metadata/export reads and content-addressed file downloads;
+there is no SQL, import, arbitrary file-path or ledger-write endpoint. Daily warm-up still includes
+the history the current exporter requires, even when it precedes the requested minute window.
+
+Client cache objects are verified by size and SHA-256 before atomic completion. Partial downloads
+can resume on a later explicit call; corrupted/truncated responses never become native inputs.
+Each replay gets an independent materialized directory, so an executing replay cannot modify a
+shared cache object. Transport manifests stay outside that directory and do not enter native input
+fingerprints. The existing semantic fingerprint and replay's before/after immutability checks are
+unchanged. Temporary input copies are cleaned by the existing entry's cleanup, while verified cache
+objects remain available for later requests.
+
+Nonfresh exports may use the verified local manifest and objects. **Fresh still means a new
+server-side export**: formal runs, prechecks and reproduction contact the source, verify its newly
+generated manifest, and reuse only byte-identical cache objects. A warm fresh request can therefore
+avoid downloading unchanged Parquet files, but it cannot skip source export or verification. No
+fallback to `main`, a different source, a local database or partially available inputs is used.
+
+Caches are disposable working copies, not a second canonical database or backup. This first step
+does not add automatic eviction: budget for the client cache plus its current materialized window,
+and the supply host's exported windows. Operators own their working-cache retention; canonical
+data, existing Catalog inputs and old backups are never removed by this adapter.
