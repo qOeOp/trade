@@ -74,11 +74,11 @@ class RunTests(unittest.TestCase):
         self.log = open(self.root / "server.log", "ab")  # noqa: SIM115
         self.addCleanup(self.log.close)
 
-    def start(self, origins: dict | None = None, credentials: Path | None = None):
+    def start(self, origins: dict | None = None, credentials: Path | None = None, readers: Path | None = None):
         server, config = service.start(self.service_root, self.data, self.backups,
                                        self.credentials if credentials is None else credentials,
                                        self.origins if origins is None else origins, self.port, BINARY, "isolated",
-                                       self.log)
+                                       self.log, readers)
         self.addCleanup(service._stop, server)
         return server, config
 
@@ -139,6 +139,36 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED")
         db._private_write(self.service_root / "service.json", {**config, "socket": str(self.root / "x.sock")})
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
+
+    def test_the_reader_only_service_file_reads_and_holds_nothing_that_writes(self):
+        readers = self.root / "readers"
+        server, config = self.start(readers=readers)
+        written = json.loads((readers / "service.json").read_text(encoding="utf-8"))
+        self.assertEqual(written, {"port": self.port, "databases": {
+            name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
+        self.assertEqual(sorted(written["databases"]), ["market", "research"])
+        ledger = db.LedgerProfile(name="research", database="research", service_root=readers, kind=None)
+        market = {"name": "market", "kind": "market", "database": "market", "service": str(readers)}
+        with db.read_as_of(ledger) as conn:
+            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)])
+        with store.connect(market, "reader") as conn:
+            self.assertEqual(conn.version, store.SCHEMA_VERSION)
+        self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
+        with self.assertRaises(store.MarketError) as caught:
+            store.connect(market, "import")
+        self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
+        service._stop(server)
+        (readers / "service.json").unlink()
+        self.start(readers=readers)
+        self.assertEqual(json.loads((readers / "service.json").read_text(encoding="utf-8")), written,
+                         "every later start writes it again")
+
+    def test_readers_never_replace_the_service_file(self):
+        server, _ = self.start()
+        service._stop(server)
+        before = (self.service_root / "service.json").read_bytes()
+        self.assertEqual(self.code(self.start, readers=self.service_root), "USAGE_ERROR")
+        self.assertEqual((self.service_root / "service.json").read_bytes(), before)
 
     def test_a_bootstrap_refused_or_failed_leaves_nothing_it_made(self):
         self.data.mkdir()

@@ -1091,13 +1091,16 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "start launches the Dolt service, stop stops it (every database on that service root); a service compose "
         "runs (no socket in service.json) is only waited for by start; status and check write nothing; run (the "
         "compose service) serves in the foreground, on first start bootstrapping the service, the ledger and "
-        "market databases cloned from their public copies, their accounts and profiles; never publishes",
+        "market databases cloned from their public copies, their accounts and profiles; with --readers, at "
+        "every start before serving, <readers>/service.json holding only the port and the reader accounts; "
+        "never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
         "when the ledger is not readable); check adds ledger_commit, market_schema; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "
-        "ISOLATION_BREACH; check: any refusal of reading either database"),
+        "ISOLATION_BREACH, USAGE_ERROR (--readers is the service directory); check: any refusal of reading "
+        "either database"),
     ("ledger", "temp"): (
         "the temporary root",
         "a new directory (--root, default <tmp>/ledger-<hex>) holding a temporary ledger's profile file and its "
@@ -1602,6 +1605,8 @@ def _parser() -> Parser:
     command.add_argument("--research-origin", help="run: the public copy the ledger is cloned from on first start")
     command.add_argument("--market-origin", help="run: the public copy the market is cloned from on first start")
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
+    command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
+                         "containers that only read")
     command = verb(ledger, "temp", "an isolated temporary ledger under the temporary root")
     command.add_argument("--root", help="new directory under the temporary root (default: a fresh one)")
     command = verb(ledger, "sql", "one read-only query with the reader account")
@@ -2080,7 +2085,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         if not (args.service_root and args.data_dir and args.backup_root):
             raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")
         return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials,
-                           {service.LEDGER: args.research_origin, service.MARKET: args.market_origin}, args.port)
+                           {service.LEDGER: args.research_origin, service.MARKET: args.market_origin}, args.port,
+                           args.readers)
     profile = ledger_profile(args.ledger)
     if key == ("ledger", "upgrade"):
         return db.upgrade(profile), 0

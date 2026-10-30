@@ -41,6 +41,7 @@ services:
       - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
       - --market-origin=${TRADE_MARKET_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-market}
       - --port=${TRADE_LEDGER_PORT:-13330}
+      - --readers=/var/lib/trade-readers
     environment:
       TRADE_LEDGER_HOME: ${TRADE_DATA}/ledgers
       HOME: /tmp
@@ -51,6 +52,8 @@ services:
       - ${TRADE_DATA}/ledgers:${TRADE_DATA}/ledgers
       - ${TRADE_DATA}/dolt-backups:${TRADE_DATA}/dolt-backups
       - trade-dolt-data:/var/lib/trade-dolt
+      # The reader-only service.json, written at every start, for containers that only read.
+      - trade-ledger-readers:/var/lib/trade-readers
       # The DoltHub key (a `dolt login` ~/.dolt): needed to bootstrap and to publish; nothing else sees it.
       - ${TRADE_DOLTHUB:-${TRADE_DATA}/dolthub}:/run/dolthub/.dolt:ro
     healthcheck:
@@ -155,4 +158,5 @@ configs:
 volumes:
   trade-ide-data:
   trade-dolt-data:
+  trade-ledger-readers:
   trade-market-exports:

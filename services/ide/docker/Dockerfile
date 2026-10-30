@@ -38,11 +38,12 @@ RUN uv sync --frozen --no-dev --no-cache && git rev-parse HEAD
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1
 
 # The ledger service and the paper daemon; compose names each one's command, environment and the host paths
-# at their own place. The Dolt data lives in a volume mounted at /var/lib/trade-dolt, which the service's
-# user (the host user's uid, unknown here) must be able to fill on first start.
+# at their own place. The Dolt data lives in a volume mounted at /var/lib/trade-dolt, and the reader-only
+# service file in one at /var/lib/trade-readers, which the service's user (the host user's uid, unknown
+# here) must be able to fill on first start.
 FROM product AS service
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
-RUN mkdir -p /var/lib/trade-dolt && chmod 1777 /var/lib/trade-dolt
+RUN mkdir -p /var/lib/trade-dolt /var/lib/trade-readers && chmod 1777 /var/lib/trade-dolt /var/lib/trade-readers
 EXPOSE 8767 13330
 LABEL org.opencontainers.image.title="Trade services"
 
