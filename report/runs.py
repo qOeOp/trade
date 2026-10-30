@@ -342,7 +342,8 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
                         "execution_identity")
     root = directory if (directory / "reports").is_dir() else directory.parent
     fingerprint, _ = problems.capture_fingerprint(capture, execution.read_files(root, (execution.FINGERPRINT_RESULT,)))
-    if run["fingerprints"] is None or fingerprint is None or fingerprint != run["fingerprints"]:
+    if (run["fingerprints"] is None or fingerprint is None
+            or fingerprint != problems.stored_fingerprint(run["fingerprints"])):
         raise _mismatch(directory, run["trial_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
                                                   "run's recorded fingerprint", execution.FINGERPRINT_RESULT)
     differs = _differing_files(directory, capture["listed"])
