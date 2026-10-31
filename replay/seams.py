@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 import subprocess
+import threading
 
 from ledger.errors import Refusal
 from runtime import container, image
@@ -32,9 +33,27 @@ def _container_command(identity: Mapping, mounts: list[tuple[Path, str, bool]], 
                                        module, list(argv), name)
 
 
+def _copy(pipe, sink) -> None:
+    for chunk in iter(lambda: pipe.read1(1 << 16), b""):
+        sink.write(chunk)
+
+
 def _run(command: list[str], stdout, stderr, timeout: float | None) -> int:
-    """Run one container to its end; subprocess.TimeoutExpired once `timeout` seconds pass."""
-    return subprocess.run(command, stdout=stdout, stderr=stderr, check=False, timeout=timeout).returncode
+    """Run one container to its end, handing its output to `stdout` and `stderr` (each with write(bytes)) as
+    it arrives; subprocess.TimeoutExpired once `timeout` seconds pass, and any exception kills the client."""
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        copies = [threading.Thread(target=_copy, args=pair, daemon=True)
+                  for pair in ((process.stdout, stdout), (process.stderr, stderr))]
+        for copy in copies:
+            copy.start()
+        try:
+            return process.wait(timeout)
+        except BaseException:
+            process.kill()
+            raise
+        finally:
+            for copy in copies:
+                copy.join()
 
 
 def _stop(name: str) -> None:
