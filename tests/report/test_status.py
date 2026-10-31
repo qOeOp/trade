@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import date
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 
@@ -79,6 +81,18 @@ class UnresolvedMarketTests(unittest.TestCase):
         with seams.use(market_commit=lambda ref: {"database": "market", "commit": None}):
             gate, = status._unresolved_market(self.LINE)
         self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
+
+    def test_the_active_profile_answers_for_a_database_several_profiles_name(self):
+        local = {"name": "market", "kind": "market", "role": "active", "database": "market", "service": "/srv"}
+        remote = {"name": "market-remote", "kind": "market", "database": "market", "remote_url": "http://supply"}
+        with tempfile.TemporaryDirectory() as home, mock.patch.dict("os.environ", {"TRADE_LEDGER_HOME": home}):
+            for profile in (local, remote):
+                Path(home, f"{profile['name']}.json").write_text(json.dumps(profile), encoding="utf-8")
+            self.assertEqual(seams._market_profile("market"), local, "market-remote.json sorts first")
+            Path(home, "market.json").write_text(json.dumps({**local, "role": None}), encoding="utf-8")
+            with self.assertRaises(Refusal) as caught:
+                seams._market_profile("market")
+            self.assertEqual(caught.exception.code, "MARKET_RETURNS_UNAVAILABLE")
 
     def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
         from market import store
