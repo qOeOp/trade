@@ -4,7 +4,8 @@ The view is a manifest (line, targets, counts) and a list of widgets. Each widge
 versioned type (summary@1, lineage@2, progress@1, scatter@1, table@1, notes@1, candidate-detail@1, sources@1) and a slot (top, main or side) and is
 self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
 
-x is research progress in trial numbers: a whole number is a trial, and a candidate sits at its first
+x is research progress in the line's own trials: the line's n-th trial sits at n, its trial number
+travelling with it as a label, so other lines' trials in between take no room; a candidate sits at its first
 research run (or its first trial, a precheck, when it has none). Anything timed (an event, a version without trials, the scope start) sits halfway through the
 gap after the last trial before it, n + 0.5, found by interpolating between trials whose times are
 known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
@@ -33,6 +34,12 @@ def seconds(value: str) -> float:
 def first_trial(candidate: dict) -> int | None:
     ids = [t["trial_id"] for t in candidate.get("trials") or []]
     return min(ids) if ids else None
+
+
+def places(candidates: list[dict]) -> dict[int, int]:
+    """Each trial's x: its place, from 1, among the trials of these candidates."""
+    ids = sorted({t["trial_id"] for c in candidates for t in c.get("trials") or []})
+    return {trial: n for n, trial in enumerate(ids, 1)}
 
 
 def research_runs(candidate: dict) -> list[dict]:
@@ -66,19 +73,19 @@ def prediction(candidate: dict) -> str:
 
 
 class Clock:
-    """Maps a time to a trial position from (time, trial) anchors that rise together."""
+    """Maps a time to an x from (time, trial x) anchors that rise together."""
 
-    def __init__(self, candidates: list[dict]):
-        anchors = []
+    def __init__(self, candidates: list[dict], place: dict[int, int]):
+        anchors: list[tuple[float, float]] = []
         for c in candidates:
-            anchors += [(seconds(t["at"]), t["trial_id"]) for t in c.get("trials") or [] if t.get("at")]
+            anchors += [(seconds(t["at"]), place[t["trial_id"]]) for t in c.get("trials") or [] if t.get("at")]
             trial = first_trial(c)
             if c.get("created_at") and trial is not None:
-                anchors.append((seconds(c["created_at"]), trial - 0.5))
+                anchors.append((seconds(c["created_at"]), place[trial] - 0.5))
         self.points: list[tuple[float, float]] = []
-        for when, trial in sorted(anchors):
-            if not self.points or (when > self.points[-1][0] and trial >= self.points[-1][1]):
-                self.points.append((when, trial))
+        for when, x in sorted(anchors):
+            if not self.points or (when > self.points[-1][0] and x >= self.points[-1][1]):
+                self.points.append((when, x))
 
     def __call__(self, at: str) -> float | None:
         if not self.points:
@@ -117,7 +124,8 @@ def rows(candidates: list[dict]) -> dict[str, int]:
 def build_view(graph: dict) -> dict:
     candidates = graph["candidates"]
     targets = (graph["line"].get("targets") or {})
-    clock = Clock(candidates)
+    place = places(candidates)
+    clock = Clock(candidates, place)
 
     def gap(at: str) -> float | None:
         x = clock(at)
@@ -127,7 +135,7 @@ def build_view(graph: dict) -> dict:
     def x_of(c: dict) -> float | None:
         runs = research_runs(c)  # over its own bar on the progress chart, when it has one
         trial = runs[0]["trial_id"] if runs else first_trial(c)
-        return float(trial) if trial is not None else (gap(c["created_at"]) if c.get("created_at") else None)
+        return float(place[trial]) if trial is not None else (gap(c["created_at"]) if c.get("created_at") else None)
 
     nodes = []
     for c in candidates:
@@ -167,7 +175,7 @@ def build_view(graph: dict) -> dict:
          "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}
          if best else None, "status": status_of.get(current) if current else None,
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
-         "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and r["trial_id"] > held_since),
+         "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
          "versions": len(candidates), "research_runs": len(runs),
          "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
          "meeting_targets": sum(1 for n in nodes if n["status"] in ("meets_targets", "recommended")
@@ -176,17 +184,16 @@ def build_view(graph: dict) -> dict:
                                 and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
                                                                 and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
         {"id": "lineage", "type": "lineage@2", "slot": "main", "title": "Lineage by trial", "targets": targets,
-         "axis": {"min": lo, "max": hi, "ticks": list(range(int(lo // 10 + 1) * 10, int(hi) + 1, 10)),
-                  "scope_start": gap(start) if start else None},
+         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
          "trail": trail,
-         "trials": sorted(({"trial_id": t["trial_id"], "candidate": c["id"], "purpose": t["purpose"]}
+         "trials": sorted(({"trial_id": t["trial_id"], "x": place[t["trial_id"]], "candidate": c["id"], "purpose": t["purpose"]}
                            for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
         {"id": "progress", "type": "progress@1", "slot": "main", "title": "Progress", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
-         "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
+         "points": [{"id": c["id"], "trial_id": t["trial_id"], "x": place[t["trial_id"]], "annual_return": t["annual_return"],
                      "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
                     for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
          "recommended": sorted({t["candidate"] for t in trail})},

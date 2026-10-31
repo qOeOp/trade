@@ -71,18 +71,18 @@ export type SummaryWidget = Widget & {
 
 export type LineageWidget = Widget & {
   targets: Targets | null;
-  axis: { min: number; max: number; ticks: number[]; scope_start: number | null };
+  axis: { min: number; max: number; scope_start: number | null };
   rows: { id: string; row: number }[];
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
   trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
-  trials: { trial_id: number; candidate: string; purpose: string }[];
+  trials: { trial_id: number; x: number; candidate: string; purpose: string }[];
 };
 
 export type ProgressWidget = Widget & {
   targets: Targets | null;
   axis: { min: number; max: number; scope_start: number | null };
-  points: { id: string; trial_id: number; annual_return: number; max_drawdown?: number | null; eligible: boolean | null }[];
+  points: { id: string; trial_id: number; x: number; annual_return: number; max_drawdown?: number | null; eligible: boolean | null }[];
   recommended: string[];
 };
 

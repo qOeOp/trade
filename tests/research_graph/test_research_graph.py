@@ -90,6 +90,20 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((summary["recommended"], summary["runs_since_recommendation_changed"], summary["masked_runs"]),
                          ("a@1", 1, 1), "one research run (trial 5) since a@1 became the recommendation")
 
+    def test_other_lines_trials_take_no_room_on_the_axis(self):
+        graph = copy.deepcopy(GRAPH)
+        numbers = iter([10, 20, 103, 140, 250])  # trials 1-5 renumbered as if other lines ran in between
+        for c in graph["candidates"]:
+            for t in c["trials"]:
+                t["trial_id"] = next(numbers)
+        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        tree = widgets["lineage"]
+        self.assertEqual([n["x"] for n in tree["nodes"]], [2.0, 4.0, 5.0], "the line's 2nd, 4th and 5th trials")
+        self.assertEqual([(t["trial_id"], t["x"]) for t in tree["trials"]], [(10, 1), (20, 2), (103, 3), (140, 4), (250, 5)])
+        self.assertEqual([(p["trial_id"], p["x"]) for p in widgets["progress"]["points"]], [(20, 2), (140, 4), (250, 5)])
+        self.assertEqual((tree["trail"][0]["x0"], tree["axis"]["max"]), (4.5, 6.0))
+        self.assertEqual(widgets["summary"]["runs_since_recommendation_changed"], 1)
+
 
 class WebRenderTests(unittest.TestCase):
     def setUp(self):

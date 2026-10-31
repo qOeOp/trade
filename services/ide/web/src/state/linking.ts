@@ -19,7 +19,7 @@ let counter = 0;
 export const requestFocus = (id: string) => focusRequest.set({ id, n: ++counter });
 export const useFocusRequest = () => useAtom(focusRequest);
 
-/** Screen x of trial 0 on the canvas and pixels per trial, shared by everything on the trial axis. */
+/** Screen x of position 0 on the canvas and pixels per trial, shared by everything on the trial axis. */
 export const axisView = atom<{ x0: number; unit: number }>({ x0: 0, unit: 32 });
 export const useAxisView = () => useAtom(axisView);
 
