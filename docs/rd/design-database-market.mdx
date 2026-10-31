@@ -123,7 +123,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 **写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />；表由管理员命令 `market upgrade` 补建。持同一导入锁、同一受限导入账号、同样的提交测试与自动发布；每个合约月可以分几次导，每次只追加还没有的日子。
 
-**读取方**　`market coverage` 的 `coverage[].metrics`。回放导出另行接入。
+**读取方**　`market coverage` 的 `coverage[].metrics`；回放入口给了 `--metrics` 时由 <Ref id="market.metrics_rows" /> 导出，按 `create_time + 10 分钟` 送给策略。
 
 **关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，DDL 没有外键。字段审阅与决定见 docs/plans/binance-open-interest-input.zh.md。
 

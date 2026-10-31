@@ -125,19 +125,24 @@ class RemoteTests(unittest.TestCase):
             found = self.exported()
         self.assertEqual({p.name for p in found["root"].iterdir()}, {"AAAUSDT"})
 
-    def test_trade_ticks_are_a_separate_request_and_a_boolean(self):
+    def test_trade_ticks_and_metrics_are_separate_requests_and_booleans(self):
         with patch.object(self.market, "export_catalogs", wraps=self.market.export_catalogs) as export:
             self.exported()
             self.exported(include_trades=True)
-        self.assertEqual([call.kwargs["include_trades"] for call in export.call_args_list], [False, True])
-        request = {"protocol": remote.PROTOCOL, "database": "market",
-                   "method": "export_catalogs", "args": {"commit": MARKET_COMMIT, "symbols": ["AAAUSDT"],
-                                                         "start_ns": LINE_WINDOW["start"], "end_ns": LINE_WINDOW["end"],
-                                                         "episodes": None, "lifecycle_files": {}, "fresh": False,
-                                                         "include_quotes": False, "include_trades": 1}}
-        with self.assertRaises(Refusal) as caught:
-            self.supply.call(request)
-        self.assertIn("export mode", caught.exception.message)
+            self.exported(include_metrics=True)
+        self.assertEqual([(call.kwargs["include_trades"], call.kwargs["include_metrics"])
+                          for call in export.call_args_list], [(False, False), (True, False), (False, True)])
+        for name in ("include_trades", "include_metrics"):
+            request = {"protocol": remote.PROTOCOL, "database": "market",
+                       "method": "export_catalogs", "args": {"commit": MARKET_COMMIT, "symbols": ["AAAUSDT"],
+                                                             "start_ns": LINE_WINDOW["start"],
+                                                             "end_ns": LINE_WINDOW["end"], "episodes": None,
+                                                             "lifecycle_files": {}, "fresh": False,
+                                                             "include_quotes": False, "include_trades": False,
+                                                             "include_metrics": False, name: 1}}
+            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
+                self.supply.call(request)
+            self.assertIn("export mode", caught.exception.message)
 
     def test_interrupted_transfer_keeps_only_an_unaccepted_prefix_then_resumes(self):
         data = b"x" * (remote.BLOCK*2 + 57)

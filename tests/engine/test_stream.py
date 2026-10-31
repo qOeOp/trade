@@ -188,12 +188,13 @@ def series(seed, minutes):
 
 
 def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0, quotes=False, margins=None,
-             trades=False):
+             trades=False, metrics=False):
     """One contract's export as market.export_episode lays it out: an episode is piece 1 in episode-1/. With
     `quotes`, two best bid/ask states a minute (at the minute's low, then at its high); `margins` writes the
     instrument with those (initial, maintenance) rates, as the runner applies the quote environment's; with
     `trades`, three aggregate trades a minute at 1.00, far below every quote: two in the millisecond of the first
-    quote, one ten seconds later."""
+    quote, one ten seconds later; with `metrics`, every five-minute row the window shows, the account ratio
+    empty except in every seventh."""
     index = 1 if episode is not None else None
     path = root / symbol
     catalog_path = path / "episode-1" if index else path
@@ -219,6 +220,11 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
                 for index, at in enumerate(bars["ts_open"].tolist())
                 for number, offset in enumerate((20_000, 20_000, 30_000))]
         counts["trade"] = export.write_trades(store, iid, [rows], 2, 3)
+    if metrics:
+        stamps = range(START - export.METRICS_DESCRIBES_MS, END - export.METRICS_VISIBLE_MS, 5 * MIN)
+        counts["metrics"] = export.write_metrics(catalog_path, str(iid), [
+            (at, Decimal("1234.5") + number, Decimal("1.25"), Decimal("0.875"), None if number % 7 else Decimal("2"))
+            for number, at in enumerate(stamps)])
     if episode is not None:
         counts.update(lifecycle.write_lifecycle_events(store, episode, START * 10**6, END * 10**6))
     piece = {"index": index, "instrument_id": str(iid), "catalog_dir": "episode-1" if index else "", "counts": counts,
@@ -230,14 +236,15 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
     (path / "export.json").write_text(json.dumps(receipt))
 
 
-def market(root: Path, quotes: bool = False, margins=None, trades: bool = False) -> list[str]:
+def market(root: Path, quotes: bool = False, margins=None, trades: bool = False, metrics: bool = False) -> list[str]:
     every = np.arange(DAYS * 1440)
     eight = [START + hour * 3_600_000 for hour in range(0, DAYS * 24, 8)]
     contract(root, "AAAUSDT", every, eight + [START + DAY + 6 * 3_600_000 - 1], seed=1, quotes=quotes,
-             margins=margins, trades=trades)  # funding on a bar close
+             margins=margins, trades=trades, metrics=metrics)  # funding on a bar close
     keep = np.random.default_rng(7).random(len(every)) > 0.1
     keep[(every >= 600) & (every < 1500)] = False  # a gap longer than a session window
-    contract(root, "币安USDT", every[keep], eight, seed=2, quotes=quotes, margins=margins, trades=trades)
+    contract(root, "币安USDT", every[keep], eight, seed=2, quotes=quotes, margins=margins, trades=trades,
+             metrics=metrics)
     iid = InstrumentId.from_str(export.native_symbol("CCCUSDT", 1)["instrument_id"])
     pre, settled = (START + DAY + 10 * MIN - 1) * 10**6, (START + DAY + 12 * 3_600_000) * 10**6
     events = [InstrumentStatus(iid, MarketStatusAction.PRE_CLOSE, pre, pre).to_dict(),
@@ -420,6 +427,48 @@ class Watcher(Strategy):
 
     def replay_diagnostics(self):
         return {"trades": sum(event[0] == "trade" for event in self.seen)}
+
+    def replay_integrity_findings(self, orders_denied_or_rejected):
+        return []
+'''
+
+
+METRICS_WATCHER = '''
+from decimal import Decimal
+from nautilus_trader.model import BarType, DataType, OrderSide
+from nautilus_trader.trading import Strategy, StrategyConfig
+
+
+class MetricsWatcher(Strategy):
+    """Bar environment with metrics: every bar and metrics row it is handed, and on AAAUSDT's first row of the
+    trading window a market buy."""
+    USES_STOP_LOSS = False
+    SUBSCRIBE = "served"  # "served": metrics of the contracts exported with them; "every"
+
+    def __init__(self, instrument_id, daily_bar_type, **kw):
+        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
+
+    def on_start(self):
+        self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
+        if self.SUBSCRIBE == "every" or not str(self.iid).startswith("CCCUSDT"):
+            self.subscribe_data(DataType("Metrics", metadata={"instrument_id": str(self.iid)}))
+
+    def on_bar(self, bar):
+        self.seen.append(("bar", bar.ts_init, str(bar.close)))
+
+    def on_data(self, data):
+        row = data.data
+        self.seen.append(("metrics", row.ts_init, row.ts_event, row.instrument_id, row.sum_open_interest,
+                          row.count_toptrader_long_short_ratio, row.sum_toptrader_long_short_ratio,
+                          row.count_long_short_ratio))
+        if row.ts_init >= self.trade_start and not self.sent and str(self.iid).startswith("AAAUSDT"):
+            self.sent = True
+            quantity = self.cache.instrument(self.iid).make_qty(Decimal("0.010"))
+            self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY, quantity))
+
+    def replay_diagnostics(self):
+        return {}
 
     def replay_integrity_findings(self, orders_denied_or_rejected):
         return []
@@ -629,7 +678,8 @@ class StreamTests(unittest.TestCase):
             window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
                                   utc_text(END * 10**6))
             rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
-            for mode, named in (("every", "CCCUSDT-E1-PERP.BINANCE, whose trades"), ("native", "subscribe_trades")):
+            for mode, named in (("every", "TradeTick for CCCUSDT-E1-PERP.BINANCE, which this run"),
+                                ("native", "subscribe_trades")):
                 source = root / f"watcher_{mode}.py"
                 source.write_text(WATCHER.replace('SUBSCRIBE = "served"', f'SUBSCRIBE = "{mode}"'))
                 loaded = load_strategy(source, "Watcher", hashlib.sha256(source.read_bytes()).hexdigest())
@@ -645,6 +695,67 @@ class StreamTests(unittest.TestCase):
                 total = sum(sum(v for k, v in row["counts"].items() if k != "daily") for row in rows)
                 self.assertEqual(len(consumed), 1)
                 self.assertTrue(1000 <= consumed[0] < total)
+
+    def test_metrics_arrive_on_minute_boundaries_as_exact_custom_data_and_fill_at_the_bar_ending_there(self):
+        """Exported metrics reach the strategy in time order as engine.Metrics, 10 minutes after create_time and
+        describing 5 minutes after it, with exact decimals and empty ratios as None, and count in the consumed
+        events; a contract exported without them streams none. A market buy a row prompts in the bar environment
+        fills at the close of the bar that ends where the row arrives. With --metrics, an active contract whose
+        export holds none is refused."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            symbols = market(root / "market", metrics=True)
+            source = root / "metrics_watcher.py"
+            source.write_text(METRICS_WATCHER)
+            loaded = load_strategy(source, "MetricsWatcher", hashlib.sha256(source.read_bytes()).hexdigest())
+            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
+                                  utc_text(END * 10**6))
+            rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            self.assertEqual([("metrics" in row["counts"]) for row in rows], [True, True, False])
+            finished, strategies, _ = run.replay(rows, window, loaded, read_universe(None, symbols), root)
+            try:
+                iterations = finished.result.iterations
+                fills = finished.fills().reset_index().to_dict("records")
+            finally:
+                finished.engine.dispose()
+            seen = {row["coin"]: strategies[row["coin"]].seen for row in rows}
+            with self.assertRaises(Refusal) as caught:
+                run.replay(rows, window, loaded, read_universe(None, symbols), root, metrics=True)
+            self.assertEqual(caught.exception.code, "METRICS_MISSING")
+            self.assertIn("CCCUSDT 2026-01", str(caught.exception))
+        self.assertEqual(iterations, sum(sum(value for key, value in row["counts"].items() if key != "daily")
+                                         for row in rows))
+        for row in rows:
+            found = [event for event in seen[row["coin"]] if event[0] == "metrics"]
+            self.assertEqual(len(found), row["counts"].get("metrics", 0))
+            if not found:
+                continue
+            self.assertEqual(found[0][1:3], ((START + 5 * MIN) * 10**6, START * 10**6))
+            self.assertTrue(all(event[1] % (MIN * 10**6) == 0 and event[1] - event[2] == 5 * MIN * 10**6
+                                for event in found))
+            self.assertEqual([event[1] for event in found], sorted(event[1] for event in found))
+            self.assertEqual(found[0][3], row["instrument_id"])
+            self.assertEqual(found[1][4:], (Decimal("1235.5"), Decimal("1.25"), Decimal("0.875"), None))
+            self.assertEqual(found[7][7], Decimal("2"))
+        first = next(event for event in seen["AAA"] if event[0] == "metrics" and event[1] >= window.trade_start_ns)
+        close = next(event[2] for event in seen["AAA"] if event[0] == "bar" and event[1] == first[1] - 10**6)
+        self.assertEqual([str(fill["last_px"]) for fill in fills], [close])
+
+    def test_a_metrics_subscription_the_run_does_not_serve_refuses_after_its_first_chunk(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            symbols = market(root / "market", metrics=True)
+            source = root / "metrics_every.py"
+            source.write_text(METRICS_WATCHER.replace('SUBSCRIBE = "served"', 'SUBSCRIBE = "every"'))
+            loaded = load_strategy(source, "MetricsWatcher", hashlib.sha256(source.read_bytes()).hexdigest())
+            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
+                                  utc_text(END * 10**6))
+            rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
+            with self.assertRaises(Refusal) as caught:
+                run.replay(rows, window, loaded, read_universe(None, symbols), root,
+                           {**ACCOUNT_CONTRACT, "chunk_size": 1000})
+        self.assertEqual(caught.exception.code, "METRICS_NOT_SERVED")
+        self.assertIn("subscribe_data Metrics for CCCUSDT-E1-PERP.BINANCE", str(caught.exception))
 
     def test_exported_trades_are_checked_per_month_and_a_file_never_spans_two(self):
         """Trades are checked per UTC month of [trade start, end) like quotes: January and March held, February

@@ -320,6 +320,10 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
                "data the venue never sees, so it never matches an order or moves the book; a millisecond's trades "
                "follow its quotes, so their order within it is approximate"]
               if any("trade" in row["counts"] for row in instruments) else []),
+            *(["Metrics are signal input only: one row of Binance open interest and long/short ratios per five "
+               "minutes, delivered as custom data 10 minutes after the archive's create_time and describing the "
+               "instant 5 minutes after it; a ratio the archive left empty is None"]
+              if any("metrics" in row["counts"] for row in instruments) else []),
             *([f"Positions on a contract without a MARK at a bar were valued at its latest MARK, at most 60 "
                f"minutes old ({len(replay.observer.carried)} intervals in mark_carry)"]
               if getattr(replay.observer, "carried", None) else []),

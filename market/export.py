@@ -1,6 +1,6 @@
 """Export one market commit as Nautilus ParquetDataCatalogs for a replay window (`market.export_catalogs`,
 `market.export_episode`, `market.split_episodes`, `market.native_symbol`, `market.write_bars`,
-`market.write_marks`, `market.write_quotes`, `market.write_funding`).
+`market.write_marks`, `market.write_quotes`, `market.write_funding`, `market.write_metrics`).
 
 Per contract, `<root>/<SYMBOL>/` holds its receipt `export.json` and one Catalog per piece: the whole
 contract when no lifecycle is given (the Catalog sits in the contract directory), one
@@ -361,6 +361,52 @@ def trade_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None,
                            "ORDER BY transact_time, agg_trade_id", (symbol, low_ms, stop), size=chunk)
 
 
+# Open interest and long/short ratios (market/metrics.py): a row stamped create_time describes create_time + 5 min
+# (its open interest equals public REST's then) and reaches a strategy 5 minutes later, past REST's publication
+# (at most 189 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are
+# whole minutes, so a row arrives on a minute boundary: an order it prompts in the bar environment fills at the
+# close of the bar that ends there, not at a price older than the decision.
+METRICS_RULE = "binance-metrics-visible-v1"
+METRICS_DESCRIBES_MS = 5 * MINUTE  # ts_event = create_time + 5 min
+METRICS_VISIBLE_MS = 10 * MINUTE  # ts_init = create_time + 10 min
+METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
+                  "count_long_short_ratio")
+
+
+def metrics_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int) -> list[tuple]:
+    """The stored metrics rows of [low_ms, min(high_ms, end_ms)) at `commit`: the instant each describes
+    (create_time + 5 min) at or after low_ms and its visibility (create_time + 10 min) before the end, so a
+    strategy is never handed a row stamped before its input starts. Each as (create_time, sum_open_interest,
+    three ratios or None), in time order."""
+    stop = end_ms if high_ms is None else min(end_ms, high_ms)
+    # Commits before the metrics table export none; the runner refuses the months (METRICS_MISSING).
+    if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'metrics'"):
+        return []
+    return conn.rows(f"SELECT create_time, {', '.join(METRICS_VALUES)} FROM metrics AS OF '{commit}' WHERE symbol = %s "
+                     "AND create_time >= %s AND create_time < %s ORDER BY create_time",
+                     (symbol, low_ms - METRICS_DESCRIBES_MS, stop - METRICS_VISIBLE_MS))
+
+
+def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
+    """market.write_metrics: one file of the rows under data/metrics/<instrument>/ (named by its first and last
+    ts_init), ts_event and ts_init in nanoseconds by the visibility rule and the values as exact decimals (a ratio
+    the archive left empty stays null); the runner streams each row as custom data."""
+    if not rows:
+        return 0
+    stamps = np.array([row[0] for row in rows], dtype=np.int64)
+    columns = {"ts_event": pa.array((stamps + METRICS_DESCRIBES_MS) * 1_000_000, pa.int64()),
+               "ts_init": pa.array((stamps + METRICS_VISIBLE_MS) * 1_000_000, pa.int64())}
+    for index, name in enumerate(METRICS_VALUES, start=1):
+        columns[name] = pa.array([row[index] for row in rows], pa.decimal128(38, 16))
+    table = pa.table(columns).replace_schema_metadata({"type_name": "Metrics", "instrument_id": instrument_id,
+                                                       "rule": METRICS_RULE})
+    directory = Path(root) / "data" / "metrics" / instrument_id
+    directory.mkdir(parents=True, exist_ok=True)
+    first, last = int(columns["ts_init"][0].as_py()), int(columns["ts_init"][-1].as_py())
+    pq.write_table(table, directory / lifecycle.file_name(first, last), compression="snappy")
+    return len(rows)
+
+
 # The daily warm-up, derived while streaming
 
 DAILY_CHUNK = 20_000  # rows per streamed chunk: about two weeks of minutes
@@ -451,6 +497,10 @@ def export_episode(job: dict) -> dict:
                                                            piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None
                                                            else None, end),
                                   precision, size_increment) if job.get("include_trades") else None
+            metrics = write_metrics(root, str(iid), metrics_rows(
+                conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
+                piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None else None, end)) \
+                if job.get("include_metrics") else None
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
                                      max(size_increment, needed_decimals(last["volume"], volume_scale)),
                                      price_scale, volume_scale),
@@ -463,6 +513,8 @@ def export_episode(job: dict) -> dict:
                   "instrument_close": 0, "instrument_status": 0}
         if trades is not None:  # only on request, so an export without trades keeps its receipt bytes
             counts["trade"] = trades
+        if metrics is not None:  # likewise
+            counts["metrics"] = metrics
         if piece["episode"] is not None:
             counts.update(lifecycle.write_lifecycle_events(catalog, piece["episode"], start_ns, end_ns))
         low = max(start, -(-piece["low_ns"] // 1_000_000 // MINUTE) * MINUTE)
@@ -483,6 +535,8 @@ def export_episode(job: dict) -> dict:
                "end_ns": end_ns, "coverage": facts, "terms_source": record["terms_source"],
                "terms_observed_at": record["terms_observed_at"], "historical_terms": record["historical_terms"],
                "assumed": record["assumed"], "pieces": pieces}
+    if job.get("include_metrics"):
+        receipt["metrics_rule"] = METRICS_RULE
     (path / "export.json").write_text(json.dumps(receipt, indent=1, ensure_ascii=False), encoding="utf-8")
     return receipt
 
@@ -518,11 +572,12 @@ def exporter_sha256() -> str:
 def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
                     episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
                     fresh: bool = False, root: Path | None = None, workers: int = 4, *,
-                    include_quotes: bool = True, include_trades: bool = False) -> dict:
+                    include_quotes: bool = True, include_trades: bool = False, include_metrics: bool = False) -> dict:
     """market.export_catalogs: each contract's Catalogs and receipt at one commit for [start_ns, end_ns),
     from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/.
     `include_quotes=False` omits unused quote conversion for bars execution; `include_trades` adds every stored
-    aggregate trade as a TradeTick and its count; all other inputs are unchanged.
+    aggregate trade as a TradeTick and its count, `include_metrics` every visible metrics row and its count (the
+    receipt names the visibility rule); all other inputs are unchanged.
     """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
@@ -542,7 +597,8 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             Path(root).mkdir(parents=True, exist_ok=True)
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
-        key = f"{start_ns}-{end_ns}-q{int(include_quotes)}{'-t1' if include_trades else ''}-x{exporter_sha256()[:16]}"
+        key = (f"{start_ns}-{end_ns}-q{int(include_quotes)}{'-t1' if include_trades else ''}"
+               f"{'-m1' if include_metrics else ''}-x{exporter_sha256()[:16]}")
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
@@ -556,7 +612,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
                          "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
                          "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
-                         "include_trades": include_trades})
+                         "include_trades": include_trades, "include_metrics": include_metrics})
     try:
         if jobs:
             with ProcessPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
