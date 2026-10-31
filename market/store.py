@@ -267,6 +267,8 @@ def default_cache() -> Path:
 
 # Exact scaling
 
+FLOAT_TAIL_ULPS = 4  # a float rendering lies within a few units in the last place of its double
+
 def _wide(column) -> pa.Array:
     column = column.combine_chunks() if isinstance(column, pa.ChunkedArray) else column
     return pc.cast(column, pa.decimal128(38, 18))
@@ -284,8 +286,10 @@ def scaled(column, scale: int, label: str, *, float_tails: bool = False) -> tupl
     """Decimal strings as integers at `scale`, exactly.
 
     With `float_tails`, a value whose extra digits are a binary-float rendering of a value at
-    `scale` (Binance archives hold a few, such as 108824285.69999999) is rounded to it; the count of
-    such values is returned. Any other value with more decimals is refused.
+    `scale` (Binance archives hold a few, such as 108824285.69999999) is rounded to it: as doubles
+    the two differ by at most FLOAT_TAIL_ULPS units in the last place. The count of such values is
+    returned. Any other value with more decimals is refused, a real extra decimal of a large value
+    included.
     """
     wide = _wide(column)
     try:
@@ -296,9 +300,9 @@ def scaled(column, scale: int, label: str, *, float_tails: bool = False) -> tupl
     rounded = pc.cast(pc.round(wide, ndigits=scale, round_mode="half_to_even"), pa.decimal128(38, scale))
     exact = pc.cast(rounded, pa.decimal128(38, 18))
     changed = pc.not_equal(exact, wide)
-    error = pc.abs(pc.subtract(pc.cast(wide, pa.float64()), pc.cast(exact, pa.float64())))
-    tolerance = pc.max_element_wise(pc.multiply(pc.abs(pc.cast(wide, pa.float64())), 1e-12), 1e-12)
-    if not pc.all(pc.less_equal(error, tolerance)).as_py():
+    given = pc.cast(wide, pa.float64()).to_numpy(zero_copy_only=False)
+    near = pc.cast(exact, pa.float64()).to_numpy(zero_copy_only=False)
+    if np.any(np.abs(given - near) > FLOAT_TAIL_ULPS * np.spacing(np.abs(near))):
         raise _refuse(f"{label}: a value has more than {scale} decimals", "SCALE_LOSS")
     return _int64(rounded, label), int(pc.sum(changed).as_py() or 0)
 

@@ -694,7 +694,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "SCALE_RANGE": ("A price or volume does not fit the market database's integer scale.",
                     ("Report the contract named; the scale is fixed for the database's generation.",)),
     "SCALE_LOSS": ("A price or volume has more decimals than the market database's scale holds.",
-                   ("Report the contract named; values are never rounded on import.",)),
+                   ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
+                    "scale is rounded on import, and counted in rounded_volumes.",)),
     "QUOTE_INEXACT": ("A stored quote price does not fit the instrument's price precision at export.",
                       ("Report the contract named; the quote table and the instrument terms disagree.",)),
     "TRADE_INEXACT": ("A stored aggregate trade's price or quantity does not fit the instrument's precisions at export.",

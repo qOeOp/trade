@@ -361,6 +361,10 @@ class ScalingTests(Refusals):
         self.assertEqual((values.tolist(), rounded), ([1_088_242_857_000, 125_000], 1))
         self.refused("SCALE_LOSS", store.scaled, pa.array(["0.123456789"]), 8, "p")
         self.refused("SCALE_LOSS", store.scaled, pa.array(["12.34567"]), 4, "v", float_tails=True)
+        values, rounded = store.scaled(pa.array([repr(0.1 + 0.2)]), 4, "v", float_tails=True)
+        self.assertEqual((values.tolist(), rounded), ([3_000], 1), "float arithmetic residue is a float tail")
+        # a real fifth decimal of a large volume is not a float tail
+        self.refused("SCALE_LOSS", store.scaled, pa.array(["20000000.00001"]), 4, "v", float_tails=True)
         self.refused("SCALE_RANGE", store.scaled, pa.array(["1000000000000000"]), 8, "v")
         self.assertEqual(store.significant_decimals(pa.array(["0.0010000", "12", "3.25"])), 3)
 
