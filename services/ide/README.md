@@ -2,8 +2,8 @@
 
 The trade IDE: a local page onto the research. Its first view is the research graph.
 
-Draws one research line as a graph and compares graphs built from different sources. Used by the
-`research-graph` skill. Checking, layout and comparison use the standard library; rendering needs
+Draws one research line as a graph and compares graphs built from different sources (product-doctor's
+fidelity test). Checking, layout and comparison use the standard library; rendering needs
 node and npm:
 
 ```bash

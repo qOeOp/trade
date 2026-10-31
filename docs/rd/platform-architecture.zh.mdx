@@ -19,7 +19,7 @@
 
 **Paper**　Paper 面板的每个动作都是命令行 `paper` 的一个动词：start 声明一次 paper 运行并起容器、stop 停止并封存、seal 封存自行结束的运行、delete 删除已封存的运行（用户自己的动作，Agent 不代删；由服务管理员以 `paper_delete:<id>` 提交完成）、list、reconcile（后台在归档上重放对比，不写账本）、serve。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
 
-**Agent**　聊天服务（`services/ide/agent`，Node，随 ide 容器运行）只能调用产品的只读命令：research state、research status、candidate list、candidate show、replay report、ledger sql、market coverage；它不能写账本，也不能起停运行。研究图接口（/api/view、/api/events）只读，live 刷新与固定提交的区别见 [研究图服务](/zh/docs/design-skill-research-graph/)。部署步骤与环境变量见 [services/ide/README.md](https://github.com/qOeOp/trade/blob/main/services/ide/README.md)。
+**Agent**　聊天服务（`services/ide/agent`，Node，随 ide 容器运行）只能调用产品的只读命令：research state、research status、candidate list、candidate show、replay report、ledger sql、market coverage；它不能写账本，也不能起停运行。研究图接口（/api/view、/api/events）只读，live 刷新与固定提交的区别见 [交易 IDE](/zh/docs/design-code-ide/)。部署步骤与环境变量见 [services/ide/README.md](https://github.com/qOeOp/trade/blob/main/services/ide/README.md)。
 
 ## 如何查阅
 
