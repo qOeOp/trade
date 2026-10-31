@@ -29,6 +29,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import time
 
 import pymysql
 
@@ -219,7 +220,17 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
     """Push `branch` and then every tag to origin, and check by a fetch that the remote's head contains
     the local one read before the push, holding the database's publish lock. With `lock` (the market
     import lock) no write lands during the push. `head` of the result is the remote's head after that
-    check."""
+    check; `seconds` is the wall time of each stage (waiting for the locks, the branch push, the
+    fetches, the tag pushes)."""
+    seconds = dict.fromkeys(("lock", "push", "fetch", "tags"), 0.0)
+
+    def timed(stage: str, call, *args):
+        start = time.monotonic()
+        try:
+            return call(*args)
+        finally:
+            seconds[stage] += time.monotonic() - start
+
     conn = _admin(profile)
     try:
         with conn.cursor() as cursor:
@@ -228,7 +239,7 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
                 raise refuse("REMOTE_UNSET", f"{profile.database} has no {REMOTE} remote", missing=(REMOTE,))
             _allowed(profile, url)
             serial = f"{profile.database}/publish"
-            if _rows(cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
+            if timed("lock", _rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
                 raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
                              f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
             if lock is not None:
@@ -238,16 +249,16 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
             (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (branch,))
             before = _remote_head(cursor, branch)
             # A head another publish has pushed is confirmed by a fetch before its tags follow.
-            published = _fetch(cursor, url, branch) if before == head else before
+            published = timed("fetch", _fetch, cursor, url, branch) if before == head else before
             if published != head:
                 rejected = None
                 try:
-                    _push(cursor, profile, url, branch)
+                    timed("push", _push, cursor, profile, url, branch)
                 except Refusal as exc:
                     if exc.code != "PUBLISH_REJECTED":
                         raise
                     rejected = exc
-                published = _fetch(cursor, url, branch)
+                published = timed("fetch", _fetch, cursor, url, branch)
                 if not _contains(cursor, published, head):
                     if rejected is not None and published is not None and not _ancestor(cursor, published, head):
                         raise rejected
@@ -255,8 +266,9 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
                                  f"which does not contain {head}", missing=(url,))
             tags = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             for name in tags:
-                _push(cursor, profile, url, f"refs/tags/{name}")
+                timed("tags", _push, cursor, profile, url, f"refs/tags/{name}")
     finally:
         conn.close()  # also releases the publish and import locks
     return {"database": profile.database, "remote": url, "branch": branch, "head": published,
-            "previous_head": before, "tags": len(tags)}
+            "previous_head": before, "tags": len(tags),
+            "seconds": {stage: round(value, 3) for stage, value in seconds.items()}}
