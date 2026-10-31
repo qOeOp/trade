@@ -45,7 +45,7 @@
   --fg-faint: light-dark(oklch(0.555 var(--n-c) var(--n-h)), oklch(0.62 var(--n-c) var(--n-h)));
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --focus: #3574F0;
-  --primary: #3574F0;
+  --primary: #306DE6;
   --primary-hover: light-dark(#3369D6, #366ACE);
   --primary-fg: #FFFFFF;
   /* links: the focus blue, a step darker on white and lighter on dark so body-size text reads */
