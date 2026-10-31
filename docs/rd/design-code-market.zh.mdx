@@ -53,7 +53,7 @@ def import_month(profile: dict, month: date, cache: Path, symbol: str, log=print
 def batches(path: Path, symbol: str, day: str, state: State, readings: dict, size: int=BATCH_ROWS):
 ```
 
-生成器：从一日的 ZIP/CSV 逐行读，内存里只留一批 INSERT 行和上一条事件；`state` 带前一日末笔的编号与时刻跨日续接。七列缺一、编号或时刻超出有符号 64 位、首末逐笔编号颠倒、时刻倒退或不在当日 UTC 范围内即 SOURCE_SHAPE；编号不连续即 SEQUENCE_GAP；空归档即 SOURCE_SHAPE。`readings` 写入 trades、首末 agg_trade_id 与时刻、trade_gap_max_ms。
+生成器：从一日的 ZIP/CSV 逐行读，内存里只留一批 INSERT 行和上一条事件；`state` 带前一日末笔的编号、时刻与末逐笔编号跨日续接。七列缺一、编号或时刻超出有符号 64 位、首末逐笔编号颠倒、时刻倒退或不在当日 UTC 范围内即 SOURCE_SHAPE；编号不连续即 SEQUENCE_GAP，唯一例外是币安把同一编号重复给了另一笔更晚的成交（时刻更晚、首逐笔编号大于上一行末逐笔编号），两行都导入；空归档即 SOURCE_SHAPE。`readings` 写入 trades、首末 agg_trade_id 与时刻、trade_gap_max_ms。
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L139)
 

@@ -86,7 +86,9 @@ checksum-verified daily ZIP/CSV with bounded download and INSERT buffers; daily 
 IDs and times, maximum time gap, archive SHA-256s and the codec identity live in the import commit.
 The eve is validated for source continuity and the same complete-field/codec checks, but is not inserted.
 Missing, duplicate or non-contiguous
-agg IDs, within a batch or across batches/days/eve, remain `SEQUENCE_GAP`; no alternate archive source
+agg IDs, within a batch or across batches/days/eve, remain `SEQUENCE_GAP`, except that an ID Binance repeats
+for a distinct later trade (a later time and raw trade IDs after the previous row's) is imported as both
+rows, which the primary key already tells apart; no alternate archive source
 or repair is attempted. The first published day may start without an eve only when no earlier stored
 complete trades exist. Current months stop at the last closed UTC day and cannot later be extended;
 any stored row in the contract month is `MONTH_EXISTS`.

@@ -1101,7 +1101,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 | `MARKET_EMPTY` | 市场库还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约月已有成交；不完整的月不能续补 |
 | `SCALE_LOSS` | 任一值 ×1e8 后不精确或超出带符号 BIGINT：整月拒绝，不舍入、不回退 |
-| `SEQUENCE_GAP` | agg_trade_id 在批内、批间、日间或与月前一日之间不连续 |
+| `SEQUENCE_GAP` | agg_trade_id 在批内、批间、日间或与月前一日之间不连续（成交导入保留币安重复给另一笔更晚成交的编号） |
 | `SOURCE_SHAPE`、`CHECKSUM_MISMATCH`、`ARCHIVE_NOT_PUBLISHED` | 归档形状不对、校验和不符、官方尚未发布 |
 | `RULE_VERSION_MISMATCH`、`CONCURRENT_IMPORT`、`DIRTY_WORKING_SET`、`COMMIT_CHECKS_DISABLED`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
 

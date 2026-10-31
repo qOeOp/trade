@@ -100,7 +100,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 - 主键　`symbol`, `transact_time`, `agg_trade_id`；没有二级索引，没有派生列。
 - 八列均为 NOT NULL。价格与数量放不进这个编码（精度损失或整数溢出）即整月拒绝 SCALE_LOSS 并回滚，不四舍五入、不换编码。aggTrades 本身不带 RPI 等成交类型标记，表也不另加这类字段。
 
-**职责与来源**　只追加的源交易原件，一个合约月一次事务、一个提交。编码身份、每日归档的 SHA-256、日读数（行数、首末编号与时刻、最大成交间隔）记在导入提交消息里，由读取方从 Dolt 提交读，不复制成表字段。前一日归档只做续接核对（编号接上、同样的字段与编码校验），不插入；编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补。
+**职责与来源**　只追加的源交易原件，一个合约月一次事务、一个提交。编码身份、每日归档的 SHA-256、日读数（行数、首末编号与时刻、最大成交间隔）记在导入提交消息里，由读取方从 Dolt 提交读，不复制成表字段。前一日归档只做续接核对（编号接上、同样的字段与编码校验），不插入；编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补；唯一例外是币安把同一编号重复给了另一笔更晚的成交，两行主键不同，都导入。
 
 **写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约>`（一次一个合约月）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />；表由管理员命令 `market upgrade` 补建。持同一导入锁、同一受限导入账号、同样的提交测试与自动发布；同合约月已有行即 MONTH_EXISTS，当月只到最后一个已收盘 UTC 日，之后不能续写。
 
