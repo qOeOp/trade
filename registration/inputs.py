@@ -167,7 +167,8 @@ def _intersects(intervals, start: int, end: int) -> bool:
 
 
 def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, lifecycle_bundle: str | None,
-                  fresh: bool, research=None, *, include_quotes: bool = True, include_trades: bool = False) -> dict:
+                  fresh: bool, research=None, *, include_quotes: bool = True, include_trades: bool = False,
+                  include_metrics: bool = False) -> dict:
     """Export the inputs of one replay AS OF the pinned market commit and assemble their identity.
 
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
@@ -200,7 +201,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     assert symbols is not None  # the selection check above refused a selection without universe or symbols
     exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh, include_quotes=include_quotes,
-                                       include_trades=include_trades)
+                                       include_trades=include_trades, include_metrics=include_metrics)
     inputs = {"root": Path(exported["root"]), "fresh": fresh, "temporary": exported.get("temporary", False)}
     try:
         receipts = exported["receipts"]

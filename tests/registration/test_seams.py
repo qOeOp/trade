@@ -44,6 +44,20 @@ class SeamTests(unittest.TestCase):
         self.assertNotIn("--trade-ticks", argv)
         self.assertEqual(argv[:len(window) - 2 + len(quotes)], [*window[:4], *quotes])
 
+    def test_metrics_are_read_by_the_entry_and_passed_on_to_the_runner_outside_the_effective_configuration(self):
+        from engine import config
+        window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z", "--symbols", "AAAUSDT"]
+        self.assertFalse(seams.current.runner_inputs(window)["metrics"])
+        self.assertTrue(seams.current.runner_inputs([*window[:4], "--metrics", *window[4:]])["metrics"])
+        argv, _ = seams.container_runner_args([*window[:4], "--metrics", *window[4:]],
+                                              {"identity": {"market_commit": "c" * 32}, "symbols": ["AAAUSDT"],
+                                               "root": "/x", "membership_file": "/x/membership.json"})
+        self.assertEqual(argv[:5], [*window[:4], "--metrics"])
+        plain, given = (config.parse_configuration(["--describe", "--market-root", "/x", "--market-commit", "a" * 32,
+                                                    *window, *extra]) for extra in ([], ["--metrics"]))
+        self.assertEqual((plain.metrics, given.metrics), (False, True))
+        self.assertEqual(config.effective_configuration(plain), config.effective_configuration(given))
+
     def test_the_engine_configuration_is_comparable(self):
         from engine import config
         args = config.parse_configuration(["--describe", "--market-root", "/x/market", "--market-commit", "a" * 32,

@@ -101,6 +101,23 @@ none: the runner stops after the chunk it subscribed in and refuses `TRADES_NOT_
 streams no trades (its orders match bars, as in the bar environment), so a trade subscription stops a paper
 run with the same code.
 
+Open interest and long/short ratios (`market import-metrics`) are signal input in either environment. The
+entry's `--metrics` exports every stored row the window shows by the rule `binance-metrics-visible-v1`
+(the receipt's `metrics_rule`): a row stamped `create_time` gets `ts_event = create_time + 5 min`, the
+instant its open interest describes, and `ts_init = create_time + 10 min`, past the public REST
+publication. Both are whole minutes, so in the bar environment an order the row prompts fills at the close
+of the bar that ends there, never at a price older than the decision. The receipt counts the rows
+(`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
+Metrics(...))`: `engine.run.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
+ratios `count_toptrader_long_short_ratio`, `sum_toptrader_long_short_ratio` and `count_long_short_ratio`
+as exact `Decimal` (`None` where the archive left one empty), `ts_event` and `ts_init`. A strategy
+subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <id>}))` and reads
+`data.data` in `on_data`. Unlike `--trade-ticks`, `--metrics` is also passed to the runner, which then
+refuses `METRICS_MISSING` for a month of an active contract's trading window without exported metrics; an
+image older than the option refuses it as `UNKNOWN_OPTION` at the probe. It stays out of the effective
+configuration: the receipts' counts already carry it into the input identity. A subscription to metrics
+the run does not stream, and any in paper trading, is `METRICS_NOT_SERVED`.
+
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
 `market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
 `symbols`, `start`, `trade_start`, `end` and `account`; its digest leaves out the two host paths, so

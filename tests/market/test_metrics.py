@@ -166,6 +166,44 @@ class ImportTests(unittest.TestCase):
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "MONTH_EXISTS")
 
+    def test_export_gives_the_rows_visible_in_the_window_by_the_rule_only_on_request(self):
+        import pyarrow.parquet as parquet
+        from market import export
+        from engine import run
+        profile, _ = self.market()
+        with serving(self.exchange([JAN])):
+            metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
+        low, high = START * 10**6, (START + store.DAY) * 10**6
+        found = export.export_catalogs(profile, None, ["BTCUSDT"], low, high, fresh=True, root=self.cache, workers=1,
+                                       include_metrics=True)
+        receipt = found["receipts"]["BTCUSDT"]
+        # In the window: the described instant (create_time + 5 min) at or after 00:00 and the visibility
+        # (create_time + 10 min) before 24:00, so create times 00:00 (the archive's first) through 23:45.
+        self.assertEqual((receipt["metrics_rule"], receipt["pieces"][0]["counts"]["metrics"]),
+                         (export.METRICS_RULE, 286))
+        path, = (Path(found["root"]) / "BTCUSDT" / "data" / "metrics").rglob("*.parquet")
+        table = parquet.read_table(path)
+        self.assertEqual(table.schema.metadata[b"rule"].decode(), export.METRICS_RULE)
+        self.assertEqual(table.column("ts_init").to_pylist()[:2], [low + 10 * 60 * 10**9, low + 15 * 60 * 10**9])
+        self.assertEqual(table.column("ts_event").to_pylist()[-1], high - 10 * 60 * 10**9)
+        row = {"catalog_path": str(Path(found["root"]) / "BTCUSDT"),
+               "instrument_id": run.InstrumentId.from_str(receipt["pieces"][0]["instrument_id"])}
+        first = next(run._metrics_events(row))
+        self.assertEqual(first.data, run.Metrics(row["instrument_id"], Decimal("1000.5"), Decimal("1.25"),
+                                                 Decimal("2.5"), Decimal("0.75"), low + 5 * 60 * 10**9,
+                                                 low + 10 * 60 * 10**9))
+        self.assertEqual(run.months_missing(row, "Metrics", low, high), [])
+        noon = low + store.DAY * 10**6 // 2
+        later = export.export_catalogs(profile, None, ["BTCUSDT"], noon, high, fresh=True, root=self.cache, workers=1,
+                                       include_metrics=True)
+        path, = (Path(later["root"]) / "BTCUSDT" / "data" / "metrics").rglob("*.parquet")
+        self.assertEqual(parquet.read_table(path).column("ts_event").to_pylist()[0], noon)  # 11:55, visible 12:05
+        self.assertEqual(later["receipts"]["BTCUSDT"]["pieces"][0]["counts"]["metrics"], 143)
+        plain = export.export_catalogs(profile, None, ["BTCUSDT"], low, high, fresh=True, root=self.cache, workers=1)
+        self.assertNotIn("metrics", plain["receipts"]["BTCUSDT"]["pieces"][0]["counts"])
+        self.assertNotIn("metrics_rule", plain["receipts"]["BTCUSDT"])
+        self.assertFalse(list(Path(plain["root"]).rglob("metrics")))
+
     def test_later_import_appends_days_published_since_and_records_gaps_before_the_last(self):
         profile, _ = self.market()
         early = [date(2025, 1, 1), date(2025, 1, 3)]  # the 2nd is never published; the 4th onward not yet

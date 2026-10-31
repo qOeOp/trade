@@ -137,7 +137,8 @@ def _export(market, at: str | None, runner_argv: list[str], fresh: bool, researc
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
                                                      runner.get("lifecycle_bundle"), fresh, research,
                                                      include_quotes=runner["execution"] == "quotes",
-                                                     include_trades=runner.get("trade_ticks", False))
+                                                     include_trades=runner.get("trade_ticks", False),
+                                                     include_metrics=runner.get("metrics", False))
 
 
 def _prepare(workdir: Path, source: bytes, inspection: Mapping, inputs: Mapping) -> bytes:

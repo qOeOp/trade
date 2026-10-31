@@ -35,7 +35,8 @@ RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sh
 # then passes the runner `--universe` with the membership file it wrote), `--symbols` the contracts.
 ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")
 # Read by the entry and never passed on: `--trade-ticks` exports the stored aggregate trades as TradeTicks, which
-# the runner streams for every contract whose receipt counts them.
+# the runner streams for every contract whose receipt counts them. `--metrics` is read by the entry (it exports
+# the stored metrics) and passed on: the runner then requires them, and an image without it refuses the option.
 ENTRY_FLAGS = ("--trade-ticks",)
 MARKET_ROOT, MEMBERSHIP = "/inputs/market", "/inputs/membership.json"
 
@@ -118,6 +119,7 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
     parser.add_argument("--lifecycle-bundle")
     parser.add_argument("--execution", default="bars")  # the runtime owns validation of this value
     parser.add_argument("--trade-ticks", action="store_true")
+    parser.add_argument("--metrics", action="store_true")
     known, _ = parser.parse_known_args(runner_argv)
     if known.trade_ticks and known.execution != "quotes":
         # In the bar environment an order a trade prompts mid-minute would match the whole minute's bar,
@@ -128,7 +130,7 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
               "end": _ns(known.end)}
     selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle,
-            "execution": known.execution, "trade_ticks": known.trade_ticks}
+            "execution": known.execution, "trade_ticks": known.trade_ticks, "metrics": known.metrics}
 
 
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
@@ -147,7 +149,8 @@ class MarketAdapter(Protocol):
     def membership_path(self, commit: str, window_end: int) -> dict: ...
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
-                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False) -> dict:
+                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
+                        include_metrics: bool = False) -> dict:
         """{commit, root, exported, reused, receipts, exporter_source_sha256}: the last is the hash
         of the exporter code that wrote the files (market.export.exporter_sha256 where it ran)."""
         ...
@@ -197,11 +200,13 @@ class Market:
             raise refuse(code, exc.message, missing=exc.missing) from exc
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
-                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False) -> dict:
+                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
+                        include_metrics: bool = False) -> dict:
         from market import export, store
         try:
             done = export.export_catalogs(self.profile, commit, symbols, start_ns, end_ns, episodes, lifecycle_files,
-                                          fresh, include_quotes=include_quotes, include_trades=include_trades)
+                                          fresh, include_quotes=include_quotes, include_trades=include_trades,
+                                          include_metrics=include_metrics)
         except store.MarketError as exc:
             if exc.code == "LIFECYCLE_INPUT":
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc
