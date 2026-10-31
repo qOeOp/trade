@@ -2,7 +2,7 @@
 
 usage: python3 -I check_bundle.py BUNDLE --media-dir DIR [--recompute K] [--restored]
 Writes nothing and imports nothing from this repository; needs ffmpeg and ffprobe on PATH. Layout and checks:
-services/video-evidence/README.md. "checks" decide "ok" (identity and hash binding, recomputation from the bytes);
+references/bundle.md of this skill. "checks" decide "ok" (identity and hash binding, recomputation from the bytes);
 "flags" are ASR heuristics for a reader. --restored accepts grid rows whose uncited PNG was not retained (those
 rows are still recomputed by sample).
 """

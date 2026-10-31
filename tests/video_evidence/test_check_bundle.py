@@ -14,7 +14,7 @@ import unittest
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
-CHECKER = ROOT / "services/video-evidence/check_bundle.py"
+CHECKER = ROOT / ".agents/skills/video-evidence/assets/check_bundle.py"
 RECEIPT_JQ = ROOT / ".agents/skills/video-evidence/assets/receipt.jq"
 FF = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y"]
 MODEL = "mlx-community/whisper-large-v3-mlx@49e6aa286ad60c14352c404340ded53710378a11"

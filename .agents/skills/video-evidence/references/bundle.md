@@ -1,22 +1,22 @@
-# video-evidence checker
+# Bundle contract and checker
 
-`check_bundle.py` recomputes a video evidence bundle's bindings from its bytes, prints JSON and exits
+`assets/check_bundle.py` recomputes a video evidence bundle's bindings from its bytes, prints JSON and exits
 1 when any check fails. It writes nothing, needs only Python 3 and `ffmpeg`/`ffprobe`, imports
 nothing from this repository and bounds every subprocess with a timeout. It is the trust boundary of
-the [`video-evidence` skill](../../.agents/skills/video-evidence/SKILL.md): the Agent that builds a
+this skill: the Agent that builds a
 bundle never certifies its own hashes, timestamps, durations, ASR input or citations.
 
-    python3 -I services/video-evidence/check_bundle.py BUNDLE --media-dir "$ROOT/sha256" [--restored]
+    python3 -I "$CHECK" BUNDLE --media-dir "$ROOT/sha256" [--restored]
 
 `--restored` accepts grid rows whose uncited PNG was not retained; those rows are still recomputed by
 sample, and cited frames and crops must be present. A reviewer runs the committed copy: the output's
-`checker_git_blob` equals `git rev-parse origin/main:services/video-evidence/check_bundle.py` (before
+`checker_git_blob` equals `git rev-parse origin/main:.agents/skills/video-evidence/assets/check_bundle.py` (before
 the first merge, the PR head), and `ffmpeg` names the build that recomputed the frames plus the SHA-256
 prefixes of the `ffmpeg` and `ffprobe` executables found on `PATH` (pixel checks fail closed on
 another build). `"ok": true` says that what the bundle holds is consistent, not that it is complete:
 `stages` shows which of probe, media, asr, frames and crops are present, failed or absent.
 
-## Bundle layout (the contract shared with the skill; an allowlist)
+## Bundle layout (an allowlist)
 
     $ROOT/sha256/<sha256>.<ext>       identity files (raw server bytes), content-addressed, 0600
     $ROOT/bundles/<key>/              <key> is <site>-<ID>, ID in [A-Za-z0-9_-]
@@ -35,7 +35,7 @@ another build). `"ok": true` says that what the bundle holds is consistent, not 
 A retained bundle (`--restored`) is `probe/*.json`, `media/receipt.json`, `media/SHA256SUMS`,
 `asr/*.json`, `claims.json`, `check.json`, `frames/grid/grid.tsv` (coverage is checked from it), each cited
 directory's `grid.tsv` and cited PNGs (crop parents included), and the cited crops with `crops.tsv`; media come
-from the backup `sha256/`. The skill's `custody.md` copies this subset.
+from the backup `sha256/`. [custody.md](custody.md) copies this subset.
 
 ## Claims (`claims.json`)
 
@@ -92,6 +92,3 @@ characters/s), `too_sparse` (over 8 s at under 1.5 characters/s), `empty_or_outs
 `numbers_to_verify` (each segment holding a numeral, with the numbers it holds; `一` before a unit is one),
 `claims_citing_flagged` and `png_not_retained`. The checker does not judge meaning (does the frame show the
 value, is the role right): the reviewer does.
-
-Tests: `tests/video_evidence/test_check_bundle.py` builds a synthetic bundle with the same ffmpeg and
-tampers with it once per check, including each finding of the 2026-10-10 review.
