@@ -16,4 +16,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 上一轮你已告诉用户这条线只能关闭、在 v7 上重开。用户回答：「在 v7 上重开，沿用 ema-entryvar@2 的入场思路，范围和窗口不变。」`ema-entryvar@2` 在 v6 上有通过并封存、有成交的研究运行（trial 188），不是故障也不是零成交。你已把它的源码改写为能在 replay-contract@v7 上运行的版本（`/tmp/ema-v7/strategy.py`），尚未发布。
 
-请列出接下来要执行的步骤与命令，并写出第一份登记体中 `parent`、`control_trial_id`、`changed_duties`、`change`、`comparison` 与 `rationale` 的取值。
+请列出接下来要执行的步骤与命令，并写出第一份登记体中 `parent`、`control_trial_id`、`changed_duties`、`comparison` 与 `rationale` 的取值。
