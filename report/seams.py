@@ -22,7 +22,8 @@ from ledger.refusals import refuse
 
 def _market_profile(database: str | None = None) -> dict:
     """The market database profile in the ledger profile directory (kind or holds `market`) holding
-    `database`, or the active one."""
+    `database`, or the active one. Several profiles may name one database (a remote supply beside the
+    local service): the active one of them answers, and none or several active is ambiguous."""
     found = []
     for path in sorted(db.home().glob("*.json")):
         try:
@@ -31,9 +32,15 @@ def _market_profile(database: str | None = None) -> dict:
             continue
         if isinstance(value, dict) and "market" in (value.get("kind"), value.get("holds")):
             found.append(value)
-    for value in found:
-        if (value.get("database") == database) if database else value.get("role", value.get("kind")) == "active":
-            return value
+    active = [value for value in found if value.get("role", value.get("kind")) == "active"]
+    named = [value for value in found if value.get("database") == database] if database else active[:1]
+    if len(named) > 1:
+        named = [value for value in named if value in active]
+        if len(named) != 1:
+            raise refuse("MARKET_RETURNS_UNAVAILABLE", f"several market profiles name database {database} and not "
+                         "exactly one of them is active", missing=("market profile",))
+    if named:
+        return named[0]
     raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile for database {database or '(the active one)'} in the "
                  "ledger profile directory", missing=("market profile",))
 
