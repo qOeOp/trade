@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -506,18 +507,21 @@ class SealedReplayTests(unittest.TestCase):
 
 
 class StageLogTests(unittest.TestCase):
-    def test_a_long_stage_log_keeps_its_first_and_last_lines_and_says_what_it_left_out(self):
+    def written(self, name: str, chunks) -> bytes:
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, True)
-        log = root / "native.stderr.txt"
+        log = entry.StageLog(root / name)
+        for chunk in chunks:
+            log.write(chunk)
+        log.close()
+        return (root / name).read_bytes()
+
+    def test_a_long_stage_log_keeps_its_first_and_last_lines_and_says_what_it_left_out(self):
         lines = [b"first failure\n", *(f"[ERROR] Python on_bar failed: bar {index}\n".encode() for index in range(60_000)),
                  b"verdict line\n"]
-        log.write_bytes(b"".join(lines))
+        whole = b"".join(lines)
         with patch.object(entry, "LOG_HEAD", 4096), patch.object(entry, "LOG_TAIL", 1024):
-            entry.bound_log(log)
-            kept = log.read_bytes()
-            entry.bound_log(log)  # a bounded log stays as it is
-        self.assertEqual(log.read_bytes(), kept)
+            kept = self.written("native.stderr.txt", (whole[start:start + 777] for start in range(0, len(whole), 777)))
         found = kept.splitlines(keepends=True)
         note = next(line for line in found if line.startswith(b"[replay entry: "))
         head, tail = found[:found.index(note)], found[found.index(note) + 1:]
@@ -525,13 +529,32 @@ class StageLogTests(unittest.TestCase):
         self.assertEqual(tail, lines[len(lines) - len(tail):])
         self.assertLessEqual(len(b"".join(head)), 4096)
         self.assertLessEqual(len(b"".join(tail)), 1024)
+        self.assertGreater(len(b"".join(head)), 4096 - 64)  # whole lines up to the bound, not fewer
+        self.assertGreater(len(b"".join(tail)), 1024 - 64)
         omitted = lines[len(head):len(lines) - len(tail)]
         self.assertEqual(note, f"[replay entry: {len(b''.join(omitted))} bytes in {len(omitted)} lines left out of "
                                "this log]\n".encode())
-        small = root / "audit.stdout.txt"
-        small.write_bytes(b"short\n")
-        entry.bound_log(small)
-        self.assertEqual(small.read_bytes(), b"short\n")
+
+    def test_a_log_within_the_bound_is_kept_whole(self):
+        with patch.object(entry, "LOG_HEAD", 4096), patch.object(entry, "LOG_TAIL", 1024):
+            whole = b"x" * 3000 + b"\n" + b"y" * 2000 + b"\n"
+            self.assertEqual(self.written("audit.stdout.txt", [whole[:10], whole[10:]]), whole)
+        self.assertEqual(self.written("audit.stdout.txt", [b"short\n"]), b"short\n")
+
+    def test_a_container_output_reaches_the_log_bounded_as_it_is_written(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        out, err = entry.StageLog(root / "out.txt"), entry.StageLog(root / "err.txt")
+        script = "import sys\nfor i in range(200_000): print(f'[WARN] skipped fill {i}')\nprint('to stderr', file=sys.stderr)"
+        with patch.object(entry, "LOG_HEAD", 4096), patch.object(entry, "LOG_TAIL", 1024):
+            code = seams.DEFAULT.run([sys.executable, "-c", script], out, err, 60)
+            self.assertLess(out.stream.tell(), 4096 + 1024 + 256)  # nothing beyond the bound was written
+            out.close()
+            err.close()
+        kept = (root / "out.txt").read_bytes().splitlines()
+        self.assertEqual((code, kept[0], kept[-1]), (0, b"[WARN] skipped fill 0", b"[WARN] skipped fill 199999"))
+        self.assertTrue(any(line.startswith(b"[replay entry: ") for line in kept))
+        self.assertEqual((root / "err.txt").read_bytes(), b"to stderr\n")
 
 
 if __name__ == "__main__":

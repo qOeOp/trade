@@ -53,27 +53,45 @@ LOG_HEAD, LOG_TAIL = 768 * 1024, 256 * 1024
 
 # Small helpers
 
-def bound_log(path: Path) -> None:
-    """Cut a stage log longer than LOG_HEAD + LOG_TAIL bytes (and room for the note) to its first and
-    last whole lines within those sizes, with one line in between that says how many bytes and lines
-    were left out; a log cut once stays as it is."""
-    size = path.stat().st_size
-    if size <= LOG_HEAD + LOG_TAIL + 256:
-        return
-    with path.open("rb") as stream:
-        head = stream.read(LOG_HEAD)
-        stream.seek(size - LOG_TAIL)
-        tail = stream.read()
-    head = head[:head.rfind(b"\n") + 1]  # empty when the head holds no whole line
-    tail = tail[tail.find(b"\n") + 1:]
-    with path.open("rb") as stream:
-        stream.seek(len(head))
-        left = size - len(head) - len(tail)
-        lines = sum(stream.read(min(1 << 20, left - done)).count(b"\n") for done in range(0, left, 1 << 20))
-    note = f"[replay entry: {left} bytes in {lines} lines left out of this log]\n".encode()
-    partial = path.with_name(path.name + ".partial")
-    partial.write_bytes(head + note + tail)
-    os.replace(partial, path)
+class StageLog:
+    """A stage log written as the container prints it that keeps its first LOG_HEAD and last LOG_TAIL bytes
+    (whole lines) and, when it left anything out, one line in between that says how many bytes and lines;
+    a log of at most LOG_HEAD + LOG_TAIL bytes and room for the note is kept whole. Nothing beyond those
+    bytes ever reaches the disk."""
+
+    def __init__(self, path: Path):
+        self.stream = path.open("wb")
+        self.head = 0  # bytes written to the file, at most LOG_HEAD
+        self.head_lines = 0  # of them, the bytes up to the last newline
+        self.tail = bytearray()
+        self.dropped = self.dropped_lines = 0
+
+    def write(self, data: bytes) -> None:
+        part = data[:LOG_HEAD - self.head]
+        if part:
+            self.stream.write(part)
+            if b"\n" in part:
+                self.head_lines = self.head + part.rfind(b"\n") + 1
+            self.head += len(part)
+        self.tail += data[len(part):]
+        extra = len(self.tail) - LOG_TAIL - 256
+        if extra > 0:
+            self.dropped += extra
+            self.dropped_lines += self.tail.count(b"\n", 0, extra)
+            del self.tail[:extra]
+
+    def close(self) -> None:
+        tail = bytes(self.tail)
+        if self.dropped:
+            kept = tail[len(tail) - LOG_TAIL:]
+            kept = kept[kept.find(b"\n") + 1:]
+            left = self.head - self.head_lines + self.dropped + len(tail) - len(kept)
+            lines = self.dropped_lines + tail.count(b"\n", 0, len(tail) - len(kept))
+            self.stream.truncate(self.head_lines)
+            self.stream.seek(self.head_lines)
+            tail = f"[replay entry: {left} bytes in {lines} lines left out of this log]\n".encode() + kept
+        self.stream.write(tail)
+        self.stream.close()
 
 
 def _write_json(path: Path, value) -> None:
@@ -229,24 +247,21 @@ def _stop(name: str) -> None:
 def _stage(command: list[str], container: str, workdir: Path, name: str, left: float | None,
            timeout: float | None) -> int:
     """Run one stage's container to its end with its logs in `workdir`; an interrupt or the timeout stops it."""
-    logs = workdir / f"{name}.stdout.txt", workdir / f"{name}.stderr.txt"
+    out, err = StageLog(workdir / f"{name}.stdout.txt"), StageLog(workdir / f"{name}.stderr.txt")
     try:
-        with logs[0].open("wb") as out, logs[1].open("wb") as err:
-            try:
-                return seams.current.run(command, out, err, left)
-            except OSError as exc:
-                err.write(str(exc).encode("utf-8", errors="replace"))
-                return 127
-            except subprocess.TimeoutExpired as exc:
-                _stop(container)
-                raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
-            except BaseException:
-                _stop(container)
-                raise
+        return seams.current.run(command, out, err, left)
+    except OSError as exc:
+        err.write(str(exc).encode("utf-8", errors="replace"))
+        return 127
+    except subprocess.TimeoutExpired as exc:
+        _stop(container)
+        raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s in stage {name}") from exc
+    except BaseException:
+        _stop(container)
+        raise
     finally:
-        for log in logs:
-            if log.is_file():
-                bound_log(log)
+        out.close()
+        err.close()
 
 
 def _audit_stage(workdir: Path) -> tuple[list[tuple[Path, str, bool]], list[str]]:

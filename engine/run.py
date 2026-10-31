@@ -934,7 +934,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     quotes = account["execution"] == "quotes"
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]),
-        logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
+        logging=LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False),
         data_engine=DataEngineConfig(
             time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
             time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],

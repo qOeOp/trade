@@ -51,7 +51,7 @@ def execute(
 **期望行为**
 
 1. 按运行契约取布局常量（runtime.layout），生成运行器容器命令（runtime.container_command），写 process.json 记录阶段 native=started。
-2. 运行器 stdout/stderr 分别写 native.stdout.txt、native.stderr.txt；进程无法启动记退出码 127 并把错误写入 stderr 文件；更新阶段为 exited 与退出码。每个阶段的 stdout、stderr 文件超过 768 KiB 加 256 KiB 时，只留开头 768 KiB 与结尾 256 KiB 以内的整行，中间换成一行，写明省去的字节数和行数：引擎对每次被吞下的回调异常都记一行，而 runtime_failures.jsonl 已按类计数。
+2. 运行器 stdout/stderr 分别写 native.stdout.txt、native.stderr.txt；进程无法启动记退出码 127 并把错误写入 stderr 文件；更新阶段为 exited 与退出码。每个阶段的 stdout、stderr 边产生边写入，超过 768 KiB 加 256 KiB 时只留开头 768 KiB 与结尾 256 KiB 以内的整行，中间换成一行，写明省去的字节数和行数，省去的部分从不落盘：运行器按 WARNING 级别输出，引擎对每次被吞下的回调异常和每次跳过的成交都记一行，而 runtime_failures.jsonl 已按类计数。
 3. 仅当全部必需报表文件齐全时生成审计器命令并运行：同一镜像摘要，reports/ 与覆盖回执只读挂载，唯一可写挂载为 audit/，输出 audit/audit.json，不挂载 source/；stdout/stderr 同样分文件落盘。报表不全则审计阶段留空，不运行。
 4. 无论正常返回、中断或宿主异常，finally 调用 ledger.seal_capture 把阶段记录、stdout/stderr、结构化异常回执与审计结果按试验封存（源码与覆盖回执只记哈希），结局标 completed / interrupted / host_failed。
 5. 中断或宿主失败时原异常继续向上抛出，工作目录保留。
@@ -298,13 +298,13 @@ def seal(
 
 These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
 
-#### `bound_log` [#impl-replay-entry-py-bound_log]
+#### `StageLog` [#impl-replay-entry-py-StageLog]
 
 ```python
-def bound_log(path: Path) -> None
+class StageLog(path: Path)
 ```
 
-Cut a stage log longer than LOG_HEAD + LOG_TAIL bytes (and room for the note) to its first and last whole lines within those sizes, with one line in between that says how many bytes and lines were left out; a log cut once stays as it is.
+A stage log written as the container prints it that keeps its first LOG_HEAD and last LOG_TAIL bytes (whole lines) and, when it left anything out, one line in between that says how many bytes and lines; a log of at most LOG_HEAD + LOG_TAIL bytes and room for the note is kept whole. Nothing beyond those bytes ever reaches the disk.
 
 [Source](https://github.com/qOeOp/trade/blob/main/replay/entry.py#L56)
 
