@@ -7,8 +7,11 @@ Read when choosing a parent and control, checking sources or preparing a registr
 Read retained source evidence and corrections before searching its gaps (`research-sources`;
 video material: `video-evidence`). Retain originals, excerpts and query logs through `evidence add`
 before citing them in a registration. Distinguish external evidence, local diagnosis and conjecture
-in rationale.external/local/conjecture. External support identifies its location and market,
-window, frequency, costs and validation conditions; unread conditions stay unknown. State whether
+in rationale.external/local/conjecture. rationale.external holds either citations (DOI, arXiv id or
+URL) or, worded as `research-sources` reports absence, that its named queries found no prior work;
+`sources` names the bundles holding those originals or that search log. Absence goes in external,
+never in local. External support identifies its location and market, window, frequency, costs and
+validation conditions; unread conditions stay unknown. State whether
 it supports the mechanism, the parameter or only the method. Explain how the source shapes the
 question, control, prediction or priority; if it is only background, explain why the local question
 still comes first without inventing an effect on the decision. Local evidence names run and commit.
