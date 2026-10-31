@@ -1064,7 +1064,7 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
                                            trading month without trades is TRADES_MISSING
   --metrics                                export the stored open interest and long/short ratios as custom
                                            data (engine.metrics_data_type, through subscribe_data), each row
-                                           8 minutes after its create_time; a trading month without metrics is
+                                           10 minutes after its create_time; a trading month without metrics is
                                            METRICS_MISSING, and an image older than the option refuses it"""
 COVERAGE_EPILOG = """Facts only: it judges no contract, window or line.
 coverage[].funding: rows, first_ms, last_ms; spacing [{spacing_ms, from_ms, to_ms}], the runs of equal

@@ -759,7 +759,7 @@ class Metrics:
     """engine.Metrics: one five-minute row of the Binance metrics archive (the market's metrics table), the
     payload of metrics_data_type. sum_open_interest is in the base asset; a ratio the archive left empty is
     None. ts_event is the archive's create_time + 5 min, the instant the row describes; ts_init is create_time +
-    8 min, when the run delivers it (the export receipt's metrics_rule)."""
+    10 min, when the run delivers it (the export receipt's metrics_rule)."""
 
     instrument_id: InstrumentId
     sum_open_interest: Decimal

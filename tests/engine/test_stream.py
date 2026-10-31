@@ -221,7 +221,7 @@ def contract(root, symbol, minutes, funding, episode=None, seed=0, observed_at=0
                 for number, offset in enumerate((20_000, 20_000, 30_000))]
         counts["trade"] = export.write_trades(store, iid, [rows], 2, 3)
     if metrics:
-        stamps = range(START - 5 * MIN, END - export.METRICS_VISIBLE_MS, 5 * MIN)
+        stamps = range(START - export.METRICS_DESCRIBES_MS, END - export.METRICS_VISIBLE_MS, 5 * MIN)
         counts["metrics"] = export.write_metrics(catalog_path, str(iid), [
             (at, Decimal("1234.5") + number, Decimal("1.25"), Decimal("0.875"), None if number % 7 else Decimal("2"))
             for number, at in enumerate(stamps)])
@@ -697,7 +697,7 @@ class StreamTests(unittest.TestCase):
                 self.assertTrue(1000 <= consumed[0] < total)
 
     def test_metrics_arrive_on_minute_boundaries_as_exact_custom_data_and_fill_at_the_bar_ending_there(self):
-        """Exported metrics reach the strategy in time order as engine.Metrics, 8 minutes after create_time and
+        """Exported metrics reach the strategy in time order as engine.Metrics, 10 minutes after create_time and
         describing 5 minutes after it, with exact decimals and empty ratios as None, and count in the consumed
         events; a contract exported without them streams none. A market buy a row prompts in the bar environment
         fills at the close of the bar that ends where the row arrives. With --metrics, an active contract whose
@@ -730,8 +730,8 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(len(found), row["counts"].get("metrics", 0))
             if not found:
                 continue
-            self.assertEqual(found[0][1:3], ((START + 3 * MIN) * 10**6, START * 10**6))
-            self.assertTrue(all(event[1] % (MIN * 10**6) == 0 and event[1] - event[2] == 3 * MIN * 10**6
+            self.assertEqual(found[0][1:3], ((START + 5 * MIN) * 10**6, START * 10**6))
+            self.assertTrue(all(event[1] % (MIN * 10**6) == 0 and event[1] - event[2] == 5 * MIN * 10**6
                                 for event in found))
             self.assertEqual([event[1] for event in found], sorted(event[1] for event in found))
             self.assertEqual(found[0][3], row["instrument_id"])

@@ -362,27 +362,29 @@ def trade_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None,
 
 
 # Open interest and long/short ratios (market/metrics.py): a row stamped create_time describes create_time + 5 min
-# (its open interest equals public REST's then) and reaches a strategy 3 minutes later, past REST's publication
-# (at most 137 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are
+# (its open interest equals public REST's then) and reaches a strategy 5 minutes later, past REST's publication
+# (at most 189 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are
 # whole minutes, so a row arrives on a minute boundary: an order it prompts in the bar environment fills at the
 # close of the bar that ends there, not at a price older than the decision.
 METRICS_RULE = "binance-metrics-visible-v1"
 METRICS_DESCRIBES_MS = 5 * MINUTE  # ts_event = create_time + 5 min
-METRICS_VISIBLE_MS = 8 * MINUTE  # ts_init = create_time + 8 min
+METRICS_VISIBLE_MS = 10 * MINUTE  # ts_init = create_time + 10 min
 METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
                   "count_long_short_ratio")
 
 
 def metrics_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int) -> list[tuple]:
-    """The stored metrics rows visible in [low_ms, min(high_ms, end_ms)) at `commit` (create_time + 8 min inside
-    it), as (create_time, sum_open_interest, three ratios or None) in time order."""
+    """The stored metrics rows of [low_ms, min(high_ms, end_ms)) at `commit`: the instant each describes
+    (create_time + 5 min) at or after low_ms and its visibility (create_time + 10 min) before the end, so a
+    strategy is never handed a row stamped before its input starts. Each as (create_time, sum_open_interest,
+    three ratios or None), in time order."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
     # Commits before the metrics table export none; the runner refuses the months (METRICS_MISSING).
     if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'metrics'"):
         return []
     return conn.rows(f"SELECT create_time, {', '.join(METRICS_VALUES)} FROM metrics AS OF '{commit}' WHERE symbol = %s "
                      "AND create_time >= %s AND create_time < %s ORDER BY create_time",
-                     (symbol, low_ms - METRICS_VISIBLE_MS, stop - METRICS_VISIBLE_MS))
+                     (symbol, low_ms - METRICS_DESCRIBES_MS, stop - METRICS_VISIBLE_MS))
 
 
 def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:

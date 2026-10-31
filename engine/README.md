@@ -104,7 +104,7 @@ run with the same code.
 Open interest and long/short ratios (`market import-metrics`) are signal input in either environment. The
 entry's `--metrics` exports every stored row the window shows by the rule `binance-metrics-visible-v1`
 (the receipt's `metrics_rule`): a row stamped `create_time` gets `ts_event = create_time + 5 min`, the
-instant its open interest describes, and `ts_init = create_time + 8 min`, past the public REST
+instant its open interest describes, and `ts_init = create_time + 10 min`, past the public REST
 publication. Both are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),

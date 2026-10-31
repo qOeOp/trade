@@ -540,7 +540,7 @@ def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L388)
 
-**输入与返回**　`rows` 是 <Ref id="market.metrics_rows" /> 的 `(create_time, sum_open_interest, 三个多空比)`，按时间排序。写到片段 Catalog 的 `data/metrics/<合约>/`，文件名取首末 ts_init。按可见规则 `binance-metrics-visible-v1`：`ts_event = create_time + 5 分钟`（这一行描述的时刻），`ts_init = create_time + 8 分钟`（晚于公开 REST 的发布，2026-10-31 实测最多晚 137 秒），都是纳秒。数值列为 decimal128(38,16)，与表一致不舍入；归档为空的比值保持为空。文件元数据记 type_name `Metrics`、合约和规则名。返回行数，进入片段回执 `counts.metrics`；没有行时不写文件、返回 0。
+**输入与返回**　`rows` 是 <Ref id="market.metrics_rows" /> 的 `(create_time, sum_open_interest, 三个多空比)`，按时间排序。写到片段 Catalog 的 `data/metrics/<合约>/`，文件名取首末 ts_init。按可见规则 `binance-metrics-visible-v1`：`ts_event = create_time + 5 分钟`（这一行描述的时刻），`ts_init = create_time + 10 分钟`（晚于公开 REST 的发布，2026-10-31 以 5 秒间隔实测最多晚 183 秒），都是纳秒。数值列为 decimal128(38,16)，与表一致不舍入；归档为空的比值保持为空。文件元数据记 type_name `Metrics`、合约和规则名。返回行数，进入片段回执 `counts.metrics`；没有行时不写文件、返回 0。
 
 两个时刻都是整分钟：K 线环境里一行触发的市价单按在那一刻结束的 K 线收盘价成交，不会用早于决定的价格。运行器的读法见 <Ref id="implementation:impl-engine-run-py-market_events" />。
 
@@ -556,7 +556,7 @@ def metrics_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | Non
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L376)
 
-查询 <Ref id="table:metrics" /> 中 `create_time + 8 分钟` 落在 `[low_ms, min(high_ms, end_ms))` 的行，按 create_time 排序，返回 `(create_time, sum_open_interest, count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio, count_long_short_ratio)`。早于 metrics 表的提交返回空表；入口给了 `--metrics` 时由运行器的 `METRICS_MISSING` 按月拒绝。
+查询 <Ref id="table:metrics" /> 中描述时刻 `create_time + 5 分钟` 不早于 `low_ms`、可见时刻 `create_time + 10 分钟` 早于 `min(high_ms, end_ms)` 的行（描述时刻早于输入起点的行策略收不到，所以不导出），按 create_time 排序，返回 `(create_time, sum_open_interest, count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio, count_long_short_ratio)`。早于 metrics 表的提交返回空表；入口给了 `--metrics` 时由运行器的 `METRICS_MISSING` 按月拒绝。
 
 ### `write_marks` [#def-market-write_marks]
 
