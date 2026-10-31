@@ -35,7 +35,7 @@ Compose 运行四个服务：`ide`、`ledger`、`paper` 和 `docker-api`。Ledge
 
 ## IDE
 
-IDE 维护自己的研究库与市场库只读副本，从 DoltHub 克隆并只做 fast-forward 更新。本地 Chat 运行只读命令，对话保存在自己的 volume。Paper 面板将请求与数据流代理给 daemon；daemon 经 CLI 写入活动研究账本。
+IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本和市场库，自己不留副本。本地 Chat 运行只读命令，对话保存在自己的 volume。Paper 面板将请求与数据流代理给 daemon；daemon 经 CLI 写入活动研究账本。
 
 <a id="paper" />
 
@@ -47,4 +47,4 @@ IDE 维护自己的研究库与市场库只读副本，从 DoltHub 克隆并只�
 
 ## 数据与证据
 
-活动 Dolt SQL 服务承载研究账本和市场两个数据库，实际库名由连接档案指定。`dolt_backup`、DoltHub 与 IDE 保存历史副本，不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。
+活动 Dolt SQL 服务承载研究账本和市场两个数据库，实际库名由连接档案指定。`dolt_backup` 与 DoltHub 保存历史副本，不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。
