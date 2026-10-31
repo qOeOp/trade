@@ -81,12 +81,12 @@ class FakeMarket:
             (root / symbol).mkdir()
             (root / symbol / "bars.parquet").write_bytes(f"{commit}:{symbol}:{start_ns}:{end_ns}".encode())
             receipts[symbol] = {"symbol": symbol, "commit": commit, "timeframe": self.timeframe, "start_ns": start_ns,
-                                "end_ns": end_ns, "seconds": self.exports * 0.1}
+                                "end_ns": end_ns}
             (root / symbol / "export.json").write_text(json.dumps(receipts[symbol], indent=1))
         for name, data in (lifecycle_files or {}).items():
             (root / "lifecycle-evidence" / name).parent.mkdir(parents=True, exist_ok=True)
             (root / "lifecycle-evidence" / name).write_bytes(data)
-        return {"commit": commit, "root": root, "exported": len(symbols), "reused": 0, "seconds": 0.1,
+        return {"commit": commit, "root": root, "exported": len(symbols), "reused": 0,
                 "receipts": receipts, "exporter_source_sha256": export.exporter_sha256()}
 
     def validate_lifecycle(self, body, commit, files):

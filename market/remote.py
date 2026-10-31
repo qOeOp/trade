@@ -27,7 +27,6 @@ import re
 import shutil
 import tempfile
 import threading
-import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -209,7 +208,6 @@ class RemoteMarket:
         key = hashlib.sha256(canonical({"protocol": PROTOCOL, "url": self.url, "database": self.database,
                                        "args": {**args, "fresh": False}})).hexdigest()
         requests = self.cache / "requests"
-        started = time.monotonic()
         if not fresh and self.exporter is None:
             self.resolve_commit(commit)  # learns the supply's exporter: a cached export is reused only from it
         with locked(requests / (key + ".lock")):
@@ -243,8 +241,7 @@ class RemoteMarket:
                 raise
         return {"commit": commit, "root": materialized, "receipts": manifest["receipts"],
                 "exporter_source_sha256": manifest["exporter_source_sha256"], "temporary": True,
-                "exported": manifest["exported"], "reused": manifest["reused"],
-                "seconds": round(time.monotonic() - started, 3)}
+                "exported": manifest["exported"], "reused": manifest["reused"]}
 
     @staticmethod
     def _validate_manifest(manifest, args):

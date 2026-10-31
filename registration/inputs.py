@@ -41,7 +41,7 @@ def _semantic(data: bytes) -> bytes:
     except (UnicodeDecodeError, ValueError):
         return data
     if isinstance(receipt, dict):
-        receipt.pop("seconds", None)
+        receipt.pop("seconds", None)  # receipts of older exporters (a supply not yet updated too) carry their wall time
     return _canonical(receipt)
 
 
@@ -172,7 +172,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
 
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
     trade_start and end in UTC nanoseconds; `selection` is {"universe": True} or {"symbols": [...]}.
-    Returns {identity, root, membership_file, symbols, receipts, exported{exported, reused, seconds},
+    Returns {identity, root, membership_file, symbols, receipts, exported{exported, reused},
     fresh}; `identity` also holds the membership path handed to the strategy.
     """
     universe = isinstance(selection, Mapping) and selection.get("universe") is True
@@ -224,5 +224,5 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle
     return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,
-            "exported": {key: exported.get(key) for key in ("exported", "reused", "seconds")}, "fresh": fresh,
+            "exported": {key: exported.get(key) for key in ("exported", "reused")}, "fresh": fresh,
             "temporary": exported.get("temporary", False)}

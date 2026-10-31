@@ -65,21 +65,20 @@ class RemoteTests(unittest.TestCase):
         self.assertFalse(Path(served["root"]).exists())
         self.assertTrue((self.tmp / "cache" / "objects").is_dir())
 
-    def test_fresh_always_reexports_but_transfers_only_changed_content(self):
+    def test_fresh_always_reexports_but_transfers_nothing_for_unchanged_content(self):
         first = self.exported(True)
         cold = self.client.transferred_bytes
         before = self.market.exports
         second = self.exported(True)
         self.assertEqual(self.market.exports, before + 1)
-        changed = self.client.transferred_bytes - cold
-        self.assertEqual(changed, (second["root"] / "AAAUSDT/export.json").stat().st_size)
+        self.assertEqual(self.client.transferred_bytes, cold)  # the receipt holds no export time: every object is cached
         membership = self.tmp / "membership.json"
         membership.write_text("{}")
         self.assertEqual(inputs.export_fingerprint({**first, "membership_file": membership}, semantic=True),
                          inputs.export_fingerprint({**second, "membership_file": membership}, semantic=True))
         with patch.object(self.client, "_rpc", side_effect=AssertionError("nonfresh cache export should be offline")):
             self.exported(False)
-        self.assertEqual(self.client.transferred_bytes, cold + changed)
+        self.assertEqual(self.client.transferred_bytes, cold)
 
     def test_cached_object_corruption_is_never_accepted_and_transfer_resumes_a_prefix(self):
         data = b"verified market data" * 100
