@@ -5,7 +5,7 @@
 @import '../lib/generated/harmonyos-sans-sc.css';
 @import '../components/architecture-map.css';
 
-/* The site wears the trade IDE's look (services/ide/web/src/theme/tokens.css) on fumadocs' own layout:
+/* The site wears the trade IDE's look (ide/web/src/theme/tokens.css) on fumadocs' own layout:
    warm low-chroma OKLCH neutrals, PP Supply Mono for every Latin letter and digit, HarmonyOS Sans SC for
    Chinese, IntelliJ's blue for selection and focus, its small radii and editor colours. The values are
    copied from the IDE's tokens, so the two stay one product without the site depending on the IDE's build. */

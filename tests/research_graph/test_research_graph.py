@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "services/ide"))
+sys.path.insert(0, str(ROOT / "ide"))
 
 from research_graph import cli, compare, contract, layout  # noqa: E402
 from research_graph.renderers.web import render as render_web  # noqa: E402

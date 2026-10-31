@@ -3,7 +3,7 @@
 It listens on loopback only, or inside a container on the container's own address, which only the
 compose network reaches (docs/plans/paper-compose-deployment.zh.md); the IDE service in front proxies
 ``/api/paper/`` to it and adds the page's
-token (services/ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
+token (ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
 and published only through it. A run that ended on its own (its duration, a crash) is sealed when found;

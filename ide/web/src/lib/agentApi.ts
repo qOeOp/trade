@@ -1,4 +1,4 @@
-// The chat service (services/ide/agent) under /api/agent, reached through the page's own server. Its
+// The chat service (ide/agent) under /api/agent, reached through the page's own server. Its
 // refusals are { code, message }, as the product's are.
 export const PROVIDERS = ["deepseek", "openai", "anthropic"] as const;
 export type Provider = (typeof PROVIDERS)[number];

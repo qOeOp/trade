@@ -7,13 +7,13 @@
 # its shallow .git, since the product reads its own revision with `git rev-parse HEAD`.
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
 WORKDIR /web
-COPY services/ide/web/ ./
+COPY ide/web/ ./
 RUN npm ci --no-audit --no-fund && npm run build
 
 # The chat service's production dependencies; it runs on the same Node, which strips types itself.
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS agent
 WORKDIR /agent
-COPY services/ide/agent/package.json services/ide/agent/package-lock.json ./
+COPY ide/agent/package.json ide/agent/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
@@ -49,13 +49,13 @@ LABEL org.opencontainers.image.title="Trade services"
 
 # The IDE service (the default target).
 FROM product AS ide
-COPY --from=web /web/dist services/ide/web/dist/
+COPY --from=web /web/dist ide/web/dist/
 COPY --from=agent /usr/local/bin/node /usr/local/bin/node
-COPY --from=agent /agent/node_modules services/ide/agent/node_modules/
+COPY --from=agent /agent/node_modules ide/agent/node_modules/
 # The page was built from exactly these sources; record their digest as the renderer does.
-RUN python3 -c "import sys; sys.path.insert(0, 'services/ide'); from research_graph.renderers.web import render as r; \
+RUN python3 -c "import sys; sys.path.insert(0, 'ide'); from research_graph.renderers.web import render as r; \
 (r.PAGE.parent / r.BUILT_FROM).write_text(r.digest(r.sources()) + '\n'); r.built_page()"
-COPY services/ide/docker/entrypoint.sh /usr/local/bin/trade-ide-entrypoint
+COPY deploy/entrypoint.sh /usr/local/bin/trade-ide-entrypoint
 
 # The profiles are compose configs here; the chat service's agents and threads live in /data/agent.
 ENV TRADE_LEDGER_HOME=/run/trade/ledgers

@@ -10,9 +10,9 @@ set -eu
 # The chat service listens inside the container only; the page reaches it through serve's /api/agent/.
 # Its agents (with their API keys) and threads stay in the volume, never in a database.
 mkdir -p /data/agent && chmod 700 /data/agent
-node /opt/trade/services/ide/agent/src/main.ts --product=/opt/trade --ledger=research --market=market \
+node /opt/trade/ide/agent/src/main.ts --product=/opt/trade --ledger=research --market=market \
   --data=/data/agent --host=127.0.0.1 --port=8766 &
 
-exec python3 /opt/trade/services/ide/ide.py serve --ledger=research --product=/opt/trade \
+exec python3 /opt/trade/ide/ide.py serve --ledger=research --product=/opt/trade \
   --host=0.0.0.0 --port=8765 --allow-host="127.0.0.1:${PUBLISHED_PORT:-8765}" \
   --allow-host="localhost:${PUBLISHED_PORT:-8765}" --agent=http://127.0.0.1:8766 "$@"

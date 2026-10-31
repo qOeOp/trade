@@ -3,7 +3,7 @@
 It composes the product's own readers (candidates, the line record, run measures and availability,
 registration plans, the comparison, source reviews and judgments) and adds no rule of its own, so
 the same ledger commit always gives the same graph. It reads nothing outside the ledger; the
-research-graph tool (services/ide) checks, lays out, renders and compares the document.
+research-graph tool (ide) checks, lays out, renders and compares the document.
 """
 from __future__ import annotations
 

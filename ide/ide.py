@@ -1,4 +1,4 @@
-"""Entry point: python3 services/ide/ide.py {check,render,compare,serve} ... (standard library only)."""
+"""Entry point: python3 ide/ide.py {check,render,compare,serve} ... (standard library only)."""
 import sys
 from pathlib import Path
 

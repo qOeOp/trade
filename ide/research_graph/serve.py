@@ -9,7 +9,7 @@ by ledger, build, commit, line and `since`, retaining a scope's newest live comp
 older duplicates. A named live page can show that completion while a newer head is still drawing;
 nothing is written anywhere.
 
-With an agent URL (the trade IDE's chat service, `services/ide/agent`), requests under `/api/agent/`
+With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
 pass the same Host and cross-site checks and are then forwarded to it as they are, the answer
 streamed back as it arrives; without one those paths do not exist and the page shows no agent.
 

@@ -1,7 +1,7 @@
 import type { ThemeRegistration } from 'shiki';
 
 // IntelliJ's Python colours (Islands light and dark), the ones the trade IDE's source view uses
-// (services/ide/web/src/theme/tokens.css, --code-*). The background is left to the page's code block.
+// (ide/web/src/theme/tokens.css, --code-*). The background is left to the page's code block.
 const palette = {
   light: { fg: '#1c1a18', keyword: '#0033B3', string: '#067D17', escape: '#0037A6', number: '#1750EB', comment: '#8C8C8C', function: '#00627A', decorator: '#9E880D' },
   dark: { fg: '#dfdeda', keyword: '#CF8E6D', string: '#6AAB73', escape: '#CF8E6D', number: '#2AACB8', comment: '#7A7E85', function: '#56A8F5', decorator: '#B3AE60' },
