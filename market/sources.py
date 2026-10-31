@@ -498,7 +498,7 @@ def contract_terms(item: dict) -> dict:
 AGGTRADES_SCHEMA = pa.schema([("agg_trade_id", pa.int64()), ("price", pa.string()), ("quantity", pa.string()),
                               ("first_trade_id", pa.int64()), ("last_trade_id", pa.int64()),
                               ("transact_time", pa.int64()), ("is_buyer_maker", pa.bool_())])
-AGGTRADES_COLUMNS = ("agg_trade_id", "price", "transact_time", "is_buyer_maker")
+AGGTRADES_COLUMNS = ("agg_trade_id", "price", "first_trade_id", "last_trade_id", "transact_time", "is_buyer_maker")
 
 
 def aggtrades_key(symbol: str, day: str) -> str:
@@ -507,8 +507,8 @@ def aggtrades_key(symbol: str, day: str) -> str:
 
 
 def aggtrades_table(path: Path) -> pa.Table:
-    """An aggTrades archive as (agg_trade_id, price, transact_time, is_buyer_maker), the price as the
-    exchange's decimal string."""
+    """An aggTrades archive as (agg_trade_id, price, first_trade_id, last_trade_id, transact_time,
+    is_buyer_maker), the price as the exchange's decimal string."""
     raw = _csv(path)
     header = raw.startswith(b"agg_trade_id")
     try:

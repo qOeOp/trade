@@ -132,7 +132,8 @@ under another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EX
 contract's newest stored terms row, not the increment in force that month: across a tick change a
 stale side that crosses is pushed today's increment off the fresh side. The `agg_trade_id` sequence
 must be contiguous within the day and continue the day before
-(`SEQUENCE_GAP`), the eve's archive is read for the carried state, times must not go backwards. The result
+(`SEQUENCE_GAP`; an ID Binance repeats for a distinct later trade, one whose raw trade IDs follow the
+previous trade's, is a trade of its own and feeds the inference), the eve's archive is read for the carried state, times must not go backwards. The result
 reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract
 with sparse trades may carry old inferred sides. These diagnostics are not per-side quote age or
 an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggregate p99 returned

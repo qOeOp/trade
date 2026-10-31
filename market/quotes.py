@@ -32,6 +32,8 @@ class State:
     bid: Decimal | None = None
     ask: Decimal | None = None
     last_id: int | None = None
+    last_time: int | None = None
+    last_trade: int | None = None  # the previous trade's last raw trade id
 
 
 def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[list[tuple], dict]:
@@ -42,12 +44,21 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
         raise _refuse(f"{label}: price increment {tick} is not positive", "SOURCE_SHAPE", missing=(label,))
     ids = table["agg_trade_id"].to_numpy()
     times = table["transact_time"].to_numpy()
+    firsts, lasts = table["first_trade_id"].to_numpy(), table["last_trade_id"].to_numpy()
     makers = table["is_buyer_maker"].to_numpy(zero_copy_only=False)
     prices = table["price"].to_pylist()
     if len(ids) == 0:
         raise _refuse(f"{label}: the archive holds no trades", "SOURCE_SHAPE", missing=(label,))
-    if np.any(np.diff(ids) != 1) or (state.last_id is not None and int(ids[0]) != state.last_id + 1):
-        where = int(np.argmax(np.diff(ids) != 1)) if np.any(np.diff(ids) != 1) else -1
+    # Binance's archive gives one id twice to two distinct trades (SOLUSDT 2025-07-16): a repeated id later
+    # in time whose raw trade ids follow the previous trade's is a trade of its own (user, 2026-10-31); an
+    # identical or same-moment repeat is not.
+    steps = np.diff(ids)
+    broken = (steps != 1) & ~((steps == 0) & (np.diff(times) > 0) & (firsts[1:] > lasts[:-1]))
+    continues = (state.last_id is None or int(ids[0]) == state.last_id + 1
+                 or (int(ids[0]) == state.last_id and state.last_time is not None and state.last_trade is not None
+                     and int(times[0]) > state.last_time and int(firsts[0]) > state.last_trade))
+    if np.any(broken) or not continues:
+        where = int(np.argmax(broken)) if np.any(broken) else -1
         detail = (f"after agg_trade_id {int(ids[where])} comes {int(ids[where + 1])}" if where >= 0
                   else f"the day starts at agg_trade_id {int(ids[0])}, the day before ended at {state.last_id}")
         raise _refuse(f"{label}: aggTrade ids are not contiguous ({detail})", "SEQUENCE_GAP", missing=(label,))
@@ -75,7 +86,7 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
         if (state.bid, state.ask) != last:
             rows.append((identity, moment, state.bid, state.ask))
             last = (state.bid, state.ask)
-    state.last_id = int(ids[-1])
+    state.last_id, state.last_time, state.last_trade = int(ids[-1]), int(times[-1]), int(lasts[-1])
     gaps = np.diff(times)
     readings = {"trades": int(len(ids)), "quote_changes": len(rows), "stale_side_adjustments": adjustments,
                 "minutes_with_trades": int(len(np.unique(times // 60_000))),
