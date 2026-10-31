@@ -922,7 +922,7 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
 
 **现有行为**
 
-1. 拒绝空归档、非正 tick、非正价格、日内时间倒序（`SOURCE_SHAPE`），编号在日内及跨日衔接不连续为 `SEQUENCE_GAP`。同毫秒多条成交允许，保留原顺序。
+1. 拒绝空归档、非正 tick、非正价格、日内时间倒序（`SOURCE_SHAPE`），编号在日内及跨日衔接不连续为 `SEQUENCE_GAP`；唯一例外是币安把同一编号重复给了另一笔更晚的成交（时刻更晚、首逐笔编号大于上一笔末逐笔编号），它照常参与推算。同毫秒多条成交允许，保留原顺序。
 2. 买方为 maker 的成交更新 bid，否则更新 ask；另一侧沿用。两侧齐全且交叉时，把旧侧推到新侧外一个 tick，增加 `stale_side_adjustments`，只在状态变化时追加行。
 3. 日读数为 `trades`、`quote_changes`、`stale_side_adjustments`、`minutes_with_trades`、`trade_gap_max_ms`、`trade_gap_p99_ms`。间隔来自当日成交时间差，不含跨日空档；这些不是逐侧报价年龄或准入阈值。
 
