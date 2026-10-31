@@ -13,7 +13,7 @@
   "parent": null,
   "control_trial_id": null,
   "rationale": {
-    "external": "The source bundle: location, market, window, frequency, costs; supports the method, a parameter or the mechanism.",
+    "external": "DOI, arXiv id or URL in source-BUNDLE: location, market, window, frequency, costs; supports the method, a parameter or the mechanism. Or: not found by the research-sources queries logged in source-BUNDLE.",
     "local": "",
     "conjecture": "The mechanism, who pays, and why it should exist in this line's universe and window."
   },
