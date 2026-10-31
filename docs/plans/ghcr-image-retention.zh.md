@@ -1,6 +1,6 @@
 # GHCR 镜像版本保留
 
-状态：方案，待用户决定（2026-10-31）。来源：doctor 20261029-34 剩下的一项。
+状态：已定并执行选项 2（用户 2026-10-31 让 Agent 代选）。来源：doctor 20261029-34 剩下的一项。
 
 ## 现状
 
@@ -62,3 +62,16 @@
 
 1. 删除公开包的版本属于修改公开内容，需要用户同意。
 2. 若选 3，还要用户对删除运行镜像单独授权。
+
+## 决定与执行（2026-10-31）
+
+用户让 Agent 代选，选了 2：trade-runtime 全部保留，trade-ide 与 trade-service 一次性清理，不加工作流。
+
+- **保留**：每个包 6 个版本。
+  - `main`；
+  - 开放 PR #1936 的 `pr-1936`；
+  - 另外 4 个最近的 main 构建。main 构建指 `sha-` 标签的提交在 `origin/main` 第一父链上的版本。
+- **删除前核对**：本机运行中的容器所用镜像都在保留集合里。ide 用 `trade-ide@sha256:d2cae705`（`main`）；paper 与 market-supply 用 `trade-service@sha256:c0d28500`（最近 main 构建之一）。
+- **删除**：逐个调用 `DELETE /users/qOeOp/packages/container/<包>/versions/<id>`。trade-ide 删 330 个，trade-service 删 133 个，失败 0。
+- **结果**：trade-ide 与 trade-service 各剩 6 个版本，trade-runtime 仍是 178 个；两个 `main` 标签仍能拉取。GitHub 允许在 30 天内恢复删除的包版本。
+- 以后两包版本再多时，按同一规则再清一次。
