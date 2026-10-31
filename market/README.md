@@ -309,10 +309,16 @@ its normal HTTPS/reverse-proxy access boundary. The Python HTTP process exposes 
 inputs without application authentication and is not an internet-facing deployment by itself.
 
 The protocol resolves a reference once, then requires the full immutable commit for metadata and
-exports. Database identity and the existing exporter/dependency fingerprint must agree on both
-ends. The server exposes only designed metadata/export reads and content-addressed file downloads;
-there is no SQL, import, arbitrary file-path or ledger-write endpoint. Daily warm-up still includes
-the history the current exporter requires, even when it precedes the requested minute window.
+exports. The protocol version and the database must agree on both ends; a refusal names the field
+that differs and both values. The exporter code need not: the client verifies every file against
+the supply's manifest, the input identity holds the content hash of what it received (a different
+export is a different `export_content_sha256`, which comparisons refuse), and the supply's exporter
+hash is recorded as `exporter_source_sha256`, provenance only. A nonfresh request reuses a cached
+manifest only when the supply's current exporter made it. When the protocol differs, update the
+supply to the client's version or pass a local market profile with `--market`. The server exposes
+only designed metadata/export reads and content-addressed file downloads; there is no SQL, import,
+arbitrary file-path or ledger-write endpoint. Daily warm-up still includes the history the current
+exporter requires, even when it precedes the requested minute window.
 
 Client cache objects are verified by size and SHA-256 before atomic completion. Partial downloads
 can resume on a later explicit call; corrupted/truncated responses never become native inputs.

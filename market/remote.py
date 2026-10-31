@@ -3,6 +3,12 @@
 The server owns the Dolt reader. Clients own disposable, verified content-addressed caches, never
 a clone of the source database. A fresh request always reaches the existing exporter. Transport
 manifests live outside native input roots; they are not research records or export receipts.
+
+The two ends agree on the protocol and the database. They need not run the same exporter code: the
+client verifies every served file against the manifest, the input identity holds the content hash
+of what it received, and comparisons refuse different content (registration.input_key). The
+supply's exporter hash is provenance only, recorded as the input identity's exporter_source_sha256;
+a change to the request, response or manifest shape is a new PROTOCOL.
 """
 
 from __future__ import annotations
@@ -26,12 +32,12 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from ledger.errors import Refusal
-from ledger.refusals import refuse
+from ledger.refusals import CATALOGUE, refuse
 from market.export import exporter_sha256
 from market.sources import MarketError
 
 
-PROTOCOL = "market-supply-v1"
+PROTOCOL = "market-supply-v2"
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT = re.compile(r"[0-9a-v]{32}\Z")
 BLOCK = 1024 * 1024
@@ -50,8 +56,14 @@ def digest(path: Path) -> str:
     return result.hexdigest()
 
 
-def invalid(message: str):
-    return refuse("MARKET_REMOTE_INVALID", message)
+def invalid(message: str, *, missing: tuple[str, ...] = (), expected: str | None = None):
+    return refuse("MARKET_REMOTE_INVALID", message, missing=missing, expected=expected)
+
+
+def differs(field: str, sent, served):
+    """The refusal of a protocol or database that differs between this client and the supply."""
+    return invalid(f"supply {field} differs: the client requests {sent!r}, the supply serves {served!r}",
+                   missing=(field,), expected=None if served is None else str(served))
 
 
 def relative(name: str) -> str:
@@ -91,10 +103,10 @@ class RemoteMarket:
         self.cache = Path(profile.get("cache_root", Path(tempfile.gettempdir()) / "trade-market-remote"))
         self.timeout = profile.get("timeout_seconds", 3600)
         self.transferred_bytes = 0
+        self.exporter: str | None = None  # the supply's exporter hash, from its latest response
 
     def _rpc(self, method, **args):
-        request = {"protocol": PROTOCOL, "database": self.database, "exporter": exporter_sha256(),
-                   "method": method, "args": args}
+        request = {"protocol": PROTOCOL, "database": self.database, "method": method, "args": args}
         try:
             with urlopen(Request(self.url + "/rpc", canonical(request),
                                  {"Content-Type": "application/json"}), timeout=self.timeout) as response:
@@ -111,18 +123,24 @@ class RemoteMarket:
                     raise MarketError(failure["message"], code=failure["code"], missing=tuple(failure.get("missing", ()))) from exc
                 failure = body["refusal"]
                 raise Refusal(failure["code"], failure["message"], missing=tuple(failure.get("missing", ())),
-                              write_status="not_written", expected=failure.get("expected")) from exc
+                              write_status="not_written", expected=failure.get("expected"),
+                              next_actions=CATALOGUE.get(failure["code"], ("", ()))[1]) from exc
             except (KeyError, ValueError, TypeError):
                 raise invalid(f"supply HTTP status {exc.code}") from exc
         except (OSError, URLError, TimeoutError, IncompleteRead) as exc:
             raise refuse("MARKET_REMOTE_UNAVAILABLE", "market supply transport failed; no local fallback") from exc
         except (ValueError, TypeError) as exc:
             raise invalid("supply response is not valid JSON") from exc
-        if (not isinstance(result, dict) or result.get("protocol") != PROTOCOL
-                or result.get("database") != self.database or result.get("exporter") != exporter_sha256()):
-            raise invalid("supply protocol, database or exporter differs from the requested identity")
+        if not isinstance(result, dict):
+            raise invalid("supply response is not an object")
+        for field, sent in (("protocol", PROTOCOL), ("database", self.database)):
+            if result.get(field) != sent:
+                raise differs(field, sent, result.get(field))
+        if not isinstance(result.get("exporter"), str) or not HASH.fullmatch(result["exporter"]):
+            raise invalid("supply response names no exporter hash")
         if "result" not in result:
             raise invalid("supply response has no result")
+        self.exporter = result["exporter"]
         return result["result"]
 
     def resolve_commit(self, at):
@@ -189,17 +207,22 @@ class RemoteMarket:
                                                           for n, v in (lifecycle_files or {}).items()},
                 "fresh": fresh, "include_quotes": include_quotes, "include_trades": include_trades}
         key = hashlib.sha256(canonical({"protocol": PROTOCOL, "url": self.url, "database": self.database,
-                                       "exporter": exporter_sha256(), "args": {**args, "fresh": False}})).hexdigest()
+                                       "args": {**args, "fresh": False}})).hexdigest()
         requests = self.cache / "requests"
         started = time.monotonic()
+        if not fresh and self.exporter is None:
+            self.resolve_commit(commit)  # learns the supply's exporter: a cached export is reused only from it
         with locked(requests / (key + ".lock")):
             manifest_path = requests / (key + ".json")
+            manifest = None
             if not fresh and manifest_path.is_file() and not manifest_path.is_symlink():
                 try:
                     manifest = json.loads(manifest_path.read_bytes())
                 except ValueError as exc:
                     raise invalid("cached supply manifest is not valid JSON") from exc
-            else:
+                if isinstance(manifest, dict) and manifest.get("exporter_source_sha256") != self.exporter:
+                    manifest = None  # another supply exporter made it: export anew, as a local cache would
+            if manifest is None:
                 manifest = self._rpc("export_catalogs", **args)
             self._validate_manifest(manifest, args)
             materialized = Path(tempfile.mkdtemp(prefix="market-remote-inputs-"))
@@ -219,7 +242,7 @@ class RemoteMarket:
                 shutil.rmtree(materialized)
                 raise
         return {"commit": commit, "root": materialized, "receipts": manifest["receipts"],
-                "temporary": True,
+                "exporter_source_sha256": manifest["exporter_source_sha256"], "temporary": True,
                 "exported": manifest["exported"], "reused": manifest["reused"],
                 "seconds": round(time.monotonic() - started, 3)}
 
@@ -234,7 +257,8 @@ class RemoteMarket:
     def _check_manifest(manifest, args):
         if (not isinstance(manifest, dict) or manifest.get("request") != args
                 or manifest.get("commit") != args["commit"] or not isinstance(manifest.get("files"), list)
-                or set(manifest.get("receipts", {})) != set(args["symbols"])):
+                or set(manifest.get("receipts", {})) != set(args["symbols"])
+                or not HASH.fullmatch(manifest.get("exporter_source_sha256"))):
             # Fresh is a request instruction, not an input identity; cached nonfresh manifests are normalized below.
             if isinstance(manifest, dict) and not args["fresh"] and manifest.get("request") == {**args, "fresh": True}:
                 manifest["request"] = dict(args)
@@ -263,10 +287,14 @@ class Supply:
         self.lock = threading.Lock()
 
     def call(self, request):
-        if (not isinstance(request, dict) or set(request) != {"protocol", "database", "exporter", "method", "args"}
-                or request["protocol"] != PROTOCOL or request["database"] != self.market.database
-                or request["exporter"] != exporter_sha256()):
-            raise invalid("supply protocol, database or exporter mismatch")
+        if not isinstance(request, dict):
+            raise invalid("supply request is not an object")
+        for field, served in (("protocol", PROTOCOL), ("database", self.market.database)):
+            if request.get(field) != served:
+                raise differs(field, request.get(field), served)
+        if set(request) != {"protocol", "database", "method", "args"}:
+            raise invalid("supply request has unknown or missing fields",
+                          expected="protocol, database, method and args")
         method, args = request["method"], request["args"]
         allowed = {"resolve_commit": {"at"}, "universe_rule": {"commit"}, "universe_month": {"commit"},
                    "membership_path": {"commit", "window_end"},
@@ -307,8 +335,8 @@ class Supply:
                     self.objects[sha] = path
                     manifest.append({"path": relative(name),
                                      "sha256": sha, "size": path.stat().st_size})
-            return {key: result[key] for key in ("commit", "exported", "reused", "receipts")} | {
-                "request": args, "files": manifest}
+            return {key: result[key] for key in ("commit", "exported", "reused", "receipts",
+                                                 "exporter_source_sha256")} | {"request": args, "files": manifest}
 
 
 class Server(ThreadingHTTPServer):

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from ledger import db, evidence, judgments, lines, strategies, trials
 from ledger.refusals import refuse
-from market import universe
+from market import export, universe
 from registration import precheck, register, seams
 from tests.ledger.dolt import (IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, market as line_market, reviewed,
                                sha, source)
@@ -87,7 +87,7 @@ class FakeMarket:
             (root / "lifecycle-evidence" / name).parent.mkdir(parents=True, exist_ok=True)
             (root / "lifecycle-evidence" / name).write_bytes(data)
         return {"commit": commit, "root": root, "exported": len(symbols), "reused": 0, "seconds": 0.1,
-                "receipts": receipts}
+                "receipts": receipts, "exporter_source_sha256": export.exporter_sha256()}
 
     def validate_lifecycle(self, body, commit, files):
         if not isinstance(body, dict) or body.get("market_commit") != commit:

@@ -200,13 +200,13 @@ Measures by slice ID.
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="registration.export_fingerprint">export_fingerprint</Ref> | 给出与路径无关的导出内容身份与导出器实现身份；语义模式结果写入输入身份，原始模式在回放执行前后各算一次防中途改动 |
+| <Ref id="registration.export_fingerprint">export_fingerprint</Ref> | 给出与路径无关的导出内容身份；语义模式结果写入输入身份，原始模式在回放执行前后各算一次防中途改动 |
 | <Ref id="registration.load_lifecycle">load_lifecycle</Ref> | 从账本的生命周期证据包读出校验后的生命周期片段与来源原件；提交不符或缺来源原件即拒绝 |
 | <Ref id="registration.market_inputs">market_inputs</Ref> | 按钉住的市场提交 AS OF 把一次回放所需市场输入导出到不可变目录，写成员文件并组装输入身份；登记与回放各调用一次，比对同一身份 |
 
 ### `export_fingerprint` [#def-registration-export_fingerprint]
 
-给出与路径无关的导出内容身份与导出器实现身份；语义模式结果写入输入身份，原始模式在回放执行前后各算一次防中途改动
+给出与路径无关的导出内容身份；语义模式结果写入输入身份，原始模式在回放执行前后各算一次防中途改动
 
 ```python
 def export_fingerprint(
@@ -217,15 +217,14 @@ def export_fingerprint(
 
 <TypeTable type={{ "inputs": { type: "dict", description: "registration.market_inputs 的返回值；只读 root 与 membership_file" }, "semantic": { type: "bool", description: "True：回执文件先去掉 seconds 字段再按规范 JSON 重编码后哈希，得身份用语义哈希；False：原始字节哈希，供执行前后比对" } }} />
 
-**返回**　\{export_content_sha256, exporter_source_sha256\}：前者为导出内容身份（语义或原始），后者为导出器实现清单总哈希，只作来历记录，registration.input_key 不比较它；两者与导出目录位置、导出时间、是否命中缓存无关
+**返回**　\{export_content_sha256\}：导出内容身份（语义或原始），与导出目录位置、导出时间、是否命中缓存无关；导出器实现哈希不在此算，由市场适配器随导出给出（见 registration.market_inputs）
 
 **期望行为**
 
 1. 枚举 root 下全部普通文件（生命周期原件、每合约 Catalog 与回执）并追加成员文件（固定命名 membership.json），按相对路径排序
 2. 任一条目为符号链接或成员文件缺失即拒绝，不跟随链接
 3. 逐条目把名字长度、名字、内容 SHA-256 喂入总哈希；semantic 为 True 时回执文件先去 seconds 再以排序键、无空白的 JSON 重编码
-4. 导出器实现哈希 = 固定清单（导出、生命周期、覆盖、存储、范围模块源码与依赖锁文件）各自 SHA-256 按路径排序后的规范 JSON 总哈希；清单是模块常量，不读调用方输入
-5. 返回两项哈希；不写文件、不改导出目录
+4. 返回该哈希；不写文件、不改导出目录
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -298,7 +297,7 @@ def market_inputs(
 3. universe 模式合约集 = 成员区间与 [trade_start, end) 相交的全部合约（不排名、不取前 N、下架照收），无相交合约即拒绝；symbols 模式原样采用
 4. 给出 lifecycle_bundle 时经 registration.load_lifecycle 读证据包，其市场提交须等于本次提交；拒绝原样透传
 5. market.export_catalogs 按提交、合约集与完整输入区间 [start, end) 以 1 分钟周期导出 Catalog、逐合约回执与生命周期原件，任一回执周期不是 1 分钟即拒绝；把 \{commit, universe_rule, membership\} 写成只含本次合约集的成员文件
-6. registration.export_fingerprint 语义模式算导出内容哈希与导出器哈希写入 identity 并返回（其拒绝原样透传）；不写账本、不删合约、不缩窗、不补数
+6. registration.export_fingerprint 语义模式算导出内容哈希，与市场适配器给出的导出器实现哈希（写出这些文件的导出器：本地导出为本机的 market.exporter_sha256，远端供给为供给端的；只作来历，registration.input_key 不比较它）一并写入 identity 并返回（其拒绝原样透传）；不写账本、不删合约、不缩窗、不补数
 7. 返回值另含每合约覆盖回执 receipts；输入身份含 membership（每合约成员时间路径），与 registration.input_key 的保留键一致。
 
 | 拒绝码 | 条件 |
@@ -323,16 +322,6 @@ def market_inputs(
 
 These implementations belong to this module alongside its main interfaces. Links locate source definitions; signatures retain actual parameters and defaults.
 
-#### `exporter_sha256` [#impl-registration-inputs-py-exporter_sha256]
-
-```python
-def exporter_sha256() -> str
-```
-
-market.export's exporter hash: the market modules an export runs and the dependency lock.
-
-[Source](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L51)
-
 #### `record_lifecycle` [#impl-registration-inputs-py-record_lifecycle]
 
 ```python
@@ -341,7 +330,7 @@ def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: l
 
 Write the lifecycle evidence bundle lifecycle-&lt;commit&gt; of one market commit: the manifest (lifecycle.json, native-lifecycle-v1) with the exchange notices it cites as sources, validated by market.validate_lifecycle against the commit before anything is written. The bundle is immutable; a correction is a new market commit's bundle.
 
-[Source](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L85)
+[Source](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L80)
 
 #### `cleanup` [#impl-registration-inputs-py-cleanup]
 
@@ -351,7 +340,7 @@ def cleanup(inputs: Mapping | None) -> None
 
 Remove what market_inputs created: the membership directory, and a fresh export root.
 
-[Source](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L122)
+[Source](https://github.com/qOeOp/trade/blob/main/registration/inputs.py#L117)
 
 
 ## `registration/precheck.py` [#def-mod-registration-precheck-py]
