@@ -21,7 +21,8 @@ corrects where it can:
   daily warm-up read from Binance's public daily klines).
 - Aggregated bars skip the first incomplete one.
 - No trades are streamed (orders match bars, so a mid-bar trade signal would see the bar's end); a strategy
-  subscribing to trades stops the run with ``TRADES_NOT_SERVED``.
+  subscribing to trades stops the run with ``TRADES_NOT_SERVED``. No metrics are streamed either; a metrics
+  subscription stops it with ``METRICS_NOT_SERVED``.
 - The Sandbox matches a bar before the strategy sees it, as a replay's exchange does, but its fills reach the
   cache on the live runner's execution channel, after the bar's dispatch. The strategy's data callbacks
   therefore run HOLD_NS later, in the order they came, once the fills the bar caused are applied: a stop or
@@ -249,10 +250,11 @@ def bar_gap(previous_ns: int | None, ts_event: int) -> int:
 
 # The strategy: the replay's class around the source, with the live cadence and the journal
 
-class _PaperConfigured(run._TradeSubscriptions):
+class _PaperConfigured(run._Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (engine.run._Configured's arguments).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
-    would match the bars, as a replay's in the bar environment."""
+    would match the bars, as a replay's in the bar environment. It streams no metrics either
+    (METRICS_NOT_SERVED)."""
 
     def __new__(cls, inputs: PaperInputs):
         return Strategy.__new__(cls)
@@ -535,10 +537,12 @@ class Recorder(DataActor):
                 self.uncovered.pop(iid, None)
 
     def on_stop_timer(self, _event):
-        if run.UNSERVED_TRADES and not STOP.is_set():
-            self.findings.append("TRADES_NOT_SERVED: " + "; ".join(run.UNSERVED_TRADES))
-            journal("refusal", code="TRADES_NOT_SERVED", subscriptions=list(run.UNSERVED_TRADES))
-            request_stop("TRADES_NOT_SERVED")
+        found = run.unserved()
+        if found is not None and not STOP.is_set():
+            code, subscriptions = found
+            self.findings.append(f"{code}: " + "; ".join(subscriptions))
+            journal("refusal", code=code, subscriptions=subscriptions)
+            request_stop(code)
             return  # the next tick runs the stop sequence
         if not STOP.is_set():
             return
@@ -692,8 +696,9 @@ def main(argv: list[str] | None = None) -> None:
         warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url) for symbol in args.symbols}
     planned = plan(list(args.symbols), membership, start_ns, warmup)
     run.STRATEGIES.clear()
-    run.SERVED_TRADES.clear()
-    run.UNSERVED_TRADES.clear()
+    for served in run.SERVED.values():
+        served.clear()
+    run.UNSERVED.clear()
     RECORDERS.clear()
     FINDINGS.clear()
     node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,

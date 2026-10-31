@@ -165,6 +165,10 @@ REFUSALS: dict[str, str] = {
                       "its trading window.",
     "TRADES_NOT_SERVED": "A strategy subscribed to trades the run does not stream (no --trade-ticks, native "
                          "subscribe_trades, or paper trading); it would see none.",
+    "METRICS_MISSING": "--metrics is given but an active contract's export holds no metrics in some UTC month of its "
+                       "trading window.",
+    "METRICS_NOT_SERVED": "A strategy subscribed to metrics the run does not stream (no --metrics, or paper "
+                          "trading); it would see none.",
     "DATA_COUNT_MISMATCH": "The engine consumed another number of events than the export receipts hold.",
     "OBSERVER_COUNT_MISMATCH": "The capital observer did not start exactly once.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
@@ -229,6 +233,8 @@ INTEGRITY_CODES: dict[str, str] = {
     "EXPOSURE_WRITE_FAILED": "Writing the exposure table failed.",
     "PAPER_EXEC_CLIENT_NOT_SANDBOX": "A paper run traded an account other than the Sandbox's; the run stopped.",
     "TRADES_NOT_SERVED": "A paper strategy subscribed to trades, which paper trading does not stream; the run stopped.",
+    "METRICS_NOT_SERVED": "A paper strategy subscribed to metrics, which paper trading does not stream; the run "
+                          "stopped.",
 }
 
 
@@ -325,6 +331,9 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
     inputs.add_argument("--universe", type=Path, help="universe membership JSON handed to every strategy")
     inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
+    inputs.add_argument("--metrics", action="store_true",
+                        help="every trading month of an active contract holds exported metrics (custom data); not "
+                             "part of the effective configuration, the export receipts count them")
     window = parser.add_argument_group("window")
     window.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
     window.add_argument("--end", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
@@ -354,6 +363,7 @@ class RunnerConfiguration:
     output: Path | None
     execution: str = "bars"
     margin_rates: tuple[str, str] | None = None  # (initial, maintenance) decimal strings, quotes only
+    metrics: bool = False
 
 
 def margin_rates_of(execution: str, initial: str | None, maintenance: str | None) -> tuple[str, str] | None:
@@ -392,7 +402,8 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
     return RunnerConfiguration(args.describe, args.strategy_file, args.strategy_class, args.strategy_sha256,
                                args.execution_binding, args.market_root, args.market_commit,
                                args.universe, tuple(args.symbols), window, args.output, args.execution,
-                               margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin))
+                               margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin),
+                               args.metrics)
 
 
 def read_universe_bytes(path: Path) -> bytes:

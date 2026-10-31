@@ -153,8 +153,8 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,
                 "effective_config_sha256": effective.digest}
 
-    def checked(self, name, initial=None, maintenance=None, trades=False):
-        argv = ["--trade-ticks"] * trades + list(ARGV)
+    def checked(self, name, initial=None, maintenance=None, trades=False, metrics=False):
+        argv = ["--trade-ticks"] * trades + ["--metrics"] * metrics + list(ARGV)
         if initial is not None:
             argv += ["--execution", "quotes", "--initial-margin", initial, "--maintenance-margin", maintenance]
         return entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
@@ -246,6 +246,20 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                     self.assertEqual(exported.call_args.kwargs["include_trades"], trades)
                     rebuilt = self.reproduce(trial_id, name + "-rebuilt")
                     self.assertEqual(exported.call_args.kwargs["include_trades"], trades)
+                    self.assertTrue(rebuilt["fingerprints_match"])
+
+    def test_reproduction_exports_metrics_and_passes_them_on_only_when_the_original_receipt_counts_them(self):
+        with patch.object(self.world.market, "export_catalogs", wraps=self.world.market.export_catalogs) as exported:
+            for metrics in (False, True):
+                with self.subTest(metrics=metrics):
+                    name = "metrics" if metrics else "no-metrics"
+                    trial_id = self.checked(name, metrics=metrics)
+                    self.assertEqual(exported.call_args.kwargs["include_metrics"], metrics)
+                    first = len(self.world.commands)
+                    rebuilt = self.reproduce(trial_id, name + "-rebuilt")
+                    self.assertEqual(exported.call_args.kwargs["include_metrics"], metrics)
+                    runner = next(row for row in self.world.commands[first:] if row["module"] == "runner")
+                    self.assertEqual("--metrics" in runner["argv"], metrics)
                     self.assertTrue(rebuilt["fingerprints_match"])
 
     def test_changed_input_or_report_fingerprint_still_refuses_quote_reproduction(self):

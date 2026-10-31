@@ -135,32 +135,43 @@ class StrategyInputs:
     universe_membership: list
 
 
-# Trade subscriptions the run does not serve: trades reach a strategy only as custom data of
-# trade_data_type for a contract whose export counts them (the entry's --trade-ticks); native trades are
-# never streamed. A source subscribing otherwise would see no trade at all, so the run is refused
-# (TRADES_NOT_SERVED) once a chunk in which it subscribed has run.
-SERVED_TRADES: set[str] = set()  # the instrument IDs whose trades this run streams
-UNSERVED_TRADES: list[str] = []
+# Subscriptions the run does not serve. Trades and metrics reach a strategy only as custom data
+# (trade_data_type, metrics_data_type) of a contract whose export counts them (the entry's --trade-ticks or
+# --metrics); native trades are never streamed. A source subscribing otherwise would see none at all, so the
+# run is refused (TRADES_NOT_SERVED, METRICS_NOT_SERVED) once a chunk in which it subscribed has run.
+NOT_SERVED = {"TradeTick": "TRADES_NOT_SERVED", "Metrics": "METRICS_NOT_SERVED"}
+SERVED: dict[str, set[str]] = {kind: set() for kind in NOT_SERVED}  # the instrument IDs this run streams it for
+UNSERVED: list[tuple[str, str]] = []  # (refusal code, the subscription)
 
 
-class _TradeSubscriptions:
-    """Records every trade subscription the run does not serve, then subscribes as asked."""
+class _Subscriptions:
+    """Records every trade or metrics subscription the run does not serve, then subscribes as asked."""
 
     def subscribe_data(self, data_type, *args, **kwargs):
-        if data_type.type_name == "TradeTick":
+        kind = data_type.type_name
+        if kind in NOT_SERVED:
             served = (data_type.metadata or {}).get("instrument_id")
-            if served not in SERVED_TRADES:
-                UNSERVED_TRADES.append(f"{self.strategy_id}: subscribe_data TradeTick for {served}, whose trades this run "
-                                       "does not stream")
+            if served not in SERVED[kind]:
+                UNSERVED.append((NOT_SERVED[kind], f"{self.strategy_id}: subscribe_data {kind} for {served}, which "
+                                                   "this run does not stream"))
         return super().subscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_trades(self, instrument_id, *args, **kwargs):
-        UNSERVED_TRADES.append(f"{self.strategy_id}: subscribe_trades {instrument_id}; trades arrive only through "
-                               "subscribe_data(DataType(\"TradeTick\", metadata={\"instrument_id\": ...}))")
+        UNSERVED.append(("TRADES_NOT_SERVED", f"{self.strategy_id}: subscribe_trades {instrument_id}; trades arrive "
+                                              "only through subscribe_data(DataType(\"TradeTick\", "
+                                              "metadata={\"instrument_id\": ...}))"))
         return super().subscribe_trades(instrument_id, *args, **kwargs)  # type: ignore[misc]
 
 
-class _Configured(_TradeSubscriptions):
+def unserved() -> tuple[str, list[str]] | None:
+    """(refusal code, subscriptions) of the first kind of subscription the run does not serve, or None."""
+    if not UNSERVED:
+        return None
+    code = UNSERVED[0][0]
+    return code, [text for found, text in UNSERVED if found == code]
+
+
+class _Configured(_Subscriptions):
     """Construct the source's entry class from the runner's inputs; nothing strategy-specific."""
 
     def __new__(cls, config: StrategyInputs):
@@ -645,15 +656,17 @@ class Replay:
 # with the window. The runner streams the same events in the same order straight from the exported
 # Catalogs: bars, MARK updates (and quotes and trades) through ParquetDataCatalog queries, one per data type
 # and SESSION_WINDOW of time over only the files that hold it, each sorted by ts_init and merged; the few
-# funding and lifecycle events read whole. Equal ts_init keep the order of the configurations the node
-# would have had, contract by contract MARK, quotes, trades, funding, bars, status, close: a market order a
+# funding and lifecycle events read whole, metrics (custom data, one row per five minutes) file by file. Equal
+# ts_init keep the order of the configurations the node would have had, contract by contract MARK, quotes,
+# trades, metrics, funding, bars, status, close: a market order a
 # trade prompts fills at the quote its millisecond ends with, and one millisecond's trades keep their
 # aggregate trade ID order. The engine gets the node's chunks: chunk_size events, extended to the last
 # event's ts_init, each run up to it.
 
-STREAM_TYPES = ("MarkPriceUpdate", "QuoteTick", "TradeTick", "FundingRateUpdate", "Bar", "InstrumentStatus",
-                "InstrumentClose")
-DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes", "TradeTick": "trades"}
+STREAM_TYPES = ("MarkPriceUpdate", "QuoteTick", "TradeTick", "Metrics", "FundingRateUpdate", "Bar",
+                "InstrumentStatus", "InstrumentClose")
+DATA_DIRECTORIES = {"Bar": "bars", "MarkPriceUpdate": "mark_prices", "QuoteTick": "quotes", "TradeTick": "trades",
+                    "Metrics": "metrics"}
 RUN_ID = "r1-native-replay"
 SESSION_WINDOW_NS = 86_400 * 10**9  # one day of every contract's minutes in memory at a time
 
@@ -674,9 +687,9 @@ def _bounds(path: str) -> tuple[int, int] | None:
 
 
 def months_missing(row: dict, kind: str, start: int, end: int) -> list[str]:
-    """The UTC months ("YYYY-MM") that intersect [start, end) and hold no exported `kind` event (QuoteTick or
-    TradeTick) of the contract. Both are imported a month at a time, so a month without any is a month the
-    market does not hold."""
+    """The UTC months ("YYYY-MM") that intersect [start, end) and hold no exported `kind` event (QuoteTick,
+    TradeTick or Metrics) of the contract. Each is imported a month at a time, so a month without any is a month
+    the market does not hold."""
     import pyarrow as pa
     import pyarrow.compute as compute
     import pyarrow.parquet as parquet
@@ -741,12 +754,50 @@ def trade_data_type(instrument_id) -> DataType:
     return DataType("TradeTick", metadata={"instrument_id": str(instrument_id)})
 
 
+@dataclass(frozen=True)
+class Metrics:
+    """engine.Metrics: one five-minute row of the Binance metrics archive (the market's metrics table), the
+    payload of metrics_data_type. sum_open_interest is in the base asset; a ratio the archive left empty is
+    None. ts_event is the archive's create_time + 5 min, the instant the row describes; ts_init is create_time +
+    8 min, when the run delivers it (the export receipt's metrics_rule)."""
+
+    instrument_id: InstrumentId
+    sum_open_interest: Decimal
+    count_toptrader_long_short_ratio: Decimal | None
+    sum_toptrader_long_short_ratio: Decimal | None
+    count_long_short_ratio: Decimal | None
+    ts_event: int
+    ts_init: int
+
+
+def metrics_data_type(instrument_id) -> DataType:
+    """engine.metrics_data_type: the custom data type an exported metrics row of the contract reaches a strategy
+    as, a Metrics in CustomData.data: subscribe_data(DataType("Metrics", metadata={"instrument_id":
+    str(instrument_id)})), then on_data. Only a replay given --metrics streams it."""
+    return DataType("Metrics", metadata={"instrument_id": str(instrument_id)})
+
+
+METRICS_BATCH = 288  # rows read at a time: one day of a contract
+
+
+def _metrics_events(row: dict):
+    """The exported metrics of one contract in ts_init order, lazily, file by file."""
+    import pyarrow.parquet as parquet
+    data_type, instrument_id = metrics_data_type(row["instrument_id"]), row["instrument_id"]
+    files = [(bounds, path) for path in _files(row, "Metrics") if (bounds := _bounds(path)) is not None]
+    for _, path in sorted(files):
+        for batch in parquet.ParquetFile(path).iter_batches(batch_size=METRICS_BATCH):
+            for item in batch.to_pylist():
+                yield CustomData(data_type, Metrics(instrument_id, **item))
+
+
 def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
     """Every input event of the replay in BacktestNode's order, streamed (see above); `start` and `end`
     bound the exported events' ts_init. Exported quotes are streamed only with `quotes` (a QUOTE_EXECUTION
     source): in the bar environment they would move the venue's book between bars. Exported trades are
     streamed for every contract whose receipt counts them (the entry's --trade-ticks), each as custom data
-    (trade_data_type): the venue never sees them, so they move no book and fill no order."""
+    (trade_data_type): the venue never sees them, so they move no book and fill no order. Exported metrics
+    likewise (the entry's --metrics), as metrics_data_type."""
     import heapq
     bars, order, small, files = {}, {}, [], []
     wrapped: dict = {}
@@ -769,6 +820,8 @@ def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
                 bounds = _bounds(path)
                 if bounds is not None:
                     files.append((native, path, *bounds))
+        if "metrics" in row["counts"]:
+            small.append(_keyed(_metrics_events(row), base + STREAM_TYPES.index("Metrics")))
         for kind in ("FundingRateUpdate", "InstrumentStatus", "InstrumentClose"):
             small.append(_keyed(_small_events(row, kind), base + STREAM_TYPES.index(kind)))
     pending = heapq.merge(*small, key=lambda item: item[:3])  # each source is in file (ts_init) order
@@ -833,7 +886,7 @@ def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
         engine.run(start, end, RUN_ID, True)
         engine.clear_data()
         consumed += len(chunk)
-        if SHUTDOWN or UNSERVED_TRADES:
+        if SHUTDOWN or UNSERVED:
             return consumed
         start = end
     engine.end()
@@ -921,12 +974,13 @@ def with_margins(made: CryptoPerpetual, rates: tuple[str, str]) -> CryptoPerpetu
 
 
 def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dict, output_dir: Path,
-           account: AccountContract = ACCOUNT_CONTRACT):
+           account: AccountContract = ACCOUNT_CONTRACT, *, metrics: bool = False):
     """engine.replay: one venue and engine of the `account` environment, each contract's one-minute bars, MARK
     and funding updates, lifecycle events and (quote environment) quotes streamed in time order, one strategy
     instance per contract whose lifecycle (and daily warm-up) holds in the window, and exactly one capital
-    observer; afterwards the native result is checked against the receipts. Returns (Replay, instances by
-    coin, limitations)."""
+    observer; afterwards the native result is checked against the receipts. With `metrics` (--metrics) every
+    trading month of an active contract must hold exported metrics. Returns (Replay, instances by coin,
+    limitations)."""
     planned, limitations = plan_instances(rows, window, strategy)
     # Keep the trusted plan outside source instances: their attributes and diagnostics are mutable.
     trade_start_by_strategy = {row["strategy_id"]: start for row, _, start in planned}
@@ -949,10 +1003,11 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
         assert initial is not None and maintenance is not None  # execution_account sets both for quotes
         rates = (initial, maintenance)
     for kind, code, chosen in (("QuoteTick", "QUOTES_MISSING", "the quote environment is chosen"),
-                               ("TradeTick", "TRADES_MISSING", "trade ticks are exported")):
+                               ("TradeTick", "TRADES_MISSING", "trade ticks are exported"),
+                               ("Metrics", "METRICS_MISSING", "--metrics is given")):
         missing = []
         for row, _, trade_start in planned:
-            if not (quotes if kind == "QuoteTick" else "trade" in row["counts"]):
+            if not (quotes if kind == "QuoteTick" else metrics if kind == "Metrics" else "trade" in row["counts"]):
                 continue
             episode = row["episode"]
             end = min(window.end_ns, (_termination(episode) if episode else None) or window.end_ns)
@@ -967,9 +1022,10 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
-    UNSERVED_TRADES.clear()
-    SERVED_TRADES.clear()
-    SERVED_TRADES.update(str(row["instrument_id"]) for row in rows if "trade" in row["counts"])
+    UNSERVED.clear()
+    for kind, count in (("TradeTick", "trade"), ("Metrics", "metrics")):
+        SERVED[kind].clear()
+        SERVED[kind].update(str(row["instrument_id"]) for row in rows if count in row["counts"])
     for row, input_start, trade_start in planned:
         engine.add_strategy(configure_strategy(strategy, StrategyInputs(
             instrument_id=str(row["instrument_id"]),
@@ -983,12 +1039,15 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
     stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=quotes), account["chunk_size"])
-    if UNSERVED_TRADES:
+    found = unserved()
+    if found is not None:
         for observer in OBSERVERS:
             observer.abandon()
-        raise Refusal("TRADES_NOT_SERVED", "; ".join(UNSERVED_TRADES[:5]) + (
-            f"; and {len(UNSERVED_TRADES) - 5} more" if len(UNSERVED_TRADES) > 5 else "")
-            + ". Replay with --trade-ticks (quote environment) and subscribe through subscribe_data")
+        code, subscriptions = found
+        raise Refusal(code, "; ".join(subscriptions[:5]) + (
+            f"; and {len(subscriptions) - 5} more" if len(subscriptions) > 5 else "") + (
+            ". Replay with --trade-ticks (quote environment) and subscribe through subscribe_data"
+            if code == "TRADES_NOT_SERVED" else ". Replay with --metrics and subscribe through subscribe_data"))
     result = engine.get_result()
     skipped = ("daily",) if quotes else ("daily", "quote")
     expected_iterations = sum(sum(value for key, value in row["counts"].items() if key not in skipped) for row in rows)
@@ -1033,7 +1092,8 @@ def main(argv: list[str] | None = None) -> None:
         config.output.mkdir(parents=True, exist_ok=True)
         stage = "replay"
         account = execution_account(config.execution, config.margin_rates)
-        finished, strategies, limitations = replay(rows, window, strategy, universe, config.output, account)
+        finished, strategies, limitations = replay(rows, window, strategy, universe, config.output, account,
+                                                   metrics=config.metrics)
         stage = "reports"
         identity = {
             **strategy_metadata(strategy), **runtime_source_metadata(), **executed,

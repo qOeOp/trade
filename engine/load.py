@@ -303,6 +303,8 @@ def read_market(market_root: Path, symbols: list[str], market_commit: str, start
                 counts["quote"] = piece["counts"]["quote"]
             if "trade" in piece["counts"]:  # exported only on request (--trade-ticks), then streamed, even none
                 counts["trade"] = piece["counts"]["trade"]
+            if "metrics" in piece["counts"]:  # likewise (--metrics)
+                counts["metrics"] = piece["counts"]["metrics"]
             rows.append({"symbol": symbol, "coin": coin(symbol, index), "strategy_id": strategy_id(symbol, index),
                          "catalog_path": catalog_path, "receipt": receipt, "piece": piece,
                          "instrument": instruments[0], "instrument_id": instrument_id, "counts": counts,
