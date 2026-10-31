@@ -82,7 +82,7 @@ class ContinuityTests(unittest.TestCase):
         the rebuild on a new image is admitted and the new hash is still recorded."""
         self.reproduction({"fixture": "same"})
         old = self.world.plan("registration-old")["execution"]["input_identity"]
-        with self.on_new_runtime(), patch("registration.inputs.exporter_sha256", lambda: "0" * 64):
+        with self.on_new_runtime(), patch("market.export.exporter_sha256", lambda: "0" * 64):
             self.world.register("registration-new", self.migrated_body())
             new = self.world.plan("registration-new")["execution"]["input_identity"]
             self.assertEqual(new["exporter_source_sha256"], "0" * 64)

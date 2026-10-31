@@ -15,8 +15,13 @@ from ledger.errors import Refusal, refusal
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."
 
 CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "MARKET_REMOTE_INVALID": ("The read-only market supply response or cache does not match the pinned request.",
-                              ("Inspect the supply identity, manifest and cache; no local or latest fallback is used.",)),
+    "MARKET_REMOTE_INVALID": ("The read-only market supply speaks another protocol or serves another database, or its "
+                              "response or cache does not match the pinned request.",
+                              ("When the message names a protocol or database that differs (`missing`; `expected` is "
+                               "the supply's value), ask the user to update the market supply (the compose "
+                               "market-supply service) to this checkout, or pass a local market profile (no "
+                               "remote_url) with --market; changing the active profile needs the user's authority.",
+                               "Otherwise inspect the supply manifest and cache; no local or latest fallback is used.")),
     "MARKET_REMOTE_UNAVAILABLE": ("The read-only market supply transport or export did not complete.",
                                   ("Inspect the supply service and connection before retrying the same request.",)),
     # Connections and service (ledger/db.py)

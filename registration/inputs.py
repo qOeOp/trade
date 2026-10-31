@@ -4,7 +4,8 @@
 A replay's market inputs are exported AS OF one pinned market commit into an immutable directory,
 with a membership file holding only the exported instruments. Their identity is content, not
 location: the export content hash ignores where and when it was exported, and the exporter hash
-names the code that exported it (provenance only: input_key does not compare it). Registration and replay each export once and compare the same
+the market adapter reports names the code that exported it, wherever it ran (provenance only:
+input_key does not compare it). Registration and replay each export once and compare the same
 identity. Nothing here writes the ledger, drops an instrument, shortens a window or fills data.
 """
 
@@ -48,14 +49,8 @@ def _invalid(message: str, item: str) -> Refusal:
     return refuse("EXPORT_CONTENT_INVALID", message, missing=(item,))
 
 
-def exporter_sha256() -> str:
-    """market.export's exporter hash: the market modules an export runs and the dependency lock."""
-    from market import export
-    return export.exporter_sha256()
-
-
 def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
-    """{export_content_sha256, exporter_source_sha256} of the export root plus the membership file."""
+    """{export_content_sha256} of the export root plus the membership file."""
     root, membership = Path(inputs["root"]), Path(inputs["membership_file"])
     if root.is_symlink() or not root.is_dir():
         raise _invalid(f"the export root {root} is a link or not a directory", str(root))
@@ -79,7 +74,7 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
         total.update(len(encoded).to_bytes(8, "big"))
         total.update(encoded)
         total.update(hashlib.sha256(data).digest())
-    return {"export_content_sha256": total.hexdigest(), "exporter_source_sha256": exporter_sha256()}
+    return {"export_content_sha256": total.hexdigest()}
 
 
 def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: list[Path], op_id: str | None = None) -> dict:
@@ -217,7 +212,8 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
         inputs["membership_file"] = membership_file
         membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": membership}))
-        fingerprint = export_fingerprint(inputs, semantic=True)
+        fingerprint = {**export_fingerprint(inputs, semantic=True),
+                       "exporter_source_sha256": exported["exporter_source_sha256"]}
     except BaseException:
         cleanup(inputs)
         raise

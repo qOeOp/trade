@@ -1,6 +1,7 @@
 """Transport/cache acceptance against the unchanged input identity, without a client market DB."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
 import json
@@ -17,6 +18,17 @@ from registration import inputs, seams
 from tests.ledger.dolt import MARKET_COMMIT
 from tests.registration.world import FakeMarket, LINE_WINDOW, months_rows
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
+
+
+@contextmanager
+def supply_exporter(value: str):
+    """Another exporter on the supply only: its request threads see `value`, the client (main thread) its own."""
+    from market import export
+    real = export.exporter_sha256
+    def seen():
+        return real() if threading.current_thread() is threading.main_thread() else value
+    with patch("market.remote.exporter_sha256", side_effect=seen), patch("market.export.exporter_sha256", side_effect=seen):
+        yield
 
 
 class RemoteTests(unittest.TestCase):
@@ -119,13 +131,14 @@ class RemoteTests(unittest.TestCase):
             self.exported()
             self.exported(include_trades=True)
         self.assertEqual([call.kwargs["include_trades"] for call in export.call_args_list], [False, True])
-        request = {"protocol": remote.PROTOCOL, "database": "market", "exporter": remote.exporter_sha256(),
+        request = {"protocol": remote.PROTOCOL, "database": "market",
                    "method": "export_catalogs", "args": {"commit": MARKET_COMMIT, "symbols": ["AAAUSDT"],
                                                          "start_ns": LINE_WINDOW["start"], "end_ns": LINE_WINDOW["end"],
                                                          "episodes": None, "lifecycle_files": {}, "fresh": False,
                                                          "include_quotes": False, "include_trades": 1}}
-        with self.assertRaises(Refusal):
+        with self.assertRaises(Refusal) as caught:
             self.supply.call(request)
+        self.assertIn("export mode", caught.exception.message)
 
     def test_interrupted_transfer_keeps_only_an_unaccepted_prefix_then_resumes(self):
         data = b"x" * (remote.BLOCK*2 + 57)
@@ -158,14 +171,68 @@ class RemoteTests(unittest.TestCase):
                              ("export_catalogs", {"path": "/etc/passwd"})]:
             with self.subTest(method=method), self.assertRaises(Refusal):
                 self.client._rpc(method, **args)
+
+    def test_another_protocol_or_database_is_refused_naming_the_field_both_values_and_the_exits(self):
         other = remote.RemoteMarket({**self.profile, "database": "other"})
-        with self.assertRaises(Refusal):
-            other.resolve_commit(MARKET_COMMIT)
-        with patch("market.remote.exporter_sha256", return_value="x" * 64):
-            request = {"protocol": remote.PROTOCOL, "database": "market", "exporter": "y" * 64,
-                       "method": "resolve_commit", "args": {"at": MARKET_COMMIT}}
-            with self.assertRaises(Refusal):
-                self.supply.call(request)
+        with self.assertRaises(Refusal) as database:
+            other.resolve_commit(MARKET_COMMIT)  # refused by the supply, carried over HTTP
+        older = {"protocol": "market-supply-v1", "database": "market", "exporter": "y" * 64,
+                 "method": "resolve_commit", "args": {"at": MARKET_COMMIT}}
+        with self.assertRaises(Refusal) as protocol:
+            self.supply.call(older)
+        for refusal, field, sent, served in ((database.exception, "database", "other", "market"),
+                                             (protocol.exception, "protocol", "market-supply-v1", remote.PROTOCOL)):
+            with self.subTest(field=field):
+                self.assertEqual((refusal.code, refusal.missing, refusal.expected),
+                                 ("MARKET_REMOTE_INVALID", (field,), served))
+                self.assertIn(repr(sent), refusal.message)
+                self.assertIn(repr(served), refusal.message)
+                self.assertTrue(any("market-supply" in action and "--market" in action
+                                    for action in refusal.next_actions))
+
+    def test_a_supply_exporter_that_writes_the_same_bytes_serves_comparable_inputs(self):
+        """An exporter edit that leaves the exported bytes unchanged refuses nothing: the content
+        identity is the local one, and the supply's exporter hash is what the identity records."""
+        from registration import comparability
+        selection = {"symbols": ["AAAUSDT"]}
+        local = inputs.market_inputs(self.market, MARKET_COMMIT, LINE_WINDOW, selection, None, True)
+        self.addCleanup(inputs.cleanup, local)
+        with supply_exporter("5" * 64):
+            served = inputs.market_inputs(self.profile, MARKET_COMMIT, LINE_WINDOW, selection, None, True)
+        self.addCleanup(inputs.cleanup, served)
+        self.assertEqual(served["identity"]["exporter_source_sha256"], "5" * 64)
+        self.assertNotEqual(local["identity"]["exporter_source_sha256"], "5" * 64)
+        self.assertEqual(served["identity"]["export_content_sha256"], local["identity"]["export_content_sha256"])
+        self.assertEqual(comparability.input_key(served["identity"]), comparability.input_key(local["identity"]))
+
+    def test_a_supply_exporter_that_writes_other_bytes_gives_another_input_identity(self):
+        from registration import comparability
+        selection = {"symbols": ["AAAUSDT"]}
+        local = inputs.market_inputs(self.market, MARKET_COMMIT, LINE_WINDOW, selection, None, True)
+        self.addCleanup(inputs.cleanup, local)
+        real = self.market.export_catalogs
+        def changed(*args, **kwargs):
+            done = real(*args, **kwargs)
+            (Path(done["root"]) / "AAAUSDT/bars.parquet").write_bytes(b"another exporter's bytes")
+            return done
+        with supply_exporter("6" * 64), patch.object(self.market, "export_catalogs", side_effect=changed):
+            served = inputs.market_inputs(self.profile, MARKET_COMMIT, LINE_WINDOW, selection, None, True)
+        self.addCleanup(inputs.cleanup, served)
+        self.assertNotEqual(served["identity"]["export_content_sha256"], local["identity"]["export_content_sha256"])
+        self.assertNotEqual(comparability.input_key(served["identity"]), comparability.input_key(local["identity"]))
+
+    def test_a_cached_export_is_reused_only_from_the_supplys_current_exporter(self):
+        self.exported()
+        before = self.market.exports
+        with patch.object(self.client, "_rpc", side_effect=AssertionError("same exporter: served from the cache")):
+            self.exported()
+        with supply_exporter("7" * 64):
+            client = remote.RemoteMarket(self.profile)
+            result = client.export_catalogs(MARKET_COMMIT, ["AAAUSDT"], LINE_WINDOW["start"], LINE_WINDOW["end"],
+                                            None, None, False, include_quotes=False)
+        self.addCleanup(shutil.rmtree, result["root"], True)
+        self.assertEqual(self.market.exports, before + 1)
+        self.assertEqual(result["exporter_source_sha256"], "7" * 64)
 
     def test_existing_market_errors_cross_the_transport_without_changing_the_cli_refusal_mapping(self):
         from market.sources import MarketError
