@@ -58,9 +58,10 @@ jobs:
           # A -W option turns off unittest's own "default" filter, so restore it to keep DeprecationWarning visible.
           PYTHONWARNINGS: default,always::ResourceWarning
           PYTHONTRACEMALLOC: "1"
+        # Each module runs in its own process, several at once: run serially the step took 13-15 minutes.
         run: |
           set -o pipefail
-          uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py' --durations 25 2>&1 | tee "$RUNNER_TEMP/tests.log"
+          uv run --frozen python .github/scripts/run-tests.py 2>&1 | tee "$RUNNER_TEMP/tests.log"
           if grep -n -A3 ResourceWarning "$RUNNER_TEMP/tests.log"; then
             echo "::error::the tests left a ResourceWarning (see above)"
             exit 1
