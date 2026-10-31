@@ -82,7 +82,7 @@ def _comparison(profile, bundle: str, trial_id: int, at: str) -> tuple[dict | No
     interval = evidence.get("mean_log_basic_interval") or [None, None]
     crosses = None if None in interval else interval[0] <= 0 <= interval[1]
     return ({"vs_trial": found.get("control_trial_id"), "mean_daily_log_difference": evidence.get("mean_daily_log_difference"),
-             "detectable": evidence.get("detectable_mean_log_difference_80pct_normal_approx"),
+             "detectable": evidence.get("detectable_annual_return_difference_80pct_normal_approx"),
              "interval_crosses_zero": crosses, "summary": None}, predictions)
 
 

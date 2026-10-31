@@ -225,7 +225,7 @@ Every registration attempt with its run and the run's availability now; LEDGER_C
 |---|---|
 | <Ref id="report.compare">compare</Ref> | 对比报告的唯一入口：读时按度量目录现算，一次给出可比资格、配对检验、两侧指标与差、交易配对、预测对照与交互效应；不存 |
 | <Ref id="report.holm">holm</Ref> | 同一样本外窗口登记族（窗口起止与 universe_rule 相同）的 Holm 逐步校正 p：m 为登记族大小，排序后取 p_(k)·(m−k+1) 的逐步最大值并截到 1，按原顺序返回；族成员由调用方从账本登记行取得，没有 p 的成员计入 m 并视作大于全部已观测 p |
-| <Ref id="report.paired">paired</Ref> | 配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨效应与固定局限句；不返回任何裁决字段 |
+| <Ref id="report.paired">paired</Ref> | 配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨的年化差与固定局限句；不返回任何裁决字段 |
 | <Ref id="registration_id">registration_id</Ref> | 样本外报告：从绑定的封存运行读与开发报告同口径的绩效指标并经同一经济证据资格视图遮蔽；单序列区间与 p；同窗口登记族的 Holm 校正；列出登记内容、凭证时间、绑定试验与审计状态、同一候选的全部样本外登记；无裁决字段；资金使用率由 Agent 从封存敞口表自算，报告只给其读口位置 |
 | <Ref id="report.single">single</Ref> | 单序列循环块自助：对样本外窗口内账户日收益报日对数收益均值与年化夏普的基本区间、嵌套学生化区间、半倍／一倍／两倍块长敏感性，以及均值不大于零的单侧 p；缺日或不足两个完整块即不可用；不返回裁决 |
 | <Ref id="report.validation_report">validation_report</Ref> | 样本外报告：读绑定运行的单运行报告与读时派生量，与开发报告同口径并经同一资格视图遮蔽；附最初登记的凭证身份、单序列区间与 p、同窗口登记族的 Holm 校正与登记清单；无裁决字段 |
@@ -316,7 +316,7 @@ def holm(p_values: Sequence[float], family_size: int | None = None) -> list[floa
 
 ### `paired` [#def-report-paired]
 
-配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨效应与固定局限句；不返回任何裁决字段
+配对循环块自助：取两侧账户日收益的对数差，按登记块长循环分块、两侧共用同一组块起点共同重抽；报效应（平均日对数差与由之换算的年化差）、基本区间与嵌套学生化区间、年化差百分位区间、单侧 p 与网格 Bonferroni p、半倍/一倍/两倍块长敏感性、差值集中度、80% 功效（未校准示例值）可分辨的年化差与固定局限句；不返回任何裁决字段
 
 ```python
 def paired(
@@ -330,7 +330,7 @@ def paired(
 
 <TypeTable type={{ "left": { type: "Sequence[float]", description: "对照侧交易窗口账户日简单收益，按 UTC 日历日排列" }, "right": { type: "Sequence[float]", description: "候选侧账户日简单收益，与 left 日钟逐日对应、等长" }, "design": { type: "dict", description: "登记锁定的检验条件：method（paired-circular-log-mean-v1）、block_days、resamples、inner_resamples、seed、alpha、minimum_effect（年化收益比例，仅描述）、design_reason；数值为未校准示例值" }, "grid_points": { type: "int", description: "本次登记网格点数（≥1），用于 Bonferroni 校正与区间覆盖调整" }, "weights": { type: "Sequence[float] | None", description: "可选：多条日序列的对比权重；给出时 left、right 换成对齐的序列列表，检验对象是加权和（交互效应用 +1, −1, −1, +1）" } }} />
 
-**返回**　dict：\{method, days, mean_daily_log_difference, mean_log_basic_interval, mean_log_studentized_interval | None, annual_return_difference, annual_return_difference_interval, interval_coverage_grid_adjusted, p_one_sided | None, p_bonferroni | None, predeclared_alpha, predeclared_minimum_effect, detectable_mean_log_difference_80pct_normal_approx, top_five_absolute_difference_share, block_sensitivity[\{block_days, available, mean_log_interval?, p_one_sided?\}], degenerate_nested_samples, design, limitations[]\}；无任何裁决、采纳或排序字段
+**返回**　dict：\{method, days, mean_daily_log_difference, mean_log_basic_interval, mean_log_studentized_interval | None, annual_return_difference, annual_return_difference_interval, interval_coverage_grid_adjusted, p_one_sided | None, p_bonferroni | None, predeclared_alpha, predeclared_minimum_effect, detectable_annual_return_difference_80pct_normal_approx | None, top_five_absolute_difference_share, block_sensitivity[\{block_days, available, mean_log_interval?, p_one_sided?\}], degenerate_nested_samples, design, limitations[]\}；无任何裁决、采纳或排序字段
 
 **期望行为**
 
@@ -338,9 +338,9 @@ def paired(
 2. 两侧取 log(1+r)，差为候选减对照，观测效应为差的均值；年化差 = exp(365·候选平均日对数收益) − exp(365·对照平均日对数收益)。以 seed 建随机源，按 block_days 与 resamples 生成循环块起点索引矩阵，两侧共用。
 3. 外层：按同一索引重抽两侧得均值差分布与标准误 se，减观测效应得中心化分布；单侧 p =（中心化值 ≥ 观测效应的次数 + 1）/（resamples + 1）；α′ = alpha/grid_points 下给基本区间、年化差百分位区间与 interval_coverage_grid_adjusted = 1 − α′；p_bonferroni = min(1, p·grid_points)。
 4. 嵌套：每个外层重抽内以 inner_resamples 次内层块自助估标准误并算学生化统计量，由其分位数乘 se 给学生化区间；se 退化时 p、p_bonferroni 与学生化区间留空，任一内层退化时学生化区间留空并计入 degenerate_nested_samples，均写入 limitations，不以其他区间替代。
-5. 稳健性：对 max(1, ⌊block_days/2⌋)、block_days、2×block_days 各以 seed 重建随机源重做外层重抽，报基本区间与单侧 p，天数不足两块的档标 available=false；报绝对日对数差最大五日占总和比例；报 se·(z_\{1−α′\}+z_\{0.8\})。
+5. 稳健性：对 max(1, ⌊block_days/2⌋)、block_days、2×block_days 各以 seed 重建随机源重做外层重抽，报基本区间与单侧 p，天数不足两块的档标 available=false；报绝对日对数差最大五日占总和比例；报功效读数：可分辨的平均日对数差 d = se·(z_\{1−α′\}+z_\{0.8\}) 换算成相对对照的年化差 exp(365·对照平均日对数收益 + 365·d) − exp(365·对照平均日对数收益)，与 minimum_effect 同单位，不当任何门槛。
 6. 附 predeclared_alpha、predeclared_minimum_effect、完整 design 与固定局限句（Bonferroni 只覆盖本网格；p 是零模型尾概率，不是策略有效的概率；自适应搜索后的开发窗口比较不是独立验证；块自助假定日差近似平稳弱相关；年化差区间不检验最小改进）后返回；不写账本。
-7. 给出 weights 时，对各序列取日对数收益后按权重加总成一条序列，用同一组块起点重抽；效应、区间与功效按这条序列算。
+7. 给出 weights 时，对各序列取日对数收益后按权重加总成一条序列，用同一组块起点重抽；效应与区间按这条序列算，年化差、年化差区间与功效读数留空。
 
 | 拒绝码 | 条件 |
 |---|---|

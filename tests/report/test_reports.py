@@ -357,7 +357,10 @@ class ReportTests(unittest.TestCase):
 
     def test_the_research_graph_is_the_same_from_one_process_or_several(self):
         one = graph.research_graph(self.profile, workers=1)
-        self.assertGreater(sum(c["comparison"] is not None for c in one["candidates"]), 0, "a comparison is drawn")
+        drawn = [c["comparison"] for c in one["candidates"] if c["comparison"] is not None]
+        self.assertGreater(len(drawn), 0, "a comparison is drawn")
+        self.assertTrue(all(isinstance(item["detectable"], float) and item["detectable"] >= 0 for item in drawn),
+                        "the graph shows the comparison's annual power reading")
         self.assertEqual(json.dumps(graph.research_graph(self.profile, workers=4)), json.dumps(one))
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
