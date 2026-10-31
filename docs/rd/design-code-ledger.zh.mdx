@@ -2183,7 +2183,7 @@ def publish(profile: LedgerProfile, branch: str, lock: str | None = None) -> dic
 
 <TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本或市场库的档案；以服务管理员连接" }, "branch": { type: "str", description: "要推送的分支：研究账本的固定研究分支，市场库的 main" }, "lock": { type: "str | None = None", description: "市场库的导入锁 market-import:<库名>；给出时推送期间持锁，没有导入能落地" } }} />
 
-**返回**　dict：\{database, remote, branch, head, previous_head, tags\}；head 是抓取核对后 origin 的头（等于推送前读到的本地头，或是它的后代），previous_head 是推送前 origin 的跟踪头（第一次发布为 null），tags 是推送的标签数
+**返回**　dict：\{database, remote, branch, head, previous_head, tags, seconds\}；head 是抓取核对后 origin 的头（等于推送前读到的本地头，或是它的后代），previous_head 是推送前 origin 的跟踪头（第一次发布为 null），tags 是推送的标签数，seconds 是各段耗时（秒）：lock 等发布锁、push 推分支、fetch 抓取核对、tags 推标签
 
 **期望行为**
 
