@@ -33,14 +33,16 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
     }]);
     return { nodes, tree: lineageTree(widget), positions: place(widget) };
   }, [widget]);
-  // Edges are recessive; those on the selected version's lineage are drawn on top and stand out.
+  // Edges are recessive; those on the selected version's lineage are drawn on top and stand out. A fix
+  // published as a new root hangs dashed from the earlier revision of its strategy ID.
   const selected = useSelection();
   const edges = useMemo(() => {
     const path = new Set(selected ? [...ancestors(tree, selected), selected] : []);
-    return widget.edges.map((e): Edge => {
-      const on = path.has(e.to) || e.from === selected;
-      return { id: `${e.from}->${e.to}`, source: e.from, target: e.to, type: "elbow", focusable: false, className: on ? "on-path" : undefined, zIndex: on ? 1 : 0 };
-    });
+    const edge = (e: { from: string; to: string }, on: boolean, revision = false): Edge => ({
+      id: `${e.from}${revision ? "~>" : "->"}${e.to}`, source: e.from, target: e.to, type: "elbow", focusable: false,
+      className: [revision && "revision", on && "on-path"].filter(Boolean).join(" ") || undefined, zIndex: on ? 1 : 0 });
+    return [...widget.edges.map((e) => edge(e, path.has(e.to) || e.from === selected)),
+            ...widget.revisions.map((e) => edge(e, e.to === selected || e.from === selected, true))];
   }, [widget, tree, selected]);
   // Panning stops at the content's edges; content smaller than the canvas stays at its top-left corner.
   const [box, size] = useSize();

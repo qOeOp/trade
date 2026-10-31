@@ -59,6 +59,8 @@ body {
 .react-flow__edge-path { stroke: var(--edge); stroke-width: 1.1; }
 /* The selected version's lineage (root to it, and on to its children) stands out of the recessive rest. */
 .react-flow__edge.on-path .react-flow__edge-path { stroke: var(--edge-path); stroke-width: 1.25; }
+/* A fix published as a new root, hung from the earlier revision of its strategy ID. */
+.react-flow__edge.revision .react-flow__edge-path { stroke-dasharray: 4 3; }
 .react-flow__node { transition: opacity var(--t-fast) var(--ease); }
 /* Over the canvas's background the crosshair's reticle is the pointer (widgets/lineage/Crosshair.tsx). */
 [data-crosshair] .react-flow__pane { cursor: none; }
