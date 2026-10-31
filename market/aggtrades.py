@@ -1,8 +1,9 @@
 """Complete source aggTrades: bounded ZIP/CSV ingestion, exact independent scale-8 codec.
 
 This append-only input path does not participate in bar/quote reads or derivation; a replay exports the
-stored rows as trade ticks only on request (market.export.write_trades). One explicit contract month uses
-the existing restricted import connection, lock and commit tests.
+stored rows as trade ticks only on request (market.export.write_trades). Each contract month is one
+transaction and commit on the existing restricted import account, under the import lock and commit tests;
+the contracts of one call are written at once.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import io
 import json
 from pathlib import Path
 import re
+import threading
 import time
 import urllib.parse
 import zipfile
@@ -196,19 +198,63 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
         yield rows
 
 
-def import_month(profile: dict, month: date, cache: Path, symbol: str, log=print) -> dict:
-    """One contract month, one transaction/commit. No raw-SQL administrator write path."""
+def import_month(profile: dict, month: date, cache: Path, symbols: list[str], log=print) -> dict:
+    """One month of each contract in `symbols`, each its own transaction and commit. No raw-SQL
+    administrator write path.
+
+    The contracts are written at once, one import connection each, while one more connection holds the
+    import lock for the whole call. One writer spends most of its time waiting on each batch's round trip,
+    and Dolt serves writers of different contracts in parallel (measured on 2.4.2: three writers, about
+    three times the rows per second of one). The writer threads are daemons: if the process dies, every
+    connection drops and nothing uncommitted lands. A contract's refusal leaves the other contracts'
+    commits in place. The refusal raised is that of the first refused contract, and its message names
+    the commits made by the others."""
     started = time.monotonic()
-    store._scope([symbol])
+    symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is IMPORT_SCOPE
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     start = series._day_ms(month)
     end = min(series._day_ms(universe.next_month(month)), series._day_ms(datetime.now(UTC).date()))
     if start >= end:
         raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+    holder = store.connect(profile, "import")
+    try:
+        store.lock(holder)
+        done: dict[str, dict] = {}
+        failed: dict[str, BaseException] = {}
+
+        def write(symbol: str) -> None:
+            try:
+                done[symbol] = _import_one(profile, month, start, end, cache, symbol, log)
+            except BaseException as exc:  # noqa: BLE001 - reported by the calling thread
+                failed[symbol] = exc
+
+        writers = [threading.Thread(target=write, args=(symbol,), name=f"import-trades {symbol}", daemon=True)
+                   for symbol in symbols]
+        for writer in writers:
+            writer.start()
+        for writer in writers:
+            writer.join()
+    finally:
+        holder.close()  # also releases the import lock
+    if failed:
+        symbol = next(name for name in symbols if name in failed)
+        exc = failed[symbol]
+        committed = ", ".join(f"{name} {done[name]['market_commit']}" for name in symbols if name in done)
+        if committed and isinstance(exc, MarketError):
+            raise MarketError(f"{symbol}: {exc.message}; committed meanwhile: {committed}", code=exc.code,
+                              missing=exc.missing) from exc
+        raise exc
+    imports = [done[symbol] for symbol in symbols]
+    return {"month": f"{month:%Y-%m}", "imports": imports, "trade_rows": sum(item["trade_rows"] for item in imports),
+            "seconds": round(time.monotonic() - started, 1)}
+
+
+def _import_one(profile: dict, month: date, start: int, end: int, cache: Path, symbol: str, log) -> dict:
+    """One contract month on its own import connection: one transaction, one commit."""
+    started = time.monotonic()
     conn = store.connect(profile, "import")
     try:
-        store.lock(conn)
         result = _import(conn, month, start, end, cache, symbol, log)
         return {**result, "seconds": round(time.monotonic() - started, 1)}
     except BaseException:

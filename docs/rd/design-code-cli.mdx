@@ -45,7 +45,7 @@
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
-| <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个合约月的完整源 aggTrades 导入成一个市场提交，只写 agg_trade；K 线、报价与回放导出不变 |
+| <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
 | <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade（管理员）：补建市场库缺的表，一次提交；已有表、行、账号与授权不变 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
@@ -1077,29 +1077,29 @@ def market_import(
 
 ### `market_import_trades` [#def-cli-market_import_trades]
 
-命令行入口 market import-trades：把一个合约月的完整源 aggTrades 导入成一个市场提交，只写 agg_trade；K 线、报价与回放导出不变
+命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变
 
 ```python
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L848)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L874)
 
-<TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "month": { type: "str (YYYY-MM)", description: "UTC 月份；须至少含一个已结束的 UTC 日；更早的月份可以任意顺序导入" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "symbols": { type: "list[str]", description: "恰好一个 USD-M 永续合约" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "month": { type: "str (YYYY-MM)", description: "UTC 月份；须至少含一个已结束的 UTC 日；更早的月份可以任意顺序导入" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "symbols": { type: "list[str]", description: "一个或几个 USD-M 永续合约，同时写入" } }} />
 
-**返回**　JSON：\{month, through, symbols, codec, trade_rows, archives, readings, market_commit, seconds\}，自动发布跑了时加 publish_seconds；codec 为 binance-aggtrades-int64-scale8-v1（价格与数量精确 ×1e8）；archives 是逐日归档的 SHA-256，readings 是逐日行数、首末 ID 与时刻、最大时间缺口；逐日进度写 stderr
+**返回**　JSON：\{month, imports, trade_rows, seconds\}，自动发布跑了时加 publish_seconds；imports 按合约顺序，每项为 \{month, through, symbols, codec, trade_rows, archives, readings, market_commit, seconds\}，trade_rows 为各合约之和；codec 为 binance-aggtrades-int64-scale8-v1（价格与数量精确 ×1e8）；archives 是逐日归档的 SHA-256，readings 是逐日行数、首末 ID 与时刻、最大时间缺口；逐日进度写 stderr
 
 **期望行为**
 
-1. 解析参数：month 不是 YYYY-MM 即 MONTH_INVALID；symbols 不是恰好一个即 IMPORT_SCOPE；其余交给 market.aggtrades.import_month，拒绝码原样输出。
-2. 以受限导入账号持市场导入锁，读显式命名的这个合约月与它已有的完整成交；官方逐日 aggTrades ZIP 与月前一日按校验和核过后放在 --cache-root，分块下载解析。
-3. 把源文件的全部八个字段写进 agg_trade，一个合约月一个事务一个提交；不动 K 线、报价与回放导出。
-4. 导入成功后经 cli.publish_after 发布市场库；发布失败只报 publish_failed，导入照旧。
+1. 解析参数：month 不是 YYYY-MM 即 MONTH_INVALID；symbols 重复或格式不对即 IMPORT_SCOPE；其余交给 market.aggtrades.import_month，拒绝码原样输出。
+2. 以受限导入账号持市场导入锁，每个合约另开一个导入连接同时写入；读显式命名的合约月与它们已有的完整成交；官方逐日 aggTrades ZIP 与月前一日按校验和核过后放在 --cache-root，分块下载解析。
+3. 把源文件的全部八个字段写进 agg_trade，一个合约月一个事务一个提交；不动 K 线、报价与回放导出。一个合约被拒不撤销其他合约的提交，输出第一个被拒合约的拒绝码，消息列出其他合约的提交。
+4. 全部合约导入成功后经 cli.publish_after 发布一次市场库；发布失败只报 publish_failed，导入照旧。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
-| `IMPORT_SCOPE` | --symbols 不是恰好一个合约 |
+| `IMPORT_SCOPE` | --symbols 重复合约或合约代码格式不对 |
 | `SCHEMA_MISMATCH` | 市场库缺表，先跑 market upgrade |
 | `MARKET_EMPTY` | 市场库还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约月已有成交；不完整的月不能续补 |

@@ -18,7 +18,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
-| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one explicit contract month per transaction |
+| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one transaction per contract month, several contracts of a month written at once |
 
 ## The database
 
@@ -77,11 +77,15 @@ month (`SCALE_LOSS`), with no rounding or alternative encoding.
 
 ```bash
 uv run --frozen python -m cli.main market upgrade
-uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT
+uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
-The explicit single contract month holds the same `market-import` lock and uses the existing restricted
-import account, commit tests, automatic DoltHub publication and `market backup` path. It streams each
+Each named contract month is one transaction and one commit. The call holds the same `market-import` lock
+on one connection while the contracts are written at once, one import connection each: a single writer
+spends most of its time waiting on each batch's round trip, and Dolt serves writers of different contracts
+in parallel (three writers, about three times the rows per second of one, measured on 2.4.2). A refused
+contract leaves the others' commits in place, and the refusal names them. It uses the existing restricted
+import account, commit tests, one automatic DoltHub publication and the `market backup` path. It streams each
 checksum-verified daily ZIP/CSV with bounded download and INSERT buffers; daily row counts, first/last
 IDs and times, maximum time gap, archive SHA-256s and the codec identity live in the import commit.
 The eve is validated for source continuity and the same complete-field/codec checks, but is not inserted.
