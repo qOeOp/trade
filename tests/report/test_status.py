@@ -1,14 +1,17 @@
 """The trial counts of `research status` (user decision 2026-10-20): reproductions and trials the
 product stopped before the strategy ran are listed apart and left out of the multiple-testing
-counts; its comparison table, split by execution identity, and the recommendation that names every
-candidate of the line's identity in it. A throwaway ledger with the stand-in runtime; never the
-active ledger."""
+counts; the multiple-testing reading of a line (trials on its contracts over overlapping windows,
+their mean correlation and effective number); its comparison table, split by execution identity,
+and the recommendation that names every candidate of the line's identity in it. A throwaway ledger
+with the stand-in runtime; never the active ledger."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 import json
+import math
 from pathlib import Path
+import statistics
 import tempfile
 import unittest
 from unittest import mock
@@ -185,11 +188,53 @@ class TrialCountTests(unittest.TestCase):
         done = reproduce.reproduce(passed["trial_id"], world.output("again"), ledger=world.profile, market=world.market)
         after = status.research_status(world.profile)
         self.assertEqual(after["excluded_trials"]["reproductions"], [done["reproduction_trial_id"]])
-        self.assertEqual((after["trials"], after["distinct_sources"], after["by_development_window"]),
-                         (before["trials"], before["distinct_sources"], before["by_development_window"]))
-        window = after["by_development_window"]
-        self.assertEqual(sum(item["trials"] for item in window), after["trials"])
+        self.assertEqual((after["trials"], after["multiple_testing"]), (before["trials"], before["multiple_testing"]))
+        self.assertEqual(after["multiple_testing"]["research_trials"], 1, "only the trial whose strategy ran")
         self.assertEqual(after["invalid_research_runs"], 1, "the attempt itself still counts as invalid")
+
+
+def trial(start: str, end: str, instruments=("BTCUSDT",), purpose="research") -> dict:
+    return {"trade_start": datetime.fromisoformat(start), "trade_end": datetime.fromisoformat(end),
+            "instruments": json.dumps(list(instruments)), "purpose": purpose}
+
+
+class MultipleTestingTests(unittest.TestCase):
+    """The pure parts of the multiple-testing reading (findings 20261025-10 and 20261025-35)."""
+
+    WINDOW = (datetime(2025, 10, 1), datetime(2026, 10, 1))
+
+    def test_a_trial_counts_when_it_traded_a_line_contract_in_an_overlapping_window(self):
+        cases = [(trial("2025-10-01", "2026-10-01"), True, "the same window"),
+                 (trial("2025-01-01", "2026-10-01"), True, "a longer window holding it"),
+                 (trial("2025-10-01", "2025-10-03", purpose="precheck"), True, "a short window inside it"),
+                 (trial("2022-10-01", "2025-10-02"), True, "one shared day"),
+                 (trial("2022-10-01", "2025-10-01"), False, "ends where the window starts"),
+                 (trial("2026-10-01", "2026-11-01"), False, "starts where the window ends"),
+                 (trial("2025-10-01", "2026-10-01", ("ETHUSDT",)), False, "another contract"),
+                 (trial("2025-10-01", "2026-10-01", ("ETHUSDT", "BTCUSDT")), True, "a basket holding the contract")]
+        for item, expected, note in cases:
+            with self.subTest(note):
+                self.assertEqual(status.overlapping_trials([item], {"BTCUSDT"}, *self.WINDOW) == [item], expected)
+
+    def test_the_mean_correlation_and_effective_trials_match_a_hand_computed_matrix(self):
+        # On days 1-4, corr(x, y) = 4/5, corr(x, z) = 3/5 and corr(y, z) = 0, so the mean is 7/15 and ten
+        # trials are worth 7/15 + 8/15 * 10 = 5.8 independent ones. y's day 5 is not x's or z's and
+        # changes none of them; w shares one day with each, so its pairs are left out.
+        x = {1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}
+        y = {1: 1.0, 2: 3.0, 3: 2.0, 4: 4.0, 5: 40.0}
+        z = {1: 2.0, 2: 1.0, 3: 4.0, 4: 3.0}
+        w = {1: 5.0, 9: 1.0}
+        found = status.mean_correlation([x, y, z, w])
+        self.assertAlmostEqual(found, 7 / 15)
+        self.assertAlmostEqual(status.effective_trials(found, 10), 5.8)
+        self.assertIsNone(status.mean_correlation([x, w]), "no pair with two common days")
+        self.assertIsNone(status.mean_correlation([x, {1: 0.0, 2: 0.0, 3: 0.0}]), "a constant side has no correlation")
+
+    def test_effective_trials_stay_between_one_and_the_trial_count(self):
+        self.assertEqual(status.effective_trials(1.0, 30), 1.0, "perfectly correlated trials are one")
+        self.assertEqual(status.effective_trials(0.0, 30), 30.0)
+        self.assertEqual(status.effective_trials(-0.2, 30), 30.0, "a negative mean counts as independent")
+        self.assertIsNone(status.effective_trials(None, 30))
 
 
 def measured(annual, drawdown, sharpe, win) -> dict:
@@ -222,6 +267,27 @@ class ComparisonTableTests(unittest.TestCase):
                                       hypothesis="registration-pair")
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.runs[ref]["trial_id"]}])
         world.scenario = {}
+
+    def test_the_multiple_testing_reading_takes_its_correlation_and_variance_from_the_line_runs(self):
+        counts = status.research_status(self.world.profile)
+        found, table = counts["multiple_testing"], counts["comparison"]
+        ids = [self.runs[ref]["trial_id"] for ref in self.refs]
+        with db.read_as_of(self.world.profile) as conn:
+            rows = conn.rows("SELECT trial_id, trade_start, instruments FROM trial WHERE trial_id IN (%s, %s) "
+                             "ORDER BY trial_id", tuple(ids))
+            series = [{int(ts): float(value) for ts, value in conn.rows(
+                "SELECT ts_event_ns, native_return FROM run_return WHERE trial_id = %s AND ts_event_ns >= %s",
+                (trial_id, status._utc_ns(start)))} for trial_id, start, _ in rows]
+        instruments = sorted({name for *_, value in rows for name in json.loads(value)})
+        self.assertEqual((found["line"], found["instruments"], found["research_trials"], found["runs_with_returns"]),
+                         (self.world.line["bundle"], instruments, 2, 2))
+        self.assertGreaterEqual(found["all_purpose_trials"], found["research_trials"])
+        self.assertAlmostEqual(found["mean_correlation"], statistics.correlation(*(
+            [days[day] for day in sorted(days)] for days in series)))
+        self.assertAlmostEqual(found["effective_trials"], status.effective_trials(found["mean_correlation"], 2))
+        sharpes = [item["measures"]["sharpe_365@1"]["value"] / math.sqrt(365) for item in table["runs"]]
+        self.assertAlmostEqual(found["daily_sharpe_variance"], statistics.variance(sharpes),
+                               msg="the report's Sharpe ratios, per day")
 
     def test_the_table_lists_every_available_run_with_its_report_measures_and_dominance(self):
         table = status.research_status(self.world.profile)["comparison"]

@@ -1195,7 +1195,7 @@ The facts derive_measures reads, built from a directory's native reports (no led
 | <Ref id="report.comparison_table">comparison_table</Ref> | 研究路线的对照表：交易段等于该路线开发窗口、范围规则等于该路线的、通过且有经济证据资格的研究运行（旧版本和别的路线上的也在内），每个附单运行报告里的四项度量，并标出它是否被表里别的运行全面压过；不打分、不排序、不入账 |
 | <Ref id="report.research_state">research_state</Ref> | 研究状态视图：当前判断加读时事实，以及尚未复盘的试验；不存储、不落后 |
 | research_graph | 研究图读口：一条研究线的 research-graph@3 文档，只读账本，同一提交给出同一份 |
-| <Ref id="report.research_status">research_status</Ref> | 研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表；无停止标志、目标与分数字段 |
+| <Ref id="report.research_status">research_status</Ref> | 研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表与多重检验读数；无停止标志、目标与分数字段 |
 
 ### `compared_candidates` [#def-report-compared_candidates]
 
@@ -1291,7 +1291,7 @@ def research_state(
 
 <TypeTable type={{ "conn": { type: "Connection", description: "只读连接" }, "line_bundle": { type: "str", description: "研究路线证据包；缺省经 ledger.open_lines 取该提交上唯一开着的路线" }, "at": { type: "str | None", description: "账本提交或标签，缺省当前头" }, "history": { type: "bool", description: "关键字参数：是否附上被取代的历史判断" }, "history_before": { type: "int | None", description: "关键字参数：只附该判断编号之前的历史，给出即视为要历史" }, "full": { type: "bool", description: "给出全部未被取代的结果解释与搜索暴露及 facts；缺省 False 只给当前推荐之后的" } }} />
 
-**返回**　dict：ledger_commit、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit；这里的 ledger_commit 是读取所用的提交，同顶层 ledger_commit，不是该线写入时的提交）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、open_lines（该提交上开着的路线及其窗口和市场提交，经 ledger.open_lines 读出：[\{line, window_start, window_end, market_commit\}]；只输出，不存储）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、execution_identity（路线的执行身份，见下第 5 条；没有路线时为 null）、unreviewed_trials、trials_on_line（计数：本路线的全部研究试验，经 ledger.line_trials 按登记所属路线认定；同一市场提交与窗口上已关闭的前任路线的试验不计入。跨路线的多重检验计数由 research_status 的 trials、distinct_sources 与 by_development_window 给出）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、judgment_history\{total, superseded, entries, next_before\}（默认只给总数与被替代数，entries 为空；见下文 --history）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；没有给 line_bundle 而账本没有开着的研究路线时 line 为 null，targets 为账本默认值或 null，open_lines 与判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与 next_actions（只有 line select）；没有给 line_bundle 而开着多条时 line 为 null、判断为空，gates 列出 LINE_AMBIGUOUS，open_lines 列出各条。research_state 不列 unverified_runs，读回不可用的运行由 research_status 列出
+**返回**　dict：ledger_commit、line（整条路线记录，经 ledger.read_line 读出：bundle、market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note、created_at、ledger_commit；这里的 ledger_commit 是读取所用的提交，同顶层 ledger_commit，不是该线写入时的提交）、targets（这条路线生效的用户研究目标，经 ledger.targets_for 读出：\{max_drawdown, annual_return, source, target_id, created_at\}，source 为 line 或 default；都没有时为 null）、open_lines（该提交上开着的路线及其窗口和市场提交，经 ledger.open_lines 读出：[\{line, window_start, window_end, market_commit\}]；只输出，不存储）、recommendation、priority、review_every（产品的固定复盘停点 REVIEW_EVERY）、interpretations、search_exposures、execution_identity（路线的执行身份，见下第 5 条；没有路线时为 null）、unreviewed_trials、trials_on_line（计数：本路线的全部研究试验，经 ledger.line_trials 按登记所属路线认定；同一市场提交与窗口上已关闭的前任路线的试验不计入。跨路线的多重检验读数由 research_status 的 multiple_testing 给出）、gates（下一次登记会被拒的项与当前运行环境跑不了的项，一个列表）、judgment_history\{total, superseded, entries, next_before\}（默认只给总数与被替代数，entries 为空；见下文 --history）、earlier\{interpretations, search_exposures\} | None（缺省视图里略去的更早条数）、facts\{candidates, counts\} | None（只在 full 时给出）；没有给 line_bundle 而账本没有开着的研究路线时 line 为 null，targets 为账本默认值或 null，open_lines 与判断为空，gates 列出 RESEARCH_LINE_REQUIRED，附 facts 与 next_actions（只有 line select）；没有给 line_bundle 而开着多条时 line 为 null、判断为空，gates 列出 LINE_AMBIGUOUS，open_lines 列出各条。research_state 不列 unverified_runs，读回不可用的运行由 research_status 列出
 
 **期望行为**
 
@@ -1357,7 +1357,7 @@ def research_graph(
 
 ### `research_status` [#def-report-research_status]
 
-研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表；无停止标志、目标与分数字段
+研究事实计数：试验、登记尝试、审计通过、经济可用、仅诊断、无效、未完成与样本外登记状态，另附一条路线的对照表与多重检验读数；无停止标志、目标与分数字段
 
 ```python
 def research_status(
@@ -1367,20 +1367,21 @@ def research_status(
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" }, "line_bundle": { type: "str | None", description: "对照表所属的研究路线；缺省取唯一开着的路线，没有开着的路线或开着多条时 comparison 为 null" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "账本档案（连接参数与只读账号）；经 ledger.read_as_of 打开" }, "at": { type: "str | None", description: "账本版本：提交、标签或 branch；为空取当前头。按 AS OF 读，历史计数可复读" }, "line_bundle": { type: "str | None", description: "对照表与多重检验读数所属的研究路线；缺省取唯一开着的路线，没有开着的路线或开着多条时 comparison 与 multiple_testing 为 null" } }} />
 
-**返回**　dict：\{ledger_commit, trials, distinct_sources, by_development_window: [\{trade_start, trade_end, trials, distinct_sources\}], excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, unverified_runs: [\{trial_id, reason\}], availability_checker, metrics_revision, comparison\}；comparison 是 report.comparison_table 给出的对照表（没有路线可取或开着多条时为 null）。除对照表的四项度量与支配关系外，只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
+**返回**　dict：\{ledger_commit, trials, multiple_testing: \{line, window_start, window_end, instruments, research_trials, all_purpose_trials, runs_with_returns, mean_correlation, effective_trials, daily_sharpe_variance\} | None, excluded_trials: \{reproductions, stopped_before_strategy\}, research_attempts, audit_passed_research_runs, valid_research_runs, diagnostic_only_research_runs, invalid_research_runs, unfinished_research_attempts, validation: \{registered, bound, unbound, unwitnessed\}, unverified_runs: [\{trial_id, reason\}], availability_checker, metrics_revision, comparison\}；comparison 是 report.comparison_table 给出的对照表（没有路线可取或开着多条时为 null）；multiple_testing 见第 9 条。除对照表的四项度量与支配关系外，只有计数、版本与检查身份，没有停止标志、目标、分数、排序或资格标记
 
 **期望行为**
 
 1. 以 ledger.read_as_of(ledger, at) 打开只读连接并记下解析到的 ledger_commit；版本解析不到即拒绝。
-2. trials、distinct_sources 与 by_development_window 只数算作策略检验的试验，不数两类，二者逐个列在 excluded_trials：复现（explore 试验与之前某个有运行的试验源码、镜像摘要、合约集、预热起点、交易窗口与输入身份都相同，即 replay.reproduce 写的那种）；策略运行前就停下的试验（宿主上已完成、运行器非零退出、没有写出摘要，且记下的失败回执都属于策略交易之前的阶段）。两类都由试验行与执行封存的清单推出，不另存标记（用户 10-20 决定）。
+2. trials 与 multiple_testing 只数算作策略检验的试验，不数两类，二者逐个列在 excluded_trials：复现（explore 试验与之前某个有运行的试验源码、镜像摘要、合约集、预热起点、交易窗口与输入身份都相同，即 replay.reproduce 写的那种）；策略运行前就停下的试验（宿主上已完成、运行器非零退出、没有写出摘要，且记下的失败回执都属于策略交易之前的阶段）。两类都由试验行与执行封存的清单推出，不另存标记（用户 10-20 决定）。
 3. research_attempts = registration_attempt 行数（每个被消耗的网格点一行，无效与中断的尝试同样计）；registration_attempt 左连 trial 再左连 run：无 run 行计 unfinished_research_attempts；run.status='invalid' 计 invalid_research_runs；run.status='passed' 计 audit_passed_research_runs。
 4. 对每个 passed 运行调用 qualification.assess(conn, run ⨝ trial)：economic_evidence_available 为真计 valid_research_runs，否则计 diagnostic_only_research_runs；四类之和恒等于 research_attempts，不等即拒绝，不静默少算。
 5. 样本外：registered = validation_registration 行数；bound = validation_binding 行数；unbound = registered − bound；unwitnessed = 登记所在提交经 ledger.stamped_at 读不到凭证的登记数。
 6. 输出附 qualification.check_identity() 作 availability_checker、ledger.metrics_revision() 作 metrics_revision；不写任何行；绩效指标只在对照表里按四项比较支配关系。
 7. 某次尝试读回时报账本损坏或执行身份不符，只把它记为不可用（仅诊断）并列出原因，其余照常；research_status 另列 unverified_runs。
 8. comparison：路线取 line_bundle，缺省经 ledger.open_lines 取唯一开着的路线；没有给 line_bundle 而开着多条时 comparison 为 null，计数照常给全账本；在同一只读连接上经 report.comparison_table 算出，不存。
+9. multiple_testing：路线取法同第 8 条，读取时推出，不存。合约取本路线研究试验（ledger.line_trials）的合约集；算入第 2 条的计数试验中交易过其中任一合约、交易窗口与本路线开发窗口 [window_start, window_end) 有重叠的试验，不分市场提交与路线。research_trials 只数研究试验；all_purpose_trials 另加 precheck、explore 与 validation 试验，作折扣夏普试验数的上端。runs_with_returns 是其中经济证据可用（第 4 条）且交易窗口日收益不全相同的研究运行；mean_correlation 是它们两两在共同 UTC 日上的 Pearson 相关的平均（共同日少于两天或一侧不变的一对不计）；effective_trials = ρ + (1 − ρ)·research_trials（Bailey & López de Prado 2014 式 9，ρ 为 mean_correlation，负值按 0 计，所以不超过 research_trials），作下端；daily_sharpe_variance 是同一批运行日夏普的样本方差，试验数、相关与方差出自同一批运行。频率：账本存的都是 UTC 逐日收益，每个运行的日夏普取单次报告的 sharpe_365 除以 √365，用各自交易窗口的全部交易日算，单位都是「每日」，与窗口长短无关；窗口长短只经被检验运行自己的天数进入折扣夏普。路线还没有研究试验时为 null。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1388,7 +1389,7 @@ def research_status(
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `REFERENTIAL_GAP` | registration_attempt 或 run 引用的 trial 行不存在，或四类计数之和不等于 research_attempts；计数拒绝给出并列出缺口行 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="report.comparison_table" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="report.comparison_table" />、<Ref id="ledger.line_trials" />
 
 <div className="rd-meta">
 
@@ -1430,6 +1431,51 @@ def counted_trials(conn: db.LedgerConnection) -> dict
 The trials that count as tests of a strategy, and the ones that do not (user decision 2026-10-20): a reproduction (an explore trial replaying an earlier trial that has a run, with the same source, image digest, windows, instruments and inputs, as replay.reproduce writes) and a trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the stored trial rows and capture manifests; nothing is marked.
 
 [Source](https://github.com/qOeOp/trade/blob/main/report/status.py#L104)
+
+#### `overlapping_trials` [#impl-report-status-py-overlapping_trials]
+
+```python
+def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: datetime, end: datetime) -> list
+```
+
+The trials that traded one of `instruments` in a trading window overlapping [start, end): of every purpose, market commit and line, since each looked at the same contract and period.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L292)
+
+#### `mean_correlation` [#impl-report-status-py-mean_correlation]
+
+```python
+def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None
+```
+
+The mean Pearson correlation of every pair of daily return series, each pair over the days both hold; a pair with fewer than two common days, or constant on them, is left out. None without a pair.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L299)
+
+#### `effective_trials` [#impl-report-status-py-effective_trials]
+
+```python
+def effective_trials(correlation: float | None, trials: int) -> float | None
+```
+
+Bailey & López de Prado (2014, eq. 9)'s number of independent trials among `trials` correlated ones of mean correlation ρ: ρ + (1 − ρ)·trials. A negative mean is taken as zero (independent trials), so the number never exceeds `trials`. None without a correlation.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L313)
+
+#### `multiple_testing` [#impl-report-status-py-multiple_testing]
+
+```python
+def multiple_testing(
+    conn: db.LedgerConnection,
+    line_bundle: str,
+    counted: Iterable[Mapping],
+    available: set[int],
+) -> dict | None
+```
+
+The trials behind a line's runs and their correlation and Sharpe variance, read at the line (research_status's multiple_testing; see its item 9). Nothing is stored.
+
+[源码](https://github.com/qOeOp/trade/blob/main/report/status.py#L323)
 
 
 ## `report/profit.py` [#def-mod-report-profit-py]

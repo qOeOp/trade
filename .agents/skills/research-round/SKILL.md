@@ -108,10 +108,9 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
   masked measures. Additional statistics follow `nautilus-report-analysis`.
-- A recommendation or report on a window that overlaps another line's (open or closed) names those
-  lines and gives the ledger-wide `trials` and `distinct_sources` from `research status` as the
-  conservative upper bound of the trials behind it, since `by_development_window` counts only an
-  equal window.
+- A recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
+  `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
+  overlapping window), and names the other lines (open or closed) whose windows overlap.
 - Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
   instead of copying measures, counts or eligibility; working reports may display cited product
   values. To the user, name each object by its kind and product id (`trial 67`, `recommendation
