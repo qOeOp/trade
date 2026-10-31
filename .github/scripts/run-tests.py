@@ -12,6 +12,10 @@ import subprocess
 import sys
 import time
 
+# Modules that each take most of the step on their own start first, so none of them begins late and
+# finishes last; the "Slowest modules" table at the end of a run shows when this list needs changing.
+FIRST = ("tests.market.test_store", "tests.cli.test_commands")
+
 
 def modules(root: Path) -> list[str]:
     """Discovery's modules: test_*.py files in packages reachable from tests/ through __init__.py."""
@@ -34,7 +38,7 @@ def run(module: str) -> tuple[str, int, float, str]:
 
 
 def main() -> None:
-    names = modules(Path("tests"))
+    names = sorted(modules(Path("tests")), key=lambda name: FIRST.index(name) if name in FIRST else len(FIRST))
     if not names:
         raise SystemExit("no test modules found under tests/")
     workers = os.process_cpu_count() or 1
