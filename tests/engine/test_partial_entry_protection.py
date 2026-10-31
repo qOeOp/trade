@@ -118,7 +118,7 @@ def replay(output: Path, tiers=(("103.00", "16.339"),)) -> dict:
             orders=engine.generate_orders_report, fills=engine.generate_fills_report,
             positions=engine.generate_positions_report, account=lambda _: engine.generate_account_report(venue))
         window = parse_window(utc_text(start_ns), None, utc_text(start_ns + BARS * BAR_NS))
-        rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}}]
+        rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}, "catalog_path": output}]
         with contextlib.redirect_stdout(io.StringIO()):
             report.write_native_reports(output, finished, {"AAA": strategy}, rows,
                                         {"strategy_uses_stop_loss": True, "market_commit": "c" * 32},

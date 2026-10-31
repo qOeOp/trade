@@ -250,7 +250,9 @@ STAGE_FILES = {"audit": AUDIT_FILES, "fingerprint": FINGERPRINT_FILES}
 STAGES = ("native", "audit", "fingerprint")
 # Formal reports and reports of a clean, reproducible precheck stay a working copy. A precheck's
 # fingerprint is kept in its capture (it has no run row); formal fingerprints live in the run row.
-HASHED_OUTPUTS = (*(f"reports/{name}" for name in metrics.REPORT_FILES.values()), FINGERPRINT_RESULT)
+REPORT_OUTPUTS = tuple(f"reports/{name}" for name in (*metrics.REPORT_FILES.values(),
+                                                       *metrics.OPTIONAL_REPORT_FILES.values()))
+HASHED_OUTPUTS = (*REPORT_OUTPUTS, FINGERPRINT_RESULT)
 # The reports engine.audit_main needs before the auditor runs (engine.write_native_reports writes them).
 NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
                   "order_events.jsonl.gz")
@@ -320,7 +322,7 @@ def _capture_files(workdir: Path, purpose: str, facts: Mapping,
                  and isinstance(_json(_regular(workdir / FINGERPRINT_RESULT) or b""), dict)
                  and isinstance(audit, dict) and audit.get("passed") is True
                  and not (_regular(workdir / RUNTIME_ERRORS) or b"").strip())
-    hashed = HASHED_INPUTS + (tuple(f"reports/{name}" for name in metrics.REPORT_FILES.values()) if cacheable
+    hashed = HASHED_INPUTS + (REPORT_OUTPUTS if cacheable
                              else () if purpose == "precheck" else HASHED_OUTPUTS)
     reports = workdir / "reports"
     if purpose == "precheck" and reports.is_dir() and not reports.is_symlink():

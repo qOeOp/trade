@@ -108,6 +108,31 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual((sealed["plans_valid@1"]["passed"], sealed["limitations"]), (True, []))
         daily = metrics.daily_rows(native())
         self.assertEqual([mean for _, _, mean in daily], [Decimal(0), Decimal(1100), Decimal(600), Decimal(800)])
+        self.assertEqual(capital["participation@1"], {"value": None, "population": "fills"})  # an older image
+
+    def test_participation_divides_each_market_fill_by_its_minute_volume_and_counts_the_rest_apart(self):
+        reports = native()
+        reports.summary["execution"] = "bars"
+        reports.fill_volumes = [{"event_id": "E-1", "instrument_id": IID, "bar_ts_open_ns": "1", "bar_volume": "4"},
+                                {"event_id": "E-2", "instrument_id": IID, "bar_ts_open_ns": "2", "bar_volume": ""},
+                                {"event_id": "E-3", "instrument_id": IID, "bar_ts_open_ns": "3", "bar_volume": "0.5"}]
+        sealed = report(reports)
+        self.assertEqual(sealed["capital"]["participation@1"]["value"],
+                         {"execution": "bars", "fills": 2, "median": 0.25, "p95": 2.0, "p99": 2.0, "max": 2.0,
+                          "minute_max": 2.0, "no_bar": 1, "zero_volume": 0, "above_volume": 1, "engine_fills": 0})
+        self.assertEqual(sealed["limitations"], [])
+        fills = [{"client_order_id": order_id, "event_id": event, "last_qty": quantity}
+                 for order_id, event, quantity in (("O-1", "A", "1"), ("O-2", "B", "3"), ("O-3", "C", "2"),
+                                                   ("EXPIRATION-1", "D", "9"), ("LIQUIDATION-BINANCE-x", "E", "9"))]
+        volumes = [{"event_id": event, "instrument_id": IID, "bar_ts_open_ns": minute, "bar_volume": volume}
+                   for event, minute, volume in (("A", "1", "10"), ("B", "1", "10"), ("C", "2", "0"))]
+        found = metrics.participation(fills, volumes, {event: Decimal(1) for event in "ABC"}, "quotes")
+        self.assertEqual(found, {"execution": "quotes", "fills": 2, "median": 0.1, "p95": 0.3, "p99": 0.3, "max": 0.3,
+                                 "minute_max": 0.4, "no_bar": 0, "zero_volume": 1, "above_volume": 0,
+                                 "engine_fills": 2})
+        with self.assertRaises(metrics.Unreconciled) as caught:
+            metrics.participation(fills, volumes[:1], {event: Decimal(1) for event in "ABC"}, "bars")
+        self.assertEqual(caught.exception.code, "FILL_VOLUME_MISSING")
 
     def test_the_sealed_report_keeps_the_runners_limitations(self):
         listed = native()
