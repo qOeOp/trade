@@ -38,7 +38,8 @@ Convergence only when the task calls for overall product or session quality. Fai
 Attach mode keeps, read-only and from the other host, the evidence of a running research session
 that its transcript cannot show ([attach.md](references/attach.md)). It is never a full audit:
 when the session ends, the full audit still runs in a fresh session with every step; attach
-writes no record, index row or finding.
+writes no record, index row or finding. A focused diagnosis of a finished part goes to the user
+live.
 
 ## Steps
 
