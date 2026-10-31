@@ -62,6 +62,16 @@
 - attach：attach.md 加一段，允许对已结束部分做聚焦诊断并实时告诉用户，不写记录、不交给审计；全量审计照旧在新会话做。
 - 20261025-08：AGENTS.md 已有“never stack one PR on another”（#1682），记为已修。
 
+执行结果（10-31）：20261031-07 由 #1963 合入（d3ef14e20），20261031-12 由 #1965 合入（e02e44f1f），20261025-11 在 #1964 待合，合入后须由用户更新 compose 的 market-supply 与 paper（新协议 `market-supply-v2`，旧供给端会拒新客户端）。
+
+## 独立复核（2026-10-31）
+
+三份只读复核都基于 ba2579a8e 与账本提交 `79nvntvq0n28t6ou9c45kkjf4php67f3`，不改代码、不写账本；结论待用户定。
+
+- **20261031-11（`export.json` 的墙钟 `seconds`）**：全账本 `input-coverage.json` 491 个文件存成 243 份，去掉 `export_receipts.*.seconds` 后 66 份，多存 1,345,820 B；各组除 `seconds` 外无差异。读 receipt 的代码（`engine/load.py`、`engine/audit.py`、`ledger/coverage.py`、`registration/validation.py`、`replay/reproduce.py`）都不读它，缓存命中时它记的还是首次导出耗时。建议 (a)：`market/export.py:487` 不再写 `seconds`（同删 :404 `started`），已存记录不改；`export_content_sha256` 的语义哈希本就去掉它，旧运行 `input_key` 不变；导出器源码哈希会变，本地缓存重导一次，供给端须更新（#1964 合入后导出器哈希不同不再被拒）。备选 (b) 只在 `replay/entry.py:191` 构造覆盖文件时去掉，多一种 receipt 形态；(c) 维持现状。
+- **A3(a) `SOURCES_REQUIRED`**：163 份登记中 `external` 非空 142 份，138 份所引 bundle 含原件或检索日志（84 份 PDF，49 份只有 HTML）；未见把内部笔记冒充文献，问题是不一致：同样的“未找到外部证据”有的写进 `external`、有的写进 `local`，写明未找到并附检索日志的只有 1 份。来源不进审计和资格，不是产品要守的信任边界。建议只改 skill：research-round `hypothesis.md` 要求 `external` 二选一，给出引用（DOI/arXiv/URL 加所在 bundle）或写明哪些查询未找到并给检索日志 bundle（规范：PRISMA 2020 条目 6–7，https://doi.org/10.1136/bmj.n71 ）。产品收紧（所引 bundle 须含原件或检索日志）留待复发。
+- **A3(b) 多重检验的试验计数**：`line_trials`（`ledger/lines.py:261-293`）管换线与复审节奏，不管多重检验，不改。`by_development_window` 已跨市场提交合并，但只合并完全相同的窗口，不看合约与重叠；`ratios.md:14-23` 与 `research-round/SKILL.md:110-113` 给 DSR 的 N 不一致。账本 168 个 research 试验全部与 2025-10..2026-10 重叠，RSI 线按 `ratios.md` 读 N=[30,30]。文献（Bailey & López de Prado 2014，https://doi.org/10.3905/jpm.2014.40.5.094 附录 A.3；Harvey, Liu & Zhu 2016；White 2000）都按合约 × 重叠时期累计、再按相关性折算有效 N。建议在 `report/status.py` 读时派生，不加存储字段：给出同合约、窗口重叠、跨市场提交和线的试验数 M（research 与全部用途分列），并用这些 research 运行的日收益按 N̂ = ρ̂ + (1−ρ̂)M 估下界，夏普方差 V 取同一组运行（解决 20261025-35）；`ratios.md` 同步一处。不同窗口长度的夏普须先统一频率，实现时定。
+
 
 - **A1（20261031-13）**：在 `lenses.md` 的 Product contracts and delivery 加“人的使用”一段：IDE、CLI 输出和账本里给人读的部分，检查研究者能否找到达标与否、线的状态和待办决定，能否到达所需视图；对照一份公开可用性规范（如 [Nielsen 十条启发式](https://www.nngroup.com/articles/ten-usability-heuristics/)）；必要时数任务步数。全产品审计须读 `ide/`。约 +60 词。
 - **A2（20261031-14）**：在 `lenses.md` 的 Behavior and decision evidence 的 Method 段加一句：评估产品和 skill 如何让假设落到机制和先例（`research-sources`），以及停止或换线规则在该窗口上能否分辨所比较的效应；仍不做研究选择。约 +35 词。
