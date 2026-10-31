@@ -653,7 +653,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               "quote rule version, than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
     "SEQUENCE_GAP": ("An aggTrades archive's agg_trade_id sequence is not contiguous within the day or does not continue "
-                     "the day before (the trades import keeps an id Binance repeated for a distinct later trade), so "
+                     "the day before (both imports keep an id Binance repeated for a distinct later trade), so "
                      "that month's trades or inferred quotes cannot be trusted; nothing was stored.",
                      ("Re-download the day with the refused command (`market import-trades` or `market import-quotes` "
                       "--month YYYY-MM) after clearing its cached archive; a gap the exchange published stays a gap and "
