@@ -55,7 +55,8 @@ INTERACTION_LIMITATIONS = (
     "An interaction explains where a difference comes from; it is no evidence of an improvement",
     "The contributions average each change's marginal effect over both orders of adding the two changes")
 UNCORRECTED_DROPPED = ("p_one_sided", "p_bonferroni", "interval_coverage_grid_adjusted",
-                       "detectable_mean_log_difference_80pct_normal_approx", "observed_account_annual_return_difference")
+                       "detectable_annual_return_difference_80pct_normal_approx",
+                       "observed_account_annual_return_difference")
 
 
 def _source() -> str:
@@ -191,23 +192,28 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
     if degenerate:
         limitations.append(f"DEGENERATE_NESTED: {degenerate} outer resamples had a zero inner standard error; the "
                            "studentized interval is empty")
-    annual, annual_interval = None, None
+    normal = NormalDist()
+    detectable = se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER))
+    annual, annual_interval, detectable_annual = None, None, None
     if len(sides) == 2:
-        annual = math.exp(365 * float(logs[1].mean())) - math.exp(365 * float(logs[0].mean()))
+        control = 365 * float(logs[0].mean())
+        annual = math.exp(365 * float(logs[1].mean())) - math.exp(control)
         spread = np.exp(365 * logs[1][indices].mean(axis=1)) - np.exp(365 * logs[0][indices].mean(axis=1))
         annual_interval = [float(value) for value in np.quantile(spread, [alpha / 2, 1 - alpha / 2])]
+        # The power reading in the units of annual_return_difference and minimum_effect: the annual
+        # difference over this control of a candidate whose mean daily log return exceeds the
+        # control's by the difference the test detects with POWER.
+        detectable_annual = math.exp(control + 365 * detectable) - math.exp(control)
     else:
         limitations.append("A weighted contrast has no annual return difference")
     absolute = np.sort(np.abs(values))[::-1]
-    normal = NormalDist()
     return {"method": design["method"], "days": days, "mean_daily_log_difference": observed,
             "mean_log_basic_interval": [2 * observed - float(high), 2 * observed - float(low)],
             "mean_log_studentized_interval": studentized, "annual_return_difference": annual,
             "annual_return_difference_interval": annual_interval, "interval_coverage_grid_adjusted": 1 - alpha,
             "p_one_sided": p, "p_bonferroni": None if p is None else min(1.0, p * grid_points),
             "predeclared_alpha": design["alpha"], "predeclared_minimum_effect": design["minimum_effect"],
-            "detectable_mean_log_difference_80pct_normal_approx":
-                se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER)),
+            "detectable_annual_return_difference_80pct_normal_approx": detectable_annual,
             "top_five_absolute_difference_share": float(absolute[:5].sum() / absolute.sum()) if absolute.sum() else None,
             "block_sensitivity": _sensitivity(values, block, resamples, design["seed"], alpha),
             "degenerate_nested_samples": degenerate, "design": dict(design), "grid_points": grid_points,

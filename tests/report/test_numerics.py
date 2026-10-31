@@ -6,6 +6,7 @@ from __future__ import annotations
 from decimal import Decimal
 from datetime import date, timedelta
 import math
+from statistics import NormalDist
 import unittest
 
 import numpy as np
@@ -46,6 +47,21 @@ class PairedTests(unittest.TestCase):
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][0], -high, places=12, msg="shared block starts")
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][1], -low, places=12)
 
+    def test_the_detectable_difference_is_a_power_reading_in_annual_return_units(self):
+        left = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01]
+        right = [0.012, -0.01, 0.0, 0.004, 0.02, -0.012]
+        found = comparison.paired(left, right, DESIGN, 4)
+        logs = np.log1p(np.asarray(right)) - np.log1p(np.asarray(left))
+        indices = comparison.block_indices(np.random.default_rng(DESIGN["seed"]), 6, DESIGN["block_days"],
+                                           DESIGN["resamples"])
+        se = float(np.std(logs[indices].mean(axis=1), ddof=1))
+        normal = NormalDist()
+        detectable = se * (normal.inv_cdf(1 - DESIGN["alpha"] / 4) + normal.inv_cdf(comparison.POWER))
+        control = 365 * float(np.log1p(np.asarray(left)).mean())
+        self.assertAlmostEqual(found["detectable_annual_return_difference_80pct_normal_approx"],
+                               math.exp(control + 365 * detectable) - math.exp(control), places=9,
+                               msg="the annual difference over the control of the detectable mean daily log difference")
+
     def test_the_one_sided_p_counts_centered_resamples_with_plus_one_smoothing(self):
         # One-day blocks of a two-day series: every resampled mean is 0.01, 0.02 or 0.03.
         found = comparison.paired([0.0, 0.0], [math.expm1(0.01), math.expm1(0.03)], {**DESIGN, "block_days": 1}, 1)
@@ -82,6 +98,7 @@ class PairedTests(unittest.TestCase):
                   for a, b, c, d in zip(*series, strict=True)]
         self.assertAlmostEqual(found["mean_daily_log_difference"], sum(manual) / 4, places=15)
         self.assertIsNone(found["annual_return_difference"])
+        self.assertIsNone(found["detectable_annual_return_difference_80pct_normal_approx"])
 
     def test_malformed_inputs_are_refused_before_any_number(self):
         self.assertEqual(refused(comparison.paired, [0.0] * 3, [0.0] * 3, DESIGN, 1), "COMPARISON_UNAVAILABLE")
