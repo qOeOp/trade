@@ -89,6 +89,9 @@ class PublishTests(unittest.TestCase):
         self.service.sql(self.profile, "CALL DOLT_TAG('line/first', 'main')")
         found = publish.publish(self.profile, "main")
         self.assertEqual((found["head"], found["previous_head"], found["tags"]), (self.head(), None, 1))
+        self.assertEqual(sorted(found["seconds"]), ["fetch", "lock", "push", "tags"])
+        self.assertTrue(found["seconds"]["push"] > 0 and found["seconds"]["tags"] > 0,
+                        "a first publish times its branch push and its one tag push")
         self.assertEqual(self.remote_state(), (self.head(), ["line/first"]))
         self.assertFalse(publish.unpublished(self.profile, "main"))
 

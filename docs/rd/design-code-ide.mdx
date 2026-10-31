@@ -1,0 +1,26 @@
+# Trade IDE
+
+A local page onto the research. Its first view draws one research line from the research ledger as a graph: the lineage of strategy versions over trial numbers with their replays, predictions, source reviews, recommendations and eligibility changes. The reverse test of whether the ledger reconstructs a session belongs to product-doctor ([references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)) and reuses this format and comparison tool.
+
+## Contract
+
+1. A graph is read from the ledger only by the product command `research graph`, which composes the product's readers and adds no rule, so one ledger commit always gives one graph; the graph carries the user's two targets in force for the line at that commit, read from the ledger.
+2. A graph must pass `ide.py check`; the format is never loosened to fit the data.
+3. The user opens `http://127.0.0.1:8765/` (`?line=`, `since=`, or `at=` for a fixed version) on the compose deployment; it reads the active ledger's head, so a write shows once it is committed. `ide.py render` writes the same page as one standalone file for a fixed graph.
+4. A new renderer reads only the view model; a new chart is a new widget type; a new fact in the graph is a new format version, changed together in the format, `research graph`, the layout, the comparison and product-doctor's fidelity test.
+
+## Tool: ide
+
+| Stage | Input → output | Owns |
+|---|---|---|
+| Extract | ledger → graph.json | everything the ledger holds about one line: its versions, its own research runs (its window and market commit), reviews and judgments (the product command `research graph`) |
+| Contract | graph.json (research-graph@3) → problems | the shape of a graph (schema/graph.schema.json) |
+| Layout | graph.json → view.json (research-graph-view@1) | what to draw and where, in rows and the line's own trials (its n-th trial at n, labelled with its trial number), no pixels; split into widgets (summary@1, lineage@2, progress@1, scatter@1, table@1, notes@1, candidate-detail@1, sources@1), each with its own type, version and slot |
+| Render | view.json → files | pixels, colours, labels and interaction; the web renderer writes one self-contained HTML page, rebuilt whenever its sources change |
+| Compare | two graph.json → differences | which facts differ, without classing them (for product-doctor's fidelity test) |
+
+Stages hand over only through these files, so each can be replaced alone. There is one renderer; another (for example a server sending widget documents over HTTP, which only serves views and never reads or writes the ledger) reads the same widgets.
+
+**Service**　`ide.py serve` (standard library only, importing no product package) runs the product's command line as subprocesses: `ledger sql` for the head commit and `research graph --at=<full hash>` for a graph, which the layout turns into a view. The page is the web renderer's page without an embedded view: it reads `/api/view` (200 a view, 202 a state, an error as the refusal JSON) and follows `/api/events` (SSE: the current state on connect, a heartbeat every 15 s, only the latest state kept per page). Only while a live page (one without `at`) is open does it poll: it reads the head every 5 s, and when the head moves it fetches each open live page's graph once at the new head, the latest only, one graph at a time; with only fixed-`at` pages open it does not read the head, and their graphs do not change. Successful views stay in process memory only (LRU 8, keyed by database, image commit, ledger commit, line and since). It accepts only its own Host, refuses cross-site requests, sends no CORS headers, and the graph API has no write endpoint of its own. With an agent or paper URL configured, requests under `/api/agent/` and `/api/paper/` (POST, PUT, PATCH and DELETE included) pass the same Host and cross-site checks and are forwarded as they are, a paper write also requiring same-origin and the token this service generated at start; the proxy reads and writes no ledger.
+
+**Image**　`deploy/` is built by CI (`.github/workflows/ide-image.yml`) and pushed to `ghcr.io/qoeop/trade-ide` (`main` from main, `pr-N` from a pull request), holding the product at its build commit with a shallow `.git` and the built page. It has no database of its own: it reads the compose ledger service with the two reader accounts only. At every start ledger writes a `service.json` holding only the port and the reader accounts into the `trade-ledger-readers` volume, which the IDE mounts read-only, so it never sees the root password, a writer account or the DoltHub key; its two profiles are compose configs, and the ledger profile names no lifecycle (kind null), so it never publishes. The chat service's agents and threads live in the `trade-ide-agent` volume (docs/plans/ide-reads-ledger-service.zh.md).

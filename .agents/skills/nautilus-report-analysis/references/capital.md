@@ -12,15 +12,20 @@ context for drawdown and for the holding structure: read it first.
   without rows held nothing. Never revalue positions or derive capital use from the account report
   alone. When the run has no exposure readings, it cannot answer capital questions: say so and put
   it in the limitations.
-- Participation answers capacity questions, when size could be large against minute volume; the
-  product stores none. Use the run's kept directory, or a reproduction (`replay reproduce
-  --trial-id RUN --output DIR`), take its fills from `tables()`, and divide each fill's
-  quantity by the volume of that instrument's
-  one-minute LAST bar at the run's market commit (market database, read only). The engine stamps a bar at its open plus 59.999 s and the market
-  database keys it by its open, so a fill at T belongs to the bar opening at T floored to the
-  minute. Give the median, a high quantile, the maximum and the number of fills on zero-volume bars,
-  and say whether fills are weighted by count or by quantity. Record it as a `search_exposure`
-  judgment (the research-round skill's next decision).
+- Participation answers capacity questions, when size could be large against minute volume. Read
+  the run report's `capital.participation@1`, sealed from the engine's per-fill minute volumes
+  and never recomputed. It gives each market fill's quantity over its minute's LAST volume,
+  weighted by count: the median, p95, p99 and maximum. It also gives `minute_max`, the most one
+  contract filled in one minute over that minute's volume. Fills with no bar, on zero volume, above
+  the volume, and the engine's own settlement and liquidation fills are counted apart. Read the
+  values under the run's execution mode. Each fill's row is in `reports/fill_volumes.csv` of the
+  kept directory or of a reproduction.
+- When the reading is null (a run on an image without it), compute it from that directory instead.
+  Take the fills from `tables()` and divide each fill's quantity by the volume of that instrument's
+  one-minute LAST bar at the run's market commit (market database, read only). A fill at T belongs
+  to the bar opening at T floored to the minute. Give the same figures, and say whether fills are
+  weighted by count or by quantity. Record what you computed as a `search_exposure` judgment (the
+  research-round skill's next decision).
 
 ```python
 # uv run --frozen python /tmp/RUNDIR/participation.py, with fill from tables(...)["fills"]

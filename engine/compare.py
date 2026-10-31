@@ -20,7 +20,8 @@ fresh UUIDs every run.
   positions report.
 - Each table gives its row count, a whole-table hash and one hash per UTC day of its time column,
   so a mismatch names the table and day. The account, daily returns and exposures, stable byte for
-  byte, also carry the hash of their file.
+  byte, also carry the hash of their file. The fill volumes take part only where the directory holds
+  them, so a directory of an older image keeps its fingerprint.
 """
 
 from __future__ import annotations
@@ -45,9 +46,13 @@ TABLES = {
     "returns_series": ("returns_series.csv", "ts_event_ns", True),
     "order_events": ("order_events.jsonl.gz", "ts_event", False),
     "exposures": ("exposures.csv.gz", "ts_event_ns", True),
+    "fill_volumes": ("fill_volumes.csv", "ts_event_ns", False),
 }
+# Written since engine.write_fill_volumes; a directory of an older image has none and its fingerprint no entry.
+OPTIONAL = frozenset({"fill_volumes"})
 # The walk that numbers random identifiers: the event history holds every order and fill event.
-NUMBERING_ORDER = ("order_events", "orders", "fills", "positions", "account", "exposures", "returns_series")
+NUMBERING_ORDER = ("order_events", "orders", "fills", "positions", "account", "exposures", "returns_series",
+                   "fill_volumes")
 RANDOM = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
@@ -97,11 +102,13 @@ def _sha(lines: list[str]) -> str:
 def report_fingerprint(directory: Path) -> dict:
     """{table: {rows, sha256, by_utc_day: {day: sha256}[, file_sha256]}} of one report directory; reads only."""
     directory = Path(directory)
+    present = {name: entry for name, entry in TABLES.items()
+               if name not in OPTIONAL or (directory / entry[0]).is_file()}
     tables = {name: (_event_rows if name == "order_events" else _csv_rows)(directory / file)
-              for name, (file, _, _) in TABLES.items()}
+              for name, (file, _, _) in present.items()}
     texts = {name: [_text(row) for row in rows] for name, rows in tables.items()}
     numbers: dict[str, str] = {}
-    for name in NUMBERING_ORDER:
+    for name in (name for name in NUMBERING_ORDER if name in tables):
         rows, found = tables[name], texts[name]
         if name == "order_events":
             # Orders by client order ID with its random part masked (a liquidation order's ID carries a fresh
@@ -118,7 +125,7 @@ def report_fingerprint(directory: Path) -> dict:
             for match in RANDOM.finditer(found[index]):
                 numbers.setdefault(match.group(0), f"#{len(numbers) + 1}")
     result = {}
-    for name, (file, column, stable) in TABLES.items():
+    for name, (file, column, stable) in present.items():
         lines = sorted(((_day(row.get(column)), RANDOM.sub(lambda match: numbers[match.group(0)], text))
                         for row, text in zip(tables[name], texts[name], strict=True)), key=lambda item: item[1])
         days: dict[str, list[str]] = {}

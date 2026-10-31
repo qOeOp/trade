@@ -31,11 +31,11 @@
 
 ## `market/aggtrades.py` [#def-mod-market-aggtrades-py]
 
-完整源 aggTrades 的只追加导入：一个合约月一次事务与提交，逐日按官方校验和读取归档，按独立的 1e8 整数编码精确写入 <Ref id="table:agg_trade" />。它不参与 K 线、报价读取或周期派生；回放只在入口请求成交时由 <Ref id="market.trade_rows" /> 读它、<Ref id="market.write_trades" /> 写成 TradeTick；推算报价（<Ref id="market.derive" />）另从同一批归档推算，不读这张表。
+完整源 aggTrades 的只追加导入：每个合约月一次事务与提交，同一个月的几个合约同时写入，逐日按官方校验和读取归档，按独立的 1e8 整数编码精确写入 <Ref id="table:agg_trade" />。它不参与 K 线、报价读取或周期派生；回放只在入口请求成交时由 <Ref id="market.trade_rows" /> 读它、<Ref id="market.write_trades" /> 写成 TradeTick；推算报价（<Ref id="market.derive" />）另从同一批归档推算，不读这张表。
 
 | 入口 | 职责 |
 |---|---|
-| <Ref id="implementation:impl-market-aggtrades-py-import_month">import_month</Ref> | 一个合约月：持导入锁，核对库非空、工作集干净、提交校验组与表存在，前一日续接核对，逐日分批写入，读数与归档哈希进提交消息 |
+| <Ref id="implementation:impl-market-aggtrades-py-import_month">import_month</Ref> | 一个月的一个或几个合约：持导入锁，每个合约一个导入连接同时写入，各自核对库非空、工作集干净、提交校验组与表存在，前一日续接核对，逐日分批写入，读数与归档哈希进提交消息 |
 | <Ref id="implementation:impl-market-aggtrades-py-batches">batches</Ref> | 逐行读一日 CSV，按批产出 INSERT 行；核对编号连续、时间不倒退且落在当日，累计日读数 |
 | <Ref id="implementation:impl-market-aggtrades-py-scaled">scaled</Ref> | 十进制字串精确转为 1e8 定标的有符号 64 位整数，放不进即 SCALE_LOSS |
 | <Ref id="implementation:impl-market-aggtrades-py-fetch_archive">fetch_archive</Ref> | 按官方日归档键取 ZIP 与 .CHECKSUM，流式下载并核对 SHA-256，缓存命中直接用 |
@@ -43,12 +43,12 @@
 #### `import_month` [#impl-market-aggtrades-py-import_month]
 
 ```python
-def import_month(profile: dict, month: date, cache: Path, symbol: str, log=print) -> dict:
+def import_month(profile: dict, month: date, cache: Path, symbols: list[str], log=print) -> dict:
 ```
 
-一个合约月，一次事务与提交。先核对合约在库的允许范围内、`month` 是月初且有已收盘的 UTC 日（否则 MONTH_INVALID），以导入账号连接并持 GET_LOCK('market-import:\<库名>')；库没有 K 线导入即 MARKET_EMPTY，工作集不干净即 DIRTY_WORKING_SET，服务的提交校验组不含 commit 即 COMMIT_CHECKS_DISABLED，没有 agg_trade 表即 SCHEMA_MISMATCH（先跑 `market upgrade`），早先导入用过别的编码即 RULE_VERSION_MISMATCH，同合约月已有行即 MONTH_EXISTS。前一日归档只过 batches 的校验与续接，不插入；没发布的前一日只在库里还没有该合约更早的成交时放过。随后逐日 fetch_archive → batches → INSERT，日读数、归档 SHA-256 与编码身份写进提交消息；返回回执加 trade_rows 与 market_commit。任何拒绝都在提交前回滚。
+一个月的一个或几个合约，每个合约一次事务与提交。先核对合约在库的允许范围内（重复或格式不对即 IMPORT_SCOPE）、`month` 是月初且有已收盘的 UTC 日（否则 MONTH_INVALID），以导入账号开一个连接持 GET_LOCK('market-import:\<库名>') 直到全部写完；每个合约另开一个导入连接，在各自的守护线程里同时写入。单个写入的时间大多耗在每批的往返等待上，Dolt 对不同合约的写入并行处理（2.4.2 实测：三个写入约为一个的三倍行速）。每个合约：库没有 K 线导入即 MARKET_EMPTY，工作集不干净即 DIRTY_WORKING_SET，服务的提交校验组不含 commit 即 COMMIT_CHECKS_DISABLED，没有 agg_trade 表即 SCHEMA_MISMATCH（先跑 `market upgrade`），早先导入用过别的编码即 RULE_VERSION_MISMATCH，同合约月已有行即 MONTH_EXISTS。前一日归档只过 batches 的校验与续接，不插入；没发布的前一日只在库里还没有该合约更早的成交时放过。随后逐日 fetch_archive → batches → INSERT，日读数、归档 SHA-256 与编码身份写进提交消息；每个合约的回执加 trade_rows 与 market_commit；整个调用返回 month、imports（按合约顺序的回执）、trade_rows（合计）与 seconds。任何拒绝都在该合约提交前回滚；一个合约被拒不撤销其他合约的提交，抛出的是第一个被拒合约的拒绝，消息里列出其他合约已做的提交。进程中断时所有连接一起断开，没提交的写入一律不落。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L192)
+[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L200)
 
 #### `batches` [#impl-market-aggtrades-py-batches]
 
@@ -58,7 +58,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
 
 生成器：从一日的 ZIP/CSV 逐行读，内存里只留一批 INSERT 行和上一条事件；`state` 带前一日末笔的编号、时刻与末逐笔编号跨日续接。七列缺一、编号或时刻超出有符号 64 位、首末逐笔编号颠倒、时刻倒退或不在当日 UTC 范围内即 SOURCE_SHAPE；编号不连续即 SEQUENCE_GAP，唯一例外是币安把同一编号重复给了另一笔更晚的成交（时刻更晚、首逐笔编号大于上一行末逐笔编号），两行都导入；空归档即 SOURCE_SHAPE。`readings` 写入 trades、首末 agg_trade_id 与时刻、trade_gap_max_ms。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L139)
+[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L142)
 
 #### `scaled` [#impl-market-aggtrades-py-scaled]
 
@@ -922,7 +922,7 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
 
 **现有行为**
 
-1. 拒绝空归档、非正 tick、非正价格、日内时间倒序（`SOURCE_SHAPE`），编号在日内及跨日衔接不连续为 `SEQUENCE_GAP`。同毫秒多条成交允许，保留原顺序。
+1. 拒绝空归档、非正 tick、非正价格、日内时间倒序（`SOURCE_SHAPE`），编号在日内及跨日衔接不连续为 `SEQUENCE_GAP`；唯一例外是币安把同一编号重复给了另一笔更晚的成交（时刻更晚、首逐笔编号大于上一笔末逐笔编号），它照常参与推算。同毫秒多条成交允许，保留原顺序。
 2. 买方为 maker 的成交更新 bid，否则更新 ask；另一侧沿用。两侧齐全且交叉时，把旧侧推到新侧外一个 tick，增加 `stale_side_adjustments`，只在状态变化时追加行。
 3. 日读数为 `trades`、`quote_changes`、`stale_side_adjustments`、`minutes_with_trades`、`trade_gap_max_ms`、`trade_gap_p99_ms`。间隔来自当日成交时间差，不含跨日空档；这些不是逐侧报价年龄或准入阈值。
 

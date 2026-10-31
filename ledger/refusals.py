@@ -653,7 +653,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               "quote rule version, than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
     "SEQUENCE_GAP": ("An aggTrades archive's agg_trade_id sequence is not contiguous within the day or does not continue "
-                     "the day before (the trades import keeps an id Binance repeated for a distinct later trade), so "
+                     "the day before (both imports keep an id Binance repeated for a distinct later trade), so "
                      "that month's trades or inferred quotes cannot be trusted; nothing was stored.",
                      ("Re-download the day with the refused command (`market import-trades` or `market import-quotes` "
                       "--month YYYY-MM) after clearing its cached archive; a gap the exchange published stays a gap and "
@@ -694,7 +694,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "SCALE_RANGE": ("A price or volume does not fit the market database's integer scale.",
                     ("Report the contract named; the scale is fixed for the database's generation.",)),
     "SCALE_LOSS": ("A price or volume has more decimals than the market database's scale holds.",
-                   ("Report the contract named; values are never rounded on import.",)),
+                   ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
+                    "scale is rounded on import, and counted in rounded_volumes.",)),
     "QUOTE_INEXACT": ("A stored quote price does not fit the instrument's price precision at export.",
                       ("Report the contract named; the quote table and the instrument terms disagree.",)),
     "TRADE_INEXACT": ("A stored aggregate trade's price or quantity does not fit the instrument's precisions at export.",

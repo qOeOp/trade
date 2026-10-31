@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "services/ide"))
+sys.path.insert(0, str(ROOT / "ide"))
 
 from research_graph import cli, compare, contract, layout  # noqa: E402
 from research_graph.renderers.web import render as render_web  # noqa: E402
@@ -89,6 +89,33 @@ class LayoutTests(unittest.TestCase):
         summary = widgets["summary"]
         self.assertEqual((summary["recommended"], summary["runs_since_recommendation_changed"], summary["masked_runs"]),
                          ("a@1", 1, 1), "one research run (trial 5) since a@1 became the recommendation")
+
+    def test_other_lines_trials_take_no_room_on_the_axis(self):
+        graph = copy.deepcopy(GRAPH)
+        numbers = iter([10, 20, 103, 140, 250])  # trials 1-5 renumbered as if other lines ran in between
+        for c in graph["candidates"]:
+            for t in c["trials"]:
+                t["trial_id"] = next(numbers)
+        widgets = {w["id"]: w for w in layout.build_view(graph)["widgets"]}
+        tree = widgets["lineage"]
+        self.assertEqual([n["x"] for n in tree["nodes"]], [2.0, 4.0, 5.0], "the line's 2nd, 4th and 5th trials")
+        self.assertEqual([(t["trial_id"], t["x"]) for t in tree["trials"]], [(10, 1), (20, 2), (103, 3), (140, 4), (250, 5)])
+        self.assertEqual([(p["trial_id"], p["x"]) for p in widgets["progress"]["points"]], [(20, 2), (140, 4), (250, 5)])
+        self.assertEqual((tree["trail"][0]["x0"], tree["axis"]["max"]), (4.5, 6.0))
+        self.assertEqual(widgets["summary"]["runs_since_recommendation_changed"], 1)
+
+    def test_a_fix_published_as_a_new_root_links_to_the_revision_it_fixes(self):
+        graph = copy.deepcopy(GRAPH)
+        graph["candidates"] += [
+            {"id": "root@2", "parent": None, "created_at": "2026-01-01T13:00:00",
+             "trials": [{"trial_id": 6, "purpose": "research", "annual_return": 0.1, "max_drawdown": 0.1, "eligible": True,
+                         "at": "2026-01-01T13:30:00"}]},
+            {"id": "a@2", "parent": "root@2", "created_at": "2026-01-01T14:00:00",
+             "trials": [{"trial_id": 7, "purpose": "precheck"}]}]
+        tree = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "lineage")
+        self.assertEqual(tree["revisions"], [{"from": "root@1", "to": "root@2"}],
+                         "a@2 has its parent drawn, so only the parentless fix links to its earlier revision")
+        self.assertEqual(len(tree["edges"]), 3, "parent edges stay as they are")
 
 
 class WebRenderTests(unittest.TestCase):

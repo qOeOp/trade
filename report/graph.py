@@ -3,7 +3,7 @@
 It composes the product's own readers (candidates, the line record, run measures and availability,
 registration plans, the comparison, source reviews and judgments) and adds no rule of its own, so
 the same ledger commit always gives the same graph. It reads nothing outside the ledger; the
-research-graph tool (services/ide) checks, lays out, renders and compares the document.
+research-graph tool (ide) checks, lays out, renders and compares the document.
 """
 from __future__ import annotations
 
@@ -35,9 +35,10 @@ def _iso(value) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def _lineage(rows: list[dict], seeds: set[str]) -> list[dict]:
+def _lineage(rows: list[dict], seeds: set[str], elsewhere: set[str]) -> list[dict]:
     """The candidates connected to the seeds (the line's start and the candidates of its research
-    trials) through parents or a shared strategy id."""
+    trials) through parents or a shared strategy id, never through a candidate in `elsewhere` (its
+    research runs are all another line's): one parent across lines does not draw that line here."""
     by_id = {f"{r['strategy_id']}@{r['revision']}": r for r in rows}
     linked: dict[str, set[str]] = {key: set() for key in by_id}
     by_strategy: dict[str, list[str]] = {}
@@ -56,7 +57,7 @@ def _lineage(rows: list[dict], seeds: set[str]) -> list[dict]:
         key = todo.pop()
         if key not in seen:
             seen.add(key)
-            todo.extend(linked[key] - seen)
+            todo.extend(linked[key] - seen - elsewhere)
     return sorted((by_id[key] for key in seen), key=lambda r: (r["created_at"], r["strategy_id"], r["revision"]))
 
 
@@ -170,10 +171,12 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         in_force = line_targets.targets_for(conn, line)
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
         on_line = set(lines.line_trials(conn, line)["trials"])
-        sources = {row["source_sha256"] for row in conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
-                   if row["trial_id"] in on_line}
+        researched = conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
+        sources = {row["source_sha256"] for row in researched if row["trial_id"] in on_line}
         seeds = {record["start"]} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
-        members = _lineage(rows, seeds)
+        elsewhere = {row["source_sha256"] for row in researched} - sources
+        members = _lineage(rows, seeds, {f"{r['strategy_id']}@{r['revision']}" for r in rows
+                                         if r["source_sha256"] in elsewhere})
         source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
         wanted = sorted(set(source_of.values()))
         text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(
@@ -322,7 +325,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             "with economic evidence, whether or not the recommendation names it; masked, precheck_failed and unrun come "
             "from availability and reviews.",
             "Research runs are the line's own (its window and market commit); other trials of a version are kept "
-            "by source.",
+            "by source. A version whose research runs are all another line's is left out, with what only it links.",
             "Interpretation is the latest current interpretation judgment naming the version's registration or trials.",
             "Out-of-sample validation registrations and verdicts are not drawn.",
             "Times are the ledger's UTC times without a zone.",

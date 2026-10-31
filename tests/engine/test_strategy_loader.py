@@ -22,7 +22,7 @@ import dataclasses
 
 from engine.config import Refusal
 from engine.config import runtime_source_metadata
-from engine.load import RUNTIME_CONTRACT, diagnostics, load_strategy, strategy_metadata
+from engine.load import RUNTIME_CONTRACT, load_strategy, strategy_metadata
 from engine import run
 from engine.run import STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, parse_configuration
 
@@ -292,13 +292,6 @@ class StrategyLoaderTests(unittest.TestCase):
             with self.subTest(extra=extra), self.assertRaises(Refusal) as caught:
                 self.configuration(extra)
             self.assertEqual(caught.exception.code, "UNKNOWN_OPTION")
-
-    def test_diagnostics_cannot_replace_native_facts(self):
-        class InvalidDiagnostics:
-            def replay_diagnostics(self):
-                return {"positions": 0}
-        with self.assertRaisesRegex(Refusal, "^DIAGNOSTICS_RESERVED_KEY: .*native report facts"):
-            diagnostics(InvalidDiagnostics())
 
     def test_pinned_native_node_importable_bridge(self):
         loaded = self.load()

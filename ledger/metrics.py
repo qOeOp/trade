@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 import bisect
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import csv
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -50,6 +50,9 @@ DAY_NS = 86_400 * 10**9
 REPORT_FILES = {"orders": "orders.csv", "fills": "fills.csv", "positions": "positions.csv", "account": "account.csv",
                 "returns": "returns_series.csv", "exposures": "exposures.csv.gz",
                 "order_events": "order_events.jsonl.gz"}
+# Written since engine.write_fill_volumes: a run on an older runtime image has none and seals no participation.
+OPTIONAL_REPORT_FILES = {"fill_volumes": "fill_volumes.csv"}
+ENGINE_ORDERS = ("EXPIRATION-", "LIQUIDATION-")  # the engine's own settlement and liquidation orders
 SUMMARY = "summary.json"
 SUMMARY_KEYS = ("starting_balance_usdt", "final_equity_usdt", "closed_trades", "data_interval_minutes",
                 "period_start_utc", "period_end_utc")
@@ -131,6 +134,7 @@ class Reports:
     lifecycle_events: tuple[dict, ...] = ()
     coverage: dict | None = None
     present: frozenset = frozenset()
+    fill_volumes: list[dict] | None = None
 
 
 def _csv(data: bytes) -> list[dict]:
@@ -173,8 +177,8 @@ def _regular(path: Path) -> bytes | None:
 
 
 REPORTS_DIR = "reports"
-WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()), AUDIT,
-                 COVERAGE)
+WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()),
+                 *(f"{REPORTS_DIR}/{name}" for name in OPTIONAL_REPORT_FILES.values()), AUDIT, COVERAGE)
 
 
 def load_directory(directory: Path, account: bool = True, exposures: bool = True) -> Reports:
@@ -197,7 +201,7 @@ def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
     """The native reports from their bytes by working-directory path (reports/<name>, audit/audit.json,
     input-coverage.json).
 
-    A missing file is empty (None for the summary, audit, exposures and order events); `present`
+    A missing file is empty (None for the summary, audit, exposures, order events and fill volumes); `present`
     names the report files that exist. A file that exists but does not parse is REPORT_UNREADABLE.
     """
     present = set()
@@ -238,7 +242,7 @@ def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
                    positions=rows["positions"], account=account_rows or [], returns=returns or [],
                    exposures=exposure_rows, order_events=events, coverage=json_file(files.get(COVERAGE), COVERAGE),
-                   present=frozenset(present))
+                   present=frozenset(present), fill_volumes=parsed(OPTIONAL_REPORT_FILES["fill_volumes"], _csv))
 
 
 def load_run(conn: db.LedgerConnection | None = None, trial_id: int | None = None, directory: Path | None = None,
@@ -784,6 +788,17 @@ def metrics(reports: Reports) -> dict:
                                                     if states else None, "account")}
     except Unreconciled as exc:
         limitations.append(str(exc))
+    if capital is not None:
+        try:
+            reading = None if reports.fill_volumes is None else participation(
+                fills, reports.fill_volumes, _multipliers(reports.positions), summary.get("execution"))
+        except Unreconciled as exc:
+            reading = None
+            limitations.append(str(exc))
+        except (KeyError, ValueError, ArithmeticError, SyntaxError, TypeError):
+            reading = None
+            limitations.append("NATIVE_VALUE_UNREADABLE: a fill or its minute's volume is unreadable")
+        capital["participation@1"] = _measure(reading, "fills")
 
     fees: defaultdict[str, dict[str, Any]] = defaultdict(lambda: {"commissions": Decimal(0), "notional": Decimal(0),
                                                                    "fills": 0})
@@ -820,6 +835,51 @@ def metrics(reports: Reports) -> dict:
             "fees_by_liquidity_side@2": fee_section,
             "order_funnel@1": dict(sorted(Counter(order.get("status") for order in entries).items())),
             "plans_valid@1": plans, "limitations": list(dict.fromkeys(limitations))}
+
+
+def participation(fills: list[dict], volumes: list[dict], multiplier: Mapping[str, Decimal],
+                  execution: str | None) -> dict:
+    """capital.participation@1: each market fill's quantity (times its contract multiplier) over the LAST
+    volume of its minute's one-minute execution bar (engine.write_fill_volumes), every fill weighted
+    equally: median, p95, p99 (nearest rank) and maximum; the largest summed quantity of one contract in
+    one minute over that minute's volume; the fills without a bar, in a zero-volume minute and above
+    their minute's volume. The engine's settlement and liquidation fills are counted apart. A capacity
+    description of the run under its execution mode (a bars market order is not held to the volume, a
+    quotes order fills whole), never a measure of fill quality."""
+    by_event = {row["event_id"]: row for row in volumes}
+    ratios: list[Decimal] = []
+    minutes: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    bars: dict[tuple[str, str], Decimal] = {}
+    counts = {"no_bar": 0, "zero_volume": 0, "above_volume": 0, "engine_fills": 0}
+    for fill in fills:
+        if str(fill.get("client_order_id", "")).startswith(ENGINE_ORDERS):
+            counts["engine_fills"] += 1
+            continue
+        row = by_event.get(fill["event_id"])
+        if row is None:
+            raise unreconciled("FILL_VOLUME_MISSING", f"fill {fill['event_id']} has no row in fill_volumes.csv")
+        if not row["bar_volume"]:
+            counts["no_bar"] += 1
+            continue
+        volume = Decimal(row["bar_volume"])
+        if volume == 0:
+            counts["zero_volume"] += 1
+            continue
+        quantity = Decimal(fill["last_qty"]) * multiplier[fill["event_id"]]
+        ratios.append(quantity / volume)
+        key = (row["instrument_id"], row["bar_ts_open_ns"])
+        minutes[key] += quantity
+        bars[key] = volume
+    counts["above_volume"] = sum(1 for ratio in ratios if ratio > 1)
+    ranked = sorted(ratios)
+
+    def rank(share: float) -> float | None:
+        return float(ranked[max(math.ceil(share * len(ranked)) - 1, 0)]) if ranked else None
+
+    return {"execution": execution, "fills": len(ranked), "median": rank(0.5), "p95": rank(0.95),
+            "p99": rank(0.99), "max": float(ranked[-1]) if ranked else None,
+            "minute_max": float(max(total / bars[key] for key, total in minutes.items())) if minutes else None,
+            **counts}
 
 
 def _multipliers(positions: list[dict]) -> dict[str, Decimal]:

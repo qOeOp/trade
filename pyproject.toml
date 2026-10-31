@@ -43,14 +43,14 @@ ignore = [
 # Each lambda in a loop is called within the iteration that defines it (assertRaises-style helpers).
 "tests/**" = ["B023"]
 # Standalone skill scripts keep their imports on one line.
-"services/video-evidence/check_bundle.py" = ["E401"]
+".agents/skills/video-evidence/assets/check_bundle.py" = ["E401"]
 ".agents/skills/video-evidence/assets/page_record.py" = ["E401"]
 
 [tool.mypy]
 python_version = "3.14"
 files = ["cli", "engine", "ledger", "market", "paper", "qualification", "registration", "replay", "report", "runtime",
-         "services/ide/research_graph", "services/ide/ide.py", "services/video-evidence/check_bundle.py",
-         ".agents/skills/video-evidence/assets/page_record.py"]
+         "ide/research_graph", "ide/ide.py",
+         ".agents/skills/video-evidence/assets/check_bundle.py", ".agents/skills/video-evidence/assets/page_record.py"]
 
 [[tool.mypy.overrides]]
 # pandas ships no type information and pyarrow 23 has no py.typed marker; both stay Any.

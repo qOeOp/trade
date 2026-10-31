@@ -1,8 +1,6 @@
 # 视频证据：video-evidence
 
-公开视频 URL、嵌入视频网页和本地视频的证据工作流；研究以外的视频也使用这项技能。媒体身份、转录输入、帧时间与引用绑定由独立代码校验。
-
-[Code: 视频证据核验](/zh/docs/design-code-video-evidence/)
+公开视频 URL、嵌入视频网页和本地视频的证据工作流；研究以外的视频也使用这项技能。媒体身份、转录输入、帧时间与引用绑定由技能自带的独立校验器 `assets/check_bundle.py` 核验。
 
 ## `SKILL.md` [#def-file-video-evidence-SKILL-md]
 
@@ -25,8 +23,10 @@
 | [references/custody.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/custody.md) | 以服务器原始音视频字节为身份；校验解码、内容哈希与回执投影，保留可恢复证据子集。 |
 | [references/transcribe.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/transcribe.md) | 探测语言后用固定 ASR 引擎与模型转录；绑定音频 PCM 哈希，分窗阅读时间戳文本和异常标记。 |
 | [references/frames.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/frames.md) | 先建立覆盖网格，再按真实 PTS 取精确帧、前后夹帧与裁剪；接触表只帮助定位。 |
+| [references/bundle.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/bundle.md) | 证据包布局（白名单）、`claims.json` 格式，以及校验器的全部检查与标记。 |
 | [references/note.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/note.md) | 用户要求时从证据包写笔记；保留条件、单位、否定与局限，笔记引用原件而不成为证据。 |
 | [assets/env.sh](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/env.sh) | 环境、路径与容器输入白名单 |
+| [assets/check_bundle.py](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/check_bundle.py) | 独立校验器：从字节重算证据包的绑定 |
 | [assets/identity.jq](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/identity.jq) | 元数据身份投影 |
 | [assets/receipt.jq](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/receipt.jq) | 下载回执投影 |
 | [assets/host_check.jq](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/host_check.jq) | 公开 HTTPS 主机检查 |
@@ -53,6 +53,32 @@
 ## `references/note.md` [#def-file-video-evidence-note]
 
 用户要求时从证据包写笔记；保留条件、单位、否定与局限，笔记引用原件而不成为证据。
+
+## `references/bundle.md` [#def-file-video-evidence-bundle]
+
+证据包布局（白名单）、`claims.json` 格式，以及校验器的全部检查与标记。
+
+## `assets/check_bundle.py` [#def-file-video-evidence-check_bundle]
+
+独立校验器从证据字节重算绑定，输出 JSON 与退出状态。它只用 Python 3 与 `ffmpeg`/`ffprobe`，不导入仓库里的其他代码；不写研究账本、不下载媒体，也不判断论断的含义。
+
+```sh
+python3 -I "$CHECK" BUNDLE --media-dir MEDIA_DIR [--restored]
+```
+
+### 核验职责
+
+| 阶段 | 代码职责 |
+|---|---|
+| Bundle / Probe | 目录与文件类型、严格 JSON、字段投影、公开 HTTPS 来源与敏感信息检查 |
+| Media | 原始字节 SHA-256、容器与流、分辨率、大小和时长 |
+| ASR | 固定引擎与模型、参数、语言、音频 PCM 哈希、分段结构与异常标记 |
+| Frames / Crops | 覆盖网格、PTS、引用帧与裁剪的解码哈希和像素重算 |
+| Claims | 连续语音段、数字、画面时间跨度、结构化旁证与显式性分类 |
+
+### 结果语义
+
+`ok` 汇总已有检查，`stages` 分别说明材料存在、失败或缺失，`flags` 给阅读者异常线索。成功不证明材料齐全或语义成立。`checker_git_blob` 标识实际执行的校验器。`--restored` 支持保留证据子集，已引用帧与裁剪仍须存在。
 
 ## 证据去向
 

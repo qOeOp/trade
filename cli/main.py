@@ -872,7 +872,8 @@ def market_import_quotes(market: dict, month: str, cache_root: str | None, worke
 
 
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
-    """One explicit contract month of complete source aggTrades; no replay or quote change."""
+    """One explicit month of complete source aggTrades of each named contract, written at once; no replay or
+    quote change."""
     from market import aggtrades, store
     if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
         raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
@@ -880,9 +881,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
         first = date.fromisoformat(month + "-01")
     except ValueError as exc:
         raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    if len(symbols) != 1:
-        raise refuse("IMPORT_SCOPE", "import-trades takes exactly one contract month", missing=("--symbols",))
-    return aggtrades.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), symbols[0],
+    return aggtrades.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), symbols,
                                   log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
@@ -1461,15 +1460,19 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "month is never extended); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN (the month has no members; "
         "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; CONCURRENT_IMPORT"),
     ("market", "import-trades"): (
-        "one explicitly named contract month and its existing complete trades (restricted import account, "
-        "holding the same market-import lock); official daily aggTrades ZIPs and the eve, checksum-verified "
-        "under --cache-root, downloaded and parsed in bounded chunks",
-        "all eight source fields in agg_trade, one contract month per transaction and commit; publishes the market; "
+        "one explicit month of one or more named contracts and their existing complete trades (restricted import "
+        "account, one connection per contract written at once while one more holds the same market-import lock); "
+        "official daily aggTrades ZIPs and the eve, checksum-verified under --cache-root, downloaded and parsed in "
+        "bounded chunks",
+        "all eight source fields in agg_trade, one contract month per transaction and commit; a refused contract "
+        "leaves the others' commits in place; publishes the market once; "
         "no change to bars, quotes or replay exports",
-        "month, through, symbols, codec (binance-aggtrades-int64-scale8-v1: price and quantity exactly x1e8), "
-        "trade_rows, archives (daily SHA-256), readings (daily counts, first/last IDs/times and largest time gap), "
-        "market_commit, seconds; publish_seconds when automatic publication runs; daily progress on stderr",
-        "MONTH_INVALID (no closed UTC day; any earlier month in any order); IMPORT_SCOPE (exactly one symbol); "
+        "month, imports (one per contract in symbol order: month, through, symbols, codec "
+        "(binance-aggtrades-int64-scale8-v1: price and quantity exactly x1e8), trade_rows, archives (daily SHA-256), "
+        "readings (daily counts, first/last IDs/times and largest time gap), market_commit, seconds), trade_rows "
+        "(all contracts), seconds; publish_seconds when automatic publication runs; daily progress on stderr",
+        "MONTH_INVALID (no closed UTC day; any earlier month in any order); IMPORT_SCOPE (a repeated or malformed "
+        "symbol); the first refused contract's refusal, naming the commits the others made; "
         "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; MONTH_EXISTS (partial months cannot be extended); "
         "SCALE_LOSS (any value is inexact or outside signed BIGINT: refuse the whole month, no rounding or fallback); "
         "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
@@ -1795,7 +1798,7 @@ def _parser() -> Parser:
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
                       "where the scope under study starts. Check, render and compare it with "
-                      "services/ide/ide.py. Writes nothing.")
+                      "ide/ide.py. Writes nothing.")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the only open line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")
@@ -1936,10 +1939,10 @@ def _parser() -> Parser:
     command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
     command.add_argument("--workers", type=int, default=4, help="parallel archive downloads (default: 4)")
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
-    command = verb(market, "import-trades", "import one contract month of complete source aggTrades as one commit")
+    command = verb(market, "import-trades", "import one month of complete source aggTrades per contract, one commit each")
     _market_option(command)
     command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
-    command.add_argument("--symbols", required=True, nargs=1, help="exactly one USD-M perpetual contract")
+    command.add_argument("--symbols", required=True, nargs="+", help="USD-M perpetual contracts, written at once")
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
     command = verb(market, "upgrade", "create the market tables the database lacks (administrator)")
     _market_option(command)

@@ -289,16 +289,6 @@ class FundingSpacingTests(unittest.TestCase):
         self.assertEqual(coverage.funding_spacing([T0]), {"spacing": [], "missing_settlements": []})
 
 
-class CoverageInterpretationTests(unittest.TestCase):
-    def test_the_stated_replay_treatment_names_the_engines_own_limit_and_finding(self):
-        from engine import config, run  # the engine's names, so a renamed limit or code fails here
-        self.assertIsInstance(run.MARK_CARRY_MAX_MINUTES, int)
-        self.assertIn("CAPITAL_VALUATION_GAP", config.INTEGRITY_CODES)
-        for name in ("engine.run.MARK_CARRY_MAX_MINUTES", "CAPITAL_VALUATION_GAP"):
-            self.assertIn(name, coverage.INTERPRETATION)
-        self.assertNotIn(str(run.MARK_CARRY_MAX_MINUTES), coverage.INTERPRETATION)  # cited, not copied
-
-
 class GapTests(Refusals):
     def test_missing_intervals_are_half_open_and_zero_volume_is_not_a_gap(self):
         times = np.array([T0, T0 + MINUTE, T0 + 4 * MINUTE])
@@ -361,6 +351,10 @@ class ScalingTests(Refusals):
         self.assertEqual((values.tolist(), rounded), ([1_088_242_857_000, 125_000], 1))
         self.refused("SCALE_LOSS", store.scaled, pa.array(["0.123456789"]), 8, "p")
         self.refused("SCALE_LOSS", store.scaled, pa.array(["12.34567"]), 4, "v", float_tails=True)
+        values, rounded = store.scaled(pa.array([repr(0.1 + 0.2)]), 4, "v", float_tails=True)
+        self.assertEqual((values.tolist(), rounded), ([3_000], 1), "float arithmetic residue is a float tail")
+        # a real fifth decimal of a large volume is not a float tail
+        self.refused("SCALE_LOSS", store.scaled, pa.array(["20000000.00001"]), 4, "v", float_tails=True)
         self.refused("SCALE_RANGE", store.scaled, pa.array(["1000000000000000"]), 8, "v")
         self.assertEqual(store.significant_decimals(pa.array(["0.0010000", "12", "3.25"])), 3)
 

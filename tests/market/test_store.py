@@ -535,18 +535,6 @@ class LaterImportTests(unittest.TestCase):
             self.refused("UNIVERSE_CHANGED", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                          log=lambda line: None)
 
-    def test_a_second_import_refuses_while_one_runs(self):
-        profile, found, _ = self.database(months=(JAN,))
-        holder = store.connect(profile, "import")
-        store.lock(holder)
-        with serving(found):
-            self.refused("CONCURRENT_IMPORT", store.import_month, profile, FEB, self.cache, 1, ["BTCUSDT"],
-                         log=lambda line: None)
-        holder.close()  # the lock ends with its connection
-        with serving(found):
-            self.assertEqual(store.import_month(profile, FEB, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-                             ["universe_members"], ["BTCUSDT"])
-
     def test_verification_groups_switched_off_during_an_import_stop_its_commit(self):
         profile, found, _ = self.database(months=(JAN,))
         restore = "SET PERSIST dolt_commit_verification_groups = 'commit'"

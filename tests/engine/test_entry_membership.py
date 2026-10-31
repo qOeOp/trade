@@ -141,7 +141,7 @@ def native_case(root, case, mode="preclose"):
         window = parse_window(utc_text(START), None, utc_text(END))
         output = root / "reports"
         summary, _ = write_native_reports(
-            output, replay, {"AAA": source}, [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "counts": {}}],
+            output, replay, {"AAA": source}, [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "counts": {}, "catalog_path": root}],
             {"strategy_uses_stop_loss": case.startswith("partial_bracket") or case == "stop", "market_commit": "c" * 32},
             window, ACCOUNT_CONTRACT, [], 7)
         intervals = [[START, END]] if mode == "preclose" else [[START, cutoff]]

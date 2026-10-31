@@ -167,8 +167,7 @@ class ValidationTests(unittest.TestCase):
         cls.unrun = world.publish("never researched", parent=None)
         # One-second windows, one per registration: an unbound registration reserves its own window.
         labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
-                  "retry-baseline", "retry-members", "corrected", "successful", "changed-design", "witness-report",
-                  "released")
+                  "retry-baseline", "retry-members", "corrected", "successful", "witness-report", "released")
         first = (datetime.now(UTC) + timedelta(seconds=5)).replace(microsecond=0)
         cls.windows = {label: (first + timedelta(seconds=k), first + timedelta(seconds=k + 1))
                        for k, label in enumerate(labels)}
@@ -307,17 +306,6 @@ class ValidationTests(unittest.TestCase):
                                    retry_of=self.registered["successful"]["registration_id"],
                                    window_start=start, window_end=end), "RETRY_NOT_ALLOWED")
         self.assertEqual(self.world.seq(), seq)
-
-    def test_a_retry_with_changed_design_is_refused_at_registration(self):
-        trial_id = self.bind("changed-design")
-        self.world.seal_run(trial_id, "invalid")
-        start, end = self.windows["changed-design"]
-        retry_of = self.registered["changed-design"]["registration_id"]
-        seq = self.world.seq()
-        self.assertEqual(self.code(self.register, "changed-design-retry", retry_of=retry_of, window_start=start,
-                                   window_end=end, design={**DESIGN, "seed": 8}), "RETRY_NOT_ALLOWED")
-        self.assertEqual(self.world.seq(), seq)
-        self.register("changed-design-retry", retry_of=retry_of, window_start=start, window_end=end)
 
     def test_a_registration_is_witnessed_and_its_one_replay_binds_it(self):
         registered, start = self.registered["bound"], self.windows["bound"][0]

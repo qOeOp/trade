@@ -22,8 +22,11 @@ EIGHT_HOURS = 8 * 3_600_000
 
 
 def table(rows: list[tuple]) -> pa.Table:
-    """(agg_trade_id, price, transact_time, is_buyer_maker) rows as the source table the derivation reads."""
+    """(agg_trade_id, price, transact_time, is_buyer_maker[, raw trade id]) rows as the source table the
+    derivation reads; the raw trade id defaults to the agg id."""
+    raw = pa.array([r[4] if len(r) > 4 else r[0] for r in rows], pa.int64())
     return pa.table({"agg_trade_id": pa.array([r[0] for r in rows], pa.int64()), "price": [r[1] for r in rows],
+                     "first_trade_id": raw, "last_trade_id": raw,
                      "transact_time": pa.array([r[2] for r in rows], pa.int64()), "is_buyer_maker": [r[3] for r in rows]})
 
 
@@ -59,12 +62,45 @@ class RuleTests(unittest.TestCase):
                           quotes.State(), "t")
         self.assertEqual(reversed_time.exception.code, "SOURCE_SHAPE")
 
+    def test_a_repeated_id_feeds_a_later_distinct_trade_and_any_other_repeat_refuses(self):
+        state = quotes.State()
+        rows, readings = quotes.derive(table([(1, "100.00", 1_000, True, 1), (1, "100.02", 1_200, False, 3),
+                                              (2, "99.99", 1_300, True, 4)]), Decimal("0.01"), state, "day 1")
+        self.assertEqual(rows, [(1, 1_200, Decimal("100.00"), Decimal("100.02")),
+                                (2, 1_300, Decimal("99.99"), Decimal("100.02"))])
+        self.assertEqual((readings["trades"], state.last_id, state.last_time, state.last_trade), (3, 2, 1_300, 4))
+        rows, _ = quotes.derive(table([(2, "100.01", 90_000_000, False, 6)]), Decimal("0.01"), state, "day 2")
+        self.assertEqual(rows, [(2, 90_000_000, Decimal("99.99"), Decimal("100.01"))])  # continues across days
+        for second in [(1, "100.00", 1_000, True, 1), (1, "100.02", 1_000, False, 3), (1, "100.02", 1_200, False, 1)]:
+            with self.subTest(second=second), self.assertRaises(MarketError) as caught:
+                quotes.derive(table([(1, "100.00", 1_000, True, 1), second]), Decimal("0.01"), quotes.State(), "t")
+            self.assertEqual(caught.exception.code, "SEQUENCE_GAP")
+        with self.assertRaises(MarketError) as caught:
+            quotes.derive(table([(2, "100.01", 90_000_000, False, 4)]), Decimal("0.01"), state, "day 3")
+        self.assertEqual(caught.exception.code, "SEQUENCE_GAP")  # the carried raw trade id does not advance
+
     def test_scaled_rows_are_exact_integers_or_refused(self):
         self.assertEqual(quotes.scaled_rows("X", [(7, 5, Decimal("1.5"), Decimal("1.51"))], 8),
                          [("X", 5, 7, 150_000_000, 151_000_000)])
         with self.assertRaises(MarketError) as lost:
             quotes.scaled_rows("X", [(7, 5, Decimal("1.123456789"), Decimal("2"))], 8)
         self.assertEqual(lost.exception.code, "SCALE_LOSS")
+
+    def test_a_chunk_boundary_never_splits_one_millisecond(self):
+        """Several states in one millisecond (a trade burst) straddling the writer's chunk size land in one catalog
+        file: the catalog refuses files whose closed time intervals touch."""
+        from nautilus_trader.model import InstrumentId
+        from nautilus_trader.persistence import ParquetDataCatalog
+        from market import export
+        iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+        rows = [(1_000, 100_00, 101_00), (1_000, 100_00, 102_00), (1_000, 99_00, 102_00), (1_001, 99_00, 103_00),
+                (1_002, 98_00, 103_00), (1_002, 98_00, 104_00), (1_002, 97_00, 104_00)]
+        with tempfile.TemporaryDirectory() as temp:
+            catalog = ParquetDataCatalog(temp)
+            written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3, 2, chunk=2)
+            back = catalog.query_quote_ticks([str(iid)])
+        self.assertEqual((written, [(q.ts_event // 10**6, str(q.bid_price), str(q.ask_price)) for q in back]),
+                         (7, [(ts, f"{bid / 100:.2f}", f"{ask / 100:.2f}") for ts, bid, ask in rows]))
 
 
 def exchange() -> Exchange:
@@ -86,23 +122,6 @@ def exchange() -> Exchange:
             rows = rows[:10] + rows[11:]  # one aggTrade missing
         found.aggtrades("BTCUSDT", datetime.fromtimestamp(at / 1000, UTC).date().isoformat(), rows)
     return found
-
-
-    def test_a_chunk_boundary_never_splits_one_millisecond(self):
-        """Several states in one millisecond (a trade burst) straddling the writer's chunk size land in one catalog
-        file: the catalog refuses files whose closed time intervals touch."""
-        from nautilus_trader.model import InstrumentId
-        from nautilus_trader.persistence import ParquetDataCatalog
-        from market import export
-        iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
-        rows = [(1_000, 100_00, 101_00), (1_000, 100_00, 102_00), (1_000, 99_00, 102_00), (1_001, 99_00, 103_00),
-                (1_002, 98_00, 103_00), (1_002, 98_00, 104_00), (1_002, 97_00, 104_00)]
-        with tempfile.TemporaryDirectory() as temp:
-            catalog = ParquetDataCatalog(temp)
-            written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3, 2, chunk=2)
-            back = catalog.query_quote_ticks([str(iid)])
-        self.assertEqual((written, [(q.ts_event // 10**6, str(q.bid_price), str(q.ask_price)) for q in back]),
-                         (7, [(ts, f"{bid / 100:.2f}", f"{ask / 100:.2f}") for ts, bid, ask in rows]))
 
 
 @unittest.skipUnless(BINARY, SKIP)

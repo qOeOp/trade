@@ -1337,7 +1337,7 @@ def write_native_reports(
 ) -> tuple[dict, list[str]]
 ```
 
-<TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、限价单穿价才成交、高低点按离开盘价远近排序（启发式）、市价单不受成交量限制、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
+<TypeTable type={{ "output": { type: "Path", description: "本次回放的输出目录（/tmp 工作副本，运行器启动前核对）；写入 orders.csv、fills.csv、positions.csv、account.csv、returns_series.csv、exposures.csv.gz、order_events.jsonl.gz、fill_volumes.csv、summary.json" }, "replay": { type: "Replay", description: "engine.replay 返回的回放句柄：引擎报告提供者（订单、成交、持仓、账户）、cache、portfolio、原生结果（含日收益序列）与资金观察器" }, "strategies": { type: "dict[str, Strategy]", description: "按 instrument_id 键的策略实例；每个实例带诊断计数与完整性自检两个钩子" }, "instruments": { type: "list[dict]", description: "每合约一行：instrument_id、导出回执的事件计数、生命周期状态与关闭事件的逐实例计数" }, "identity": { type: "dict", description: "摘要携带的身份：策略源码内容哈希、运行环境身份（镜像摘要、运行器与审计器源码哈希）、有效配置哈希、引擎版本" }, "window": { type: "dict", description: "engine.parse_window 的结果：input_start、trade_start、end（UTC ISO-8601 与纳秒两种形式）" }, "account": { type: "dict", description: "engine.account_contract 给出的账户条款：venue、starting_balance_usdt、账户类型、杠杆、费率与保证金率假设值" }, "limitations": { type: "list[str]", description: "运行器声明的撮合与条款局限：1 分钟 K 线撮合、限价单穿价才成交、高低点按离开盘价远近排序（启发式）、市价单不受成交量限制、止损按成交价触发、条款为观测快照与假设值、强平不建模、敞口按 K 线收盘采样" }, "expected_timestamps": { type: "int", description: "engine.mark_timestamps 算出的标记价时间戳并集数，作为资金观察器估值覆盖的期望值" } }} />
 
 **返回**　tuple[dict, list[str]]：原生摘要 summary 与完整性发现列表 integrity_findings；摘要同时以 JSON 写入 output/summary.json，供执行捕获封存；不再回显到标准输出，标准输出只剩策略打印与写摘要之前的失败
 
@@ -1345,7 +1345,7 @@ def write_native_reports(
 
 1. 从 portfolio 取 venue 账户与期末权益快照：账户缺失、快照过期或含未定价合约、基础货币非 USDT 即拒绝；期末权益含未实现盈亏，原样记录
 2. 把引擎报告提供者的订单、成交、持仓（含快照行）、账户四张表原样写成 CSV；零行表只补消费者依赖的表头；订单表附引擎订单对象上的 GTD 到期纳秒，GTD 订单无到期即拒绝；日收益序列按 ts_event_ns 排序原样写出
-3. 调 engine.write_order_events 写订单事件史；把资金观察器累积的估值行写成敞口表（ts_event_ns、position_id、notional_value、unrealized_pnl、realized_pnl），不重估
+3. 调 engine.write_order_events 写订单事件史，调 engine.write_fill_volumes 写每笔成交那一分钟的成交量；把资金观察器累积的估值行写成敞口表（ts_event_ns、position_id、notional_value、unrealized_pnl、realized_pnl），不重估
 4. 汇总完整性发现：订单表存在 DENIED 或 REJECTED 状态即记一条；逐策略调完整性自检钩子（传入是否有被否被拒订单），返回值不是非空字符串列表即拒绝，发现去重并入；并入 engine.capital_findings 的估值缺口发现
 5. 调 engine.summary_statistics 得年化、夏普与交易段计数；每合约一节：导出计数、生命周期逐实例计数、engine.diagnostics 的自报诊断、原生持仓行数（诊断键不得占用合约、数量、计数、持仓等原生事实名）
 6. 写摘要：身份、窗口三界、账户条款、统计、每合约节、integrity_findings、integrity_passed（无发现为真）、limitations（去重）；非有限浮点写为 null；任何拒绝以异常抛出，由运行器非零退出，回放无效
@@ -1361,7 +1361,7 @@ def write_native_reports(
 | `DIAGNOSTICS_RESERVED_KEY` | engine.diagnostics 判定自报诊断占用原生事实键名（由该函数抛出，此处不吞） |
 | `DIAGNOSTICS_NOT_JSON` | engine.diagnostics 判定自报诊断不能写成 JSON（由该函数抛出，此处不吞） |
 
-**使用**　<Ref id="engine.write_order_events" />、<Ref id="engine.summary_statistics" />、<Ref id="engine.capital_findings" />、<Ref id="engine.diagnostics" />、<Ref id="engine.capital_observer" />、<Ref id="engine.account_contract" />、<Ref id="engine.parse_window" />、<Ref id="engine.mark_timestamps" />、<Ref id="engine.main" />
+**使用**　<Ref id="engine.write_order_events" />、<Ref id="engine.write_fill_volumes" />、<Ref id="engine.summary_statistics" />、<Ref id="engine.capital_findings" />、<Ref id="engine.diagnostics" />、<Ref id="engine.capital_observer" />、<Ref id="engine.account_contract" />、<Ref id="engine.parse_window" />、<Ref id="engine.mark_timestamps" />、<Ref id="engine.main" />
 
 <div className="rd-meta">
 
@@ -1407,6 +1407,32 @@ def write_order_events(orders: Iterable[Order], path: Path) -> None
 
 - [NautilusTrader — Reports](https://nautilustrader.io/docs/latest/concepts/reports/)　官方文档
 - [NautilusTrader — Orders](https://nautilustrader.io/docs/latest/concepts/orders/)　官方文档
+
+</div>
+
+
+### `write_fill_volumes` [#def-engine-write_fill_volumes]
+
+为每笔原生成交写出它那一分钟执行 K 线的 LAST 成交量，供封存算成交量占比
+
+```python
+def write_fill_volumes(orders: Iterable[Order], instruments: list[dict], path: Path) -> None
+```
+
+<TypeTable type={{ "orders": { type: "Iterable[Order]", description: "引擎缓存中的全部订单对象；只取其 OrderFilled 事件" }, "instruments": { type: "list[dict]", description: "engine.read_market 的合约行；用其 catalog_path 读执行 K 线" }, "path": { type: "Path", description: "输出文件 fill_volumes.csv" } }} />
+
+**返回**　None；写出 CSV，列为 event_id、instrument_id、ts_event_ns、bar_ts_open_ns、bar_volume，每笔成交一行，按成交时刻、订单号、事件序排序
+
+**期望行为**
+
+1. 成交时刻向下取整到分钟就是它那根一分钟 K 线的开盘时刻；K 线按开盘 + 59.999 s 打时间戳，所以读到的收盘时刻减 59.999 s 即开盘。
+2. 只读导出 Catalog 里该合约的一分钟 LAST K 线，只取有成交的分钟；成交量原样写成十进制字符串，不换单位。
+3. 那一分钟没有 K 线时成交量留空，不补零：零成交量与缺 K 线是两件事。
+4. 不判断成交是否合理，不算比值：比值由账本封存时算（`capital.participation@1`）。
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.2.3.3">R.2.3.3</Ref>
 
 </div>
 

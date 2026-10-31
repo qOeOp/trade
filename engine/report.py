@@ -25,6 +25,9 @@ DAY_NS = 86_400 * 10**9
 EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl", "realized_pnl")
 EXPOSURES = "exposures.csv.gz"
 ORDER_EVENTS = "order_events.jsonl.gz"
+FILL_VOLUMES = "fill_volumes.csv"
+FILL_VOLUME_COLUMNS = ("event_id", "instrument_id", "ts_event_ns", "bar_ts_open_ns", "bar_volume")
+MINUTE_NS = 60 * 10**9
 LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")
 
 
@@ -111,6 +114,44 @@ def write_order_events(orders: Iterable, path: Path) -> None:
                     raise Refusal("NON_FINITE_EVENT_FIELD", f"an event of native order {order.client_order_id} "
                                                             f"holds NaN or infinity: {exc}") from exc
                 text.write(line + "\n")
+
+
+def write_fill_volumes(orders: Iterable, instruments: list[dict], path: Path) -> None:
+    """engine.write_fill_volumes: every native fill with the LAST volume of the one-minute execution bar of
+    its minute (its time floored to the minute; the bar is keyed by that open, stamped at its close), read
+    from the exported Catalogs; a minute without a bar has an empty volume. The ledger seals the fills'
+    share of their minute's volume from it."""
+    import pyarrow as pa
+    import pyarrow.compute as compute
+    import pyarrow.parquet as parquet
+    fills = sorted(((event.ts_event, str(order.client_order_id), index, event) for order in orders
+                    for index, event in enumerate(order.events()) if type(event).__name__ == "OrderFilled"),
+                   key=lambda item: item[:3])
+    wanted: dict[str, set[int]] = {}
+    for ts, _, _, event in fills:
+        wanted.setdefault(str(event.instrument_id), set()).add(ts - ts % MINUTE_NS)
+    volumes: dict[tuple[str, int], str] = {}
+    for row in instruments:
+        instrument = str(row["instrument_id"])
+        minutes = wanted.get(instrument)
+        if not minutes:
+            continue
+        closes = pa.array([opened - 1_000_000 + EXECUTION_BAR_MINUTES * MINUTE_NS for opened in minutes], pa.int64())
+        root = Path(row["catalog_path"]) / "data" / "bars" / f"{instrument}-{EXECUTION_BAR_MINUTES}-MINUTE-LAST-EXTERNAL"
+        for file in sorted(root.glob("*.parquet")):
+            table = parquet.read_table(file, columns=["ts_event", "volume"])
+            stamps = table["ts_event"].cast(pa.int64())
+            held = table.filter(compute.is_in(stamps, value_set=closes))
+            for close, volume in zip(held["ts_event"].cast(pa.int64()).to_pylist(), held["volume"].to_pylist(),
+                                     strict=True):
+                opened = close + 1_000_000 - EXECUTION_BAR_MINUTES * MINUTE_NS
+                volumes[instrument, opened] = format(volume.normalize(), "f")
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(FILL_VOLUME_COLUMNS)
+        for ts, _, _, event in fills:
+            instrument, opened = str(event.instrument_id), ts - ts % MINUTE_NS
+            writer.writerow((str(event.event_id), instrument, ts, opened, volumes.get((instrument, opened), "")))
 
 
 def summary_statistics(returns_series: dict[int, float], trade_start_ns: int, end_ns: int,
@@ -235,6 +276,7 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
     if denied_or_rejected:
         integrity_findings.insert(0, "ORDERS_DENIED_OR_REJECTED: the orders report holds DENIED or REJECTED orders")
     write_order_events(replay.cache.orders(), output / ORDER_EVENTS)
+    write_fill_volumes(replay.cache.orders(), instruments, output / FILL_VOLUMES)
     for finding in capital_findings(replay.observer, expected_timestamps):
         if finding not in integrity_findings:
             integrity_findings.append(finding)

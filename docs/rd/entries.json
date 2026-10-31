@@ -189,10 +189,10 @@
   "code"
  ],
  [
-  "design-code-video-evidence",
-  "rd/design-code-video-evidence",
-  "Video evidence verification",
-  "视频证据核验",
+  "design-code-ide",
+  "rd/design-code-ide",
+  "Trade IDE",
+  "交易 IDE",
   "code"
  ],
  [
@@ -291,13 +291,6 @@
   "rd/design-skill-video-evidence",
   "Video evidence acquisition and verification",
   "视频证据采集与核验",
-  "skill"
- ],
- [
-  "design-skill-research-graph",
-  "rd/design-skill-research-graph",
-  "Research graph",
-  "研究图",
   "skill"
  ],
  [

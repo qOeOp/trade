@@ -1,0 +1,240 @@
+"""Graph to view model (research-graph-view@1): what to draw and where, in research units, no pixels.
+
+The view is a manifest (line, targets, counts) and a list of widgets. Each widget has an id, a
+versioned type (summary@1, lineage@2, progress@1, scatter@1, table@1, notes@1, candidate-detail@1, sources@1) and a slot (top, main or side) and is
+self-contained, so a renderer draws each type on its own and a widget can travel as its own document.
+
+x is research progress in the line's own trials: the line's n-th trial sits at n, its trial number
+travelling with it as a label, so other lines' trials in between take no room; a candidate sits at its first
+research run (or its first trial, a precheck, when it has none). Anything timed (an event, a version without trials, the scope start) sits halfway through the
+gap after the last trial before it, n + 0.5, found by interpolating between trials whose times are
+known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
+children in order of their first trial. A version drawn without its parent (a defect fix of its
+strategy ID, published as a new root) is linked to the latest earlier revision of its strategy ID in
+`revisions`, apart from the parent `edges`. A renderer maps these units to its own pixels and colours.
+
+The recommendation judgments form a trail over the recommended versions' rows (one segment per
+stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress@1` holds the research runs' annual
+returns on the same x.
+"""
+from __future__ import annotations
+
+import math
+from bisect import bisect_left
+from datetime import datetime, timezone
+
+VIEW_FORMAT = "research-graph-view@1"
+EVENT_KINDS = ("recommendation", "eligibility_change", "line_change")
+
+
+def seconds(value: str) -> float:
+    """Epoch seconds; a time without an offset is UTC (the ledger stores UTC without a zone)."""
+    moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def first_trial(candidate: dict) -> int | None:
+    ids = [t["trial_id"] for t in candidate.get("trials") or []]
+    return min(ids) if ids else None
+
+
+def places(candidates: list[dict]) -> dict[int, int]:
+    """Each trial's x: its place, from 1, among the trials of these candidates."""
+    ids = sorted({t["trial_id"] for c in candidates for t in c.get("trials") or []})
+    return {trial: n for n, trial in enumerate(ids, 1)}
+
+
+def research_runs(candidate: dict) -> list[dict]:
+    return [t for t in candidate.get("trials") or [] if t["purpose"] == "research"]
+
+
+def status(candidate: dict, targets: dict) -> str:
+    """recommended | masked | precheck_failed | unrun | meets_targets | below_targets."""
+    if candidate.get("status") == "recommended":
+        return "recommended"
+    runs = research_runs(candidate)
+    last = runs[-1] if runs else None
+    if candidate.get("status") == "masked" or (last and last.get("eligible") is False):
+        return "masked"
+    if candidate.get("status") == "precheck_failed":
+        return "precheck_failed"
+    if not last or last.get("annual_return") is None:
+        return "unrun"
+    meets = ((targets.get("annual_return") is None or last["annual_return"] >= targets["annual_return"])
+             and (targets.get("max_drawdown") is None or (last.get("max_drawdown") is not None
+                                                          and last["max_drawdown"] <= targets["max_drawdown"])))
+    return "meets_targets" if meets else "below_targets"
+
+
+def prediction(candidate: dict) -> str:
+    """held | failed | mixed | none, over predictions with a held or failed outcome."""
+    outcomes = [p.get("outcome") for p in candidate.get("predictions") or [] if p.get("outcome") in ("held", "failed")]
+    if not outcomes:
+        return "none"
+    return "held" if set(outcomes) == {"held"} else "failed" if set(outcomes) == {"failed"} else "mixed"
+
+
+class Clock:
+    """Maps a time to an x from (time, trial x) anchors that rise together."""
+
+    def __init__(self, candidates: list[dict], place: dict[int, int]):
+        anchors: list[tuple[float, float]] = []
+        for c in candidates:
+            anchors += [(seconds(t["at"]), place[t["trial_id"]]) for t in c.get("trials") or [] if t.get("at")]
+            trial = first_trial(c)
+            if c.get("created_at") and trial is not None:
+                anchors.append((seconds(c["created_at"]), place[trial] - 0.5))
+        self.points: list[tuple[float, float]] = []
+        for when, x in sorted(anchors):
+            if not self.points or (when > self.points[-1][0] and x >= self.points[-1][1]):
+                self.points.append((when, x))
+
+    def __call__(self, at: str) -> float | None:
+        if not self.points:
+            return None
+        when = seconds(at)
+        times = [p[0] for p in self.points]
+        i = bisect_left(times, when)
+        if i == 0:
+            return self.points[0][1]
+        if i == len(self.points):
+            return self.points[-1][1] + 0.5
+        (a, ta), (b, tb) = self.points[i - 1], self.points[i]
+        return ta + (tb - ta) * (when - a) / ((b - a) or 1)
+
+
+def rows(candidates: list[dict]) -> dict[str, int]:
+    known = {c["id"] for c in candidates}
+    children: dict[str | None, list[dict]] = {}
+    for c in candidates:
+        children.setdefault(c.get("parent") if c.get("parent") in known else None, []).append(c)
+    for group in children.values():
+        group.sort(key=lambda c: (first_trial(c) is None, first_trial(c) or 0, c["id"]))
+    order: dict[str, int] = {}
+    stack = list(reversed(children.get(None, [])))
+    while stack:
+        c = stack.pop()
+        if c["id"] in order:
+            continue
+        order[c["id"]] = len(order)
+        stack += reversed(children.get(c["id"], []))
+    for c in candidates:
+        order.setdefault(c["id"], len(order))
+    return order
+
+
+def revisions(candidates: list[dict], drawn: dict[str, int]) -> list[dict]:
+    """Each version drawn without its parent, from the latest earlier revision of its strategy ID drawn."""
+    numbers: dict[str, list[int]] = {}
+    for c in candidates:
+        name, _, number = c["id"].rpartition("@")
+        numbers.setdefault(name, []).append(int(number))
+    out = []
+    for c in candidates:
+        name, _, number = c["id"].rpartition("@")
+        earlier = [n for n in numbers[name] if n < int(number)]
+        if c.get("parent") not in drawn and earlier:
+            out.append({"from": f"{name}@{max(earlier)}", "to": c["id"]})
+    return out
+
+
+def build_view(graph: dict) -> dict:
+    candidates = graph["candidates"]
+    targets = (graph["line"].get("targets") or {})
+    place = places(candidates)
+    clock = Clock(candidates, place)
+
+    def gap(at: str) -> float | None:
+        x = clock(at)
+        return None if x is None else math.floor(x) + 0.5
+    row = rows(candidates)
+
+    def x_of(c: dict) -> float | None:
+        runs = research_runs(c)  # over its own bar on the progress chart, when it has one
+        trial = runs[0]["trial_id"] if runs else first_trial(c)
+        return float(place[trial]) if trial is not None else (gap(c["created_at"]) if c.get("created_at") else None)
+
+    nodes = []
+    for c in candidates:
+        runs = research_runs(c)
+        last = runs[-1] if runs else {}
+        nodes.append({"id": c["id"], "row": row[c["id"]], "x": x_of(c), "status": status(c, targets),
+                      "role": c.get("status"), "change": c.get("change"),
+                      "prediction": prediction(c),
+                      "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
+    events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
+    recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
+                  key=lambda e: seconds(e["at"]))
+    timed = [gap(e["at"]) for e in events]
+    xs = [n["x"] for n in nodes if n["x"] is not None] + [x for x in timed if x is not None]
+    lo, hi = (min(xs) - 1, max(xs) + 1) if xs else (0.0, 1.0)
+    trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
+    for e in recs:
+        x = gap(e["at"])
+        if trail and trail[-1]["candidate"] == e["recommends"]:
+            trail[-1]["judgments"].append(x)
+        else:
+            trail.append({"candidate": e["recommends"], "row": row[e["recommends"]], "x0": x, "judgments": [x]})
+    for a, b in zip(trail, [*trail[1:], None][:len(trail)], strict=True):
+        a["x1"] = b["x0"] if b else hi
+    start = (graph.get("scope") or {}).get("start")
+    status_of = {n["id"]: n["status"] for n in nodes}
+    current = recs[-1]["recommends"] if recs else None
+    streak = len(recs)
+    while streak > 0 and recs[streak - 1]["recommends"] == current:
+        streak -= 1
+    held_since = gap(recs[streak]["at"]) if recs else None
+    runs = [t for c in candidates for t in research_runs(c)]
+    best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
+    prediction_of = {n["id"]: n["prediction"] for n in nodes}
+    widgets = [
+        {"id": "summary", "type": "summary@1", "slot": "top", "targets": targets,
+         "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}
+         if best else None, "status": status_of.get(current) if current else None,
+         "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
+         "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
+         "versions": len(candidates), "research_runs": len(runs),
+         "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
+         "meeting_targets": sum(1 for n in nodes if n["status"] in ("meets_targets", "recommended")
+                                and n["reading"]["annual_return"] is not None
+                                and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
+                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
+                                                                and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
+        {"id": "lineage", "type": "lineage@2", "slot": "main", "title": "Lineage by trial", "targets": targets,
+         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
+         "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
+         "nodes": nodes,
+         "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
+         "revisions": revisions(candidates, row),
+         "trail": trail,
+         "trials": sorted(({"trial_id": t["trial_id"], "x": place[t["trial_id"]], "candidate": c["id"], "purpose": t["purpose"]}
+                           for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},
+        {"id": "progress", "type": "progress@1", "slot": "main", "title": "Progress", "targets": targets,
+         "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
+         "points": [{"id": c["id"], "trial_id": t["trial_id"], "x": place[t["trial_id"]], "annual_return": t["annual_return"],
+                     "max_drawdown": t.get("max_drawdown"), "eligible": t.get("eligible")}
+                    for c in candidates for t in research_runs(c) if t.get("annual_return") is not None],
+         "recommended": sorted({t["candidate"] for t in trail})},
+        {"id": "readings", "type": "scatter@1", "slot": "main", "title": "Research runs: annual return vs max drawdown",
+         "targets": targets,
+         "points": [{"id": c["id"], "trial_id": t["trial_id"], "annual_return": t["annual_return"],
+                     "max_drawdown": t["max_drawdown"], "eligible": t.get("eligible"), "status": status_of[c["id"]]}
+                    for c in candidates for t in research_runs(c)
+                    if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
+        {"id": "versions", "type": "table@1", "slot": "main", "title": "Version table", "targets": targets,
+         "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
+                   "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
+                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}}
+                  for c in candidates]},
+        {"id": "gaps", "type": "notes@1", "slot": "main", "title": "What this data lacks", "items": graph["gaps"]},
+        {"id": "details", "type": "candidate-detail@1", "slot": "side",
+         "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
+         "items": [{**{k: v for k, v in c.items() if k != "source"}, "status_class": status_of[c["id"]],
+                    "prediction_class": prediction_of[c["id"]]} for c in candidates]},
+        {"id": "sources", "type": "sources@1", "slot": "side", "title": "Sources",
+         "items": [{"id": c["id"], "parent": c.get("parent") if c.get("parent") in row else None, "source": c.get("source")}
+                   for c in sorted(candidates, key=lambda c: c["id"])]},
+    ]
+    return {"format": VIEW_FORMAT, "source": graph["source"], "scope": graph.get("scope"), "line": graph["line"], "targets": targets,
+            "counts": {"candidates": len(candidates), "research_runs": sum(len(research_runs(c)) for c in candidates)},
+            "widgets": widgets}

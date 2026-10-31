@@ -66,9 +66,9 @@ await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), join(siteRoot, 'lib', 'generated', 'rd-map.json'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
-// The trade IDE's faces (services/ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's
+// The trade IDE's faces (ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's
 // unicode-range slices on jsDelivr at the IDE's pinned version, so a browser fetches only the slices on screen.
-const ideFonts = join(repositoryRoot, 'services', 'ide', 'web', 'fonts');
+const ideFonts = join(repositoryRoot, 'ide', 'web', 'fonts');
 await mkdir(join(siteRoot, 'public', 'fonts'), { recursive: true });
 for (const weight of ['Regular', 'Medium', 'Bold']) {
   await copyFile(join(ideFonts, `Supply-${weight}.otf`), join(siteRoot, 'public', 'fonts', `Supply-${weight}.otf`));

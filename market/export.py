@@ -269,10 +269,11 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
         while len(pending) >= chunk:
             # The catalog keeps each file's closed time interval disjoint from the others, so one millisecond's
             # states (several per trade burst) never straddle two files: a file ends only where the time changes.
-            cut = int(np.flatnonzero(np.diff(pending[:chunk + 1, 0]) > 0)[-1]) + 1 if len(pending) > chunk \
-                else int(np.flatnonzero(np.diff(pending[:, 0]) > 0)[-1]) + 1 if np.any(np.diff(pending[:, 0]) > 0) else 0
-            if cut == 0:
-                break  # one millisecond longer than a chunk: wait for the time to change
+            starts = np.flatnonzero(np.diff(pending[:, 0]) > 0) + 1  # where each later millisecond begins
+            if not len(starts):
+                break  # one millisecond so far: wait for the time to change
+            within = starts[starts <= chunk]
+            cut = int(within[-1] if len(within) else starts[0])  # a millisecond longer than a chunk is one file
             flush(pending[:cut])
             pending = pending[cut:]
     if len(pending):

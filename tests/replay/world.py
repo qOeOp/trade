@@ -60,11 +60,10 @@ if spec["module"] == "fingerprint":
 
 if spec["module"] == "audit":
     out = Path(mounts["/reports"])
-    if scenario.get("audit_writes", True):
-        (out / "audit.json").write_text(json.dumps({"passed": scenario.get("audit_passed", True),
-            "findings": scenario.get("findings", []), "native_economics": {
-                "reported_realized_pnl_usdt": "9.80000000", "fill_commissions_usdt": "0.20000000",
-                "reported_funding_usdt": "0", "final_balance_usdt": "100009.80000000"}}))
+    (out / "audit.json").write_text(json.dumps({"passed": scenario.get("audit_passed", True),
+        "findings": scenario.get("findings", []), "native_economics": {
+            "reported_realized_pnl_usdt": "9.80000000", "fill_commissions_usdt": "0.20000000",
+            "reported_funding_usdt": "0", "final_balance_usdt": "100009.80000000"}}))
     sys.exit(scenario.get("audit_exit", 0))
 
 out = Path(mounts["/reports"])
@@ -86,7 +85,7 @@ if scenario.get("skip_reports"):
 first, t0 = symbols[0], ns(trade_start)
 iid = first + "-PERP.BINANCE"
 buy, sell = t0 + 3600 * 10**9, t0 + 7200 * 10**9
-tag = repr(["plan:%s-1" % iid]) if scenario.get("plan_tags", True) else "[]"
+tag = repr(["plan:%s-1" % iid])
 orders = [
     {"client_order_id": "O-1", "instrument_id": iid, "side": "BUY", "type": "LIMIT", "status": "FILLED", "filled_qty": "1",
      "ts_init": str(buy - 60 * 10**9), "ts_last": str(buy), "tags": tag, "parent_order_id": "", "is_reduce_only": "False"},
