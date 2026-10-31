@@ -48,19 +48,19 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const ticks = y.ticks(count);
   const left = progressGutter(widget);
   const sx = (t: number) => x0 + t * unit;
-  const near = at == null ? null : points.find((p) => p.trial_id === at) ?? null;
+  const near = at == null ? null : points.find((p) => p.x === at) ?? null;
   const recommended = new Set(widget.recommended);
   const scope = widget.axis.scope_start;
   const barWidth = Math.min(MAX_BAR, Math.max(3, unit * SLOT));
   const tone = (r: number): ColorRole => (r < 0 ? "misses" : target != null && r >= target ? "meets" : "bar");
   const column = (p: (typeof points)[number], fill: string) =>
-    <rect key={`c${p.trial_id}`} x={sx(p.trial_id) - unit / 2} y={TOP} width={unit} height={Math.max(y(0), y(p.annual_return)) - TOP} fill={fill} />;
-  const byTrial = [...points].sort((a, b) => a.trial_id - b.trial_id);
+    <rect key={`c${p.trial_id}`} x={sx(p.x) - unit / 2} y={TOP} width={unit} height={Math.max(y(0), y(p.annual_return)) - TOP} fill={fill} />;
+  const byTrial = [...points].sort((a, b) => a.x - b.x);
   const keys = chartKeys({
-    along: byTrial, at: (list) => list.findIndex((p) => p.trial_id === at),
+    along: byTrial, at: (list) => list.findIndex((p) => p.x === at),
     move: (p) => {
-      crosshair.set(p.trial_id); hovered.set([p.id]);
-      if (sx(p.trial_id) < left || sx(p.trial_id) > width) requestFocus(p.id);
+      crosshair.set(p.x); hovered.set([p.id]);
+      if (sx(p.x) < left || sx(p.x) > width) requestFocus(p.id);
     },
     enter: (p) => { select(p.id); requestFocus(p.id); },
     leave: () => { crosshair.set(null); hovered.set(null); },
@@ -85,14 +85,14 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
             <g className="chart-grid" stroke={v("grid")}>
               {ticks.filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={crisp(y(t))} y2={crisp(y(t))} />)}
             </g>
-            {near && readout != null && <line className="chart-crosshair" x1={0} x2={sx(near.trial_id) - barWidth / 2} y1={crisp(readout)} y2={crisp(readout)}
+            {near && readout != null && <line className="chart-crosshair" x1={0} x2={sx(near.x) - barWidth / 2} y1={crisp(readout)} y2={crisp(readout)}
                                       stroke={v("crosshair")} strokeDasharray="1 2" pointerEvents="none" />}
             <g className="chart-series">
               {points.map((p) => (
                 <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · research run`} version={p.id}
                   note={`Return ${pct(p.annual_return)}${p.max_drawdown != null ? ` · drawdown ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · once recommended" : ""}`} />}>
                   <path {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="cursor-pointer" onClick={() => requestFocus(p.id)}
-                        d={bar(sx(p.trial_id) - barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)}
+                        d={bar(sx(p.x) - barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)}
                         fill={v(tone(p.annual_return))} />
                 </Tip>
               ))}

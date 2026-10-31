@@ -17,7 +17,7 @@ const lineWidth = (id: string) => 160 + id.length * 7.5;
  *  row's stripe, and right to the end of the last trial or of the longest-reaching version's name.
  *  Nothing is drawn or panned beyond it, so the canvas never opens on empty trials past the content. */
 export function bounds(widget: LineageWidget, inset = UNIT / 2) {
-  const trials = widget.trials.map((t) => t.trial_id);
+  const trials = widget.trials.map((t) => t.x);
   const placed = widget.nodes.flatMap((n) => n.x == null ? [] : [n.x]);
   // The ruler also holds old prechecks; a trial without a version at it must not open an empty span.
   const first = placed.length ? Math.min(...placed) : 0;
