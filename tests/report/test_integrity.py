@@ -57,9 +57,9 @@ class IntegrityTests(unittest.TestCase):
         cls.derive("not_the_merge", NOT_THE_MERGE, "a", "a", "another second change", interaction)
         # A corner registered before its run: the interaction is declared while b_late has not run yet.
         cls.publish("b_late", B_LATE, "base", "a late second change")
-        cls.register_child("b_late", B_LATE, "base", "base", "a late second change")
+        cls.register_child("b_late", B_LATE, "base", "base")
         cls.publish("ab_late", AB_LATE, "a", "a late second change")
-        cls.register_child("ab_late", AB_LATE, "a", "a", "a late second change",
+        cls.register_child("ab_late", AB_LATE, "a", "a",
                            {"base": cls.refs["base"], "a": cls.refs["a"], "b": cls.refs["b_late"]})
         cls.replay("b_late", "registration-b_late")
         cls.replay("ab_late", "registration-ab_late")
@@ -71,7 +71,7 @@ class IntegrityTests(unittest.TestCase):
                                                       difference=difference)["candidate"]
 
     @classmethod
-    def register_child(cls, name, data, parent, control, change, interaction=None) -> None:
+    def register_child(cls, name, data, parent, control, interaction=None) -> None:
         world = cls.world
         prediction = {"mechanism": [{"slice": "capital_scaled", "measure": "unit_return", "direction": "up",
                                      "duty": "F3", "reason": "fixture"}], "outcomes": dict(OUTCOMES)}
@@ -79,12 +79,12 @@ class IntegrityTests(unittest.TestCase):
             prediction["interaction"] = interaction
         world.register(f"registration-{name}", world.body(
             [cls.refs[name]], {cls.refs[name]: world.prechecked(data)}, parent=cls.refs[parent],
-            control_trial_id=cls.runs[control]["trial_id"], change=change, duties=["F3"], prediction=prediction))
+            control_trial_id=cls.runs[control]["trial_id"], duties=["F3"], prediction=prediction))
 
     @classmethod
     def derive(cls, name, data, parent, control, change, interaction=None) -> None:
         cls.publish(name, data, parent, change)
-        cls.register_child(name, data, parent, control, change, interaction)
+        cls.register_child(name, data, parent, control, interaction)
         cls.replay(name, f"registration-{name}")
 
     @classmethod

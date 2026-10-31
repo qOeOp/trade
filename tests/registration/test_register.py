@@ -52,7 +52,7 @@ class RegisterTests(unittest.TestCase):
 
     def derived(self, **overrides) -> dict:
         body = self.world.body([self.child["candidate"]], {self.child["candidate"]: self.child_review},
-                               parent="rsi@1", change="cap volume at 5%", duties=["G3"])
+                               parent="rsi@1", duties=["G3"])
         body.update(overrides)
         return body
 
@@ -83,6 +83,18 @@ class RegisterTests(unittest.TestCase):
         self.assertEqual(self.code("registration-root", self.world.body(["rsi@1"], {"rsi@1": self.root_review},
                                                                          conditions="a narrower pool")),
                          "DUPLICATE_BUNDLE")
+
+    def test_the_stored_change_is_the_published_difference_and_the_body_does_not_write_it(self):
+        """A body states no change; the stored body carries the grid candidate's difference byte for
+        byte (none for a root), so a retyped copy that differs, say by a trailing newline, cannot arise."""
+        noted = self.world.publish("noted", difference="cap volume at 5%\n")
+        body = self.world.body([noted["candidate"]], {noted["candidate"]: self.world.prechecked(noted["source"])},
+                               parent="rsi@1", duties=["G3"])
+        self.assertEqual(self.code("registration-noted", {**body, "change": "cap volume at 5%\n"}),
+                         "REGISTRATION_INVALID", "a body that writes change is refused, even with the same text")
+        self.world.register("registration-noted", body)
+        self.assertEqual(self.world.plan("registration-noted")["body"], {**body, "change": "cap volume at 5%\n"})
+        self.assertIsNone(self.world.plan("registration-root")["body"]["change"])
 
     def test_a_derived_registration_writes_its_source_originals_in_the_same_commit(self):
         original = self.world.tmp / "paper.txt"
@@ -155,8 +167,7 @@ class RegisterTests(unittest.TestCase):
     def test_lineage_grid_and_references_are_checked_against_the_ledger(self):
         cases = {
             "root with control": self.world.body(["rsi@1"], {"rsi@1": self.root_review}, control_trial_id=1),
-            "root with change": self.world.body(["rsi@1"], {"rsi@1": self.root_review}, change="x"),
-            "derived without change": self.derived(change=None),
+            "root with a written change": self.world.body(["rsi@1"], {"rsi@1": self.root_review}, change=None),
             "unknown parent": self.derived(parent="ghost@1"),
             "no control, no local diagnosis": self.derived(rationale={"external": "", "local": " ",
                                                                       "conjecture": "c"}),
@@ -168,8 +179,10 @@ class RegisterTests(unittest.TestCase):
         for label, body in cases.items():
             with self.subTest(label=label):
                 self.assertEqual(self.code("registration-lineage", body), "REGISTRATION_INVALID")
-        self.assertEqual(self.code("registration-lineage", self.derived(change="cap volume at 6%")),
-                         "LINEAGE_MISMATCH")
+        other = self.world.publish("another change", difference="cap volume at 6%")
+        self.assertEqual(self.code("registration-lineage", self.derived(grid=[
+            {"candidate": self.child["candidate"], "params": {}}, {"candidate": other["candidate"], "params": {}}])),
+            "LINEAGE_MISMATCH", "one registration tests one change")
         self.assertEqual(self.code("registration-lineage", self.world.body(
             [self.child["candidate"]], {self.child["candidate"]: self.child_review})), "LINEAGE_MISMATCH")
         with patch.object(strategies, "RUNTIME_CONTRACT", "r0-retired"):
@@ -453,7 +466,7 @@ class LineRecordTests(unittest.TestCase):
 
     def derived(self, control_trial_id=None, **overrides) -> dict:
         return self.world.body([self.child["candidate"]], {self.child["candidate"]: self.child_review},
-                               parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_trial_id=control_trial_id,
+                               parent="rsi@1", duties=["G3"], control_trial_id=control_trial_id,
                                **overrides)
 
     def code(self, body, **kwargs) -> str:
@@ -479,7 +492,7 @@ class LineRecordTests(unittest.TestCase):
         another = world.publish("second child")
         review = world.prechecked(another["source"])
         body = world.body([another["candidate"]], {another["candidate"]: review}, parent="rsi@1",
-                          change="cap volume at 5%", duties=["G3"], control_trial_id=trial_id)
+                          duties=["G3"], control_trial_id=trial_id)
         exc = refused(world.register, "registration-gated", body)
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {self.root_trial}",)))
         first = world.judge("interpretation", subjects=[{"role": "about", "registration_bundle": "registration-root"}])
@@ -495,7 +508,7 @@ class LineRecordTests(unittest.TestCase):
         trial_id = world.seal_run(self.root_trial)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
         narrower = world.body([self.child["candidate"]], {self.child["candidate"]: self.child_review},
-                              parent="rsi@1", change="cap volume at 5%", duties=["G3"], control_trial_id=trial_id)
+                              parent="rsi@1", duties=["G3"], control_trial_id=trial_id)
         exc = refused(world.register, "registration-narrow", narrower,
                       runner_argv=[*RUNNER_ARGV, "--symbols", "AAAUSDT"])
         self.assertEqual((exc.code, exc.missing),

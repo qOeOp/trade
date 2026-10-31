@@ -305,7 +305,7 @@ class CrossImageTests(unittest.TestCase):
         cls.first = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
                               hypothesis="registration-r1")
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.first["trial_id"]}])
-        body = world.plan("registration-r1")["body"]
+        body = {key: value for key, value in world.plan("registration-r1")["body"].items() if key != "change"}
         world.qualification.unavailable.add(cls.first["trial_id"])  # the stand-in registration sees no evidence
         world.register("registration-r2", {**body, "retry_of": "registration-r1"})
         world.fingerprint = FINGERPRINT

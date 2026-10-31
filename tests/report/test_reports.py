@@ -77,7 +77,7 @@ class ReportTests(unittest.TestCase):
                       "reason": "fixture"},
                      {"slice": None, "measure": None, "direction": "up", "duty": "F3", "reason": "no slice measures it"}]
         body = world.body([cls.child_ref], {cls.child_ref: world.prechecked(child["source"])}, parent=cls.control_ref,
-                          control_trial_id=cls.control["trial_id"], change="widen the stop", duties=["F3"],
+                          control_trial_id=cls.control["trial_id"], duties=["F3"],
                           prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)})
         world.register("registration-child", body)
         world.scenario = {"returns": CANDIDATE_RETURNS}

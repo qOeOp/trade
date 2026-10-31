@@ -212,8 +212,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         "registered validation candidate.",
                         ("Replay a source of the registered grid (or the registered candidate), or register "
                          "again.",)),
-    "LINEAGE_MISMATCH": ("The grid source's parent or difference no longer matches the registration.",
-                         ("Register the grid again from the published candidates.",)),
+    "LINEAGE_MISMATCH": ("A grid candidate's parent is not the registration's parent, or it was published with "
+                         "another difference than the first grid candidate.",
+                         ("Register only candidates published from the parent with one and the same "
+                          "--difference.",)),
     "EXECUTION_MISMATCH": ("What the trial records (purpose, windows, instruments, runtime image and contract, "
                            "effective configuration, input identity) differs from the registration.",
                            ("Replay with the registered execution identity, or register again.",)),
