@@ -74,6 +74,11 @@ resolving them by changing authority.
 - Design: compare published pages and their presentation consumers with current code and skills,
   including commands, fields, rules, paths and eval references. Distinguish published state from
   checkout changes awaiting delivery.
+- Human use: for what the user reads or does (the IDE, CLI and report output, ledger queries),
+  check that a researcher finds target attainment, line state and decisions waiting on them, and
+  reaches the views and actions the research skills hand to them, against a published usability
+  norm such as [Nielsen's ten heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/).
+  Count a task's steps where that decides a finding. A whole-product review reads `ide/`.
 
 ## Removal test
 
