@@ -1,18 +1,13 @@
-# 研究图：research-graph
+# 交易 IDE
 
-从研究账本把一条研究线画成图：按试验编号排开的策略版本谱系，以及回放、预测、源码审阅、推荐与资格变化，渲染成本地页面。检验账本能否还原会话的反向测试归 product-doctor（[references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)），复用这里的数据格式与对比工具。
+研究的本地页面。第一个视图从研究账本把一条研究线画成图：按试验编号排开的策略版本谱系，以及回放、预测、源码审阅、推荐与资格变化。检验账本能否还原会话的反向测试归 product-doctor（[references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)），复用这里的数据格式与对比工具。
 
-## `SKILL.md` [#def-file-research-graph-SKILL-md]
-
-**触发**　用户要看、要画一条研究线的历史、进展或决策路径。
-
-**职责**
+## 约定
 
 1. 图由产品命令 `research graph` 只从账本读出：只组合产品已有的读取函数、不加自己的规则，同一账本提交永远得到同一张图；图里带该提交上这条路线生效的两个用户目标，从账本读出。
 2. 图须通过 `ide.py check`；不为迁就数据放宽格式。
-3. 用 `ide.py render` 出页面，交给用户时说明图里显示了什么、缺什么。
-4. 要跟着研究看，用户起交易 IDE 服务（`docker compose -f services/ide/docker/compose.yaml up -d`）并打开 `http://127.0.0.1:8765/`（`?line=`、`since=`，或 `at=` 看固定版本）；它读公开的 DoltHub 副本，写入发布后才显示。
-5. 新渲染器只读视图模型；新图表是新的 widget 类型；图的新事实是新的格式版本，格式、`research graph`、布局、对比与 product-doctor 的反向测试一起改。
+3. 用户在 compose 部署上打开 `http://127.0.0.1:8765/`（`?line=`、`since=`，或 `at=` 看固定版本）；它读活动账本的头，写入提交后就显示。`ide.py render` 把同一页面写成一个独立文件，用于固定的一张图。
+4. 新渲染器只读视图模型；新图表是新的 widget 类型；图的新事实是新的格式版本，格式、`research graph`、布局、对比与 product-doctor 的反向测试一起改。
 
 ## 工具：services/ide
 

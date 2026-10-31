@@ -1,18 +1,13 @@
-# Research graph: research-graph
+# Trade IDE
 
-Draws one research line from the research ledger as a graph: the lineage of strategy versions over trial numbers with their replays, predictions, source reviews, recommendations and eligibility changes, rendered as a local page. The reverse test of whether the ledger reconstructs a session belongs to product-doctor ([references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)) and reuses this format and comparison tool.
+A local page onto the research. Its first view draws one research line from the research ledger as a graph: the lineage of strategy versions over trial numbers with their replays, predictions, source reviews, recommendations and eligibility changes. The reverse test of whether the ledger reconstructs a session belongs to product-doctor ([references/fidelity.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/product-doctor/references/fidelity.md)) and reuses this format and comparison tool.
 
-## `SKILL.md` [#def-file-research-graph-SKILL-md]
-
-**Trigger**　The user wants to see or draw a research line's history, progress or decision path.
-
-**Duties**
+## Contract
 
 1. A graph is read from the ledger only by the product command `research graph`, which composes the product's readers and adds no rule, so one ledger commit always gives one graph; the graph carries the user's two targets in force for the line at that commit, read from the ledger.
 2. A graph must pass `ide.py check`; the format is never loosened to fit the data.
-3. `ide.py render` writes the page; the user gets its path with what the graph shows and what it lacks.
-4. To follow the research, the user starts the trade IDE service (`docker compose -f services/ide/docker/compose.yaml up -d`) and opens `http://127.0.0.1:8765/` (`?line=`, `since=`, or `at=` for a fixed version); it reads the public DoltHub copy, so a write shows once it is published.
-5. A new renderer reads only the view model; a new chart is a new widget type; a new fact in the graph is a new format version, changed together in the format, `research graph`, the layout, the comparison and product-doctor's fidelity test.
+3. The user opens `http://127.0.0.1:8765/` (`?line=`, `since=`, or `at=` for a fixed version) on the compose deployment; it reads the active ledger's head, so a write shows once it is committed. `ide.py render` writes the same page as one standalone file for a fixed graph.
+4. A new renderer reads only the view model; a new chart is a new widget type; a new fact in the graph is a new format version, changed together in the format, `research graph`, the layout, the comparison and product-doctor's fidelity test.
 
 ## Tool: services/ide
 
