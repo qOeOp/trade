@@ -61,7 +61,8 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
     label = f"{symbol} {day}"
     low = series._day_ms(date.fromisoformat(day))
     found: dict[int, tuple] = {}
-    readings = {"rows": 0, "repeated_rows": 0, "empty": dict.fromkeys(RATIOS, 0)}
+    repeated = 0
+    empty = dict.fromkeys(RATIOS, 0)
     try:
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
@@ -89,14 +90,14 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
                         if found[moment] != value:
                             raise _refuse(f"{label}: two rows at {item['create_time']} differ", "SOURCE_SHAPE",
                                           missing=(label,))
-                        readings["repeated_rows"] += 1
+                        repeated += 1
                         continue
                     found[moment] = value
                     for name in RATIOS:
-                        readings["empty"][name] += not item[name]
+                        empty[name] += not item[name]
     except (ValueError, csv.Error, UnicodeError, zipfile.BadZipFile, zlib.error, EOFError) as exc:
         raise _refuse(f"{label}: rows do not parse as metrics ({exc})", "SOURCE_SHAPE", missing=(label,)) from exc
-    readings["rows"] = len(found)
+    readings = {"rows": len(found), "repeated_rows": repeated, "empty": empty}
     return [found[moment] for moment in sorted(found)], readings
 
 
@@ -129,7 +130,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
             if not scope:
                 raise _refuse(f"{month:%Y-%m} has no universe members in the market database; import its bars first "
                               "or name --symbols", "UNIVERSE_UNKNOWN", missing=(f"{month:%Y-%m}",))
-        held = {}
+        held: dict[str, int] = {}
         for item in store.metrics_imports(conn):
             if item["month"] == f"{month:%Y-%m}":
                 for symbol in item["symbols"]:
