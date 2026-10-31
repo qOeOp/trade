@@ -301,13 +301,7 @@ class CompleteImportTests(unittest.TestCase):
             found = export.export_catalogs(profile, commit, ['BTCUSDT'], low, high, episodes, evidence, fresh=True,
                                            root=Path(self.temp.name), workers=1)
             root = Path(found['root'])
-            files = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
-            for name in list(files):
-                if name.endswith('export.json'):
-                    receipt = json.loads(files[name])
-                    receipt.pop('seconds')
-                    files[name] = json.dumps(receipt, sort_keys=True).encode()
-            return files
+            return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
         from market import lifecycle
         iid = 'BTCUSDT-E1-PERP.BINANCE'

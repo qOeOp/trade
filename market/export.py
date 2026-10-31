@@ -25,7 +25,6 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
-import time
 from typing import Any
 
 import numpy as np
@@ -401,7 +400,6 @@ def export_episode(job: dict) -> dict:
     """market.export_episode: one contract's Catalogs for the window under `job['path']`; returns its receipt."""
     from nautilus_trader.model import InstrumentId
     from nautilus_trader.persistence import ParquetDataCatalog
-    started = time.monotonic()
     symbol, commit, start_ns, end_ns = job["symbol"], job["commit"], job["start_ns"], job["end_ns"]
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
     price_scale, volume_scale = job["scales"]
@@ -484,7 +482,7 @@ def export_episode(job: dict) -> dict:
     receipt = {"format": FORMAT, "symbol": symbol, "commit": commit, "timeframe": TIMEFRAME, "start_ns": start_ns,
                "end_ns": end_ns, "coverage": facts, "terms_source": record["terms_source"],
                "terms_observed_at": record["terms_observed_at"], "historical_terms": record["historical_terms"],
-               "assumed": record["assumed"], "pieces": pieces, "seconds": round(time.monotonic() - started, 1)}
+               "assumed": record["assumed"], "pieces": pieces}
     (path / "export.json").write_text(json.dumps(receipt, indent=1, ensure_ascii=False), encoding="utf-8")
     return receipt
 
@@ -559,7 +557,6 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                          "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
                          "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
                          "include_trades": include_trades})
-    started = time.monotonic()
     try:
         if jobs:
             with ProcessPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
@@ -574,4 +571,4 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             shutil.rmtree(window, ignore_errors=True)
         raise
     return {"commit": commit, "root": str(window), "exported": len(jobs), "cached": len(symbols) - len(jobs),
-            "seconds": round(time.monotonic() - started, 1), "receipts": {symbol: receipts[symbol] for symbol in symbols}}
+            "receipts": {symbol: receipts[symbol] for symbol in symbols}}

@@ -148,7 +148,7 @@ class MarketAdapter(Protocol):
 
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False) -> dict:
-        """{commit, root, exported, reused, seconds, receipts, exporter_source_sha256}: the last is the hash
+        """{commit, root, exported, reused, receipts, exporter_source_sha256}: the last is the hash
         of the exporter code that wrote the files (market.export.exporter_sha256 where it ran)."""
         ...
 
@@ -207,7 +207,7 @@ class Market:
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc
             raise
         return {"commit": done["commit"], "root": Path(done["root"]), "exported": done["exported"],
-                "reused": done["cached"], "seconds": done["seconds"], "receipts": done["receipts"],
+                "reused": done["cached"], "receipts": done["receipts"],
                 "exporter_source_sha256": export.exporter_sha256()}
 
     def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
