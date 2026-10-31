@@ -38,7 +38,7 @@
 
 <ol className="rd-skill-rules">
 <li id="def-rule-R-1-2-2">比率用引擎统计类对交易窗口日收益算，按 365 天年化，不引第三方库；HTML 绩效页只在用户要求时做 <span className="rd-rule-links"><Ref id="R.1.2.2">R.1.2.2</Ref></span><span className="rd-eval">eval <code>native-stats-and-tearsheet</code>：比率由引擎统计类对交易窗口日收益按 365 天年化得出；没有引入其他分析依赖；全程夏普与原生摘要一致，或说明了口径差异</span></li>
-<li id="def-rule-V-4-4-2">折扣夏普取研究状态同窗口去重版本数与全部试验数各算一端，报范围并列次数 <span className="rd-rule-links"><Ref id="V.4.4.2">V.4.4.2</Ref></span><span className="rd-eval">eval <code>dsr-uses-ledger-counts</code>：从 research status 读同一开发窗口的去重版本数与全部试验数，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交</span></li>
+<li id="def-rule-V-4-4-2">折扣夏普取研究状态多重检验读数的有效试验数与全部重叠试验数各算一端，报范围并列次数 <span className="rd-rule-links"><Ref id="V.4.4.2">V.4.4.2</Ref></span><span className="rd-eval">eval <code>dsr-uses-ledger-counts</code>：从 research status 的 multiple_testing 读有效试验数、全部重叠试验数与日夏普方差，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交</span></li>
 </ol>
 
 ## `references/capital.md` [#def-file-nautilus-report-analysis-references-capital-md]

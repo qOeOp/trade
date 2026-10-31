@@ -8,11 +8,13 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import date, datetime, time
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import UTC, date, datetime, time, timedelta
 import hashlib
 import json
+import math
 import re
+import statistics
 
 from ledger import db, evidence, execution, judgments, lines, problems, reproduction, witness
 from ledger import targets as line_targets
@@ -30,6 +32,7 @@ MANY_KINDS = ("interpretation", "search_exposure")
 TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
 TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, dict]]:
@@ -207,23 +210,16 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
 
 def research_status(ledger, at: str | None = None, line_bundle: str | None = None) -> dict:
     """Research fact counts at a ledger version: trials, versions, registration attempts by outcome and
-    out-of-sample registrations; only counts, versions and the checker identity. The trial counts
-    (`trials`, `distinct_sources`, `by_development_window`, the multiple-testing counts) leave out
-    reproductions and trials stopped before the strategy ran, listed in `excluded_trials`.
-    `comparison` is the comparison table of `line_bundle` (default: the only open line; null when no
-    line or several lines are open)."""
+    out-of-sample registrations; only counts, versions and the checker identity. `trials` and
+    `multiple_testing` leave out reproductions and trials stopped before the strategy ran, listed in
+    `excluded_trials`. `comparison` is the comparison table and `multiple_testing` the
+    multiple-testing reading of `line_bundle` (default: the only open line; both null when no line or
+    several lines are open)."""
     checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(ledger), at) as conn:
         commit = db.head_commit(conn)
         records = availability.review_records(conn)
         found = counted_trials(conn)
-        trials, sources = len(found["counted"]), len({trial["source_sha256"] for trial in found["counted"]})
-        by_window: dict[tuple, list[dict]] = {}
-        for trial in found["counted"]:
-            by_window.setdefault((trial["trade_start"], trial["trade_end"]), []).append(trial)
-        windows = [{"trade_start": start, "trade_end": end, "trials": len(items),
-                    "distinct_sources": len({item["source_sha256"] for item in items})}
-                   for (start, end), items in sorted(by_window.items())]
         excluded = {"reproductions": found["reproductions"],
                     "stopped_before_strategy": found["stopped_before_strategy"]}
         gaps = [f"run {trial_id}" for (trial_id,) in conn.rows(
@@ -236,7 +232,7 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
             raise refuse("REFERENTIAL_GAP", "references to missing trial rows: " + ", ".join(gaps[:5]),
                          missing=tuple(gaps))
         counted = {"unfinished": 0, "invalid": 0, "passed": 0, "valid": 0, "diagnostic": 0}
-        unverified = []
+        unverified, available = [], set()
         for row in attempts:
             if row["status"] is None:
                 counted["unfinished"] += 1
@@ -248,6 +244,8 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
                 if assessed.get("unverified_records"):
                     unverified.append({"trial_id": row["trial_id"], "reason": assessed["reasons"][0]})
                 counted["valid" if assessed["economic_evidence_available"] else "diagnostic"] += 1
+                if assessed["economic_evidence_available"]:
+                    available.add(row["trial_id"])
         if counted["unfinished"] + counted["invalid"] + counted["valid"] + counted["diagnostic"] != len(attempts):
             raise refuse("REFERENTIAL_GAP", "the attempt outcomes do not add up to the attempts",
                          missing=("research_attempts",))
@@ -261,7 +259,8 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
         opened = lines.open_lines(conn)
         line = line_bundle or (opened[0] if len(opened) == 1 else None)
         table = comparison_table(conn, line, checker, records) if line is not None else None
-    return {"ledger_commit": commit, "trials": trials, "distinct_sources": sources, "by_development_window": windows,
+        testing = multiple_testing(conn, line, found["counted"], available) if line is not None else None
+    return {"ledger_commit": commit, "trials": len(found["counted"]), "multiple_testing": testing,
             "excluded_trials": excluded,
             "research_attempts": len(attempts), "audit_passed_research_runs": counted["passed"],
             "valid_research_runs": counted["valid"], "diagnostic_only_research_runs": counted["diagnostic"],
@@ -270,6 +269,102 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
                            "unwitnessed": unwitnessed},
             "unverified_runs": unverified, "availability_checker": checker,
             "metrics_revision": checker["metrics_revision"], "comparison": table}
+
+
+# The multiple-testing reading
+
+def _contracts(value) -> set[str]:
+    """The instrument IDs of a trial row's JSON instruments."""
+    found = json.loads(value) if isinstance(value, (str, bytes)) else value
+    return {item for item in found if isinstance(item, str)} if isinstance(found, list) else set()
+
+
+def _window(line: Mapping) -> tuple[datetime, datetime]:
+    """A line's development window [window_start, window_end) as trial-row trading-window datetimes."""
+    return (datetime.combine(date.fromisoformat(line["window_start"]), time()),
+            datetime.combine(date.fromisoformat(line["window_end"]), time()))
+
+
+def _utc_ns(moment: datetime) -> int:
+    return (moment.replace(tzinfo=UTC) - EPOCH) // timedelta(microseconds=1) * 1000
+
+
+def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: datetime, end: datetime) -> list:
+    """The trials that traded one of `instruments` in a trading window overlapping [start, end): of
+    every purpose, market commit and line, since each looked at the same contract and period."""
+    return [trial for trial in trials if trial["trade_start"] < end and start < trial["trade_end"]
+            and _contracts(trial["instruments"]) & instruments]
+
+
+def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None:
+    """The mean Pearson correlation of every pair of daily return series, each pair over the days both
+    hold; a pair with fewer than two common days, or constant on them, is left out. None without a pair."""
+    found = []
+    for index, first in enumerate(series):
+        for second in series[index + 1:]:
+            days = sorted(first.keys() & second.keys())
+            try:
+                found.append(statistics.correlation([first[day] for day in days], [second[day] for day in days]))
+            except statistics.StatisticsError:
+                continue
+    return statistics.fmean(found) if found else None
+
+
+def effective_trials(correlation: float | None, trials: int) -> float | None:
+    """Bailey & López de Prado (2014, eq. 9)'s number of independent trials among `trials` correlated
+    ones of mean correlation ρ: ρ + (1 − ρ)·trials. A negative mean is taken as zero (independent
+    trials), so the number never exceeds `trials`. None without a correlation."""
+    if correlation is None or trials < 1:
+        return None
+    rho = min(max(correlation, 0.0), 1.0)
+    return rho + (1 - rho) * trials
+
+
+def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Iterable[Mapping],
+                     available: set[int]) -> dict | None:
+    """The trials behind a line's runs: the counted trials (counted_trials) that traded one of the
+    instruments of the line's research trials in a trading window overlapping the line's development
+    window, across market commits and lines (`research_trials`; `all_purpose_trials` adds precheck,
+    explore and validation trials). From the trade-window daily returns of the overlapping research
+    runs with economic evidence (`available`) whose returns vary (`runs_with_returns`): the mean
+    pairwise correlation over common days (`mean_correlation`), the independent trials it leaves of
+    research_trials (`effective_trials`) and the sample variance of their daily Sharpe ratios
+    (`daily_sharpe_variance`), so the counts and the variance come from one population.
+
+    Every stored series is UTC daily, so each run's Sharpe is the report's sharpe_365 over its own
+    trade-window days divided by sqrt(365): a per-day Sharpe whatever the window's length, which
+    enters a deflated Sharpe only through the tested run's own day count. Null before the line's
+    first research trial; nothing is stored."""
+    record = lines.read_line(conn, line_bundle, None)
+    own = lines.line_trials(conn, line_bundle)["trials"]
+    if not own:
+        return None
+    instruments: set[str] = set()
+    for (value,) in conn.rows("SELECT instruments FROM trial WHERE trial_id IN (" + ",".join(["%s"] * len(own)) + ")",
+                              tuple(own)):
+        instruments |= _contracts(value)
+    start, end = _window(record)
+    found = overlapping_trials(counted, instruments, start, end)
+    research = [trial for trial in found if trial["purpose"] == "research"]
+    bounds = {trial["trial_id"]: (_utc_ns(trial["trade_start"]), _utc_ns(trial["trade_end"]))
+              for trial in research if trial["trial_id"] in available}
+    series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
+    if bounds:
+        for trial_id, ts, value in conn.rows("SELECT trial_id, ts_event_ns, native_return FROM run_return WHERE "
+                                             "trial_id IN (" + ",".join(["%s"] * len(bounds)) + ")", tuple(bounds)):
+            if bounds[trial_id][0] <= int(ts) < bounds[trial_id][1]:
+                series[trial_id][int(ts)] = float(value)
+    daily: dict[int, float] = {}
+    for trial_id, days in sorted(series.items()):
+        sharpe = measures.sharpe_365([days[day] for day in sorted(days)])
+        if sharpe is not None:
+            daily[trial_id] = sharpe / math.sqrt(365)
+    correlation = mean_correlation([series[trial_id] for trial_id in daily])
+    return {"line": line_bundle, "window_start": record["window_start"], "window_end": record["window_end"],
+            "instruments": sorted(instruments), "research_trials": len(research), "all_purpose_trials": len(found),
+            "runs_with_returns": len(daily), "mean_correlation": correlation,
+            "effective_trials": effective_trials(correlation, len(research)),
+            "daily_sharpe_variance": statistics.variance(daily.values()) if len(daily) > 1 else None}
 
 
 def _stamp(conn: db.LedgerConnection, commit: str):
@@ -309,8 +404,7 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     without economic evidence are listed apart with their reasons and no measures. Nothing is
     ranked, scored or stored."""
     line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
-    window = (datetime.combine(date.fromisoformat(line["window_start"]), time()),
-              datetime.combine(date.fromisoformat(line["window_end"]), time()))
+    window = _window(line)
     starts, _ = _manifests(conn)
     identities = _identities(conn, starts)
     current = line_identity(conn, line_bundle, identities)
