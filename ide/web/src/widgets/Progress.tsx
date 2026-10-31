@@ -30,7 +30,7 @@ function bar(x: number, w: number, base: number, end: number, r: number) {
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for a
 // gain, down for a loss) in grey, green where it meets the target and amber for a loss; the target as a
-// thin plot line. It pans with the canvas (which marks the selected version above). The trial at the
+// thin plot line with its value in green on the value axis and its name in the legend, so no label covers the bars. It pans with the canvas (which marks the selected version above). The trial at the
 // crosshair is a shaded column behind the bars, its run's return read out on the value axis along a
 // dotted line from its bar. Layers are named groups in paint order, as Highcharts draws them.
 export function Progress({ widget }: { widget: ProgressWidget }) {
@@ -102,12 +102,12 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               {target != null && <line x1={0} x2={end} y1={crisp(y(target))} y2={crisp(y(target))} stroke={v("meets")} strokeOpacity={0.55} />}
             </g>
           </g>
-          {target != null && <text className="chart-plot-line-label" x={end - GUTTER} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}
-                                   stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">Target {pct(target)}</text>}
           <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="start">
-            {ticks.filter((t) => readout == null || Math.abs(y(t) - readout) > PILL_H + 2).map((t) => (
+            {ticks.filter((t) => [readout, target == null ? null : y(target)].every((at) => at == null || Math.abs(y(t) - at) > PILL_H + 2)).map((t) => (
               <text key={t} x={end + GUTTER} y={y(t) + 3.5}>{pct(t)}</text>
             ))}
+            {target != null && (readout == null || Math.abs(y(target) - readout) > PILL_H + 2) &&
+              <text x={end + GUTTER} y={y(target) + 3.5} fill={v("meets")}>{pct(target)}</text>}
           </g>
           {near && readout != null && <ChartPill x={end + GUTTER} y={readout - PILL_H / 2} text={pct(near.annual_return)} anchor="start" max={width - 8} />}
         </svg>
@@ -119,6 +119,9 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={v(role)} /></svg>{label}
             </span>
           ))}
+          {target != null && <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <svg width={12} height={8} className="shrink-0"><line x1={0} x2={12} y1={4.5} y2={4.5} stroke={v("meets")} strokeOpacity={0.55} /></svg>Target {pct(target)}
+          </span>}
         </span>
       </div>
     </div>
