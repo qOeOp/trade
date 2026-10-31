@@ -1,8 +1,6 @@
 # Video evidence: video-evidence
 
-Evidence workflow for public video URLs, embedded videos and local files, both within and outside research. Independent code verifies media identity, transcription input, frame timing and citation bindings.
-
-[Code: Video evidence verification](/en/docs/design-code-video-evidence/)
+Evidence workflow for public video URLs, embedded videos and local files, both within and outside research. Its independent checker, `assets/check_bundle.py`, verifies media identity, transcription input, frame timing and citation bindings.
 
 ## `SKILL.md` [#def-file-video-evidence-SKILL-md]
 
@@ -25,8 +23,10 @@ Evidence workflow for public video URLs, embedded videos and local files, both w
 | [references/custody.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/custody.md) | Identity belongs to raw server media bytes; verify decoding, hashes and projected receipts, then retain the restorable subset. |
 | [references/transcribe.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/transcribe.md) | Detect language before transcription with the pinned ASR engine and model; bind the audio PCM hash and read timestamped segments and flags in windows. |
 | [references/frames.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/frames.md) | Build a coverage grid, then extract exact frames, brackets and crops at real PTS; contact sheets locate evidence. |
+| [references/bundle.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/bundle.md) | The bundle layout (an allowlist), the `claims.json` format and every check and flag of the checker. |
 | [references/note.md](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/references/note.md) | Write notes from the bundle when requested, preserving conditions, units, negations and limitations; notes cite originals and are not evidence. |
 | [assets/env.sh](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/env.sh) | Environment, paths and allowed media containers |
+| [assets/check_bundle.py](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/check_bundle.py) | The independent checker: recomputes the bundle's bindings from its bytes |
 | [assets/identity.jq](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/identity.jq) | Metadata identity projection |
 | [assets/receipt.jq](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/receipt.jq) | Download receipt projection |
 | [assets/host_check.jq](https://github.com/qOeOp/trade/blob/main/.agents/skills/video-evidence/assets/host_check.jq) | Public HTTPS host checks |
@@ -53,6 +53,32 @@ Build a coverage grid, then extract exact frames, brackets and crops at real PTS
 ## `references/note.md` [#def-file-video-evidence-note]
 
 Write notes from the bundle when requested, preserving conditions, units, negations and limitations; notes cite originals and are not evidence.
+
+## `references/bundle.md` [#def-file-video-evidence-bundle]
+
+The bundle layout (an allowlist), the `claims.json` format and every check and flag of the checker.
+
+## `assets/check_bundle.py` [#def-file-video-evidence-check_bundle]
+
+The independent checker recomputes bindings from evidence bytes and emits JSON and an exit status. It uses only Python 3 with `ffmpeg`/`ffprobe`, imports nothing from the repository, neither writes the research ledger nor acquires media, and does not judge a claim's meaning.
+
+```sh
+python3 -I "$CHECK" BUNDLE --media-dir MEDIA_DIR [--restored]
+```
+
+### Verification responsibilities
+
+| Stage | Code responsibility |
+|---|---|
+| Bundle / Probe | Directory and file types, strict JSON, allowed projections, public HTTPS sources and privacy checks |
+| Media | Raw-byte SHA-256, container and streams, resolution, size and duration |
+| ASR | Pinned engine/model, arguments, language, audio PCM hash, segment schema and flags |
+| Frames / Crops | Coverage grid, PTS, decoded hashes and pixel recomputation of cited frames and crops |
+| Claims | Consecutive speech segments, numbers, frame timing, structured sidecars and explicitness |
+
+### Result semantics
+
+`ok` aggregates present checks; `stages` reports present, failed or absent materials; `flags` directs reading. Success proves neither completeness nor semantic truth. `checker_git_blob` identifies the executed checker. `--restored` supports the retained subset while still requiring cited frames and crops.
 
 ## Evidence custody
 
