@@ -11,7 +11,7 @@ with `docker run` or `python -m engine.run` directly.
 | `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, the runtime source identity, `--describe` and the runner's refusal codes |
 | `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics, shared membership intersection, entry scopes and the lifecycle events rebuilt from the coverage receipt |
 | `run.py` | The streamed `BacktestEngine` run, strategy construction and guarded callbacks, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
-| `report.py` | Native reports, `order_events.jsonl.gz`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
+| `report.py` | Native reports, `order_events.jsonl.gz`, `fill_volumes.csv`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
 | `audit.py` | Independent audit of every run's native reports, submission timing, entry membership, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
 | `compare_reports.py` | Engineering parity between two runs |
@@ -174,7 +174,12 @@ directory. A Nautilus probe is such a host script; it needs no `PYTHONPATH` and 
 ## Reports
 
 Besides the native orders, fills, positions, account and returns reports, the runner writes
-`order_events.jsonl.gz` and `exposures.csv.gz`.
+`order_events.jsonl.gz`, `exposures.csv.gz` and `fill_volumes.csv`.
+
+`fill_volumes.csv` gives every native fill (by event ID) the LAST volume of the one-minute execution bar of its
+minute: the fill time floored to the minute is the bar's open, and the bar is stamped at its close. A minute
+without a bar has an empty volume. The ledger seals the fills' share of their minute's volume from it
+(`capital.participation@1`); a run on an older image has no such file and no reading.
 
 `order_events.jsonl.gz` holds the unchanged `to_dict()` of every native event of every cached order,
 read after the replay: initialization, submission, acceptance, updates, fills, cancellation and

@@ -2,6 +2,7 @@
 order, fill, position, account row and exposure, with chunks of one event and session windows of six
 hours over contracts with gaps, a non-ASCII name, funding stamped on a bar close and a settlement."""
 
+import csv
 import gzip
 import hashlib
 import json
@@ -448,6 +449,19 @@ class StreamTests(unittest.TestCase):
                                                   limitations, run.mark_timestamps(rows))
                 self.assertEqual(summary["trade_start_by_strategy"], {"R1-AAA": window.trade_start_ns})
                 self.assertEqual(strategies["AAA"].trade_start, 0)
+                with (output / "fills.csv").open(newline="") as stream:
+                    fills = list(csv.DictReader(stream))
+                with (output / "fill_volumes.csv").open(newline="") as stream:
+                    volumes = list(csv.DictReader(stream))
+                bars = {bar.ts_event + 1_000_000 - 60 * 10**9: bar.volume.as_decimal() for bar in
+                        ParquetDataCatalog(str(rows[0]["catalog_path"])).query(
+                            run.NautilusDataType.Bar, identifiers=[f"{rows[0]['instrument_id']}-1-MINUTE-LAST-EXTERNAL"])}
+                self.assertTrue(fills)
+                self.assertEqual(sorted(row["event_id"] for row in volumes), sorted(row["event_id"] for row in fills))
+                for row in volumes:
+                    opened = int(row["bar_ts_open_ns"])
+                    self.assertEqual(opened, int(row["ts_event_ns"]) // (60 * 10**9) * 60 * 10**9)
+                    self.assertEqual(Decimal(row["bar_volume"]), bars[opened])
                 self.assertTrue(summary["integrity_passed"], summary["integrity_findings"])
                 (root / "input-coverage.json").write_text(json.dumps({
                     "format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32},
