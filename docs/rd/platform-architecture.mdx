@@ -35,7 +35,7 @@ Compose runs four services: `ide`, `ledger`, `paper` and `docker-api`. Ledger an
 
 ## IDE
 
-The IDE maintains its own read-only research and market copies, cloned from DoltHub and updated by fast-forward only. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the active research ledger.
+The IDE reads the research ledger and the market database from the active Dolt SQL service through reader accounts and keeps no copy of its own. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the active research ledger.
 
 <a id="paper" />
 
@@ -47,4 +47,4 @@ Each PaperRun starts a runner and an egress container from the same digest-pinne
 
 ## Data and evidence
 
-The active Dolt SQL service hosts the research ledger and market databases; connection profiles specify their names. `dolt_backup`, DoltHub and the IDE retain historical copies rather than create new sources of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
+The active Dolt SQL service hosts the research ledger and market databases; connection profiles specify their names. `dolt_backup` and DoltHub retain historical copies rather than create new sources of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.

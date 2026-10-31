@@ -28,7 +28,7 @@
 | `dolt/data.before-compose`、`market-legacy-20261025`（库与备份） | 19 GB、13 GB | 已不存在 |
 | `dolt-backups/market` | 27 GB | 85 GB，是 aggTrades 导入写进同一备份的结果，不是多出的副本 |
 | `market-archive-cache` | 11 GB，保留 | 11 GB，保留 |
-| IDE 卷里自带的 DoltHub 克隆 | 27.8 GB，去副本「另行设计」 | 未动 |
+| IDE 卷里自带的 DoltHub 克隆 | 27.8 GB，去副本「另行设计」 | 已不存在：#1917（2026-10-30）起 IDE 用只读账户读 compose 里的 Dolt，旧卷 `trade-ide_trade-ide-data` 已删（`docker volume inspect` 查无此卷） |
 | 悬空镜像 | 16 个 | 3 个，都是今天 PR 构建的产物 |
 | 本机 runtime 标签 | 4 个无引用的 `pr-*` 与 `5606616830e8` | `main`、`pr-1936`、`pr-1943`，加上运行中 paper 用的 `b0b2337df0c5` |
 | 匿名卷 | 2 个，0 B | 1 个 |
@@ -37,7 +37,7 @@
 | 非 main 本地分支 | 139 个（95 个已合并） | 84 个：56 个的 PR 已合，1 个已关，1 个开放（#1936），26 个没有 PR |
 | GHCR 保留版本 | runtime 154 / ide 221 / service 24 | 未动 |
 
-剩下的都不是产品缺陷：分支清单（删前先把清单列给用户）、IDE 卷去副本（另行设计）、GHCR 版本保留策略。
+剩下的都不是产品缺陷。分支清单已列给用户，用户同意后删了 68 个：46 个 PR 已合且未被检出、本会话 5 个连同工作树、17 个内容已在 main 上；删前逐个核对末端提交与清单一致。存档分支、关闭未合的设计稿和其他会话在用的分支保留。GHCR 版本保留由用户让 Agent 代选，按[方案](../ghcr-image-retention.zh.md)选项 2 执行：trade-ide 删 330 个、trade-service 删 133 个版本，trade-runtime 全留。
 
 ## 20261029-118 的测量
 
