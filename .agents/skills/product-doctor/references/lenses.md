@@ -30,7 +30,9 @@ Check applicable research instructions against the session, ambiguous or conflic
 strategy source (lookahead, sizing, fees, protection) and the validity of later comparisons.
 Distinguish faithful execution from justified interpretation: what observation supports the
 claim, what alternatives remain, and what information the next step could add? Assess product
-support for that reasoning without making research selections or claiming economic validity.
+support for that reasoning without making research selections or claiming economic validity:
+how hypotheses reach a mechanism and prior work (`research-sources`), and whether a stop or
+switch rule can separate the compared effects on the window it runs on.
 
 ## Data and usage cost
 
