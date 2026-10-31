@@ -66,7 +66,7 @@
 
 ## 独立复核（2026-10-31）
 
-三份只读复核都基于 ba2579a8e 与账本提交 `79nvntvq0n28t6ou9c45kkjf4php67f3`，不改代码、不写账本；结论待用户定。
+三份只读复核都基于 ba2579a8e 与账本提交 `79nvntvq0n28t6ou9c45kkjf4php67f3`，不改代码、不写账本。用户 2026-10-31 回复“都按建议做”，并要求 `seconds` 没人读就在代码里删干净；已存记录与账本历史不改写（改写已发布记录须另行授权，且 Dolt 历史与公开副本仍保留旧内容）。实现：20261031-11 #1973（33d4d9171，导出回执与导出返回值都不再有 `seconds`，`_semantic` 仍剔除旧回执里的它），A3(a) #1972（d0c34703c），A3(b) #1974（6eb140fde，`research status` 的 `multiple_testing`，删去 `distinct_sources` 与 `by_development_window`；RSI 线 N 由 [30, 30] 变为 [119.5, 316]）。
 
 - **20261031-11（`export.json` 的墙钟 `seconds`）**：全账本 `input-coverage.json` 491 个文件存成 243 份，去掉 `export_receipts.*.seconds` 后 66 份，多存 1,345,820 B；各组除 `seconds` 外无差异。读 receipt 的代码（`engine/load.py`、`engine/audit.py`、`ledger/coverage.py`、`registration/validation.py`、`replay/reproduce.py`）都不读它，缓存命中时它记的还是首次导出耗时。建议 (a)：`market/export.py:487` 不再写 `seconds`（同删 :404 `started`），已存记录不改；`export_content_sha256` 的语义哈希本就去掉它，旧运行 `input_key` 不变；导出器源码哈希会变，本地缓存重导一次，供给端须更新（#1964 合入后导出器哈希不同不再被拒）。备选 (b) 只在 `replay/entry.py:191` 构造覆盖文件时去掉，多一种 receipt 形态；(c) 维持现状。
 - **A3(a) `SOURCES_REQUIRED`**：163 份登记中 `external` 非空 142 份，138 份所引 bundle 含原件或检索日志（84 份 PDF，49 份只有 HTML）；未见把内部笔记冒充文献，问题是不一致：同样的“未找到外部证据”有的写进 `external`、有的写进 `local`，写明未找到并附检索日志的只有 1 份。来源不进审计和资格，不是产品要守的信任边界。建议只改 skill：research-round `hypothesis.md` 要求 `external` 二选一，给出引用（DOI/arXiv/URL 加所在 bundle）或写明哪些查询未找到并给检索日志 bundle（规范：PRISMA 2020 条目 6–7，https://doi.org/10.1136/bmj.n71 ）。产品收紧（所引 bundle 须含原件或检索日志）留待复发。
