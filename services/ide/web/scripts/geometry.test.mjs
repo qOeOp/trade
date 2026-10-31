@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bounds, centredOn, home, positions, UNIT } from "../src/widgets/lineage/geometry.ts";
+import { bounds, centredOn, elbowPath, home, MARK_CENTRE, NODE_HALF, positions, ROW, UNIT } from "../src/widgets/lineage/geometry.ts";
 
 const line = (start = 216) => ({
   axis: { min: start - 1, max: start + 8 },
@@ -82,4 +82,19 @@ test("empty and unplaced graphs have finite bounds and home coordinates", () => 
     assert.deepEqual(home(widget), { x: 16, y: 15 });
     assert.equal(positions(widget).size, 0);
   }
+});
+
+test("an edge to a child left of its parent goes round its node and enters its left edge like every edge", () => {
+  // channel-breakout-15m-wait@3 is prechecked at trial 263, before its parent h20@3's run at 276.
+  const parent = { x: 276 * UNIT, y: 10 * ROW }, child = { x: 263 * UNIT, y: 11 * ROW };
+  const left = child.x - MARK_CENTRE, path = elbowPath(parent.x, parent.y + NODE_HALF, left, child.y);
+  const runs = [...path.matchAll(/ (-?[\d.]+) H(-?[\d.]+)/g)].map((m) => ({ y: Number(m[1]), to: Number(m[2]) }));
+  assert.equal(runs.length, 2, "one run along the gap, one into the child");
+  assert.ok(runs[0].y < child.y - NODE_HALF && runs[0].to < left, "the first stays above the node and passes its left edge");
+  assert.ok(path.endsWith(`${child.y} H${left}`), "the last ends at the child's left edge on its row, as every edge does");
+  for (const r of [...path.matchAll(/Q(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/g)].map((m) => Math.max(Math.abs(m[1] - m[3]), Math.abs(m[2] - m[4])))) {
+    assert.ok(r >= 5, "every corner is rounded");
+  }
+  const right = elbowPath(parent.x, parent.y + NODE_HALF, 290 * UNIT - MARK_CENTRE, child.y);
+  assert.ok(right.endsWith(`H${290 * UNIT - MARK_CENTRE}`), "a child to the right is still reached along its row");
 });
