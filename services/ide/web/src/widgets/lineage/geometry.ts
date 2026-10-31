@@ -7,6 +7,8 @@ export const ROW = 30;
 export const RULER = 26;
 /** The mark's centre from the node's left edge: 4px padding + half a 14px mark. */
 export const MARK_CENTRE = 11;
+/** Half a version node's height: 2px padding above and below an 18px line. */
+export const NODE_HALF = 11;
 
 /** Room a version's line takes right of its mark: mark, badge and prediction slot, then the name. */
 const lineWidth = (id: string) => 160 + id.length * 7.5;
@@ -41,4 +43,25 @@ export function centredOn(widget: LineageWidget, mark: { x: number; y: number },
 /** Canvas position of each placed version's mark. */
 export function positions(widget: LineageWidget): Map<string, { x: number; y: number }> {
   return new Map(widget.nodes.flatMap((n) => (n.x == null ? [] : [[n.id, { x: n.x * UNIT, y: n.row * ROW }] as const])));
+}
+
+/** The edge from a parent's mark (source, below it) to a child (target, its node's left edge on its row)
+ *  as a git graph draws it: down from the parent, one rounded corner, then along the child's row into the
+ *  child's left edge. A child left of its parent (prechecked before the parent's run) is reached along the
+ *  gap just above its node, round its left side and into its left edge like every other edge, so the line
+ *  never runs through the child's name, badge or mark. */
+export function elbowPath(sourceX: number, sourceY: number, targetX: number, targetY: number): string {
+  if (targetX < sourceX - MARK_CENTRE) {
+    // The lane clears the child's node (22px tall, centred on its row) by 2px; the detour leaves room
+    // for two corners left of the child.
+    const lane = targetY - NODE_HALF - 2, x = targetX - 12;
+    const r1 = Math.max(0, Math.min(7, lane - sourceY, (sourceX - x) / 2)), r2 = Math.min(7, (targetY - lane) / 2);
+    return `M${sourceX} ${sourceY} V${lane - r1} Q${sourceX} ${lane} ${sourceX - r1} ${lane} H${x + r2} `
+      + `Q${x} ${lane} ${x} ${lane + r2} V${targetY - r2} Q${x} ${targetY} ${x + r2} ${targetY} H${targetX}`;
+  }
+  const r = Math.max(0, Math.min(7, Math.abs(targetY - sourceY) / 2, Math.abs(targetX - sourceX) / 2));
+  const dir = targetX >= sourceX ? 1 : -1;
+  return Math.abs(targetY - sourceY) < 1
+    ? `M${sourceX} ${targetY} H${targetX}`
+    : `M${sourceX} ${sourceY} V${targetY - r} Q${sourceX} ${targetY} ${sourceX + dir * r} ${targetY} H${targetX}`;
 }

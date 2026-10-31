@@ -542,7 +542,7 @@ def ledger_publish(profile: LedgerProfile, remote: str | None) -> dict
 
 <TypeTable type={{ "profile": { type: "LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "remote": { type: "str | None", description: "DoltHub 仓库 https://doltremoteapi.dolthub.com/<owner>/<repository>，只在第一次给；给出时先命名 origin 并装密钥" } }} />
 
-**返回**　JSON：ledger.publish 的 \{database, remote, branch, head, previous_head, tags\}，加 remote_set（给了 --remote 时是 ledger.set_remote 的结果，否则 null）
+**返回**　JSON：ledger.publish 的 \{database, remote, branch, head, previous_head, tags, seconds\}，加 remote_set（给了 --remote 时是 ledger.set_remote 的结果，否则 null）
 
 **期望行为**
 
