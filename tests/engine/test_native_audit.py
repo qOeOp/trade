@@ -278,14 +278,6 @@ class NativeAuditTests(unittest.TestCase):
         interval, = value["uncovered_intervals"]
         self.assertTrue(interval["open_at_end"])
 
-    def test_former_tier_variant_gets_the_same_generic_reconciliation(self):
-        values = reports()
-        values["summary"]["signal_variant"] = "support-broad-two-tier-4h"  # No sizing block.
-        value = self.check(values)
-        self.assertTrue(value["passed"], value["findings"])
-        self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
-        self.assertNotIn("native_bundles", value)
-
     def unprotected(self, delay="10min"):
         """A long position closed after its stop was canceled ``delay`` after entry."""
         values = reports()

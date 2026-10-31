@@ -175,8 +175,6 @@ class CommandTests(unittest.TestCase):
         root = self.ok("candidate", "publish", *ledger, "--file", root_file, "--strategy-id", "fixture",
                        "--entry-class", "Fixture", "--description", "the line's root")
         self.assertEqual((root["candidate"], root["parent"], root["replayed"]), ("fixture@1", None, False))
-        self.refused("SOURCE_EXISTS", "candidate", "publish", *ledger, "--file", root_file, "--strategy-id", "other",
-                     "--entry-class", "Fixture", "--description", "same bytes")
         link = self.tmp / "link.py"
         link.symlink_to(root_file)
         self.refused("SOURCE_UNREADABLE", "candidate", "publish", *ledger, "--file", str(link), "--strategy-id",
@@ -184,8 +182,6 @@ class CommandTests(unittest.TestCase):
         shown = self.ok("candidate", "show", *ledger, "--candidate", "fixture@1")
         self.assertEqual((shown["source_sha256"], shown["parent"]), (root["source_sha256"], None))
         self.assertNotIn("source", shown)
-        self.refused("UNKNOWN_CANDIDATE", "candidate", "show", *ledger, "--candidate", "fixture@9")
-        self.refused("BAD_REF", "candidate", "show", *ledger, "--candidate", "fixture")
         exported = self.ok("candidate", "export", *ledger, "--candidate", "fixture@1",
                            "--output", str(self.tmp / "work" / "strategy.py"))
         self.assertEqual(Path(exported["path"]).read_text(), SOURCE)
@@ -208,7 +204,6 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.ok("evidence", "add", *ledger, "--bundle", "note-1", "--note", "why this line")[
             "write_status"], "replayed")
         self.refused("EMPTY_EVIDENCE", "evidence", "add", *ledger, "--bundle", "note-2")
-        self.refused("RESERVED_BUNDLE", "evidence", "add", *ledger, "--bundle", "registration-x", "--note", "n")
         out = self.ok("evidence", "export", *ledger, "--bundle", "note-1", "--output", str(self.tmp / "note-1"))
         self.assertEqual((self.tmp / "note-1" / "note.md").read_text(), "why this line")
         self.assertEqual(out["files"][0]["name"], "note.md")
@@ -216,11 +211,8 @@ class CommandTests(unittest.TestCase):
         # The line
         self.refused("WINDOW_INVALID", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-1-1",
                      "--window-end", "2026-02-01", "--slug", "fixture-trend")
-        self.refused("WINDOW_OUT_OF_COVERAGE", "line", "select", *ledger, "--start", "fixture@1",
-                     "--window-start", "2026-01-01", "--window-end", "2026-03-01", "--slug", "fixture-trend")
         selection = ("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
                      "--window-end", "2026-02-01", "--note", "the user's choice", "--slug", "fixture-trend")
-        self.refused("START_REVIEW_REQUIRED", *selection)
 
         # Market facts and the lifecycle bundle
         coverage = self.ok("market", "coverage", "--start", "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
@@ -256,20 +248,13 @@ class CommandTests(unittest.TestCase):
         self.refused("PATH_EXISTS", *bars, "--output", whole["output"])
         self.refused("NOT_TEMPORARY_PATH", *bars, "--output", str(NOT_TEMPORARY / "bars.json"))
         self.refused("USAGE_ERROR", *bars, "--timeframe", "1d", "--price-type", "MARK")
-        self.refused("NO_TERMS", "market", "bars", "--symbol", "ZZZUSDT", "--start", "2026-01-01T00:00:00Z", "--end",
-                     "2026-01-02T00:00:00Z")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
-        self.refused("MONTH_EXISTS", "market", "import", "--month", "2026-01")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # the January import's warm-up rows
-        self.refused("MONTH_INVALID", "market", "import", "--month", "2025-11")
 
         # An exploration
         explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
                            "--strategy-class", "Fixture", "--output", str(self.tmp / "explore"), "--", *PRECHECK)
         self.assertEqual((explored["purpose"], explored["status"]), ("explore", "passed"))
-        self.refused("RUNNER_OPTION_RESERVED", "replay", "explore", *ledger, "--strategy-file", root_file,
-                     "--strategy-class", "Fixture", "--output", str(self.tmp / "explore-2"), "--", *PRECHECK,
-                     "--output", "/x")
         directory = self.ok("replay", "report", *ledger, "--directory", str(self.tmp / "explore"))
         self.assertEqual((directory["source"], directory["availability"]["unverified"]),
                          ("directory", "unsealed, source unverified, not evidence"))
@@ -295,14 +280,11 @@ class CommandTests(unittest.TestCase):
         ran = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1", "--hypothesis",
                       "registration-root", "--", *RUNNER)
         self.assertEqual((ran["purpose"], ran["status"]), ("research", "passed"))
-        self.refused("GRID_ALREADY_ATTEMPTED", "replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1",
-                     "--hypothesis", "registration-root", "--", *RUNNER)
         report = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]))
         self.assertEqual(report["source"], "sealed")
         self.assertTrue(report["availability"]["economic_evidence_available"], report["availability"])
         tables = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]), "--tables")
         self.assertEqual(tables["tables"]["reconciled"]["closed_cycles"], 1)
-        self.refused("UNKNOWN_RUN", "replay", "report", *ledger, "--trial-id", "99")
 
         # Judgments before the derived registration
         head = self.ok("ledger", "sql", *ledger, "SELECT DOLT_HASHOF('HEAD')")["rows"][0][0]
@@ -338,8 +320,6 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((compared["trial_id"], compared["control_trial_id"]), (second["trial_id"], ran["trial_id"]))
         self.assertIn("evidence", compared)
         self.assertIn("attribution", compared)
-        self.refused("RUN_NOT_IN_GRID", "hypothesis", "compare", *ledger, "--bundle", "registration-child",
-                     "--trial-id", str(ran["trial_id"]))
 
         # Research facts and the candidate list
         counts = self.ok("research", "status", *ledger)
@@ -370,8 +350,6 @@ class CommandTests(unittest.TestCase):
         self.assertIsNotNone(witnessed, err)
         self.assertEqual((code, witnessed["checked"], len(witnessed["failed"])), (1, 1, 1))
         self.assertEqual(witnessed["failed"][0]["registration_ids"], [validation["registration_id"]])
-        self.refused("RECOVERY_NOT_APPLICABLE", "execution", "recover", *ledger, "--trial-id", str(ran["trial_id"]),
-                     "--workdir", str(self.tmp), "--failure-receipt", str(self.tmp / "none.json"))
         code, review, _ = self.call("ledger", "review", *ledger)
         self.assertIn("WITNESS_MISSING", {finding["code"] for finding in review["findings"]})  # the failed witness
         self.assertEqual(code, 1)

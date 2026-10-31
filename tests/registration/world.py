@@ -75,7 +75,6 @@ class FakeMarket:
     def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,
                         include_trades=False):
         self.exports += 1
-        self.trade_exports = getattr(self, "trade_exports", 0) + include_trades
         root = Path(tempfile.mkdtemp(prefix="export-"))
         receipts = {}
         for symbol in symbols:

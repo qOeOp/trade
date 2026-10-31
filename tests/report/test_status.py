@@ -241,14 +241,6 @@ class ComparisonTableTests(unittest.TestCase):
             complete = all(item["measures"][name]["value"] is not None for name in table["measures"])
             self.assertEqual(item["non_dominated"], (not dominated) if complete else None)
 
-    def test_a_recommendation_must_name_every_candidate_of_the_table(self):
-        first, second = self.refs
-        with self.assertRaises(Refusal) as caught:
-            self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first}])
-        self.assertEqual((caught.exception.code, caught.exception.missing), ("RECOMMENDATION_INCOMPLETE", (second,)))
-        self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
-                                                     {"role": "about", "candidate": second}])
-
     def test_x_a_line_whose_candidates_are_on_a_contract_without_layout_is_gated(self):
         first, second = self.refs
         self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},

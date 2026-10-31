@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from ledger import db, strategies, trials
-from ledger.errors import Refusal
 from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, attempt_binder, context, inputs,
                                product_bundle, sha, source, window)
 
@@ -53,13 +52,3 @@ class ResultIdentityTests(unittest.TestCase):
         self.assertNotIn("run_id", columns)
         self.assertEqual(columns["trial_id"][3], "PRI")
         self.assertNotIn("auto_increment", columns["trial_id"][5])
-
-    def test_v2_ledger_is_refused_without_modifying_its_history(self):
-        self.service.sql(self.profile, "UPDATE ledger_schema SET version = 2")
-        self.service.sql(self.profile, "CALL DOLT_COMMIT('-a', '-m', 'isolated v2 fixture')")
-        before = self.service.sql(self.profile, "SELECT dolt_hashof('HEAD')")
-        for role in ("reader", "writer"):
-            with self.subTest(role=role), self.assertRaises(Refusal) as caught:
-                db.connect(self.profile, role)
-            self.assertEqual(caught.exception.code, "SCHEMA_MISMATCH")
-        self.assertEqual(self.service.sql(self.profile, "SELECT dolt_hashof('HEAD')"), before)

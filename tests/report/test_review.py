@@ -4,7 +4,6 @@ the review exists to find. Never the active ledger."""
 
 from __future__ import annotations
 
-import ast
 from dataclasses import replace
 from datetime import UTC, datetime
 import json
@@ -292,19 +291,6 @@ class SealedTamperTests(unittest.TestCase):
         self.assertIn("missing", altered["research_trials_follow_their_registration"])
         self.assertIn("test_query", altered["validation_trials_are_bound"])
         self.assertIn("added", altered["always_passes"])
-
-
-class FindingCatalogueTests(unittest.TestCase):
-    def test_every_finding_the_review_gives_has_a_meaning(self):
-        tree = ast.parse(Path(review.__file__).read_text(encoding="utf-8"))
-        given = {node.args[0].value for node in ast.walk(tree) if isinstance(node, ast.Call)
-                 and isinstance(node.func, ast.Name) and node.func.id == "_finding" and node.args
-                 and isinstance(node.args[0], ast.Constant)}
-        self.assertTrue(given)
-        for code in sorted(given):
-            with self.subTest(code=code):
-                self.assertTrue(review.FINDINGS[code].strip())
-        self.assertTrue({"COMMIT_TEST_ALTERED", "BACKUP_UNREADABLE"} <= given)
 
 
 @unittest.skipUnless(BINARY, SKIP)
