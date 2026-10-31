@@ -43,14 +43,14 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--json", action="store_true", help="print the structured differences instead")
     command = sub.add_parser("serve", help="serve a ledger's research graph as a page that follows the ledger")
     command.add_argument("--ledger", required=True, help="ledger profile the product reads (a reader-only profile)")
-    command.add_argument("--product", default=str(Path(__file__).resolve().parents[3]),
+    command.add_argument("--product", default=str(Path(__file__).resolve().parents[2]),
                          help="product checkout whose command line is run (default: this one)")
     command.add_argument("--host", default="127.0.0.1", help="address to listen on")
     command.add_argument("--port", type=int, default=8765)
     command.add_argument("--allow-host", action="append", default=[], dest="hosts",
                          help="Host header a page may use (default: 127.0.0.1:PORT and localhost:PORT); repeatable")
     command.add_argument("--poll", type=float, default=5.0, help="seconds between head reads while a page is open")
-    command.add_argument("--agent", help="URL of the chat service (services/ide/agent) that /api/agent/ requests go to")
+    command.add_argument("--agent", help="URL of the chat service (ide/agent) that /api/agent/ requests go to")
     command.add_argument("--paper", help="URL of the paper daemon (python -m cli.main paper serve) that /api/paper/ "
                                          "requests go to")
     args = parser.parse_args(argv)

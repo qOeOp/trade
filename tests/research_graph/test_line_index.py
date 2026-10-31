@@ -5,7 +5,7 @@ import sys
 import threading
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "services/ide"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ide"))
 from research_graph.line_index import LineIndex  # noqa: E402
 
 

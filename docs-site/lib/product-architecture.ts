@@ -95,8 +95,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "Browser",
     "kind": "component",
     "description": {
-      "zh": "浏览器访问 services/ide/ide.py 提供的 Web 服务；研究图只用 reader 账号读取活动 Dolt 服务，Paper 面板代理独立 daemon API。",
-      "en": "The browser accesses the Web service in services/ide/ide.py. Research graphs read the active Dolt service with reader accounts only, while Paper panels proxy a separate daemon API."
+      "zh": "浏览器访问 ide/ide.py 提供的 Web 服务；研究图只用 reader 账号读取活动 Dolt 服务，Paper 面板代理独立 daemon API。",
+      "en": "The browser accesses the Web service in ide/ide.py. Research graphs read the active Dolt service with reader accounts only, while Paper panels proxy a separate daemon API."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -292,8 +292,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "services/ide/ide.py 和 services/ide/research_graph/ 在 IDE 服务中经 reader 账号读取活动 research 与 market 库生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。",
-      "en": "services/ide/ide.py and services/ide/research_graph/ generate graphs from the active research and market databases through reader accounts and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger."
+      "zh": "ide/ide.py 和 ide/research_graph/ 在 IDE 服务中经 reader 账号读取活动 research 与 market 库生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。",
+      "en": "ide/ide.py and ide/research_graph/ generate graphs from the active research and market databases through reader accounts and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -303,8 +303,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "services/ide/agent/src/tools.ts 只允许产品只读命令，经同一 reader 路径读取活动 research 与 market 库；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。",
-      "en": "services/ide/agent/src/tools.ts allows read-only product commands against the active research and market databases through the same reader path; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research."
+      "zh": "ide/agent/src/tools.ts 只允许产品只读命令，经同一 reader 路径读取活动 research 与 market 库；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。",
+      "en": "ide/agent/src/tools.ts allows read-only product commands against the active research and market databases through the same reader path; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -314,8 +314,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "ledger 服务每次启动时，ledger service run --readers 将只读服务文件（端口与 reader 账号，不含 root 密码、写入账号或 DoltHub 密钥）写入卷 trade-ledger-readers；services/ide/docker/compose.yaml 将该卷只读挂载进 IDE。IDE 的 profile 是 compose config，从不发布，也不保留数据库副本。",
-      "en": "At every start of the ledger service, ledger service run --readers writes a reader-only service file (port and reader accounts, without root password, writer account or DoltHub key) into the trade-ledger-readers volume; services/ide/docker/compose.yaml mounts that volume read-only into IDE. IDE profiles are compose configs that never publish, and IDE keeps no database copy."
+      "zh": "ledger 服务每次启动时，ledger service run --readers 将只读服务文件（端口与 reader 账号，不含 root 密码、写入账号或 DoltHub 密钥）写入卷 trade-ledger-readers；deploy/compose.yaml 将该卷只读挂载进 IDE。IDE 的 profile 是 compose config，从不发布，也不保留数据库副本。",
+      "en": "At every start of the ledger service, ledger service run --readers writes a reader-only service file (port and reader accounts, without root password, writer account or DoltHub key) into the trade-ledger-readers volume; deploy/compose.yaml mounts that volume read-only into IDE. IDE profiles are compose configs that never publish, and IDE keeps no database copy."
     },
     "docsRoute": "platform-architecture/#data"
   },
@@ -336,8 +336,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "paper",
     "kind": "component",
     "description": {
-      "zh": "services/ide/docker/docker-api.cfg 只放行 Paper 必需的 Docker API；它是 compose 的 docker-api 服务，只有 Paper 控制面能访问，IDE 没有 Docker socket。",
-      "en": "services/ide/docker/docker-api.cfg permits only Paper-required Docker API calls. It runs as the separate compose docker-api service, reachable by Paper control plane; IDE has no Docker socket."
+      "zh": "deploy/docker-api.cfg 只放行 Paper 必需的 Docker API；它是 compose 的 docker-api 服务，只有 Paper 控制面能访问，IDE 没有 Docker socket。",
+      "en": "deploy/docker-api.cfg permits only Paper-required Docker API calls. It runs as the separate compose docker-api service, reachable by Paper control plane; IDE has no Docker socket."
     },
     "docsRoute": "platform-architecture/#deployment"
   },

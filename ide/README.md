@@ -7,11 +7,11 @@ fidelity test). Checking, layout and comparison use the standard library; render
 node and npm:
 
 ```bash
-python3 services/ide/ide.py check GRAPH.json
-python3 services/ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
-python3 services/ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 services/ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL]
-node services/ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
+python3 ide/ide.py check GRAPH.json
+python3 ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
+python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
+python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL]
+node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 ```
 
 ## Service
@@ -54,7 +54,7 @@ cli.main` with `--ledger=PROFILE` (`research state`, `research status`, `candida
 `candidate show`, `replay report`, `ledger sql`, `market coverage`); `agent/src/tools.ts` is the
 list, and the model can do nothing else. It checks the same Host and cross-site rules and takes
 only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
-[`docs/plans/product-agent-chat-design.zh.md`](../../docs/plans/product-agent-chat-design.zh.md).
+[`docs/plans/product-agent-chat-design.zh.md`](../docs/plans/product-agent-chat-design.zh.md).
 
 With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
 serve`, the compose service `paper` on port 8767; `paper/serve.py`), and the page gets the Paper
@@ -62,7 +62,7 @@ panel: ▶ and ■ on each version, the runs, their charts and events. A POST th
 page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
-[`docs/plans/paper-trading-design.zh.md`](../../docs/plans/paper-trading-design.zh.md).
+[`docs/plans/paper-trading-design.zh.md`](../docs/plans/paper-trading-design.zh.md).
 
 The Research line menu lists every line, including closed lines, through `/api/lines?at=<commit>`
 and the read-only `line list` command. A live page preloads the current index at startup and follows
@@ -80,59 +80,7 @@ is not used; the index and preloader are transient working caches.
 
 ## Deployment
 
-`docker/compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
-Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
-only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
-Five services on one Docker engine:
-
-- **ide**: this page and the chat service. Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the
-  two reader accounts only: its profiles (compose configs, `kind` null) name the reader-only
-  `service.json` ledger writes into the `trade-ledger-readers` volume, never ledger's own, so it holds
-  no root password, writer account or DoltHub key. The chat service's agents and threads stay in the
-  `trade-ide-agent` volume. Published on 127.0.0.1:8765. An IDE from before 2026-10-30 kept its own
-  database copy and the agents in `trade-ide-data`; switching copies that volume's `agent/` into
-  `trade-ide-agent` once, and compose no longer mounts or removes the old volume.
-- **ledger**: the Dolt service of the research ledger and the market database, run by `ledger service
-  run`. Image `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command
-  line reaches it. On first start, with empty directories, it bootstraps from the public copies
-  (about 17 GB) and needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a
-  `dolt login` `~/.dolt`). Every start also writes a reader-only `service.json` (the port and the two
-  reader accounts, no root password or writer) into the `trade-ledger-readers` volume, for a container
-  that only reads.
-- **market-supply**: replay inputs over HTTP (`python -m market.remote`; `market/README.md`, "Remote
-  supply for replay inputs"). Same image. It reads the market through ledger and serves only the native
-  files of a pinned commit, its contracts and window. Published on 127.0.0.1:8210
-  (`TRADE_MARKET_SUPPLY_PORT`); it has no authentication, so it is never published beyond loopback. Its
-  exports stay in the `trade-market-exports` volume until an operator removes them.
-- **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
-  is the compose config `paper-market`: membership and stored bars from ledger, a reconciliation's replay
-  inputs from market-supply, cached under `$TRADE_DATA/paper-tmp/market-client-cache`.
-- **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
-  (`docker/docker-api.cfg`).
-
-The design is in [`docs/plans/paper-compose-deployment.zh.md`](../../docs/plans/paper-compose-deployment.zh.md)
-and [`docs/plans/ledger-compose-service.zh.md`](../../docs/plans/ledger-compose-service.zh.md). The
-host directories are mounted at their own paths. `.env` beside the compose file names them and the
-user the services run as:
-
-```bash
-printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\n' "$(id -u)" "$(id -g)" "$HOME/.local/share/trade" > services/ide/docker/.env
-docker compose -f services/ide/docker/compose.yaml up -d   # then open http://127.0.0.1:8765/
-docker compose -f services/ide/docker/compose.yaml pull && docker compose -f services/ide/docker/compose.yaml up -d
-```
-
-The host's command line takes its replay inputs from market-supply once the active market profile
-(`$TRADE_DATA/ledgers/market.json`) also names the supply and a cache; market administration and
-imports keep using its `service`, and removing the two fields returns replays to the local reader:
-
-```json
-"remote_url": "http://127.0.0.1:8210",
-"cache_root": "/Users/me/.local/share/trade/market-client-cache"
-```
-
-The ledger service and the paper daemon restart with Docker. A service whose `service.json` has no
-socket is run this way: host commands reach it over TCP, and `ledger service stop` refuses it
-(`docker compose stop ledger`).
+The IDE runs in the product's compose deployment: [`deploy/`](../deploy/README.md).
 
 ## Stages
 
@@ -186,7 +134,7 @@ HarmonyOS Sans SC for Chinese, whose unicode-range slices load from jsDelivr onl
 (offline, Chinese falls back to the system face); its own npm
 toolchain), laid out like an IntelliJ IDE with the Islands theme: regions are rounded islands 4px apart on the
 window frame, following the design rules in
-[`docs/plans/research-graph-design-spec.zh.md`](../../docs/plans/research-graph-design-spec.zh.md): warm low-chroma
+[`docs/plans/research-graph-design-spec.zh.md`](../docs/plans/research-graph-design-spec.zh.md): warm low-chroma
 OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Supply) for
 letters and digits alike, so a reading's digits, point and % share a height, one shadow for popups, a blue ring for
 keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a

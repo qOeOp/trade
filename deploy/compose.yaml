@@ -1,7 +1,7 @@
 # The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 (the images
-# are built for arm64 only: .github/workflows/ide-image.yml, Dockerfile): docker compose -f services/ide/docker/compose.yaml
+# are built for arm64 only: .github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
 # up -d, then open http://127.0.0.1:8765/. Update with `docker compose pull && docker compose up -d`.
-# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA (services/ide/README.md); the host
+# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA (README.md here); the host
 # directories are mounted at their own paths, since service.json, the profiles, backups and run
 # directories name them (docs/plans/paper-compose-deployment.zh.md §4.3, ledger-compose-service.zh.md §4.2).
 name: trade-ide

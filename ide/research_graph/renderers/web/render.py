@@ -1,4 +1,4 @@
-"""Web renderer: the built page of services/ide/web with the view model injected.
+"""Web renderer: the built page of ide/web with the view model injected.
 
 The page is one self-contained HTML file (a pannable and zoomable lineage canvas with a summary
 bar, a detail drawer and a dock) that needs JavaScript, so it opens in a browser. It is rebuilt with

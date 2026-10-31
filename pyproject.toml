@@ -49,7 +49,7 @@ ignore = [
 [tool.mypy]
 python_version = "3.14"
 files = ["cli", "engine", "ledger", "market", "paper", "qualification", "registration", "replay", "report", "runtime",
-         "services/ide/research_graph", "services/ide/ide.py",
+         "ide/research_graph", "ide/ide.py",
          ".agents/skills/video-evidence/assets/check_bundle.py", ".agents/skills/video-evidence/assets/page_record.py"]
 
 [[tool.mypy.overrides]]
