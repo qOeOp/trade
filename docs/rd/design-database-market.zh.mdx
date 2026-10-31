@@ -1,6 +1,6 @@
 # 市场数据与交易范围
 
-保存合约规格、成交价与标记价 K 线、推算买卖报价、完整源 aggTrades、资金费率和逐月共同交易范围。
+保存合约规格、成交价与标记价 K 线、推算买卖报价、完整源 aggTrades、持仓量与多空比、资金费率和逐月共同交易范围。
 
 [数据库总览](/zh/docs/design-ledger/)
 
@@ -107,6 +107,25 @@
 **读取方**　目前没有产品读取方：K 线与报价导出、回放都不读它；推算报价 <Ref id="table:quote" /> 另从归档推算，不由本表派生。
 
 **关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，DDL 没有外键。字段与编码的决定见第一阶段记录 docs/plans/aggtrades-source-import.zh.md；本页记录既有存储，不增加字段或规则。
+
+### `metrics` [#def-table-metrics]
+
+保存币安 USD-M 每日 `metrics` 归档里的持仓量和三个多空比，每个合约每 5 分钟一行，列名照抄归档。一行描述的是 create_time + 5 分钟那一刻（持仓量与 REST 在该时刻的值逐位一致，2026-10-31 实测），导出时才定可见时刻。
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名（归档所带）", required: true }, "create_time": { type: "BIGINT", description: "归档的时间戳，UTC 毫秒，在 5 分钟格点上；不是可见时刻", required: true }, "sum_open_interest": { type: "DECIMAL(38,16)", description: "持仓量，基础资产数量，精确十进制", required: true }, "count_toptrader_long_short_ratio": { type: "DECIMAL(38,16)", description: "头部交易者账户多空比；归档为空时为 NULL" }, "sum_toptrader_long_short_ratio": { type: "DECIMAL(38,16)", description: "头部交易者持仓多空比；归档为空时为 NULL" }, "count_long_short_ratio": { type: "DECIMAL(38,16)", description: "全市场账户多空比；归档为空时为 NULL" } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `create_time`；create_time 必须在 5 分钟格点上，各值不为负。
+- 放不进 DECIMAL(38,16) 的值整日拒绝 SCALE_LOSS，不舍入。
+
+**职责与来源**　只追加。每日归档的 SHA-256、每日读数（行数、合并的重复行、各比值的空行数）和没有归档的日子记在导入提交消息里，不复制成表字段。归档的主动买卖量比是成交的合计（已导入成交的合约可从 <Ref id="table:agg_trade" /> 精确算出），持仓价值是持仓量乘交易所的价格快照，两者都不存。
+
+**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />；表由管理员命令 `market upgrade` 补建。持同一导入锁、同一受限导入账号、同样的提交测试与自动发布；每个合约月可以分几次导，每次只追加还没有的日子。
+
+**读取方**　`market coverage` 的 `coverage[].metrics`。回放导出另行接入。
+
+**关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，DDL 没有外键。字段审阅与决定见 docs/plans/binance-open-interest-input.zh.md。
 
 ### `funding` [#def-table-funding]
 

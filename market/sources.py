@@ -506,6 +506,11 @@ def aggtrades_key(symbol: str, day: str) -> str:
     return f"{UM}/daily/aggTrades/{check_symbol(symbol)}/{symbol}-aggTrades-{day}.zip"
 
 
+def metrics_key(symbol: str, day: str) -> str:
+    """The archive key of one UTC day's metrics (open interest and long/short ratios) of `symbol`."""
+    return f"{UM}/daily/metrics/{check_symbol(symbol)}/{symbol}-metrics-{day}.zip"
+
+
 def aggtrades_table(path: Path) -> pa.Table:
     """An aggTrades archive as (agg_trade_id, price, first_trade_id, last_trade_id, transact_time,
     is_buyer_maker), the price as the exchange's decimal string."""

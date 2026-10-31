@@ -45,6 +45,7 @@
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
+| <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
 | <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade（管理员）：补建市场库缺的表，一次提交；已有表、行、账号与授权不变 |
@@ -1074,6 +1075,41 @@ def market_import(
 - [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)　开源实现
 
 </div>
+
+### `market_import_metrics` [#def-cli-market_import_metrics]
+
+命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变
+
+```python
+def market_import_metrics(market: dict, month: str, cache_root: str | None, symbols: list[str] | None) -> dict:
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L888)
+
+<TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "month": { type: "str (YYYY-MM)", description: "UTC 月份；须至少含一个已结束的 UTC 日" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "symbols": { type: "list[str] | None", description: "合约；缺省为当月 universe 成员" } }} />
+
+**返回**　JSON：\{month, imports, metrics_rows, seconds\}；imports 按合约顺序，每项为 \{month, from, through, symbols, archives, readings, unpublished, metrics_rows, market_commit\}；through 不含；archives 是逐日归档的 SHA-256，readings 是逐日 rows、repeated_rows 与各比值的空行数，unpublished 是最后一个已发布日之前没有归档的日子；逐日进度写 stderr
+
+**期望行为**
+
+1. 解析参数：month 不是 YYYY-MM 即 MONTH_INVALID；其余交给 market.metrics.import_month，拒绝码原样输出。
+2. 以受限导入账号持市场导入锁，逐合约从该月已导入的最后一天之后接着导，到最后一个已收盘 UTC 日；官方逐日 metrics ZIP 按校验和核过后放在 --cache-root。
+3. 每个合约一个事务一个提交，只写 metrics。一个合约被拒不撤销前面合约的提交，输出它的拒绝码，消息列出前面的提交。
+4. 导入成功后经 cli.publish_after 发布一次市场库；发布失败只报 publish_failed，导入照旧。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
+| `IMPORT_SCOPE`、`UNIVERSE_UNKNOWN` | --symbols 重复或格式不对；没给 --symbols 而当月没有 universe 成员 |
+| `SCHEMA_MISMATCH` | 市场库缺 metrics 表，先跑 market upgrade |
+| `MARKET_EMPTY` | 市场库还没有任何导入 |
+| `MONTH_EXISTS` | 这个合约已经导到该月最后一个已收盘日 |
+| `ARCHIVE_NOT_PUBLISHED` | 要导的日子一天都没发布 |
+| `SOURCE_SHAPE` | 表头、合约、create_time 不在当日 5 分钟格点、没有持仓量、值为负或不是十进制、同一时刻两行不同 |
+| `SCALE_LOSS` | 值的小数超过 16 位或整数超过 22 位，不舍入 |
+| `CHECKSUM_MISMATCH`、`CONCURRENT_IMPORT`、`DIRTY_WORKING_SET`、`COMMIT_CHECKS_DISABLED`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
+
+**使用**　`market.metrics.import_month`、<Ref id="cli.publish_after" />
 
 ### `market_import_trades` [#def-cli-market_import_trades]
 

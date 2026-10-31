@@ -7,7 +7,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 | Module | Holds |
 |---|---|
-| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, and the `v_universe` view |
+| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, `metrics` (open interest and long/short ratios), and the `v_universe` view |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
@@ -19,6 +19,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one transaction per contract month, several contracts of a month written at once |
+| `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
 
 ## The database
 
@@ -102,6 +103,38 @@ Schedule the active upgrade after any existing import queue is complete. The com
 not read by old bars/quotes exports or replay, and does not add TradeTick files or change quote derivation.
 Measurements, the independent field review and release gates are in
 [the phase-one record](../docs/plans/aggtrades-source-import.zh.md).
+
+## Open interest and long/short ratios
+
+`metrics` holds the daily `metrics` archives of Binance USD-M (data.binance.vision, published a day
+late, one row every five minutes): `sum_open_interest` (a base-asset quantity) and the three ratios
+`count_toptrader_long_short_ratio` (top traders' accounts), `sum_toptrader_long_short_ratio` (top traders'
+positions) and `count_long_short_ratio` (all accounts), keyed by the archive's `create_time` and named as
+the archive names them. Values are exact `DECIMAL(38,16)`: a value needing more decimals or integer digits
+refuses the day (`SCALE_LOSS`), never rounded. A ratio the archive leaves empty (whole days in 2022) is
+NULL. The archive's taker volume ratio is a trade aggregate (exact from `agg_trade` where trades are
+imported) and its open interest value is open interest times an exchange price snapshot; neither is stored.
+
+A row stamped t describes t + 5 min: its open interest equals public REST's at t + 5 min on 288 of 288
+rows, and REST publishes a sample one to two and a half minutes after its stamp (measured 2026-10-31).
+The import stores `create_time` as given; a replay export decides when a row is visible.
+
+```bash
+uv run --frozen python -m cli.main market upgrade
+uv run --frozen python -m cli.main market import-metrics --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
+```
+
+Each call appends, for each contract (default: the month's universe members), the days of the month
+after those its earlier imports hold, through the last closed UTC day, as one transaction and commit
+(`MONTH_EXISTS` once every closed day is held). The archive carries no sequence to check across an
+interruption, so a month may be completed by later calls. Days without an archive before the last
+published one are recorded in the receipt's `unpublished`; later ones wait for a later call. Rows come
+unsorted; identical repeats of one `create_time` (every row of BTCUSDT from 2020-09 to at least 2021-05)
+are merged and counted (`repeated_rows`), different ones refuse (`SOURCE_SHAPE`), as do a time off the
+five-minute grid of its day and a row without open interest. The receipt (commit message) carries each
+day's archive SHA-256, rows, repeated rows and empty ratios; `market coverage` reports them per contract
+with the five-minute rows the stored days lack. The decision and field review are in
+[the plan](../docs/plans/binance-open-interest-input.zh.md).
 
 ## Quotes
 

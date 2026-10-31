@@ -4,8 +4,8 @@ they and the exporter share.
 Facts only, at one pinned market commit: per contract its member months, the gaps and zero-volume
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
 funding settlement count and bounds; `market coverage` adds the settlement spacing and the settlements
-missing inside it (`funding_spacing`), its quote and complete trade imports and stored bounds (`quote_facts`,
-`trade_facts`) and the terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
+missing inside it (`funding_spacing`), its quote, complete trade and metrics imports and stored bounds
+(`quote_facts`, `trade_facts`, `metrics_facts`) and the terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
 and last data are proxies of listing and delisting, no exchange fact. Nothing here drops a contract,
 shortens a window, fills data or judges an economic failure.
 """
@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from market import instrument, lifecycle, series, store, universe
+from market import instrument, lifecycle, metrics, series, store, universe
 from market.sources import MINUTE, _refuse
 
 
@@ -157,7 +157,7 @@ def _held(conn, commit: str, symbol: str, start_ms: int, end_ms: int, months: li
     """The first and last stored `column` time of `table` in the interval and the parts no import of `months`
     covers."""
     uncovered, at = [], start_ms
-    for low, high in sorted((series._day_ms(date.fromisoformat(f"{item['month']}-01")),
+    for low, high in sorted((series._day_ms(date.fromisoformat(item.get("from") or f"{item['month']}-01")),
                              series._day_ms(date.fromisoformat(item["through"]))) for item in months):
         if at < min(low, end_ms):
             uncovered.append([at, min(low, end_ms)])
@@ -182,6 +182,24 @@ def trade_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, impo
                "rows": sum(day["trades"] for day in (item["readings"] or {})[symbol].values())}
               for item in imports if symbol in (item["symbols"] or ())]
     return {"imports": months, **_held(conn, commit, symbol, start_ms, end_ms, months, "agg_trade", "transact_time")}
+
+
+def metrics_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, imports: list[dict]) -> dict:
+    """The open interest and long/short ratio rows of one contract in [start_ms, end_ms) at an exact market commit,
+    which a replay exports on request: each import holding it (month, the days `from` to `through` its exclusive
+    end, commit, the rows its receipt counts, the rows the archive's five-minute grid lacks, the empty ratios and the
+    days without an archive), the first and last stored create_time in the interval and the parts no import covers."""
+    parts = []
+    for item in imports:
+        if symbol not in (item["symbols"] or ()):
+            continue
+        daily = item["readings"][symbol]
+        parts.append({"month": item["month"], "from": item["from"], "through": item["through"], "commit": item["commit"],
+                      "rows": sum(day["rows"] for day in daily.values()),
+                      "missing_rows": sum(store.DAY // metrics.STEP - day["rows"] for day in daily.values()),
+                      "empty": {name: sum(day["empty"][name] for day in daily.values()) for name in metrics.RATIOS},
+                      "unpublished": item["unpublished"][symbol]})
+    return {"imports": parts, **_held(conn, commit, symbol, start_ms, end_ms, parts, "metrics", "create_time")}
 
 
 # market.diagnose_coverage
@@ -223,6 +241,7 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             episodes = lifecycle.validate_lifecycle(body, commit, files)
         found = []
         imports, trade_imports = store.quote_imports(conn, commit), store.trade_imports(conn, commit)
+        metrics_imports = store.metrics_imports(conn, commit)
         for symbol in symbols:
             last = read_bars(conn, commit, symbol, "LAST", start_ms, end_ms)
             mark = read_bars(conn, commit, symbol, "MARK", start_ms, end_ms)
@@ -232,6 +251,7 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             found.append({**facts, "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
                           "quotes": quote_facts(conn, commit, symbol, start_ms, end_ms, imports),
                           "trades": trade_facts(conn, commit, symbol, start_ms, end_ms, trade_imports),
+                          "metrics": metrics_facts(conn, commit, symbol, start_ms, end_ms, metrics_imports),
                           "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},
