@@ -39,7 +39,7 @@ class SchemaTests(unittest.TestCase):
     def body(self) -> dict:
         from tests.registration.world import OUTCOMES
         return {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
-                "control_trial_id": None, "change": None,
+                "control_trial_id": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a guess"}, "sources": [],
                 "comparison": dict(DESIGN), "grid": [{"candidate": "rsi@1", "params": {}}],
                 "conditions": "all", "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}}
@@ -74,6 +74,7 @@ class SchemaTests(unittest.TestCase):
             lambda b: b.update(window={"trade_start": "2026-01-01"}),
             lambda b: b.update(conditions=""),
             lambda b: b.update(prechecks={"rsi@1": "bad name"}),
+            lambda b: b.update(change=None),  # taken from the grid candidates, never written
         ]
         for mutate in mutations:
             body = copy.deepcopy(self.body())

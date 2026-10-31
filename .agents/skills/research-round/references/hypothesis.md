@@ -22,11 +22,12 @@ no approval or eligibility challenge follows from that choice.
 
 ## Change and prediction
 
-Register one concrete rule change. Every grid point's difference text equals it word for word;
-several affected duties can belong to one coupled policy. Derived quantities and inactive-method
-parameters do not create additional changes. Use candidate headers to locate relevant policies,
-defaults and applicability; connect those choices to the diagnosis and register affected ids in
-changed_duties. Use duty-directory.md when their scope is unclear.
+Register one concrete rule change: publish every grid candidate with it as one `--difference` text,
+which the registration stores as its change. Several affected duties can belong to one coupled
+policy. Derived quantities and inactive-method parameters do not create additional changes. Use
+candidate headers to locate relevant policies, defaults and applicability; connect those choices to
+the diagnosis and register affected ids in changed_duties. Use duty-directory.md when their scope
+is unclear.
 
 For each changed duty, predict the direction of a catalogue measure and the native fill or holding
 behavior expected to produce it, where the control's report shows the change can act: the days,
@@ -42,6 +43,5 @@ interpretation belongs in judgments.
 
 Use the root or derived JSON template linked by SKILL.md (`registration add --help` for what the
 lock binds). A root has no parent or control and empty changed_duties; a derivation names its
-parent, control, actual change and a prediction for every changed duty. Comparison design is
-declared before results and applies only to the registered control; a root has no paired
-comparison.
+parent, control and a prediction for every changed duty. Comparison design is declared before
+results and applies only to the registered control; a root has no paired comparison.

@@ -73,7 +73,7 @@ class ContinuityTests(unittest.TestCase):
         with seams.use(resolve_runtime=lambda ref: dict(third)):
             self.world.register("registration-third", {**body, "retry_of": "registration-new",
                                                        "prechecks": {"rsi@1": third_review}})
-        self.assertEqual(self.world.plan("registration-old")["body"], self.body)
+        self.assertEqual(self.world.plan("registration-old")["body"], {**self.body, "change": None})
         self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE trial_id = %s",
                                             (self.old_run,))["status"], "passed")
 
@@ -182,7 +182,7 @@ class ContinuityTests(unittest.TestCase):
         child = self.world.publish("child")
         old_review = self.review_on(child["source"], RUNTIME)
         original = self.world.body([child["candidate"]], {child["candidate"]: old_review}, parent="rsi@1",
-                                   control_trial_id=self.old_run, change="cap volume at 5%", duties=["G3"])
+                                   control_trial_id=self.old_run, duties=["G3"])
         self.world.register("registration-child-old", original)
         failed = self.world.research_trial("registration-child-old", child["source"])
         self.world.seal_run(failed, "invalid")
@@ -207,7 +207,7 @@ class ContinuityTests(unittest.TestCase):
         child = self.world.publish("valid child")
         review = self.review_on(child["source"], RUNTIME)
         original = self.world.body([child["candidate"]], {child["candidate"]: review}, parent="rsi@1",
-                                   control_trial_id=self.old_run, change="cap volume at 5%", duties=["G3"])
+                                   control_trial_id=self.old_run, duties=["G3"])
         self.world.register("registration-child-old", original)
         old = self.world.research_trial("registration-child-old", child["source"])
         self.world.seal_run(old)

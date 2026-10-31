@@ -2,9 +2,10 @@
 `registration.register`, `registration.bind`, `registration.require_line_records`).
 
 A registration locks one hypothesis before any replay of it: the body (prediction, changed duties,
-parent and control, change, rationale, sources, comparison design (none without a control), grid,
-conditions, window), the execution identity the product probed (runtime image, effective configuration, input
-identity) and each grid point's source review, as the immutable bundle research-plan.json. A
+parent and control, rationale, sources, comparison design (none without a control), grid,
+conditions, window, and the change, which register takes from the first grid candidate's published
+difference rather than from the caller), the execution identity the product probed (runtime image,
+effective configuration, input identity) and each grid point's source review, as the immutable bundle research-plan.json. A
 research replay binds to one grid point in the transaction that writes its trial: the registration
 is checked again, and the grid point is consumed once, whatever the replay's outcome. A registration
 belongs to the open line it was written on (`ledger.registration_line`); a closed line binds no more.
@@ -42,8 +43,8 @@ GRID_LIMIT = 5
 # Research trials on a line since its last recommendation that stop the next registration until a
 # review (a fixed circuit breaker, user decision 2026-10-21; an uncalibrated example value).
 REVIEW_EVERY = 5
-REQUIRED = ("prediction", "changed_duties", "parent", "control_trial_id", "change", "rationale", "sources",
-            "comparison", "grid", "conditions", "window")
+REQUIRED = ("prediction", "changed_duties", "parent", "control_trial_id", "rationale", "sources", "comparison",
+            "grid", "conditions", "window")
 OPTIONAL = ("retry_of", "prechecks")
 REGISTRATION_NAME = re.compile(r"registration-.+")
 OUTCOMES = ("improved", "not_significant", "loss", "zero_activity", "invalid")
@@ -55,7 +56,8 @@ _BUNDLE = {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$"}
 
 
 def plan_schema() -> dict:
-    """The JSON Schema of a registration body; every field carries the description quoted on refusal."""
+    """The JSON Schema of a registration body as the caller writes it; every field carries the description
+    quoted on refusal. The stored body also holds `change`, which register derives."""
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "research-plan body",
@@ -91,8 +93,8 @@ def plan_schema() -> dict:
                                            "whose parent's research runs are each invalid or without fills and "
                                            "whose rationale.local cites that fault or zero activity.",
                             "anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
-            "change": {"description": "The one rule change, word for word the difference of every grid candidate; "
-                                      "null for a root.", "anyOf": [_TEXT, {"type": "null"}]},
+            "change": {"description": "Not written: the registration stores the difference its grid candidates "
+                                      "were published with (null for a root); omit the field.", "not": {}},
             "rationale": {"description": "The economic rationale in three parts: external (others' research, with "
                                          "source bundles), local (facts seen in this line's runs) and conjecture; "
                                          "not all empty.",
@@ -275,13 +277,11 @@ def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
 
 
 def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping, before_replay: bool) -> None:
-    parent, control, change = body["parent"], body["control_trial_id"], body["change"]
+    parent, control = body["parent"], body["control_trial_id"]
     if parent is None:
-        if control is not None or change is not None:
-            raise _invalid("a root registration has no control run and no change", "control_trial_id", "change")
+        if control is not None:
+            raise _invalid("a root registration has no control run", "control_trial_id")
         return
-    if change is None:
-        raise _invalid("a derived registration states its one change", "change")
     row = _candidate(conn, parent, "parent")
     if control is None:
         # Checked when registering only: a stored registration is not judged again at binding.
@@ -315,9 +315,13 @@ def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) ->
         seen.add(row["source_sha256"])
         parent = (f"{row['parent_strategy_id']}@{row['parent_revision']}" if row["parent_strategy_id"] is not None
                   else None)
-        if parent != body["parent"] or row["difference"] != body["change"]:
-            raise refuse("LINEAGE_MISMATCH", f"grid candidate {point['candidate']} has parent {parent} and another "
-                                             "difference than the registration", missing=(point["candidate"],))
+        if parent != body["parent"]:
+            raise refuse("LINEAGE_MISMATCH", f"grid candidate {point['candidate']} has parent {parent}, the "
+                                             f"registration {body['parent']}", missing=(point["candidate"],))
+        if row["difference"] != body["change"]:
+            raise refuse("LINEAGE_MISMATCH", f"grid candidate {point['candidate']} was published with another "
+                                             f"difference than {body['grid'][0]['candidate']}; a registration tests "
+                                             "one change", missing=(point["candidate"],))
         if row["runtime_contract"] != execution.get("runtime_contract"):
             raise refuse("CONFIG_MISMATCH", f"grid candidate {point['candidate']} needs runtime contract "
                                             f"{row['runtime_contract']}, the execution has "
@@ -465,9 +469,17 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
+def _change(conn: db.LedgerConnection, body: Mapping) -> str | None:
+    """The change a registration stores: the difference its first grid candidate was published with
+    (_check_grid holds every other grid point to it); none for a root."""
+    if body["parent"] is None:
+        return None
+    return _candidate(conn, body["grid"][0]["candidate"], "grid[0].candidate")["difference"]
+
+
 def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping,
               exclude: tuple[str, int] | None = None) -> dict:
-    _check_shape(body)
+    _check_shape({key: value for key, value in body.items() if key != "change"})  # change is derived, not written
     if body["control_trial_id"] is not None or body["comparison"] is not None:  # nothing to test without a control
         validate_design(body["comparison"])
     absent = [bundle for bundle in body["sources"] if not _bundle_exists(conn, bundle)]
@@ -496,9 +508,10 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
 
 def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping, *,
              exclude: tuple[str, int] | None = None) -> set[str]:
-    """Every check of a registration body against its execution identity and its line's record; the
-    locked grid's source hashes. Read only. `exclude` (bundle, trial_id) is the binding being checked:
-    its own trial and earlier attempts of the same registration are not exposures of the grid."""
+    """Every check of a stored registration body (with its derived `change`) against its execution
+    identity and its line's record; the locked grid's source hashes. Read only. `exclude` (bundle,
+    trial_id) is the binding being checked: its own trial and earlier attempts of the same
+    registration are not exposures of the grid."""
     return {point["source_sha256"] for point in _validate(conn, body, execution, before_replay, line, exclude)["grid"]}
 
 
@@ -591,7 +604,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
     """Probe the runtime, export the inputs, compose the execution identity and lock the registration
     on the open line `line` (default: the only open line, ledger.open_line) as research-plan.json in
     one write, which checks again that the line is open; the same content again is an idempotent
-    replay."""
+    replay. The stored body adds `change`: the first grid candidate's published difference."""
     evidence.check_name(bundle)
     if not REGISTRATION_NAME.fullmatch(bundle):
         raise refuse("REGISTRATION_BUNDLE_NAME", f"{bundle} is not named registration-*", missing=(bundle,))
@@ -600,6 +613,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
+        body["change"] = _change(conn, body)  # published candidates are immutable; _validate rechecks the grid
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.current.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],

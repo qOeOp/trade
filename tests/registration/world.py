@@ -253,11 +253,11 @@ class World:
     # Registrations
 
     def body(self, grid: list[str], reviews: dict[str, str], parent: str | None = None, control_trial_id: int | None = None,
-             change: str | None = None, duties: list[str] | None = None, **overrides) -> dict:
+             duties: list[str] | None = None, **overrides) -> dict:
         mechanism = [{"slice": "capital_scaled", "measure": "unit_return", "direction": "up", "duty": duty,
                       "reason": "smaller orders fill closer to the signal"} for duty in (duties or [])]
         body = {"prediction": {"mechanism": mechanism, "outcomes": dict(OUTCOMES)},
-                "changed_duties": list(duties or []), "parent": parent, "control_trial_id": control_trial_id, "change": change,
+                "changed_duties": list(duties or []), "parent": parent, "control_trial_id": control_trial_id,
                 "rationale": {"external": "", "local": "the parent fills large orders late",
                               "conjecture": "capacity limits the edge"},
                 "sources": [], "comparison": dict(DESIGN),

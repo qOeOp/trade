@@ -116,7 +116,7 @@ class CommandTests(unittest.TestCase):
 
     def body(self, ref: str, review: str, **overrides) -> dict:
         body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
-                "control_trial_id": None, "change": None,
+                "control_trial_id": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a fixture rule earns its keep"},
                 "sources": [], "comparison": dict(DESIGN),
                 "grid": [{"candidate": ref, "params": {}}], "conditions": "one contract, the development window",
@@ -307,7 +307,7 @@ class CommandTests(unittest.TestCase):
         mechanism = [{"slice": None, "measure": None, "direction": "up", "duty": "F3",
                       "reason": "no slice measures the stop"}]
         child_body = self.body("fixture@2", child_review, parent="fixture@1", control_trial_id=ran["trial_id"],
-                               change="widen the stop", changed_duties=["F3"],
+                               changed_duties=["F3"],
                                prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)},
                                rationale={"external": "", "local": "the root's stop is hit early", "conjecture": ""})
         self.ok("registration", "add", *ledger, "--bundle", "registration-child",

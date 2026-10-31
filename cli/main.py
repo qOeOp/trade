@@ -1259,7 +1259,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "bundle per --source, in one commit; the same bundle and content again is a replay; publishes",
         "bundle, content_hash, grid_points, execution {image_ref, image_digest, runtime_contract, "
         "effective_config, input_identity}, files [{name, sha256}], ledger_commit, replayed",
-        "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); RESEARCH_LINE_REQUIRED (no "
+        "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (a grid "
+        "candidate's parent is not body.parent, or its difference is not the first grid candidate's); "
+        "RESEARCH_LINE_REQUIRED (no "
         "open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED (--line is closed); LINE_UNKNOWN; "
         "INTERPRETATION_REQUIRED (a completed research trial of the line has no interpretation); REVIEW_DUE (5 or "
         "more research trials since the last recommendation); WINDOW_MISMATCH (body.window is not the line's); "
@@ -1758,7 +1760,8 @@ def _parser() -> Parser:
     command = runner(registration, "add", "lock a registration")
     command.epilog = textwrap.fill(
         "Locks the body and its runtime and input identity as an immutable bundle; the runner arguments must "
-        "match replay run. body.prechecks binds each grid candidate's passed source review. Changing source, "
+        "match replay run. body.prechecks binds each grid candidate's passed source review. The body has no "
+        "change: the stored body takes it from the grid candidates' --difference. Changing source, "
         "intent or grid needs a new registration; a consumed point is retried by a new one naming it in "
         "retry_of.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
