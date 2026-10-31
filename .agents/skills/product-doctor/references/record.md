@@ -13,7 +13,7 @@ record once it is written. Later state belongs in the index.
 | Checkout / ledger | commit; ledger commits from … to … |
 | Coverage | assigned workstreams, examined paths and explicit gaps |
 | Cost | time split (research / discovery / repair / waiting), tokens, invalid trials caused by the product, and this audit's own time and tokens; unknown where not measured |
-| Net change | mechanisms, branches, rules and skill words the proposals add and remove; skill words against the previous record; why any growth was unavoidable |
+| Net change | mechanisms, branches, rules and skill words the proposals add and remove; refusal codes (`ledger/refusals.py` catalogue keys) and words of `.agents/skills/**/*.md` against the previous record, counted the same way; why any growth was unavoidable |
 
 ## Findings
 | id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |
@@ -34,7 +34,8 @@ status, first and last record) and a closed table (id, finding, source, cost cla
   line), `wrong output`; `unknown` where nothing was measured.
 - Status: one state word plus the link to the record that set it (`in PR` links the PR); the
   history lives in the records. `open`, `in PR`, `fixed <commit>` (the change merged, no more),
-  `verified` (a later research session reached the path and the failure did not recur),
+  `verified` (a later research session reached the path and the failure did not recur; the
+  linked record names that session and call),
   `recurred`, `unobserved` (no later session reached the path, which is not verification),
   `rejected`. The next diagnosis of a research session reports the rows whose state changes; a
   row moves to the closed table at `verified` or `rejected`.
