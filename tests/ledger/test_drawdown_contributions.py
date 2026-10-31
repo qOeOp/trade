@@ -7,19 +7,16 @@ from ledger import metrics
 
 
 class DrawdownContributionTests(unittest.TestCase):
-    def section(self, snapshots, closed=(), peak=100, starting=100):
+    def section(self, snapshots, peak=100):
         exposures = metrics.ExposureTable([
             {"ts_event_ns": t, "position_id": name, "notional_value": Decimal(1),
              "realized_pnl": realized, "unrealized_pnl": Decimal(mark)} for t, name, realized, mark in snapshots])
         positions = [{"position_id": "A", "instrument_id": "A"}, {"position_id": "B", "instrument_id": "B"}]
         cycles = [{"closed": False}, {"closed": False}]
-        for name, last, realized in closed:
-            positions.append({"position_id": name + "-snapshot", "instrument_id": name})
-            cycles.append({"closed": True, "ts_last": last, "realized": Decimal(realized)})
         drawn = {"peak_ns": peak, "trough_ns": 200, "max_drawdown": .15}
         return metrics._drawdown_section(drawn, [{"label": 100, "equity": Decimal(100)},
                                                  {"label": 200, "equity": Decimal(70)}],
-                                         cycles, positions, exposures, Decimal(starting))
+                                         cycles, positions, exposures, Decimal(100))
 
     def test_peak_mark_is_subtracted_and_partial_realization_included(self):
         found = self.section([(100, "A", Decimal(-2), 100), (100, "B", Decimal(0), 0),

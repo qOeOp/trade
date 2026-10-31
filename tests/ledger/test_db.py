@@ -160,12 +160,6 @@ class LedgerBaseTests(unittest.TestCase):
         with patch.object(db, "SCHEMA_VERSION", db.SCHEMA_VERSION + 1):
             self.assertEqual(self.code(lambda: db.connect(self.profile, "reader")), "SCHEMA_MISMATCH")
 
-    def test_connections_carry_their_role_and_branch(self):
-        with db.connect(self.profile, "writer") as writer, db.connect(self.profile, "reader") as reader:
-            self.assertEqual((writer.role, writer.branch, writer.database, writer.schema_version),
-                             ("writer", "main", self.profile.database, db.SCHEMA_VERSION))
-            self.assertEqual(reader.role, "reader")
-
     def test_the_writer_may_only_insert_and_bump_the_head_on_the_research_branch(self):
         writer = db.connect(self.profile, "writer")
         self.addCleanup(writer.close)

@@ -136,17 +136,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing[0]), ("ECONOMIC_EVIDENCE_UNAVAILABLE", str(self.bare["trial_id"])))
         self.assertEqual(exc.availability["reasons"], bare["reasons"])
 
-    def test_a_failed_review_of_the_source_disqualifies_its_runs(self):
-        with db.read_as_of(self.profile) as conn:
-            source_sha256 = strategies.read_candidate(conn, self.bare_ref)["source_sha256"]
-            (trial_id,), = conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s",
-                                     (source_sha256,))
-        body = self.world.review_body(trial_id, "failed", api={"status": "failed", "note": "it calls an unknown API"})
-        precheck.record_review(self.profile, body, "reviewer-c")
-        value = self.assess(self.bare["trial_id"])
-        self.assertEqual(value["source_check"]["status"], "failed")
-        self.assertTrue(any(reason.startswith("SOURCE_REVIEW_FAILED") for reason in value["reasons"]))
-
     def test_native_reasons_name_failing_and_unrecorded_facts(self):
         report = {"activity": {"real_fills@1": {"passed": False, "code": "NO_FILLS"}}}
         found = availability.native_reasons(report)

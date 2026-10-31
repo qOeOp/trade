@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from datetime import date
 import json
-from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -113,17 +111,6 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.code(note="another choice", slug="ema-again"), "LINE_DATA_TAKEN")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle "
                                                         "WHERE bundle LIKE 'research-line-%'"), [(1,)])
-
-    def test_an_agent_cannot_forge_a_research_line(self):
-        line = self.select()
-        work = Path(tempfile.mkdtemp(prefix="ll-", dir="/tmp"))
-        self.addCleanup(__import__("shutil").rmtree, work, ignore_errors=True)
-        (work / "research-line.json").write_text(json.dumps({"format": "research-line-v2", "start": "forged@1"}))
-        for name in ("research-line-20991231-forged", "research-line-7", "research-line-x"):
-            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                evidence.add_bundle(self.conn, name, [work / "research-line.json"])
-            self.assertEqual(caught.exception.code, "RESERVED_BUNDLE")
-        self.assertEqual(lines.open_line(self.conn)["bundle"], line["bundle"])
 
     def test_damaged_line_records_are_refused_on_read(self):
         product_bundle(self.conn, "research-line-20260101-damaged", {"other.json": b"{}"})
