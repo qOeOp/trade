@@ -135,13 +135,14 @@ def fetch_archive(cache: Path, key: str) -> Path:
 class State:
     last_id: int | None = None
     last_time: int | None = None
+    last_trade: int | None = None  # the previous row's last raw trade id
 
 
 def batches(path: Path, symbol: str, day: str, state: State, readings: dict, size: int = BATCH_ROWS):
     """One CSV row at a time; retain only an INSERT batch and the previous event across days."""
     label = f"{symbol} {day}"
     low = series._day_ms(date.fromisoformat(day))
-    previous_id, previous_time = state.last_id, state.last_time
+    previous_id, previous_time, previous_trade = state.last_id, state.last_time, state.last_trade
     readings.update(trades=0, first_agg_trade_id=None, last_agg_trade_id=None,
                     first_ms=None, last_ms=None, trade_gap_max_ms=0)
     rows = []
@@ -162,7 +163,12 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                         raise ValueError("source ID or time is outside signed int64")
                     if first > last or maker not in ("true", "false", "True", "False"):
                         raise ValueError("invalid first/last trade ID or maker flag")
-                    if previous_id is not None and identity != previous_id + 1:
+                    # Binance's archive gives one id twice to two distinct trades (SOLUSDT 2025-07-16): a
+                    # repeated id later in time whose raw trade ids follow the previous row's is kept
+                    # (user, 2026-10-31); an identical or same-moment repeat is not.
+                    repeated = (identity == previous_id and previous_time is not None and previous_trade is not None
+                                and moment > previous_time and first > previous_trade)
+                    if previous_id is not None and identity != previous_id + 1 and not repeated:
                         raise _refuse(f"{label}: aggTrade ids are not contiguous (after agg_trade_id "
                                       f"{previous_id} comes {identity})", "SEQUENCE_GAP", missing=(label,))
                     if previous_time is not None and moment < previous_time:
@@ -176,7 +182,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                         readings["trade_gap_max_ms"] = max(readings["trade_gap_max_ms"], moment - previous_time)
                     readings["trades"] += 1
                     readings.update(last_agg_trade_id=identity, last_ms=moment)
-                    previous_id, previous_time = identity, moment
+                    previous_id, previous_time, previous_trade = identity, moment, last
                     rows.append((symbol, moment, identity, p, q, first, last, maker.lower() == "true"))
                     if len(rows) >= size:
                         yield rows
@@ -185,7 +191,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
         raise _refuse(f"{label}: rows do not parse as complete aggTrades ({exc})", "SOURCE_SHAPE", missing=(label,)) from exc
     if not readings["trades"]:
         raise _refuse(f"{label}: the archive holds no trades", "SOURCE_SHAPE", missing=(label,))
-    state.last_id, state.last_time = previous_id, previous_time
+    state.last_id, state.last_time, state.last_trade = previous_id, previous_time, previous_trade
     if rows:
         yield rows
 

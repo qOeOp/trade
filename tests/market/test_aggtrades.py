@@ -86,6 +86,22 @@ class CodecTests(unittest.TestCase):
                 list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(5, START - 1), {}, size=1))
             self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
 
+    def test_repeated_id_imports_a_later_distinct_trade_and_refuses_any_other_repeat(self):
+        with tempfile.TemporaryDirectory() as temp:
+            rows = [(1, '100', '0.1', 1, 1, START + 10, True), (1, '101', '0.2', 3, 3, START + 11, False),
+                    (2, '102', '0.3', 4, 4, START + 12, True)]
+            path = archive(temp, '2025-01-01', rows)
+            readings, state = {}, trades.State()
+            chunks = list(trades.batches(path, 'BTCUSDT', '2025-01-01', state, readings, size=1))
+            self.assertEqual([chunk[0][1:3] for chunk in chunks], [(START + 10, 1), (START + 11, 1), (START + 12, 2)])
+            self.assertEqual((state.last_id, state.last_trade, readings['trades']), (2, 4, 3))
+            for second in [(1, '100', '0.1', 1, 1, START + 10, True), (1, '101', '0.2', 3, 3, START + 10, False),
+                           (1, '101', '0.2', 1, 1, START + 11, False)]:
+                path = archive(temp, '2025-01-01', [rows[0], second])
+                with self.subTest(second=second), self.assertRaises(sources.MarketError) as caught:
+                    list(trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
+                self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
+
     def test_bounded_download_verifies_checksum_before_promoting_cache(self):
         body = b'x' * (trades.DOWNLOAD_BYTES * 2 + 7)
         response = Mock(status=200, headers={}, will_close=False)
