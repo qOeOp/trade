@@ -9,12 +9,12 @@ const CHAR = 6.6, PAD = 4;
 export const pillWidth = (text: string) => text.length * CHAR + 2 * PAD;
 
 /** The pill with its top at `y`: its text centred on `x`, or (`anchor="end"`) ending at `x` like the axis's right-aligned
- *  tick labels, the fill reaching PAD past it. */
+ *  tick labels, or (`anchor="start"`) starting at `x` like left-aligned ones, the fill reaching PAD past it. */
 export function ChartPill({ x, y, text, anchor = "middle", min = -Infinity, max = Infinity }: {
-  x: number; y: number; text: string; anchor?: "middle" | "end"; min?: number; max?: number;
+  x: number; y: number; text: string; anchor?: "middle" | "start" | "end"; min?: number; max?: number;
 }) {
   const w = pillWidth(text);
-  const left = Math.min(Math.max(min, anchor === "end" ? x + PAD - w : x - w / 2), max - w);
+  const left = Math.min(Math.max(min, anchor === "end" ? x + PAD - w : anchor === "start" ? x - PAD : x - w / 2), max - w);
   return (
     <g pointerEvents="none">
       <rect x={left} y={y} width={w} height={PILL_H} rx={4} fill={v("fg-muted")} />

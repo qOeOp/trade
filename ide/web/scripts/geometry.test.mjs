@@ -65,14 +65,17 @@ test("an unrun version drawn at its precheck still defines the visible left edge
   assert.equal(212 * UNIT + home(widget).x, 16);
 });
 
-test("focus and Home reserve the shared value-axis gutter even in a narrow canvas", () => {
-  const widget = line(239), inset = 96;
+test("the line starts at the canvas's top-left; its right end pans clear of the return labels' column", () => {
+  const widget = line(239), gutter = 96;
   for (const width of [160, 410, 696, 2200]) {
-    const at = centredOn(widget, positions(widget).get("root@1"), width, 800, inset);
-    assert.equal(at.x, home(widget, inset).x);
-    assert.equal(239 * UNIT + at.x, inset);
-    assert.ok(239 * UNIT + at.x - 12 >= 80, "the first return bar clears the value-axis gutter");
+    const at = centredOn(widget, positions(widget).get("root@1"), width, 800, gutter);
+    assert.equal(at.x, home(widget).x);
+    assert.equal(239 * UNIT + at.x, UNIT / 2, "the first mark half a trial from the left edge");
+    assert.equal(at.y, 15, "the first row at the top");
   }
+  const last = positions(widget).get("child@1"), edge = bounds(widget, gutter);
+  const far = centredOn(widget, { x: edge.right, y: last.y }, 400, 800, gutter);
+  assert.ok(400 - (last.x + far.x) >= gutter, "panned to its end, the last trial sits left of the labels");
 });
 
 test("empty and unplaced graphs have finite bounds and home coordinates", () => {

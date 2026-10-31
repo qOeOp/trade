@@ -5,7 +5,7 @@ import { pillWidth } from "./ChartPill";
 
 export const VALUE_GUTTER = 8;
 
-/** Shared trial-axis inset: reserve the return labels' width in both linked figures. Include the
+/** The return labels' column right of the progress plot, which the linked lineage keeps free at its right end. Include the
  *  rounded domains for every tick count the progress plot uses, so resizing a panel keeps x still. */
 export function progressGutter(widget: ProgressWidget): number {
   const values = [...widget.points.map((p) => p.annual_return), widget.targets?.annual_return ?? 0, 0];

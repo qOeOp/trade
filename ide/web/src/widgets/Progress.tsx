@@ -13,10 +13,10 @@ import { chartKeys } from "../components/chartKeys";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
 
-// The top margin holds the legend (the panel names the chart); the plot starts right of the tick labels' gutter, the
-// labels and the readout pill's text ending GUTTER short of it (as in the scatter). The linked
-// lineage reserves the same width for the widest label or readout, with 8px to the island's edge.
-const TOP = 40, BOTTOM = 16, RIGHT = 12;
+// The top margin holds the legend (the panel names the chart); the plot ends left of the tick labels' column, as
+// TradingView's price scale, the labels and the readout pill's text starting GUTTER past it, so the lineage above
+// starts at the island's left edge. The linked lineage keeps the same width free at its right end.
+const TOP = 40, BOTTOM = 16;
 // Bars fill 70% of a trial's slot up to 24px, flat; the far end is rounded, the foot on the axis square.
 const SLOT = 0.7, MAX_BAR = 24, R = 3;
 const LEGEND: readonly [ColorRole, string][] = [["meets", "Meets target"], ["bar", "Gain below target"], ["misses", "Loss"]];
@@ -46,7 +46,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
   const count = Math.max(3, Math.min(8, Math.floor((floor - TOP) / 28)));
   const y = scaleLinear<number>({ domain: valueDomain(Math.min(...values), Math.max(...values), count), range: [floor, TOP] });
   const ticks = y.ticks(count);
-  const left = progressGutter(widget);
+  const end = width - progressGutter(widget);
   const sx = (t: number) => x0 + t * unit;
   const near = at == null ? null : points.find((p) => p.x === at) ?? null;
   const recommended = new Set(widget.recommended);
@@ -60,7 +60,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
     along: byTrial, at: (list) => list.findIndex((p) => p.x === at),
     move: (p) => {
       crosshair.set(p.x); hovered.set([p.id]);
-      if (sx(p.x) < left || sx(p.x) > width) requestFocus(p.id);
+      if (sx(p.x) < 0 || sx(p.x) > end) requestFocus(p.id);
     },
     enter: (p) => { select(p.id); requestFocus(p.id); },
     leave: () => { crosshair.set(null); hovered.set(null); },
@@ -74,7 +74,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
          onMouseLeave={() => crosshair.set(null)}>
       {width > 0 && height > 0 && (
         <svg width={width} height={height} className="absolute inset-0">
-          <defs><clipPath id={`${id}-plot`}><rect x={left} y={0} width={width - left} height={floor + 1} /></clipPath></defs>
+          <defs><clipPath id={`${id}-plot`}><rect x={0} y={0} width={Math.max(0, end)} height={floor + 1} /></clipPath></defs>
           <g className="chart-plot" clipPath={`url(#${id}-plot)`}>
             <g className="chart-plot-bands">
               {scope != null && <rect x={0} y={TOP} width={Math.max(0, sx(scope))} height={floor - TOP} fill={v("scope")} />}
@@ -83,9 +83,9 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               {near && column(near, v("row-hover"))}
             </g>
             <g className="chart-grid" stroke={v("grid")}>
-              {ticks.filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={crisp(y(t))} y2={crisp(y(t))} />)}
+              {ticks.filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={end} y1={crisp(y(t))} y2={crisp(y(t))} />)}
             </g>
-            {near && readout != null && <line className="chart-crosshair" x1={0} x2={sx(near.x) - barWidth / 2} y1={crisp(readout)} y2={crisp(readout)}
+            {near && readout != null && <line className="chart-crosshair" x1={sx(near.x) + barWidth / 2} x2={end} y1={crisp(readout)} y2={crisp(readout)}
                                       stroke={v("crosshair")} strokeDasharray="1 2" pointerEvents="none" />}
             <g className="chart-series">
               {points.map((p) => (
@@ -98,18 +98,18 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               ))}
             </g>
             <g className="chart-plot-lines" pointerEvents="none">
-              <line x1={0} x2={width} y1={crisp(y(0))} y2={crisp(y(0))} stroke={v("axis")} />
-              {target != null && <line x1={0} x2={width} y1={crisp(y(target))} y2={crisp(y(target))} stroke={v("meets")} strokeOpacity={0.55} />}
+              <line x1={0} x2={end} y1={crisp(y(0))} y2={crisp(y(0))} stroke={v("axis")} />
+              {target != null && <line x1={0} x2={end} y1={crisp(y(target))} y2={crisp(y(target))} stroke={v("meets")} strokeOpacity={0.55} />}
             </g>
           </g>
-          {target != null && <text className="chart-plot-line-label" x={width - RIGHT} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}
+          {target != null && <text className="chart-plot-line-label" x={end - GUTTER} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}
                                    stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">Target {pct(target)}</text>}
-          <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="end">
+          <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="start">
             {ticks.filter((t) => readout == null || Math.abs(y(t) - readout) > PILL_H + 2).map((t) => (
-              <text key={t} x={left - GUTTER} y={y(t) + 3.5}>{pct(t)}</text>
+              <text key={t} x={end + GUTTER} y={y(t) + 3.5}>{pct(t)}</text>
             ))}
           </g>
-          {near && readout != null && <ChartPill x={left - GUTTER} y={readout - PILL_H / 2} text={pct(near.annual_return)} anchor="end" min={8} />}
+          {near && readout != null && <ChartPill x={end + GUTTER} y={readout - PILL_H / 2} text={pct(near.annual_return)} anchor="start" max={width - 8} />}
         </svg>
       )}
       <div className="pointer-events-none absolute inset-x-3 top-1.5 flex justify-end text-small text-fg-muted">

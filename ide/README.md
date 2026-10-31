@@ -138,8 +138,8 @@ window frame, following the design rules in
 OKLCH neutrals, two heading sizes (18px for the version name, 16px for card groups) in weight 600, one monospace face (Supply) for
 letters and digits alike, so a reading's digits, point and % share a height, one shadow for popups, a blue ring for
 keyboard focus, and short ease-out motion on hover and tooltips only. The lineage is one figure on the trial axis at a fixed scale: a
-canvas that pans but never zooms and only as far as its content (the first drawn version follows the shared
-return-axis gutter, and the first row is at its top-left; older prechecks remain in the version's Replays
+canvas that pans but never zooms and only as far as its content (the first drawn version and the first row are at its
+top-left, half a trial from the edge; older prechecks remain in the version's Replays
 table and do not open an empty span before the graph; the
 last row at its bottom, and on the right no further than the longest-reaching version name, so it never opens on
 empty trials; focusing a version centres it only as far as that allows, and opening or closing a side
@@ -156,7 +156,8 @@ labels in text colours (a coloured mark beside them gives identity), headroom ab
 the axes that the tick labels make way for; each chart's SVG is layered in named groups (plot bands, grid, series, plot
 lines, axis labels) in paint order. In Progress bars fill 70% of a trial (at most 24px), flat, rounded only at their far
 end, under a thin solid target line; the crosshair's trial is a shaded column behind the
-bars, and the hovered run's return is read out on the value axis. In Return vs drawdown the dominated runs
+bars, and the hovered run's return is read out on the value axis, which is on the right as TradingView's price
+scale; the canvas keeps the axis's width free past its right end, so the last trial pans clear of it. In Return vs drawdown the dominated runs
 are light grey, the frontier a blue line with its ends and the recommendation named above their points, the corner
 meeting both targets a green band, its thresholds stated in the legend (no axis titles on either chart: the panel names them), and the selected version's runs filled bright yellow above every other point; where runs crowd, the wheel zooms in around the pointer, a drag
 pans and a double-click (or Reset zoom) shows them all again. Hovering a mark dims every other
