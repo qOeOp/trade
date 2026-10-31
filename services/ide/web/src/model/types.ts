@@ -75,6 +75,7 @@ export type LineageWidget = Widget & {
   rows: { id: string; row: number }[];
   nodes: LineageNode[];
   edges: { from: string; to: string }[];
+  revisions: { from: string; to: string }[];
   trail: { candidate: string; row: number; x0: number | null; x1: number | null; judgments: (number | null)[] }[];
   trials: { trial_id: number; x: number; candidate: string; purpose: string }[];
 };

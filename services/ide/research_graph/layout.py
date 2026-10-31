@@ -9,7 +9,9 @@ travelling with it as a label, so other lines' trials in between take no room; a
 research run (or its first trial, a precheck, when it has none). Anything timed (an event, a version without trials, the scope start) sits halfway through the
 gap after the last trial before it, n + 0.5, found by interpolating between trials whose times are
 known; so trials and what happened between them never share a position. Rows follow the lineage depth first,
-children in order of their first trial. A renderer maps these units to its own pixels and colours.
+children in order of their first trial. A version drawn without its parent (a defect fix of its
+strategy ID, published as a new root) is linked to the latest earlier revision of its strategy ID in
+`revisions`, apart from the parent `edges`. A renderer maps these units to its own pixels and colours.
 
 The recommendation judgments form a trail over the recommended versions' rows (one segment per
 stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress@1` holds the research runs' annual
@@ -121,6 +123,21 @@ def rows(candidates: list[dict]) -> dict[str, int]:
     return order
 
 
+def revisions(candidates: list[dict], drawn: dict[str, int]) -> list[dict]:
+    """Each version drawn without its parent, from the latest earlier revision of its strategy ID drawn."""
+    numbers: dict[str, list[int]] = {}
+    for c in candidates:
+        name, _, number = c["id"].rpartition("@")
+        numbers.setdefault(name, []).append(int(number))
+    out = []
+    for c in candidates:
+        name, _, number = c["id"].rpartition("@")
+        earlier = [n for n in numbers[name] if n < int(number)]
+        if c.get("parent") not in drawn and earlier:
+            out.append({"from": f"{name}@{max(earlier)}", "to": c["id"]})
+    return out
+
+
 def build_view(graph: dict) -> dict:
     candidates = graph["candidates"]
     targets = (graph["line"].get("targets") or {})
@@ -188,6 +205,7 @@ def build_view(graph: dict) -> dict:
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],
          "nodes": nodes,
          "edges": [{"from": c["parent"], "to": c["id"]} for c in candidates if c.get("parent") in row],
+         "revisions": revisions(candidates, row),
          "trail": trail,
          "trials": sorted(({"trial_id": t["trial_id"], "x": place[t["trial_id"]], "candidate": c["id"], "purpose": t["purpose"]}
                            for c in candidates for t in c.get("trials") or []), key=lambda t: t["trial_id"])},

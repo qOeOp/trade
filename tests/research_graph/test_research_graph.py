@@ -104,6 +104,19 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((tree["trail"][0]["x0"], tree["axis"]["max"]), (4.5, 6.0))
         self.assertEqual(widgets["summary"]["runs_since_recommendation_changed"], 1)
 
+    def test_a_fix_published_as_a_new_root_links_to_the_revision_it_fixes(self):
+        graph = copy.deepcopy(GRAPH)
+        graph["candidates"] += [
+            {"id": "root@2", "parent": None, "created_at": "2026-01-01T13:00:00",
+             "trials": [{"trial_id": 6, "purpose": "research", "annual_return": 0.1, "max_drawdown": 0.1, "eligible": True,
+                         "at": "2026-01-01T13:30:00"}]},
+            {"id": "a@2", "parent": "root@2", "created_at": "2026-01-01T14:00:00",
+             "trials": [{"trial_id": 7, "purpose": "precheck"}]}]
+        tree = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "lineage")
+        self.assertEqual(tree["revisions"], [{"from": "root@1", "to": "root@2"}],
+                         "a@2 has its parent drawn, so only the parentless fix links to its earlier revision")
+        self.assertEqual(len(tree["edges"]), 3, "parent edges stay as they are")
+
 
 class WebRenderTests(unittest.TestCase):
     def setUp(self):

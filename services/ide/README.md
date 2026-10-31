@@ -164,7 +164,7 @@ research units, never pixels.
 | Type | Content |
 |---|---|
 | `summary@1` | the current recommendation, its reading against the targets, how many research runs and recommendation judgments it has held through, version and run counts, masked runs |
-| `lineage@2` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its number, `x`, version and purpose) |
+| `lineage@2` | `targets`, `axis` (positions: the line's n-th trial at n, other lines' trials taking no room; `min`, `max`, `scope_start`), `rows` (lineage depth first), `nodes` (id, row, `x` at the first research run or else the first trial, `status`, `prediction`, `change`, `reading`), `edges`, `revisions` (a version drawn without its parent, from the latest earlier revision of its strategy ID), `trail` (one segment per stretch where the recommendation stayed on one version, with its judgments), `trials` (each trial with its number, `x`, version and purpose) |
 | `progress@1` | `targets`, `axis` (the lineage's `min`, `max`, `scope_start`), `points` (research runs' returns with their trial number and `x`) and `recommended` (the versions the trail passed through) |
 | `scatter@1` | `targets` and `points` (research runs: annual return, max drawdown, eligibility, status) |
 | `table@1` | `targets` and `rows`: one per version with its role, status, prediction, first trial, research-run count and the last run's readings |
