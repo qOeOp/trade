@@ -1528,10 +1528,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "COMMIT_CHECKS_DISABLED; DATA_TESTS_FAILED"),
     ("market", "upgrade"): (
         "service.json; the market tables (administrator)",
-        "starts the service if needed; creates the missing tables of market/schema.sql in one commit (none when "
+        "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql in one commit (none when "
         "nothing is missing); publishes the market",
         "database, created, commit (null when nothing was created)",
-        "DIRTY_WORKING_SET"),
+        "CONCURRENT_IMPORT (an import or backup holds the import lock); DIRTY_WORKING_SET"),
     ("market", "publish"): (
         "the administrator connection; origin",
         "with --remote: origin and the dolt login key, as ledger publish; pushes main without force, fetches to "
