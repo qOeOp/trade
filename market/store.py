@@ -52,6 +52,7 @@ WORKING_SETS = ("WORKING", "STAGED")
 IMPORT = "binance-public"
 QUOTE_IMPORT = "binance-aggtrades-bbo"  # quote imports: their commit messages carry quotes.RULE
 TRADE_IMPORT = "binance-aggtrades"  # complete aggTrades imports (market.aggtrades): their messages carry the codec
+METRICS_IMPORT = "binance-metrics"  # open interest and long/short ratio imports (market.metrics)
 
 # The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
 # milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
@@ -953,6 +954,21 @@ def trade_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
         if isinstance(value, dict) and value.get("import") == TRADE_IMPORT:
             found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "codec", "symbols",
                                                                                "readings")}})
+    return found[::-1]
+
+
+def metrics_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
+    """The metrics import commits reachable from `ref`, oldest first: {commit, month, from, through, symbols,
+    readings (each day's rows, merged identical repeats, empty ratios), unpublished (days without an archive)}."""
+    found = []
+    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
+        try:
+            value = json.loads(message)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("import") == METRICS_IMPORT:
+            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "from", "through", "symbols",
+                                                                               "readings", "unpublished")}})
     return found[::-1]
 
 

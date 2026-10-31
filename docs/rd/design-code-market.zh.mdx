@@ -1,6 +1,6 @@
 # 代码设计：市场数据
 
-`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、完整源 aggTrades 导入、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
+`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、完整源 aggTrades 导入、持仓量与多空比导入、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
 
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
@@ -11,6 +11,7 @@
   <File name="export.py" />
   <File name="instrument.py" />
   <File name="lifecycle.py" />
+  <File name="metrics.py" />
   <File name="quotes.py" />
   <File name="read.py" />
   <File name="series.py" />
@@ -881,6 +882,46 @@ The engine Catalog's file name for data with ts_init in [first, last].
 [源码](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L140)
 
 
+## `market/metrics.py` [#def-mod-market-metrics-py]
+
+币安 USD-M 每日 `metrics` 归档的只追加导入：每 5 分钟一行的持仓量和三个多空比，按归档的 `create_time` 与列名原样写入 <Ref id="table:metrics" />，十进制精确保存。一行描述的是 create_time + 5 分钟那一刻，什么时候对策略可见由导出决定，导入不管。归档里的主动买卖量比（成交的合计）和持仓价值（持仓量乘交易所的价格快照）不存。决定与实测见 docs/plans/binance-open-interest-input.zh.md。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-metrics-py-import_month">import_month</Ref> | 一个月的一个或几个合约（缺省为当月 universe 成员）：持导入锁，逐合约追加该月还没有的日子，到最后一个已收盘 UTC 日，每个合约一个事务一个提交 |
+| <Ref id="implementation:impl-market-metrics-py-rows">rows</Ref> | 读一日 CSV，按时间排序产出行；逐字段相同的重复行合并计数，空比值存空计数，其余不合规即拒绝 |
+| <Ref id="implementation:impl-market-metrics-py-exact">exact</Ref> | 十进制字串原样放进 DECIMAL(38,16)，放不下即 SCALE_LOSS，不舍入 |
+
+#### `import_month` [#impl-market-metrics-py-import_month]
+
+```python
+def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | None=None, log=print) -> dict:
+```
+
+`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以导入账号开一个连接持 GET_LOCK('market-import:\<库名>')，核对库非空（MARKET_EMPTY）、工作集干净（DIRTY_WORKING_SET）、提交校验组含 commit（COMMIT_CHECKS_DISABLED）、metrics 表存在（SCHEMA_MISMATCH，先跑 `market upgrade`）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读早先导入提交的 `through`）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows → INSERT：最后一个已发布日之后没发布的日子留给以后的导入，之前没发布的日子记进 `unpublished`，不补；一天都没发布即 ARCHIVE_NOT_PUBLISHED。提交消息记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished。一个合约被拒在它提交前回滚，前面合约的提交保留，消息里列出它们。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L103)
+
+#### `rows` [#impl-market-metrics-py-rows]
+
+```python
+def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
+```
+
+表头不是 metrics 的八列、列数不对、symbol 不是这个合约、create_time（不带时区的 UTC 文本）不在当日的 5 分钟格点上、没有持仓量、值为负或不是十进制、同一时刻两行不同，都是 SOURCE_SHAPE。逐字段相同的重复行只留一行，计入 repeated_rows；空比值存为 NULL，按列计数。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L59)
+
+#### `exact` [#impl-market-metrics-py-exact]
+
+```python
+def exact(text: str, label: str) -> str:
+```
+
+不是有限的非负十进制即 SOURCE_SHAPE；小数超过 16 位或整数超过 22 位即 SCALE_LOSS。尾零按数字本身数，不经十进制上下文，所以 1E-1000000000 不会被当成 0。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L42)
+
 ## `market/quotes.py` [#def-mod-market-quotes-py]
 
 声明规则 `binance-aggtrades-bbo-v1`：从公开 aggTrades 推断买卖报价，保留每次状态变化；这不是原始盘口，也不判断具体合约的强平适用性，证据边界沿用 <Ref id="W.1.2.1" />。
@@ -1236,6 +1277,7 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 | <Ref id="market.fetch_archive">fetch_archive</Ref> | 下载一个月或日归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是月归档与日归档共用的取数原语 |
 | <Ref id="market.aggtrades_key">aggtrades_key</Ref> | 官方逐日 aggTrades 归档定位 |
 | <Ref id="market.aggtrades_table">aggtrades_table</Ref> | CSV 解析为推算使用的四列 |
+| `metrics_key` | 官方逐日 metrics（持仓量与多空比）归档定位 |
 | <Ref id="market.monthly_archives">monthly_archives</Ref> | 取已发布的月归档，作为 1 分钟 K 线与资金费的主来源；未发布的月份不在结果里，由 market.stitch_series 改用日归档或公开接口补 |
 | <Ref id="market.rest_exchange_info">rest_exchange_info</Ref> | 读交易所公开合约条款原文（合约类型、标的类型、基础与计价资产、状态、步长与限额），供 market.classify_contract 判合格与 instrument 追加行 |
 | <Ref id="market.rest_funding">rest_funding</Ref> | 用当月公开接口补资金费归档尚未发布的尾段；资金费无日归档，尾段只能由此补，按交易所实际结算时刻返回 |

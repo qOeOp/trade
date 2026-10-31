@@ -684,12 +684,15 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MARKET_EMPTY": ("The market commit holds no universe month yet (the first imported month has none).",
                      ("Import the next month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",
-                              ("Nothing to repair: the import takes the daily archives or public REST instead.",)),
+                              ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
+                               "instead; a metrics import with no day published has nothing to import yet, so rerun it "
+                               "after the exchange publishes the day.",)),
     "CHECKSUM_MISMATCH": ("An archive's SHA-256 differs from the .CHECKSUM the exchange published beside it.",
                           ("Rerun the import (the archive is downloaded again); report the archive if it persists.",)),
     "SOURCE_CONFLICT": ("Two sources hold the same minute or funding time with different values.",
                         ("Report the contract, price type and time named; the import stops rather than choose.",)),
-    "SOURCE_SHAPE": ("A source gave a bar off the minute grid, a row that does not parse or a malformed request.",
+    "SOURCE_SHAPE": ("A source gave a bar off the minute grid, a row that does not parse, two different metrics rows "
+                     "at one create_time or a malformed request.",
                      ("Rerun the import after the cache is refreshed; report the archive if it persists.",)),
     "SOURCE_UNREACHABLE": ("An exchange archive or public endpoint stayed unreachable or throttled after retries.",
                            ("Rerun the same import later; nothing was committed.",)),
@@ -700,7 +703,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Stitch LAST or MARK series only.",)),
     "SCALE_RANGE": ("A price or volume does not fit the market database's integer scale.",
                     ("Report the contract named; the scale is fixed for the database's generation.",)),
-    "SCALE_LOSS": ("A price or volume has more decimals than the market database's scale holds.",
+    "SCALE_LOSS": ("A price, volume or metrics value has more decimals (or integer digits) than its stored column "
+                   "holds.",
                    ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
                     "scale is rounded on import, and counted in rounded_volumes.",)),
     "QUOTE_INEXACT": ("A stored quote price does not fit the instrument's price precision at export.",

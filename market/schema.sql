@@ -108,3 +108,20 @@ CREATE TABLE agg_trade (
   is_buyer_maker BOOLEAN NOT NULL,
   PRIMARY KEY (symbol, transact_time, agg_trade_id)
 );
+
+-- Binance USD-M daily `metrics` archives (market/metrics.py): open interest and three long/short ratios every
+-- five minutes, keyed by the archive's create_time and named as the archive names them. A row describes
+-- create_time + 5 min; an export makes it visible later (market/export.py). A ratio the archive leaves empty
+-- stays NULL. The archive's taker volume ratio and open interest value are not stored. Decimals are exact.
+CREATE TABLE metrics (
+  symbol VARCHAR(40) NOT NULL,
+  create_time BIGINT NOT NULL,
+  sum_open_interest DECIMAL(38,16) NOT NULL,
+  count_toptrader_long_short_ratio DECIMAL(38,16) NULL,
+  sum_toptrader_long_short_ratio DECIMAL(38,16) NULL,
+  count_long_short_ratio DECIMAL(38,16) NULL,
+  PRIMARY KEY (symbol, create_time),
+  CHECK (create_time % 300000 = 0),
+  CHECK (sum_open_interest >= 0 AND count_toptrader_long_short_ratio >= 0 AND sum_toptrader_long_short_ratio >= 0
+         AND count_long_short_ratio >= 0)
+);
