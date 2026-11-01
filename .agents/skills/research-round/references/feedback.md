@@ -22,7 +22,7 @@ counts come from the ledger.
 Rank rule changes, sizing and allocation included, by the gap to the user's targets, expected
 effect, uncertainty, mechanism support, previous exploration, information value and execution cost.
 A sizing or allocation change tests its account effect against the targets, not competing
-explanations. Write the reasons that determine the ordering in a priority judgment, separately from
+explanations. Write each action's standing on these grounds in a priority judgment, separately from
 the candidate recommendation. Negative evidence updates priority and reassessment conditions, not
 permission to research a direction.
 
