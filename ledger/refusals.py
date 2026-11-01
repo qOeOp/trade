@@ -629,8 +629,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Read the message; fix the input it names and rerun the same command.",)),
     "ROLE_UNKNOWN": ("The market connection role is neither import nor reader.",
                      ("Connect with role import to import or reader to read.",)),
-    "MARKET_UNREACHABLE": ("The market database's service is not running, the database does not exist or the account "
-                           "was refused.",
+    "MARKET_UNREACHABLE": ("The market database's service is not running, the database does not exist, the account "
+                           "was refused or the connection was lost.",
                            ("Start the service with `ledger service start` and pass the market profile with "
                             "--market; create a market database with `market init`.",)),
     "SCHEMA_VERSION_MISMATCH": ("The market database's schema generation or integer scales are not the ones this code "

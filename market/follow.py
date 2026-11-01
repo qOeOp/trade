@@ -16,10 +16,10 @@ from market import metrics, sources, store, universe
 
 
 # Refusals that a later round can outlive: an archive not out yet, a lock another import or a backup holds,
-# the Dolt service restarting or bootstrapping, the network, an unconfirmed push, and a concurrent manual
-# import that already took the days.
-RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "MARKET_EMPTY",
-                   "SOURCE_UNREACHABLE", "PUBLISH_FAILED", "MONTH_EXISTS"})
+# the Dolt service restarting or bootstrapping (for the import account or the administrator that publishes), the
+# network, an unconfirmed push, and a concurrent manual import that already took the days.
+RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "LEDGER_UNAVAILABLE",
+                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "PUBLISH_FAILED", "MONTH_EXISTS"})
 # Refusals about the whole database or its publication: every contract stops until the service restarts.
 DATABASE = frozenset({"DIRTY_WORKING_SET", "SCHEMA_MISMATCH", "SCHEMA_VERSION_MISMATCH", "COMMIT_CHECKS_DISABLED",
                       "DATA_TESTS_FAILED", "RULE_VERSION_MISMATCH", "PUBLISH_REJECTED", "PUBLISH_FORBIDDEN",
@@ -173,15 +173,17 @@ def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, pu
            clock=lambda: datetime.now(UTC), sleep=time.sleep, rounds: int | None = None) -> dict:
     """market.follow_metrics: run rounds for ever (or `rounds` of them), each reported as one JSON line and
     written to `status_path`, sleeping in short naps until the round's next_round. Stops last until the
-    process restarts."""
+    process restarts. publish_failing_since is the first round of the current run of refused publishes."""
     scope = store._scope(symbols)
     if scope is None:
         raise sources.MarketError("follow-metrics needs the contracts to keep", code="IMPORT_SCOPE",
                                   missing=("--symbols",))
     stopped: dict[str, dict] = {}
-    done, status = 0, {}
+    done, status, failing_since = 0, {}, None
     while rounds is None or done < rounds:
         status = run_round(profile, scope, cache, stopped, publish, clock(), log)
+        failing_since = (failing_since or status["at"]) if status.get("publish_refusal") else None
+        status["publish_failing_since"] = failing_since
         write_status(status_path, status)
         report(json.dumps(status, separators=(",", ":"), ensure_ascii=False))
         done += 1
@@ -194,11 +196,15 @@ def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, pu
 
 
 def check(path: Path | None = None, now: datetime | None = None) -> int:
-    """The healthcheck: 0 when the latest status is fresh and no contract is stopped, lagging or unknown."""
+    """The healthcheck: 0 when the latest status is fresh, no contract is stopped, lagging or unknown, and
+    publishes have not been refused for longer than STALE."""
     try:
         status = json.loads((path or default_status()).read_text(encoding="utf-8"))
-        fresh = (now or datetime.now(UTC)) - datetime.fromisoformat(status["at"]) <= STALE
-        return 0 if fresh and all(item["state"] in ("caught_up", "waiting")
-                                  for item in status["contracts"].values()) else 1
+        now = now or datetime.now(UTC)
+        fresh = now - datetime.fromisoformat(status["at"]) <= STALE
+        failing = status.get("publish_failing_since")
+        published = failing is None or now - datetime.fromisoformat(failing) <= STALE
+        return 0 if fresh and published and all(item["state"] in ("caught_up", "waiting")
+                                                for item in status["contracts"].values()) else 1
     except (OSError, ValueError, KeyError, TypeError):
         return 1
