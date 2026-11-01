@@ -105,19 +105,19 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 源码在隔离容器里加载，入口类必须带齐两个钩子。
 
-#### 源码只能用锁定的库，在断网、只读的容器里加载 [#C-1-3-1]
+#### 源码只能用计算类标准库和引擎的策略接口，在断网、只读的容器里加载 [#C-1-3-1]
 
-源码只能导入标准库、引擎和运行环境里锁定的依赖。回放容器没有网络，文件系统只读，只有报告目录能写；除了引擎喂进来的数据，源码没有别的输入。加载时只核对身份和形态，执行时的安全边界由容器提供。
+源码只能导入计算类标准库和引擎的策略接口（nautilus_trader 的 common、config、core、indicators、model、trading）。加载前先静态检查源码：导入别的模块（运行器、行情目录、文件、进程），经允许的模块取到别的模块，按名字执行代码或取属性，读双下划线属性或栈帧，改共享的十进制上下文，读别的对象的私有属性，经导入的对象或调用结果赋值，改绑运行器包在源码外面的回调、时钟或缓存，都拒绝加载。缓存对源码只读：原生报告在回放结束后从缓存读出，源码一调清除或重置就让这次运行失败。回放容器没有网络，文件系统只读，只有报告目录能写；除了引擎喂进来的数据，源码没有别的输入。静态检查不是沙箱，绕开它的写法本身留在源码里，由源码审查来看。
 
-源码能联网或读别的文件，结果就依赖回放之外的东西，下次重跑不一定一样，也可能偷看到未来的数据。
+源码和运行器在同一个进程里执行。源码能联网或读别的文件，结果就依赖回放之外的东西，下次重跑不一定一样，也可能偷看到未来的数据；源码能改运行器的对象，就能换掉手续费、撮合或报告，而审计只核对报告之间是否一致，看不出来。
 
 <div className="rd-example">
 
-比如 H07 要按历史资金费方向过滤新入场，用的资金费只能从引擎喂进来的数据里读，不能在源码里联网去交易所查，也不能读宿主机上的某个文件。持仓量和多空比也一样：回放入口带 `--metrics` 时引擎才送，每行在归档 create_time 之后 10 分钟到达，源码只能在到达之后用它。
+比如 H07 要按历史资金费方向过滤新入场，用的资金费只能从引擎喂进来的数据里读，不能在源码里联网去交易所查，也不能读宿主机上的某个文件。持仓量和多空比也一样：回放入口带 `--metrics` 时引擎才送，每行在归档 create_time 之后 10 分钟到达，源码只能在到达之后用它。源码导入 engine.run 把手续费模型换成零费率，或用行情目录读窗口里还没到的 K 线，加载时就被拒绝。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="runtime.container_command">container_command</Ref> <Ref id="runtime.build_image">build_image</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="engine.source_findings">source_findings</Ref> <Ref id="runtime.container_command">container_command</Ref> <Ref id="runtime.build_image">build_image</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 入口类必须带诊断和自检两个钩子 [#C-1-3-2]
 

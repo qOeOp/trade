@@ -894,9 +894,10 @@ The runtime source files' hashes, independent of any strategy revision.
 | <Ref id="engine.entry_windows">entry_windows</Ref> | 从可信覆盖回执重建每个实际交易合约允许开仓的区间 |
 | <Ref id="engine.diagnostics">diagnostics</Ref> | 回放结束后调用诊断钩子；返回值非字典、不可序列化为 JSON 或占用原生事实键名即拒绝；通过的字典作自报诊断写入摘要 |
 | <Ref id="engine.lifecycle_events">lifecycle_events</Ref> | 回放后逐实例核对生命周期事件：计数与原生摘要相等、落在窗口内、能构造为原生事件、关闭价为正；任一不符即拒绝，不降级为无事件。 |
-| <Ref id="engine.load_strategy">load_strategy</Ref> | 读源码字节核对内容哈希，以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝 |
+| <Ref id="engine.load_strategy">load_strategy</Ref> | 读源码字节核对内容哈希，源码检查有发现即拒绝，再以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝 |
 | <Ref id="engine.read_market">read_market</Ref> | 装载前核对每合约导出回执的市场提交、窗口、1 分钟周期与条款近似标记，打开每个片段的 Catalog 并取唯一合约定义。 |
 | <Ref id="engine.read_universe">read_universe</Ref> | 读每合约成员区间；无成员文件时为空 |
+| <Ref id="engine.source_findings">source_findings</Ref> | 不执行源码，静态列出它伸向运行器或文件的途径：白名单外的导入、经允许模块取到或改名保存的模块、按名字执行或取属性、双下划线与栈帧内省、共享的十进制上下文、经导入对象或调用结果赋值、改绑运行器守护的回调 |
 | <Ref id="engine.strategy_metadata">strategy_metadata</Ref> | 把源码内容哈希、入口类、运行契约与两个布尔声明（是否设止损、是否需日线预热）写成运行身份，并入原生摘要与执行身份 |
 | <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> | 为声明 DAILY_WARMUP 的源码取紧贴输入起点的连续日线段；不足 200 根（未校准示例值）或末根不在起点前 1 毫秒即拒绝。 |
 
@@ -1025,7 +1026,7 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]
 
 ### `load_strategy` [#def-engine-load_strategy]
 
-读源码字节核对内容哈希，以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝
+读源码字节核对内容哈希，源码检查有发现即拒绝，再以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝
 
 ```python
 def load_strategy(
@@ -1043,17 +1044,19 @@ def load_strategy(
 
 1. 核对 expected_content_hash 为 64 位小写十六进制、entry_class 为合法标识符；以单个只读描述符读取普通文件的全部字节，不跟随符号链接。
 2. 计算字节 SHA-256，与 expected_content_hash 不等即拒绝。
-3. 以 `_strategy_<content_hash>` 为模块名建立无包名、不能相对导入的独立模块并执行源码；执行抛错即移除该模块并拒绝。同一进程内相同哈希已装载时直接返回已装载的模块，不再执行。
-4. 取模块中名为 entry_class 的属性：须是类、在本模块声明、是引擎策略基类的真子类（不是基类本身），否则拒绝。
-5. 核对 replay_diagnostics、replay_integrity_findings 两个钩子均可调用；类属性 DAILY_WARMUP（缺省 False）与 USES_STOP_LOSS（缺省 True）均须为 bool。
-6. 返回 LoadedStrategy；只证明身份与形态，不担保任意 Python 的安全，执行边界由运行环境容器提供。
+3. 以 engine.source_findings 静态检查源码：有任何发现即拒绝并列出全部发现；不能解析归执行失败。
+4. 以 `_strategy_<content_hash>` 为模块名建立无包名、不能相对导入的独立模块并执行源码；执行抛错即移除该模块并拒绝。同一进程内相同哈希已装载时直接返回已装载的模块，不再执行。
+5. 取模块中名为 entry_class 的属性：须是类、在本模块声明、是引擎策略基类的真子类（不是基类本身），否则拒绝。
+6. 核对 replay_diagnostics、replay_integrity_findings 两个钩子均可调用；类属性 DAILY_WARMUP（缺省 False）与 USES_STOP_LOSS（缺省 True）均须为 bool。
+7. 返回 LoadedStrategy。源码检查拦下通向运行器、文件与动态执行的直接途径，但不是沙箱；网络与文件系统的边界由运行环境容器提供。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `SOURCE_UNREADABLE` | 路径不是普通文件、是符号链接或读取失败 |
 | `CONTENT_HASH_INVALID` | expected_content_hash 不是 64 位小写十六进制 |
 | `CONTENT_HASH_MISMATCH` | 源码字节的 SHA-256 不等于 expected_content_hash |
-| `SOURCE_EXECUTION_FAILED` | 独立模块执行源码时抛出异常 |
+| `SOURCE_REACH` | engine.source_findings 有发现 |
+| `SOURCE_EXECUTION_FAILED` | 源码不能解析，或独立模块执行源码时抛出异常 |
 | `ENTRY_CLASS_INVALID` | 入口类不存在、不在本模块声明、不是引擎策略基类的真子类 |
 | `HOOK_MISSING` | replay_diagnostics 或 replay_integrity_findings 任一不可调用 |
 | `DECLARATION_NOT_BOOL` | DAILY_WARMUP 或 USES_STOP_LOSS 不是 bool |
@@ -1141,6 +1144,34 @@ def read_universe(
 <div className="rd-meta">
 
 **关联章节**　<Ref id="W.3.2.1">W.3.2.1</Ref> <Ref id="W.4.1.1">W.4.1.1</Ref>
+
+</div>
+
+### `source_findings` [#def-engine-source_findings]
+
+不执行源码，静态列出它伸向运行器或文件的途径：白名单外的导入、经允许模块取到或改名保存的模块、按名字执行或取属性、双下划线与栈帧内省、共享的十进制上下文、经导入对象或调用结果赋值、改绑运行器守护的回调
+
+```python
+def source_findings(source: bytes) -> list[str]
+```
+
+<TypeTable type={{ "source": { type: "bytes", description: "已核对内容哈希的源码字节" } }} />
+
+**返回**　list[str]，每条一行，带行号；没有发现时为空列表
+
+**期望行为**
+
+1. 只解析，不执行源码；只导入允许的模块来解析名字。导入只允许计算类标准库（`__future__`、bisect、calendar、collections、dataclasses、datetime、decimal、enum、heapq、itertools、math、statistics）与引擎策略接口的 nautilus_trader.common、config、core、indicators、model、trading 及其子模块；相对导入、星号导入、裸 nautilus_trader 与其余模块（运行器、行情目录、文件、进程）各记一条。
+2. 导入的名字若是模块：从允许模块里导入的名字、或沿属性链取到的属性是白名单外的模块（如 statistics 里的 sys、nautilus_trader 包上的 persistence），各记一条；模块名字只能用来取属性，被赋给别的名字或当作参数传递时记一条。
+3. 名字 breakpoint、compile、delattr、eval、exec、getattr、globals、input、locals、open、setattr、vars；`__init__`、`__name__` 以外的双下划线名字、属性与 match 类模式的关键字；栈帧与代码内省属性（f_globals、f_back、gi_frame、tb_frame、mro 等）；十进制模块共享上下文的 getcontext、setcontext、DefaultContext，各记一条。
+4. 单参数 `type(...)` 的结果只能立即取属性、用于比较、放进 isinstance、issubclass、str、repr 或 f-string，被保存或传给别处时记一条；`self` 以外对象的单下划线私有属性（如 `self.clock._clock`）记一条。所有写入或删除的属性（赋值、增量赋值、for、with、推导式的目标）若属性链的根是导入的名字、或不是名字（如调用结果），或属性名是运行器包在源码外面的东西（引擎策略基类的 on_ 回调、两个钩子、shutdown_system、clock、cache），记一条。
+5. 发现按行号排序。静态检查不证明安全：它拦下不必写怪代码就能走的途径，绕开它的写法本身就在源码里，留给源码审查。
+
+**使用**　<Ref id="engine.load_strategy" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="C.1.3.1">C.1.3.1</Ref>
 
 </div>
 
@@ -1924,13 +1955,23 @@ The strategy's native clock, with every callback the source registers on it guar
 
 [源码](https://github.com/qOeOp/trade/blob/main/engine/run.py#L280)
 
+#### `ReadOnlyCache` [#impl-engine-run-py-ReadOnlyCache]
+
+```python
+class ReadOnlyCache
+```
+
+The strategy's native cache with every write refused (CACHE_WRITE, raised in the calling callback): add, add_instrument_close, add_yield_curve, dispose, reset, snapshot_position and every purge_. The native reports are read from the cache after the run, so a purge would erase the source's own trades.
+
+[源码](https://github.com/qOeOp/trade/blob/main/engine/run.py#L357)
+
 #### `guarded_callbacks` [#impl-engine-run-py-guarded_callbacks]
 
 ```python
 def guarded_callbacks(strategy_class: type) -> dict
 ```
 
-Every on_ callback and report hook the source's classes define, guarded, the most derived winning, and a clock whose registered callbacks are guarded too.
+Every on_ callback and report hook the source's classes define, guarded, the most derived winning, a clock whose registered callbacks are guarded too, and a cache that refuses writes.
 
 [源码](https://github.com/qOeOp/trade/blob/main/engine/run.py#L317)
 

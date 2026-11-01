@@ -19,10 +19,15 @@ header template, the entry class, the two hooks and a sizing helper.
 
 - One independent strategy is one complete UTF-8 Python file holding every trading rule: signal,
   entries, exits, sizing and order lifecycle.
-- Import only the standard library, `nautilus_trader` and other locked runtime dependencies. The
-  file loads as a standalone module (no relative imports), and the image has no research or
-  strategy modules. Under custody there is no network and `/reports` is the only writable host
-  mount.
+- Import only computation modules of the standard library (`math`, `decimal`, `collections`,
+  `statistics`, `datetime` and the rest of `SOURCE_STDLIB` in `engine/load.py`) and the strategy API
+  of `nautilus_trader` (`common`, `config`, `core`, `indicators`, `model`, `trading`); no relative
+  imports. The source runs in the runner's process, so the loader refuses (`SOURCE_REACH`, with
+  each finding's line) anything reaching past what the engine delivers: other modules, `open`, `eval`,
+  `getattr` and the like, dunders, frames, the shared decimal context, private attributes of anything
+  but `self`, and assignment through an imported object or to the runner's callbacks, `clock` or
+  `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`). Under custody there is
+  no network and `/reports` is the only writable host mount.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
   `MARGIN` account (`ACCOUNT_CONTRACT` in `run.py`). Another independent strategy is another file
   and account, not a branch inside this one.
