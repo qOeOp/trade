@@ -67,6 +67,14 @@ export function remember(key: string, minutes: number, range: LogicalRange | nul
 }
 export const recall = (key: string): Saved | undefined => views.get(key);
 
+/** The span from `from` to `to` (s, both candles in it) in view, and the room right of the newest when it
+ *  holds the newest (`times`, the candles' places). */
+export function showSpan(time: ITimeScaleApi<Time>, times: readonly number[], from: number, to: number): void {
+  // Set by the candles' places at once: a visible range by time is applied a frame later.
+  const a = times.findIndex((t) => t >= from), b = times.filter((t) => t <= to).length - 1;
+  if (a >= 0 && b >= a) time.setVisibleLogicalRange({ from: a, to: b === times.length - 1 ? b + time.options().rightOffset : b });
+}
+
 /** The view `saved` again over `n` candles of its period, moved on by the candles since if it showed the newest. */
 export function reshow(time: ITimeScaleApi<Time>, saved: Saved, n: number): void {
   time.applyOptions({ maxBarSpacing: widest(saved.minutes * 60) });

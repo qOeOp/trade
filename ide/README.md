@@ -180,7 +180,9 @@ foldable cards with their JSON and known versions as links; the saved chats; and
 their tests. `⌥0`–`⌥7` and `⌥9` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
 active one. Runs (`⌥8`, the third left stripe button, one of the three at a time) closes the left tool window and turns
 the editor into the Runs page of the selected version (design: `docs/plans/ide-runs-page-design.zh.md`): its paper
-run's chart, the run picked in the toolbar's run menu (every run by version; runs naming no version of this line under
+runs as one chart, each chain of runs a stretch after the one before it (the time between them taking no room, its
+equity carrying on), the picked run's stretch shown (its name in the text colour; a click on another's name, or `[`
+and `]` once the chart has the focus, shows that one, `F` fits the view to it and `⇧F` to all), the run picked in the toolbar's run menu (every run by version; runs naming no version of this line under
 Unattributed) after the line and ledger widgets, with ■ or ▶, the run's equity, return and state, and its delete.
 Details and Trades follow the stage the page shows, the backtest (the version's last research run with economic
 evidence) or a paper run: Details names it over its readings (a paper run's with its targets under them) and adds its

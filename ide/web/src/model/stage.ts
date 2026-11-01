@@ -6,6 +6,8 @@ import { ACTIVE, chainOf, createdNs, latestOf } from "./chain";
 import type { Trial } from "./types";
 
 export type Stage = "backtest" | "paper" | "live";
+/** Why there is no live stage to show. */
+export const NO_LIVE = "No live trading exists: real accounts, testnet and credentials need the user's explicit authority (AGENTS.md).";
 
 const startedNs = (r: PaperRun) => r.seal?.started_ns ?? r.live?.started_ns ?? createdNs(r);
 

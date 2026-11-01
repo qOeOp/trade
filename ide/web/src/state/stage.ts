@@ -21,6 +21,9 @@ function choose(version: string | null, choice: Choice): void {
   choices.set(next);
 }
 
+/** Shows `stage` of the selected version, its paper run as it was. */
+export const chooseStage = (stage: Stage) => choose(selection.get(), { stage });
+
 /** Shows `run` and the paper stage: its version becomes the selected one first, or none when the run
  *  declares no version of this line. */
 export function chooseRun(run: PaperRun): void {

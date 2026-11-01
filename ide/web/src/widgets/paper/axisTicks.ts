@@ -1,5 +1,5 @@
 // Which axis ticks a paper chart writes: none under a tag on the value axis (the levels', the last
-// value's, the crosshair's), none the crosshair's time label would half cover, none whose box comes within
+// value's, the crosshair's) or above `top` px (the live note's room on the Runs page), none the crosshair's time label would half cover, none whose box comes within
 // GAP px of a tag's on the time axis (both measured in the axis font), none so near either end of the time
 // axis that the canvas would cut it, and on a crowded value axis every other one. The chart
 // caches the ticks it has written, so they are written again only when the answer changes: once a pan or
@@ -27,9 +27,10 @@ export class AxisTicks {
 
   /** `series` carry the value format (the chart labels the axis with the first one's); `base` gives it;
    *  `tags` where the axis tags sit (px); a tick nearer one than `clear` px is left out; more than `most`
-   *  ticks and every other one is; `shown` hears which are written; `marks` gives the time axis's tags (px, text). */
+   *  ticks and every other one is; `shown` hears which are written; `marks` gives the time axis's tags (px, text);
+   *  none is written above `top` px. */
   constructor(private readonly chart: IChartApi, private readonly series: readonly ISeriesApi<SeriesType>[], private readonly o: {
-    base: () => Base; tags: () => readonly number[]; clear: number; most?: number; shown?: (prices: readonly number[]) => void; marks?: () => readonly { x: number; text: string }[];
+    base: () => Base; tags: () => readonly number[]; clear: number; most?: number; shown?: (prices: readonly number[]) => void; marks?: () => readonly { x: number; text: string }[]; top?: number;
   }) {}
 
   /** Writes both axes' ticks again. */
@@ -95,7 +96,7 @@ export class AxisTicks {
   }
 
   private near = (a: number | null, b: number | null, d: number) => a !== null && b !== null && Math.abs(a - b) < d;
-  private covered = (y: number | null) => y !== null && (this.near(y, this.y, this.o.clear) || this.o.tags().some((t) => this.near(y, t, this.o.clear)));
+  private covered = (y: number | null) => y !== null && (y < (this.o.top ?? 0) || this.near(y, this.y, this.o.clear) || this.o.tags().some((t) => this.near(y, t, this.o.clear)));
   private cut = (x: number, width: number, text: string) => x < EDGE || x > width - EDGE || this.near(x, this.x, CROSS) ||
     (this.o.marks?.() ?? []).some((m) => this.near(x, m.x, (this.measure(text) + this.measure(m.text)) / 2 + 2 * PAD + GAP));
 }

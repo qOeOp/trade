@@ -56,6 +56,12 @@ export function chainOf(run: PaperRun, runs: readonly PaperRun[]): PaperRun[] {
   return chain;
 }
 
+/** The chains of `candidate`'s runs, each oldest first, in the order they started. */
+export function chainsOf(candidate: string, runs: readonly PaperRun[]): PaperRun[][] {
+  const begun = (chain: readonly PaperRun[]) => chainStart(chain) ?? createdNs(chain[0]!);
+  return runs.filter((r) => r.candidate === candidate && !isContinued(r, runs)).map((r) => chainOf(r, runs)).sort((a, b) => begun(a) - begun(b));
+}
+
 /** The latest run of the chain `run` belongs to. */
 export function latestOf(run: PaperRun, runs: readonly PaperRun[]): PaperRun {
   let at = run;

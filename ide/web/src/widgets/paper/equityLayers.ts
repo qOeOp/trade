@@ -8,25 +8,27 @@
 // snapped, and from the visible points only, thinned to each pixel column's first, lowest, highest and
 // last. Over everything, each stretch a chain of runs was offline (downLook.ts), opaque, so nothing drawn
 // from the series runs across it, the line ending either side of it in a dot.
-import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, span, type DayBar, type Frame } from "./equityBands";
+import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type DayBar, type Frame } from "./equityBands";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTag, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
-import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
+import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
-/** A point a minute (or a step); `down` across a chain's offline stretch (downLook.ts). */
-export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean };
+/** A point a minute (or a step); `down` across a chain's offline stretch (downLook.ts); `stretch` the index of
+ *  the stretch it belongs to (equityStretches.ts); `cut` where a stretch starts anew, not carrying on from the
+ *  one before it, so the line and its fill break there. */
+export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean };
 export type EquityLook = { line: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 export { BARS, CEILING, FEW, type DayBar };
 const HELD_GAP = 6, CROWDED = 48, END = 2;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share; the line's end dot's radius
-type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
   private chart: IChartApi | null = null;
   private redraw: (() => void) | null = null;
   private points: readonly EquityPoint[] = [];
+  private cuts: number[] = [];  // the points' indexes that are `cut`
   private days: readonly DayBar[] = [];
   private held: readonly [number, number][] = [];
   private picked: number | null = null;
@@ -37,13 +39,17 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private ticks: readonly number[] = [];
   private downs: readonly Down[] = [];
   private foot = 0;
+  private shown: readonly [number, number] | null = null;
+  private top = 0;
 
-  /** The run's points and days, the day picked (its start, in seconds), the balance equity is measured
-   *  against where it has no pace, the run's worst drawdown (from every minute), where it held a
-   *  position (seconds), the colours and the restarts of a chain of runs. */
+  /** The points and the shown stretch's days, the day picked (its start, in seconds), the balance equity
+   *  is measured against where it has no pace, the worst drawdown (from every minute), where the shown
+   *  stretch held a position (seconds), the colours, the restarts of its chains of runs, the shown
+   *  stretch's first and last minute (s; null when there is none) and how far down (px) the drawdown
+   *  band starts, under the stretches' names. */
   set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, held: readonly [number, number][], look: EquityLook,
-      restarts: readonly Restart[] = []): void {
-    Object.assign(this, { points, days, picked, base, worst, held, look, downs: downsOf(restarts) });
+      restarts: readonly Restart[] = [], shown: readonly [number, number] | null = null, top = 0): void {
+    Object.assign(this, { points, days, picked, base, worst, held, look, downs: downsOf(restarts), shown, top, cuts: points.flatMap((p, i) => (p.cut ? [i] : [])) });
     this.redraw?.();
   }
 
@@ -68,7 +74,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
   paneViews(): readonly IPrimitivePaneView[] {
     const view = (zOrder: "bottom" | "normal" | "top", paint: (f: Frame) => void): IPrimitivePaneView =>
-      ({ zOrder: () => zOrder, renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((scope) => { const f = this.frame(scope); if (f) paint(f); }) }) });
+      ({ zOrder: () => zOrder, renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((scope) => { const f = this.chart && this.look ? frameOf(scope, this.chart, this.points) : null; if (f) paint(f); }) }) });
     return [view("bottom", (f) => this.under(f)), view("normal", (f) => this.line(f)), view("top", (f) => this.offline(f))];
   }
 
@@ -90,45 +96,10 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     return time ? this.downs.flatMap((d) => { const a = xAt(this.points, time, d.from), b = xAt(this.points, time, d.to); return a === null || b === null ? [] : [[d, ...widened(a, b)]]; }) : [];
   }
 
-  /** The visible points, one to four per pixel column, and where times fall (in device pixels). */
-  private frame({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr, bitmapSize }: Scope): Frame | null {
-    const { chart, look, points } = this;
-    if (!chart || !look || points.length < 2) return null;
-    const time = chart.timeScale(), range = time.getVisibleLogicalRange();
-    if (!range) return null;
-    const at = (i: number) => (time.logicalToCoordinate(i as Logical) ?? Number.NaN) * hr;
-    const from = Math.max(0, Math.floor(range.from) - 1), to = Math.min(points.length - 1, Math.ceil(range.to) + 1);
-    const xs = new Map<number, number>(), keep: number[] = [];
-    let column = Number.NaN, bucket: number[] = [];
-    const flush = () => {
-      if (!bucket.length) return;
-      let lo = bucket[0]!, hi = bucket[0]!;
-      for (const i of bucket) { if (points[i]!.value < points[lo]!.value) lo = i; if (points[i]!.value > points[hi]!.value) hi = i; }
-      keep.push(...[...new Set([bucket[0]!, lo, hi, bucket.at(-1)!])].sort((a, b) => a - b));
-      bucket = [];
-    };
-    for (let i = from; i <= to; i++) {
-      const x = at(i), col = Math.round(x);
-      xs.set(i, x);
-      if (col !== column) { flush(); column = col; }
-      bucket.push(i);
-    }
-    flush();
-    // A time's x between the points either side of it, so day edges need not fall on a point.
-    const x = (t: number) => {
-      let lo = 0, hi = points.length - 1;
-      if (t <= points[lo]!.time) return at(lo);
-      if (t >= points[hi]!.time) return at(hi);
-      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (points[mid]!.time <= t) lo = mid; else hi = mid; }
-      return at(lo) + ((t - points[lo]!.time) / (points[hi]!.time - points[lo]!.time)) * (at(hi) - at(lo));
-    };
-    return { c, hr, vr, w: bitmapSize.width, h: bitmapSize.height, keep, xs, x };
-  }
-
   private y(price: number, vr: number) { return (this.series?.priceToCoordinate(price) ?? Number.NaN) * vr; }
 
   private under(f: Frame): void {
-    const { points, look } = this, days = points.at(-1)!.time - points[0]!.time >= FEW;
+    const { points, look, shown } = this, days = shown !== null && shown[1] - shown[0] >= FEW;
     f.c.fillStyle = look!.held;
     // Stretches nearer than HELD_GAP joined; none at all while more than one each CROWDED px are in view,
     // where a busy run seen whole would read as a barcode.
@@ -143,8 +114,8 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     f.c.fillStyle = look!.grid;
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
     this.gap(f);
-    drawdownRows(f, points, this.worst, look!);
-    if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, points, this.days, (d) => d === this.picked || d === this.hovered, look!);
+    drawdownRows(f, points, this.worst, look!, this.top);
+    if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, shown!, this.days, (d) => d === this.picked || d === this.hovered, look!);
   }
 
   /** Each offline stretch over all else, and a dot where the line meets it either side, centred on its
@@ -171,22 +142,31 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     return y0 + ((y1 - y0) * (x - x0)) / (xs.get(j)! - x0 || 1);
   }
 
+  /** The points drawn (`keep`) in runs, a new one wherever a point between two of them is `cut`. */
+  private runs(keep: readonly number[]): number[][] {
+    const out: number[][] = [];
+    keep.forEach((i, k) => { if (!k || this.cuts.some((j) => j > keep[k - 1]! && j <= i)) out.push([]); out.at(-1)!.push(i); });
+    return out;
+  }
+
   /** The band between equity and its pace, filled flat twice: clipped above the pace, then below it. */
-  private gap({ c, vr, h, keep, xs }: Frame): void {
+  private gap({ c, vr, h, keep: all, xs }: Frame): void {
     const look = this.look!, ref = (i: number) => this.y(this.points[i]!.pace ?? this.base, vr), val = (i: number) => this.y(this.points[i]!.value, vr);
-    const band = new Path2D(), above = new Path2D(), below = new Path2D();
-    keep.forEach((i, k) => band[k ? "lineTo" : "moveTo"](xs.get(i)!, val(i)));
-    [...keep].reverse().forEach((i) => band.lineTo(xs.get(i)!, ref(i)));
-    for (const clip of [above, below]) keep.forEach((i, k) => clip[k ? "lineTo" : "moveTo"](xs.get(i)!, ref(i)));
-    const x0 = xs.get(keep[0]!)!, x1 = xs.get(keep.at(-1)!)!;
-    above.lineTo(x1, 0); above.lineTo(x0, 0); above.closePath();
-    below.lineTo(x1, h); below.lineTo(x0, h); below.closePath();
-    for (const [clip, colour] of [[above, look.ahead], [below, look.behind]] as const) { c.save(); c.clip(clip); c.fillStyle = colour; c.fill(band); c.restore(); }
+    for (const keep of this.runs(all)) {
+      const band = new Path2D(), above = new Path2D(), below = new Path2D();
+      keep.forEach((i, k) => band[k ? "lineTo" : "moveTo"](xs.get(i)!, val(i)));
+      [...keep].reverse().forEach((i) => band.lineTo(xs.get(i)!, ref(i)));
+      for (const clip of [above, below]) keep.forEach((i, k) => clip[k ? "lineTo" : "moveTo"](xs.get(i)!, ref(i)));
+      const x0 = xs.get(keep[0]!)!, x1 = xs.get(keep.at(-1)!)!;
+      above.lineTo(x1, 0); above.lineTo(x0, 0); above.closePath();
+      below.lineTo(x1, h); below.lineTo(x0, h); below.closePath();
+      for (const [clip, colour] of [[above, look.ahead], [below, look.behind]] as const) { c.save(); c.clip(clip); c.fillStyle = colour; c.fill(band); c.restore(); }
+    }
   }
 
   private line({ c, hr, vr, keep, xs }: Frame): void {
     const look = this.look!, path = new Path2D();
-    keep.forEach((i, k) => path[k ? "lineTo" : "moveTo"](xs.get(i)!, this.y(this.points[i]!.value, vr)));
+    for (const run of this.runs(keep)) run.forEach((i, k) => path[k ? "lineTo" : "moveTo"](xs.get(i)!, this.y(this.points[i]!.value, vr)));
     c.save();
     Object.assign(c, { lineJoin: "round", lineCap: "round", strokeStyle: look.knockout, lineWidth: look.knockoutWidth * hr });
     Object.assign(c, { shadowColor: look.haze, shadowBlur: 10 * hr, shadowOffsetX: 1 * hr, shadowOffsetY: 6 * vr });
