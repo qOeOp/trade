@@ -16,7 +16,7 @@ export type Shown = {
   version: string | null; stage: Stage | null; trial: Trial | null; run: PaperRun | null;
   /** The run's chain, oldest first (model/chain.ts). */
   chain: PaperRun[];
-  /** The stage's name: "Backtest · trial 200", "Paper · runs 6–7". */
+  /** The stage's name: "Backtest · trial 200", "Paper · run 6". */
   name: string | null;
 };
 

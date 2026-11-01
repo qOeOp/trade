@@ -281,5 +281,5 @@ test("the stage shown is the one picked while the version has it, else paper, el
   assert.equal(stage.stageOf("live", { backtest: false, paper: false }), "live");
   assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
   assert.equal(stage.backtestTrial([{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false }, { trial_id: 3, purpose: "validation", eligible: true }]).trial_id, 1);
-  assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)], [sealed(4), sealed(9)]].map(stage.runsLabel), ["run 5", "runs 6–7", "runs 4, 9"]);
+  assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "run 6"]);
 });

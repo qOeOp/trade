@@ -3,7 +3,7 @@ import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, chainGaps, chainReturn, chainStart, continuable, runReturn } from "../model/chain";
 import { ending } from "../model/ending";
-import { runsLabel } from "../model/stage";
+import { runName } from "../model/stage";
 import { brief, duration, pct } from "../lib/format";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
@@ -136,7 +136,7 @@ export function RunRow({ run, chain = [run], on, now, note, onPick }: { run: Pap
     <RunMenu run={run}>
       <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · ${chain.length > 1 ? `runs ${chain.map((r) => r.paper_id).join(", ")}, continued as one` : `run ${run.paper_id}`}`}
            className={`flex h-12 shrink-0 cursor-default flex-col justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
-        <span className={`truncate text-dense ${ACTIVE.has(run.state) ? "text-fg" : "text-fg-muted"}`}>{runsLabel(chain)}</span>
+        <span className={`truncate text-dense ${ACTIVE.has(run.state) ? "text-fg" : "text-fg-muted"}`}>{runName(chain)}</span>
         <span className="flex min-w-0 gap-2 whitespace-nowrap text-small text-fg-muted">
           <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} chain={chain} now={now} /></span>
           {chain.length > 1 && <span className="shrink-0 text-fg-faint">{Object.entries(chainGaps(chain)).map(([gap, ms]) => ` · ${gap} ${brief(ms)}`).join("")}</span>}

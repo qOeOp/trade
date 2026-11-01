@@ -37,16 +37,14 @@ export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: b
   return has.paper ? "paper" : has.backtest ? "backtest" : null;
 }
 
-/** A chain's runs in words: "run 5", "runs 6–7" (consecutive ids), "runs 4, 9". */
-export function runsLabel(chain: readonly PaperRun[]): string {
-  const ids = chain.map((r) => r.paper_id);
-  if (ids.length < 2) return `run ${ids[0] ?? ""}`;
-  return `runs ${ids.every((id, k) => !k || id === ids[k - 1]! + 1) ? `${ids[0]}–${ids.at(-1)}` : ids.join(", ")}`;
+/** A chain's name: its first run, kept however often the chain is continued ("run 6" for runs 6 and 7). */
+export function runName(chain: readonly PaperRun[]): string {
+  return `run ${chain[0]?.paper_id ?? ""}`;
 }
 
-/** The stage's name as the page writes it: "Backtest · trial 200", "Paper · runs 6–7", "Live · not authorized". */
+/** The stage's name as the page writes it: "Backtest · trial 200", "Paper · run 6", "Live · not authorized". */
 export function stageName(stage: Stage, trial: Trial | null, run: PaperRun | null, runs: readonly PaperRun[]): string {
   if (stage === "backtest") return `Backtest · trial ${trial?.trial_id ?? ""}`;
-  if (stage === "paper") return `Paper · ${run ? runsLabel(chainOf(run, runs)) : "no run"}`;
+  if (stage === "paper") return `Paper · ${run ? runName(chainOf(run, runs)) : "no run"}`;
   return "Live · not authorized";
 }
