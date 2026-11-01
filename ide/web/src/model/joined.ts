@@ -1,4 +1,4 @@
-// A chain of paper runs (chain.ts) as one journal for the Paper page: the earlier runs' lines first, their
+// A chain of paper runs (chain.ts) as one journal for the Runs page: the earlier runs' lines first, their
 // order and position ids namespaced by run so they never meet the next run's (each run's account numbers
 // them afresh), a `restart` line between two runs saying how the earlier one ended (ending.ts) and standing
 // for the later one's `started` line, then the latest run's other lines as its stream has them (a live
@@ -10,7 +10,7 @@ import { brief, clockSpan } from "../lib/format";
 import { amount, type JournalLine, type Live, type PaperRun, type RuntimeFailure, type Seal } from "../lib/paperApi";
 import { ending } from "./ending";
 
-/** What a stream holds of one run: the Paper page's Stream has these and more; an earlier run of a chain
+/** What a stream holds of one run: the Runs page's Stream has these and more; an earlier run of a chain
  *  carries the listing's verdict on it (`status`) as well. */
 export type Piece = {
   paperId: number; lines: JournalLine[]; bars: JournalLine[]; closes: Record<string, [number, number][]>;

@@ -1,4 +1,4 @@
-// The Performance card's profit and loss (Performance.tsx): what moved equity since the start as flows
+// The Profit and loss card in Details (detail/StagePerformance.tsx): what moved equity since the start as flows
 // (model/flows.ts) as a sankey of bars, with the closed trades' result before fees and the net under it.
 import type { ReactNode } from "react";
 import { fixed } from "../../lib/paperApi";

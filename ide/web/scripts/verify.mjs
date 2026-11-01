@@ -7,7 +7,7 @@
 // the folded path, a version's context menu, a double-click opening its source, panning the canvas to its edges, a side
 // closing without moving the canvas, focusing the earliest version without showing space before it, and a
 // version's source opened from Sources: highlighted, growing inside the island's overlay scroll, opened once
-// however often, and its diff).
+// however often, and its diff); then the Runs page's islands in light and dark.
 // Usage: node scripts/verify.mjs <page.html> <out-dir> [#version]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -159,7 +159,7 @@ try {
   if (node) {
     await click(node[0], node[1], "right"); await sleep(400);
     const items = await evaluate(`document.querySelectorAll('[role="menuitem"]').length`);
-    expect(items === 5, `canvas: the context menu has ${items} items, not 5`);
+    expect(items === 6, `canvas: the context menu has ${items} items, not 6`);
     await key("Escape", "Escape", 27);
     await click(node[0], node[1], "left", 1); await click(node[0], node[1], "left", 2); await sleep(400);
     const opened = await evaluate(`({ left: document.querySelector("[data-island=left] h2")?.textContent,
@@ -242,6 +242,37 @@ try {
     const front = await evaluate(`document.querySelector("[data-island=left] h2")?.textContent + (document.querySelector("[data-island=editor] .react-flow")?.offsetParent ? " + lineage" : "")`);
     expect(front === "Versions + lineage", `sources: Locate in graph left ${front} in front`);
   }
+  // The Runs page (⌥8), in light and dark: the left tool window closes and the editor island takes its
+  // place a half gap from the stripe; the first time, Details opens at the right and Trades at the bottom,
+  // both a gap from the editor, Trades under it at its left edge and width; ⌥1 brings Versions back.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 2, mobile: false });
+  const alt = async (k, code, vk) => { for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: k, code, modifiers: 1, windowsVirtualKeyCode: vk }); await sleep(500); };
+  for (const scheme of ["light", "dark"]) {
+    await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    await send("Page.navigate", { url: `file://${resolve(page)}${hash}` });
+    await sleep(2500);
+    if (scheme === "light") await alt("8", "Digit8", 56);
+    const runs = await evaluate(`(() => {
+      const islands = Object.fromEntries([...document.querySelectorAll("[data-island]")].map((e) => [e.dataset.island, { radius: getComputedStyle(e).borderTopLeftRadius, ...e.getBoundingClientRect().toJSON() }]));
+      const stripe = document.querySelector('nav[aria-label="Left tool windows"]').getBoundingClientRect().right;
+      return { islands, stripe, pressed: document.querySelector('nav[aria-label="Left tool windows"] button[aria-pressed="true"]')?.getAttribute("aria-label"),
+               bottom: document.querySelector("[data-island=bottom] h2, [data-island=bottom] [role=tab]")?.textContent, right: document.querySelector("[data-island=right] h2")?.textContent }; })()`);
+    writeFileSync(join(outDir, `runs-${scheme}.png`), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    const { editor, right, bottom, left } = runs.islands, GAP = 4;
+    expect(runs.pressed === "Runs" && !left, `runs ${scheme}: ${runs.pressed} pressed on the stripe, ${left ? "a" : "no"} left island`);
+    expect(editor && right && bottom, `runs ${scheme}: islands ${Object.keys(runs.islands).join(", ")}, not editor, right and bottom`);
+    expect(runs.bottom === "Trades" && runs.right === "Details", `runs ${scheme}: ${runs.bottom} at the bottom and ${runs.right} at the right, not Trades and Details`);
+    for (const [id, i] of Object.entries(runs.islands)) expect(i.radius === "10px" && i.right <= 1600 && i.bottom <= 1000, `runs ${scheme}: island ${id} radius ${i.radius}, ends at ${i.right}, ${i.bottom}`);
+    if (editor && bottom && right) {
+      expect(Math.abs(editor.left - runs.stripe - GAP / 2) < 0.6, `runs ${scheme}: the editor is ${(editor.left - runs.stripe).toFixed(1)}px from the stripe, not ${GAP / 2}`);
+      expect(Math.abs(bottom.top - editor.bottom - GAP) < 0.6 && Math.abs(bottom.left - editor.left) < 0.6 && Math.abs(bottom.width - editor.width) < 0.6,
+             `runs ${scheme}: Trades is ${(bottom.top - editor.bottom).toFixed(1)}px under the editor, at ${bottom.left.toFixed(1)} and ${bottom.width.toFixed(1)} wide against ${editor.left.toFixed(1)} and ${editor.width.toFixed(1)}`);
+      expect(Math.abs(right.left - editor.right - GAP) < 0.6, `runs ${scheme}: editor-right gap ${(right.left - editor.right).toFixed(1)}`);
+    }
+  }
+  await alt("1", "Digit1", 49);
+  const back = await evaluate(`document.querySelector("[data-island=left] h2")?.textContent + (document.querySelector("[data-island=editor] .react-flow")?.offsetParent ? " + lineage" : "")`);
+  expect(back === "Versions + lineage", `runs: ⌥1 left ${back} in front`);
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 1));
   const first = report.dark.lines.find((l) => l.gaps) ?? report.dark.lines[0];
   console.log(`verify: ${report.dark.islands.length} islands, ${report.dark.lines.length} version lines; badge at ${first?.badge}px, number padding ${first?.gaps}, name ${first?.name}px after the prediction slot`);

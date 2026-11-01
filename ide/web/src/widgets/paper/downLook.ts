@@ -1,4 +1,4 @@
-// How the Paper page's charts mark the time a chain of runs (model/chain.ts) was paused or offline between
+// How the Runs page's charts mark the time a chain of runs (model/chain.ts) was paused or offline between
 // two runs (model/ending.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
 // series crosses it: it is covered the plot's height by a recessed wash between two hairlines, at least
 // MIN px wide (around the true stretch on the equity chart, as blank candles on the candle chart), its length tagged on the time axis as the value axis tags a price

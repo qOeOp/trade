@@ -1,18 +1,20 @@
-import type { Candidate, DetailWidget, Targets, Trial } from "../../model/types";
-import { meets } from "../../model/semantics";
+import type { Candidate, DetailWidget, Targets } from "../../model/types";
 import { when, plural } from "../../lib/format";
 import { useView } from "../../model/view";
 import { Icon } from "../../icons/Icon";
 import { useSelection } from "../../state/selection";
+import { useOnRunsPage } from "../../state/shell";
+import { useShown } from "../../state/shown";
 import { KeyValues } from "../../components/KeyValues";
-import { MetricStrip } from "../../components/MetricStrip";
 import { Missing } from "../../components/Missing";
 import { Prose } from "../../components/Prose";
 import { CardGroup, Section } from "../../components/Section";
 import { Tip } from "../../components/Tip";
 import { Token } from "../../components/Token";
 import { Header } from "./Header";
+import { Readings } from "./Readings";
 import { ReplayTable } from "./ReplayTable";
+import { StagePerformance } from "./StagePerformance";
 import { TranslatedCardGroup } from "../../components/TranslatedCardGroup";
 
 const OUTCOME: Record<string, [string, string]> = {
@@ -20,28 +22,19 @@ const OUTCOME: Record<string, [string, string]> = {
 };
 const VERDICT: Record<string, [string, string]> = { passed: ["Passed", "text-meets"], failed: ["Failed", "text-fail"] };
 const percent = { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
-const two = { minimumFractionDigits: 2, maximumFractionDigits: 2 } as const;
 
 // Where the inspector is widened past 48rem, the groups sit in two columns: what changed and the
-// conclusion on the left, the evidence on the right; narrower, one column in order.
+// conclusion on the left, the performance and evidence on the right; narrower, one column in order.
 // Columns never grow past the region for their content.
 const SIDE = "@3xl:pt-0";
 
 /** One version's detail, as the inspector shows the selected one. */
 function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
-  const last: Partial<Trial> = runs.at(-1) ?? {};
   const cmp = c.comparison;
   return (
     <div className="@container space-y-3 px-2 pb-3 text-dense">
-      <Header c={c}>
-      <MetricStrip items={[
-        { label: "Annual return", value: last.annual_return, format: percent, tone: meets(last.annual_return, targets?.annual_return, true) === false ? "misses" : "fg" },
-        { label: "Max drawdown", value: last.max_drawdown, format: percent, tone: meets(last.max_drawdown, targets?.max_drawdown, false) === false ? "misses" : "fg" },
-        { label: "Sharpe", value: last.sharpe, format: two },
-        { label: "Win rate", value: last.win_rate, format: percent },
-      ]} />
-      </Header>
+      <Header c={c}><Readings c={c} targets={targets} /></Header>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
       <TranslatedCardGroup title="Change and hypothesis" sections={[
         { title: "What changed", text: c.change }, { title: "Hypothesis", text: c.hypothesis },
@@ -67,7 +60,9 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
         </Section>
       )}
       </TranslatedCardGroup>
-      <CardGroup title="Evidence" className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
+      <div className={`${SIDE} @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1`}>
+      <StagePerformance />
+      <CardGroup title="Evidence">
       <Section title="Replays" aside={`${plural(runs.length, "research run")} · ${plural((c.trials ?? []).length, "trial")} in all`}>
         <ReplayTable trials={c.trials ?? []} targets={targets} />
       </Section>
@@ -101,6 +96,7 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
         </Section>
       )}
       </CardGroup>
+      </div>
       <TranslatedCardGroup title="Conclusion" sections={[{ title: "Interpretation and decision", text: c.interpretation }]} className="@3xl:col-start-1">
       <Section title="Registration" open={false}>
         <KeyValues items={[
@@ -114,10 +110,15 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
   );
 }
 
-/** The selected version in full: what changed, why, what was predicted and found, and its records. */
+/** The selected version in full: what changed, why, what was predicted and found, how the stage the
+ *  Runs page shows performed, and its records. On the Runs page a paper run that declares no version of
+ *  this line has none to show. */
 export function Detail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
   const { targets } = useView();
-  const c = widget.items.find((item) => item.id === (selected ?? widget.default));
-  return c ? <VersionDetail c={c} targets={targets} /> : <p className="p-4 text-fg-faint">Pick a version in the lineage, the table or the scatter.</p>;
+  const runsPage = useOnRunsPage(), { run } = useShown();
+  const loose = runsPage && run !== null && selected === null;
+  const c = loose ? undefined : widget.items.find((item) => item.id === (selected ?? widget.default));
+  if (c) return <VersionDetail c={c} targets={targets} />;
+  return <p className="p-4 text-fg-faint">{loose ? "No version of this line declared for this run" : "Pick a version in the lineage, the table or the scatter."}</p>;
 }

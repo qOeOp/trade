@@ -1,4 +1,4 @@
-// What moved a paper run's equity since the start as flows, for the Performance card's Sankey: what came
+// What moved a paper run's equity since the start as flows, for the Profit and loss card's Sankey: what came
 // in (each contract's winning trades before fees, funding received, open profit, a net loss drawn from
 // the starting balance) and where it went (each contract's losing trades before fees, fees, funding paid,
 // open loss, the net kept), so that the two sides add up. Into lists the contracts in By contract's order

@@ -7,7 +7,7 @@ import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
 import { activeRun, startDialog, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
-import { showToolWindow } from "../state/shell";
+import { showRunsPage, showToolWindow } from "../state/shell";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
 
@@ -33,6 +33,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           <Item icon="locate" label="Locate in graph" run={() => { select(id); showLineage(); requestFocus(id); }} />
           <Item icon="tool.inspector" label="Show in details" run={() => { select(id); showToolWindow("inspector", "right"); }} />
           <Item icon="file.python" label="Open source" run={() => openSource(id)} />
+          <Item icon="tool.runs" label="Open runs" run={() => { select(id); showRunsPage(); }} />
           {paper && <>
             <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
             {run ? <Item icon="stop" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>

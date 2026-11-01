@@ -1,4 +1,4 @@
-// The Performance card's parts below its targets (Performance.tsx): how the closed trades ended and by
+// The Performance cards' parts (Performance.tsx): how the closed trades ended and by
 // contract; what moved equity is Flow.tsx.
 import { fixed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";

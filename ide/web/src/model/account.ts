@@ -1,4 +1,4 @@
-// A paper run's account as the Paper page shows it, from the journal so far, the last minute's state and
+// A paper run's account as the Runs page shows it, from the journal so far, the last minute's state and
 // the readings (or, once sealed, the seal): equity and what moved it since the start (closed trades
 // before fees, fees, funding, open positions), the drawdown now and at its deepest, the return a minimum
 // annual return asks for by now, and what its closed trades say.

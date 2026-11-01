@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { Command } from "cmdk";
+import { ACTIVE } from "../model/chain";
 import type { LineageWidget } from "../model/types";
 import { useAtom } from "../state/atom";
 import { select } from "../state/selection";
 import { paletteOpen } from "../state/shell";
-import { ACTIVE, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { Kbd } from "../components/Kbd";
 import { VersionLine } from "../components/VersionLine";
 import type { Action } from "./commands";

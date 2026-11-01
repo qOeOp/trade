@@ -14,7 +14,7 @@ pass the same Host and cross-site checks and are then forwarded to it as they ar
 streamed back as it arrives; without one those paths do not exist and the page shows no agent.
 
 With a paper URL (the paper daemon, `python -m cli.main paper serve`), requests under `/api/paper/` are
-forwarded the same way, and the Paper panel can start and stop paper runs. A POST there must also come
+forwarded the same way, and the Runs page can start and stop paper runs. A POST there must also come
 from the page itself (`Sec-Fetch-Site: same-origin`) and carry the token this service generated at start
 and put in the page (`X-Trade-Paper-Token`), so a page on another port of this host cannot start a run.
 """

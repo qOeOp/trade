@@ -1,25 +1,21 @@
 // Paper runs on the page: whether the page's server has a paper daemon and reaches it, the runs it lists
-// (read every few seconds while it does), the run and view the Paper page shows, starts and stops in
-// flight, the dialogs that ask before one, and the last notice for the status bar.
+// (read every few seconds while it does), starts and stops in flight, the dialogs that ask before one,
+// and the last notice for the status bar. The run the Runs page shows is state/stage.ts's.
 import { ApiError } from "../lib/agentApi";
 import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
-import { latestOf } from "../model/chain";
+import { ACTIVE } from "../model/chain";
 import { atom, useAtom } from "./atom";
+import { showRunsPage } from "./shell";
+import { chooseRun } from "./stage";
 
 const POLL_MS = 3000;
 const NOTICE_MS = 6000;
-/** States of a run that has not been sealed yet: it still has (or had) containers. */
-export const ACTIVE = new Set(["running", "stopping", "ended", "unsealed"]);
 
 /** Whether the page's server has a paper daemon (`--paper`, which puts a token in the page): "absent"
  *  without one; with one, "present" while it answers and "offline" while it does not, asked again every
- *  few seconds, so the Paper page says the daemon is down instead of vanishing. */
+ *  few seconds, so the Runs page says the daemon is down instead of vanishing. */
 export const paperService = atom<"checking" | "absent" | "offline" | "present">("checking");
 export const paperRuns = atom<Listing | null>(null);
-/** The run the Paper page shows, and what its chart shows: "equity", or a contract (null until the
- *  page picks one). The trades and events follow the chart: a contract's alone, or all on Equity. */
-export const selectedRun = atom<number | null>(null);
-export const paperTab = atom<string | null>(null);
 /** Versions being started from this page, and runs being stopped or deleted. */
 export const starting = atom<ReadonlySet<string>>(new Set());
 export const stopping = atom<ReadonlySet<number>>(new Set());
@@ -31,7 +27,7 @@ export const deleteDialog = atom<PaperRun | null>(null);
 export const notice = atom<{ text: string; failed: boolean; n: number } | null>(null);
 
 export const usePaperService = () => useAtom(paperService);
-/** The page has a Paper panel: its server has a daemon, answering or not. */
+/** The page has a paper daemon behind it: its server has a daemon, answering or not. */
 export const usePaperPanel = () => { const service = useAtom(paperService); return service === "present" || service === "offline"; };
 export const usePaperRuns = () => useAtom(paperRuns);
 
@@ -53,11 +49,6 @@ export async function refreshRuns(): Promise<void> {
     const listing = await paperApi<Listing>("/runs");
     missed = 0;
     paperRuns.set(listing);
-    const picked = listing.runs.find((r) => r.paper_id === selectedRun.get());
-    if (!picked) {
-      const active = listing.runs.filter((r) => ACTIVE.has(r.state));
-      selectedRun.set((active[active.length - 1] ?? listing.runs[listing.runs.length - 1])?.paper_id ?? null);
-    } else selectedRun.set(latestOf(picked, listing.runs).paper_id);  // a run continued since: its chain's latest
   } catch (error) {
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
       if (++missed >= MISSES) paperService.set("offline");
@@ -96,7 +87,8 @@ export const activeRun = (listing: Listing | null, candidate: string) =>
 
 const failure = (error: unknown) => (error instanceof ApiError ? `${error.code}: ${error.message}` : String(error));
 
-/** Starts a run of `candidate`: with the contracts of its last research replay, or the ones given. */
+/** Starts a run of `candidate`: with the contracts of its last research replay, or the ones given; the
+ *  Runs page then shows it. */
 export async function startPaper(candidate: string, scope: { symbols?: string[]; universe?: "pool" } = {}): Promise<boolean> {
   if (starting.get().has(candidate)) return false;
   starting.set(add(starting.get(), candidate));
@@ -104,9 +96,10 @@ export async function startPaper(candidate: string, scope: { symbols?: string[];
     const run = await paperApi<{ paper_id: number; symbols: string[] }>("/runs", { method: "POST", body: { candidate, ...scope } });
     const listed = run.symbols.length > 4 ? `${run.symbols.slice(0, 3).join(", ")} and ${run.symbols.length - 3} more` : run.symbols.join(", ");
     say(`Paper started · ${candidate} · ${listed}`);
-    selectedRun.set(run.paper_id);
-    paperTab.set(null);
     await refreshRuns();
+    const started = paperRuns.get()?.runs.find((r) => r.paper_id === run.paper_id);
+    if (started) chooseRun(started);
+    showRunsPage();
     return true;
   } catch (error) {
     if (error instanceof ApiError && error.code === "NO_LAST_REPLAY") startDialog.set(candidate);
@@ -139,7 +132,6 @@ export async function deletePaper(run: PaperRun): Promise<void> {
   try {
     await paperApi(`/runs/${run.paper_id}/delete`, { method: "POST", body: {} });
     say(`Paper run deleted · ${run.candidate ?? run.paper_id} · run ${run.paper_id}`);
-    if (selectedRun.get() === run.paper_id) selectedRun.set(null);
     await refreshRuns();
   } catch (error) {
     say(`Paper run not deleted · ${run.candidate ?? run.paper_id} · ${failure(error)}`, true);
