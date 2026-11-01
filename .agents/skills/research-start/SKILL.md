@@ -34,15 +34,15 @@ selected (`line select`); everything inside it follows `research-round`.
   wait).
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
-- Only a gate under which a line cannot be replayed stops it; any other is research-round's next
-  step. Tell the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the
-  line's candidates are on a runtime contract this product no longer runs, so the line can only be
-  closed and research restarted on the new contract (research-round's
+- Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
+  the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the line's
+  candidates are on a runtime contract this product no longer runs, so the line can only be closed
+  and research restarted on the new contract (research-round's
   [changes.md](../research-round/references/changes.md)). `MARKET_COMMIT_UNRESOLVED`: no branch of
   the market database holds the line's pinned commit, so the line runs again only once that commit
   is back; restoring it is the user's market write, never a research step you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
-  offer keeping it open until the stop lifts; close it once the user has chosen what follows.
+  offer keeping it open until the stop lifts.
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line when the user ends it, or when it cannot continue (a stop above,
   research-round's changes.md) and the user has chosen what follows: read it (`research state
@@ -68,30 +68,30 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
-  each a source that has never run (a revision with a substantive change, or a root, which needs
-  no template authorization), marked not yet replayed, with its window, market commit, execution
-  environment (research-round), readiness result and Goal objective, so that one choice approves
-  both the line and its Goal. List template roots (research-round's
-  [template.md](../research-round/references/template.md)) when the ledger has no candidate or the
-  user says to leave every line, each with its first report on the current window or marked not
-  yet replayed; a root from a user source is made only when the user gives the source.
+  each a source that has never run (a revision with a substantive change, or a root, which needs no
+  template authorization), marked not yet replayed, with its window (a covered one no open line
+  holds on that commit), market commit, execution environment (research-round), readiness result and
+  Goal objective, so that one choice approves both the line and its Goal. List template roots
+  (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
+  candidate or the user says to leave every line, each with its first report on the current window
+  or marked not yet replayed; a root from a user source is made only when the user gives the source.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
-  beside the lines the ledger's other candidates could start (`candidate list`), stating the
-  annual difference its counted runs could detect (`hypothesis compare`'s
-  `detectable_annual_return_difference_80pct_normal_approx`): undistinguished is not no better.
-  A loss, an insignificant result, a low priority, a review count, a run limit or a fault never
-  brings up template roots: give the recommendation and priorities inside the line.
+  beside the lines the ledger's other candidates could start (`candidate list`), with the annual
+  difference this line's counted runs could detect (`hypothesis compare`'s
+  `detectable_annual_return_difference_80pct_normal_approx`): undistinguished does not mean no
+  better. A loss, an insignificant result, a low priority, a review count, a run limit or a fault
+  never brings up template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
 
-When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
-then published, prechecked and reviewed (research-round's template.md, First report).
-`line select` (`--help`) records a new line (a chosen open line is already recorded), with the
-user's targets for it as `--max-drawdown` and `--annual-return` when stated; otherwise the line
-reads the ledger default. When neither exists, ask the user for them. Record a later change
-the user states with `line targets`, and never change targets on your own. Line notes and summaries
-follow research-round's rule for ledger text (English, structured). The targets are the reference
-for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
+When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is then
+published, prechecked and reviewed (research-round's template.md, First report). `line select`
+(`--help`) records a new line (a chosen open line is already recorded), with the user's targets for
+it as `--max-drawdown` and `--annual-return` when stated; otherwise the line reads the ledger
+default. When neither exists, ask the user for them. Record a later change the user states with
+`line targets`, and never change or suggest changing targets. Line notes and summaries follow
+research-round's rule for ledger text (English, structured). The targets are the reference for
+reading reports; ask for nothing else (no coins, sizing, budgets or stages).
 
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,

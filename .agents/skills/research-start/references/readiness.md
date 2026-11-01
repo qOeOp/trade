@@ -73,11 +73,10 @@ research universe.
 
 ## Before replay and on new data
 
-- Before a replay, check four things: `research state` lists no `RUNTIME_UNSUPPORTED` gate
-  (SKILL.md); the runtime reference resolves to exactly one image; the market database has every
-  month of the development window; every contract's coverage can be read. Report any missing item
-  through the coverage disposition above. Never fill data, drop coins, shorten the window or
-  change the pinned commit yourself.
+- Before a replay, check four things: no gate stops the line (SKILL.md); the runtime reference
+  resolves to exactly one image; the market database has every month of the development window;
+  every contract's coverage can be read. Report any missing item through the coverage disposition
+  above. Never fill data, drop coins, shorten the window or change the pinned commit yourself.
 - For a source that reads open interest or long/short ratios (`--metrics`), also read
   `coverage[].metrics`: a month of the trading window with no import refuses the replay
   (`METRICS_MISSING`) and is a missing month in the disposition above. Missing rows and empty

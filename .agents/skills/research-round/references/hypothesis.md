@@ -4,24 +4,21 @@ Read when choosing a parent and control, checking sources or preparing a registr
 
 ## Support and scope
 
-Read retained source evidence and corrections before searching its gaps (`research-sources`;
-video material: `video-evidence`). Retain originals, excerpts and query logs through `evidence add`
-before citing them in a registration. Distinguish external evidence, local diagnosis and conjecture
-in rationale.external/local/conjecture. rationale.external holds either citations (DOI, arXiv id or
-URL) bearing on the changed mechanism or what named `research-sources` queries searched, where, and
-found, absence worded as that skill reports it; other citations count as none. `sources` names the
-bundles holding those originals or that search log. Absence goes in external, never in local.
-External support identifies its location and market, window, frequency, costs and
-validation conditions; unread conditions stay unknown. State whether
-it supports the mechanism, the parameter or only the method. Explain how the source shapes the
+Read retained source evidence and corrections before searching its gaps (`research-sources`; video
+material: `video-evidence`). Retain originals, excerpts and query logs through `evidence add` before
+citing them in a registration. Distinguish external evidence, local diagnosis and conjecture in
+rationale.external/local/conjecture. rationale.external holds citations (DOI, arXiv id or URL)
+bearing on this change, else the named `research-sources` queries, indexes and result, absence
+worded as that skill reports it. `sources` names the bundles holding those originals or that search
+log. Absence goes in external, never in local. External support identifies its location and market,
+window, frequency, costs and validation conditions; unread conditions stay unknown. State whether it
+supports the mechanism, the parameter or only the method. Explain how the source shapes the
 question, control, prediction or priority; if it is only background, explain why the local question
 still comes first without inventing an effect on the decision. Local evidence names run and commit.
 
-The model writing the hypothesis may remember the development window's prices, funding and events
-from its training data: look-ahead that no replay check catches. A recollection of how the window
-moved is neither external evidence nor local diagnosis and never supports a rationale; when one is
-offered, say where it comes from. For each event the mechanism or the recollection relies on, state
-whether it was knowable before the decision. Only out-of-sample results rule this memory out.
+Your training-data memory of the development window's prices, funding and events is look-ahead no
+replay check catches: it is neither external evidence nor local diagnosis and supports no rationale.
+For each event the rationale relies on, state whether it was knowable before the decision.
 
 Describe the economic mechanism, who bears its cost and why it could persist under this line's
 conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
