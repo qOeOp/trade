@@ -76,6 +76,16 @@ tick as `data.data` in `on_data`. Trades are signal input only: they match no or
 A trade subscription the run does not serve (no flag, native `subscribe_trades`, paper trading) is
 `TRADES_NOT_SERVED`; report the number of trades received in the diagnostics.
 
+Open interest and long/short ratios need the runner argument `--metrics`, in either execution
+environment, decided and passed like `--execution`; the pinned commit must hold them for every
+month of the trading window (`market coverage`, `metrics`). The source subscribes with
+`subscribe_data(DataType("Metrics", metadata={"instrument_id": str(instrument_id)}))` and reads
+`data.data` in `on_data`: `sum_open_interest` (base asset) and the three ratios as `Decimal`, a ratio
+the archive left empty as `None`. Each row describes `ts_event` and arrives at `ts_init`, 10 minutes
+after the archive's `create_time`, on a whole minute; it is signal input only. A subscription the run
+does not serve (no flag, paper trading) is `METRICS_NOT_SERVED`; report the rows received and the
+empty ratios read in the diagnostics.
+
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
