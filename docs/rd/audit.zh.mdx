@@ -322,7 +322,7 @@
 
 每笔成交对应唯一的订单，订单的已成交量等于它名下成交之和。持仓恰好把全部成交覆盖一次，数量和手续费一致。资金费调整在每个时刻都等于账户总额的变动，账户各行自洽。期初余额、已实现盈亏和闭仓笔数与摘要一致。
 
-这些数全由引擎产生，审计只看它们彼此对不对得上，不用自己的算法再算一遍。自己重算，等于另造一套撮合和记账，反过来和引擎打架。
+这些数全由引擎产生，审计只看它们彼此对不对得上，不用自己的算法再算一遍。自己重算，等于另造一套撮合和记账，反过来和引擎打架。手续费是例外：费率是输入，按费率核对不另造撮合，见 <Ref id="G.3.2.5">G.3.2.5</Ref>。
 
 <div className="rd-example">
 
@@ -359,6 +359,20 @@
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.capital_findings">capital_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 每笔手续费按导出回执的费率核对 [#G-3-2-5]
+
+每笔成交的手续费，要等于成交量 × 成交价 × 该合约导出回执假定的挂单方或吃单方费率，误差不超过报告金额末位的半个单位。没有费率的合约或流动性方向，也是一条发现。
+
+源码和运行器在同一个进程里执行。源码要是换掉了交易所的费率，引擎照新费率记账，各张报告之间仍然对得上，只对不重算的审计看不出来。费率不是引擎算出来的事实，是回放的输入，从运行器之外的回执读，所以能独立核对。
+
+<div className="rd-example">
+
+比如源码把费率模型换成零费率，162 笔成交的手续费全是 0，各表照样对得上；按回执的吃单方费率 0.0005，第一笔 0.229 × 43599.90 应收 4.99218855 USDT，每一笔都是一条发现。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.commission_findings">commission_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 持仓保护与终止检查 [#G-3-3]
 
