@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我刚在 Codex 里执行了 research-start。你已读完账本与市场库，事实如下：
+（换线）research-start。你已读完账本与市场库，事实如下：
 
 - `research state --line research-line-20261012-breakout-btc`：开着，BTCUSDT 永续，开发窗口 2025-01-01 至 2026-01-01，市场提交 `m-7a1e`，执行环境 `bars`；`targets` 为 `max_drawdown` 0.15、`annual_return` 0.20；没有 gate；`unreviewed_trials` 为空。最新推荐 judgment 731 推荐 `breakout@6`（trial 2210）。按 research-round 已到换线时机；计入的运行里最近三次（trial 2214、2217、2220）的候选与对照都没分辨开。
 - 这三次的 `hypothesis compare`（对照都是 trial 2210）：
