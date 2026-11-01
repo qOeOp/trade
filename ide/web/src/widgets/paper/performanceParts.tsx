@@ -1,5 +1,5 @@
 // The Performance cards' parts (Performance.tsx): how the closed trades ended and by
-// contract; what moved equity is Flow.tsx.
+// contract; what moved equity is Bridge.tsx.
 import { fixed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
@@ -29,7 +29,8 @@ export function Exits({ exits }: { exits: TradeStats["exits"] }) {
 }
 
 /** Each contract's closed trades, when the run has more than one: how many and their profit and loss
- *  together (byContract), as a bar from a zero line in the middle on one scale, the count on hover. */
+ *  together (byContract), as a bar from a zero line in the middle on one scale (square where it meets
+ *  the line), the count on hover. */
 export function byContract(trades: Account["trades"]) {
   const by = new Map<string, { n: number; pnl: number }>();
   for (const t of trades) if (t.pnl !== null) { const c = by.get(t.symbol) ?? { n: 0, pnl: 0 }; by.set(t.symbol, { n: c.n + 1, pnl: c.pnl + t.pnl }); }
@@ -45,7 +46,7 @@ export function Contracts({ by }: { by: ReturnType<typeof byContract> }) {
         <Tip key={symbol} content={`${c.n} closed ${c.n === 1 ? "trade" : "trades"}`}><div className="grid grid-cols-[64px_minmax(0,1fr)_84px] items-center gap-2.5 text-dense tabular-nums">
           <span className="truncate text-fg-muted">{symbol}</span>
           <span className="relative h-1">
-            <i className={`absolute inset-y-0 rounded-full ${c.pnl >= 0 ? "left-1/2 bg-pnl-up" : "right-1/2 bg-pnl-down"}`} style={{ width: `max(3px, ${(Math.abs(c.pnl) / most) * 50}%)` }} />
+            <i className={`absolute inset-y-0 ${c.pnl >= 0 ? "left-1/2 rounded-r-full bg-pnl-up" : "right-1/2 rounded-l-full bg-pnl-down"}`} style={{ width: `max(3px, ${(Math.abs(c.pnl) / most) * 50}%)` }} />
           </span>
           <span className={`text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</span>
         </div></Tip>

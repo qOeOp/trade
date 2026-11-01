@@ -7,7 +7,7 @@
 import { useEffect, useMemo } from "react";
 import { symbolOf, type PaperRun } from "../lib/paperApi";
 import { account, tradeStats, type Account, type TradeStats } from "../model/account";
-import { closedGross, flows as flowsOf, type Flows } from "../model/flows";
+import { bridge as bridgeOf, closedGross, type Bridge } from "../model/bridge";
 import { joined } from "../model/joined";
 import { fills as fillsOf, type Fill } from "../model/paper";
 import { atom, useAtom } from "./atom";
@@ -21,7 +21,7 @@ import { useStretches } from "./stretches";
 import { paperTab } from "./stage";
 
 export type RunData = {
-  run: PaperRun; s: Stream | null; a: Account | null; stats: TradeStats | null; fills: readonly Fill[]; flows: Flows | null;
+  run: PaperRun; s: Stream | null; a: Account | null; stats: TradeStats | null; fills: readonly Fill[]; bridge: Bridge | null;
   /** What the chart shows: "equity", or a contract of the run or the backtest. */
   view: string;
   stretches: readonly Stretch[];
@@ -54,7 +54,6 @@ export function useRunDriver(): void {
   const a = useMemo(() => (s && (s.readings || s.seal) ? account(s.lines, s.state, s.readings, s.seal) : null), [s?.lines, s?.state, s?.readings, s?.seal]);
   const stats = useMemo(() => (a && s ? tradeStats(a, s.lines) : null), [a]);
   const fills = useMemo(() => fillsOf(s?.lines ?? []), [s?.lines]);
-  // Two contracts a side by name fit the Performance tiles.
-  const flows = useMemo(() => (a && s ? flowsOf(a, closedGross(s.lines), 2) : null), [a]);
-  useEffect(() => { runData.set(run ? { run, s, a, stats, fills, flows, view, stretches } : null); }, [run, s, a, stats, fills, flows, view, stretches]);
+  const bridge = useMemo(() => (a && s ? bridgeOf(a, closedGross(s.lines)) : null), [a]);
+  useEffect(() => { runData.set(run ? { run, s, a, stats, fills, bridge, view, stretches } : null); }, [run, s, a, stats, fills, bridge, view, stretches]);
 }
