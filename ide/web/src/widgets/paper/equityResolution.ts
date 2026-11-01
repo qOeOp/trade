@@ -55,7 +55,7 @@ export function equityMinutes(path: readonly (readonly [number, number])[], star
   }).filter((p, i, all) => i === all.length - 1 || all[i + 1]!.time > p.time);
 }
 
-/** `minutes` with a point a minute across each stretch a chain was offline between restarts (downLook.ts),
+/** `minutes` with a point a minute across each stretch a chain was offline between its runs (downLook.ts),
  *  marked `down`, holding the equity before it. */
 export function withDowns(minutes: readonly EquityPoint[], restarts: readonly Restart[]): EquityPoint[] {
   const slots = restarts.length ? downSlots(minutes.map((p) => p.time), downsOf(restarts), 60) : [];

@@ -249,6 +249,38 @@ class RestartTests(unittest.TestCase):
             daemon.seal_found()
         daemon.start.assert_called_once_with({"candidate": "v1@1", "symbols": ["BTCUSDT"]})
 
+    def test_a_crash_or_failed_start_reads_as_crashed_unless_it_would_end_the_same_again(self):
+        cases = {
+            "the runner exited with an error": (self.seal(journal(), None, 1), True),
+            "it failed to start": (records.readings(ROW, [], 0, None, None, None, start_failed=True), True),
+            "it ran out of memory": (records.readings(ROW, journal(), 0, None, 137, None, oom_killed=True), False),
+            "its strategy was refused": (self.seal([*journal(), line("refusal", START + MINUTE, code="X")], None, 1), False),
+            "it ran other code": (self.seal(journal(), summary(identity={"source_sha256": "b" * 64}), 1), False),
+            "the user stopped it": (self.seal(journal(), summary(stop_reason="STOP_FILE")), False),
+            "the strategy raised": (self.seal(journal(), summary(runtime_failures=3)), False),
+        }
+        for name, (sealed, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(serve.crashed(sealed), expected)
+
+    def test_the_daemon_starts_a_crashed_run_again_while_its_version_crashed_few_times_this_hour(self):
+        for crashes, expected in ((serve.CRASH_RESTARTS, 1), (serve.CRASH_RESTARTS + 1, 0)):
+            with self.subTest(crashes=crashes):
+                daemon = serve.Daemon.__new__(serve.Daemon)
+                daemon.profile, daemon.stopping, daemon.started = SimpleNamespace(database="paper"), set(), 0.0
+                daemon.runs = mock.Mock(return_value={"runs": [{"paper_id": 1, "state": "ended", "candidate": "v1@1",
+                                                                "symbols": ["BTCUSDT"], "created_at": "2026-10-28T10:00:00"}]})
+                daemon.cli = mock.Mock(return_value={"write_status": "written", "seal": self.seal(journal(), None, 1)})
+                daemon.sealed_lines = mock.Mock(return_value=journal())
+                daemon.crashes = mock.Mock(return_value=crashes)
+                daemon.start = mock.Mock(return_value={"paper_id": 2})
+                with mock.patch.object(runs, "run_dir", return_value=Path("/nonexistent")), \
+                        mock.patch.object(runs, "killed_before", return_value=False):
+                    daemon.seal_found()
+                self.assertEqual(daemon.start.call_count, expected)
+                daemon.crashes.assert_called_once_with("v1@1")
+
+
 def events(response) -> tuple[str, object]:
     kind = data = None
     while True:

@@ -57,7 +57,7 @@ export async function refreshRuns(): Promise<void> {
     if (!picked) {
       const active = listing.runs.filter((r) => ACTIVE.has(r.state));
       selectedRun.set((active[active.length - 1] ?? listing.runs[listing.runs.length - 1])?.paper_id ?? null);
-    } else selectedRun.set(latestOf(picked, listing.runs).paper_id);  // a run restarted since: its chain's latest
+    } else selectedRun.set(latestOf(picked, listing.runs).paper_id);  // a run continued since: its chain's latest
   } catch (error) {
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
       if (++missed >= MISSES) paperService.set("offline");
