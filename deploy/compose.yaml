@@ -121,12 +121,13 @@ services:
       ledger:
         condition: service_healthy
 
-  # The daily import of Binance metrics (market/README.md, "follow-metrics"): each round imports the days
-  # the archive has published since the held ones and publishes the market. Unhealthy while a contract is
-  # stopped or lagging, or when its status is a day old (docs/plans/daily-metrics-import.zh.md).
-  metrics-import:
+  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of the database's
+  # scope daily, metrics daily, quotes and aggTrades of --symbols monthly, then a publish of the market. It
+  # reaches data.binance.vision and fapi.binance.com (bars). Unhealthy while anything is stopped or lagging,
+  # or when its status is a day old (docs/plans/monthly-market-import.zh.md).
+  market-import:
     <<: *product
-    command: ["python", "-m", "cli.main", "market", "follow-metrics", "--market", "/run/trade/market-import.json",
+    command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
               "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -140,15 +141,16 @@ services:
       - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
       - type: tmpfs
         target: ${TRADE_DATA}/dolt/home
-      # The archive cache and the status file, on a volume as for market-supply: a new volume mounted
-      # elsewhere belongs to root, which TRADE_UID cannot write.
-      - trade-metrics-import:/tmp
+      # The archive cache (about 3 GB of aggTrades a month, kept) and the status file, on a volume as for
+      # market-supply: a new volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
+      - trade-market-import:/tmp
     healthcheck:
       test: ["CMD", "python", "-c", "from market.follow import check; raise SystemExit(check())"]
       interval: 5m
       timeout: 30s
       retries: 1
-      start_period: 30m
+      # The first round starts 5 minutes after start and may import a month of aggTrades.
+      start_period: 3h
       start_interval: 30s
     depends_on:
       ledger:
@@ -203,7 +205,7 @@ networks:
     internal: true
 
 # The IDE's two read-only profiles (kind null: never publishes), and the market profiles of market-supply
-# (only the database: a supply serves a local reader), metrics-import and paper (also the supply and its
+# (only the database: a supply serves a local reader), market-import and paper (also the supply and its
 # own cache).
 configs:
   ide-research:
@@ -216,7 +218,7 @@ configs:
   market-source:
     content: |
       {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt"}
-  # metrics-import's profile: role active, since publishing the market needs it (ledger/publish.py).
+  # market-import's profile: role active, since publishing the market needs it (ledger/publish.py).
   market-import:
     content: |
       {"name": "market", "kind": "market", "role": "active", "database": "market", "service": "${TRADE_DATA}/dolt"}
@@ -230,4 +232,4 @@ volumes:
   trade-dolt-data:
   trade-ledger-readers:
   trade-market-exports:
-  trade-metrics-import:
+  trade-market-import:

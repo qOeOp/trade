@@ -24,13 +24,15 @@ Six services on one Docker engine:
   files of a pinned commit, its contracts and window. Published on 127.0.0.1:8210
   (`TRADE_MARKET_SUPPLY_PORT`); it has no authentication, so it is never published beyond loopback. Its
   exports stay in the `trade-market-exports` volume until an operator removes them.
-- **metrics-import**: the daily import of Binance open interest and long/short ratios for the contracts
-  its `--symbols` name (`market follow-metrics`; `market/README.md`). Same image; its market profile is
-  the compose config `market-import`, with role `active` because it publishes the market after each
-  write. It reads the import and admin accounts from `service.json`, never the DoltHub key: ledger
-  pushes. Its archive cache and status file stay in the `trade-metrics-import` volume. `docker compose
-  ps metrics-import` shows unhealthy while a contract is stopped or lagging, and `docker compose logs
-  metrics-import` gives each round; restarting it retries a stopped contract.
+- **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
+  "Unattended upkeep"): bars of the market's own scope daily, open interest and long/short ratios daily
+  and quotes and aggTrades monthly for the contracts its `--symbols` name. Same image; its market
+  profile is the compose config `market-import`, with role `active` because it publishes the market
+  after each write. It reads the import and admin accounts from `service.json`, never the DoltHub key:
+  ledger pushes. It reaches `data.binance.vision` and, for bars, `fapi.binance.com`. Its archive cache
+  (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
+  `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
+  `docker compose logs market-import` gives each round; restarting it retries what stopped.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
   is the compose config `paper-market`: membership and stored bars from ledger, a reconciliation's replay
   inputs from market-supply, cached under `$TRADE_DATA/paper-tmp/market-client-cache`.
@@ -39,7 +41,8 @@ Six services on one Docker engine:
 
 The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md),
 [`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md) and
-[`docs/plans/daily-metrics-import.zh.md`](../docs/plans/daily-metrics-import.zh.md). The
+[`docs/plans/daily-metrics-import.zh.md`](../docs/plans/daily-metrics-import.zh.md) with
+[`docs/plans/monthly-market-import.zh.md`](../docs/plans/monthly-market-import.zh.md). The
 host directories are mounted at their own paths. `.env` beside the compose file names them and the
 user the services run as:
 
