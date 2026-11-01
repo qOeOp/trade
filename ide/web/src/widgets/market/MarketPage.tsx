@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { plural } from "../../lib/format";
 import { coinsAt, level, into, MORE, type Color, type Node, type Size } from "../../model/market";
 import { layout } from "../../model/treemap";
-import { ripple } from "../../model/ripple/layout";
+import { hoverAt, ripple } from "../../model/ripple/layout";
 import { marketCoin, marketColor, marketSize, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
 import { HeatLegend } from "../../components/HeatLegend";
@@ -26,7 +26,9 @@ const crumbs = (path: readonly string[], labels: readonly string[]): Crumb[] => 
 ];
 
 /** The heatmap of one level, filling its area: tiles laid out by the size metric, the hovered one grown so
- *  its text reads (model/ripple), a group opening its level on a click and a coin becoming the pick. */
+ *  its text reads (model/ripple), a group opening its level on a click and a coin becoming the pick. The
+ *  pointer's position over the whole map decides the hovered tile (hoverAt), not each tile's own enter and
+ *  leave, which a growing tile and its shrinking neighbours would set off back and forth. */
 function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: Color; path: readonly string[]; coin: string | null }) {
   const [ref, { width, height }] = useSize();
   const [hovered, setHovered] = useState<number | null>(null);
@@ -35,12 +37,15 @@ function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: 
   const areas = tiles.map((t) => t.width * t.height);
   const frame = { width, height, maxArea: Math.max(...areas, 0), minArea: Math.min(...areas, Infinity) };
   const pick = (n: Node) => { const next = into(path, n); setHovered(null); if (next) openPath(next); else marketCoin.set(n.coins[0]!.symbol); };
+  const point = (e: MouseEvent<HTMLDivElement>) => {
+    const box = e.currentTarget.getBoundingClientRect(), x = e.clientX - box.left, y = e.clientY - box.top;
+    setHovered((h) => hoverAt(tiles, shown, h, x, y));
+  };
   return (
-    <div ref={ref} className="relative mx-2 mb-2 min-h-0 flex-1" onMouseLeave={() => setHovered(null)}>
+    <div ref={ref} className="relative mx-2 mb-2 min-h-0 flex-1" onMouseMove={point} onMouseLeave={() => setHovered(null)}>
       {shown.map((t, i) => (
         <HeatTile key={`${t.data.kind}:${t.data.name}`} tile={t} frame={frame} color={color} hovered={i === hovered}
-                  selected={t.data.kind === "coin" && t.data.coins[0]?.symbol === coin}
-                  onPick={() => pick(t.data)} onHover={(on) => setHovered(on ? i : (h) => (h === i ? null : h))} />
+                  selected={t.data.kind === "coin" && t.data.coins[0]?.symbol === coin} onPick={() => pick(t.data)} />
       ))}
     </div>
   );
