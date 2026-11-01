@@ -180,7 +180,7 @@ order book and bookTicker and cannot be matched by API orders (Binance FAQ, publ
 contracts and archive months this touches cannot be read from the archives and stays unknown.
 
 ```bash
-uv run --frozen python -m cli.main market upgrade                      # the administrator: add tables the database lacks
+uv run --frozen python -m cli.main market upgrade                      # the administrator: add missing tables, drop views no longer defined
 uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbols BTCUSDT ...]
 ```
 

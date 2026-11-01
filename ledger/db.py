@@ -975,16 +975,17 @@ def upgrade(profile: LedgerProfile) -> dict:
 
 
 def upgrade_market(profile: dict) -> dict:
-    """market upgrade: create the tables of market/schema.sql that the market database lacks (the
-    administrator, one commit that skips the data tests: tables only). Existing tables, rows, accounts
-    and grants are untouched; a clean working set is required. The import lock is held, so no import
-    or backup runs meanwhile."""
+    """market upgrade: create the tables of market/schema.sql that the market database lacks and drop
+    the views it no longer defines (the administrator, one commit that skips the data tests: schema
+    only). Existing tables, rows, accounts and grants are untouched; a clean working set is required.
+    The import lock is held, so no import or backup runs meanwhile."""
     service_root = Path(profile["service"])
     config = _known_service(service_root)
     start_service(service_root)
     database = profile["database"]
     conn = _admin(config, database=database)
     created: list[str] = []
+    dropped: list[str] = []
     commit = None
     try:
         with conn.cursor() as cursor:
@@ -998,15 +999,25 @@ def upgrade_market(profile: dict) -> dict:
                 raise refuse("DIRTY_WORKING_SET", f"market database {database} has uncommitted changes")
             cursor.execute("SHOW TABLES")
             existing = {row[0].lower() for row in cursor.fetchall()}
-            for statement in _statements(MARKET_SCHEMA.read_text(encoding="utf-8")):
+            statements = _statements(MARKET_SCHEMA.read_text(encoding="utf-8"))
+            for statement in statements:
                 table = re.match(r"CREATE TABLE\s+`?(\w+)`?", statement, re.IGNORECASE)
                 if table and table.group(1).lower() not in existing:
                     cursor.execute(statement)
                     created.append(table.group(1))
-            if created:
-                cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', %s)",
-                               ("market tables: " + ", ".join(created),))
+            defined = {view.group(1).lower() for statement in statements
+                       if (view := re.match(r"CREATE VIEW\s+`?(\w+)`?", statement, re.IGNORECASE))}
+            cursor.execute("SELECT table_name FROM information_schema.views WHERE table_schema = %s "
+                           "ORDER BY table_name", (database,))
+            for (view,) in cursor.fetchall():
+                if view.lower() not in defined:
+                    cursor.execute(f"DROP VIEW `{view}`")
+                    dropped.append(view)
+            if created or dropped:
+                message = "; ".join(f"market {kind}: {', '.join(names)}"
+                                    for kind, names in (("tables", created), ("views dropped", dropped)) if names)
+                cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', %s)", (message,))
                 (commit,), = cursor.fetchall()
     finally:
         conn.close()
-    return {"database": database, "created": created, "commit": commit}
+    return {"database": database, "created": created, "dropped": dropped, "commit": commit}

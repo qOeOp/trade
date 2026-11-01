@@ -917,7 +917,8 @@ def market_follow_metrics(market: dict, symbols: list[str], cache_root: str | No
 
 
 def market_upgrade(market: dict) -> dict:
-    """market upgrade: create the tables of market/schema.sql the market database lacks (the administrator)."""
+    """market upgrade: create the tables of market/schema.sql the market database lacks and drop the views
+    it no longer defines (the administrator)."""
     return db.upgrade_market(market)
 
 
@@ -1563,9 +1564,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "contract, until the process restarts"),
     ("market", "upgrade"): (
         "service.json; the market tables (administrator)",
-        "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql in one commit (none when "
-        "nothing is missing); publishes the market",
-        "database, created, commit (null when nothing was created)",
+        "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql and drops the views "
+        "it no longer defines, in one commit (none when nothing changes); publishes the market",
+        "database, created, dropped, commit (null when nothing changed)",
         "CONCURRENT_IMPORT (an import or backup holds the import lock); DIRTY_WORKING_SET"),
     ("market", "publish"): (
         "the administrator connection; origin",
@@ -2045,7 +2046,8 @@ def _parser() -> Parser:
     command.epilog = ("Imports through market import-metrics and publishes as market publish does; adds no import "
                       "rule. The healthcheck is market.follow.check(): unhealthy while a contract is stopped, "
                       "lagging or unknown, or the status is older than 26 hours.")
-    command = verb(market, "upgrade", "create the market tables the database lacks (administrator)")
+    command = verb(market, "upgrade", "create the market tables the database lacks and drop views the schema no longer "
+                                     "defines (administrator)")
     _market_option(command)
     command = verb(market, "publish", "push the market database to its public DoltHub copy (administrator)")
     command.epilog = ("Holds the import lock, pushes main, checks the remote head by a fetch, then pushes every tag; "
