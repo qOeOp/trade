@@ -122,8 +122,8 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
     parser.add_argument("--metrics", action="store_true")
     known, _ = parser.parse_known_args(runner_argv)
     if known.trade_ticks and known.execution != "quotes":
-        # In the bar environment an order a trade prompts mid-minute would match the whole minute's bar,
-        # prices from before it included.
+        # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
+        # prompts mid-minute would fill at a price up to 59 seconds older than the trade.
         raise refuse("TRADE_TICKS_NEED_QUOTES", "--trade-ticks needs --execution quotes", missing=("--execution",))
     start = _ns(known.start)
     window = {"start": start, "trade_start": _ns(known.trade_start) if known.trade_start else start,
