@@ -4,16 +4,26 @@
 // fills, the pace, the buy and hold, the floor, the drawdowns and the closes' arrows); the day bars, BARS of
 // the pane at most, standing on the exposure's band at the foot (equityExtras). GAP px part the plot from
 // the bands either side. Only what marks time runs the pane's height: the offline washes, the seams, the
-// held stretches, the hovered day's column, and the gridlines across it.
+// held stretches, the hovered day's column, and the gridlines across it. A fill the plot can cut (the gap to
+// the pace, the drawdowns' hatching) fades out over FADE px into its edges, so where it runs on past the
+// plot it trails off instead of ending in a flat edge.
 import { BARS, CEILING } from "./equityBands";
 import { BELOW } from "./stretchCaptions";
 
 /** The plot's top and bottom, px from the pane's top. */
 export type Plot = { top: number; bottom: number };
-const GAP = 8;  // px
+const GAP = 8, FADE = 32;  // px
 
 /** The plot of a pane `h` px high whose foot holds the exposure's band (`foot` px) and, when `days`, the day bars. */
 export const plotOf = (h: number, foot: number, days: boolean): Plot => ({ top: BELOW + h * CEILING + GAP, bottom: h - foot - (days ? h * BARS : 0) - GAP });
+
+/** `colour` (`#rrggbbaa`, as canvasColor gives it) fading out into the plot's top and bottom edges. */
+export function toEdges(c: CanvasRenderingContext2D, plot: Plot, vr: number, colour: string): CanvasGradient {
+  const top = plot.top * vr, bottom = plot.bottom * vr, edge = Math.min(0.5, (FADE * vr) / Math.max(1, bottom - top));
+  const g = c.createLinearGradient(0, top, 0, bottom), clear = `${colour.slice(0, 7)}00`;
+  for (const [at, stop] of [[0, clear], [edge, colour], [1 - edge, colour], [1, clear]] as const) g.addColorStop(at, stop);
+  return g;
+}
 
 /** `draw` clipped to the plot, on a bitmap `w` device px wide at `vr` device px a px. */
 export function inPlot(c: CanvasRenderingContext2D, plot: Plot, w: number, vr: number, draw: () => void): void {
