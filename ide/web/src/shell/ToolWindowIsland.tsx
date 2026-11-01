@@ -12,7 +12,7 @@ const STILL = atom<unknown>(null);
 export function ToolWindowIsland({ side, open }: { side: Side; open: Shown }) {
   const { Component } = open.renderer, Tools = open.tools;
   useAtom(open.watch ?? STILL);
-  return <Island id={side} header={<PanelHeader title={open.renderer.title} actions={open.actions()}>
+  return <Island id={side} header={<PanelHeader title={open.titled ? undefined : open.renderer.title} actions={open.actions()}>
     {Tools && <div className="flex min-w-0 flex-1 items-center gap-2"><Tools /></div>}
   </PanelHeader>}><Component widget={open.widget as never} /></Island>;
 }

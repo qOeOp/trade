@@ -3,10 +3,11 @@ import { Collapsible } from "radix-ui";
 import { Icon } from "../icons/Icon";
 
 /** A card in an inspector, as IntelliJ's notification cards: a rounded tint on the island, a bold
- *  title with an optional count and a chevron at the right, its content below. Collapsible: open at
- *  first unless `open` is false. */
+ *  title with an optional count and a chevron at the right, its content below. Collapsible: open unless
+ *  `open` is false, which it follows until the user opens or closes the card. */
 export function Section({ title, aside, children, open: initial = true }: { title: string; aside?: ReactNode; children: ReactNode; open?: boolean }) {
-  const [open, setOpen] = useState(initial);
+  const [chosen, setOpen] = useState<boolean | null>(null);
+  const open = chosen ?? initial;
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} className="rounded-card border border-card-border bg-island-alt">
       <Collapsible.Trigger className="flex w-full items-center gap-2 rounded-card px-3 py-2 text-left transition-colors hover:bg-row-hover active:bg-hover">

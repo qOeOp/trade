@@ -29,6 +29,15 @@ export function select(id: string, options: { reveal?: boolean } = {}): void {
   if (options.reveal) requestFocus(id);
 }
 
+/** No version selected: the Runs page shows a paper run that declares none of this line's. */
+export function deselect(): void {
+  selection.set(null);
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+
+/** Whether `id` is a version of the view shown. */
+export const isKnown = (id: string) => known?.has(id) ?? false;
+
 export const useSelection = () => useAtom(selection);
 
 /** Whether `id` is selected; re-renders only when that answer changes. */

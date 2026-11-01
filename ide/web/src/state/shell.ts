@@ -1,25 +1,22 @@
 // The shell's state: which tool window is open on each side (one per side, as IntelliJ without split
 // mode), the last one opened there, each side's size in pixels, the island the user last worked in,
-// and the command palette. Sides and sizes persist in browser storage when it is available. The Paper
-// page is a page of its own, laid out in cards with no bottom tool window and only the Agent at the
-// right, so the bottom and right sides of the page not showing wait in `away` and come back when it
-// shows again.
+// and the command palette. Sides and sizes persist in browser storage when it is available. The Runs
+// page takes the editor's place with the left side closed; the right and bottom sides are the same on
+// both pages, so what the user opens on one stays open on the other.
 import { atom, persistedAtom, useAtom } from "./atom";
 
 export type Side = "left" | "right" | "bottom";
 export const SIDES: readonly Side[] = ["left", "right", "bottom"];
 type Sides = { open: Record<Side, string | null>; last: Record<Side, string> };
-type Away = { open: Record<"right" | "bottom", string | null>; last: Record<"right" | "bottom", string> };
-export type ShellState = Sides & { size: Record<Side, number>; away?: Away };
+/** `runsShown`: the Runs page has shown once, so it no longer opens its sides itself. */
+export type ShellState = Sides & { size: Record<Side, number>; runsShown?: boolean };
 
 const DEFAULTS: ShellState = {
   open: { left: "versions", right: "inspector", bottom: "progress" },
   last: { left: "versions", right: "inspector", bottom: "progress" },
   size: { left: 400, right: 420, bottom: 260 },
 };
-// The Paper page's sides before it first shows: both closed, the Agent ready at the right.
-const PAPER_AWAY: Away = { open: { right: null, bottom: null }, last: { right: "agent", bottom: DEFAULTS.last.bottom } };
-const onPaper = (s: ShellState) => s.last.left === "paper";
+const onRuns = (s: ShellState) => s.last.left === "runs";
 
 const isState = (v: unknown): v is ShellState => {
   const s = v as ShellState | null;
@@ -27,22 +24,12 @@ const isState = (v: unknown): v is ShellState => {
     && (s.open?.[side] === null || typeof s.open?.[side] === "string"));
 };
 
-export const shell = persistedAtom<ShellState>("rg-shell@2", DEFAULTS, isState);
+export const shell = persistedAtom<ShellState>("rg-shell@3", DEFAULTS, isState);
 export const useShell = () => useAtom(shell);
-/** Whether the editor shows the Paper page (the graph's version context does not apply there). */
-export const useOnPaperPage = () => onPaper(useAtom(shell));
+/** Whether the editor shows the Runs page. */
+export const useOnRunsPage = () => onRuns(useAtom(shell));
 
-/** `next` with the bottom and right sides of the page it shows: those of the page it left go away. */
-function turnPage(before: ShellState, next: ShellState): ShellState {
-  if (onPaper(before) === onPaper(next)) return next;
-  const away = next.away ?? (onPaper(next) ? PAPER_AWAY : { open: { right: DEFAULTS.open.right, bottom: DEFAULTS.open.bottom }, last: { right: DEFAULTS.last.right, bottom: DEFAULTS.last.bottom } });
-  return {
-    ...next,
-    open: { ...next.open, ...away.open }, last: { ...next.last, ...away.last },
-    away: { open: { right: next.open.right, bottom: next.open.bottom }, last: { right: next.last.right, bottom: next.last.bottom } },
-  };
-}
-const update = (f: (s: ShellState) => ShellState) => { const before = shell.get(); shell.set(turnPage(before, f(before))); };
+const update = (f: (s: ShellState) => ShellState) => shell.set(f(shell.get()));
 
 /** Opens `id` on `side`, or hides the side when `id` is what it shows. */
 export function toggleToolWindow(id: string, side: Side): void {
@@ -60,8 +47,14 @@ export function toggleSide(side: Side): void {
   update((s) => ({ ...s, open: { ...s.open, [side]: s.open[side] ? null : s.last[side] } }));
 }
 
-/** The Paper page in place of the editor: no left tool window, as the page is the whole view (shell/Shell.tsx). */
-export const showPaperPanel = () => update((s) => ({ ...s, open: { ...s.open, left: null }, last: { ...s.last, left: "paper" } }));
+/** The Runs page in place of the editor, with no left tool window: the page is the whole view
+ *  (shell/Editor.tsx). The first time it shows it opens Details at the right (unless the Agent is open
+ *  there) and Trades at the bottom; after that the sides stay as the user leaves them. */
+export const showRunsPage = () => update((s) => {
+  const right = s.runsShown || s.open.right === "agent" ? s.open.right : "inspector", bottom = s.runsShown ? s.open.bottom : "trades";
+  return { ...s, runsShown: true, open: { left: null, right, bottom },
+           last: { left: "runs", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
+});
 
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
 

@@ -1,4 +1,4 @@
-// The earlier runs of the chain the Paper page shows (model/chain.ts), for it to join before the run it
+// The earlier runs of the chain the Runs page shows (model/chain.ts), for it to join before the run it
 // follows (model/joined.ts). Each is sealed, so its stream sends everything once and then `end`: it is read
 // once a run and contract (null: the Account view's, with every contract's closes) and kept for the page's
 // life, never asked again.

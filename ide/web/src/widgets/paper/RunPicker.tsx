@@ -1,12 +1,12 @@
-// The paper runs as the toolbar's run picker lists them, and the selected run's state in words.
+// The paper runs as the toolbar's run picker lists them, and the shown run's state in words.
 import { useState, type KeyboardEvent } from "react";
 import type { PaperRun, RuntimeFailure } from "../../lib/paperApi";
 import { duration, plural } from "../../lib/format";
-import { chainOf, chainStart, isContinued } from "../../model/chain";
+import { ACTIVE, chainOf, chainStart, isContinued } from "../../model/chain";
 import { Ended, health, RunRow } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
 import { TextButton } from "../../components/TextButton";
-import { ACTIVE } from "../../state/paper";
+import { isKnown } from "../../state/selection";
 import { tradesTab } from "../../state/paperStream";
 import { exceptionsText, raised } from "./Exceptions";
 
@@ -19,10 +19,10 @@ function Ago({ ns }: { ns: number }) {
   return <>{s < 90 ? `${s}s` : `${Math.round(s / 60)}m`}</>;
 }
 
-/** The selected run's state, in the toolbar after its readings: how long it has run (from its chain's first
+/** The shown run's state, in the toolbar after its readings: how long it has run (from its chain's first
  *  run, `chain`, oldest first) and when its last bar came, gaps in amber; or how and when it ended. The
  *  errors the strategy raised show in the warning tone, leading in the place of how long it has run or
- *  following how it ended, and open the trades card's Exceptions. */
+ *  following how it ended, and open the Trades window's Exceptions. */
 export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain: readonly PaperRun[]; now: number; failures: readonly RuntimeFailure[] | null }) {
   const state = health(run, now), lastBar = run.live?.last_bar_ns ?? null, started = chainStart(chain) ?? run.live?.started_ns ?? null;
   const gaps = (run.live?.missing_bars ?? 0) + (run.live?.protection_gaps ?? 0);
@@ -40,18 +40,32 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   );
 }
 
-/** Every run, running then ended under a count each; past FIND runs a box finds one by name, Enter
- *  picks the first match, and ↑ ↓ move between rows. */
-export function RunList({ order, runs: all, front, now, pick }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun; now: number; pick: (r: PaperRun) => void }) {
+// Why a run is in no version's group.
+const UNATTRIBUTED = { none: "No version declared", other: "Not a version of this line" };
+const versionOf = (r: PaperRun) => (r.candidate !== null && isKnown(r.candidate) ? r.candidate : null);
+
+/** Every run under its version and a count, the versions with a run running first, then the one run
+ *  latest; runs that declare no version of this line last, under Unattributed, each saying why. Past
+ *  FIND runs a box finds one by name, Enter picks the first match, and ↑ ↓ move between rows. */
+export function RunList({ order, runs: all, front, now, pick }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void }) {
   const [query, setQuery] = useState("");
   const shown = order.filter((r) => (r.candidate ?? "").toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = [["Running", shown.filter((r) => ACTIVE.has(r.state))], ["Ended", shown.filter((r) => !ACTIVE.has(r.state))]] as const;
+  const by = new Map<string | null, PaperRun[]>();
+  for (const r of shown) by.set(versionOf(r), [...(by.get(versionOf(r)) ?? []), r]);
+  const last = (runs: readonly PaperRun[]) => Math.max(...runs.map((r) => r.paper_id));
+  const groups = [...by].filter(([v]) => v !== null).sort(([, a], [, b]) =>
+    Number(b.some((r) => ACTIVE.has(r.state))) - Number(a.some((r) => ACTIVE.has(r.state))) || last(b) - last(a));
+  const loose = by.get(null) ?? [];
   const move = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const rows = [...e.currentTarget.querySelectorAll<HTMLElement>("[role=option]")], i = rows.indexOf(document.activeElement as HTMLElement);
     rows[e.key === "ArrowDown" ? Math.min(rows.length - 1, i + 1) : Math.max(0, i - 1)]?.focus();
     e.preventDefault();
   };
+  const row = (r: PaperRun, note?: string) => <RunRow key={r.paper_id} run={r} chain={chainOf(r, all)} on={r.paper_id === front?.paper_id} now={now} note={note} onPick={() => pick(r)} />;
+  const head = (name: string, n: number, mono = false) => (
+    <span className="sticky top-0 z-10 flex h-7 min-w-0 items-center gap-1 bg-popup px-3 text-small text-fg-faint"><span className={`truncate ${mono ? "font-mono" : ""}`}>{name}</span><span className="shrink-0">· {n}</span></span>
+  );
   return (
     <div role="listbox" aria-label="Paper runs" onKeyDown={move} className="flex flex-col gap-px">
       {order.length > FIND && (
@@ -59,12 +73,8 @@ export function RunList({ order, runs: all, front, now, pick }: { order: readonl
                onKeyDown={(e) => { if (e.key === "Enter" && shown[0]) pick(shown[0]); }}
                className="mb-1 h-8 shrink-0 rounded-control bg-frame px-2.5 text-dense text-fg outline-none placeholder:text-fg-faint focus-visible:ring-2 focus-visible:ring-focus" />
       )}
-      {groups.map(([name, runs]) => runs.length > 0 && (
-        <div key={name} className="flex flex-col gap-px">
-          <span className="sticky top-0 z-10 flex h-7 items-center bg-popup px-3 text-small text-fg-faint">{name} · {runs.length}</span>
-          {runs.map((r) => <RunRow key={r.paper_id} run={r} chain={chainOf(r, all)} on={r.paper_id === front.paper_id} now={now} onPick={() => pick(r)} />)}
-        </div>
-      ))}
+      {groups.map(([version, runs]) => <div key={version} className="flex flex-col gap-px">{head(version!, runs.length, true)}{runs.map((r) => row(r))}</div>)}
+      {loose.length > 0 && <div className="flex flex-col gap-px">{head("Unattributed", loose.length)}{loose.map((r) => row(r, r.candidate === null ? UNATTRIBUTED.none : UNATTRIBUTED.other))}</div>}
       {!shown.length && <p className="px-3 py-2 text-dense text-fg-faint">No version matches “{query.trim()}”</p>}
     </div>
   );

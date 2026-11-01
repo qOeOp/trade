@@ -9,7 +9,7 @@ import { Segmented, type Segment } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useAtom } from "../../state/atom";
-import { paperTab } from "../../state/paper";
+import { paperTab } from "../../state/stage";
 import { useReconciliation } from "../../state/reconcile";
 import { CandleChart } from "./CandleChart";
 import { EquityChart } from "./EquityChart";
@@ -52,7 +52,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const startedNs = run.seal?.started_ns ?? run.live?.started_ns ?? null;
   // While an unsealed run waits for its daily warm-up (before it writes any state), the empty charts say when it starts.
   const warmup = useMemo(() => { const at = s && !s.seal ? warmupAt(s.lines) : null; return at !== null && at > Date.now() ? at : null; }, [s?.seal, s?.lines]);
-  // The replay's equity shows while the trades card shows the reconciliation it belongs to.
+  // The replay's equity shows while the Trades window shows the reconciliation it belongs to.
   const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";
   const replay = useMemo(() => (reconciling && r?.paper_id === run.paper_id && r.result ? r.result.equity.replay.map(([ns, v]) => [ns, Number(v)] as [number, number]) : null), [r, run.paper_id, reconciling]);
   const openFrom = spans.find(([, to]) => to === null)?.[0] ?? null;
@@ -65,7 +65,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
-      <div className="flex h-12 shrink-0 items-center gap-3 pl-4 pr-3">
+      <div className="flex h-(--header-h) shrink-0 items-center gap-3 pl-4 pr-3">
         <Segmented label="Chart" items={items} value={view} onChange={paperTab.set} />
         {rest.length > 0 && (
           <Dropdown label="Open a contract" trigger={<span className="text-dense text-fg-muted">+ Contract</span>}>

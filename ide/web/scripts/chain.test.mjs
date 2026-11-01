@@ -1,4 +1,5 @@
-// Paper runs: how one ended (model/ending.ts), the chain rule (model/chain.ts), the joined journal and
+// Paper runs: how one ended (model/ending.ts), the chain rule (model/chain.ts), which run and stage the Runs
+// page shows (model/stage.ts), the joined journal and
 // account (model/joined.ts), and what a pause between two runs does to the fills, spans and trades read from it.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -30,6 +31,7 @@ const { joined, namespaced } = await namespace("../src/model/joined.ts");
 const paper = await namespace("../src/model/paper.ts");
 const { trades } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
+const stage = await namespace("../src/model/stage.ts");
 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
@@ -257,4 +259,27 @@ test("Events name who stopped a run and count contracts in words", () => {
   assert.equal(paper.describe(line("summary_written", T0, { stop_reason: "STOP_FILE" })), "Summary written");
   assert.equal(paper.describe(line("started", T0, { symbols: ["BTCUSDT"] })), "Started on 1 contract");
   assert.equal(paper.describe(line("started", T0, { symbols: ["BTCUSDT", "ETHUSDT"] })), "Started on 2 contracts");
+});
+
+test("the Runs page shows the picked run while it is the version's, else the running chain, else the run that started last", () => {
+  const runs = [sealed(1), running(2), sealed(3, { candidate: "other@1", created: T0 + 5000 * MIN, stopped: T0 + 6000 * MIN }), sealed(4, { candidate: null })];
+  assert.equal(stage.shownRun(runs, "ema@3", null).paper_id, 2, "the running chain");
+  assert.equal(stage.shownRun(runs, "ema@3", 1).paper_id, 2, "a run picked stands as its chain's latest");
+  assert.equal(stage.shownRun(runs, "ema@3", 3).paper_id, 2, "another version's run is not this version's pick");
+  assert.equal(stage.shownRun(runs, "other@1", null).paper_id, 3);
+  assert.equal(stage.shownRun(runs, null, 4).paper_id, 4, "with no version, only the run picked");
+  assert.equal(stage.shownRun(runs, null, null), null);
+  assert.equal(stage.shownRun(runs, "none@1", null), null);
+  const ended = [sealed(1, { stop: "STOP_FILE" }), sealed(2, { symbols: ["ETHUSDT"], created: T0 + 9000 * MIN, stopped: T0 + 9100 * MIN })];
+  assert.equal(stage.defaultRun(ended).paper_id, 2, "none running: the one that started last");
+});
+
+test("the stage shown is the one picked while the version has it, else paper, else the backtest", () => {
+  assert.equal(stage.stageOf(null, { backtest: true, paper: true }), "paper");
+  assert.equal(stage.stageOf("backtest", { backtest: true, paper: true }), "backtest");
+  assert.equal(stage.stageOf("paper", { backtest: true, paper: false }), "backtest");
+  assert.equal(stage.stageOf("live", { backtest: false, paper: false }), "live");
+  assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
+  assert.equal(stage.backtestTrial([{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false }, { trial_id: 3, purpose: "validation", eligible: true }]).trial_id, 1);
+  assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "run 6"]);
 });

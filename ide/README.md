@@ -57,8 +57,8 @@ only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 [`docs/plans/product-agent-chat-design.zh.md`](../docs/plans/product-agent-chat-design.zh.md).
 
 With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
-serve`, the compose service `paper` on port 8767; `paper/serve.py`), and the page gets the Paper
-panel: ▶ and ■ on each version, the runs, their charts and events. A POST there must come from the
+serve`, the compose service `paper` on port 8767; `paper/serve.py`), and the page gets paper runs:
+▶ and ■ on each version, and the runs' charts, trades and events on the Runs page. A POST there must come from the
 page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
@@ -173,12 +173,19 @@ Versions (the versions as a tree by lineage) and Sources (one `<version>.py` fil
 revisions a folder of them) on the left, Details (the selected version as cards in groups: long text in paragraphs and
 lists, folded to its first paragraph or sentence with the rest behind Show more, a registration as a chip cut in the middle that copies on click) on the right, and
 Progress (research-run returns as bars from zero on the canvas's x), Return vs drawdown (the scatter with the non-dominated
-frontier), Version table and Data gaps at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
+frontier), Version table, Data gaps and Trades (`⌥9`, the paper run's trades, events, exceptions and reconciliation) at the bottom, switched by the stripe as on the sides; each island has the same header with its actions (locate, expand
 all, collapse all, hide). Served with a chat service, the right side also has Agent (`⌥0`): the open
 thread with answers written as they stream, each under the model that wrote it, product commands as
 foldable cards with their JSON and known versions as links; the saved chats; and the agents with
-their tests. `⌥1`–`⌥7` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
-active one. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
+their tests. `⌥0`–`⌥7` and `⌥9` toggle the tool windows, `⌘B` and `⌘J` the right and bottom sides, `⇧Esc` hides the
+active one. Runs (`⌥8`, the third left stripe button, one of the three at a time) closes the left tool window and turns
+the editor into the Runs page of the selected version (design: `docs/plans/ide-runs-page-design.zh.md`): its paper
+run's chart, the run picked in the toolbar's run menu (every run by version; runs naming no version of this line under
+Unattributed) after the line and ledger widgets, with ■ or ▶, the run's equity, return and state, and its delete.
+Details and Trades follow the stage the page shows, the backtest (the version's last research run with economic
+evidence) or a paper run: Details names it over its readings (a paper run's with its targets under them) and adds its
+Performance group (trades, by contract, trade stats, the calendar, profit and loss), on both pages; on the lineage the
+readings stay the last research run's. The first time it shows, the page opens Details and Trades. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. The editor
 follows the left tool window last chosen: with Versions it shows the lineage, with Sources the open file, one at a time
 and without tabs, under a header naming it. Double-clicking a version anywhere (canvas, Versions, Sources, or Enter in
@@ -186,7 +193,7 @@ Sources), or Open source in its context menu, switches the left side to Sources 
 of the open one: read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling it.
 Compare with parent in the header is a toggle: while on, the file shows as its unified diff against its parent's source
 (deleted lines red and plain, inserted green, long unchanged stretches folded), and it stays on as other versions open. Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph (back to Versions and the
-lineage), Show in details, Open source, Copy version name and Copy link. Tool-window sides, sizes
+lineage), Show in details, Open source, Open runs, Copy version name and Copy link. Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer injects `view.json`
 into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
@@ -234,10 +241,12 @@ the canvas and the bottom island share their left edge and width, canvas nodes a
 `VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
 in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
 2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
-There it also drives the tree's arrow keys and its header's Collapse all and Expand all, the folded path's menu, a canvas version's context menu (5 items),
+There it also drives the tree's arrow keys and its header's Collapse all and Expand all, the folded path's menu, a canvas version's context menu (6 items),
 double-click opening its source and `⌥1` bringing the lineage back, the wheel panning the canvas to its edges, and a Sources file opening as highlighted source
 that the island scrolls, opened once however often it is double-clicked, then as its diff, and its menu's Locate in graph
-bringing Versions and the lineage back.
+bringing Versions and the lineage back; then `⌥8` opens the Runs page in light and dark with no left island, the editor a
+half gap from the stripe, Details at the right and Trades under the editor at its left edge and width, and `⌥1` brings the
+lineage back.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with strokes that draw one pixel wide at every size (2 units at 12px, 1.5 at 16px, 1.2 at 20px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

@@ -10,6 +10,8 @@ import { amount, type PaperRun } from "../lib/paperApi";
 import { ending, hasReturn, type Gap } from "./ending";
 
 const START = 100_000;  // USDT: a run's starting balance where its readings do not say
+/** States of a run that has not been sealed yet: it still has (or had) containers. */
+export const ACTIVE = new Set(["running", "stopping", "ended", "unsealed"]);
 
 /** When the run was created (ns): the ledger writes UTC without a zone. */
 export function createdNs(run: PaperRun): number {

@@ -1,6 +1,7 @@
 // Every icon the page uses, by name: Lucide's line icons (lucide-static, pinned in package.json; see
 // NOTICE.md). Explicit ?raw imports, so a missing file fails the build. Each file keeps its
 // "@license lucide-static" comment in the built page.
+import arrowRightLeft from "lucide-static/icons/arrow-right-left.svg?raw";
 import chartCandlestick from "lucide-static/icons/chart-candlestick.svg?raw";
 import chevronLeft from "lucide-static/icons/chevron-left.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
@@ -90,7 +91,8 @@ export const ICONS = {
   "new-chat": { svg: messageSquarePlus },
   history: { svg: history },
   plus: { svg: plus },
-  "tool.paper": { svg: chartCandlestick },
+  "tool.runs": { svg: chartCandlestick },
+  "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },
   // IntelliJ's run mark, filled: Lucide's outline reads as a media control.
   run: { svg: '<svg><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></svg>' },

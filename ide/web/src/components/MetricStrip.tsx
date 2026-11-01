@@ -4,7 +4,8 @@ import { v, type ColorRole } from "../theme/roles";
 import { Missing } from "./Missing";
 
 type Format = ComponentProps<typeof NumberFlow>["format"];
-export type Metric = { label: string; value: number | null | undefined; format: Format; tone?: ColorRole };
+/** `note` stands in the place of a value there is none of, saying why; on a line of its own when the cell is too narrow. */
+export type Metric = { label: string; value: number | null | undefined; format: Format; tone?: ColorRole; note?: string };
 
 /** Readings in cells divided by rules: label at the left in the muted colour, the number right-aligned
  *  and highlighted, at least 10px apart; one size and weight. Four cells in a row where the region (an
@@ -16,9 +17,9 @@ export function MetricStrip({ items }: { items: readonly Metric[] }) {
     <div className="overflow-hidden border-t border-line-strong text-dense">
       <div className="-mr-2.5 ml-[calc(-0.625rem-1px)] grid grid-cols-[minmax(0,14rem)] @2xs:grid-cols-[repeat(2,minmax(0,14rem))] @xl:grid-cols-[repeat(4,minmax(0,14rem))]">
       {items.map((m) => (
-        <div key={m.label} className="flex items-baseline justify-between gap-2.5 whitespace-nowrap border-l border-line-strong px-2.5 py-1.5">
-          <span className="text-fg-faint">{m.label}</span>
-          <span style={{ color: v(m.tone ?? "fg") }}>{m.value == null ? <Missing /> : <NumberFlow value={m.value} format={m.format} locales="en-US" />}</span>
+        <div key={m.label} className="flex flex-wrap items-baseline justify-between gap-x-2.5 whitespace-nowrap border-l border-line-strong px-2.5 py-1.5">
+          <span className="shrink-0 text-fg-faint">{m.label}</span>
+          <span className="ml-auto" style={{ color: v(m.tone ?? "fg") }}>{m.value == null ? (m.note ? <span className="text-small text-fg-faint">{m.note}</span> : <Missing />) : <NumberFlow value={m.value} format={m.format} locales="en-US" />}</span>
         </div>
       ))}
       </div>

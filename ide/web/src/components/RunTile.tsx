@@ -1,18 +1,20 @@
 import type { ReactNode } from "react";
 import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
-import { chainGaps, chainReturn, chainStart, continuable, runReturn } from "../model/chain";
+import { ACTIVE, chainGaps, chainReturn, chainStart, continuable, runReturn } from "../model/chain";
 import { ending } from "../model/ending";
+import { runName } from "../model/stage";
 import { brief, duration, pct } from "../lib/format";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
-import { ACTIVE, deleteDialog, deleting, startPaper, stopDialog, usePaperRuns } from "../state/paper";
+import { deleteDialog, deleting, startDialog, starting, startPaper, stopDialog, usePaperRuns } from "../state/paper";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
 import { pnlClass, type DataRole } from "../theme/roles";
 import { IconButton } from "./IconButton";
+import { Tip } from "./Tip";
 
 const LAG_MS = 2 * 60_000;  // a one-minute bar this late is news
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
@@ -36,16 +38,6 @@ export function health(run: PaperRun, now: number): { tone: DataRole; text: stri
 export const returnOf = runReturn;
 export const sealedOn = (run: PaperRun) => (run.seal?.stopped_ns ? SEALED.format(run.seal.stopped_ns / 1e6) : "");
 export const signedPct = (n: number | null) => (n == null ? "—" : n > 0 ? `+${pct(n)}` : pct(n));
-
-/** A run's version: its name, cut at the end when narrow, and its revision, which always shows. */
-export function RunName({ run, strong = false }: { run: PaperRun; strong?: boolean }) {
-  const [name = "", revision] = (run.candidate ?? "").split("@");
-  return (
-    <span className={`flex min-w-0 text-dense ${strong ? "font-medium text-fg" : ACTIVE.has(run.state) ? "text-fg" : "text-fg-muted"}`}>
-      <span className="truncate">{name}</span><span className="shrink-0 font-normal text-fg-faint">@{revision}</span>
-    </span>
-  );
-}
 
 /** How a sealed run ended and when, in the warning tone when invalid, with why it is, its refusal and
  *  whether the strategy raised (`errors`, the count where it is known): Stopped 31 Oct · 3 errors. */
@@ -85,6 +77,20 @@ export function RunButton({ run, className }: { run: PaperRun; className?: strin
   );
 }
 
+/** The ▶ for a version with no paper run: a click runs it on its last research replay's contracts,
+ *  ⌥-click asks which. */
+export function StartButton({ candidate, className }: { candidate: string; className?: string }) {
+  const busy = useAtom(starting).has(candidate);
+  return (
+    <Tip side="bottom" content={<span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}>
+      <button type="button" disabled={busy} onClick={(e) => { if (e.altKey) startDialog.set(candidate); else void startPaper(candidate); }}
+              className={`inline-flex h-(--frame-control) shrink-0 items-center gap-1.5 rounded-control px-2 text-dense text-fg transition-colors hover:bg-hover active:bg-pressed disabled:animate-pulse ${className ?? ""}`}>
+        <Icon name="run" size={16} tone="meets" />{busy ? "Starting…" : "Run paper"}
+      </button>
+    </Tip>
+  );
+}
+
 /** The trash beside the ■ or ▶ that asks to delete the run shown, its outline at 16px so that it is no
  *  larger than their filled glyphs; a run still running or not yet sealed has to be stopped first, so it
  *  is off until then, aria-disabled rather than disabled so that its tooltip still says why. */
@@ -120,20 +126,21 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
   );
 }
 
-/** One run in the run picker's list: its version, its return and how long it has run, or how it ended;
- *  the run shown on the inactive selection. Stopping one is in its context menu, and on the toolbar once it
+/** One run in the run picker's list, under its version's heading: its id, its return and how long it has
+ *  run, or how it ended; the run shown on the inactive selection. Stopping one is in its context menu, and on the toolbar once it
  *  is picked. The latest run of a chain (`chain`, oldest first) stands for all of it: the chain's return
- *  and time, and how long it was paused and offline between its runs. */
-export function RunRow({ run, chain = [run], on, now, onPick }: { run: PaperRun; chain?: readonly PaperRun[]; on: boolean; now: number; onPick: () => void }) {
+ *  and time, and how long it was paused and offline between its runs; `note` follows them. */
+export function RunRow({ run, chain = [run], on, now, note, onPick }: { run: PaperRun; chain?: readonly PaperRun[]; on: boolean; now: number; note?: string; onPick: () => void }) {
   const ret = chainReturn(chain);
   return (
     <RunMenu run={run}>
       <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · ${chain.length > 1 ? `runs ${chain.map((r) => r.paper_id).join(", ")}, continued as one` : `run ${run.paper_id}`}`}
            className={`flex h-12 shrink-0 cursor-default flex-col justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
-        <RunName run={run} />
+        <span className={`truncate text-dense ${ACTIVE.has(run.state) ? "text-fg" : "text-fg-muted"}`}>{runName(chain)}</span>
         <span className="flex min-w-0 gap-2 whitespace-nowrap text-small text-fg-muted">
           <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} chain={chain} now={now} /></span>
           {chain.length > 1 && <span className="shrink-0 text-fg-faint">{Object.entries(chainGaps(chain)).map(([gap, ms]) => ` · ${gap} ${brief(ms)}`).join("")}</span>}
+          {note && <span className="shrink-0 text-fg-faint">· {note}</span>}
         </span>
       </div>
     </RunMenu>

@@ -17,7 +17,7 @@
 - **画布 = 一张图、一条时间轴、一条线。** 回测、模拟盘、实盘按时间先后首尾相接地画在同一张图上，
   阶段之间的空档（回测窗口末到模拟盘开始、一条运行结束到下一条开始）不占任何宽度；权益线像重启链那样
   接续复利，所以从回测第一天到模拟盘最后一分钟是一条不断的线；K 线、量柱、敞口等副图同样首尾相接。
-  分辨阶段只靠每段开头一行 11px 的淡色说明（`Backtest · trial 200`、`Paper · runs 6–7`）和时间轴上日期的
+  分辨阶段只靠每段开头一行 11px 的淡色说明（`Backtest · trial 200`、`Paper · run 6`）和时间轴上日期的
   跳变：没有底色、没有竖线、没有换色。
 - **回测段按日分辨率画**，只用账本已存的东西：日收益、持仓周期（无价格）、封存报告里的最深回撤区间。
   页面永远不触发 `replay reproduce`（那会写一条 explore 试验）。
@@ -80,7 +80,7 @@ Unattributed 并注明原因）；选别的版本的运行时，先把 `selectio
 │ [Equity][BTCUSDT LONG][+ Contract]                                              Fit position │  40
 │ ─ Equity  ┄ Pace for 20% a year  ▒ Below the peak  ▒ Exposure  ▒ Fees and funding  ·· Replay  │  20
 │ Paper · 31 Oct, 22:50 · 131,256.55 (run 107,156.92 · +7.16%) · vs pace +5.80% · below peak 0.61%│  20
-│ Backtest · trial 200                                 Paper · runs 6–7             Live · not  │
+│ Backtest · trial 200                                 Paper · run 6                 Live · not  │
 │                                                            ╭─╮   ╭──╮  ╭─        authorized  │
 │                   ╭─╮      ╭──╮       ╭──────────╮  ╭──╯ ╰───╯  ╰──╯             130,000 ┤ │
 │ ───╮╭─╯ ╰──────╯  ╰───────╯          ╰──╯ ▓▓                                      120,000 ┤ │
@@ -139,7 +139,7 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
 ### 2.3 分辨阶段：只有一行说明
 
 每段开头的图区左上角一行 11px 次要色的说明，用岛色描边（和 Progress 图的目标线标签一样），点阵带从说明
-基线下 8px 才开始、不压说明：`Backtest · trial 200`、`Paper · runs 6–7`（一条链一段，两条运行之间的离线段在链内）、`Paper · run 5`
+基线下 8px 才开始、不压说明：`Backtest · trial 200`、`Paper · run 6`（一条链一段，以链里第一条运行命名，续跑不改名；两条运行之间的离线段在链内）、`Paper · run 5`
 （另一条运行另一段）。段的开头
 滚到视野左外时，说明钉在图区左边缘；钉着的说明和下一段的说明相距不足 16px 时不画（下一段的说明优先），
 所以首屏上回测末尾那 20% 里多半只剩线、没有字。选中阶段的那条说明用正文色。悬停：提示框给
@@ -205,7 +205,7 @@ costs / hold。
 ```
 ┌L┐┌ Runs（§2，左侧工具窗关闭）──────────────────────────────┐┌ Details ⌥2 ──────────────────────┐┌R┐
 │1││                                                           ││ ema-entryvar-rollingref@1          ││2│
-│7││                                                           ││ Paper · runs 6–7 · 读数 · Targets ││0│
+│7││                                                           ││ Paper · run 6 · 读数 · Targets     ││0│
 │8││                                                           ││ Change and hypothesis               ││ │
 │ │└───────────────────────────────────────────────────────────┘│ Performance   (选中的阶段)          ││ │
 │ │┌ Trades ⌥9 · Paper · All contracts · 19 ───────────────────┐│ Calendar      (选中的阶段)           ││ │
@@ -227,7 +227,7 @@ Performance、Calendar、Profit and loss、Evidence）：
 
 1. **头卡**：版本名、角色、预测判定、发布时间、父版本（不变）。读数条仍是今天的四格（Annual return、
    Max drawdown、Sharpe、Win rate），但读的是**选中的阶段**，格子上方一行 11px 次要色写它的名字：
-   `Backtest · trial 200` 或 `Paper · runs 6–7`（选中实盘时整条不显示）。模拟盘的年化收益满 30 天后才写，之前写
+   `Backtest · trial 200` 或 `Paper · run 6`（选中实盘时整条不显示）。模拟盘的年化收益满 30 天后才写，之前写
    `Sample too short · 27 d`（10-25 的规矩）；模拟盘没有 Sharpe，写 `—`。读数条下面是 **Targets**（原 Performance
    的第一张卡）：最大回撤对上限的五格进度条和「Now 0.61% below the peak」一类注释，收益对此刻需要的收益和配速注释
    （回测的「此刻」是交易窗口末），都是选中阶段自己的。回撤格的提示框写基准：回测是 K 线收盘的盯市权益，
@@ -290,7 +290,7 @@ Agent ⌥0 窗不变；从运行页开新对话时，上下文行写明版本、
 状态栏：左侧面包屑 `line › 祖先 › version`（和图谱页同一套，两页的几何检查都成立）；中间是**选中阶段的来源**：
 `Backtest · trial 200 · 1d series · image …a19154 · market …5aqd · <execution>`（市场提交是本线的；执行环境
 从路由的 `cost_basis.account.execution` 写：`bars` → `1m bars`，`quotes` → `aggTrades quotes`；被遮蔽时不写）、
-`Paper · runs 6–7 · 1m bars · Binance public data · Sandbox fills`、`Live · not authorized`；右侧沿用图谱页的一套（更新状态、选中版本的徽章与名字、计数），再加 Paper 页那条
+`Paper · run 6 · 1m bars · Binance public data · Sandbox fills`、`Live · not authorized`；右侧沿用图谱页的一套（更新状态、选中版本的徽章与名字、计数），再加 Paper 页那条
 「有缺口或保护缺口的运行数」的红字。
 
 ## 5. 联动
