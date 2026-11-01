@@ -34,17 +34,17 @@ selected (`line select`); everything inside it follows `research-round`.
   wait).
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
-- A gate in a line's `research state --line LINE` stops it: tell the user plainly what it blocks and
-  what would lift it. `RUNTIME_UNSUPPORTED`: the line's candidates are on a runtime contract this
-  product no longer runs, so the line can only be closed and research restarted on the new
-  contract (research-round's [changes.md](../research-round/references/changes.md)).
-  `MARKET_COMMIT_UNRESOLVED`: no branch of the market database holds the line's pinned commit, so
-  the line runs again only once that commit is back; restoring it is the user's market write,
-  never a research step you propose. Never continue a gated line, after an interruption included,
-  or establish a Goal for it, and never offer keeping it open to wait for what would lift the gate;
-  close it once the user has chosen what follows.
+- Only a gate under which a line cannot be replayed stops it; any other is research-round's next
+  step. Tell the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the
+  line's candidates are on a runtime contract this product no longer runs, so the line can only be
+  closed and research restarted on the new contract (research-round's
+  [changes.md](../research-round/references/changes.md)). `MARKET_COMMIT_UNRESOLVED`: no branch of
+  the market database holds the line's pinned commit, so the line runs again only once that commit
+  is back; restoring it is the user's market write, never a research step you propose. Never
+  continue a stopped line, after an interruption included, or establish a Goal for it, and never
+  offer keeping it open until the stop lifts; close it once the user has chosen what follows.
 - A line stays open until it is closed; selecting another line leaves it open, and several open
-  lines are normal. Close a line when the user ends it, or when it cannot continue (a gate above,
+  lines are normal. Close a line when the user ends it, or when it cannot continue (a stop above,
   research-round's changes.md) and the user has chosen what follows: read it (`research state
   --line LINE --full`), write its summary as `line close --help` describes and run `line close`.
 
@@ -52,10 +52,10 @@ selected (`line select`); everything inside it follows `research-round`.
 
 Present the latest recommendation and the line options ([recommendation.md](references/recommendation.md)).
 
-- **Every option is a line that can start now:** `research state` lists no gate for it; its start
-  can be registered on the chosen window (only a source that has never run, or a candidate whose
-  research runs are already on that window and commit: the exposure check refuses a source that has
-  already run, whichever line ran it, so a line beside an open one starts from another source); no
+- **Every option is a line that can start now:** no gate stops it; its start can be registered on
+  the chosen window (only a source that has never run, or a candidate whose research runs are
+  already on that window and commit: the exposure check refuses a source that has already run,
+  whichever line ran it, so a line beside an open one starts from another source); no
   open line has the same market commit and window (`line select` refuses `LINE_DATA_TAKEN`; never
   pin another commit or move the window only to get past it); and `market coverage` at the commit to
   pin (`line select`'s default, the market head, unless the user names one) has every month the
