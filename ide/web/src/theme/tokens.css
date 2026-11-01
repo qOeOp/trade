@@ -29,7 +29,7 @@
   --guide: var(--line);
   --fg: light-dark(oklch(0.22 var(--n-c) var(--n-h)), oklch(0.9 var(--n-c) var(--n-h)));
   --fg-muted: light-dark(oklch(0.5 var(--n-c) var(--n-h)), oklch(0.72 var(--n-c) var(--n-h)));
-  --fg-faint: light-dark(oklch(0.555 var(--n-c) var(--n-h)), oklch(0.62 var(--n-c) var(--n-h)));
+  --fg-faint: light-dark(oklch(0.51 var(--n-c) var(--n-h)), oklch(0.67 var(--n-c) var(--n-h)));
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --icon: light-dark(oklch(0.53 var(--n-c) var(--n-h)), oklch(0.86 var(--n-c) var(--n-h)));
   --focus: #3574F0;

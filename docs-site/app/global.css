@@ -42,7 +42,7 @@
   --line-strong: light-dark(oklch(0.87 var(--n-c) var(--n-h)), oklch(0.36 var(--n-c) var(--n-h)));
   --fg: light-dark(oklch(0.22 var(--n-c) var(--n-h)), oklch(0.9 var(--n-c) var(--n-h)));
   --fg-muted: light-dark(oklch(0.5 var(--n-c) var(--n-h)), oklch(0.72 var(--n-c) var(--n-h)));
-  --fg-faint: light-dark(oklch(0.555 var(--n-c) var(--n-h)), oklch(0.62 var(--n-c) var(--n-h)));
+  --fg-faint: light-dark(oklch(0.51 var(--n-c) var(--n-h)), oklch(0.67 var(--n-c) var(--n-h)));
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --focus: #3574F0;
   --primary: #306DE6;
