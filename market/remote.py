@@ -27,6 +27,7 @@ import re
 import shutil
 import tempfile
 import threading
+import traceback
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -373,6 +374,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError):
             self._json(400, {"refusal": invalid("malformed supply request").as_dict()})
         except Exception:
+            traceback.print_exc()  # the client hears only the refusal; the cause stays in this service's log
             self._json(500, {"refusal": refuse("MARKET_REMOTE_UNAVAILABLE", "market supply export failed").as_dict()})
 
     def do_GET(self):
