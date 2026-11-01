@@ -222,7 +222,4 @@
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
-  /* a label over a chart, outlined in the card's surface so a mark under it does not run through it
-     (Sankey), as Highcharts outlines its data labels */
-  --text-shadow-halo: 0 0 2px var(--island-alt), 0 0 2px var(--island-alt), 0 0 3px var(--island-alt);
 }

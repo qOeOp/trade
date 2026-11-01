@@ -1,5 +1,5 @@
 // The Performance cards' parts (Performance.tsx): how the closed trades ended and by
-// contract; what moved equity is Flow.tsx.
+// contract; what moved equity is Bridge.tsx.
 import { fixed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
