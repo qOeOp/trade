@@ -928,7 +928,7 @@ The engine Catalog's file name for data with ts_init in [first, last].
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | None=None, log=print) -> dict:
 ```
 
-`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以导入账号开一个连接持 GET_LOCK('market-import:\<库名>')，核对库非空（MARKET_EMPTY）、工作集干净（DIRTY_WORKING_SET）、提交校验组含 commit（COMMIT_CHECKS_DISABLED）、metrics 表存在（SCHEMA_MISMATCH，先跑 `market upgrade`）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读早先导入提交的 `through`）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows → INSERT：最后一个已发布日之后没发布的日子留给以后的导入，之前没发布的日子记进 `unpublished`，不补；一天都没发布即 ARCHIVE_NOT_PUBLISHED。提交消息记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished。一个合约被拒在它提交前回滚，前面合约的提交保留，消息里列出它们。
+`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以导入账号开一个连接持 GET_LOCK('market-import:\<库名>')，核对库非空（MARKET_EMPTY）、工作集干净（DIRTY_WORKING_SET）、提交校验组含 commit（COMMIT_CHECKS_DISABLED）、metrics 表存在（SCHEMA_MISMATCH，先跑 `market upgrade`）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读早先导入提交的 `through`）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows → INSERT：最后一个已发布日之后没发布的日子留给以后的导入；之前没发布的日子，收盘不到 SETTLE_DAYS（3 天）的可能只是晚发布或暂时取不到，从它起的日子都留给以后的导入，更早的记进 `unpublished`，不补；可导的日子一天都没有即 ARCHIVE_NOT_PUBLISHED。提交消息记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished。一个合约被拒在它提交前回滚，前面合约的提交保留，消息里列出它们。
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L103)
 

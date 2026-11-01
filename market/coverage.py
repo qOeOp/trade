@@ -188,7 +188,8 @@ def metrics_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, im
     """The open interest and long/short ratio rows of one contract in [start_ms, end_ms) at an exact market commit,
     which a replay exports on request: each import holding it (month, the days `from` to `through` its exclusive
     end, commit, the rows its receipt counts, the rows the archive's five-minute grid lacks, the empty ratios and the
-    days without an archive), the first and last stored create_time in the interval and the parts no import covers."""
+    days without an archive), the first and last stored create_time in the interval and the parts no import covers,
+    days without an archive included."""
     parts = []
     for item in imports:
         if symbol not in (item["symbols"] or ()):
@@ -199,7 +200,16 @@ def metrics_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, im
                       "missing_rows": sum(store.DAY // metrics.STEP - day["rows"] for day in daily.values()),
                       "empty": {name: sum(day["empty"][name] for day in daily.values()) for name in metrics.RATIOS},
                       "unpublished": item["unpublished"][symbol]})
-    return {"imports": parts, **_held(conn, commit, symbol, start_ms, end_ms, parts, "metrics", "create_time")}
+    found = _held(conn, commit, symbol, start_ms, end_ms, parts, "metrics", "create_time")
+    gaps = [[max(low, start_ms), min(low + store.DAY, end_ms)] for part in parts for day in part["unpublished"]
+            if (low := series._day_ms(date.fromisoformat(day))) < end_ms and low + store.DAY > start_ms]
+    merged: list[list[int]] = []
+    for low, high in sorted(found["uncovered_intervals_ms"] + gaps):
+        if merged and low <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], high)
+        else:
+            merged.append([low, high])
+    return {"imports": parts, **found, "uncovered_intervals_ms": merged}
 
 
 # market.diagnose_coverage
