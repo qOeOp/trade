@@ -159,6 +159,7 @@ def _get_json(url: str, proxy_url: str | None):
         with urllib.request.build_opener(*handlers).open(url, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
 
+    failed: OSError
     for delay in FETCH_RETRY_SECONDS:
         try:
             return get()
