@@ -34,6 +34,7 @@ class PaperCommandTests(unittest.TestCase):
         self.assertNotIn("--rm", command)
         self.assertEqual(self.option(command, "--network"), ["trade-paper-x-1"])
         self.assertEqual((self.option(command, "--memory"), self.option(command, "--memory-swap")), (["4g"], ["4g"]))
+        self.assertEqual(self.option(command, "--stop-timeout"), [str(container.PAPER_STOP_SECONDS)])
         for flag in ("--read-only", "--cap-drop", "--pids-limit", "--user", "--pull"):
             self.assertIn(flag, command)
         self.assertEqual(self.option(command, "--env"), ["PYTHONDONTWRITEBYTECODE=1"])
