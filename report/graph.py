@@ -61,6 +61,29 @@ def _lineage(rows: list[dict], seeds: set[str], elsewhere: set[str]) -> list[dic
     return sorted((by_id[key] for key in seen), key=lambda r: (r["created_at"], r["strategy_id"], r["revision"]))
 
 
+def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[dict]) -> tuple[list[dict], set[int]]:
+    """The candidates (of `rows`, the candidate table) a line's graph draws, oldest first, and its research
+    trials: those connected (_lineage) to its start (`start`) and to the candidates of its research trials."""
+    on_line = set(lines.line_trials(conn, line)["trials"])
+    researched = conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
+    sources = {row["source_sha256"] for row in researched if row["trial_id"] in on_line}
+    seeds = {start} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
+    elsewhere = {row["source_sha256"] for row in researched} - sources
+    return _lineage(rows, seeds, {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in elsewhere}), on_line
+
+
+def line_list(profile, at: str | None = None) -> dict:
+    """`line list`: every line declaration (ledger.lines.list_lines), each with the versions its graph draws
+    (`versions`, oldest first), read at the same commit."""
+    listed = lines.list_lines(runs.profile_of(profile), at)
+    with db.read_as_of(runs.profile_of(profile), listed["ledger_commit"]) as conn:
+        rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
+        for item in listed["lines"]:
+            members, _ = line_members(conn, item["bundle"], item["start"], rows)
+            item["versions"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
+    return listed
+
+
 def _comparison(profile, bundle: str, trial_id: int, at: str) -> tuple[dict | None, list[dict] | None]:
     """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses
     for a comparison fact (no control, not comparable); an environment failure refuses the graph."""
@@ -170,13 +193,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         record = lines.read_line(conn, line, None)
         in_force = line_targets.targets_for(conn, line)
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
-        on_line = set(lines.line_trials(conn, line)["trials"])
-        researched = conn.dicts("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'research'")
-        sources = {row["source_sha256"] for row in researched if row["trial_id"] in on_line}
-        seeds = {record["start"]} | {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in sources}
-        elsewhere = {row["source_sha256"] for row in researched} - sources
-        members = _lineage(rows, seeds, {f"{r['strategy_id']}@{r['revision']}" for r in rows
-                                         if r["source_sha256"] in elsewhere})
+        members, on_line = line_members(conn, line, record["start"], rows)
         source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
         wanted = sorted(set(source_of.values()))
         text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(

@@ -2,7 +2,7 @@
 repeatable research-graph@3 document: versions with their source, runs and measures, the recommendation
 (a version the recommendation only names as `about` is not marked kept),
 a failed review that masks a run and one availability ignores for a run, the judgments as events, the targets in force for the line and
-only the line's own runs and versions; or a graph is drawn while the ledger service is unreachable, whose missing
+only the line's own runs and versions, which `line list` names for every line; or a graph is drawn while the ledger service is unreachable, whose missing
 comparisons would read as research facts. A throwaway ledger, never the
 active one."""
 
@@ -153,6 +153,10 @@ class ResearchGraphTests(unittest.TestCase):
         old = graph.research_graph(self.world.profile, self.world.line["bundle"])
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))
         self.assertIn(second, {c["id"] for c in old["candidates"]})
+        listed = {item["bundle"]: item["versions"] for item in graph.line_list(self.world.profile)["lines"]}
+        for each in (bundle, self.world.line["bundle"]):
+            self.assertEqual(set(listed[each]), {c["id"] for c in graph.research_graph(self.world.profile, each)["candidates"]},
+                             "line list names the versions each line's graph draws")
 
     def test_4_an_unreachable_ledger_refuses_the_graph(self):
         line = self.world.line["bundle"]

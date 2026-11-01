@@ -131,3 +131,18 @@ test("live head notifications refresh navigation even while a completed graph is
   await p.answer("/api/lines?at=b", 200, { lines: lines("latest-open-line") });
   assert.equal(p.state().lines[0].bundle, "latest-open-line");
 });
+
+test("a run of another line's version opens that line with the version selected and the run named", async () => {
+  const module = new SourceTextModule(ts.transpileModule(readFileSync(new URL("../src/lib/lines.ts", import.meta.url), "utf8"),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText, { context: createContext({ URL, document: {} }) });
+  await module.link(() => { throw new Error("no imports"); });
+  await module.evaluate();
+  const { lineOf, runHref } = module.namespace;
+  const line = (bundle, closed, versions) => ({ bundle, closed, versions, start: "", window_start: "", window_end: "" });
+  const lines = [line("line-a", false, ["s@1", "s@2"]), line("line-b", true, ["s@2", "t@1"]), line("line-c", false, ["s@2"])];
+  assert.equal(lineOf(lines, "s@2").bundle, "line-c", "the newest open line that draws it");
+  assert.equal(lineOf(lines, "t@1").bundle, "line-b", "a closed line when no open one draws it");
+  assert.equal(lineOf(lines, "u@1"), null);
+  assert.equal(runHref("http://ide/?line=line-a&since=abc&at=def#s@1", "line-c", "s@2", 14), "/?line=line-c&at=def&run=14#s@2",
+    "the snapshot is kept, the scope dropped");
+});
