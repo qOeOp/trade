@@ -194,6 +194,23 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
                                                    with_lifecycle), trial_id)
 
+    def test_a_review_admits_only_the_configuration_its_precheck_ran(self):
+        trial_id = self.sealed()
+        bundle = self.review(trial_id)
+        declared_config, declared_inputs = self.keys()
+        wider = comparability.config_key(config(symbols=["AAAUSDT", "ZZZUSDT"], start="2024-12-31T00:00:00Z",
+                                                trade_start="2025-01-01T00:00:00Z", end="2026-02-01T00:00:00Z"))
+        for config_key in (declared_config, {**wider, "universe_sha256": "f" * 64}):
+            with self.subTest(config_key=config_key):
+                self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
+                                                           declared_inputs, config_key), trial_id)
+        other_account = comparability.config_key(config(account={"balance_usdt": "5000"}))
+        for config_key in ({**declared_config, "execution_bar_minutes": 5}, other_account):
+            with self.subTest(config_key=config_key):
+                self.assertEqual(self.code(precheck.require_precheck, self.conn, bundle, sha(self.data),
+                                           IDENTITY["image_ref"], declared_inputs, config_key),
+                                 "SOURCE_PRECHECK_REQUIRED")
+
     def test_any_failed_review_of_the_precheck_fails_admission(self):
         trial_id = self.sealed()
         passed = self.review(trial_id)

@@ -53,7 +53,8 @@ Native `initialized` is not convergence for a recursive indicator (strategy-auth
 explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
-line's first precheck. Pass the same runner arguments to every precheck, registration and replay,
+line's first precheck. Pass the same runner arguments to every precheck, registration and replay (a registration citing a
+precheck run on another configuration is refused, `SOURCE_PRECHECK_REQUIRED`),
 the runtime the precheck returned (`image_ref`) to every registration and replay, and name the
 environment in the registration's `conditions`. It is part of the effective
 configuration: a control and its candidate share it (`COMPARABILITY_MISMATCH` otherwise), and a
