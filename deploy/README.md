@@ -85,11 +85,10 @@ exporter (`market.export.exporter_sha256()`), so a change to it updates market-s
 
 Each restart takes seconds; what it interrupts decides when to make it:
 
-- **ledger**: a replay holds one writer connection from opening its trial to sealing it, so a replay
-  running across the restart cannot seal: its trial keeps no capture, and a registered replay then
-  cannot be retried. Restart ledger only while `docker ps --filter network=none` (replay stages) lists
-  nothing and no command line write is under way. Any other write that fails on the restart is rerun as
-  it is: writes are idempotent by operation.
+- **ledger**: a command line write under way fails and is rerun as it is: writes are idempotent by
+  operation. A replay holds no connection while its containers run, so only one that opens or seals its
+  trial within the restart's seconds fails; `docker ps --filter network=none` lists running replay
+  stages.
 - **paper**: its runs are containers of their own and keep running; a reconciliation runs inside the
   daemon and is lost. `docker top trade-ide-paper-1` shows a running `paper reconcile`.
 - **docker-api**: a reconciliation's replay attaches through it for up to an hour; the same check.
