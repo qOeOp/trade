@@ -25,7 +25,7 @@ export type RuntimeFailure = {
 export type Seal = {
   status: "complete" | "invalid"; reasons: string[]; total_return: number | null; max_drawdown: number;
   final_equity_usdt: string | null; fills: number; started_ns: number | null; stopped_ns: number | null;
-  stop_reason: string | null; daily_returns: [string, number][]; positions_closed: number;
+  stop_reason: string | null; daily_returns: [string, number][]; positions_closed: number; starting_balance_usdt?: string;
 };
 export type PaperRun = {
   paper_id: number; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;

@@ -1,5 +1,6 @@
 // What a paper run's journal means on the page: each line's category and description, the fills as
 // chart markers, the positions as spans, the working orders as price lines and the days as returns.
+import { clockSpan, duration } from "../lib/format";
 import { amount, fixed, symbolOf, type JournalLine, type OpenOrder, type OpenPosition, type Precision } from "../lib/paperApi";
 
 export type Category = "system" | "data" | "order" | "position" | "account" | "strategy" | "lifecycle";
@@ -11,7 +12,7 @@ const KIND: Record<string, Category> = {
   started: "system", waiting: "system", socket: "system", stop_requested: "system", stopping: "system",
   summary_written: "system", stopped_before_start: "system", data_gap: "data", late_bar: "data", order: "order",
   position: "position", funding_settlement: "account", protection_gap: "strategy", refusal: "strategy",
-  instrument_status: "lifecycle",
+  instrument_status: "lifecycle", restart: "system",
 };
 /** A line's category in the Events list; bars and minute snapshots are not events. */
 export const categoryOf = (line: JournalLine): Category | null => KIND[line.kind] ?? null;
@@ -76,9 +77,16 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
     case "summary_written": return `Summary written (${f.stop_reason})`;
     case "stopped_before_start": return `Stopped before the start (${f.reason})`;
     case "instrument_status": return String(f.status ?? "").slice(0, 120);
+    case "restart": return `Restarted after a Docker or host restart · offline ${duration(clockSpan(Number(f.from_ns) / MS, Number(f.to_ns) / MS))}`;
     default: return line.kind;
   }
 }
+
+/** A stretch a chain was offline, from the earlier run's stop to the next one's start (ms). */
+export type Restart = { from: number; to: number };
+/** The restarts a joined journal holds (model/chain.ts). */
+export const restartsOf = (lines: readonly JournalLine[]): Restart[] =>
+  lines.filter((l) => l.kind === "restart").map((l) => ({ from: Number(l.from_ns) / MS, to: Number(l.to_ns) / MS }));
 
 export type Exit = "stop" | "target" | "other";
 export type Fill = { ms: number; symbol: string; buy: boolean; px: number; qty: number; opening: boolean; exit: Exit | null; line: JournalLine };
@@ -86,11 +94,13 @@ export type Fill = { ms: number; symbol: string; buy: boolean; px: number; qty: 
 const exitOf = (orderType: string): Exit =>
   orderType.includes("STOP") ? "stop" : /LIMIT|TAKE_PROFIT/.test(orderType) ? "target" : "other";
 
-/** The fills in journal order, each opening (adding to the position) or closing with how it closed. */
+/** The fills in journal order, each opening (adding to the position) or closing with how it closed; a
+ *  restart holds nothing (the account died with the run before it). */
 export function fills(lines: readonly JournalLine[]): Fill[] {
   const held = new Map<string, number>();
   const found: Fill[] = [];
   for (const line of lines) {
+    if (line.kind === "restart") held.clear();
     if (line.kind !== "order" || line.type !== "OrderFilled") continue;
     const symbol = symbolOf(line.instrument_id), buy = last(line.order_side) === "BUY";
     const qty = amount(line.last_qty) ?? 0, before = held.get(symbol) ?? 0, after = before + (buy ? qty : -qty);
@@ -102,12 +112,17 @@ export function fills(lines: readonly JournalLine[]): Fill[] {
   return found;
 }
 
-/** Where a contract held a position, from its fills: [start, end (null while open), long]. */
-export function spans(found: readonly Fill[], symbol: string): [number, number | null, boolean][] {
+/** Where a contract held a position, from its fills: [start, end (null while open), long]; one still open
+ *  at a restart ends where the run before it stopped. */
+export function spans(found: readonly Fill[], symbol: string, restarts: readonly Restart[] = []): [number, number | null, boolean][] {
   const out: [number, number | null, boolean][] = [];
-  let held = 0;
+  let held = 0, r = 0;
+  const upTo = (ms: number) => {
+    for (; r < restarts.length && restarts[r]!.from <= ms; r++) if (held !== 0) { held = 0; const open = out[out.length - 1]; if (open) open[1] = restarts[r]!.from; }
+  };
   for (const fill of found) {
     if (fill.symbol !== symbol) continue;
+    upTo(fill.ms);
     const before = held;
     held += fill.buy ? fill.qty : -fill.qty;
     if (Math.abs(held) < 1e-12) held = 0;
@@ -118,13 +133,14 @@ export function spans(found: readonly Fill[], symbol: string): [number, number |
       out.push([fill.ms, null, held > 0]);
     }
   }
+  upTo(Infinity);
   return out;
 }
 
 /** Where any contract held a position between `start` and `end` (ms): every contract's spans joined, an
  *  open one running to `end`, so two held at once count once. */
-export function heldUnion(found: readonly Fill[], start: number, end: number): [number, number][] {
-  const held = [...new Set(found.map((f) => f.symbol))].flatMap((s) => spans(found, s).map(([from, to]) => [Math.max(from, start), Math.min(to ?? end, end)] as [number, number]))
+export function heldUnion(found: readonly Fill[], start: number, end: number, restarts: readonly Restart[] = []): [number, number][] {
+  const held = [...new Set(found.map((f) => f.symbol))].flatMap((s) => spans(found, s, restarts).map(([from, to]) => [Math.max(from, start), Math.min(to ?? end, end)] as [number, number]))
     .filter(([x, y]) => y > x).sort((x, y) => x[0] - y[0]);
   const out: [number, number][] = [];
   for (const [x, y] of held) { const top = out.at(-1); if (top && x <= top[1]) top[1] = Math.max(top[1], y); else out.push([x, y]); }

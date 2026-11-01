@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
-import { pct } from "../lib/format";
+import { chainOffline, chainReturn, chainStart, runReturn } from "../model/chain";
+import { duration, pct, plural } from "../lib/format";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
@@ -29,12 +30,7 @@ export function health(run: PaperRun, now: number): { tone: DataRole; text: stri
   return run.status === "invalid" ? { tone: "fail", text: `Invalid: ${(run.reasons ?? []).join(", ")}`, late: false } : { tone: "masked", text: "Complete", late: false };
 }
 
-/** 21d 4h, 3h 12m, 46m. */
-export function age(ms: number): string {
-  const m = Math.max(0, Math.floor(ms / 60_000)), h = Math.floor(m / 60), d = Math.floor(h / 24);
-  return d ? `${d}d ${h % 24}h` : h ? `${h}h ${m % 60}m` : `${m}m`;
-}
-export const returnOf = (run: PaperRun) => (run.state === "sealed" ? run.seal?.total_return ?? run.total_return : run.live?.total_return ?? null);
+export const returnOf = runReturn;
 export const sealedOn = (run: PaperRun) => (run.seal?.stopped_ns ? SEALED.format(run.seal.stopped_ns / 1e6) : "");
 export const signedPct = (n: number | null) => (n != null && n > 0 ? `+${pct(n)}` : pct(n));
 
@@ -48,14 +44,14 @@ export function RunName({ run, strong = false }: { run: PaperRun; strong?: boole
   );
 }
 
-/** How long a run has run (or when it was sealed), late data in amber, a failure in red. */
-function State({ run, now }: { run: PaperRun; now: number }) {
-  const state = health(run, now), started = run.seal?.started_ns ?? run.live?.started_ns ?? null;
+/** How long a run has run (since its chain's first run started), or when it was sealed, late data in amber, a failure in red. */
+function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[]; now: number }) {
+  const state = health(run, now), started = chainStart(chain) ?? run.live?.started_ns ?? null;
   if (state.late) return <span className="text-misses">{state.text}</span>;
   if (state.tone === "fail") return <span className="text-fail">{run.state === "sealed" ? "Invalid" : state.text}</span>;
   if (run.state === "sealed") return <span>Sealed {sealedOn(run)}</span>;
   if (run.state !== "running" || started === null) return <span>{state.text}</span>;
-  return <span>Running {age(now - started / 1e6)}</span>;
+  return <span>Running {duration(now - started / 1e6)}</span>;
 }
 
 /** The red ■ that asks to stop and seal a run, or the green ▶ that runs the same contracts again once
@@ -105,16 +101,19 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
 }
 
 /** One run in the run picker's list: its version, its return and how long it has run; the run shown on
- *  the inactive selection. Stopping one is in its context menu, and on the toolbar once it is picked. */
-export function RunRow({ run, on, now, onPick }: { run: PaperRun; on: boolean; now: number; onPick: () => void }) {
-  const ret = returnOf(run);
+ *  the inactive selection. Stopping one is in its context menu, and on the toolbar once it is picked. The
+ *  latest run of a chain restarted after Docker restarts (`chain`, oldest first) stands for all of it:
+ *  the chain's return and time, its restarts and how long it was offline between them. */
+export function RunRow({ run, chain = [run], on, now, onPick }: { run: PaperRun; chain?: readonly PaperRun[]; on: boolean; now: number; onPick: () => void }) {
+  const ret = chainReturn(chain);
   return (
     <RunMenu run={run}>
-      <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · run ${run.paper_id}`}
+      <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · run ${chain.length > 1 ? `${chain.map((r) => r.paper_id).join(", ")}, joined across restarts` : run.paper_id}`}
            className={`flex h-12 shrink-0 cursor-default flex-col justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
         <RunName run={run} />
         <span className="flex min-w-0 gap-2 whitespace-nowrap text-small text-fg-muted">
-          <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} now={now} /></span>
+          <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} chain={chain} now={now} /></span>
+          {chain.length > 1 && <span className="shrink-0 text-fg-faint">· {plural(chain.length - 1, "restart")} · {duration(chainOffline(chain))} offline</span>}
         </span>
       </div>
     </RunMenu>

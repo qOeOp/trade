@@ -1,6 +1,7 @@
 // Which axis ticks a paper chart writes: none under a tag on the value axis (the levels', the last
-// value's, the crosshair's), none the crosshair's time label would half cover, none so near either end
-// of the time axis that the canvas would cut it, and on a crowded value axis every other one. The chart
+// value's, the crosshair's), none the crosshair's time label would half cover, none whose box comes within
+// GAP px of a tag's on the time axis (both measured in the axis font), none so near either end of the time
+// axis that the canvas would cut it, and on a crowded value axis every other one. The chart
 // caches the ticks it has written, so they are written again only when the answer changes: once a pan or
 // zoom has settled (`refresh`), when the tags change, and when the crosshair moves onto or off a tick
 // (`cross`), never once a frame. The value format is set on the series only when it changes (each set
@@ -11,6 +12,8 @@ import { priceFormat, tick } from "./chartTheme";
 type Base = ReturnType<typeof priceFormat>;
 const EDGE = 32;   // px: a time label centred nearer either end than this would be cut
 const CROSS = 110; // px: a time label centred this near the crosshair's would show beside it in part
+const GAP = 12;    // px: the least room between a time label's box and a tag's
+const PAD = 9;     // px: the chart's padding either side of a time label's text at 12px
 
 export class AxisTicks {
   private x: number | null = null;
@@ -20,12 +23,13 @@ export class AxisTicks {
   private keys = { price: "", time: "" };
   private axis = 0;
   private format = "";
+  private probe: CanvasRenderingContext2D | null = null;
 
   /** `series` carry the value format (the chart labels the axis with the first one's); `base` gives it;
    *  `tags` where the axis tags sit (px); a tick nearer one than `clear` px is left out; more than `most`
-   *  ticks and every other one is; `shown` hears which are written. */
+   *  ticks and every other one is; `shown` hears which are written; `marks` gives the time axis's tags (px, text). */
   constructor(private readonly chart: IChartApi, private readonly series: readonly ISeriesApi<SeriesType>[], private readonly o: {
-    base: () => Base; tags: () => readonly number[]; clear: number; most?: number; shown?: (prices: readonly number[]) => void;
+    base: () => Base; tags: () => readonly number[]; clear: number; most?: number; shown?: (prices: readonly number[]) => void; marks?: () => readonly { x: number; text: string }[];
   }) {}
 
   /** Writes both axes' ticks again. */
@@ -60,7 +64,8 @@ export class AxisTicks {
       const x = scale.timeToCoordinate(time);
       if (x === null) return plain(time, type);
       this.seen.add(time as number);
-      return this.cut(x, scale.width()) ? "" : plain(time, type);
+      const text = plain(time, type);
+      return this.cut(x, scale.width(), text) ? "" : text;
     } } });
   }
 
@@ -77,14 +82,20 @@ export class AxisTicks {
   /** The value axis at least as wide as `text` in the axis font (with the tag's padding), and never
    *  narrower than it has been, so the pane does not shift as tags and ticks come and go. */
   hold(text: string): void {
-    const probe = document.createElement("canvas").getContext("2d");
-    if (!probe) return;
-    probe.font = `12px ${getComputedStyle(document.body).fontFamily}`;
-    const w = Math.ceil(probe.measureText(text).width) + 20;
+    const w = Math.ceil(this.measure(text)) + 20;
     if (w > this.axis) { this.axis = w; this.chart.applyOptions({ rightPriceScale: { minimumWidth: w } }); }
+  }
+
+  /** `text`'s width in the axes' font (px). */
+  private measure(text: string): number {
+    this.probe ??= document.createElement("canvas").getContext("2d");
+    if (!this.probe) return 0;
+    this.probe.font = `12px ${getComputedStyle(document.body).fontFamily}`;
+    return this.probe.measureText(text).width;
   }
 
   private near = (a: number | null, b: number | null, d: number) => a !== null && b !== null && Math.abs(a - b) < d;
   private covered = (y: number | null) => y !== null && (this.near(y, this.y, this.o.clear) || this.o.tags().some((t) => this.near(y, t, this.o.clear)));
-  private cut = (x: number, width: number) => x < EDGE || x > width - EDGE || this.near(x, this.x, CROSS);
+  private cut = (x: number, width: number, text: string) => x < EDGE || x > width - EDGE || this.near(x, this.x, CROSS) ||
+    (this.o.marks?.() ?? []).some((m) => this.near(x, m.x, (this.measure(text) + this.measure(m.text)) / 2 + 2 * PAD + GAP));
 }

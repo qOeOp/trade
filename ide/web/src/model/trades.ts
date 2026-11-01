@@ -31,8 +31,11 @@ function openedAt(lines: readonly JournalLine[], positionId: unknown, until = In
 export function holdings(lines: readonly JournalLine[], positions: readonly OpenPosition[] | null, orders: readonly OpenOrder[], sealed: boolean) {
   const open: Open[] = [];
   if (sealed) {
+    // Of a joined journal (model/chain.ts), the last run's: what an earlier one held died with it.
     const latest = new Map<string, JournalLine>();
-    for (const l of lines) if (l.kind === "position" && l.position_id) latest.set(String(l.position_id), l);
+    let from = 0;
+    lines.forEach((l, i) => { if (l.kind === "restart") from = i + 1; });
+    for (const l of lines.slice(from)) if (l.kind === "position" && l.position_id) latest.set(String(l.position_id), l);
     for (const l of latest.values()) {
       if (l.type === "PositionClosed") continue;
       const qty = amount(l.signed_qty) ?? 0;

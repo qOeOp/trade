@@ -89,8 +89,11 @@ export function chartLook(): DeepPartial<ChartOptions> {
  *  faintly in both, the buy and hold in grey, the exposure in indigo (filled faintly). */
 export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
+  // A chain's offline stretch (downLook.ts): a wash that recedes, opaque (darker than the island in dark,
+  // the faintest grey in light), fine edges, and its tag as the value axis's neutral ones.
+  const restart = { wash: dark ? canvasTint("line-shadow", 11) : canvasTint("fg", 5.5), edge: canvasColor("fg", dark ? 0.12 : 0.13), text: canvasColor("fg"), tag: canvasColor("line-strong") };
   const flags = {
-    warn: canvasColor("event"), warnTag: canvasTint("event", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
+    restart, warn: canvasColor("event"), warnTag: canvasTint("event", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
     hatch: canvasColor("event", dark ? 0.36 : 0.32), wash: canvasColor("event", dark ? 0.06 : 0.05), font,
   };
   return {
@@ -109,7 +112,7 @@ export function seriesColors(dark = false) {
       ahead: canvasColor("pnl-up", dark ? 0.12 : 0.11), behind: canvasColor("pnl-down", dark ? 0.14 : 0.11),
       ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), held: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
-      grid: canvasColor("grid", 0.45),
+      grid: canvasColor("grid", 0.45), restart,
     },
     notes: {
       floor: canvasColor("pnl-down", 0.75), floorTag: canvasTint("pnl-down", 16), floorText: canvasColor("pnl-down"), bracket: canvasColor("pnl-down", 0.85),

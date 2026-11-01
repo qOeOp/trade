@@ -3,6 +3,7 @@
 // flight, the dialogs that ask before one, and the last notice for the status bar.
 import { ApiError } from "../lib/agentApi";
 import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
+import { latestOf } from "../model/chain";
 import { atom, useAtom } from "./atom";
 
 const POLL_MS = 3000;
@@ -52,10 +53,11 @@ export async function refreshRuns(): Promise<void> {
     const listing = await paperApi<Listing>("/runs");
     missed = 0;
     paperRuns.set(listing);
-    if (selectedRun.get() === null || !listing.runs.some((r) => r.paper_id === selectedRun.get())) {
+    const picked = listing.runs.find((r) => r.paper_id === selectedRun.get());
+    if (!picked) {
       const active = listing.runs.filter((r) => ACTIVE.has(r.state));
       selectedRun.set((active[active.length - 1] ?? listing.runs[listing.runs.length - 1])?.paper_id ?? null);
-    }
+    } else selectedRun.set(latestOf(picked, listing.runs).paper_id);  // a run restarted since: its chain's latest
   } catch (error) {
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
       if (++missed >= MISSES) paperService.set("offline");

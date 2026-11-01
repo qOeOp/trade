@@ -7,7 +7,6 @@
 // screen always holds plenty of candles. When a run first shows, the period is the one that fits all of
 // it at TARGET px or more, a young run's candles HI wide with the newest at the right.
 import type { IChartApi, ITimeScaleApi, LogicalRange, Time } from "lightweight-charts";
-import type { Candle } from "../../lib/bars";
 import { stepFor } from "./equityResolution";
 import { spacing } from "./viewAnchor";
 
@@ -51,10 +50,10 @@ export function fence(time: ITimeScaleApi<Time>, count: () => number): () => voi
   };
 }
 
-/** The candles from the one opening at `from` (s) to the newest in view, with room either side, the
+/** The candles (their places on the time scale, `times`) from the one opening at `from` (s) to the newest in view, with room either side, the
  *  value axis fitting them again. */
-export function showFrom(chart: IChartApi, data: readonly Candle[], from: number): void {
-  const n = data.length, i = Math.max(0, data.findIndex((k) => k.time >= from));
+export function showFrom(chart: IChartApi, times: readonly number[], from: number): void {
+  const n = times.length, i = Math.max(0, times.findIndex((t) => t >= from));
   chart.timeScale().setVisibleLogicalRange({ from: i - Math.max(8, (n - i) * 0.25), to: n - 1 + 6 });
   chart.priceScale("right").applyOptions({ autoScale: true });
 }

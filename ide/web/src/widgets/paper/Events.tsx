@@ -5,7 +5,7 @@ import { bracket, bracketStatus, grouped, lineStatus, type Status } from "../../
 import { Icon } from "../../icons/Icon";
 import { Chips, PillButton } from "../../components/Tabs";
 import { useAtom } from "../../state/atom";
-import { highlighted, pickedDay, showTime, shownCategories, useStream } from "../../state/paperStream";
+import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "../../state/paperStream";
 
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
 // One grid for every row: chevron gutter, time, contract, category, text with its status.
@@ -19,8 +19,7 @@ function useScoped(lines: readonly JournalLine[], only: string | null) {
 }
 
 /** The events' filter: a chip per category with its count. */
-export function EventsTools({ only }: { only: string | null }) {
-  const s = useStream();
+export function EventsTools({ s, only }: { s: Stream | null; only: string | null }) {
   const on = useAtom(shownCategories);
   const events = useScoped(s?.lines ?? [], only);
   const counts = useMemo(() => new Map(CATEGORIES.map((c) => [c, events.filter((l) => categoryOf(l) === c).length])), [events]);
@@ -62,8 +61,7 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
  *  failed order marked. While the list is scrolled away from its top, new events wait behind "N new
  *  events" instead of moving it. A click shows the moment on the chart; a click on a chart marker
  *  highlights its event here. */
-export function Events({ only }: { only: string | null }) {
-  const s = useStream();
+export function Events({ s, only }: { s: Stream | null; only: string | null }) {
   const day = useAtom(pickedDay);
   const picked = useAtom(highlighted);
   const on = useAtom(shownCategories);

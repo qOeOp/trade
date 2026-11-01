@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, CrosshairMode, LineSeries, LineStyle, MismatchDirection, type AutoscaleInfo, type IChartApi, type LineWidth, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
-import { days as daysOf, utc } from "../../model/paper";
+import { days as daysOf, utc, type Restart } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
@@ -10,10 +10,11 @@ import { AxisTicks } from "./axisTicks";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
+import type { Down } from "./downLook";
 import { EquityLayers, FEW } from "./equityLayers";
 import { EquityCloses, type Close } from "./equityCloses";
 import { EquityNotes } from "./equityNotes";
-import { equityMinutes, resample, stepFor, STEPS } from "./equityResolution";
+import { equityMinutes, resample, stepFor, STEPS, withDowns } from "./equityResolution";
 import { glide } from "./glide";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 
@@ -27,37 +28,35 @@ const TICKS = 8;   // more value ticks than this and every other one is left out
  *  hero line; the pace the line's minimum annual return asks for as a dashed line, the gap filled green
  *  ahead and red behind (against the start with no return target); behind them the drawdown from the
  *  peak hanging from the top, each day's return from the bottom and the stretches a position was held
- *  (equityLayers); on the line the drawdown limit's floor and deepest drawdowns (equityNotes) and an
- *  arrow at each close (equityCloses), whose click picks the trade; the balance, the costs' band, a
- *  buy and hold, and the exposure (equityExtras); a reconciled run's replay dotted.
+ *  (equityLayers), any stretch a chain of runs was offline over all of them; on the line the drawdown
+ *  limit's floor and deepest drawdowns (equityNotes) and an arrow at each close (equityCloses), whose
+ *  click picks the trade; the balance, the costs' band, a buy and hold, and the exposure (equityExtras);
+ *  a reconciled run's replay dotted.
  *  The line is drawn at the finest step that keeps its points apart in view (equityResolution), changed
  *  once a pan or zoom settles with the moment under the pointer kept in place (viewAnchor). Wheel or drag
  *  the time axis to zoom, drag to pan, double-click for the whole run. The legend names the layers, and
  *  under the pointer gives their values. */
-export function EquityChart({ path, replay = null, starting, start, annual, limit = null, closes = [], held = [], readings, warmup = null }: {
-  path: readonly [number, number][]; replay?: readonly [number, number][] | null; starting: number; start: number | null; annual: number | null;
+export function EquityChart({ path, restarts = [], replay = null, starting, start, annual, limit = null, closes = [], held = [], readings, warmup = null }: {
+  path: readonly [number, number][]; restarts?: readonly Restart[]; replay?: readonly [number, number][] | null; starting: number; start: number | null; annual: number | null;
   limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][];
   readings: ReadonlyMap<number, Reading>; warmup?: number | null;
 }) {
-  const host = useRef<HTMLDivElement>(null);
-  const api = useRef<Api | null>(null);
+  const host = useRef<HTMLDivElement>(null), api = useRef<Api | null>(null);
   const [step, setStep] = useState<number>(STEPS[0]);
   const stepRef = useRef<number>(STEPS[0]);
   const keep = useRef<{ t: number; x: number; w: number } | null>(null);
-  const refit = useRef(false);
-  const theme = useResolvedTheme();
+  const refit = useRef(false), theme = useResolvedTheme();
   const day = useAtom(pickedDay);
-  const [hover, setHover] = useState<number | null>(null);
+  const [hover, setHover] = useState<number | null>(null), [off, setOff] = useState<Down | null>(null);  // the point or offline stretch under the pointer
   const [hold, setHold] = useState(false);
-  const minutes = useMemo(() => equityMinutes(path, starting, start, annual), [path, starting, start, annual]);
+  const minutes = useMemo(() => withDowns(equityMinutes(path, starting, start, annual), restarts), [path, starting, start, annual, restarts]);
   const points = useMemo(() => resample(minutes, step), [minutes, step]);
   const worst = useMemo(() => minutes.reduce((w, p) => Math.max(w, 1 - p.value / p.peak), 0), [minutes]);
   const many = points.length > 1 && points.at(-1)!.time - points[0]!.time >= FEW;
   const days = useMemo(() => daysOf(path, starting, []).map((d) => ({ from: dayStart(d.day), ret: d.ret })), [path, starting]);
   const fitted = useRef<number | null>(null);
   const extras = useMemo(() => new EquityExtras(), []);
-  const startRef = useRef(starting);
-  startRef.current = starting;
+  const startRef = useRef(starting); startRef.current = starting;
 
   useEffect(() => {
     // The run's own span and no more: neither edge scrolls past its first or last minute, so zooming out
@@ -91,7 +90,7 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     // (at the last point in view even in part, as the chart takes it) or the pointer's tag; those written
     // get the gridlines (the layers draw them). Every series on the scale carries the format: the chart
     // labels the axis with the format of the series added first.
-    const ticks = new AxisTicks(chart, [equity, ...lines], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, shown: (prices) => layers.grid(prices), tags: () => {
+    const ticks = new AxisTicks(chart, [equity, ...lines], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, shown: (prices) => layers.grid(prices), marks: () => layers.onAxis(), tags: () => {
       const range = chart.timeScale().getVisibleLogicalRange();  // the last point in view, looked up, not copied
       const last = equity.dataByIndex(Math.max(0, Math.ceil(range?.to ?? Number.MAX_SAFE_INTEGER)), MismatchDirection.NearestLeft) as { value: number } | null;
       return [...[last?.value, startRef.current].flatMap((v) => (v === undefined ? [] : [equity.priceToCoordinate(v)])).filter((y) => y !== null), ...notes.tags()];
@@ -113,6 +112,7 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
     });
     chart.subscribeCrosshairMove((param) => {
       setHover(param.logical === undefined || !param.point ? null : Math.round(param.logical));
+      setOff(param.point ? layers.offlineAt(param.point.x) : null);
       // The pointer's tag sits at the equity it snaps to.
       const value = param.point ? (param.seriesData.get(equity) as { value: number } | undefined)?.value : undefined;
       ticks.cross(param.point?.x ?? null, value === undefined ? null : equity.priceToCoordinate(value));
@@ -156,21 +156,21 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
       const first = stepFor(minutes.at(-1)!.time - minutes[0]!.time, a.chart.timeScale().width() || host.current!.clientWidth, 0);
       if (first !== step) { stepRef.current = first; setStep(first); return; }
     }
-    a.equity.setData(points.map((p) => ({ time: at(p.time), value: p.value })));
-    a.pace.setData(annual === null ? [] : points.map((p) => ({ time: at(p.time), value: p.pace! })));
-    if (refit.current) { refit.current = false; keep.current = null; a.chart.timeScale().fitContent(); }
+    a.equity.setData(points.map((p) => (p.down ? { time: at(p.time) } : { time: at(p.time), value: p.value })));
+    a.pace.setData(annual === null ? [] : points.map((p) => (p.down ? { time: at(p.time) } : { time: at(p.time), value: p.pace! })));
+    if (refit.current) { refit.current = false; keep.current = null; if (day) glide(a.chart.timeScale(), { from: Math.max(points[0]!.time, dayStart(day)), to: Math.min(points.at(-1)!.time, dayStart(day) + 86_400) }); else a.chart.timeScale().fitContent(); }  // or the day picked before there were points to glide on
     else if (keep.current) { const k = keep.current; keep.current = null; restore(a.chart.timeScale(), points.map((p) => p.time), step, k.t, k.x, k.w); }
   }, [points, annual]);
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers);
+    api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting);
     api.current?.closes.set(points, closes, c.closes);
     extras.set({ points, readings, hold, look: c.extras });
     api.current?.layers.lift(extras.foot());
     api.current?.notes.lift(extras.foot());
-  }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, hold, theme]);
+  }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, hold, theme, restarts]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
   useEffect(() => {
@@ -179,16 +179,16 @@ export function EquityChart({ path, replay = null, starting, start, annual, limi
 
   useEffect(() => {
     const a = api.current;
-    if (!a || !day || !minutes.length) return;
+    if (!a || !day || !minutes.length || !a.equity.data().length) return;
     glide(a.chart.timeScale(), { from: Math.max(minutes[0]!.time, dayStart(day)), to: Math.min(minutes.at(-1)!.time, dayStart(day) + 86_400) });
   }, [day, minutes.length > 0]);
 
-  const p = hover !== null && hover >= 0 && hover < points.length ? points[hover]! : null;
+  const p = !off && hover !== null && hover >= 0 && hover < points.length && !points[hover]!.down ? points[hover]! : null;
   const today = p ? [...days].reverse().find((d) => d.from <= p.time) : undefined, ret = today?.ret;
   useEffect(() => { api.current?.layers.hover(today?.from ?? null); }, [today?.from]);
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-1.5 pb-1">
-      <EquityLegend point={p} reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)} starting={starting} annual={annual} replayed={replayed} worst={worst} step={step} many={many} ret={ret} />
+      <EquityLegend point={p} offline={off} reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)} starting={starting} annual={annual} replayed={replayed} worst={worst} step={step} many={many} ret={ret} />
       <div className="relative min-h-0 flex-1">
         <div ref={host} className="h-full w-full" />
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}

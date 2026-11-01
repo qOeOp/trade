@@ -1,7 +1,8 @@
 import { amount, fixed } from "../../lib/paperApi";
 import { useNow } from "../../components/hooks/useNow";
 import { PopoverWidget } from "../../components/Dropdown";
-import { DeleteButton, health, returnOf, RunButton, RunMenu, signedPct } from "../../components/RunTile";
+import { DeleteButton, health, RunButton, RunMenu, signedPct } from "../../components/RunTile";
+import { chainEquity, chainOf, chainReturn } from "../../model/chain";
 import { Tip } from "../../components/Tip";
 import { useAtom } from "../../state/atom";
 import { ACTIVE, paperTab, selectedRun, usePaperRuns, usePaperService } from "../../state/paper";
@@ -36,9 +37,11 @@ export function PaperRunWidget() {
   const pick = (id: number) => { if (id !== selected) { selectedRun.set(id); paperTab.set(null); } };
   const state = health(run, now), alarm = order.find((r) => r !== run && alarming(r, now)), trouble = alarm && health(alarm, now);
   const [name = "", revision] = (run.candidate ?? "").split("@");
-  const [whole = "", cents = ""] = (fixed(amount(s?.seal?.final_equity_usdt ?? s?.readings?.final_equity_usdt
-    ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt), 2) ?? "").split(".");
-  const ret = returnOf(run);
+  // A chain restarted after Docker restarts reads as one account: its equity and return carry on across them.
+  const chain = chainOf(run, listing?.runs ?? []);
+  const [whole = "", cents = ""] = (fixed(chainEquity(chain, amount(s?.seal?.final_equity_usdt ?? s?.readings?.final_equity_usdt
+    ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "").split(".");
+  const ret = chainReturn(chain);
   return (
     <>
       <RunMenu run={run}>
@@ -51,7 +54,7 @@ export function PaperRunWidget() {
                 <i className={`size-1.5 shrink-0 rounded-full ${trouble.tone === "fail" ? "bg-fail" : "bg-misses"}`} />
               </Tip>}
             </span>}>
-            {(close) => <RunList order={order} front={run} now={now} pick={(r) => { pick(r.paper_id); close(); }} />}
+            {(close) => <RunList order={order} runs={listing?.runs ?? []} front={run} now={now} pick={(r) => { pick(r.paper_id); close(); }} />}
           </PopoverWidget>
         </div>
       </RunMenu>
@@ -62,7 +65,7 @@ export function PaperRunWidget() {
           {cents && <span className="text-fg-faint">.{cents}</span>}<span className="text-fg-faint"> USDT</span>
         </span>
         <span className="shrink-0 tabular-nums"><span className="text-fg-faint">Return </span><span className={pnlClass(ret)}>{signedPct(ret)}</span></span>
-        <span className="min-w-0 truncate text-fg-muted"><RunHealth run={run} now={now} failures={s?.failures ?? null} /></span>
+        <span className="min-w-0 truncate text-fg-muted"><RunHealth run={run} chain={chain} now={now} failures={s?.failures ?? null} /></span>
       </div>
       <RunButton run={run} className="ml-3" />
       <DeleteButton run={run} className="mr-2" />

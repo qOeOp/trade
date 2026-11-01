@@ -6,15 +6,20 @@
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
 // downward, then the line on it, a whole number of device pixels wide, as vibe-trading's. Everything is drawn in device pixels, edges
 // snapped, and from the visible points only, thinned to each pixel column's first, lowest, highest and
-// last.
+// last. Over everything, each stretch a chain of runs was offline (downLook.ts), opaque, so nothing drawn
+// from the series runs across it, the line ending either side of it in a dot.
 import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, span, type DayBar, type Frame } from "./equityBands";
-import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
+import type { Restart } from "../../model/paper";
+import { downsOf, downTag, drawDown, widened, type Down, type DownLook } from "./downLook";
+import { xAt } from "./equityPlace";
+import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
-export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number };
+/** A point a minute (or a step); `down` across a chain's offline stretch (downLook.ts). */
+export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean };
 export type EquityLook = { line: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
-                           ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string };
+                           ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 export { BARS, CEILING, FEW, type DayBar };
-const HELD_GAP = 6, CROWDED = 48;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share
+const HELD_GAP = 6, CROWDED = 48, END = 2;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share; the line's end dot's radius
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
@@ -30,13 +35,15 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   private worst = 0;
   private look: EquityLook | null = null;
   private ticks: readonly number[] = [];
+  private downs: readonly Down[] = [];
   private foot = 0;
 
   /** The run's points and days, the day picked (its start, in seconds), the balance equity is measured
    *  against where it has no pace, the run's worst drawdown (from every minute), where it held a
-   *  position (seconds) and the colours. */
-  set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, held: readonly [number, number][], look: EquityLook): void {
-    Object.assign(this, { points, days, picked, base, worst, held, look });
+   *  position (seconds), the colours and the restarts of a chain of runs. */
+  set(points: readonly EquityPoint[], days: readonly DayBar[], picked: number | null, base: number, worst: number, held: readonly [number, number][], look: EquityLook,
+      restarts: readonly Restart[] = []): void {
+    Object.assign(this, { points, days, picked, base, worst, held, look, downs: downsOf(restarts) });
     this.redraw?.();
   }
 
@@ -60,9 +67,27 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void { Object.assign(this, { chart, series, redraw: requestUpdate }); }
   detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
   paneViews(): readonly IPrimitivePaneView[] {
-    const view = (zOrder: "bottom" | "normal", paint: (f: Frame) => void): IPrimitivePaneView =>
+    const view = (zOrder: "bottom" | "normal" | "top", paint: (f: Frame) => void): IPrimitivePaneView =>
       ({ zOrder: () => zOrder, renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((scope) => { const f = this.frame(scope); if (f) paint(f); }) }) });
-    return [view("bottom", (f) => this.under(f)), view("normal", (f) => this.line(f))];
+    return [view("bottom", (f) => this.under(f)), view("normal", (f) => this.line(f)), view("top", (f) => this.offline(f))];
+  }
+
+  /** Each offline stretch's tag on the time axis, at its middle. */
+  timeAxisViews(): readonly ISeriesPrimitiveAxisView[] {
+    const look = this.look?.restart, w = this.chart?.timeScale().width() ?? 0;
+    return look ? this.placed().flatMap(([d, a, b]) => ((a + b) / 2 >= 0 && (a + b) / 2 <= w ? [downTag((a + b) / 2, d, look)] : [])) : [];
+  }
+
+  /** The tags on the time axis: where they sit (px) and what they say. */
+  onAxis(): { x: number; text: string }[] { return this.placed().map(([d, a, b]) => ({ x: (a + b) / 2, text: d.label })); }
+
+  /** The offline stretch drawn under pane x (px), if any. */
+  offlineAt(x: number): Down | null { return this.placed().find(([, a, b]) => x >= a && x <= b)?.[0] ?? null; }
+
+  /** Each offline stretch with where it is drawn (px), widened. */
+  private placed(): [Down, number, number][] {
+    const time = this.chart?.timeScale();
+    return time ? this.downs.flatMap((d) => { const a = xAt(this.points, time, d.from), b = xAt(this.points, time, d.to); return a === null || b === null ? [] : [[d, ...widened(a, b)]]; }) : [];
   }
 
   /** The visible points, one to four per pixel column, and where times fall (in device pixels). */
@@ -120,6 +145,30 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     this.gap(f);
     drawdownRows(f, points, this.worst, look!);
     if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, points, this.days, (d) => d === this.picked || d === this.hovered, look!);
+  }
+
+  /** Each offline stretch over all else, and a dot where the line meets it either side, centred on its
+   *  hairline as drawn (whole device px), so the line ends in it. */
+  private offline(f: Frame): void {
+    const look = this.look!;
+    for (const [, a, b] of this.placed()) {
+      if (b * f.hr < 0 || a * f.hr > f.w) continue;
+      drawDown(f.c, a * f.hr, b * f.hr, 0, f.h, look.restart, f.hr);
+      f.c.fillStyle = look.line;
+      const line = Math.max(1, Math.floor(f.hr));
+      for (const x of [Math.round(a * f.hr) + line / 2, Math.round(b * f.hr) - line / 2]) {
+        const y = this.lineY(f, x);
+        if (y !== null) { f.c.beginPath(); f.c.arc(x, y, END * f.hr, 0, 2 * Math.PI); f.c.fill(); }
+      }
+    }
+  }
+
+  /** Where the line is drawn at `x` (device px), between the kept points either side; null past its ends. */
+  private lineY({ keep, xs, vr }: Frame, x: number): number | null {
+    const k = keep.findIndex((i) => xs.get(i)! >= x), i = keep[k - 1], j = keep[k];
+    if (i === undefined || j === undefined) return null;
+    const x0 = xs.get(i)!, y0 = this.y(this.points[i]!.value, vr), y1 = this.y(this.points[j]!.value, vr);
+    return y0 + ((y1 - y0) * (x - x0)) / (xs.get(j)! - x0 || 1);
   }
 
   /** The band between equity and its pace, filled flat twice: clipped above the pace, then below it. */

@@ -30,7 +30,7 @@ export function TradesCard({ s, only, candidate }: { s: Stream | null; only: str
           ...(failures.length ? [{ id: "exceptions" as const, label: "Exceptions", dot: "fail" as const }] : []),
           ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} />
         <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
-          {tab === "events" && <EventsTools only={only} />}
+          {tab === "events" && <EventsTools s={s} only={only} />}
           {tab === "trades" && <span className="whitespace-nowrap tabular-nums">{only ?? "All contracts"} · {count}</span>}
           {tab === "exceptions" && <span className="whitespace-nowrap tabular-nums">{only ?? "All contracts"} · {exceptionsText(raised(scoped(failures, only)), sealed)}</span>}
           {tab === "reconcile" && s && <ReconcileTools r={r} paperId={s.paperId} />}
@@ -38,7 +38,7 @@ export function TradesCard({ s, only, candidate }: { s: Stream | null; only: str
         </span>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        {s && (tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events only={only} />
+        {s && (tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
           : tab === "exceptions" ? <Exceptions failures={failures} sealed={sealed} only={only} candidate={candidate} />
           : <Reconcile r={r} paperId={s.paperId} sealed={sealed} only={only} digits={digits} />)}
       </ScrollArea>
