@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--agent", help="URL of the chat service (ide/agent) that /api/agent/ requests go to")
     command.add_argument("--paper", help="URL of the paper daemon (python -m cli.main paper serve) that /api/paper/ "
                                          "requests go to")
+    command.add_argument("--market-import", help="status file of the market-import service (market follow) that "
+                                                 "/api/market-import answers")
     args = parser.parse_args(argv)
     if args.command == "check":
         found = contract.check_graph(json.loads(Path(args.graph).read_text()))
@@ -68,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         build = os.environ.get("TRADE_IDE_BUILD") or subprocess.run(
             ["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
         serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.poll, args.agent,
-                    args.paper)
+                    args.paper, Path(args.market_import) if args.market_import else None)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
     print(json.dumps(diff, ensure_ascii=False, indent=1) if args.json else compare.markdown(diff))
