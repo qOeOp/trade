@@ -23,6 +23,10 @@ export type EquityPoint = { time: number; value: number; peak: number; pace: num
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 export { BARS, CEILING, FEW, type DayBar };
+const BLUR = 10, DROP = 6;  // px: the line's shadow's blur and how far down it falls
+/** How far (px) the line's knockout and shadow reach above and below it: the value axis keeps this much
+ *  room inside the plot (equityApi.ts), so the plot's edge never cuts them. */
+export const HALO = { above: 5, below: 16 };
 const HELD_GAP = 6, CROWDED = 48;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
@@ -174,7 +178,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     for (const run of this.runs(keep)) run.forEach((i, k) => path[k ? "lineTo" : "moveTo"](xs.get(i)!, this.y(this.points[i]!.value, vr)));
     c.save();
     Object.assign(c, { lineJoin: "round", lineCap: "round", strokeStyle: look.knockout, lineWidth: look.knockoutWidth * hr });
-    Object.assign(c, { shadowColor: look.haze, shadowBlur: 10 * hr, shadowOffsetX: 1 * hr, shadowOffsetY: 6 * vr });
+    Object.assign(c, { shadowColor: look.haze, shadowBlur: BLUR * hr, shadowOffsetX: 1 * hr, shadowOffsetY: DROP * vr });
     c.stroke(path);
     Object.assign(c, { shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0, strokeStyle: look.line, lineWidth: Math.max(1, Math.round(1.75 * hr)) });
     c.stroke(path);

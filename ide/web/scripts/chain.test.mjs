@@ -43,7 +43,7 @@ const { stretchesOf } = await namespace("../src/model/stretches.ts");
 const { downsOf } = await namespace("../src/widgets/paper/downLook.ts");
 const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
 const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
-const { dayFloor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
+const { dayFloor, periodFor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
@@ -409,6 +409,17 @@ test("a new period keeps as much in view: the backtest's days count once, the pa
   assert.equal(respaced(6, { from: 0, to: 100 }, 0, 60, 300), 30, "no days: the spacing scales with the period");
   assert.equal(respaced(1, { from: 0, to: 200 }, 100, 60, 300), 200 / 120, "100 days and 100 minutes in view become 100 days and 20 five-minute candles");
   assert.equal(respaced(2, null, 0, 60, 180), 6, "no range: by the period alone");
+});
+
+test("a settled view takes one period and keeps it: days alone never change it, days beside candles count once", () => {
+  assert.equal(periodFor(20, 60, { from: 0, to: 50 }, 100), 60, "only the backtest's days in view, too wide: no period makes them narrower");
+  assert.equal(periodFor(2, 3_600, { from: 0, to: 50 }, 100), 3_600, "only days, too narrow: kept (the day floor widens them)");
+  assert.equal(periodFor(2, 60, { from: 0, to: 200 }, 0), 180, "candles alone 2 px wide at a minute: three minutes brings them to 6 px");
+  for (const [w, days] of [[2, 190], [2, 100], [20, 100], [1, 20]]) {
+    const range = { from: 0, to: 200 }, next = periodFor(w, 60, range, days), after = respaced(w, range, days, 60, next);
+    const kept = { from: 0, to: days + ((200 - days) * 60) / next };  // as many places in view at the new period
+    assert.equal(periodFor(after, next, kept, days), next, `${days} days and ${200 - days} minutes ${w} px apart: ${next} s, and settling again keeps it`);
+  }
 });
 
 test("a day's candle settles no narrower than 4 px, so what does not fit scrolls; shorter periods regroup instead", () => {

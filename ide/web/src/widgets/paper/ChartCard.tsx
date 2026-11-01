@@ -12,6 +12,7 @@ import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Segmented, type Segment } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
+import { Typing } from "../../components/Typing";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useAtom } from "../../state/atom";
 import { paperTab } from "../../state/stage";
@@ -30,7 +31,8 @@ const ALL_TABS = 6;  // a run of at most this many contracts shows a segment for
  *  and its cycles (backtestCandles.ts), then the paper runs' candles at a period picked for the span in
  *  view. The contracts are the run's, then those only the backtest traded. A run of many contracts lists
  *  those it or the backtest traded or holds and opens the others from "+ Contract". The charts keep their view per version, contract and stretches (`remembers`), and show
- *  only once the shown run's chain is read. */
+ *  only once what they draw is read (the shown run's chain, the backtest, a contract's daily bars), a
+ *  line typing itself out in their place meanwhile, so a switch never shows an empty chart that then fills. */
 export function ChartCard({ version, run, view, s, a, fills, stretches, targets, trial, backtest, testing, paper }: {
   version: string | null; run: PaperRun | null; view: string; s: Stream | null; a: Account | null; fills: readonly Fill[]; stretches: readonly Stretch[];
   targets: { limit: number | null; annual: number | null }; trial: number | null; backtest: Loaded | null; testing: boolean;
@@ -55,6 +57,8 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
   const late = ready && !fits ? `Backtest · trial ${trial} ends after the paper runs start, not drawn` : null;
   const said = equity || !ready ? backtestNote(backtest, trial ?? 0) ?? late : late ?? (lead ? barsNote(daily) : "Not traded in backtest");
   const note = [trial === null ? null : said, paper].filter(Boolean).join(" · ") || null;
+  const reading = run && !stretches.some((x) => x.chain.some((r) => r.paper_id === run.paper_id)) ? "Reading the paper runs…"
+    : trial !== null && backtest?.kind === "reading" ? backtestNote(backtest, trial) : daily?.kind === "reading" ? barsNote(daily) : null;
   const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing), [stretches, targets.annual, equity, drawn, testing]);
   const remembers = `${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
@@ -106,7 +110,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
       </div>
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
-        {run && !stretches.some((x) => x.chain.some((r) => r.paper_id === run.paper_id)) ? <p className="grid h-full place-items-center text-dense text-fg-faint">Reading the paper runs…</p>
+        {reading ? <div className="grid h-full place-items-center"><Typing text={reading} busy className="text-dense text-fg-faint" /></div>
           : equity ? (
           <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} warmup={warmup} note={note} />
         ) : (

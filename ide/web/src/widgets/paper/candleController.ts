@@ -71,7 +71,7 @@ export class CandleController {
     this.parts = { chart, candles, volume, marks, levels, ticks };
     // A zoom that takes the candles out of their band regroups them at once, not once it settles.
     const step = () => this.period.get() * 60, time = chart.timeScale();
-    this.release = whenSettled(element, time, (x) => this.settle(x), () => step() > 0 && periodFor(spacing(time), step()) !== step());
+    this.release = whenSettled(element, time, (x) => this.settle(x), () => step() > 0 && periodFor(spacing(time), step(), time.getVisibleLogicalRange(), this.leading) !== step());
     this.fenced = fence(time, () => this.times.length);
     this.restyle();
     afterFonts(() => this.restyle());
@@ -167,7 +167,7 @@ export class CandleController {
   private settle(x: number | null): void {
     const p = this.parts, step = this.period.get() * 60;
     if (!p || !step || !this.data.length) return;
-    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0, span = this.span;
+    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step, time.getVisibleLogicalRange(), this.leading), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0, span = this.span;
     const anchor = x ?? time.width() / 2, t = timeAt(time, this.times, step, anchor), range = time.getVisibleLogicalRange();
     // Days narrower than their floor widen to it, the time under `x` kept: what no longer fits scrolls.
     const floor = this.floor(this.times[Math.max(0, Math.floor(range?.from ?? 0))], next);
