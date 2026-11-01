@@ -1,13 +1,14 @@
 // The Runs page's stretches as the equity chart's one line: the version's backtest first (model/backtest.ts),
-// a point a day, then each chain of its paper runs (state/stretches.ts), a point a minute. Each stretch's
+// a point a day, then its paper runs (state/stretches.ts), a point a minute. Each stretch's
 // points follow the one before it on the chart's axis with nothing between them: the chart places its
 // points by index, so the time between two stretches takes no room and shows only as the jump of the
 // axis's dates. Each stretch is scaled to start where the one before it ended, so the line runs on
-// unbroken, but for an invalid chain's (model/ending.ts): its evidence is untrusted, so the next starts
+// unbroken, but for an invalid one's (model/ending.ts): its evidence is untrusted, so the next starts
 // where the one before it ended, the line broken between them, as nothing joins onto an invalid run in a
 // chain either (model/chain.ts); its peak is its own, so no stretch carries a drawdown its own account
-// never had; the pace is one curve from the first stretch's start, compounding over the stretches' own
-// time only (nothing ran in between), so it and the fill against it run on across a seam. What the chart
+// never had; the pace is one curve from the first stretch's start, compounding over the time something
+// ran only (not between two stretches, nor while no run ran inside the paper one), so it and the fill
+// against it run on across a seam. What the chart
 // reads beside equity is each stretch's own, scaled likewise: the shown stretch's in full, the others'
 // exposure alone, as they draw no more. A day's point sits at the day's start and is the account at its
 // close, as a coarser step's point is (equityResolution.ts).
@@ -15,14 +16,13 @@ import { amount, type PaperRun } from "../../lib/paperApi";
 import type { Backtest } from "../../model/backtest";
 import { equityReadings, type Reading } from "../../model/equityReadings";
 import { days as daysOf, fills as fillsOf, restartsOf, type Restart } from "../../model/paper";
-import { runName } from "../../model/stage";
-import type { Stretch } from "../../state/stretches";
+import type { Stretch } from "../../model/stretches";
 import type { DayBar, EquityPoint } from "./equityLayers";
 import type { Episode } from "./equityNotes";
 import { stepFor, withDowns } from "./equityResolution";
 
-/** A paper stretch's name: its chain's (runName), said invalid when it is. */
-export const stretchName = (chain: readonly PaperRun[]) => `Paper · ${runName(chain)}${chain.at(-1)!.status === "invalid" ? " · invalid" : ""}`;
+/** A paper stretch's name, said invalid when it is. */
+export const stretchName = (chain: readonly PaperRun[]) => `Paper${chain.at(-1)!.status === "invalid" ? " · invalid" : ""}`;
 
 /** A stretch as the chart places it: its name and chain's latest run (null: the backtest), whether it is
  *  the one shown, its first and last point's time (s) and their indexes, its scale and own starting balance. */
@@ -32,22 +32,25 @@ export type Placed = { label: string; run: PaperRun | null; selected: boolean; f
  *  found from the points); `sealed` the backtest's sealed depth, the dot band's scale at least. */
 export type Line = { minutes: EquityPoint[]; placed: Placed[]; restarts: Restart[]; readings: Map<number, Reading>; days: DayBar[]; drops: Episode[] | null; sealed: number };
 /** A stretch to join: its points' own equity by time (s), when its own clock starts (s), how far a
- *  point's value lies after its time (s), and what the chart reads of it. */
+ *  point's value lies after its time (s), the seconds before a time when no run ran, and what the chart
+ *  reads of it. */
 type Segment = {
-  label: string; run: PaperRun | null; selected: boolean; path: [number, number][]; starting: number; t0: number; lead: number; invalid: boolean;
+  label: string; run: PaperRun | null; selected: boolean; path: [number, number][]; starting: number; t0: number; lead: number; invalid: boolean; idle: (t: number) => number;
   restarts: Restart[]; days: () => DayBar[]; readings: () => Map<number, Reading>;
 };
 
-const YEAR_S = 365 * 86_400, DAY_S = 86_400, START = 100_000;
+const YEAR_S = 365 * 86_400, DAY_S = 86_400, START = 100_000, SHOWN = 0.8;
 const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000;
 const scaled = (v: number | null, k: number) => (v === null ? null : v * k);
 
-function paper({ chain, piece, selected }: Stretch): Segment {
+function paper({ chain, piece, selected, run }: Stretch): Segment {
   const ns = piece.readings?.equity ?? [], starting = amount(piece.readings?.starting_balance_usdt) ?? START;
-  const started = piece.readings?.started_ns ?? piece.seal?.started_ns ?? null;
+  const started = piece.readings?.started_ns ?? piece.seal?.started_ns ?? null, restarts = restartsOf(piece.lines);
+  const idle = restarts.filter((r) => r.gap === "idle").map((r) => [r.from / 1000, r.to / 1000] as const);
   return {
-    label: stretchName(chain), run: chain.at(-1)!, selected, path: ns.map(([t, v]) => [Math.floor(t / 1e9), v]), starting,
-    t0: Math.floor((started ?? ns[0]?.[0] ?? 0) / 1e9), lead: 0, invalid: chain.at(-1)!.status === "invalid", restarts: restartsOf(piece.lines),
+    label: stretchName(chain), run, selected, path: ns.map(([t, v]) => [Math.floor(t / 1e9), v]), starting,
+    t0: Math.floor((started ?? ns[0]?.[0] ?? 0) / 1e9), lead: 0, invalid: chain.at(-1)!.status === "invalid", restarts,
+    idle: (t) => idle.reduce((n, [a, b]) => n + Math.max(0, Math.min(t, b) - a), 0),
     days: () => daysOf(ns, starting, []).map((d) => ({ from: dayStart(d.day), ret: d.ret })),
     readings: () => equityReadings(ns, piece.lines, fillsOf(piece.lines), piece.closes, starting),
   };
@@ -56,7 +59,7 @@ function paper({ chain, piece, selected }: Stretch): Segment {
 function tested(b: Backtest, selected: boolean): Segment {
   return {
     label: `Backtest · trial ${b.trial}`, run: null, selected, path: b.days.map((d) => [d.time, d.equity]), starting: b.starting!,
-    t0: b.window[0] / 1000, lead: DAY_S, invalid: false, restarts: [], days: () => b.days.map((d) => ({ from: d.time, ret: d.ret })),
+    t0: b.window[0] / 1000, lead: DAY_S, invalid: false, restarts: [], idle: () => 0, days: () => b.days.map((d) => ({ from: d.time, ret: d.ret })),
     readings: () => new Map(b.days.map((d) => [d.time, { balance: null, before: null, margin: null, exposure: d.exposure, hold: null, positions: d.held }])),
   };
 }
@@ -78,17 +81,17 @@ export function continuous(stretches: readonly Stretch[], annual: number | null,
     for (const [time, v] of path) {
       const value = v * scale;
       peak = Math.max(peak, value);
-      const p: EquityPoint = { time, value, peak, pace: annual === null ? null : base * (1 + annual) ** ((elapsed + time + g.lead - g.t0) / YEAR_S), stretch: k, ...(g.lead ? { day: true } : {}) };
+      const p: EquityPoint = { time, value, peak, pace: annual === null ? null : base * (1 + annual) ** ((elapsed + time + g.lead - g.t0 - g.idle(time)) / YEAR_S), stretch: k, ...(g.lead ? { day: true } : {}) };
       if (own.at(-1)?.time === time) own[own.length - 1] = p; else own.push(p);
     }
     if (anew) own[0] = { ...own[0]!, cut: true };
     const points = withDowns(own, g.restarts), first = minutes.length;
-    minutes.push(...points);
+    for (const p of points) minutes.push(p);  // not spread: a paper stretch holds months of minutes
     line.restarts.push(...g.restarts);
     placed.push({ label: g.label, run: g.run, selected: g.selected, from: points[0]!.time, to: points.at(-1)!.time, first, last: minutes.length - 1, scale, starting });
     anew = g.invalid;  // the next stretch does not carry on from this one: the line breaks
     if (!anew) carried = path.at(-1)![1] * scale;
-    elapsed += points.at(-1)!.time + g.lead - g.t0;
+    elapsed += points.at(-1)!.time + g.lead - g.t0 - g.idle(Infinity);
     if (g.selected) line.days = g.days();
     if (!readings) continue;
     for (const [t, r] of g.readings()) {
@@ -144,13 +147,13 @@ export function firstView(points: readonly EquityPoint[], k: number): { from: nu
   return { from: a - Math.min(a, ((b - a + 1) * 15) / 85), to: b };
 }
 
-/** Whether the shown stretch (`k`) holds at least half of the points between logical `a` and `b`: only then
- *  does the value axis fit it and its drawdowns get their depths, so a sliver of it beside a long backtest
- *  leaves the view to all of the line. */
+/** Whether the shown stretch (`k`) holds at least SHOWN of the points between logical `a` and `b`, as its
+ *  first view does: only then does the value axis fit it alone (the stretch before it may run off the
+ *  pane) and its drawdowns get their depths; any more of the others in view and the axis fits them all. */
 export function focused(points: readonly EquityPoint[], k: number, a: number, b: number): boolean {
   let mine = 0, all = 0;
   for (let i = Math.max(0, Math.floor(a)); i <= Math.min(points.length - 1, Math.ceil(b)); i++, all++) if (points[i]!.stretch === k) mine++;
-  return all > 0 && mine * 2 >= all;
+  return all > 0 && mine >= all * SHOWN;
 }
 
 /** The lowest and highest of the shown stretch's points (`k`) between logical `a` and `b`; null when none

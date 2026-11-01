@@ -24,7 +24,7 @@ export function lineReach(pts: readonly EquityPoint[], time: ITimeScaleApi<Time>
   const ys = [at(a), at(b)];
   for (let i = Math.max(0, Math.ceil(a)); i <= Math.min(last, Math.floor(b)); i++) ys.push(y(pts[i]!.value));
   const found = ys.filter((v): v is number => v !== null);
-  return found.length ? [Math.min(...found), Math.max(...found)] : null;
+  return found.length ? [found.reduce((m, v) => Math.min(m, v)), found.reduce((m, v) => Math.max(m, v))] : null;
 }
 
 /** The equity at time `t`: the point's at or before it. */

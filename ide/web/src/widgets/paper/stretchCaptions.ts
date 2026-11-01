@@ -1,9 +1,9 @@
-// What marks where a stretch (state/stretches.ts) begins on a Runs page chart, and nothing else does (no
-// wash, no rule, no change of colour): its name in an 11px line at the pane's top (or under a legend drawn
-// over it), left of the stretch's
-// first point, in the faint colour (the shown stretch's in the text colour), outlined in the island's
-// colour so nothing beneath runs through it; and that point's date on the time axis in the text colour,
-// with no tick. A stretch whose start has scrolled off the left keeps its name pinned at the pane's left
+// What marks where a stretch (model/stretches.ts) begins on a Runs page chart, and nothing else does (no
+// wash, no change of colour): its name in an 11px line at the pane's top (or under a legend drawn over it),
+// right of the stretch's first point, in the faint colour (the shown stretch's in the text colour), outlined
+// in the island's colour so nothing beneath runs through it; that point's date on the time axis in the text
+// colour, with no tick; and where it meets the stretch before it, a faint dashed rule from the names' line
+// to the pane's foot, under the series, that the equity chart's drawdown dots at the top leave a gap for. A stretch whose start has scrolled off the left keeps its name pinned at the pane's left
 // edge, until the next name comes within GAP px of it, which wins. A name is written whole or not at all:
 // none runs past the pane's right edge, and of two closer than GAP the shown stretch's stays, else the
 // later. A name can be clicked (`at`).
@@ -11,12 +11,13 @@ import type { IChartApi, IPrimitivePaneView, ISeriesPrimitive, ISeriesPrimitiveA
 import { dayMonth } from "./chartTheme";
 
 export type Caption = { label: string; selected: boolean; from: number };
-export type CaptionLook = { text: string; shown: string; halo: string; font: string };
+export type CaptionLook = { text: string; shown: string; halo: string; seam: string; font: string };
 type Placed = { k: number; x: number; w: number; pinned: boolean };
 
 const TOP = 4, LINE = 14;         // px: the names' top and line height
 export const BELOW = TOP + LINE / 2 + 4 + 8;  // px: what hangs from the pane's top starts 8 px under the names' baseline (4 under the middle)
 const PAD = 6, GAP = 16;          // px: a name's distance from its stretch's start (and the pane's edge); the least room before the next name
+const DASH = 3, CUT = 4;          // px: the rule's dashes and the gaps between them; the gap the drawdown dots leave for it
 
 export class StretchCaptions implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;
@@ -26,8 +27,10 @@ export class StretchCaptions implements ISeriesPrimitive<Time> {
   private probe: CanvasRenderingContext2D | null = null;
 
   /** `xOf` places a time (s) on the pane (px), null when the chart has no point there; the names' line
-   *  starts `top` px down the pane. */
-  constructor(private readonly xOf: (t: number) => number | null, private readonly top = TOP) {}
+   *  starts `top` px down the pane; `seam` places the rule before a stretch starting at a time (px), and the
+   *  drawdown dots take `band` of the pane's height under the names (none on a candle chart). */
+  constructor(private readonly xOf: (t: number) => number | null, private readonly top = TOP,
+              private readonly seam: (t: number) => number | null = xOf, private readonly band = 0) {}
 
   set(captions: readonly Caption[], look: CaptionLook): void { Object.assign(this, { captions, look }); this.redraw?.(); }
 
@@ -41,7 +44,18 @@ export class StretchCaptions implements ISeriesPrimitive<Time> {
   detached(): void { Object.assign(this, { chart: null, redraw: null }); }
 
   paneViews(): readonly IPrimitivePaneView[] {
-    return [{ zOrder: () => "top", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+    return [{ zOrder: () => "bottom", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(({ context: c, bitmapSize: { width, height }, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+      const look = this.look;
+      if (!look) return;
+      const line = Math.max(1, Math.floor(hr)), dash = Math.round(DASH * vr), cut = Math.round(CUT * hr), dots = Math.round(BELOW * vr + height * this.band);
+      for (const s of this.captions.slice(1)) {
+        const at = this.seam(s.from), x = at === null ? -1 : Math.round(at * hr) - Math.floor(line / 2);
+        if (x < 0 || x > width) continue;
+        if (this.band) { c.fillStyle = look.halo; c.fillRect(x - Math.floor((cut - line) / 2), 0, cut, dots); }
+        c.fillStyle = look.seam;
+        for (let y = Math.round(this.top * vr); y < height; y += 2 * dash) c.fillRect(x, y, line, dash);
+      }
+    }) }) }, { zOrder: () => "top", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
       const look = this.look;
       if (!look) return;
       c.save();

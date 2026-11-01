@@ -123,7 +123,7 @@ export function seriesColors(dark = false) {
       paceText: canvasColor("fg"), island: canvasColor("island"), font,
     },
     closes: { up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), halo: canvasColor("island") },
-    captions: { text: canvasColor("fg-faint"), shown: canvasColor("fg"), halo: canvasColor("island"), font },
+    captions: { text: canvasColor("fg-faint"), shown: canvasColor("fg"), halo: canvasColor("island"), seam: canvasColor("fg-faint", dark ? 0.55 : 0.5), font },
     extras: {
       fills: { up: canvasColor("pnl-up", dark ? 0.28 : 0.16), down: canvasColor("pnl-down", dark ? 0.3 : 0.16),
                costs: canvasColor("fg", dark ? 0.08 : 0.07), rim: canvasColor("fg-muted", dark ? 0.45 : 0.4) }, hold: canvasColor("fg", dark ? 0.3 : 0.25),

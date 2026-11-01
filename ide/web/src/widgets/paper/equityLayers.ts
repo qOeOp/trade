@@ -6,8 +6,9 @@
 // a knockout stroke in the island's colour parting it from the fills and casting a deep, soft shadow
 // downward, then the line on it, a whole number of device pixels wide, as vibe-trading's. Everything is drawn in device pixels, edges
 // snapped, and from the visible points only, thinned to each pixel column's first, lowest, highest and
-// last. Over everything, each stretch a chain of runs was offline (downLook.ts), opaque, so nothing drawn
-// from the series runs across it, the line ending either side of it in a dot.
+// last. Over everything, each stretch a chain of runs was offline or no run ran (downLook.ts), opaque from
+// under the names and drawdown dots down, so nothing drawn from the series runs across it, the line ending
+// either side of it in a dot.
 import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type DayBar, type Frame } from "./equityBands";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTag, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
@@ -125,7 +126,8 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     const look = this.look!;
     for (const [, a, b] of this.placed()) {
       if (b * f.hr < 0 || a * f.hr > f.w) continue;
-      drawDown(f.c, a * f.hr, b * f.hr, 0, f.h, look.restart, f.hr);
+      const top = Math.round(this.top * f.vr + f.h * CEILING);  // under the names and the drawdown dots, which run on over it
+      drawDown(f.c, a * f.hr, b * f.hr, top, f.h - top, look.restart, f.hr);
       f.c.fillStyle = look.line;
       const line = Math.max(1, Math.floor(f.hr));
       for (const x of [Math.round(a * f.hr) + line / 2, Math.round(b * f.hr) - line / 2]) {

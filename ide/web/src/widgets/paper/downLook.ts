@@ -1,8 +1,10 @@
 // How the Runs page's charts mark the time a chain of runs (model/chain.ts) was paused or offline between
-// two runs (model/ending.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
-// series crosses it: it is covered the plot's height by a recessed wash between two hairlines, at least
+// two runs (model/ending.ts), and the time between two chains of the paper stretch when no run ran
+// (state/stretches.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
+// series crosses it: it is covered by a recessed wash between two hairlines (on the equity chart from under
+// the stretches' names and the drawdown dots down, which run on over it), at least
 // MIN px wide (around the true stretch on the equity chart, as blank candles on the candle chart), its length tagged on the time axis as the value axis tags a price
-// ("Paused 3h", "Offline 45m"); under the pointer the chart says what happened at the stop and when, and
+// ("Paused 3h", "Offline 45m", "No run 7d"); under the pointer the chart says what happened at the stop and when, and
 // when the next run took over.
 import type { ISeriesPrimitiveAxisView } from "lightweight-charts";
 import { brief, clockSpan } from "../../lib/format";
@@ -15,10 +17,11 @@ export type DownLook = { wash: string; edge: string; text: string; tag: string }
 export type Down = { from: number; to: number; stopped: number; started: number; label: string; lead: string; resumed: string };
 
 export const MIN = 12;  // px: the least width a stretch is drawn
+const GAP = { paused: "Paused", offline: "Offline", idle: "No run" } as const;
 
 export const downsOf = (restarts: readonly Restart[]): Down[] =>
   restarts.map((r) => ({ from: r.from / 1000, to: r.to / 1000, stopped: r.from / 1000, started: r.to / 1000,
-                         label: `${r.gap === "paused" ? "Paused" : "Offline"} ${brief(clockSpan(r.from, r.to))}`, lead: r.lead, resumed: r.resumed }));
+                         label: `${GAP[r.gap]} ${brief(clockSpan(r.from, r.to))}`, lead: r.lead, resumed: r.resumed }));
 
 /** What the pointer over a stretch is told after its tag: what happened at the stop and when, and when the
  *  next run took over: (Paused 3h ·) by you 31 Oct, 04:20 · continued 31 Oct, 07:20. */

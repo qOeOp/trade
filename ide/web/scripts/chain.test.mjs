@@ -39,6 +39,8 @@ const { trades } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
 const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
+const { stretchesOf } = await namespace("../src/model/stretches.ts");
+const { downsOf } = await namespace("../src/widgets/paper/downLook.ts");
 const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
 const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
 const { dayFloor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
@@ -303,10 +305,10 @@ test("a version's stretches join as one line: no room between them, each later o
   const S = T0 / 1e9, a = piece(1, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 110_000]], 110_000);
   const b = piece(2, [line("started", T0 + 100 * MIN)], [[T0 + 100 * MIN, 100_000], [T0 + 101 * MIN, 90_000]], 90_000);
   const early = piece(3, [line("started", T0 + MIN)], [[T0 + MIN, 100_000]], 100_000);
-  const l = stretches.continuous([{ chain: [sealed(1)], piece: a, selected: false }, { chain: [sealed(2)], piece: b, selected: true },
-                                   { chain: [sealed(3)], piece: early, selected: false }], 0.1, true);
+  const l = stretches.continuous([{ chain: [sealed(1)], piece: a, selected: false, run: sealed(1) }, { chain: [sealed(2)], piece: b, selected: true, run: sealed(2) },
+                                   { chain: [sealed(3)], piece: early, selected: false, run: sealed(3) }], 0.1, true);
   assert.deepEqual(l.minutes.map((p) => [p.time - S, Math.round(p.value), p.stretch]), [[0, 100_000, 0], [60, 110_000, 0], [6000, 110_000, 1], [6060, 99_000, 1]]);
-  assert.deepEqual(l.placed.map((p) => [p.label, p.selected, p.first, p.last, p.scale]), [["Paper · run 1", false, 0, 1, 1], ["Paper · run 2", true, 2, 3, 1.1]], "a stretch starting before the last one ends is left out");
+  assert.deepEqual(l.placed.map((p) => [p.label, p.selected, p.first, p.last, p.scale]), [["Paper", false, 0, 1, 1], ["Paper", true, 2, 3, 1.1]], "a stretch starting before the last one ends is left out");
   assert.equal(Math.round(l.minutes[3].peak), 110_000, "each stretch's peak starts at its own start");
   assert.equal(l.minutes[2].pace, l.minutes[1].pace, "the pace runs through the seam: the time between stretches does not compound");
   assert.ok(l.minutes[1].pace > l.minutes[0].pace);
@@ -319,10 +321,33 @@ test("a version's stretches join as one line: no room between them, each later o
   assert.deepEqual(stretches.firstView(l.minutes, 0), { from: 0, to: 1 });
   const reach = stretches.shownReach(l.minutes, 1, 0, 3);
   assert.deepEqual([reach.minValue, reach.maxValue].map(Math.round), [99_000, 110_000], "the value axis fits the shown stretch alone");
-  const bad = stretches.continuous([{ chain: [sealed(1, { status: "invalid" })], piece: a, selected: false }, { chain: [sealed(2)], piece: b, selected: true }], 0.1, true);
-  assert.deepEqual(bad.placed.map((p) => [p.label, p.scale]), [["Paper · run 1 · invalid", 1], ["Paper · run 2", 1]], "nothing carries on from an invalid chain: its evidence is untrusted");
+  const bad = stretches.continuous([{ chain: [sealed(1, { status: "invalid" })], piece: a, selected: false, run: sealed(1, { status: "invalid" }) }, { chain: [sealed(2)], piece: b, selected: true, run: sealed(2) }], 0.1, true);
+  assert.deepEqual(bad.placed.map((p) => [p.label, p.scale]), [["Paper · invalid", 1], ["Paper", 1]], "nothing carries on from an invalid chain: its evidence is untrusted");
   assert.deepEqual(bad.minutes.map((p) => p.cut ?? false), [false, false, true, false], "the line breaks where the next stretch starts anew");
   assert.ok(!l.minutes.some((p) => p.cut), "a stretch that carries on does not break the line");
+});
+
+test("a version's paper runs are one stretch: the time between two chains is a gap no run ran, outside the pace", () => {
+  const S = T0 / 1e9, a = piece(1, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 110_000]], 110_000, { seal: sealed(1, { stop: "STOP_FILE", stopped: T0 + MIN }).seal });
+  const b = piece(2, [line("started", T0 + 100 * MIN)], [[T0 + 100 * MIN, 100_000], [T0 + 101 * MIN, 90_000]], 90_000);
+  const one = sealed(1, { stop: "STOP_FILE", stopped: T0 + MIN }), two = sealed(2, { symbols: ["ETHUSDT"], created: T0 + 100 * MIN });
+  const pieces = new Map([[1, a], [2, b]]);
+  const [s, ...rest] = stretchesOf([[one], [two]], pieces, null, two, true);
+  assert.equal(rest.length, 0);
+  assert.deepEqual([s.chain.map((r) => r.paper_id), s.selected, s.run.paper_id], [[1, 2], true, 2]);
+  const gaps = paper.restartsOf(s.piece.lines);
+  assert.deepEqual(gaps.map((g) => [g.gap, g.lead, g.resumed, (g.to - g.from) / 60_000]), [["idle", "Stopped by you", "next run", 99]]);
+  assert.equal(downsOf(gaps)[0].label, "No run 1h 39m");
+  assert.equal(stretchesOf([[one], [two]], pieces, null, one, true)[0].run.paper_id, 1, "a click on it keeps the run shown");
+  const l = stretches.continuous([s], 0.1, true);
+  assert.deepEqual(l.placed.map((p) => p.label), ["Paper"]);
+  assert.ok(l.minutes.some((p) => p.down), "the time no run ran takes room as a gap");
+  const after = l.minutes.find((p) => !p.down && p.time === S + 6000);
+  assert.ok(Math.abs(after.pace - l.minutes[1].pace) < 1e-6, "the pace does not compound while no run ran");
+  const bad = stretchesOf([[sealed(1, { status: "invalid" })], [two]], pieces, null, two, true);
+  assert.deepEqual(bad.map((x) => [x.chain.map((r) => r.paper_id), x.selected]), [[[1], false], [[2], true]], "nothing joins onto an invalid chain");
+  const early = piece(3, [line("started", T0 + MIN / 2)], [[T0 + MIN / 2, 100_000]], 100_000);
+  assert.equal(stretchesOf([[one], [sealed(3, { symbols: ["SOLUSDT"] })]], new Map([[1, a], [3, early]]), null, two, true).length, 2, "a chain starting before the last ended starts its own");
 });
 
 const DAY = 86_400, D0 = Date.UTC(2026, 8, 1) / 1000, near = (n) => Math.round(n * 1e9) / 1e9;
@@ -355,14 +380,14 @@ test("a backtest is its account a day from the stored returns and its cycles as 
 
 test("the backtest leads the line a day a point, the paper runs carry on from its end and the pace runs through the seam", () => {
   const b = backtest(report()), p = piece(2, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 101_000]], 101_000);
-  const l = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: true }], 0.1, true, b, false);
-  assert.deepEqual(l.placed.map((x) => [x.label, x.run?.paper_id ?? null, x.selected, near(x.scale)]), [["Backtest · trial 9", null, false, 1], ["Paper · run 2", 2, true, 0.99]]);
+  const l = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: true, run: sealed(2) }], 0.1, true, b, false);
+  assert.deepEqual(l.placed.map((x) => [x.label, x.run?.paper_id ?? null, x.selected, near(x.scale)]), [["Backtest · trial 9", null, false, 1], ["Paper", 2, true, 0.99]]);
   assert.deepEqual(l.minutes.map((m) => [!!m.day, Math.round(m.value)]), [[true, 110_000], [true, 99_000], [true, 99_000], [false, 99_000], [false, 99_990]]);
   assert.ok(Math.abs(l.minutes[3].pace - l.minutes[2].pace) < 1e-6, "a day's point is the account at its close, so the pace meets the paper run's start");
   assert.deepEqual(stretches.covered(l.minutes, D0, T0 / 1e9 + 60), { span: 120, days: 3 }, "a day is one point at any step");
   assert.deepEqual({ ...l.readings.get(D0), exposure: near(l.readings.get(D0).exposure) }, { balance: null, before: null, margin: null, exposure: 0.5, hold: null }, "a backtest not shown reads its exposure alone");
   assert.deepEqual([l.drops, l.sealed], [null, 0.05], "the sealed drawdown marks only the backtest shown, and scales the dots always");
-  const shown = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: false }], 0.1, true, b, true);
+  const shown = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: false, run: sealed(2) }], 0.1, true, b, true);
   assert.equal(shown.readings.get(D0).positions, 1);
   assert.deepEqual(shown.drops.map((d) => [d.from - D0, d.to - D0, Math.round(d.peak), Math.round(d.trough), d.depth]), [[0, DAY, 110_000, 99_000, 0.05]],
                    "drawn between the days holding the sealed peak and trough, at the sealed depth");

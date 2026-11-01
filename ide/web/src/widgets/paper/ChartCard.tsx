@@ -6,7 +6,7 @@ import { heldOf, heldUnion, priceLines, restartsOf, spans as spansOf, warmupAt, 
 import { useView } from "../../model/view";
 import { backtestNote, type Loaded } from "../../state/backtest";
 import { barsNote, useBacktestBars } from "../../state/backtestBars";
-import type { Stretch } from "../../state/stretches";
+import type { Stretch } from "../../model/stretches";
 import { leadOf } from "./backtestCandles";
 import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
@@ -60,8 +60,8 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
   // The contract's candles over every stretch, and the offline stretches inside each chain.
   const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);
   const breaks = useMemo(() => stretches.flatMap((x) => restartsOf(x.piece.lines)), [stretches]);
-  const parts = useMemo(() => [...(lead ? [lead.span] : []), ...(ours ? stretches : []).flatMap(({ chain, piece: { bars: own }, selected }) => (own.length
-    ? [{ label: stretchName(chain), run: chain.at(-1)!, selected, from: Number(own[0]!.ts_event) / 1e9, to: Number(own.at(-1)!.ts_event) / 1e9 }] : []))], [lead, ours, stretches]);
+  const parts = useMemo(() => [...(lead ? [lead.span] : []), ...(ours ? stretches : []).flatMap(({ chain, piece: { bars: own }, selected, run: r }) => (own.length
+    ? [{ label: stretchName(chain), run: r, selected, from: Number(own[0]!.ts_event) / 1e9, to: Number(own.at(-1)!.ts_event) / 1e9 }] : []))], [lead, ours, stretches]);
   const spans = useMemo(() => spansOf(fills, symbol, restarts), [fills, symbol, restarts]);
   const orders = useMemo(() => priceLines(live?.orders ?? [], symbol), [live, symbol]);
   const held = useMemo(() => heldOf(live?.positions ?? [], symbol), [live, symbol]);
@@ -106,7 +106,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
       </div>
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
-        {run && !stretches.some((x) => x.chain.at(-1)!.paper_id === run.paper_id) ? <p className="grid h-full place-items-center text-dense text-fg-faint">Reading the paper runs…</p>
+        {run && !stretches.some((x) => x.chain.some((r) => r.paper_id === run.paper_id)) ? <p className="grid h-full place-items-center text-dense text-fg-faint">Reading the paper runs…</p>
           : equity ? (
           <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} warmup={warmup} note={note} />
         ) : (

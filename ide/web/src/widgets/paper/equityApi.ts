@@ -9,13 +9,15 @@ import { createChart, LineSeries, LineStyle, MismatchDirection, type AutoscaleIn
 import { AxisTicks } from "./axisTicks";
 import { fence } from "./candleView";
 import { chartOptions, priceFormat } from "./chartTheme";
+import { CEILING } from "./equityBands";
 import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
 import { EquityLayers, type EquityPoint } from "./equityLayers";
 import { EquityNotes } from "./equityNotes";
 import { focused, shownReach } from "./equityStretches";
-import { StretchCaptions } from "./stretchCaptions";
+import { BELOW, StretchCaptions } from "./stretchCaptions";
 import { xAt } from "./equityPlace";
+import { spacing } from "./viewAnchor";
 
 export type Api = {
   chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">;
@@ -30,6 +32,7 @@ export type Now = { points: readonly EquityPoint[]; shown: number; starting: num
 export const ROOM = 6;    // points of room right of the last
 const CLEAR = 16;  // px: a value tick this near an axis tag is left out
 const TICKS = 8;   // more value ticks than this and every other one is left out
+const UNDER = 8;   // px: between the drawdown dots' foot and the highest equity
 
 export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => Now): Api {
   // Dragging the time axis zooms; the value axis keeps fitting what is shown. No conflation: the points are
@@ -48,13 +51,17 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
     autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
       const r = base(), view = chart.timeScale().getVisibleLogicalRange(), { points, shown } = now();
       const reach = view && shown >= 0 && focused(points, shown, view.from, view.to) ? shownReach(points, shown, view.from, view.to) : null;
-      return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above: 0, below: extras.foot() } };
+      // Above the line the stretches' names and the drawdown dots hanging from them, which it never reaches.
+      const above = BELOW + chart.paneSize(0).height * CEILING + UNDER;
+      return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above, below: extras.foot() } };
     } });
-  equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 }, entireTextOnly: true });
+  equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0.08 }, entireTextOnly: true });
   // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
   // names above it, the depths over the arrows; the stretches' names over all.
   const layers = new EquityLayers(), notes = new EquityNotes(), closes = new EquityCloses();
-  const captions = new StretchCaptions((t) => xAt(now().points, chart.timeScale(), t));
+  // The rule before a stretch half a point before its first: the two stretches' points abut.
+  const xOf = (t: number) => xAt(now().points, chart.timeScale(), t), seam = (t: number) => { const x = xOf(t); return x === null ? null : x - spacing(chart.timeScale()) / 2; };
+  const captions = new StretchCaptions(xOf, undefined, seam, CEILING);
   equity.attachPrimitive(closes);
   equity.attachPrimitive(notes);
   equity.attachPrimitive(layers);
