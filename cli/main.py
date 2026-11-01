@@ -899,6 +899,23 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
                                 log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
+def market_follow_metrics(market: dict, symbols: list[str], cache_root: str | None, status: str | None) -> dict:
+    """Keep the named contracts' metrics through the last closed UTC day, unattended, publishing after each round;
+    runs until stopped."""
+    from market import follow, store
+    profile = _market_ledger(market)
+
+    def publish() -> dict | None:
+        if profile.kind is None or not publication.unpublished(profile, MARKET_BRANCH):
+            return None
+        return publication.publish(profile, MARKET_BRANCH, _market_lock(profile))
+
+    return follow.follow(market, symbols, Path(cache_root) if cache_root else store.default_cache(),
+                         Path(status) if status else follow.default_status(), publish,
+                         log=lambda line: print(line, file=sys.stderr, flush=True),
+                         report=lambda line: print(line, flush=True))
+
+
 def market_upgrade(market: dict) -> dict:
     """market upgrade: create the tables of market/schema.sql the market database lacks (the administrator)."""
     return db.upgrade_market(market)
@@ -1526,6 +1543,24 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "integer digits: no rounding); the first refused contract's refusal, naming the commits made before it; "
         "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; DIRTY_WORKING_SET; "
         "COMMIT_CHECKS_DISABLED; DATA_TESTS_FAILED"),
+    ("market", "follow-metrics"): (
+        "each round: the metrics imports of the named contracts (reader), their daily metrics ZIPs downloaded into "
+        "--cache-root outside the import lock, and whether the market is ahead of origin (administrator)",
+        "each round, per contract, market import-metrics of each month with days still missing (from the earlier of "
+        "the month of its last held day and the month before the last closed UTC day's), then one publish when the "
+        "market is ahead of origin; --status rewritten after every round; a contract no import holds is never "
+        "imported",
+        "nothing until stopped; one JSON line per round on stdout, as written to --status: at, last_closed_day, "
+        "contracts {state (caught_up, waiting, lagging: a day still missing 3 days after it closed, stopped, "
+        "unknown), refusal, retry, missing_from, missing_days, rows, commits}, round_refusal, published, "
+        "publish_refusal, next_round (an hour later while any contract waits or the market is unreadable, else "
+        "00:30 UTC of the next day); import progress on stderr",
+        "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, MARKET_UNREACHABLE, "
+        "MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, MONTH_EXISTS and uncoded errors retry next round; "
+        "DIRTY_WORKING_SET, SCHEMA_MISMATCH, SCHEMA_VERSION_MISMATCH, COMMIT_CHECKS_DISABLED, DATA_TESTS_FAILED, "
+        "RULE_VERSION_MISMATCH and the publish refusals PUBLISH_REJECTED, PUBLISH_FORBIDDEN, REMOTE_UNSET and "
+        "REMOTE_INVALID stop every contract, any other refusal (SOURCE_SHAPE, SCALE_LOSS, CHECKSUM_MISMATCH) its "
+        "contract, until the process restarts"),
     ("market", "upgrade"): (
         "service.json; the market tables (administrator)",
         "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql in one commit (none when "
@@ -1964,7 +1999,7 @@ def _parser() -> Parser:
                       "reproduction or exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, upgrade, import, import-quotes, import-trades, import-metrics, "
-                             "lifecycle, coverage, bars, backup, review, publish")
+                             "follow-metrics, lifecycle, coverage, bars, backup, review, publish")
     command = verb(market, "init", "create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
@@ -2000,6 +2035,16 @@ def _parser() -> Parser:
     command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
+    command = verb(market, "follow-metrics", "keep the named contracts' open interest and long/short ratios "
+                                              "imported and published daily, until stopped")
+    _market_option(command)
+    command.add_argument("--symbols", required=True, nargs="+", help="contracts to keep (each already imported once)")
+    command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
+    command.add_argument("--status", help="status file rewritten every round (default: metrics-import/status.json "
+                                          "in the temporary directory)")
+    command.epilog = ("Imports through market import-metrics and publishes as market publish does; adds no import "
+                      "rule. The healthcheck is market.follow.check(): unhealthy while a contract is stopped, "
+                      "lagging or unknown, or the status is older than 26 hours.")
     command = verb(market, "upgrade", "create the market tables the database lacks (administrator)")
     _market_option(command)
     command = verb(market, "publish", "push the market database to its public DoltHub copy (administrator)")
@@ -2136,6 +2181,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_import_trades(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "import-metrics"):
         return market_import_metrics(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
+    if key == ("market", "follow-metrics"):
+        return market_follow_metrics(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):

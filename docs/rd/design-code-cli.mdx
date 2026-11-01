@@ -44,6 +44,7 @@
 | <Ref id="cli.market_bars">market_bars</Ref> | 命令行入口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，内联至多 --limit 个周期或整段写进新的临时文件；源码审查者的价格读口 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
+| <Ref id="cli.market_follow_metrics">market_follow_metrics</Ref> | 命令行入口 market follow-metrics：无人值守地按日导入并发布指定合约的持仓量与多空比，一直运行到被停止 |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
@@ -1110,6 +1111,31 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 | `CHECKSUM_MISMATCH`、`CONCURRENT_IMPORT`、`DIRTY_WORKING_SET`、`COMMIT_CHECKS_DISABLED`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
 
 **使用**　`market.metrics.import_month`、<Ref id="cli.publish_after" />
+
+### `market_follow_metrics` [#def-cli-market_follow_metrics]
+
+命令行入口 market follow-metrics：无人值守地把指定合约的持仓量与多空比按日导到最后一个已收盘 UTC 日，每轮之后发布市场库；一直运行到被停止
+
+```python
+def market_follow_metrics(market: dict, symbols: list[str], cache_root: str | None, status: str | None) -> dict:
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L902)
+
+<TypeTable type={{ "market": { type: "dict", description: "市场档案；要发布到 DoltHub，role 须为 active" }, "symbols": { type: "list[str]", description: "要维护的合约，各自须已手动导入过一次" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "status": { type: "str | None", description: "每轮重写的状态文件（缺省为临时目录下的 metrics-import/status.json）" } }} />
+
+**返回**　不返回；每轮在 stdout 打一行 JSON，与写进状态文件的相同：\{at, last_closed_day, contracts, round_refusal, published, publish_refusal, next_round\}；contracts 每项为 \{state, refusal, retry, missing_from, missing_days, rows, commits\}，state 是 caught_up、waiting、lagging、stopped 或 unknown；导入进度写 stderr
+
+**期望行为**
+
+1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；发布回调只在市场库领先 origin 时调用 publication.publish，持市场导入锁，和 market publish 相同。
+2. 不加导入规则：每个合约每个月经 market.metrics.import_month 导入，拒绝按 market.follow 的分类处理，不让命令退出。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `IMPORT_SCOPE` | 启动时 --symbols 为空、重复或格式不对 |
+
+**使用**　<Ref id="implementation:impl-market-follow-py-follow" />、`market.metrics.import_month`、`ledger.publish.publish`
 
 ### `market_import_trades` [#def-cli-market_import_trades]
 

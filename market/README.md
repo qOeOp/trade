@@ -136,6 +136,29 @@ day's archive SHA-256, rows, repeated rows and empty ratios; `market coverage` r
 with the five-minute rows the stored days lack. The decision and field review are in
 [the plan](../docs/plans/binance-open-interest-input.zh.md).
 
+`market follow-metrics --symbols BTCUSDT ETHUSDT SOLUSDT` keeps those contracts current unattended. It runs
+until stopped.
+
+Each round:
+- calls the import above once per contract, for each month with days still missing;
+- downloads the archives into the cache first, outside the import lock;
+- publishes whenever the market is ahead of origin;
+- writes a status file (default `metrics-import/status.json` under the temporary directory) and prints the
+  same status as one JSON line.
+
+A round comes an hour later while a contract waits for an archive; otherwise it runs daily at 00:30 UTC.
+
+Refusals are sorted by what fixes them:
+- **Next round:** a lock another import or a backup holds, an unreachable or bootstrapping service, the
+  network, an unconfirmed push.
+- **Until the process restarts:** a content refusal stops its contract; a refusal about the whole database
+  or its publication stops every contract.
+
+A contract that no import holds is never imported: its history is imported once by hand. A day still missing
+`LAG_DAYS` (3) days after it closed marks its contract `lagging` and is then polled daily.
+`market.follow.check()` is the healthcheck. It is unhealthy while any contract is stopped, lagging or unknown,
+or while the status is older than 26 hours. Decisions: [the plan](../docs/plans/daily-metrics-import.zh.md).
+
 ## Quotes
 
 Binance no longer publishes best bid/ask archives (bookTicker ended in 2024-04), and the native backtest's
