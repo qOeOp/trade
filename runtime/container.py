@@ -22,6 +22,9 @@ from runtime import image
 PIDS_LIMIT = 256  # example value, not calibrated
 NETWORK = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 REPORTS = "/reports"
+# SIGTERM to SIGKILL when Docker stops a paper container, `paper stop` or a Docker or host restart: Docker's
+# default 10 s cut the runner off while it cancelled its orders and wrote its summary (paper run 4, 2026-10-31).
+PAPER_STOP_SECONDS = 30
 # A stage mount may not cover the root, the container's scratch space or the image's own code.
 PROTECTED_TARGETS = ("/tmp", "/opt/trade")
 
@@ -102,7 +105,7 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
                   name: str, network: str, memory: str, labels: dict[str, str]) -> list[str]:
     """A paper container's command: the contract layout's paper runner or egress proxy, started detached
     on one named Docker network (never `host`, `bridge` or `none`: the caller creates it) with a memory
-    limit, and the stage checks of `container_command`. It is kept after it exits, so its exit code and
+    limit and PAPER_STOP_SECONDS to stop, and the stage checks of `container_command`. It is kept after it exits, so its exit code and
     log stay readable until the caller removes it."""
     identity = image.validate_identity(identity)
     if not NETWORK.fullmatch(network) or network in ("host", "bridge", "none", "default"):
@@ -112,7 +115,8 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
     if not NETWORK.fullmatch(name) or any(not isinstance(value, str) or "\n" in value or "=" in key
                                           for key, value in labels.items()):
         raise refuse("ARGV_INVALID", "the paper container name or labels are malformed")
-    options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory]
+    options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
+               "--stop-timeout", str(PAPER_STOP_SECONDS)]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
     return _run(identity, mounts, module, argv, _modules(identity, ("paper_module", "egress_module")), True,
