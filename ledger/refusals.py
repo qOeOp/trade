@@ -33,8 +33,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                     ("Pass the research ledger profile.",)),
     "BRANCH_FORBIDDEN": ("The writer writes only the profile's fixed research branch.",
                          ("Connect the writer without a branch, or read other branches with the reader.",)),
-    "LEDGER_UNAVAILABLE": ("The ledger service is not running or does not accept connections.",
-                           ("Start it with `ledger service start`, then rerun the same command.",)),
+    "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
+                           "not answer (its process, its container or the Docker host is hung).",
+                           ("When the message says the service did not answer, it is running but hung and starting "
+                            "it again does not help: check the host with `docker ps` (one that does not return means "
+                            "Docker itself is hung) and ask the user to restart the ledger service (`docker compose "
+                            "restart ledger`) or Docker, then rerun the same command.",
+                            "Otherwise start it with `ledger service start`, then rerun the same command.")),
     "LEDGER_PERMISSION": ("The ledger account may not run this statement or was refused.",
                           ("Write only through the declared commands; they use the writer account.",)),
     "SCHEMA_MISMATCH": ("The ledger schema generation is not the one this code reads.",

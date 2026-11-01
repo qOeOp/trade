@@ -7,9 +7,11 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import socket
 import stat
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -159,6 +161,14 @@ class LedgerBaseTests(unittest.TestCase):
                          "LEDGER_PERMISSION")
         with patch.object(db, "SCHEMA_VERSION", db.SCHEMA_VERSION + 1):
             self.assertEqual(self.code(lambda: db.connect(self.profile, "reader")), "SCHEMA_MISMATCH")
+
+    def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
+        with db.connect(self.profile, "reader") as conn:
+            self.assertEqual(conn.raw._read_timeout, 600)
+            self.assertEqual(conn.rows("SELECT 1"), [(1,)])
+        root = db._admin(db._service(self.profile.service_root))
+        self.addCleanup(root.close)
+        self.assertIsNone(root._read_timeout)
 
     def test_the_writer_may_only_insert_and_bump_the_head_on_the_research_branch(self):
         writer = db.connect(self.profile, "writer")
@@ -422,6 +432,75 @@ class OverTcpTests(unittest.TestCase):
                 self.assertEqual(cursor.fetchone()[0], "root@localhost")
             with store.connect(fixture.profile, "import") as market:
                 self.assertEqual((market.raw.unix_socket, market.raw.port), (None, config["port"]))
+
+
+class UnansweredServiceTests(unittest.TestCase):
+    """A service that accepts connections but never sends its greeting (a hung process, container or Docker
+    host): every connection fails within the handshake timeout, not the 600 s statement budget, and says the
+    service is hung rather than not running. No Dolt: a listening socket that nobody accepts from is enough."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="lgh-", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.accounts = {"probe": {"reader": {"user": "r", "password": "p"}, "writer": {"user": "w", "password": "p"}}}
+        self.profile = db.LedgerProfile(name="probe", database="probe", service_root=self.root)
+        patcher = patch.object(db, "HANDSHAKE_TIMEOUT", 0.5)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def listener(self, family=socket.AF_INET, path: Path | None = None) -> socket.socket:
+        server = socket.socket(family, socket.SOCK_STREAM)
+        self.addCleanup(server.close)
+        server.bind(str(path) if path else ("127.0.0.1", 0))
+        server.listen(8)
+        return server
+
+    def service(self, **config) -> None:
+        (self.root / "service.json").write_text(json.dumps({**config, "root_password": "p", "databases": self.accounts}))
+
+    def refused(self, call) -> tuple[Refusal, float]:
+        started = time.monotonic()
+        with self.assertRaises(Refusal) as caught:
+            call()
+        return caught.exception, time.monotonic() - started
+
+    def assert_hung(self, refusal: Refusal, elapsed: float, endpoint: str) -> None:
+        self.assertEqual(refusal.code, "LEDGER_UNAVAILABLE")
+        self.assertIn(f"the ledger service at {endpoint} accepts connections but did not answer within 0.5 s",
+                      refusal.message)
+        self.assertNotIn("not running", refusal.message)
+        self.assertIn("docker ps", refusal.next_actions[0])
+        self.assertLess(elapsed, 5)
+
+    def test_a_compose_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
+        port = self.listener().getsockname()[1]
+        self.service(port=port)
+        for role in ("reader", "writer"):
+            refusal, elapsed = self.refused(lambda role=role: db.connect(self.profile, role))
+            self.assert_hung(refusal, elapsed, f"127.0.0.1:{port}")
+        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
+            refusal, elapsed = self.refused(lambda: db.connect(self.profile, "reader"))
+        self.assert_hung(refusal, elapsed, f"127.0.0.1:{port}")
+        refusal, elapsed = self.refused(lambda: db.start_service(self.root))
+        self.assertEqual(refusal.code, "LEDGER_START")
+        self.assertIn("accepts connections but did not answer", refusal.message)
+        self.assertLess(elapsed, 5)
+
+    def test_a_socket_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
+        path = self.root / "mysql.sock"
+        self.listener(socket.AF_UNIX, path)
+        self.service(socket=str(path), port=0)
+        refusal, elapsed = self.refused(lambda: db.connect(self.profile, "reader"))
+        self.assert_hung(refusal, elapsed, str(path))
+
+    def test_a_closed_port_is_still_a_service_that_is_not_running(self):
+        closed = self.listener()
+        port = closed.getsockname()[1]
+        closed.close()
+        self.service(port=port)
+        refusal, _ = self.refused(lambda: db.connect(self.profile, "reader"))
+        self.assertEqual(refusal.code, "LEDGER_UNAVAILABLE")
+        self.assertIn("not running", refusal.message)
 
 
 @unittest.skipUnless(BINARY, SKIP)
