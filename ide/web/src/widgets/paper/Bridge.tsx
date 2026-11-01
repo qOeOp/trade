@@ -23,7 +23,8 @@ const base = (symbol: string) => symbol.replace(/(USDT|USDC|USD)$/, "").replace(
 
 /** A row: its name, what it is and its full amount on hover, and its bar from `from` to `to` on the
  *  bridge's scale (`at` gives a value's place, 0 to 1). Trades and the net take the profit or loss colour,
- *  the gross and the other steps the neutral bar. */
+ *  the gross and the other steps the neutral bar. An end on zero is square, where a bar meets the zero line
+ *  (or, without one, lines up with the bars beside it); a free end is round. */
 type Row = { name: string; note: string; from: number; to: number; tone: "up" | "down" | "bar"; total?: boolean };
 const BAR = { up: "bg-pnl-up", down: "bg-pnl-down", bar: "bg-bar" } as const;
 // The amount column and the gap between columns, in px; the name column is as wide as the longest name
@@ -32,12 +33,13 @@ const VALUE = 84, GAP = 10, CHAR = 7.5;
 
 function Line({ r, at, dp, name }: { r: Row; at: (x: number) => number; dp: number; name: number }) {
   const lo = at(Math.min(r.from, r.to)), hi = at(Math.max(r.from, r.to)), value = r.to - r.from;
+  const zero = (x: number) => Math.abs(x) < 1e-9, ends = zero(Math.min(r.from, r.to)) ? "rounded-r-full" : zero(Math.max(r.from, r.to)) ? "rounded-l-full" : "rounded-full";
   return (
     <Tip content={<span className="tabular-nums">{r.note} <span className="text-fg-muted">{signed(value)} USDT</span></span>}>
       <div className="grid h-5.5 items-center gap-2.5 tabular-nums" style={{ gridTemplateColumns: `${name}px minmax(0,1fr) ${VALUE}px` }}>
         <span className={`truncate ${r.total ? "text-fg" : "text-fg-muted"} ${r.name === "Net" ? "font-semibold" : ""}`}>{r.name}</span>
         <span className="relative h-1">
-          <i className={`absolute inset-y-0 rounded-full ${BAR[r.tone]}`} style={{ left: `${lo * 100}%`, width: `max(3px, ${(hi - lo) * 100}%)` }} />
+          <i className={`absolute inset-y-0 ${ends} ${BAR[r.tone]}`} style={{ left: `${lo * 100}%`, width: `max(3px, ${(hi - lo) * 100}%)` }} />
         </span>
         <span className={`text-right ${pnlClass(value)} ${r.name === "Net" ? "font-semibold" : ""}`}>{signed(value, dp)}</span>
       </div>
