@@ -18,10 +18,12 @@ counts come from the ledger.
 
 ## Choose the next experiment
 
-Rank rule changes by expected effect, uncertainty, mechanism support, previous exploration,
-information value and execution cost. Write the reasons that determine the ordering in a priority
-judgment, separately from the candidate recommendation. Negative evidence updates priority and
-reassessment conditions, not permission to research a direction.
+Rank strategy changes, sizing and allocation included, by the gap to the user's targets, expected
+effect, uncertainty, mechanism support, previous exploration, information value and execution cost.
+Sizing and allocation test the account effect, not competing explanations; positive net return on
+low capital use asks first how capital is allocated. Write the reasons that determine the ordering
+in a priority judgment, separately from the candidate recommendation. Negative evidence updates
+priority and reassessment conditions, not permission to research a direction.
 
 The leading action names its supporting report slice or section, measure and direction, run and
 ledger commit, affected duties and the policy explanation it tests. Separate observed facts from

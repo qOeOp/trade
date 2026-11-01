@@ -160,4 +160,4 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
   previously unused subsets, support conditional observations, never independent validation or
   claims of generalization or absence of overfitting.
 
-The user's return and drawdown targets guide interpretation, not candidate eligibility.
+The user's return and drawdown targets guide interpretation and priority, not candidate eligibility.
