@@ -106,9 +106,9 @@ The full-history backup of a profile: `&lt;destination or backup_root&gt;/backup
 def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None=None) -> str | None
 ```
 
-The research branch head of a dolt_backup copy, read from a restore in a new temporary directory (deleted afterwards); None when there is no backup. A restore or listing that fails, times out or returns no readable branch list is DOLT_BACKUP.
+The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the branches of a repository in a new temporary directory (deleted afterwards) whose store links the backup's table files, so reading a head copies no history whatever the backup's size. A backup without a manifest, or a listing that fails, times out or returns no readable branch list, is DOLT_BACKUP.
 
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/admin.py#L76)
+[源码](https://github.com/qOeOp/trade/blob/main/ledger/admin.py#L97)
 
 #### `market_backup` [#impl-ledger-admin-py-market_backup]
 

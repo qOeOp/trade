@@ -4,9 +4,9 @@ review needs from here: that a connection is a reader, and the head commit of th
 Records are read only through the reader account at one exact version. The full-history backup is
 an incremental dolt_backup sync by the service's administrator (the only account that may run it),
 to `<destination>/backup` outside the service directory and any Git work tree; its head is read
-back from a restored copy in a new temporary directory. The reproduction manifest beside it,
-`<destination>/reproduce/`, lists every exported run's replay identity; replaying from it can be
-checked with engine.compare_reports.
+back by Dolt from a temporary repository linked to the backup's table files, never a full
+restore. The reproduction manifest beside it, `<destination>/reproduce/`, lists every exported
+run's replay identity; replaying from it can be checked with engine.compare_reports.
 
 A sync that would replace a backup whose head is no commit of the history (another database's
 backup, or a rewritten commit) is refused, since dolt_backup overwrites it silently (measured on
@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -36,11 +37,10 @@ EXPORT_FORMAT = "ledger-export-v2"
 MANIFEST = "manifest.json"
 BACKUP, REPRODUCE = "backup", "reproduce"
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE")
-# A restore copies the whole backup, even when the sync itself was incremental. Keep a
-# bounded budget that grows with the retained history instead of killing large restores
-# after the same ten minutes as a branch-list query.
-BACKUP_RESTORE_STARTUP_SECONDS = 600
-BACKUP_RESTORE_BYTES_PER_SECOND = 32 * 1024 * 1024
+# Dolt's chunk-store file names: table files and archives are named by their content; the journal
+# has one fixed name and is appended to.
+TABLE_FILE = re.compile(r"[0-9a-v]{32}(\.darc)?")
+JOURNAL_FILE = "v" * 32
 
 
 def require_reader(conn: db.LedgerConnection) -> None:
@@ -78,17 +78,28 @@ def backup_path(profile: db.LedgerProfile, destination: Path | None = None) -> P
     return None if root is None else Path(root) / BACKUP
 
 
-def _backup_restore_timeout(backup: Path) -> int:
-    size = sum(path.stat().st_size for path in backup.rglob("*") if path.is_file())
-    transfer_seconds = (size + BACKUP_RESTORE_BYTES_PER_SECOND - 1) // BACKUP_RESTORE_BYTES_PER_SECOND
-    return BACKUP_RESTORE_STARTUP_SECONDS + transfer_seconds
+def _link_store(backup: Path, store: Path) -> None:
+    """Dolt's chunk store at `store` over the files of `backup`: table files are named by their content
+    and never rewritten, so they are linked; the manifest and anything else Dolt may write on open
+    (a journal) are copied, and the backup's lock is left behind, so nothing reaches the backup."""
+    store.mkdir()
+    for path in backup.iterdir():
+        if path.name == "LOCK":
+            continue
+        if path.is_dir():
+            _link_store(path, store / path.name)
+        elif TABLE_FILE.fullmatch(path.name) and path.name != JOURNAL_FILE:
+            (store / path.name).symlink_to(path.resolve())
+        else:
+            shutil.copy2(path, store / path.name)
 
 
 def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = None) -> str | None:
-    """The research branch head of a dolt_backup copy, read from a restore in a new temporary
-    directory (deleted afterwards); None when there is no backup. A restore or listing that fails,
-    times out or returns no readable branch list is DOLT_BACKUP. The full restore has a
-    size-based time budget; listing the restored branches retains its ten-minute limit."""
+    """The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the
+    branches of a repository in a new temporary directory (deleted afterwards) whose store links the
+    backup's table files, so reading a head copies no history whatever the backup's size. A backup
+    without a manifest, or a listing that fails, times out or returns no readable branch list, is
+    DOLT_BACKUP."""
     backup = Path(backup)
     if not backup.is_dir():
         return None
@@ -96,23 +107,27 @@ def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = No
     binary = config.get("binary")
     if not binary:
         raise refuse("DOLT_BINARY", "the ledger service records no Dolt executable")
+    if not (backup / "manifest").is_file():
+        raise refuse("DOLT_BACKUP", f"the backup at {backup} holds no Dolt manifest", missing=(str(backup),))
     work = Path(tempfile.mkdtemp(prefix="backup-head-"))
-    phase = "configure restore"
+    phase = "configure"
     try:
-        environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home")}
+        # Dolt flushes usage events from a detached process that would recreate the deleted home.
+        environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home"), "DOLT_DISABLE_EVENT_FLUSH": "1"}
         (work / "home").mkdir()
         for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
             subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
                            capture_output=True, timeout=60)
-        phase = "restore"
-        restored = subprocess.run([binary, "backup", "restore", backup.resolve().as_uri(), "restored"], cwd=work,
-                                  env=environment, capture_output=True, text=True,
-                                  timeout=_backup_restore_timeout(backup))
-        if restored.returncode:
-            raise refuse("DOLT_BACKUP", f"the backup at {backup} cannot be restored", missing=(str(backup),))
-        phase = "list restored branches"
+        phase = "open"
+        repository = work / "repository"
+        repository.mkdir()
+        subprocess.run([binary, "init"], cwd=repository, env=environment, check=True, capture_output=True,
+                       timeout=60)
+        shutil.rmtree(repository / ".dolt" / "noms")
+        _link_store(backup, repository / ".dolt" / "noms")
+        phase = "list branches"
         listed = subprocess.run([binary, "sql", "-r", "json", "-q", "SELECT name, hash FROM dolt_branches"],
-                                cwd=work / "restored", env=environment, capture_output=True, text=True, timeout=600)
+                                cwd=repository, env=environment, capture_output=True, text=True, timeout=600)
         if listed.returncode:
             raise refuse("DOLT_BACKUP", f"the branches of the backup at {backup} cannot be listed",
                          missing=(str(backup),))
