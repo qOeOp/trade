@@ -83,12 +83,15 @@ research universe.
   ratios are input facts: the replay delivers only the rows stored, and an empty ratio arrives as
   `None`. Report them by contract and month beside the ratio the source reads; months where that
   ratio is mostly empty are a gap on an input value the strategy reads (part 4 above).
-- The contracts in the `--symbols` of `deploy/compose.yaml`'s `metrics-import` service get their
-  metrics imported and published daily without asking; the user authorized it. For those, never
-  offer `market import-metrics`: read the service's health (`docker compose -f deploy/compose.yaml
-  ps metrics-import`) and its status file, and report a gap with the contract's state there
-  (`waiting`, `lagging` or `stopped` with its refusal). Any other contract's missing months are
-  supplied through `market import-metrics`, a public write the user decides, as in part 4.
+- `deploy/compose.yaml`'s `market-import` service imports and publishes without asking; the user
+  authorized it. It keeps the bars of every contract in the market's scope through the last closed
+  day, and for the contracts in its `--symbols` the metrics daily and the quotes and aggTrades of each
+  closed month after the latest one held. For what it keeps, never offer a manual import: read the
+  service's health (`docker compose -f deploy/compose.yaml ps market-import`) and its status file,
+  and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
+  it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before a
+  contract's first held month, are supplied through `market import`, `market import-quotes` or
+  `market import-metrics`, a public write the user decides, as in part 4.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
 - When a new month arrives, read the latest complete month and compare it with the line's window
