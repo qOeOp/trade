@@ -22,14 +22,14 @@ counts come from the ledger.
 Rank rule changes, sizing and allocation included, by the gap to the user's targets, expected
 effect, uncertainty, mechanism support, previous exploration, information value and execution cost.
 A sizing or allocation change tests its account effect against the targets, not competing
-explanations. Write each action's standing on these grounds in a priority judgment, separately from
-the candidate recommendation. Negative evidence updates priority and reassessment conditions, not
-permission to research a direction.
+explanations. Write each action's standing on these grounds in a priority judgment citing its runs
+and ledger commit, separately from the candidate recommendation. Negative evidence updates priority
+and reassessment conditions, not permission to research a direction.
 
-The leading action names its supporting report slice or section, measure and direction, run and
-ledger commit, affected duties and the policy explanation it tests. Separate observed facts from
-conjecture. Parameter choices need supporting evidence or an explicit statement that they are
-exploratory. Information value is the ability to distinguish competing explanations; an expected
-effect below the comparison's detectable difference (in `minimum_effect` units) will likely not be
-distinguished on that data, and repeated metrics, labels and registrations on the same
-development data are not independent evidence.
+The leading action names its supporting report slice or section, measure and direction, affected
+duties and the policy explanation it tests. Separate observed facts from conjecture. Parameter
+choices need supporting evidence or an explicit statement that they are exploratory. Information
+value is the ability to distinguish competing explanations; an expected effect below the
+comparison's detectable difference (in `minimum_effect` units) will likely not be distinguished on
+that data, and repeated metrics, labels and registrations on the same development data are not
+independent evidence.

@@ -16,9 +16,9 @@ supports the mechanism, the parameter or only the method. Explain how the source
 question, control, prediction or priority; if it is only background, explain why the local question
 still comes first without inventing an effect on the decision. Local evidence names run and commit.
 
-Your memory of the development window's prices, funding and events is look-ahead no replay check
-catches: it is neither external evidence nor local diagnosis and supports no rationale. For each
-event the rationale relies on, state whether it was knowable before the decision.
+Your training-data memory of the development window's prices, funding and events is look-ahead no
+replay check catches: it is neither external evidence nor local diagnosis and supports no rationale.
+For each event the rationale relies on, state whether it was knowable before the decision.
 
 Describe the economic mechanism, who bears its cost and why it could persist under this line's
 conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
