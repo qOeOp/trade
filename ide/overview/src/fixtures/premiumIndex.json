@@ -1,0 +1,56 @@
+[
+ {
+  "symbol": "DEFIUSDT",
+  "markPrice": "829.90513793",
+  "lastFundingRate": "0.00000000",
+  "nextFundingTime": 1793577600000
+ },
+ {
+  "symbol": "XAUUSDT",
+  "markPrice": "3894.07000000",
+  "lastFundingRate": "0.00000000",
+  "nextFundingTime": 1793563200000
+ },
+ {
+  "symbol": "SANTOSUSDT",
+  "markPrice": "0.41135199",
+  "lastFundingRate": "0.00005000",
+  "nextFundingTime": 1793563200000
+ },
+ {
+  "symbol": "1000SHIBUSDT",
+  "markPrice": "0.00468192",
+  "lastFundingRate": "0.00010000",
+  "nextFundingTime": 1793577600000
+ },
+ {
+  "symbol": "BTCUSDT",
+  "markPrice": "77930.93027536",
+  "lastFundingRate": "0.00010000",
+  "nextFundingTime": 1793577600000
+ },
+ {
+  "symbol": "OMGUSDT",
+  "markPrice": "0.15445273",
+  "lastFundingRate": "0.00000000",
+  "nextFundingTime": 1793577600000
+ },
+ {
+  "symbol": "ETHBTC",
+  "markPrice": "0.02904300",
+  "lastFundingRate": "-0.00008417",
+  "nextFundingTime": 1793577600000
+ },
+ {
+  "symbol": "ETHUSDT",
+  "markPrice": "2265.14783721",
+  "lastFundingRate": "-0.00000234",
+  "nextFundingTime": 1793577600000
+ },
+ {
+  "symbol": "USDCUSDT",
+  "markPrice": "1.00047428",
+  "lastFundingRate": "-0.00002443",
+  "nextFundingTime": 1793577600000
+ }
+]

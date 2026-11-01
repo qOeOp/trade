@@ -5,7 +5,9 @@ export const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "ca
 export const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
 export const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
 export const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark",
-  "candle-up", "candle-down", "pnl-up", "pnl-down", "equity", "event", "line-shadow"] as const;
+  "candle-up", "candle-down", "pnl-up", "pnl-down", "equity", "event", "line-shadow",
+  "heat-0", "heat-up-1", "heat-up-2", "heat-up-3", "heat-down-1", "heat-down-2", "heat-down-3",
+  "heat-ink", "heat-ink-0", "heat-ink-1", "heat-badge", "heat-badge-0", "heat-badge-1", "heat-edge"] as const;
 export const BRAND = ["brand-deepseek", "brand-openai", "brand-anthropic"] as const;
 
 export type SurfaceRole = (typeof SURFACE)[number];

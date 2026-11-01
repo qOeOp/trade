@@ -1,0 +1,46 @@
+{
+ "tickers": [
+  {
+   "symbol": "1000SHIBUSDT",
+   "base": "1000SHIB",
+   "coin_id": "1000shib",
+   "contract_type": "perpetual"
+  },
+  {
+   "symbol": "BTCUSDT",
+   "base": "BTC",
+   "coin_id": "bitcoin",
+   "contract_type": "perpetual"
+  },
+  {
+   "symbol": "ETHBTC",
+   "base": "ETH",
+   "coin_id": "ethereum",
+   "contract_type": "perpetual"
+  },
+  {
+   "symbol": "ETHUSDT",
+   "base": "ETH",
+   "coin_id": "ethereum",
+   "contract_type": "perpetual"
+  },
+  {
+   "symbol": "SANTOSUSDT",
+   "base": "SANTOS",
+   "coin_id": "santos-fc-fan-token",
+   "contract_type": "perpetual"
+  },
+  {
+   "symbol": "USDCUSDT",
+   "base": "USDC",
+   "coin_id": "usd-coin",
+   "contract_type": "perpetual"
+  },
+  {
+   "symbol": "XAUUSDT",
+   "base": "XAU",
+   "coin_id": null,
+   "contract_type": "perpetual"
+  }
+ ]
+}

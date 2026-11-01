@@ -93,6 +93,23 @@
   --cal-down-1: light-dark(color-mix(in oklab, var(--pnl-down) 10%, var(--island)), color-mix(in oklab, var(--pnl-down) 16%, var(--island)));
   --cal-down-2: light-dark(color-mix(in oklab, var(--pnl-down) 20%, var(--island)), color-mix(in oklab, var(--pnl-down) 30%, var(--island)));
   --cal-down-3: light-dark(color-mix(in oklab, var(--pnl-down) 34%, var(--island)), color-mix(in oklab, var(--pnl-down) 46%, var(--island)));
+  /* the Market heatmap's tiles: a narrow grey middle and three steps each way, the up and down pair mixed
+     into the grey at fixed shares (never into black, so neighbouring steps stay apart); white ink on them,
+     the text colour on the grey and on light mode's first steps, and a glass badge in either ink */
+  --heat-0: light-dark(oklch(0.885 var(--n-c) var(--n-h)), oklch(0.38 var(--n-c) var(--n-h)));
+  --heat-up-1: light-dark(color-mix(in oklab, var(--candle-up) 50%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 55%, var(--heat-0)));
+  --heat-up-2: light-dark(color-mix(in oklab, var(--candle-up) 80%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 72%, var(--heat-0)));
+  --heat-up-3: light-dark(color-mix(in oklab, var(--candle-up) 88%, var(--heat-0)), color-mix(in oklab, var(--candle-up) 85%, var(--heat-0)));
+  --heat-down-1: light-dark(color-mix(in oklab, var(--candle-down) 40%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 48%, var(--heat-0)));
+  --heat-down-2: light-dark(color-mix(in oklab, var(--candle-down) 76%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 68%, var(--heat-0)));
+  --heat-down-3: light-dark(color-mix(in oklab, var(--candle-down) 88%, var(--heat-0)), color-mix(in oklab, var(--candle-down) 85%, var(--heat-0)));
+  --heat-ink: oklch(0.985 0 0);
+  --heat-ink-0: var(--fg);
+  --heat-ink-1: light-dark(var(--fg), oklch(0.985 0 0));
+  --heat-badge: oklch(1 0 0 / 0.16);
+  --heat-badge-0: light-dark(oklch(0 0 0 / 0.07), oklch(1 0 0 / 0.1));
+  --heat-badge-1: light-dark(oklch(0 0 0 / 0.07), oklch(1 0 0 / 0.16));
+  --heat-edge: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.07), oklch(1 0 0 / 0.14));
 
   /* code: IntelliJ's Python colours (Islands light, dark); a diff tints lines with the meets and fail hues */
   --code-keyword: light-dark(#0033B3, #CF8E6D);

@@ -4,6 +4,7 @@ import type { LineageWidget } from "../model/types";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
 import { useAgentService } from "../state/agent";
+import { useOverviewService } from "../state/market";
 import { usePaperPanel } from "../state/paper";
 import { PaperDialogs } from "../components/PaperDialogs";
 import { setSideSize, useShell, type Side } from "../state/shell";
@@ -35,8 +36,9 @@ export function Shell() {
   const lineage = useWidget<LineageWidget>("lineage@2");
   const agent = useAgentService() === "present";
   const paper = usePaperPanel();
+  const overview = useOverviewService(), market = overview === "present" || overview === "offline";
   const { open, size } = useShell();
-  const windows = useMemo(() => toolWindows(view.widgets, agent), [view, agent]);
+  const windows = useMemo(() => toolWindows(view.widgets, agent, market), [view, agent, market]);
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);

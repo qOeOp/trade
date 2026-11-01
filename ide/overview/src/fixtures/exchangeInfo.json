@@ -1,0 +1,116 @@
+{
+ "symbols": [
+  {
+   "symbol": "BTCUSDT",
+   "pair": "BTCUSDT",
+   "contractType": "PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "BTC",
+   "quoteAsset": "USDT",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "PoW",
+    "Crypto"
+   ]
+  },
+  {
+   "symbol": "ETHUSDT",
+   "pair": "ETHUSDT",
+   "contractType": "PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "ETH",
+   "quoteAsset": "USDT",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "Layer-1",
+    "Crypto"
+   ]
+  },
+  {
+   "symbol": "OMGUSDT",
+   "pair": "OMGUSDT",
+   "contractType": "PERPETUAL",
+   "status": "SETTLING",
+   "baseAsset": "OMG",
+   "quoteAsset": "USDT",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "Layer-2"
+   ]
+  },
+  {
+   "symbol": "DEFIUSDT",
+   "pair": "DEFIUSDT",
+   "contractType": "PERPETUAL",
+   "status": "SETTLING",
+   "baseAsset": "DEFI",
+   "quoteAsset": "USDT",
+   "underlyingType": "INDEX",
+   "underlyingSubType": [
+    "Index"
+   ]
+  },
+  {
+   "symbol": "1000SHIBUSDT",
+   "pair": "1000SHIBUSDT",
+   "contractType": "PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "1000SHIB",
+   "quoteAsset": "USDT",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "Meme",
+    "Crypto"
+   ]
+  },
+  {
+   "symbol": "USDCUSDT",
+   "pair": "USDCUSDT",
+   "contractType": "PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "USDC",
+   "quoteAsset": "USDT",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "Crypto"
+   ]
+  },
+  {
+   "symbol": "ETHBTC",
+   "pair": "ETHBTC",
+   "contractType": "PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "ETH",
+   "quoteAsset": "BTC",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "Cross Pair",
+    "Crypto"
+   ]
+  },
+  {
+   "symbol": "SANTOSUSDT",
+   "pair": "SANTOSUSDT",
+   "contractType": "PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "SANTOS",
+   "quoteAsset": "USDT",
+   "underlyingType": "COIN",
+   "underlyingSubType": [
+    "Crypto"
+   ]
+  },
+  {
+   "symbol": "XAUUSDT",
+   "pair": "XAUUSDT",
+   "contractType": "TRADIFI_PERPETUAL",
+   "status": "TRADING",
+   "baseAsset": "XAU",
+   "quoteAsset": "USDT",
+   "underlyingType": "COMMODITY",
+   "underlyingSubType": [
+    "TradFi"
+   ]
+  }
+ ]
+}

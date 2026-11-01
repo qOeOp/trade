@@ -1,0 +1,44 @@
+[
+ {
+  "symbol": "ETHUSDT",
+  "lastPrice": "2265.08",
+  "priceChangePercent": "0.425",
+  "quoteVolume": "2567662080.15"
+ },
+ {
+  "symbol": "BTCUSDT",
+  "lastPrice": "77930.00",
+  "priceChangePercent": "0.337",
+  "quoteVolume": "3743660962.52"
+ },
+ {
+  "symbol": "1000SHIBUSDT",
+  "lastPrice": "0.004682",
+  "priceChangePercent": "-0.064",
+  "quoteVolume": "12520606.713466"
+ },
+ {
+  "symbol": "USDCUSDT",
+  "lastPrice": "1.0004710",
+  "priceChangePercent": "-0.001",
+  "quoteVolume": "2627066.4655740"
+ },
+ {
+  "symbol": "ETHBTC",
+  "lastPrice": "0.029043",
+  "priceChangePercent": "-0.021",
+  "quoteVolume": "24.837592"
+ },
+ {
+  "symbol": "SANTOSUSDT",
+  "lastPrice": "0.4115000",
+  "priceChangePercent": "-0.939",
+  "quoteVolume": "454291.5383200"
+ },
+ {
+  "symbol": "XAUUSDT",
+  "lastPrice": "3894.08",
+  "priceChangePercent": "0.117",
+  "quoteVolume": "172164317.85"
+ }
+]

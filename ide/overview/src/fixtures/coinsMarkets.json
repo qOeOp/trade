@@ -1,0 +1,37 @@
+[
+ {
+  "id": "bitcoin",
+  "symbol": "btc",
+  "name": "Bitcoin",
+  "market_cap": 1566586897594,
+  "fully_diluted_valuation": 1566586897594
+ },
+ {
+  "id": "ethereum",
+  "symbol": "eth",
+  "name": "Ethereum",
+  "market_cap": 276514817176,
+  "fully_diluted_valuation": 276514817176
+ },
+ {
+  "id": "1000shib",
+  "symbol": "1000shib",
+  "name": "1000SHIB",
+  "market_cap": null,
+  "fully_diluted_valuation": null
+ },
+ {
+  "id": "usd-coin",
+  "symbol": "usdc",
+  "name": "USDC",
+  "market_cap": 71509217735,
+  "fully_diluted_valuation": 71525884647
+ },
+ {
+  "id": "santos-fc-fan-token",
+  "symbol": "santos",
+  "name": "Santos FC Fan Token",
+  "market_cap": 6619682,
+  "fully_diluted_valuation": 12338755
+ }
+]
