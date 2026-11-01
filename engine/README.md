@@ -86,8 +86,9 @@ maintenance margin is fixed at the position's average entry price; fills take th
 depth; the quotes themselves are an inference from trades (see `market/README.md`).
 
 Trade ticks are signal input for the quote environment. The entry's `--trade-ticks` (a host flag, never
-passed to the runner; `TRADE_TICKS_NEED_QUOTES` without `--execution quotes`, where an order a trade
-prompts mid-minute would match the whole minute's bar) exports every stored aggregate trade
+passed to the runner; `TRADE_TICKS_NEED_QUOTES` without `--execution quotes`, where a market order fills
+at once at the previous bar's close, so one a trade prompts mid-minute would fill at a price up to 59 seconds
+older than the trade) exports every stored aggregate trade
 (`market import-trades`) as one native `TradeTick` and counts it in the receipt (`counts.trade`, present
 only then, so an export without trades keeps its bytes). The runner streams the trades of every contract
 whose receipt counts them, each wrapped as `CustomData(DataType("TradeTick", metadata={"instrument_id":

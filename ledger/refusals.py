@@ -294,7 +294,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           ("Replay again into a new directory; report the runner if it persists.",)),
     # Replays (replay/)
     "TRADE_TICKS_NEED_QUOTES": ("--trade-ticks is given without --execution quotes: in the bar environment an order a "
-                                "trade prompts mid-minute would match the whole minute's bar.",
+                                "trade prompts mid-minute would fill at the previous bar's close, up to 59 seconds "
+                                "older than the trade.",
                                 ("Add --execution quotes with its margin rates, or drop --trade-ticks.",)),
     "RUNNER_OPTION_RESERVED": ("The runner arguments name an option the replay entry writes itself (strategy file, "
                                "class or hash, bindings, output, market inputs).",
