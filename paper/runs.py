@@ -295,6 +295,8 @@ def listing(profile: db.LedgerProfile) -> dict:
                      "source_sha256": row["source_sha256"], "symbols": row["symbols"], "state": state,
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
                      "market_commit": row["market_commit"], "config": row["config"],
-                     "status": seal_row.get("status"), "reasons": seal_row.get("reasons"),
+                     # The status under the current rule (records.verdict), from the reasons sealed; the seal
+                     # keeps the status it was sealed with.
+                     "status": records.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),
                      "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown")})
     return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"), "limit": MAX_RUNNING}

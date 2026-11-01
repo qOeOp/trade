@@ -30,15 +30,29 @@ from ledger.refusals import refuse
 
 
 TABLE = "paper_run"
-READINGS = "paper-readings@2026-11-01"
+READINGS = "paper-readings@2026-11-01b"
 DAY_NS = 86_400 * 10**9
 LOG_TAIL_BYTES = 1024 * 1024
 DELETE_KIND = "paper_delete"
-# How a run may end and still be complete: the user's stop, the engineering duration.
+# How a run may end without a reason recorded: the user's stop, the engineering duration.
 CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
 # The stop reason of a runner killed from outside (a Docker or host restart that did not wait for its stop).
 KILLED = "KILLED"
 KILLED_EXIT = 137  # 128 + SIGKILL
+
+
+# The reasons that leave a run's evidence untrusted (user 2026-11-01): it ran other code than declared, or
+# reached for a host beyond the allowed ones, or a runner that ran left no journal. Every other reason says
+# how the run ended (it crashed, never started, ran out of memory, was refused, raised) and leaves what it
+# journaled standing.
+UNTRUSTED = frozenset({"SOURCE_MISMATCH", "EGRESS_DENIED"})
+
+
+def verdict(reasons) -> str:
+    """A sealed run's status from its reasons: invalid only when its evidence cannot be trusted (UNTRUSTED,
+    or no journal from a runner that started), else complete, however it ended."""
+    found = set(reasons or ())
+    return "invalid" if found & UNTRUSTED or ("JOURNAL_MISSING" in found and "START_FAILED" not in found) else "complete"
 
 
 def bundle_name(paper_id: int) -> str:
@@ -255,7 +269,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
     orders = Counter(line.get("type") for line in lines if line["kind"] == "order")
     return {
         "readings": READINGS, "paper_id": row["paper_id"],
-        "status": "invalid" if reasons else "complete", "reasons": sorted(set(reasons)),
+        "status": verdict(reasons), "reasons": sorted(set(reasons)),
         "started_ns": (summary or {}).get("started_ns") or (lines[0]["wall_ns"] if lines else None),
         "stopped_ns": (summary or {}).get("stopped_ns") or (lines[-1]["wall_ns"] if lines else None),
         "stop_reason": stop_reason, "runner_exit_code": exit_code,

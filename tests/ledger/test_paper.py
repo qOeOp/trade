@@ -83,23 +83,29 @@ class ReadingTests(unittest.TestCase):
         found = paper.readings(ROW, lines, 0, summary(balance_total="100000 USDT", positions_at_stop=[]), 0, None)
         self.assertAlmostEqual(found["max_drawdown"], 1100 / 101000)
 
-    def test_a_run_that_did_not_end_cleanly_is_invalid_with_its_reasons(self):
+    def test_a_run_that_did_not_end_cleanly_keeps_its_reasons_and_is_invalid_only_for_untrusted_evidence(self):
         cases = {
-            "no summary, container gone": (journal(), None, None, None, {"SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}),
-            "crashed": (journal(), None, 1, None, {"SUMMARY_MISSING", "RUNNER_EXIT_NONZERO"}),
-            "runtime failure": (journal(), summary(runtime_failures=2), 0, None, {"RUNTIME_FAILURES"}),
-            "node stopped itself": (journal(), summary(stop_reason="node_stopped"), 0, None, {"STOPPED:node_stopped"}),
-            "another source": (journal(), summary(identity={"source_sha256": "b" * 64}), 0, None, {"SOURCE_MISMATCH"}),
-            "egress denied": (journal(), summary(), 0, b"1 DENY 10.0.0.2 'CONNECT example.com:443 HTTP/1.1'\n",
-                              {"EGRESS_DENIED"}),
+            "no summary, container gone": (journal(), None, None, None, {"SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}, "complete"),
+            "crashed": (journal(), None, 1, None, {"SUMMARY_MISSING", "RUNNER_EXIT_NONZERO"}, "complete"),
+            "runtime failure": (journal(), summary(runtime_failures=2), 0, None, {"RUNTIME_FAILURES"}, "complete"),
+            "node stopped itself": (journal(), summary(stop_reason="node_stopped"), 0, None, {"STOPPED:node_stopped"},
+                                    "complete"),
             "refused": (journal() + [line("refusal", START + 4 * MINUTE, code="PAPER_EXEC_CLIENT_NOT_SANDBOX")],
-                        summary(), 0, None, {"REFUSED:PAPER_EXEC_CLIENT_NOT_SANDBOX"}),
-            "nothing at all": ([], None, None, None, {"JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}),
+                        summary(), 0, None, {"REFUSED:PAPER_EXEC_CLIENT_NOT_SANDBOX"}, "complete"),
+            "another source": (journal(), summary(identity={"source_sha256": "b" * 64}), 0, None, {"SOURCE_MISMATCH"},
+                               "invalid"),
+            "egress denied": (journal(), summary(), 0, b"1 DENY 10.0.0.2 'CONNECT example.com:443 HTTP/1.1'\n",
+                              {"EGRESS_DENIED"}, "invalid"),
+            "nothing at all": ([], None, None, None, {"JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"},
+                               "invalid"),
         }
-        for name, (lines, found_summary, exit_code, egress, reasons) in cases.items():
+        for name, (lines, found_summary, exit_code, egress, reasons, status) in cases.items():
             with self.subTest(name):
                 found = paper.readings(ROW, lines, 0, found_summary, exit_code, egress)
-                self.assertEqual((found["status"], set(found["reasons"])), ("invalid", reasons))
+                self.assertEqual((found["status"], set(found["reasons"])), (status, reasons))
+        never = paper.readings(ROW, [], 0, None, None, None, start_failed=True)
+        self.assertEqual((never["status"], set(never["reasons"])),
+                         ("complete", {"START_FAILED", "JOURNAL_MISSING", "SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}))
 
     def test_a_runner_killed_from_outside_ends_as_a_stop_with_what_it_journaled(self):
         found = paper.readings(ROW, journal(), 0, None, 137, None)
@@ -118,7 +124,7 @@ class ReadingTests(unittest.TestCase):
         for name, (lines, oom, failures, reasons) in cases.items():
             with self.subTest(name):
                 found = paper.readings(ROW, lines, 0, None, 137, None, oom_killed=oom, failures=failures)
-                self.assertEqual((found["status"], set(found["reasons"])), ("invalid", reasons))
+                self.assertEqual((found["status"], set(found["reasons"])), ("complete", reasons))
 
     def test_the_capture_keeps_the_journal_by_utc_day_with_the_same_bytes_each_time(self):
         with tempfile.TemporaryDirectory() as root:

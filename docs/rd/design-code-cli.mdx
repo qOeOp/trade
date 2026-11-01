@@ -1314,13 +1314,14 @@ def market_upgrade(market: dict) -> dict:
 
 <TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" } }} />
 
-**返回**　JSON：\{paper_id, bundle, files: \{path: sha256\}, seal: \{status, reasons, returns, drawdown, funding, fills, orders, gaps, limitations\}, ledger_commit, write_status\}；status 为 complete 或 invalid
+**返回**　JSON：\{paper_id, bundle, files: \{path: sha256\}, seal: \{status, reasons, returns, drawdown, funding, fills, orders, gaps, limitations\}, ledger_commit, write_status\}；status 为 complete 或 invalid：只有证据不可信（SOURCE_MISMATCH、EGRESS_DENIED，或运行过的 runner 没留下日志）才是 invalid，其余原因只说明运行怎么结束的
 
 **期望行为**
 
 1. 以读账号读运行及其封存；读运行目录（日志、摘要、出口代理日志）与运行器日志。
 2. 写捕获包 paper-\<id>-capture（按 UTC 日切的日志、摘要、各日志、seal.json），然后拆掉容器与网络；已有封存的原样返回，write_status 为 replayed。写完经 cli.publish_after 发布。
-3. runner 被外部杀掉（退出码 137，Docker 没记成内存超限，也不是 STOP 文件之后 paper stop 的兜底）时按停止封存：stop_reason 为 KILLED，读数取到日志为止；内存超限加 OUT_OF_MEMORY，仍为 invalid。
+3. runner 被外部杀掉（退出码 137，Docker 没记成内存超限，也不是 STOP 文件之后 paper stop 的兜底）时按停止封存：stop_reason 为 KILLED，读数取到日志为止；内存超限加 OUT_OF_MEMORY。
+4. paper list 的 status 按现行规则由封存的原因推出；seal.json 保留封存时的 status。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1343,7 +1344,7 @@ def market_upgrade(market: dict) -> dict:
 **期望行为**
 
 1. 以读账号读运行、封存与候选最近一次研究回放；读各运行目录与捕获包；问 Docker 这个账本的纸面容器。
-2. 自己不写：页面发起的 start、stop、seal、delete，自己结束的运行的封存，以及 Docker 从外面停掉（SIGTERM，或在守护进程启动前被杀且不是内存超限；没有 STOP 文件）的运行的重新开始，都跑 paper start、stop、seal 或 delete（它们的写入）；从外面停掉的运行以同一组合约开始为一个新运行。
+2. 自己不写：页面发起的 start、stop、seal、delete，自己结束的运行的封存，以及 Docker 从外面停掉（SIGTERM，或在守护进程启动前被杀且不是内存超限；没有 STOP 文件）的运行的重新开始，都跑 paper start、stop、seal 或 delete（它们的写入）；从外面停掉的运行以同一组合约开始为一个新运行；崩溃或没起来的运行也是，同一版本一小时内至多重开 3 次。
 3. 只在回环上听，或在容器内以 TMPDIR 为按原路径挂进来的宿主目录在它自己的地址上听（paper.serve）；IDE 服务用 --paper 找它。
 
 | 拒绝码 | 条件 |
@@ -1367,7 +1368,7 @@ def market_upgrade(market: dict) -> dict:
 
 1. 以读账号读候选；取运行环境镜像（标签先拉取再取摘要）；按 --at 的市场提交读当月成员。
 2. 写一行 paper_run 与运行目录 \<service>/paper/\<database>/\<paper_id>（源码、成员）；起一个内部 Docker 网络，里面是运行器与出口代理，代理只放行 Binance 公开 USD-M 主机；命令立刻返回，容器留着跑。同 --op-id 再来一次是重放。写完经 cli.publish_after 发布。
-3. 容器没起来即 PAPER_START_FAILED：运行封存为 invalid，write_status 写明。
+3. 容器没起来即 PAPER_START_FAILED：运行以 START_FAILED 封存，write_status 写明。
 4. 纸面运行不计试验数、不计暴露。
 
 | 拒绝码 | 条件 |
@@ -1378,7 +1379,7 @@ def market_upgrade(market: dict) -> dict:
 | `UNKNOWN_CANDIDATE`、`BAD_REF` | 候选不存在；--at 解析不到 |
 | `RUNTIME_UNAVAILABLE` | Docker 没有应答，或镜像取不到 |
 | `LEDGER_UPGRADE_REQUIRED` | 账本还没有 paper_run 表 |
-| `PAPER_START_FAILED` | 容器没起来；运行已封存为 invalid |
+| `PAPER_START_FAILED` | 容器没起来；运行已以 START_FAILED 封存 |
 
 **使用**　`paper.runs.start`、<Ref id="cli.publish_after" />
 
