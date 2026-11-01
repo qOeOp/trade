@@ -272,10 +272,10 @@ def _audit_stage(workdir: Path) -> tuple[list[tuple[Path, str, bool]], list[str]
 
 
 def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: list[tuple[Path, str, bool]],
-            workdir: Path, runner_args: list[str], conn: db.LedgerConnection | None, purpose: str,
-            timeout: float | None = None) -> tuple:
+            workdir: Path, runner_args: list[str], purpose: str, timeout: float | None = None) -> tuple:
     """Run the runner, then (with every report present) the auditor and the fingerprint, each in its
-    own named container of one image; seal whatever happened.
+    own named container of one image; seal whatever happened, on a connection of its own: no ledger
+    connection spans the containers, so a ledger restart while they run does not stop the seal.
 
     An interrupt, or `timeout` seconds passing (ReplayTimeout), stops the running container and is
     sealed as interrupted. A research or validation capture refused for size is stored as an invalid
@@ -327,26 +327,18 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         raise
     finally:
         try:
-            execution.seal_capture(ledger, trial_id, workdir, stages, outcome, conn)
+            execution.seal_capture(ledger, trial_id, workdir, stages, outcome)
         except Refusal as refusal:
             if refusal.code == "EXECUTION_CAPTURE_LIMIT":
                 _write_json(workdir / HOST_ERROR, refusal.as_dict())
                 if purpose in trials.RUN_PURPOSES:
-                    _store_capture_refusal(ledger, conn, trial_id, workdir, refusal)
+                    with db.connect(ledger, "writer") as conn:
+                        trials.ingest_capture_refusal(conn, trial_id, workdir, refusal.as_dict())
             if not failed:
                 raise
             print(f"execution capture of trial {trial_id} was refused ({refusal.code}): {refusal.message}",
                   file=sys.stderr)
     return native_exit, audit_exit
-
-
-def _store_capture_refusal(ledger: db.LedgerProfile, conn: db.LedgerConnection | None, trial_id: int, workdir: Path,
-                           refusal: Refusal) -> None:
-    if conn is None:
-        with db.connect(ledger, "writer") as own:
-            trials.ingest_capture_refusal(own, trial_id, workdir, refusal.as_dict())
-        return
-    trials.ingest_capture_refusal(conn, trial_id, workdir, refusal.as_dict())
 
 
 # Replays that are no trial
@@ -409,8 +401,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
             opened = trials.open_trial(conn, "explore", source_sha256, _trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
                                        _start_context(output, argv, mounts, source))
-            native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
-                                              "explore")
+        native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, "explore")
         problems, _ = audit_problems(output, native_exit, audit_exit)
         status = "passed" if not problems else "invalid"
         return {"purpose": "explore", "status": status, "problems": problems, "path": str(output),
@@ -461,8 +452,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
             opened = trials.open_trial(conn, "precheck", revision["source_sha256"], _trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
                                        _start_context(output, argv, mounts, revision["source"]))
-            native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
-                                              "precheck")
+        native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, "precheck")
         problems, _ = audit_problems(output, native_exit, audit_exit)
         return {"purpose": "precheck", "trial_id": opened["trial_id"],
                 "execution_bundle": f"trial-{opened['trial_id']}-execution", "source_sha256": revision["source_sha256"],
@@ -490,19 +480,19 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
         registration_validation.require_fresh(registration_seams.current.checkout())
     with db.connect(ledger, "writer") as conn:
         revision = strategies.read_candidate(conn, strategy)
-        exported = None
-        try:
-            _, exported = _export(market, at, runner_argv, True, ledger)
-            sealed = seal(ledger, conn, revision, runtime, exported, runner_argv, hypothesis, validation, market=market,
-                          output=output)
-        finally:
-            _cleanup(exported)
+    exported = None
+    try:
+        _, exported = _export(market, at, runner_argv, True, ledger)
+        sealed = seal(ledger, revision, runtime, exported, runner_argv, hypothesis, validation, market=market,
+                      output=output)
+    finally:
+        _cleanup(exported)
     return {"purpose": "research" if hypothesis is not None else "validation", "strategy": strategy, **sealed}
 
 
-def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping, runtime: str | None, inputs: Mapping,
-         runner_argv: list[str], hypothesis: str | None, validation: int | None, *, market=None,
-         timeout: float | None = None, output: Path | None = None) -> dict:
+def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, inputs: Mapping, runner_argv: list[str],
+         hypothesis: str | None, validation: int | None, *, market=None, timeout: float | None = None,
+         output: Path | None = None) -> dict:
     """Bind, execute and store one sealed replay; the working directory is deleted once stored unless it
     is `output` (new, under the temporary root), kept as a cache that report.tables checks against the
     sealed capture.
@@ -545,14 +535,16 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
             purpose = "validation"
             binder = registration_validation.validation_binder(validation, source_sha256, _identity4(identity),
                                                                inspection, market=market)
-        opened = trials.open_trial(conn, purpose, source_sha256, _trial_runtime(identity, inspection),
-                                   {"identity": inputs["identity"], "input_coverage": coverage}, runner["window"],
-                                   _start_context(workdir, argv, mounts, revision["source"]), binder)
+        with db.connect(ledger, "writer") as conn:
+            opened = trials.open_trial(conn, purpose, source_sha256, _trial_runtime(identity, inspection),
+                                       {"identity": inputs["identity"], "input_coverage": coverage}, runner["window"],
+                                       _start_context(workdir, argv, mounts, revision["source"]), binder)
         trial_id = opened["trial_id"]
         try:
-            execute(ledger, trial_id, identity, mounts, workdir, argv, conn, purpose, timeout)
+            execute(ledger, trial_id, identity, mounts, workdir, argv, purpose, timeout)
         except Refusal as exc:
-            stored = conn.one("SELECT trial_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))
+            with db.connect(ledger, "writer") as conn:
+                stored = conn.one("SELECT trial_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))
             if exc.code != "EXECUTION_CAPTURE_LIMIT" or stored is None:
                 raise
             print(f"replay directory kept for diagnosis (capture refused for size): {workdir}", file=sys.stderr)
@@ -561,7 +553,9 @@ def seal(ledger: db.LedgerProfile, conn: db.LedgerConnection, revision: Mapping,
         if registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"] != raw_before:
             host.append(problems.reason("INPUTS_CHANGED", "exported inputs changed during the replay",
                                         "export_content_sha256"))
-        stored = trials.ingest_run(conn, trial_id, workdir, inputs["identity"], host_reasons=host, checkout=checkout)
+        with db.connect(ledger, "writer") as conn:
+            stored = trials.ingest_run(conn, trial_id, workdir, inputs["identity"], host_reasons=host,
+                                       checkout=checkout)
     except BaseException:
         if (workdir / execution.PROCESS).exists():
             print(f"replay directory kept for diagnosis: {workdir}", file=sys.stderr)
