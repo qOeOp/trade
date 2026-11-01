@@ -2,7 +2,9 @@ import { useWidget, useView } from "../../model/view";
 import type { LineageWidget } from "../../model/types";
 import { backtestNote, useBacktest } from "../../state/backtest";
 import { usePaperService } from "../../state/paper";
+import { useAtom } from "../../state/atom";
 import { useRunData } from "../../state/runData";
+import { paperTab } from "../../state/stage";
 import { useShown } from "../../state/shown";
 import { ChartCard } from "./ChartCard";
 
@@ -24,12 +26,12 @@ function Offline() {
 /** The Runs page, in the editor's island: the selected version's chart (state/shown.ts), its paper run
  *  picked in the main toolbar. The chart picks what the Trades window follows: a contract, or Equity
  *  for all of them; until the user picks, it opens on a contract holding a position, else on Equity.
- *  A version with no paper run shows its backtest alone. Details and the Trades window describe the stage
- *  shown. */
+ *  A version with no paper run shows its backtest alone, on Equity or a contract it traded. Details and
+ *  the Trades window describe the stage shown. */
 export function RunsPage() {
   const service = usePaperService();
   const { version, trial, run, stage } = useShown(), backtest = useBacktest();
-  const data = useRunData();
+  const data = useRunData(), tab = useAtom(paperTab);
   const view = useView();
   const lineage = useWidget<LineageWidget>("lineage@2");
   const t = view.targets ?? lineage?.targets ?? null;
@@ -45,7 +47,7 @@ export function RunsPage() {
     if (backtest?.kind !== "ready" || backtest.b.starting === null) return <Empty>{[backtestNote(backtest, trial.trial_id), paper].filter(Boolean).join(" · ")}</Empty>;
     return (
       <div className="@container/page grid h-full min-h-0">
-        <ChartCard {...card} run={null} view="equity" s={null} a={null} fills={[]} stretches={[]} paper={paper} />
+        <ChartCard {...card} run={null} view={backtest.b.cycles.some((c) => c.symbol === tab) ? tab! : "equity"} s={null} a={null} fills={[]} stretches={[]} paper={paper} />
       </div>
     );
   }

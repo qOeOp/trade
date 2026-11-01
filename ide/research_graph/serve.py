@@ -2,13 +2,16 @@
 
 The page is the web renderer's built page without a view: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger
-sql` for a head, `research graph` for a graph and `replay report --tables` for a trial's report (the Runs
-page's backtest, `/api/trial`, at a full ledger commit), so this module imports no product package. While
+sql` for a head, `research graph` for a graph, `replay report --tables` for a trial's report (the Runs
+page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
+daily bars (its backtest candles, `/api/bars`, whole UTC days at a full market commit, on the market
+profile given or the active one), so this module imports no product package. While
 a page without `at` is open the head is read every `poll` seconds; when it moves, each open page's
 graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
 by ledger, build, commit, line and `since`, retaining a scope's newest live completion before its
 older duplicates. A named live page can show that completion while a newer head is still drawing;
-up to 16 trials' reports stay in memory, keyed by trial and commit. Nothing is written anywhere.
+up to 16 trials' reports and 16 contracts' daily bars stay in memory, keyed by what they were read for.
+Nothing is written anywhere.
 
 With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
 pass the same Host and cross-site checks and are then forwarded to it as they are, the answer
@@ -26,7 +29,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -52,6 +55,9 @@ PAPER = "/api/paper/"
 PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
 TRIALS = 16
+BARS = 16
+SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
+DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
 STALE = timedelta(hours=26)  # market.follow.STALE: a status older than this is a stuck command
 
@@ -68,12 +74,21 @@ def _failure(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
 
+def _days(start: str, end: str) -> bool:
+    """Whether `start` and `end` are UTC days, `start` the earlier."""
+    try:
+        return bool(DAY.fullmatch(start) and DAY.fullmatch(end)) and date.fromisoformat(start) < date.fromisoformat(end)
+    except ValueError:
+        return False
+
+
 @dataclass
 class Product:
-    """The product's command line on one ledger profile."""
+    """The product's command line on one ledger profile and a market profile (None: the active one)."""
 
     root: Path
     ledger: str
+    market: str | None = None
 
     def run(self, *arguments: str) -> dict:
         argv = ["uv", "run", "--frozen", "--project", str(self.root), "python", "-m", "cli.main", *arguments]
@@ -108,6 +123,13 @@ class Product:
         """A sealed trial's report with its drill-down tables, as the product gives or refuses it."""
         return self.run("replay", "report", f"--ledger={self.ledger}", f"--trial-id={trial_id}", f"--at={commit}", "--tables")
 
+    def bars(self, symbol: str, start: str, end: str, commit: str) -> dict:
+        """A contract's daily LAST bars from UTC day `start` to `end` (left out) at a market commit, all inline."""
+        days = (date.fromisoformat(end) - date.fromisoformat(start)).days
+        market = [f"--market={self.market}"] if self.market else []
+        return self.run("market", "bars", *market, f"--at={commit}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
+                        f"--start={start}T00:00:00Z", f"--end={end}T00:00:00Z", f"--limit={days}")
+
 
 @dataclass(eq=False)
 class Client:
@@ -140,6 +162,7 @@ class Hub:
         self.product, self.build, self.poll = product, build, poll
         self.line_index = Pinned[str](product.lines)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
+        self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -467,6 +490,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if url.path == "/api/trial":
                 self.trial(query)
                 return
+            if url.path == "/api/bars":
+                self.bars(query)
+                return
             if url.path == "/api/market-import" and status is not None:
                 self.json(*market_import(status, datetime.now(UTC)))
                 return
@@ -497,6 +523,17 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             try:
                 self.json(200, hub.trials.get((int(trial_id), at)))
+            except ProductError as exc:
+                self.json(400, exc.body)
+
+        def bars(self, query: dict[str, str]) -> None:
+            """A contract's daily bars over whole UTC days at a full market commit (kept), or the product's refusal."""
+            symbol, start, end, at = (query.get(name, "") for name in ("symbol", "start", "end", "at"))
+            if query.get("timeframe") != "1d" or not SYMBOL.fullmatch(symbol) or not COMMIT.fullmatch(at) or not _days(start, end):
+                self.json(400, _failure("BAD_REQUEST", "give symbol, timeframe=1d, start and end (UTC days, start first) and at, a full market commit"))
+                return
+            try:
+                self.json(200, hub.bars.get((symbol, start, end, at)))
             except ProductError as exc:
                 self.json(400, exc.body)
 
