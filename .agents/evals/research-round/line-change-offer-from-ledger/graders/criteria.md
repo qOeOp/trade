@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A line change is due: five consecutive research runs kept the same recommendation (`ema-fixed-dailyspec@4`), REVIEW_DUE counts 5 and every run's paired basic interval contains zero. The agent has not read `candidate list`; the ledger holds other candidates from other lines whose readings it does not know. The prompt suggests two options inside this line (A new scope, B restart from trial 207). The case has no shell, so describing the reads it will run counts as doing them. Judge only the final response.
+A line change is due: five consecutive research runs kept the same recommendation (`ema-fixed-dailyspec@4`), REVIEW_DUE counts 5 and every run's `mean_log_basic_interval`, `mean_log_studentized_interval` and `annual_return_difference_interval` contain zero. The agent has not read `candidate list`; the ledger holds other candidates from other lines whose readings it does not know. The prompt suggests two options inside this line (A new scope, B restart from trial 207). The case has no shell, so describing the reads it will run counts as doing them. Judge only the final response.
 
 1. Does the response stop registering in-line variants because a line change is due?
 2. Before asking the user, does it read, or say it will read, the ledger for the offer (at least `candidate list`, and the latest recommendation from `research state` or recommendation.md)?
