@@ -95,6 +95,13 @@ Any finding or any denied or rejected order fails the run.
   submission makes the entire run invalid, even without fills. Submission exactly at the start is
   allowed by this audit; the causal-input rule above still applies. The runner does not drop or
   reschedule orders. An instance delayed by listing or daily warm-up uses its own later start.
+- Decide only on converged indicators. A recursive average with smoothing α keeps (1−α)^k of its
+  seed after k inputs; at one period, when Nautilus sets `initialized`, that is about 14% for an
+  EMA (α = 2/(n+1)) and 37% for a Wilder average (α = 1/n; Nautilus's default ATR). Gate decisions
+  on the source's own input count until the seed weighs under 1% (about 2.5 periods for an EMA,
+  5 for a Wilder average), counted from the instance's first input, so a short or absent
+  `--start` warm-up and a cold paper start are covered too. Indicators with a fixed window
+  (SMA, highest high) are exact once the window is full.
 - With `DAILY_WARMUP = True`, `historical_daily_bars` holds the unbroken run of daily
   `-1-DAY-LAST-EXTERNAL` bars (derived from 1-minute bars, from 2020 at the earliest) that ends
   1 ms before the instance’s input start, at least 200 of them; an instance can be delayed until
