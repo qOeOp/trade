@@ -3,7 +3,8 @@ import type { IconName } from "../icons/registry";
 import { cycleTheme, theme, THEME_LABEL } from "../state/theme";
 import { requestFocus } from "../state/linking";
 import { showLineage } from "../state/editors";
-import { activeIsland, hideSide, paletteOpen, shell, showRunsPage, SIDES, toggleSide, toggleToolWindow, type Side } from "../state/shell";
+import { overviewService } from "../state/market";
+import { activeIsland, hideSide, paletteOpen, shell, showMarketPage, showRunsPage, SIDES, toggleSide, toggleToolWindow, type Side } from "../state/shell";
 import type { ToolWindow } from "./toolWindows";
 
 export type Action = { id: string; label: string; icon?: IconName; keys?: string; binding?: string; whileTyping?: boolean; run: () => void };
@@ -16,6 +17,8 @@ export function commands(windows: readonly ToolWindow[]): Action[] {
       id: `tool:${w.id}`, label: `Toggle ${w.renderer.title}`, icon: w.icon, keys: w.shortcut?.keys, binding: w.shortcut?.binding,
       run: () => toggleToolWindow(w.id, w.side),
     })),
+    ...(overviewService.get() === "absent" ? [] : [{ id: "market", label: "Toggle Market page", icon: "tool.market" as const,
+      run: () => (shell.get().last.left === "market" ? showLineage() : showMarketPage()) }]),
     { id: "runs", label: "Toggle Runs page", icon: "tool.runs", keys: "⌥8", binding: "Alt+Digit8",
       run: () => (shell.get().last.left === "runs" ? showLineage() : showRunsPage()) },
     { id: "side:right", label: "Toggle right tool windows", icon: "panel-right", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },

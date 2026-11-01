@@ -5,6 +5,7 @@ import arrowRightLeft from "lucide-static/icons/arrow-right-left.svg?raw";
 import chartCandlestick from "lucide-static/icons/chart-candlestick.svg?raw";
 import chevronLeft from "lucide-static/icons/chevron-left.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
+import layoutDashboard from "lucide-static/icons/layout-dashboard.svg?raw";
 import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
@@ -91,6 +92,7 @@ export const ICONS = {
   "new-chat": { svg: messageSquarePlus },
   history: { svg: history },
   plus: { svg: plus },
+  "tool.market": { svg: layoutDashboard },
   "tool.runs": { svg: chartCandlestick },
   "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },

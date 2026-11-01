@@ -3,7 +3,7 @@ import { when, plural } from "../../lib/format";
 import { useView } from "../../model/view";
 import { Icon } from "../../icons/Icon";
 import { useSelection } from "../../state/selection";
-import { useOnRunsPage } from "../../state/shell";
+import { useOnMarketPage, useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
 import { KeyValues } from "../../components/KeyValues";
 import { Missing } from "../../components/Missing";
@@ -16,6 +16,7 @@ import { Readings } from "./Readings";
 import { ReplayTable } from "./ReplayTable";
 import { StagePerformance } from "./StagePerformance";
 import { TranslatedCardGroup } from "../../components/TranslatedCardGroup";
+import { MarketDetails } from "../market/MarketDetails";
 
 const OUTCOME: Record<string, [string, string]> = {
   held: ["Held", "text-meets"], failed: ["Failed", "text-misses"], untestable: ["Untestable", "text-fg-faint"],
@@ -112,8 +113,12 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
 
 /** The selected version in full: what changed, why, what was predicted and found, how the stage the
  *  Runs page shows performed, and its records. On the Runs page a paper run that declares no version of
- *  this line has none to show. */
+ *  this line has none to show; the Market page has its own details. */
 export function Detail({ widget }: { widget: DetailWidget }) {
+  return useOnMarketPage() ? <MarketDetails /> : <SelectedDetail widget={widget} />;
+}
+
+function SelectedDetail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
   const { targets } = useView();
   const runsPage = useOnRunsPage(), { run } = useShown();

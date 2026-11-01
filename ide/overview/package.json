@@ -1,0 +1,18 @@
+{
+  "name": "trade-ide-overview",
+  "private": true,
+  "type": "module",
+  "description": "The trade IDE's Market page data: Binance USDT perpetuals, their sectors, quotes and CoinGecko market caps, read from free public endpoints and kept in memory.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "check": "tsc --noEmit",
+    "test": "node --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}

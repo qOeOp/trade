@@ -10,8 +10,9 @@ node and npm:
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--market-import=FILE]
+python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
+node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 ```
 
 ## Service
@@ -63,6 +64,16 @@ page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service gene
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
 [`docs/plans/paper-trading-design.zh.md`](../docs/plans/paper-trading-design.zh.md).
+
+With `--overview=URL`, GETs under `/api/overview/` go to the market overview service (`overview/`,
+Node 24 running its TypeScript directly, no runtime dependencies; started beside serve by the
+deployment's entrypoint), and the page gets the Market page, first on the left stripe: the whole
+Binance USDT perpetual market as a drill-down heatmap (sectors, then a sector's coins, the small tail
+folded into "+N more"), Details for the level or the picked coin, and the Coins tool window. Any other
+method there is refused 405. The service reads Binance's public futures endpoints and CoinGecko with
+GET only and no credential, keeps everything in memory, and answers `/api/overview/health` and
+`/api/overview/snapshot`. `npm test` and `npm run check` in `overview/`. Design:
+[`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md).
 
 With `--market-import=FILE` (the status file `market follow` writes; in compose the `trade-market-import`
 volume, mounted read-only), `/api/market-import` answers that file as it is, read at each request, with

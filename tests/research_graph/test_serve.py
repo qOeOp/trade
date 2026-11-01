@@ -1,8 +1,8 @@
 """If these fail, the served research graph no longer follows the ledger: a page asking for a graph gets
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
 slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, a trial's report and a contract's daily bars are read once each and their refusals reach
-the page, only the page itself, with its token, can start a paper run, and the market-import service's status
-reaches the page as it is, stale by the healthcheck's rule. The product is a stand-in; no ledger or network is used."""
+the page, only the page itself, with its token, can start a paper run, only reads reach the Market page's
+overview, and the market-import service's status reaches the page as it is, stale by the healthcheck's rule. The product is a stand-in; no ledger or network is used."""
 
 import copy
 from datetime import UTC, datetime, timedelta
@@ -524,6 +524,64 @@ class PaperForwardTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/paper/runs").status, 200)
         self.assertEqual(self.seen, [{"method": "POST", "path": "/api/paper/runs", "body": b'{"candidate": "a@1"}', "token": None},
                                      {"method": "GET", "path": "/api/paper/runs", "body": b"", "token": None}])
+
+
+
+class OverviewForwardTests(unittest.TestCase):
+    """A stand-in overview records what reaches it."""
+
+    def setUp(self):
+        self.seen: list[str] = []
+        seen = self.seen
+
+        class Overview(serve.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):  # noqa: N802
+                seen.append(f"{self.command} {self.path}")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "11")
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+
+            do_POST = do_DELETE = do_GET  # noqa: N815
+
+            def log_message(self, *args):
+                pass
+        self.overview = serve.Server(("127.0.0.1", 0), Overview)
+        threading.Thread(target=self.overview.serve_forever, daemon=True).start()
+        self.addCleanup(self.overview.server_close)
+        self.addCleanup(self.overview.shutdown)
+        url = "http://%s:%d" % self.overview.server_address
+        self.server = serve.Server(("127.0.0.1", 0), serve.handler(
+            serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), overview=url))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def call(self, method, path, **headers):
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request(method, path, body=b"{}" if method != "GET" else None, headers={"Host": "here:1", **headers})
+        return conn.getresponse()
+
+    def test_only_the_pages_reads_reach_the_overview(self):
+        self.assertEqual(self.call("GET", "/api/overview/snapshot").status, 200)
+        refused = [self.call(method, "/api/overview/snapshot", **{"Sec-Fetch-Site": "same-origin"}).status for method in ("POST", "DELETE")]
+        self.assertEqual(refused, [405, 405])
+        self.assertEqual(self.call("GET", "/api/overview/snapshot", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+        self.assertEqual(self.seen, ["GET /api/overview/snapshot"])
+
+    def test_without_an_overview_there_is_no_market_data(self):
+        server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        conn = http.client.HTTPConnection(*server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("GET", "/api/overview/health", headers={"Host": "here:1"})
+        self.assertEqual(conn.getresponse().status, 404)
 
 
 if __name__ == "__main__":

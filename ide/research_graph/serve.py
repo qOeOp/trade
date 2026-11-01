@@ -22,6 +22,10 @@ forwarded the same way, and the Runs page can start and stop paper runs. A POST 
 from the page itself (`Sec-Fetch-Site: same-origin`) and carry the token this service generated at start
 and put in the page (`X-Trade-Paper-Token`), so a page on another port of this host cannot start a run.
 
+With an overview URL (the Market page's data, `ide/overview`), GETs under `/api/overview/` are forwarded the
+same way and every other method there is refused (405): the overview reads public market data and changes
+nothing, so nothing but a read reaches it.
+
 With a market-import status file (the one `market follow` writes, mounted read-only), `/api/market-import`
 answers it as it is, read at each request, with whether it is stale by `market.follow.check()`'s rule.
 """
@@ -54,6 +58,7 @@ AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 PAPER = "/api/paper/"
 PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
+OVERVIEW = "/api/overview/"
 TRIALS = 16
 BARS = 16
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
@@ -388,14 +393,15 @@ class Server(ThreadingHTTPServer):
 
 
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
-            status: Path | None = None) -> type[BaseHTTPRequestHandler]:
+            status: Path | None = None, overview: str | None = None) -> type[BaseHTTPRequestHandler]:
     token = secrets.token_urlsafe(24)
     page = _page()
     if paper:
         page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
     # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
-        (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE")) if url}
+        (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
+        (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -469,7 +475,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         def do_POST(self) -> None:  # noqa: N802 (http.server's name)
             if not self.admitted():
                 return
-            if prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
+            if self.path.startswith(OVERVIEW) and OVERVIEW in targets:
+                self.refuse(405, _failure("METHOD_NOT_ALLOWED", "the overview only answers GET"))
+            elif prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
                 self.forward(prefix)
             else:
                 self.refuse(404, _failure("NOT_FOUND", self.path))
@@ -479,7 +487,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         def do_GET(self) -> None:  # noqa: N802 (http.server's name)
             if not self.admitted():
                 return
-            if prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
+            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW) if self.path.startswith(p)), None):
                 self.forward(prefix)
                 return
             url = urlsplit(self.path)
@@ -566,10 +574,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str], poll: float,
-          agent: str | None = None, paper: str | None = None, status: Path | None = None) -> None:
+          agent: str | None = None, paper: str | None = None, status: Path | None = None, overview: str | None = None) -> None:
     hub = Hub(product, build, poll)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
-                                          status))
+                                          status, overview))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

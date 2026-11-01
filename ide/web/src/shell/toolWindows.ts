@@ -1,8 +1,9 @@
 // The tool windows: what each shows (a renderer fed by a view-model widget type), where it docks,
 // its stripe icon and shortcut, and its header actions. A widget type with no tool window and no
 // other place becomes a bottom tool window that names it. Two are fed by the page instead of the view:
-// Trades, the stage the Runs page shows (state/shown.ts), and the Agent, by the chat service, so it
-// appears only when the page's server has one. Every page has them all.
+// Trades, the stage the Runs page shows (state/shown.ts), Coins, the Market page's level (with an
+// overview service), and the Agent, by the chat service, so it appears only when the page's server has
+// one. Every page has them all.
 import type { ComponentType } from "react";
 import type { Widget } from "../model/types";
 import type { IconName } from "../icons/registry";
@@ -14,6 +15,7 @@ import { hideSide, type Side } from "../state/shell";
 import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
 import { RENDERERS, unknownRenderer, type Renderer } from "../widgets/registry";
+import { CoinsWindow } from "../widgets/market/CoinsWindow";
 import { TradesTools, TradesWindow } from "../widgets/paper/TradesWindow";
 import { AgentWindow } from "./agent/AgentWindow";
 
@@ -55,6 +57,10 @@ const TRADES: ToolWindow = {
   renderer: { title: "Trades", Component: TradesWindow }, tools: TradesTools, titled: true, actions: () => [hide("bottom")],
 };
 
+const COINS: ToolWindow = {
+  id: "coins", side: "bottom", icon: "tool.market", source: "coins", renderer: { title: "Coins", Component: CoinsWindow }, actions: () => [hide("bottom")],
+};
+
 const pane = (p: "history" | "settings") => () => agentPane.set(agentPane.get() === p ? "chat" : p);
 const AGENT: ToolWindow = {
   id: "agent", side: "right", icon: "tool.agent", shortcut: alt(0), source: "agent",
@@ -70,9 +76,10 @@ const AGENT: ToolWindow = {
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
 export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
-/** The tool windows in stripe order, each with the widget it shows: the view's, then Trades; with a chat
- *  service, the Agent window last on the right; then the widget types the page does not know. */
-export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWindow & { widget: Widget })[] {
+/** The tool windows in stripe order, each with the widget it shows: the view's, then Trades; with an
+ *  overview service, Coins; with a chat service, the Agent window last on the right; then the widget
+ *  types the page does not know. */
+export function toolWindows(widgets: readonly Widget[], agent = false, market = false): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     return widget ? [{ ...s, widget }] : [];
@@ -83,5 +90,5 @@ export function toolWindows(widgets: readonly Widget[], agent = false): (ToolWin
     renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
   }));
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
-  return [...known, own(TRADES), ...(agent ? [own(AGENT)] : []), ...unknown];
+  return [...known, own(TRADES), ...(market ? [own(COINS)] : []), ...(agent ? [own(AGENT)] : []), ...unknown];
 }

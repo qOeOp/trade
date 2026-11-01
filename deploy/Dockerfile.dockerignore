@@ -17,6 +17,7 @@
 !deploy/entrypoint.sh
 ide/web/node_modules/
 ide/agent/node_modules/
+ide/overview/node_modules/
 ide/web/dist/
 **/__pycache__/
 **/.mypy_cache/

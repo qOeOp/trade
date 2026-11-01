@@ -18,3 +18,20 @@ export const clockSpan = (from: number, to: number) => Math.max(0, Math.floor(to
 export const ratio = (v?: number | null) => (v == null ? MISSING : v.toFixed(2));
 export const when = (v?: string | null) => (v ? v.slice(0, 16).replace("T", " ") : "");
 export const shortSha = (v?: string | null) => (v ? v.slice(0, 8) : MISSING);
+/** Dollars, compact: $1.56T, $820M, $4.1K; `digits` after the point (two by default). */
+export function usd(v?: number | null, digits = 2): string {
+  if (v == null) return MISSING;
+  const [d, unit] = ([[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]] as const).find(([d]) => Math.abs(v) >= d) ?? [1, ""];
+  return minus(`$${+(v / d).toFixed(digits)}${unit}`);
+}
+/** A price to four significant figures, never in exponent form: 109,420, 3.412, 0.00001234. */
+export const price = (v?: number | null) => (v == null ? MISSING
+  : v >= 1000 ? Math.round(v).toLocaleString("en-US") : v.toLocaleString("en-US", { maximumSignificantDigits: 4 }));
+/** A change already in percent, signed: +2.41%, −0.80%; zero unsigned. */
+export const change = (v?: number | null, digits = 2) => {
+  if (v == null) return MISSING;
+  const s = (+v.toFixed(digits) || 0).toFixed(digits);
+  return minus(`${+s > 0 ? "+" : ""}${s}%`);
+};
+/** A funding rate (a fraction per period) in percent to four places: 0.0100%. */
+export const funding = (v?: number | null) => (v == null ? MISSING : minus(`${(+(v * 100).toFixed(4) || 0).toFixed(4)}%`));

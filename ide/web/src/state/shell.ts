@@ -1,15 +1,15 @@
 // The shell's state: which tool window is open on each side (one per side, as IntelliJ without split
 // mode), the last one opened there, each side's size in pixels, the island the user last worked in,
-// and the command palette. Sides and sizes persist in browser storage when it is available. The Runs
-// page takes the editor's place with the left side closed; the right and bottom sides are the same on
-// both pages, so what the user opens on one stays open on the other.
+// and the command palette. Sides and sizes persist in browser storage when it is available. The Market
+// and Runs pages take the editor's place with the left side closed; the right and bottom sides are the
+// same on every page, so what the user opens on one stays open on the others.
 import { atom, persistedAtom, useAtom } from "./atom";
 
 export type Side = "left" | "right" | "bottom";
 export const SIDES: readonly Side[] = ["left", "right", "bottom"];
 type Sides = { open: Record<Side, string | null>; last: Record<Side, string> };
-/** `runsShown`: the Runs page has shown once, so it no longer opens its sides itself. */
-export type ShellState = Sides & { size: Record<Side, number>; runsShown?: boolean };
+/** `runsShown`, `marketShown`: that page has shown once, so it no longer opens its sides itself. */
+export type ShellState = Sides & { size: Record<Side, number>; runsShown?: boolean; marketShown?: boolean };
 
 const DEFAULTS: ShellState = {
   open: { left: "versions", right: "inspector", bottom: "progress" },
@@ -28,6 +28,8 @@ export const shell = persistedAtom<ShellState>("rg-shell@3", DEFAULTS, isState);
 export const useShell = () => useAtom(shell);
 /** Whether the editor shows the Runs page. */
 export const useOnRunsPage = () => onRuns(useAtom(shell));
+/** Whether the editor shows the Market page. */
+export const useOnMarketPage = () => useAtom(shell).last.left === "market";
 
 const update = (f: (s: ShellState) => ShellState) => shell.set(f(shell.get()));
 
@@ -54,6 +56,14 @@ export const showRunsPage = () => update((s) => {
   const right = s.runsShown || s.open.right === "agent" ? s.open.right : "inspector", bottom = s.runsShown ? s.open.bottom : "trades";
   return { ...s, runsShown: true, open: { left: null, right, bottom },
            last: { left: "runs", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
+});
+
+/** The Market page in place of the editor, as the Runs page shows: the first time with Details at the
+ *  right (unless the Agent is open there) and Coins at the bottom. */
+export const showMarketPage = () => update((s) => {
+  const right = s.marketShown || s.open.right === "agent" ? s.open.right : "inspector", bottom = s.marketShown ? s.open.bottom : "coins";
+  return { ...s, marketShown: true, open: { left: null, right, bottom },
+           last: { left: "market", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
 });
 
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
