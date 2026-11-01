@@ -48,7 +48,8 @@ after a repair (Codex: `fork_turns: "none"`). Api, causal and readiness are sour
 activity this precheck's; each guards one risk. The api item covers every native call in the source
 against the pinned image, whether or not the precheck ran it. Causal: inputs precede submission
 (below). Activity: the precheck filled orders, so its order path ran. Readiness: no decision before
-each indicator holds its warm-up history, not research-start's input-coverage check. `replay
+each indicator has converged on its warm-up history, not research-start's input-coverage check.
+Native `initialized` is not convergence for a recursive indicator (strategy-authoring.md). `replay
 explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
