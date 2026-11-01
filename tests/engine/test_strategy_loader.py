@@ -23,7 +23,7 @@ import dataclasses
 
 from engine.config import Refusal
 from engine.config import runtime_source_metadata
-from engine.load import RUNTIME_CONTRACT, load_strategy, strategy_metadata
+from engine.load import RUNTIME_CONTRACT, load_strategy, source_findings, strategy_metadata
 from engine import run
 from engine.run import STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, parse_configuration
 
@@ -153,12 +153,49 @@ class StrategyLoaderTests(unittest.TestCase):
             ("def g():\n    yield\nfound = g().gi_frame.f_back\n", "attribute gi_frame"),
             ("from nautilus_trader.trading import Strategy\nStrategy.on_bar = None\n", "assignment to Strategy.on_bar"),
             ("class P:\n    def f(self):\n        type(self).g = None\n", "assignment to type(self).g"),
+            ("from typing import sys\n", "from typing import"),
+            ("from statistics import sys\n", "from statistics import sys (module sys)"),
+            ("import statistics\nfound = statistics.sys.modules\n", "attribute statistics.sys (module sys)"),
+            ("import calendar\nalias = calendar\n", "module calendar used other than by attribute"),
+            ("import nautilus_trader.model\nc = nautilus_trader.persistence\n",
+             "attribute nautilus_trader.persistence (module nautilus_trader.persistence)"),
+            ("from decimal import getcontext\n", "from decimal import getcontext"),
+            ("match x:\n    case object(__globals__=g): pass\n", "attribute __globals__"),
+            ("from nautilus_trader.trading import Strategy\nfor Strategy.a in []: pass\n",
+             "assignment to Strategy.a"),
+            ("class P:\n    def f(self):\n        cls = type(self)\n", "type(...) kept"),
+            ("class P:\n    def f(self):\n        self.on_bar = None\n", "assignment to self.on_bar"),
+            ("class P:\n    def f(self):\n        self.clock._clock.set_timer()\n", "private attribute self.clock._clock"),
         ):
             self.source.write_text(touch + reach)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
             with self.subTest(reach=reach), self.assertRaisesRegex(Refusal, f"^SOURCE_REACH: .*{re.escape(found)}"):
                 self.load(digest=digest)
         self.assertFalse(marker.exists())
+        for honest in ("class P:\n    def f(self, a, b):\n        self.on_cooldown = isinstance(a, type(b))\n"
+                       "        self._last = f'{type(a)}'\n",
+                       "from decimal import localcontext\nwith localcontext() as context:\n    context.prec = 50\n"):
+            with self.subTest(honest=honest):
+                self.assertEqual(source_findings(honest.encode()), [])
+
+    def test_a_cache_write_fails_the_callback_that_made_it(self):
+        self.source.write_text(SOURCE + "\n    def on_start(self):\n        self.cache.instruments()\n"
+                                        "        self.cache.purge_closed_orders(0)\n")
+        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        run.clear_failures()
+        self.addCleanup(run.clear_failures)
+        STRATEGIES.clear()
+        engine = BacktestEngine(BacktestEngineConfig(
+            logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
+        ))
+        self.addCleanup(engine.dispose)
+        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
+                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
+        engine.add_strategy_from_config(ImportableStrategyConfig(
+            strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
+        with self.assertRaisesRegex(RuntimeError, "CACHE_WRITE"):
+            engine.run()
+        self.assertEqual([(item["stage"], item["code"]) for item in run.FAILURES], [("on_start", "CACHE_WRITE")])
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
         loaded = self.load()

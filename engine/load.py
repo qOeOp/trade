@@ -36,25 +36,30 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 # Strategy
 
 ENVIRONMENT_NAMES = ("QUOTE_EXECUTION", "INITIAL_MARGIN_RATE", "MAINTENANCE_MARGIN_RATE")
-# The source runs in the runner's process, so the source check refuses its plain reach out of its own rules:
-# an import beyond computation and the native strategy API (the runner, catalogs, files, processes), dynamic
-# execution or attribute access by name, dunder and frame introspection, and assignment to an imported object.
-SOURCE_STDLIB = frozenset({
-    "__future__", "abc", "bisect", "calendar", "collections", "copy", "dataclasses", "datetime", "decimal", "enum",
-    "fractions", "functools", "heapq", "itertools", "json", "math", "numbers", "operator", "re", "statistics",
-    "typing",
-})
+# The source runs in the runner's process, so the source check refuses the routes by which it could reach the
+# runner or a file: an import beyond pure computation and the native strategy API, a module reached through an
+# allowed one or kept under another name, dynamic execution or attribute access by name, dunder and frame
+# introspection, a private attribute of anything but `self`, a kept `type(...)`, the shared decimal context,
+# assignment through an imported object or a call result, and rebinding what the runner wraps.
+SOURCE_STDLIB = frozenset({"__future__", "bisect", "calendar", "collections", "dataclasses", "datetime", "decimal",
+                           "enum", "heapq", "itertools", "math", "statistics"})
 SOURCE_NAUTILUS = ("nautilus_trader.common", "nautilus_trader.config", "nautilus_trader.core",
                    "nautilus_trader.indicators", "nautilus_trader.model", "nautilus_trader.trading")
 SOURCE_REFUSED_NAMES = frozenset({
     "breakpoint", "compile", "delattr", "eval", "exec", "getattr", "globals", "input", "locals", "open", "setattr",
     "vars",
 })
-SOURCE_DUNDERS = frozenset({"__init__", "__name__"})
-SOURCE_INTROSPECTION = frozenset({
-    "ag_code", "ag_frame", "cr_code", "cr_frame", "f_back", "f_builtins", "f_code", "f_globals", "f_locals",
-    "gi_code", "gi_frame", "mro", "tb_frame", "tb_next",
+SOURCE_REFUSED_ATTRIBUTES = frozenset({
+    "DefaultContext", "ag_code", "ag_frame", "cr_code", "cr_frame", "f_back", "f_builtins", "f_code", "f_globals",
+    "f_locals", "getcontext", "gi_code", "gi_frame", "gi_yieldfrom", "mro", "setcontext", "tb_frame", "tb_next",
 })
+SOURCE_DUNDERS = frozenset({"__init__", "__name__"})
+# What the runner wraps around the source (engine.run.guarded_callbacks): the native callbacks, the two hooks,
+# the guarded clock and the read-only cache.
+SOURCE_WRAPPED = frozenset({name for name in dir(Strategy) if name.startswith("on_")} | {
+    "cache", "clock", "replay_diagnostics", "replay_integrity_findings", "shutdown_system"})
+# Where a one-argument type(x) may appear: read at once, compared, or turned into text or a class check.
+SOURCE_TYPE_USES = frozenset({"isinstance", "issubclass", "repr", "str"})
 
 
 def _module_allowed(module: str) -> bool:
@@ -62,43 +67,91 @@ def _module_allowed(module: str) -> bool:
         module == allowed or module.startswith(allowed + ".") for allowed in SOURCE_NAUTILUS)
 
 
+def _refused_attribute(name: str) -> bool:
+    return name in SOURCE_REFUSED_ATTRIBUTES or (
+        name.startswith("__") and name.endswith("__") and name not in SOURCE_DUNDERS)
+
+
+def _imported(node: ast.Import | ast.ImportFrom, found: list) -> dict[str, object]:
+    """The names an allowed import binds and their objects; each refused part noted in `found`."""
+    bound: dict[str, object] = {}
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            if not _module_allowed(alias.name):
+                found.append((node.lineno, f"import {alias.name}"))
+            elif alias.asname:
+                bound[alias.asname] = importlib.import_module(alias.name)
+            else:
+                bound[alias.name.partition(".")[0]] = importlib.import_module(alias.name.partition(".")[0])
+        return bound
+    if node.level or not _module_allowed(node.module or ""):
+        found.append((node.lineno, f"from {'.' * node.level}{node.module or ''} import"))
+        return bound
+    module = importlib.import_module(node.module)
+    for alias in node.names:
+        if alias.name == "*" or _refused_attribute(alias.name):
+            found.append((node.lineno, f"from {node.module} import {alias.name}"))
+            continue
+        value = getattr(module, alias.name, None)
+        if value is None and _module_allowed(f"{node.module}.{alias.name}"):
+            value = importlib.import_module(f"{node.module}.{alias.name}")
+        if isinstance(value, ModuleType) and not _module_allowed(value.__name__):
+            found.append((node.lineno, f"from {node.module} import {alias.name} (module {value.__name__})"))
+            continue
+        bound[alias.asname or alias.name] = value
+    return bound
+
+
 def source_findings(source: bytes) -> list[str]:
     """engine.source_findings: what in the source reaches outside its own rules, one line each with its line
-    number; [] when nothing does. Static, so it proves no safety; it refuses the plain routes to the runner."""
+    number, in line order; [] when nothing does. Static (it imports only allowed modules), so it proves no
+    safety: it refuses the routes to the runner and to files that need no visibly odd code."""
     tree = ast.parse(source, filename="<strategy>")
-    imported: set[str] = set()
-    found = []
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    found: list[tuple[int, str]] = []
+    imported: dict[str, object] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imported.add((alias.asname or alias.name).partition(".")[0])
-                if not _module_allowed(alias.name):
-                    found.append(f"line {node.lineno}: import {alias.name}")
-        elif isinstance(node, ast.ImportFrom):
-            imported.update(alias.asname or alias.name for alias in node.names)
-            if node.level or not _module_allowed(node.module or ""):
-                found.append(f"line {node.lineno}: from {'.' * node.level}{node.module or ''} import")
-        elif isinstance(node, ast.Name) and (
-                node.id in SOURCE_REFUSED_NAMES
-                or node.id.startswith("__") and node.id.endswith("__") and node.id not in SOURCE_DUNDERS):
-            found.append(f"line {node.lineno}: name {node.id}")
-        elif isinstance(node, ast.Attribute) and (
-                node.attr in SOURCE_INTROSPECTION
-                or node.attr.startswith("__") and node.attr.endswith("__") and node.attr not in SOURCE_DUNDERS):
-            found.append(f"line {node.lineno}: attribute {node.attr}")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imported.update(_imported(node, found))
     for node in ast.walk(tree):
-        targets = (node.targets if isinstance(node, (ast.Assign, ast.Delete))
-                   else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else [])
-        for target in targets:
-            for part in ast.walk(target):
-                if not isinstance(part, ast.Attribute):
-                    continue
-                root = part.value
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, ast.Name):
+            if node.id in SOURCE_REFUSED_NAMES or (
+                    node.id.startswith("__") and node.id.endswith("__") and node.id not in SOURCE_DUNDERS):
+                found.append((line, f"name {node.id}"))
+            elif isinstance(imported.get(node.id), ModuleType):
+                parent, value, path = parents.get(node), imported[node.id], node.id
+                if not (isinstance(parent, ast.Attribute) and parent.value is node and isinstance(node.ctx, ast.Load)):
+                    found.append((line, f"module {node.id} used other than by attribute"))
+                while isinstance(parent, ast.Attribute) and isinstance(value, ModuleType):
+                    value, path = getattr(value, parent.attr, None), f"{path}.{parent.attr}"
+                    if isinstance(value, ModuleType) and not _module_allowed(value.__name__):
+                        found.append((line, f"attribute {path} (module {value.__name__})"))
+                        break
+                    parent = parents.get(parent)
+        elif isinstance(node, ast.Attribute):
+            if _refused_attribute(node.attr):
+                found.append((line, f"attribute {node.attr}"))
+            elif node.attr.startswith("_") and not node.attr.startswith("__") and not (
+                    isinstance(node.value, ast.Name) and node.value.id == "self"):
+                found.append((line, f"private attribute {ast.unparse(node)}"))
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                root = node.value
                 while isinstance(root, (ast.Attribute, ast.Subscript)):
                     root = root.value
-                if not isinstance(root, ast.Name) or root.id in imported:
-                    found.append(f"line {node.lineno}: assignment to {ast.unparse(part)}")
-    return found
+                if not isinstance(root, ast.Name) or root.id in imported or node.attr in SOURCE_WRAPPED:
+                    found.append((line, f"assignment to {ast.unparse(node)}"))
+        elif isinstance(node, ast.MatchClass):
+            found += [(line, f"attribute {name}") for name in node.kwd_attrs if _refused_attribute(name)]
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "type"
+              and len(node.args) == 1 and not node.keywords):
+            parent = parents.get(node)
+            if not (isinstance(parent, ast.Attribute) and parent.value is node
+                    or isinstance(parent, (ast.Compare, ast.FormattedValue))
+                    or isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name)
+                    and parent.func.id in SOURCE_TYPE_USES):
+                found.append((line, "type(...) kept other than by attribute, comparison, text or class check"))
+    return [f"line {line}: {text}" for line, text in sorted(set(found))]
 
 
 @dataclass(frozen=True)
@@ -147,7 +200,7 @@ def load_strategy(
         raise Refusal("CONTENT_HASH_MISMATCH", "strategy SHA-256 differs from the published source")
     try:
         reach = source_findings(source)
-    except (SyntaxError, ValueError) as exc:
+    except (SyntaxError, ValueError, ImportError) as exc:
         raise Refusal("SOURCE_EXECUTION_FAILED", f"{type(exc).__name__}: {exc}") from exc
     if reach:
         raise Refusal("SOURCE_REACH", "; ".join(reach))

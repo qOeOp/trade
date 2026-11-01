@@ -355,10 +355,32 @@ def _guarded_clock(self) -> GuardedClock:
     return GuardedClock(Strategy.clock.__get__(self, type(self)), self)
 
 
+# Cache APIs that write (nautilus_trader.common.Cache in the pinned version): the native reports are read
+# from the cache after the run, so a source that purged or reset it would erase its own trades.
+CACHE_WRITES = ("add", "add_instrument_close", "add_yield_curve", "dispose", "reset", "snapshot_position")
+
+
+class ReadOnlyCache:
+    """The strategy's native cache with every write refused (CACHE_WRITE, raised in the calling callback)."""
+
+    def __init__(self, cache):
+        self._cache = cache
+
+    def __getattr__(self, name):
+        if name in CACHE_WRITES or name.startswith("purge_"):
+            raise Refusal("CACHE_WRITE", f"a strategy cannot call cache.{name}: the native reports are read from "
+                                         "the cache")
+        return getattr(self._cache, name)
+
+
+def _read_only_cache(self) -> ReadOnlyCache:
+    return ReadOnlyCache(Strategy.cache.__get__(self, type(self)))
+
+
 def guarded_callbacks(strategy_class: type) -> dict:
     """Every on_ callback and report hook the source's classes define, guarded, the most derived winning,
-    and a clock whose registered callbacks are guarded too."""
-    found = {"clock": property(_guarded_clock)}
+    a clock whose registered callbacks are guarded too, and a cache that refuses writes."""
+    found = {"clock": property(_guarded_clock), "cache": property(_read_only_cache)}
     for cls in strategy_class.__mro__:
         if cls is Strategy:
             break

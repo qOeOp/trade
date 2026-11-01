@@ -900,7 +900,7 @@ The runtime source files' hashes, independent of any strategy revision.
 | <Ref id="engine.load_strategy">load_strategy</Ref> | 读源码字节核对内容哈希，源码检查有发现即拒绝，再以哈希命名的独立模块执行；入口类须本文件声明且为引擎策略基类真子类；两钩子与两布尔开关缺一或非布尔即拒绝 |
 | <Ref id="engine.read_market">read_market</Ref> | 装载前核对每合约导出回执的市场提交、窗口、1 分钟周期与条款近似标记，打开每个片段的 Catalog 并取唯一合约定义。 |
 | <Ref id="engine.read_universe">read_universe</Ref> | 读每合约成员区间；无成员文件时为空 |
-| <Ref id="engine.source_findings">source_findings</Ref> | 不执行源码，静态列出它伸出自身规则之外的途径：白名单外的导入、按名字执行或取属性、双下划线与栈帧内省、给导入对象赋值 |
+| <Ref id="engine.source_findings">source_findings</Ref> | 不执行源码，静态列出它伸向运行器或文件的途径：白名单外的导入、经允许模块取到或改名保存的模块、按名字执行或取属性、双下划线与栈帧内省、共享的十进制上下文、经导入对象或调用结果赋值、改绑运行器守护的回调 |
 | <Ref id="engine.strategy_metadata">strategy_metadata</Ref> | 把源码内容哈希、入口类、运行契约与两个布尔声明（是否设止损、是否需日线预热）写成运行身份，并入原生摘要与执行身份 |
 | <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> | 为声明 DAILY_WARMUP 的源码取紧贴输入起点的连续日线段；不足 200 根（未校准示例值）或末根不在起点前 1 毫秒即拒绝。 |
 
@@ -1152,7 +1152,7 @@ def read_universe(
 
 ### `source_findings` [#def-engine-source_findings]
 
-不执行源码，静态列出它伸出自身规则之外的途径：白名单外的导入、按名字执行或取属性、双下划线与栈帧内省、给导入对象赋值
+不执行源码，静态列出它伸向运行器或文件的途径：白名单外的导入、经允许模块取到或改名保存的模块、按名字执行或取属性、双下划线与栈帧内省、共享的十进制上下文、经导入对象或调用结果赋值、改绑运行器守护的回调
 
 ```python
 def source_findings(source: bytes) -> list[str]
@@ -1164,11 +1164,11 @@ def source_findings(source: bytes) -> list[str]
 
 **期望行为**
 
-1. 只解析不执行。导入只允许计算类标准库（`__future__`、abc、bisect、calendar、collections、copy、dataclasses、datetime、decimal、enum、fractions、functools、heapq、itertools、json、math、numbers、operator、re、statistics、typing）与引擎策略接口的 nautilus_trader.common、config、core、indicators、model、trading 及其子模块；相对导入、裸 nautilus_trader 与其余模块（运行器、行情目录、文件、进程）各记一条。
-2. 名字 breakpoint、compile、delattr、eval、exec、getattr、globals、input、locals、open、setattr、vars，以及 `__init__`、`__name__` 以外的双下划线名字与属性，各记一条。
-3. 栈帧与代码内省属性（f_globals、f_back、gi_frame、tb_frame、mro 等）各记一条。
-4. 赋值、增量赋值或删除的目标里，属性链的根是导入的名字、或不是名字（如调用结果）时记一条：源码不能改写引擎或运行器的对象。
-5. 静态检查不证明安全：它拦下直接途径，绕开它的写法本身就在源码里，留给源码审查。
+1. 只解析，不执行源码；只导入允许的模块来解析名字。导入只允许计算类标准库（`__future__`、bisect、calendar、collections、dataclasses、datetime、decimal、enum、heapq、itertools、math、statistics）与引擎策略接口的 nautilus_trader.common、config、core、indicators、model、trading 及其子模块；相对导入、星号导入、裸 nautilus_trader 与其余模块（运行器、行情目录、文件、进程）各记一条。
+2. 导入的名字若是模块：从允许模块里导入的名字、或沿属性链取到的属性是白名单外的模块（如 statistics 里的 sys、nautilus_trader 包上的 persistence），各记一条；模块名字只能用来取属性，被赋给别的名字或当作参数传递时记一条。
+3. 名字 breakpoint、compile、delattr、eval、exec、getattr、globals、input、locals、open、setattr、vars；`__init__`、`__name__` 以外的双下划线名字、属性与 match 类模式的关键字；栈帧与代码内省属性（f_globals、f_back、gi_frame、tb_frame、mro 等）；十进制模块共享上下文的 getcontext、setcontext、DefaultContext，各记一条。
+4. 单参数 `type(...)` 的结果只能立即取属性、用于比较、放进 isinstance、issubclass、str、repr 或 f-string，被保存或传给别处时记一条；`self` 以外对象的单下划线私有属性（如 `self.clock._clock`）记一条。所有写入或删除的属性（赋值、增量赋值、for、with、推导式的目标）若属性链的根是导入的名字、或不是名字（如调用结果），或属性名是运行器包在源码外面的东西（引擎策略基类的 on_ 回调、两个钩子、shutdown_system、clock、cache），记一条。
+5. 发现按行号排序。静态检查不证明安全：它拦下不必写怪代码就能走的途径，绕开它的写法本身就在源码里，留给源码审查。
 
 **使用**　<Ref id="engine.load_strategy" />
 
@@ -1958,13 +1958,23 @@ The strategy's native clock, with every callback the source registers on it guar
 
 [Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L280)
 
+#### `ReadOnlyCache` [#impl-engine-run-py-ReadOnlyCache]
+
+```python
+class ReadOnlyCache
+```
+
+The strategy's native cache with every write refused (CACHE_WRITE, raised in the calling callback): add, add_instrument_close, add_yield_curve, dispose, reset, snapshot_position and every purge_. The native reports are read from the cache after the run, so a purge would erase the source's own trades.
+
+[源码](https://github.com/qOeOp/trade/blob/main/engine/run.py#L357)
+
 #### `guarded_callbacks` [#impl-engine-run-py-guarded_callbacks]
 
 ```python
 def guarded_callbacks(strategy_class: type) -> dict
 ```
 
-Every on_ callback and report hook the source's classes define, guarded, the most derived winning, and a clock whose registered callbacks are guarded too.
+Every on_ callback and report hook the source's classes define, guarded, the most derived winning, a clock whose registered callbacks are guarded too, and a cache that refuses writes.
 
 [Source](https://github.com/qOeOp/trade/blob/main/engine/run.py#L317)
 

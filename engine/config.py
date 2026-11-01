@@ -163,6 +163,8 @@ REFUSALS: dict[str, str] = {
                       "month of its trading window.",
     "TRADES_MISSING": "Trade ticks are exported but an active contract's export holds no trade in some UTC month of "
                       "its trading window.",
+    "CACHE_WRITE": "A strategy called a cache write (add, purge, reset, dispose, snapshot); the native reports are "
+                   "read from the cache.",
     "TRADES_NOT_SERVED": "A strategy subscribed to trades the run does not stream (no --trade-ticks, native "
                          "subscribe_trades, or paper trading); it would see none.",
     "METRICS_MISSING": "--metrics is given but an active contract's export holds no metrics in some UTC month of its "
