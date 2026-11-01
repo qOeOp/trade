@@ -1741,14 +1741,14 @@ def connect(
 **期望行为**
 
 1. role 不在两种之内即拒绝 ROLE_UNKNOWN
-2. 以该角色的账号连接服务并选中市场库；不可达或认证失败即 MARKET_UNREACHABLE；连接本身失败时套接字也关闭，不泄漏
+2. 以该角色的账号连接服务并选中市场库；不可达或认证失败即 MARKET_UNREACHABLE；连接本身失败时套接字也关闭，不泄漏；握手（问候与登录）单独限时 30 s，到时即 MARKET_UNREACHABLE，说服务接受连接但未应答，语句的 7200 s 读时限在握手之后才生效
 3. 读 market_schema 单行：version 与代码的模式代数不等即 SCHEMA_VERSION_MISMATCH；缺行时 reader 角色即 SCHEMA_VERSION_MISMATCH，import 角色返回空库标记，由 market.import_month 完成模式初始化
 4. 返回连接与自述字段；不写任何表
 
 | 拒绝码 | 条件 |
 |---|---|
 | `ROLE_UNKNOWN` | role 不是 import 或 reader |
-| `MARKET_UNREACHABLE` | 服务不可达、库不存在或账号认证失败 |
+| `MARKET_UNREACHABLE` | 服务不可达、接受连接但握手时限内不应答（服务进程、容器或 Docker 宿主挂起）、库不存在或账号认证失败 |
 | `SCHEMA_VERSION_MISMATCH` | market_schema 的 version 与代码的模式代数不同；或 reader 角色读到 market_schema 缺行 |
 
 **使用**　<Ref id="table:market_schema" />

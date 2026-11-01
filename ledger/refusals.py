@@ -634,10 +634,15 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Read the message; fix the input it names and rerun the same command.",)),
     "ROLE_UNKNOWN": ("The market connection role is neither import nor reader.",
                      ("Connect with role import to import or reader to read.",)),
-    "MARKET_UNREACHABLE": ("The market database's service is not running, the database does not exist, the account "
-                           "was refused or the connection was lost.",
-                           ("Start the service with `ledger service start` and pass the market profile with "
-                            "--market; create a market database with `market init`.",)),
+    "MARKET_UNREACHABLE": ("The market database's service is not running or accepts connections but does not answer "
+                           "(its process, its container or the Docker host is hung), the database does not exist, "
+                           "the account was refused or the connection was lost.",
+                           ("When the message says the service did not answer, it is running but hung and starting "
+                            "it again does not help: check the host with `docker ps` (one that does not return means "
+                            "Docker itself is hung) and ask the user to restart the ledger service (`docker compose "
+                            "restart ledger`) or Docker, then rerun the same command.",
+                            "Otherwise start the service with `ledger service start` and pass the market profile with "
+                            "--market; create a market database with `market init`.")),
     "SCHEMA_VERSION_MISMATCH": ("The market database's schema generation or integer scales are not the ones this code "
                                 "reads, or a reader found a database without its schema row (never imported).",
                                 ("Use the product version that matches the market database, or import its first "

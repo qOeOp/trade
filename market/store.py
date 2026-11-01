@@ -53,6 +53,9 @@ IMPORT = "binance-public"
 QUOTE_IMPORT = "binance-aggtrades-bbo"  # quote imports: their commit messages carry quotes.RULE
 TRADE_IMPORT = "binance-aggtrades"  # complete aggTrades imports (market.aggtrades): their messages carry the codec
 METRICS_IMPORT = "binance-metrics"  # open interest and long/short ratio imports (market.metrics)
+# Seconds a new connection waits for the server's greeting and login replies, as ledger.db. A serving Dolt
+# answers in milliseconds; the statements' own read timeout (7200 s) applies only after.
+HANDSHAKE_TIMEOUT = 30
 
 # The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
 # milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
@@ -165,21 +168,46 @@ def _service_connection(config: dict, **options) -> pymysql.Connection:
     service); else over its Unix socket; a service compose runs (no socket) over TCP on this host's
     loopback. pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so
     the socket is reached first by one that is closed either way, and an unreachable one raises the
-    same OperationalError pymysql would."""
+    same OperationalError pymysql would.
+
+    pymysql reads the handshake under `read_timeout`, so a service that accepts but never answers
+    would hold the caller for its whole statement budget. The handshake is read under
+    HANDSHAKE_TIMEOUT instead, and running out of it is an OperationalError that says the service is
+    hung; the caller's `read_timeout` then applies to its statements."""
+    read_timeout = options.pop("read_timeout", None)
+    options["read_timeout"] = HANDSHAKE_TIMEOUT
     if os.environ.get("TRADE_DOLT_HOST"):
-        return pymysql.connect(host=os.environ["TRADE_DOLT_HOST"], port=int(config["port"]), **options)
-    if not config.get("socket"):
-        return pymysql.connect(host="127.0.0.1", port=int(config["port"]), **options)
-    socket_path = config["socket"]
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-        probe.settimeout(options.get("connect_timeout", 10))
-        try:
-            probe.connect(socket_path)
-        except OSError as exc:
+        endpoint = f"{os.environ['TRADE_DOLT_HOST']}:{config['port']}"
+        target: dict = {"host": os.environ["TRADE_DOLT_HOST"], "port": int(config["port"])}
+    elif not config.get("socket"):
+        endpoint, target = f"127.0.0.1:{config['port']}", {"host": "127.0.0.1", "port": int(config["port"])}
+    else:
+        socket_path = endpoint = config["socket"]
+        target = {"unix_socket": socket_path}
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(options.get("connect_timeout", 10))
+            try:
+                probe.connect(socket_path)
+            except OSError as exc:
+                raise pymysql.err.OperationalError(
+                    pymysql.constants.CR.CR_CONN_HOST_ERROR,
+                    f"Can't connect to MySQL server on {socket_path!r} ({exc})",
+                ) from exc
+    try:
+        raw = pymysql.connect(**target, **options)
+    except pymysql.err.OperationalError as exc:
+        # A read that timed out (CR_SERVER_LOST over a TimeoutError); a TCP connect that timed out is
+        # CR_CONN_HOST_ERROR and stays a service that does not accept connections.
+        lost = pymysql.constants.CR.CR_SERVER_LOST
+        if exc.args and exc.args[0] == lost and isinstance(exc.__context__, TimeoutError):
             raise pymysql.err.OperationalError(
-                pymysql.constants.CR.CR_CONN_HOST_ERROR, f"Can't connect to MySQL server on {socket_path!r} ({exc})",
+                lost, f"the market service at {endpoint} accepts connections but did not answer within "
+                      f"{HANDSHAKE_TIMEOUT} s (its process, its container or the Docker host may be hung)",
             ) from exc
-    return pymysql.connect(unix_socket=socket_path, **options)
+        raise
+    # pymysql has no setter (nor a typed attribute); every read applies `_read_timeout` anew.
+    raw._read_timeout = read_timeout  # type: ignore[attr-defined]
+    return raw
 
 
 def connect(profile: dict, role: str) -> MarketConnection:

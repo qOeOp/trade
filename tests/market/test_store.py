@@ -8,7 +8,9 @@ from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import shutil
+import socket
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -161,6 +163,12 @@ class ImportTests(unittest.TestCase):
             self.refused("MARKET_PERMISSION", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 0)")
         self.refused("ROLE_UNKNOWN", store.connect, self.profile, "writer")
         self.refused("MARKET_UNREACHABLE", store.connect, {**self.profile, "database": "market_absent"}, "reader")
+
+    def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
+        for role in ("import", "reader"):
+            with store.connect(self.profile, role) as conn:
+                self.assertEqual(conn.raw._read_timeout, 7200)
+                self.assertEqual(conn.rows("SELECT 1"), [(1,)])
 
     def test_references_resolve_to_one_commit(self):
         with store.connect(self.profile, "reader") as conn:
@@ -706,6 +714,64 @@ class BackfillTests(unittest.TestCase):
         profile = self.database(FEB, MAR)
         self.committed(profile, "INSERT INTO universe_month VALUES (%s, '2025-02-01', 'BTCUSDT')", (universe.RULE,))
         self.refused("UNIVERSE_CHANGED", profile, JAN)
+
+
+class UnansweredServiceTests(unittest.TestCase):
+    """A service that accepts connections but never sends its greeting (a hung process, container or Docker
+    host): a market connection fails within the handshake timeout, not the 7200 s statement budget, and says
+    the service is hung. No Dolt: a listening socket that nobody accepts from is enough."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="mkh-", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.profile = {"name": "probe", "database": "probe", "service": str(self.root)}
+        patcher = patch.object(store, "HANDSHAKE_TIMEOUT", 0.5)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def listener(self, family=socket.AF_INET, path: Path | None = None) -> socket.socket:
+        server = socket.socket(family, socket.SOCK_STREAM)
+        self.addCleanup(server.close)
+        server.bind(str(path) if path else ("127.0.0.1", 0))
+        server.listen(8)
+        return server
+
+    def service(self, **config) -> None:
+        accounts = {"probe": {"writer": {"user": "w", "password": "p"}, "reader": {"user": "r", "password": "p"}}}
+        (self.root / "service.json").write_text(json.dumps({**config, "databases": accounts}))
+
+    def assert_hung(self, role: str, endpoint: str) -> None:
+        started = time.monotonic()
+        with self.assertRaises(MarketError) as caught:
+            store.connect(self.profile, role)
+        self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
+        self.assertIn(f"the market service at {endpoint} accepts connections but did not answer within 0.5 s",
+                      caught.exception.message)
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_a_compose_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
+        port = self.listener().getsockname()[1]
+        self.service(port=port)
+        for role in ("import", "reader"):
+            self.assert_hung(role, f"127.0.0.1:{port}")
+        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
+            self.assert_hung("reader", f"127.0.0.1:{port}")
+
+    def test_a_socket_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
+        path = self.root / "mysql.sock"
+        self.listener(socket.AF_UNIX, path)
+        self.service(socket=str(path), port=0)
+        self.assert_hung("reader", str(path))
+
+    def test_a_closed_port_is_still_a_service_that_does_not_accept_connections(self):
+        closed = self.listener()
+        port = closed.getsockname()[1]
+        closed.close()
+        self.service(port=port)
+        with self.assertRaises(MarketError) as caught:
+            store.connect(self.profile, "reader")
+        self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
+        self.assertNotIn("did not answer", caught.exception.message)
 
 
 if __name__ == "__main__":
