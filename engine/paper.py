@@ -34,7 +34,8 @@ reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: bars, data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute and protection gaps. ``<output>/state.json`` holds the latest
-totals with the open positions and orders, and ``<output>/summary.json`` is written at the end. Sandbox
+totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
+each runtime failure, and ``<output>/summary.json`` is written at the end. Sandbox
 settles no funding (native probe, 2026-10-25), so the journal records each settlement with the positions it
 applies to, and the sealing step accounts for it.
 
@@ -739,12 +740,19 @@ def main(argv: list[str] | None = None) -> None:
     recorder.handle = node.handle()
 
     def watch():
+        """Stops the run on its STOP file or duration, and writes the runtime failures as they come: a runner
+        killed from outside writes no summary, and its seal reads the failures from this file."""
         deadline = None if args.duration_seconds is None else time.monotonic() + args.duration_seconds
+        written = 0
         while not STOP.is_set():
             if (args.output / "STOP").exists():
                 request_stop("STOP_FILE")
             elif deadline is not None and time.monotonic() >= deadline:
                 request_stop("DURATION")
+            total = sum(receipt["count"] for receipt in run.FAILURES)
+            if total != written:
+                run.write_failures()
+                written = total
             STOP.wait(1)
 
     threading.Thread(target=watch, daemon=True).start()

@@ -413,13 +413,13 @@ class Daemon:
 def interrupted(seal: dict, lines: list[dict], killed: bool = False) -> bool:
     """Whether a run ended only because its container was stopped from outside: Docker stops a container
     with SIGTERM, and the runner stopped cleanly on it, before or after its start, with nothing else wrong;
-    or (`killed`, runs.killed_before this daemon started) a restart killed it, which leaves no summary, with
-    nothing else wrong. The IDE's stop and `paper stop` ask through the STOP file instead, so they never read
-    as this."""
+    or (`killed`, runs.killed_before this daemon started) a restart killed it (stop reason KILLED), before or
+    after its start, with nothing else wrong. The IDE's stop and `paper stop` ask through the STOP file instead,
+    so they never read as this."""
     if seal.get("stop_reason") == "SIGTERM":
         return not seal.get("reasons")
-    if killed and seal.get("runner_exit_code") == 137:
-        return set(seal.get("reasons") or ()) == {"RUNNER_EXIT_NONZERO", "SUMMARY_MISSING"}
+    if killed and seal.get("stop_reason") == records.KILLED:
+        return set(seal.get("reasons") or ()) <= {"STOPPED_BEFORE_START"}
     before = [line.get("reason") for line in lines if line["kind"] == "stopped_before_start"]
     return before == ["SIGTERM"] and set(seal.get("reasons") or ()) == {"STOPPED_BEFORE_START", "SUMMARY_MISSING"}
 

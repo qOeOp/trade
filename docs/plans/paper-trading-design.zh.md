@@ -274,11 +274,19 @@ Agent 做不到的事。这里同时占了两条：
   时刻早于守护进程这次启动。Docker 重启时如果没等 `SIGTERM` 就杀掉容器，守护进程也一起被重启，所以这样的结束
   只能来自那次重启；守护进程活着时被杀的（手动 kill、Docker 虚拟机整体内存耗尽）不算；
 - 除此之外没有别的失败原因（概要里干净停止时 `reasons` 为空；等日线时停只有 `STOPPED_BEFORE_START`、
-  `SUMMARY_MISSING`；被重启杀掉的只有 `RUNNER_EXIT_NONZERO`、`SUMMARY_MISSING`）；
+  `SUMMARY_MISSING`；被重启杀掉的停止原因是 `KILLED`，`reasons` 为空，还没收到第一根 K 线就被杀的只有
+  `STOPPED_BEFORE_START`）；
 - 运行目录里没有 `STOP` 文件。面板和 `paper stop` 停止时都先写这个文件，所以用户手动停的永远不重开；
 - 这次封存是守护进程写下的（`write_status` 为 `written`）。别人已经封存的不管。
 
 旧运行照样封存（Complete 或 Invalid），账本只追加；新运行有新编号，账户从头开始，不接中断前的持仓。
+
+**被外部杀掉的运行按停止封存（用户 2026-11-01 定）**。runner 被杀（退出码 137）、Docker 没记成内存超限、
+日志里也没有 STOP 文件引起的停止请求（那是 `paper stop` 对停不下来的 runner 的兜底），就是外部把进程停了，
+不是策略或运行出错：停止原因记为 `KILLED`，日志到被杀为止都算数，期末权益取日志最后的权益，不再因为缺概要判
+Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被杀的运行照样按它判 `RUNTIME_FAILURES`；
+没收到第一根 K 线就被杀的判 `STOPPED_BEFORE_START`；内存超限加 `OUT_OF_MEMORY`，仍判 Invalid。这条只改
+封存时的判定，不管是谁杀的；要不要重开仍按上面的判据（守护进程启动前被杀）。
 崩溃、拒绝、内存超限、守护进程活着时的 `SIGKILL`、到时长结束都不重开，避免反复失败。重开被拒绝
 （同一版本已在跑、并发已满）就记在守护进程的日志里，不重试。
 

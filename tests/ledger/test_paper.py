@@ -86,7 +86,7 @@ class ReadingTests(unittest.TestCase):
     def test_a_run_that_did_not_end_cleanly_is_invalid_with_its_reasons(self):
         cases = {
             "no summary, container gone": (journal(), None, None, None, {"SUMMARY_MISSING", "RUNNER_EXIT_UNKNOWN"}),
-            "crashed": (journal(), None, 137, None, {"SUMMARY_MISSING", "RUNNER_EXIT_NONZERO"}),
+            "crashed": (journal(), None, 1, None, {"SUMMARY_MISSING", "RUNNER_EXIT_NONZERO"}),
             "runtime failure": (journal(), summary(runtime_failures=2), 0, None, {"RUNTIME_FAILURES"}),
             "node stopped itself": (journal(), summary(stop_reason="node_stopped"), 0, None, {"STOPPED:node_stopped"}),
             "another source": (journal(), summary(identity={"source_sha256": "b" * 64}), 0, None, {"SOURCE_MISMATCH"}),
@@ -99,6 +99,25 @@ class ReadingTests(unittest.TestCase):
         for name, (lines, found_summary, exit_code, egress, reasons) in cases.items():
             with self.subTest(name):
                 found = paper.readings(ROW, lines, 0, found_summary, exit_code, egress)
+                self.assertEqual((found["status"], set(found["reasons"])), ("invalid", reasons))
+
+    def test_a_runner_killed_from_outside_ends_as_a_stop_with_what_it_journaled(self):
+        found = paper.readings(ROW, journal(), 0, None, 137, None)
+        self.assertEqual((found["status"], found["reasons"], found["stop_reason"]), ("complete", [], "KILLED"))
+        self.assertEqual(Decimal(found["final_equity_usdt"]), Decimal("100009.9"))  # 99990 + 20 open, less 0.1 funding
+        self.assertEqual(found["stopped_ns"], START + 3 * MINUTE)
+        self.assertIn("Killed from outside", found["limitations"][-1])
+        asked = journal() + [line("stop_requested", START + 4 * MINUTE, reason="STOP_FILE")]
+        waiting = [line("started", START, source_sha256=SOURCE), line("waiting", START, until_ns=START + DAY)]
+        cases = {
+            "at its memory limit": (journal(), True, 0, {"SUMMARY_MISSING", "RUNNER_EXIT_NONZERO", "OUT_OF_MEMORY"}),
+            "after the STOP file asked it to stop": (asked, False, 0, {"SUMMARY_MISSING", "RUNNER_EXIT_NONZERO"}),
+            "with runtime failures written": (journal(), False, 2, {"RUNTIME_FAILURES"}),
+            "before its first bar": (waiting, False, 0, {"STOPPED_BEFORE_START"}),
+        }
+        for name, (lines, oom, failures, reasons) in cases.items():
+            with self.subTest(name):
+                found = paper.readings(ROW, lines, 0, None, 137, None, oom_killed=oom, failures=failures)
                 self.assertEqual((found["status"], set(found["reasons"])), ("invalid", reasons))
 
     def test_the_capture_keeps_the_journal_by_utc_day_with_the_same_bytes_each_time(self):
