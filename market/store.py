@@ -222,6 +222,8 @@ def connect(profile: dict, role: str) -> MarketConnection:
 def _sql_error(exc: pymysql.MySQLError) -> MarketError:
     code = exc.args[0] if exc.args else None
     text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
+    if code in (2003, 2006, 2013):  # can't connect, server gone away, connection lost during the statement
+        return _refuse(f"the market database connection failed (MySQL error {code}): {text}", "MARKET_UNREACHABLE")
     if code == 1213 or "conflict" in text.lower():
         return _refuse("another import landed first; this one was rolled back", "CONCURRENT_WRITE")
     if code in (1142, 1143, 1370, 1644) or (code == 1105 and "permission" in text.lower()):  # 1644: a guard trigger
