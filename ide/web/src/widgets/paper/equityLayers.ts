@@ -10,7 +10,7 @@
 // from the series runs across it, the line ending either side of it in a dot.
 import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, span, type DayBar, type Frame } from "./equityBands";
 import type { Restart } from "../../model/paper";
-import { downsOf, downTag, drawDown, widened, type Down, type DownLook } from "./downLook";
+import { downsOf, downTag, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
@@ -74,12 +74,12 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
 
   /** Each offline stretch's tag on the time axis, at its middle. */
   timeAxisViews(): readonly ISeriesPrimitiveAxisView[] {
-    const look = this.look?.restart, w = this.chart?.timeScale().width() ?? 0;
-    return look ? this.placed().flatMap(([d, a, b]) => ((a + b) / 2 >= 0 && (a + b) / 2 <= w ? [downTag((a + b) / 2, d, look)] : [])) : [];
+    const look = this.look?.restart;
+    return look ? tagged(this.placed(), this.chart?.timeScale().width() ?? 0).map(({ d, x }) => downTag(x, d, look)) : [];
   }
 
   /** The tags on the time axis: where they sit (px) and what they say. */
-  onAxis(): { x: number; text: string }[] { return this.placed().map(([d, a, b]) => ({ x: (a + b) / 2, text: d.label })); }
+  onAxis(): { x: number; text: string }[] { return tagged(this.placed(), this.chart?.timeScale().width() ?? 0).map(({ d, x }) => ({ x, text: d.label })); }
 
   /** The offline stretch drawn under pane x (px), if any. */
   offlineAt(x: number): Down | null { return this.placed().find(([, a, b]) => x >= a && x <= b)?.[0] ?? null; }

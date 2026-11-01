@@ -48,6 +48,11 @@ export function drawDown(c: CanvasRenderingContext2D, l: number, r: number, top:
   c.fillStyle = look.edge; c.fillRect(a, top, line, h); c.fillRect(b - line, top, line, h);
 }
 
+/** The stretches drawn from `a` to `b` (px) whose tag, at the middle, falls on a time axis `width` px wide:
+ *  the chart would pin one off it to its edge. */
+export const tagged = (placed: readonly [Down, number, number][], width: number) =>
+  placed.flatMap(([d, a, b]) => ((a + b) / 2 >= 0 && (a + b) / 2 <= width ? [{ d, x: (a + b) / 2 }] : []));
+
 /** A stretch's tag on the time axis at `x` (px), as the value axis tags a price. */
 export const downTag = (x: number, d: Down, look: DownLook): ISeriesPrimitiveAxisView =>
   ({ coordinate: () => x, text: () => d.label, textColor: () => look.text, backColor: () => look.tag, tickVisible: () => false });
