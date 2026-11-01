@@ -11,6 +11,8 @@ export function duration(ms: number): string {
   const m = Math.max(0, Math.floor(ms / 60_000)), h = Math.floor(m / 60), d = Math.floor(h / 24);
   return d ? `${d}d ${h % 24}h` : h ? `${h}h ${m % 60}m` : `${m}m`;
 }
+/** A span of time without a zero part: 3h, 3h 12m, 2d, 46m. */
+export const brief = (ms: number) => duration(ms).replace(/ 0[hm]$/, "");
 /** The time between two moments (ms) as a clock to the minute shows them: 04:48:50 to 05:34:10 is 46m. */
 export const clockSpan = (from: number, to: number) => Math.max(0, Math.floor(to / 60_000) - Math.floor(from / 60_000)) * 60_000;
 export const ratio = (v?: number | null) => (v == null ? MISSING : v.toFixed(2));

@@ -21,11 +21,13 @@ export type RuntimeFailure = {
   stage: string; exception_type: string; instrument_id: string; code: string | null; message: string;
   traceback: string; count: number;
 };
-/** The stored seal.json (ledger/paper.py readings). */
+/** The stored seal.json (ledger/paper.py readings). Its `status` is the grade it was sealed with; a run's
+ *  current verdict is the listing's top-level `status` (model/ending.ts). */
 export type Seal = {
   status: "complete" | "invalid"; reasons: string[]; total_return: number | null; max_drawdown: number;
   final_equity_usdt: string | null; fills: number; started_ns: number | null; stopped_ns: number | null;
   stop_reason: string | null; daily_returns: [string, number][]; positions_closed: number; starting_balance_usdt?: string;
+  runner_exit_code?: number | null; bars?: number;
 };
 export type PaperRun = {
   paper_id: number; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;

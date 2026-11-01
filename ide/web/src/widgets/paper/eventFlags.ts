@@ -35,7 +35,7 @@ export class EventFlags implements ISeriesPrimitive<Time> {
   private pills: Pill[] = [];
   private foot = 0;
 
-  /** The flags, the gaps, the colours, and the offline stretches between restarts (downLook.ts), each from
+  /** The flags, the gaps, the colours, and the offline stretches between a chain's runs (downLook.ts), each from
    *  the last candle before it to the first after it, blanks between (candleDown.ts). */
   set(flags: readonly Flag[], gaps: readonly Gap[], look: FlagsLook, downs: readonly Down[] = []): void {
     Object.assign(this, { flags, gaps, look, downs });

@@ -1,16 +1,20 @@
 // A chain of paper runs (chain.ts) as one journal for the Paper page: the earlier runs' lines first, their
 // order and position ids namespaced by run so they never meet the next run's (each run's account numbers
-// them afresh), a `restart` line between two runs, then the latest run's lines as its stream has them (a
-// live stream resumes from those alone). Bars and closes follow on. The account carries on across the
-// restarts: each later run's equity is scaled to start where the one before it ended, so the path never
+// them afresh), a `restart` line between two runs saying how the earlier one ended (ending.ts) and standing
+// for the later one's `started` line, then the latest run's other lines as its stream has them (a live
+// stream resumes from those alone). Bars and closes follow on. The account carries on from run to
+// run: each later run's equity is scaled to start where the one before it ended, so the path never
 // jumps back to the starting balance; the return compounds, the deepest drawdown is the joined path's from
 // the first starting balance, counts add up and the start is the first run's.
-import { amount, type JournalLine, type Live, type RuntimeFailure, type Seal } from "../lib/paperApi";
+import { brief, clockSpan } from "../lib/format";
+import { amount, type JournalLine, type Live, type PaperRun, type RuntimeFailure, type Seal } from "../lib/paperApi";
+import { ending } from "./ending";
 
-/** What a stream holds of one run: the Paper page's Stream has these and more. */
+/** What a stream holds of one run: the Paper page's Stream has these and more; an earlier run of a chain
+ *  carries the listing's verdict on it (`status`) as well. */
 export type Piece = {
   paperId: number; lines: JournalLine[]; bars: JournalLine[]; closes: Record<string, [number, number][]>;
-  readings: Live | null; seal: Seal | null; failures: RuntimeFailure[];
+  readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; status?: PaperRun["status"];
 };
 
 const START = 100_000;
@@ -47,11 +51,17 @@ export function deepestDrawdown(path: readonly (readonly [number, number])[], st
   return deepest;
 }
 
-/** The line between two runs: when the first stopped, when the next started and why the first ended. */
+/** The line between two runs: when the first stopped, when the next started, how the first ended and the
+ *  next run's contracts (its own `started` line leaves the joined journal). */
 function restart(stopped: Piece, started: Piece): JournalLine {
   const from = stopped.seal?.stopped_ns ?? stopped.lines.at(-1)?.wall_ns ?? 0, to = startedNs(started) ?? from;
-  return { kind: "restart", wall_ns: to, from_ns: from, to_ns: to, stopped: stopped.paperId, started: started.paperId, stop_reason: stopped.seal?.stop_reason ?? null };
+  const { gap, lead, resumed, again } = ending({ status: stopped.status ?? null, seal: stopped.seal });
+  const symbols = started.lines.find((l) => l.kind === "started")?.symbols ?? null;
+  return { kind: "restart", wall_ns: to, from_ns: from, to_ns: to, stopped: stopped.paperId, started: started.paperId,
+           stop_reason: stopped.seal?.stop_reason ?? null, gap, lead, resumed, again: again(brief(clockSpan(from / 1e6, to / 1e6))), symbols };
 }
+/** A run's lines without its `started` line, which the restart line before it stands for. */
+const unstarted = (lines: JournalLine[]) => { const i = lines.findIndex((l) => l.kind === "started"); return i < 0 ? lines : [...lines.slice(0, i), ...lines.slice(i + 1)]; };
 
 /** Days' returns of consecutive runs as one list: a day two runs share compounds. */
 function daily(seals: readonly (Seal | null)[]): [string, number][] {
@@ -68,7 +78,7 @@ export function joined<T extends Piece>(earlier: readonly Piece[], current: T): 
   const scale: number[] = [];
   let carried = first;
   for (const p of all) { scale.push(carried / startOf(p)); carried = (endOf(p) ?? startOf(p)) * scale.at(-1)!; }
-  const lines = earlier.flatMap((p, k) => [...namespacedLines(p), restart(p, all[k + 1]!)]).concat(current.lines);
+  const lines = earlier.flatMap((p, k) => [...(k ? unstarted(namespacedLines(p)) : namespacedLines(p)), restart(p, all[k + 1]!)]).concat(unstarted(current.lines));
   const closes: Record<string, [number, number][]> = {};
   for (const p of all) for (const [symbol, found] of Object.entries(p.closes)) closes[symbol] = [...(closes[symbol] ?? []), ...found];
   const end = endOf(current), final = end === null ? null : end * scale.at(-1)!, finalText = final === null ? null : final.toFixed(10);

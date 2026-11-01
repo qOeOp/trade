@@ -1,25 +1,28 @@
-// How the Paper page's charts mark the time a chain of runs (model/chain.ts) was offline between two runs,
-// a Docker or host restart. The stretch gets its own room on the time axis and nothing drawn from the
+// How the Paper page's charts mark the time a chain of runs (model/chain.ts) was paused or offline between
+// two runs (model/ending.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
 // series crosses it: it is covered the plot's height by a recessed wash between two hairlines, at least
 // MIN px wide (around the true stretch on the equity chart, as blank candles on the candle chart), its length tagged on the time axis as the value axis tags a price
-// ("Offline 45m"); under the pointer the chart says when the run stopped, when it started again and why.
+// ("Paused 3h", "Offline 45m"); under the pointer the chart says what happened at the stop and when, and
+// when the next run took over.
 import type { ISeriesPrimitiveAxisView } from "lightweight-charts";
-import { clockSpan, duration } from "../../lib/format";
+import { brief, clockSpan } from "../../lib/format";
 import type { Restart } from "../../model/paper";
 import { stamp } from "./chartTheme";
 
 export type DownLook = { wash: string; edge: string; text: string; tag: string };
 /** An offline stretch on a chart: where it is drawn from and to (s, on the chart's own times), when the
  *  run stopped and the next started (s), and its tag. */
-export type Down = { from: number; to: number; stopped: number; started: number; label: string };
+export type Down = { from: number; to: number; stopped: number; started: number; label: string; lead: string; resumed: string };
 
 export const MIN = 12;  // px: the least width a stretch is drawn
 
 export const downsOf = (restarts: readonly Restart[]): Down[] =>
-  restarts.map((r) => ({ from: r.from / 1000, to: r.to / 1000, stopped: r.from / 1000, started: r.to / 1000, label: `Offline ${duration(clockSpan(r.from, r.to))}` }));
+  restarts.map((r) => ({ from: r.from / 1000, to: r.to / 1000, stopped: r.from / 1000, started: r.to / 1000,
+                         label: `${r.gap === "paused" ? "Paused" : "Offline"} ${brief(clockSpan(r.from, r.to))}`, lead: r.lead, resumed: r.resumed }));
 
-/** What the pointer over a stretch is told: the stop, the restart and why. */
-export const downRows = (d: Down) => [`Stopped ${stamp(d.stopped * 1000)}`, `Restarted ${stamp(d.started * 1000)}`, "Cause: Docker or host restart"];
+/** What the pointer over a stretch is told after its tag: what happened at the stop and when, and when the
+ *  next run took over: (Paused 3h ·) by you 31 Oct, 04:20 · continued 31 Oct, 07:20. */
+export const downRows = (d: Down) => [`${d.lead} ${stamp(d.stopped * 1000)} · ${d.resumed} ${stamp(d.started * 1000)}`];
 
 /** The times (s) a stretch takes on a chart whose points are `step` seconds apart: one a step after the
  *  last point (`times`, oldest first) at or before its stop up to the first point after its start; and

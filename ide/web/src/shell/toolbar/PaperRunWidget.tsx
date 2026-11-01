@@ -37,7 +37,7 @@ export function PaperRunWidget() {
   const pick = (id: number) => { if (id !== selected) { selectedRun.set(id); paperTab.set(null); } };
   const state = health(run, now), alarm = order.find((r) => r !== run && alarming(r, now)), trouble = alarm && health(alarm, now);
   const [name = "", revision] = (run.candidate ?? "").split("@");
-  // A chain restarted after Docker restarts reads as one account: its equity and return carry on across them.
+  // A chain of runs reads as one account: its equity and return carry on from run to run.
   const chain = chainOf(run, listing?.runs ?? []);
   const [whole = "", cents = ""] = (fixed(chainEquity(chain, amount(s?.seal?.final_equity_usdt ?? s?.readings?.final_equity_usdt
     ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "").split(".");

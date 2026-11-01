@@ -33,7 +33,7 @@ export function EquityLegend({ point, offline, reading, hold, onHold, starting, 
         {hold !== null && <TextButton active={hold} onClick={onHold} className="h-5 gap-1.5"><Swatch className="border-t border-dashed border-fg/30" />Buy and hold</TextButton>}
         {many && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-1 bg-pnl-up/60" /><i className="-ml-1 h-1.5 w-1 bg-pnl-down/60" />Daily return</span>}
       </div>
-      {offline && <div className="flex shrink-0 items-center gap-3 pr-2"><span className="text-fg">{offline.label}</span>{downRows(offline).map((r) => <span key={r}>{r}</span>)}</div>}
+      {offline && <div className="flex shrink-0 items-center gap-3 pr-2"><span className="text-fg">{offline.label}</span>{downRows(offline).map((r) => <span key={r}>· {r}</span>)}</div>}
       {point && <div className="flex shrink-0 items-center gap-3 pr-2">
         <span className="text-fg-faint">{during(point.time, step)}</span>
         <span className="text-fg">{fixed(point.value, 2)}</span>
