@@ -16,7 +16,7 @@ export function StagePerformance({ className }: { className?: string }) {
   const { stage, run, name } = useShown(), data = useRunData(), backtest = useBacktest();
   const tested = stage === "backtest" && backtest?.kind === "ready" ? backtest.b : null;
   const paper = stage === "paper" && data && data.run.paper_id === run?.paper_id ? data : null;
-  const testedBridge = useMemo(() => (tested?.account ? bridge(tested.account, tested.cycles.map((c) => ({ symbol: c.symbol, pnl: c.pnl ?? 0, gross: c.gross })), 2) : null), [tested]);
+  const testedBridge = useMemo(() => (tested?.account ? bridge(tested.account, tested.cycles.map((c) => ({ symbol: c.symbol, pnl: c.pnl ?? 0, gross: c.gross }))) : null), [tested]);
   const shown = tested?.account && tested.stats ? { a: tested.account, stats: tested.stats, bridge: testedBridge, fills: null }
     : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, fills: paper.fills } : null;
   if (!shown) return null;

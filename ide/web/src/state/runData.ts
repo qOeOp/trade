@@ -54,7 +54,6 @@ export function useRunDriver(): void {
   const a = useMemo(() => (s && (s.readings || s.seal) ? account(s.lines, s.state, s.readings, s.seal) : null), [s?.lines, s?.state, s?.readings, s?.seal]);
   const stats = useMemo(() => (a && s ? tradeStats(a, s.lines) : null), [a]);
   const fills = useMemo(() => fillsOf(s?.lines ?? []), [s?.lines]);
-  // Two contracts by name keep the Profit and loss card short.
-  const bridge = useMemo(() => (a && s ? bridgeOf(a, closedGross(s.lines), 2) : null), [a]);
+  const bridge = useMemo(() => (a && s ? bridgeOf(a, closedGross(s.lines)) : null), [a]);
   useEffect(() => { runData.set(run ? { run, s, a, stats, fills, bridge, view, stretches } : null); }, [run, s, a, stats, fills, bridge, view, stretches]);
 }
