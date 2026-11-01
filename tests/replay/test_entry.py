@@ -247,7 +247,8 @@ class SealedReplayTests(unittest.TestCase):
         cls.refs, cls.bundle_of = [], {}
         for bundle, tags in (("registration-grid", range(1, 6)), ("registration-grid-b", range(6, 11)),
                              ("registration-grid-c", range(11, 14)), ("registration-grid-d", range(14, 15)),
-                             ("registration-grid-e", range(15, 16)), ("registration-grid-f", range(16, 18))):
+                             ("registration-grid-e", range(15, 16)), ("registration-grid-f", range(16, 18)),
+                             ("registration-grid-g", range(18, 19))):
             refs = registered_grid(world, [f"g{index}" for index in tags], bundle)
             cls.refs += refs
             cls.bundle_of.update(dict.fromkeys(refs, bundle))
@@ -387,7 +388,7 @@ class SealedReplayTests(unittest.TestCase):
         before = self.rows("SELECT COUNT(*) FROM trial")
         with db.connect(self.world.profile, "writer") as conn, self.assertRaises(Refusal) as caught:
             revision = __import__("ledger.strategies", fromlist=["x"]).read_candidate(conn, self.refs[3])
-            entry.seal(self.world.profile, conn, revision, None, exported, RUNNER_ARGV, "registration-grid", None)
+            entry.seal(self.world.profile, revision, None, exported, RUNNER_ARGV, "registration-grid", None)
         self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial")),
                          ("EXPORT_CHANGED_BEFORE_EXECUTION", before))
 
@@ -498,12 +499,32 @@ class SealedReplayTests(unittest.TestCase):
         with self.keeps_directory(), db.connect(self.world.profile, "writer") as conn, seams.use(run=slow), \
                 self.assertRaises(entry.ReplayTimeout):
             revision = __import__("ledger.strategies", fromlist=["x"]).read_candidate(conn, self.refs[12])
-            entry.seal(self.world.profile, conn, revision, None, exported, RUNNER_ARGV, self.bundle_of[self.refs[12]],
+            entry.seal(self.world.profile, revision, None, exported, RUNNER_ARGV, self.bundle_of[self.refs[12]],
                        None, timeout=60)
         (trial_id,), = self.rows("SELECT MAX(trial_id) FROM trial")
         capture = execution.read_capture(self.world.conn, trial_id)
         self.assertEqual((capture["outcome"]["kind"], capture["stages"]["native"]["state"]), ("interrupted", "started"))
         self.assertEqual(self.world.stopped[-1], entry.container_name(self.world.profile, trial_id, "native"))
+
+    def test_a_ledger_restart_while_the_containers_run_still_seals_and_stores_the_run(self):
+        run, root = seams.current.run, self.world.service.service_root
+
+        def restarted(command, stdout, stderr, timeout):
+            if len(self.world.commands) == 1:  # the native stage
+                db.stop_service(root)
+                db.start_service(root)
+            return run(command, stdout, stderr, timeout)
+
+        def reconnect():
+            self.world.conn.close()
+            self.world.conn = db.connect(self.world.profile, "writer")
+        self.addCleanup(reconnect)
+        self.world.commands.clear()
+        with seams.use(run=restarted):
+            stored = self.run_ref(self.refs[17])
+        self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM evidence_bundle WHERE bundle = %s",
+                                   (f"trial-{stored['trial_id']}-execution",)), [(1,)])
 
 
 class StageLogTests(unittest.TestCase):

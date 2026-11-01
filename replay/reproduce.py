@@ -48,67 +48,68 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
             raise refuse("UNKNOWN_CANDIDATE", f"the source of run {trial_id} is no published candidate",
                          missing=(trial["source_sha256"],))
         revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
-        recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
-        window = {"start": _ns(trial["input_start"]), "trade_start": _ns(trial["trade_start"]),
-                  "end": _ns(trial["trade_end"])}
-        selection = recorded["selection"]
-        runner_argv = ["--start", _iso(trial["input_start"]), "--trade-start", _iso(trial["trade_start"]), "--end",
-                       _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
-        if recorded.get("lifecycle_bundle"):
-            runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
-        coverage = stored["capture"].get("input_coverage") or {}
-        effective = coverage.get("effective_config")
-        account = comparability.config_key(effective)["account"]
-        # Historical bars exports included unused quotes. Their existing receipt counts describe
-        # the original input bytes; keep reproducing those bytes rather than rewriting the identity.
-        include_quotes = account.get("execution") == "quotes" or any(
-            piece.get("counts", {}).get("quote", 0)
-            for receipt in coverage.get("export_receipts", {}).values()
-            for piece in receipt.get("pieces", []))
-        # A receipt counts trades exactly when the run exported them (--trade-ticks).
-        include_trades = any("trade" in piece.get("counts", {})
-                             for receipt in coverage.get("export_receipts", {}).values()
-                             for piece in receipt.get("pieces", []))
-        # Likewise metrics (--metrics), which the runner is then given again.
-        include_metrics = any("metrics" in piece.get("counts", {})
-                              for receipt in coverage.get("export_receipts", {}).values()
-                              for piece in receipt.get("pieces", []))
-        if account.get("execution") == "quotes":
-            runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
-                            "--maintenance-margin", account["maintenance_margin_rate"]]
-        if include_metrics:
-            runner_argv.append("--metrics")
-        identity = entry._resolve(trial["image_ref"])
-        exported = None
-        try:
-            exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
-                                                         dict(selection), recorded.get("lifecycle_bundle"),
-                                                         True, ledger, include_quotes=include_quotes,
-                                                         include_trades=include_trades,
-                                                         include_metrics=include_metrics)
-            if comparability.input_key(exported["identity"]) != comparability.input_key(recorded):
-                raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {trial_id} differ from the "
-                                                      "recorded input identity", missing=("input_identity",))
-            inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
-            if comparability.config_key(inspection.get("effective_config")) != comparability.config_key(effective):
-                raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
-                             missing=("effective_config",))
-            coverage = entry._prepare(output, revision["source"], inspection, exported)
-            argv, mounts = entry._mounts(output, exported, runner_argv)
-            argv += entry._strategy_argv(output, identity, inspection, revision["entry_class"],
-                                         revision["source_sha256"])
+    recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
+    window = {"start": _ns(trial["input_start"]), "trade_start": _ns(trial["trade_start"]),
+              "end": _ns(trial["trade_end"])}
+    selection = recorded["selection"]
+    runner_argv = ["--start", _iso(trial["input_start"]), "--trade-start", _iso(trial["trade_start"]), "--end",
+                   _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
+    if recorded.get("lifecycle_bundle"):
+        runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
+    coverage = stored["capture"].get("input_coverage") or {}
+    effective = coverage.get("effective_config")
+    account = comparability.config_key(effective)["account"]
+    # Historical bars exports included unused quotes. Their existing receipt counts describe
+    # the original input bytes; keep reproducing those bytes rather than rewriting the identity.
+    include_quotes = account.get("execution") == "quotes" or any(
+        piece.get("counts", {}).get("quote", 0)
+        for receipt in coverage.get("export_receipts", {}).values()
+        for piece in receipt.get("pieces", []))
+    # A receipt counts trades exactly when the run exported them (--trade-ticks).
+    include_trades = any("trade" in piece.get("counts", {})
+                         for receipt in coverage.get("export_receipts", {}).values()
+                         for piece in receipt.get("pieces", []))
+    # Likewise metrics (--metrics), which the runner is then given again.
+    include_metrics = any("metrics" in piece.get("counts", {})
+                          for receipt in coverage.get("export_receipts", {}).values()
+                          for piece in receipt.get("pieces", []))
+    if account.get("execution") == "quotes":
+        runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
+                        "--maintenance-margin", account["maintenance_margin_rate"]]
+    if include_metrics:
+        runner_argv.append("--metrics")
+    identity = entry._resolve(trial["image_ref"])
+    exported = None
+    try:
+        exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
+                                                     dict(selection), recorded.get("lifecycle_bundle"),
+                                                     True, ledger, include_quotes=include_quotes,
+                                                     include_trades=include_trades,
+                                                     include_metrics=include_metrics)
+        if comparability.input_key(exported["identity"]) != comparability.input_key(recorded):
+            raise refuse("REPRODUCTION_MISMATCH", f"the inputs exported again for run {trial_id} differ from the "
+                                                  "recorded input identity", missing=("input_identity",))
+        inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
+        if comparability.config_key(inspection.get("effective_config")) != comparability.config_key(effective):
+            raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
+                         missing=("effective_config",))
+        coverage = entry._prepare(output, revision["source"], inspection, exported)
+        argv, mounts = entry._mounts(output, exported, runner_argv)
+        argv += entry._strategy_argv(output, identity, inspection, revision["entry_class"],
+                                     revision["source_sha256"])
+        with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, "explore", revision["source_sha256"],
                                        entry._trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, window,
                                        entry._start_context(output, argv, mounts, revision["source"]))
-            native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, conn,
-                                                    "explore")
+        native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, "explore")
+        with db.connect(ledger, "writer") as conn:
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
             fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]),
                                                            execution.read_files(output, (execution.FINGERPRINT_RESULT,)))
             identical = reproduction.matches(conn, opened["trial_id"], trial_id)
-        finally:
-            entry._cleanup(exported)
+    finally:
+        entry._cleanup(exported)
     if expected is None or fingerprints is None or fingerprints != expected or not identical:
         why = ("the run has no recorded semantic fingerprint" if expected is None else
                "the runtime image computed no semantic fingerprint" if fingerprints is None else
