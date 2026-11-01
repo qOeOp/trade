@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pyarrow as pa
 
 from ledger import db
+from ledger.errors import Refusal
 from market import coverage, quotes, store
 from market.sources import MarketError
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
@@ -246,7 +247,7 @@ class ImportQuotesTests(unittest.TestCase):
             self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=False)["cached"], 1)
             self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=True)["cached"], 1)
 
-    def test_upgrade_adds_a_missing_table_and_is_otherwise_a_no_op(self):
+    def test_upgrade_adds_a_missing_table_holding_the_import_lock_and_is_otherwise_a_no_op(self):
         self.assertEqual(db.upgrade_market(self.profile)["created"], [])
         config = db._known_service(Path(self.profile["service"]))
         admin = db._admin(config, database=self.profile["database"])
@@ -256,6 +257,12 @@ class ImportQuotesTests(unittest.TestCase):
                 cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'test: drop quote')")
                 cursor.execute("SELECT DOLT_HASHOF('HEAD')")
                 historical, = cursor.fetchone()
+                cursor.execute("SELECT GET_LOCK(%s, 0)", (f"market-import:{self.profile['database']}",))
+                with self.assertRaises(Refusal) as held:
+                    db.upgrade_market(self.profile)
+                self.assertEqual(held.exception.code, "CONCURRENT_IMPORT")
+                cursor.execute("SELECT DOLT_HASHOF('HEAD')")
+                self.assertEqual(cursor.fetchone()[0], historical)
         finally:
             admin.close()
         made = db.upgrade_market(self.profile)

@@ -938,7 +938,8 @@ def upgrade(profile: LedgerProfile) -> dict:
 def upgrade_market(profile: dict) -> dict:
     """market upgrade: create the tables of market/schema.sql that the market database lacks (the
     administrator, one commit that skips the data tests: tables only). Existing tables, rows, accounts
-    and grants are untouched; a clean working set is required."""
+    and grants are untouched; a clean working set is required. The import lock is held, so no import
+    or backup runs meanwhile."""
     service_root = Path(profile["service"])
     config = _known_service(service_root)
     start_service(service_root)
@@ -948,6 +949,11 @@ def upgrade_market(profile: dict) -> dict:
     commit = None
     try:
         with conn.cursor() as cursor:
+            lock = f"market-import:{database}"
+            cursor.execute("SELECT GET_LOCK(%s, 0)", (lock,))
+            if cursor.fetchone()[0] != 1:
+                raise refuse("CONCURRENT_IMPORT", f"an import or backup of {database} holds {lock}; nothing was "
+                                                  "created", missing=(lock,))
             cursor.execute("SELECT table_name FROM dolt_status")
             if cursor.fetchall():
                 raise refuse("DIRTY_WORKING_SET", f"market database {database} has uncommitted changes")

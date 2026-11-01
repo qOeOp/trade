@@ -1198,12 +1198,13 @@ def market_upgrade(market: dict) -> dict:
 
 **期望行为**
 
-1. 以管理员账号连到市场库；对照 market/schema.sql 只建缺的表（后加的源交易表这类），跳过数据测试，一次 DOLT_COMMIT。
+1. 以管理员账号连到市场库，持导入锁，期间没有导入或备份；对照 market/schema.sql 只建缺的表（后加的源交易表这类），跳过数据测试，一次 DOLT_COMMIT。
 2. 已有表、行、账号与授权一律不动；写完按 <Ref id="cli.publish_after" /> 发布。参数用法以 `market upgrade --help` 为准。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `DIRTY_WORKING_SET` | 市场库工作集有未提交改动 |
+| `CONCURRENT_IMPORT` | 导入或备份正持有市场库的导入锁 |
 
 **使用**　<Ref id="cli.publish_after" />；账本侧的同类命令见 <Ref id="cli.ledger_upgrade" />
 ### `paper delete` [#def-cli-paper_delete]
