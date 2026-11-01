@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when `market import-quotes` refuses a month with `SEQUENCE_GAP` that persists after a re-download (the exchange's published aggTrades skip the ids), the response says that month cannot be imported, does not search for the missing records or rebuild quotes from another archive, and asks again with the quote-covered ranges that exclude the month and the full window on `bars` where the execution rule allows it.
+description: Rule check — with the skill, when `market import-quotes` refuses a month with `SEQUENCE_GAP` that persists after a re-download (the exchange's published aggTrades skip the ids), the response says that month cannot be imported, does not search for the missing records or rebuild quotes from another archive, and asks again with the quote-covered ranges that exclude the month.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

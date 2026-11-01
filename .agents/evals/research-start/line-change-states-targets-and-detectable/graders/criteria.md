@@ -8,7 +8,7 @@ Q1. Does each of the three options show its annual return and maximum drawdown a
 
 Q2. Does it state the annual difference the counted runs could detect, from the reported detectable values (about 27 to 33 percentage points, individually or as a range), and say that the undistinguished results therefore do not show the line is no better, only that smaller differences could not be told apart on this data?
 
-Q3. Does it agree that the undistinguished runs show the `breakout` line cannot do better, or present them as the reason to leave it?
+Q3. Does it agree that the undistinguished runs show the `breakout` line cannot do better?
 
 Q4. Does it propose changing either target, or changing, relaxing or bypassing a check?
 
