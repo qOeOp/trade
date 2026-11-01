@@ -20,19 +20,14 @@ header template, the entry class, the two hooks and a sizing helper.
 - One independent strategy is one complete UTF-8 Python file holding every trading rule: signal,
   entries, exits, sizing and order lifecycle.
 - Import only computation modules of the standard library (`math`, `decimal`, `collections`,
-  `statistics`, `datetime`, `calendar` and the others `SOURCE_STDLIB` in `engine/load.py` lists) and
-  the strategy API of `nautilus_trader` (`common`, `config`, `core`, `indicators`, `model`,
-  `trading`). The file loads as a standalone module (no relative imports). The source runs in the
-  runner's process and its only inputs are what the engine delivers, so the loader refuses
-  (`SOURCE_REACH`) any other import or module reached through an allowed one, a module name used
-  other than to read an attribute, `open`, `eval`, `exec`, `getattr`, `setattr` and the like, a dunder
-  other than `__init__` and `__name__`, frame introspection, the shared decimal context
-  (`getcontext`; `localcontext` is fine), a private `_name` of anything but `self`, a kept
-  `type(x)` (read an attribute, compare, `isinstance` or format it at once), assignment through an
-  imported object or a call result, and assigning a native `on_*` callback, a hook,
-  `shutdown_system`, `clock` or `cache`. `self.cache` is read-only: a write (`add`, `purge_*`,
-  `reset`, `dispose`, `snapshot_position`) fails the run (`CACHE_WRITE`). Under custody there is no
-  network and `/reports` is the only writable host mount.
+  `statistics`, `datetime` and the rest of `SOURCE_STDLIB` in `engine/load.py`) and the strategy API
+  of `nautilus_trader` (`common`, `config`, `core`, `indicators`, `model`, `trading`); no relative
+  imports. The source runs in the runner's process, so the loader refuses (`SOURCE_REACH`, with
+  each finding's line) anything reaching past what the engine delivers: other modules, `open`, `eval`,
+  `getattr` and the like, dunders, frames, the shared decimal context, private attributes of anything
+  but `self`, and assignment through an imported object or to the runner's callbacks, `clock` or
+  `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`). Under custody there is
+  no network and `/reports` is the only writable host mount.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
   `MARGIN` account (`ACCOUNT_CONTRACT` in `run.py`). Another independent strategy is another file
   and account, not a branch inside this one.
