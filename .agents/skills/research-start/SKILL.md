@@ -76,9 +76,11 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   user says to leave every line, each with its first report on the current window or marked not
   yet replayed; a root from a user source is made only when the user gives the source.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
-  beside the lines the ledger's other candidates could start (`candidate list`). A loss, an
-  insignificant result, a low priority, a review count, a run limit or a fault never brings up
-  template roots: give the recommendation and priorities inside the line.
+  beside the lines the ledger's other candidates could start (`candidate list`), stating the
+  annual difference its counted runs could detect (`hypothesis compare`'s
+  `detectable_annual_return_difference_80pct_normal_approx`): undistinguished is not no better.
+  A loss, an insignificant result, a low priority, a review count, a run limit or a fault never
+  brings up template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
 
