@@ -10,7 +10,7 @@ node and npm:
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
-python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL]
+python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 ```
 
@@ -63,6 +63,13 @@ page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service gene
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
 [`docs/plans/paper-trading-design.zh.md`](../docs/plans/paper-trading-design.zh.md).
+
+With `--market-import=FILE` (the status file `market follow` writes; in compose the `trade-market-import`
+volume, mounted read-only), `/api/market-import` answers that file as it is, read at each request, with
+`stale` when its round is older than 26 hours (`market.follow.check()`'s rule); 503 without a readable
+status. The status bar then names the service's state (`Market: caught up`, `waiting`, `lagging`,
+`stopped — CODE`), and clicking it lists each kind and contract as the file has them. Design:
+[`docs/plans/ide-market-import-status.zh.md`](../docs/plans/ide-market-import-status.zh.md).
 
 The Research line menu lists every line, including closed lines, through `/api/lines?at=<commit>`
 and the read-only `line list` command. A live page preloads the current index at startup and follows

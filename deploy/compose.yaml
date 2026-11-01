@@ -40,8 +40,10 @@ services:
       # The chat service's agents (with their API keys) and threads.
       - trade-ide-agent:/data/agent
       - trade-ledger-readers:/run/trade/ledger-readers:ro
+      # market-import's status file, for the status bar (its archive cache beside it is read by nothing).
+      - trade-market-import:/run/trade/market-import:ro
     restart: unless-stopped
-    command: ["--paper=http://paper:8767"]
+    command: ["--paper=http://paper:8767", "--market-import=/run/trade/market-import/market-import/status.json"]
     logging: *logging
     depends_on:
       ledger:
