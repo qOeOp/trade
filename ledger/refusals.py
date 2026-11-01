@@ -479,7 +479,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             "exists and is no export of this ledger, or holds a file where the backup goes.",
                             ("Choose a new directory outside the service directory and any checkout, or this ledger's "
                              "earlier export.",)),
-    "DOLT_BACKUP": ("The full-history backup could not be synced or restored, or its head differs from the ledger "
+    "DOLT_BACKUP": ("The full-history backup could not be synced or read, or its head differs from the ledger "
                     "(or market) head after the sync.",
                     ("Check the backup directory and the service, then rerun the export or `market backup`.",)),
     "BACKUP_DIVERGED": ("The existing backup's head is no commit of this database's history: it is another "
