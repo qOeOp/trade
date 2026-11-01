@@ -625,11 +625,14 @@ def commission_findings(fills: list[dict], coverage: dict) -> list[str]:
     its contract's export receipt assumes (engine.fee_model charges exactly those, multiplier 1), to within half
     a unit of the reported amount's last place: the source runs in the runner's process, and a venue charging
     other fees still writes reports that agree with each other."""
-    rates = {}
+    rates: dict[str, dict] = {}
     for receipt in (coverage.get("export_receipts") or {}).values():
         assumed = receipt.get("assumed") if isinstance(receipt, dict) else None
-        for piece in (receipt.get("pieces") or []) if isinstance(assumed, dict) else []:
-            rates[piece.get("instrument_id")] = {"MAKER": assumed.get("maker_fee"), "TAKER": assumed.get("taker_fee")}
+        if not isinstance(assumed, dict):
+            continue
+        for piece in receipt.get("pieces") or []:
+            rates[str(piece.get("instrument_id"))] = {"MAKER": assumed.get("maker_fee"),
+                                                      "TAKER": assumed.get("taker_fee")}
     findings = []
     for fill in fills:
         rate = (rates.get(fill["instrument_id"]) or {}).get(fill.get("liquidity_side"))
