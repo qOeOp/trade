@@ -11,7 +11,7 @@ export type DayBar = { from: number; ret: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
 export const DAY_S = 86_400;
-export const CEILING = 0.3, BARS = 0.12;   // the drawdown band and the tallest day's bar, as shares of the pane's height
+export const CEILING = 0.2, BARS = 0.12;   // the drawdown band and the tallest day's bar, as shares of the pane's height
 export const FEW = 2 * DAY_S;              // a run shorter than two days has no day bars
 const PITCH = 3, DOT = 1;                  // px: the drawdown dots' pitch (both ways) and size
 const FEWEST_DAYS = 3, DAY_PX = 3;         // day bars only while this many days are in view, each this wide (px)

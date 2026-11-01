@@ -67,7 +67,7 @@ export function EquityLegend({ point, stretch, named, minutes, offline, reading,
             <span className="text-fg-faint">{during(point.time, point.day ? 86_400 : step)}</span>
             <span className="font-medium">{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
-              ? <Value name="run">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
+              ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
               : <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
             {!stretch && <span className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
             {replayed.has(point.minute ?? point.time) && <Value name="replay">{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}

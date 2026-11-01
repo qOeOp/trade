@@ -16,7 +16,8 @@ import { useEarlier } from "./paperChain";
 import { follow, pickedDay, useStream, type Stream } from "./paperStream";
 import { followReconciliation } from "./reconcile";
 import { useShown } from "./shown";
-import { useStretches, type Stretch } from "./stretches";
+import type { Stretch } from "../model/stretches";
+import { useStretches } from "./stretches";
 import { paperTab } from "./stage";
 
 export type RunData = {

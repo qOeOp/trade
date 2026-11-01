@@ -10,9 +10,9 @@
 // by the pane's left edge is moved inside it. Each mark is a hover target (`event:<i>`, its first flag). A
 // stretch a chain of runs was offline (downLook.ts) is drawn as a gap's band is, with its tag on the time
 // axis, and is a hover target too (`offline:<i>`).
-import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, ISeriesPrimitiveAxisView, PrimitiveHoveredItem, SeriesAttachedParameter, Time } from "lightweight-charts";
+import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, PrimitiveHoveredItem, SeriesAttachedParameter, Time } from "lightweight-charts";
 import { ordered, type Flag, type Gap } from "./candleEvents";
-import { downTag, drawDown, tagged, type Down, type DownLook } from "./downLook";
+import { downTags, drawDown, tagged, type Down, type DownLook } from "./downLook";
 import { spacing } from "./viewAnchor";
 
 export type FlagsLook = { restart: DownLook; warn: string; warnTag: string; text: string; edge: string; island: string; hatch: string; wash: string; font: string };
@@ -64,9 +64,8 @@ export class EventFlags implements ISeriesPrimitive<Time> {
     return hit && y < this.middle() - STRIP / 2 ? { externalId: `offline:${this.downs.indexOf(hit[0])}`, zOrder: "bottom" } : null;
   }
 
-  timeAxisViews(): readonly ISeriesPrimitiveAxisView[] {
-    const look = this.look?.restart;
-    return look ? tagged(this.placed(), this.chart?.timeScale().width() ?? 0).map(({ d, x }) => downTag(x, d, look)) : [];
+  timeAxisPaneViews(): readonly IPrimitivePaneView[] {
+    return [downTags(() => tagged(this.placed(), this.chart?.timeScale().width() ?? 0), () => this.look?.restart ?? null)];
   }
   /** The tags on the time axis: where they sit (px) and what they say. */
   onAxis(): { x: number; text: string }[] { return tagged(this.placed(), this.chart?.timeScale().width() ?? 0).map(({ d, x }) => ({ x, text: d.label })); }

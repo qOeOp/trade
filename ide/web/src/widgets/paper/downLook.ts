@@ -1,24 +1,27 @@
 // How the Runs page's charts mark the time a chain of runs (model/chain.ts) was paused or offline between
-// two runs (model/ending.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
+// two runs (model/ending.ts), and the time between two chains of the paper stretch when no run ran
+// (state/stretches.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
 // series crosses it: it is covered the plot's height by a recessed wash between two hairlines, at least
 // MIN px wide (around the true stretch on the equity chart, as blank candles on the candle chart), its length tagged on the time axis as the value axis tags a price
-// ("Paused 3h", "Offline 45m"); under the pointer the chart says what happened at the stop and when, and
+// ("Paused 3h", "Offline 45m", "No run 7d"); under the pointer the chart says what happened at the stop and when, and
 // when the next run took over.
-import type { ISeriesPrimitiveAxisView } from "lightweight-charts";
+import type { IPrimitivePaneView } from "lightweight-charts";
 import { brief, clockSpan } from "../../lib/format";
 import type { Restart } from "../../model/paper";
 import { stamp } from "./chartTheme";
 
-export type DownLook = { wash: string; edge: string; text: string; tag: string };
+export type DownLook = { wash: string; edge: string; text: string; tag: string; font: string };
 /** An offline stretch on a chart: where it is drawn from and to (s, on the chart's own times), when the
  *  run stopped and the next started (s), and its tag. */
 export type Down = { from: number; to: number; stopped: number; started: number; label: string; lead: string; resumed: string };
 
 export const MIN = 12;  // px: the least width a stretch is drawn
+const TAG = { h: 17, pad: 5, mid: 14 };  // px: a tag's height and its text's inset, as the value axis's tags; its middle on the time axis
+const GAP = { paused: "Paused", offline: "Offline", idle: "No run" } as const;
 
 export const downsOf = (restarts: readonly Restart[]): Down[] =>
   restarts.map((r) => ({ from: r.from / 1000, to: r.to / 1000, stopped: r.from / 1000, started: r.to / 1000,
-                         label: `${r.gap === "paused" ? "Paused" : "Offline"} ${brief(clockSpan(r.from, r.to))}`, lead: r.lead, resumed: r.resumed }));
+                         label: `${GAP[r.gap]} ${brief(clockSpan(r.from, r.to))}`, lead: r.lead, resumed: r.resumed }));
 
 /** What the pointer over a stretch is told after its tag: what happened at the stop and when, and when the
  *  next run took over: (Paused 3h ·) by you 31 Oct, 04:20 · continued 31 Oct, 07:20. */
@@ -56,6 +59,19 @@ export function drawDown(c: CanvasRenderingContext2D, l: number, r: number, top:
 export const tagged = (placed: readonly [Down, number, number][], width: number) =>
   placed.flatMap(([d, a, b]) => ((a + b) / 2 >= 0 && (a + b) / 2 <= width ? [{ d, x: (a + b) / 2 }] : []));
 
-/** A stretch's tag on the time axis at `x` (px), as the value axis tags a price. */
-export const downTag = (x: number, d: Down, look: DownLook): ISeriesPrimitiveAxisView =>
-  ({ coordinate: () => x, text: () => d.label, textColor: () => look.text, backColor: () => look.tag, tickVisible: () => false });
+/** The stretches' tags on the time axis (`tags`, each at its middle), boxed as the value axis boxes a price:
+ *  the chart's own time-axis labels fill the axis's height, too heavy beside them. */
+export const downTags = (tags: () => readonly { d: Down; x: number }[], look: () => DownLook | null): IPrimitivePaneView => ({
+  renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+    const l = look();
+    if (!l) return;
+    c.font = l.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * vr}px`);
+    Object.assign(c, { textBaseline: "middle", textAlign: "center" });
+    const h = Math.round(TAG.h * vr), top = Math.round((TAG.mid - TAG.h / 2) * vr);
+    for (const { d, x } of tags()) {
+      const w = Math.round(c.measureText(d.label).width + 2 * TAG.pad * hr), left = Math.round(x * hr - w / 2);
+      c.fillStyle = l.tag; c.beginPath(); c.roundRect(left, top, w, h, 2 * hr); c.fill();
+      c.fillStyle = l.text; c.fillText(d.label, left + w / 2, top + h / 2);
+    }
+  }) }),
+});

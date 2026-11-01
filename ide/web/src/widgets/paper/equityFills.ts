@@ -3,12 +3,14 @@
 // rim along its far edge, so the line reads as the foot of a raised strip (vibe-trading's band); and
 // the open profit and loss, the stretch between the balance (equity less the open profit) and the line
 // wherever they part, in the profit colour where equity is above the balance and the loss colour where
-// below, over the band.
+// below, over the band; on request an equal-weight buy and hold of the run's contracts as a fine dashed
+// line. All of it inside the plot (equityZones.ts).
 import type { AutoscaleInfo, IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, LogicalRange,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
 import type { EquityPoint } from "./equityLayers";
 import { perColumn } from "./equityPlace";
+import { inPlot, type Plot } from "./equityZones";
 
 export type FillsLook = { up: string; down: string; costs: string; rim: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
@@ -21,11 +23,18 @@ export class EquityFills implements ISeriesPrimitive<Time> {
   private points: readonly EquityPoint[] = [];
   private balances: (number | null)[] = [];
   private befores: (number | null)[] = [];
+  private holds: (number | null)[] = [];
   private look: FillsLook | null = null;
+  private hold: string | null = null;
 
-  set(points: readonly EquityPoint[], readings: ReadonlyMap<number, Reading>, look: FillsLook): void {
+  /** `plot`: where they are drawn (equityZones.ts). */
+  constructor(private readonly plot: () => Plot) {}
+
+  /** The points, their readings, the colours and, when it is drawn, the buy and hold's colour. */
+  set(points: readonly EquityPoint[], readings: ReadonlyMap<number, Reading>, look: FillsLook, hold: string | null): void {
     const at = (p: EquityPoint) => readings.get(p.minute ?? p.time);
-    Object.assign(this, { points, look, balances: points.map((p) => at(p)?.balance ?? null), befores: points.map((p) => at(p)?.before ?? null) });
+    Object.assign(this, { points, look, hold, balances: points.map((p) => at(p)?.balance ?? null), befores: points.map((p) => at(p)?.before ?? null),
+                          holds: hold === null ? [] : points.map((p) => at(p)?.hold ?? null) });
     this.redraw?.();
   }
 
@@ -45,11 +54,11 @@ export class EquityFills implements ISeriesPrimitive<Time> {
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void { Object.assign(this, { chart, series, redraw: requestUpdate }); }
   detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
   paneViews(): readonly IPrimitivePaneView[] {
-    return [{ zOrder: () => "bottom", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((s) => this.draw(s)) }) }];
+    return [{ zOrder: () => "bottom", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((s) => inPlot(s.context, this.plot(), s.bitmapSize.width, s.verticalPixelRatio, () => this.draw(s))) }) }];
   }
 
-  /** Over the points in view (four a pixel column at most): the costs' band and its rim, then the open
-   *  profit's band, filled flat twice: clipped above the balance, then below it. */
+  /** Over the points in view (four a pixel column at most): the costs' band and its rim, the buy and
+   *  hold, then the open profit's band, filled flat twice: clipped above the balance, then below it. */
   private draw({ context: c, verticalPixelRatio: vr, horizontalPixelRatio: hr, bitmapSize }: Scope): void {
     const { chart, series, look, points } = this, range = chart?.timeScale().getVisibleLogicalRange();
     if (!chart || !series || !look || !range || points.length < 2) return;
@@ -75,6 +84,13 @@ export class EquityFills implements ISeriesPrimitive<Time> {
       top.forEach((i, k) => rim[k ? "lineTo" : "moveTo"](X(i), Math.round(Y(before(i))) + w / 2));
       Object.assign(c, { strokeStyle: look.rim, lineWidth: w, lineJoin: "round" });
       c.stroke(rim);
+    }
+    const held = (i: number) => this.holds[i] != null, hold = perColumn(from, to, X, (i) => this.holds[i]!, held);
+    if (this.hold && hold.length > 1) {
+      const path = new Path2D();
+      hold.forEach((i, k) => path[k ? "lineTo" : "moveTo"](X(i), Y(this.holds[i]!)));
+      Object.assign(c, { strokeStyle: this.hold, lineWidth: Math.max(1, Math.floor(hr)) });
+      c.setLineDash([2 * hr, 2 * hr]); c.stroke(path); c.setLineDash([]);
     }
 
     const shown = perColumn(from, to, X, value, (i) => this.balances[i] !== null);
