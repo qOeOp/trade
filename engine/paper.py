@@ -55,6 +55,7 @@ import signal
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -85,6 +86,7 @@ from engine.load import (
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
 REST_BASE = "https://fapi.binance.com"
+FETCH_RETRY_SECONDS = (2, 4, 8, 16, 32, 60, 60, 60)  # an uncalibrated example value: about four minutes of waits
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
 # How long the strategy's data callbacks wait for the execution events their data caused. Those are queued
@@ -148,9 +150,29 @@ class Cadence:
 # The daily warm-up from Binance's public klines (a DAILY_WARMUP source)
 
 def _get_json(url: str, proxy_url: str | None):
+    """The response, tried again while the network fails or Binance answers 5xx: after a Docker or host
+    restart the egress proxy's route out can take a while to come up. A stop request ends the waiting
+    with the last error."""
     handlers = [urllib.request.ProxyHandler({"https": proxy_url, "http": proxy_url} if proxy_url else {})]
-    with urllib.request.build_opener(*handlers).open(url, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+
+    def get():
+        with urllib.request.build_opener(*handlers).open(url, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    for delay in FETCH_RETRY_SECONDS:
+        try:
+            return get()
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                raise
+            exc.close()
+            failed = exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            failed = exc
+        print(f"{url.split('?')[0]}: {failed}; trying again in {delay} s", file=sys.stderr, flush=True)
+        if STOP.wait(delay):
+            raise failed
+    return get()
 
 
 def _decimals(step: str) -> int:
@@ -692,8 +714,15 @@ def main(argv: list[str] | None = None) -> None:
             if STOP.wait(1):
                 journal("stopped_before_start", reason=STOP_REASON[0])
                 return
-        terms = rest_terms(list(args.symbols), args.proxy_url)
-        warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url) for symbol in args.symbols}
+        try:
+            terms = rest_terms(list(args.symbols), args.proxy_url)
+            warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url)
+                      for symbol in args.symbols}
+        except OSError:  # a stop request ended the fetch's retries
+            if not STOP.is_set():
+                raise
+            journal("stopped_before_start", reason=STOP_REASON[0])
+            return
     planned = plan(list(args.symbols), membership, start_ns, warmup)
     run.STRATEGIES.clear()
     for served in run.SERVED.values():
