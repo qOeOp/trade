@@ -181,6 +181,9 @@ REFUSALS: dict[str, str] = {
     "SOURCE_UNREADABLE": "The strategy source is not a regular file, is a link or cannot be read.",
     "CONTENT_HASH_INVALID": "The expected content hash is not 64 lowercase hexadecimal characters.",
     "CONTENT_HASH_MISMATCH": "The source bytes' SHA-256 differs from the expected content hash.",
+    "SOURCE_REACH": "The source imports beyond the standard computation modules and the native strategy API, "
+                    "executes or reads attributes by name, introspects dunders or frames, or assigns to an "
+                    "imported object.",
     "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",

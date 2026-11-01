@@ -4,6 +4,7 @@ lifecycle events checked against the coverage receipt."""
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import inspect
@@ -35,6 +36,69 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 # Strategy
 
 ENVIRONMENT_NAMES = ("QUOTE_EXECUTION", "INITIAL_MARGIN_RATE", "MAINTENANCE_MARGIN_RATE")
+# The source runs in the runner's process, so the source check refuses its plain reach out of its own rules:
+# an import beyond computation and the native strategy API (the runner, catalogs, files, processes), dynamic
+# execution or attribute access by name, dunder and frame introspection, and assignment to an imported object.
+SOURCE_STDLIB = frozenset({
+    "__future__", "abc", "bisect", "calendar", "collections", "copy", "dataclasses", "datetime", "decimal", "enum",
+    "fractions", "functools", "heapq", "itertools", "json", "math", "numbers", "operator", "re", "statistics",
+    "typing",
+})
+SOURCE_NAUTILUS = ("nautilus_trader.common", "nautilus_trader.config", "nautilus_trader.core",
+                   "nautilus_trader.indicators", "nautilus_trader.model", "nautilus_trader.trading")
+SOURCE_REFUSED_NAMES = frozenset({
+    "breakpoint", "compile", "delattr", "eval", "exec", "getattr", "globals", "input", "locals", "open", "setattr",
+    "vars",
+})
+SOURCE_DUNDERS = frozenset({"__init__", "__name__"})
+SOURCE_INTROSPECTION = frozenset({
+    "ag_code", "ag_frame", "cr_code", "cr_frame", "f_back", "f_builtins", "f_code", "f_globals", "f_locals",
+    "gi_code", "gi_frame", "mro", "tb_frame", "tb_next",
+})
+
+
+def _module_allowed(module: str) -> bool:
+    return module.partition(".")[0] in SOURCE_STDLIB or any(
+        module == allowed or module.startswith(allowed + ".") for allowed in SOURCE_NAUTILUS)
+
+
+def source_findings(source: bytes) -> list[str]:
+    """engine.source_findings: what in the source reaches outside its own rules, one line each with its line
+    number; [] when nothing does. Static, so it proves no safety; it refuses the plain routes to the runner."""
+    tree = ast.parse(source, filename="<strategy>")
+    imported: set[str] = set()
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.add((alias.asname or alias.name).partition(".")[0])
+                if not _module_allowed(alias.name):
+                    found.append(f"line {node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            imported.update(alias.asname or alias.name for alias in node.names)
+            if node.level or not _module_allowed(node.module or ""):
+                found.append(f"line {node.lineno}: from {'.' * node.level}{node.module or ''} import")
+        elif isinstance(node, ast.Name) and (
+                node.id in SOURCE_REFUSED_NAMES
+                or node.id.startswith("__") and node.id.endswith("__") and node.id not in SOURCE_DUNDERS):
+            found.append(f"line {node.lineno}: name {node.id}")
+        elif isinstance(node, ast.Attribute) and (
+                node.attr in SOURCE_INTROSPECTION
+                or node.attr.startswith("__") and node.attr.endswith("__") and node.attr not in SOURCE_DUNDERS):
+            found.append(f"line {node.lineno}: attribute {node.attr}")
+    for node in ast.walk(tree):
+        targets = (node.targets if isinstance(node, (ast.Assign, ast.Delete))
+                   else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else [])
+        for target in targets:
+            for part in ast.walk(target):
+                if not isinstance(part, ast.Attribute):
+                    continue
+                root = part.value
+                while isinstance(root, (ast.Attribute, ast.Subscript)):
+                    root = root.value
+                if not isinstance(root, ast.Name) or root.id in imported:
+                    found.append(f"line {node.lineno}: assignment to {ast.unparse(part)}")
+    return found
 
 
 @dataclass(frozen=True)
@@ -67,10 +131,11 @@ def load_strategy(
     entry_class: str,
     expected_content_hash: str,
 ) -> LoadedStrategy:
-    """engine.load_strategy: execute exactly hash-checked source bytes and resolve a native class.
+    """engine.load_strategy: execute exactly hash-checked source bytes that pass the source check and
+    resolve a native class.
 
-    This verifies identity, not safety of arbitrary Python. The invoking sandbox
-    or fixed runtime image supplies the execution boundary.
+    The source check refuses the plain routes into the runner, files and dynamic execution; it is not a
+    sandbox. The fixed runtime image supplies the execution boundary (no network, read-only inputs).
     """
     if not isinstance(expected_content_hash, str) or not _SHA256.fullmatch(expected_content_hash):
         raise Refusal("CONTENT_HASH_INVALID", "strategy SHA-256 must be 64 lowercase hexadecimal characters")
@@ -80,6 +145,12 @@ def load_strategy(
     actual_sha256 = hashlib.sha256(source).hexdigest()
     if actual_sha256 != expected_content_hash:
         raise Refusal("CONTENT_HASH_MISMATCH", "strategy SHA-256 differs from the published source")
+    try:
+        reach = source_findings(source)
+    except (SyntaxError, ValueError) as exc:
+        raise Refusal("SOURCE_EXECUTION_FAILED", f"{type(exc).__name__}: {exc}") from exc
+    if reach:
+        raise Refusal("SOURCE_REACH", "; ".join(reach))
     source_path = source_path.resolve()
     module_name = f"_strategy_{actual_sha256}"
     module = sys.modules.get(module_name)

@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -137,6 +138,27 @@ class StrategyLoaderTests(unittest.TestCase):
         self.source.write_text("raise KeyError('boom')\n")
         with self.assertRaisesRegex(Refusal, "^SOURCE_EXECUTION_FAILED: KeyError"):
             self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+
+    def test_source_reach_is_refused_before_execution(self):
+        marker = self.root / "executed"
+        touch = f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
+        for reach, found in (
+            ("import engine.run as runner\nrunner.fee_model = None\n", "import engine.run"),
+            ("from nautilus_trader.persistence import ParquetDataCatalog\n", "from nautilus_trader.persistence"),
+            ("import nautilus_trader\n", "import nautilus_trader"),
+            ("from .helper import x\n", "from .helper import"),
+            ("data = open('/inputs/market/x').read()\n", "name open"),
+            ("f = getattr(object, 'x')\n", "name getattr"),
+            ("subclasses = object.__subclasses__()\n", "attribute __subclasses__"),
+            ("def g():\n    yield\nfound = g().gi_frame.f_back\n", "attribute gi_frame"),
+            ("from nautilus_trader.trading import Strategy\nStrategy.on_bar = None\n", "assignment to Strategy.on_bar"),
+            ("class P:\n    def f(self):\n        type(self).g = None\n", "assignment to type(self).g"),
+        ):
+            self.source.write_text(touch + reach)
+            digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
+            with self.subTest(reach=reach), self.assertRaisesRegex(Refusal, f"^SOURCE_REACH: .*{re.escape(found)}"):
+                self.load(digest=digest)
+        self.assertFalse(marker.exists())
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
         loaded = self.load()
