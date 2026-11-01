@@ -85,10 +85,10 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   replay, publish or write a line record, and never treat the first recommendation as chosen.
 
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is
-then published, prechecked and reviewed (research-round's template.md, First report). Record the
-choice once with `line select` (`--help`), with the user's two research targets as
-`--max-drawdown` and `--annual-return` when the user states targets for this line; otherwise the
-line reads the ledger default. When neither exists, ask the user for them. Record a later change
+then published, prechecked and reviewed (research-round's template.md, First report).
+`line select` (`--help`) records a new line (a chosen open line is already recorded), with the
+user's targets for it as `--max-drawdown` and `--annual-return` when stated; otherwise the line
+reads the ledger default. When neither exists, ask the user for them. Record a later change
 the user states with `line targets`, and never change targets on your own. Line notes and summaries
 follow research-round's rule for ledger text (English, structured). The targets are the reference
 for reading reports; ask for nothing else (no coins, sizing, budgets or stages).
