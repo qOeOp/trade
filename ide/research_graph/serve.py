@@ -18,11 +18,15 @@ With a paper URL (the paper daemon, `python -m cli.main paper serve`), requests 
 forwarded the same way, and the Runs page can start and stop paper runs. A POST there must also come
 from the page itself (`Sec-Fetch-Site: same-origin`) and carry the token this service generated at start
 and put in the page (`X-Trade-Paper-Token`), so a page on another port of this host cannot start a run.
+
+With a market-import status file (the one `market follow` writes, mounted read-only), `/api/market-import`
+answers it as it is, read at each request, with whether it is stale by `market.follow.check()`'s rule.
 """
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -49,6 +53,7 @@ PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
 TRIALS = 16
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
+STALE = timedelta(hours=26)  # market.follow.STALE: a status older than this is a stuck command
 
 
 class ProductError(Exception):
@@ -327,6 +332,22 @@ class Hub:
             self.clients.remove(client)
 
 
+def market_import(path: Path, now: datetime) -> tuple[int, dict]:
+    """The market-import service's status file as it is, with the time it was read and whether its round is
+    older than STALE; 503 when there is no file or it is not a status."""
+    try:
+        status = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return 503, _failure("MARKET_IMPORT_UNAVAILABLE", f"no status at {path}: {exc.strerror or exc}")
+    except ValueError as exc:
+        return 503, _failure("MARKET_IMPORT_UNREADABLE", f"{path}: {exc}")
+    try:
+        stale = now - datetime.fromisoformat(status["at"]) > STALE
+    except (KeyError, TypeError, ValueError) as exc:
+        return 503, _failure("MARKET_IMPORT_UNREADABLE", f"{path}: no round time ({type(exc).__name__}: {exc})")
+    return 200, {"read_at": now.isoformat(), "stale": stale, "status": status}
+
+
 def _page() -> bytes:
     page = render.built_page()
     return page.replace(render.PLACEHOLDER, "null").encode()
@@ -343,8 +364,8 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
 
-def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
-            paper: str | None = None) -> type[BaseHTTPRequestHandler]:
+def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
+            status: Path | None = None) -> type[BaseHTTPRequestHandler]:
     token = secrets.token_urlsafe(24)
     page = _page()
     if paper:
@@ -446,6 +467,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
             if url.path == "/api/trial":
                 self.trial(query)
                 return
+            if url.path == "/api/market-import" and status is not None:
+                self.json(*market_import(status, datetime.now(UTC)))
+                return
             if url.path not in ("/api/view", "/api/events", "/api/lines"):
                 self.json(404, _failure("NOT_FOUND", url.path))
                 return
@@ -505,9 +529,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
 
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str], poll: float,
-          agent: str | None = None, paper: str | None = None) -> None:
+          agent: str | None = None, paper: str | None = None, status: Path | None = None) -> None:
     hub = Hub(product, build, poll)
-    server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper))
+    server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
+                                          status))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

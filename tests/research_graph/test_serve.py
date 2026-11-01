@@ -1,14 +1,17 @@
 """If these fail, the served research graph no longer follows the ledger: a page asking for a graph gets
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
 slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, a trial's report is read once per commit and its refusal reaches the
-page, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
+page, only the page itself, with its token, can start a paper run, and the market-import service's status
+reaches the page as it is, stale by the healthcheck's rule. The product is a stand-in; no ledger or network is used."""
 
 import copy
+from datetime import UTC, datetime, timedelta
 import http.client
 import json
 import re
 from pathlib import Path
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -330,6 +333,52 @@ class HttpTests(unittest.TestCase):
 
     def test_without_a_chat_service_there_is_no_agent(self):
         self.assertEqual(self.get("/api/agent/health").status, 404)
+
+
+class MarketImportTests(unittest.TestCase):
+    def setUp(self):
+        self.status = Path(tempfile.mkdtemp()) / "status.json"
+        self.servers = {}
+        for name, path in (("with", self.status), ("without", None)):
+            with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
+                server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"),
+                                                                      frozenset({"here:1"}), status=path))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            self.servers[name] = server
+
+    def get(self, server="with", **headers):
+        conn = http.client.HTTPConnection(*self.servers[server].server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("GET", "/api/market-import", headers={"Host": "here:1", **headers})
+        response = conn.getresponse()
+        return response, json.loads(response.read())
+
+    def test_the_status_reaches_the_page_stale_after_the_healthchecks_limit(self):
+        from market import follow
+        self.assertEqual(serve.STALE, follow.STALE)
+        now = datetime.now(UTC)
+        for age, stale in ((timedelta(hours=25), False), (timedelta(hours=27), True)):
+            status = {"at": (now - age).isoformat(), "kinds": {"bars": {"scope": {"state": "caught_up"}}}}
+            self.status.write_text(json.dumps(status))
+            response, body = self.get()
+            self.assertEqual(response.status, 200)
+            self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+            self.assertEqual((body["status"], body["stale"]), (status, stale))
+
+    def test_a_missing_or_broken_file_is_refused_and_without_one_there_is_no_path(self):
+        self.assertEqual(self.get()[1]["code"], "MARKET_IMPORT_UNAVAILABLE")
+        for text in ("{", "[]", '{"at": "yesterday"}', '{"kinds": {}}'):
+            self.status.write_text(text)
+            response, body = self.get()
+            self.assertEqual((response.status, body["code"]), (503, "MARKET_IMPORT_UNREADABLE"), text)
+        self.assertEqual(self.get("without")[0].status, 404)
+
+    def test_another_site_cannot_read_it(self):
+        self.status.write_text(json.dumps({"at": datetime.now(UTC).isoformat()}))
+        self.assertEqual(self.get(Host="elsewhere:1")[0].status, 403)
+        self.assertEqual(self.get(**{"Sec-Fetch-Site": "cross-site"})[0].status, 403)
 
 
 class AgentForwardTests(unittest.TestCase):
