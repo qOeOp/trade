@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Tabs } from "../../components/Tabs";
 import { TextButton } from "../../components/TextButton";
 import { precisions } from "../../lib/paperApi";
+import { NO_LIVE } from "../../model/stage";
 import { trades } from "../../model/trades";
 import { useAtom } from "../../state/atom";
 import { usePaperService } from "../../state/paper";
@@ -15,7 +16,6 @@ import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
 import { Reconcile, ReconcileTools } from "./Reconcile";
 import { Trades } from "./Trades";
 
-const NO_LIVE = "No live trading exists: real accounts, testnet and credentials need the user's explicit authority (AGENTS.md).";
 
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
  *  strategy raised, Reconciliation only once the run is sealed. */

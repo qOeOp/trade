@@ -42,7 +42,7 @@ export function RunsPage() {
   }
   return (
     <div className="@container/page grid h-full min-h-0">
-      <ChartCard run={run} view={data.view} s={data.s} a={data.a} fills={data.fills} targets={targets} />
+      <ChartCard version={version} run={run} view={data.view} s={data.s} a={data.a} fills={data.fills} stretches={data.stretches} targets={targets} />
     </div>
   );
 }

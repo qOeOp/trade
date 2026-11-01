@@ -5,8 +5,10 @@
 // deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
 // and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
 // the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
-// value axis with its name beside it, at the last point in view as the equity's own tag. A tag that would
-// cover the chart's own (the start's, the last value's) moves a tag's height off it.
+// value axis with its name beside it, at the last point in view as the equity's own tag. Of a chart of
+// several stretches (equityStretches.ts) the floor is drawn along each, but the drawdowns and the tags are
+// the shown stretch's alone. A tag that would cover the chart's own (the start's, the last value's) moves a
+// tag's height off it.
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { EquityPoint } from "./equityLayers";
@@ -40,12 +42,12 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private points: readonly EquityPoint[] = [];
   private limit: number | null = null;
   private drops: readonly Episode[] = []; private look: NotesLook | null = null;
-  private format: (n: number) => string = String; private start = 0; private raised = 0;
+  private format: (n: number) => string = String; private start = 0; private raised = 0; private shown: number | null = null;
 
-  /** The points drawn and every minute, the drawdown limit, the colours, the value format and
-   *  the starting balance (whose tag the chart draws). */
-  set(points: readonly EquityPoint[], minutes: readonly EquityPoint[], limit: number | null, look: NotesLook, format: (n: number) => string, start: number): void {
-    Object.assign(this, { points, limit, look, format, start, drops: deepest(minutes) });
+  /** The points drawn and every minute, the drawdown limit, the colours, the value format, the starting
+   *  balance (whose tag the chart draws) and the shown stretch (null: every point is its). */
+  set(points: readonly EquityPoint[], minutes: readonly EquityPoint[], limit: number | null, look: NotesLook, format: (n: number) => string, start: number, shown: number | null = null): void {
+    Object.assign(this, { points, limit, look, format, start, shown, drops: deepest(shown === null ? minutes : minutes.filter((p) => p.stretch === shown)) });
     this.redraw?.();
   }
 
@@ -68,10 +70,13 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
                                        backColor: () => t.back, visible: () => true, tickVisible: () => false }));
   }
 
-  /** The last point in view. */
+  /** The shown stretch's last point in view. */
   private lastShown(): EquityPoint | undefined {
-    const range = this.chart?.timeScale().getVisibleLogicalRange();
-    return this.points[Math.max(0, Math.min(this.points.length - 1, Math.ceil(range?.to ?? this.points.length - 1)))];
+    const range = this.chart?.timeScale().getVisibleLogicalRange(), n = this.points.length;
+    for (let i = Math.max(0, Math.min(n - 1, Math.ceil(range?.to ?? n - 1))); i >= Math.max(0, Math.floor(range?.from ?? 0)); i--) {
+      if (this.shown === null || this.points[i]!.stretch === this.shown) return this.points[i];
+    }
+    return undefined;
   }
 
   private tagged(): Tag[] {

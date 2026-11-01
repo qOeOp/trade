@@ -7,7 +7,7 @@
 import { amount, type JournalLine } from "../lib/paperApi";
 import type { Fill } from "./paper";
 
-export type Reading = { balance: number | null; before: number; margin: number | null; exposure: number | null; hold: number | null };
+export type Reading = { balance: number | null; before: number | null; margin: number | null; exposure: number | null; hold: number | null };
 export type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 const MINUTE_NS = 60e9;
 

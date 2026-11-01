@@ -29,30 +29,17 @@ export function stepFor(span: number, width: number, current: number, px = PX, s
 export function resample(minutes: readonly EquityPoint[], step: number): EquityPoint[] {
   if (step <= STEPS[0]) return minutes as EquityPoint[];
   const out: EquityPoint[] = [];
-  let up: EquityPoint | null = null;  // the step's last minute not down
+  let up: EquityPoint | null = null, cut = false;  // the step's last minute not down; whether a stretch starts anew in it
   minutes.forEach((p, i) => {
     const next = minutes[i + 1], start = Math.floor(p.time / step) * step;
     if (!p.down) up = p;
+    cut ||= !!p.cut;
     if (next && Math.floor(next.time / step) * step === start) return;
     const shown: EquityPoint = p.down && up ? up : p;
-    out.push({ ...shown, time: start, minute: shown.time });
-    up = null;
+    out.push({ ...shown, time: start, minute: shown.time, ...(cut ? { cut } : {}) });
+    up = null; cut = false;
   });
   return out;
-}
-
-const YEAR_S = 365 * 86_400;
-
-/** Each minute of `path` ([ns, equity]) as a point: its running peak from `starting` and the pace a minimum
- *  `annual` return asks for, compounding from `start` (ms; else the first minute); one point a second. */
-export function equityMinutes(path: readonly (readonly [number, number])[], starting: number, start: number | null, annual: number | null): EquityPoint[] {
-  let peak = starting;
-  const t0 = start === null ? Math.floor((path[0]?.[0] ?? 0) / 1e9) : start / 1000;
-  return path.map(([ns, value]) => {
-    peak = Math.max(peak, value);
-    const time = Math.floor(ns / 1e9);
-    return { time, value, peak, pace: annual === null ? null : starting * (1 + annual) ** ((time - t0) / YEAR_S) };
-  }).filter((p, i, all) => i === all.length - 1 || all[i + 1]!.time > p.time);
 }
 
 /** `minutes` with a point a minute across each stretch a chain was offline between its runs (downLook.ts),

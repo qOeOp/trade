@@ -1,16 +1,17 @@
 // Paper runs: how one ended (model/ending.ts), the chain rule (model/chain.ts), which run and stage the Runs
-// page shows (model/stage.ts), the joined journal and
-// account (model/joined.ts), and what a pause between two runs does to the fills, spans and trades read from it.
+// page shows (model/stage.ts), the joined journal and account (model/joined.ts), what a pause between two
+// runs does to the fills, spans and trades read from it, and a version's chains drawn as one line
+// (widgets/paper/equityStretches.ts).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { SourceTextModule } from "node:vm";
+import { SourceTextModule, SyntheticModule } from "node:vm";
 import ts from "typescript";
 
 // The modules as the page has them: each TypeScript file transpiled, its relative imports linked to theirs,
-// in this realm so their values compare as ours.
+// in this realm so their values compare as ours; a package as Node imports it.
 const modules = new Map();
 function load(path) {
   if (!modules.has(path)) {
@@ -21,7 +22,11 @@ function load(path) {
 }
 async function namespace(relative) {
   const root = load(resolve(dirname(fileURLToPath(import.meta.url)), relative));
-  if (root.status === "unlinked") await root.link((specifier, from) => load(`${resolve(dirname(from.identifier), specifier)}.ts`));
+  if (root.status === "unlinked") await root.link(async (specifier, from) => {
+    if (specifier.startsWith(".")) return load(`${resolve(dirname(from.identifier), specifier)}.ts`);
+    const found = await import(specifier);
+    return new SyntheticModule(Object.keys(found), function () { for (const [k, v] of Object.entries(found)) this.setExport(k, v); });
+  });
   if (root.status !== "evaluated") await root.evaluate();
   return root.namespace;
 }
@@ -32,6 +37,7 @@ const paper = await namespace("../src/model/paper.ts");
 const { trades } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
+const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
@@ -282,4 +288,36 @@ test("the stage shown is the one picked while the version has it, else paper, el
   assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
   assert.equal(stage.backtestTrial([{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false }, { trial_id: 3, purpose: "validation", eligible: true }]).trial_id, 1);
   assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "run 6"]);
+});
+
+test("a version's chains are its runs grouped by the chain rule, in the order they started", () => {
+  const runs = [running(2), sealed(1), sealed(3, { symbols: ["ETHUSDT"], created: T0 - 5000 * MIN, stopped: T0 - 4000 * MIN }), sealed(4, { candidate: "other@1" })];
+  assert.deepEqual(chain.chainsOf("ema@3", runs).map((c) => c.map((r) => r.paper_id)), [[3], [1, 2]]);
+  assert.deepEqual(chain.chainsOf("none@1", runs), []);
+});
+
+test("a version's stretches join as one line: no room between them, each later one scaled to start where the one before ended", () => {
+  const S = T0 / 1e9, a = piece(1, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 110_000]], 110_000);
+  const b = piece(2, [line("started", T0 + 100 * MIN)], [[T0 + 100 * MIN, 100_000], [T0 + 101 * MIN, 90_000]], 90_000);
+  const early = piece(3, [line("started", T0 + MIN)], [[T0 + MIN, 100_000]], 100_000);
+  const l = stretches.continuous([{ chain: [sealed(1)], piece: a, selected: false }, { chain: [sealed(2)], piece: b, selected: true },
+                                   { chain: [sealed(3)], piece: early, selected: false }], 0.1, true);
+  assert.deepEqual(l.minutes.map((p) => [p.time - S, Math.round(p.value), p.stretch]), [[0, 100_000, 0], [60, 110_000, 0], [6000, 110_000, 1], [6060, 99_000, 1]]);
+  assert.deepEqual(l.placed.map((p) => [p.label, p.selected, p.first, p.last, p.scale]), [["Paper · run 1", false, 0, 1, 1], ["Paper · run 2", true, 2, 3, 1.1]], "a stretch starting before the last one ends is left out");
+  assert.equal(Math.round(l.minutes[3].peak), 110_000, "each stretch's peak starts at its own start");
+  assert.equal(l.minutes[2].pace, l.minutes[1].pace, "the pace runs through the seam: the time between stretches does not compound");
+  assert.ok(l.minutes[1].pace > l.minutes[0].pace);
+  assert.deepEqual(Object.keys(l.readings.get(S)), ["balance", "before", "margin", "exposure", "hold"]);
+  assert.equal(l.readings.get(S).balance, null, "a stretch not shown reads its exposure alone");
+  assert.equal(stretches.covered(l.minutes, S, S + 6060), 240, "a step is picked for the minutes in view, not the time between stretches");
+  const view = stretches.firstView(l.minutes, 1);
+  assert.equal(view.to, 3);
+  assert.ok(Math.abs(view.from - (2 - (2 * 15) / 85)) < 1e-12, "the shown stretch over the right 85%, the end of the one before it over the left 15%");
+  assert.deepEqual(stretches.firstView(l.minutes, 0), { from: 0, to: 1 });
+  const reach = stretches.shownReach(l.minutes, 1, 0, 3);
+  assert.deepEqual([reach.minValue, reach.maxValue].map(Math.round), [99_000, 110_000], "the value axis fits the shown stretch alone");
+  const bad = stretches.continuous([{ chain: [sealed(1, { status: "invalid" })], piece: a, selected: false }, { chain: [sealed(2)], piece: b, selected: true }], 0.1, true);
+  assert.deepEqual(bad.placed.map((p) => [p.label, p.scale]), [["Paper · run 1 · invalid", 1], ["Paper · run 2", 1]], "nothing carries on from an invalid chain: its evidence is untrusted");
+  assert.deepEqual(bad.minutes.map((p) => p.cut ?? false), [false, false, true, false], "the line breaks where the next stretch starts anew");
+  assert.ok(!l.minutes.some((p) => p.cut), "a stretch that carries on does not break the line");
 });
