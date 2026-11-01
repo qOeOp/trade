@@ -7,7 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 from ledger import admin, db
 from ledger.errors import Refusal
@@ -80,6 +82,22 @@ class MarketBackupTests(unittest.TestCase):
         again = admin.market_backup(profile)
         self.assertEqual((again["previous_head"], again["market_commit"], self.backed(profile)),
                          (first["market_commit"], later, later))
+
+    def test_reading_the_head_leaves_the_backup_and_the_temporary_directory_untouched(self):
+        profile = self.market("market_read")
+        synced = admin.market_backup(profile)["market_commit"]
+        backup = admin.backup_path(db.LedgerProfile.from_json(profile))
+        files = {path: (path.stat().st_size, path.stat().st_mtime_ns, path.read_bytes())
+                 for path in backup.rglob("*") if path.is_file()}
+        work = Path(tempfile.mkdtemp(prefix="backup-head-read-", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, work, True)
+        with patch.object(admin.tempfile, "mkdtemp", return_value=str(work / "head")):
+            (work / "head").mkdir()
+            self.assertEqual(self.backed(profile), synced)
+        self.assertEqual({path: (path.stat().st_size, path.stat().st_mtime_ns, path.read_bytes())
+                          for path in backup.rglob("*") if path.is_file()}, files)
+        time.sleep(3)  # Dolt's detached event flush would recreate the deleted home within seconds
+        self.assertEqual(list(work.iterdir()), [])
 
     def test_a_rewritten_commit_is_a_finding_and_its_backup_is_never_overwritten(self):
         profile = self.market("market_amended")

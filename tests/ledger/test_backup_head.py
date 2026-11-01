@@ -1,4 +1,4 @@
-"""Restore deadlines scale with retained history; the restored-head check stays mandatory."""
+"""Reading a backup's head links its table files instead of restoring it, and still refuses what it cannot read."""
 
 from pathlib import Path
 import subprocess
@@ -10,6 +10,27 @@ from ledger import admin, db
 from ledger.errors import Refusal
 
 
+TABLE = "0frkgm4f1b08v0qjbgmv06ibf6oe4qgc"
+
+
+class LinkStoreTests(unittest.TestCase):
+    def test_table_files_are_linked_and_everything_dolt_may_write_is_copied(self):
+        with tempfile.TemporaryDirectory(prefix="backup-head-test-") as temporary:
+            backup, store = Path(temporary) / "backup", Path(temporary) / "store"
+            (backup / "oldgen").mkdir(parents=True)
+            for name in (TABLE, f"{TABLE[::-1]}.darc", "oldgen/" + TABLE[::-1], admin.JOURNAL_FILE,
+                         "manifest", "LOCK", "oldgen/LOCK", "journal.idx"):
+                (backup / name).write_text(name)
+            admin._link_store(backup, store)
+            linked = {path.relative_to(store).as_posix() for path in store.rglob("*") if path.is_symlink()}
+            copied = {path.relative_to(store).as_posix() for path in store.rglob("*")
+                      if path.is_file() and not path.is_symlink()}
+            self.assertEqual(linked, {TABLE, f"{TABLE[::-1]}.darc", "oldgen/" + TABLE[::-1]})
+            self.assertEqual(copied, {admin.JOURNAL_FILE, "manifest", "journal.idx"})
+            (store / "manifest").write_text("rewritten")
+            self.assertEqual((backup / "manifest").read_text(), "manifest")
+
+
 class BackupHeadTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="backup-head-test-")
@@ -18,7 +39,7 @@ class BackupHeadTests(unittest.TestCase):
         self.backup = self.root / "backup"
         self.backup.mkdir()
         self.profile = db.LedgerProfile("fixture", "fixture", self.root / "service")
-        self.work = self.root / "restore-work"
+        self.work = self.root / "work"
         self.work.mkdir()
         config = patch.object(db, "_service", return_value={"binary": "fixture-dolt"})
         config.start()
@@ -27,61 +48,32 @@ class BackupHeadTests(unittest.TestCase):
         directory.start()
         self.addCleanup(directory.stop)
 
-    def archive(self, size):
-        # A sparse archive exercises a large backup without allocating its contents.
-        path = self.backup / "history.darc"
-        with path.open("wb") as stream:
-            stream.truncate(size)
-        return path
+    def run_dolt(self, argv, **options):
+        if argv[1] == "init":
+            (Path(options["cwd"]) / ".dolt" / "noms").mkdir(parents=True)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
-    def test_large_restore_can_finish_beyond_ten_minutes_and_still_lists_its_head(self):
-        archive = self.archive(50 * 1024**3)
-        calls = []
-
-        def run(argv, **options):
-            calls.append((argv, options))
-            if argv[1:3] == ["backup", "restore"]:
-                if options["timeout"] <= 601:
-                    raise subprocess.TimeoutExpired(argv, options["timeout"])
-            output = '{"rows":[{"name":"main","hash":"restored-head"}]}' if argv[1] == "sql" else ""
-            return subprocess.CompletedProcess(argv, 0, stdout=output, stderr="")
-
-        with patch.object(admin.subprocess, "run", side_effect=run):
-            self.assertEqual(admin.backup_head(self.profile, self.backup), "restored-head")
-        self.assertEqual(calls[-1][0][1], "sql")
-        self.assertEqual(calls[-1][1]["timeout"], 600)
-        self.assertFalse(self.work.exists())
-        self.assertTrue(archive.exists())
-
-    def test_restore_timeout_still_refuses_and_identifies_the_failed_phase(self):
-        archive = self.archive(0)
-
-        def run(argv, **options):
-            if argv[1:3] == ["backup", "restore"]:
-                raise subprocess.TimeoutExpired(argv, options["timeout"])
-            return subprocess.CompletedProcess(argv, 0)
-
-        with patch.object(admin.subprocess, "run", side_effect=run), self.assertRaises(Refusal) as caught:
+    def test_a_backup_without_a_manifest_refuses_before_running_dolt(self):
+        with patch.object(admin.subprocess, "run") as run, self.assertRaises(Refusal) as caught:
             admin.backup_head(self.profile, self.backup)
         self.assertEqual(caught.exception.code, "DOLT_BACKUP")
-        self.assertIn("restore timed out after 600s", caught.exception.message)
-        self.assertFalse(self.work.exists())
-        self.assertTrue(archive.exists())
+        run.assert_not_called()
 
-    def test_a_restore_success_cannot_hide_a_branch_listing_timeout(self):
-        self.archive(50 * 1024**3)
+    def test_a_listing_timeout_refuses_names_its_phase_and_leaves_no_work_directory(self):
+        (self.backup / "manifest").write_text("5:__DOLT__")
 
         def run(argv, **options):
             if argv[1] == "sql":
-                self.assertEqual(options["timeout"], 600)
+                self.assertEqual(options["env"]["DOLT_DISABLE_EVENT_FLUSH"], "1")
                 raise subprocess.TimeoutExpired(argv, options["timeout"])
-            return subprocess.CompletedProcess(argv, 0)
+            return self.run_dolt(argv, **options)
 
         with patch.object(admin.subprocess, "run", side_effect=run), self.assertRaises(Refusal) as caught:
             admin.backup_head(self.profile, self.backup)
         self.assertEqual(caught.exception.code, "DOLT_BACKUP")
-        self.assertIn("list restored branches timed out after 600s", caught.exception.message)
+        self.assertIn("list branches timed out after 600s", caught.exception.message)
         self.assertFalse(self.work.exists())
+        self.assertTrue((self.backup / "manifest").exists())
 
 
 if __name__ == "__main__":
