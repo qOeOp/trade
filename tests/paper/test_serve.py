@@ -182,12 +182,35 @@ class RestartTests(unittest.TestCase):
         killed = journal()
         self.assertFalse(serve.interrupted(self.seal(killed, None, 137), killed))
 
+    def test_a_kill_reads_as_stopped_from_outside_only_when_a_restart_killed_it(self):
+        killed = journal()
+        self.assertTrue(serve.interrupted(self.seal(killed, None, 137), killed, killed=True))
+        self.assertFalse(serve.interrupted(self.seal(killed, None, 1), killed, killed=True))
+        refused = [*killed, line("refusal", START + MINUTE, code="X")]
+        self.assertFalse(serve.interrupted(self.seal(refused, None, 137), refused, killed=True))
+
+    def test_a_restart_kill_is_one_before_the_daemon_started_and_not_for_memory(self):
+        def state(finished: str, oom: bool = False, code: int = 137):
+            found = json.dumps({"ExitCode": code, "OOMKilled": oom, "FinishedAt": finished}).encode()
+            return mock.Mock(return_value=SimpleNamespace(returncode=0, stdout=found))
+        profile = SimpleNamespace(service_root=Path("/srv"), database="paper")
+        at = 1793441000.5  # 2026-10-31T10:03:20.5Z
+        cases = {"before it": (state("2026-10-31T10:03:11.191977123Z"), True),
+                 "after it": (state("2026-10-31T10:03:21.1Z"), False),
+                 "at its memory limit": (state("2026-10-31T10:03:11Z", oom=True), False),
+                 "on its own": (state("2026-10-31T10:03:11Z", code=1), False),
+                 "never ended": (state("0001-01-01T00:00:00Z", code=0), False),
+                 "gone": (mock.Mock(return_value=SimpleNamespace(returncode=1, stdout=b"")), False)}
+        for name, (docker, expected) in cases.items():
+            with self.subTest(name), mock.patch.object(runs, "_docker", docker):
+                self.assertEqual(runs.killed_before(profile, 4, at), expected)
+
     def test_the_daemon_starts_again_only_what_it_sealed_after_a_stop_from_outside(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         daemon = serve.Daemon.__new__(serve.Daemon)
-        daemon.profile, daemon.stopping = SimpleNamespace(database="paper"), {5}
+        daemon.profile, daemon.stopping, daemon.started = SimpleNamespace(database="paper"), {5}, 0.0
         listed = lambda paper_id, state="ended": {"paper_id": paper_id, "state": state, "candidate": f"v{paper_id}@1",
                                                   "symbols": ["BTCUSDT"], "created_at": "2026-10-28T10:00:00"}
         daemon.runs = mock.Mock(return_value={"runs": [listed(1), listed(2), listed(3), listed(4, "sealed"),
@@ -199,10 +222,27 @@ class RestartTests(unittest.TestCase):
         daemon.start = mock.Mock(return_value={"paper_id": 7})
         (root / "2" / "out").mkdir(parents=True)
         (root / "2" / "out" / "STOP").touch()  # the IDE asked run 2 to stop
-        with mock.patch.object(runs, "run_dir", side_effect=lambda _, paper_id: root / str(paper_id)):
+        with mock.patch.object(runs, "run_dir", side_effect=lambda _, paper_id: root / str(paper_id)), \
+                mock.patch.object(runs, "killed_before", return_value=False):
             daemon.seal_found()
         self.assertEqual([call.args for call in daemon.cli.call_args_list],
                          [("seal", "--paper-id", str(paper_id)) for paper_id in (1, 2, 3)])
+        daemon.start.assert_called_once_with({"candidate": "v1@1", "symbols": ["BTCUSDT"]})
+
+    def test_the_daemon_starts_again_a_run_a_restart_killed(self):
+        daemon = serve.Daemon.__new__(serve.Daemon)
+        daemon.profile, daemon.stopping, daemon.started = SimpleNamespace(database="paper"), set(), 100.0
+        listed = lambda paper_id: {"paper_id": paper_id, "state": "ended", "candidate": f"v{paper_id}@1",
+                                   "symbols": ["BTCUSDT"], "created_at": "2026-10-28T10:00:00"}
+        daemon.runs = mock.Mock(return_value={"runs": [listed(1), listed(2)]})
+        killed = self.seal(journal(), None, 137)
+        daemon.cli = mock.Mock(return_value={"write_status": "written", "seal": killed})
+        daemon.sealed_lines = mock.Mock(return_value=journal())
+        daemon.start = mock.Mock(return_value={"paper_id": 3})
+        before = mock.Mock(side_effect=lambda _, paper_id, at: paper_id == 1 and at == 100.0)
+        with mock.patch.object(runs, "run_dir", return_value=Path("/nonexistent")), \
+                mock.patch.object(runs, "killed_before", before):
+            daemon.seal_found()
         daemon.start.assert_called_once_with({"candidate": "v1@1", "symbols": ["BTCUSDT"]})
 
 def events(response) -> tuple[str, object]:

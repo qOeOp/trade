@@ -1339,7 +1339,7 @@ def market_upgrade(market: dict) -> dict:
 **期望行为**
 
 1. 以读账号读运行、封存与候选最近一次研究回放；读各运行目录与捕获包；问 Docker 这个账本的纸面容器。
-2. 自己不写：页面发起的 start、stop、seal、delete，自己结束的运行的封存，以及 Docker 从外面停掉（SIGTERM、没有 STOP 文件）的运行的重新开始，都跑 paper start、stop、seal 或 delete（它们的写入）；从外面停掉的运行以同一组合约开始为一个新运行。
+2. 自己不写：页面发起的 start、stop、seal、delete，自己结束的运行的封存，以及 Docker 从外面停掉（SIGTERM，或在守护进程启动前被杀且不是内存超限；没有 STOP 文件）的运行的重新开始，都跑 paper start、stop、seal 或 delete（它们的写入）；从外面停掉的运行以同一组合约开始为一个新运行。
 3. 只在回环上听，或在容器内以 TMPDIR 为按原路径挂进来的宿主目录在它自己的地址上听（paper.serve）；IDE 服务用 --paper 找它。
 
 | 拒绝码 | 条件 |
