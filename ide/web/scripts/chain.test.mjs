@@ -415,10 +415,12 @@ test("a day's candle settles no narrower than 4 px, so what does not fit scrolls
   assert.deepEqual([dayFloor(86_400, false), dayFloor(60, true), dayFloor(3_600, false)], [4, 4, 0]);
 });
 
-test("the drawdown floor's close steps run together into one slope and a lone step stays square", async () => {
+test("the drawdown floor's close steps run together into one slope; a lone step and one in from off the plot stay square", async () => {
   const { stepVertices } = await namespace("../src/widgets/paper/stepLine.ts");
   assert.deepEqual(stepVertices([[0, 50], [10, 50], [20, 40], [40, 40]], 8), [[0, 50], [20, 50], [20, 40], [40, 40]], "a lone step");
   assert.deepEqual(stepVertices([[0, 50], [20, 48], [24, 45], [27, 41], [60, 41], [80, 30], [90, 30]], 8),
     [[0, 50], [20, 50], [27, 41], [80, 41], [80, 30], [90, 30]], "three steps 4 and 3 px apart are one slope from the first's foot to the last's top");
   assert.deepEqual(stepVertices([[0, 50]], 8), [[0, 50]]);
+  assert.deepEqual(stepVertices([[0, 99], [10, 99], [20, 48], [24, 45], [27, 41], [60, 41]], 8, 99),
+    [[0, 99], [20, 99], [20, 48], [27, 41], [60, 41]], "the step in from off the plot stays square, the close steps after it a slope from its top");
 });

@@ -5,16 +5,19 @@
 type Point = readonly [number, number];
 
 /** The vertices of the step line through `points` (x, y; each y held until the next point's x), oldest
- *  first, steps nearer than `merge` (in x) to the one before them run together into one slope. */
-export function stepVertices(points: readonly Point[], merge: number): [number, number][] {
+ *  first, steps nearer than `merge` (in x) to the one before them run together into one slope. A step up
+ *  or down from `off` (a level held off the drawing, if any) stays square, the slope after it starting
+ *  from its top, so the line comes into view straight. */
+export function stepVertices(points: readonly Point[], merge: number, off: number | null = null): [number, number][] {
   if (!points.length) return [];
   const out: [number, number][] = [[points[0]![0], points[0]![1]]];
-  let level = points[0]![1], last = Number.NEGATIVE_INFINITY;  // the line's level and where it last stepped
+  let level = points[0]![1], last = Number.NEGATIVE_INFINITY, square = false;  // the level, where it last stepped, whether from `off`
   for (const [x, y] of points.slice(1)) {
     if (y === level) continue;
-    if (x - last < merge) out[out.length - 1] = [x, y];  // the slope's top moves on to this step
-    else out.push([x, level], [x, y]);
-    level = y; last = x;
+    if (level === off || x - last >= merge) out.push([x, level], [x, y]);
+    else if (square) out.push([x, y]);  // the slope starts from the square step's top
+    else out[out.length - 1] = [x, y];  // the slope's top moves on to this step
+    square = level === off; level = y; last = x;
   }
   const end = points.at(-1)![0];
   if (end > out.at(-1)![0]) out.push([end, level]);

@@ -125,14 +125,19 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private under({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const { look, series, chart } = this, range = chart?.timeScale().getVisibleLogicalRange();
     if (!look || !series || !range || this.points.length < 2) return;
-    const line = Math.max(1, Math.floor(hr)), Y = (v: number) => Math.round((series.priceToCoordinate(v) ?? Number.NaN) * vr);
+    const line = Math.max(1, Math.floor(hr)), Y = (v: number) => Math.round((series.priceToCoordinate(v) ?? Number.NaN) * vr), plot = this.plot();
     c.save();
     if (this.limit !== null) {
-      // The floor as a step line over the points in view, close steps run together and corners rounded (stepLine.ts).
+      // The floor as a step line over the points in view, close steps run together and corners rounded
+      // (stepLine.ts). It starts below the plot and a level off the plot is held just past its edge, outside
+      // the clip, so the floor rises into view straight up from the plot's foot, never from a slope's cut end.
       const path = new Path2D(), from = Math.max(0, Math.floor(range.from) - 1), to = Math.min(this.points.length - 1, Math.ceil(range.to) + 1);
-      const steps: [number, number][] = [];
-      for (let i = from; i <= to; i++) steps.push([Math.round((chart!.timeScale().logicalToCoordinate(i as Logical) ?? 0) * hr), Y(this.points[i]!.peak * (1 - this.limit)) + 0.5]);
-      roundedPath(path, stepVertices(steps, MERGE * hr), ROUND * hr);
+      const out = (ROUND + 2) * vr, high = plot.top * vr - out, low = plot.bottom * vr + out, steps: [number, number][] = [];
+      const x = (i: number) => Math.round((chart!.timeScale().logicalToCoordinate(i as Logical) ?? 0) * hr);
+      for (let i = from; i <= to; i++) steps.push([x(i), Math.max(high, Math.min(low, Y(this.points[i]!.peak * (1 - this.limit)) + 0.5))]);
+      const vertices = stepVertices(steps, MERGE * hr, low);
+      if (vertices.length && vertices[0]![1] !== low) vertices.unshift([vertices[0]![0], low]);
+      roundedPath(path, vertices, ROUND * hr);
       Object.assign(c, { strokeStyle: look.floor, lineWidth: line, lineJoin: "round" });
       c.stroke(path);
     }
@@ -149,7 +154,6 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
       for (const i of perColumn(first, last, X, (i) => this.points[i]!.value, (i) => this.points[i]!.time > e.from && this.points[i]!.time < e.to)) path.lineTo(Math.round(X(i)), Y(this.points[i]!.value));
       path.lineTo(x1, low); path.lineTo(x1, top); path.closePath();
       c.save(); c.clip(path);
-      const plot = this.plot();
       c.fillStyle = toEdges(c, plot, vr, look.dropWash); c.fill(path);
       Object.assign(c, { strokeStyle: toEdges(c, plot, vr, look.drop), lineWidth: line });
       c.beginPath();
