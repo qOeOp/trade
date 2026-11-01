@@ -97,6 +97,8 @@ export const priceText = (value: unknown): string => {
 
 /** BTCUSDT-PERP.BINANCE → BTCUSDT. */
 export const symbolOf = (instrument: unknown) => String(instrument ?? "").split("-")[0] ?? "";
+/** A contract's base asset: BTCUSDT → BTC, 1000PEPEUSDT → PEPE. */
+export const baseAsset = (symbol: string) => symbol.replace(/(USDT|USDC|USD)$/, "").replace(/^(1000000|10000|1000|1M)(?=[A-Z])/, "") || symbol;
 
 const places = (v: unknown): number => {
   const m = /^-?\d+(?:\.(\d+))?$/.exec(String(v ?? "").split(" ")[0] ?? "");
