@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from ledger import db
 from market import coverage, export, instrument, lifecycle, read, series, store, universe
 from market.sources import MarketError
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
@@ -414,6 +415,29 @@ class ImportRefusalTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "SCHEMA_VERSION_MISMATCH")
         with store.connect(empty, "import") as conn:
             self.assertTrue(conn.empty)
+
+    def test_upgrade_drops_a_view_the_schema_no_longer_defines_in_a_new_commit(self):
+        old = self.fixture.add("market_old_view")
+
+        def admin(statement: str, params=None):
+            return self.fixture.admin(old, statement, params)
+
+        admin("CREATE VIEW v_universe AS SELECT universe_rule, month, symbol FROM universe_month")
+        admin("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'an earlier schema')")
+        (before,), = admin("SELECT DOLT_HASHOF('HEAD')")
+        made = db.upgrade_market(old)
+        self.assertEqual((made["created"], made["dropped"]), ([], ["v_universe"]))
+        self.assertEqual(admin("SELECT DOLT_HASHOF('HEAD')"), [(made["commit"],)])
+        self.assertEqual(admin("SELECT parent_hash FROM dolt_commit_ancestors WHERE commit_hash = %s",
+                               (made["commit"],)), [(before,)])
+        self.assertEqual(admin("SELECT message FROM dolt_log LIMIT 1"), [("market views dropped: v_universe",)])
+        self.assertEqual(admin("SELECT table_name FROM information_schema.views WHERE table_schema = %s",
+                               (old["database"],)), [])
+        self.assertEqual(admin("SELECT COUNT(*) FROM dolt_status"), [(0,)])
+        self.assertEqual(admin(f"SELECT name FROM dolt_schemas AS OF '{before}' WHERE type = 'view'"),
+                         [("v_universe",)])  # the earlier commit keeps it
+        self.assertEqual(db.upgrade_market(old), {"database": old["database"], "created": [], "dropped": [],
+                                                  "commit": None})
 
 
 def on(day: date):

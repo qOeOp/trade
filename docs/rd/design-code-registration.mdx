@@ -309,7 +309,7 @@ def market_inputs(
 | `MARKET_COMMIT_UNRESOLVED` | at 不能解析成唯一市场提交（由 market.resolve_commit 透传） |
 | `EXPORT_CONTENT_INVALID` | 导出根或成员文件中存在符号链接，或成员文件缺失（由 registration.export_fingerprint 透传） |
 
-**使用**　<Ref id="engine.parse_window" />、<Ref id="ledger.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:v_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
+**使用**　<Ref id="engine.parse_window" />、<Ref id="ledger.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
 
 <div className="rd-meta">
 
@@ -893,7 +893,7 @@ def membership_unchanged(
 |---|---|
 | `MEMBERSHIP_CHANGED` | 范围规则不同；登记前任一月份成员在两个市场提交下不逐行相同；窗口内任一月份不存在；交给策略的成员路径少于按本次提交推出的路径 |
 
-**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.market_inputs" />、<Ref id="ledger.refusal" />、<Ref id="table:v_universe" />、<Ref id="table:v_validations" />
+**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.market_inputs" />、<Ref id="ledger.refusal" />、<Ref id="table:universe_month" />、<Ref id="table:v_validations" />
 
 <div className="rd-meta">
 

@@ -49,7 +49,7 @@
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
-| <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade（管理员）：补建市场库缺的表，一次提交；已有表、行、账号与授权不变 |
+| <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade（管理员）：补建市场库缺的表、删掉 schema 不再定义的视图，一次提交；已有表、行、账号与授权不变 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
 | <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
 | <Ref id="cli.paper_reconcile">paper_reconcile</Ref> | 命令行 paper reconcile：把一个已封存纸面运行按它自己的身份在归档上重放，逐单对照成交；不写任何库 |
@@ -1003,7 +1003,7 @@ def market_coverage(
 | `UNKNOWN_SYMBOL` | 显式合约在该提交下不存在（由 market.diagnose_coverage 传出） |
 | `LIFECYCLE_INPUT` | 生命周期证据包缺失、提交不符、事件非原生或来源原件缺失（由 registration.load_lifecycle 或 market.diagnose_coverage 传出） |
 
-**使用**　<Ref id="market.resolve_commit" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:v_universe" />
+**使用**　<Ref id="market.resolve_commit" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
 
 <div className="rd-meta">
 
@@ -1210,7 +1210,7 @@ def market_publish(market: dict, remote: str | None) -> dict
 
 ### `market_upgrade` [#def-cli-market_upgrade]
 
-命令行入口 market upgrade（管理员）：补建市场库缺的表，一次提交；已有表、行、账号与授权不变
+命令行入口 market upgrade（管理员）：补建市场库缺的表、删掉 schema 不再定义的视图，一次提交；已有表、行、账号与授权不变
 
 ```python
 def market_upgrade(market: dict) -> dict:
@@ -1220,11 +1220,11 @@ def market_upgrade(market: dict) -> dict:
 
 <TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案" } }} />
 
-**返回**　JSON \{database, created: [新建表名], commit\}；没有缺表时 created 为空、commit 为 null、不提交
+**返回**　JSON \{database, created: [新建表名], dropped: [删掉的视图名], commit\}；没有缺表也没有多余视图时 created 与 dropped 为空、commit 为 null、不提交
 
 **期望行为**
 
-1. 以管理员账号连到市场库，持导入锁，期间没有导入或备份；对照 market/schema.sql 只建缺的表（后加的源交易表这类），跳过数据测试，一次 DOLT_COMMIT。
+1. 以管理员账号连到市场库，持导入锁，期间没有导入或备份；对照 market/schema.sql 只建缺的表（后加的源交易表这类），并删掉库里有、schema 不再定义的视图（视图不存数据，旧提交照样留着它），跳过数据测试，一次 DOLT_COMMIT。
 2. 已有表、行、账号与授权一律不动；写完按 <Ref id="cli.publish_after" /> 发布。参数用法以 `market upgrade --help` 为准。
 
 | 拒绝码 | 条件 |

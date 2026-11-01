@@ -75,10 +75,6 @@ CREATE TABLE universe_month (
   CHECK (DAYOFMONTH(month) = 1)
 );
 
-CREATE VIEW v_universe AS
-SELECT universe_rule, month, symbol
-FROM universe_month;
-
 -- Best bid and ask inferred from Binance aggTrades under one declared rule (market/quotes.py: the rule's
 -- name is in every quote import's commit message), one row per change of the inferred state.
 -- `agg_trade_id` is the aggTrade that produced the state: it separates the rows of one
