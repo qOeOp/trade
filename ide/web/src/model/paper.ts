@@ -1,6 +1,6 @@
 // What a paper run's journal means on the page: each line's category and description, the fills as
 // chart markers, the positions as spans, the working orders as price lines and the days as returns.
-import { clockSpan, duration } from "../lib/format";
+import { brief, clockSpan, plural } from "../lib/format";
 import { amount, fixed, symbolOf, type JournalLine, type OpenOrder, type OpenPosition, type Precision } from "../lib/paperApi";
 
 export type Category = "system" | "data" | "order" | "position" | "account" | "strategy" | "lifecycle";
@@ -47,6 +47,10 @@ export const last = (value: unknown) => String(value ?? "").split(".").pop() ?? 
 export const word = (value: unknown) => { const w = last(value).toLowerCase().replace(/_/g, " "); return w.charAt(0).toUpperCase() + w.slice(1); };
 const NONE: Precision = { price: -1, size: -1 };
 
+// Who or what asked a run to stop, in words.
+const BY: Record<string, string> = { STOP_FILE: "by you", DURATION: "at its set duration", SIGTERM: "by a Docker or host restart", KILLED: "by a Docker or host restart", SIGINT: "by an interrupt" };
+const by = (reason: unknown) => BY[String(reason)] ?? `by ${word(reason).toLowerCase()}`;
+
 /** One line in words, without its time, contract or category; prices and sizes in the contract's decimals. */
 export function describe(line: JournalLine, digits: ReadonlyMap<string, Precision> = new Map()): string {
   const f = line, d = digits.get(symbolOf(line.instrument_id)) ?? NONE;
@@ -70,23 +74,28 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
     case "funding_settlement": return `Funding settled at ${f.stream_rate}, mark ${f.mark ?? "unknown"}`;
     case "protection_gap": return `Position ${f.position} exceeds its stop orders (${f.stop_quantity})`;
     case "refusal": return `Refused: ${f.code}`;
-    case "started": return `Started on ${(f.symbols as string[] | undefined)?.length ?? 0} contracts`;
+    case "started": return `Started on ${plural((f.symbols as string[] | undefined)?.length ?? 0, "contract")}`;
     case "waiting": return `Waiting for the input start, ${utc(Number(f.until_ns) / MS)}`;
-    case "stop_requested": return `Stop requested (${f.reason ?? "?"}), ${f.open_orders} working orders`;
+    case "stop_requested": return `Stop requested ${by(f.reason)}, ${plural(Number(f.open_orders ?? 0), "working order")}`;
     case "stopping": return `Stopping, ${f.open_orders} working orders left`;
-    case "summary_written": return `Summary written (${f.stop_reason})`;
-    case "stopped_before_start": return `Stopped before the start (${f.reason})`;
+    case "summary_written": return "Summary written";
+    case "stopped_before_start": return `Stopped before the start ${by(f.reason)}`;
     case "instrument_status": return String(f.status ?? "").slice(0, 120);
-    case "restart": return `Restarted after a Docker or host restart · offline ${duration(clockSpan(Number(f.from_ns) / MS, Number(f.to_ns) / MS))}`;
+    case "restart": {
+      const on = Array.isArray(f.symbols) ? ` · ${plural(f.symbols.length, "contract")}` : "";
+      return `${f.again ?? `Started again after ${brief(clockSpan(Number(f.from_ns) / MS, Number(f.to_ns) / MS))}`}${on}`;
+    }
     default: return line.kind;
   }
 }
 
-/** A stretch a chain was offline, from the earlier run's stop to the next one's start (ms). */
-export type Restart = { from: number; to: number };
+/** A stretch a chain was paused or offline, from the earlier run's stop to the next one's start (ms), with
+ *  what happened at the stop and how the next run took over (ending.ts). */
+export type Restart = { from: number; to: number; gap: "paused" | "offline"; lead: string; resumed: string };
 /** The restarts a joined journal holds (model/chain.ts). */
 export const restartsOf = (lines: readonly JournalLine[]): Restart[] =>
-  lines.filter((l) => l.kind === "restart").map((l) => ({ from: Number(l.from_ns) / MS, to: Number(l.to_ns) / MS }));
+  lines.filter((l) => l.kind === "restart").map((l) => ({ from: Number(l.from_ns) / MS, to: Number(l.to_ns) / MS,
+    gap: l.gap === "paused" ? "paused" : "offline", lead: String(l.lead ?? ""), resumed: String(l.resumed ?? "restarted") }));
 
 export type Exit = "stop" | "target" | "other";
 export type Fill = { ms: number; symbol: string; buy: boolean; px: number; qty: number; opening: boolean; exit: Exit | null; line: JournalLine };

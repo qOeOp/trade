@@ -31,7 +31,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const live = s?.state && !s.seal ? s.state : null;
   const equity = view === "equity", symbol = equity ? "" : view;
   const mine = useMemo(() => fills.filter((f) => f.symbol === symbol), [fills, symbol]);
-  // A chain of runs joined across restarts (model/joined.ts) holds nothing over one; the charts start again,
+  // A chain of runs joined (model/joined.ts) holds nothing over one; the charts start again,
   // the whole chain in view, once the chain they show is joined.
   const joins = useMemo(() => JSON.stringify(restartsOf(s?.lines ?? [])), [s?.lines]);
   const restarts = useMemo<Restart[]>(() => JSON.parse(joins), [joins]);

@@ -12,8 +12,8 @@ const GUTTER = "w-6 pl-3 pr-0";
 /** The total of `failures`' counts. */
 export const raised = (failures: readonly RuntimeFailure[]) => failures.reduce((n, f) => n + f.count, 0);
 
-/** "64+ exceptions" while the run goes (its records are rewritten at each power of two), exact once sealed. */
-export const exceptionsText = (n: number, sealed: boolean) => `${n}${sealed ? "" : "+"} ${n === 1 && sealed ? "exception" : "exceptions"}`;
+/** "64+ errors" while the run goes (its records are rewritten at each power of two), exact once sealed. */
+export const exceptionsText = (n: number, sealed: boolean) => `${n}${sealed ? "" : "+"} ${n === 1 && sealed ? "error" : "errors"}`;
 
 /** The records of the contract the chart shows, with those of no contract; all of them on Equity. */
 export const scoped = (failures: readonly RuntimeFailure[], only: string | null) =>
@@ -32,7 +32,7 @@ export function Exceptions({ failures, sealed, only, candidate }: {
   return (
     <div className="flex flex-col">
       <p className="px-5 pb-2.5 pt-2 text-dense text-fg-muted">
-        Each exception ended its callback early. {sealed ? "The run was sealed invalid." : "The run keeps going, but its seal will be invalid."}
+        Each exception ended its callback early{sealed ? "." : "; the run keeps going."}
         {!sealed && <span className="text-fg-faint"> Counts are read at 1, 2, 4, 8… until the seal.</span>}
       </p>
       <table className="w-full table-fixed border-collapse text-dense tabular-nums">

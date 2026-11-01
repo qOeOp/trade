@@ -3,7 +3,7 @@ import { useState, type KeyboardEvent } from "react";
 import type { PaperRun, RuntimeFailure } from "../../lib/paperApi";
 import { duration, plural } from "../../lib/format";
 import { chainOf, chainStart, isContinued } from "../../model/chain";
-import { health, RunRow, sealedOn } from "../../components/RunTile";
+import { Ended, health, RunRow } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
 import { TextButton } from "../../components/TextButton";
 import { ACTIVE } from "../../state/paper";
@@ -20,19 +20,15 @@ function Ago({ ns }: { ns: number }) {
 }
 
 /** The selected run's state, in the toolbar after its readings: how long it has run (from its chain's first
- *  run, `chain`, oldest first) and when its last bar came, gaps in
- *  amber; or when it was sealed and how it ended. Exceptions the strategy raised lead in red, in the
- *  place of how long it has run (once sealed, of "invalid" when they are its one reason), and open the
- *  trades card's Exceptions. */
+ *  run, `chain`, oldest first) and when its last bar came, gaps in amber; or how and when it ended. The
+ *  errors the strategy raised show in the warning tone, leading in the place of how long it has run or
+ *  following how it ended, and open the trades card's Exceptions. */
 export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain: readonly PaperRun[]; now: number; failures: readonly RuntimeFailure[] | null }) {
   const state = health(run, now), lastBar = run.live?.last_bar_ns ?? null, started = chainStart(chain) ?? run.live?.started_ns ?? null;
   const gaps = (run.live?.missing_bars ?? 0) + (run.live?.protection_gaps ?? 0);
   const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.live?.exceptions ?? 0;
-  // Sealed invalid for its exceptions alone, the count in red says why in the place of "invalid".
-  const alone = sealed && n > 0 && String(run.seal?.reasons ?? run.reasons ?? []) === "RUNTIME_FAILURES";
-  const raisedLink = n > 0 && <TextButton className={`-mx-1 underline underline-offset-3 ${sealed && !alone ? "text-fg-muted" : "text-fail"}`}
-                                          onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
-  if (sealed) return <span>Sealed {sealedOn(run)} · {!alone && <><span className={state.tone === "fail" ? "text-fail" : ""}>{state.tone === "fail" ? "invalid" : "complete"}</span>{raisedLink && " · "}</>}{raisedLink}</span>;
+  const raisedLink = n > 0 && <TextButton className="-mx-1 text-misses underline underline-offset-3" onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
+  if (sealed) return <Ended run={run} errors={raisedLink || undefined} />;
   if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail" : "text-misses"}>{raisedLink && <>{raisedLink} · </>}{state.text}</span>;
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
@@ -44,12 +40,12 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   );
 }
 
-/** Every run, running then sealed under a count each; past FIND runs a box finds one by name, Enter
+/** Every run, running then ended under a count each; past FIND runs a box finds one by name, Enter
  *  picks the first match, and ↑ ↓ move between rows. */
 export function RunList({ order, runs: all, front, now, pick }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun; now: number; pick: (r: PaperRun) => void }) {
   const [query, setQuery] = useState("");
   const shown = order.filter((r) => (r.candidate ?? "").toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = [["Running", shown.filter((r) => ACTIVE.has(r.state))], ["Sealed", shown.filter((r) => !ACTIVE.has(r.state))]] as const;
+  const groups = [["Running", shown.filter((r) => ACTIVE.has(r.state))], ["Ended", shown.filter((r) => !ACTIVE.has(r.state))]] as const;
   const move = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const rows = [...e.currentTarget.querySelectorAll<HTMLElement>("[role=option]")], i = rows.indexOf(document.activeElement as HTMLElement);
@@ -75,7 +71,7 @@ export function RunList({ order, runs: all, front, now, pick }: { order: readonl
 }
 
 /** The runs in the picker's order: running ones (any in trouble first, else newest first), then sealed
- *  ones newest first; a run another continues after a restart (model/chain.ts) only through its chain's latest. */
+ *  ones newest first; a run another continues (model/chain.ts) only through its chain's latest. */
 export function runOrder(all: readonly PaperRun[], now: number): PaperRun[] {
   const runs = all.filter((r) => !isContinued(r, all)), active = runs.filter((r) => ACTIVE.has(r.state)).reverse();
   return [...active.filter((r) => alarming(r, now)), ...active.filter((r) => !alarming(r, now)), ...runs.filter((r) => !ACTIVE.has(r.state)).reverse()];
