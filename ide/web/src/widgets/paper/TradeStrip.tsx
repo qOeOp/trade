@@ -62,12 +62,13 @@ export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
           );
         })}
       </div>
+      {/* The font's digits sit a pixel low in their line: raised so they centre on the arrows. */}
       {n > PAGE && (
         <div className="flex items-center justify-between gap-3 text-small tabular-nums text-fg-faint">
-          <span className="truncate">{day.format(shown[0]!.closed)} – {day.format(shown.at(-1)!.closed)}</span>
+          <span className="relative -top-px truncate">{day.format(shown[0]!.closed)} – {day.format(shown.at(-1)!.closed)}</span>
           <span className="flex shrink-0 items-center gap-1">
             <IconButton icon="chevron-left" label="Earlier trades" disabled={first === 0} onClick={() => move(last - PAGE)} />
-            <span className="text-fg-muted">{first + 1}–{last} <span className="text-fg-faint">of</span> {n}</span>
+            <span className="relative -top-px text-fg-muted">{first + 1}–{last} <span className="text-fg-faint">of</span> {n}</span>
             <IconButton icon="chevron-right" label="Later trades" disabled={last === n} onClick={() => move(last + PAGE)} />
           </span>
         </div>
