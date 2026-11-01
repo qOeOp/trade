@@ -12,7 +12,7 @@
 // axis, and is a hover target too (`offline:<i>`).
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, ISeriesPrimitiveAxisView, PrimitiveHoveredItem, SeriesAttachedParameter, Time } from "lightweight-charts";
 import { ordered, type Flag, type Gap } from "./candleEvents";
-import { downTag, drawDown, type Down, type DownLook } from "./downLook";
+import { downTag, drawDown, tagged, type Down, type DownLook } from "./downLook";
 import { spacing } from "./viewAnchor";
 
 export type FlagsLook = { restart: DownLook; warn: string; warnTag: string; text: string; edge: string; island: string; hatch: string; wash: string; font: string };
@@ -66,10 +66,10 @@ export class EventFlags implements ISeriesPrimitive<Time> {
 
   timeAxisViews(): readonly ISeriesPrimitiveAxisView[] {
     const look = this.look?.restart;
-    return look ? this.placed().map(([d, a, b]) => downTag((a + b) / 2, d, look)) : [];
+    return look ? tagged(this.placed(), this.chart?.timeScale().width() ?? 0).map(({ d, x }) => downTag(x, d, look)) : [];
   }
   /** The tags on the time axis: where they sit (px) and what they say. */
-  onAxis(): { x: number; text: string }[] { return this.placed().map(([d, a, b]) => ({ x: (a + b) / 2, text: d.label })); }
+  onAxis(): { x: number; text: string }[] { return tagged(this.placed(), this.chart?.timeScale().width() ?? 0).map(({ d, x }) => ({ x, text: d.label })); }
 
   private x = (time: number) => this.chart?.timeScale().timeToCoordinate(time as Time) ?? null;
 

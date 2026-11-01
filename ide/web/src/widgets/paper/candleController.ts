@@ -2,7 +2,7 @@
 // one chart with the contract's candles, its volume beneath them in the same pane (volumeBars.ts), the
 // run's trades (tradeMarks.ts) and its levels (levels.ts, with the orders' dashed lines). The period is
 // the controller's own (candleView.ts), changed once a pan or zoom has settled (a wheel zoom past what the
-// period can show, on the next frame) with the moment under the pointer kept in place (viewAnchor.ts);
+// period can show, on the next frame) with the moment under the pointer kept in place (viewAnchor.ts), a span just shown (a day picked) shown again;
 // the candles are regrouped and drawn again in the same task, so no frame shows the old view over the
 // new candles; the view comes back when the chart mounts again for the same run and contract. The legend reads two atoms: the period, and
 // the candle under the pointer (else the last) with the close before it, or the offline stretch under it. The run's events, the tooltips,
@@ -39,7 +39,7 @@ export class CandleController {
   private parts: Parts | null = null;
   private lines = new Map<string, IPriceLine>(); private bars: readonly JournalLine[] = [];
   // The candles, their places on the time scale and the blanks among them, at least `least` a stretch (candleDown.ts).
-  private data: Candle[] = []; private times: number[] = []; private downs: Down[] = []; private blanks = ""; private least = 0;
+  private data: Candle[] = []; private times: number[] = []; private downs: Down[] = []; private blanks = ""; private least = 0; private span: { from: number; to: number } | null = null;
   private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false, restarts: [] };
   private dark = false; private hover: number | null = null;
   private release: (() => void) | null = null; private host: HTMLElement | null = null; private fenced: (() => void) | null = null;
@@ -120,8 +120,8 @@ export class CandleController {
   /** The open position's whole stretch in view, from the candle it opened in (ms). */
   showPosition(openedMs: number): void { if (this.parts && this.data.length) showFrom(this.parts.chart, this.times, candleOpen(openedMs * 1e6, this.period.get())); }
 
-  /** The span from `from` to `to` (s) in view; the period follows once it settles. */
-  show(from: number, to: number): void { this.parts?.chart.timeScale().setVisibleRange({ from: at(from), to: at(to) }); }
+  /** The span from `from` to `to` (s, `to` left out) in view; the period follows once it settles, the span with it. */
+  show(from: number, to: number): void { this.span = { from, to }; this.parts?.chart.timeScale().setVisibleRange({ from: at(from), to: at(to - this.period.get() * 60) }); }
   /** A span around `ms` forty candles either side. */
   showAround(ms: number): void { const span = this.period.get() * 60 * 40, t = Math.floor(ms / 1000); this.show(t - span, t + span); }
 
@@ -160,13 +160,14 @@ export class CandleController {
   private settle(x: number | null): void {
     const p = this.parts, step = this.period.get() * 60;
     if (!p || !step || !this.data.length) return;
-    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0;
-    if (next === step && least === this.least) { this.fenced?.(); p.ticks.refresh(); return; }
+    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0, span = this.span;
+    this.span = null; if (next === step && least === this.least) { this.fenced?.(); p.ticks.refresh(); return; }
     const anchor = x ?? time.width() / 2, t = timeAt(time, this.times, step, anchor);
     this.period.set(next / 60); this.least = least;
     time.applyOptions({ maxBarSpacing: widest(next) });
     this.draw(true);
-    if (t !== null) restore(time, this.times, next, t, anchor, (w * next) / step);
+    // A span just shown (show()) is shown again: kept by a moment, an offline stretch's blanks would move it.
+    if (span) time.setVisibleRange({ from: at(span.from), to: at(span.to - next) }); else if (t !== null) restore(time, this.times, next, t, anchor, (w * next) / step);
     // The legend follows the candle now under the pointer, not the index it had before the regrouping.
     const l = x === null ? null : time.coordinateToLogical(x);
     this.hover = l === null ? null : Math.round(l);
