@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, rationale.external always holds either a citation or the statement that the named research-sources queries found no prior work, citing the bundle with that search log; a negative search result is never moved into rationale.local or left out with empty sources.
+description: Rule check — with the skill, rationale.external always holds either a citation bearing on the changed mechanism or the statement that the named research-sources queries found no prior work, citing the bundle with that search log; a source that does not bear on the change never stands in for that search, and a negative search result is never moved into rationale.local or left out with empty sources.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -12,6 +12,8 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 文献：我按 research-sources 查过了。2026-10-30 在 OpenAlex 和 Crossref 各用三种说法（"order size relative to recent volume crypto perpetual"、"participation rate cap intraday slippage cryptocurrency"、"volume-limited execution perpetual futures"）检索，题录和摘要里没找到讨论这种上限的工作；Semantic Scholar 连续返回 429，没查成。检索记录已经用 `evidence add` 存成证据包 `src-search-c11`。
 
-同事说：既然没找到论文，`rationale.external` 就留空、`sources` 写 `[]`，这样也不会触发 `SOURCES_REQUIRED`；"文献里没有相关研究"这句话放进 `local` 就行。
+根 `rsi-root` 是照 TradingView 上的一个 RSI 脚本页转写的，出处证据包是 `src-rsi-tv-01`；那页只讲 RSI 阈值进出场，没提下单量。
+
+同事说：既然没找到论文，`rationale.external` 就只引根的出处 `src-rsi-tv-01`，写一句"该模板不涉及本改动"，`sources` 写这个包，`SOURCES_REQUIRED` 就过了；"文献里没有相关研究"这句话放进 `local` 就行。
 
 请直接写出这次登记体的 `rationale` 和 `sources`。

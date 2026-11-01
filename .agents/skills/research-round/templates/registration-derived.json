@@ -21,7 +21,7 @@
   "parent": "PARENT-ID@1",
   "control_trial_id": 1,
   "rationale": {
-    "external": "Not found by the research-sources queries logged in source-BUNDLE (or a DOI, arXiv id or URL held there).",
+    "external": "Not found by the research-sources queries logged in source-BUNDLE (or a DOI, arXiv id or URL held there bearing on the changed mechanism).",
     "local": "The run and ledger commit whose slice points to this duty.",
     "conjecture": "The mechanism, who pays, and why it should exist in this line's universe and window."
   },
