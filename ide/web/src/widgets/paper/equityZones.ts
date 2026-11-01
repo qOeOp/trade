@@ -4,9 +4,9 @@
 // fills, the pace, the buy and hold, the floor, the drawdowns and the closes' arrows); the day bars, BARS of
 // the pane at most, standing on the exposure's band at the foot (equityExtras). GAP px part the plot from
 // the bands either side. Only what marks time runs the pane's height: the offline washes, the seams, the
-// held stretches, the hovered day's column, and the gridlines across it. A fill the plot can cut (the gap to
-// the pace, the drawdowns' hatching) fades out over FADE px into its edges, so where it runs on past the
-// plot it trails off instead of ending in a flat edge.
+// held stretches, the hovered day's column, and the gridlines across it. A fill the plot can cut (the
+// costs' band and its rim, the open profit, the gap to the pace, the drawdowns' hatching) fades out over
+// FADE px into its edges, so where it runs on past the plot it trails off instead of ending in a flat edge.
 import { BARS, CEILING } from "./equityBands";
 import { BELOW } from "./stretchCaptions";
 
