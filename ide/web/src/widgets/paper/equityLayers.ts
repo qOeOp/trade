@@ -7,8 +7,8 @@
 // downward, then the line on it, a whole number of device pixels wide, as vibe-trading's. Everything is drawn in device pixels, edges
 // snapped, and from the visible points only, thinned to each pixel column's first, lowest, highest and
 // last. Over the line, each stretch a chain of runs was offline or no run ran (downLook.ts), opaque the
-// pane's height, so nothing drawn from the series runs across it, the line ending either side of it in a
-// dot; only words (the notes' names, the stretches' names) and the closes' arrows draw over it.
+// pane's height, so nothing drawn from the series runs across it and the line simply stops either side of
+// it; only words (the notes' names, the stretches' names) and the closes' arrows draw over it.
 import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type DayBar, type Frame } from "./equityBands";
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
@@ -23,7 +23,7 @@ export type EquityPoint = { time: number; value: number; peak: number; pace: num
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 export { BARS, CEILING, FEW, type DayBar };
-const HELD_GAP = 6, CROWDED = 48, END = 2;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share; the line's end dot's radius
+const HELD_GAP = 6, CROWDED = 48;  // px: held stretches nearer than this are shaded as one; at most one stretch this wide a share
 
 export class EquityLayers implements ISeriesPrimitive<Time> {
   private series: ISeriesApi<SeriesType> | null = null;
@@ -126,28 +126,12 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     if (days) dayBars({ ...f, h: f.h - Math.round(this.foot * f.vr) }, shown!, this.bars, (d) => d === this.picked || d === this.hovered, look!);
   }
 
-  /** Each offline stretch over all else, and a dot where the line meets it either side, centred on its
-   *  hairline as drawn (whole device px), so the line ends in it. */
+  /** Each offline stretch over the line. */
   private offline(f: Frame): void {
-    const look = this.look!;
     for (const [, a, b] of this.placed()) {
       if (b * f.hr < 0 || a * f.hr > f.w) continue;
-      drawDown(f.c, a * f.hr, b * f.hr, 0, f.h, look.restart, f.hr);
-      f.c.fillStyle = look.line;
-      const line = Math.max(1, Math.floor(f.hr));
-      for (const x of [Math.round(a * f.hr) + line / 2, Math.round(b * f.hr) - line / 2]) {
-        const y = this.lineY(f, x);
-        if (y !== null) { f.c.beginPath(); f.c.arc(x, y, END * f.hr, 0, 2 * Math.PI); f.c.fill(); }
-      }
+      drawDown(f.c, a * f.hr, b * f.hr, 0, f.h, this.look!.restart, f.hr);
     }
-  }
-
-  /** Where the line is drawn at `x` (device px), between the kept points either side; null past its ends. */
-  private lineY({ keep, xs, vr }: Frame, x: number): number | null {
-    const k = keep.findIndex((i) => xs.get(i)! >= x), i = keep[k - 1], j = keep[k];
-    if (i === undefined || j === undefined) return null;
-    const x0 = xs.get(i)!, y0 = this.y(this.points[i]!.value, vr), y1 = this.y(this.points[j]!.value, vr);
-    return y0 + ((y1 - y0) * (x - x0)) / (xs.get(j)! - x0 || 1);
   }
 
   /** The points drawn (`keep`) in runs, a new one wherever a point between two of them is `cut`. */
