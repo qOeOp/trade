@@ -526,6 +526,28 @@ class LaterImportTests(unittest.TestCase):
             self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                          log=lambda line: None)
 
+    def test_the_current_month_on_its_first_day_imports_its_members_only(self):
+        scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT"]
+        profile, found, _ = self.database(scope=tuple(scope))
+        with serving(found), on(MAR):
+            first = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
+            self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
+                             ["market_commit"], first["market_commit"])  # nothing new: no second commit
+            self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
+        self.assertEqual((first["through"], first["bar_rows"], first["funding_rows"], first["universe_members"]),
+                         ("2025-03-01", 0, 0, ["BBBUSDT", "BTCUSDT"]))
+        self.assertEqual(store.freshness(profile)["universe_months"], ["2025-02", "2025-03"])
+        with serving(found), on(date(2025, 4, 2)):
+            done = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
+        self.assertEqual((done["through"], done["universe_members"]), ("2025-04-01", ["BBBUSDT", "BTCUSDT"]))
+        self.assertEqual(done["bar_rows"], 2 * 2 * 31 * 1440)
+
+    def test_a_first_import_needs_a_closed_day(self):
+        profile = self.fixture.add("market_later_first_day")
+        with serving(exchange()), on(MAR):
+            self.refused("MONTH_INVALID", store.import_month, profile, MAR, Path(tempfile.mkdtemp()), 1, ["BTCUSDT"],
+                         log=lambda line: None)
+
     def test_a_stored_minute_the_sources_now_contradict_refuses(self):
         profile, found, _ = self.database()
         march = self.tail(found, close="999.99")

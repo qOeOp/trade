@@ -230,6 +230,9 @@ it, or the month just before the earliest (a backfill); any other month is `MONT
 months cannot change (bars are insert-only, and a month's 30-day look-back lies before it), so only
 the imported month's universe is computed; importing the current month again must give its stored
 members (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`.
+On the current month's first day, with the month before held through its end, the import writes
+that month's members only (no bars or funding; `through` is the month's first day): they depend on the
+days before it alone, and paper starts read them.
 
 A backfill inserts only, so every stored commit, and every replay pinned to one, stays as it was. The
 month must hold no bar or funding row of any contract yet (`MONTH_EXISTS`); it becomes the first

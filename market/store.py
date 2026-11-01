@@ -549,16 +549,17 @@ def _scope(symbols) -> list[str] | None:
 def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
                  log=print) -> dict:
     """market.import_month: append one UTC month (the current month through the last closed day) as one
-    market commit, after the latest stored month or, as a backfill, just before the earliest. `symbols` is
-    the engineering allowlist of an isolated market database."""
+    market commit, after the latest stored month or, as a backfill, just before the earliest. On its first
+    day the current month has no closed day and imports its members only: they depend on the days before it
+    alone. `symbols` is the engineering allowlist of an isolated market database."""
     started = time.monotonic()
     scope = _scope(symbols)
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     today = datetime.now(UTC).date()
     start_ms, end_ms = _month_ms(month), min(_month_ms(universe.next_month(month)), series._day_ms(today))
-    if start_ms >= end_ms:
-        raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+    if start_ms > end_ms:
+        raise _refuse(f"{month:%Y-%m} has not begun", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
     conn = connect(profile, "import")
     work = Path(tempfile.mkdtemp(prefix="market-load-"))
     try:
@@ -609,6 +610,9 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
     if done and any(item["scope"] != (scope or "all") for item in done):
         raise _refuse(f"earlier imports cover scope {done[-1]['scope']}, this one {scope or 'all'}", "IMPORT_SCOPE",
                       missing=("--symbols",))
+    if not done and start_ms == end_ms:
+        raise _refuse(f"{label} has no closed UTC day yet, and the first import has no members to give",
+                      "MONTH_INVALID", missing=(label,))
     through = {item["month"]: item["through"] for item in done}  # a month imported twice: its latest import
     if through.get(label) == universe.next_month(month).isoformat():
         raise _refuse(f"the market database already holds {label} through its end", "MONTH_EXISTS", missing=(label,))
@@ -652,7 +656,7 @@ def _import(conn: MarketConnection, month: date, start_ms: int, end_ms: int, cac
                 appended_terms.append((symbol, observed, observed_terms))
 
     jobs, stored_through = [], {}
-    for symbol in eligible:
+    for symbol in eligible if start_ms < end_ms else ():  # a month on its first day: members only
         item = by_symbol.get(symbol)
         plan = {}
         for price_type in ("LAST", "MARK"):
@@ -986,8 +990,8 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
     today = datetime.now(UTC).date()
     start_ms, end_ms = _month_ms(month), min(_month_ms(universe.next_month(month)), series._day_ms(today))
-    if start_ms >= end_ms:
-        raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+    if start_ms > end_ms:
+        raise _refuse(f"{month:%Y-%m} has not begun", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
     conn = connect(profile, "import")
     try:
         lock(conn)
