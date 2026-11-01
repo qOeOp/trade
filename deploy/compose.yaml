@@ -112,6 +112,44 @@ services:
       ledger:
         condition: service_healthy
 
+  # The daily import of Binance metrics (market/README.md, "follow-metrics"): each round imports the days
+  # the archive has published since the held ones and publishes the market. Unhealthy while a contract is
+  # stopped or lagging, or when its status is a day old (docs/plans/daily-metrics-import.zh.md).
+  metrics-import:
+    <<: *product
+    command: ["python", "-m", "cli.main", "market", "follow-metrics", "--market", "/run/trade/market-import.json",
+              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TRADE_DOLT_HOST: ledger
+    configs:
+      - source: market-import
+        target: /run/trade/market-import.json
+    volumes:
+      # service.json (the import and admin accounts); the DoltHub key beneath is covered, since ledger pushes.
+      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
+      - type: tmpfs
+        target: ${TRADE_DATA}/dolt/home
+      # The archive cache and the status file, on a volume as for market-supply: a new volume mounted
+      # elsewhere belongs to root, which TRADE_UID cannot write.
+      - trade-metrics-import:/tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from market.follow import check; raise SystemExit(check())"]
+      interval: 5m
+      timeout: 30s
+      retries: 1
+      start_period: 30m
+      start_interval: 30s
+    depends_on:
+      ledger:
+        condition: service_healthy
+
   # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
   # Docker only through docker-api. Its market (paper-market) reads membership and stored bars from
   # ledger, and a reconciliation's replay inputs from market-supply.
@@ -160,7 +198,8 @@ networks:
     internal: true
 
 # The IDE's two read-only profiles (kind null: never publishes), and the market profiles of market-supply
-# (only the database: a supply serves a local reader) and paper (also the supply and its own cache).
+# (only the database: a supply serves a local reader), metrics-import and paper (also the supply and its
+# own cache).
 configs:
   ide-research:
     content: |
@@ -172,6 +211,10 @@ configs:
   market-source:
     content: |
       {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt"}
+  # metrics-import's profile: role active, since publishing the market needs it (ledger/publish.py).
+  market-import:
+    content: |
+      {"name": "market", "kind": "market", "role": "active", "database": "market", "service": "${TRADE_DATA}/dolt"}
   paper-market:
     content: |
       {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt",
@@ -182,3 +225,4 @@ volumes:
   trade-dolt-data:
   trade-ledger-readers:
   trade-market-exports:
+  trade-metrics-import:

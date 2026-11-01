@@ -62,8 +62,9 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   window needs (bars, quotes for a line that executes on them, metrics for a source that reads
   them). Say in one line what an option that fails lacks.
   Supplying it (importing months with `market import`, `market import-quotes` or
-  `market import-metrics`, restoring a
-  market commit) is a separate public write the user decides, not an option to wait on. A frozen
+  `market import-metrics`, restoring a market commit) is a separate public write the user decides,
+  not an option to wait on; metrics of the contracts the `metrics-import` service keeps arrive on
+  their own (readiness.md). A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:

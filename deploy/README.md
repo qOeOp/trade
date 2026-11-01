@@ -3,7 +3,7 @@
 `compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
 Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
 only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
-Five services on one Docker engine:
+Six services on one Docker engine:
 
 - **ide**: the trade IDE page and its chat service ([`ide/`](../ide/README.md)). Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the
   two reader accounts only: its profiles (compose configs, `kind` null) name the reader-only
@@ -24,14 +24,22 @@ Five services on one Docker engine:
   files of a pinned commit, its contracts and window. Published on 127.0.0.1:8210
   (`TRADE_MARKET_SUPPLY_PORT`); it has no authentication, so it is never published beyond loopback. Its
   exports stay in the `trade-market-exports` volume until an operator removes them.
+- **metrics-import**: the daily import of Binance open interest and long/short ratios for the contracts
+  its `--symbols` name (`market follow-metrics`; `market/README.md`). Same image; its market profile is
+  the compose config `market-import`, with role `active` because it publishes the market after each
+  write. It reads the import and admin accounts from `service.json`, never the DoltHub key: ledger
+  pushes. Its archive cache and status file stay in the `trade-metrics-import` volume. `docker compose
+  ps metrics-import` shows unhealthy while a contract is stopped or lagging, and `docker compose logs
+  metrics-import` gives each round; restarting it retries a stopped contract.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
   is the compose config `paper-market`: membership and stored bars from ledger, a reconciliation's replay
   inputs from market-supply, cached under `$TRADE_DATA/paper-tmp/market-client-cache`.
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
   (`docker-api.cfg`).
 
-The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md)
-and [`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md). The
+The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md),
+[`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md) and
+[`docs/plans/daily-metrics-import.zh.md`](../docs/plans/daily-metrics-import.zh.md). The
 host directories are mounted at their own paths. `.env` beside the compose file names them and the
 user the services run as:
 
@@ -50,6 +58,6 @@ imports keep using its `service`, and removing the two fields returns replays to
 "cache_root": "/Users/me/.local/share/trade/market-client-cache"
 ```
 
-The ledger service and the paper daemon restart with Docker. A service whose `service.json` has no
-socket is run this way: host commands reach it over TCP, and `ledger service stop` refuses it
-(`docker compose stop ledger`).
+The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
+`service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
+refuses it (`docker compose stop ledger`).
