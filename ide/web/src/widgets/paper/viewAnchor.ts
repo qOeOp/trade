@@ -62,7 +62,11 @@ export function restore(time: ITimeScaleApi<Time>, times: readonly number[], ste
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (times[mid]! <= t) lo = mid; else hi = mid - 1; }
   // Past either end the time runs on at the step; inside a gap it stops at the next point.
   const into = (t - times[lo]!) / step, at = lo + (lo < n - 1 && into > 0 ? Math.min(1, into) : into);
-  time.applyOptions({ barSpacing: w });
-  const actual = spacing(time) || w;
-  time.scrollToPosition((time.width() - 1 - x) / actual - 0.5 - (n - 1) + at, false);
+  // The chart applies a new spacing only at its next frame, so the spacing it will have is worked out here
+  // as it clamps it: to its maxBarSpacing (half the pane when unset) and minBarSpacing (with both edges
+  // fixed, no narrower than the points filling the pane).
+  const o = time.options(), width = time.width();
+  const actual = Math.min(o.maxBarSpacing > 0 ? o.maxBarSpacing : width / 2, Math.max(o.fixLeftEdge && o.fixRightEdge ? width / n : o.minBarSpacing, w));
+  time.applyOptions({ barSpacing: actual });
+  time.scrollToPosition((width - 1 - x) / actual - 0.5 - (n - 1) + at, false);
 }
