@@ -16,6 +16,12 @@ it supports the mechanism, the parameter or only the method. Explain how the sou
 question, control, prediction or priority; if it is only background, explain why the local question
 still comes first without inventing an effect on the decision. Local evidence names run and commit.
 
+The model writing the hypothesis may remember the development window's prices, funding and events
+from its training data: look-ahead that no replay check catches. A recollection of how the window
+moved is neither external evidence nor local diagnosis and never supports a rationale; when one is
+offered, say where it comes from. For each event the mechanism or the recollection relies on, state
+whether it was knowable before the decision. Only out-of-sample results rule this memory out.
+
 Describe the economic mechanism, who bears its cost and why it could persist under this line's
 conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
 
