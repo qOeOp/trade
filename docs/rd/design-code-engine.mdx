@@ -571,7 +571,7 @@ def execution_account(execution: str, margin_rates: tuple[str, str] | None) -> A
 
 本金仍为 100000 USDT。默认 K 线环境与报价环境的区别沿用 <Ref id="W.4.2.1" />，头寸与实际敞口仍由策略源码决定，环境身份不同的运行不混作同环境比较。
 
-**消费关系**　<Ref id="engine.add_venue" /> 使用此合同；运行器在报价环境给原生合约设置保证金率，对每个有效合约按 UTC 月核对其交易窗口（交易起点至窗口终点或终止）内的报价，任一月没有报价即为 `QUOTES_MISSING` 并列出这些月份；回执记有成交（入口 `--trade-ticks`，只与报价环境同用，否则 `TRADE_TICKS_NEED_QUOTES`）时同样按月核对成交，缺即 `TRADES_MISSING`；源码订阅了本次运行不送的成交（未带入口、原生 `subscribe_trades`、paper 交易），运行器在订阅所在的块之后停下，即 `TRADES_NOT_SERVED`。入口 `--metrics` 导出持仓量与多空比并把同一参数传给运行器，两种环境都可用：运行器按月核对每个有效合约交易窗口内的导出行，缺即 `METRICS_MISSING`；不认识该参数的旧镜像在预检时拒绝 `UNKNOWN_OPTION`；它不进有效配置，回执的 `counts.metrics` 已把它带进输入身份。订阅了本次运行不送的指标（未带 `--metrics`、paper 交易）即 `METRICS_NOT_SERVED`。`market_events(..., quotes=True)` 流式消费原生 QuoteTick；K 线环境不消费报价，以免报价改变 K 线之间的盘口。原生 Nautilus 负责撮合、账户与强平，本页不定义另一套引擎。
+**消费关系**　<Ref id="engine.add_venue" /> 使用此合同；运行器在报价环境给原生合约设置保证金率，对每个有效合约按 UTC 月核对其交易窗口（交易起点至窗口终点或终止）内的报价，任一月没有报价即为 `QUOTES_MISSING` 并列出这些月份；回执记有成交（入口 `--trade-ticks`，只与报价环境同用，否则 `TRADE_TICKS_NEED_QUOTES`）时同样按月核对成交，缺即 `TRADES_MISSING`；源码订阅了本次运行不送的成交（未带入口、原生 `subscribe_trades`、paper 交易），运行器在订阅所在的块之后停下，即 `TRADES_NOT_SERVED`。入口 `--metrics` 导出持仓量与多空比并把同一参数传给运行器，两种环境都可用：运行器按月核对每个有效合约交易窗口内的导出行，每行算在其 `create_time` 所在的月（月末最后两行在下月初才送达，不替下月充数），某月只核对到窗口终点前 10 分钟（此后该月的行已送不到），缺即 `METRICS_MISSING`；不认识该参数的旧镜像在预检时拒绝 `UNKNOWN_OPTION`；它不进有效配置，回执的 `counts.metrics` 已把它带进输入身份。订阅了本次运行不送的指标（未带 `--metrics`、paper 交易）即 `METRICS_NOT_SERVED`。`market_events(..., quotes=True)` 流式消费原生 QuoteTick；K 线环境不消费报价，以免报价改变 K 线之间的盘口。原生 Nautilus 负责撮合、账户与强平，本页不定义另一套引擎。
 
 ### `account_contract` [#def-engine-account_contract]
 
