@@ -1553,10 +1553,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing until stopped; one JSON line per round on stdout, as written to --status: at, last_closed_day, "
         "contracts {state (caught_up, waiting, lagging: a day still missing 3 days after it closed, stopped, "
         "unknown), refusal, retry, missing_from, missing_days, rows, commits}, round_refusal, published, "
-        "publish_refusal, next_round (an hour later while any contract waits or the market is unreadable, else "
+        "publish_refusal, publish_failing_since (the first round of the current run of refused publishes), next_round (an hour later while any contract waits or the market is unreadable, else "
         "00:30 UTC of the next day); import progress on stderr",
         "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, MARKET_UNREACHABLE, "
-        "MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, MONTH_EXISTS and uncoded errors retry next round; "
+        "LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, MONTH_EXISTS and uncoded errors retry next round; "
         "DIRTY_WORKING_SET, SCHEMA_MISMATCH, SCHEMA_VERSION_MISMATCH, COMMIT_CHECKS_DISABLED, DATA_TESTS_FAILED, "
         "RULE_VERSION_MISMATCH and the publish refusals PUBLISH_REJECTED, PUBLISH_FORBIDDEN, REMOTE_UNSET and "
         "REMOTE_INVALID stop every contract, any other refusal (SOURCE_SHAPE, SCALE_LOSS, CHECKSUM_MISMATCH) its "

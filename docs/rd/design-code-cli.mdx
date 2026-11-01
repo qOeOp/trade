@@ -1124,7 +1124,7 @@ def market_follow_metrics(market: dict, symbols: list[str], cache_root: str | No
 
 <TypeTable type={{ "market": { type: "dict", description: "市场档案；要发布到 DoltHub，role 须为 active" }, "symbols": { type: "list[str]", description: "要维护的合约，各自须已手动导入过一次" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "status": { type: "str | None", description: "每轮重写的状态文件（缺省为临时目录下的 metrics-import/status.json）" } }} />
 
-**返回**　不返回；每轮在 stdout 打一行 JSON，与写进状态文件的相同：\{at, last_closed_day, contracts, round_refusal, published, publish_refusal, next_round\}；contracts 每项为 \{state, refusal, retry, missing_from, missing_days, rows, commits\}，state 是 caught_up、waiting、lagging、stopped 或 unknown；导入进度写 stderr
+**返回**　不返回；每轮在 stdout 打一行 JSON，与写进状态文件的相同：\{at, last_closed_day, contracts, round_refusal, published, publish_refusal, publish_failing_since, next_round\}；contracts 每项为 \{state, refusal, retry, missing_from, missing_days, rows, commits\}，state 是 caught_up、waiting、lagging、stopped 或 unknown；导入进度写 stderr
 
 **期望行为**
 

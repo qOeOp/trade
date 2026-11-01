@@ -779,6 +779,28 @@ class StreamTests(unittest.TestCase):
                 export.write_trades(store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3)
             self.assertEqual(caught.exception.code, "TRADE_INEXACT")
 
+    def test_metrics_months_follow_create_time_not_the_delivery_past_month_end(self):
+        """January's last rows (23:50, 23:55) are delivered on 1 February; they never make February held. A
+        window starting in January's last minutes needs January's rows it still delivers, and a window ending in
+        March's first ten minutes delivers no March row, so neither needs a month it cannot see."""
+        self.assertEqual(run.METRICS_VISIBLE_NS, export.METRICS_VISIBLE_MS * 10**6)
+        with tempfile.TemporaryDirectory() as temp:
+            catalog_path = Path(temp)
+            native = export.native_symbol("AAAUSDT", None)["instrument_id"]
+            february, march = START + 31 * DAY, START + (31 + 28) * DAY
+            value = (Decimal("1"), Decimal("1"), Decimal("1"), Decimal("1"))
+            january = [(stamp, *value) for stamp in range(START, february, 5 * MIN)]
+            export.write_metrics(catalog_path, native, january)
+            row = {"catalog_path": str(catalog_path), "instrument_id": native}
+            self.assertEqual(run.months_missing(row, "Metrics", START * 10**6, march * 10**6), ["2026-02"])
+            self.assertEqual(run.months_missing(row, "Metrics", (february - 4 * MIN) * 10**6, march * 10**6),
+                             ["2026-02"])
+            export.write_metrics(catalog_path, native, [(stamp, *value) for stamp in range(february, march, 5 * MIN)])
+            self.assertEqual(run.months_missing(row, "Metrics", (february - 4 * MIN) * 10**6, march * 10**6), [])
+            self.assertEqual(run.months_missing(row, "Metrics", START * 10**6, (march + 5 * MIN) * 10**6), [])
+            self.assertEqual(run.months_missing(row, "Metrics", START * 10**6, (march + 11 * MIN) * 10**6),
+                             ["2026-03"])
+
     def test_each_exported_piece_is_its_numbered_episode_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

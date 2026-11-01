@@ -689,28 +689,31 @@ def _bounds(path: str) -> tuple[int, int] | None:
 def months_missing(row: dict, kind: str, start: int, end: int) -> list[str]:
     """The UTC months ("YYYY-MM") that intersect [start, end) and hold no exported `kind` event (QuoteTick,
     TradeTick or Metrics) of the contract. Each is imported a month at a time, so a month without any is a month
-    the market does not hold."""
+    the market does not hold. A metrics row counts toward the month of its create_time (ts_init less
+    METRICS_VISIBLE_NS), whose import holds it, so a month's last rows delivered just past its end never stand in
+    for the next month; a month is required only up to end less that delay, past which no row of it is delivered."""
     import pyarrow as pa
     import pyarrow.compute as compute
     import pyarrow.parquet as parquet
-    if end <= start:
+    delay = METRICS_VISIBLE_NS if kind == "Metrics" else 0
+    if end - delay <= start:
         return []
     held = set()
     for path in _files(row, kind):
         bounds = _bounds(path)
         if bounds is None or bounds[1] < start or bounds[0] >= end:
             continue
-        first, last = (datetime.fromtimestamp(max(at, low) // 10**9, UTC) for at, low in
+        first, last = (datetime.fromtimestamp((max(at, low) - delay) // 10**9, UTC) for at, low in
                        ((bounds[0], start), (min(bounds[1], end - 1), 0)))
         if (first.year, first.month) == (last.year, last.month):
             held.add(first.year * 100 + first.month)  # one month: the statistics suffice
             continue
         column = parquet.read_table(path, columns=["ts_init"])["ts_init"].cast(pa.int64())
         inside = column.filter(compute.and_(compute.greater_equal(column, start), compute.less(column, end)))
-        stamps = inside.cast(pa.timestamp("ns", tz="UTC"))
+        stamps = compute.subtract(inside, delay).cast(pa.timestamp("ns", tz="UTC"))
         held.update(compute.add(compute.multiply(compute.year(stamps), 100), compute.month(stamps)).unique().to_pylist())
     first = datetime.fromtimestamp(start // 10**9, UTC)
-    last = datetime.fromtimestamp((end - 1) // 10**9, UTC)
+    last = datetime.fromtimestamp((end - delay - 1) // 10**9, UTC)
     year, month, missing = first.year, first.month, []
     while (year, month) <= (last.year, last.month):
         if year * 100 + month not in held:
@@ -778,6 +781,7 @@ def metrics_data_type(instrument_id) -> DataType:
 
 
 METRICS_BATCH = 288  # rows read at a time: one day of a contract
+METRICS_VISIBLE_NS = 10 * MINUTE_NS  # ts_init less create_time: the export's metrics_rule (market.export)
 
 
 def _metrics_events(row: dict):

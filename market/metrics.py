@@ -37,6 +37,9 @@ STEP = 300_000  # one row every five minutes
 SCALE = 16  # the most decimals an archive has used (2022); DECIMAL(38,16) in market/schema.sql
 INTEGER_DIGITS = 38 - SCALE
 INSERT = "INSERT INTO metrics VALUES (%s,%s,%s,%s,%s,%s)"
+# Binance publishes a day's archive the next day: a missing day that closed fewer days ago than this may be late or
+# briefly unreachable, so the days after it wait for it rather than record it as never published.
+SETTLE_DAYS = 3
 
 
 def exact(text: str, label: str) -> str:
@@ -135,9 +138,10 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
             if item["month"] == f"{month:%Y-%m}":
                 for symbol in item["symbols"]:
                     held[symbol] = max(held.get(symbol, start), series._day_ms(date.fromisoformat(item["through"])))
+        settled = series._day_ms(datetime.now(UTC).date()) - SETTLE_DAYS * store.DAY
         for symbol in scope:
             try:
-                imports.append(_import(conn, month, held.get(symbol, start), end, cache, symbol, log))
+                imports.append(_import(conn, month, held.get(symbol, start), end, settled, cache, symbol, log))
             except BaseException as exc:
                 try:
                     conn.raw.rollback()
@@ -154,9 +158,10 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
             "seconds": round(time.monotonic() - started, 1)}
 
 
-def _import(conn, month: date, start: int, end: int, cache: Path, symbol: str, log) -> dict:
+def _import(conn, month: date, start: int, end: int, settled: int, cache: Path, symbol: str, log) -> dict:
     """One contract's days [start, end): unpublished days after the last published one stay for a later import
-    (the archive appears a day late); unpublished days before it are recorded and never filled."""
+    (the archive appears a day late). An unpublished day before it that began at or after `settled` holds the
+    days from it on back for a later import too; one that began before is recorded and never filled."""
     label = f"{month:%Y-%m}"
     if start >= end:
         raise _refuse(f"the market database already holds every closed day of {label} metrics of {symbol}",
@@ -172,6 +177,13 @@ def _import(conn, month: date, start: int, end: int, cache: Path, symbol: str, l
     if not found:
         raise _refuse(f"{symbol}: no metrics archive of {days[0]}..{days[-1]} is published", "ARCHIVE_NOT_PUBLISHED",
                       missing=(symbol,))
+    waiting = [day for day in days if day not in found and day < max(found)
+               and series._day_ms(date.fromisoformat(day)) >= settled]
+    if waiting:
+        found = {day: path for day, path in found.items() if day < waiting[0]}
+        if not found:
+            raise _refuse(f"{symbol}: the metrics archive of {waiting[0]} is not published yet; the days after it wait",
+                          "ARCHIVE_NOT_PUBLISHED", missing=(symbol,))
     last = max(found)
     unpublished = [day for day in days if day not in found and day < last]
     archives, readings, total = {}, {}, 0

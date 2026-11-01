@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pymysql
+
 from ledger.errors import Refusal
 from market import follow, metrics, sources, store
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
@@ -70,6 +72,17 @@ class CheckTests(unittest.TestCase):
                 with self.subTest(states=states, age=age):
                     self.assertEqual(follow.check(path, now), expected)
 
+    def test_publishes_refused_for_longer_than_stale_are_unhealthy(self):
+        now = at(FEB)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "status.json"
+            for failing, expected in ((None, 0), (25, 0), (27, 1)):
+                since = None if failing is None else (now - timedelta(hours=failing)).isoformat()
+                follow.write_status(path, {"at": now.isoformat(), "contracts": {"BTCUSDT": {"state": "caught_up"}},
+                                           "publish_failing_since": since})
+                with self.subTest(failing=failing):
+                    self.assertEqual(follow.check(path, now), expected)
+
 
 class LoopTests(unittest.TestCase):
     def test_rounds_sleep_in_short_naps_until_next_round_and_rewrite_the_status(self):
@@ -92,6 +105,22 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertEqual(last["at"], (at(FEB) + timedelta(hours=1)).isoformat())
         self.assertTrue(naps and max(naps) <= follow.NAP and sum(naps) == 3600)
+
+    def test_a_run_of_refused_publishes_keeps_its_first_round_until_one_succeeds(self):
+        clock = [at(FEB)]
+        refusals = iter([{"code": "CONCURRENT_IMPORT"}, {"code": "PUBLISH_FAILED"}, None, {"code": "PUBLISH_FAILED"}])
+
+        def round_(profile, symbols, cache, stopped, publish, now, log):
+            return {"at": now.isoformat(), "contracts": {}, "publish_refusal": next(refusals),
+                    "next_round": (now + timedelta(hours=1)).isoformat()}
+
+        lines = []
+        with tempfile.TemporaryDirectory() as temp, patch.object(follow, "run_round", side_effect=round_):
+            follow.follow({}, ["BTCUSDT"], Path(temp), Path(temp) / "status.json", lambda: None,
+                          report=lines.append, clock=lambda: clock[0],
+                          sleep=lambda seconds: clock.__setitem__(0, clock[0] + timedelta(seconds=seconds)), rounds=4)
+        first, later = at(FEB).isoformat(), (at(FEB) + timedelta(hours=3)).isoformat()
+        self.assertEqual([json.loads(line)["publish_failing_since"] for line in lines], [first, first, None, later])
 
     def test_no_contracts_is_refused_at_start(self):
         with self.assertRaises(sources.MarketError) as caught:
@@ -223,6 +252,23 @@ class RoundTests(unittest.TestCase):
             imported.assert_not_called()
         self.assertEqual(status["contracts"]["BTCUSDT"]["state"], "stopped")
         self.assertEqual(self.published, ["published"])
+
+    def test_an_unreachable_service_while_publishing_or_importing_is_retried_next_round(self):
+        profile = self.market(("BTCUSDT",))
+        stopped: dict = {}
+        down = Refusal("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish",
+                       write_status="not_written")
+        with serving(self.exchange({"BTCUSDT": [date(2025, 1, 31)]})):
+            status = self.round(profile, stopped, at(FEB), ("BTCUSDT",), publish=refusing(down))
+        self.assertEqual((status["publish_refusal"]["code"], stopped), ("LEDGER_UNAVAILABLE", {}))
+        self.assertEqual(status["contracts"]["BTCUSDT"]["state"], "caught_up")
+        lost = store._sql_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+        self.assertEqual(lost.code, "MARKET_UNREACHABLE")
+        with serving(self.exchange({"BTCUSDT": [FEB]})), patch.object(follow.metrics, "import_month",
+                                                                          side_effect=lost):
+            status = self.round(profile, stopped, at(date(2025, 2, 2)), ("BTCUSDT",))
+        btc = status["contracts"]["BTCUSDT"]
+        self.assertEqual((btc["retry"]["code"], btc["state"], stopped), ("MARKET_UNREACHABLE", "waiting", {}))
 
     def test_a_contract_without_history_is_not_imported_and_an_unreadable_market_waits(self):
         profile = self.market(("BTCUSDT",))
