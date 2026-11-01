@@ -2,20 +2,21 @@
 // pace, the replay, the equity), the primitives on the equity series (equityLayers, equityNotes,
 // equityCloses, stretchCaptions), the extras' series (equityExtras) and the axis ticks (axisTicks). The
 // view never leaves the points: a pan stops at the first, ROOM points right of the last, and zooming out
-// stops at all of them (candleView's fence). The value axis fits the shown stretch's points in view while
-// they are at least half of those in view (focused), so the end of the stretch before it may run off the
-// pane, and all of them otherwise; the pace never widens it.
+// stops at all of them (candleView's fence). The pane is in bands (equityZones.ts): the value axis fits the
+// plot, to the shown stretch's points in view while they are most of those in view (focused), so the end of
+// the stretch before it may run off the plot, and all of them otherwise; the pace never widens it.
 import { createChart, LineSeries, LineStyle, MismatchDirection, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type LineWidth } from "lightweight-charts";
 import { AxisTicks } from "./axisTicks";
 import { fence } from "./candleView";
 import { chartOptions, priceFormat } from "./chartTheme";
 import { CEILING } from "./equityBands";
+import { plotOf, type Plot } from "./equityZones";
 import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
 import { EquityLayers, type EquityPoint } from "./equityLayers";
 import { EquityNotes } from "./equityNotes";
 import { focused, shownReach } from "./equityStretches";
-import { BELOW, StretchCaptions } from "./stretchCaptions";
+import { StretchCaptions } from "./stretchCaptions";
 import { xAt } from "./equityPlace";
 import { spacing } from "./viewAnchor";
 
@@ -32,7 +33,6 @@ export type Now = { points: readonly EquityPoint[]; shown: number; starting: num
 export const ROOM = 6;    // points of room right of the last
 const CLEAR = 16;  // px: a value tick this near an axis tag is left out
 const TICKS = 8;   // more value ticks than this and every other one is left out
-const UNDER = 8;   // px: between the drawdown dots' foot and the highest equity
 
 export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => Now): Api {
   // Dragging the time axis zooms; the value axis keeps fitting what is shown. No conflation: the points are
@@ -42,23 +42,23 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } }, handleScroll: { vertTouchDrag: false } });
   const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
   // The value axis fits the equity shown, not the pace, which may run far below it once zoomed in.
-  const pace = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.LargeDashed, priceFormat: priceFormat(0), autoscaleInfoProvider: () => null });
+  // The layers draw the pace's line, inside the plot; the series keeps its format.
+  const pace = chart.addSeries(LineSeries, { ...quiet, lineVisible: false, priceFormat: priceFormat(0), autoscaleInfoProvider: () => null });
   const replay = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.Dotted, priceFormat: priceFormat(2, 0) });
   // The layers draw the equity line; the series keeps the scale, the last value and the pointer's dot, and
   // keeps the line above the foot's exposure.
   const equity = chart.addSeries(LineSeries, { lineVisible: false, lineWidth: 2 as LineWidth, priceLineVisible: false,
     crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2,
     autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
-      const r = base(), view = chart.timeScale().getVisibleLogicalRange(), { points, shown } = now();
+      const r = base(), view = chart.timeScale().getVisibleLogicalRange(), { points, shown } = now(), h = chart.paneSize(0).height, p = plot();
       const reach = view && shown >= 0 && focused(points, shown, view.from, view.to) ? shownReach(points, shown, view.from, view.to) : null;
-      // Above the line the stretches' names and the drawdown dots hanging from them, which it never reaches.
-      const above = BELOW + chart.paneSize(0).height * CEILING + UNDER;
-      return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above, below: extras.foot() } };
+      return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above: p.top, below: h - p.bottom } };
     } });
-  equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0.08 }, entireTextOnly: true });
+  equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 }, entireTextOnly: true });
   // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
   // names above it, the depths over the arrows; the stretches' names over all.
-  const layers = new EquityLayers(), notes = new EquityNotes(), closes = new EquityCloses();
+  const plot = (): Plot => plotOf(chart.paneSize(0).height, extras.foot(), layers.days());
+  const layers = new EquityLayers(plot), notes = new EquityNotes(plot), closes = new EquityCloses(plot);
   // The rule before a stretch half a point before its first: the two stretches' points abut.
   const xOf = (t: number) => xAt(now().points, chart.timeScale(), t), seam = (t: number) => { const x = xOf(t); return x === null ? null : x - spacing(chart.timeScale()) / 2; };
   const captions = new StretchCaptions(xOf, undefined, seam, CEILING);
@@ -66,7 +66,7 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   equity.attachPrimitive(notes);
   equity.attachPrimitive(layers);
   equity.attachPrimitive(captions);
-  extras.attach(chart, equity);
+  extras.attach(chart, equity, plot);
   // The value ticks (axisTicks): every other one when crowded, none under the start's, the last value's
   // (at the last point in view even in part, as the chart takes it) or the pointer's tag, none in the live
   // note's room; those written get the gridlines (the layers draw them). Every series on the scale carries

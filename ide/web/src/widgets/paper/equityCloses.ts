@@ -8,6 +8,7 @@ import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi,
 import { arrowAt, drawArrow } from "./arrowMark";
 import type { EquityPoint } from "./equityLayers";
 import { lineReach, valueAt, xAt } from "./equityPlace";
+import type { Plot } from "./equityZones";
 import type { Rect } from "./tradeMarks";
 
 export type Close = { id: string; time: number; pnl: number };
@@ -32,6 +33,9 @@ export class EquityCloses implements ISeriesPrimitive<Time> {
 
   attached({ chart, series, requestUpdate }: SeriesAttachedParameter<Time>): void { Object.assign(this, { chart, series, redraw: requestUpdate }); }
   detached(): void { Object.assign(this, { chart: null, series: null, redraw: null }); }
+  /** `plot`: where the arrows are drawn (equityZones.ts); one that is not wholly inside it is left out. */
+  constructor(private readonly plot: () => Plot) {}
+
   paneViews(): readonly IPrimitivePaneView[] {
     return [{ zOrder: () => "top", renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace((s) => this.draw(s)) }) }];
   }
@@ -42,7 +46,7 @@ export class EquityCloses implements ISeriesPrimitive<Time> {
   }
 
   private draw({ context: c, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
-    const { look, series, chart } = this, width = bitmapSize.width / hr;
+    const { look, series, chart } = this, width = bitmapSize.width / hr, plot = this.plot();
     this.hits = [];
     if (!look || !series || !chart) return;
     const placed = this.closes.flatMap((k) => {
@@ -56,7 +60,7 @@ export class EquityCloses implements ISeriesPrimitive<Time> {
       const up = k.pnl >= 0, half = arrowAt(x, y, up).rect.w / 2;
       const [top, bottom] = lineReach(this.points, chart.timeScale(), (v) => series.priceToCoordinate(v), x - half, x + half) ?? [y, y];
       const mark = arrowAt(x, up ? Math.max(y, bottom) + OFF : Math.min(y, top) - OFF, up);
-      if (x - last < mark.rect.w + 1) continue;
+      if (x - last < mark.rect.w + 1 || mark.rect.y < plot.top || mark.rect.y + mark.rect.h > plot.bottom) continue;
       last = x;
       drawArrow(c, mark, up ? look.up : look.down, look.halo, hr, vr);
       this.hits.push({ id: k.id, ...mark.rect });

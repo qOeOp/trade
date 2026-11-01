@@ -1,15 +1,16 @@
 // What the Account chart shows beside equity and its layers (equityReadings.ts): what fees and funding
 // took as a raised band over the line and the open profit and loss as a filled block between the balance
-// and the line (equityFills.ts), the band in the value axis's fit as far as `reach` lets it; on request an
-// equal-weight buy and hold of the run's contracts as a fine dashed line, kept out of the fit (so a market
+// and the line, and on request an equal-weight buy and hold of the run's contracts (equityFills.ts), the
+// band in the value axis's fit as far as `reach` lets it, the buy and hold kept out of it (so a market
 // move cannot flatten the equity line); and the gross exposure as an indicator in a band of its own along the
 // pane's foot (below the day bars), a faint indigo step area on a scale of its own from none to all of
 // equity (or more, with leverage), as the candle charts lay volume. The run's events are not flagged here:
 // they are in Events, and on each contract's chart.
-import { BaselineSeries, LineSeries, LineStyle, LineType, type AutoscaleInfo, type IChartApi, type ISeriesApi, type LogicalRange, type UTCTimestamp } from "lightweight-charts";
+import { BaselineSeries, LineType, type AutoscaleInfo, type IChartApi, type ISeriesApi, type LogicalRange, type UTCTimestamp } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
 import { EquityFills, type FillsLook } from "./equityFills";
 import type { EquityPoint } from "./equityLayers";
+import type { Plot } from "./equityZones";
 
 export type ExtrasLook = { fills: FillsLook; hold: string; exposure: string; exposureFill: string };
 type Shown = { points: readonly EquityPoint[]; readings: ReadonlyMap<number, Reading>; hold: boolean; look: ExtrasLook };
@@ -17,14 +18,15 @@ const BAND = 30;  // px: the exposure's band
 const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
 
 export class EquityExtras {
-  private readonly fills = new EquityFills();
-  private s: { hold: ISeriesApi<"Line">; exposure: ISeriesApi<"Baseline"> } | null = null;
+  private plot: () => Plot = () => ({ top: 0, bottom: 0 });
+  private readonly fills = new EquityFills(() => this.plot());
+  private s: { exposure: ISeriesApi<"Baseline"> } | null = null;
   private shown: Shown | null = null;
   private applied = "";
 
-  /** Adds its series to `chart`, its fills to the equity series. */
-  attach(chart: IChartApi, equity: ISeriesApi<"Line">): this {
-    const hold = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.Dashed, priceFormat: equity.options().priceFormat, autoscaleInfoProvider: () => null });
+  /** Adds its series to `chart`, its fills to the equity series, drawn inside `plot` (equityZones.ts). */
+  attach(chart: IChartApi, equity: ISeriesApi<"Line">, plot: () => Plot): this {
+    this.plot = plot;
     // Its own scale, hidden, from none to all of equity or the most it reached, fitted to its band (px) at
     // the foot; filled from none up, so a flat stretch shows nothing.
     const exposure = chart.addSeries(BaselineSeries, { ...quiet, lineWidth: 1, lineType: LineType.WithSteps, priceScaleId: "exposure",
@@ -35,7 +37,7 @@ export class EquityExtras {
       } });
     exposure.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } });
     equity.attachPrimitive(this.fills);
-    this.s = { hold, exposure };
+    this.s = { exposure };
     return this;
   }
 
@@ -49,14 +51,12 @@ export class EquityExtras {
     });
     // Options only when they change: each is a full update, and with the step changing faster than the
     // chart draws it would recolour bars that are no longer there.
-    const key = [look.hold, look.exposure, look.exposureFill, shown.hold].join();
+    const key = [look.exposure, look.exposureFill].join();
     if (key !== this.applied) {
       this.applied = key;
-      s.hold.applyOptions({ color: look.hold, visible: shown.hold });
       s.exposure.applyOptions({ topLineColor: look.exposure, topFillColor1: look.exposureFill, topFillColor2: look.exposureFill });
     }
-    this.fills.set(points, readings, look.fills);
-    s.hold.setData(data((r) => r.hold));
+    this.fills.set(points, readings, look.fills, shown.hold ? look.hold : null);
     s.exposure.setData(data((r) => r.exposure));
   }
 

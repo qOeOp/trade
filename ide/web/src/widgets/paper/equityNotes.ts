@@ -1,20 +1,21 @@
 // What the equity chart marks on its line besides its layers (equityLayers.ts), as one series primitive:
 // the floor the line's drawdown limit sets, the running peak less the limit, as a fine dashed step line in
 // the loss colour (rising only when equity makes a new high), with its tag on the value axis, pinned at the
-// pane's foot (above the exposure) with an arrow while the floor is below the view, and its name beside the tag; the run's
+// plot's foot (equityZones.ts) with an arrow while the floor is below it, and its name beside the tag; the run's
 // deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
 // and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
 // the very minute; only while the shown stretch fills most of the view), over the closes' arrows (equityCloses.ts); and the pace's tag on the
-// value axis with its name beside it, at the last point in view as the equity's own tag, pinned at the pane's
-// top with an arrow while the pace is above the view (a long backtest's, compounded over years). Of a chart of
+// value axis with its name beside it, at the last point in view as the equity's own tag, pinned at the plot's
+// top with an arrow while the pace is above it (a long backtest's, compounded over years). Of a chart of
 // several stretches (equityStretches.ts) the floor is drawn along each, but the drawdowns and the tags are
 // the shown stretch's alone. A tag that would cover the chart's own (the start's, the last value's) moves a
-// tag's height off it.
+// tag's height off it. The floor, the drawdowns and their depths are drawn inside the plot.
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, Logical,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { EquityPoint } from "./equityLayers";
 import { perColumn, valueAt, xAt } from "./equityPlace";
 import { focused } from "./equityStretches";
+import { inPlot, type Plot } from "./equityZones";
 
 export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
@@ -23,7 +24,7 @@ type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]
 type Tag = { y: number; text: string; name: string; back: string; color: string; nameColor: string; nameY?: number };
 
 const DEEPEST = 3, SHALLOW = 0.002;  // the deepest drawdowns marked, none shallower than this
-const FOOT = 10, HATCH = 6;  // px: a pinned tag's distance from the foot, a drawdown's hatch pitch
+const PIN = 10, HATCH = 6;  // px: a pinned tag's distance inside the plot's edge, a drawdown's hatch pitch
 const pct = (r: number) => `−${(r * 100).toFixed(2)}%`;
 const TAG = 18;  // px: an axis tag's height and a little
 
@@ -44,7 +45,10 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private points: readonly EquityPoint[] = [];
   private limit: number | null = null;
   private drops: readonly Episode[] = []; private look: NotesLook | null = null;
-  private format: (n: number) => string = String; private start = 0; private raised = 0; private shown: number | null = null;
+  private format: (n: number) => string = String; private start = 0; private shown: number | null = null;
+
+  /** `plot`: where the floor and the drawdowns are drawn (equityZones.ts). */
+  constructor(private readonly plot: () => Plot) {}
 
   /** The points drawn and every minute, the drawdown limit, the colours, the value format, the starting
    *  balance (whose tag the chart draws), the shown stretch (null: every point is its) and its drawdowns
@@ -60,11 +64,8 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   paneViews(): readonly IPrimitivePaneView[] {
     const view = (zOrder: "normal" | "top", draw: (s: Scope) => void): IPrimitivePaneView =>
       ({ zOrder: () => zOrder, renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(draw) }) });
-    return [view("normal", (s) => this.under(s)), view("top", (s) => this.over(s))];
+    return [view("normal", (s) => inPlot(s.context, this.plot(), s.bitmapSize.width, s.verticalPixelRatio, () => this.under(s))), view("top", (s) => this.over(s))];
   }
-
-  /** How much of the pane's foot (px) a pinned tag stands above: the exposure's band. */
-  lift(px: number): void { if (px !== this.raised) { this.raised = px; this.redraw?.(); } }
 
   /** Where the tags sit, so the value ticks can give way to them. */
   tags(): number[] { return this.tagged().map((t) => t.y); }
@@ -84,18 +85,18 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   }
 
   private tagged(): Tag[] {
-    const look = this.look, p = this.lastShown(), series = this.series, foot = this.chart?.paneSize(0).height ?? 0;
-    if (!look || !p || !series || !foot) return [];
+    const look = this.look, p = this.lastShown(), series = this.series, plot = this.plot();
+    if (!look || !p || !series || !this.chart) return [];
     const tags: Tag[] = [];
     const pace = p.pace === null ? null : series.priceToCoordinate(p.pace);
-    if (pace !== null && pace <= foot) {
-      const above = pace < FOOT;
-      tags.push({ y: above ? FOOT : pace, text: `${above ? "↑ " : ""}${this.format(p.pace!)}`, name: "Pace", back: look.paceTag, color: look.paceText, nameColor: look.pace });
+    if (pace !== null && pace <= plot.bottom) {
+      const above = pace < plot.top + PIN;
+      tags.push({ y: above ? plot.top + PIN : pace, text: `${above ? "↑ " : ""}${this.format(p.pace!)}`, name: "Pace", back: look.paceTag, color: look.paceText, nameColor: look.pace });
     }
     if (this.limit !== null) {
       const floor = p.peak * (1 - this.limit), y = series.priceToCoordinate(floor);
       if (y !== null) {
-        const pin = foot - FOOT - this.raised, below = y > pin;
+        const pin = plot.bottom - PIN, below = y > pin;
         tags.push({ y: below ? pin : y, text: `${below ? "↓ " : ""}${this.format(floor)}`, name: `Drawdown limit ${pct(this.limit)}`, back: look.floorTag, color: look.floorText, nameColor: look.floor });
       }
     }
@@ -176,10 +177,12 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     c.textAlign = "center";
     const range = this.chart?.timeScale().getVisibleLogicalRange();
     const room = this.shown === null || (!!range && focused(this.points, this.shown, range.from, range.to));
-    for (const e of room ? this.drops : []) {
-      const x = this.x(e.to), v = this.valueAt(e.to), y = v === null ? null : series.priceToCoordinate(v);
-      if (x !== null && y !== null && this.inView(x)) label(pct(e.depth), x * hr, (y + 12) * vr, look.bracket, "center");
-    }
+    inPlot(c, this.plot(), bitmapSize.width, vr, () => {
+      for (const e of room ? this.drops : []) {
+        const x = this.x(e.to), v = this.valueAt(e.to), y = v === null ? null : series.priceToCoordinate(v);
+        if (x !== null && y !== null && this.inView(x)) label(pct(e.depth), x * hr, (y + 12) * vr, look.bracket, "center");
+      }
+    });
     // The tags' names beside the axis, off their lines on the side away from the equity line's end.
     c.textAlign = "right";
     for (const t of this.tagged()) label(t.name, bitmapSize.width - 8 * hr, (t.nameY ?? t.y) * vr, t.nameColor, "right");

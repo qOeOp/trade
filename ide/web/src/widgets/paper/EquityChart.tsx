@@ -4,7 +4,6 @@ import { utc } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
-import { canvasColor } from "../../theme/roles";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import type { Down } from "./downLook";
 import { equityApi, type Api, type Now } from "./equityApi";
@@ -115,7 +114,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     const c = seriesColors(theme === "dark"), apply = () => { api.current?.chart.applyOptions(chartLook()); api.current?.ticks.refresh(); api.current?.chart.applyOptions({ crosshair: { mode: CrosshairMode.Magnet }, grid: { horzLines: { visible: false } } }); };
     apply();
     afterFonts(apply);
-    a.pace.applyOptions({ color: canvasColor("fg-muted", 0.9), visible: annual !== null });
+    a.pace.applyOptions({ visible: annual !== null });
     a.replay.applyOptions({ color: c.layers.line });
     a.equity.applyOptions({ color: c.layers.line, crosshairMarkerBorderColor: c.layers.line, crosshairMarkerBackgroundColor: c.island });
     if (a.start) a.equity.removePriceLine(a.start);
@@ -160,7 +159,6 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     api.current?.captions.set(placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })), c.captions);
     extras.set({ points, readings, hold, look: c.extras });
     api.current?.layers.lift(extras.foot());
-    api.current?.notes.lift(extras.foot());
   }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, hold, theme, restarts, placed, drops]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);

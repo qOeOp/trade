@@ -83,7 +83,7 @@ export function chartLook(): DeepPartial<ChartOptions> {
  *  TradingView's position tool fills with, and the fills as arrows in the candle pair; the
  *  events' flags in the secondary text colour, a warning's in the events' blue, and the gaps hatched in it; equity
  *  in indigo with the layers beneath it: its shadow (deeper on `dark`), the gap to its pace in profit and
- *  loss, kept faint so the line leads, the drawdown rows in a faint grey, the day bars in both (stronger
+ *  loss, kept faint so the line leads, the pace itself in the secondary text colour, the drawdown rows in a faint grey, the day bars in both (stronger
  *  for the picked day), the held stretches and the gridlines; its notes with the drawdown limit and the
  *  deepest drawdowns hatched in the loss colour, the closes as arrows in both and the pace's tag on the neutral tag colour;
  *  its extras: the costs' band in a faint grey with a stronger rim (indigo is the line's), the open profit and loss filled
@@ -93,7 +93,7 @@ export function seriesColors(dark = false) {
   const font = `11px ${getComputedStyle(document.body).fontFamily}`;
   // A chain's offline stretch (downLook.ts): a wash that recedes, opaque (darker than the island in dark,
   // the faintest grey in light), fine edges, and its tag as the value axis's neutral ones.
-  const restart = { wash: dark ? canvasTint("line-shadow", 11) : canvasTint("fg", 5.5), edge: canvasColor("fg", dark ? 0.12 : 0.13), text: canvasColor("fg"), tag: canvasColor("line-strong") };
+  const restart = { wash: dark ? canvasTint("line-shadow", 11) : canvasTint("fg", 5.5), edge: canvasColor("fg", dark ? 0.12 : 0.13), text: canvasColor("fg"), tag: canvasColor("line-strong"), font: font.replace(/^11px/, "12px") };
   const flags = {
     restart, warn: canvasColor("event"), warnTag: canvasTint("event", 14), text: canvasColor("fg-muted"), edge: canvasColor("line-strong"), island: canvasColor("island"),
     hatch: canvasColor("event", dark ? 0.36 : 0.32), wash: canvasColor("event", dark ? 0.06 : 0.05), font,
@@ -111,7 +111,7 @@ export function seriesColors(dark = false) {
     cycles: { up: canvasColor("pnl-up", dark ? 0.38 : 0.2), down: canvasColor("pnl-down", dark ? 0.38 : 0.2), upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"), font },
     flags,
     layers: {
-      line: canvasColor("equity"), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),
+      line: canvasColor("equity"), pace: canvasColor("fg-muted", 0.9), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),
       ahead: canvasColor("pnl-up", dark ? 0.12 : 0.11), behind: canvasColor("pnl-down", dark ? 0.14 : 0.11),
       ceiling: canvasColor("fg-faint", dark ? 0.8 : 0.75), held: canvasColor("fg", dark ? 0.035 : 0.04), column: canvasColor("fg", dark ? 0.05 : 0.035),
       up: canvasColor("pnl-up", dark ? 0.42 : 0.4), down: canvasColor("pnl-down", dark ? 0.42 : 0.4), upStrong: canvasColor("pnl-up", 0.9), downStrong: canvasColor("pnl-down", 0.9),
