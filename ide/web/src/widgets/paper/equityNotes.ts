@@ -1,12 +1,14 @@
 // What the equity chart marks on its line besides its layers (equityLayers.ts), as one series primitive:
-// the floor the line's drawdown limit sets, the running peak less the limit, as a fine dashed step line in
-// the loss colour (rising only when equity makes a new high), with its tag on the value axis, pinned at the
+// the floor the line's drawdown limit sets, the running peak less the limit, as a fine solid step line,
+// as a trailing stop is drawn (close steps run together, corners rounded; a dash breaks into specks on a short
+// step) in the loss colour (rising only when equity makes a new high), with its tag on the value axis, pinned at the
 // plot's foot (equityZones.ts) with an arrow while the floor is below it, and its name beside the tag; the run's
 // deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
 // and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
 // the very minute; only while the shown stretch fills most of the view), over the closes' arrows (equityCloses.ts); and the pace's tag on the
-// value axis with its name beside it, at the last point in view as the equity's own tag, pinned at the plot's
-// top with an arrow while the pace is above it (a long backtest's, compounded over years). Of a chart of
+// value axis with its name beside it, at the last point in view as the equity's own tag, pinned in the
+// stretches' names row (above the plot, where the line never is) with an arrow while the pace is above it
+// (a long backtest's, compounded over years). Of a chart of
 // several stretches (equityStretches.ts) the floor is drawn along each, but the drawdowns and the tags are
 // the shown stretch's alone. A tag that would cover the chart's own (the start's, the last value's) moves a
 // tag's height off it. The floor, the drawdowns and their depths are drawn inside the plot.
@@ -15,7 +17,9 @@ import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi,
 import type { EquityPoint } from "./equityLayers";
 import { perColumn, valueAt, xAt } from "./equityPlace";
 import { focused } from "./equityStretches";
-import { inPlot, type Plot } from "./equityZones";
+import { inPlot, toEdges, type Plot } from "./equityZones";
+import { roundedPath, stepVertices } from "./stepLine";
+import { ROW } from "./stretchCaptions";
 
 export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string; dropWash: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
@@ -24,6 +28,7 @@ type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]
 type Tag = { y: number; text: string; name: string; back: string; color: string; nameColor: string; nameY?: number };
 
 const DEEPEST = 3, SHALLOW = 0.002;  // the deepest drawdowns marked, none shallower than this
+const MERGE = 8, ROUND = 3;  // px: the floor's steps nearer than this run together; its corners' radius
 const PIN = 10, HATCH = 6;  // px: a pinned tag's distance inside the plot's edge, a drawdown's hatch pitch
 const pct = (r: number) => `−${(r * 100).toFixed(2)}%`;
 const TAG = 18;  // px: an axis tag's height and a little
@@ -90,8 +95,8 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     const tags: Tag[] = [];
     const pace = p.pace === null ? null : series.priceToCoordinate(p.pace);
     if (pace !== null && pace <= plot.bottom) {
-      const above = pace < plot.top + PIN;
-      tags.push({ y: above ? plot.top + PIN : pace, text: `${above ? "↑ " : ""}${this.format(p.pace!)}`, name: "Pace", back: look.paceTag, color: look.paceText, nameColor: look.pace });
+      const above = pace < plot.top;
+      tags.push({ y: above ? ROW : pace, text: `${above ? "↑ " : ""}${this.format(p.pace!)}`, name: "Pace", back: look.paceTag, color: look.paceText, nameColor: look.pace });
     }
     if (this.limit !== null) {
       const floor = p.peak * (1 - this.limit), y = series.priceToCoordinate(floor);
@@ -120,36 +125,37 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private under({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const { look, series, chart } = this, range = chart?.timeScale().getVisibleLogicalRange();
     if (!look || !series || !range || this.points.length < 2) return;
-    const line = Math.max(1, Math.floor(hr)), Y = (v: number) => Math.round((series.priceToCoordinate(v) ?? Number.NaN) * vr);
+    const line = Math.max(1, Math.floor(hr)), Y = (v: number) => Math.round((series.priceToCoordinate(v) ?? Number.NaN) * vr), plot = this.plot();
     c.save();
     if (this.limit !== null) {
-      // The floor as a step line over the points in view.
+      // The floor as a step line over the points in view, close steps run together and corners rounded
+      // (stepLine.ts). It starts below the plot and a level off the plot is held just past its edge, outside
+      // the clip, so the floor rises into view straight up from the plot's foot, never from a slope's cut end.
       const path = new Path2D(), from = Math.max(0, Math.floor(range.from) - 1), to = Math.min(this.points.length - 1, Math.ceil(range.to) + 1);
-      let before = Number.NaN;
-      for (let i = from; i <= to; i++) {
-        const x = Math.round((chart!.timeScale().logicalToCoordinate(i as Logical) ?? 0) * hr), y = Y(this.points[i]!.peak * (1 - this.limit)) + 0.5;
-        if (i === from) path.moveTo(x, y); else { path.lineTo(x, before); path.lineTo(x, y); }
-        before = y;
-      }
-      Object.assign(c, { strokeStyle: look.floor, lineWidth: line });
-      c.setLineDash([5 * hr, 4 * hr]);
+      const out = (ROUND + 2) * vr, high = plot.top * vr - out, low = plot.bottom * vr + out, steps: [number, number][] = [];
+      const x = (i: number) => Math.round((chart!.timeScale().logicalToCoordinate(i as Logical) ?? 0) * hr);
+      for (let i = from; i <= to; i++) steps.push([x(i), Math.max(high, Math.min(low, Y(this.points[i]!.peak * (1 - this.limit)) + 0.5))]);
+      const vertices = stepVertices(steps, MERGE * hr, low);
+      if (vertices.length && vertices[0]![1] !== low) vertices.unshift([vertices[0]![0], low]);
+      roundedPath(path, vertices, ROUND * hr);
+      Object.assign(c, { strokeStyle: look.floor, lineWidth: line, lineJoin: "round" });
       c.stroke(path);
-      c.setLineDash([]);
     }
     for (const e of this.drops) {
       const a = this.x(e.from), b = this.x(e.to);
       if (a === null || b === null || !this.inView(b)) continue;  // a drop whose trough is out of view is not drawn
       const x0 = Math.round(a * hr), x1 = Math.round(b * hr), top = Y(this.valueAt(e.from) ?? e.peak), low = Y(this.valueAt(e.to) ?? e.trough);
       // Between the peak's level and the line down to the trough, hatched: the flat fills beneath it (the
-      // pace's gap, the open profit) washed out with the card's colour first, so the hatching reads on any.
+      // pace's gap, the open profit) washed out with the card's colour first, so the hatching reads on any;
+      // both fade into the plot's edges (equityZones), where a peak above the plot cuts them.
       const path = new Path2D(), time = chart!.timeScale(), pitch = HATCH * hr, X = (i: number) => (time.logicalToCoordinate(i as Logical) ?? 0) * hr;
       const first = Math.max(0, Math.floor(range.from) - 1), last = Math.min(this.points.length - 1, Math.ceil(range.to) + 1);
       path.moveTo(x0, top);
       for (const i of perColumn(first, last, X, (i) => this.points[i]!.value, (i) => this.points[i]!.time > e.from && this.points[i]!.time < e.to)) path.lineTo(Math.round(X(i)), Y(this.points[i]!.value));
       path.lineTo(x1, low); path.lineTo(x1, top); path.closePath();
       c.save(); c.clip(path);
-      c.fillStyle = look.dropWash; c.fill(path);
-      Object.assign(c, { strokeStyle: look.drop, lineWidth: line });
+      c.fillStyle = toEdges(c, plot, vr, look.dropWash); c.fill(path);
+      Object.assign(c, { strokeStyle: toEdges(c, plot, vr, look.drop), lineWidth: line });
       c.beginPath();
       for (let x = x0 - (low - top); x < x1; x += pitch) { c.moveTo(x, low); c.lineTo(x + (low - top), top); }
       c.stroke(); c.restore();
