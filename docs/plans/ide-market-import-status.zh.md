@@ -74,7 +74,7 @@ AGENTS.md 只为信任边界、缺陷修复或 Agent 做不到的事加产品代
 - 顶部一行：`Last round <at> · next <next_round>`，在跑时 `running since …`；`round_refusal`、
   `publish_refusal` 有则各一行（代码加消息）；`published` 的推送结果有则显示提交短号。
 - 表：每行一个 kind × 合约（bars 只有一行 `scope`），列为 Kind、Contract、State、Next / through
-  （quotes、trades 用 `next_month`；bars 用 `through`；metrics 用 `missing_from` 和 `missing_days`）、
+  （quotes、trades 用 `next_month`；bars 用 `through` 的前一天（`through` 和各导入回执一样是不含的结束日，显示成 `through 2026-10-31` 才不会被读成含 11-01）；metrics 用 `missing_from` 和 `missing_days`）、
   Skipped（月份列表）、Refusal（`refusal` 的代码；只有 `retry` 时写代码并标 `retrying`；消息放提示里）。
 - 所有值取自状态文件，页面不推算任何状态。时间按 UTC 显示。
 
