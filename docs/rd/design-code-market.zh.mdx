@@ -1748,7 +1748,7 @@ def connect(
 | 拒绝码 | 条件 |
 |---|---|
 | `ROLE_UNKNOWN` | role 不是 import 或 reader |
-| `MARKET_UNREACHABLE` | 服务不可达、接受连接但握手时限内不应答（服务进程、容器或 Docker 宿主挂起）、库不存在或账号认证失败 |
+| `MARKET_UNREACHABLE` | 服务不可达、接受连接但握手时限内不应答（长写入如导入可让它停顿数分钟，否则是服务进程、容器或 Docker 宿主挂起；先隔一两分钟重跑一次，仍不应答再请用户重启，重启会回滚正在进行的导入）、库不存在或账号认证失败 |
 | `SCHEMA_VERSION_MISMATCH` | market_schema 的 version 与代码的模式代数不同；或 reader 角色读到 market_schema 缺行 |
 
 **使用**　<Ref id="table:market_schema" />

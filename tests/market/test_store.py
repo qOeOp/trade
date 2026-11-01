@@ -717,9 +717,10 @@ class BackfillTests(unittest.TestCase):
 
 
 class UnansweredServiceTests(unittest.TestCase):
-    """A service that accepts connections but never sends its greeting (a hung process, container or Docker
-    host): a market connection fails within the handshake timeout, not the 7200 s statement budget, and says
-    the service is hung. No Dolt: a listening socket that nobody accepts from is enough."""
+    """A service that accepts connections but never sends its greeting (stalled by a long write, or a hung
+    process, container or Docker host): a market connection fails within the handshake timeout, not the 7200 s
+    statement budget, and says the service did not answer. No Dolt: a listening socket that nobody accepts from
+    is enough."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="mkh-", dir="/tmp"))
@@ -747,6 +748,7 @@ class UnansweredServiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
         self.assertIn(f"the market service at {endpoint} accepts connections but did not answer within 0.5 s",
                       caught.exception.message)
+        self.assertIn("a long write such as an import can stall it", caught.exception.message)
         self.assertLess(time.monotonic() - started, 5)
 
     def test_a_compose_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):

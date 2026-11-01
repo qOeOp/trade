@@ -34,11 +34,14 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "BRANCH_FORBIDDEN": ("The writer writes only the profile's fixed research branch.",
                          ("Connect the writer without a branch, or read other branches with the reader.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
-                           "not answer (its process, its container or the Docker host is hung).",
-                           ("When the message says the service did not answer, it is running but hung and starting "
-                            "it again does not help: check the host with `docker ps` (one that does not return means "
-                            "Docker itself is hung) and ask the user to restart the ledger service (`docker compose "
-                            "restart ledger`) or Docker, then rerun the same command.",
+                           "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
+                           "its container or the Docker host is hung).",
+                           ("When the message says the service did not answer, it is running and starting it again "
+                            "does not help: rerun the same command once after a minute or two, since a stall from a "
+                            "long write clears by itself. If it still does not answer, check the host with `docker "
+                            "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
+                            "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
+                            "rolls back an import in progress; then rerun the same command.",
                             "Otherwise start it with `ledger service start`, then rerun the same command.")),
     "LEDGER_PERMISSION": ("The ledger account may not run this statement or was refused.",
                           ("Write only through the declared commands; they use the writer account.",)),
@@ -635,12 +638,15 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "ROLE_UNKNOWN": ("The market connection role is neither import nor reader.",
                      ("Connect with role import to import or reader to read.",)),
     "MARKET_UNREACHABLE": ("The market database's service is not running or accepts connections but does not answer "
-                           "(its process, its container or the Docker host is hung), the database does not exist, "
+                           "(a long write such as an import can stall it for minutes; otherwise its process, its "
+                           "container or the Docker host is hung), the database does not exist, "
                            "the account was refused or the connection was lost.",
-                           ("When the message says the service did not answer, it is running but hung and starting "
-                            "it again does not help: check the host with `docker ps` (one that does not return means "
-                            "Docker itself is hung) and ask the user to restart the ledger service (`docker compose "
-                            "restart ledger`) or Docker, then rerun the same command.",
+                           ("When the message says the service did not answer, it is running and starting it again "
+                            "does not help: rerun the same command once after a minute or two, since a stall from a "
+                            "long write clears by itself. If it still does not answer, check the host with `docker "
+                            "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
+                            "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
+                            "rolls back an import in progress; then rerun the same command.",
                             "Otherwise start the service with `ledger service start` and pass the market profile with "
                             "--market; create a market database with `market init`.")),
     "SCHEMA_VERSION_MISMATCH": ("The market database's schema generation or integer scales are not the ones this code "
