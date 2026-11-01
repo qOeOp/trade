@@ -1171,7 +1171,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "WITNESS_INVALID (a token does not verify or its time is out of range; earlier tokens stay)"),
     ("ledger", "review"): (
         "the ledger at --at (reader, which must hold no write privilege): commit tests, every table's diff, "
-        "runs, captures, registrations, validations; the backup's head, restored into a temporary directory",
+        "runs, captures, registrations, validations; the backup's head, read through linked table files",
         "nothing; never publishes",
         "at, commit, tests_run, *_checked counts, history, ok, findings [{code, table, record_id, commit, "
         "detail}], limitations (HISTORY_UNCHECKED without a backup); exit 1 when not ok",
@@ -1464,14 +1464,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--backup-root, or its service or backup in the checkout or a temporary root); INVALID_NAME; DOLT_BINARY; "
         "LEDGER_START"),
     ("market", "backup"): (
-        "the market main head (administrator, holding the import lock); the backup's head, restored into a "
-        "temporary directory",
+        "the market main head (administrator, holding the import lock); the backup's head, read through "
+        "linked table files",
         "an incremental dolt_backup sync to <profile backup>/backup; never publishes",
         "market, database, backup_path, market_commit, previous_head",
         "BACKUP_TARGET_UNSET; EXPORT_PATH_INVALID; CONCURRENT_IMPORT; BACKUP_DIVERGED (the backup head is not in "
         "main's history); DOLT_BACKUP"),
     ("market", "review"): (
-        "the market main head (reader); the backup's head, restored into a temporary directory",
+        "the market main head (reader); the backup's head, read through linked table files",
         "nothing; never publishes",
         "market, database, commit, history, ok, findings (HISTORY_REWRITTEN, BACKUP_UNREADABLE), limitations "
         "(HISTORY_UNCHECKED without a backup); exit 1 when not ok",
