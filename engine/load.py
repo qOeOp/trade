@@ -84,19 +84,20 @@ def _imported(node: ast.Import | ast.ImportFrom, found: list) -> dict[str, objec
             else:
                 bound[alias.name.partition(".")[0]] = importlib.import_module(alias.name.partition(".")[0])
         return bound
-    if node.level or not _module_allowed(node.module or ""):
-        found.append((node.lineno, f"from {'.' * node.level}{node.module or ''} import"))
+    name = node.module or ""
+    if node.level or not _module_allowed(name):
+        found.append((node.lineno, f"from {'.' * node.level}{name} import"))
         return bound
-    module = importlib.import_module(node.module)
+    module = importlib.import_module(name)
     for alias in node.names:
         if alias.name == "*" or _refused_attribute(alias.name):
-            found.append((node.lineno, f"from {node.module} import {alias.name}"))
+            found.append((node.lineno, f"from {name} import {alias.name}"))
             continue
         value = getattr(module, alias.name, None)
-        if value is None and _module_allowed(f"{node.module}.{alias.name}"):
-            value = importlib.import_module(f"{node.module}.{alias.name}")
+        if value is None and _module_allowed(f"{name}.{alias.name}"):
+            value = importlib.import_module(f"{name}.{alias.name}")
         if isinstance(value, ModuleType) and not _module_allowed(value.__name__):
-            found.append((node.lineno, f"from {node.module} import {alias.name} (module {value.__name__})"))
+            found.append((node.lineno, f"from {name} import {alias.name} (module {value.__name__})"))
             continue
         bound[alias.asname or alias.name] = value
     return bound
