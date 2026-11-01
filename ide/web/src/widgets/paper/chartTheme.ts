@@ -117,7 +117,7 @@ export function seriesColors(dark = false) {
     },
     notes: {
       floor: canvasColor("pnl-down", 0.75), floorTag: canvasTint("pnl-down", 16), floorText: canvasColor("pnl-down"), bracket: canvasColor("pnl-down", 0.85),
-      drop: canvasColor("pnl-down", dark ? 0.38 : 0.28), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
+      drop: canvasColor("pnl-down", dark ? 0.7 : 0.6), dropWash: canvasColor("island", dark ? 0.6 : 0.65), pace: canvasColor("fg-muted"), paceTag: canvasColor("line-strong"),
       paceText: canvasColor("fg"), island: canvasColor("island"), font,
     },
     closes: { up: canvasColor("pnl-up"), down: canvasColor("pnl-down"), halo: canvasColor("island") },

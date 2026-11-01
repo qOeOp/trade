@@ -15,7 +15,7 @@ import type { EquityPoint } from "./equityLayers";
 import { perColumn, valueAt, xAt } from "./equityPlace";
 import { focused } from "./equityStretches";
 
-export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string;
+export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string; dropWash: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
 export type Episode = { from: number; to: number; peak: number; trough: number; depth: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
@@ -135,14 +135,15 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
       const a = this.x(e.from), b = this.x(e.to);
       if (a === null || b === null || !this.inView(b)) continue;  // a drop whose trough is out of view is not drawn
       const x0 = Math.round(a * hr), x1 = Math.round(b * hr), top = Y(this.valueAt(e.from) ?? e.peak), low = Y(this.valueAt(e.to) ?? e.trough);
-      // Between the peak's level and the line down to the trough, hatched (so it reads apart from the flat
-      // fills of the pace's gap and the open profit beneath it).
+      // Between the peak's level and the line down to the trough, hatched: the flat fills beneath it (the
+      // pace's gap, the open profit) washed out with the card's colour first, so the hatching reads on any.
       const path = new Path2D(), time = chart!.timeScale(), pitch = HATCH * hr, X = (i: number) => (time.logicalToCoordinate(i as Logical) ?? 0) * hr;
       const first = Math.max(0, Math.floor(range.from) - 1), last = Math.min(this.points.length - 1, Math.ceil(range.to) + 1);
       path.moveTo(x0, top);
       for (const i of perColumn(first, last, X, (i) => this.points[i]!.value, (i) => this.points[i]!.time > e.from && this.points[i]!.time < e.to)) path.lineTo(Math.round(X(i)), Y(this.points[i]!.value));
       path.lineTo(x1, low); path.lineTo(x1, top); path.closePath();
       c.save(); c.clip(path);
+      c.fillStyle = look.dropWash; c.fill(path);
       Object.assign(c, { strokeStyle: look.drop, lineWidth: line });
       c.beginPath();
       for (let x = x0 - (low - top); x < x1; x += pitch) { c.moveTo(x, low); c.lineTo(x + (low - top), top); }
