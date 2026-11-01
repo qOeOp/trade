@@ -599,6 +599,10 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             finally:
                 self.close_connection = True
 
+        def log_request(self, code="-", size="-") -> None:
+            if int(code) >= 400:  # the page polls; only a failed request is news
+                super().log_request(code, size)
+
         def log_message(self, format: str, *args) -> None:  # noqa: A002 (http.server's name)
             sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
 
