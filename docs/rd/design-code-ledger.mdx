@@ -2172,13 +2172,13 @@ A semantic fingerprint as a run row keeps it and as two fingerprints are compare
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.publish">publish</Ref> | 管理员把库的一个分支普通推送到 origin，抓取核对远端头包含本地头后，再逐个推送全部标签；不强推，远端历史在别处被改过即拒绝 |
+| <Ref id="ledger.publish">publish</Ref> | 管理员把库的一个分支普通推送到 origin，抓取核对远端头包含本地头后，再逐个推送远端缺少的标签；不强推，远端历史在别处被改过即拒绝 |
 | <Ref id="ledger.set_remote">set_remote</Ref> | 给库命名一次 origin 远端；DoltHub 远端同时把用户 `dolt login` 的密钥装进服务自己的 Dolt 主目录 |
 | <Ref id="ledger.unpublished">unpublished</Ref> | 只读本地：库有 origin，且 origin 的跟踪头不等于本地分支头 |
 
 ### `publish` [#def-ledger-publish]
 
-管理员把库的一个分支普通推送到 origin，抓取核对远端头包含本地头后，再逐个推送全部标签；不强推，远端历史在别处被改过即拒绝
+管理员把库的一个分支普通推送到 origin，抓取核对远端头包含本地头后，再逐个推送远端缺少的标签；不强推，远端历史在别处被改过即拒绝
 
 ```python
 def publish(profile: LedgerProfile, branch: str, lock: str | None = None) -> dict
@@ -2186,7 +2186,7 @@ def publish(profile: LedgerProfile, branch: str, lock: str | None = None) -> dic
 
 <TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本或市场库的档案；以服务管理员连接" }, "branch": { type: "str", description: "要推送的分支：研究账本的固定研究分支，市场库的 main" }, "lock": { type: "str | None = None", description: "市场库的导入锁 market-import:<库名>；给出时推送期间持锁，没有导入能落地" } }} />
 
-**返回**　dict：\{database, remote, branch, head, previous_head, tags, seconds\}；head 是抓取核对后 origin 的头（等于推送前读到的本地头，或是它的后代），previous_head 是推送前 origin 的跟踪头（第一次发布为 null），tags 是推送的标签数，seconds 是各段耗时（秒）：lock 等发布锁、push 推分支、fetch 抓取核对、tags 推标签
+**返回**　dict：\{database, remote, branch, head, previous_head, tags, seconds\}；head 是抓取核对后 origin 的头（等于推送前读到的本地头，或是它的后代），previous_head 是推送前 origin 的跟踪头（第一次发布为 null），tags 是推送的标签数（远端已有的不推，平时为 0），seconds 是各段耗时（秒）：lock 等发布锁、push 推分支、fetch 抓取核对（含远端标签核对）、tags 推标签
 
 **期望行为**
 
@@ -2194,8 +2194,9 @@ def publish(profile: LedgerProfile, branch: str, lock: str | None = None) -> dic
 2. 给了 lock 时以 GET_LOCK(lock, 0) 取锁，取不到即 CONCURRENT_IMPORT，什么都不推；连接关闭时释放。
 3. 普通推送 branch，不强推：远端历史不是本地历史的祖先即 PUBLISH_REJECTED，之后什么都不推；其他推送失败即 PUBLISH_FAILED，运行中的服务早于其密钥装入启动时（见 ledger.set_remote）消息写明先重启服务（`ledger service stop`、`ledger service start`）。
 4. DOLT_FETCH 后核对 origin 的跟踪头包含推送前读到的本地头：等于它，或以它为祖先（同一服务上的另一写入者在读头与推送之间提交时，命名分支的推送已把两个提交一起带上）。被拒的推送也由这次抓取判定，且先于拒绝：远端包含本地头即已发布；远端既不包含本地头、也不是本地历史的祖先才是 PUBLISH_REJECTED；抓取失败或远端不包含本地头的其余情形即 PUBLISH_FAILED。
-5. 分支核对通过后按名字逐个推送 refs/tags/\<名字>：Dolt 2.4.2 没有 --tags；推送的标签会无提示地替换远端同名而内容不同的标签（实测），产品从不移动标签，所以只在分支核对过之后推。
-6. 失败不回滚本地写入，重跑即补推。
+5. 第 4 步的抓取同时核对远端有哪些标签：Dolt 2.4.2 列不出远端标签，抓取就在分支规格 `refs/heads/*:refs/remotes/origin/*` 之外为每个本地标签写一条 `refs/tags/<名字>:refs/tags/<名字>`；远端缺某个标签时这次抓取在写入任何东西之前失败并给出标签名（实测），去掉它再抓，直到通过。远端一个分支都没有时抓取失败，读作没有远端头、缺全部标签。远端已有的同名标签不推，不论它指向哪里：抓取本身就会用远端同名而内容不同的标签替换本地标签（实测）。
+6. 分支核对通过后按名字逐个推送远端缺少的 refs/tags/\<名字>：Dolt 2.4.2 没有 --tags；推送的标签会无提示地替换远端同名而内容不同的标签（实测），产品从不移动标签，所以只在分支核对过之后推。
+7. 失败不回滚本地写入，重跑即补推。
 
 | 拒绝码 | 条件 |
 |---|---|
