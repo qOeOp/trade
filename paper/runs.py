@@ -17,10 +17,12 @@ At most MAX_RUNNING runs per ledger run at once, and one per source.
 
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -152,6 +154,22 @@ def _running(name: str) -> bool:
 def _exit_code(name: str) -> int | None:
     found = _docker("inspect", "--format", "{{.State.ExitCode}}", name)
     return int(found.stdout.strip()) if found.returncode == 0 and found.stdout.strip().lstrip(b"-").isdigit() else None
+
+
+def killed_before(profile: db.LedgerProfile, paper_id: int, at: float) -> bool:
+    """Whether the run's runner was killed (exit 137) before `at`, in epoch seconds, and not for running out of
+    its memory: Docker records a kill at the container's limit as OOMKilled (probed 2026-11-01)."""
+    found = _docker("inspect", "--format", "{{json .State}}", names(profile, paper_id)["runner"])
+    if found.returncode:
+        return False
+    state = json.loads(found.stdout)
+    # FinishedAt is RFC 3339 with up to nine fractional digits; datetime keeps six.
+    finished = re.sub(r"(\.\d{6})\d+", r"\1", state.get("FinishedAt") or "").replace("Z", "+00:00")
+    try:
+        ended = datetime.fromisoformat(finished).timestamp()
+    except ValueError:
+        return False
+    return state.get("ExitCode") == 137 and not state.get("OOMKilled") and ended < at
 
 
 def _logs(name: str) -> bytes:

@@ -7,8 +7,8 @@ token (ide/research_graph/serve.py). Reads happen here: the runs with their live
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
 and published only through it. A run that ended on its own (its duration, a crash) is sealed when found;
-one that Docker stopped from outside (a Docker or host restart) then starts again as a new run of the same
-contracts.
+one that Docker stopped from outside (a Docker or host restart, with SIGTERM or a kill before this daemon
+started) then starts again as a new run of the same contracts.
 
 A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
 directory and is read back from there; it writes nothing to the ledger.
@@ -204,6 +204,7 @@ class Daemon:
         self.journals: dict[int, Journal] = {}
         self.listed: tuple[float, dict] | None = None
         self.reconciling: dict[int, dict] = {}
+        self.started = time.time()  # a runner killed before this was killed by a Docker or host restart
 
     # Writes: the command line
 
@@ -328,7 +329,9 @@ class Daemon:
 
     def seal_found(self) -> None:
         """Seals the runs whose runner exited on its own, and those left with no containers; a run stopped
-        from outside (a Docker or host restart) starts again as a new run of the same contracts."""
+        from outside (a Docker or host restart) starts again as a new run of the same contracts. Docker
+        restarts this daemon as well, so a runner killed before it started was killed by that restart; one
+        killed while it ran (another kill, the Docker VM out of memory) is not started again."""
         try:
             found = self.runs()
         except Refusal as exc:
@@ -339,6 +342,8 @@ class Daemon:
             orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
             if (run["state"] != "ended" and not orphan) or run["paper_id"] in self.stopping:
                 continue
+            # Read before the seal, which removes the containers.
+            killed = run["state"] == "ended" and runs.killed_before(self.profile, run["paper_id"], self.started)
             try:
                 sealed = self.cli("seal", "--paper-id", str(run["paper_id"]))
             except Failure as exc:
@@ -346,7 +351,7 @@ class Daemon:
                 continue
             stopped = (runs.run_dir(self.profile, run["paper_id"]) / "out" / "STOP").exists()
             if sealed.get("write_status") == "written" and run["candidate"] and not stopped and \
-                    interrupted(sealed["seal"], self.sealed_lines(run["paper_id"])):
+                    interrupted(sealed["seal"], self.sealed_lines(run["paper_id"]), killed):
                 try:
                     again = self.start({"candidate": run["candidate"], "symbols": run["symbols"]})
                     print(f"paper run {run['paper_id']} was stopped from outside; started again as "
@@ -405,12 +410,16 @@ class Daemon:
         return lines
 
 
-def interrupted(seal: dict, lines: list[dict]) -> bool:
+def interrupted(seal: dict, lines: list[dict], killed: bool = False) -> bool:
     """Whether a run ended only because its container was stopped from outside: Docker stops a container
-    with SIGTERM, and the runner stopped cleanly on it, before or after its start, with nothing else wrong.
-    The IDE's stop and `paper stop` ask through the STOP file instead, so they never read as this."""
+    with SIGTERM, and the runner stopped cleanly on it, before or after its start, with nothing else wrong;
+    or (`killed`, runs.killed_before this daemon started) a restart killed it, which leaves no summary, with
+    nothing else wrong. The IDE's stop and `paper stop` ask through the STOP file instead, so they never read
+    as this."""
     if seal.get("stop_reason") == "SIGTERM":
         return not seal.get("reasons")
+    if killed and seal.get("runner_exit_code") == 137:
+        return set(seal.get("reasons") or ()) == {"RUNNER_EXIT_NONZERO", "SUMMARY_MISSING"}
     before = [line.get("reason") for line in lines if line["kind"] == "stopped_before_start"]
     return before == ["SIGTERM"] and set(seal.get("reasons") or ()) == {"STOPPED_BEFORE_START", "SUMMARY_MISSING"}
 
