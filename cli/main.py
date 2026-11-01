@@ -1490,7 +1490,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "on stderr",
         "MONTH_INVALID (the first import takes any closed month; after that only the latest month, to extend "
         "it, the month after it once it is complete, or the month just before the earliest (a backfill, insert "
-        "only); a skipped month; no closed UTC day yet); MONTH_EXISTS (the month is complete, a backfilled "
+        "only); a skipped month; a month not begun; a first import with no closed UTC day; on the current month's first day the import writes its members only); MONTH_EXISTS (the month is complete, a backfilled "
         "month already holds rows, or stored rows no longer match the sources); IMPORT_SCOPE (--symbols differs "
         "from earlier imports' scope); UNIVERSE_CHANGED (members differ from the stored ones); "
         "CONCURRENT_IMPORT; "
