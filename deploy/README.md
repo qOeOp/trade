@@ -46,7 +46,6 @@ user the services run as:
 ```bash
 printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\n' "$(id -u)" "$(id -g)" "$HOME/.local/share/trade" > deploy/.env
 docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
-docker compose -f deploy/compose.yaml pull && docker compose -f deploy/compose.yaml up -d
 ```
 
 The host's command line takes its replay inputs from market-supply once the active market profile
@@ -61,3 +60,38 @@ imports keep using its `service`, and removing the two fields returns replays to
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
 refuses it (`docker compose stop ledger`).
+
+## Updating
+
+Both images move with every merge into `main`, and `docker compose up -d` recreates each service whose
+image moved, ledger included. Update only the services a change reaches, by name:
+
+```bash
+docker compose -f deploy/compose.yaml pull ide paper
+docker compose -f deploy/compose.yaml up -d --no-deps --wait ide paper
+```
+
+A service needs it when the commits since its image's revision change code it runs or its entry here
+(`docker-api.cfg` for docker-api). The revision is the image label
+`org.opencontainers.image.revision`:
+
+```bash
+docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+  "$(docker inspect -f '{{.Image}}' trade-ide-paper-1)"
+```
+
+paper and the host's command line fetch replay inputs from market-supply only while both run the same
+exporter (`market.export.exporter_sha256()`), so a change to it updates market-supply with them.
+
+Each restart takes seconds; what it interrupts decides when to make it:
+
+- **ledger**: a replay holds one writer connection from opening its trial to sealing it, so a replay
+  running across the restart cannot seal: its trial keeps no capture, and a registered replay then
+  cannot be retried. Restart ledger only while `docker ps --filter network=none` (replay stages) lists
+  nothing and no command line write is under way. Any other write that fails on the restart is rerun as
+  it is: writes are idempotent by operation.
+- **paper**: its runs are containers of their own and keep running; a reconciliation runs inside the
+  daemon and is lost. `docker top trade-ide-paper-1` shows a running `paper reconcile`.
+- **docker-api**: a reconciliation's replay attaches through it for up to an hour; the same check.
+- **market-supply**: a replay still exporting its inputs fails before opening a trial; rerun it.
+- **ide**: the page reconnects by itself; a chat answer being written is cut off.
