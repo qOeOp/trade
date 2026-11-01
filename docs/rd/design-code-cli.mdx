@@ -1320,6 +1320,7 @@ def market_upgrade(market: dict) -> dict:
 
 1. 以读账号读运行及其封存；读运行目录（日志、摘要、出口代理日志）与运行器日志。
 2. 写捕获包 paper-\<id>-capture（按 UTC 日切的日志、摘要、各日志、seal.json），然后拆掉容器与网络；已有封存的原样返回，write_status 为 replayed。写完经 cli.publish_after 发布。
+3. runner 被外部杀掉（退出码 137，Docker 没记成内存超限，也不是 STOP 文件之后 paper stop 的兜底）时按停止封存：stop_reason 为 KILLED，读数取到日志为止；内存超限加 OUT_OF_MEMORY，仍为 invalid。
 
 | 拒绝码 | 条件 |
 |---|---|

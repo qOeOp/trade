@@ -151,18 +151,18 @@ def _running(name: str) -> bool:
     return found.returncode == 0 and found.stdout.strip() == b"true"
 
 
-def _exit_code(name: str) -> int | None:
-    found = _docker("inspect", "--format", "{{.State.ExitCode}}", name)
-    return int(found.stdout.strip()) if found.returncode == 0 and found.stdout.strip().lstrip(b"-").isdigit() else None
+def _state(name: str) -> dict | None:
+    """The container's State (ExitCode, OOMKilled, FinishedAt, ...), or None once it is gone."""
+    found = _docker("inspect", "--format", "{{json .State}}", name)
+    return json.loads(found.stdout) if found.returncode == 0 else None
 
 
 def killed_before(profile: db.LedgerProfile, paper_id: int, at: float) -> bool:
     """Whether the run's runner was killed (exit 137) before `at`, in epoch seconds, and not for running out of
     its memory: Docker records a kill at the container's limit as OOMKilled (probed 2026-11-01)."""
-    found = _docker("inspect", "--format", "{{json .State}}", names(profile, paper_id)["runner"])
-    if found.returncode:
+    state = _state(names(profile, paper_id)["runner"])
+    if state is None:
         return False
-    state = json.loads(found.stdout)
     # FinishedAt is RFC 3339 with up to nine fractional digits; datetime keeps six.
     finished = re.sub(r"(\.\d{6})\d+", r"\1", state.get("FinishedAt") or "").replace("Z", "+00:00")
     try:
@@ -243,8 +243,10 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
                      missing=(str(paper_id),))
     directory = run_dir(profile, paper_id)
     runner_log = start_error.encode() if start_error else _logs(named["runner"])
+    state = None if start_error else _state(named["runner"])
     files = records.capture(row, directory / "out", directory / "egress" / "egress.log", runner_log,
-                            None if start_error else _exit_code(named["runner"]), start_failed=start_error is not None)
+                            state.get("ExitCode") if state else None, start_failed=start_error is not None,
+                            oom_killed=bool(state and state.get("OOMKilled")))
     with db.connect(profile, "writer") as conn:
         sealed = records.seal_paper_run(conn, paper_id, files)
     _remove(profile, paper_id)

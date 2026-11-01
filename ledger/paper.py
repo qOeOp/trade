@@ -30,12 +30,15 @@ from ledger.refusals import refuse
 
 
 TABLE = "paper_run"
-READINGS = "paper-readings@2026-10-25"
+READINGS = "paper-readings@2026-11-01"
 DAY_NS = 86_400 * 10**9
 LOG_TAIL_BYTES = 1024 * 1024
 DELETE_KIND = "paper_delete"
 # How a run may end and still be complete: the user's stop, the engineering duration.
 CLEAN_STOPS = frozenset({"STOP_FILE", "SIGTERM", "SIGINT", "DURATION"})
+# The stop reason of a runner killed from outside (a Docker or host restart that did not wait for its stop).
+KILLED = "KILLED"
+KILLED_EXIT = 137  # 128 + SIGKILL
 
 
 def bundle_name(paper_id: int) -> str:
@@ -176,16 +179,33 @@ def equity_path(lines: list[dict]) -> tuple[list[tuple[int, Decimal]], list[tupl
     return path, funding_by_ns
 
 
+def killed(lines: list[dict], summary: dict | None, exit_code: int | None, oom_killed: bool) -> bool:
+    """Whether the runner was killed from outside: SIGKILL, not at its memory limit, before it wrote its summary,
+    and not after `paper stop` asked it through the STOP file (that kill is the stop's own fallback for a runner
+    that did not stop)."""
+    asked = any(line["kind"] == "stop_requested" and line.get("reason") == "STOP_FILE" for line in lines)
+    return exit_code == KILLED_EXIT and summary is None and not oom_killed and not asked
+
+
 def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None, exit_code: int | None,
-             egress: bytes | None, start_failed: bool = False) -> dict:
-    """seal.json: the run's status with its reasons, and the readings computed once at sealing."""
+             egress: bytes | None, start_failed: bool = False, oom_killed: bool = False, failures: int = 0) -> dict:
+    """seal.json: the run's status with its reasons, and the readings computed once at sealing. A runner killed
+    from outside (killed()) ends the run as a stop does: what it journaled stands, its stop reason is KILLED.
+    `failures` counts the records of the run's runtime_failures.jsonl."""
     reasons: list[str] = ["START_FAILED"] if start_failed else []
+    ended_by_kill = killed(lines, summary, exit_code, oom_killed)
     if not lines:
         reasons.append("JOURNAL_MISSING")
-    if summary is None:
+    if summary is None and not ended_by_kill:
         reasons.append("SUMMARY_MISSING")
-    if exit_code not in (0, None) or (exit_code is None and summary is None):
+    if not ended_by_kill and (exit_code not in (0, None) or (exit_code is None and summary is None)):
         reasons.append("RUNNER_EXIT_NONZERO" if exit_code is not None else "RUNNER_EXIT_UNKNOWN")
+    if oom_killed:
+        reasons.append("OUT_OF_MEMORY")
+    if ended_by_kill and not any(line["kind"] == "bar" for line in lines):
+        reasons.append("STOPPED_BEFORE_START")
+    if failures:
+        reasons.append("RUNTIME_FAILURES")
     kinds = Counter(line["kind"] for line in lines)
     for line in lines:
         if line["kind"] == "refusal":
@@ -195,7 +215,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
     started = next((line for line in lines if line["kind"] == "started"), None)
     if started is not None and started.get("source_sha256") != row["source_sha256"]:
         reasons.append("SOURCE_MISMATCH")
-    stop_reason = None
+    stop_reason = KILLED if ended_by_kill else None
     if summary is not None:
         stop_reason = summary.get("stop_reason")
         if (summary.get("identity") or {}).get("source_sha256") != row["source_sha256"]:
@@ -253,7 +273,10 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "socket_events": kinds.get("socket", 0), "egress_denied": denied, "unreadable_journal_lines": unreadable,
         "limitations": ["Sandbox settles no funding: equity adds each settlement's funding at the stream rate and "
                         "the latest MARK, from the positions the journal records",
-                        *((summary or {}).get("limitations") or [])],
+                        *((summary or {}).get("limitations") or []),
+                        *(["Killed from outside: no summary; the equity at the stop is the journal's last, and "
+                           "runtime failures are those the runner wrote up to a second before the kill"]
+                          if ended_by_kill else [])],
     }
 
 
@@ -268,7 +291,7 @@ def _tail(data: bytes | None) -> bytes | None:
 
 
 def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None, exit_code: int | None,
-            start_failed: bool = False) -> dict[str, bytes]:
+            start_failed: bool = False, oom_killed: bool = False) -> dict[str, bytes]:
     """The capture bundle's files from a run's directories: the journal by UTC day (gzip without a
     timestamp, so the same journal always gives the same bytes), the summary, the logs and seal.json."""
     raw = _read(output / "events.jsonl") or b""
@@ -294,7 +317,8 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
         files["egress.log"] = _tail(egress)  # type: ignore[assignment]
     if runner_log:
         files["runner.log"] = _tail(runner_log)  # type: ignore[assignment]
-    seal = readings(row, lines, unreadable, summary, exit_code, egress, start_failed)
+    seal = readings(row, lines, unreadable, summary, exit_code, egress, start_failed, oom_killed,
+                    len((failures or b"").splitlines()))
     files["seal.json"] = json.dumps(seal, indent=2, sort_keys=True).encode()
     return files
 

@@ -185,9 +185,13 @@ class RestartTests(unittest.TestCase):
     def test_a_kill_reads_as_stopped_from_outside_only_when_a_restart_killed_it(self):
         killed = journal()
         self.assertTrue(serve.interrupted(self.seal(killed, None, 137), killed, killed=True))
+        waiting = [line("started", START, source_sha256=ROW["source_sha256"]), line("waiting", START, until_ns=START)]
+        self.assertTrue(serve.interrupted(self.seal(waiting, None, 137), waiting, killed=True))
         self.assertFalse(serve.interrupted(self.seal(killed, None, 1), killed, killed=True))
         refused = [*killed, line("refusal", START + MINUTE, code="X")]
         self.assertFalse(serve.interrupted(self.seal(refused, None, 137), refused, killed=True))
+        oom = records.readings(ROW, killed, 0, None, 137, None, oom_killed=True)
+        self.assertFalse(serve.interrupted(oom, killed, killed=True))
 
     def test_a_restart_kill_is_one_before_the_daemon_started_and_not_for_memory(self):
         def state(finished: str, oom: bool = False, code: int = 137):
